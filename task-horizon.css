@@ -11055,6 +11055,8 @@ select.tm-btn-secondary {
     max-height: none;
     padding: 6px 10px;
     line-height: 1.4;
+    font-size: 14px;
+    font-family: inherit;
     resize: none;
     box-sizing: border-box;
     overflow-y: hidden;

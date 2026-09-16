@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>首页 · 专注分布原型</title>
+  <style>
+    :root {
+      --bg: oklch(97.8% .006 235); --surface: oklch(99% .003 235); --surface-2: oklch(94.8% .008 235);
+      --text: oklch(28% .02 238); --muted: oklch(56% .018 238); --border: oklch(88% .01 235);
+      --primary: oklch(52% .14 241); --primary-soft: oklch(93.5% .035 241); --ring: oklch(52% .14 241 / .2);
+      --blue: oklch(57% .15 241); --teal: oklch(62% .12 185); --orange: oklch(69% .14 70); --violet: oklch(61% .13 300); --rose: oklch(64% .14 20);
+      color-scheme: light;
+    }
+    [data-theme="dark"] { --bg: oklch(23% .01 240); --surface: oklch(27% .012 240); --surface-2: oklch(32% .012 240); --text: oklch(91% .01 235); --muted: oklch(69% .012 238); --border: oklch(38% .012 240); --primary: oklch(70% .12 241); --primary-soft: oklch(33% .045 241); --ring: oklch(70% .12 241 / .25); color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+    button { font: inherit; color: inherit; }
+    .shell { max-width: 1040px; margin: 0 auto; padding: 44px 28px 64px; }
+    .eyebrow { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { margin: 4px 0 8px; font-size: 26px; letter-spacing: -.025em; }
+    .intro { max-width: 680px; margin: 0 0 26px; color: var(--muted); }
+    .focus-card { overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 12px 36px color-mix(in oklch, var(--text) 7%, transparent); }
+    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 22px 24px 17px; border-bottom: 1px solid var(--border); }
+    .card-title { margin: 0; font-size: 17px; font-weight: 800; }
+    .card-desc { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .view-switch, .range-switch, .scope-switch { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); }
+    .switch-btn { min-height: 30px; padding: 0 11px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 700; }
+    .switch-btn:hover { color: var(--text); background: color-mix(in oklch, var(--surface) 70%, transparent); }
+    .switch-btn.is-active { background: var(--surface); color: var(--primary); box-shadow: 0 1px 4px color-mix(in oklch, var(--text) 9%, transparent); }
+    .switch-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 24px; border-bottom: 1px solid var(--border); }
+    .toolbar-left, .toolbar-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .toolbar-label { color: var(--muted); font-size: 12px; font-weight: 700; }
+    .distribution { padding: 22px 24px 24px; }
+    .distribution-grid { display: grid; grid-template-columns: minmax(270px, .9fr) minmax(360px, 1.1fr); align-items: center; gap: 36px; }
+    .chart-wrap { position: relative; width: min(280px, 100%); aspect-ratio: 1; margin: 0 auto; }
+    .donut { width: 100%; height: 100%; transform: rotate(-90deg); }
+    .donut circle { fill: none; stroke-width: 30; }
+    .donut .track { stroke: var(--surface-2); }
+    .donut .slice { cursor: pointer; transition: opacity 180ms ease, stroke-width 180ms ease; }
+    .donut .slice:hover, .donut .slice.is-selected { opacity: .82; stroke-width: 35; }
+    .chart-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
+    .chart-total { font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
+    .chart-unit { color: var(--muted); font-size: 12px; }
+    .distribution-copy h2 { margin: 0; font-size: 15px; }
+    .distribution-copy .hint { margin: 4px 0 15px; color: var(--muted); font-size: 12px; }
+    .legend { display: grid; gap: 9px; }
+    .legend-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 9px; cursor: pointer; }
+    .legend-row:hover, .legend-row.is-selected { background: var(--primary-soft); }
+    .legend-label { display: flex; align-items: center; min-width: 0; gap: 8px; font-weight: 700; }
+    .legend-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; }
+    .legend-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .legend-time, .legend-percent { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .legend-percent { min-width: 42px; color: var(--text); text-align: right; font-weight: 800; }
+    .caption { margin-top: 17px; padding-top: 13px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+    .overview { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 22px 24px 24px; }
+    .overview-panel { padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in oklch, var(--surface-2) 48%, transparent); }
+    .metric { font-size: 30px; font-weight: 800; letter-spacing: -.03em; }
+    .metric-label { color: var(--muted); font-size: 12px; }
+    .empty { padding: 38px 18px; color: var(--muted); text-align: center; }
+    .theme-toggle { margin-top: 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 7px 11px; cursor: pointer; font-size: 12px; }
+    @media (max-width: 700px) { .shell { padding: 26px 14px 40px; } .card-head, .toolbar { align-items: stretch; flex-direction: column; padding: 17px; } .view-switch { align-self: flex-start; } .toolbar { gap: 12px; } .toolbar-left, .toolbar-right { justify-content: space-between; } .distribution, .overview { padding: 17px; } .distribution-grid, .overview { grid-template-columns: 1fr; gap: 22px; } .chart-wrap { width: min(232px, 100%); } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="eyebrow">Task Horizon · 首页原型</div>
+    <h1>专注统计模块</h1>
+    <p class="intro">点击「分布」查看所有任务状态产生的已完成专注，在文档或二级标题之间的时间分配。时间范围只影响当前统计视图，概览数据保持原有首页信息。</p>
+    <section class="focus-card" aria-label="专注统计">
+      <header class="card-head">
+        <div><h2 class="card-title">专注统计</h2><div class="card-desc" id="cardDesc">今日当前范围 · 最近专注近 90 天</div></div>
+        <div class="view-switch" role="tablist" aria-label="专注统计视图">
+          <button class="switch-btn is-active" data-view="overview" role="tab" aria-selected="true">概览</button>
+          <button class="switch-btn" data-view="distribution" role="tab" aria-selected="false">分布</button>
+        </div>
+      </header>
+      <div id="view"></div>
+    </section>
+    <button class="theme-toggle" id="themeToggle" type="button">切换暗色主题</button>
+  </main>
+  <script>
+    const datasets = {
+      all: { minutes: 402, doc: [['项目管理', 31], ['读书笔记', 24], ['英语学习', 18], ['产品研究', 15], ['日常事务', 12]] },
+      today: { minutes: 196, doc: [['项目管理', 44], ['英语学习', 27], ['读书笔记', 18], ['无归属文档', 11]] },
+      '7': { minutes: 528, doc: [['项目管理', 36], ['读书笔记', 22], ['英语学习', 18], ['产品研究', 14], ['日常事务', 10]] },
+      '30': { minutes: 1820, doc: [['项目管理', 29], ['读书笔记', 25], ['英语学习', 19], ['产品研究', 16], ['日常事务', 11]] },
+      '90': { minutes: 5310, doc: [['项目管理', 26], ['读书笔记', 24], ['英语学习', 21], ['产品研究', 17], ['日常事务', 12]] }
+    };
+    const headingData = {
+      '项目管理': [['本周计划', 34], ['执行与复盘', 29], ['会议记录', 22], ['无二级标题', 15]],
+      '读书笔记': [['章节摘录', 41], ['观点整理', 27], ['待验证', 18], ['无二级标题', 14]],
+      '英语学习': [['词汇积累', 44], ['听力练习', 31], ['写作反馈', 15], ['无二级标题', 10]],
+      '产品研究': [['案例拆解', 47], ['竞品观察', 28], ['访谈记录', 15], ['无二级标题', 10]],
+      '日常事务': [['本周计划', 51], ['执行与复盘', 27], ['无二级标题', 22]],
+      '无归属文档': [['无二级标题', 100]]
+    };
+    const colors = ['var(--blue)', 'var(--teal)', 'var(--orange)', 'var(--violet)', 'var(--rose)'];
+    const state = { view: 'overview', range: 'today', scope: 'all', document: '项目管理', selected: -1 };
+    const $ = (s) => document.querySelector(s);
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const rangeLabel = () => ({ today: '今天', '7': '近 7 天', '30': '近 30 天', '90': '近 90 天' }[state.range]);
+    function renderOverview() {
+      $('#view').innerHTML = `<div class="overview"><div class="overview-panel"><div class="metric">6<span style="font-size:16px;font-weight:700">小时 42 分</span></div><div class="metric-label">${rangeLabel()}完成专注时长</div></div><div class="overview-panel"><div class="metric">18<span style="font-size:16px;font-weight:700"> 次</span></div><div class="metric-label">完成专注次数 · 目标完成 78%</div></div></div>`;
+    }
+    function renderDistribution() {
+      const data = datasets[state.range] || datasets.all; const items = state.document === 'all' ? data.doc : headingData[state.document] || headingData['项目管理']; const total = items.reduce((a, [,v]) => a + v, 0); let offset = 0;
+      const circles = items.map(([name, value], i) => { const len = value / total * 100; const circle = `<circle class="slice ${state.selected === i ? 'is-selected' : ''}" data-index="${i}" cx="50" cy="50" r="35" pathLength="100" stroke="${colors[i]}" stroke-dasharray="${len} ${100-len}" stroke-dashoffset="${-offset}" tabindex="0" aria-label="${esc(name)} ${value}%"></circle>`; offset += len; return circle; }).join('');
+      const documentTabs = [['all', '全部'], ['项目管理', '项目管理'], ['读书笔记', '读书笔记'], ['英语学习', '英语学习'], ['产品研究', '产品研究']];
+      const rangeMinutes = data.minutes || 0; const hours = Math.floor(rangeMinutes / 60); const mins = rangeMinutes % 60;
+      $('#view').innerHTML = `<div class="toolbar"><div class="toolbar-left"><span class="toolbar-label">统计范围</span><div class="range-switch" role="tablist">${[['today','今天'],['7','7天'],['30','30天'],['90','90天']].map(([v,l]) => `<button class="switch-btn ${state.range===v?'is-active':''}" data-range="${v}" role="tab">${l}</button>`).join('')}</div></div><div class="toolbar-right"><span class="toolbar-label">首页页签</span><div class="scope-switch" role="tablist">${documentTabs.map(([v,l]) => `<button class="switch-btn ${state.document===v?'is-active':''}" data-document="${v}" role="tab" aria-selected="${state.document===v}">${l}</button>`).join('')}</div></div></div><div class="distribution"><div class="distribution-grid"><div class="chart-wrap"><svg class="donut" viewBox="0 0 100 100" aria-label="专注时间分布"><circle class="track" cx="50" cy="50" r="35"></circle>${circles}</svg><div class="chart-center"><div class="chart-total">${hours}<span style="font-size:15px">小时</span> ${mins}<span style="font-size:15px">分</span></div><div class="chart-unit">${rangeLabel()} 已完成专注</div></div></div><div class="distribution-copy"><h2>${state.document === 'all' ? '全部 · 按文档分布' : `${esc(state.document)} · 按二级标题分布`}</h2><p class="hint">${rangeLabel()} · 按所有任务状态的已完成专注时长计算</p><div class="legend">${items.map(([name, value], i) => `<div class="legend-row ${state.selected===i?'is-selected':''}" data-index="${i}" tabindex="0"><div class="legend-label"><span class="legend-dot" style="background:${colors[i % colors.length]}"></span><span class="legend-name">${esc(name)}</span></div><span class="legend-time">${Math.round(value * rangeMinutes / 100)} 分钟</span><span class="legend-percent">${value}%</span></div>`).join('')}</div></div></div><div class="caption">口径：所有任务状态产生的已完成专注记录均纳入；全部页签按文档归类，选中文档后按任务所在二级标题归类。</div></div>`;
+      document.querySelectorAll('[data-index]').forEach((el) => el.addEventListener('click', () => { state.selected = Number(el.dataset.index); renderDistribution(); }));
+      document.querySelectorAll('[data-index]').forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); } }));
+    }
+    function render() { $('#cardDesc').textContent = state.view === 'overview' ? '今日当前范围 · 最近专注近 90 天' : `${rangeLabel()} · 已完成专注分布`; state.view === 'overview' ? renderOverview() : renderDistribution(); }
+    document.querySelectorAll('[data-view]').forEach((btn) => btn.addEventListener('click', () => { state.view = btn.dataset.view; state.selected = -1; document.querySelectorAll('[data-view]').forEach((b) => { b.classList.toggle('is-active', b===btn); b.setAttribute('aria-selected', b===btn); }); render(); }));
+    document.addEventListener('click', (e) => { const range = e.target.closest('[data-range]'); const documentTab = e.target.closest('[data-document]'); if (range) { state.range = range.dataset.range; state.selected = -1; render(); } if (documentTab) { state.document = documentTab.dataset.document; state.scope = state.document === 'all' ? 'all' : 'doc'; state.selected = -1; render(); } });
+    $('#themeToggle').addEventListener('click', () => { const dark = document.documentElement.dataset.theme === 'dark'; document.documentElement.dataset.theme = dark ? '' : 'dark'; $('#themeToggle').textContent = dark ? '切换暗色主题' : '切换亮色主题'; });
+    render();
+  </script>
+</body>
+</html>

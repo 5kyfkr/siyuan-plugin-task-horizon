@@ -5678,6 +5678,11 @@
                     bulkFieldIdsSet.add(fieldId);
                 });
             }
+            __tmGetCustomFieldDefs().forEach((field) => {
+                const fieldId = String(field?.id || '').trim();
+                if (!fieldId || field?.enabled === false || String(field?.type || '').trim() !== 'text') return;
+                bulkFieldIdsSet.add(fieldId);
+            });
         }
         const deferredListFieldIds = [];
         if (viewMode === 'list') {
@@ -16635,6 +16640,71 @@
         const task = { ...source };
         const taskId = String(task.id || '').trim();
         if (!taskId) return null;
+        const previousTask = options?.previousTask && typeof options.previousTask === 'object'
+            ? options.previousTask
+            : null;
+        const mergeCustomFieldSnapshot = (target, previous) => {
+            if (!(target && typeof target === 'object') || !(previous && typeof previous === 'object')) return;
+            const targetValues = target.customFieldValues
+                && typeof target.customFieldValues === 'object'
+                && !Array.isArray(target.customFieldValues)
+                ? target.customFieldValues
+                : null;
+            const targetRawValues = target.__customFieldRawValues
+                && typeof target.__customFieldRawValues === 'object'
+                && !Array.isArray(target.__customFieldRawValues)
+                ? target.__customFieldRawValues
+                : null;
+            const previousValues = previous.customFieldValues
+                && typeof previous.customFieldValues === 'object'
+                && !Array.isArray(previous.customFieldValues)
+                ? previous.customFieldValues
+                : null;
+            const previousRawValues = previous.__customFieldRawValues
+                && typeof previous.__customFieldRawValues === 'object'
+                && !Array.isArray(previous.__customFieldRawValues)
+                ? previous.__customFieldRawValues
+                : null;
+            const freshLoadedAll = target.__tmLoadedAllCustomFields === true;
+            const freshLoadedIds = Array.isArray(target.__tmLoadedCustomFieldIds)
+                ? Array.from(new Set(target.__tmLoadedCustomFieldIds.map((id) => String(id || '').trim()).filter(Boolean)))
+                : [];
+            const hasFreshSnapshot = freshLoadedAll
+                || freshLoadedIds.length > 0
+                || (targetValues && Object.keys(targetValues).length > 0)
+                || (targetRawValues && Object.keys(targetRawValues).length > 0);
+            const previousAllLoaded = previous.__tmLoadedAllCustomFields === true;
+            const previousLoadedIds = Array.isArray(previous.__tmLoadedCustomFieldIds)
+                ? previous.__tmLoadedCustomFieldIds.map((id) => String(id || '').trim()).filter(Boolean)
+                : [];
+            if (!hasFreshSnapshot) {
+                if (previousValues) target.customFieldValues = { ...previousValues };
+                if (previousRawValues) target.__customFieldRawValues = { ...previousRawValues };
+                if (previousAllLoaded) target.__tmLoadedAllCustomFields = true;
+                else if (previousLoadedIds.length) target.__tmLoadedCustomFieldIds = Array.from(new Set(previousLoadedIds)).sort();
+                return;
+            }
+            const mergedValues = { ...(previousValues || {}) };
+            const mergedRawValues = { ...(previousRawValues || {}) };
+            if (freshLoadedAll) {
+                Object.keys(mergedValues).forEach((fieldId) => delete mergedValues[fieldId]);
+                Object.keys(mergedRawValues).forEach((fieldId) => delete mergedRawValues[fieldId]);
+            } else {
+                freshLoadedIds.forEach((fieldId) => {
+                    delete mergedValues[fieldId];
+                    delete mergedRawValues[fieldId];
+                });
+            }
+            Object.assign(mergedValues, targetValues || targetRawValues || {});
+            Object.assign(mergedRawValues, targetRawValues || targetValues || {});
+            if (Object.keys(mergedValues).length || freshLoadedAll || freshLoadedIds.length) target.customFieldValues = mergedValues;
+            if (Object.keys(mergedRawValues).length || freshLoadedAll || freshLoadedIds.length) target.__customFieldRawValues = mergedRawValues;
+            if (freshLoadedAll || previousAllLoaded) target.__tmLoadedAllCustomFields = true;
+            else if (freshLoadedIds.length || previousLoadedIds.length) {
+                target.__tmLoadedCustomFieldIds = Array.from(new Set(previousLoadedIds.concat(freshLoadedIds))).sort();
+            }
+        };
+        mergeCustomFieldSnapshot(task, previousTask);
         if (task.__customFieldRawValues && typeof task.__customFieldRawValues === 'object' && !Array.isArray(task.__customFieldRawValues)) {
             task.__customFieldRawValues = { ...task.__customFieldRawValues };
         }
@@ -17083,8 +17153,11 @@
                 && __tmTaskHasLocalPatchWatermarkForFields(taskId, ['content', 'markdown', 'done'])
                 ? __tmReadLiveDocumentTaskContentPatch(taskId)
                 : null;
-            const authoritativeTask = __tmBuildAuthoritativeTaskConfirmationCandidate(row, { documentContentPatch });
-            const nextTask = __tmPrepareTaskBlockIncrementalRow(row, prevTask, normalizeTaskOptions);
+            const authoritativeTask = __tmBuildAuthoritativeTaskConfirmationCandidate(row, {
+                documentContentPatch,
+                previousTask: prevTask,
+            });
+            const nextTask = __tmPrepareTaskBlockIncrementalRow(authoritativeTask, prevTask, normalizeTaskOptions);
             if (!nextTask || !authoritativeTask) return false;
             if (documentContentPatch) {
                 nextTask.content = documentContentPatch.content;
@@ -17477,7 +17550,13 @@
                 && __tmTaskHasLocalPatchWatermarkForFields(taskId, ['content', 'markdown', 'done'])
                 ? __tmReadLiveDocumentTaskContentPatch(taskId)
                 : null;
-            const candidate = __tmBuildAuthoritativeTaskConfirmationCandidate(row, { documentContentPatch });
+            const previousTask = taskId
+                ? (globalThis.__tmTaskBoundary?.getTask?.(taskId, { includePending: false, preferPending: false }) || null)
+                : null;
+            const candidate = __tmBuildAuthoritativeTaskConfirmationCandidate(row, {
+                documentContentPatch,
+                previousTask,
+            });
             if (candidate) authoritativeTasksById.set(taskId, candidate);
             if (documentContentPatch) liveDocumentContentPatches.set(taskId, documentContentPatch);
         });
@@ -17536,6 +17615,12 @@
             const prevTask = taskId
                 ? (globalThis.__tmTaskBoundary?.getTask?.(taskId, { includePending: false, preferPending: false }) || null)
                 : null;
+            try {
+                const mergedTask = __tmBuildAuthoritativeTaskConfirmationCandidate(task, { previousTask: prevTask });
+                ['customFieldValues', '__customFieldRawValues', '__tmLoadedAllCustomFields', '__tmLoadedCustomFieldIds'].forEach((key) => {
+                    if (mergedTask && Object.prototype.hasOwnProperty.call(mergedTask, key)) task[key] = mergedTask[key];
+                });
+            } catch (e) {}
             const flowRank = Number(taskFlowRankMap.get(taskId));
             __tmApplyResolvedFlowRankIfNeeded(task, flowRank);
 

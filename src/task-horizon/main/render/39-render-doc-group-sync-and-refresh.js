@@ -975,7 +975,8 @@
             hasLiveView = globalThis.__tmRuntimeState?.hasLiveModal?.(liveModal)
                 ?? (liveModal instanceof HTMLElement && document.body.contains(liveModal));
         } catch (e) {}
-        if (hasLiveView) {
+        const pluginVisible = typeof __tmIsPluginVisibleNow !== 'function' || __tmIsPluginVisibleNow();
+        if (hasLiveView && pluginVisible) {
             refreshedView = await runWithStorageWritesSuppressed(() => __tmRefreshCore({
                 silent: true,
                 reason,
@@ -983,6 +984,12 @@
                 skipSharedStateReload: true,
                 suppressStorageWrites,
             }));
+            if (refreshedView === true) state.__tmSyncedDataReloadPending = false;
+        } else if (hasLiveView) {
+            // Keep storage hydration cheap while the tab is hidden. The next
+            // activation will perform one visible refresh instead of rebuilding
+            // the whole shell behind another SiYuan tab.
+            state.__tmSyncedDataReloadPending = true;
         }
         try {
             if (state.settingsModal && document.body.contains(state.settingsModal)) showSettings();

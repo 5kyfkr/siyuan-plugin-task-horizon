@@ -313,7 +313,8 @@ function createHarness(options = {}) {
         const taskMatch = statement.match(/WHERE task\.id = '([^']+)'/);
         if (taskMatch) {
             const row = taskRow(taskMatch[1]);
-            return row ? [row] : [];
+            const override = options.taskRowOverrides?.[taskMatch[1]];
+            return row ? [{ ...row, ...(override || {}) }] : [];
         }
         const blockMatch = statement.match(/SELECT id, parent_id, (?:root_id, )?type, subtype FROM blocks WHERE id = '([^']+)'/);
         if (blockMatch) {
@@ -728,6 +729,39 @@ function createHarness(options = {}) {
 }
 
 async function run() {
+    // Calendar date-follow writes can arrive before the SQL parent index
+    // catches up with the live block tree. Only attributes may change here.
+    for (const taskID of [IDS.singleTask, IDS.childTask]) {
+        for (const parentType of ['', 'sb', 'd']) {
+            const liveHarness = createHarness({
+                taskRowOverrides: { [taskID]: { parent_id: IDS.doc, parent_type: parentType } },
+            });
+            await liveHarness.start();
+            const beforeBlocks = JSON.stringify(Array.from(liveHarness.blocks.entries()));
+            const result = await liveHarness.call('taskHorizonMutateTask', {
+                action: 'attrs', taskID,
+                attrs: { 'custom-completion-time': '2026-09-13' },
+            });
+            assert.equal(result.ok, true);
+            assert.equal(result.data.outcome, 'committed', `live list must recover ${taskID} with SQL parent type ${parentType}`);
+            assert.equal(liveHarness.attrs.get(taskID)['custom-completion-time'], '2026-09-13');
+            assert.equal(JSON.stringify(Array.from(liveHarness.blocks.entries())), beforeBlocks,
+                'recovering stale parent metadata must not recreate or move any task');
+            const operations = liveHarness.apiCalls.filter((call) => call.pathname === '/api/transactions')
+                .flatMap((call) => call.body.transactions.flatMap((tx) => tx.doOperations));
+            assert.deepEqual(operations.map((op) => [op.action, op.id]), [['setAttrs', taskID]]);
+        }
+    }
+    const invalidHarness = createHarness();
+    await invalidHarness.start();
+    invalidHarness.blocks.get(IDS.singleList).type = 'sb';
+    const invalidDateWrite = await invalidHarness.call('taskHorizonMutateTask', {
+        action: 'attrs', taskID: IDS.singleTask,
+        attrs: { 'custom-completion-time': '2026-09-13' },
+    });
+    assert.equal(invalidDateWrite.data.error.message, '任务不在合法的列表容器中');
+    assert.equal(invalidHarness.apiCalls.some((call) => call.pathname === '/api/transactions'), false,
+        'a task with no real list container must remain rejected without a write');
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugin.json'), 'utf8'));
     assert.match(manifest.version, /^\d+\.\d+\.\d+$/, 'plugin.json must declare a valid release version');
     const bootstrapSource = fs.readFileSync(path.join(__dirname, '..', 'src/task-horizon/main/00-bootstrap-and-styles.js'), 'utf8');

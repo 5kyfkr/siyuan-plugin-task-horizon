@@ -3232,6 +3232,7 @@
             previousSiblingID: index > 0 ? taskIDs[index - 1] : '',
             nextSiblingID: index + 1 < taskIDs.length ? taskIDs[index + 1] : '',
             firstTaskID: text(taskIDs[0]),
+            taskCount: taskIDs.length,
             documentID: text(context.documentID),
         };
     }
@@ -3705,6 +3706,26 @@
     async function ensureTaskListMutationTarget(taskID, registryInput, rowInput) {
         const id = requireID(taskID, '任务 ID');
         let row = rowInput && typeof rowInput === 'object' ? rowInput : await getTaskRow(id);
+        if (text(row.parent_type).toLowerCase() !== 'l') {
+            // SQL parent metadata can lag behind the live tree. Verify the
+            // existing list before rejecting a date write or repairing a
+            // supposedly naked task; neither case should recreate a valid task.
+            try {
+                const placement = await readTaskPlacementFromTree(id);
+                row = {
+                    ...row,
+                    root_id: placement.documentID || row.root_id,
+                    parent_id: placement.parentListID,
+                    parent_type: placement.parentType,
+                    parent_task_id: placement.parentTaskID,
+                    previous_sibling_id: placement.previousSiblingID,
+                    next_sibling_id: placement.nextSiblingID,
+                    first_task_id: placement.firstTaskID,
+                    parent_task_count: placement.taskCount,
+                    __taskHorizonLivePlacement: true,
+                };
+            } catch (error) {}
+        }
         row = await ensureTaskListContainer(row, registryInput);
         const parentType = text(row && row.parent_type).toLowerCase();
         if (parentType !== 'l') {
@@ -6571,6 +6592,9 @@
                 parentTaskID: text(row.parentTaskID || row.parentTaskId || row.parent_task_id),
                 documentID: text(row.documentID || row.documentId || row.docId || row.root_id),
                 documentName: text(row.documentName || row.docName || row.doc),
+                h2: text(row.h2 || row.h2Name || row.headingName),
+                h2Id: text(row.h2Id || row.h2_id || row.headingId),
+                h2Path: text(row.h2Path),
                 title: text(row.title || row.content) || '未命名任务',
                 done: row.done === true,
                 customStatus: text(row.customStatus || row.custom_status),
@@ -6617,6 +6641,9 @@
             ancestorTaskIDs: uniqueStrings(ancestorTaskIDs),
             documentID: text(task.documentID),
             documentName: text(task.documentName),
+            h2: text(task.h2 || task.h2Name || task.headingName),
+            h2Id: text(task.h2Id || task.h2_id || task.headingId),
+            h2Path: text(task.h2Path),
             title: text(task.title) || '未命名任务',
             done: task.done === true,
             customStatus: text(task.customStatus),

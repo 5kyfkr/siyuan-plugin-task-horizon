@@ -4364,6 +4364,15 @@
 .tm-proto-allday-cell,
 .tm-proto-axis-label{
     border-right: 1px solid var(--tm-cal-border);
+}.tm-proto-axis-corner--week{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--tm-cal-faint) !important;
+    font-size: 10.5px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .02em;
 }.tm-proto-timeline-day{
     display: flex;
     flex-direction: column;

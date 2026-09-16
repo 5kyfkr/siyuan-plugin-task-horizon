@@ -21,6 +21,9 @@
         focusDateOffset: 0,
         focusTaskListMode: "day",
         focusRecentDays: 90,
+        focusView: "overview",
+        focusDistributionRange: 7,
+        focusDistributionSelected: "",
         focusDayPage: 0,
         focusTaskPopoverOpen: false,
         focusCalendar: { open: false, monthKey: "", status: "idle", key: "", stats: null, loadSeq: 0 },
@@ -1442,6 +1445,150 @@
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.tm-homepage-focus-view-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--tm-home-surface-alt) 82%, transparent);
+}
+
+.tm-homepage-focus-view-btn,
+.tm-homepage-focus-range-btn {
+    min-height: 28px;
+    padding: 0 9px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--tm-home-text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.tm-homepage-focus-view-btn:hover,
+.tm-homepage-focus-range-btn:hover {
+    color: var(--tm-home-text);
+    background: color-mix(in srgb, var(--tm-home-hover) 58%, transparent);
+}
+
+.tm-homepage-focus-view-btn.is-active,
+.tm-homepage-focus-range-btn.is-active {
+    color: var(--tm-home-accent);
+    background: var(--tm-home-surface);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--tm-home-text) 10%, transparent);
+}
+
+.tm-homepage-focus-view-btn:focus-visible,
+.tm-homepage-focus-range-btn:focus-visible,
+.tm-homepage-focus-distribution-row:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--tm-home-accent-ring);
+}
+
+.tm-homepage-focus-distribution {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: calc(var(--tm-home-card-radius) - 2px);
+    background: color-mix(in srgb, var(--tm-home-surface-alt) 82%, var(--tm-home-surface) 18%);
+}
+
+.tm-homepage-focus-distribution-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.tm-homepage-focus-distribution-range {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--tm-home-surface) 72%, transparent);
+}
+
+.tm-homepage-focus-distribution-body {
+    display: grid;
+    grid-template-columns: minmax(152px, .85fr) minmax(210px, 1.15fr);
+    align-items: center;
+    gap: 18px;
+    min-width: 0;
+}
+
+.tm-homepage-focus-donut-wrap {
+    position: relative;
+    width: min(190px, 100%);
+    aspect-ratio: 1;
+    margin: 0 auto;
+}
+
+.tm-homepage-focus-donut {
+    display: block;
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+}
+
+.tm-homepage-focus-donut-track,
+.tm-homepage-focus-donut-slice {
+    fill: none;
+    stroke-width: 25;
+}
+
+.tm-homepage-focus-donut-track { stroke: color-mix(in srgb, var(--tm-home-border) 72%, transparent); }
+.tm-homepage-focus-donut-slice { cursor: pointer; transition: opacity 160ms ease, stroke-width 160ms ease; }
+.tm-homepage-focus-donut-slice:hover,
+.tm-homepage-focus-donut-slice.is-selected { opacity: .8; stroke-width: 30; }
+
+.tm-homepage-focus-donut-center {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    text-align: center;
+    pointer-events: none;
+}
+
+.tm-homepage-focus-donut-total { font-size: 17px; line-height: 1.15; font-weight: 800; color: var(--tm-home-text); }
+.tm-homepage-focus-donut-label { margin-top: 3px; color: var(--tm-home-text-muted); font-size: 10px; }
+
+.tm-homepage-focus-distribution-list { display: grid; gap: 3px; min-width: 0; }
+
+.tm-homepage-focus-distribution-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 7px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.tm-homepage-focus-distribution-row:hover,
+.tm-homepage-focus-distribution-row.is-selected { background: var(--tm-home-accent-soft); }
+.tm-homepage-focus-distribution-label { display: flex; align-items: center; min-width: 0; gap: 7px; font-size: 12px; font-weight: 700; }
+.tm-homepage-focus-distribution-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; }
+.tm-homepage-focus-distribution-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-homepage-focus-distribution-time,
+.tm-homepage-focus-distribution-pct { color: var(--tm-home-text-muted); font-size: 11px; white-space: nowrap; }
+.tm-homepage-focus-distribution-pct { min-width: 34px; color: var(--tm-home-text); text-align: right; font-weight: 800; }
+.tm-homepage-focus-distribution-empty { min-height: 190px; display: grid; place-content: center; color: var(--tm-home-text-muted); text-align: center; font-size: 12px; }
+
+@media (max-width: 720px) {
+    .tm-homepage-focus-distribution-body { grid-template-columns: 1fr; gap: 10px; }
+    .tm-homepage-focus-donut-wrap { width: min(170px, 70vw); }
 }
 
 .tm-homepage-focus-today {
@@ -4929,6 +5076,129 @@
         `;
     }
 
+    function resolveFocusDistributionColor(group, index) {
+        const fallback = [
+            "var(--tm-home-accent)",
+            "var(--tm-home-success)",
+            "var(--tm-home-warning)",
+            "var(--tm-home-danger)",
+            "color-mix(in srgb, var(--tm-home-accent) 58%, var(--tm-home-text))",
+        ][index % 5];
+        const documentID = String(group?.documentID || "").trim();
+        if (documentID && typeof __tmGetDocColorHex === "function") {
+            try {
+                const color = __tmGetDocColorHex(documentID, typeof __tmIsDarkMode === "function" && __tmIsDarkMode());
+                if (String(color || "").trim()) return String(color).trim();
+            } catch (e) {}
+        }
+        return fallback;
+    }
+
+    function buildFocusDistributionGroups(ctx, records) {
+        const taskRows = Array.isArray(records?.tasks) ? records.tasks : [];
+        const win = buildFocusWindow(ctx, runtime.focusRecentDays);
+        const rangeDays = Math.max(1, Math.min(90, Math.round(toNumber(runtime.focusDistributionRange, 7))));
+        const endKey = normalizeDateKey(win.focusDateKey) || normalizeDateKey(ctx?.todayKey) || formatDateKey(new Date());
+        const endDate = new Date(`${endKey}T12:00:00`);
+        const startKey = formatDateKey(addLocalDays(endDate, -(rangeDays - 1)));
+        const currentDocID = String(ctx?.currentDocId || "all").trim() || "all";
+        // “全部”是当前文档页签，而不是当前文档分组。分组页签下的全部仍按文档聚合。
+        const globalScope = currentDocID === "all";
+        const groups = new Map();
+        taskRows.forEach((task) => {
+            const documentID = String(task?.documentID || "").trim();
+            if (!globalScope && currentDocID !== "all" && documentID && documentID !== currentDocID) return;
+            const documentName = String(task?.documentName || "").trim() || "未命名文档";
+            const h2ID = String(task?.h2Id || "").trim();
+            const h2Name = String(task?.h2 || "").trim() || "无二级标题";
+            const key = globalScope
+                ? `doc:${documentID || documentName}`
+                : `h2:${h2ID || h2Name}`;
+            const current = groups.get(key) || {
+                key,
+                label: globalScope ? documentName : h2Name,
+                documentID,
+                seconds: 0,
+            };
+            (Array.isArray(task?.buckets) ? task.buckets : []).forEach((bucket) => {
+                const bucketKey = normalizeDateKey(String(bucket?.key || "").slice(0, 10));
+                if (!bucketKey || bucketKey < startKey || bucketKey > endKey) return;
+                current.seconds += Math.max(0, toNumber(bucket?.focusSec, 0));
+            });
+            groups.set(key, current);
+        });
+        if (globalScope && records?.unattributed && typeof records.unattributed === "object") {
+            const current = { key: "doc:__unattributed__", label: "未归属文档", documentID: "", seconds: 0 };
+            (Array.isArray(records.unattributed.buckets) ? records.unattributed.buckets : []).forEach((bucket) => {
+                const bucketKey = normalizeDateKey(String(bucket?.key || "").slice(0, 10));
+                if (!bucketKey || bucketKey < startKey || bucketKey > endKey) return;
+                current.seconds += Math.max(0, toNumber(bucket?.focusSec, 0));
+            });
+            if (current.seconds > 0) groups.set(current.key, current);
+        }
+        const rows = Array.from(groups.values()).filter((item) => item.seconds > 0).sort((a, b) => b.seconds - a.seconds || a.label.localeCompare(b.label));
+        const totalSeconds = rows.reduce((sum, item) => sum + item.seconds, 0);
+        return { rows, totalSeconds, rangeDays, globalScope };
+    }
+
+    function renderFocusDistributionPanel(ctx, records) {
+        const distribution = buildFocusDistributionGroups(ctx, records);
+        const rangeLabel = distribution.rangeDays === 1 ? "当天" : `近 ${distribution.rangeDays} 天`;
+        if (!distribution.rows.length || distribution.totalSeconds <= 0) {
+            return `
+                <article class="tm-homepage-focus-distribution">
+                    <div class="tm-homepage-focus-distribution-toolbar">
+                        <div class="tm-homepage-card-desc">${distribution.globalScope ? "全部页签 · 按文档分布" : "当前文档 · 按二级标题分布"}</div>
+                        <div class="tm-homepage-focus-distribution-range" role="tablist" aria-label="专注分布范围">
+                            ${renderFocusDistributionRangeButtons(distribution.rangeDays)}
+                        </div>
+                    </div>
+                    <div class="tm-homepage-focus-distribution-empty">${esc(rangeLabel)}暂无已完成专注记录。</div>
+                </article>
+            `;
+        }
+        let offset = 0;
+        const slices = distribution.rows.map((item, index) => {
+            const percent = item.seconds / distribution.totalSeconds * 100;
+            const color = resolveFocusDistributionColor(item, index);
+            const selected = String(runtime.focusDistributionSelected || "") === item.key;
+            const slice = `<circle class="tm-homepage-focus-donut-slice ${selected ? "is-selected" : ""}" data-tm-home-focus-distribution-item="${esc(item.key)}" cx="50" cy="50" r="35" pathLength="100" stroke="${esc(color)}" stroke-dasharray="${percent} ${100 - percent}" stroke-dashoffset="${-offset}" tabindex="0" aria-label="${esc(`${item.label} ${Math.round(percent)}%`)}"></circle>`;
+            offset += percent;
+            return slice;
+        }).join("");
+        const rows = distribution.rows.map((item, index) => {
+            const percent = item.seconds / distribution.totalSeconds * 100;
+            const color = resolveFocusDistributionColor(item, index);
+            const selected = String(runtime.focusDistributionSelected || "") === item.key;
+            return `<button type="button" class="tm-homepage-focus-distribution-row ${selected ? "is-selected" : ""}" data-tm-home-focus-distribution-item="${esc(item.key)}"><span class="tm-homepage-focus-distribution-label"><span class="tm-homepage-focus-distribution-dot" style="background:${esc(color)}"></span><span class="tm-homepage-focus-distribution-name">${esc(item.label)}</span></span><span class="tm-homepage-focus-distribution-time">${esc(formatFocusHoursText(item.seconds / 60))}</span><span class="tm-homepage-focus-distribution-pct">${Math.round(percent)}%</span></button>`;
+        }).join("");
+        return `
+            <article class="tm-homepage-focus-distribution">
+                <div class="tm-homepage-focus-distribution-toolbar">
+                    <div class="tm-homepage-card-desc">${distribution.globalScope ? "全部页签 · 按文档分布" : "当前文档 · 按二级标题分布"}</div>
+                    <div class="tm-homepage-focus-distribution-range" role="tablist" aria-label="专注分布范围">
+                        ${renderFocusDistributionRangeButtons(distribution.rangeDays)}
+                    </div>
+                </div>
+                <div class="tm-homepage-focus-distribution-body">
+                    <div class="tm-homepage-focus-donut-wrap">
+                        <svg class="tm-homepage-focus-donut" viewBox="0 0 100 100" role="img" aria-label="${esc(`${rangeLabel}专注分布`)}">
+                            <circle class="tm-homepage-focus-donut-track" cx="50" cy="50" r="35"></circle>${slices}
+                        </svg>
+                        <div class="tm-homepage-focus-donut-center"><div class="tm-homepage-focus-donut-total">${esc(formatFocusHoursText(distribution.totalSeconds / 60))}</div><div class="tm-homepage-focus-donut-label">${esc(rangeLabel)}完成专注</div></div>
+                    </div>
+                    <div class="tm-homepage-focus-distribution-list">${rows}</div>
+                </div>
+            </article>
+        `;
+    }
+
+    function renderFocusDistributionRangeButtons(activeRange) {
+        return [[1, "当天"], [7, "7天"], [30, "30天"], [90, "90天"]].map(([value, label]) => `
+            <button type="button" class="tm-homepage-focus-range-btn ${Number(activeRange) === value ? "is-active" : ""}" data-tm-home-focus-distribution-range="${value}" role="tab" aria-selected="${Number(activeRange) === value}">${label}</button>
+        `).join("");
+    }
+
     function renderFocusSection(ctx, profile) {
         if (!shouldRenderFocusSection(ctx)) return "";
         const layout = getHomepageFocusLayout();
@@ -4944,19 +5214,26 @@
         }
         const stats = buildFocusStats(ctx, state.stats || null, state.settings || null);
         const dayScope = stats?.focusDate?.isToday ? "今日当前范围" : "当日当前范围";
+        const isDistribution = runtime.focusView === "distribution";
         return `
             <section class="tm-homepage-card tm-homepage-card--focus ${isNarrow ? "is-narrow" : ""}">
                 <div class="tm-homepage-card-head">
                     <div>
                         <div class="tm-homepage-card-title">专注统计</div>
-                        <div class="tm-homepage-card-desc">${isNarrow ? dayScope : `${dayScope} · 最近专注近 90 天`}</div>
+                        <div class="tm-homepage-card-desc">${isDistribution ? "已完成专注分布" : (isNarrow ? dayScope : `${dayScope} · 最近专注近 90 天`)}</div>
+                    </div>
+                    <div class="tm-homepage-focus-view-switch" role="tablist" aria-label="专注统计视图">
+                        <button type="button" class="tm-homepage-focus-view-btn ${isDistribution ? "" : "is-active"}" data-tm-home-focus-view="overview" role="tab" aria-selected="${!isDistribution}">概览</button>
+                        <button type="button" class="tm-homepage-focus-view-btn ${isDistribution ? "is-active" : ""}" data-tm-home-focus-view="distribution" role="tab" aria-selected="${isDistribution}">分布</button>
                     </div>
                 </div>
-                <div class="tm-homepage-focus-grid">
-                    ${renderTodayFocusPanel(stats)}
-                    ${isNarrow ? "" : `<div data-tm-home-focus-recent-slot>${renderRecentFocusPanel(stats)}</div>`}
-                </div>
-                ${isNarrow ? renderFocusTaskPopover(stats) : ""}
+                ${isDistribution
+                    ? renderFocusDistributionPanel(ctx, state.stats || null)
+                    : `<div class="tm-homepage-focus-grid">
+                        ${renderTodayFocusPanel(stats)}
+                        ${isNarrow ? "" : `<div data-tm-home-focus-recent-slot>${renderRecentFocusPanel(stats)}</div>`}
+                    </div>
+                    ${isNarrow ? renderFocusTaskPopover(stats) : ""}`}
             </section>
         `;
     }
@@ -5341,7 +5618,7 @@
                 runtime.homepageSettingsOpen = false;
                 updateHomepageSettingsSlot();
             }
-            const target = source ? source.closest("[data-tm-home-range],[data-tm-home-open-task],[data-tm-home-focus-task],[data-tm-home-focus-day],[data-tm-home-focus-day-page],[data-tm-home-focus-mode],[data-tm-home-focus-task-popover-close],[data-tm-home-focus-calendar-toggle],[data-tm-home-focus-calendar-month],[data-tm-home-focus-calendar-date],[data-tm-home-settings-toggle],[data-tm-home-module-layout],[data-tm-home-module-move],[data-tm-home-module-reset]") : null;
+            const target = source ? source.closest("[data-tm-home-range],[data-tm-home-open-task],[data-tm-home-focus-task],[data-tm-home-focus-day],[data-tm-home-focus-day-page],[data-tm-home-focus-mode],[data-tm-home-focus-view],[data-tm-home-focus-distribution-range],[data-tm-home-focus-distribution-item],[data-tm-home-focus-task-popover-close],[data-tm-home-focus-calendar-toggle],[data-tm-home-focus-calendar-month],[data-tm-home-focus-calendar-date],[data-tm-home-settings-toggle],[data-tm-home-module-layout],[data-tm-home-module-move],[data-tm-home-module-reset]") : null;
             if (!(target instanceof Element)) return;
             const focusTaskPopoverClose = String(target.getAttribute("data-tm-home-focus-task-popover-close") || "").trim();
             if (focusTaskPopoverClose) {
@@ -5405,6 +5682,26 @@
                     runtime.focusDayPage = 0;
                     if (!updateFocusRecentSlot()) updateFocusSlot();
                 }
+                return;
+            }
+            const focusView = String(target.getAttribute("data-tm-home-focus-view") || "").trim();
+            if (focusView) {
+                runtime.focusView = focusView === "distribution" ? "distribution" : "overview";
+                runtime.focusDistributionSelected = "";
+                updateFocusSlot();
+                return;
+            }
+            const focusDistributionRange = String(target.getAttribute("data-tm-home-focus-distribution-range") || "").trim();
+            if (focusDistributionRange) {
+                runtime.focusDistributionRange = Math.max(1, Math.min(90, Math.round(Number(focusDistributionRange) || 7)));
+                runtime.focusDistributionSelected = "";
+                updateFocusSlot();
+                return;
+            }
+            const focusDistributionItem = String(target.getAttribute("data-tm-home-focus-distribution-item") || "").trim();
+            if (focusDistributionItem) {
+                runtime.focusDistributionSelected = runtime.focusDistributionSelected === focusDistributionItem ? "" : focusDistributionItem;
+                updateFocusSlot();
                 return;
             }
             const calendarToggle = String(target.getAttribute("data-tm-home-focus-calendar-toggle") || "").trim();
@@ -5578,6 +5875,9 @@
         runtime.focusLoadSeq += 1;
         runtime.focusState = { status: "idle", key: "", stats: null, settings: null, unavailable: false };
         runtime.selectedFocusTaskId = "";
+        runtime.focusView = "overview";
+        runtime.focusDistributionRange = 7;
+        runtime.focusDistributionSelected = "";
         runtime.focusDateOffset = 0;
         runtime.focusTaskListMode = "day";
         runtime.focusRecentDays = 90;

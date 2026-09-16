@@ -1,4 +1,25 @@
     function render() {
+        if (state.__tmRenderInFlight === true) {
+            state.__tmRenderQueued = true;
+            return;
+        }
+        state.__tmRenderInFlight = true;
+        try {
+            return __tmRenderNow();
+        } finally {
+            state.__tmRenderInFlight = false;
+            if (state.__tmRenderQueued === true) {
+                state.__tmRenderQueued = false;
+                try {
+                    requestAnimationFrame(() => render());
+                } catch (e) {
+                    try { render(); } catch (e2) {}
+                }
+            }
+        }
+    }
+
+    function __tmRenderNow() {
         try {
             const dismissingModal = state.modal;
             if ((state.mobileBottomViewbarDismissDragging === true

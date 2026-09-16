@@ -1940,10 +1940,14 @@ return finish(false, 'noop');
 
     // ============ 重写设置完成状态（带完整树保护） ============
     window.tmSetPinned = async function(id, pinned, ev) {
-        if (ev) ev.stopPropagation();
+        try { ev?.stopPropagation?.(); } catch (e) {}
 
-        const tid = String(id || '').trim();
-        const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
+        const overrideTask = ev?.task && typeof ev.task === 'object' ? ev.task : null;
+        const overrideId = String(overrideTask?.id || overrideTask?.blockId || '').trim();
+        const tid = String(id || overrideId || '').trim();
+        const task = overrideTask
+            || globalThis.__tmTaskBoundary?.getTask?.(tid)
+            || null;
         if (!task) return;
 
         const val = !!pinned;
@@ -1954,6 +1958,14 @@ return finish(false, 'noop');
             hint(`❌ 操作失败: ${error.message}`, 'error');
             return false;
         }
+        const scheduleCalendarRefresh = (nextPinned = val) => {
+            const run = () => {
+                try { globalThis.__tmCalendar?.refreshTaskPinned?.(tid, nextPinned); } catch (e) {}
+            };
+            [0, 80, 240, 500].forEach((delay) => {
+                try { setTimeout(run, delay); } catch (e) {}
+            });
+        };
         const commitPromise = patchTask(tid, { pinned: val ? '1' : '' }, {
             source: 'toggle-pinned',
             label: val ? '置顶' : '取消置顶',
@@ -1963,6 +1975,11 @@ return finish(false, 'noop');
             showErrorHint: false,
         });
         Promise.resolve(commitPromise).then((result) => {
+            if (result === false) {
+                scheduleCalendarRefresh(!val);
+            } else {
+                scheduleCalendarRefresh(val);
+            }
             if (result === false && ev?.target) ev.target.checked = !val;
             if (result === false) hint('❌ 操作失败', 'error');
         }).catch((e) => {
@@ -2032,6 +2049,7 @@ return finish(false, 'noop');
         const tid = String(taskId || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
         const targetDone = opts.done === true;
+
         if (!tid) return false;
         const latestTask = globalThis.__tmTaskBoundary?.getTask?.(tid)
             || ((opts.task && typeof opts.task === 'object') ? opts.task : null);
@@ -3103,7 +3121,6 @@ return finish(false, 'noop');
             onPending: (promise, op) => {
                 pendingPromise = promise;
                 intentRevision = Number(op?.data?.intentRevision) || 0;
-
             },
         });
         const settlePromise = pendingPromise || opPromise;
@@ -3344,7 +3361,12 @@ if (ev) {
                 try { input.checked = targetDone; } catch (e) {}
             }
             const setDoneOptions = input
-                ? { ...((options && typeof options === 'object') ? options : {}), wait: false }
+                ? {
+                    ...((options && typeof options === 'object') ? options : {}),
+                    source: String(options?.source || '').trim()
+                        || (input.closest?.('.tm-proto-list-task-card') ? 'calendar' : ''),
+                    wait: false,
+                }
                 : options;
             return await __tmSetDoneFromUi(tid, targetDone, ev, setDoneOptions);
         });
@@ -3391,10 +3413,26 @@ if (ev) {
                 const taskId = String(t?.id || '').trim();
                 if (taskId) {
                     const prevDocSeq = Number(t?.docSeq ?? t?.doc_seq);
+                    const customFieldValues = t?.customFieldValues
+                        && typeof t.customFieldValues === 'object'
+                        && !Array.isArray(t.customFieldValues)
+                        ? { ...t.customFieldValues }
+                        : null;
+                    const customFieldRawValues = t?.__customFieldRawValues
+                        && typeof t.__customFieldRawValues === 'object'
+                        && !Array.isArray(t.__customFieldRawValues)
+                        ? { ...t.__customFieldRawValues }
+                        : null;
                     oldTaskStateById.set(taskId, {
                         parentId: String(t?.parentTaskId || '').trim(),
                         listId: String(t?.parent_id || t?.parentId || '').trim(),
                         docSeq: Number.isFinite(prevDocSeq) ? prevDocSeq : undefined,
+                        customFieldValues,
+                        customFieldRawValues,
+                        loadedAllCustomFields: t?.__tmLoadedAllCustomFields === true,
+                        loadedCustomFieldIds: Array.isArray(t?.__tmLoadedCustomFieldIds)
+                            ? t.__tmLoadedCustomFieldIds.slice()
+                            : null,
                         headingContext: {
                             h2: String(t?.h2 || '').trim(),
                             h2Id: String(t?.h2Id || '').trim(),
@@ -3553,6 +3591,23 @@ if (ev) {
             const meta = MetaStore.get(taskId) || {};
             const allowVisibleDateFallback = __tmHasPendingVisibleDatePersistence(String(t.id || '').trim());
             const oldTaskState = oldTaskStateById.get(taskId) || null;
+            const freshCustomFieldValues = t?.customFieldValues
+                && typeof t.customFieldValues === 'object'
+                && !Array.isArray(t.customFieldValues)
+                ? t.customFieldValues
+                : null;
+            const freshCustomFieldRawValues = t?.__customFieldRawValues
+                && typeof t.__customFieldRawValues === 'object'
+                && !Array.isArray(t.__customFieldRawValues)
+                ? t.__customFieldRawValues
+                : null;
+            const hasFreshCustomFieldSnapshot = t?.__tmLoadedAllCustomFields === true
+                || Array.isArray(t?.__tmLoadedCustomFieldIds)
+                || (freshCustomFieldValues !== null && Object.keys(freshCustomFieldValues).length > 0)
+                || (freshCustomFieldRawValues !== null && Object.keys(freshCustomFieldRawValues).length > 0);
+            const customFieldValues = hasFreshCustomFieldSnapshot
+                ? { ...(freshCustomFieldValues || freshCustomFieldRawValues || {}) }
+                : { ...(oldTaskState?.customFieldValues || oldTaskState?.customFieldRawValues || {}) };
             const docSeq = Number(t?.doc_seq);
             const preservedDocSeq = Number(oldTaskState?.docSeq);
             const resolvedFlowRank = Number(t?.resolvedFlowRank ?? t?.resolved_flow_rank ?? t?.__tmResolvedFlowRank);
@@ -3654,6 +3709,18 @@ if (ev) {
                     return dbv;
                 })()
             };
+            if (Object.keys(customFieldValues).length > 0 || hasFreshCustomFieldSnapshot || oldTaskState?.loadedAllCustomFields === true || Array.isArray(oldTaskState?.loadedCustomFieldIds)) {
+                nextTask.customFieldValues = __tmNormalizeTaskCustomFieldValues({}, customFieldValues);
+                nextTask.__customFieldRawValues = { ...customFieldValues };
+                if (hasFreshCustomFieldSnapshot) {
+                    if (t.__tmLoadedAllCustomFields === true) nextTask.__tmLoadedAllCustomFields = true;
+                    else if (Array.isArray(t.__tmLoadedCustomFieldIds)) nextTask.__tmLoadedCustomFieldIds = t.__tmLoadedCustomFieldIds.slice();
+                } else if (oldTaskState?.loadedAllCustomFields === true) {
+                    nextTask.__tmLoadedAllCustomFields = true;
+                } else if (Array.isArray(oldTaskState?.loadedCustomFieldIds)) {
+                    nextTask.__tmLoadedCustomFieldIds = oldTaskState.loadedCustomFieldIds.slice();
+                }
+            }
             if (forceHeadingContext) {
                 const fromTask = __tmTaskHasOwnHeadingContextFields(t) ? t : null;
                 const fromEnhance = protectedHeadingContextMap.has(taskId) ? protectedHeadingContextMap.get(taskId) : null;
@@ -4005,8 +4072,10 @@ if (ev) {
         const detailOpenOptions = (options && typeof options === 'object') ? options : {};
         const isQuickbarDetailOpen = String(detailOpenOptions.source || '').trim() === 'quickbar-detail-open'
             || __tmIsQuickbarTaskDetailOpenEvent(ev);
-        const shouldFreshenDetailOpen = detailOpenOptions.forceFresh === true || isQuickbarDetailOpen;
-        const shouldReconcileDetailOpen = detailOpenOptions.reconcile === true;
+        const deferFreshDetailOpen = detailOpenOptions.deferFresh === true;
+        const shouldFreshenDetailOpen = !deferFreshDetailOpen
+            && (detailOpenOptions.forceFresh === true || isQuickbarDetailOpen);
+        const shouldReconcileDetailOpen = detailOpenOptions.reconcile === true || deferFreshDetailOpen;
         try {
             ev?.stopPropagation?.();
             ev?.preventDefault?.();
@@ -5291,11 +5360,19 @@ if (ev) {
         const menuTaskId = rawMenuTaskId && typeof __tmResolveOptimisticTaskId === 'function'
             ? (String(__tmResolveOptimisticTaskId(rawMenuTaskId) || rawMenuTaskId).trim() || rawMenuTaskId)
             : rawMenuTaskId;
-        taskId = menuTaskId;
-        const taskForMenu = __tmGetCollectedOtherBlockTaskFromState(menuTaskId)
+        const extraTask = extra?.task && typeof extra.task === 'object' ? extra.task : null;
+        const resolvedTask = __tmGetCollectedOtherBlockTaskFromState(menuTaskId)
             || globalThis.__tmTaskBoundary?.getTask?.(menuTaskId)
             || (rawMenuTaskId !== menuTaskId ? globalThis.__tmTaskBoundary?.getTask?.(rawMenuTaskId) : null)
             || null;
+        const taskForMenu = resolvedTask && extraTask
+            ? { ...resolvedTask, ...extraTask }
+            : (resolvedTask || extraTask);
+        const menuSourceTaskId = String(taskForMenu?.sourceTaskId || taskForMenu?.recurringSourceTaskId || '').trim();
+        const menuTaskObjectId = String(taskForMenu?.id || taskForMenu?.blockId || '').trim();
+        taskId = (/^repeatinst:/.test(menuTaskObjectId) && menuSourceTaskId)
+            ? menuSourceTaskId
+            : (menuTaskObjectId || menuTaskId);
         if (__tmIsCollectedOtherBlockTask(taskForMenu)) {
             __tmShowCollectedOtherBlockContextMenu(event, menuTaskId);
             return;
@@ -5910,7 +5987,7 @@ if (ev) {
             appendSectionSeparator();
         }
 
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task?.pinned ? '取消置顶' : '置顶'), () => tmSetPinned(taskId, !task?.pinned)));
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task?.pinned ? '取消置顶' : '置顶'), () => tmSetPinned(taskId, !task?.pinned, { task })));
         if (tomatoEnabled) {
             menu.appendChild(createItem(__tmRenderContextMenuLabel('alarm-clock', '提醒'), () => tmReminder(taskId)));
         }

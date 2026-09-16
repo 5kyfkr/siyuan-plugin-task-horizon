@@ -462,7 +462,10 @@
         __tmRecurringAdvanceInFlightIds.add(advanceTaskId);
 
         try {
-            return await __tmAdvanceRecurringTaskAfterCompletionInternal(advanceTaskId, options);
+            const advanced = await __tmAdvanceRecurringTaskAfterCompletionInternal(advanceTaskId, options);
+            return advanced;
+        } catch (error) {
+            throw error;
         } finally {
             __tmRecurringAdvanceInFlightIds.delete(advanceTaskId);
         }

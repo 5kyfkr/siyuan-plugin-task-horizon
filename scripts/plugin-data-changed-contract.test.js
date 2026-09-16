@@ -10,6 +10,10 @@ const refreshRuntime = fs.readFileSync(
     path.join(root, 'src/task-horizon/main/render/39-render-doc-group-sync-and-refresh.js'),
     'utf8',
 );
+const renderRuntime = fs.readFileSync(
+    path.join(root, 'src/task-horizon/main/40-render-runtime.js'),
+    'utf8',
+);
 const legacyAi = fs.readFileSync(path.join(root, 'ai.js'), 'utf8');
 const agentWorkbench = fs.readFileSync(path.join(root, 'src/ai/agent-workbench.js'), 'utf8');
 
@@ -46,6 +50,10 @@ assert.match(reload, /__tmInvalidateTaskIndexStoreCache\(\)/, 'task index cache 
 assert.match(reload, /__tmInvalidateDocScopeCache\(\)/, 'document scope cache must be invalidated');
 assert.match(reload, /skipSharedStateReload: true/, 'the view refresh must not write synchronized storage back before reading it');
 assert.match(reload, /suppressStorageWrites/, 'overwrite reloads must suppress storage writes while remote data is hydrated');
+assert.match(reload, /hasLiveView && pluginVisible/, 'synchronized storage changes must not rebuild a hidden task tab');
+assert.match(reload, /__tmSyncedDataReloadPending = true/, 'hidden synchronized changes must be deferred until the task tab is visible');
+assert.match(renderRuntime, /state\.__tmRenderInFlight === true/, 'full shell renders must reject synchronous re-entry');
+assert.match(renderRuntime, /state\.__tmRenderQueued === true/, 'a render requested during a render must be coalesced');
 const saveNowIndex = reload.indexOf('await SettingsStore.saveNow?.()');
 const cancelPendingSaveIndex = reload.indexOf('__tmCancelSettingsStorePendingSave()');
 const settingsLoadIndex = reload.indexOf('await SettingsStore.load(');

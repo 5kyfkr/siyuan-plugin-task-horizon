@@ -240,20 +240,64 @@
 
     function getTaskLikeForTitleOpacity(taskId, fallback = null) {
         const tid = String(taskId || fallback?.id || '').trim();
+        const aliases = [];
+        const addAlias = (value) => {
+            const id = String(value || '').trim();
+            if (id && !aliases.includes(id)) aliases.push(id);
+        };
+        addAlias(tid);
+        addAlias(fallback?.sourceTaskId || fallback?.recurringSourceTaskId);
+        const virtualMatch = tid.match(/^repeatinst:([^:]+):/);
+        if (virtualMatch) addAlias(virtualMatch[1]);
         if (fallback && typeof fallback === 'object' && Number.isFinite(Number(fallback.priorityScore))) return fallback;
-        try {
-            const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true })
-                || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
-                || null;
-            if (task && typeof task === 'object') return task;
-        } catch (e) {}
-        try {
-            const cache = window.__tmCalendarAllTasksCache;
-            const tasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
-            const found = tasks.find((t) => String(t?.id || '').trim() === tid);
-            if (found && typeof found === 'object') return found;
-        } catch (e) {}
+        for (const alias of aliases) {
+            try {
+                const task = globalThis.__tmRuntimeState?.getTaskById?.(alias, { includePending: true })
+                    || globalThis.__tmRuntimeState?.getFlatTaskById?.(alias)
+                    || null;
+                if (task && typeof task === 'object') return task;
+            } catch (e) {}
+            try {
+                const cache = window.__tmCalendarAllTasksCache;
+                const tasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
+                const found = tasks.find((t) => String(t?.id || '').trim() === alias);
+                if (found && typeof found === 'object') return found;
+            } catch (e) {}
+        }
         return (fallback && typeof fallback === 'object') ? fallback : null;
+    }
+
+    function getCalendarEventTaskLikeForTitle(eventApi) {
+        const ext = eventApi?.extendedProps || {};
+        const source = String(ext.__tmSource || '').trim();
+        if (source !== 'schedule' && source !== 'taskdate') return null;
+        const ids = [
+            ext.__tmTaskDateEventTaskId,
+            ext.__tmTaskId,
+            ext.__tmBlockId,
+            ext.__tmSourceTaskId,
+        ].map((value) => String(value || '').trim()).filter(Boolean);
+        const score = Number(ext.__tmPriorityScore ?? ext.priorityScore);
+        const pinned = ext.__tmTaskPinned === true || ext.__tmTaskPinned === 1 || ext.__tmTaskPinned === '1'
+            || ext.pinned === true || ext.pinned === 1 || ext.pinned === '1'
+            || ['true', 'yes'].includes(String(ext.__tmTaskPinned ?? ext.pinned ?? '').trim().toLowerCase());
+        const fallback = {
+            id: ids[0] || String(eventApi?.id || '').trim(),
+            sourceTaskId: String(ext.__tmSourceTaskId || '').trim(),
+            done: resolveCalendarEventDoneState(ext),
+            pinned,
+        };
+        if (Number.isFinite(score)) fallback.priorityScore = score;
+        for (const id of ids) {
+            const task = getTaskLikeForTitleOpacity(id, fallback);
+            if (task && typeof task === 'object') {
+                if ((task.done !== true && fallback.done === true) || (fallback.pinned === true && task.pinned !== true)) {
+                    return { ...task, ...(fallback.done === true ? { done: true } : {}), ...(fallback.pinned === true ? { pinned: true } : {}) };
+                }
+                return task;
+            }
+        }
+        return Number.isFinite(score) ? fallback : null;
     }
 
     function reinforceCalendarTaskTitleVisualColor(titleEl) {
@@ -3003,6 +3047,16 @@
         return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
     }
 
+    // Return the ISO-8601 week number for a local calendar date.
+    function getIsoWeekNumber(date) {
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 0;
+        const value = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const day = value.getUTCDay() || 7;
+        value.setUTCDate(value.getUTCDate() + 4 - day);
+        const yearStart = new Date(Date.UTC(value.getUTCFullYear(), 0, 1));
+        return Math.ceil((((value - yearStart) / 86400000) + 1) / 7);
+    }
+
     const TM_CN_LUNAR_DAY_NAMES = [
         '', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
         '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
@@ -4164,6 +4218,27 @@
         return true;
     }
 
+    function applyCalendarEventTaskTitleOpacity(eventEl, eventApi) {
+        const el = eventEl instanceof HTMLElement ? eventEl : null;
+        const event = eventApi || null;
+        if (!el || !event) return false;
+        const ext = event.extendedProps || {};
+        const source = String(ext.__tmSource || '').trim();
+        if (source !== 'schedule' && source !== 'taskdate') return false;
+        const taskId = String(ext.__tmTaskId || ext.__tmBlockId || ext.__tmSourceTaskId || '').trim();
+        if (!taskId) return false;
+        const taskLike = getCalendarEventTaskLikeForTitle(event);
+        if (!taskLike) return false;
+        let touched = false;
+        try {
+            el.querySelectorAll?.('.tm-cal-task-event-title-text, .tm-cal-task-event-title, .tm-legacy-calendar-event-title, .tm-legacy-calendar-list-event-title, .tm-proto-event-title, .tm-proto-span-title, .tm-kanban-card-title-inline')?.forEach?.((node) => {
+                if (!(node instanceof HTMLElement)) return;
+                touched = applyTaskTitleOpacityFromTask(node, taskLike) || touched;
+            });
+        } catch (e) {}
+        return touched;
+    }
+
     function getCalendarUpdateSizeSignature(calendar, rootEl, scope) {
         const target = rootEl instanceof HTMLElement ? rootEl : null;
         const name = String(scope || (calendar === state.sideDay?.calendar ? 'side' : 'main')).trim() || 'main';
@@ -4387,6 +4462,7 @@
                 try { applyCalendarMonthTimedEventColorVars(eventEl, getCalendarEventColor(eventApi, 'var(--tm-primary-color)')); } catch (e) {}
                 try { bindCalendarMonthTimedEventTitleOpen(eventEl, { event: eventApi, view: getCalendarView(targetCalendar) }); } catch (e) {}
             }
+            try { applyCalendarEventTaskTitleOpacity(eventEl, eventApi); } catch (e) {}
             const allDayLike = eventApi?.allDay === true || eventEl.classList.contains('tm-calendar-legacy-daygrid-event') || !!eventEl.closest('.tm-legacy-calendar-popover');
             if (!nativeMonthTimed && allDayLike && (source === 'schedule' || source === 'taskdate' || source === 'tomato')) {
                 try { eventEl.classList.add('tm-cal-allday-soft-event'); } catch (e) {}
@@ -4405,6 +4481,7 @@
             }
             try { normalizeAllDayEventContentLayout(eventEl); } catch (e) {}
             try { applyCalendarEventClampFromRoot(eventEl); } catch (e) {}
+            try { applyCalendarEventTaskTitleOpacity(eventEl, eventApi); } catch (e) {}
             touched = true;
         });
         return touched;
@@ -5314,6 +5391,7 @@
                 try {
                     const titleText = wrapEl.querySelector?.('.tm-cal-task-event-title-text') || null;
                     await handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, taskLikeId, {
+                        jsEvent: ev,
                         allDay: eventApi?.allDay === true,
                         viewType: String(arg?.view?.type || '').trim(),
                         eventApi,
@@ -5599,6 +5677,7 @@
                     try { ev.stopPropagation(); } catch (e) {}
                     try {
                         await handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, tid, {
+                            jsEvent: ev,
                             allDay: arg?.event?.allDay === true,
                             viewType,
                             eventApi: arg?.event || null,
@@ -5684,6 +5763,7 @@
                     try { ev.stopPropagation(); } catch (e) {}
                     try {
                         await handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, tid, {
+                            jsEvent: ev,
                             allDay: arg?.event?.allDay === true,
                             viewType,
                             eventApi: arg?.event || null,
@@ -5722,6 +5802,14 @@
             const el = arg?.el;
             if (el && el instanceof Element) {
                 markCalendarEngineEvent(arg, options);
+                try { applyCalendarEventTaskTitleOpacity(el, arg?.event); } catch (e0) {}
+                try {
+                    requestAnimationFrame(() => {
+                        try { applyCalendarEventTaskTitleOpacity(el, arg?.event); } catch (e1) {}
+                    });
+                } catch (e1) {
+                    try { setTimeout(() => applyCalendarEventTaskTitleOpacity(el, arg?.event), 0); } catch (e2) {}
+                }
             }
             if (source === 'schedule') {
                 const sid = String(ext.__tmScheduleId || '').trim();
@@ -6544,6 +6632,10 @@
         const checkboxCircle = (settings || getSettings())?.taskCheckboxCircleStyleEnabled === true;
         const isBuiltinSchedule = isCalendarBuiltinScheduleEvent(ext);
         const title = esc(String(eventApi?.title || ext.__tmTaskTitleMarkdown || '').trim() || '未命名事件');
+        const titleVisualStyle = typeof buildTaskTitleOpacityStyleForTask === 'function'
+            && typeof getCalendarEventTaskLikeForTitle === 'function'
+            ? buildTaskTitleOpacityStyleForTask(getCalendarEventTaskLikeForTitle(eventApi))
+            : '';
         const start = eventApi?.start instanceof Date ? eventApi.start : new Date(eventApi?.start || '');
         const end = eventApi?.end instanceof Date ? eventApi.end : new Date(eventApi?.end || '');
         const compactMonth = String(options?.viewType || '').trim() === 'dayGridMonth'
@@ -6569,7 +6661,7 @@
             `tm-proto-event--${mode}`,
             source ? `tm-proto-event--${source}` : '',
             checkboxCircle ? 'tm-proto-event--checkbox-circle' : 'tm-proto-event--checkbox-rect',
-            isBuiltinSchedule ? 'tm-proto-event--calendar-builtin' : '',
+            isBuiltinSchedule && !showCheck ? 'tm-proto-event--calendar-builtin' : '',
             extraClass,
             done ? 'is-done' : '',
         ].filter(Boolean).join(' ');
@@ -6582,9 +6674,9 @@
             ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>`
             : '';
         if (mode === 'block') {
-            return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="--tm-proto-event-color:${color}"><span class="tm-proto-event-copy"><span class="tm-proto-event-title-row">${check}<span class="tm-proto-event-title">${title}</span>${recurringIcon}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${handles}</div>`;
+            return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="--tm-proto-event-color:${color}"><span class="tm-proto-event-copy"><span class="tm-proto-event-title-row">${check}<span class="tm-proto-event-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${handles}</div>`;
         }
-        return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="--tm-proto-event-color:${color}">${check}<span class="tm-proto-event-copy"><span class="tm-proto-event-title">${title}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta && mode !== 'allday' ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${recurringIcon}${handles}</div>`;
+        return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="--tm-proto-event-color:${color}">${check}<span class="tm-proto-event-copy"><span class="tm-proto-event-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta && mode !== 'allday' ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${recurringIcon}${handles}</div>`;
     }
 
     function resolveSharedPrototypeEventEnd(eventApi) {
@@ -6837,6 +6929,11 @@
         pop.style.top = `${Math.round(top)}px`;
         pop.querySelectorAll('[data-tm-proto-event]').forEach((eventEl) => {
             eventEl.addEventListener('click', (event) => {
+                if (event.target instanceof HTMLInputElement && event.target.type === 'checkbox') {
+                    event.stopPropagation();
+                    callCalendarAdapter(activeCalendar, 'dispatchEventClick', getCalendarEventIdFromElement(eventEl), event, eventEl);
+                    return;
+                }
                 event.preventDefault();
                 event.stopPropagation();
                 const eventId = getCalendarEventIdFromElement(eventEl);
@@ -6870,7 +6967,8 @@
         day.setHours(0, 0, 0, 0);
         const nextDay = new Date(day.getTime());
         nextDay.setDate(nextDay.getDate() + 1);
-        const renderIndex = segment && Number.isFinite(Number(segment.renderIndex)) ? Number(segment.renderIndex) : 0;
+        const renderIndex = segment && Number.isFinite(Number(segment.renderIndex))
+            ? Number(segment.renderIndex) : (Number(segment?.segmentStartIndex) || 0);
         const eventStartIndex = segment && Number.isFinite(Number(segment.eventStartIndex)) ? Number(segment.eventStartIndex) : 0;
         const segmentStartIndex = segment && Number.isFinite(Number(segment.segmentStartIndex)) ? Number(segment.segmentStartIndex) : renderIndex;
         const segmentEndIndex = segment && Number.isFinite(Number(segment.segmentEndIndex)) ? Number(segment.segmentEndIndex) : segmentStartIndex + 1;
@@ -6890,7 +6988,7 @@
             ? (segment.continuesAfter === true || segmentEndIndex < (Number(segment.eventEndIndex) || segmentEndIndex))
             : !visualEnd;
         const canResizeRange = ext.__tmTaskDateScheduleSplit !== true && !continuesBefore && !continuesAfter;
-        const showCheck = !continuation && shouldShowCalendarEventCheckbox(ext, {
+        const showCheck = (!segment || renderIndex === segmentStartIndex) && shouldShowCalendarEventCheckbox(ext, {
             viewType: String(viewType || '').trim(),
             compactMonth: compactMonth === true,
         });
@@ -6903,7 +7001,7 @@
         const classes = [
             'tm-proto-span-bar',
             checkboxCircle ? 'tm-proto-event--checkbox-circle' : 'tm-proto-event--checkbox-rect',
-            isBuiltinSchedule ? 'tm-proto-event--calendar-builtin' : '',
+            isBuiltinSchedule && !showCheck ? 'tm-proto-event--calendar-builtin' : '',
             segmentStart ? 'is-start' : '',
             continuation ? 'is-continuation' : '',
             visualEnd ? 'is-end' : '',
@@ -6917,7 +7015,7 @@
         return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="${layoutStyle}--tm-proto-event-color:${color}">`
             + `${canResizeRange && segmentStart ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
             + `${continuesBefore ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--start" aria-hidden="true">&lt;</span>' : ''}`
-            + `${showCheck && segmentStart ? `<input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务">` : ''}`
+            + `${showCheck ? `<input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务">` : ''}`
             // The day panel has one card for the selected day, not the
             // repeated month/week segments. Keep the task name visible even
             // when the event continues in from the previous day.
@@ -7254,7 +7352,13 @@
         const allDayToggle = buildSharedPrototypeAllDayToggleMarkup({ actionAttr, action: toggleAction, collapsed: allDayCollapsed });
         const timelineClass = ['tm-proto-view', 'tm-proto-timeline', options.timelineClass || ''].filter(Boolean).join(' ');
         const compactHeader = settings.showLunar !== true;
-        const headerMarkup = showHeader ? `<div class="tm-proto-timeline-head${compactHeader ? ' tm-proto-timeline-head--compact' : ''}"><span class="tm-proto-axis-corner"></span>${header}</div>` : '';
+        const viewType = String(options.viewType || '').trim();
+        const showWeekNumber = showHeader && (viewType === 'timeGridWeek' || viewType === 'timeGridWorkdays');
+        const weekNumber = showWeekNumber ? getIsoWeekNumber(firstDay) : 0;
+        const axisCorner = showWeekNumber
+            ? `<span class="tm-proto-axis-corner tm-proto-axis-corner--week" aria-label="第${weekNumber}周">W${String(weekNumber).padStart(2, '0')}</span>`
+            : '<span class="tm-proto-axis-corner"></span>';
+        const headerMarkup = showHeader ? `<div class="tm-proto-timeline-head${compactHeader ? ' tm-proto-timeline-head--compact' : ''}">${axisCorner}${header}</div>` : '';
         // The docked day panel adds a second grid column for its axis label.
         // Main week/day/3-day timelines already own the full axis + day grid;
         // applying the panel class there collapses the all-day lane to two
@@ -17037,6 +17141,9 @@
                     skipFlush: true,
                     requireTaskIdentity: true,
                     ignoreMissingTask: true,
+                    // This follow-up owns the partial-success warning. The
+                    // task queue must not also report the whole drag as failed.
+                    showErrorHint: false,
                 });
                 if (result?.skipped === true) {
                     forgetPendingTaskDateEventPatch(pendingTaskId);
@@ -17178,12 +17285,12 @@
             rangeStart: mutationResult.rangeStart,
             rangeEnd: mutationResult.rangeEnd,
         });
-        await syncTaskDatesAfterScheduleMutation([mutationResult.item, mutationResult.parentItem], {
+        const dateFollow = await syncTaskDatesAfterScheduleMutation([mutationResult.item, mutationResult.parentItem], {
             list,
             refresh: false,
         });
         refreshScheduleAfterMutationResult(mutationResult, reason);
-        return { saved: true, item: mutationResult.item, recurring: repeatType !== 'none' };
+        return { saved: true, item: mutationResult.item, recurring: repeatType !== 'none', dateFollowFailed: dateFollow?.failed === true };
     }
 
     function parseTaskDurationMinutes(raw) {
@@ -17491,6 +17598,11 @@
 
     function applyTaskDoneVisual(wrapEl, titleEl, done) {
         const v = !!done;
+        const prototypeEvent = wrapEl?.closest?.('[data-tm-proto-event]');
+        if (prototypeEvent) {
+            prototypeEvent.classList.toggle('is-done', v);
+            return;
+        }
         try { wrapEl?.classList?.toggle?.('tm-cal-task-event--done', v); } catch (e) {}
         let eventEl = null;
         try {
@@ -17609,6 +17721,7 @@
         const source = String(ext?.__tmSource || '').trim();
         if (source === 'reminder') return ext?.__tmReminderDone === true;
         if (!(source === 'taskdate' || source === 'schedule')) return false;
+        if (source === 'taskdate' && isRecurringTaskDateReadOnlyOccurrence(ext)) return ext?.__tmTaskDone === true;
         if (source === 'schedule' && ext?.__tmVirtualTaskSchedule === true) return true;
         if (isDetachedTaskOccurrenceEventExt(ext) || isDetachedScheduleOccurrenceEventExt(ext)) return ext?.__tmScheduleOccurrenceDone === true;
         const tid = String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
@@ -17617,9 +17730,17 @@
         if (Object.prototype.hasOwnProperty.call(opt, 'taskDoneOverride')) {
             taskDone = !!opt.taskDoneOverride;
         } else if (tid && typeof window.tmIsTaskDone === 'function') {
-            try { taskDone = !!window.tmIsTaskDone(tid); } catch (e) { taskDone = false; }
-        }
-        if (!taskDone && source === 'taskdate' && Object.prototype.hasOwnProperty.call(ext || {}, '__tmTaskDone')) {
+            // Cache invalidation is not an uncomplete. Retain the last known
+            // presentation until a live task supplies an explicit boolean.
+            taskDone = ext?.__tmTaskDone === true;
+            try {
+                const liveDone = window.tmIsTaskDone(tid, { unknownValue: null });
+                if (typeof liveDone === 'boolean') {
+                    taskDone = liveDone;
+                    ext.__tmTaskDone = liveDone;
+                }
+            } catch (e) {}
+        } else if (source === 'taskdate' && Object.prototype.hasOwnProperty.call(ext || {}, '__tmTaskDone')) {
             taskDone = ext?.__tmTaskDone === true;
         }
         if (taskDone) return true;
@@ -17686,6 +17807,10 @@
         const tid = String(taskId || '').trim();
         const opt = (options && typeof options === 'object') ? options : {};
         const nextDone = cb.checked === true;
+        // Multiple document capture listeners still receive the same event
+        // after stopPropagation. Claim it before any asynchronous write.
+        if (opt.jsEvent?.__tmCalendarCheckboxHandled === true) return false;
+        if (opt.jsEvent) opt.jsEvent.__tmCalendarCheckboxHandled = true;
         let applied = false;
         applyTaskDoneVisual(wrapEl, titleText, nextDone);
         try {
@@ -17705,12 +17830,12 @@
                 if (!scheduleId || !Number.isFinite(occurrenceStartMs) || typeof setter !== 'function') {
                     throw new Error('日程实例状态接口不可用');
                 }
-                const result = setter(scheduleId, occurrenceStartMs, nextDone, {
+                const result = await setter(scheduleId, occurrenceStartMs, nextDone, {
                     source: 'calendar-checkbox',
                     detachedTaskOccurrence: isDetachedTaskOccurrenceEventExt(ext),
                     detachedScheduleOccurrence: isDetachedScheduleOccurrenceEventExt(ext),
                 });
-                if (result && typeof result.then === 'function') await result;
+                if (result === false) throw new Error('循环实例状态未保存');
                 applied = true;
                 return true;
             }
@@ -17721,10 +17846,10 @@
                 if (!scheduleId || !Number.isFinite(occurrenceStartMs) || typeof setter !== 'function') {
                     throw new Error('日程实例状态接口不可用');
                 }
-                const result = setter(scheduleId, occurrenceStartMs, nextDone, {
+                const result = await setter(scheduleId, occurrenceStartMs, nextDone, {
                     source: 'calendar-checkbox',
                 });
-                if (result && typeof result.then === 'function') await result;
+                if (result === false) throw new Error('循环实例状态未保存');
                 applied = true;
                 return true;
             }
@@ -17733,13 +17858,13 @@
                 if (!tid || !completedAt || typeof window.tmSetDetachedTaskRepeatHistoryEntry !== 'function') {
                     throw new Error('循环记录撤销接口不可用');
                 }
-                const result = window.tmSetDetachedTaskRepeatHistoryEntry(tid, false, { completedAt }, {
+                const result = await window.tmSetDetachedTaskRepeatHistoryEntry(tid, false, { completedAt }, {
                     source: 'calendar-recurring-instance-uncomplete',
                     refresh: true,
                     refreshCalendar: true,
                     withFilters: true,
                 });
-                if (result && typeof result.then === 'function') await result;
+                if (result === false) throw new Error('循环实例状态未保存');
                 applied = true;
                 return true;
             }
@@ -17749,8 +17874,8 @@
             const scheduleId = source === 'schedule'
                 ? String(ext?.__tmScheduleId || '').trim()
                 : '';
-            const result = window.tmSetDone(tid, nextDone, null, { source: 'calendar', scheduleId });
-            if (result && typeof result.then === 'function') await result;
+            const result = await window.tmSetDone(tid, nextDone, null, { source: 'calendar', scheduleId, wait: true });
+            if (result === false) throw new Error('任务完成状态未保存');
             applied = true;
             return true;
         } catch (e) {
@@ -17762,9 +17887,9 @@
                 allDay: opt.allDay === true,
                 extendedProps: ext,
             }, getSettings(), { viewType: opt.viewType, taskDoneOverride: true })) {
-                try { opt.eventApi?.remove?.(); } catch (e2) {}
-                try { cb.closest?.('.tm-legacy-calendar-event')?.remove?.(); } catch (e2) {}
-                try { refetchAllCalendars({ reason: 'completed-all-day-visibility', flushTaskPanel: false }); } catch (e2) {}
+                // Keep the event in the store so undo/uncomplete can reveal it
+                // locally. Visibility changes only require a layout update.
+                collectCalendarsForTaskSync().forEach((cal) => queueTaskDateCalendarRender(cal));
             }
         }
     }
@@ -17801,6 +17926,9 @@
             && (runtimeState.isMobileDevice === true || runtimeState.isDockHost === true || runtimeState.compactMonthView === true || compactMonthOption)) {
             return false;
         }
+        // Recurring schedules own an occurrence completion state even when
+        // they are not linked to a task block.
+        if (isRecurringScheduleEventExt(ext) || isDetachedTaskOccurrenceEventExt(ext) || isDetachedScheduleOccurrenceEventExt(ext)) return true;
         if (isCalendarBuiltinScheduleEvent(ext)) return false;
         if (ext?.__tmTaskDateReadOnly === true) return resolveCalendarEventDoneState(ext) === true;
         if (!isOtherBlockCalendarEvent(ext)) return true;
@@ -19724,7 +19852,6 @@
                     }
                     const check = target?.closest?.('[data-tm-proto-check]');
                     if (check) {
-                        event.preventDefault();
                         event.stopPropagation();
                         const id = String(check.getAttribute('data-tm-proto-check') || '').trim();
                         const activeCalendar = state.sideDay?.calendar || cal;
@@ -20635,6 +20762,7 @@
                             const titleEl = eventWrap?.querySelector?.('.tm-proto-event-title, .tm-proto-span-title, .tm-cal-task-event-title-text, .tm-cal-task-event-title') || eventWrap;
                             const taskId = String(extForCheckbox?.__tmTaskId || extForCheckbox?.__tmBlockId || extForCheckbox?.__tmReminderBlockId || '').trim();
                             void handleCalendarEventCheckboxToggle(checkboxEl, eventWrap, titleEl, extForCheckbox, taskId, {
+                                jsEvent,
                                 allDay: activeEvent?.allDay === true,
                                 viewType: String(getCalendarView(cal)?.type || '').trim(),
                                 eventApi: activeEvent,
@@ -20753,7 +20881,7 @@
                             return;
                         }
                         settleSidePrototypeCommittedDrag(arg);
-                        toast('✅ 已更新日程', 'success');
+                        if (!result?.dateFollowFailed) toast('✅ 已更新日程', 'success');
                     } catch (e) {
                         clearSidePrototypeCommittedDrag(arg?.event?.id, Number(arg?.jsEvent?.__tmSidePrototypeCommitToken) || 0);
                         try { arg.revert(); } catch (e2) {}
@@ -20815,7 +20943,7 @@
                         return;
                     }
                     settleSidePrototypeCommittedDrag(arg);
-                    toast('✅ 已更新日程', 'success');
+                    if (!result?.dateFollowFailed) toast('✅ 已更新日程', 'success');
                 } catch (e) {
                     clearSidePrototypeCommittedDrag(arg?.event?.id, Number(arg?.jsEvent?.__tmSidePrototypeCommitToken) || 0);
                     try { arg.revert(); } catch (e2) {}
@@ -21342,6 +21470,12 @@
             const linkedTaskRecurring = (() => {
                 try { return isCalendarTaskRecurringSnapshot(getCalendarTaskSnapshotById(taskLikeId)); } catch (e) { return false; }
             })();
+            const linkedTaskSnapshot = (() => {
+                try { return getCalendarTaskSnapshotById(sourceTaskId || taskLikeId); } catch (e) { return null; }
+            })();
+            const linkedPriorityScore = Number(it?.priorityScore ?? linkedTaskSnapshot?.priorityScore);
+            const linkedTaskPinned = [it?.pinned, it?.custom_pinned, linkedTaskSnapshot?.pinned, linkedTaskSnapshot?.custom_pinned]
+                .some((value) => value === true || value === 1 || ['1', 'true', 'yes'].includes(String(value || '').trim().toLowerCase()));
             const linkedTitle = (linkedTaskTitleMap instanceof Map)
                 ? String((taskId ? linkedTaskTitleMap.get(taskId) : '') || (blockId ? linkedTaskTitleMap.get(blockId) : '') || '').trim()
                 : '';
@@ -21461,6 +21595,8 @@
                         __tmScheduleColorExplicit: !!rawColor,
                         __tmCalendarName: String(defMap.get(calendarId)?.name || '').trim(),
                         __tmPriority: String(it?.priority || it?.custom_priority || '').trim(),
+                        __tmPriorityScore: Number.isFinite(linkedPriorityScore) ? linkedPriorityScore : undefined,
+                        __tmTaskPinned: linkedTaskPinned,
                         calendarId,
                     },
                 };
@@ -21528,8 +21664,8 @@
 
     function __tmSetCalendarEventDatesIfChanged(eventApi, start, end, allDay) {
         if (!eventApi || typeof eventApi.setDates !== 'function') return false;
-        const nextStartMs = toMs(start);
-        const nextEndMs = toMs(end);
+        const nextStartMs = toMs(globalThis.__tmCalendarDate?.toDate?.(start) || start);
+        const nextEndMs = toMs(globalThis.__tmCalendarDate?.toDate?.(end) || end);
         const currentStartMs = toMs(eventApi.start);
         const currentEndMs = toMs(eventApi.end);
         const sameDates = Number.isFinite(nextStartMs)
@@ -21561,6 +21697,8 @@
             '__tmTaskDateReadOnly',
             '__tmTaskDone',
             '__tmSourceTaskId',
+            '__tmPriorityScore',
+            '__tmTaskPinned',
             '__tmRank',
             '__tmReminderMode',
             '__tmReminderEnabled',
@@ -21960,9 +22098,9 @@
                     const currentExt = eventApi?.extendedProps || {};
                     const nextExt = nextEvent?.extendedProps || {};
                     const currentStart = toMs(eventApi?.start);
-                    const nextStart = toMs(nextEvent?.start);
+                    const nextStart = toMs(globalThis.__tmCalendarDate?.toDate?.(nextEvent?.start) || nextEvent?.start);
                     const currentEnd = toMs(eventApi?.end);
-                    const nextEnd = toMs(nextEvent?.end);
+                    const nextEnd = toMs(globalThis.__tmCalendarDate?.toDate?.(nextEvent?.end) || nextEvent?.end);
                     const currentColor = getCalendarEventColor(eventApi, '');
                     const nextColor = getCalendarEventInputColor(nextEvent, '');
                     const currentClassName = Array.isArray(eventApi?.classNames)
@@ -21979,6 +22117,8 @@
                         '__tmTaskDateSourceStartKey',
                         '__tmTaskDateSourceCompletionKey',
                         '__tmTaskDateColor',
+                        '__tmPriorityScore',
+                        '__tmTaskPinned',
                         '__tmTaskDateMilestone',
                         '__tmTaskDone',
                         '__tmDocId',
@@ -22007,10 +22147,7 @@
                 });
             };
             try {
-                state.calendarSourceRefetchInFlight[calendarKey] = Math.max(
-                    0,
-                    Number(state.calendarSourceRefetchInFlight[calendarKey]) || 0,
-                ) + 1;
+                state.calendarSourceRefetchInFlight[calendarKey] = 1;
                 if (callCalendarAdapter(cal, 'batchRendering', apply) !== true) apply();
                 // Keep the marker through CalendarEngine's synchronous eventsSet hook,
                 // then release it on the next task so no layout pass is scheduled.
@@ -22183,6 +22320,12 @@
             const actionTaskId = sourceTaskId || taskId;
             const title = String(it?.title || '').trim() || '任务';
             const titleMarkdown = String(it?.titleMarkdown || it?.markdown || title).trim() || title;
+            const taskSnapshot = (() => {
+                try { return getCalendarTaskSnapshotById(sourceTaskId || taskId); } catch (e) { return null; }
+            })();
+            const taskPriorityScore = Number(it?.priorityScore ?? taskSnapshot?.priorityScore);
+            const taskPinned = [it?.pinned, it?.custom_pinned, taskSnapshot?.pinned, taskSnapshot?.custom_pinned]
+                .some((value) => value === true || value === 1 || ['1', 'true', 'yes'].includes(String(value || '').trim().toLowerCase()));
             const sourceStartKey = String(it?.sourceStart || '').trim();
             const sourceCompletionKey = String(it?.sourceCompletion || '').trim();
             const isMilestone = it?.milestone === true;
@@ -22277,6 +22420,8 @@
                     __tmDocId: docId,
                     __tmCalendarName: String(defMap.get(calendarId)?.name || '').trim(),
                     __tmPriority: String(it?.priority || it?.custom_priority || '').trim(),
+                    __tmPriorityScore: Number.isFinite(taskPriorityScore) ? taskPriorityScore : undefined,
+                    __tmTaskPinned: taskPinned,
                     calendarId,
                 },
             };
@@ -22414,10 +22559,9 @@
         } catch (e) {}
         try {
             if (state.calendarSourceRefetchInFlight) {
-                state.calendarSourceRefetchInFlight[key] = Math.max(
-                    0,
-                    (Number(state.calendarSourceRefetchInFlight[key]) || 0) - 1,
-                );
+                // This is a coalesced render-suppression window. Its shared
+                // timer releases the entire burst, not just one mutation.
+                state.calendarSourceRefetchInFlight[key] = 0;
             }
         } catch (e) {}
     }
@@ -22429,8 +22573,19 @@
         const source = String(ext.__tmSource || '').trim();
         if (!jsEvent || !event || !shouldEnableCalendarEventContextMenu()) return false;
         try { jsEvent.preventDefault?.(); jsEvent.stopPropagation?.(); } catch (e) {}
-        const tid = String(ext.__tmTaskId || ext.__tmBlockId || '').trim();
+        const listTaskCard = arg?.el instanceof Element
+            ? arg.el.closest?.('.tm-proto-list-task-card')
+            : null;
+        const listTaskId = String(listTaskCard?.getAttribute?.('data-tm-proto-list-task-id') || '').trim();
+        const sourceTaskId = String(ext.__tmSourceTaskId || '').trim();
+        const prefersSourceTask = ext.__tmTaskDateReadOnly === true || /^repeatinst:/.test(listTaskId);
+        const tid = (prefersSourceTask && sourceTaskId)
+            || listTaskId
+            || String(ext.__tmTaskDateEventTaskId || ext.__tmTaskId || ext.__tmBlockId || sourceTaskId || '').trim();
         const sid = String(ext.__tmScheduleId || '').trim();
+        const taskLike = typeof getCalendarEventTaskLikeForTitle === 'function'
+            ? getCalendarEventTaskLikeForTitle(event)
+            : null;
         try {
             if (source === 'schedule' && sid) {
                 if (tid && typeof window.tmShowTaskContextMenu === 'function') {
@@ -22443,6 +22598,7 @@
                         allDayBottom: ext.__tmAllDayBottom === true,
                         occurrenceStartMs: ext.__tmOccurrenceStartMs,
                         repeatType: ext.__tmRepeatType,
+                        task: taskLike,
                     });
                 } else {
                     showScheduleEventContextMenu(jsEvent, {
@@ -22460,13 +22616,14 @@
                 return true;
             }
             if ((source === 'taskdate' || source === 'reminder') && tid && typeof window.tmShowTaskContextMenu === 'function') {
-                window.tmShowTaskContextMenu(jsEvent, tid, source === 'taskdate'
+                const taskDateExtra = source === 'taskdate'
                     ? buildCalendarTaskDateContextPayload(arg, ext, {})
-                    : undefined);
+                    : {};
+                window.tmShowTaskContextMenu(jsEvent, tid, { ...taskDateExtra, task: taskLike });
                 return true;
             }
             if (tid && typeof window.tmShowTaskContextMenu === 'function') {
-                window.tmShowTaskContextMenu(jsEvent, tid);
+                window.tmShowTaskContextMenu(jsEvent, tid, { task: taskLike });
                 return true;
             }
         } catch (e) {}
@@ -22496,10 +22653,7 @@
             if (!state.calendarSourceRefetchInFlight) {
                 state.calendarSourceRefetchInFlight = { main: 0, side: 0 };
             }
-            state.calendarSourceRefetchInFlight[key] = Math.max(
-                0,
-                Number(state.calendarSourceRefetchInFlight[key]) || 0,
-            ) + 1;
+            state.calendarSourceRefetchInFlight[key] = 1;
         } catch (e) {}
         return key;
     }
@@ -22524,7 +22678,7 @@
                 const inFlight = state.calendarSourceRefetchInFlight && typeof state.calendarSourceRefetchInFlight === 'object'
                     ? state.calendarSourceRefetchInFlight
                     : (state.calendarSourceRefetchInFlight = { main: 0, side: 0 });
-                inFlight[calendarKey] = Math.max(0, Number(inFlight[calendarKey]) || 0) + 1;
+                inFlight[calendarKey] = 1;
             }
             source.refetch();
             // Source-only loads intentionally do not run the global loading
@@ -22537,10 +22691,7 @@
             try {
                 const calendarKey = cal === state.calendar ? 'main' : (cal === state.sideDay?.calendar ? 'side' : '');
                 if (calendarKey && state.calendarSourceRefetchInFlight) {
-                    state.calendarSourceRefetchInFlight[calendarKey] = Math.max(
-                        0,
-                        (Number(state.calendarSourceRefetchInFlight[calendarKey]) || 0) - 1,
-                    );
+                    state.calendarSourceRefetchInFlight[calendarKey] = 0;
                 }
             } catch (e2) {}
             return false;
@@ -22607,6 +22758,8 @@
             '__tmTaskDateSourceStartKey',
             '__tmTaskDateSourceCompletionKey',
             '__tmTaskDateColor',
+            '__tmPriorityScore',
+            '__tmTaskPinned',
             '__tmTaskDateMilestone',
             '__tmTaskDateReadOnly',
             '__tmScheduledTaskDayKeys',
@@ -27351,14 +27504,33 @@
         }
     }
 
-    function applyRenderedEventDoneStateById(eventId, done) {
+    function applyRenderedEventDoneStateById(eventId, done, options = {}) {
         const eid = String(eventId || '').trim();
         if (!eid) return false;
-        // Prototype events are rendered from the event store; repaint both
-        // visible surfaces instead of mutating layout-anchor bookkeeping.
-        try { state.queuePrototypeSurfaceRender?.(); } catch (e) {}
-        try { state.sideDay?.prototypeRender?.(); } catch (e) {}
-        return true;
+        const roots = new Set();
+        if (options.main !== false) {
+            roots.add(state.wrapEl || state.rootEl);
+            roots.add(state.__tmPrototypeMorePopover?.el);
+        }
+        if (options.side !== false) roots.add(state.sideDay?.rootEl);
+        // Month fragments and open overflow popovers share the real event ID.
+        const selector = `[data-tm-proto-event="${CSS.escape(eid)}"], [data-tm-cal-event-id="${CSS.escape(eid)}"]`;
+        let touched = false;
+        roots.forEach((root) => {
+            if (!(root instanceof HTMLElement)) return;
+            root.querySelectorAll(selector).forEach((node) => {
+                if (node.closest('.tm-proto-list')) return;
+                node.classList.toggle('is-done', !!done);
+                node.querySelectorAll('.tm-proto-event-check, .tm-cal-task-event-check').forEach((checkbox) => {
+                    checkbox.checked = !!done;
+                });
+                if (node.classList.contains('tm-legacy-calendar-event')) {
+                    applyTaskDoneVisual(node, node.querySelector('.tm-cal-task-event-title-text'), done);
+                }
+                touched = true;
+            });
+        });
+        return touched;
     }
 
     function syncTaskPriorityInPlace(taskId, options = {}) {
@@ -27387,7 +27559,6 @@
         const opt = (options && typeof options === 'object') ? options : {};
         const nextDone = !!done;
         let touched = false;
-        let needsRefetch = false;
         const calendars = [];
         if (opt.main !== false && state.calendar) calendars.push(state.calendar);
         if (opt.side !== false && state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) {
@@ -27395,33 +27566,36 @@
         }
         calendars.forEach((cal) => {
             const events = findCalendarEventsByTaskId(cal, tid);
+            let visibilityChanged = false;
             events.forEach((eventApi) => {
                 const ext = eventApi?.extendedProps || {};
                 const source = String(ext.__tmSource || '').trim();
-                if (source === 'taskdate') {
-                    try { eventApi.setExtendedProp?.('__tmTaskDone', nextDone); } catch (e) {}
-                    const resolvedDone = resolveCalendarEventDoneState(eventApi?.extendedProps || ext, { taskDoneOverride: nextDone });
-                    if (applyRenderedEventDoneStateById(eventApi?.id, resolvedDone)) touched = true;
-                    return;
+                const previousDone = Object.prototype.hasOwnProperty.call(ext, '__tmTaskDone')
+                    ? ext.__tmTaskDone === true : !nextDone;
+                if ((source === 'taskdate' || source === 'schedule') && !isRecurringTaskDateReadOnlyOccurrence(ext)) {
+                    // This presentation field does not change event geometry.
+                    // setExtendedProp emits eventsSet and redraws all-day lanes.
+                    ext.__tmTaskDone = nextDone;
                 }
                 const resolvedDone = resolveCalendarEventDoneState(ext, { taskDoneOverride: nextDone });
-                if (applyRenderedEventDoneStateById(eventApi?.id, resolvedDone)) touched = true;
+                if (applyRenderedEventDoneStateById(eventApi?.id, resolvedDone, opt)) touched = true;
+                const settings = getSettings();
+                visibilityChanged = visibilityChanged
+                    || shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { taskDoneOverride: previousDone })
+                        !== shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { taskDoneOverride: nextDone });
             });
+            const listView = isCalendarListViewType(String(getCalendarView(cal)?.type || ''));
+            if (listView && cal === state.calendar) {
+                // List cards also include status, completion dates and child counts.
+                state.queuePrototypeSurfaceRender?.({ taskDoneChanged: true });
+                touched = true;
+            } else if (visibilityChanged) {
+                queueTaskDateCalendarRender(cal);
+                touched = true;
+            }
         });
         if (opt.flushTaskPanel !== false && state.wrapEl instanceof HTMLElement) {
             try { scheduleTaskPageRender(state.wrapEl, getSettings()); } catch (e) {}
-        }
-        if (needsRefetch && opt.allowRefetch !== false) {
-            try {
-                scheduleCalendarRefresh({
-                    reason: 'sync-task-done-fallback',
-                    main: true,
-                    side: true,
-                    flushTaskPanel: true,
-                    hard: false,
-                });
-            } catch (e) {}
-            return true;
         }
         return touched;
     }
@@ -28129,8 +28303,9 @@
         let renderPrototypeSurface = () => {};
         let syncPrototypeDragElement = () => {};
         let syncPrototypeDayPanelDragGeometry = () => {};
-        const queuePrototypeSurfaceRender = () => {
+        const queuePrototypeSurfaceRender = (options = {}) => {
             if (!(prototypeSurface instanceof HTMLElement)) return;
+            if (options.taskDoneChanged === true) prototypeLastRenderKey = '';
             try { scheduleMainNowIndicatorRefresh(); } catch (e) {}
             if (prototypeRenderRaf) return;
             const run = () => {
@@ -28151,6 +28326,13 @@
             try { prototypeRenderRaf = requestAnimationFrame(run); } catch (e) { run(); }
         };
         state.queuePrototypeSurfaceRender = queuePrototypeSurfaceRender;
+        state.refreshTaskPinned = () => {
+            prototypeLastRenderKey = '';
+            prototypeLastEventSnapshot = null;
+            queuePrototypeSurfaceRender();
+            try { state.sideDay?.prototypeRender?.(); } catch (e) {}
+            return true;
+        };
         const schedulePrototypeMonthAdaptiveMeasure = () => {
             // The virtual strip owns its row budget from the fixed canvas
             // geometry; painted-cell measurement would fight it every frame.
@@ -28446,6 +28628,11 @@
             pop.style.top = `${Math.round(top)}px`;
             pop.querySelectorAll('[data-tm-proto-event]').forEach((eventEl) => {
                 eventEl.addEventListener('click', (event) => {
+                    if (event.target instanceof HTMLInputElement && event.target.type === 'checkbox') {
+                        event.stopPropagation();
+                        callCalendarAdapter(activeCalendar, 'dispatchEventClick', getCalendarEventIdFromElement(eventEl), event, eventEl);
+                        return;
+                    }
                     event.preventDefault();
                     event.stopPropagation();
                     const eventId = getCalendarEventIdFromElement(eventEl);
@@ -29370,7 +29557,6 @@
                 }
                 const checkEl = target?.closest?.('[data-tm-proto-check]');
                 if (checkEl) {
-                    event.preventDefault();
                     event.stopPropagation();
                     const eventId = String(checkEl.getAttribute('data-tm-proto-check') || '').trim();
                     const activeCalendar = state.calendar || calendar;
@@ -29465,6 +29651,10 @@
                 state.prototypeEventDocumentClick?.();
             } catch (e) {}
             const onPrototypeEventDocumentClick = (event) => {
+                // The singleton state is re-pointed by every mount, including
+                // the temporary popover-editor mount. A listener left behind by
+                // such a mount must not handle clicks for the live calendar.
+                if (state.calendar !== calendar) return;
                 if (event?.__tmPrototypeTaskDetailHandled === true
                     || event?.__tmPrototypePopoverHandled === true) return;
                 const target = event.target instanceof Element ? event.target : null;
@@ -29514,11 +29704,12 @@
                         || getCalendarEvents(activeCalendar).find((item) => String(item?.id || '') === eventId)
                         || null;
                     if (eventApi && checkbox instanceof HTMLInputElement) {
-                        try { event.preventDefault?.(); event.stopPropagation?.(); } catch (e) {}
+                        try { event.stopPropagation?.(); } catch (e) {}
                         const ext = eventApi.extendedProps || {};
                         const taskId = String(ext.__tmTaskId || ext.__tmBlockId || ext.__tmReminderBlockId || '').trim();
                         const titleEl = eventEl?.querySelector?.('.tm-proto-event-title, .tm-proto-span-title') || eventEl;
                         void handleCalendarEventCheckboxToggle(checkbox, eventEl || checkbox, titleEl, ext, taskId, {
+                            jsEvent: event,
                             allDay: eventApi.allDay === true,
                             viewType: String(getCalendarView(activeCalendar)?.type || '').trim(),
                             eventApi,
@@ -30791,11 +30982,14 @@
                 && Number(segment.segmentEndIndex) > 0
                 && Number(segment.segmentEndIndex) % 7 === 0);
             const title = isSegmentStart ? esc(protoEventTitle(eventApi)) : '&nbsp;';
+            const titleVisualStyle = isSegmentStart && typeof buildTaskTitleOpacityStyleForTask === 'function'
+                && typeof getCalendarEventTaskLikeForTitle === 'function'
+                ? buildTaskTitleOpacityStyleForTask(getCalendarEventTaskLikeForTitle(eventApi))
+                : '';
             const recurringIcon = isSegmentStart ? buildCalendarRecurringTaskIconMarkup(ext) : '';
             const done = resolveCalendarEventDoneState(ext);
             const activeViewType = String(viewType || getCalendarView(calendar)?.type || state._lastViewType || '').trim();
             const showCheck = isSegmentStart
-                && (!segment || Number(segment.segmentStartIndex) === Number(segment.eventStartIndex))
                 && shouldShowCalendarEventCheckbox(ext, {
                     viewType: activeViewType,
                     compactMonth: isCompactDockLayout(),
@@ -30803,7 +30997,7 @@
             const classes = [
                 'tm-proto-span-bar',
                 checkboxCircle ? 'tm-proto-event--checkbox-circle' : 'tm-proto-event--checkbox-rect',
-                isBuiltinSchedule ? 'tm-proto-event--calendar-builtin' : '',
+                isBuiltinSchedule && !showCheck ? 'tm-proto-event--calendar-builtin' : '',
                 isSegmentStart ? 'is-start' : '',
                 continuation ? 'is-continuation' : '',
                 isVisualEnd ? 'is-end' : '',
@@ -30819,7 +31013,7 @@
                 + `${canResizeRange && !continuation ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
                 + `${continuesBefore ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--start" aria-hidden="true">&lt;</span>' : ''}`
                 + `${showCheck ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>` : ''}`
-                + `<span class="tm-proto-span-title">${title}</span>${recurringIcon}`
+                + `<span class="tm-proto-span-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}`
                 + `${continuesAfter ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--end" aria-hidden="true">&gt;</span>' : ''}`
                 + `${canResizeRange && isEventEnd ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>' : ''}</div>`;
         };
@@ -32277,6 +32471,7 @@
                 spanLayout: (visibleDays, spanEvents, laneLimit) => protoMonthSpanLayout(visibleDays, spanEvents, laneLimit),
                 lunarText: protoLunarText,
                 dateHeaderInfo: (key, headerSettings) => getCalendarDateHeaderInfo(key, headerSettings, state.cnHolidayMap),
+                viewType,
                 showHeader: true,
                 legacyAliases: false,
                 actionAttr: 'data-tm-proto-action',
@@ -32368,6 +32563,17 @@
                 const taskId = protoListTaskId(eventApi);
                 if (!taskId) return null;
                 try { return getCalendarTaskSnapshotById(taskId); } catch (e) { return null; }
+            };
+            const protoListTaskPinned = (eventApi, task = null) => {
+                const candidate = task && typeof task === 'object' ? task : protoListTaskSnapshot(eventApi);
+                try {
+                    if (typeof __tmIsTaskPinned === 'function' && __tmIsTaskPinned(candidate) === true) return true;
+                } catch (e) {}
+                const ext = eventApi?.extendedProps || {};
+                const raw = candidate?.pinned ?? candidate?.custom_pinned ?? candidate?.customPinned
+                    ?? ext.__tmTaskPinned ?? ext.pinned ?? ext.custom_pinned;
+                if (raw === true || raw === 1) return true;
+                return ['1', 'true', 'yes'].includes(String(raw || '').trim().toLowerCase());
             };
             const protoListTaskParentId = (task) => String(task?.parentTaskId || task?.parent_task_id || task?.parentId || task?.parent_id || '').trim();
             const protoListTaskDone = (task) => {
@@ -32610,16 +32816,29 @@
                 const done = protoListTaskDone(task);
                 const children = isParent ? protoListTaskChildren(task) : [];
                 const eventProps = eventApi?.extendedProps || {};
+                const checkboxTaskId = eventProps.__tmTaskDateReadOnly === true
+                    ? String(eventProps.__tmTaskDateEventTaskId || id).trim() || id
+                    : id;
+                const checkboxTask = checkboxTaskId === id
+                    ? task
+                    : {
+                        ...task,
+                        id: checkboxTaskId,
+                        sourceTaskId: task.sourceTaskId || eventProps.__tmSourceTaskId || eventProps.__tmTaskId || '',
+                        recurringCompletedAt: task.recurringCompletedAt || eventProps.__tmRecurringCompletedAt || '',
+                        isRecurringInstance: true,
+                        isRecurringInstanceReadOnly: true,
+                    };
                 const isConcreteSchedule = eventApi?.allDay !== true
                     && (String(eventProps.__tmSource || '').trim() === 'schedule' || !!String(eventProps.__tmScheduleId || '').trim());
                 const useTaskDetailClick = !isConcreteSchedule;
                 const taskDetailClick = useTaskDetailClick ? ` onclick="tmOpenTaskDetail('${esc(id)}', event)"` : '';
                 const bridge = globalThis.__tmCalendarKanbanCardHelpers || {};
                 const checkbox = typeof bridge.renderCheckboxWrap === 'function'
-                    ? bridge.renderCheckboxWrap(id, task, { checked: done, stopMouseDown: true, stopPointerDown: true, stopClick: true })
+                    ? bridge.renderCheckboxWrap(checkboxTaskId, checkboxTask, { checked: done, stopMouseDown: true, stopPointerDown: true, stopClick: true })
                     : typeof __tmRenderTaskCheckboxWrap === 'function'
-                        ? __tmRenderTaskCheckboxWrap(id, task, { checked: done, stopMouseDown: true, stopPointerDown: true, stopClick: true })
-                    : `<input class="tm-task-checkbox" type="checkbox" data-task-id="${esc(id)}" ${done ? 'checked' : ''} onchange="tmSetDone('${esc(id)}', this.checked, event)" onclick="event.stopPropagation()">`;
+                        ? __tmRenderTaskCheckboxWrap(checkboxTaskId, checkboxTask, { checked: done, stopMouseDown: true, stopPointerDown: true, stopClick: true })
+                    : `<input class="tm-task-checkbox" type="checkbox" data-task-id="${esc(checkboxTaskId)}" ${done ? 'checked' : ''} onchange="tmSetDone('${esc(checkboxTaskId)}', this.checked, event)" onclick="event.stopPropagation()">`;
                 const childRows = children.map((child) => {
                     const childId = String(child?.id || child?.blockId || '').trim();
                     if (!childId) return '';
@@ -32658,10 +32877,11 @@
                         } catch (e) { return false; }
                     })();
                     const childClass = `tm-kanban-card tm-kanban-card--sub tm-kanban-subtask-row${childDone ? ' tm-kanban-card--done' : ''}${childPinned ? ' tm-kanban-card--pinned' : ''}`;
+                    const childPinnedStyle = childPinned ? ' style="border-left:3px solid var(--tm-primary-color);"' : '';
                     const childAttrs = `data-id="${esc(childId)}" draggable="true" ondragstart="tmKanbanDragStart(event, '${esc(childId)}')" ondragend="tmKanbanDragEnd(event, '${esc(childId)}')" onpointerdown="tmKanbanCardPointerDown(event, '${esc(childId)}')"${useTaskDetailClick ? ` onclick="tmOpenTaskDetail('${esc(childId)}', event)"` : ` onclick="tmKanbanCardClick('${esc(childId)}', event)"`} oncontextmenu="tmShowTaskContextMenu(event, '${esc(childId)}')" ondblclick="tmKanbanCardDblClick('${esc(childId)}', event)"`;
                     const childTitleInner = `${childTitle}${typeof __tmRenderRecurringTaskInlineIcon === 'function' ? __tmRenderRecurringTaskInlineIcon(child) : ''}`;
                     const childMeta = String(protoListTaskMetaHtml(child, false, eventApi) || '').replace('tm-kanban-card-meta', 'tm-kanban-subtask-meta');
-                    return `<div class="${childClass}" ${childAttrs}><div class="tm-kanban-subtask-row-main">${childCheckbox}<div class="tm-kanban-subtask-text"><span class="tm-kanban-subtask-title tm-task-content-clickable" ${childTitleAttrs}>${childTitleInner}</span>${childMeta}</div><div class="tm-kanban-subtask-actions"><button class="tm-kanban-more tm-kanban-subtask-more" onclick="tmOpenTaskDetail('${esc(childId)}', event)" title="任务详情">${typeof __tmRenderLucideIcon === 'function' ? __tmRenderLucideIcon('dots-three') : '⋯'}</button></div></div></div>`;
+                    return `<div class="${childClass}"${childPinnedStyle} ${childAttrs}><div class="tm-kanban-subtask-row-main">${childCheckbox}<div class="tm-kanban-subtask-text"><span class="tm-kanban-subtask-title tm-task-content-clickable" ${childTitleAttrs}>${childTitleInner}</span>${childMeta}</div><div class="tm-kanban-subtask-actions"><button class="tm-kanban-more tm-kanban-subtask-more" onclick="tmOpenTaskDetail('${esc(childId)}', event)" title="任务详情">${typeof __tmRenderLucideIcon === 'function' ? __tmRenderLucideIcon('dots-three') : '⋯'}</button></div></div></div>`;
                 }).join('');
                 const subtaskHtml = children.length
                     ? (() => {
@@ -32675,18 +32895,33 @@
                     })()
                     : '';
                 const overdueClass = options.kind === 'expired' ? ' tm-kanban-card--overdue' : '';
-                return `<div class="tm-proto-list-event tm-proto-list-task-card tm-kanban-card${done ? ' tm-kanban-card--done' : ''}${overdueClass}" data-tm-proto-event="${esc(eventId)}" data-tm-proto-list-task-id="${esc(id)}"${taskDetailClick} style="--tm-proto-event-color:${protoEventColor(eventApi)}"><div class="tm-kanban-card-top tm-kanban-card-main"><div class="tm-kanban-card-head">${checkbox}<div class="tm-kanban-card-text"><span class="tm-kanban-card-title-inline" style="${protoListTaskTitleStyle(task)}">${protoListTaskTitleHtml(task, eventApi?.title)}</span>${protoListTaskMetaHtml(task, true, eventApi)}</div></div></div>${subtaskHtml}</div>`;
+                const pinned = typeof protoListTaskPinned === 'function'
+                    ? protoListTaskPinned(eventApi, task)
+                    : (task?.pinned === true || task?.pinned === 1 || task?.pinned === '1' || task?.pinned === 'true');
+                const pinnedClass = pinned ? ' tm-kanban-card--pinned' : '';
+                const pinnedStyle = pinned ? ';border-left:3px solid var(--tm-primary-color)' : '';
+                return `<div class="tm-proto-list-event tm-proto-list-task-card tm-kanban-card${done ? ' tm-kanban-card--done' : ''}${pinnedClass}${overdueClass}" data-tm-proto-event="${esc(eventId)}" data-tm-proto-list-task-id="${esc(id)}"${taskDetailClick} style="--tm-proto-event-color:${protoEventColor(eventApi)}${pinnedStyle}"><div class="tm-kanban-card-top tm-kanban-card-main"><div class="tm-kanban-card-head">${checkbox}<div class="tm-kanban-card-text"><span class="tm-kanban-card-title-inline" style="${protoListTaskTitleStyle(task)}">${protoListTaskTitleHtml(task, eventApi?.title)}</span>${protoListTaskMetaHtml(task, true, eventApi)}</div></div></div>${subtaskHtml}</div>`;
             };
             const protoListEventRow = (eventApi, kind = 'regular') => {
                 const id = String(eventApi?.id || '').trim();
                 const isTimedEvent = eventApi?.allDay !== true;
                 const time = isTimedEvent ? protoEventTime(eventApi) : '';
                 const taskId = protoListTaskId(eventApi);
-                const task = protoListTaskSnapshot(eventApi) || (protoListIsTaskEvent(eventApi) && taskId
+                const taskSnapshot = protoListTaskSnapshot(eventApi);
+                const eventDone = protoListIsTaskEvent(eventApi) ? protoListEventDone(eventApi) : false;
+                const task = taskSnapshot || (protoListIsTaskEvent(eventApi) && taskId
                     ? { id: taskId, content: String(eventApi?.title || '').trim(), markdown: String(eventApi?.title || '').trim(), ...(eventApi?.extendedProps || {}) }
                     : null);
-                const taskCard = protoListIsTaskEvent(eventApi) && task
-                    ? protoListTaskCard(eventApi, task, { isParent: protoListTaskHasChildren(task), kind })
+                // A recurring virtual instance can be completed in the
+                // calendar event state before the task cache receives the
+                // advanced source-task snapshot. Keep the list card in sync
+                // with that authoritative event state so it does not render
+                // the just-completed instance as pending.
+                const displayTask = task && eventDone && !protoListTaskDone(task)
+                    ? { ...task, done: true, taskMarker: 'X', task_marker: 'X' }
+                    : task;
+                const taskCard = protoListIsTaskEvent(eventApi) && displayTask
+                    ? protoListTaskCard(eventApi, displayTask, { isParent: protoListTaskHasChildren(displayTask), kind })
                     : '';
                 const card = taskCard || protoEventMarkup(eventApi, 'list', false, 'tm-proto-list-event');
                 const timeMarkup = isTimedEvent ? `<span class="tm-proto-list-time">${esc(time)}</span>` : '';
@@ -32695,6 +32930,15 @@
             const protoListSortEvents = (eventApis) => {
                 const source = Array.isArray(eventApis) ? eventApis.slice() : [];
                 if (source.length <= 1) return source;
+                const pinnedFirst = (items) => {
+                    const pinned = [];
+                    const rest = [];
+                    (Array.isArray(items) ? items : []).forEach((eventApi) => {
+                        if (protoListTaskPinned(eventApi)) pinned.push(eventApi);
+                        else rest.push(eventApi);
+                    });
+                    return pinned.concat(rest);
+                };
                 const timed = source.filter((eventApi) => eventApi?.allDay !== true);
                 const allDay = source.filter((eventApi) => eventApi?.allDay === true);
                 const compareTimed = (left, right) => {
@@ -32714,7 +32958,7 @@
                     };
                     return { eventApi, task, index };
                 });
-                if (taskEntries.length <= 1 || typeof globalThis.__tmApplyCalendarRuleSort !== 'function') return timed.concat(allDay);
+                if (taskEntries.length <= 1 || typeof globalThis.__tmApplyCalendarRuleSort !== 'function') return pinnedFirst(timed.concat(allDay));
                 const sortedTasks = globalThis.__tmApplyCalendarRuleSort(taskEntries.map((entry) => entry.task));
                 const byId = new Map(taskEntries.map((entry) => [String(entry.task?.id || '').trim(), entry.eventApi]));
                 const used = new Set();
@@ -32735,7 +32979,7 @@
                     if (!protoListIsTaskEvent(eventApi)) return eventApi;
                     return sortedTaskEvents[taskIndex++] || eventApi;
                 });
-                return timed.concat(sortedAllDay);
+                return pinnedFirst(timed.concat(sortedAllDay));
             };
         const protoListGroup = (key, kind, label, eventApis) => {
             if (!eventApis.length) return '';
@@ -32785,6 +33029,9 @@
             return `<button type="button" class="${classes}" data-tm-proto-list-action="select-date" data-tm-proto-list-date="${esc(key)}" aria-label="${esc(ariaLabel)}" aria-pressed="${key === protoDateKey(focusDate) ? 'true' : 'false'}"><span class="tm-proto-list-date-weekday">${protoWeekLabels[date.getDay()]}</span><span class="tm-proto-list-date-number"><strong>${date.getDate()}</strong>${dateSubtextMarkup}${statusMarkup}</span>${hasEvents ? '<i aria-hidden="true"></i>' : ''}</button>`;
         };
         const syncPrototypeListControl = (current, next) => {
+            if (current instanceof HTMLInputElement && next instanceof HTMLInputElement && current.type === 'checkbox') {
+                current.checked = next.checked;
+            }
             if (current.isEqualNode(next)) return;
             if (current.nodeType !== next.nodeType || current.nodeName !== next.nodeName) {
                 current.replaceWith(next.cloneNode(true));
@@ -32801,11 +33048,23 @@
                 if (current.getAttribute(attribute.name) !== attribute.value) current.setAttribute(attribute.name, attribute.value);
             });
             const currentChildren = Array.from(current.childNodes);
+            const childKey = (node) => node.nodeType === 1
+                ? node.getAttribute('data-tm-proto-event') || node.getAttribute('data-tm-proto-list-day')
+                    || node.getAttribute('data-id') || node.querySelector?.(':scope > [data-tm-proto-list-group]')?.getAttribute('data-tm-proto-list-group') || ''
+                : '';
+            const keyedChildren = new Map(currentChildren.map((child) => [childKey(child), child]).filter(([key]) => key));
+            const retained = new Set();
             Array.from(next.childNodes).forEach((child, index) => {
-                if (currentChildren[index]) syncPrototypeListControl(currentChildren[index], child);
-                else current.appendChild(child.cloneNode(true));
+                const key = childKey(child);
+                const existing = key ? keyedChildren.get(key) : currentChildren[index];
+                const reusable = existing && !retained.has(existing) && childKey(existing) === key
+                    && existing.nodeType === child.nodeType && existing.nodeName === child.nodeName;
+                const node = reusable ? existing : child.cloneNode(true);
+                if (reusable) syncPrototypeListControl(node, child);
+                retained.add(node);
+                if (current.childNodes[index] !== node) current.insertBefore(node, current.childNodes[index] || null);
             });
-            currentChildren.slice(next.childNodes.length).forEach((child) => child.remove());
+            currentChildren.forEach((child) => { if (!retained.has(child)) child.remove(); });
         };
         const patchPrototypeListSurface = (markup) => {
             const currentList = prototypeSurface.querySelector('.tm-proto-list');
@@ -32824,7 +33083,7 @@
             currentList.className = nextList.className;
             syncPrototypeListControl(currentPicker, nextPicker);
             syncPrototypeListControl(currentToolbar, nextToolbar);
-            if (!currentDays.isEqualNode(nextDays)) currentDays.replaceChildren(...nextDays.childNodes);
+            syncPrototypeListControl(currentDays, nextDays);
             currentApp.setAttribute('style', host.querySelector('.tm-proto-app').getAttribute('style') || '');
             const currentPanel = prototypeSurface.querySelector('.tm-proto-day-panel');
             const nextPanel = host.querySelector('.tm-proto-day-panel');
@@ -34922,8 +35181,9 @@
             // schedule edit can legitimately change both the schedule event
             // and its task-date peer in one transaction; those events share
             // the same all-day lane and can be patched by the affected cells.
-            // Keep the conservative full-render fallback for mixed timed/all-
-            // day batches, where independent lane geometry may interact.
+            // Month weeks own both timed chips and all-day spans, so mixed
+            // updates can rebuild their affected rows together. Time grids
+            // retain the conservative fallback across separate lanes.
             const changedPairs = Array.from(changedIds).map((id) => ({
                 id,
                 previous: partialPreviousSnapshots.get(id) || null,
@@ -34932,7 +35192,10 @@
             const allChangedEventsAreAllDay = changedPairs.every(({ previous, next }) => (
                 !!(previous?.allDay || next?.allDay)
             ));
-            if (changedIds.size === 0 || (changedIds.size > 1 && !allChangedEventsAreAllDay)) {
+            const completionOnly = changedPairs.length > 0 && changedPairs.every(({ previous, next }) => (
+                previous && next && !prototypeEventSnapshotChanged({ ...previous, done: next.done }, next)
+            ));
+            if (changedIds.size === 0 || (viewType !== 'dayGridMonth' && changedIds.size > 1 && !allChangedEventsAreAllDay && !completionOnly)) {
                 return rejectPartial('changed-event-count', {
                     changedCount: changedIds.size,
                     changedIds: Array.from(changedIds).slice(0, 12),
@@ -34943,6 +35206,13 @@
             const changedId = Array.from(changedIds)[0];
             const previous = partialPreviousSnapshots.get(changedId) || null;
             const next = nextSnapshots.get(changedId) || null;
+            if (completionOnly) {
+                changedPairs.forEach(({ id, next: snapshot }) => applyRenderedEventDoneStateById(id, snapshot.done, { side: false }));
+                prototypeLastRenderKey = renderKey;
+                prototypeLastEventSnapshot = nextSnapshots;
+                prototypePendingPartialRefresh = null;
+                return true;
+            }
             const commitPartialState = () => {
                 prototypeLastRenderKey = renderKey;
                 prototypeLastEventSnapshot = nextSnapshots;
@@ -35315,7 +35585,9 @@
             else content = protoRenderTimeline(view, viewType, events, settings);
             if (!monthVirtualInPlace) {
                 const markup = `<div class="tm-proto-app" style="--tm-cal-event-opacity:${Math.round(prototypeOpacity * 100)}%">${protoToolbarMarkup(view, viewType, settings, title)}<main class="tm-proto-main"><div class="tm-proto-main-view">${content}</div>${protoRenderDayPanel(events, settings)}</main></div>`;
-                if (!isCalendarListViewType(viewType) || !patchPrototypeListSurface(markup)) prototypeSurface.innerHTML = markup;
+                if (!isCalendarListViewType(viewType) || !patchPrototypeListSurface(markup)) {
+                    prototypeSurface.innerHTML = markup;
+                }
                 if ((isMobileDevice || isDockHost) && prototypeMobileMonthSwipeDirection
                     && (viewType === 'dayGridMonth' || isTimeGridViewType(viewType))) {
                     const swipeDirection = prototypeMobileMonthSwipeDirection < 0 ? 'previous' : 'next';
@@ -36012,7 +36284,7 @@
                 try {
                     if (jsEvent) {
                         jsEvent.__tmCalHandled = true;
-                        jsEvent.preventDefault?.();
+                        if (!(target instanceof HTMLInputElement && target.type === 'checkbox')) jsEvent.preventDefault?.();
                     }
                 } catch (e0) {}
                 if (_tmClickTracker && _tmClickTracker.ts > 0 && jsEvent) {
@@ -36038,8 +36310,9 @@
                             const titleEl = eventWrap?.querySelector?.('.tm-proto-event-title, .tm-proto-span-title, .tm-cal-task-event-title-text, .tm-cal-task-event-title') || eventWrap;
                             const taskId = String(extForCheckbox?.__tmTaskId || extForCheckbox?.__tmBlockId || extForCheckbox?.__tmReminderBlockId || '').trim();
                             void handleCalendarEventCheckboxToggle(checkboxEl, eventWrap, titleEl, extForCheckbox, taskId, {
+                                jsEvent,
                                 allDay: activeEvent?.allDay === true,
-                                viewType: String(getCalendarView(cal)?.type || '').trim(),
+                                viewType: String(getCalendarView(calendar)?.type || '').trim(),
                                 eventApi: activeEvent,
                             }).catch(() => {});
                         }
@@ -36180,7 +36453,7 @@
                             try { arg.revert(); } catch (e) {}
                             return;
                         }
-                        toast('✅ 已更新日程', 'success');
+                        if (!result?.dateFollowFailed) toast('✅ 已更新日程', 'success');
                     } catch (e) {
                         try { arg.revert(); } catch (e2) {}
                         toast(`❌ 更新日程失败：${String(e?.message || e || '')}`, 'error');
@@ -36242,7 +36515,7 @@
                             try { arg.revert(); } catch (e) {}
                             return;
                         }
-                        toast('✅ 已更新日程', 'success');
+                        if (!result?.dateFollowFailed) toast('✅ 已更新日程', 'success');
                     } catch (e) {
                         try { arg.revert(); } catch (e2) {}
                         toast(`❌ 更新日程失败：${String(e?.message || e || '')}`, 'error');
@@ -37351,6 +37624,10 @@
     }
 
     function unmount(options = {}) {
+        // Factory-only mounts bind document listeners before assigning wrapEl.
+        // Dispose them even when no full calendar wrapper was ever mounted.
+        try { state.prototypeEventDocumentClick?.(); } catch (e) {}
+        try { state.prototypeListTaskWindowClick?.(); } catch (e) {}
         // Capture the user's sidebar presentation before detaching the
         // calendar. The next mount on the same host restores these values;
         // they are intentionally kept in memory only.
@@ -37424,8 +37701,6 @@
             try { if (state.onSidebarContextMenu) state.wrapEl.removeEventListener('contextmenu', state.onSidebarContextMenu); } catch (e) {}
             try { if (state.onFilterChange) state.wrapEl.removeEventListener('change', state.onFilterChange); } catch (e) {}
             try { if (state.mainPopoverClickCapture) state.wrapEl.removeEventListener('click', state.mainPopoverClickCapture, true); } catch (e) {}
-            try { state.prototypeEventDocumentClick?.(); } catch (e) {}
-            try { state.prototypeListTaskWindowClick?.(); } catch (e) {}
             try { state.prototypeMonthOverflowCancel?.(); } catch (e) {}
             try { state.prototypeMonthScrollCleanup?.(); } catch (e) {}
         }
@@ -40522,6 +40797,39 @@
         unmount,
         renderSettings,
         cleanup,
+        refreshTaskPinned: (taskId, pinned) => {
+            const id = String(taskId || '').trim();
+            if (!id) return false;
+            const value = pinned === true;
+            let touched = false;
+            const update = (task) => {
+                if (!task || typeof task !== 'object') return;
+                const taskId0 = String(task.id || task.blockId || '').trim();
+                if (taskId0 !== id) return;
+                try {
+                    task.pinned = value;
+                    task.custom_pinned = value ? '1' : '';
+                    touched = true;
+                } catch (e) {}
+            };
+            try {
+                const tasks = window.__tmCalendarAllTasksCache?.tasks;
+                if (Array.isArray(tasks)) tasks.forEach(update);
+            } catch (e) {}
+            try {
+                const flat = globalThis.__tmRuntimeState?.getFlatTasks?.();
+                if (flat && typeof flat === 'object') Object.values(flat).forEach(update);
+            } catch (e) {}
+            try {
+                if (state.flatTasks && typeof state.flatTasks === 'object') Object.values(state.flatTasks).forEach(update);
+            } catch (e) {}
+            try {
+                if (typeof state.refreshTaskPinned === 'function') state.refreshTaskPinned(id, value);
+                else state.queuePrototypeSurfaceRender?.();
+            } catch (e) {}
+            try { state.sideDay?.prototypeRender?.(); } catch (e) {}
+            return touched;
+        },
         toggleSidebar: (open, page) => {
             const wrap = state.wrapEl;
             if (!wrap) return false;

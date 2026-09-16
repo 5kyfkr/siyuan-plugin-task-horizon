@@ -524,6 +524,54 @@
                     ].forEach((key) => {
                         if (Object.prototype.hasOwnProperty.call(structuralTask, key)) merged[key] = structuralTask[key];
                     });
+                    const structuralCustomFieldValues = structuralTask.customFieldValues
+                        && typeof structuralTask.customFieldValues === 'object'
+                        && !Array.isArray(structuralTask.customFieldValues)
+                        ? structuralTask.customFieldValues
+                        : {};
+                    const projectedCustomFieldValues = projectedTask.customFieldValues
+                        && typeof projectedTask.customFieldValues === 'object'
+                        && !Array.isArray(projectedTask.customFieldValues)
+                        ? projectedTask.customFieldValues
+                        : {};
+                    const projectedLoadedAllCustomFields = projectedTask.__tmLoadedAllCustomFields === true;
+                    const projectedLoadedCustomFieldIds = Array.isArray(projectedTask.__tmLoadedCustomFieldIds)
+                        ? Array.from(new Set(projectedTask.__tmLoadedCustomFieldIds.map((fieldId) => String(fieldId || '').trim()).filter(Boolean)))
+                        : [];
+                    const mergedCustomFieldValues = projectedLoadedAllCustomFields
+                        ? { ...projectedCustomFieldValues }
+                        : { ...structuralCustomFieldValues, ...projectedCustomFieldValues };
+                    if (!projectedLoadedAllCustomFields && projectedLoadedCustomFieldIds.length > 0) {
+                        projectedLoadedCustomFieldIds.forEach((fieldId) => {
+                            if (Object.prototype.hasOwnProperty.call(projectedCustomFieldValues, fieldId)) return;
+                            delete mergedCustomFieldValues[fieldId];
+                        });
+                    }
+                    if (Object.keys(mergedCustomFieldValues).length > 0 || projectedLoadedAllCustomFields || projectedLoadedCustomFieldIds.length > 0) {
+                        merged.customFieldValues = mergedCustomFieldValues;
+                    }
+                    const structuralRawCustomFieldValues = structuralTask.__customFieldRawValues
+                        && typeof structuralTask.__customFieldRawValues === 'object'
+                        && !Array.isArray(structuralTask.__customFieldRawValues)
+                        ? structuralTask.__customFieldRawValues
+                        : {};
+                    const projectedRawCustomFieldValues = projectedTask.__customFieldRawValues
+                        && typeof projectedTask.__customFieldRawValues === 'object'
+                        && !Array.isArray(projectedTask.__customFieldRawValues)
+                        ? projectedTask.__customFieldRawValues
+                        : {};
+                    const mergedRawCustomFieldValues = projectedLoadedAllCustomFields
+                        ? { ...projectedRawCustomFieldValues }
+                        : { ...structuralRawCustomFieldValues, ...projectedRawCustomFieldValues };
+                    if (!projectedLoadedAllCustomFields && projectedLoadedCustomFieldIds.length > 0) {
+                        projectedLoadedCustomFieldIds.forEach((fieldId) => {
+                            if (Object.prototype.hasOwnProperty.call(projectedRawCustomFieldValues, fieldId)) return;
+                            delete mergedRawCustomFieldValues[fieldId];
+                        });
+                    }
+                    if (Object.keys(mergedRawCustomFieldValues).length > 0 || projectedLoadedAllCustomFields || projectedLoadedCustomFieldIds.length > 0) {
+                        merged.__customFieldRawValues = mergedRawCustomFieldValues;
+                    }
                     return merged;
                 })()
                 : (projectedTask || structuralTask);
@@ -812,6 +860,9 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const tid = String(opts.taskId || task.id || '').trim();
         const shouldForce = opts.force === true;
+        const hasCustomFieldDefs = typeof __tmGetCustomFieldDefs === 'function'
+            && __tmGetCustomFieldDefs().length > 0;
+        const customFieldsComplete = !hasCustomFieldDefs || task.__tmLoadedAllCustomFields === true;
         const beforeRemark = __tmGetTaskDetailRemarkRaw(task);
         const queuedPatch = (() => {
             try {
@@ -830,7 +881,8 @@
             if (!shouldForce
                 && !hasQueuedPatch
                 && typeof __tmHasTaskAttachmentAttrSnapshot === 'function'
-                && __tmHasTaskAttachmentAttrSnapshot(task)) {
+                && __tmHasTaskAttachmentAttrSnapshot(task)
+                && customFieldsComplete) {
                 return task;
             }
         } catch (e) {}
@@ -844,8 +896,7 @@
         } catch (e) {}
         try {
             if (typeof __tmAttachCustomFieldAttrsToTasks === 'function'
-                && typeof __tmGetCustomFieldDefs === 'function'
-                && __tmGetCustomFieldDefs().length > 0) {
+                && hasCustomFieldDefs) {
                 await __tmAttachCustomFieldAttrsToTasks([task]);
             }
         } catch (e) {}

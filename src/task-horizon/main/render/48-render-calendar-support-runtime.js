@@ -1634,7 +1634,7 @@
         return String(state.draggingTaskId || '').trim();
     };
 
-    window.tmIsTaskDone = function(id) {
+    window.tmIsTaskDone = function(id, options = {}) {
         const tid = String(id || '').trim();
         if (!tid) return false;
         const t = __tmGetCalendarFlatTaskByIdSync(tid);
@@ -1646,7 +1646,7 @@
                 if (cached) return __tmIsCalendarTaskDoneSync(cached);
             }
         } catch (e) {}
-        return false;
+        return Object.prototype.hasOwnProperty.call(options || {}, 'unknownValue') ? options.unknownValue : false;
     };
 
     window.tmUpdateTaskDates = async function(taskId, patch = {}, options = {}) {

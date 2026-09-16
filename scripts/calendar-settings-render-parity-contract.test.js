@@ -26,7 +26,12 @@ let showOtherBlockCheckbox = false;
 const checkboxContext = {
     getSettings: () => ({ showOtherBlockCheckbox }),
     resolveCalendarEventDoneState: (ext) => ext?.done === true,
+    normalizeScheduleRepeatType: (value) => value || 'none',
+    normalizeScheduleCompletedOccurrenceKey: (value) => String(value || ''),
 };
+for (const name of ['isRecurringScheduleEventExt', 'isDetachedTaskOccurrenceEventExt', 'isDetachedScheduleOccurrenceEventExt']) {
+    checkboxContext[name] = readFunction(source, name, checkboxContext);
+}
 checkboxContext.isOtherBlockCalendarEvent = readFunction(source, 'isOtherBlockCalendarEvent', checkboxContext);
 checkboxContext.isCalendarBuiltinScheduleEvent = readFunction(source, 'isCalendarBuiltinScheduleEvent', checkboxContext);
 const shouldShowCheckbox = readFunction(source, 'shouldShowCalendarEventCheckbox', checkboxContext);

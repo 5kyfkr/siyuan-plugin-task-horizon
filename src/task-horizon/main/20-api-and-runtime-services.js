@@ -18048,7 +18048,9 @@ if (!state.homepageOpen) return;
     }
 
     function __tmHasAutoRefreshPendingSync() {
-        return __tmHasQuickbarModificationsSync() || __tmHasExternalTaskTxDirtySync();
+        return __tmHasQuickbarModificationsSync()
+            || __tmHasExternalTaskTxDirtySync()
+            || state.__tmSyncedDataReloadPending === true;
     }
 
     function __tmCaptureActiveDocBeforeBackgroundRefresh() {
@@ -18184,6 +18186,7 @@ if (!state.homepageOpen) return;
         }
         const hadQuickbarDirty = __tmHasQuickbarModificationsSync();
         const hadExternalDirty = __tmHasExternalTaskTxDirtySync();
+        const hadSyncedDataPending = state.__tmSyncedDataReloadPending === true;
         const pendingTargets = {
             docIds: Array.isArray(options?.affectedDocIds) ? options.affectedDocIds.slice() : Array.from(__tmTxTaskRefreshDocIds),
             blockIds: Array.isArray(options?.affectedBlockIds) ? options.affectedBlockIds.slice() : Array.from(__tmTxTaskRefreshBlockIds),
@@ -18266,6 +18269,7 @@ if (!state.homepageOpen) return;
                 if (hadQuickbarDirty) __tmClearQuickbarModifications();
                 if (hadExternalDirty) clearExternalPending();
                 else __tmClearPendingTxRefreshTargets(pendingClearTargets);
+                if (hadSyncedDataPending) state.__tmSyncedDataReloadPending = false;
             }
             return ok;
         } finally {
@@ -18458,6 +18462,9 @@ if (!state.homepageOpen) return;
                     const hasPendingWork = __tmHasAutoRefreshPendingSync();
                     const cheapActive = typeof __tmIsTaskHorizonTabActiveNow === 'function' && __tmIsTaskHorizonTabActiveNow();
                     const prev = __tmTaskHorizonTabWasActive === true;
+                    if (prev && !cheapActive) {
+                        try { __tmHideGlobalTransientSurfacesOnTabLeave(); } catch (e) {}
+                    }
                     if (!hasPendingWork && !cheapActive && !prev) return;
                     const active = cheapActive || (hasPendingWork && __tmIsTaskHorizonHostActiveForAutoRefresh());
                     __tmTaskHorizonTabWasActive = active;
@@ -18505,6 +18512,29 @@ if (!state.homepageOpen) return;
         };
         const initialDelayMeta = hasExternalDirtyAtSchedule ? { waitMs: 24 } : __tmGetEnterAutoRefreshDelayMeta(source);
         __tmTabEnterAutoRefreshTimer = setTimeout(tick, Number(initialDelayMeta.waitMs || 120));
+    }
+
+    // Some desktop transient surfaces are mounted on document.body rather
+    // than inside the custom tab root. Hide them when the task tab is left so
+    // they cannot remain above another SiYuan tab.
+    function __tmHideGlobalTransientSurfacesOnTabLeave() {
+        try {
+            if (!__tmIsTabHost?.() || __tmIsTaskHorizonTabActiveNow?.()) return;
+        } catch (e) {
+            return;
+        }
+        try { __tmCloseMultiSelectMoreMenu?.(); } catch (e) {}
+        try { window.tmCloseDesktopMenu?.(); } catch (e) {}
+        try { __tmHideFloatingTooltip?.(); } catch (e) {}
+        try {
+            const overlay = document.getElementById('tm-task-detail-overlay');
+            if (overlay) {
+                try { globalThis.__tmDisposeTaskDetailRoot?.(overlay); } catch (e) {}
+                try { overlay.__tmTaskDetailOnClose = null; } catch (e) {}
+                overlay.remove();
+            }
+        } catch (e) {}
+        try { document.querySelectorAll('#tm-task-context-menu, #tmDesktopMenu').forEach((el) => el.remove()); } catch (e) {}
     }
 
     function __tmObserveTaskHorizonActivationTargets() {

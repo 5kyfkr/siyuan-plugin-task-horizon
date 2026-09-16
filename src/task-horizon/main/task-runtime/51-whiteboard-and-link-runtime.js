@@ -3825,7 +3825,8 @@ __tmScheduleViewRefresh(pending);
         }
         if (withFilters) __tmRecomputeTaskProjection({ reason });
         if (state.viewMode === 'calendar') {
-            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+            const refreshedInPlace = __tmRerenderCurrentViewInPlace(state.modal);
+            if (!refreshedInPlace) render();
             return;
         }
         if (state.viewMode === 'timeline') {

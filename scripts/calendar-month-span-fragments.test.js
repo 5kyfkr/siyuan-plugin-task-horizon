@@ -63,6 +63,7 @@ const assertNoResize = (event, segment) => {
         const markup = markupFor(event, segment, shared);
         assert.ok(markup.includes(`data-tm-proto-event="${event.id}"`), 'a clipped fragment must remain an interactive event');
         assert.ok(markup.includes(`<span class="tm-proto-span-title">${event.title}</span>`), 'every visible fragment must retain its title');
+        assert.match(markup, /class="tm-proto-event-check"/, 'each visible fragment must retain its completion checkbox even when the original start is hidden');
         assert.doesNotMatch(markup, /data-tm-proto-resize=/, 'neither date-range handle may appear on a clipped fragment');
     }
 };

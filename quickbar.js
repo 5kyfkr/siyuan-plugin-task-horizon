@@ -6163,6 +6163,8 @@
                                 const opened = await openTaskDetail(detailId, eventObj, {
                                     source: 'quickbar-detail-open',
                                     forceFresh: true,
+                                    deferFresh: true,
+                                    reconcile: true,
                                     fallbackTitle,
                                     fallbackContent: fallbackTitle,
                                 });

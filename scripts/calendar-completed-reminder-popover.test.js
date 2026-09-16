@@ -80,7 +80,7 @@ const context = vm.createContext({
 });
 vm.runInContext([
     'resolveSharedPrototypeEventStart', 'resolveSharedPrototypeEventEnd',
-    'countSharedPrototypeAllDayEvents', 'resolveCalendarEventDoneState',
+    'countSharedPrototypeAllDayEvents', 'isRecurringTaskDateReadOnlyOccurrence', 'resolveCalendarEventDoneState',
     'shouldHideCompletedAllDayCalendarEvent', 'closeTrackedPrototypeMorePopover',
     'showSharedPrototypeMorePopover',
 ].map(readFunction).join('\n'), context);

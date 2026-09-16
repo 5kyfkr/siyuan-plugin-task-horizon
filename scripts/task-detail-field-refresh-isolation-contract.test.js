@@ -25,6 +25,12 @@ assert.doesNotMatch(protectedReload, /done:\s*meta\.done/,
     'cached metadata must not override a document completion marker');
 assert.match(protectedReload, /acceptAuthoritative\?\.\(authoritativeTasks,[\s\S]*replaceDocuments: true/,
     'a full document reload must replace the TaskStore confirmation baseline before detail reads it');
+assert.match(protectedReload, /oldTaskStateById\.set\(taskId,[\s\S]*customFieldValues,[\s\S]*loadedAllCustomFields/,
+    'document reloads must snapshot loaded custom field values before rebuilding task objects');
+assert.match(protectedReload, /hasFreshCustomFieldSnapshot[\s\S]*oldTaskState\?\.customFieldValues \|\| oldTaskState\?\.customFieldRawValues/,
+    'document reloads must preserve custom field values when the fresh structural row omits them');
+assert.match(protectedReload, /nextTask\.customFieldValues = __tmNormalizeTaskCustomFieldValues\(\{\}, customFieldValues\)/,
+    'document reloads must put the preserved custom field values back on the authoritative task');
 assert.match(protectedReload, /opts\.preserveExistingSiblingOrder === true[\s\S]*__tmSortTaskTreeByExistingOrder\(rootTasks, currentDoc\.tasks, siblingOrderRanks\)/,
     'a detail refresh must preserve the mounted document sibling order');
 assert.ok(
@@ -39,10 +45,10 @@ assert.ok(
 );
 assert.match(loaderSource, /preserveExistingSiblingOrder: opts\.preserveExistingSiblingOrder !== false/,
     'fresh detail reads must preserve document order unless a caller explicitly requests a structural rank refresh');
-assert.match(loaderSource, /const shouldFreshenDetailOpen = detailOpenOptions\.forceFresh === true \|\| isQuickbarDetailOpen;/,
-    'explicit fresh and quickbar detail opens must wait for authoritative document data');
-assert.match(loaderSource, /const shouldReconcileDetailOpen = detailOpenOptions\.reconcile === true;/,
-    'ordinary task detail opens must avoid a document reload unless a caller explicitly requests reconciliation');
+assert.match(loaderSource, /const deferFreshDetailOpen = detailOpenOptions\.deferFresh === true[\s\S]*const shouldFreshenDetailOpen = !deferFreshDetailOpen/,
+    'detail opens may explicitly defer authoritative document reads until after the initial panel is shown');
+assert.match(loaderSource, /const shouldReconcileDetailOpen = detailOpenOptions\.reconcile === true \|\| deferFreshDetailOpen;/,
+    'deferred detail opens must reconcile in the background without blocking the initial render');
 assert.match(loaderSource, /function __tmScheduleTaskDetailDocumentReconcile[\s\S]*requestIdleCallback[\s\S]*__tmProjectVisibleTaskDetailSubtasks[\s\S]*__tmRefreshVisibleTaskDetailForTask/,
     'explicit background reconciliation must patch the mounted projection without blocking or rebuilding the initial render');
 
@@ -130,8 +136,16 @@ assert.match(
 );
 assert.match(detailSource, /function __tmSyncTaskDetailLocationInPlace\(/,
     'task detail location rendering must have a reusable in-place sync path');
+assert.match(detailSource, /structuralCustomFieldValues[\s\S]*projectedCustomFieldValues[\s\S]*mergedCustomFieldValues/,
+    'projected detail reads must preserve structural custom field values when the projection is not loaded');
+assert.match(detailSource, /projectedLoadedCustomFieldIds[\s\S]*delete mergedCustomFieldValues\[fieldId\]/,
+    'projected detail reads must still honor explicitly loaded empty custom fields');
+assert.match(detailSource, /__tmHasTaskAttachmentAttrSnapshot\(task\)[\s\S]*customFieldsComplete/,
+    'attachment cache short-circuit must not skip incomplete custom field hydration');
 assert.match(detailSource, /__tmAttachCustomFieldAttrsToTasks\(\[task\]\)/,
     'task detail hydration must load custom text fields before the detail is refreshed');
+assert.match(storesSource, /if \(viewMode === 'checklist'\)[\s\S]*__tmGetCustomFieldDefs\(\)\.forEach\(\(field\) => \{[\s\S]*String\(field\?\.type \|\| ''\)\.trim\(\) !== 'text'[\s\S]*bulkFieldIdsSet\.add\(fieldId\);/,
+    'checklist refreshes must include enabled custom text fields regardless of compact metadata settings');
 assert.match(detailSource, /__tmShouldPreserveTaskDetailEditorDuringRefresh\(panel, selectedId\)[\s\S]*__tmSyncTaskDetailLocationInPlace\(panel, task\)/,
     'checklist detail refreshes must update location chips while preserving active edits');
 const sheetRefresh = detailSource.slice(
@@ -149,6 +163,14 @@ assert.match(storesSource, /let queryComplete = true;[\s\S]*queryComplete = fals
     'custom field reads must expose transient query failures to their caller');
 assert.match(storesSource, /if \(queryResult\?\.queryComplete === false\) \{[\s\S]*return \{[\s\S]*requestedFieldCount:/,
     'custom field query failures must preserve existing task values instead of treating them as empty fields');
+assert.match(storesSource, /__tmBuildAuthoritativeTaskConfirmationCandidate\(row, \{[\s\S]*previousTask/,
+    'incremental document confirmations must receive the previous task custom field snapshot');
+assert.match(storesSource, /mergeCustomFieldSnapshot[\s\S]*freshLoadedIds[\s\S]*previousValues/,
+    'incremental document confirmations must merge partial custom field reads with the previous snapshot');
+assert.match(storesSource, /const mergedTask = __tmBuildAuthoritativeTaskConfirmationCandidate\(task, \{ previousTask: prevTask \}\)[\s\S]*customFieldValues/,
+    'incremental document task rows must retain merged custom fields before replacing the mounted document');
+assert.match(storesSource, /__tmBuildAuthoritativeTaskConfirmationCandidate\(row, \{[\s\S]*previousTask: prevTask[\s\S]*\}\);\s*const nextTask = __tmPrepareTaskBlockIncrementalRow\(authoritativeTask/,
+    'single-task incremental refreshes must normalize the custom-field-preserving authoritative row');
 
 assert.match(
     timeRefreshSource,
