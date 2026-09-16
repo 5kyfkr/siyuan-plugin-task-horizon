@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -356,3 +356,4 @@ assert.match(calendarRuntime, /function __tmNormalizeCalendarTaskRows[\s\S]*norm
     'calendar cache refreshes must not publish stale values over protected local fields');
 
 console.log('task document live refresh contract tests passed');
+
