@@ -29,6 +29,11 @@ const checkboxContext = {
 };
 checkboxContext.isOtherBlockCalendarEvent = readFunction('isOtherBlockCalendarEvent', checkboxContext);
 checkboxContext.isCalendarBuiltinScheduleEvent = readFunction('isCalendarBuiltinScheduleEvent', checkboxContext);
+checkboxContext.normalizeScheduleRepeatType = readFunction('normalizeScheduleRepeatType', checkboxContext);
+checkboxContext.normalizeScheduleCompletedOccurrenceKey = readFunction('normalizeScheduleCompletedOccurrenceKey', checkboxContext);
+checkboxContext.isRecurringScheduleEventExt = readFunction('isRecurringScheduleEventExt', checkboxContext);
+checkboxContext.isDetachedTaskOccurrenceEventExt = readFunction('isDetachedTaskOccurrenceEventExt', checkboxContext);
+checkboxContext.isDetachedScheduleOccurrenceEventExt = readFunction('isDetachedScheduleOccurrenceEventExt', checkboxContext);
 const shouldShowCheckbox = readFunction('shouldShowCalendarEventCheckbox', checkboxContext);
 
 assert.equal(shouldShowCheckbox({ __tmSource: 'tomato' }), false, 'tomato records must never expose a checkbox');

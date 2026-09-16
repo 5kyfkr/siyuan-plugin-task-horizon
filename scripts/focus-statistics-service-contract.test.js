@@ -83,6 +83,15 @@ const defaultProjectFocus = context.__tmCallTaskHorizonKernelRpc;
     assert.equal(context.__tmFocusStatisticsService.isAvailable(), true);
     assert.equal(typeof context.__tmFocusStatisticsService.dispose, 'function');
     const normalSnapshot = context.__tmFocusStatisticsService.buildTaskSnapshot(null, { groupBy: 'task' }).snapshot;
+    for (const nameField of ['doc_name', 'rawDocName']) {
+        tasks[0].docName = '  ';
+        tasks[0][nameField] = 'Routine Document';
+        const namedSnapshot = context.__tmFocusStatisticsService.buildTaskSnapshot(null, { groupBy: 'task' }).snapshot;
+        assert.equal(namedSnapshot.tasks[0].documentName, 'Routine Document',
+            `focus snapshots must preserve the ${nameField} document name when the display name is empty`);
+        delete tasks[0][nameField];
+    }
+    tasks[0].docName = 'Doc A';
     assert.equal(JSON.stringify(normalSnapshot.tasks[0].customFieldValues), '{}',
         'normal task grouping must not copy unused custom fields into the RPC snapshot');
     const customFieldSnapshot = context.__tmFocusStatisticsService.buildTaskSnapshot(null, {

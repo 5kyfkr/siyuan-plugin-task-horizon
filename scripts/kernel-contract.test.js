@@ -991,10 +991,32 @@ async function run() {
     const batchFocus = await harness.call('taskHorizonProjectFocusStatistics', directFocusStats, { groupBy: 'task' });
     assert.equal(batchFocus.ok, true);
     assert.equal(batchFocus.data.tasks.length, 2);
+    assert.ok(batchFocus.data.tasks.every((task) => task.documentName === 'Contract Doc'),
+        'focus task DTO projection must retain the document name read from the database');
     const batchFocusSqlCalls = harness.apiCalls.slice(batchFocusStart)
         .filter((item) => item.pathname === '/api/query/sql');
     assert.ok(batchFocusSqlCalls.length <= 5,
         `focus task projection must batch ancestor and task reads, received ${batchFocusSqlCalls.length} SQL calls`);
+
+    const routineFocusStats = {
+        ...rawFocusStats,
+        associations: [
+            focusAssociation([IDS.childBlock], 600, 'routine-paragraph', [focusBucket(600, 'routine-paragraph')]),
+            focusAssociation([IDS.childList], 1200, 'routine-list', [focusBucket(1200, 'routine-list')]),
+            focusAssociation([IDS.otherTask], 900, 'routine-task', [focusBucket(900, 'routine-task')]),
+            focusAssociation([], 300, 'independent-focus', [focusBucket(300, 'independent-focus')]),
+        ],
+    };
+    const routineFocus = await harness.call('taskHorizonProjectFocusStatistics', routineFocusStats,
+        { groupBy: 'document', bucket: 'day' }, { revision: 1, tasks: [] });
+    assert.equal(routineFocus.ok, true);
+    assert.equal(routineFocus.data.classification.find((item) => item.id === IDS.doc).label, 'Contract Doc',
+        'routine buttons bound to task paragraphs or lists must retain the real document name without a loaded snapshot');
+    assert.equal(routineFocus.data.classification.find((item) => item.id === IDS.otherDoc).label, 'Other Doc');
+    assert.equal(routineFocus.data.classification.find((item) => item.id === IDS.doc).focusSec, 1800);
+    assert.equal(routineFocus.data.classification.find((item) => item.id === IDS.otherDoc).focusSec, 900);
+    assert.equal(routineFocus.data.totals.focusSec, 3000, 'document metadata must not change focus duration');
+    assert.equal(routineFocus.data.unattributed.focusSec, 300, 'only the unbound session should remain unattributed');
 
     const missingFocusStart = harness.apiCalls.length;
     const missingFocusStats = {
