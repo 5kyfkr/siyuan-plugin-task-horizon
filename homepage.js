@@ -5104,17 +5104,11 @@
         const currentDocID = String(ctx?.currentDocId || "all").trim() || "all";
         // “全部”是当前文档页签，而不是当前文档分组。分组页签下的全部仍按文档聚合。
         const globalScope = currentDocID === "all";
-        const documentNames = ctx?.documentNames && typeof ctx.documentNames === "object" ? ctx.documentNames : {};
-        flattenTasks(ctx?.tasks).forEach((task) => {
-            const documentID = String(task?.root_id || task?.documentID || task?.documentId || task?.docId || "").trim();
-            const documentName = String(task?.documentName || task?.docName || task?.doc_name || task?.rawDocName || "").trim();
-            if (documentID && documentName && !documentNames[documentID]) documentNames[documentID] = documentName;
-        });
         const groups = new Map();
         taskRows.forEach((task) => {
             const documentID = String(task?.documentID || "").trim();
             if (!globalScope && currentDocID !== "all" && documentID && documentID !== currentDocID) return;
-            const documentName = String(task?.documentName || documentNames[documentID] || "").trim() || "文档名称缺失";
+            const documentName = String(task?.documentName || "").trim() || "文档名称缺失";
             const h2ID = String(task?.h2Id || "").trim();
             const h2Name = String(task?.h2 || "").trim() || "无二级标题";
             const key = globalScope

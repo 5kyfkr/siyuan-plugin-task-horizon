@@ -6922,7 +6922,7 @@
         const customFieldID = text(options?.groupBy) === 'customField'
             ? text(options?.customFieldID || options?.customFieldId)
             : '';
-        const fields = ['created', 'customStatus', 'priority', 'duration', 'tomatoEstimateCount'];
+        const fields = ['documentName', 'created', 'customStatus', 'priority', 'duration', 'tomatoEstimateCount'];
         if (customFieldID) fields.push('customFieldValues');
         const attrProjection = focusTaskAttributeProjection(registry, customFieldID);
         const preload = async (candidateGroups, control = options) => {

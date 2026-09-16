@@ -287,7 +287,8 @@
                 aliasIDs: Array.from(new Set(aliasIDs.map((value) => String(value || '').trim()).filter(Boolean))),
                 parentTaskID: String(projected.parentTaskId || projected.parent_task_id || '').trim(),
                 documentID: String(projected.docId || projected.documentID || projected.root_id || '').trim(),
-                documentName: String(projected.docName || projected.documentName || projected.doc || '').trim(),
+                documentName: [projected.docName, projected.documentName, projected.doc_name, projected.rawDocName, projected.doc]
+                    .map((value) => String(value || '').trim()).find(Boolean) || '',
                 h2: String(projected.h2 || projected.h2Name || projected.headingName || '').trim(),
                 h2Id: String(projected.h2Id || projected.h2_id || projected.headingId || '').trim(),
                 h2Path: String(projected.h2Path || '').trim(),

@@ -17212,14 +17212,6 @@ if (opts.refresh === false) return;
             : (activeDocTabCustomGroup
                 ? String(activeDocTabCustomGroup.name || '').trim()
                 : String((Array.isArray(state.taskTree) ? state.taskTree : []).find((doc) => String(doc?.id || '').trim() === activeDocId)?.name || '').trim());
-        const documentNames = {};
-        const addDocumentName = (doc) => {
-            const id = String(doc?.id || doc?.root_id || doc?.docId || '').trim();
-            const name = String(doc?.name || doc?.doc_name || doc?.docName || doc?.rawDocName || doc?.content || '').trim();
-            if (id && name && !documentNames[id]) documentNames[id] = name;
-        };
-        (Array.isArray(state.allDocuments) ? state.allDocuments : []).forEach(addDocumentName);
-        (Array.isArray(state.taskTree) ? state.taskTree : []).forEach(addDocumentName);
         const currentRule = state.currentRule
             ? (Array.isArray(state.filterRules) ? state.filterRules.find((rule) => String(rule?.id || '').trim() === String(state.currentRule || '').trim()) : null)
             : null;
@@ -17240,7 +17232,6 @@ if (opts.refresh === false) return;
             currentRuleName: String(currentRule?.name || '').trim(),
             currentDocId: activeDocId,
             currentDocName: docName,
-            documentNames,
             tomatoIntegrationEnabled: !!SettingsStore.data.enableTomatoIntegration,
             tomatoHistoryVersion: __tmTomatoHistoryVersion,
             durationFormat: String(SettingsStore.data.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours',
