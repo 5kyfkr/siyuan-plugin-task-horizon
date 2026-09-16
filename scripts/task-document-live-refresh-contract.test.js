@@ -357,3 +357,4 @@ assert.match(calendarRuntime, /function __tmNormalizeCalendarTaskRows[\s\S]*norm
 
 console.log('task document live refresh contract tests passed');
 
+
