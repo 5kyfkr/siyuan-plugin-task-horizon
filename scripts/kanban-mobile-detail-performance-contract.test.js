@@ -1,4 +1,4 @@
-const assert = require('node:assert/strict');
+﻿const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -103,3 +103,4 @@ assert.ok(hiddenAnchorGuard >= 0 && temporaryOriginWrite > hiddenAnchorGuard,
     'a filtered or hidden anchor must keep the current floating-detail position before temporary origin styles are written');
 
 console.log('kanban mobile detail performance contract tests passed');
+
