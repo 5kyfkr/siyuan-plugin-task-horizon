@@ -39,7 +39,7 @@ const blockingAttrs = detailOpen.indexOf('task = await __tmEnsureTaskDetailField
 
 assert.ok(sheetOpen >= 0 && blockingAttrs > sheetOpen, 'compact task sheets must open before authoritative field-attribute hydration');
 assert.doesNotMatch(detailOpen.slice(sheetOpen, blockingAttrs), /__tmScheduleTaskDetailFieldAttrHydration/, 'view call sites must not duplicate task-sheet hydration scheduling');
-assert.match(detailOpen, /const shouldReconcileDetailOpen = detailOpenOptions\.reconcile === true;/, 'ordinary mobile detail opens must not enqueue a document reload');
+assert.match(detailOpen, /const shouldReconcileDetailOpen = detailOpenOptions\\.reconcile === true \\|\\| deferFreshDetailOpen;/, 'ordinary mobile detail opens must not enqueue a document reload');
 const compactOpenBranch = detailOpen.slice(detailOpen.indexOf('if (useTaskDetailSheetMode) {'), blockingAttrs);
 assert.doesNotMatch(compactOpenBranch, /__tmCacheTaskInState/, 'opening a compact detail sheet must not write a read-only projected snapshot back into the task store');
 
@@ -103,4 +103,5 @@ assert.ok(hiddenAnchorGuard >= 0 && temporaryOriginWrite > hiddenAnchorGuard,
     'a filtered or hidden anchor must keep the current floating-detail position before temporary origin styles are written');
 
 console.log('kanban mobile detail performance contract tests passed');
+
 
