@@ -233,6 +233,12 @@
 
     function __tmApplyMigrationSettingsPatch(patch, mode) {
         if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return;
+        if (Array.isArray(patch.customStatusOptions)) {
+            const merged = __tmMergeArrayById(SettingsStore.data.customStatusOptions, patch.customStatusOptions);
+            const rules = globalThis.__tmTaskStatusRules;
+            const conflicts = rules.conflicts(rules.normalizeOptions(merged));
+            if (conflicts.length) throw new Error('状态语法标记重复（只有空格可以重复）：' + conflicts.map((item) => item.marker).join('、'));
+        }
         Object.entries(patch).forEach(([key, value]) => {
             if (!key) return;
             if (mode === 'docGroups') {
@@ -797,6 +803,7 @@
         const taskDone = typeof __tmIsTaskDoneEffective === 'function'
             ? __tmIsTaskDoneEffective(task)
             : task?.done === true;
+        if (__tmIsTaskCanceled(task)) return makeInfo('放弃', colors.waiting, '9');
         if (taskDone) {
             const completionRaw = typeof __tmResolveTaskCompletedAtRaw === 'function'
                 ? __tmResolveTaskCompletedAtRaw(task, { completedOnly: false })
@@ -1455,7 +1462,7 @@
                 }
 
                 h2Group.tasks.forEach(task => {
-                    const checkbox = task.done ? '[x]' : '[ ]';
+                    const checkbox = `[${__tmResolveTaskMarker(task)}]`;
 
                     // 根据层级计算缩进
                     const level = task.level || 0;

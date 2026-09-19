@@ -29,6 +29,7 @@ const context = {
         const raw = String(value || '').trim();
         return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '2026-08-21';
     },
+    __tmIsTaskCanceled(task) { return task?.taskMarker === '-'; },
     __tmIsTaskDoneEffective(task) { return task?.done === true; },
 };
 context.globalThis = context;
@@ -72,4 +73,6 @@ assert.deepEqual(
     'completed downstream tasks must stop affected-state propagation',
 );
 
+tasks[2].taskMarker = '-';
+assert.equal(context.__tmIsTaskCardDateOverdue(tasks[2], '2026-08-21'), false, 'abandoned tasks must not be marked overdue');
 console.log('whiteboard dependency state contract tests passed');

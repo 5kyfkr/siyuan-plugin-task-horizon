@@ -218,7 +218,7 @@ async function run() {
         limit: 5,
     });
     assert.equal(filteredQuery.ok, true);
-    assert.match(lastSQL, /NOT \(task\.markdown LIKE/);
+    assert.match(lastSQL, /NOT \(\(CASE WHEN[\s\S]*NOT IN \(' ', '\/', '-'\)/);
     assert.match(lastSQL, /custom-priority/);
     assert.match(lastSQL, /custom-status/);
     assert.match(lastSQL, /custom-start-date/);

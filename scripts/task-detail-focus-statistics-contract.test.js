@@ -45,15 +45,12 @@ assert.match(loadSource, /rootTaskID:\s*taskId/, 'task details must delegate des
 assert.doesNotMatch(loadSource, /taskIDs:/, 'task details must not send a recursively expanded descendant ID payload');
 assert.doesNotMatch(source, /function __tmCollectTaskDetailFocusTaskIds/, 'task details must not retain a second recursive task-tree walker');
 
-const createdAtStart = source.indexOf('function __tmTaskDetailCreatedAtIso(');
-const createdAtEnd = source.indexOf('\n\n    function __tmFormatTaskDetailFocusDuration', createdAtStart);
-assert.ok(createdAtStart >= 0 && createdAtEnd > createdAtStart, 'task detail creation-time resolver must remain extractable');
-const createdAtSource = source.slice(createdAtStart, createdAtEnd);
 assert.match(
-    createdAtSource,
-    /task\?\.created\s*\|\|\s*task\?\.id\s*\|\|\s*task\?\.blockId/,
-    'task details must derive creation time from the SiYuan block ID when the projected task omits created',
+    loadSource,
+    /from:\s*'1970-01-01T00:00:00.000Z'/,
+    'lifetime totals must include legacy container history predating the current task block',
 );
+assert.doesNotMatch(loadSource, /__tmTaskDetailCreatedAtIso/, 'block creation time must not truncate inherited focus history');
 
 assert.match(
     source,
@@ -67,7 +64,7 @@ assert.match(source, /if \(root\.querySelector\('\[data-tm-detail-focus-stats\]'
 assert.match(source, /function __tmRefreshOpenTaskDetailFocusStats[\s\S]*__tmTaskDetailFocusRoots[\s\S]*__tmLoadTaskDetailFocusStats[\s\S]*availabilityChanged[\s\S]*__tmRefreshVisibleTaskDetailForTask/,
     'open task details must refresh focus values and rebuild only when statistics availability changes');
 const disposeStart = source.indexOf('const __tmTaskDetailFocusRoots = new Set()');
-const disposeEnd = source.indexOf('function __tmTaskDetailCreatedAtIso(', disposeStart);
+const disposeEnd = source.indexOf('function __tmFormatTaskDetailFocusDuration(', disposeStart);
 assert.ok(disposeStart >= 0 && disposeEnd > disposeStart, 'task detail focus ownership must expose a bounded disposal block');
 class FakeElement {
     constructor() {

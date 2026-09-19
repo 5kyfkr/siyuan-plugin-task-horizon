@@ -305,13 +305,22 @@ const taskItem = Object.assign(new FakeElement(), {
     querySelector: () => ({ getAttribute: (key) => key === 'href' ? '#iconUncheck' : '' }),
     classList: { contains: () => false },
 });
-const readLiveDocumentContent = new Function('globalThis', 'Element', 'document', `
+const statusRules = new Function(segment(services, 'function __tmCreateTaskStatusRules(', 'globalThis.__tmTaskStatusRules =') + '; return __tmCreateTaskStatusRules();')();
+const readLiveDocumentContent = new Function('globalThis', 'Element', 'document', '__tmIsTaskMarkerDone', `
     ${liveDocumentContentSource}
     return __tmReadLiveDocumentTaskContentPatch;
-`)({ __tmCompat: { findTaskListItemById: () => taskItem } }, FakeElement, {});
+`)({ __tmTaskStatusRules: statusRules, __tmCompat: { findTaskListItemById: () => taskItem } }, FakeElement, {}, statusRules.isDone);
 const liveDocumentPatch = readLiveDocumentContent('20260804120000-taskid');
 assert.equal(liveDocumentPatch.content, 'fresh title', 'live document content must remove editor caret characters');
 assert.equal(liveDocumentPatch.markdown, '- [ ] <strong>fresh title</strong>', 'live document inline markup must remain available to the sidebar renderer');
+for (const marker of ['/', '-']) {
+    taskItem.getAttribute = (key) => key === 'data-task' ? marker : '';
+    taskItem.classList.contains = () => true;
+    const patch = readLiveDocumentContent('20260804120000-taskid');
+    assert.equal(patch.done, false);
+    assert.equal(patch.taskMarker, marker);
+    assert.equal(patch.markdown, `- [${marker}] <strong>fresh title</strong>`);
+}
 assert.doesNotMatch(liveDocumentContentSource, /MutationObserver|setInterval/, 'the live document fast path must remain event-driven');
 
 const taskDomPatch = segment(

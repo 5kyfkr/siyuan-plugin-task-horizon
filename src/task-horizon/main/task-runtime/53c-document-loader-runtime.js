@@ -1860,6 +1860,16 @@
                     const taskId = String(task.id || '').trim();
                     if (taskId && isQueuedOrPendingDeletedTaskId(taskId)) continue;
                     const prevTask = state.flatTasks?.[String(task.id || '').trim()];
+                    try {
+                        const authoritativeCandidate = typeof __tmBuildAuthoritativeTaskConfirmationCandidate === 'function'
+                            ? __tmBuildAuthoritativeTaskConfirmationCandidate(task, { previousTask: prevTask })
+                            : null;
+                        ['customFieldValues', '__customFieldRawValues', '__tmLoadedAllCustomFields', '__tmLoadedCustomFieldIds'].forEach((key) => {
+                            if (authoritativeCandidate && Object.prototype.hasOwnProperty.call(authoritativeCandidate, key)) {
+                                task[key] = authoritativeCandidate[key];
+                            }
+                        });
+                    } catch (e) {}
                     const flowRank = Number(taskFlowRankMap.get(String(task.id || '').trim()));
                     __tmApplyResolvedFlowRankIfNeeded(task, flowRank);
 

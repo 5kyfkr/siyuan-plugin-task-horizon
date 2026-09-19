@@ -7135,8 +7135,8 @@
     .tm-calendar-root:not(.tm-calendar-root--month-view) .tm-calendar-wrap--mobile .tm-proto-toolbar > .tm-proto-toolbar-month{
         order: 1;
         display: inline-flex;
-        flex: 0 1 auto;
-        max-width: 4ch;
+        flex: 0 0 auto;
+        max-width: none;
         margin-left: 3px;
         font-size: 11px;
     }
@@ -8755,7 +8755,8 @@
 }
 .tm-proto-list-calendar-toggle{
     width: 48px;
-    height: 24px;
+    height: 18px;
+    bottom: -9px;
     padding: 0;
     border: 0;
     background: var(--tm-cal-surface);

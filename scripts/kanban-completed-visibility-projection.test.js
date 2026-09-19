@@ -41,6 +41,7 @@ class FakeElement {
     querySelector() { return null; }
     querySelectorAll() { return []; }
     insertBefore(node, next) {
+        if (node.parentElement) node.parentElement.children = node.parentElement.children.filter((item) => item !== node);
         this.children = this.children.filter((item) => item !== node);
         const index = next ? this.children.indexOf(next) : -1;
         if (index >= 0) this.children.splice(index, 0, node);
@@ -133,5 +134,38 @@ assert.equal(completedBadgeSyncs - badgeSyncsBeforeRestore, cards.length,
     'an in-place kanban projection must synchronize the completed-today badge on every mounted card');
 assert.match(css, /\.tm-body--kanban \.tm-kanban-card\[hidden\]\s*\{\s*display: none !important;/,
     'kanban card hiding must not depend on the host theme user-agent hidden rule');
+
+const findColumnStart = source.indexOf('function __tmFindKanbanProjectionColumn(');
+const findColumnEnd = source.indexOf('\n    function __tmGetKanbanPinnedProjectionGroupKey(', findColumnStart);
+vm.runInContext(source.slice(findColumnStart, findColumnEnd), context);
+context.__tmIsTaskDoneForTailGroup = (item) => item.done === true || item.taskMarker === '-';
+context.__tmResolveTaskStatusId = (item) => item.customStatus;
+context.__tmFindKanbanNormalProjectionContainer = (_card, _source, target) => target.body;
+context.state.showCompletedTasks = true;
+const doneColumn = new FakeElement(['tm-kanban-col']);
+doneColumn.setAttribute('data-kind', 'status');
+doneColumn.setAttribute('data-status', '__done__');
+doneColumn.body = new FakeElement(['tm-kanban-col-body']);
+column.setAttribute('data-kind', 'status');
+column.setAttribute('data-status', 'todo');
+column.body = container;
+modal.querySelector = (selector) => selector.includes('__done__') ? doneColumn : column;
+const rootCard = cards[0];
+cards.splice(1);
+rootCard.classList.toggle('tm-kanban-card--sub', false);
+task = { id: 'task-a', done: false, taskMarker: ' ', customStatus: 'todo' };
+context.state.filteredTasks = [task];
+assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', {
+    done: false, taskMarker: '-', customStatus: 'quit',
+}, { filtersApplied: true }), true);
+assert.equal(rootCard.parentElement, doneColumn.body,
+    'canceling a root task must move it into the completed column using the operation after-state');
+assert.equal(rootCard.checkboxChecked, false, 'completed grouping must not mark cancellation as successful completion');
+rootCard.column = doneColumn;
+task = { ...task, taskMarker: '-', customStatus: 'quit' };
+assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', {
+    done: false, taskMarker: '/', customStatus: 'in_progress',
+}, { filtersApplied: true }), true);
+assert.equal(rootCard.parentElement, container, 'resuming a canceled task must leave the completed column');
 
 console.log('kanban completed visibility projection tests passed');

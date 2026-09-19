@@ -903,6 +903,19 @@
         const opt = (options && typeof options === 'object') ? options : {};
         const reason = String(opt.reason || 'siyuan-data-changed').trim() || 'siyuan-data-changed';
         const suppressStorageWrites = opt.suppressStorageWrites === true;
+        const dockSettingsBeforeReload = (() => {
+            try {
+                const runtimeMobile = __tmIsRuntimeMobileClient();
+                return {
+                    enabled: runtimeMobile
+                        ? SettingsStore?.data?.mobileSidebarEnabled === true
+                        : SettingsStore?.data?.dockSidebarEnabled !== false,
+                    defaultViewMode: __tmGetDockDefaultViewValue(),
+                };
+            } catch (e) {
+                return null;
+            }
+        })();
         const preserveSessionState = SettingsStore?.data?.serverSyncSessionStateOnManualRefresh !== true;
         const sessionSnapshot = preserveSessionState ? __tmCaptureManualRefreshSessionState() : null;
         const runWithStorageWritesSuppressed = async (callback) => {
@@ -959,7 +972,29 @@
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
         try { __tmApplyTaskCheckboxPriorityColorStyle(SettingsStore?.data?.taskCheckboxPriorityColorEnabled !== false); } catch (e) {}
         try { globalThis.__tmCalendar?.setSettingsStore?.(SettingsStore); } catch (e) {}
-        try { __tmDispatchDockSettingsChanged(reason); } catch (e) {}
+        // A data refresh must not tear down the live mobile Dock on every sync.
+        // Notify the host only when the synced Dock settings actually changed;
+        // manual refreshes still force the existing settings propagation path.
+        const dockSettingsAfterReload = (() => {
+            try {
+                const runtimeMobile = __tmIsRuntimeMobileClient();
+                return {
+                    enabled: runtimeMobile
+                        ? SettingsStore?.data?.mobileSidebarEnabled === true
+                        : SettingsStore?.data?.dockSidebarEnabled !== false,
+                    defaultViewMode: __tmGetDockDefaultViewValue(),
+                };
+            } catch (e) {
+                return null;
+            }
+        })();
+        const dockSettingsChanged = !!dockSettingsBeforeReload && !!dockSettingsAfterReload
+            && (dockSettingsBeforeReload.enabled !== dockSettingsAfterReload.enabled
+                || dockSettingsBeforeReload.defaultViewMode !== dockSettingsAfterReload.defaultViewMode);
+        const isManualRefresh = reason.startsWith('manual');
+        if (dockSettingsChanged || isManualRefresh) {
+            try { __tmDispatchDockSettingsChanged(reason); } catch (e) {}
+        }
         try { __tmRefreshShellEntrances(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}

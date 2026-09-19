@@ -1,6 +1,129 @@
 (function () {
     'use strict';
 
+    function createTaskStatusRules() {
+        // 只处理状态语义；不读取设置、不写任务，也不处理循环轮次。
+        const defaults = [
+            { id: 'todo', name: '待办', color: '#757575', marker: ' ' },
+            { id: 'in_progress', name: '进行中', color: '#2196F3', marker: '/' },
+            { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
+            { id: 'cancelled', name: '放弃', color: '#9E9E9E', marker: '-' },
+            { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
+            { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' },
+        ];
+        const markerPattern = /^([ \t]*)(?:[-*+]|\d+[.)])[ \t]*(?:(?:\{:[ \t]*[^}\r\n]*\})[ \t]*)*\[([^\]\r\n]?)\][ \t]*/;
+        function normalizeMarker(value, fallback = ' ') {
+            const raw = value === '__space__' ? ' ' : String(value == null ? '' : value);
+            if (raw.length === 1 && /^[\x20-\x7e]$/.test(raw) && raw !== '[' && raw !== ']') return raw === 'x' ? 'X' : raw;
+            if (fallback === '') return '';
+            return fallback === value ? ' ' : normalizeMarker(fallback, ' ');
+        }
+        function guessMarker(option) {
+            const id = String(option?.id || '').trim().toLowerCase();
+            const name = String(option?.name || '').trim().toLowerCase();
+            const source = `${id} ${name}`;
+            // 旧配置缺失 marker 时保留原有推断，避免把空格状态静默改成 /。
+            if (['todo', 'undone', 'in_progress', 'blocked', 'review'].includes(id) || /待办|未完成|进行中|阻塞|审核/.test(source)) return ' ';
+            return id === 'done' || name.includes('完成') ? 'X' : ' ';
+        }
+        function optionMarker(option) {
+            return normalizeMarker(option?.marker, guessMarker(option));
+        }
+        function isLegacyDefaultOptions(input) {
+            const legacy = [
+                { id: 'todo', name: '待办', color: '#757575', marker: ' ' },
+                { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
+                { id: 'cancelled', name: '已取消', color: '#9E9E9E', marker: '-' },
+                { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
+                { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' },
+            ];
+            if (!Array.isArray(input) || input.length !== legacy.length) return false;
+            return input.every((item, index) => {
+                const expected = legacy[index];
+                return item && String(item.id || item.value || '').trim() === expected.id
+                    && String(item.name || item.label || '').trim() === expected.name
+                    && String(item.color || '').trim().toUpperCase() === expected.color
+                    && (!Object.prototype.hasOwnProperty.call(item, 'marker') || normalizeMarker(item.marker, '') === expected.marker);
+            });
+        }
+        function isDone(marker, legacy = false) {
+            const value = normalizeMarker(marker);
+            return legacy ? value === 'X' : value !== ' ' && value !== '/' && value !== '-';
+        }
+        function isClosed(marker, legacy = false) {
+            const value = normalizeMarker(marker);
+            return legacy ? value === 'X' : value !== ' ' && value !== '/';
+        }
+        function fromMarkdown(markdown) {
+            const match = markerPattern.exec(String(markdown || '').split(/\r?\n/, 1)[0]);
+            return match ? normalizeMarker(match[2] || ' ') : '';
+        }
+        function fromElement(element) {
+            if (!element?.getAttribute) return '';
+            const own = normalizeMarker(element.getAttribute('data-task'), '');
+            if (own) return own;
+            const action = element.querySelector?.(':scope > .protyle-action--task');
+            return normalizeMarker(action?.getAttribute?.('data-task'), '');
+        }
+        function normalizeOptions(input, legacy = false, fillNative = true) {
+            const seen = new Set();
+            const result = [];
+            const source = !legacy && fillNative && isLegacyDefaultOptions(input)
+                ? defaults
+                : (Array.isArray(input) ? input : []);
+            source.forEach((item) => {
+                const id = String(item?.id || item?.value || '').trim();
+                if (!id || seen.has(id)) return;
+                seen.add(id);
+                const name = String(item?.name || item?.label || id).trim() || id;
+                result.push({ id, name, color: String(item?.color || '#757575'), marker: optionMarker({ ...item, id, name }) });
+            });
+            if (!result.length) result.push(...defaults.filter((item) => !legacy || item.marker !== '/').map((item) => ({ ...item })));
+            if (!legacy && fillNative) {
+                defaults.filter((item) => item.marker === '/' || item.marker === '-').forEach((preset) => {
+                    if (result.some((item) => item.marker === preset.marker)) return;
+                    // 固定、可重复计算的 ID；用户已占用默认 ID 时不覆盖它。
+                    let id = preset.id;
+                    for (let suffix = 1; result.some((item) => item.id === id); suffix++) id = `${preset.id}_native${suffix === 1 ? '' : suffix}`;
+                    result.push({ ...preset, id });
+                });
+            }
+            return result;
+        }
+        function resolveOption(marker, statusId, options, fallbackId = '') {
+            const value = normalizeMarker(marker, '');
+            const current = options.find((item) => item.id === statusId);
+            if (current && (!value || optionMarker(current) === value)) return current;
+            if (value === ' ') {
+                const fallback = options.find((item) => item.id === fallbackId && optionMarker(item) === ' ');
+                if (fallback) return fallback;
+            }
+            return options.find((item) => optionMarker(item) === value) || null;
+        }
+        function sqlMarker(expression) {
+            const line = `substr(${expression}, 1, instr(${expression} || char(10), char(10)) - 1)`;
+            // 只取任务自身首行的标记，避免子任务和标题中的 [x] 污染完成筛选。
+            const open = `instr(${line}, '[')`;
+            const token = `substr(${line}, ${open}, 3)`;
+            return `(CASE WHEN ${open} > 0 AND substr(${token}, 3, 1) = ']' THEN CASE substr(${token}, 2, 1) WHEN 'x' THEN 'X' ELSE substr(${token}, 2, 1) END ELSE ' ' END)`;
+        }
+        function sqlDone(expression) {
+            return `(${sqlMarker(expression)} NOT IN (' ', '/', '-'))`;
+        }
+        function conflicts(options) {
+            const byMarker = new Map();
+            options.forEach((item) => {
+                const marker = optionMarker(item);
+                if (marker === ' ') return;
+                if (!byMarker.has(marker)) byMarker.set(marker, []);
+                byMarker.get(marker).push(item);
+            });
+            return Array.from(byMarker, ([marker, items]) => ({ marker, items })).filter((item) => item.items.length > 1);
+        }
+        return Object.freeze({ normalizeMarker, guessMarker, optionMarker, isDone, isClosed, fromMarkdown, fromElement, normalizeOptions, resolveOption, conflicts, sqlMarker, sqlDone });
+    }
+    const TaskStatus = createTaskStatusRules();
+
     const PLUGIN_VERSION = '1';
     const SETTINGS_FILE = 'task-settings.json';
     const TASK_ATTR_STORAGE_FILE = 'task-attr-storage.json';
@@ -164,8 +287,9 @@
     ]);
     const DEFAULT_STATUS_OPTIONS = Object.freeze([
         { id: 'todo', name: '待办', color: '#757575', marker: ' ' },
+        { id: 'in_progress', name: '进行中', color: '#2196F3', marker: '/' },
         { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
-        { id: 'cancelled', name: '已取消', color: '#9E9E9E', marker: '-' },
+        { id: 'cancelled', name: '放弃', color: '#9E9E9E', marker: '-' },
         { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
         { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' },
     ]);
@@ -499,10 +623,10 @@
                 id: text(option && (option.id || option.value)),
                 name: text(option && (option.name || option.label || option.id || option.value)),
                 color: text(option && option.color),
-                marker: option && Object.prototype.hasOwnProperty.call(option, 'marker') ? String(option.marker ?? '') : '',
+                ...(option && Object.prototype.hasOwnProperty.call(option, 'marker') ? { marker: String(option.marker ?? '') } : {}),
             }))
             .filter((option) => option.id);
-        const statusOptions = configuredStatusOptions.length ? configuredStatusOptions : DEFAULT_STATUS_OPTIONS.map((option) => ({ ...option }));
+        const statusOptions = TaskStatus.normalizeOptions(configuredStatusOptions, settings.legacyWin7CompatMode === true);
         const all = defs.concat(customFields);
         return {
             settings,
@@ -647,10 +771,7 @@
     }
 
     function parseDone(markdown) {
-        const line = String(markdown || '').split(/\r?\n/, 1)[0];
-        const matched = line.match(/^\s*[*+-]\s+\[([^\]\r\n]?)\]/);
-        const marker = matched ? String(matched[1] || '') : '';
-        return !!marker && marker !== ' ';
+        return TaskStatus.isDone(TaskStatus.fromMarkdown(markdown));
     }
 
     const TASK_MARKER_PATTERN = /^([ \t]*)((?:[-*+]|\d+[.)]))[ \t]*(?:(?:\{:[ \t]*[^}\r\n]*\})[ \t]*)*\[([^\]\r\n]?)\][ \t]*/;
@@ -753,21 +874,11 @@
     }
 
     function normalizeTaskMarker(value, fallback = ' ') {
-        let raw = value == null ? '' : String(value);
-        if (raw === '__space__') raw = ' ';
-        const first = Array.from(raw)[0] || '';
-        const marker = first && first !== '[' && first !== ']' ? first : '';
-        if (marker) {
-            try {
-                if (typeof TextEncoder === 'undefined' || new TextEncoder().encode(marker).length === 1) return marker;
-            } catch (error) {}
-        }
-        return fallback === value ? ' ' : normalizeTaskMarker(fallback, ' ');
+        return TaskStatus.normalizeMarker(value, fallback);
     }
 
     function guessStatusMarker(option) {
         const source = `${text(option?.id)} ${text(option?.name)}`.toLowerCase();
-        if (/cancel|取消|放弃/.test(source)) return '-';
         if (/\bdone\b|完成/.test(source)) return 'X';
         return ' ';
     }
@@ -778,13 +889,13 @@
     }
 
     function isTaskMarkerDone(marker) {
-        return normalizeTaskMarker(marker, ' ') !== ' ';
+        return TaskStatus.isDone(marker);
     }
 
     function replaceTaskDOMMarker(dom, marker) {
         let next = String(dom || '');
         const nextMarker = normalizeTaskMarker(marker, ' ');
-        const done = isTaskMarkerDone(nextMarker);
+        const done = nextMarker !== ' '; // 思源 DOM 的勾选格式与业务完成语义不同。
         if (/\bdata-task="[^"]*"/.test(next)) next = next.replace(/\bdata-task="[^"]*"/, `data-task="${nextMarker}"`);
         else next = next.replace(/(<div\b[^>]*\bdata-type="NodeListItem"[^>]*)(>)/, `$1 data-task="${nextMarker}"$2`);
         next = next.replace(/(<div\b[^>]*\bdata-type="NodeListItem"[^>]*\bclass=")([^"]*)(")/, (all, before, classes, after) => {
@@ -1199,6 +1310,9 @@
             priorityScore: null,
             ...attrs,
         };
+        const marker = TaskStatus.fromMarkdown(dto.markdown);
+        const matched = TaskStatus.resolveOption(marker, dto.customStatus, registry.statusOptions, registry.settings?.checkboxUndoneStatusId || 'todo');
+        if (matched) dto.customStatus = matched.id;
         return projectTaskDTO(applyTaskDisplayNames(dto, registry), fields);
     }
 
@@ -2981,11 +3095,18 @@
                     throw new DomainError(ERROR.INVALID_ARGUMENT, `未配置的任务状态: ${patch.customStatus}`);
                 }
                 taskMarker = statusOptionMarker(statusOption);
+                if (normalized.registry.settings?.legacyWin7CompatMode === true && taskMarker !== 'X') taskMarker = ' ';
                 patch.done = isTaskMarkerDone(taskMarker);
+                if (!patch.done && !own(patch, 'repeatState') && before.repeatState?.pendingNativeDoneReset) patch.repeatState = { ...before.repeatState, pendingNativeDoneReset: false };
             } else if (own(patch, 'done')) {
                 taskMarker = patch.done ? 'X' : ' ';
             }
-            if (own(patch, 'done') && !own(patch, 'taskCompleteAt')) patch.taskCompleteAt = patch.done ? nowIso() : '';
+            if (taskMarker !== null && !own(patch, 'taskCompleteAt')) {
+                const previousMarker = TaskStatus.fromMarkdown(before.markdown);
+                patch.taskCompleteAt = TaskStatus.isClosed(taskMarker, normalized.registry.settings?.legacyWin7CompatMode === true)
+                    ? (previousMarker === taskMarker && before.taskCompleteAt ? before.taskCompleteAt : nowIso())
+                    : '';
+            }
             const patchAttrs = await appendAttachmentAttrPayload(id, patch, buildAttrPayload(patch, normalized.registry, id));
             const attrs = await buildCanonicalTaskAttrs({ taskID: id, ...context }, patchAttrs, normalized.registry);
             const operations = [];
@@ -3006,6 +3127,7 @@
                 id,
                 title: own(patch, 'title') ? patch.title : before.title,
                 done: own(patch, 'done') ? !!patch.done : before.done,
+                markdown: taskMarker !== null ? before.markdown.replace(/^(.*?\[)[^\]\r\n]?(\])/, (_, prefix, suffix) => prefix + taskMarker + suffix) : before.markdown,
                 customFieldValues: own(patch, 'customFieldValues')
                     ? { ...(before.customFieldValues || {}), ...(patch.customFieldValues || {}) }
                     : before.customFieldValues,
@@ -4860,8 +4982,24 @@
     }
 
     function taskDoneExpression(alias) {
-        const table = text(alias) || 'task';
-        return `(${table}.markdown LIKE '%[x]%' OR ${table}.markdown LIKE '%[X]%')`;
+        return TaskStatus.sqlDone(`${text(alias) || 'task'}.markdown`);
+    }
+
+    function taskStatusExpression(registry, alias) {
+        const attr = taskFieldAttrExpression(registry, 'customStatus', alias);
+        const marker = TaskStatus.sqlMarker(`${alias}.markdown`);
+        const groups = new Map();
+        registry.statusOptions.forEach((item) => {
+            const value = TaskStatus.optionMarker(item);
+            if (!groups.has(value)) groups.set(value, []);
+            groups.get(value).push(item);
+        });
+        const branches = Array.from(groups, ([value, items]) => {
+            const fallback = value === ' ' ? (items.find((item) => item.id === (registry.settings?.checkboxUndoneStatusId || 'todo')) || items[0]) : items[0];
+            const ids = items.map((item) => `'${escapeSql(item.id)}'`).join(',');
+            return `WHEN ${marker} = '${escapeSql(value)}' THEN CASE WHEN ${attr} IN (${ids}) THEN ${attr} ELSE '${escapeSql(fallback.id)}' END`;
+        });
+        return `(CASE ${branches.join(' ')} ELSE ${attr} END)`;
     }
 
     function taskFieldAttrExpression(registry, fieldID, alias) {
@@ -4918,13 +5056,13 @@
         }
         const doneExpr = taskDoneExpression('task');
         if (source.done === true) conditions.push(doneExpr);
-        if (source.done === false) conditions.push(`NOT ${doneExpr}`);
+        if (source.done === false) conditions.push(`NOT ${doneExpr} AND ${TaskStatus.sqlMarker('task.markdown')} != '-'`);
         if (source.priorities.length) {
             const priorityExpr = taskFieldAttrExpression(registry, 'priority', 'task');
             conditions.push(`${priorityExpr} IN (${source.priorities.map((value) => `'${escapeSql(value)}'`).join(',')})`);
         }
         if (source.customStatuses.length) {
-            const statusExpr = taskFieldAttrExpression(registry, 'customStatus', 'task');
+            const statusExpr = taskStatusExpression(registry, 'task');
             conditions.push(`${statusExpr} IN (${source.customStatuses.map((value) => `'${escapeSql(value)}'`).join(',')})`);
         }
         appendTaskDateRangeConditions(conditions, source.dateRange, registry, 'task');
@@ -4934,7 +5072,7 @@
                 const now = new Date();
                 return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
             })();
-            const overdueExpr = `(NOT ${doneExpr} AND ${dueExpr} != '' AND substr(${dueExpr}, 1, 10) < '${today}')`;
+            const overdueExpr = `(NOT ${doneExpr} AND ${TaskStatus.sqlMarker('task.markdown')} != '-' AND ${dueExpr} != '' AND substr(${dueExpr}, 1, 10) < '${today}')`;
             conditions.push(source.overdue ? overdueExpr : `NOT ${overdueExpr}`);
         }
         const cursorMatch = text(cursor).match(/^(\d{14}):([0-9]{14}-[A-Za-z0-9]+)$/);
@@ -6188,7 +6326,7 @@
             return { field, alias: `custom_field_${index}` };
         });
         const customSelect = customFields.map(({ field, alias }) => `, ${completionAttrExpression([field.attr].concat(field.aliases || []))} AS ${alias}`).join('');
-        const conditions = ["t.type = 'i'", "t.subtype = 't'", "(t.markdown LIKE '%[x]%' OR t.markdown LIKE '%[X]%')"];
+        const conditions = ["t.type = 'i'", "t.subtype = 't'", TaskStatus.sqlDone('t.markdown')];
         const scope = normalizeTaskScope(input);
         appendTaskScopeConditions(conditions, scope, 't');
         const fromDate = text(input && input.from);
@@ -6321,6 +6459,7 @@
     const DOCK_TOMATO_PLUGIN_ID = 'siyuan-plugin-docktomato';
     const FOCUS_STATS_DEADLINE_MS = 10000;
     const FOCUS_STATS_SCOPE_TASK_LIMIT = 10000;
+    const FOCUS_STATS_CANDIDATE_LIMIT = 20000;
     const FOCUS_STATS_SNAPSHOT_TASK_LIMIT = 20000;
     const FOCUS_STATS_SNAPSHOT_BYTE_LIMIT = 8 * 1024 * 1024;
 
@@ -6502,6 +6641,54 @@
         return out;
     }
 
+    async function expandFocusCandidateIDs(taskIDs, input) {
+        const out = new Set(taskIDs);
+        for (let offset = 0; offset < taskIDs.length; offset += 100) {
+            assertFocusStatsDeadline(input, 'focus-binding-scope');
+            const chunk = taskIDs.slice(offset, offset + 100);
+            // 与 resolveFocusBindingsBatch 保持一致：列表归首个任务，普通子块归最近任务。
+            // 在历史预筛选前保留这些旧 ID，且不越过其他任务或任务列表边界。
+            const rows = await sql(`
+                WITH RECURSIVE focus_seeds(id) AS (
+                    SELECT id FROM blocks
+                    WHERE id IN (${chunk.map((id) => `'${escapeSql(id)}'`).join(',')})
+                        AND type = 'i' AND subtype = 't'
+                    UNION
+                    SELECT parent.id FROM blocks task
+                    JOIN blocks parent ON parent.id = task.parent_id AND parent.type = 'l'
+                    WHERE task.id IN (${chunk.map((id) => `'${escapeSql(id)}'`).join(',')})
+                        AND task.type = 'i' AND task.subtype = 't'
+                        AND task.id = (
+                            SELECT child.id FROM blocks child
+                            WHERE child.parent_id = parent.id AND child.type = 'i' AND child.subtype = 't'
+                            ORDER BY child.sort ASC, child.created ASC, child.id ASC LIMIT 1
+                        )
+                ), focus_candidates(id, depth) AS (
+                    SELECT id, 0 FROM focus_seeds
+                    UNION ALL
+                    SELECT child.id, focus_candidates.depth + 1
+                    FROM focus_candidates
+                    JOIN blocks child ON child.parent_id = focus_candidates.id
+                    WHERE focus_candidates.depth < 29
+                        AND NOT (child.type = 'i' AND COALESCE(child.subtype, '') = 't')
+                        AND NOT (child.type = 'l' AND EXISTS (
+                            SELECT 1 FROM blocks task
+                            WHERE task.parent_id = child.id AND task.type = 'i' AND task.subtype = 't'
+                        ))
+                    LIMIT ${FOCUS_STATS_CANDIDATE_LIMIT + 1}
+                )
+                SELECT DISTINCT id FROM focus_candidates
+                LIMIT ${FOCUS_STATS_CANDIDATE_LIMIT + 1}
+            `);
+            rows.forEach((row) => { if (text(row?.id)) out.add(text(row.id)); });
+            if (out.size > FOCUS_STATS_CANDIDATE_LIMIT) {
+                throw focusStatsScopeTooLarge({ candidateCount: out.size, maxCandidateCount: FOCUS_STATS_CANDIDATE_LIMIT });
+            }
+        }
+        assertFocusStatsDeadline(input, 'focus-binding-scope-complete');
+        return Array.from(out).sort();
+    }
+
     async function resolveFocusCandidateIDs(input = {}) {
         const source = withFocusStatsDeadline(input);
         assertFocusStatsDeadline(source, 'focus-scope-start');
@@ -6544,7 +6731,7 @@
             throw focusStatsScopeTooLarge({ taskCount: candidateIDs.length });
         }
         assertFocusStatsDeadline(source, 'focus-scope-complete');
-        return candidateIDs.sort();
+        return expandFocusCandidateIDs(candidateIDs, source);
     }
 
     function focusStatsUtf8ByteLength(value) {

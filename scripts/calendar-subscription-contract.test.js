@@ -32,7 +32,7 @@ assert.match(buildBlock, /throwOnError: true/, 'task date read errors must stop 
 assert.match(buildBlock, /failOnTruncation: true/, 'truncated task reads must stop publication');
 assert.match(buildBlock, /requireCompleteCache: true/, 'incremental task reads may only reuse a verified complete cache');
 assert.match(buildBlock, /forceFreshTaskDates[\s\S]*startup[\s\S]*sync-end[\s\S]*day-boundary[\s\S]*task-list-updated[\s\S]*task-completed/, 'manual lifecycle and task mutations must force a full task date read');
-assert.match(taskDateRuntime, /opts\.excludeCompleted === true && done[\s\S]*continue;/, 'completed tasks must be removed before task date projection');
+assert.match(taskDateRuntime, /opts\.excludeCompleted === true && \(done \|\| __tmIsTaskCanceled\(t\)\)\) continue;/, 'completed and abandoned tasks must be removed before task date projection');
 assert.match(taskDateRuntime, /opts\.failOnTruncation === true && res\?\.limitReached[\s\S]*throw new Error\('任务数量超过读取上限'\)/, 'task cache reads must expose truncation to strict consumers');
 assert.match(taskDateRuntime, /complete: !res\?\.limitReached/, 'full task cache reads must record whether the snapshot is complete');
 assert.match(taskDateRuntime, /opts\.throwOnError === true[\s\S]*throw e;/, 'strict task date consumers must receive read failures');

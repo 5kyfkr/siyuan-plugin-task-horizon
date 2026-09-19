@@ -22583,9 +22583,10 @@
             || listTaskId
             || String(ext.__tmTaskDateEventTaskId || ext.__tmTaskId || ext.__tmBlockId || sourceTaskId || '').trim();
         const sid = String(ext.__tmScheduleId || '').trim();
-        const taskLike = typeof getCalendarEventTaskLikeForTitle === 'function'
-            ? getCalendarEventTaskLikeForTitle(event)
-            : null;
+        const taskLike = getCalendarTaskSnapshotById(tid)
+            || (typeof getCalendarEventTaskLikeForTitle === 'function'
+                ? getCalendarEventTaskLikeForTitle(event)
+                : null);
         try {
             if (source === 'schedule' && sid) {
                 if (tid && typeof window.tmShowTaskContextMenu === 'function') {
@@ -24344,6 +24345,8 @@
             const blockId = String(
                 r.blockId || r.block_id || r.taskBlockId || r.task_block_id || r.targetBlockId || r.target_block_id || r.id || ''
             ).trim();
+            const taskId = String(r.taskId || r.task_id || '').trim();
+            const reminderTaskId = taskId || blockId;
             const titleBase = String(r.blockName || r.blockContent || r.title || '').trim() || '任务提醒';
             const times = getReminderTimes(r);
             const completedSet = getReminderCompletedSet(r);
@@ -24367,6 +24370,8 @@
                     __tmRank: 3,
                     extendedProps: {
                         __tmSource: 'reminder',
+                        __tmTaskId: reminderTaskId,
+                        __tmReminderTaskId: reminderTaskId,
                         __tmReminderBlockId: blockId,
                         __tmReminderDone: done,
                         __tmReminderDate: dateKey,
@@ -28914,10 +28919,14 @@
                         shifted = true;
                         try { queuePrototypeSurfaceRender(); } catch (e) {}
                     } else {
-                        const action = `${direction < 0 ? 'prev' : 'next'}-${period}`;
-                        const actionEl = gesture.target.closest('.tm-proto-list-picker')
-                            ?.querySelector(`[data-tm-proto-list-action="${action}"]`);
-                        if (actionEl) shifted = performPrototypeListAction(event, actionEl);
+                        const listCalendar = state.calendar || calendar;
+                        const currentFocus = protoListFocusDate(getCalendarView(listCalendar) || {});
+                        const nextFocus = protoAddDays(currentFocus, direction * 7);
+                        prototypeListState.focusDate = nextFocus;
+                        prototypeListState.monthCursor = new Date(nextFocus.getFullYear(), nextFocus.getMonth(), 1);
+                        try { callCalendarAdapter(listCalendar, 'gotoDate', nextFocus); } catch (e) {}
+                        shifted = true;
+                        try { queuePrototypeSurfaceRender(); } catch (e) {}
                     }
                 } else if (viewType === 'dayGridMonth') {
                     shifted = shiftPrototypeMonthScroll(direction, { animate: true }) === true;
@@ -32547,7 +32556,7 @@
             };
             const protoListTaskId = (eventApi) => {
                 const ext = eventApi?.extendedProps || {};
-                return String(ext.__tmTaskId || ext.__tmTaskDateEventTaskId || ext.__tmSourceTaskId || ext.__tmBlockId || ext.__tmReminderBlockId || '').trim();
+                return String(ext.__tmTaskId || ext.__tmTaskDateEventTaskId || ext.__tmSourceTaskId || ext.__tmReminderTaskId || ext.__tmBlockId || ext.__tmReminderBlockId || '').trim();
             };
             const protoListIsTaskDateEvent = (eventApi) => {
                 const ext = eventApi?.extendedProps || {};
@@ -32813,6 +32822,8 @@
                 const eventId = String(eventApi?.id || '').trim();
                 if (!id || !eventId) return '';
                 const isParent = options.isParent === true;
+                const titleSettings = (state.settingsStore || state.sideDay?.settingsStore)?.data;
+                const parentTitleClass = titleSettings?.parentTaskNameBoldEnabled === false ? '' : ' tm-parent-task-title';
                 const done = protoListTaskDone(task);
                 const children = isParent ? protoListTaskChildren(task) : [];
                 const eventProps = eventApi?.extendedProps || {};
@@ -32900,7 +32911,7 @@
                     : (task?.pinned === true || task?.pinned === 1 || task?.pinned === '1' || task?.pinned === 'true');
                 const pinnedClass = pinned ? ' tm-kanban-card--pinned' : '';
                 const pinnedStyle = pinned ? ';border-left:3px solid var(--tm-primary-color)' : '';
-                return `<div class="tm-proto-list-event tm-proto-list-task-card tm-kanban-card${done ? ' tm-kanban-card--done' : ''}${pinnedClass}${overdueClass}" data-tm-proto-event="${esc(eventId)}" data-tm-proto-list-task-id="${esc(id)}"${taskDetailClick} style="--tm-proto-event-color:${protoEventColor(eventApi)}${pinnedStyle}"><div class="tm-kanban-card-top tm-kanban-card-main"><div class="tm-kanban-card-head">${checkbox}<div class="tm-kanban-card-text"><span class="tm-kanban-card-title-inline" style="${protoListTaskTitleStyle(task)}">${protoListTaskTitleHtml(task, eventApi?.title)}</span>${protoListTaskMetaHtml(task, true, eventApi)}</div></div></div>${subtaskHtml}</div>`;
+                return `<div class="tm-proto-list-event tm-proto-list-task-card tm-kanban-card${done ? ' tm-kanban-card--done' : ''}${pinnedClass}${overdueClass}" data-tm-proto-event="${esc(eventId)}" data-tm-proto-list-task-id="${esc(id)}"${taskDetailClick} style="--tm-proto-event-color:${protoEventColor(eventApi)}${pinnedStyle}"><div class="tm-kanban-card-top tm-kanban-card-main"><div class="tm-kanban-card-head">${checkbox}<div class="tm-kanban-card-text"><span class="tm-kanban-card-title-inline${parentTitleClass}" style="${protoListTaskTitleStyle(task)}">${protoListTaskTitleHtml(task, eventApi?.title)}</span>${protoListTaskMetaHtml(task, true, eventApi)}</div></div></div>${subtaskHtml}</div>`;
             };
             const protoListEventRow = (eventApi, kind = 'regular') => {
                 const id = String(eventApi?.id || '').trim();
@@ -32958,7 +32969,7 @@
                     };
                     return { eventApi, task, index };
                 });
-                if (taskEntries.length <= 1 || typeof globalThis.__tmApplyCalendarRuleSort !== 'function') return pinnedFirst(timed.concat(allDay));
+                if (taskEntries.length <= 1 || typeof globalThis.__tmApplyCalendarRuleSort !== 'function') return pinnedFirst(allDay).concat(pinnedFirst(timed));
                 const sortedTasks = globalThis.__tmApplyCalendarRuleSort(taskEntries.map((entry) => entry.task));
                 const byId = new Map(taskEntries.map((entry) => [String(entry.task?.id || '').trim(), entry.eventApi]));
                 const used = new Set();
@@ -32979,7 +32990,7 @@
                     if (!protoListIsTaskEvent(eventApi)) return eventApi;
                     return sortedTaskEvents[taskIndex++] || eventApi;
                 });
-                return pinnedFirst(timed.concat(sortedAllDay));
+                return pinnedFirst(sortedAllDay).concat(pinnedFirst(timed));
             };
         const protoListGroup = (key, kind, label, eventApis) => {
             if (!eventApis.length) return '';
@@ -33138,9 +33149,17 @@
                         .map(protoListTaskId)
                         .filter(Boolean),
                 );
+                const taskDateTaskIds = new Set(
+                    dayEvents
+                        .filter(protoListIsTaskDateEvent)
+                        .map(protoListTaskId)
+                        .filter(Boolean),
+                );
                 const isDuplicateTaskDate = (eventApi) => protoListIsTaskDateEvent(eventApi)
                     && scheduledTaskIds.has(protoListTaskId(eventApi));
-                const visibleDayEvents = dayEvents.filter((eventApi) => !isDuplicateTaskDate(eventApi));
+                const isDuplicateReminder = (eventApi) => String(eventApi?.extendedProps?.__tmSource || '').trim() === 'reminder'
+                    && taskDateTaskIds.has(protoListTaskId(eventApi));
+                const visibleDayEvents = dayEvents.filter((eventApi) => !isDuplicateTaskDate(eventApi) && !isDuplicateReminder(eventApi));
                 dayEvents = visibleDayEvents;
                 const spanEvents = visibleDayEvents.filter(protoIsSpanEvent);
                 const expiredEvents = isToday

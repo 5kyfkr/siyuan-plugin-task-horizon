@@ -820,6 +820,7 @@
             try { document.documentElement?.classList?.toggle?.('tm-task-horizon-mobile-dismiss-drag', !!locked); } catch (e) {}
         };
         const resetTracking = (options = {}) => {
+            if (!closing) setGestureListeners(false);
             const releasePointerCapture = options?.releasePointerCapture !== false;
             const releasePageScrollLock = options?.releasePageScrollLock !== false && !closing;
             const pointerId = activePointerId;
@@ -1105,6 +1106,7 @@
             lastY = point.y;
             axis = '';
             tracking = true;
+            setGestureListeners(true);
             gestureStartedAt = Date.now();
             state.mobileBottomViewbarDismissDragging = true;
             try { bar.classList.add('tm-mobile-bottom-viewbar--gesture-active'); } catch (e) {}
@@ -1158,11 +1160,9 @@
             // of resetting it before the final release can trigger dismissal.
             const pointerType = String(event?.pointerType || '').trim().toLowerCase();
             if (pointerType === 'touch' && tracking) {
-                const point = getPoint(event);
-                if (point) {
-                    lastX = point.x;
-                    lastY = point.y;
-                }
+                // Native pan cancellation can report (0, 0), not the finger's
+                // position. Keep the last move so a horizontal scroll cannot
+                // become a large upward dismiss during the touch handoff.
                 const dx = Number.isFinite(lastX) && Number.isFinite(startX) ? lastX - startX : 0;
                 const dy = Number.isFinite(lastY) && Number.isFinite(startY) ? lastY - startY : 0;
                 const viewportHeight = viewportHeightOf();
@@ -1241,32 +1241,39 @@
             try { event.stopImmediatePropagation?.(); } catch (e) {}
         };
 
+        // Non-passive document/window touchmove listeners make every card swipe
+        // wait for the main thread to start, even when their handlers return.
+        // Install them only for an input that actually starts on the bottom bar.
+        let gestureListenersBound = false;
+        const gestureListeners = [
+            [window, 'pointermove', onPointerMove],
+            [window, 'pointerup', onPointerUp],
+            [window, 'pointercancel', onPointerCancel],
+            [window, 'touchmove', onTouchMove],
+            [window, 'touchend', onTouchEnd],
+            [window, 'touchcancel', onTouchCancel],
+            [document, 'pointermove', onDocumentMove],
+            [document, 'touchmove', onDocumentMove],
+        ];
+        const setGestureListeners = (bound) => {
+            if (gestureListenersBound === bound) return;
+            gestureListenersBound = bound;
+            gestureListeners.forEach(([target, type, handler]) => {
+                if (bound) target.addEventListener(type, handler, { capture: true, passive: false });
+                else target.removeEventListener(type, handler, true);
+            });
+        };
         try { bar.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true }); } catch (e) {}
-        try { window.addEventListener('pointermove', onPointerMove, { capture: true, passive: false }); } catch (e) {}
-        try { window.addEventListener('pointerup', onPointerUp, { capture: true, passive: false }); } catch (e) {}
-        try { window.addEventListener('pointercancel', onPointerCancel, { capture: true, passive: false }); } catch (e) {}
         try { bar.addEventListener('touchstart', onTouchStart, { capture: true, passive: true }); } catch (e) {}
-        try { window.addEventListener('touchmove', onTouchMove, { capture: true, passive: false }); } catch (e) {}
-        try { window.addEventListener('touchend', onTouchEnd, { capture: true, passive: false }); } catch (e) {}
-        try { window.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: false }); } catch (e) {}
         try { window.addEventListener('pointerdown', onWindowPointerDown, { capture: true, passive: true }); } catch (e) {}
         try { window.addEventListener('touchstart', onWindowTouchStart, { capture: true, passive: true }); } catch (e) {}
-        try { document.addEventListener('pointermove', onDocumentMove, { capture: true, passive: false }); } catch (e) {}
-        try { document.addEventListener('touchmove', onDocumentMove, { capture: true, passive: false }); } catch (e) {}
         try { bar.addEventListener('click', onClickCapture, { capture: true, passive: false }); } catch (e) {}
         const cleanup = () => {
+            setGestureListeners(false);
             try { bar.removeEventListener('pointerdown', onPointerDown, true); } catch (e) {}
-            try { window.removeEventListener('pointermove', onPointerMove, true); } catch (e) {}
-            try { window.removeEventListener('pointerup', onPointerUp, true); } catch (e) {}
-            try { window.removeEventListener('pointercancel', onPointerCancel, true); } catch (e) {}
             try { bar.removeEventListener('touchstart', onTouchStart, true); } catch (e) {}
-            try { window.removeEventListener('touchmove', onTouchMove, true); } catch (e) {}
-            try { window.removeEventListener('touchend', onTouchEnd, true); } catch (e) {}
-            try { window.removeEventListener('touchcancel', onTouchCancel, true); } catch (e) {}
             try { window.removeEventListener('pointerdown', onWindowPointerDown, true); } catch (e) {}
             try { window.removeEventListener('touchstart', onWindowTouchStart, true); } catch (e) {}
-            try { document.removeEventListener('pointermove', onDocumentMove, true); } catch (e) {}
-            try { document.removeEventListener('touchmove', onDocumentMove, true); } catch (e) {}
             try { bar.removeEventListener('click', onClickCapture, true); } catch (e) {}
             if (!closing) clearCloseFallbackTimer();
             if (dismissTransitionEndHandler) {

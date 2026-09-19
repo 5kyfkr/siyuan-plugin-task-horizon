@@ -163,6 +163,8 @@ function extractFunction(source, name) {
     assert.fail(`unterminated function ${name}`);
 }
 
+const statusRules = vm.runInNewContext('(' + extractFunction(apiSource, '__tmCreateTaskStatusRules') + ')()');
+
 function parseMarker(markdown) {
     const match = String(markdown || '').match(/^\s*[*+-]\s+(?:(?:\{:\s*[^}]*\})\s*)*\[([^\]])\]/);
     return match ? match[1] : ' ';
@@ -189,6 +191,7 @@ function createStatusContext() {
         return Array.from(marker)[0] || String(fallback || ' ');
     };
     const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
         Map,
         SettingsStore,
         TextEncoder,
@@ -236,10 +239,10 @@ function createStatusContext() {
 
 async function testMarkerRulesAndStatusResolution() {
     const context = createStatusContext();
-    for (const marker of ['x', 'X', '-', '?', '>', '*']) {
+    for (const marker of ['x', 'X', '?', '>', '*']) {
         assert.equal(context.__tmIsTaskMarkerDone(marker), true, `${marker} must be done outside Win7 compatibility mode`);
     }
-    assert.equal(context.__tmIsTaskMarkerDone(' '), false);
+    for (const marker of [' ', '/', '-']) assert.equal(context.__tmIsTaskMarkerDone(marker), false);
 
     const options = [
         { id: 'todo', name: '待办', color: '#777777', marker: ' ' },
@@ -268,8 +271,132 @@ async function testMarkerRulesAndStatusResolution() {
     assert.equal(context.__tmResolveTaskStatusDisplayOption({ taskMarker: '-', customStatus: 'waiting' }, options).id, 'cancelled');
 }
 
+function testTaskDetailPreservesConfiguredStatusMarkers() {
+    const context = createStatusContext();
+    const options = [
+        { id: 'todo', name: '进行', color: '#3487d5', marker: ' ' },
+        { id: 'needs_resource', name: '需资源', color: '#777777', marker: ' ' },
+        { id: 'in_progress', name: '处理中', color: '#2196f3', marker: '/' },
+        { id: 'quit', name: '放弃', color: '#383838', marker: '-' },
+        { id: 'finish', name: '已完成', color: '#737373', marker: 'X' },
+        { id: 'custom', name: '归档', color: '#999999', marker: '?' },
+    ];
+    context.SettingsStore.data.customStatusOptions = options;
+    context.__tmGetStatusOptions = (input = options) => statusRules.normalizeOptions(input, false, false);
+    vm.runInContext(extractFunction(writerRuntimeSource, '__tmGetTaskDetailStatusOptions'), context);
+    vm.runInContext(extractFunction(apiSource, '__tmResolveTaskStatusId'), context);
+    const detailOptions = context.__tmGetTaskDetailStatusOptions();
+    for (const option of options) {
+        const task = { customStatus: option.id, taskMarker: option.marker, done: statusRules.isDone(option.marker) };
+        assert.equal(context.__tmResolveTaskStatusId(task, detailOptions), option.id,
+            `opening task detail must retain ${option.id} (${JSON.stringify(option.marker)}) instead of selecting the default unfinished status`);
+    }
+    assert.equal(context.__tmResolveTaskStatusId({ taskMarker: '/', customStatus: 'todo' }, detailOptions), 'in_progress');
+    assert.equal(context.__tmResolveTaskStatusId({ taskMarker: '-', customStatus: 'todo' }, detailOptions), 'quit');
+    assert.equal(context.__tmResolveTaskStatusId({ taskMarker: 'X', customStatus: 'finish', pendingNativeDoneReset: true }, detailOptions), 'todo',
+        'preserving status markers must not change held recurring completion presentation');
+}
+
+function testCanceledTasksUseCompletedGroups() {
+    const context = createStatusContext();
+    context.__tmGetArchivedDocIdsForAllTabCompletedTailGroup = () => new Set();
+    for (const name of ['__tmIsTaskCanceled']) {
+        vm.runInContext(extractFunction(apiSource, name), context);
+    }
+    for (const name of ['__tmIsTaskDoneForTailGroup', '__tmShouldSeparateCompletedRootGroup', '__tmShouldShowTaskInCompletedRootGroup', '__tmSplitTasksByDoneState']) {
+        vm.runInContext(extractFunction(writerRuntimeSource, name), context);
+    }
+    const tasks = [
+        Object.freeze({ id: 'todo', taskMarker: ' ', done: false }),
+        Object.freeze({ id: 'doing', taskMarker: '/', done: false }),
+        Object.freeze({ id: 'quit', taskMarker: '-', done: false }),
+        Object.freeze({ id: 'done', taskMarker: 'X', done: true }),
+        Object.freeze({ id: 'custom-done', taskMarker: '?', done: false }),
+        Object.freeze({ id: 'held', taskMarker: 'X', done: true, pendingNativeDoneReset: true }),
+    ];
+    const split = context.__tmSplitTasksByDoneState(tasks);
+    assert.deepEqual(Array.from(split.active, (task) => task.id), ['todo', 'doing', 'held']);
+    assert.deepEqual(Array.from(split.done, (task) => task.id), ['quit', 'done', 'custom-done'],
+        'canceled tasks must enter the completed group, keeping in-progress and held recurring tasks active');
+    for (let code = 32; code <= 126; code += 1) {
+        const marker = String.fromCharCode(code);
+        if (marker === '[' || marker === ']') continue;
+        assert.equal(context.__tmIsTaskDoneForTailGroup({ taskMarker: marker, done: false }), marker !== ' ' && marker !== '/',
+            `all valid markers except space and slash must enter completed groups: ${JSON.stringify(marker)}`);
+    }
+    assert.equal(context.__tmIsTaskDoneEffective(tasks[2]), false, 'grouping must not count cancellation as successful completion');
+    context.SettingsStore.data.completedTasksInlineInGroups = true;
+    assert.equal(context.__tmSplitTasksByDoneState(tasks).done.length, 0, 'the existing inline grouping setting must still apply');
+    assert.deepEqual(Array.from(context.__tmSplitTasksByDoneState(tasks, { forceSeparateCompletedRootGroup: true }).done, (task) => task.id), ['quit', 'done', 'custom-done']);
+    context.SettingsStore.data.legacyWin7CompatMode = true;
+    assert.equal(context.__tmIsTaskDoneForTailGroup(tasks[2]), false, 'legacy mode must retain its marker semantics');
+    assert.match(kanbanRenderSource, /const columnTaskDone = __tmIsTaskDoneForTailGroup\(columnTask\)/,
+        'the standalone kanban completed column must use the same grouping predicate as tail groups');
+}
+
+function testStatusTransitionCompletionTime() {
+    const context = createStatusContext();
+    const options = statusRules.normalizeOptions([
+        { id: 'todo', marker: ' ' }, { id: 'doing', marker: '/' },
+        { id: 'quit', marker: '-' }, { id: 'done', marker: 'X' }, { id: 'custom', marker: '?' },
+    ], false, false);
+    let task;
+    const oldTime = '2026-09-01T10:00:00+08:00';
+    const nextTime = '2026-09-20T10:00:00+08:00';
+    Object.assign(context, {
+        __tmTaskStateKernel: { getTask: () => task },
+        __tmBuildMergedAttrPatch: (_id, patch) => ({ ...patch }),
+        __tmNormalizeQueueTaskValue: (_key, value) => value,
+        __tmFindStatusOptionById: (id) => options.find(option => option.id === id),
+        __tmResolveTaskStatusId: (value) => value.customStatus,
+        __tmNormalizeTaskRepeatState: (value) => value || {},
+        __tmBuildTaskCompleteAtPatch: () => ({ taskCompleteAt: nextTime }),
+        __tmBuildTaskMarkdownWithMarker: (_task, marker) => `- [${marker}] Task`,
+    });
+    vm.runInContext(extractFunction(apiSource, '__tmIsTaskMarkerClosed'), context);
+    vm.runInContext(extractFunction(apiSource, '__tmIsTaskCanceled'), context);
+    vm.runInContext(extractFunction(writerRuntimeSource, '__tmBuildTaskCommandPlan'), context);
+    for (const before of options) {
+        for (const after of options) {
+            task = Object.freeze({ id: 'task-1', customStatus: before.id, taskMarker: before.marker,
+                done: statusRules.isDone(before.marker), taskCompleteAt: oldTime });
+            const plan = context.__tmBuildTaskCommandPlan(task.id, { customStatus: after.id });
+            const result = { ...task, ...plan.projectionPatch };
+            assert.equal(result.taskCompleteAt, statusRules.isClosed(after.marker)
+                ? (before.marker === after.marker ? oldTime : nextTime) : '', `${before.marker} -> ${after.marker} timestamp`);
+            assert.equal(result.done, statusRules.isDone(after.marker), 'time tracking must not change success semantics');
+        }
+    }
+    task = { id: 'task-1', taskMarker: '-', customStatus: 'quit', done: false };
+    assert.equal(context.__tmBuildTaskCommandPlan(task.id, { customStatus: 'quit' }).normalizedPatch.taskCompleteAt, nextTime,
+        'explicitly applying an old cancellation without a timestamp must fill it');
+    assert.equal(context.__tmBuildTaskCommandPlan(task.id, { customStatus: 'quit', taskCompleteAt: oldTime }).normalizedPatch.taskCompleteAt, oldTime,
+        'an explicit timestamp from undo or native synchronization must remain authoritative');
+    Object.assign(context, {
+        __tmReadTaskMetaAttrValue: () => '',
+        __tmParseTimeToTs: (value) => Date.parse(value),
+        __tmNormalizeDateOnly: (value) => String(value).slice(0, 10),
+    });
+    for (const name of ['__tmResolveTaskCompletedAtRaw', '__tmGetTaskCompletedAtDateKey', '__tmIsTaskCompletedToday']) {
+        vm.runInContext(extractFunction(taskModelSource, name), context);
+    }
+    for (const name of ['__tmGetTaskDoneSortTs', '__tmCompareCompletedTasksRecentFirst']) {
+        vm.runInContext(extractFunction(writerRuntimeSource, name), context);
+    }
+    const canceled = { id: 'quit', done: false, taskMarker: '-', taskCompleteAt: nextTime };
+    const completed = { id: 'done', done: true, taskMarker: 'X', taskCompleteAt: oldTime };
+    assert.equal(context.__tmResolveTaskCompletedAtRaw(canceled), nextTime, 'cancellation time must be readable in details and table cells');
+    assert.deepEqual([completed, canceled].sort(context.__tmCompareCompletedTasksRecentFirst).map(item => item.id), ['quit', 'done'],
+        'newly canceled tasks must sort ahead of older completions in every completed group');
+    assert.equal(context.__tmIsTaskCompletedToday(canceled, '2026-09-20'), true, 'the completed-group today filter must include today\'s cancellation');
+    assert.equal(context.__tmIsTaskDoneEffective(canceled), false, 'sorting and date filtering must not complete cancellation');
+    assert.equal(context.__tmResolveTaskCompletedAtRaw({ done: false, taskMarker: '/', taskCompleteAt: oldTime }), '',
+        'in-progress tasks must not display stale completion time');
+}
+
 async function testMarkerReadbackAndFallback() {
     const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
         SettingsStore: { data: { legacyWin7CompatMode: false } },
         TextEncoder,
         setTimeout: (handler) => { handler(); return 0; },
@@ -368,6 +495,7 @@ function testLocalMirrorPatch() {
             filteredTasks: [filteredClone],
     };
     const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
         state,
         __tmNormalizeQueueTaskValue: (key, value) => value,
         __tmNormalizeTaskStatusMarker: (value, fallback = ' ') => Array.from(String(value ?? fallback))[0] || fallback,
@@ -451,6 +579,7 @@ async function testHeldNativeCompletionUsesLogicalBaselineForNextAdvance() {
     };
     const localTask = { ...task, ...op.data.patch };
     const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
         Promise,
         SettingsStore: { data: { enablePointsRewardIntegration: false } },
         __tmReadTaskMutationBaseline: async () => ({ ...task }),
@@ -496,6 +625,7 @@ async function testHeldNativeCompletionUsesLogicalBaselineForNextAdvance() {
 
 async function testSetDoneIngressSerialization() {
     const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
         Map,
         Promise,
         Object,
@@ -551,6 +681,7 @@ function testDoneOverrideSurvivesStaleReload() {
         },
     };
     const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
         state,
         __tmIsTaskMarkerDone: (marker) => String(marker ?? '').trim() !== '',
     });
@@ -576,6 +707,7 @@ function testDoneOverrideSurvivesStaleReload() {
 function testTaskCheckboxRenderUsesLiveDoneState() {
     const state = { doneOverrides: {} };
     const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
         state,
         __tmIsCollectedOtherBlockTask: () => false,
         __tmIsTaskDoneEffective: (task) => !!task?.done,
@@ -615,6 +747,7 @@ function testNativeDocCheckboxUsesTaskStoreProjection() {
         markdown: '- [ ] Task',
     };
     const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
         globalThis: null,
         state: { doneOverrides: {} },
         __tmTaskBoundary: { getTask: () => task },
@@ -623,6 +756,8 @@ function testNativeDocCheckboxUsesTaskStoreProjection() {
         },
         __tmBuildTaskMarkdownWithMarker: (_task, marker) => `- [${marker}] Task`,
         __tmMarkLocalTaskPatchWatermark: () => true,
+        __tmReadNativeDocTaskMarkerFromDom: () => '',
+        __tmIsTaskMarkerDone: statusRules.isDone,
     });
     context.globalThis = context;
     vm.runInContext(extractFunction(nativeDocHooksSource, '__tmApplyNativeDocCheckboxTaskStorePatch'), context);
@@ -633,6 +768,12 @@ function testNativeDocCheckboxUsesTaskStoreProjection() {
     assert.deepEqual(mutations.map((mutation) => mutation.patch.done), [true, false],
         'native document checkbox transitions must enter TaskStore in DOM order');
     assert.deepEqual(mutations.map((mutation) => mutation.patch.taskMarker), ['X', ' ']);
+    for (const marker of ['/', '-']) {
+        context.__tmReadNativeDocTaskMarkerFromDom = () => marker;
+        context.__tmApplyNativeDocCheckboxDomProjection('task-1', true);
+        assert.equal(mutations.at(-1).patch.taskMarker, marker);
+        assert.equal(mutations.at(-1).patch.done, false, 'native checked CSS must not complete / or -');
+    }
     assert.ok(mutations.every((mutation) => mutation.phase === 'local'),
         'native document checkbox transitions must be local authoritative projections');
     assert.equal(Object.prototype.hasOwnProperty.call(context.state.doneOverrides, 'task-1'), false,
@@ -678,6 +819,7 @@ function testDoneDomPatchTargetsOwnProjectedCheckbox() {
         ? [titleWrap, titleButton, title]
         : [];
     const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
         Element: FakeElement,
         HTMLElement: FakeElement,
         HTMLInputElement: FakeInput,
@@ -745,6 +887,7 @@ function testTaskDetailCompletionReadsUseLatestProjection() {
         children: [staleChild],
     };
     const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
         globalThis: null,
         __tmTaskProjectionEngine: {
             isTaskCompleted: (task) => String(task?.taskMarker || '') === 'X',
@@ -781,8 +924,228 @@ function testTaskDetailCompletionReadsUseLatestProjection() {
         'a shallow field projection must preserve the richer raw detail subtree');
 }
 
+
+function testNativeStatusCompatibility() {
+    const kernelSource = fs.readFileSync(path.join(__dirname, '..', 'kernel.js'), 'utf8');
+    assert.equal(extractFunction(kernelSource, 'createTaskStatusRules').replace('createTaskStatusRules', '__tmCreateTaskStatusRules').replace(/\r\n/g, '\n'),
+        extractFunction(apiSource, '__tmCreateTaskStatusRules').replace(/\r\n/g, '\n'), 'isolated frontend/kernel runtimes must use identical rules');
+    const existing = [
+        { id: 'todo', name: '待办', marker: ' ' },
+        { id: 'waiting', name: '等待', marker: ' ' },
+        { id: 'my_progress', name: '进行', color: '#123456', marker: '/' },
+        { id: 'my_cancel', name: '放弃', marker: '-' },
+        { id: 'done', name: '完成', marker: 'x' },
+    ];
+    const options = statusRules.normalizeOptions(existing);
+    assert.equal(options.length, existing.length);
+    assert.deepEqual(JSON.parse(JSON.stringify(options[2])), existing[2], 'reuse the user’s / ID, name and color');
+    assert.equal(options.at(-1).marker, 'X');
+    assert.equal(statusRules.resolveOption('/', 'done', options).id, 'my_progress');
+    assert.equal(statusRules.resolveOption(' ', 'waiting', options, 'todo').id, 'waiting');
+    assert.equal(statusRules.resolveOption(' ', 'done', options, 'waiting').id, 'waiting');
+    const duplicates = statusRules.normalizeOptions([...existing, { id: 'other_progress', name: '另一进行', marker: '/' }]);
+    assert.equal(duplicates.length, existing.length + 1, 'legacy duplicate IDs must survive');
+    assert.equal(statusRules.resolveOption('/', 'other_progress', duplicates).id, 'other_progress');
+    assert.equal(statusRules.resolveOption('/', 'todo', duplicates).id, 'my_progress');
+    assert.equal(statusRules.conflicts(duplicates).length, 1, 'spaces may repeat');
+    assert.equal(statusRules.conflicts([...existing, { id: 'other_done', marker: 'X' }]).length, 1, 'x and X conflict');
+    const occupied = [{ id: 'in_progress', name: '旧进行', marker: ' ' }, { id: 'cancelled', name: '旧取消', marker: '?' }];
+    const filled = statusRules.normalizeOptions(occupied);
+    assert.equal(filled.find((item) => item.marker === '/').id, 'in_progress_native');
+    assert.equal(filled.find((item) => item.marker === '-').id, 'cancelled_native');
+    assert.equal(filled.find((item) => item.marker === '-').name, '放弃');
+    assert.equal(JSON.stringify(statusRules.normalizeOptions(filled)), JSON.stringify(filled), 'normalization is idempotent');
+    assert.equal(statusRules.normalizeOptions(occupied, true).length, occupied.length, 'legacy mode does not fill native statuses');
+    const untouchedLegacyDefaults = [
+        { id: 'todo', name: '待办', color: '#757575', marker: ' ' },
+        { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
+        { id: 'cancelled', name: '已取消', color: '#9E9E9E', marker: '-' },
+        { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
+        { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' },
+    ];
+    const upgradedLegacyDefaults = statusRules.normalizeOptions(untouchedLegacyDefaults);
+    assert.equal(upgradedLegacyDefaults.length, untouchedLegacyDefaults.length + 1);
+    assert.equal(upgradedLegacyDefaults.find((item) => item.id === 'cancelled').name, '放弃');
+    assert.deepEqual(JSON.parse(JSON.stringify(upgradedLegacyDefaults.find((item) => item.id === 'in_progress'))), {
+        id: 'in_progress', name: '进行中', color: '#2196F3', marker: '/',
+    });
+    const markerlessLegacyDefaults = untouchedLegacyDefaults.map(({ marker, ...item }) => item);
+    assert.equal(JSON.stringify(statusRules.normalizeOptions(markerlessLegacyDefaults)), JSON.stringify(upgradedLegacyDefaults),
+        'untouched defaults from before the marker field must also upgrade');
+    assert.equal(JSON.stringify(statusRules.normalizeOptions(upgradedLegacyDefaults)), JSON.stringify(upgradedLegacyDefaults));
+    assert.equal(statusRules.normalizeOptions(untouchedLegacyDefaults, true).length, untouchedLegacyDefaults.length);
+    assert.equal(statusRules.normalizeOptions(untouchedLegacyDefaults, false, false).length, untouchedLegacyDefaults.length,
+        'editing and saving must not trigger startup migration');
+    for (const edit of [
+        (items) => { items[0].name = '稍后处理'; },
+        (items) => { items[0].id = 'my_todo'; },
+        (items) => { items[0].color = '#123456'; },
+        (items) => { items[0].marker = '?'; },
+        (items) => { [items[0], items[1]] = [items[1], items[0]]; },
+    ]) {
+        const customized = untouchedLegacyDefaults.map((item) => ({ ...item }));
+        edit(customized);
+        const normalized = statusRules.normalizeOptions(customized);
+        assert.equal(JSON.stringify(normalized.slice(0, customized.length)), JSON.stringify(customized),
+            'edited presets must retain existing IDs, names, colors, markers and order');
+        assert.equal(normalized.find((item) => item.id === 'cancelled').name, '已取消',
+            'only the complete untouched legacy defaults may be replaced');
+    }
+    const namedNative = statusRules.normalizeOptions([
+        { id: 'progress_named', name: '进行中' },
+        { id: 'cancel_named', name: '放弃' },
+    ]);
+    assert.equal(namedNative.find((item) => item.id === 'progress_named').marker, ' ', '名称不能伪造 / 标记');
+    assert.equal(namedNative.find((item) => item.id === 'cancel_named').marker, ' ', '名称不能伪造 - 标记');
+    assert.equal(namedNative.filter((item) => item.marker === '/').length, 1, '只根据 / 标记判断是否需要补状态');
+    assert.equal(namedNative.filter((item) => item.marker === '-').length, 1, '只根据 - 标记判断是否需要补状态');
+    const arbitraryNames = [
+        { id: 'working', name: '处理中', marker: '/' },
+        { id: 'closed', name: '不做了', marker: '-' },
+    ];
+    assert.equal(statusRules.normalizeOptions(arbitraryNames).length, 2, '已有 / 和 - 时，无论名称是什么都不补状态');
+    const guessContext = vm.createContext({
+        text: (value) => String(value ?? '').trim(),
+        __tmNormalizeTaskStatusMarker: statusRules.normalizeMarker,
+    });
+    vm.runInContext(extractFunction(apiSource, '__tmGuessStatusOptionDefaultMarker'), guessContext);
+    vm.runInContext(extractFunction(kernelSource, 'guessStatusMarker'), guessContext);
+    for (const option of [
+        { id: 'in_progress', name: '进行中' },
+        { id: 'cancelled', name: '放弃' },
+        { id: 'canceled', name: '取消' },
+        { id: 'cancel', name: '已放弃' },
+    ]) {
+        assert.equal(statusRules.guessMarker(option), ' ');
+        assert.equal(guessContext.__tmGuessStatusOptionDefaultMarker(option), ' ');
+        assert.equal(guessContext.guessStatusMarker(option), ' ');
+        for (const marker of [' ', '?']) {
+            assert.equal(statusRules.normalizeOptions([{ ...option, marker }])[0].marker, marker,
+                '既有状态标记不因名称或 ID 改写');
+        }
+    }
+
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(':memory:');
+    db.exec('CREATE TABLE tasks(markdown TEXT)');
+    const insert = db.prepare('INSERT INTO tasks VALUES (?)');
+    for (const marker of [' ', '/', '-', 'x', 'X', '?', '>']) {
+        for (const prefix of ['- ', '* ', '1. ', '- {: id="task"}']) {
+            const markdown = `${prefix}[${marker}] Title with [x]\n\n  - [x] Completed child`;
+            insert.run(markdown);
+            const result = db.prepare(`SELECT ${statusRules.sqlMarker('markdown')} AS marker, ${statusRules.sqlDone('markdown')} AS done FROM tasks ORDER BY rowid DESC LIMIT 1`).get();
+            assert.equal(result.marker, statusRules.fromMarkdown(markdown));
+            assert.equal(Boolean(result.done), statusRules.isDone(marker));
+        }
+    }
+    db.close();
+
+    const importSource = fs.readFileSync(path.join(__dirname, '..', 'src/task-horizon/main/settings/64-export-runtime.js'), 'utf8');
+    const context = vm.createContext({ __tmTaskStatusRules: statusRules, SettingsStore: { data: { customStatusOptions: existing, theme: 'old' } } });
+    vm.runInContext(extractFunction(importSource, '__tmCloneMigrationValue'), context);
+    vm.runInContext(extractFunction(importSource, '__tmMergeArrayById'), context);
+    vm.runInContext(extractFunction(importSource, '__tmApplyMigrationSettingsPatch'), context);
+    assert.throws(() => context.__tmApplyMigrationSettingsPatch({ theme: 'new', customStatusOptions: [{ id: 'conflict', marker: '/' }] }, 'settings'), /语法标记重复/);
+    assert.equal(context.SettingsStore.data.theme, 'old', 'conflicting import must not partly mutate settings');
+}
+
+
+async function testDuplicateMarkerSettingsWarning() {
+    const settingsSource = fs.readFileSync(path.join(__dirname, '..', 'src/task-horizon/main/settings/62-settings-columns-and-rules.js'), 'utf8');
+    const hints = [];
+    let saves = 0;
+    const options = statusRules.normalizeOptions([{ id: 'todo', marker: ' ' }, { id: 'done', marker: 'X' }, { id: 'doing', name: '进行', marker: '/' }]);
+    const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
+        window: {}, state: {}, SettingsStore: { data: { customStatusOptions: options }, save: async () => { saves++; } },
+        hint: (...args) => hints.push(args), showSettings: () => {}, render: () => {},
+        __tmIsLegacyWin7CompatMode: () => false,
+        __tmNormalizeTaskStatusMarker: statusRules.normalizeMarker,
+        __tmGuessStatusOptionDefaultMarker: statusRules.guessMarker,
+        __tmGetStatusOptionDraft: () => ({ id: 'another', name: '新增状态', marker: '/' }),
+        __tmFocusStatusOptionDraftField: () => {},
+        showConfirm: async () => true,
+        __tmNormalizeCustomStatusOptions: (options, fillNative = true) => statusRules.normalizeOptions(options, false, fillNative),
+        __tmGetStatusOptions: (options) => statusRules.normalizeOptions(options),
+        __tmNormalizeCompatTaskStatusMarker: statusRules.normalizeMarker,
+        __tmNormalizeHexColor: (color, fallback) => color || fallback,
+        __tmGetStatusPresetColor: () => '#757575',
+        __tmFormatStatusMarkerText: (marker) => marker === ' ' ? '空格' : marker,
+        esc: (value) => String(value ?? ''),
+    });
+    for (const name of ['__tmNormalizeCheckboxStatusBindingValue', '__tmGetCheckboxStatusBindingFallbackId', '__tmNormalizeCheckboxStatusBindingConfig']) {
+        vm.runInContext(extractFunction(apiSource, name), context);
+    }
+    vm.runInContext(extractFunction(settingsSource, '__tmGetCompatStatusOptionMarker'), context);
+    for (const name of ['renderStatusOptionsList', 'saveStatusOptionDraft', 'updateStatusOption', 'deleteStatusOption']) {
+        const start = settingsSource.indexOf(`    window.${name} = `);
+        const end = settingsSource.indexOf('\n    };', start) + '\n    };'.length;
+        vm.runInContext(settingsSource.slice(start, end), context);
+    }
+    context.__tmGetStatusOptionDraft = () => ({ id: 'another', name: '新增状态', marker: ' ' });
+    const html = context.window.renderStatusOptionsList();
+    assert.match(html, /value="" onchange="updateStatusOption\(0, 'marker'/,
+        'blank status input must not contain an invisible space that typing appends to');
+    assert.match(html, /data-tm-status-option-draft-marker type="text" value=""/);
+    for (const marker of ['/', ' /', '/ ', ' / ', ' - ', ' x ']) {
+        context.__tmGetStatusOptionDraft = () => ({ id: 'another', name: '新增状态', marker });
+        await context.window.saveStatusOptionDraft();
+        assert.equal(saves, 0);
+        assert.match(hints.at(-1)[0], /标记已被其他状态使用.*只有空格可以重复/);
+        assert.equal(hints.at(-1)[1], 'warning');
+    }
+    for (const marker of ['/', '-', 'x', 'X', ' /', '/ ', ' - ', ' x ']) {
+        await context.window.updateStatusOption(0, 'marker', marker);
+        assert.equal(options[0].marker, ' ', 'duplicate edit must keep the previous value');
+        assert.equal(saves, 0);
+        assert.match(hints.at(-1)[0], /标记已被其他状态使用.*只有空格可以重复/);
+        assert.equal(hints.at(-1)[1], 'warning');
+    }
+    for (const marker of ['//', '/ -', '[', ']', '／']) {
+        context.__tmGetStatusOptionDraft = () => ({ id: 'another', name: '新增状态', marker });
+        await context.window.saveStatusOptionDraft();
+        assert.match(hints.at(-1)[0], /状态标记必须是单个字节字符/);
+        await context.window.updateStatusOption(0, 'marker', marker);
+        assert.match(hints.at(-1)[0], /状态标记必须是单个字节字符/);
+        assert.equal(options[0].marker, ' ');
+        assert.equal(saves, 0, 'invalid nonblank input must still be rejected');
+    }
+    await context.window.updateStatusOption(2, 'marker', '   ');
+    assert.equal(options[2].marker, ' ', 'multiple blank statuses are allowed');
+    assert.equal(saves, 1);
+    await context.window.deleteStatusOption(options.findIndex((item) => item.marker === '-'));
+    context.__tmNormalizeCheckboxStatusBindingConfig(context.SettingsStore.data); // saving must not recreate it
+    assert.equal(context.SettingsStore.data.customStatusOptions.some((item) => item.marker === '-'), false);
+    await context.window.updateStatusOption(0, 'marker', ' - ');
+    assert.equal(context.SettingsStore.data.customStatusOptions[0].marker, '-');
+    assert.equal(context.SettingsStore.data.customStatusOptions[0].id, 'todo', 'reassignment preserves the existing ID');
+    context.__tmNormalizeCheckboxStatusBindingConfig(context.SettingsStore.data, true); // next startup
+    assert.equal(context.SettingsStore.data.customStatusOptions.filter((item) => item.marker === '-').length, 1);
+    assert.equal(context.SettingsStore.data.customStatusOptions.find((item) => item.marker === '-').id, 'todo');
+    assert.equal(context.SettingsStore.data.customStatusOptions.filter((item) => item.marker === '/').length, 1);
+    const progressIndex = context.SettingsStore.data.customStatusOptions.findIndex((item) => item.marker === '/');
+    await context.window.deleteStatusOption(progressIndex);
+    context.__tmNormalizeCheckboxStatusBindingConfig(context.SettingsStore.data);
+    assert.equal(context.SettingsStore.data.customStatusOptions.some((item) => item.marker === '/'), false);
+    await context.window.updateStatusOption(2, 'marker', ' / ');
+    context.__tmNormalizeCheckboxStatusBindingConfig(context.SettingsStore.data, true);
+    assert.equal(context.SettingsStore.data.customStatusOptions.filter((item) => item.marker === '/').length, 1);
+    assert.equal(context.SettingsStore.data.customStatusOptions.find((item) => item.marker === '/').id, 'doing');
+    await context.window.deleteStatusOption(context.SettingsStore.data.customStatusOptions.findIndex((item) => item.marker === '/'));
+    context.__tmGetStatusOptionDraft = () => ({ id: 'another', name: '进行', marker: ' / ' });
+    const hintsBeforeSave = hints.length;
+    await context.window.saveStatusOptionDraft();
+    assert.equal(hints.length, hintsBeforeSave, 'surrounding spaces must not block a valid new status');
+    assert.equal(context.SettingsStore.data.customStatusOptions.find((item) => item.id === 'another').marker, '/');
+}
+
 async function run() {
+    await testDuplicateMarkerSettingsWarning();
+    testNativeStatusCompatibility();
     await testMarkerRulesAndStatusResolution();
+    testTaskDetailPreservesConfiguredStatusMarkers();
+    testStatusTransitionCompletionTime();
+    testCanceledTasksUseCompletedGroups();
     await testMarkerReadbackAndFallback();
     testLocalMirrorPatch();
     testSetDoneQueueMergePreservesRollbackState();
@@ -824,7 +1187,7 @@ async function run() {
         'the unreachable plugin-origin checkbox ignore queue must not return');
     assert.match(nativeCheckboxSyncSource, /const persistedAttrsBefore = await __tmReadDocCheckboxBlockAttrs/,
         'native checkbox synchronization must still reconcile against persisted task attributes');
-    assert.match(nativeCheckboxSyncSource, /!domDone && userInitiatedCheckboxChange[\s\S]*__tmIsRecurringNativeDoneHeld\(task\)[\s\S]*__tmDeleteTaskRepeatHistoryEntry/,
+    assert.match(nativeCheckboxSyncSource, /domMarker === ' ' && userInitiatedCheckboxChange[\s\S]*__tmIsRecurringNativeDoneHeld\([\s\S]*previousMarker[\s\S]*__tmDeleteTaskRepeatHistoryEntry/,
         'only a user-originated native uncheck may roll back a held recurring completion');
     const setDoneFromUiSource = extractFunction(listRuntimeSource, '__tmSetDoneFromUi');
     assert.match(setDoneFromUiSource, /!targetDone[\s\S]*__tmIsRecurringNativeDoneHeld\(task\)[\s\S]*__tmDeleteTaskRepeatHistoryEntry[\s\S]*resetNativeDone: true/,

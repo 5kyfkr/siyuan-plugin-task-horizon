@@ -4593,7 +4593,7 @@ return false;
         const source = sourceColumn instanceof HTMLElement ? sourceColumn : null;
         if (!root || !source || !task) return null;
         const doneColumn = root.querySelector('.tm-kanban-col[data-kind="status"][data-status="__done__"]');
-        if (task.done && doneColumn instanceof HTMLElement) return doneColumn;
+        if (__tmIsTaskDoneForTailGroup(task) && doneColumn instanceof HTMLElement) return doneColumn;
         const kind = String(source.getAttribute('data-kind') || '').trim();
         if (kind === 'status') {
             const statusId = String(__tmResolveTaskStatusId(task) || '').trim();
@@ -4904,7 +4904,7 @@ return false;
         const isSubtaskCard = card.classList.contains('tm-kanban-card--sub');
         const targetColumn = isSubtaskCard
             ? sourceColumn
-            : __tmFindKanbanProjectionColumn(modal, task, sourceColumn);
+            : __tmFindKanbanProjectionColumn(modal, projectedTask, sourceColumn);
         if (!(targetColumn instanceof HTMLElement)) return false;
         const pinWithinGroups = !!SettingsStore.data.pinTasksWithinGroups
             && !!(state.groupByDocName || state.groupByTaskName || state.groupByTime || state.quadrantEnabled);
@@ -5573,9 +5573,15 @@ return false;
                 // contradictory done value. Mirror that rule before optimistic
                 // projection so status, checkbox effects and the receipt agree.
                 normalizedPatch.done = __tmIsTaskMarkerDone(targetMarker);
+                const repeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
+                if (!normalizedPatch.done && !Object.prototype.hasOwnProperty.call(normalizedPatch, 'repeatState') && repeatState.pendingNativeDoneReset) {
+                    normalizedPatch.repeatState = { ...repeatState, pendingNativeDoneReset: false };
+                }
                 if (!Object.prototype.hasOwnProperty.call(normalizedPatch, 'taskCompleteAt')) {
-                    if (normalizedPatch.done && !task?.done) Object.assign(normalizedPatch, __tmBuildTaskCompleteAtPatch());
-                    else if (!normalizedPatch.done && task?.done) normalizedPatch.taskCompleteAt = '';
+                    const targetClosed = __tmIsTaskMarkerClosed(targetMarker);
+                    const currentCompleteAt = task?.taskCompleteAt || task?.task_complete_at;
+                    if (targetClosed && (marker !== targetMarker || !currentCompleteAt)) Object.assign(normalizedPatch, __tmBuildTaskCompleteAtPatch());
+                    else if (!targetClosed && (task?.done || currentCompleteAt)) normalizedPatch.taskCompleteAt = '';
                 }
                 Object.assign(projectionPatch, normalizedPatch, {
                     taskMarker: targetMarker,
@@ -10926,6 +10932,8 @@ return false;
 
     function __tmIsTaskDoneForTailGroup(task) {
         try {
+            // 放弃只归入已完成分组，不改变完成统计和循环任务的完成语义。
+            if (typeof __tmIsTaskCanceled === 'function' && __tmIsTaskCanceled(task)) return true;
             return typeof __tmIsTaskDoneEffective === 'function'
                 ? __tmIsTaskDoneEffective(task)
                 : !!(task && task.done);
@@ -11779,9 +11787,10 @@ return false;
                 id: String(o?.id || '').trim(),
                 name: String(o?.name || o?.id || '').trim(),
                 color: String(o?.color || '#757575').trim() || '#757575',
+                marker: o.marker,
             }))
             .filter((o) => o.id);
-        if (!statusOptions.some((o) => o.id === 'todo')) statusOptions.unshift({ id: 'todo', name: '待办', color: '#757575' });
+        if (!statusOptions.some((o) => o.id === 'todo')) statusOptions.unshift({ id: 'todo', name: '待办', color: '#757575', marker: ' ' });
         return statusOptions;
     }
 

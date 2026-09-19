@@ -598,6 +598,29 @@
         return null;
     }
 
+    function __tmGetChecklistDetailTaskById(taskId, options = {}) {
+        const rawId = String(taskId || '').trim();
+        if (!rawId) return null;
+        try {
+            const directTask = globalThis.__tmTaskBoundary?.getTask?.(rawId) || null;
+            if (directTask && typeof directTask === 'object') return directTask;
+        } catch (e) {}
+        try {
+            const resolvedId = __tmResolveTaskDetailEffectiveId(rawId);
+            if (resolvedId && resolvedId !== rawId) {
+                const directTask = globalThis.__tmTaskBoundary?.getTask?.(resolvedId) || null;
+                if (directTask && typeof directTask === 'object') return directTask;
+            }
+        } catch (e) {}
+        try {
+            return __tmGetTaskDetailTaskById(rawId, options) || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    try { globalThis.__tmGetChecklistDetailTaskById = __tmGetChecklistDetailTaskById; } catch (e) {}
+
     function __tmGetTaskDetailProjectedDirectChildren(taskLike, options = {}) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
         if (!task) return [];
@@ -897,7 +920,15 @@
         try {
             if (typeof __tmAttachCustomFieldAttrsToTasks === 'function'
                 && hasCustomFieldDefs) {
-                await __tmAttachCustomFieldAttrsToTasks([task]);
+                let customFieldResult = await __tmAttachCustomFieldAttrsToTasks([task], {
+                    forceFresh: shouldForce,
+                });
+                if (shouldForce && customFieldResult?.queryComplete === false) {
+                    await new Promise((resolve) => setTimeout(resolve, 120));
+                    customFieldResult = await __tmAttachCustomFieldAttrsToTasks([task], {
+                        forceFresh: true,
+                    });
+                }
             }
         } catch (e) {}
         try {
@@ -1002,7 +1033,9 @@
         Promise.resolve().then(async () => {
             const task = (taskLike && typeof taskLike === 'object')
                 ? taskLike
-                : (__tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true }) || null);
+                : ((mode === 'checklist'
+                    ? __tmGetChecklistDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })
+                    : __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })) || null);
             if (!task) return;
             const before = __tmBuildTaskDetailFieldAttrSignature(task);
             const hydrated = await __tmEnsureTaskDetailFieldAttrs(task, {
@@ -2719,17 +2752,6 @@
     globalThis.__tmDisposeTaskDetailRoot = __tmDisposeTaskDetailRoot;
     globalThis.__tmDisposeTaskDetailRuntime = __tmDisposeTaskDetailRuntime;
 
-    function __tmTaskDetailCreatedAtIso(task) {
-        const raw = String(task?.created || task?.id || task?.blockId || '').trim();
-        const match = raw.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
-        if (match) {
-            const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6]));
-            if (!Number.isNaN(date.getTime())) return date.toISOString();
-        }
-        const parsed = Date.parse(raw);
-        return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date(2000, 0, 1).toISOString();
-    }
-
     function __tmFormatTaskDetailFocusDuration(seconds) {
         const minutes = Math.max(0, Math.round((Number(seconds) || 0) / 60));
         if (minutes < 60) return `${minutes} 分钟`;
@@ -2799,7 +2821,8 @@
         };
         rootSignal?.addEventListener?.('abort', abortQuery, { once: true });
         const options = {
-            from: __tmTaskDetailCreatedAtIso(task),
+            // 迁移、重建任务前的容器记录也属于累计专注，不能按当前块创建时间截断。
+            from: '1970-01-01T00:00:00.000Z',
             to: new Date().toISOString(),
             bucket: 'none',
             groupBy: 'task',
@@ -3384,6 +3407,16 @@
                 taskId: expectedId,
             });
         };
+        const resolveDetailTaskById = (id, options = {}) => {
+            const useChecklistRead = embedded && (
+                String(state.viewMode || '').trim() === 'checklist'
+                || root.id === 'tmChecklistDetailPanel'
+                || root.id === 'tmChecklistSheetPanel'
+            );
+            return useChecklistRead
+                ? __tmGetChecklistDetailTaskById(id, options)
+                : __tmGetTaskDetailTaskById(id, options);
+        };
         let taskDetailNoteProtyle = null;
         let taskDetailNoteMount = null;
         let taskDetailNoteBlockId = '';
@@ -3504,7 +3537,7 @@
                     }
                 } catch (e) {}
                 try {
-                    let freshTask = tid ? __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true }) : null;
+                    let freshTask = tid ? resolveDetailTaskById(tid, { includeWhiteboard: true }) : null;
                     if (!freshTask && bid && typeof __tmBuildTaskLikeFromBlockId === 'function') {
                         try { freshTask = await __tmBuildTaskLikeFromBlockId(bid); } catch (e) { freshTask = null; }
                     }
@@ -3746,10 +3779,10 @@
                 }
             }
             const cached = resolvedTid
-                ? __tmGetTaskDetailTaskById(resolvedTid, { includePending: true, preferPending: true })
+                ? resolveDetailTaskById(resolvedTid, { includePending: true, preferPending: true })
                 : null;
             const rawCached = tid && resolvedTid !== tid
-                ? __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true })
+                ? resolveDetailTaskById(tid, { includePending: true, preferPending: true })
                 : null;
             const taskCached = cached || rawCached;
             if (taskCached) {
@@ -4106,7 +4139,7 @@
                 root.__tmTaskDetailTask,
                 fallbackTask,
                 getBoundTask(),
-                ...aliases.map((id) => __tmGetTaskDetailTaskById(id, { includePending: true, preferPending: true, includeWhiteboard: true })),
+                ...aliases.map((id) => resolveDetailTaskById(id, { includePending: true, preferPending: true, includeWhiteboard: true })),
             ];
             for (const candidate of candidates) {
                 if (candidate === next) continue;
@@ -4143,10 +4176,13 @@
         const resolveDetailNavigationTask = async (nextTaskId) => {
             const requestedId = String(nextTaskId || '').trim();
             if (!requestedId) return null;
+            const resolveNavigationTask = (id) => (String(state.viewMode || '').trim() === 'checklist'
+                ? __tmGetChecklistDetailTaskById(id, { includePending: true, preferPending: true, includeWhiteboard: true })
+                : __tmGetTaskDetailTaskById(id, { includePending: true, preferPending: true, includeWhiteboard: true }));
             let resolvedId = __tmResolveTaskDetailEffectiveId(requestedId) || requestedId;
-            let nextTask = __tmGetTaskDetailTaskById(resolvedId, { includePending: true, preferPending: true, includeWhiteboard: true });
+            let nextTask = resolveNavigationTask(resolvedId);
             if (!nextTask && resolvedId !== requestedId) {
-                nextTask = __tmGetTaskDetailTaskById(requestedId, { includePending: true, preferPending: true, includeWhiteboard: true });
+                nextTask = resolveNavigationTask(requestedId);
             }
             if (!nextTask) {
                 nextTask = findTaskInTreeById(getBoundTask(), resolvedId);
@@ -4158,7 +4194,7 @@
                     const normalizedId = await __tmResolveTaskIdFromAnyBlockId(resolvedId);
                     if (normalizedId) resolvedId = normalizedId;
                 } catch (e) {}
-                nextTask = __tmGetTaskDetailTaskById(resolvedId, { includePending: true, preferPending: true, includeWhiteboard: true });
+                nextTask = resolveNavigationTask(resolvedId);
             }
             if (!nextTask) {
                 try { nextTask = await __tmEnsureTaskInStateById(resolvedId); } catch (e) { nextTask = null; }
@@ -4393,7 +4429,8 @@
             const textarea = root.querySelector('textarea[data-tm-detail=remark]');
             return textarea instanceof HTMLTextAreaElement ? textarea : null;
         };
-        const syncRemarkSavedState = (savedValue) => {
+        const syncRemarkSavedState = (savedValue, expectedTaskId = taskId) => {
+            if (!isSessionActive(expectedTaskId)) return false;
             const textarea = getRemarkTextarea();
             if (!textarea) return false;
             try { return __tmSyncTaskDetailRemarkTextareaSavedState(textarea, savedValue); } catch (e) { return false; }
@@ -5043,7 +5080,7 @@
                             trackDetailCommit(pendingPromise, Object.keys(fieldPatch).map((key) => `field:${key}`), opId);
                             if (Object.prototype.hasOwnProperty.call(fieldPatch, 'remark')) {
                                 Promise.resolve(pendingPromise).then(() => {
-                                    syncRemarkSavedState(nextRemark);
+                                    syncRemarkSavedState(nextRemark, task.id);
                                 }, () => null);
                             }
                         },
@@ -5067,7 +5104,7 @@
                         });
                     }
                 }
-                const latestTask = __tmGetTaskDetailTaskById(task.id, { includePending: true, preferPending: true }) || task;
+                const latestTask = resolveDetailTaskById(task.id, { includePending: true, preferPending: true }) || task;
                 if (diff.contentChanged) {
                     try { syncTaskContentInVisibleViews(latestTask); } catch (e) {}
                 }
@@ -5266,7 +5303,7 @@
             if (!sourceTask) return null;
             const recurringSourceTaskId = __tmGetTaskDetailRecurringSourceTaskId(sourceTask);
             if (recurringSourceTaskId) {
-                const sourceCandidate = __tmGetTaskDetailTaskById(recurringSourceTaskId, { includePending: true, preferPending: true });
+                const sourceCandidate = resolveDetailTaskById(recurringSourceTaskId, { includePending: true, preferPending: true });
                 if (isNoteViewCandidate(sourceCandidate)) return sourceCandidate;
                 try {
                     const ensured = await __tmEnsureTaskInStateById(recurringSourceTaskId);
@@ -5533,9 +5570,11 @@
             const opts = (options && typeof options === 'object') ? options : {};
             const commitKeys = Object.keys(nextPatch).map((key) => `field:${key}`);
             const callerOnPending = typeof opts.onPending === 'function' ? opts.onPending : null;
+            const sessionTaskId = String(opts.taskId || taskId || '').trim();
+            if (!sessionTaskId || !isSessionActive(sessionTaskId)) return Promise.resolve(false);
             const rawId = String(opts.taskId || getBoundTaskId() || taskId || '').trim();
             const tid = __tmResolveTaskDetailEffectiveId(rawId) || rawId;
-            if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
+            if (!tid || !Object.keys(nextPatch).length || !isSessionActive(tid)) return Promise.resolve(false);
             try {
 
             } catch (e) {}
@@ -5581,7 +5620,7 @@
                 },
             });
             try {
-                const latestTask = __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true });
+                const latestTask = resolveDetailTaskById(tid, { includePending: true, preferPending: true });
                 if (latestTask) root.__tmTaskDetailTask = latestTask;
             } catch (e) {}
             Promise.resolve(request).then((result) => {
@@ -7572,7 +7611,7 @@
             if (!(textarea instanceof HTMLTextAreaElement)) return false;
             const currentAttrTaskId = String(textarea.getAttribute('data-tm-detail-subtask-content') || '').trim();
             const tid = String(currentAttrTaskId || subtaskId || '').trim();
-            const task = __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true });
+            const task = resolveDetailTaskById(tid, { includePending: true, preferPending: true });
             if (!tid || !task) return false;
             const savedValue = String(textarea.dataset.savedValue || task.content || '').trim();
             const nextValue = String(textarea.value || '').trim();
@@ -8905,12 +8944,14 @@
             };
             const commitRemarkValue = () => {
                 const nextValue = __tmNormalizeRemarkMarkdown(remarkTextarea.value || '');
+                const currentTaskId = String(getBoundTaskId() || taskId || '').trim();
+                if (!currentTaskId || !isSessionActive(currentTaskId)) return Promise.resolve(false);
                 const currentValue = __tmNormalizeRemarkMarkdown(__tmGetTaskDetailRemarkRaw(getBoundTask()));
                 const savedValue = __tmNormalizeRemarkMarkdown(remarkTextarea.dataset.savedValue || '');
                 if (nextValue === currentValue) {
                     if (nextValue === savedValue) {
                         pendingDetailCommitErrors.delete('field:remark');
-                        syncRemarkSavedState(nextValue);
+                        syncRemarkSavedState(nextValue, currentTaskId);
                     }
                     return Promise.resolve(true);
                 }
@@ -8918,6 +8959,7 @@
 
                 let pendingPromise = null;
                 const request = commitDetailFieldPatch({ remark: nextValue }, {
+                    taskId: currentTaskId,
                     source: 'detail-remark',
                     reason: 'detail-remark',
                     label: '备注',
@@ -8930,7 +8972,7 @@
                     try {
                         const result = await persistence;
                         if (result === false) throw new Error('备注未写入');
-                        syncRemarkSavedState(nextValue);
+                        syncRemarkSavedState(nextValue, currentTaskId);
                         return true;
                     } catch (error) {
                         try { remarkTextarea.dataset.dirty = 'true'; } catch (e) {}
@@ -9216,11 +9258,13 @@
                 const fieldId = String(textarea.getAttribute('data-tm-detail-custom-text-field') || '').trim();
                 const field = fieldId ? __tmGetCustomFieldDefMap().get(fieldId) : null;
                 const currentTask = getBoundTask();
-                if (!field || !currentTask || !__tmIsCustomFieldApplicableToTask(field, currentTask)) return;
+                const currentTaskId = String(currentTask?.id || getBoundTaskId() || taskId || '').trim();
+                if (!field || !currentTask || !currentTaskId || !isSessionActive(currentTaskId) || !__tmIsCustomFieldApplicableToTask(field, currentTask)) return;
                 const prevValue = String(__tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(currentTask, fieldId)) || '').trim();
                 const nextValue = String(__tmNormalizeCustomFieldValue(field, textarea.value) || '').trim();
                 if (nextValue === prevValue) return;
                 commitDetailFieldPatch({ customFieldValues: { [fieldId]: nextValue } }, {
+                    taskId: currentTaskId,
                     source: 'detail-custom-text',
                     reason: 'detail-custom-text',
                     label: '自定义字段',
@@ -9429,7 +9473,7 @@
             ? opts.task
             : null;
         const task = selectedId
-            ? (providedTask || __tmGetTaskDetailTaskById(selectedId, { includePending: true, preferPending: true, includeWhiteboard: true }) || null)
+            ? (providedTask || __tmGetChecklistDetailTaskById(selectedId, { includePending: true, preferPending: true, includeWhiteboard: true }) || null)
             : null;
         const nextSignature = __tmBuildChecklistSelectionSignature(task, {
             sheetOpen: state.checklistDetailSheetOpen,
@@ -9666,7 +9710,9 @@ return true;
         const selectedId = String(state.detailTaskId || '').trim();
         const prevTaskId = String(panel.dataset?.tmDetailTaskId || panel.__tmTaskDetailTaskId || panel.__tmTaskDetailTask?.id || '').trim();
         const task = selectedId
-            ? (__tmGetTaskDetailTaskById(selectedId, { includePending: true, preferPending: true, includeWhiteboard: true }) || null)
+            ? ((String(state.viewMode || '').trim() === 'checklist'
+                ? __tmGetChecklistDetailTaskById(selectedId, { includePending: true, preferPending: true, includeWhiteboard: true })
+                : __tmGetTaskDetailTaskById(selectedId, { includePending: true, preferPending: true, includeWhiteboard: true })) || null)
             : null;
         if (task && selectedId && !forceRebuild && __tmShouldPreserveTaskDetailEditorDuringRefresh(panel, selectedId)) {
             try { panel.__tmTaskDetailTask = task; } catch (e) {}
@@ -9805,13 +9851,14 @@ return true;
             && __tmAreTaskDetailIdsEquivalent(opts.task.id, tid)
             ? opts.task
             : null;
-        let openingTask = providedTask
-            || __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })
-            || null;
+        const resolveSheetTask = () => String(state.viewMode || '').trim() === 'checklist'
+            ? __tmGetChecklistDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })
+            : __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true });
+        let openingTask = providedTask || resolveSheetTask() || null;
         const canReuseProvidedTask = !!providedTask && opts.skipFieldAttrs === true;
         let refreshed = __tmRefreshTaskDetailSheetInPlace(modal, source, { task: openingTask });
         if (!refreshed) {
-            const task = openingTask || __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true }) || null;
+            const task = openingTask || resolveSheetTask() || null;
             if (task && __tmEnsureTaskDetailSheetMounted(modal, task, tid, source)) {
                 refreshed = true;
             }
@@ -9903,7 +9950,14 @@ return true;
         const panel = panelEl instanceof Element ? panelEl : null;
         const tid = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
-        const task = tid ? (__tmGetTaskDetailTaskById(tid, { includeWhiteboard: true }) || null) : null;
+        const isChecklistPanel = panel?.id === 'tmChecklistDetailPanel'
+            || panel?.id === 'tmChecklistSheetPanel'
+            || String(state.viewMode || '').trim() === 'checklist';
+        const task = tid
+            ? ((isChecklistPanel
+                ? __tmGetChecklistDetailTaskById(tid, { includeWhiteboard: true })
+                : __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true })) || null)
+            : null;
         if (!(panel instanceof Element) || !tid || !task) return false;
         if (!__tmIsTaskDetailRootUsable(panel, { taskId: tid })) return false;
         const currentId = String(panel.dataset?.tmDetailTaskId || panel.__tmTaskDetailTaskId || panel.__tmTaskDetailTask?.id || '').trim();
@@ -10214,7 +10268,7 @@ return true;
         const patchVisibleDetailPanel = (panel) => __tmPatchTaskDetailPanelInPlace(panel, tid, detailPatch);
         if (__tmIsChecklistSelectionContext(state.modal) && __tmAreTaskDetailIdsEquivalent(state.detailTaskId, tid)) {
             const notePanel = __tmResolveChecklistDetailPanel(state.modal).panel;
-            const noteTask = __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
+            const noteTask = __tmGetChecklistDetailTaskById(tid, { includeWhiteboard: true });
             if (notePanel instanceof HTMLElement && __tmKeepTaskDetailNoteViewDuringRefresh(notePanel, noteTask, tid)) {
                 try { refreshed = !!patchVisibleDetailPanel(notePanel) || refreshed; } catch (e) {}
                 refreshed = true;
@@ -10226,7 +10280,7 @@ return true;
                     && opts.skipDefer !== true
                     && __tmShouldDeferTaskDetailFallback(panel)
                     && opts.retry !== true) {
-                    const task = __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
+                    const task = __tmGetChecklistDetailTaskById(tid, { includeWhiteboard: true });
                     try { if (task) panel.__tmTaskDetailTask = task; } catch (e) {}
                     try { panel.dataset.tmDetailTaskId = tid; } catch (e) {}
                     refreshed = __tmScheduleTaskDetailForceRebuildRetry(panel, tid, `${refreshSource}:checklist`) || refreshed;
@@ -10245,7 +10299,7 @@ refreshed = detailPatched || refreshed;
 } else {
                         const shouldDeferFallback = __tmShouldDeferTaskDetailFallback(panel);
                         if (shouldDeferFallback) {
-                            const task = __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
+                            const task = __tmGetChecklistDetailTaskById(tid, { includeWhiteboard: true });
                             try { if (panel instanceof HTMLElement && task) panel.__tmTaskDetailTask = task; } catch (e) {}
                             try { if (panel instanceof HTMLElement) panel.dataset.tmDetailTaskId = tid; } catch (e) {}
                             try {
@@ -10264,7 +10318,9 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         }
         if (__tmAreTaskDetailIdsEquivalent(state.detailTaskId, tid)) {
             const notePanel = __tmResolveTaskDetailSheetPanel(state.modal);
-            const noteTask = __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
+            const noteTask = String(state.viewMode || '').trim() === 'checklist'
+                ? __tmGetChecklistDetailTaskById(tid, { includeWhiteboard: true })
+                : __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
             if (notePanel instanceof HTMLElement && __tmKeepTaskDetailNoteViewDuringRefresh(notePanel, noteTask, tid)) {
                 try { refreshed = !!patchVisibleDetailPanel(notePanel) || refreshed; } catch (e) {}
                 refreshed = true;
@@ -10276,7 +10332,9 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                     && opts.skipDefer !== true
                     && __tmShouldDeferTaskDetailFallback(panel)
                     && opts.retry !== true) {
-                    const task = __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
+                    const task = String(state.viewMode || '').trim() === 'checklist'
+                        ? __tmGetChecklistDetailTaskById(tid, { includeWhiteboard: true })
+                        : __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
                     try { if (task) panel.__tmTaskDetailTask = task; } catch (e) {}
                     try { panel.dataset.tmDetailTaskId = tid; } catch (e) {}
                     refreshed = __tmScheduleTaskDetailForceRebuildRetry(panel, tid, `${refreshSource}:task-sheet`) || refreshed;
@@ -10291,7 +10349,9 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                         refreshed = detailPatched || refreshed;
                         if (!detailPatched) {
                             if (__tmIsTaskDetailRootUsable(panel, { taskId: tid }) && __tmShouldDeferTaskDetailFallback(panel)) {
-                                const task = __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
+                                const task = String(state.viewMode || '').trim() === 'checklist'
+                                    ? __tmGetChecklistDetailTaskById(tid, { includeWhiteboard: true })
+                                    : __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
                                 try { if (task) panel.__tmTaskDetailTask = task; } catch (e) {}
                                 try { panel.dataset.tmDetailTaskId = tid; } catch (e) {}
                                 try {

@@ -63,7 +63,9 @@ const getBoundEnd = bindEditor.indexOf('const getBoundTaskId = () => {', getBoun
 assert.ok(getBoundStart >= 0 && getBoundEnd > getBoundStart, 'bound task resolver must remain extractable');
 const getBoundTask = bindEditor.slice(getBoundStart, getBoundEnd);
 assert.match(getBoundTask, /root\.__tmTaskDetailTask/, 'bound task resolver must reuse the snapshot already attached to the mounted panel');
-assert.ok(getBoundTask.indexOf('root.__tmTaskDetailTask') < getBoundTask.indexOf('__tmGetTaskDetailTaskById'), 'mounted snapshot reuse must happen before any projected task-tree rebuild');
+const mountedSnapshotRead = getBoundTask.indexOf('root.__tmTaskDetailTask');
+const fallbackTaskRead = getBoundTask.indexOf('resolveDetailTaskById(');
+assert.ok(mountedSnapshotRead >= 0 && fallbackTaskRead > mountedSnapshotRead, 'mounted snapshot reuse must happen before the view-specific detail resolver can rebuild a projected task tree');
 
 const checklistStart = uiFoundation.indexOf('window.tmChecklistSelectTask = async function');
 const checklistEnd = uiFoundation.indexOf('function __tmIsTouchLikeChecklistPointer', checklistStart);

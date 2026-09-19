@@ -112,7 +112,9 @@ const commandPlanContext = vm.createContext({
     __tmNormalizeCompatTaskStatusMarker: (marker) => marker,
     __tmGuessStatusOptionDefaultMarker: () => ' ',
     __tmIsTaskMarkerDone: (marker) => marker !== ' ',
+    __tmIsTaskMarkerClosed: (marker) => marker !== ' ' && marker !== '/',
     __tmBuildTaskMarkdownWithMarker: (task, marker) => String(task.markdown || '').replace(/\[[^\]]\]/, `[${marker}]`),
+    __tmNormalizeTaskRepeatState: (value) => value || {},
     __tmBuildTaskCompleteAtPatch: () => ({ taskCompleteAt: 'derived' }),
     __tmResolveTaskStatusId: () => 'done',
 });

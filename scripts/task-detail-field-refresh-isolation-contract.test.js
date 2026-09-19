@@ -68,6 +68,14 @@ assert.ok(detailFieldCommitStart >= 0 && detailFieldCommitEnd > detailFieldCommi
 const detailFieldCommit = detailSource.slice(detailFieldCommitStart, detailFieldCommitEnd);
 assert.match(detailFieldCommit, /skipDetailPatch: opts\.skipDetailPatch !== false,[\s\S]*allowMountedInactive: true/,
     'direct detail field commits must refresh the still-mounted host view without redrawing the active detail');
+assert.match(detailFieldCommit, /sessionTaskId = String\(opts\.taskId \|\| taskId \|\| ''\)\.trim\(\)[\s\S]*isSessionActive\(sessionTaskId\)[\s\S]*isSessionActive\(tid\)/,
+    'direct detail field commits must reject stale callbacks after the panel switches tasks');
+assert.match(detailSource, /const currentTaskId = String\(getBoundTaskId\(\) \|\| taskId \|\| ''\)\.trim\(\)[\s\S]*commitDetailFieldPatch\(\{ remark: nextValue \}, \{[\s\S]*taskId: currentTaskId/,
+    'remark commits must carry the task ID captured from the active detail session');
+assert.match(detailSource, /const syncRemarkSavedState = \(savedValue, expectedTaskId = taskId\) => \{[\s\S]*isSessionActive\(expectedTaskId\)/,
+    'late remark save callbacks must not update the next task panel');
+assert.match(detailSource, /const currentTaskId = String\(currentTask\?\.id \|\| getBoundTaskId\(\) \|\| taskId \|\| ''\)\.trim\(\)[\s\S]*isSessionActive\(currentTaskId\)[\s\S]*commitDetailFieldPatch\(\{ customFieldValues:/,
+    'custom text commits must reject stale blur events after the panel switches tasks');
 assert.match(detailSource, /source: 'detail',[\s\S]*skipDetailPatch: true,[\s\S]*allowMountedInactive: true/,
     'detail autosaves must retain the same mounted host refresh permission');
 assert.match(detailSource, /window\.tmUpdateTaskDates\(boundId, patch, \{[\s\S]*skipDetailPatch: true,[\s\S]*allowMountedInactive: true/,
@@ -142,8 +150,8 @@ assert.match(detailSource, /projectedLoadedCustomFieldIds[\s\S]*delete mergedCus
     'projected detail reads must still honor explicitly loaded empty custom fields');
 assert.match(detailSource, /__tmHasTaskAttachmentAttrSnapshot\(task\)[\s\S]*customFieldsComplete/,
     'attachment cache short-circuit must not skip incomplete custom field hydration');
-assert.match(detailSource, /__tmAttachCustomFieldAttrsToTasks\(\[task\]\)/,
-    'task detail hydration must load custom text fields before the detail is refreshed');
+assert.match(detailSource, /__tmAttachCustomFieldAttrsToTasks\(\[task\], \{\s*forceFresh: shouldForce,[\s\S]*\}\)/,
+    'task detail hydration must pass its force-refresh intent to custom text field loading');
 assert.match(storesSource, /if \(viewMode === 'checklist'\)[\s\S]*__tmGetCustomFieldDefs\(\)\.forEach\(\(field\) => \{[\s\S]*String\(field\?\.type \|\| ''\)\.trim\(\) !== 'text'[\s\S]*bulkFieldIdsSet\.add\(fieldId\);/,
     'checklist refreshes must include enabled custom text fields regardless of compact metadata settings');
 assert.match(detailSource, /__tmShouldPreserveTaskDetailEditorDuringRefresh\(panel, selectedId\)[\s\S]*__tmSyncTaskDetailLocationInPlace\(panel, task\)/,
@@ -156,9 +164,20 @@ assert.match(sheetRefresh, /__tmShouldPreserveTaskDetailEditorDuringRefresh\(pan
     'task detail sheet refreshes must update location chips while preserving active edits');
 assert.match(
     read('src', 'task-horizon', 'main', '40-render-runtime.js'),
-    /renderMode === 'checklist'[\s\S]*__tmGetTaskDetailTaskById\(selectedId, \{ includePending: true, preferPending: true, includeWhiteboard: true \}\)/,
-    'checklist detail post-bind must keep using the projected task instead of replacing it with the raw boundary task',
+    /renderMode === 'checklist'[\s\S]*__tmGetChecklistDetailTaskById\(selectedId, \{ includePending: true, preferPending: true, includeWhiteboard: true \}\)/,
+    'checklist detail post-bind must prefer the direct boundary task resolver',
 );
+assert.match(
+    detailSource,
+    /function __tmGetChecklistDetailTaskById\(taskId, options = \{\}\)[\s\S]*__tmTaskBoundary\?\.getTask\?\.\(rawId\)[\s\S]*__tmGetTaskDetailTaskById\(rawId, options\)/,
+    'checklist detail reads must prefer the 3.0.2 boundary source and keep projected fallback',
+);
+assert.match(detailSource, /const resolveDetailTaskById = \(id, options = \{\}\) => \{[\s\S]*useChecklistRead = embedded[\s\S]*__tmGetChecklistDetailTaskById\(id, options\)[\s\S]*__tmGetTaskDetailTaskById\(id, options\)/,
+    'checklist detail editor sessions must keep using the direct resolver for later reads');
+assert.match(detailSource, /const latestTask = resolveDetailTaskById\(task\.id, \{ includePending: true, preferPending: true \}\)/,
+    'checklist detail autosave completion must not replace the direct task with a projected task');
+assert.match(detailSource, /const latestTask = resolveDetailTaskById\(tid, \{ includePending: true, preferPending: true \}\)/,
+    'custom text field commits must refresh the same direct task session');
 assert.match(storesSource, /let queryComplete = true;[\s\S]*queryComplete = false[\s\S]*queryComplete,/,
     'custom field reads must expose transient query failures to their caller');
 assert.match(storesSource, /if \(queryResult\?\.queryComplete === false\) \{[\s\S]*return \{[\s\S]*requestedFieldCount:/,

@@ -42,6 +42,9 @@ function createRuntime(fetchImpl) {
         },
     });
     vm.runInContext(`${sliceSource(
+        'function __tmCreateTaskStatusRules(',
+        '    const API =',
+    )}\n${sliceSource(
         'const __TM_DOC_PROGRESS_CACHE_TTL_MS',
         '    const __TM_DOC_EXPECTED_START_ATTR',
     )}\n${sliceSource(
@@ -70,6 +73,7 @@ function createRuntime(fetchImpl) {
         assert.equal(sqlCount, 1, '100 tab progress requests in one tick must use one SQL query');
         assert.match(lastSql, /root_id IN \(/);
         assert.match(lastSql, /GROUP BY root_id/);
+        assert.match(lastSql, /NOT IN \(' ', '\/', '-'\)/, 'progress must exclude unfinished, in-progress and abandoned markers from successful completions');
         assert.equal(result.size, 100);
         assert.equal(result.get('doc-42'), 50);
     }

@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { DatabaseSync } = require('node:sqlite');
 
 const IDS = Object.freeze({
     doc: '20260101000000-doc',
@@ -218,6 +219,27 @@ function createHarness(options = {}) {
     }
 
     function query(statement) {
+        if (statement.includes('WHERE task.type = \'i\' AND task.subtype = \'t\'')) {
+            const db = new DatabaseSync(':memory:');
+            try {
+                const columns = ['id', 'parent_id', 'root_id', 'type', 'subtype', 'markdown', 'content', 'box', 'path', 'hpath', 'sort', 'created', 'updated'];
+                db.exec(`CREATE TABLE blocks (${columns.map((column) => `${column} ${column === 'sort' ? 'INTEGER' : 'TEXT'}`).join(',')}); CREATE TABLE attributes (block_id TEXT, name TEXT, value TEXT)`);
+                const insert = db.prepare(`INSERT INTO blocks VALUES (${columns.map(() => '?').join(',')})`);
+                blocks.forEach((block) => insert.run(...columns.map((column) => block[column] ?? (column === 'sort' ? 0 : ''))));
+                const insertAttr = db.prepare('INSERT INTO attributes VALUES (?, ?, ?)');
+                attrs.forEach((values, id) => Object.entries(values).forEach(([name, value]) => insertAttr.run(id, name, String(value))));
+                return db.prepare(statement).all();
+            } finally { db.close(); }
+        }
+        if (statement.includes('WITH RECURSIVE focus_seeds(id)')) {
+            const db = new DatabaseSync(':memory:');
+            try {
+                db.exec('CREATE TABLE blocks (id TEXT PRIMARY KEY, parent_id TEXT, type TEXT, subtype TEXT, sort INTEGER, created TEXT)');
+                const insert = db.prepare('INSERT INTO blocks VALUES (?, ?, ?, ?, ?, ?)');
+                blocks.forEach((block) => insert.run(block.id, block.parent_id || '', block.type, block.subtype || '', block.sort || 0, block.created || ''));
+                return db.prepare(statement).all();
+            } finally { db.close(); }
+        }
         if (/SELECT 1 AS task_horizon_session_probe/.test(statement)) return [{ task_horizon_session_probe: 1 }];
         if (/SELECT DISTINCT a\.block_id AS id[\s\S]*FROM attributes a[\s\S]*JOIN blocks b ON b\.id = a\.block_id[\s\S]*b\.type = 'l'/.test(statement)) {
             const exactNames = new Set(Array.from(statement.matchAll(/a\.name = '([^']+)'/g)).map((match) => match[1]));
@@ -768,7 +790,7 @@ async function run() {
     const bootstrapVersion = bootstrapSource.match(/^\/\/\s*@version\s+(\S+)/m)?.[1];
     assert.equal(bootstrapVersion, manifest.version, 'the runtime version must follow plugin.json');
     assert.ok(Array.isArray(manifest.kernels) && manifest.kernels.includes('all'), 'plugin.json must enable the kernel plugin on supported backends');
-    assert.equal(manifest.minAppVersion, '3.8.1', 'the release must require the SiYuan version whose plugin readOnly and startup RPC contracts were reviewed');
+    assert.equal(manifest.minAppVersion, '3.8.4', 'the release must require the SiYuan version that supports native in-progress and abandoned task markers');
 
     const state1MigrationHarness = createHarness({
         initialAttrs: {
@@ -1087,8 +1109,8 @@ async function run() {
         'all direct Task Horizon statistics RPCs must share a total deadline with DockTomato');
     assert.ok(dockRpcCalls.every((item) => item.hasSignal),
         'Task Horizon must make DockTomato RPC response reads abortable');
-    assert.deepEqual(dockRpcCalls[0].body.params[0].candidateIDs, [IDS.childTask, IDS.singleTask].sort(),
-        'root-task descendants must be resolved before DockTomato aggregates associations');
+    assert.deepEqual(dockRpcCalls[0].body.params[0].candidateIDs, [IDS.childTask, IDS.childList, IDS.childBlock, IDS.singleTask, IDS.singleList].sort(),
+        'root-task descendants and their historical block bindings must survive the DockTomato prefilter');
     assert.equal(dockRpcCalls[0].body.params[0].candidateIDsConstrainTotals, true,
         'direct Kernel statistics must constrain totals to the resolved semantic scope');
     const rootScopeSql = bridgeHarness.apiCalls
@@ -1631,6 +1653,7 @@ async function run() {
         'custom-start-date': '2026-07-16',
         'custom-completion-time': '2026-07-20',
     });
+    harness.blocks.get(IDS.singleTask).markdown = '* [?] Alpha';
     const readable = await harness.call('taskHorizonGetTask', IDS.singleTask, [
         'priority', 'customStatus', 'startDate', 'completionTime', 'taskCompleteAt', 'duration', 'remark',
         'tomatoEstimateCount', 'tomatoCount', 'tomatoMinutes', 'attachments', 'attachmentCount',
@@ -3028,7 +3051,68 @@ async function run() {
         'reauthorization must restore the preserved preference without another manual enable');
 }
 
-run().then(() => {
+
+async function testNativeStatuses() {
+    const harness = createHarness();
+    await harness.start();
+    const settings = JSON.parse(harness.storage.get('task-settings.json'));
+    settings.customStatusOptions.push({ id: 'doing', name: '进行', marker: '/' }, { id: 'cancelled', name: '放弃', marker: '-' });
+    harness.storage.set('task-settings.json', JSON.stringify(settings));
+    const history = [{ completedAt: '2026-09-01T10:00:00+08:00', sourceDue: '2026-09-01' }];
+    const repeatState = { completedCount: 3, lastCompletedAt: history[0].completedAt, pendingNativeDoneReset: true, tomatoBaselineMinutes: 30 };
+    for (const [id, marker] of [['doing', '/'], ['cancelled', '-']]) {
+        harness.blocks.get(IDS.firstTask).markdown = '* [X] First';
+        harness.attrs.set(IDS.firstTask, {
+            'custom-status': 'done', 'custom-task-complete-at': history[0].completedAt,
+            'custom-task-repeat-rule': JSON.stringify({ enabled: true, type: 'daily' }),
+            'custom-task-repeat-state': JSON.stringify(repeatState),
+            'custom-task-repeat-history': JSON.stringify(history),
+        });
+        const changed = await harness.call('taskHorizonMutateTask', { action: 'patch', taskID: IDS.firstTask, patch: { customStatus: id } });
+        assert.equal(changed.ok, true, JSON.stringify(changed));
+        assert.equal(changed.data.task.done, false);
+        assert.equal(changed.data.task.customStatus, id);
+        assert.equal(changed.data.task.markdown, `* [${marker}] First`);
+        if (marker === '/') assert.equal(changed.data.task.taskCompleteAt, '');
+        else {
+            assert.ok(Date.parse(changed.data.task.taskCompleteAt) > Date.parse(history[0].completedAt), 'cancellation stamps the current transition time');
+            assert.equal(harness.attrs.get(IDS.firstTask)['custom-task-complete-at'], changed.data.task.taskCompleteAt);
+            const repeated = await harness.call('taskHorizonMutateTask', { action: 'patch', taskID: IDS.firstTask, patch: { customStatus: id } });
+            assert.equal(repeated.data.task.taskCompleteAt, changed.data.task.taskCompleteAt, 'repeating the same status preserves its timestamp');
+        }
+        assert.equal(changed.data.task.repeatState.pendingNativeDoneReset, false);
+        assert.equal(changed.data.task.repeatState.completedCount, 3);
+        assert.equal(harness.attrs.get(IDS.firstTask)['custom-task-repeat-history'], JSON.stringify(history));
+        const reread = await harness.call('taskHorizonGetTask', IDS.firstTask);
+        assert.equal(reread.data.done, false);
+        assert.equal(reread.data.customStatus, id);
+    }
+    const resumed = await harness.call('taskHorizonMutateTask', { action: 'patch', taskID: IDS.firstTask, patch: { customStatus: 'doing' } });
+    assert.equal(resumed.data.task.taskCompleteAt, '', 'resuming cancellation must clear the persisted timestamp');
+    const canceledAgain = await harness.call('taskHorizonMutateTask', { action: 'patch', taskID: IDS.firstTask, patch: { customStatus: 'cancelled' } });
+    assert.ok(canceledAgain.data.task.taskCompleteAt, 'unfinished -> canceled must persist a timestamp');
+    const reopened = await harness.call('taskHorizonMutateTask', { action: 'patch', taskID: IDS.firstTask, patch: { customStatus: 'todo' } });
+    assert.equal(reopened.data.task.taskCompleteAt, '');
+    harness.blocks.get(IDS.firstTask).markdown = '* [/] First\n\n  - [x] Child';
+    harness.attrs.get(IDS.firstTask)['custom-status'] = 'done';
+    const read = await harness.call('taskHorizonGetTask', IDS.firstTask);
+    assert.equal(read.data.done, false, 'nested child cannot mark parent completed');
+    assert.equal(read.data.customStatus, 'doing', 'native marker overrides stale persisted status');
+    harness.blocks.get(IDS.secondTask).markdown = '* [-] Second [x]';
+    const query = async (filters) => {
+        const result = await harness.call('taskHorizonQueryTasks', { filters: { documentIDs: [IDS.doc], ...filters } });
+        assert.equal(result.ok, true, JSON.stringify(result));
+        return Array.from(result.data.items, (item) => item.id);
+    };
+    assert.ok((await query({ done: false })).includes(IDS.firstTask));
+    assert.ok(!(await query({ done: false })).includes(IDS.secondTask), 'abandoned tasks are excluded from unfinished query');
+    assert.ok(!(await query({ done: true })).includes(IDS.firstTask), 'in-progress tasks are excluded from completed query');
+    assert.ok(!(await query({ done: true })).includes(IDS.secondTask), 'abandoned task title [x] must not count as completion');
+    assert.ok((await query({ customStatuses: ['doing'] })).includes(IDS.firstTask), 'status query follows native marker');
+    assert.ok((await query({ customStatuses: ['cancelled'] })).includes(IDS.secondTask));
+}
+
+run().then(testNativeStatuses).then(() => {
     process.stdout.write('kernel contract tests passed\n');
 }).catch((error) => {
     console.error(error);

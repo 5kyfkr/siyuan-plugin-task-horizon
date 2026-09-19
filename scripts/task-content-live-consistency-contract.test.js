@@ -194,7 +194,7 @@ const remarkCommit = sliceBetween(
 );
 assert.match(remarkCommit, /commitDetailFieldPatch\(\{ remark: nextValue \}/, 'remark edits must reuse the shared detail field mutation path');
 assert.match(remarkCommit, /pendingPromise = Promise\.resolve\(promise\)/, 'remark saved state must follow real persistence rather than enqueue acknowledgement');
-assert.match(remarkCommit, /syncRemarkSavedState\(nextValue\)/, 'a persisted remark must advance its saved baseline');
+assert.match(remarkCommit, /syncRemarkSavedState\(nextValue, currentTaskId\)/, 'a persisted remark must advance the saved baseline of its originating task session');
 assert.match(remarkCommit, /catch \(error\)[\s\S]*remarkTextarea\.dataset\.dirty = 'true'/, 'a failed remark write must retain the draft as dirty');
 
 const remarkEditLifecycle = sliceBetween(

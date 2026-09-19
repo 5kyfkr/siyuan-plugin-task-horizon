@@ -4099,11 +4099,16 @@ if (ev) {
             const resolved = await __tmResolveTaskIdFromAnyBlockId(tid);
             if (resolved) tid = resolved;
         }
+        const activeDetailMode = globalThis.__tmRuntimeState?.getActiveRenderMode?.('')
+            || (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
+        const isChecklistDetail = activeDetailMode === 'checklist';
         let task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         try {
-            task = (typeof __tmGetTaskDetailTaskById === 'function'
-                ? __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })
-                : null)
+            task = (isChecklistDetail && typeof __tmGetChecklistDetailTaskById === 'function'
+                ? __tmGetChecklistDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })
+                : (typeof __tmGetTaskDetailTaskById === 'function'
+                    ? __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })
+                    : null))
                 || task;
         } catch (e) {}
         if (!task) {
@@ -5360,11 +5365,16 @@ if (ev) {
         const menuTaskId = rawMenuTaskId && typeof __tmResolveOptimisticTaskId === 'function'
             ? (String(__tmResolveOptimisticTaskId(rawMenuTaskId) || rawMenuTaskId).trim() || rawMenuTaskId)
             : rawMenuTaskId;
-        const extraTask = extra?.task && typeof extra.task === 'object' ? extra.task : null;
-        const resolvedTask = __tmGetCollectedOtherBlockTaskFromState(menuTaskId)
+        let extraTask = extra?.task && typeof extra.task === 'object' ? extra.task : null;
+        let resolvedTask = __tmGetCollectedOtherBlockTaskFromState(menuTaskId)
             || globalThis.__tmTaskBoundary?.getTask?.(menuTaskId)
             || (rawMenuTaskId !== menuTaskId ? globalThis.__tmTaskBoundary?.getTask?.(rawMenuTaskId) : null)
             || null;
+        // Calendar cards can belong to a document group outside the active task state.
+        if (!resolvedTask && !extraTask) extraTask = globalThis.__tmCalendarGetTaskSnapshot?.(menuTaskId) || null;
+        if (!resolvedTask && extraTask && String(extraTask.id || '').trim() === menuTaskId) {
+            resolvedTask = __tmCacheTaskInState({ ...extraTask });
+        }
         const taskForMenu = resolvedTask && extraTask
             ? { ...resolvedTask, ...extraTask }
             : (resolvedTask || extraTask);

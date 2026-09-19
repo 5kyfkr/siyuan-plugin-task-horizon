@@ -10467,6 +10467,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         } else {
             state.taskDocHeadingGroupTasks = [];
         }
+        const includeCanceledStatus = __tmRuleIncludesCanceledStatus(rule);
         const filterVisibleTasks = (list) => {
             const source = Array.isArray(list) ? list : [];
             if (!excludeCompleted) return source;
@@ -10476,7 +10477,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 const taskDone = typeof __tmIsTaskDoneEffective === 'function'
                     ? __tmIsTaskDoneEffective(t)
                     : t.done === true;
-                if (taskDone) return false;
+                if (taskDone || (!includeCanceledStatus && __tmIsTaskCanceled(t))) return false;
                 return true;
             });
         };
@@ -17112,6 +17113,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         sheet.classList.toggle('tm-checklist-sheet--open', isOpen);
         sheet.classList.toggle('tm-checklist-sheet--fullscreen', fullscreen);
+        try { __tmApplyMobileDetailSheetViewportMetrics(sheet.closest('.tm-modal')); } catch (e) {}
         try {
             const backdropSelector = String(sheet.id || '') === 'tmTaskDetailSheet'
                 ? '#tmTaskDetailSheetBackdrop'

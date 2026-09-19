@@ -15,9 +15,13 @@ assert.match(
 );
 assert.match(
     renderSource,
-    /const isPoolActivePinnedTask = \(task\) => __tmIsTaskPinned\(task\) && !isWhiteboardTaskDone\(task\)/,
+    /const isPoolActivePinnedTask = \(task\) => __tmIsTaskPinned\(task\) && __tmIsTaskActive\(task\)/,
     'only active pinned roots may enter the standalone pinned group'
 );
+assert.match(renderSource, /const completedPoolRootEntries = separateCompletedPoolRootGroup\s*\? poolRootEntries\.filter\(\(entry\) => __tmIsTaskDoneForTailGroup\(entry\?\.task\)\)/,
+    'the completed pool must include canceled roots using the shared grouping predicate');
+assert.match(renderSource, /const groupedPoolRootEntries = separateCompletedPoolRootGroup\s*\? poolRootEntries\.filter\(\(entry\) => !__tmIsTaskDoneForTailGroup\(entry\?\.task\)\)/,
+    'canceled roots in the completed pool must not also appear in ordinary groups');
 assert.match(
     renderSource,
     /const pinnedPoolRootEntries = poolPinWithinGroups[\s\S]*?const regularPoolRootEntries = poolPinWithinGroups/,

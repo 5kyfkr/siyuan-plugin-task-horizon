@@ -2248,8 +2248,8 @@
                 const selectedId = String(state.detailTaskId || '').trim();
                 const detailPanel = __tmResolveChecklistDetailPanel(state.modal).panel;
                 const selectedTask = selectedId
-                    ? ((typeof __tmGetTaskDetailTaskById === 'function'
-                        ? __tmGetTaskDetailTaskById(selectedId, { includePending: true, preferPending: true, includeWhiteboard: true })
+                    ? ((typeof __tmGetChecklistDetailTaskById === 'function'
+                        ? __tmGetChecklistDetailTaskById(selectedId, { includePending: true, preferPending: true, includeWhiteboard: true })
                         : null)
                         || globalThis.__tmTaskBoundary?.getTask?.(selectedId)
                         || null)

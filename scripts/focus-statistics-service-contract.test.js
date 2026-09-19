@@ -43,7 +43,7 @@ const context = vm.createContext({
             const rootTaskID = String(raw?.rootTaskID || raw?.rootTaskId || '').trim();
             const candidateIDs = Array.isArray(resolvedScopeOverride)
                 ? resolvedScopeOverride
-                : [rootTaskID, 'child-of-root'].filter(Boolean);
+                : (rootTaskID ? [rootTaskID, 'child-of-root'] : [...(raw.taskIDs || raw.taskIds || []), 'legacy-list']);
             return { available: true, data: { candidateIDs } };
         }
         projectCalls += 1;
@@ -159,6 +159,8 @@ const defaultProjectFocus = context.__tmCallTaskHorizonKernelRpc;
     releaseConcurrentDock();
     await Promise.all([concurrentFirst, concurrentSecond]);
     assert.equal(concurrentDockCalls, 1, 'requests in the same minute must share one Dock query');
+    assert.equal(scopeResolveCalls, 2, 'explicit task scopes must resolve structural bindings before the shared Dock query');
+    assert.ok(concurrentDockInput.candidateIDs.includes('legacy-list'), 'explicit task queries must retain legacy list associations');
     assert.equal(concurrentDockInput.to, '2026-02-02T00:01:00.000Z', 'dynamic query times must use a stable minute boundary');
     assert.ok(Number(concurrentDockInput.deadlineAt) > 0, 'the frontend timeout deadline must reach the DockTomato Kernel query');
 
@@ -177,7 +179,7 @@ const defaultProjectFocus = context.__tmCallTaskHorizonKernelRpc;
         to: '2026-02-03T00:00:00.000Z',
         rootTaskID: 'root-task',
     });
-    assert.equal(scopeResolveCalls, 1, 'root-task semantics must be resolved before querying DockTomato');
+    assert.equal(scopeResolveCalls, 3, 'root-task semantics must be resolved before querying DockTomato');
     assert.deepEqual(Array.from(rootScopeDockInput.candidateIDs), [
         'alias-child-of-root',
         'alias-root-task',

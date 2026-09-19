@@ -819,7 +819,7 @@
 
         const out = [];
         for (const task of tasks) {
-            if (!task || __tmIsCalendarTaskDoneSync(task)) continue;
+            if (!task || __tmIsCalendarTaskDoneSync(task) || __tmIsTaskCanceled(task)) continue;
             const id = String(task.id || '').trim();
             if (!id) continue;
             const title = __tmResolveCalendarTaskDisplayTitle(task, '(无标题)');
@@ -1189,7 +1189,7 @@
                     const liveTask = __tmGetCalendarFlatTaskByIdSync(id);
                     if (liveTask) done = __tmIsCalendarTaskDoneSync(liveTask);
                 } catch (e) {}
-                if (opts.excludeCompleted === true && done) continue;
+                if (opts.excludeCompleted === true && (done || __tmIsTaskCanceled(t))) continue;
                 const s0 = __tmNormalizeDateOnly(t?.startDate);
                 const e0 = __tmNormalizeDateOnly(t?.completionTime);
                 if (!s0 && !e0) continue;

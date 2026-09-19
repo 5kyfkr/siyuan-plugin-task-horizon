@@ -185,6 +185,32 @@ const unchangedCompletionStatus = engine.mergeChangeSets([{
 assert.equal(unchangedCompletionStatus.fieldChanges[0].completionChanged, false,
     'an incomplete-to-incomplete status change must not request completion-tree reconciliation');
 
+for (const [beforeMarker, afterMarker] of [[' ', '-'], ['/', '-'], ['-', ' '], ['-', '/']]) {
+    for (const markerOnly of [false, true]) {
+        const patch = markerOnly
+            ? { taskMarker: afterMarker }
+            : { customStatus: 'configured-status', done: false };
+        const result = engine.mergeChangeSets([{
+            mutation: {
+                data: {
+                    statusBefore: { done: false, marker: beforeMarker },
+                    projectionPatch: { taskMarker: afterMarker },
+                },
+            },
+            changeSet: { fieldChanges: [{ taskId: 'task-canceled', patch }] },
+        }]);
+        const change = result.fieldChanges[0];
+        assert.equal(change.completionChanged, true,
+            `${JSON.stringify(beforeMarker)} -> ${JSON.stringify(afterMarker)} must reconcile completed groups even though done stays false`);
+        for (const viewMode of ['list', 'checklist', 'timeline', 'whiteboard', 'kanban']) {
+            const analysis = engine.analyzePatch(change.patch, { ...baseContext, viewMode });
+            assert.equal(analysis.projection && analysis.requiresClosure, true,
+                `${viewMode} must refresh completed groups for native marker and configured status changes`);
+        }
+        if (!markerOnly) assert.equal(change.patch.done, false, 'group reconciliation must not complete or advance a canceled task');
+    }
+}
+
 const completedStatus = engine.mergeChangeSets([{
     mutation: {
         type: 'taskPatch',

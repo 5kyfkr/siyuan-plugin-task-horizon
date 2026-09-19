@@ -4656,6 +4656,21 @@ select.tm-btn-secondary {
     flex: 0 1 auto;
 }
 
+.tm-modal:is(.tm-modal--mobile, .tm-modal--dock) .tm-topbar-row--brand > .tm-title {
+    flex: 0 0 auto;
+}
+
+.tm-modal:is(.tm-modal--mobile, .tm-modal--dock) .tm-topbar-doc-quick-select .bc-select-trigger {
+    box-sizing: border-box;
+    gap: 0;
+    padding-inline: 6px;
+    overflow: hidden;
+}
+
+.tm-modal:is(.tm-modal--mobile, .tm-modal--dock) .tm-topbar-doc-quick-select .bc-select-trigger__chevron {
+    display: none;
+}
+
 .tm-filter-rule-bar .tm-header-selectors .tm-topbar-select[data-tm-auto-width="true"] {
     display: inline-flex;
     flex: 0 0 auto;
@@ -15212,6 +15227,21 @@ select.tm-btn-secondary {
     left: 0;
     right: 0;
     bottom: 0;
+}
+
+/* Keep iOS sheets inside the visible area above the software keyboard, even
+   when WebKit pans the viewport while focusing a title, subtask or remark. */
+.tm-modal.tm-modal--mobile #tmChecklistSheet.tm-checklist-sheet--visual-viewport,
+.tm-modal.tm-modal--mobile #tmTaskDetailSheet.tm-checklist-sheet--visual-viewport {
+    bottom: var(--tm-sheet-visible-bottom, 0px);
+    max-height: min(76vh, 680px, max(0px, calc(var(--tm-sheet-visible-height) - max(8px, env(safe-area-inset-top, 0px)))));
+    box-sizing: border-box;
+}
+
+.tm-modal.tm-modal--mobile #tmChecklistSheet.tm-checklist-sheet--visual-viewport.tm-checklist-sheet--fullscreen,
+.tm-modal.tm-modal--mobile #tmTaskDetailSheet.tm-checklist-sheet--visual-viewport.tm-checklist-sheet--fullscreen {
+    top: calc(var(--tm-sheet-visible-top, 0px) + max(8px, env(safe-area-inset-top, 0px)));
+    max-height: max(0px, calc(var(--tm-sheet-visible-height) - max(8px, env(safe-area-inset-top, 0px)))) !important;
 }
 
 #tmChecklistSheet:not(.tm-checklist-sheet--fullscreen) .tm-checklist-sheet-body,

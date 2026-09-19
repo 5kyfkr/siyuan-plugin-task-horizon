@@ -493,6 +493,8 @@
         if (!task?.id) {
             return false;
         }
+        const latestLocal = globalThis.__tmTaskBoundary?.getTask?.(String(task.id || taskId));
+        if (latestLocal && typeof __tmIsTaskCanceled === 'function' && (__tmIsTaskCanceled(latestLocal) || __tmResolveTaskMarker(latestLocal) === '/')) return false;
         if (!__tmIsTaskNativeDone(task)) {
             return false;
         }

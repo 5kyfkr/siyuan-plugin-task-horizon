@@ -112,8 +112,9 @@
     // ==================== 任务管理器状态选项缓存 ====================
     let taskStatusOptions = [
         { id: 'todo', name: '待办', color: '#757575' },
+        { id: 'in_progress', name: '进行中', color: '#2196F3', marker: '/' },
         { id: 'done', name: '已完成', color: '#4CAF50' },
-        { id: 'cancelled', name: '已取消', color: '#9E9E9E' },
+        { id: 'cancelled', name: '放弃', color: '#9E9E9E', marker: '-' },
         { id: 'blocked', name: '阻塞', color: '#F44336' },
         { id: 'review', name: '待审核', color: '#FF9800' }
     ];
@@ -1084,15 +1085,16 @@
                 }
             }
         } catch (e) {}
-        return Array.isArray(taskStatusOptions) && taskStatusOptions.length
+        return globalThis.__tmTaskStatusRules.normalizeOptions(Array.isArray(taskStatusOptions) && taskStatusOptions.length
             ? taskStatusOptions
             : [
                 { id: 'todo', name: '待办', color: '#757575' },
+                { id: 'in_progress', name: '进行中', color: '#2196F3', marker: '/' },
                 { id: 'done', name: '已完成', color: '#4CAF50' },
-                { id: 'cancelled', name: '已取消', color: '#9E9E9E' },
+                { id: 'cancelled', name: '放弃', color: '#9E9E9E', marker: '-' },
                 { id: 'blocked', name: '阻塞', color: '#F44336' },
                 { id: 'review', name: '待审核', color: '#FF9800' }
-            ];
+            ], localStorage.getItem('tm_legacy_win7_compat_mode') === 'true');
     }
 
     function getDefaultUndoneStatusId(statusOptionsInput = null) {
@@ -1103,12 +1105,11 @@
         try {
             configured = String(localStorage.getItem('tm_checkbox_undone_status_id') || '').trim();
         } catch (e) {}
-        if (configured && configured !== '__none__' && statusOptions.some((item) => String(item?.id || '').trim() === configured)) {
+        if (configured && configured !== '__none__' && statusOptions.some((item) => String(item?.id || '').trim() === configured && normalizeQuickbarStatusMarker(item?.marker) === ' ')) {
             return configured;
         }
-        const todoExists = statusOptions.some((item) => String(item?.id || '').trim() === 'todo');
-        if (todoExists) return 'todo';
-        return String(statusOptions[0]?.id || '').trim() || 'todo';
+        const eligible = statusOptions.filter((item) => normalizeQuickbarStatusMarker(item?.marker) === ' ');
+        return String((eligible.find((item) => item.id === 'todo') || eligible[0])?.id || 'todo');
     }
 
     function getDefaultDoneStatusId(statusOptionsInput = null) {
@@ -1119,25 +1120,15 @@
         try {
             configured = String(localStorage.getItem('tm_checkbox_done_status_id') || '').trim();
         } catch (e) {}
-        if (configured && configured !== '__none__' && statusOptions.some((item) => String(item?.id || '').trim() === configured)) {
+        if (configured && configured !== '__none__' && statusOptions.some((item) => String(item?.id || '').trim() === configured && normalizeQuickbarStatusMarker(item?.marker) === 'X')) {
             return configured;
         }
-        const doneOption = statusOptions.find((item) => String(item?.id || '').trim() === 'done')
-            || statusOptions.find((item) => {
-                const marker = normalizeQuickbarStatusMarker(item?.marker, '');
-                if (marker) return marker !== ' ';
-                const source = `${String(item?.id || '').trim()} ${String(item?.name || '').trim()}`.toLowerCase();
-                return source.includes('done') || source.includes('finish') || source.includes('完成');
-            });
-        return String(doneOption?.id || '').trim() || 'done';
+        const eligible = statusOptions.filter((item) => normalizeQuickbarStatusMarker(item?.marker) === 'X');
+        return String((eligible.find((item) => item.id === 'done') || eligible[0])?.id || 'done');
     }
 
     function normalizeQuickbarStatusMarker(value, fallback = ' ') {
-        const raw = value == null ? '' : String(value);
-        const first = Array.from(raw === '__space__' ? ' ' : raw)[0] || '';
-        if (first && first !== '[' && first !== ']') return first;
-        if (fallback === '') return '';
-        return fallback == null ? ' ' : String(fallback || ' ').slice(0, 1) || ' ';
+        return globalThis.__tmTaskStatusRules.normalizeMarker(value, fallback);
     }
 
     function isQuickbarDoneStatusValue(value, statusOptionsInput = null) {
@@ -1146,15 +1137,11 @@
         const statusOptions = Array.isArray(statusOptionsInput) && statusOptionsInput.length
             ? statusOptionsInput
             : getStatusOptionsSnapshot();
-        let configuredDone = '';
-        try {
-            configuredDone = String(localStorage.getItem('tm_checkbox_done_status_id') || '').trim();
-        } catch (e) {}
-        if (configuredDone && configuredDone !== '__none__' && statusId === configuredDone) return true;
+        // 完成语义由标记决定，旧复选框绑定不能把 / 或 - 当作完成。
         const matched = statusOptions.find((item) => String(item?.id || '').trim() === statusId) || null;
         if (matched) {
             const marker = normalizeQuickbarStatusMarker(matched.marker, '');
-            if (marker) return marker !== ' ';
+            if (marker) return globalThis.__tmTaskStatusRules.isDone(marker);
             const source = `${String(matched.id || '').trim()} ${String(matched.name || '').trim()}`.toLowerCase();
             return source.includes('done') || source.includes('finish') || source.includes('完成');
         }
@@ -1163,6 +1150,8 @@
 
     function isQuickbarPropsDone(props) {
         const data = props && typeof props === 'object' ? props : {};
+        const marker = globalThis.__tmTaskStatusRules.normalizeMarker(data.taskMarker ?? data.task_marker, '') || globalThis.__tmTaskStatusRules.fromMarkdown(data.markdown);
+        if (marker) return globalThis.__tmTaskStatusRules.isDone(marker);
         if (data.done === true || data.done === 'true' || data.done === '1' || data.done === 1) return true;
         return isQuickbarDoneStatusValue(readQuickbarTaskMetaAttrValue(data, 'customStatus', '') || data.customStatus || data.custom_status);
     }
@@ -4944,7 +4933,8 @@
 
         function isQuickbarTaskLikeDone(task) {
             if (!(task && typeof task === 'object')) return false;
-            return isQuickbarPropsDone(task);
+            const resolver = globalThis.__tmTaskBoundary?.isTaskCompleted;
+            return typeof resolver === 'function' ? resolver(task) === true : isQuickbarPropsDone(task);
         }
 
         function getQuickbarDomSubtaskStats(blockEl) {
@@ -4966,6 +4956,8 @@
                 }).filter((child) => isTaskBlockElement(child));
                 total += taskItems.length;
                 completed += taskItems.filter((child) => {
+                    const nativeMarker = globalThis.__tmTaskStatusRules.fromElement(child);
+                    if (nativeMarker) return globalThis.__tmTaskStatusRules.isDone(nativeMarker);
                     if (child.classList?.contains('protyle-task--done')) return true;
                     const marker = String(child.getAttribute?.('data-marker') || '').trim();
                     return marker.includes('[x]') || marker.includes('[X]');
@@ -5000,7 +4992,7 @@
             const hoursKey = getConfiguredTomatoSpentAttrKey('hours');
             const runtimePropsData = {
                 'custom-priority': String(task.priority || task.custom_priority || readQuickbarTaskMetaAttrValue(task, 'priority', '') || 'none').trim() || 'none',
-                'custom-status': String(task.customStatus || task.custom_status || readQuickbarTaskMetaAttrValue(task, 'customStatus', '') || '').trim(),
+                'custom-status': String(globalThis.__tmCalendarKanbanCardHelpers?.resolveStatus?.(task)?.id || task.customStatus || task.custom_status || readQuickbarTaskMetaAttrValue(task, 'customStatus', '') || '').trim(),
                 'custom-completion-time': String(task.completionTime || task.completion_time || readQuickbarTaskMetaAttrValue(task, 'completionTime', '') || '').trim(),
                 'custom-start-date': String(task.startDate || task.start_date || readQuickbarTaskMetaAttrValue(task, 'startDate', '') || '').trim(),
                 'custom-duration': String(task.duration || task.custom_duration || readQuickbarTaskMetaAttrValue(task, 'duration', '') || '').trim(),
@@ -5604,18 +5596,16 @@
                     && statusSnapshot && typeof statusSnapshot === 'object') {
                     const statusValue = String(statusSnapshot.value || '').trim();
                     if (statusValue) {
-                        const snapshotDone = isQuickbarDoneStatusValue(statusValue);
-                        const propsCompleteAt = String(props.taskCompleteAt || props.task_complete_at || readQuickbarTaskMetaAttrValue(props, 'taskCompleteAt', '') || '').trim();
+                        const statusOptions = getStatusOptionsSnapshot();
                         const propsStatusValue = String(props['custom-status'] || '').trim();
-                        const propsDone = isQuickbarPropsDone(props);
-                        const hasPropsStatus = !!propsStatusValue;
-                        const sameDoneState = hasPropsStatus && propsDone === snapshotDone;
-                        if (props.__tmQuickbarPreferredTaskAttrs !== true
-                            && props.__tmQuickbarHasAttrHostStatus !== true
-                            && !sameDoneState
-                            && !(propsCompleteAt && propsDone && !snapshotDone)) {
+                        const propsOption = statusOptions.find((item) => item.id === propsStatusValue);
+                        const snapshotOption = statusOptions.find((item) => item.id === statusValue);
+                        // 比较标记而非 done：空格、/、- 都可能是 false，含义却不同。
+                        // 同标记的旧状态保留原 ID；循环暂留完成以快照的有效状态为准。
+                        if (!propsOption || !snapshotOption || propsOption.marker !== snapshotOption.marker) {
                             props['custom-status'] = statusValue;
                         }
+                        props.done = isQuickbarDoneStatusValue(statusValue, statusOptions);
                     }
                 }
             } catch (e) {}

@@ -14,6 +14,17 @@
 - Each completion advances one occurrence. If the next occurrence is already overdue, it remains incomplete until separately completed.
 - Native checkbox hold/reset and recovery of a previously committed completion remain supported; resetting the held checkbox must not advance dates again. Calendar date previews remain read-only.
 
+## Native task statuses (SiYuan 3.8.4)
+
+- Read the native `data-task` / Markdown marker before checkbox CSS. Space and `/` are unfinished; `-` is 放弃, excluded from active tasks and successful completions. Existing other custom markers keep their completion behavior. Normalize `x` to `X`.
+- Group every valid marker except space and `/` under completed tasks, respecting the existing visibility and grouping settings. Switching to one of these markers stamps the existing `taskCompleteAt` field; switching to space or `/` clears it. Repeated synchronization of the same marker preserves its timestamp. `-` remains `done=false`, grants no rewards, and does not advance recurring tasks. Detail status options must retain their markers when resolving the selected status.
+- Resolve status by marker and retain an existing matching status ID, including legacy duplicates. Non-space markers must be unique when adding/editing/importing; duplicate settings show a warning and reject the change.
+- Startup fills missing `/` and `-` with stable IDs, reusing any existing matching option. Settings edits/saves do not refill deleted options, so users can delete a generated option and assign its marker to an existing status before reloading.
+- Match `/` and `-` only by their explicit markers, never infer them from a status name or ID. Preset statuses declare their markers; existing custom options retain their markers.
+- Upgrade an unchanged complete legacy preset list to the current presets, including legacy lists without marker fields. Compare the complete list (IDs, names, colors, order, and any stored markers); never apply this migration to an individually matching name or edited configuration.
+- Keep the current fields and recurrence transaction path. `/` and `-` must neither advance a round nor roll back history; explicit native X → space still supports undo of a held completion.
+- Pure rules live in the existing service and kernel files because these run in separate environments. `task-completion-consistency.test.js` checks their parity; no extra runtime asset is loaded.
+
 Current active layout:
 
 - `main/00-bootstrap-and-styles.js`

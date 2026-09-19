@@ -26,10 +26,9 @@
             const tomatoFocusTaskId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
             const tomatoFocusModeEnabled = tomatoFocusTaskId ? __tmIsTomatoFocusModeEnabled() : false;
             const showDoneTasks = !!state.showCompletedTasks;
+            const showCanceledTasks = showDoneTasks || __tmRuleIncludesCanceledStatus(__tmGetCurrentRule());
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
-            const statusOptions = statusOptionsRaw
-                .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim(), color: String(o?.color || '').trim() }))
-                .filter(o => o.id);
+            const statusOptions = __tmGetStatusOptions(statusOptionsRaw);
             const todoOpt = statusOptions.find(o => o.id === 'todo') || { id: 'todo', name: '待办', color: '#757575' };
             const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
             const docsInOrder0 = __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId).map(d => String(d?.id || '').trim()).filter(Boolean);
@@ -185,7 +184,7 @@
                 const docId = String(taskLike?.root_id || taskLike?.docId || '').trim();
                 const id = String(taskLike?.id || '').trim();
                 if (!docId || !id || !docIdSet.has(docId)) return;
-                if (!showDoneTasks && isWhiteboardTaskDone(taskLike)) return;
+                if (!showDoneTasks && !(__tmIsTaskActive(taskLike) || (showCanceledTasks && __tmIsTaskCanceled(taskLike)))) return;
                 if (!byDoc.has(docId)) byDoc.set(docId, []);
                 const list = byDoc.get(docId);
                 if (list.some(x => String(x?.id || '').trim() === id)) return;
@@ -1200,7 +1199,7 @@
                 }
             })();
             const poolHasExplicitSort = poolSortContext.hasExplicitSort === true;
-            const isPoolActivePinnedTask = (task) => __tmIsTaskPinned(task) && !isWhiteboardTaskDone(task);
+            const isPoolActivePinnedTask = (task) => __tmIsTaskPinned(task) && __tmIsTaskActive(task);
             const whiteboardPoolSubtaskIndent = 14;
             const sortPoolTasksLikeChecklist = (tasks, fallbackCompare = null) => {
                 const list = Array.isArray(tasks) ? tasks : [];
@@ -1375,9 +1374,8 @@
                 const addToList = (task, locked = false) => {
                     const id = String(task?.id || '').trim();
                     if (!id) return;
-                    const taskDone = isWhiteboardTaskDone(task);
-                    if (!showDoneTasks && taskDone) return;
-                    if (separateCompletedPoolRootGroup && taskDone && typeof __tmShouldShowTaskInCompletedRootGroup === 'function' && !__tmShouldShowTaskInCompletedRootGroup(task)) return;
+                    if (!showDoneTasks && !(__tmIsTaskActive(task) || (showCanceledTasks && __tmIsTaskCanceled(task)))) return;
+                    if (separateCompletedPoolRootGroup && __tmIsTaskDoneForTailGroup(task) && typeof __tmShouldShowTaskInCompletedRootGroup === 'function' && !__tmShouldShowTaskInCompletedRootGroup(task)) return;
                     if (hasDoneAncestor(id)) return;
                     const prev = listMap.get(id);
                     if (prev) {
@@ -1662,10 +1660,10 @@
                 .filter((entry) => !!entry?.task && !!String(entry?.rootId || '').trim())
                 .sort(comparePoolRootEntries);
             const completedPoolRootEntries = separateCompletedPoolRootGroup
-                ? poolRootEntries.filter((entry) => isWhiteboardTaskDone(entry?.task))
+                ? poolRootEntries.filter((entry) => __tmIsTaskDoneForTailGroup(entry?.task))
                 : [];
             const groupedPoolRootEntries = separateCompletedPoolRootGroup
-                ? poolRootEntries.filter((entry) => !isWhiteboardTaskDone(entry?.task))
+                ? poolRootEntries.filter((entry) => !__tmIsTaskDoneForTailGroup(entry?.task))
                 : poolRootEntries;
             const pinnedPoolRootEntries = poolPinWithinGroups
                 ? []
@@ -1778,7 +1776,7 @@
                 if (!docId) return;
                 if (!isGlobalBoardMode && !docIdSet.has(docId)) return;
                 const task = live;
-                if (!task || (!showDoneTasks && isWhiteboardTaskDone(task))) return;
+                if (!task || (!showDoneTasks && !(__tmIsTaskActive(task) || (showCanceledTasks && __tmIsTaskCanceled(task))))) return;
                 poolSearchTaskMap.set(id, { ...(task || {}), __tmSearchDocId: docId });
             });
             const getPoolSearchTaskLike = (taskId) => {
@@ -1829,7 +1827,7 @@
             const buildWhiteboardPoolSearchResults = (keywordRaw = '') => {
                 const query = String(keywordRaw || '').trim().toLowerCase();
                 return query ? Array.from(poolSearchTaskMap.values())
-                    .filter((task) => showDoneTasks || !isWhiteboardTaskDone(task))
+                    .filter((task) => showDoneTasks || __tmIsTaskActive(task) || (showCanceledTasks && __tmIsTaskCanceled(task)))
                     .filter((task) => getPoolSearchText(task).includes(query))
                     .sort((a, b) => {
                         const ad = String(a?.__tmSearchDocId || a?.root_id || a?.docId || '').trim();

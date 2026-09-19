@@ -26,7 +26,7 @@
             { field: 'repeatHistory', aliases: ['repeat_history'], groups: ['calendar', 'structured'] },
             { field: 'customFieldValues', aliases: ['__customFieldRawValues'], groups: ['scoreSource', 'structured'] },
             { field: 'parentTaskId', aliases: ['parent_task_id', 'parentTaskID'] },
-            { field: 'taskMarker', aliases: ['task_marker'] },
+            { field: 'taskMarker', aliases: ['task_marker'], groups: ['completion'] },
             { field: 'root_id', aliases: ['rootId'], groups: ['document', 'scoreSource'] },
             { field: 'docId', groups: ['document', 'scoreSource'] },
             { field: 'h2', groups: ['document'] },

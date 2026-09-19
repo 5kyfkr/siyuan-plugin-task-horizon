@@ -55,7 +55,8 @@
     function __tmResolveTaskCompletedAtRaw(task, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         if (!(task && typeof task === 'object')) return '';
-        if (opts.completedOnly !== false && !task.done) return '';
+        if (opts.completedOnly !== false && !task.done
+            && !(typeof __tmIsTaskCanceled === 'function' && __tmIsTaskCanceled(task))) return '';
         const taskCompleteAtAttrValue = typeof __tmReadTaskMetaAttrValue === 'function'
             ? __tmReadTaskMetaAttrValue(task, 'taskCompleteAt')
             : '';
@@ -102,6 +103,7 @@
         let done = task.done === true;
         try {
             if (typeof __tmIsTaskDoneEffective === 'function') done = __tmIsTaskDoneEffective(task);
+            if (!done && typeof __tmIsTaskCanceled === 'function') done = __tmIsTaskCanceled(task);
         } catch (e) {}
         if (!done) return false;
         const targetKey = String(todayKey || '').trim() || __tmNormalizeDateOnly(new Date());
@@ -271,7 +273,7 @@
         try {
             if (typeof __tmIsTaskDoneEffective === 'function') done = __tmIsTaskDoneEffective(task);
         } catch (e) {}
-        if (done) return false;
+        if (done || __tmIsTaskCanceled(task)) return false;
         const dueKey = __tmNormalizeDateOnly(task?.completionTime || task?.completion_time || '');
         if (!dueKey) return false;
         const targetKey = String(todayKey || '').trim() || __tmNormalizeDateOnly(new Date());
@@ -730,6 +732,8 @@
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
         const repeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
         if (repeatState.pendingNativeDoneReset !== true) return false;
+        const marker = typeof __tmResolveTaskMarker === 'function' ? __tmResolveTaskMarker(task) : (task.taskMarker ?? task.task_marker);
+        if (marker === '/' || marker === '-') return false;
         const completedAt = __tmNormalizeTaskCompleteAtValue(
             task.taskCompleteAt
             ?? task.task_complete_at
@@ -2205,7 +2209,7 @@
                 }
                 const kids = Array.isArray(cur?.children) ? cur.children : [];
                 for (let i = 0; i < kids.length; i++) stack.push(kids[i]);
-                if (cur?.done) continue;
+                if (!__tmIsTaskActive(cur)) continue;
                 const info = toInfo(cur, cid, true);
                 if (info.hasDate && isBetter(info, bestChild)) bestChild = info;
             }

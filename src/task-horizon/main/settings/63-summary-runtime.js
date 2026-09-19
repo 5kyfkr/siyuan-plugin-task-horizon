@@ -359,7 +359,7 @@
             if (end && (!dateKey || dateKey > end)) return;
 
             if (status === '__done__' && !task.done) return;
-            if (status === '__undone__' && task.done) return;
+            if (status === '__undone__' && !__tmIsTaskActive(task)) return;
             if (status !== '__all__' && status !== '__done__' && status !== '__undone__') {
                 const sid = __tmResolveTaskStatusId(task);
                 if (sid !== status) return;
@@ -371,7 +371,8 @@
             out.push({
                 id: String(task.id || '').trim(),
                 content: String(task.content || '').trim() || '无内容',
-                done: !!task.done,
+                done: __tmIsTaskDoneEffective(task),
+                taskMarker: __tmResolveTaskMarker(task),
                 customStatus: __tmResolveTaskStatusId(task),
                 priority: p,
                 recurringLabel: __tmSummaryRecurringLabel(task),
@@ -435,14 +436,14 @@
 
         const todayKey = __tmSummaryDateFmt(new Date());
         const doneTasks = tasks.filter(t => t.done);
-        const todoTasks = tasks.filter(t => !t.done);
-        const overdueTasks = tasks.filter((t) => !t.done && String(t.dueDate || '').trim() && String(t.dueDate || '').trim() < todayKey);
+        const todoTasks = tasks.filter(t => __tmIsTaskActive(t));
+        const overdueTasks = tasks.filter((t) => __tmIsTaskActive(t) && String(t.dueDate || '').trim() && String(t.dueDate || '').trim() < todayKey);
         if (isDailyReport || isWeeklyReport) {
             const renderTaskLines = (arr) => arr.length
                 ? arr.map((t) => {
                     const details = [t.recurringLabel, showFocusDuration && t.focusDuration ? `专注时长:${t.focusDuration}` : ''].filter(Boolean);
                     const suffix = [t.docName, ...details].filter(Boolean);
-                    return `- [${t.done ? 'x' : ' '}] ${t.content}${suffix.length ? `（${suffix.join('｜')}）` : ''}`;
+                    return `- [${__tmResolveTaskMarker(t)}] ${t.content}${suffix.length ? `（${suffix.join('｜')}）` : ''}`;
                 }).join('\n')
                 : '- 无';
             lines.push('## 完成情况');

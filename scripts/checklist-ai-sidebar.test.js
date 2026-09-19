@@ -11,9 +11,13 @@ const viewPolicySource = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'task-horizon', 'main', '31-view-host-policies.js'),
     'utf8',
 );
+const detailSource = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'task-horizon', 'main', 'task-runtime', '52-task-detail-runtime.js'),
+    'utf8',
+);
 
-const task = { id: 'task-1', content: 'Task' };
-const projectedDetailTask = { ...task, content: 'Projected task', remark: 'Persistent remark' };
+const task = { id: 'task-1', content: 'Current task', remark: 'Current remark' };
+const projectedDetailTask = { ...task, content: 'Projected task', remark: 'Projected remark' };
 const state = {
     viewMode: 'checklist',
     flatTasks: { [task.id]: task },
@@ -50,6 +54,7 @@ const context = vm.createContext({
         getTask: (taskId) => state.pendingInsertedTasks[taskId] || state.flatTasks[taskId] || null,
     },
     __tmGetTaskDetailTaskById: (taskId) => taskId === projectedDetailTask.id ? projectedDetailTask : null,
+    __tmResolveTaskDetailEffectiveId: (taskId) => taskId,
     __tmNormalizeDateOnly: () => '',
     __tmIsDarkMode: () => false,
     __tmGetChecklistCompactRightFontSize: () => 12,
@@ -68,14 +73,27 @@ const context = vm.createContext({
 });
 
 vm.runInContext(viewPolicySource, context, { filename: '31-view-host-policies.js' });
+const detailReadStart = detailSource.indexOf('function __tmGetChecklistDetailTaskById(');
+const detailReadEnd = detailSource.indexOf('function __tmGetTaskDetailProjectedDirectChildren(', detailReadStart);
+assert.ok(detailReadStart >= 0 && detailReadEnd > detailReadStart, 'checklist detail resolver must remain extractable');
+vm.runInContext(detailSource.slice(detailReadStart, detailReadEnd), context, { filename: '52-task-detail-runtime.js' });
 vm.runInContext(checklistSource, context, { filename: '42-render-list-and-checklist-body.js' });
 
 const regularHtml = context.__tmBuildRenderSceneChecklistBodyHtml();
-assert.match(regularHtml, /Projected task\|Persistent remark/,
-    'checklist detail rendering must prefer the latest projected task fields over the raw task boundary');
+assert.match(regularHtml, /Current task\|Current remark/,
+    'checklist detail rendering must prefer the current task over a stale detail projection');
 assert.match(regularHtml, /class="tm-checklist-resizer"/);
 assert.match(regularHtml, /class="tm-checklist-side"/);
 assert.equal(context.__tmViewPolicy.shouldUseChecklistSheetMode(), false);
+
+state.pendingInsertedTasks[task.id] = { ...task, content: 'Pending task', remark: 'Pending remark' };
+assert.match(context.__tmBuildRenderSceneChecklistBodyHtml(), /Pending task\|Pending remark/,
+    'checklist details must reflect pending task fields returned by the task boundary');
+delete state.pendingInsertedTasks[task.id];
+delete state.flatTasks[task.id];
+assert.match(context.__tmBuildRenderSceneChecklistBodyHtml(), /Projected task\|Projected remark/,
+    'checklist details must fall back to the detail projection when the current task is unavailable');
+state.flatTasks[task.id] = task;
 
 state.aiSidebarOpen = true;
 assert.equal(context.__tmViewPolicy.shouldUseChecklistSheetMode(), true);

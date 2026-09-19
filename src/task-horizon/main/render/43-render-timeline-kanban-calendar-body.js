@@ -929,7 +929,7 @@
             const buildTimeBoardCols = () => {
                 const groups = new Map();
                 filtered.forEach((task) => {
-                    if (showDoneCol && isKanbanTaskCompleted(task)) return;
+                    if (showDoneCol && __tmIsTaskDoneForTailGroup(getKanbanColumnTask(task))) return;
                     const info = getTimeBoardGroup(task);
                     const key = String(info?.key || 'pending').trim() || 'pending';
                     if (!groups.has(key)) {
@@ -1124,7 +1124,7 @@
                 if (!headingMode) return colsStatus;
                 if (isAllTabsView) {
                     const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
-                    const headingTasks = showDoneCol ? filtered.filter((task) => !isKanbanTaskCompleted(task)) : filtered;
+                    const headingTasks = showDoneCol ? filtered.filter((task) => !__tmIsTaskDoneForTailGroup(getKanbanColumnTask(task))) : filtered;
                     const docIdSet = new Set(headingTasks.map(t => String(t?.root_id || '').trim()).filter(Boolean));
                     const ordered = __tmMoveGlobalNewTaskDocFirst(
                         docsInOrder.filter((id) => docIdSet.has(id) || (globalNewTaskDocId && id === globalNewTaskDocId))
@@ -1146,7 +1146,7 @@
                 // 获取当前文档的任务
                 const docTasks = filtered.filter(t => {
                     if (String(t?.root_id || '').trim() !== docId) return false;
-                    if (showDoneCol && isKanbanTaskCompleted(t)) return false;
+                    if (showDoneCol && __tmIsTaskDoneForTailGroup(getKanbanColumnTask(t))) return false;
                     return true;
                 });
 
@@ -1281,7 +1281,7 @@
             const tasksByStatus = new Map(cols.map(c => [String(c?.id || '').trim(), []]));
             filtered.forEach(task => {
                 const columnTask = getKanbanColumnTask(task);
-                const columnTaskDone = isKanbanTaskCompleted(columnTask);
+                const columnTaskDone = __tmIsTaskDoneForTailGroup(columnTask);
                 let key = '';
                 if (timeBoardMode) {
                     key = (showDoneCol && columnTaskDone)

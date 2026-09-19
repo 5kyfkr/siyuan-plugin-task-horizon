@@ -8770,8 +8770,9 @@
             // 默认状态选项
             customStatusOptions: [
                 { id: 'todo', name: '待办', color: '#757575', marker: ' ' },
+                { id: 'in_progress', name: '进行中', color: '#2196F3', marker: '/' },
                 { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
-                { id: 'cancelled', name: '已取消', color: '#9E9E9E', marker: '-' },
+                { id: 'cancelled', name: '放弃', color: '#9E9E9E', marker: '-' },
                 { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
                 { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' }
             ],
@@ -9535,7 +9536,7 @@
                                 if (typeof cloudData.calendarGridBorderColorDark === 'string') this.data.calendarGridBorderColorDark = cloudData.calendarGridBorderColorDark;
                                 if (typeof cloudData.tableBorderColorLight === 'string') this.data.tableBorderColorLight = cloudData.tableBorderColorLight;
                                 if (typeof cloudData.tableBorderColorDark === 'string') this.data.tableBorderColorDark = cloudData.tableBorderColorDark;
-                                if (Array.isArray(cloudData.customStatusOptions)) this.data.customStatusOptions = cloudData.customStatusOptions;
+                                if (Array.isArray(cloudData.customStatusOptions)) this.data.customStatusOptions = __tmNormalizeCustomStatusOptions(cloudData.customStatusOptions);
                                 if (Array.isArray(cloudData.customDurationOptions)) this.data.customDurationOptions = cloudData.customDurationOptions;
                                 if (typeof cloudData.checkboxDoneStatusId === 'string') this.data.checkboxDoneStatusId = cloudData.checkboxDoneStatusId;
                                 if (typeof cloudData.checkboxUndoneStatusId === 'string') this.data.checkboxUndoneStatusId = cloudData.checkboxUndoneStatusId;
@@ -10212,7 +10213,7 @@
                 this.data.columnWidths = { ...this.data.columnWidths, ...savedWidths };
             }
             this.data.otherBlockRefs = __tmNormalizeOtherBlockRefs(this.data.otherBlockRefs);
-            __tmNormalizeCheckboxStatusBindingConfig(this.data);
+            __tmNormalizeCheckboxStatusBindingConfig(this.data, true);
             this.data.customDurationOptions = __tmNormalizeCustomDurationOptions(this.data.customDurationOptions);
             const validModes = new Set(['none', 'doc', 'time', 'quadrant', 'task']);
             if (!validModes.has(String(this.data.groupMode || ''))) {
@@ -12428,8 +12429,8 @@
                 const taskDone = typeof __tmIsTaskDoneEffective === 'function'
                     ? __tmIsTaskDoneEffective(task)
                     : task.done === true;
-                if (operator === '=') return taskDone === targetValue;
-                if (operator === '!=') return taskDone !== targetValue;
+                if (operator === '=') return targetValue ? taskDone : (!taskDone && !__tmIsTaskCanceled(task));
+                if (operator === '!=') return targetValue ? (!taskDone && !__tmIsTaskCanceled(task)) : taskDone;
             }
 
             if (operator === 'is_empty' || operator === 'is_not_empty') {
@@ -14452,6 +14453,7 @@
         const nowTs = Date.now();
         const version = __tmParseVersionNumber(SettingsStore?.data?.customFieldDefsVersion);
         const cacheTtlMs = 20000;
+        const emptyCacheTtlMs = 1000;
         const valueMapByTaskId = new Map();
         const uncachedTaskIds = [];
         let queryComplete = true;
@@ -14462,14 +14464,22 @@
                 ? cached.fieldIds.map((id) => String(id || '').trim()).filter(Boolean)
                 : [];
             const cachedFieldIdSet = new Set(cachedFieldIds);
+            const cachedValues = (cached?.values
+                && typeof cached.values === 'object'
+                && !Array.isArray(cached.values))
+                ? cached.values
+                : null;
+            const cachedAgeMs = nowTs - Number(cached?.t || 0);
+            const cachedTtl = cachedValues && Object.keys(cachedValues).length > 0
+                ? cacheTtlMs
+                : emptyCacheTtlMs;
             const cacheSatisfied = !!(
                 !forceFresh
                 && cached
                 && Number(cached.version) === version
-                && (nowTs - Number(cached.t || 0)) < cacheTtlMs
-                && cached.values
-                && typeof cached.values === 'object'
-                && !Array.isArray(cached.values)
+                && cachedAgeMs >= 0
+                && cachedAgeMs < cachedTtl
+                && cachedValues
                 && (
                     cached.allFields === true
                     || (!isAllFieldRequest && requestedFieldIds.every((fieldId) => cachedFieldIdSet.has(fieldId)))
@@ -14534,8 +14544,7 @@
         }
         uncachedTaskIds.forEach((taskId) => {
             const cached = __tmCustomFieldAttrValueCache.get(taskId);
-            const cachedValues = (!forceFresh
-                && cached
+            const cachedValues = (cached
                 && Number(cached.version) === version
                 && (nowTs - Number(cached.t || 0)) < cacheTtlMs
                 && cached.values
@@ -14554,7 +14563,7 @@
             const queriedValues = (values && typeof values === 'object' && !Array.isArray(values))
                 ? { ...values }
                 : {};
-            const normalizedValues = (!isAllFieldRequest && cachedValues && typeof cachedValues === 'object')
+            const normalizedValues = (cachedValues && typeof cachedValues === 'object')
                 ? { ...cachedValues, ...queriedValues }
                 : queriedValues;
             valueMapByTaskId.set(taskId, isAllFieldRequest ? { ...normalizedValues } : requestedFieldIds.reduce((acc, fieldId) => {
@@ -14624,6 +14633,7 @@
                 hostAssignedCount: 0,
                 selfAssignedCount: 0,
                 requestedFieldCount: Number(queryResult?.requestedFieldCount || 0),
+                queryComplete: false,
             };
         }
         const valueMap = queryResult?.valueMapByTaskId instanceof Map ? queryResult.valueMapByTaskId : new Map();
@@ -14632,17 +14642,27 @@
                 ? resolvedValues
                 : {};
             if (loadedAllFields) {
-                task.__customFieldRawValues = { ...nextResolvedValues };
+                const existingRawValues = (task?.__customFieldRawValues
+                    && typeof task.__customFieldRawValues === 'object'
+                    && !Array.isArray(task.__customFieldRawValues))
+                    ? task.__customFieldRawValues
+                    : ((task?.customFieldValues
+                        && typeof task.customFieldValues === 'object'
+                        && !Array.isArray(task.customFieldValues))
+                        ? task.customFieldValues
+                        : {});
+                task.__customFieldRawValues = { ...existingRawValues, ...nextResolvedValues };
                 return;
             }
             const nextRawValues = {
                 ...((task?.__customFieldRawValues && typeof task.__customFieldRawValues === 'object' && !Array.isArray(task.__customFieldRawValues))
                     ? task.__customFieldRawValues
-                    : {})
+                    : ((task?.customFieldValues && typeof task.customFieldValues === 'object' && !Array.isArray(task.customFieldValues))
+                        ? task.customFieldValues
+                        : {}))
             };
             requestedFieldIds.forEach((fieldId) => {
                 if (Object.prototype.hasOwnProperty.call(nextResolvedValues, fieldId)) nextRawValues[fieldId] = nextResolvedValues[fieldId];
-                else delete nextRawValues[fieldId];
             });
             task.__customFieldRawValues = nextRawValues;
         };
@@ -14679,6 +14699,7 @@
             hostAssignedCount,
             selfAssignedCount,
             requestedFieldCount: Number(queryResult?.requestedFieldCount || 0),
+            queryComplete: queryResult?.queryComplete !== false,
         };
     }
 
@@ -16686,17 +16707,24 @@
             }
             const mergedValues = { ...(previousValues || {}) };
             const mergedRawValues = { ...(previousRawValues || {}) };
+            const freshFieldIds = new Set([
+                ...Object.keys(targetValues || {}),
+                ...Object.keys(targetRawValues || {}),
+            ]);
             if (freshLoadedAll) {
-                Object.keys(mergedValues).forEach((fieldId) => delete mergedValues[fieldId]);
-                Object.keys(mergedRawValues).forEach((fieldId) => delete mergedRawValues[fieldId]);
+                freshFieldIds.forEach((fieldId) => {
+                    delete mergedValues[fieldId];
+                    delete mergedRawValues[fieldId];
+                });
             } else {
                 freshLoadedIds.forEach((fieldId) => {
+                    if (!freshFieldIds.has(fieldId)) return;
                     delete mergedValues[fieldId];
                     delete mergedRawValues[fieldId];
                 });
             }
-            Object.assign(mergedValues, targetValues || targetRawValues || {});
-            Object.assign(mergedRawValues, targetRawValues || targetValues || {});
+            Object.assign(mergedValues, targetRawValues || {}, targetValues || {});
+            Object.assign(mergedRawValues, targetValues || {}, targetRawValues || {});
             if (Object.keys(mergedValues).length || freshLoadedAll || freshLoadedIds.length) target.customFieldValues = mergedValues;
             if (Object.keys(mergedRawValues).length || freshLoadedAll || freshLoadedIds.length) target.__customFieldRawValues = mergedRawValues;
             if (freshLoadedAll || previousAllLoaded) target.__tmLoadedAllCustomFields = true;
@@ -16836,8 +16864,8 @@
         const inlineHtml = String(contentNode.innerHTML || '').trim();
         const actionUse = taskItem.querySelector?.('.protyle-action--task use');
         const actionHref = String(actionUse?.getAttribute?.('href') || actionUse?.getAttribute?.('xlink:href') || '').trim();
-        const done = taskItem.classList?.contains?.('protyle-task--done') || actionHref === '#iconCheck';
-        const marker = done ? 'x' : ' ';
+        const marker = globalThis.__tmTaskStatusRules.fromElement(taskItem) || (taskItem.classList?.contains?.('protyle-task--done') || actionHref === '#iconCheck' ? 'X' : ' ');
+        const done = __tmIsTaskMarkerDone(marker);
         return {
             content,
             markdown: `- [${marker}] ${inlineHtml || content}`,

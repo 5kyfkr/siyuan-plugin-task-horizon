@@ -131,6 +131,10 @@
                 const tid = String(taskId || '').trim();
                 if (!tid) return null;
                 try {
+                    const directTask = typeof __tmGetChecklistDetailTaskById === 'function'
+                        ? __tmGetChecklistDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })
+                        : globalThis.__tmTaskBoundary?.getTask?.(tid);
+                    if (directTask) return directTask;
                     const projectedTask = typeof __tmGetTaskDetailTaskById === 'function'
                         ? __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true, includeWhiteboard: true })
                         : null;

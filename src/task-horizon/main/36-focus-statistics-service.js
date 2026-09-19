@@ -173,7 +173,7 @@
             throw error;
         }
         let authoritativeIDs = taskIDs || [];
-        if (rootTaskID) {
+        if (rootTaskID || taskIDs) {
             const gateway = await __tmWithFocusStatsTimeout('task-resolve-focus-scope', () => (
                 __tmCallTaskHorizonKernelRpc('taskHorizonResolveFocusCandidateIDs', options || {})
             ), control);

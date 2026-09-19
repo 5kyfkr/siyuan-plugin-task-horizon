@@ -124,18 +124,25 @@
             const hasDone = Object.prototype.hasOwnProperty.call(nextPatch, 'done');
             const hasStatus = Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus');
             const hasCompletedAt = Object.prototype.hasOwnProperty.call(nextPatch, 'taskCompleteAt');
-            if (!hasDone && !hasStatus && !hasCompletedAt) return null;
-            if (!hasDone) return hasCompletedAt && !hasStatus ? false : undefined;
+            const hasMarker = Object.prototype.hasOwnProperty.call(nextPatch, 'taskMarker')
+                || Object.prototype.hasOwnProperty.call(nextPatch, 'task_marker');
+            if (!hasDone && !hasStatus && !hasCompletedAt && !hasMarker) return null;
 
             const data = mutation?.data && typeof mutation.data === 'object' ? mutation.data : {};
             const statusBefore = data.statusBefore && typeof data.statusBefore === 'object' ? data.statusBefore : null;
+            const inversePatch = mutation?.inversePatch && typeof mutation.inversePatch === 'object' ? mutation.inversePatch : null;
+            const previousMarker = statusBefore?.marker ?? inversePatch?.taskMarker ?? inversePatch?.task_marker;
+            const nextMarker = nextPatch.taskMarker ?? nextPatch.task_marker ?? data.projectionPatch?.taskMarker ?? data.projectionPatch?.task_marker;
+            // 放弃与未完成之间切换时 done 都为 false，但完成分组仍需重排。
+            if (previousMarker != null && nextMarker != null && (previousMarker === '-') !== (nextMarker === '-')) return true;
+            if (!hasDone) return hasCompletedAt && !hasStatus && !hasMarker ? false : undefined;
+            if (hasMarker && previousMarker == null) return undefined;
             if (statusBefore && Object.prototype.hasOwnProperty.call(statusBefore, 'done')) {
                 return !!statusBefore.done !== !!nextPatch.done;
             }
             if (Object.prototype.hasOwnProperty.call(data, 'previousDone')) {
                 return !!data.previousDone !== !!nextPatch.done;
             }
-            const inversePatch = mutation?.inversePatch && typeof mutation.inversePatch === 'object' ? mutation.inversePatch : null;
             if (inversePatch && Object.prototype.hasOwnProperty.call(inversePatch, 'done')) {
                 return !!inversePatch.done !== !!nextPatch.done;
             }

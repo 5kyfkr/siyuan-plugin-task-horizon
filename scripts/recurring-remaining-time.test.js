@@ -25,6 +25,7 @@ const context = vm.createContext({
     __tmNormalizeTaskTomatoAmount: (value) => Math.max(0, Number(value) || 0),
     __tmNormalizeTaskTomatoCount: (value) => Math.max(0, Math.floor(Number(value) || 0)),
     __tmIsTaskNativeDone: (task) => task.done === true,
+    __tmIsTaskCanceled: (task) => task?.taskMarker === '-',
     __tmIsDarkMode: () => false,
     __tmNormalizeHexColor: (value, fallback) => value || fallback,
     normalizeTaskFields: (task) => task,
@@ -78,5 +79,7 @@ assert.equal(label({ ...nextOccurrence, taskCompleteAt: '2026-09-09T10:00:00+08:
     'a different completion timestamp must not be mistaken for the held previous occurrence');
 assert.equal(label(source), '余4天');
 assert.equal(label({ done: false }), '待定');
+assert.equal(label({ done: false, taskMarker: '-', completionTime: '2026-01-01' }), '放弃');
+assert.equal(label({ done: false, taskMarker: '/', completionTime: '2026-01-01' }), '过期');
 
 console.log('recurring remaining time tests passed');

@@ -33,11 +33,18 @@ vm.runInContext(source.slice(start, end) + '\nthis.renderCard = protoListTaskCar
 const event = { id: 'taskdate-task', title: '任务', extendedProps: { __tmDocId: 'doc-b' } };
 const task = { id: 'task', content: '独立任务', docId: 'doc-b', docName: '来源文档' };
 const standalone = context.renderCard(event, task, { isParent: false });
+assert.match(standalone, /class="tm-kanban-card-title-inline tm-parent-task-title"/, 'Top-level card titles default to the same bold style as kanban');
 assert.match(standalone, /tm-kanban-chip--doc/);
 assert.match(standalone, /来源文档/);
 const withChildren = context.renderCard(event, { ...task, children: [{ id: 'child', content: '子任务', docName: '来源文档' }] }, { isParent: true });
 assert.equal((withChildren.match(/tm-kanban-chip--doc/g) || []).length, 1, 'Document source belongs to the outer card, not repeated subtask rows');
 assert.match(withChildren, /tm-kanban-subtask-row/);
+assert.equal((withChildren.match(/tm-parent-task-title/g) || []).length, 1, 'Only the outer card title is bold, not nested subtask titles');
+sandbox.state.settingsStore.data.parentTaskNameBoldEnabled = false;
+const normalParent = context.renderCard(event, { ...task, children: [{ id: 'child', content: '子任务' }] }, { isParent: true });
+assert.doesNotMatch(normalParent, /tm-parent-task-title/, 'Disabling parent title bold must also apply outside the main task panel');
+sandbox.state.settingsStore.data.parentTaskNameBoldEnabled = true;
+assert.match(context.renderCard(event, task, { isParent: true }), /class="tm-kanban-card-title-inline tm-parent-task-title"/);
 assert.match(withChildren, /tm-kanban-subtasks-label"><svg data-shared-icon="clipboard-list" width="14" height="14"><\/svg><span>子任务/);
 assert.doesNotMatch(styles, /\.tm-proto-list-subtasks \.tm-kanban-subtasks-(?:head|label)\s*\{/);
 const sharedCardScope = ':is(.tm-kanban.tm-kanban--clean, .tm-whiteboard.tm-kanban--clean, .tm-proto-list)';
@@ -58,7 +65,7 @@ assert.match(styles, /\.tm-proto-list-week-picker \.tm-proto-list-date-cell\s*\{
 assert.match(styles, /\.tm-proto-list-month-grid \.tm-proto-list-date-cell\s*\{[^}]*grid-template-rows:\s*18px 4px;/);
 assert.match(styles, /\.tm-proto-list-picker\s*\{[^}]*border:\s*0;[^}]*box-shadow:\s*none;/);
 assert.match(styles, /\.tm-proto-list-week-picker\s*\{[^}]*grid-template-columns:\s*28px minmax\(0, 1fr\) 28px;/);
-assert.match(styles, /\.tm-proto-list-calendar-toggle\s*\{[^}]*width:\s*48px;[^}]*height:\s*24px;/);
+assert.match(styles, /\.tm-proto-list-calendar-toggle\s*\{[^}]*width:\s*48px;[^}]*height:\s*18px;[^}]*bottom:\s*-9px;/);
 assert.match(source, /tm-proto-list-date-weekday">\$\{protoWeekLabels\[date\.getDay\(\)\]\}</);
 assert.doesNotMatch(source, /tm-proto-list-date-weekday">周\$\{protoWeekLabels/);
 assert.match(styles, /\.tm-proto-list:not\(\.is-calendar-expanded\) \.tm-proto-list-picker::after\{[\s\S]*bottom:\s*2px;/);

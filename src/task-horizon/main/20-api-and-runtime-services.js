@@ -1,3 +1,126 @@
+    function __tmCreateTaskStatusRules() {
+        // 只处理状态语义；不读取设置、不写任务，也不处理循环轮次。
+        const defaults = [
+            { id: 'todo', name: '待办', color: '#757575', marker: ' ' },
+            { id: 'in_progress', name: '进行中', color: '#2196F3', marker: '/' },
+            { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
+            { id: 'cancelled', name: '放弃', color: '#9E9E9E', marker: '-' },
+            { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
+            { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' },
+        ];
+        const markerPattern = /^([ \t]*)(?:[-*+]|\d+[.)])[ \t]*(?:(?:\{:[ \t]*[^}\r\n]*\})[ \t]*)*\[([^\]\r\n]?)\][ \t]*/;
+        function normalizeMarker(value, fallback = ' ') {
+            const raw = value === '__space__' ? ' ' : String(value == null ? '' : value);
+            if (raw.length === 1 && /^[\x20-\x7e]$/.test(raw) && raw !== '[' && raw !== ']') return raw === 'x' ? 'X' : raw;
+            if (fallback === '') return '';
+            return fallback === value ? ' ' : normalizeMarker(fallback, ' ');
+        }
+        function guessMarker(option) {
+            const id = String(option?.id || '').trim().toLowerCase();
+            const name = String(option?.name || '').trim().toLowerCase();
+            const source = `${id} ${name}`;
+            // 旧配置缺失 marker 时保留原有推断，避免把空格状态静默改成 /。
+            if (['todo', 'undone', 'in_progress', 'blocked', 'review'].includes(id) || /待办|未完成|进行中|阻塞|审核/.test(source)) return ' ';
+            return id === 'done' || name.includes('完成') ? 'X' : ' ';
+        }
+        function optionMarker(option) {
+            return normalizeMarker(option?.marker, guessMarker(option));
+        }
+        function isLegacyDefaultOptions(input) {
+            const legacy = [
+                { id: 'todo', name: '待办', color: '#757575', marker: ' ' },
+                { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
+                { id: 'cancelled', name: '已取消', color: '#9E9E9E', marker: '-' },
+                { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
+                { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' },
+            ];
+            if (!Array.isArray(input) || input.length !== legacy.length) return false;
+            return input.every((item, index) => {
+                const expected = legacy[index];
+                return item && String(item.id || item.value || '').trim() === expected.id
+                    && String(item.name || item.label || '').trim() === expected.name
+                    && String(item.color || '').trim().toUpperCase() === expected.color
+                    && (!Object.prototype.hasOwnProperty.call(item, 'marker') || normalizeMarker(item.marker, '') === expected.marker);
+            });
+        }
+        function isDone(marker, legacy = false) {
+            const value = normalizeMarker(marker);
+            return legacy ? value === 'X' : value !== ' ' && value !== '/' && value !== '-';
+        }
+        function isClosed(marker, legacy = false) {
+            const value = normalizeMarker(marker);
+            return legacy ? value === 'X' : value !== ' ' && value !== '/';
+        }
+        function fromMarkdown(markdown) {
+            const match = markerPattern.exec(String(markdown || '').split(/\r?\n/, 1)[0]);
+            return match ? normalizeMarker(match[2] || ' ') : '';
+        }
+        function fromElement(element) {
+            if (!element?.getAttribute) return '';
+            const own = normalizeMarker(element.getAttribute('data-task'), '');
+            if (own) return own;
+            const action = element.querySelector?.(':scope > .protyle-action--task');
+            return normalizeMarker(action?.getAttribute?.('data-task'), '');
+        }
+        function normalizeOptions(input, legacy = false, fillNative = true) {
+            const seen = new Set();
+            const result = [];
+            const source = !legacy && fillNative && isLegacyDefaultOptions(input)
+                ? defaults
+                : (Array.isArray(input) ? input : []);
+            source.forEach((item) => {
+                const id = String(item?.id || item?.value || '').trim();
+                if (!id || seen.has(id)) return;
+                seen.add(id);
+                const name = String(item?.name || item?.label || id).trim() || id;
+                result.push({ id, name, color: String(item?.color || '#757575'), marker: optionMarker({ ...item, id, name }) });
+            });
+            if (!result.length) result.push(...defaults.filter((item) => !legacy || item.marker !== '/').map((item) => ({ ...item })));
+            if (!legacy && fillNative) {
+                defaults.filter((item) => item.marker === '/' || item.marker === '-').forEach((preset) => {
+                    if (result.some((item) => item.marker === preset.marker)) return;
+                    // 固定、可重复计算的 ID；用户已占用默认 ID 时不覆盖它。
+                    let id = preset.id;
+                    for (let suffix = 1; result.some((item) => item.id === id); suffix++) id = `${preset.id}_native${suffix === 1 ? '' : suffix}`;
+                    result.push({ ...preset, id });
+                });
+            }
+            return result;
+        }
+        function resolveOption(marker, statusId, options, fallbackId = '') {
+            const value = normalizeMarker(marker, '');
+            const current = options.find((item) => item.id === statusId);
+            if (current && (!value || optionMarker(current) === value)) return current;
+            if (value === ' ') {
+                const fallback = options.find((item) => item.id === fallbackId && optionMarker(item) === ' ');
+                if (fallback) return fallback;
+            }
+            return options.find((item) => optionMarker(item) === value) || null;
+        }
+        function sqlMarker(expression) {
+            const line = `substr(${expression}, 1, instr(${expression} || char(10), char(10)) - 1)`;
+            // 只取任务自身首行的标记，避免子任务和标题中的 [x] 污染完成筛选。
+            const open = `instr(${line}, '[')`;
+            const token = `substr(${line}, ${open}, 3)`;
+            return `(CASE WHEN ${open} > 0 AND substr(${token}, 3, 1) = ']' THEN CASE substr(${token}, 2, 1) WHEN 'x' THEN 'X' ELSE substr(${token}, 2, 1) END ELSE ' ' END)`;
+        }
+        function sqlDone(expression) {
+            return `(${sqlMarker(expression)} NOT IN (' ', '/', '-'))`;
+        }
+        function conflicts(options) {
+            const byMarker = new Map();
+            options.forEach((item) => {
+                const marker = optionMarker(item);
+                if (marker === ' ') return;
+                if (!byMarker.has(marker)) byMarker.set(marker, []);
+                byMarker.get(marker).push(item);
+            });
+            return Array.from(byMarker, ([marker, items]) => ({ marker, items })).filter((item) => item.items.length > 1);
+        }
+        return Object.freeze({ normalizeMarker, guessMarker, optionMarker, isDone, isClosed, fromMarkdown, fromElement, normalizeOptions, resolveOption, conflicts, sqlMarker, sqlDone });
+    }
+    globalThis.__tmTaskStatusRules = __tmCreateTaskStatusRules();
+
     const API = {
         // ... 原有的API方法保持不变 ...
         async call(url, body) {
@@ -3843,28 +3966,12 @@
         const source = `${id} ${name}`;
         if (!source) return __tmNormalizeTaskStatusMarker(fallback, ' ');
         if (id === 'todo' || id === 'undone' || id === 'in_progress' || id === 'blocked' || id === 'review' || source.includes('待办') || source.includes('未完成') || source.includes('进行中') || source.includes('阻塞') || source.includes('审核')) return ' ';
-        if (id === 'cancelled' || id === 'canceled' || id === 'cancel' || source.includes('取消') || source.includes('放弃')) return '-';
         if (id === 'done' || source.includes('完成')) return 'X';
         return __tmNormalizeTaskStatusMarker(fallback, ' ');
     }
 
     function __tmNormalizeTaskStatusMarker(value, fallback = 'X') {
-        const normalizeOne = (input, fallbackValue = 'X') => {
-            let raw = input == null ? '' : String(input);
-            if (raw === '__space__') raw = ' ';
-            const chars = Array.from(raw);
-            const first = chars.length ? String(chars[0] || '') : '';
-            if (!first) return '';
-            if (first === '[' || first === ']') return '';
-            try {
-                if (typeof TextEncoder !== 'undefined' && new TextEncoder().encode(first).length !== 1) return '';
-            } catch (e) {}
-            return first;
-        };
-        const rawFallback = fallback == null ? 'X' : String(fallback);
-        const fallbackMarker = rawFallback === '' ? '' : (normalizeOne(rawFallback, 'X') || 'X');
-        const normalized = normalizeOne(value, fallbackMarker);
-        return normalized || fallbackMarker;
+        return globalThis.__tmTaskStatusRules.normalizeMarker(value, fallback);
     }
 
     function __tmIsLegacyWin7CompatMode() {
@@ -3890,26 +3997,9 @@
         return { id, name, color, marker };
     }
 
-    function __tmNormalizeCustomStatusOptions(optionsInput) {
-        const list = Array.isArray(optionsInput) ? optionsInput : [];
-        const out = [];
-        const seen = new Set();
-        list.forEach((item, index) => {
-            const normalized = __tmNormalizeCustomStatusOption(item, index);
-            const id = String(normalized?.id || '').trim();
-            if (!id || seen.has(id)) return;
-            seen.add(id);
-            out.push(normalized);
-        });
-        return out.length
-            ? out
-            : [
-                { id: 'todo', name: '待办', color: '#757575', marker: ' ' },
-                { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
-                { id: 'cancelled', name: '已取消', color: '#9E9E9E', marker: '-' },
-                { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
-                { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' }
-            ];
+    function __tmNormalizeCustomStatusOptions(optionsInput, fillNative = true) {
+        return globalThis.__tmTaskStatusRules.normalizeOptions(optionsInput, __tmIsLegacyWin7CompatMode(), fillNative)
+            .map((option, index) => __tmNormalizeCustomStatusOption(option, index));
     }
 
     function __tmNormalizeDurationPresetValue(value) {
@@ -4118,10 +4208,28 @@
     }
 
     function __tmIsTaskMarkerDone(marker) {
-        const normalized = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
-        return __tmIsLegacyWin7CompatMode()
-            ? String(normalized || '').trim().toUpperCase() === 'X'
-            : normalized !== ' ';
+        return globalThis.__tmTaskStatusRules.isDone(marker, __tmIsLegacyWin7CompatMode());
+    }
+
+    function __tmIsTaskMarkerClosed(marker) {
+        return globalThis.__tmTaskStatusRules.isClosed(marker, __tmIsLegacyWin7CompatMode());
+    }
+
+    function __tmIsTaskCanceled(task) {
+        return !__tmIsLegacyWin7CompatMode() && __tmResolveTaskMarker(task) === '-';
+    }
+
+    function __tmIsTaskActive(task) {
+        return !__tmIsTaskDoneEffective(task) && !__tmIsTaskCanceled(task);
+    }
+
+    function __tmRuleIncludesCanceledStatus(rule) {
+        if (__tmIsLegacyWin7CompatMode()) return false;
+        return (Array.isArray(rule?.conditions) ? rule.conditions : []).some((condition) => {
+            if (condition.field !== 'customStatus' || !['=', 'in', 'contains'].includes(condition.operator)) return false;
+            const values = Array.isArray(condition.value) ? condition.value : [condition.value];
+            return values.some((id) => __tmFindStatusOptionById(String(id || '').trim())?.marker === '-');
+        });
     }
 
     function __tmResolveTaskMarkdownMarker(task) {
@@ -4160,9 +4268,8 @@
             return __tmGetDefaultUndoneStatusId(statusOptions);
         }
         const configuredStatus = String(task?.customStatus ?? task?.custom_status ?? '').trim();
-        if (configuredStatus) return configuredStatus;
         const marker = __tmResolveTaskMarker(task, statusOptions);
-        const matched = __tmFindStatusOptionByMarker(marker, statusOptions);
+        const matched = globalThis.__tmTaskStatusRules.resolveOption(marker, configuredStatus, statusOptions, __tmGetDefaultUndoneStatusId(statusOptions));
         if (matched?.id) return String(matched.id || '').trim();
         return __tmIsTaskMarkerDone(marker)
             ? String(__tmResolveCheckboxLinkedStatusId(true, statusOptions) || 'done').trim() || 'done'
@@ -4183,19 +4290,15 @@
 
     function __tmGetCheckboxStatusBindingFallbackId(done, statusOptionsInput = null) {
         const statusOptions = __tmGetStatusOptions(statusOptionsInput);
-        if (done) {
-            const exists = statusOptions.some((item) => String(item?.id || '').trim() === 'done');
-            return exists ? 'done' : '';
-        }
-        const todoExists = statusOptions.some((item) => String(item?.id || '').trim() === 'todo');
-        if (todoExists) return 'todo';
-        return String(statusOptions[0]?.id || '').trim();
+        const marker = done ? 'X' : ' ';
+        const eligible = statusOptions.filter((item) => __tmNormalizeCompatTaskStatusMarker(item.marker) === marker);
+        return String((eligible.find((item) => item.id === (done ? 'done' : 'todo')) || eligible[0])?.id || '');
     }
 
     function __tmGetDefaultUndoneStatusId(statusOptionsInput = null) {
         const statusOptions = __tmGetStatusOptions(statusOptionsInput);
         const configured = __tmNormalizeCheckboxStatusBindingValue(SettingsStore?.data?.checkboxUndoneStatusId);
-        if (configured && statusOptions.some((item) => String(item?.id || '').trim() === configured)) return configured;
+        if (configured && statusOptions.some((item) => item.id === configured && __tmNormalizeCompatTaskStatusMarker(item.marker) === ' ')) return configured;
         return __tmGetCheckboxStatusBindingFallbackId(false, statusOptions) || 'todo';
     }
 
@@ -4205,16 +4308,17 @@
         return __tmGetDefaultUndoneStatusId(statusOptionsInput);
     }
 
-    function __tmNormalizeCheckboxStatusBindingConfig(target) {
+    function __tmNormalizeCheckboxStatusBindingConfig(target, fillNative = false) {
         const store = (target && typeof target === 'object') ? target : null;
         if (!store) return target;
-        store.customStatusOptions = __tmNormalizeCustomStatusOptions(store.customStatusOptions);
+        // 编辑和保存时不补回已删除项，允许先删除自动状态，再把 /、- 分配给已有状态。
+        store.customStatusOptions = __tmNormalizeCustomStatusOptions(store.customStatusOptions, fillNative);
         const statusOptions = Array.isArray(store.customStatusOptions) ? store.customStatusOptions : [];
         const statusIds = new Set(statusOptions.map((item) => String(item?.id || '').trim()).filter(Boolean));
         const normalizeOne = (rawValue, done) => {
             const normalized = __tmNormalizeCheckboxStatusBindingValue(rawValue);
             if (!normalized) return done ? '' : (__tmGetCheckboxStatusBindingFallbackId(false, statusOptions) || 'todo');
-            if (!statusIds.size || statusIds.has(normalized)) return normalized;
+            if (statusIds.has(normalized) && statusOptions.some((item) => item.id === normalized && __tmNormalizeCompatTaskStatusMarker(item.marker) === (done ? 'X' : ' '))) return normalized;
             return __tmGetCheckboxStatusBindingFallbackId(done, statusOptions);
         };
         store.checkboxDoneStatusId = normalizeOne(store.checkboxDoneStatusId, true);
@@ -4226,7 +4330,7 @@
         const statusOptions = __tmGetStatusOptions(statusOptionsInput);
         const configured = __tmNormalizeCheckboxStatusBindingValue(done ? SettingsStore?.data?.checkboxDoneStatusId : SettingsStore?.data?.checkboxUndoneStatusId);
         if (!configured) return '';
-        if (statusOptions.some((item) => String(item?.id || '').trim() === configured)) return configured;
+        if (statusOptions.some((item) => item.id === configured && __tmNormalizeCompatTaskStatusMarker(item.marker) === (done ? 'X' : ' '))) return configured;
         return done ? __tmGetCheckboxStatusBindingFallbackId(true, statusOptions) : __tmGetDefaultUndoneStatusId(statusOptions);
     }
 
@@ -4271,12 +4375,7 @@
         let resolvedId = '';
         let matched = null;
         if (marker) {
-            const configuredMarker = configuredMatched
-                ? __tmNormalizeTaskStatusMarker(configuredMatched?.marker, __tmGuessStatusOptionDefaultMarker(configuredMatched))
-                : '';
-            matched = configuredMatched && configuredMarker === marker
-                ? configuredMatched
-                : ((statusArtifacts.markerMap instanceof Map ? statusArtifacts.markerMap.get(marker) : null) || null);
+            matched = globalThis.__tmTaskStatusRules.resolveOption(marker, configuredStatus, statusOptions, __tmGetDefaultUndoneStatusId(statusOptions));
             if (matched?.id) resolvedId = String(matched.id || '').trim();
             if (!resolvedId) {
                 resolvedId = __tmIsTaskMarkerDone(marker)
@@ -4344,7 +4443,7 @@
         const statusOptions = Array.isArray(SettingsStore?.data?.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
         const rows = [
             ...(allowNone ? [{ id: '__none__', name: '不自动切换' }] : []),
-            ...statusOptions.map((item) => ({
+            ...statusOptions.filter((item) => __tmNormalizeCompatTaskStatusMarker(item.marker) === (allowNone ? 'X' : ' ')).map((item) => ({
                 id: String(item?.id || '').trim(),
                 name: String(item?.name || item?.id || '').trim() || String(item?.id || '').trim()
             })).filter((item) => item.id)
@@ -12846,6 +12945,7 @@
         }
         if (!task?.id) return false;
         try { if (typeof __tmIsRecurringInstanceTask === 'function' && __tmIsRecurringInstanceTask(task)) return false; } catch (e) {}
+        if (__tmIsTaskCanceled(task)) return false;
         let alreadyDone = !!task.done;
         try {
             if (typeof __tmIsTaskDoneEffective === 'function') alreadyDone = !!__tmIsTaskDoneEffective(task);
@@ -14681,7 +14781,7 @@
         tasks.forEach((task) => {
             if (!task || typeof task !== 'object') return;
             const taskId = String(task.id || '').trim();
-            if (task.done === true) return;
+            if (__tmIsTaskDoneEffective(task) || __tmIsTaskCanceled(task)) return;
             if (__tmProcrastinationTaskHasDoneParent(task, relationIndex, doneParentMemo)) return;
             if (taskId) taskIds.add(taskId);
             const dueKey = __tmNormalizeProcrastinationDateKey(task.completionTime || task.completion_time || '');
@@ -15016,7 +15116,7 @@
             if (!(entry.endTs <= nowTs)) continue;
             if (__tmHasFinalPointsPenaltyRecord('schedule', entry.taskId, dayKey)) continue;
             const task = await __tmResolvePointsPenaltyTaskById(entry.taskId, taskCache);
-            if (task && task.done) continue;
+            if (task && (__tmIsTaskDoneEffective(task) || __tmIsTaskCanceled(task))) continue;
             if (__tmIsTaskInPointsRewardExcludedGroup(task || {}, { taskId: entry.taskId })) continue;
             if (task && await __tmIsPointsPenaltyBlockedByDoneParent(task, taskCache, parentDoneMemo)) continue;
             const candidate = __tmBuildPointsPenaltyCandidate('schedule', task || {}, {
@@ -22412,7 +22512,7 @@ if (!state.homepageOpen) return;
         try { window.addEventListener('pointerup', onPointerEnd, { capture: true, passive: false }); } catch (e) {}
         try { window.addEventListener('pointercancel', onPointerCancel, { capture: true, passive: true }); } catch (e) {}
         try { window.addEventListener('touchstart', onTouchStart, { capture: true, passive: true }); } catch (e) {}
-        try { window.addEventListener('touchmove', onTouchMove, { capture: true, passive: false }); } catch (e) {}
+        try { window.addEventListener('touchmove', onTouchMove, { capture: true, passive: true }); } catch (e) {}
         try { window.addEventListener('touchend', onTouchEnd, { capture: true, passive: false }); } catch (e) {}
         try { window.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true }); } catch (e) {}
         // Bubble-phase guards run after the calendar's own capture listeners,
@@ -22640,7 +22740,41 @@ if (!state.homepageOpen) return;
         }
     }
 
+    function __tmApplyMobileDetailSheetViewportMetrics(modalEl) {
+        const modal = modalEl instanceof HTMLElement ? modalEl : state.modal;
+        if (!(modal instanceof HTMLElement)) return;
+        const vv = window.visualViewport;
+        const isIOS = __tmGetRuntimeClientKind() === 'ios-app'
+            || /iPhone|iPad|iPod/i.test(String(navigator.userAgent || ''))
+            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        const enabled = isIOS && modal.classList.contains('tm-modal--mobile') && Number(vv?.height) > 0;
+        modal.querySelectorAll('#tmChecklistSheet, #tmTaskDetailSheet').forEach((sheet) => {
+            sheet.classList.toggle('tm-checklist-sheet--visual-viewport', enabled);
+            if (!enabled) {
+                ['--tm-sheet-visible-top', '--tm-sheet-visible-bottom', '--tm-sheet-visible-height'].forEach((name) => sheet.style.removeProperty(name));
+                return;
+            }
+            // iOS can pan/shrink the visual viewport without resizing vh. Convert
+            // its bounds to the sheet's containing block (including embedded sheets).
+            const host = sheet.offsetParent;
+            const hostTop = host instanceof HTMLElement ? host.getBoundingClientRect().top + host.clientTop : 0;
+            const hostHeight = host instanceof HTMLElement
+                ? host.clientHeight
+                : (document.documentElement.clientHeight || window.innerHeight);
+            const hostBottom = hostTop + hostHeight;
+            const visibleTop = Math.max(hostTop, Number(vv.offsetTop) || 0);
+            const visibleBottom = Math.min(hostBottom, (Number(vv.offsetTop) || 0) + Number(vv.height));
+            sheet.style.setProperty('--tm-sheet-visible-top', `${Math.max(0, visibleTop - hostTop)}px`);
+            sheet.style.setProperty('--tm-sheet-visible-bottom', `${Math.max(0, hostBottom - visibleBottom)}px`);
+            sheet.style.setProperty('--tm-sheet-visible-height', `${Math.max(0, visibleBottom - visibleTop)}px`);
+        });
+    }
+
     function __tmUnbindMobileViewportAutoRefresh() {
+        if (state.mobileDetailSheetViewportFrame) {
+            cancelAnimationFrame(state.mobileDetailSheetViewportFrame);
+            state.mobileDetailSheetViewportFrame = 0;
+        }
         try {
             if (state.mobileViewportRefreshTimer) {
                 clearTimeout(state.mobileViewportRefreshTimer);
@@ -22664,8 +22798,15 @@ if (!state.homepageOpen) return;
         __tmUnbindMobileViewportAutoRefresh();
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
+        __tmApplyMobileDetailSheetViewportMetrics(modal);
         state.mobileViewportRefreshSig = __tmComputeMobileBottomViewbarLayoutSig();
         const onViewportChange = () => {
+            if (!state.mobileDetailSheetViewportFrame) {
+                state.mobileDetailSheetViewportFrame = requestAnimationFrame(() => {
+                    state.mobileDetailSheetViewportFrame = 0;
+                    if (state.modal === modal && modal.isConnected) __tmApplyMobileDetailSheetViewportMetrics(modal);
+                });
+            }
             try {
                 if (state.mobileViewportRefreshTimer) clearTimeout(state.mobileViewportRefreshTimer);
             } catch (e) {}
@@ -22673,6 +22814,7 @@ if (!state.homepageOpen) return;
                 state.mobileViewportRefreshTimer = 0;
                 if (!state.modal || !document.body.contains(state.modal)) return;
                 try { __tmApplyMobileBrowserViewportMetrics(state.modal); } catch (e) {}
+                try { __tmApplyMobileDetailSheetViewportMetrics(state.modal); } catch (e) {}
                 const nextSig = __tmComputeMobileBottomViewbarLayoutSig();
                 if (nextSig === state.mobileViewportRefreshSig) return;
                 state.mobileViewportRefreshSig = nextSig;
@@ -23818,7 +23960,7 @@ if (!state.homepageOpen) return;
         try {
             const idList = docIds.map((id) => "'" + id.replace(/'/g, "''") + "'").join(',');
             const sql = 'SELECT root_id, count(DISTINCT id) AS total, '
-                + "sum(CASE WHEN markdown LIKE '%[x]%' THEN 1 ELSE 0 END) AS completed "
+                + `sum(CASE WHEN ${globalThis.__tmTaskStatusRules.sqlDone('markdown')} THEN 1 ELSE 0 END) AS completed `
                 + 'FROM blocks WHERE root_id IN (' + idList + ") AND type='i' AND subtype='t' GROUP BY root_id";
             const response = await fetch('/api/query/sql', {
                 method: 'POST',
