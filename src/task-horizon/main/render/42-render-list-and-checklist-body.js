@@ -400,8 +400,8 @@
                     : '';
                 const multiSelectCls = isMultiSelected ? ' tm-task-row--multi-selected' : '';
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
-                const taskDone = typeof __tmIsTaskDoneEffective === 'function'
-                    ? !!__tmIsTaskDoneEffective(task)
+                const taskDone = typeof __tmIsTaskClosedForDisplay === 'function'
+                    ? !!__tmIsTaskClosedForDisplay(task)
                     : !!task.done;
                 const doneCls = taskDone ? ' tm-checklist-item--done' : '';
                 const branchLeadingCls = hasChildren ? ' tm-checklist-item--has-branch-leading' : '';

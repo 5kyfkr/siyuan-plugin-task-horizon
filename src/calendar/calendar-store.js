@@ -27,6 +27,7 @@
             start,
             end,
             allDay,
+            display: String(source.display || 'auto'),
             backgroundColor: source.backgroundColor || source.color || '',
             borderColor: source.borderColor || '',
             textColor: source.textColor || '',
@@ -52,6 +53,7 @@
             get start() { return record.start ? new Date(record.start.getTime()) : null; },
             get end() { return record.end ? new Date(record.end.getTime()) : null; },
             get allDay() { return record.allDay === true; },
+            get display() { return record.display; },
             get backgroundColor() { return record.backgroundColor; },
             get borderColor() { return record.borderColor; },
             get textColor() { return record.textColor; },
@@ -103,6 +105,7 @@
                     start: api.start,
                     end: api.end,
                     allDay: api.allDay,
+                    display: record.display,
                     backgroundColor: record.backgroundColor,
                     borderColor: record.borderColor,
                     textColor: record.textColor,
@@ -225,7 +228,7 @@
                         else if (Array.isArray(result)) success(result);
                         else if (typeof source?.events !== 'function') success([]);
                     });
-                    return { sourceId, generation, events: Array.isArray(value) ? value : [], error: null };
+                    return { sourceId, generation, events: Array.isArray(value) ? value : [], transformEvents: source?.transformEvents, error: null };
                 } catch (error) {
                     return { sourceId, generation, events: [], error };
                 }
@@ -235,6 +238,11 @@
             try {
                 results.forEach((result) => {
                     if (sourceGenerations.get(result.sourceId) !== result.generation || result.error) return;
+                    // Reconcile local edits at commit time: another source in
+                    // this batch may have kept an already-built result waiting.
+                    if (typeof result.transformEvents === 'function') {
+                        result.events = result.transformEvents(result.events, info, context);
+                    }
                     setSourceEvents(result.sourceId, result.events);
                     committedCount += 1;
                 });

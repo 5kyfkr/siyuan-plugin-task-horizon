@@ -4282,6 +4282,11 @@
         return __tmIsTaskNativeDone(taskLike, statusOptionsInput);
     }
 
+    function __tmIsTaskClosedForDisplay(task) {
+        // 放弃使用结束样式，但不计入成功完成、奖励或循环推进。
+        return __tmIsTaskCanceled(task) || __tmIsTaskDoneEffective(task);
+    }
+
     function __tmNormalizeCheckboxStatusBindingValue(value) {
         const normalized = String(value ?? '').trim();
         if (!normalized || normalized === '__none__') return '';
@@ -6504,7 +6509,8 @@
 
         const hadDerivedCompletionAt = data.taskCompleteAtDerived === true
             && Object.prototype.hasOwnProperty.call(patch, 'taskCompleteAt');
-        if (hadDerivedCompletionAt && previousDone === (data.done === true)) {
+        const reopeningCanceled = data.done !== true && __tmIsTaskCanceled(task);
+        if (hadDerivedCompletionAt && previousDone === (data.done === true) && !reopeningCanceled) {
             // A different window may have already applied this transition. Do not
             // overwrite its completion timestamp with the stale optimistic value.
             delete patch.taskCompleteAt;
@@ -26024,8 +26030,8 @@ return true;
                 typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(child) : !!child?.done
             )).length;
             const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
-            const taskDone = typeof __tmIsTaskDoneEffective === 'function'
-                ? !!__tmIsTaskDoneEffective(task)
+            const taskDone = typeof __tmIsTaskClosedForDisplay === 'function'
+                ? !!__tmIsTaskClosedForDisplay(task)
                 : !!task.done;
             const isDoneSubtask = taskDone && (Math.max(0, Number(row.depth) || 0) > 0);
             const groupBg = enableGroupBg ? currentGroupBg : '';

@@ -128,7 +128,7 @@ Object.assign(context, {
     getCalendarEventColor: () => '#527acc',
     pad2: (value) => String(value).padStart(2, '0'),
 });
-vm.runInContext(between(source, '    function buildSharedPrototypeEventMarkup(', '    function resolveSharedPrototypeEventEnd('), context);
+vm.runInContext(between(source, '    function buildCalendarMergedReminderMarkup(', '    function resolveSharedPrototypeEventEnd('), context);
 for (const mode of ['chip', 'allday', 'block']) {
     const markup = context.buildSharedPrototypeEventMarkup({ id: 'standalone', title: '循环日程', start: new Date(),
         extendedProps: { __tmSource: 'schedule', __tmRepeatType: 'daily', __tmScheduleId: 'standalone', __tmOccurrenceStartMs: 123 } }, mode, false, '', settings, { viewType: 'dayGridMonth' });

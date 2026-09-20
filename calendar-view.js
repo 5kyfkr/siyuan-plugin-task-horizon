@@ -896,6 +896,7 @@
         // mounted event. Keep the optimistic task-date range available while
         // that request settles so an older snapshot cannot put it back.
         pendingTaskDateEventPatches: new Map(),
+        reminderDatePatches: new Map(),
         calendarSidebarTransitionWrap: null,
         calendarSidebarTransitionCleanup: null,
         calendarSidebarResizeRaf: null,
@@ -6616,6 +6617,76 @@
         return `<span class="tm-recurring-task-icon tm-proto-recurring-task-icon" data-tm-floating-tooltip-label="循环任务" data-tm-tooltip-side="bottom" aria-label="循环任务">${svg}</span>`;
     }
 
+    function isCalendarForegroundEvent(eventApi) {
+        if (!eventApi) return false;
+        const display = String(eventApi.display || '').trim();
+        // Older in-memory holiday events may have lost their display mode.
+        return display !== 'background' && display !== 'inverse-background' && display !== 'none'
+            && !String(eventApi.id || '').startsWith('cn-holiday-bg:');
+    }
+
+    function mergeCalendarAllDayReminders(events, options = {}) {
+        const list = Array.isArray(events) ? events : [];
+        const taskId = (event) => {
+            const ext = event?.extendedProps || {};
+            return String(ext.__tmTaskId || ext.__tmTaskDateEventTaskId || ext.__tmSourceTaskId
+                || ext.__tmReminderTaskId || ext.__tmBlockId || ext.__tmReminderBlockId || '').trim();
+        };
+        const tasks = new Map();
+        list.forEach((event) => {
+            const source = event?.extendedProps?.__tmSource;
+            const id = taskId(event);
+            const isTimedSchedule = options.includeTimedSchedules === true && source === 'schedule';
+            if (!id || (event.allDay !== true && !isTimedSchedule) || !['taskdate', 'schedule'].includes(source)) return;
+            if (!tasks.has(id)) tasks.set(id, []);
+            tasks.get(id).push(event);
+        });
+        const hidden = new Set();
+        const merged = new Map();
+        list.forEach((event) => {
+            const ext = event?.extendedProps || {};
+            if (event?.allDay !== true || ext.__tmSource !== 'reminder') return;
+            const start = resolveSharedPrototypeEventStart(event);
+            const end = resolveSharedPrototypeEventEnd(event);
+            if (!start || !end) return;
+            const date = String(ext.__tmReminderDate || formatDateKey(start)).trim();
+            const candidates = (tasks.get(taskId(event)) || []).filter((task) => {
+                const taskStart = resolveSharedPrototypeEventStart(task);
+                const taskEnd = resolveSharedPrototypeEventEnd(task);
+                const blockedDays = task.extendedProps?.__tmScheduledTaskDayKeys;
+                return taskStart && taskEnd && taskStart < end && taskEnd > start
+                    && !(Array.isArray(blockedDays) && blockedDays.includes(date));
+            });
+            const target = candidates.find((task) => task.extendedProps?.__tmSource === 'taskdate') || candidates[0];
+            if (!target) return;
+            if (!merged.has(target)) merged.set(target, new Map());
+            const byDate = merged.get(target);
+            if (!byDate.has(date)) byDate.set(date, new Set());
+            const times = Array.isArray(ext.__tmReminderTimes) ? ext.__tmReminderTimes : [ext.__tmReminderTime];
+            times.map((time) => String(time || '').trim()).filter(Boolean).forEach((time) => byDate.get(date).add(time));
+            hidden.add(event);
+        });
+        return list.filter((event) => !hidden.has(event)).map((event) => {
+            const byDate = merged.get(event);
+            if (!byDate) return event;
+            const start = resolveSharedPrototypeEventStart(event);
+            const end = resolveSharedPrototypeEventEnd(event);
+            const nextDay = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+            const showDate = end > nextDay;
+            const label = Array.from(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([date, times]) => (
+                `${showDate ? `${date.slice(5)} ` : ''}${Array.from(times).sort().join('、') || '提醒'}`
+            )).join('；');
+            // Display-only projection: keep the task ID and its interactions;
+            // leave reminder records intact for scheduling and later date edits.
+            return { ...event, extendedProps: { ...event.extendedProps, __tmMergedReminderLabel: label } };
+        });
+    }
+
+    function buildCalendarMergedReminderMarkup(ext) {
+        const label = String(ext?.__tmMergedReminderLabel || '').trim();
+        return label ? `<span class="tm-proto-reminder-time" title="${esc(`提醒时间：${label}`)}" aria-label="${esc(`提醒时间：${label}`)}">⏰ ${esc(label)}</span>` : '';
+    }
+
     function buildSharedPrototypeEventMarkup(eventApi, mode = 'chip', includeTime = false, extraClass = '', settings = null, options = {}) {
         const id = String(eventApi?.id || '').trim();
         if (!id) return '';
@@ -6670,13 +6741,15 @@
         const recurringIcon = (mode === 'allday' || mode === 'inner' || isMonthCard)
             ? buildCalendarRecurringTaskIconMarkup(ext)
             : '';
+        const reminderTime = buildCalendarMergedReminderMarkup(ext);
+        const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(`${eventApi.title || ''} · 提醒时间：${ext.__tmMergedReminderLabel}`)}"` : '';
         const check = showCheck
             ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>`
             : '';
         if (mode === 'block') {
             return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="--tm-proto-event-color:${color}"><span class="tm-proto-event-copy"><span class="tm-proto-event-title-row">${check}<span class="tm-proto-event-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${handles}</div>`;
         }
-        return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="--tm-proto-event-color:${color}">${check}<span class="tm-proto-event-copy"><span class="tm-proto-event-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta && mode !== 'allday' ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${recurringIcon}${handles}</div>`;
+        return `<div class="${classes}" data-tm-proto-event="${esc(id)}"${reminderTitle} style="--tm-proto-event-color:${color}">${check}<span class="tm-proto-event-copy"><span class="tm-proto-event-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta && mode !== 'allday' ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${recurringIcon}${reminderTime}${handles}</div>`;
     }
 
     function resolveSharedPrototypeEventEnd(eventApi) {
@@ -6739,8 +6812,8 @@
         const nextDay = new Date(day.getTime());
         nextDay.setDate(nextDay.getDate() + 1);
         const resolveEnd = typeof eventEndResolver === 'function' ? eventEndResolver : resolveSharedPrototypeEventEnd;
-        return (Array.isArray(events) ? events : []).filter((eventApi) => {
-            if (eventApi?.allDay !== true) return false;
+        const dayEvents = (Array.isArray(events) ? events : []).filter((eventApi) => {
+            if (eventApi?.allDay !== true || !isCalendarForegroundEvent(eventApi)) return false;
             const start = resolveSharedPrototypeEventStart(eventApi);
             const end = resolveEnd(eventApi);
             return start instanceof Date
@@ -6749,7 +6822,8 @@
                 && !Number.isNaN(end.getTime())
                 && start < nextDay
                 && end > day;
-        }).length;
+        });
+        return mergeCalendarAllDayReminders(dayEvents).length;
     }
 
     function buildSharedPrototypeAllDayToggleMarkup(options = {}) {
@@ -6885,7 +6959,8 @@
         const activeCalendar = calendarOverride || state.calendar || state.sideDay?.calendar;
         const settings = getSettings();
         const viewType = String(getCalendarView(activeCalendar)?.type || '').trim();
-        const events = getCalendarEvents(activeCalendar).filter((eventApi) => {
+        const events = mergeCalendarAllDayReminders(getCalendarEvents(activeCalendar).filter((eventApi) => {
+            if (!isCalendarForegroundEvent(eventApi)) return false;
             if (viewType.startsWith('timeGrid') && eventApi?.allDay !== true) return false;
             const start = resolveSharedPrototypeEventStart(eventApi);
             const end = resolveSharedPrototypeEventEnd(eventApi) || (start ? new Date(start.getTime() + 30 * 60000) : null);
@@ -6895,7 +6970,7 @@
                 && start < new Date(date.getTime() + 86400000)
                 && end > date
                 && !shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { viewType });
-        }).sort((a, b) => {
+        })).sort((a, b) => {
             const aStart = Number(toMs(a?.start)) || 0;
             const bStart = Number(toMs(b?.start)) || 0;
             return aStart - bStart || String(a?.id || '').localeCompare(String(b?.id || ''));
@@ -6997,6 +7072,7 @@
             ? esc(String(eventApi?.title || ext.__tmTaskTitleMarkdown || '').trim() || '未命名事件')
             : '&nbsp;';
         const recurringIcon = segmentStart ? buildCalendarRecurringTaskIconMarkup(ext) : '';
+        const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(`${eventApi.title || ''} · 提醒时间：${ext.__tmMergedReminderLabel}`)}"` : '';
         const color = String(getCalendarEventColor(eventApi, 'var(--tm-primary-color)') || 'var(--tm-primary-color)');
         const classes = [
             'tm-proto-span-bar',
@@ -7012,14 +7088,14 @@
         const layoutStyle = segment
             ? `top:${Math.max(0, Number(segment.lane) || 0) * 23}px;--tm-proto-span-top:${3 + Math.max(0, Number(segment.lane) || 0) * 23}px;--tm-proto-span-days:${Math.max(1, Number(segment.days) || 1)};--tm-proto-span-inset-start:${segmentStart ? 3 : 0}px;--tm-proto-span-inset-end:${visualEnd ? 3 : 0}px;`
             : '';
-        return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="${layoutStyle}--tm-proto-event-color:${color}">`
+        return `<div class="${classes}" data-tm-proto-event="${esc(id)}"${reminderTitle} style="${layoutStyle}--tm-proto-event-color:${color}">`
             + `${canResizeRange && segmentStart ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
             + `${continuesBefore ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--start" aria-hidden="true">&lt;</span>' : ''}`
             + `${showCheck ? `<input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务">` : ''}`
             // The day panel has one card for the selected day, not the
             // repeated month/week segments. Keep the task name visible even
             // when the event continues in from the previous day.
-            + `<span class="tm-proto-span-title">${title}</span>${recurringIcon}`
+            + `<span class="tm-proto-span-title">${title}</span>${recurringIcon}${buildCalendarMergedReminderMarkup(ext)}`
             + `${continuesAfter ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--end" aria-hidden="true">&gt;</span>' : ''}`
             + `${canResizeRange && visualEnd && (!segment || segmentEndIndex >= (Number(segment.eventEndIndex) || segmentEndIndex)) ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>' : ''}</div>`;
     }
@@ -7055,7 +7131,7 @@
         if (!days.length) return '';
         const firstDay = days[0];
         const lastDay = addDays(days[days.length - 1], 1);
-        const events = Array.isArray(options.events) ? options.events : [];
+        let events = (Array.isArray(options.events) ? options.events : []).filter(isCalendarForegroundEvent);
         const eventEnd = typeof options.eventEnd === 'function' ? options.eventEnd : resolveSharedPrototypeEventEnd;
         const rangeEvents = (from, to) => {
             const start = safeDate(from);
@@ -7089,6 +7165,7 @@
         const spanMarkup = typeof options.spanMarkup === 'function'
             ? options.spanMarkup
             : (eventApi, date, segment) => buildSharedPrototypeSpanMarkup(eventApi, date, settings, segment, options.showSpanContinuationTitle === true, options.viewType, options.compactMonth === true);
+        events = mergeCalendarAllDayReminders(rangeEvents(firstDay, lastDay));
         const spanEvents = rangeEvents(firstDay, lastDay).filter(isSpanEvent).sort(compareEvents);
         const fallbackSpanLayout = (laneLimit) => {
             const byDay = new Map();
@@ -20591,6 +20668,7 @@
             eventSources: [
                 {
                     id: EVENT_SOURCE_IDS.sideAux,
+                    transformEvents: (events, info) => applyPendingReminderDateEvents(events, info.start, info.end, getSettings()),
                     events: async (info, success, failure) => {
                 try {
                         const curSettings = getSettings();
@@ -23039,6 +23117,7 @@
         const tid = String(taskId || '').trim();
         if (!tid) return { touched: false, needsMainRefresh: false, needsSideRefresh: false };
         const opt = (options && typeof options === 'object') ? options : {};
+        try { syncReminderDateFromTaskPatch(tid, patch, opt); } catch (e) {}
         const allowAdd = opt.allowAdd !== false;
         const skipEvent = opt.skipEvent || null;
         const scheduleList = Array.isArray(opt.scheduleList) ? opt.scheduleList : null;
@@ -23311,6 +23390,9 @@
             }
             const calendarKeys = new Set(['startDate', 'completionTime', 'taskDateColor', 'color', 'content', 'title', 'done']);
             if (!patchKeys.some((key) => calendarKeys.has(String(key || '').trim()))) return;
+            // Reminder cards belong to the auxiliary source, so the task-date
+            // writer's own projection does not move them. Include its echoes.
+            try { syncReminderDateFromTaskPatch(m.taskId || m.realId || ids[0], patch, m); } catch (e) {}
             // Calendar date writes already patch the mounted event after the
             // task write resolves. The queue also emits optimistic/commit
             // mutations; projecting those echoes here duplicates setDates and
@@ -23326,6 +23408,8 @@
                     syncTaskDateEventFromDateFollowPatch(id, patch, {
                         main: true,
                         side: true,
+                        phase,
+                        opId: m.opId,
                         sideSourceRefresh: false,
                         allowAdd: true,
                     });
@@ -24087,7 +24171,148 @@
         return new Date(year, month, day, 0, 0, 0, 0);
     }
 
+    function isReminderFollowingTask(reminder) {
+        const mode = String(reminder?.repeatMode || reminder?.mode || reminder?.repeat_mode
+            || ((reminder?.followTaskRepeat || reminder?.syncTaskDone || reminder?.sync_task_done) ? 'followTaskRepeat' : '')).trim();
+        return mode === 'followTaskRepeat' || mode === 'follow' || mode === 'task';
+    }
+
+    function getReminderTaskIds(reminder) {
+        return [
+            reminder?.taskId || reminder?.task_id,
+            reminder?.blockId || reminder?.block_id || reminder?.taskBlockId || reminder?.task_block_id
+                || reminder?.targetBlockId || reminder?.target_block_id || reminder?.id,
+        ].map((id) => String(id || '').trim()).filter(Boolean);
+    }
+
+    function getReminderDatePatch(taskId) {
+        const pending = state.reminderDatePatches?.get?.(String(taskId || '').trim());
+        if (!pending) return null;
+        if (Date.now() - pending.updatedAt > 30000) {
+            state.reminderDatePatches.delete(String(taskId || '').trim());
+            return null;
+        }
+        return pending;
+    }
+
+    function applyReminderDatePatch(reminder) {
+        const pending = isReminderFollowingTask(reminder)
+            ? getReminderTaskIds(reminder).map(getReminderDatePatch).find(Boolean) : null;
+        return pending ? { ...reminder, taskCompletionTime: pending.completionTime } : reminder;
+    }
+
+    function applyPendingReminderDateEvents(events, rangeStart, rangeEnd, settings) {
+        if (!state.reminderDatePatches?.size) return events;
+        const records = new Map();
+        const remember = (record) => {
+            const ids = getReminderTaskIds(record);
+            if (ids.some((id) => getReminderDatePatch(id))) records.set(ids.join('|'), record);
+        };
+        // Prefer the current reminder configuration, including removal or a
+        // switch to manual mode, over a snapshot built before that change.
+        if (Array.isArray(state.reminderCache?.list)) {
+            state.reminderCache.list.forEach(remember);
+        } else {
+            state.reminderDatePatches?.forEach?.((pending, id) => {
+                if (getReminderDatePatch(id)) (pending.reminders || []).forEach(remember);
+            });
+            events.forEach((event) => remember(event.extendedProps?.__tmReminderRecord));
+        }
+        const affected = (event) => {
+            const ids = getReminderTaskIds(event.extendedProps?.__tmReminderRecord);
+            return ids.some((id) => getReminderDatePatch(id));
+        };
+        if (!records.size && !events.some(affected)) return events;
+        const unchanged = events.filter((event) => !affected(event));
+        return unchanged.concat(buildEventsFromReminders(Array.from(records.values()), rangeStart, rangeEnd, settings));
+    }
+
+    function syncReminderDateFromTaskPatch(taskId, patch, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid || !Object.prototype.hasOwnProperty.call(patch || {}, 'completionTime')) return false;
+        const settings = getSettings();
+        if (!settings.linkDockTomato) return false;
+        const completionTime = String(patch.completionTime || '').trim();
+        const previous = getReminderDatePatch(tid);
+        const phase = String(options.phase || '').trim();
+        const opId = String(options.opId || '').trim();
+        // A late acknowledgement of the first edit must not undo a newer edit.
+        if (opId && previous?.supersededOpIds?.has(opId) && ['commit', 'rollback'].includes(phase)) return true;
+        if (!phase && previous?.opId && previous.completionTime !== completionTime) {
+            const projected = getCalendarTaskSnapshotById(tid);
+            if (projected && String(projected.completionTime || '').trim() !== completionTime) return true;
+        }
+        const targets = [
+            { calendar: state.calendar, sourceId: EVENT_SOURCE_IDS.mainAux },
+            { calendar: state.sideDay?.calendar, sourceId: EVENT_SOURCE_IDS.sideAux },
+        ].filter((target, index, all) => target.calendar && all.findIndex((item) => item.calendar === target.calendar) === index);
+        const records = new Map();
+        const remember = (record) => {
+            if (!getReminderTaskIds(record).includes(tid)) return;
+            records.set(getReminderTaskIds(record).join('|'), record);
+        };
+        if (Array.isArray(state.reminderCache?.list)) {
+            state.reminderCache.list.forEach(remember);
+        } else {
+            (previous?.reminders || []).forEach(remember);
+            targets.forEach(({ calendar }) => getCalendarEvents(calendar).forEach((event) => remember(event.extendedProps?.__tmReminderRecord)));
+        }
+        const reminders = Array.from(records.values()).filter(isReminderFollowingTask);
+        if (!(state.reminderDatePatches instanceof Map)) state.reminderDatePatches = new Map();
+        state.reminderDatePatches.forEach((value, id) => {
+            if (Date.now() - value.updatedAt > 30000) state.reminderDatePatches.delete(id);
+        });
+        const supersededOpIds = new Set(previous?.supersededOpIds || []);
+        if (opId && previous?.opId && opId !== previous.opId) supersededOpIds.add(previous.opId);
+        const pending = { completionTime, opId: opId || previous?.opId || '', supersededOpIds, updatedAt: Date.now(), reminders };
+        const ids = new Set([tid, ...reminders.flatMap(getReminderTaskIds)]);
+        ids.forEach((id) => state.reminderDatePatches.set(id, pending));
+        if (Array.isArray(state.reminderCache?.list)) state.reminderCache.list = state.reminderCache.list.map(applyReminderDatePatch);
+        const matches = (event) => {
+            const record = event?.extendedProps?.__tmReminderRecord;
+            return isReminderFollowingTask(record) && getReminderTaskIds(record).some((id) => ids.has(id));
+        };
+        targets.forEach(({ calendar, sourceId }) => {
+            const range = __tmGetCalendarVisibleRange(calendar);
+            if (!range) return;
+            const next = buildEventsFromReminders(reminders, range.start, range.end, settings);
+            const existing = getCalendarEvents(calendar).filter(matches);
+            // Optimistic, attribute and commit notifications can describe the
+            // same edit. Preserve the mounted card when its projection agrees.
+            if (existing.length === next.length && next.every((event) => existing.some((old) => (
+                old.id === event.id && old.title === event.title
+                && old.extendedProps?.__tmReminderDone === event.extendedProps.__tmReminderDone
+            )))) return;
+            const adapter = getCalendarAdapter(calendar);
+            const mutationKey = __tmBeginCalendarLocalEventMutation(calendar);
+            try {
+                adapter.batchRendering(() => {
+                    existing.forEach((event) => event.remove());
+                    const source = adapter.getEventSourceById(sourceId);
+                    next.forEach((event) => adapter.addEvent(normalizeCalendarEngineEventInput(event), source || undefined));
+                });
+            } finally {
+                __tmEndCalendarLocalEventMutation(mutationKey);
+            }
+            queueTaskDateCalendarRender(calendar);
+        });
+        // Held source snapshots are also used during background reloads and
+        // range navigation. Update only this reminder in those snapshots.
+        state.calendarSourceEventSnapshots?.forEach?.((snapshot) => {
+            if (![EVENT_SOURCE_IDS.mainAux, EVENT_SOURCE_IDS.sideAux].includes(snapshot.sourceId)) return;
+            snapshot.events = (snapshot.events || []).filter((event) => !matches(event)).concat(
+                buildEventsFromReminders(reminders, new Date(snapshot.startMs), new Date(snapshot.endMs), settings),
+            );
+        });
+        return reminders.length > 0;
+    }
+
     function getReminderStartDateKey(reminder) {
+        if (isReminderFollowingTask(reminder) && Object.prototype.hasOwnProperty.call(reminder, 'taskCompletionTime')) {
+            // Tomato keeps the original startDate in the reminder record and
+            // supplies the current task deadline separately when reading it.
+            return String(reminder.taskCompletionTime || '').trim().match(/^\d{4}-\d{2}-\d{2}/)?.[0] || '';
+        }
         const v = String(reminder?.startDate || reminder?.startDateKey || '').trim();
         if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
         return formatDateKey(reminder?.createdAt ? new Date(reminder.createdAt) : new Date());
@@ -24098,6 +24323,7 @@
         if (!/^\d{4}-\d{2}-\d{2}$/.test(dk)) return false;
         if (reminder?.enabled === false) return false;
         const startKey = getReminderStartDateKey(reminder);
+        if (isReminderFollowingTask(reminder)) return !!startKey && dk === startKey;
         if (reminder?.trigger === 'complete' && reminder.interval !== 'once') {
             const repeatState = reminder.repeatState || {};
             const count = Math.max(1, Number(repeatState.occurrenceCount) || 1);
@@ -24240,7 +24466,7 @@
                     blocks = [];
                 }
             }
-            const safe = await dedupeReminderBlocks(Array.isArray(blocks) ? blocks : []);
+            const safe = (await dedupeReminderBlocks(Array.isArray(blocks) ? blocks : [])).map(applyReminderDatePatch);
             if ((Number(state.reminderCacheEpoch) || 0) !== cacheEpoch) {
                 return await loadReminderBlocks();
             }
@@ -24340,7 +24566,8 @@
         const dayMs = 86400000;
         const colorTodo = '#f2994a';
         const colorDone = '#9aa0a6';
-        for (const r of Array.isArray(reminders) ? reminders : []) {
+        for (const raw of Array.isArray(reminders) ? reminders : []) {
+            const r = applyReminderDatePatch(raw);
             if (!r || r.enabled === false) continue;
             const blockId = String(
                 r.blockId || r.block_id || r.taskBlockId || r.task_block_id || r.targetBlockId || r.target_block_id || r.id || ''
@@ -24373,6 +24600,7 @@
                         __tmTaskId: reminderTaskId,
                         __tmReminderTaskId: reminderTaskId,
                         __tmReminderBlockId: blockId,
+                        __tmReminderRecord: r,
                         __tmReminderDone: done,
                         __tmReminderDate: dateKey,
                         __tmReminderOccurrenceNumber: r.trigger === 'complete' ? Math.max(1, Number(r.repeatState?.occurrenceCount) || 1) : null,
@@ -27288,7 +27516,14 @@
 
     function scheduleReminderCalendarRefetch() {
         clearReminderCalendarCache();
-        scheduleTomatoRefetch();
+        if (!state.calendar) return;
+        const epoch = Number(state.reminderCacheEpoch) || 0;
+        // Materialize the new reminder dates before the auxiliary source
+        // paints; otherwise its first pass replays the old cached cards.
+        return Promise.resolve(loadReminderBlocks()).catch(() => []).then(() => {
+            if ((Number(state.reminderCacheEpoch) || 0) !== epoch) return;
+            scheduleTomatoRefetch();
+        });
     }
 
     function refreshDockTomatoCalendarData(calendarOverride = null) {
@@ -28564,7 +28799,7 @@
             const settings = getSettings();
             const viewType = String(getCalendarView(activeCalendar)?.type || '').trim();
             const isMonthPopover = viewType === 'dayGridMonth';
-            const allEvents = getCalendarEvents(activeCalendar);
+            const allEvents = getCalendarEvents(activeCalendar).filter(isCalendarForegroundEvent);
             const scheduleIds = new Set();
             const scheduleDocTitles = new Set();
             (isMonthPopover ? allEvents : []).filter((eventApi) => String(eventApi?.extendedProps?.__tmSource || '').trim() === 'schedule')
@@ -28581,7 +28816,7 @@
                     const title = String(eventApi?.title || '').trim();
                     if (docId && title) scheduleDocTitles.add(`${docId}|${title}`);
                 });
-            const events = allEvents.filter((eventApi) => {
+            const events = mergeCalendarAllDayReminders(allEvents.filter((eventApi) => {
                 if (viewType.startsWith('timeGrid') && eventApi?.allDay !== true) return false;
                 const start = protoSafeDate(eventApi?.start);
                 const end = protoEventEnd(eventApi) || (start ? new Date(start.getTime() + 30 * 60000) : null);
@@ -28602,7 +28837,7 @@
                 const taskTitle = String(eventApi?.title || '').trim();
                 if (taskDocId && taskTitle && scheduleDocTitles.has(`${taskDocId}|${taskTitle}`)) return false;
                 return true;
-            }).sort(protoCompareMonthEvents);
+            })).sort(protoCompareMonthEvents);
             const pop = document.createElement('div');
             pop.className = 'tm-proto-more-popover';
             const header = `${date.getMonth() + 1}月${date.getDate()}日 周${protoWeekLabels[date.getDay()]}${protoLunarText(dayKey, getSettings()) ? ` · ${protoLunarText(dayKey, getSettings())}` : ''}`;
@@ -30996,6 +31231,7 @@
                 ? buildTaskTitleOpacityStyleForTask(getCalendarEventTaskLikeForTitle(eventApi))
                 : '';
             const recurringIcon = isSegmentStart ? buildCalendarRecurringTaskIconMarkup(ext) : '';
+            const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(`${eventApi.title || ''} · 提醒时间：${ext.__tmMergedReminderLabel}`)}"` : '';
             const done = resolveCalendarEventDoneState(ext);
             const activeViewType = String(viewType || getCalendarView(calendar)?.type || state._lastViewType || '').trim();
             const showCheck = isSegmentStart
@@ -31018,11 +31254,11 @@
             const layoutStyle = segment
                 ? `top:${(Number(segment.lane) || 0) * 23}px;--tm-proto-span-lane:${Math.max(0, Number(segment.lane) || 0)};--tm-proto-span-days:${Math.max(1, Number(segment.days) || 1)};--tm-proto-span-inset-start:${isSegmentStart ? 3 : 0}px;--tm-proto-span-inset-end:${isVisualEnd ? 3 : 0}px;--tm-proto-span-month-inset-start:${isSegmentStart ? 4 : 0}px;--tm-proto-span-month-inset-end:${isVisualEnd ? 4 : 0}px;--tm-proto-span-top:${3 + Math.max(0, Number(segment.lane) || 0) * 23}px;`
                 : '';
-            return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="${layoutStyle}--tm-proto-event-color:${protoEventColor(eventApi)}">`
+            return `<div class="${classes}" data-tm-proto-event="${esc(id)}"${reminderTitle} style="${layoutStyle}--tm-proto-event-color:${protoEventColor(eventApi)}">`
                 + `${canResizeRange && !continuation ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
                 + `${continuesBefore ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--start" aria-hidden="true">&lt;</span>' : ''}`
                 + `${showCheck ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>` : ''}`
-                + `<span class="tm-proto-span-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}`
+                + `<span class="tm-proto-span-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}${buildCalendarMergedReminderMarkup(ext)}`
                 + `${continuesAfter ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--end" aria-hidden="true">&gt;</span>' : ''}`
                 + `${canResizeRange && isEventEnd ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>' : ''}</div>`;
         };
@@ -31279,6 +31515,14 @@
             const hiddenRows = options.hiddenRows instanceof Set ? options.hiddenRows : new Set();
             const maxSpanLanes = Math.max(0, Math.floor(Number(options.spanLimit) || 0));
             const allSpansByDay = protoMonthSpanLayout(days, events, 0).hiddenByDay;
+            // Both the compact month grid and virtual week rows use this
+            // compactor. Merge before budgeting rows so +N counts real cards.
+            events = mergeCalendarAllDayReminders(events);
+            // Keep the same projected event objects in both layout passes;
+            // hiddenEventsByDay uses object identity to compact span lanes.
+            const mergedById = new Map(events.map((event) => [event.id, event]));
+            allSpansByDay.forEach((spans, index) => allSpansByDay.set(index,
+                new Set(Array.from(spans, (event) => mergedById.get(event.id) || event))));
             const hiddenEventsByDay = new Map();
             const spanLimitByDay = new Map();
             const visibleRegularByDay = new Map();
@@ -32563,10 +32807,9 @@
                 return eventApi?.allDay === true
                     && (String(ext.__tmSource || '').trim() === 'taskdate' || !!String(ext.__tmTaskDateEventTaskId || '').trim());
             };
-            const protoListIsConcreteScheduleEvent = (eventApi) => {
+            const protoListIsScheduleEvent = (eventApi) => {
                 const ext = eventApi?.extendedProps || {};
-                return eventApi?.allDay !== true
-                    && (String(ext.__tmSource || '').trim() === 'schedule' || !!String(ext.__tmScheduleId || '').trim());
+                return String(ext.__tmSource || '').trim() === 'schedule' || !!String(ext.__tmScheduleId || '').trim();
             };
             const protoListTaskSnapshot = (eventApi) => {
                 const taskId = protoListTaskId(eventApi);
@@ -32593,6 +32836,12 @@
                 } catch (e) {}
                 try { if (typeof __tmIsTaskDoneEffective === 'function') return !!__tmIsTaskDoneEffective(task); } catch (e) {}
                 return task.done === true || task.done === 1 || task.done === '1' || task.done === 'true';
+            };
+            const protoListTaskCanceled = (task) => {
+                if (!task || typeof task !== 'object') return false;
+                const bridge = globalThis.__tmCalendarKanbanCardHelpers;
+                if (typeof bridge?.isCanceled === 'function') return bridge.isCanceled(task) === true;
+                return typeof __tmIsTaskCanceled === 'function' && __tmIsTaskCanceled(task);
             };
             const protoListStatusLabel = (status, fallback = '') => {
                 return String(status?.name || status?.label || status?.title || fallback || '').trim();
@@ -32662,7 +32911,9 @@
                     const childId = String(child.id || child.blockId || '').trim();
                     if (childId && childId !== parentId && !byId.has(childId)) byId.set(childId, child);
                 });
-                const result = Array.from(byId.values());
+                const result = Array.from(byId.values())
+                    .map((child) => getCalendarTaskSnapshotById(String(child.id || child.blockId || '').trim()) || child)
+                    .filter((child) => !protoListTaskCanceled(child));
                 return result;
             };
             const protoListTaskHasChildren = (task) => {
@@ -32911,7 +33162,10 @@
                     : (task?.pinned === true || task?.pinned === 1 || task?.pinned === '1' || task?.pinned === 'true');
                 const pinnedClass = pinned ? ' tm-kanban-card--pinned' : '';
                 const pinnedStyle = pinned ? ';border-left:3px solid var(--tm-primary-color)' : '';
-                return `<div class="tm-proto-list-event tm-proto-list-task-card tm-kanban-card${done ? ' tm-kanban-card--done' : ''}${pinnedClass}${overdueClass}" data-tm-proto-event="${esc(eventId)}" data-tm-proto-list-task-id="${esc(id)}"${taskDetailClick} style="--tm-proto-event-color:${protoEventColor(eventApi)}${pinnedStyle}"><div class="tm-kanban-card-top tm-kanban-card-main"><div class="tm-kanban-card-head">${checkbox}<div class="tm-kanban-card-text"><span class="tm-kanban-card-title-inline${parentTitleClass}" style="${protoListTaskTitleStyle(task)}">${protoListTaskTitleHtml(task, eventApi?.title)}</span>${protoListTaskMetaHtml(task, true, eventApi)}</div></div></div>${subtaskHtml}</div>`;
+                const reminderTime = buildCalendarMergedReminderMarkup(eventProps);
+                const reminderTitle = eventProps.__tmMergedReminderLabel
+                    ? ` title="${esc(`${task.content || eventApi.title || ''} · 提醒时间：${eventProps.__tmMergedReminderLabel}`)}"` : '';
+                return `<div class="tm-proto-list-event tm-proto-list-task-card tm-kanban-card${done ? ' tm-kanban-card--done' : ''}${pinnedClass}${overdueClass}" data-tm-proto-event="${esc(eventId)}" data-tm-proto-list-task-id="${esc(id)}"${taskDetailClick}${reminderTitle} style="--tm-proto-event-color:${protoEventColor(eventApi)}${pinnedStyle}"><div class="tm-kanban-card-top tm-kanban-card-main"><div class="tm-kanban-card-head">${checkbox}<div class="tm-kanban-card-text"><div class="tm-proto-list-task-title"><span class="tm-kanban-card-title-inline${parentTitleClass}" style="${protoListTaskTitleStyle(task)}">${protoListTaskTitleHtml(task, eventApi?.title)}</span>${reminderTime}</div>${protoListTaskMetaHtml(task, true, eventApi)}</div></div></div>${subtaskHtml}</div>`;
             };
             const protoListEventRow = (eventApi, kind = 'regular') => {
                 const id = String(eventApi?.id || '').trim();
@@ -33105,6 +33359,8 @@
             return true;
         };
         const protoRenderList = (view, events, settings) => {
+            events = events.filter((eventApi) => !protoListIsTaskEvent(eventApi)
+                || !protoListTaskCanceled(protoListTaskSnapshot(eventApi)));
             if (window.__tmCalendarAllTasksCache?.complete !== true && typeof window.tmWarmCalendarTaskCacheIfStale === 'function') {
                 try {
                     const warmStarted = window.tmWarmCalendarTaskCacheIfStale({
@@ -33142,32 +33398,25 @@
             const cards = visibleDays.map((date) => {
                 const key = protoDateKey(date);
                 const isToday = key === todayKey;
-                let dayEvents = events.filter((eventApi) => protoListEventOverlapsDay(eventApi, date));
+                const dayEvents = events.filter((eventApi) => protoListEventOverlapsDay(eventApi, date));
                 const scheduledTaskIds = new Set(
                     dayEvents
-                        .filter(protoListIsConcreteScheduleEvent)
-                        .map(protoListTaskId)
-                        .filter(Boolean),
-                );
-                const taskDateTaskIds = new Set(
-                    dayEvents
-                        .filter(protoListIsTaskDateEvent)
+                        .filter(protoListIsScheduleEvent)
                         .map(protoListTaskId)
                         .filter(Boolean),
                 );
                 const isDuplicateTaskDate = (eventApi) => protoListIsTaskDateEvent(eventApi)
                     && scheduledTaskIds.has(protoListTaskId(eventApi));
-                const isDuplicateReminder = (eventApi) => String(eventApi?.extendedProps?.__tmSource || '').trim() === 'reminder'
-                    && taskDateTaskIds.has(protoListTaskId(eventApi));
-                const visibleDayEvents = dayEvents.filter((eventApi) => !isDuplicateTaskDate(eventApi) && !isDuplicateReminder(eventApi));
-                dayEvents = visibleDayEvents;
+                const visibleDayEvents = mergeCalendarAllDayReminders(
+                    dayEvents.filter((eventApi) => !isDuplicateTaskDate(eventApi)),
+                    { includeTimedSchedules: true },
+                );
                 const spanEvents = visibleDayEvents.filter(protoIsSpanEvent);
                 const expiredEvents = isToday
-                    ? events.filter((eventApi) => eventApi?.allDay === true
+                    ? mergeCalendarAllDayReminders(events.filter((eventApi) => eventApi?.allDay === true
                         && protoListIsTaskEvent(eventApi)
                         && !protoListEventDone(eventApi)
-                        && !isDuplicateTaskDate(eventApi)
-                        && protoListEventExpired(eventApi, today))
+                        && protoListEventExpired(eventApi, today)))
                     : [];
                 const expiredIds = new Set(expiredEvents.map((eventApi) => String(eventApi?.id || '')));
                 const regularEvents = visibleDayEvents.filter((eventApi) => !protoIsSpanEvent(eventApi) && !expiredIds.has(String(eventApi?.id || '')));
@@ -33177,7 +33426,7 @@
                 const groups = specialGroups ? `${specialGroups}${regularGroup}` : '';
                 const rows = specialGroups ? '' : regularRows;
                 const content = groups || rows ? `${groups}${rows}` : '<div class="tm-proto-list-empty">暂无安排</div>';
-                return `<section class="tm-proto-list-day${isToday ? ' is-today' : ''}" data-tm-proto-list-day="${esc(key)}"><header><div><b>${esc(protoListDateLabel(date))}</b><span>周${protoWeekLabels[date.getDay()]}</span>${isToday ? '<em>今天</em>' : ''}</div><small>${dayEvents.length ? `${dayEvents.length} 项安排` : '暂无安排'}</small></header>${content}</section>`;
+                return `<section class="tm-proto-list-day${isToday ? ' is-today' : ''}" data-tm-proto-list-day="${esc(key)}"><header><div><b>${esc(protoListDateLabel(date))}</b><span>周${protoWeekLabels[date.getDay()]}</span>${isToday ? '<em>今天</em>' : ''}</div><small>${visibleDayEvents.length ? `${visibleDayEvents.length} 项安排` : '暂无安排'}</small></header>${content}</section>`;
             }).join('');
             const weekCells = weekDates.map((date) => protoListDateCell(date, focusDate, visibleKeys, events, settings)).join('');
             const weekdayCells = protoListWeekdayLabels(settings).map((label) => `<span class="weekday">${label}</span>`).join('');
@@ -35432,6 +35681,7 @@
             // reappear during the optimistic post-drag repaint.
             const storedEvents = getCalendarEvents(calendar).filter((eventApi) => eventApi
                 && eventApi.start
+                && isCalendarForegroundEvent(eventApi)
                 && !shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { viewType }));
             // Month all-day drags must use the candidate date range in the
             // same span layout as the committed event. Mutating only the old
@@ -35951,6 +36201,7 @@
             eventSources: [
                 {
                     id: EVENT_SOURCE_IDS.mainAux,
+                    transformEvents: (events, info) => applyPendingReminderDateEvents(events, info.start, info.end, getSettings()),
                     events: async (info, success, failure) => {
                 const sourceViewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
                 if (isMainCalendarViewDataLoadDeferred(sourceViewType)) {
@@ -37630,7 +37881,18 @@
                 const attrName = String(detail?.attrKey || detail?.attrName || detail?.name || detail?.key || '').trim();
                 const attrNames = Array.isArray(detail?.attrNames) ? detail.attrNames.map((it) => String(it || '').trim()) : [];
                 const names = attrName ? [attrName, ...attrNames] : attrNames;
-                if (!names.some((name) => name === 'custom-tomato-reminder')) return;
+                const deadlineAttrs = buildCalendarTaskMetaLegacyReadKeys('completionTime', ['custom-completion-time']);
+                if (deadlineAttrs.includes(attrName) && Object.prototype.hasOwnProperty.call(detail, 'value')) {
+                    const ids = new Set([detail.taskId, detail.resolvedTaskId, detail.requestedTaskId, detail.attrHostId].filter(Boolean));
+                    ids.forEach((id) => syncReminderDateFromTaskPatch(id, { completionTime: detail.value }, detail));
+                    return;
+                }
+                // Notifications without the new value still need a persisted read.
+                if (String(detail.phase || '').trim() === 'optimistic') return;
+                const reminderAttrs = new Set(['custom-tomato-reminder',
+                    ...deadlineAttrs,
+                ]);
+                if (!names.some((name) => reminderAttrs.has(name))) return;
             }
             scheduleReminderCalendarRefetch();
         };
@@ -37876,6 +38138,7 @@
         state.calendarSourceRefetchInFlight = { main: 0, side: 0 };
         state.calendarTaskDateInPlaceRefreshPromises = { main: null, side: null };
         try { state.pendingTaskDateEventPatches?.clear?.(); } catch (e) {}
+        try { state.reminderDatePatches?.clear?.(); } catch (e) {}
         if (state.tomatoRefetchTimer) {
             try { clearTimeout(state.tomatoRefetchTimer); } catch (e) {}
             state.tomatoRefetchTimer = null;

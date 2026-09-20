@@ -313,8 +313,8 @@
                     typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(child) : !!child?.done
                 )).length;
                 const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
-                const taskDone = typeof __tmIsTaskDoneEffective === 'function'
-                    ? !!__tmIsTaskDoneEffective(task)
+                const taskDone = typeof __tmIsTaskClosedForDisplay === 'function'
+                    ? !!__tmIsTaskClosedForDisplay(task)
                     : !!task.done;
                 const isDoneSubtask = taskDone
                     && (Math.max(0, Number(row.depth) || 0) > 0);
@@ -1310,6 +1310,7 @@
                 if (!id) return '';
                 const content = String(task?.content || '').trim();
                 const taskDone = isKanbanTaskCompleted(task);
+                const taskClosed = __tmIsTaskClosedForDisplay(task);
                 const docId = String(task?.root_id || '').trim();
                 const docName = docNameById.get(docId) || '';
                 const opt = __tmResolveTaskStatusDisplayOption(task, statusOptions, {
@@ -1386,14 +1387,14 @@
                 const isPinnedCard = typeof __tmIsTaskPinned === 'function'
                     ? __tmIsTaskPinned(task)
                     : (task?.pinned === true || task?.pinned === 1 || task?.pinned === 'true' || task?.pinned === '1');
-                const cardClass = `tm-kanban-card${isSub ? ' tm-kanban-card--sub tm-kanban-subtask-row' : ''}${isChildRoot ? ' tm-kanban-card--childroot' : ''}${isParent ? ' tm-kanban-card--parent' : ''}${taskDone ? ' tm-kanban-card--done' : ''}${isTaskOverdue ? ' tm-kanban-card--overdue' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${isPinnedCard ? ' tm-kanban-card--pinned' : ''}${multiSelectCls}${tomatoFocusCls}`;
+                const cardClass = `tm-kanban-card${isSub ? ' tm-kanban-card--sub tm-kanban-subtask-row' : ''}${isChildRoot ? ' tm-kanban-card--childroot' : ''}${isParent ? ' tm-kanban-card--parent' : ''}${taskClosed ? ' tm-kanban-card--done' : ''}${isTaskOverdue ? ' tm-kanban-card--overdue' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${isPinnedCard ? ' tm-kanban-card--pinned' : ''}${multiSelectCls}${tomatoFocusCls}`;
                 const pinnedCardStyle = isPinnedCard ? ' style="border-left:3px solid var(--tm-primary-color);"' : '';
                 const completedChildren = Number(directChildStats.completed) || 0;
                 const childProgressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
                 const isChildrenCollapsed = !!(totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant);
                 const cardAttrs = `data-id="${id}" ${cardDragAttrs} ${cardPointerDownAttr} ${cardClickAttr} ${cardContextMenuAttr} ondblclick="tmKanbanCardDblClick('${id}', event)"`;
                 const checkboxHtml = __tmRenderTaskCheckboxWrap(id, task, {
-                    checked: taskDone,
+                    checked: taskClosed,
                     extraClass: isGloballyLocked ? 'tm-operating' : '',
                     collapsed: !!(isParent && totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant),
                 });

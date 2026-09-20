@@ -237,7 +237,8 @@
             visitedTaskRows += 1;
             if (taskRowIndex < startTaskRow) return '';
             const opts = (options && typeof options === 'object') ? options : {};
-            const { done, content, priority, completionTime, duration, remark, docName, pinned, startDate } = task;
+            const { content, priority, completionTime, duration, remark, docName, pinned, startDate } = task;
+            const done = __tmIsTaskClosedForDisplay(task);
             const taskId = String(task?.id || '').trim();
             const isMultiSelected = __tmIsTaskMultiSelected(task.id);
 
@@ -956,8 +957,8 @@
         const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (!task) return;
 
-        const currentDone = typeof __tmIsTaskDoneEffective === 'function'
-            ? !!__tmIsTaskDoneEffective(task)
+        const currentDone = typeof __tmIsTaskClosedForDisplay === 'function'
+            ? !!__tmIsTaskClosedForDisplay(task)
             : !!task.done;
         await window.tmSetDone(tid, !currentDone, null, {
             source: 'task-toggle-done',
@@ -2362,7 +2363,8 @@ return finish(false, 'noop');
             : (typeof __tmIsTaskDoneEffective === 'function' ? !!__tmIsTaskDoneEffective(task) : !!task?.done);
         const hasExplicitTaskCompleteAt = Object.prototype.hasOwnProperty.call(opts, 'taskCompleteAt');
         const shouldStampTaskCompleteAt = !hasExplicitTaskCompleteAt && targetDone && !taskWasDone;
-        const shouldClearTaskCompleteAt = !hasExplicitTaskCompleteAt && !targetDone && taskWasDone;
+        const shouldClearTaskCompleteAt = !hasExplicitTaskCompleteAt && !targetDone
+            && (taskWasDone || __tmIsTaskCanceled(task));
         const completeAtPatch = hasExplicitTaskCompleteAt
             ? { taskCompleteAt: __tmNormalizeTaskCompleteAtValue(opts.taskCompleteAt) }
             : (shouldStampTaskCompleteAt
@@ -2445,7 +2447,7 @@ return finish(false, 'noop');
         const detailScrollSnapshot = __tmCaptureChecklistDetailScrollSnapshot();
         const checklistRenderRestoreSnapshot = __tmCaptureChecklistRenderRestore();
 
-        if (taskWasDone === targetDone && opts.force !== true) return;
+        if (taskWasDone === targetDone && !__tmIsTaskCanceled(task) && opts.force !== true) return;
 
         const docId = task.root_id;
         const doc = state.taskTree.find(d => d.id === docId);
@@ -2933,7 +2935,7 @@ return finish(false, 'noop');
                 Object.assign(optimisticPatch, completeAtPatch);
                 taskCompleteAtDerived = Object.prototype.hasOwnProperty.call(completeAtPatch, 'taskCompleteAt');
             }
-        } else if (!targetDone && originalDone) {
+        } else if (!targetDone && (originalDone || __tmIsTaskCanceled(taskLike))) {
             optimisticPatch.taskCompleteAt = '';
             taskCompleteAtDerived = true;
         }
@@ -3306,7 +3308,7 @@ if (ev) {
             }
         }
         const explicitCheckboxIntent = String(ev?.target?.type || '').toLowerCase() === 'checkbox';
-        if (currentDone === targetDone && !explicitCheckboxIntent && opts.force !== true) return;
+        if (currentDone === targetDone && !__tmIsTaskCanceled(task) && !explicitCheckboxIntent && opts.force !== true) return;
         try {
             const setDone = globalThis.__tmRequireTaskMutation?.('setDone');
             if (typeof setDone !== 'function') throw new Error('任务完成状态写入队列未就绪');

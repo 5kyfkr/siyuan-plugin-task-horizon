@@ -2497,6 +2497,8 @@
         const isTimeHubInside = (ev) => {
             const path = typeof ev?.composedPath === 'function' ? ev.composedPath() : [];
             if (path.includes(popover) || path.includes(trigger)) return true;
+            // Inline Quickbar chips can sit below the editor layer that receives the click.
+            if (typeof opts.isAnchorInteraction === 'function' && opts.isAnchorInteraction(ev)) return true;
             const target = ev?.target;
             const targetIsNode = target instanceof Node;
             return (targetIsNode && popover.contains(target)) || (targetIsNode && trigger.contains(target));
@@ -2511,8 +2513,18 @@
             }
             __tmCloseStandaloneTaskTimeHub(reason);
         };
-        on(window, 'pointerdown', (ev) => closeTimeHubFromOutside(ev, 'outside'), { capture: true });
-        on(window, 'click', (ev) => closeTimeHubFromOutside(ev, 'outside-click'), { capture: true });
+        // Opening can happen between pointerdown and click. Keep that gesture inside
+        // even when the editor redraws its trigger or the pointer moves on release.
+        let pointerStartedInside = true;
+        on(window, 'pointerdown', (ev) => {
+            pointerStartedInside = isTimeHubInside(ev);
+            closeTimeHubFromOutside(ev, 'outside');
+        }, { capture: true });
+        on(window, 'click', (ev) => {
+            const isInsideGesture = pointerStartedInside && ev.detail > 0;
+            pointerStartedInside = false;
+            if (!isInsideGesture) closeTimeHubFromOutside(ev, 'outside-click');
+        }, { capture: true });
         on(document, 'keydown', (ev) => {
             if (ev.key === 'Escape') __tmCloseStandaloneTaskTimeHub('escape');
         });
@@ -2584,14 +2596,17 @@
         const y = Number(item.y) || 0;
         const w = Math.max(72, Number(item.w) || 156);
         const h = Math.max(24, Number(item.h) || 32);
+        const displayTask = globalThis.__tmTaskStore?.getProjected?.(id)
+            || globalThis.__tmTaskBoundary?.getTask?.(id) || item;
+        const taskClosed = __tmIsTaskClosedForDisplay(displayTask);
         const classes = [
             'tm-task-detail-whiteboard-outline-node',
-            item.done ? 'is-done' : '',
+            taskClosed ? 'is-done' : '',
             item.current ? 'is-current' : '',
             item.next ? 'is-next' : '',
         ].filter(Boolean).join(' ');
         const checkboxHtml = __tmRenderTaskCheckbox(id, item, {
-            checked: !!item.done,
+            checked: taskClosed,
             disabled: item.snapshot === true,
             stopMouseDown: true,
             stopPointerDown: true,

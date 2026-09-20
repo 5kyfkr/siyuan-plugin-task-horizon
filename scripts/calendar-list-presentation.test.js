@@ -29,6 +29,8 @@ const sandbox = {
     },
 };
 const context = vm.createContext(sandbox);
+const reminderStart = source.indexOf('    function buildCalendarMergedReminderMarkup(');
+vm.runInContext(source.slice(reminderStart, source.indexOf('\n    }', reminderStart) + 6), context);
 vm.runInContext(source.slice(start, end) + '\nthis.renderCard = protoListTaskCard;', context);
 const event = { id: 'taskdate-task', title: '任务', extendedProps: { __tmDocId: 'doc-b' } };
 const task = { id: 'task', content: '独立任务', docId: 'doc-b', docName: '来源文档' };

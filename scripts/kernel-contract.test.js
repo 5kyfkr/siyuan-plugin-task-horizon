@@ -2192,7 +2192,7 @@ async function run() {
         'attribute filters must read only task item attributes');
     const calendarSource = fs.readFileSync(path.join(__dirname, '..', 'calendar-view.js'), 'utf8');
     assert.match(calendarSource, /async function dedupeReminderBlocks[\s\S]*taskHorizonResolveTaskBinding[\s\S]*primaryHostID/, 'duplicate reminder reads must prefer the real attribute host');
-    assert.match(calendarSource, /const safe = await dedupeReminderBlocks/, 'calendar reminder reads must apply logical-task deduplication');
+    assert.match(calendarSource, /const safe = \(await dedupeReminderBlocks\(Array\.isArray\(blocks\) \? blocks : \[\]\)\)\.map\(applyReminderDatePatch\);/, 'calendar reminder reads must deduplicate logical tasks before applying the latest local date patches');
 
     const uiAttrs = await harness.call('taskHorizonPersistUiTaskAttrs', IDS.singleTask, {
         'custom-task-repeat-rule': '{"enabled":true}',

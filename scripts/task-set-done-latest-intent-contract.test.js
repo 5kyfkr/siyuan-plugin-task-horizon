@@ -95,7 +95,7 @@ assert.doesNotMatch(executeQueued, /patch: \{ title:/,
 assert.doesNotMatch(`${list}\n${read('src/task-horizon/main/task-runtime/53b-task-create-and-quick-add-runtime.js')}`,
     /__tmPendingDoneRequest|pending-create-set-done/,
     'new-task completion must not use a second pending-create side channel');
-assert.match(list, /const explicitCheckboxIntent[\s\S]*currentDone === targetDone && !explicitCheckboxIntent/,
+assert.match(list, /const explicitCheckboxIntent[\s\S]*currentDone === targetDone && !__tmIsTaskCanceled\(task\) && !explicitCheckboxIntent/,
     'explicit checkbox clicks must never be discarded as matching a possibly stale local state');
 
 const commandPlanContext = vm.createContext({

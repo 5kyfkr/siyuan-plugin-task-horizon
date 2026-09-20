@@ -389,6 +389,7 @@ async function testRecurringAdvanceLiveProjection() {
                 __tmParseTimeToTs: (value) => Date.parse(value),
                 __tmNormalizeQueueTaskValue: (_key, value) => value,
                 __tmIsTaskNativeDone: (value) => value?.taskMarker === 'X',
+                __tmIsTaskCanceled: (value) => value?.taskMarker === '-',
                 __tmInvalidateFilteredTaskDerivedStateCache: () => {},
                 __tmIsCollectedOtherBlockTask: () => false,
                 __tmBuildTaskCheckboxStyle: () => '',

@@ -95,7 +95,8 @@ const context = vm.createContext({
     },
     __tmSyncKanbanProjectionCounts: () => { countSyncs += 1; },
     __tmUpdateTaskDoneInDOM: (card, item) => {
-        card.checkboxChecked = item?.done === true;
+        card.checkboxChecked = item?.done === true || item?.taskMarker === '-';
+        card.taskDone = item?.done === true;
         return true;
     },
     __tmSyncTaskCardMetaChipsInDOM: () => true,
@@ -160,7 +161,8 @@ assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', {
 }, { filtersApplied: true }), true);
 assert.equal(rootCard.parentElement, doneColumn.body,
     'canceling a root task must move it into the completed column using the operation after-state');
-assert.equal(rootCard.checkboxChecked, false, 'completed grouping must not mark cancellation as successful completion');
+assert.equal(rootCard.checkboxChecked, true, 'cancellation must use the closed checkbox presentation');
+assert.equal(rootCard.taskDone, false, 'completed grouping must not mark cancellation as successful completion');
 rootCard.column = doneColumn;
 task = { ...task, taskMarker: '-', customStatus: 'quit' };
 assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', {

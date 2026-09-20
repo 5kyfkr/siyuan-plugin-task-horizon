@@ -49,12 +49,13 @@ assert.match(
 );
 assert.match(
     refreshRuntime,
-    /function scheduleReminderCalendarRefetch\(\) \{\s*clearReminderCalendarCache\(\);\s*scheduleTomatoRefetch\(\);\s*\}/,
-    'reminder updates must invalidate cache even while calendar refetching is suppressed',
+    /function scheduleReminderCalendarRefetch\(\) \{\s*clearReminderCalendarCache\(\);[\s\S]*loadReminderBlocks\(\)[\s\S]*scheduleTomatoRefetch\(\);/,
+    'reminder updates must invalidate and materialize the new snapshot before refetching',
 );
 
 const timers = [];
 const refetches = [];
+const reminderReads = [];
 const context = vm.createContext({
     Date,
     Math,
@@ -78,6 +79,9 @@ const context = vm.createContext({
     clearTimeout(timer) {
         if (timer) timer.cleared = true;
     },
+    loadReminderBlocks() {
+        return new Promise((resolve) => reminderReads.push(resolve));
+    },
     __tmRefetchCalendarSource(calendar, sourceId) {
         refetches.push([calendar?.id, sourceId]);
         return true;
@@ -89,21 +93,37 @@ vm.runInContext(
     context,
 );
 
-context.refreshReminders();
-assert.equal(context.state.reminderCacheEpoch, 1);
-assert.equal(context.state.reminderCache.list, null);
-assert.equal(refetches.length, 0, 'suppressed reminder updates must wait before refetching');
-assert.equal(timers.length, 1, 'suppressed reminder updates must retain one deferred refresh');
-assert.ok(timers[0].delay >= 16);
+async function run() {
+    const refresh = context.refreshReminders();
+    assert.equal(context.state.reminderCacheEpoch, 1);
+    assert.equal(context.state.reminderCache.list, null);
+    assert.equal(timers.length, 0, 'Do not repaint stale reminder dates while the new snapshot is loading');
+    reminderReads.shift()([]);
+    await refresh;
+    assert.equal(refetches.length, 0, 'suppressed reminder updates must wait before refetching');
+    assert.equal(timers.length, 1, 'suppressed reminder updates must retain one deferred refresh');
+    assert.ok(timers[0].delay >= 16);
 
-context.state.reminderCalendarRefetchSuppressedUntil = 0;
-timers[0].callback();
-assert.equal(timers.length, 2, 'the deferred refresh must enter the normal debounce');
-assert.equal(timers[1].delay, 120);
-timers[1].callback();
-assert.deepEqual(refetches, [
-    ['main', 'main-aux'],
-    ['side', 'side-aux'],
-]);
+    context.state.reminderCalendarRefetchSuppressedUntil = 0;
+    timers[0].callback();
+    assert.equal(timers.length, 2, 'the deferred refresh must enter the normal debounce');
+    assert.equal(timers[1].delay, 120);
+    timers[1].callback();
+    assert.deepEqual(refetches, [
+        ['main', 'main-aux'],
+        ['side', 'side-aux'],
+    ]);
 
-console.log('calendar reminder refresh contract tests passed');
+    const stale = context.refreshReminders();
+    const latest = context.refreshReminders();
+    const before = timers.length;
+    reminderReads.shift()([]);
+    await stale;
+    assert.equal(timers.length, before, 'An older reminder read cannot schedule a stale repaint');
+    reminderReads.shift()([]);
+    await latest;
+    assert.equal(timers.length, before + 1, 'The latest reminder update owns the refresh');
+
+    console.log('calendar reminder refresh contract tests passed');
+}
+run().catch((error) => { console.error(error); process.exitCode = 1; });

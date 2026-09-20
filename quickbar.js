@@ -6499,6 +6499,7 @@
                     source: 'quickbar',
                     refresh: false,
                     broadcast: false,
+                    isAnchorInteraction: (ev) => __tmQBResolveInlineMetaPointerTarget(ev)?.chip === anchorEl,
                     onChange: async (payload = {}) => {
                         const patch = (payload?.patch && typeof payload.patch === 'object') ? payload.patch : {};
                         const nextProps = {};

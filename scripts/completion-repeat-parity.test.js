@@ -97,7 +97,7 @@ for (const normalized of [context.__tmNormalizeReminderTaskRepeatRule(fixed), co
 }
 const calendarContext = vm.createContext({ Date, String, Number, Math, Set, Array, formatDateKey: dateKey,
     reminderOccurrenceKey: (date, time) => date + ' ' + time });
-for (const name of ['getReminderStartDateKey', 'doesReminderOccurOnDate', 'getReminderCompletedSet']) {
+for (const name of ['isReminderFollowingTask', 'getReminderStartDateKey', 'doesReminderOccurOnDate', 'getReminderCompletedSet']) {
     vm.runInContext(functionBlock(calendarSource, name), calendarContext);
 }
 assert.equal(calendarContext.doesReminderOccurOnDate(independent, '2026-09-11'), true);

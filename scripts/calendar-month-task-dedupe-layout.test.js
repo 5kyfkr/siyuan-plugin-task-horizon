@@ -71,6 +71,8 @@ assert.match(source, /const projected = isCalendarMonthViewType\(viewType\) \? d
     'schedule dedupe must remain limited to month-view source projection');
 
 vm.runInNewContext([
+    extract('    function mergeCalendarAllDayReminders(', '    function buildCalendarMergedReminderMarkup('),
+    extract('    function resolveSharedPrototypeEventStart(', '    function buildSharedPrototypeLunarText('),
     extract('    function resolveSharedPrototypeEventEnd(', '    function resolveSharedPrototypeEventStart('),
     extract('        const protoSafeDate =', '        const protoTimeMinutes ='),
     extract('        const protoEventSource =', '        const protoEventTime ='),
@@ -228,5 +230,76 @@ const independentDays = buildLayout([timedCrossWeek, ...timedEvents], 8, {
 assert.equal(independentDays.moreByDay.get(1), 0);
 assert.equal(visibleIds(independentDays).length, 5, 'spare cells must display all five events despite another day being full');
 assert.equal(independentDays.moreByDay.get(2), 1);
+
+const reminderTasks = ['工时登记', '周报更新', '泵拆解报告 NP'].map((title, index) => ({
+    id: `taskdate:reminder-task-${index}`, title, allDay: true,
+    start: days[1], end: days[2],
+    extendedProps: { __tmSource: 'taskdate', __tmTaskId: `reminder-task-${index}` },
+}));
+const reminders = ['16:00', '09:00'].map((time, index) => ({
+    id: `reminder:${index}`, title: `⏰ ${reminderTasks[index].title} (${time})`, allDay: true,
+    start: days[1], end: days[2],
+    extendedProps: { __tmSource: 'reminder', __tmTaskId: `reminder-task-${index}`, __tmReminderDate: dayKey, __tmReminderTimes: [time] },
+}));
+const reminderEvents = [...reminderTasks, ...reminders];
+const mergedLayout = buildLayout(reminderEvents, 3);
+assert.deepEqual(visibleIds(mergedLayout).sort(), reminderTasks.map((event) => event.id).sort(), 'Month cells must merge before choosing visible rows');
+assert.equal(mergedLayout.moreByDay.get(1), 0, 'Five source events become three cards and must fit three rows');
+assert.equal(buildLayout(reminderEvents, 2).moreByDay.get(1), 2, 'A two-row cell shows one card plus two hidden cards, not four');
+assert.equal(mergedLayout.visibleRegularByDay.get(1).find((event) => event.id === reminderTasks[0].id).extendedProps.__tmMergedReminderLabel, '16:00');
+assert.equal(reminderTasks[0].extendedProps.__tmMergedReminderLabel, undefined, 'Month rendering must not alter the task store');
+const spanWithReminder = { ...reminderTasks[0], start: days[0], end: days[3], extendedProps: { ...reminderTasks[0].extendedProps } };
+const mergedSpan = buildLayout([spanWithReminder, reminders[0]], 3);
+assert.equal(mergedSpan.spanLayout.byDay.get(1)[0].eventApi.extendedProps.__tmMergedReminderLabel, '09-08 16:00');
+assert.equal(mergedSpan.visibleRegularByDay.get(1).length, 0);
+const sameTaskSchedule = { ...timedEvents[0], extendedProps: { __tmSource: 'schedule', __tmTaskId: 'reminder-task-0' } };
+const hiddenSpan = buildLayout([spanWithReminder, reminders[0], sameTaskSchedule], 4);
+assert.ok(visibleIds(hiddenSpan).includes(reminders[0].id), 'A reminder must remain visible when its task span is suppressed by a schedule that day');
+const hiddenTask = { ...reminderTasks[0], extendedProps: { ...reminderTasks[0].extendedProps, __tmScheduledTaskDayKeys: [dayKey] } };
+assert.ok(visibleIds(buildLayout([hiddenTask, reminders[0]], 4)).includes(reminders[0].id), 'A hidden task-date card must not swallow its reminder');
+
+// Exercise both real month markup paths, including their shared row budget.
+Object.assign(context, {
+    state: {}, calendar: {},
+    esc: (value) => String(value), pad2: (value) => String(value).padStart(2, '0'),
+    getCalendarEventColor: () => '#527acc', resolveCalendarEventDoneState: () => false,
+    shouldShowCalendarEventCheckbox: () => true, isCalendarBuiltinScheduleEvent: () => false,
+    buildCalendarRecurringTaskIconMarkup: () => '<i data-recurring="true"></i>',
+    getPrototypeMonthWeekDate: () => days[0], getPrototypeMonthFixedCapacity: () => 3,
+    prototypeMonthVirtualEvents: reminderEvents, getSettings: () => ({ monthMinVisibleEvents: 3 }),
+    protoHolidayInfo: () => ({}), protoDayNumberMarkup: (date) => String(date.getDate()),
+    protoMonthHolidayMarkup: (title) => title, protoSpanMarkup: () => '',
+    isCompactDockLayout: () => true, getPrototypeMonthRowHeight: () => 120,
+    getPrototypeMonthRangeKey: () => '2026-09',
+    prototypeSurface: { style: { getPropertyValue: () => '' }, querySelector: () => null },
+    normalizeCalendarMonthMinVisibleEvents: (value) => value,
+    PROTO_MONTH_EVENT_PITCH: 22, prototypeMonthCapacityByDay: new Map(),
+    prototypeMonthMeasurementReady: false, prototypeMonthLastCommittedSpanLanes: null,
+    protoWeekLabels: ['日', '一', '二', '三', '四', '五', '六'],
+});
+vm.runInNewContext([
+    extract('    function buildCalendarMergedReminderMarkup(', '    function resolveSharedPrototypeEventEnd('),
+    extract('        const protoRenderMonthSection =', '        const protoRenderMonth ='),
+    extract('        const buildPrototypeMonthWeekRowMarkup =', '        // One bounded background retry'),
+    'globalThis.renderCompactMonth = protoRenderMonthSection; globalThis.renderWeekRow = buildPrototypeMonthWeekRowMarkup;',
+].join('\n'), context);
+context.protoEventMarkup = (event, mode, includeTime, extraClass) => context.buildSharedPrototypeEventMarkup(event, mode, includeTime, extraClass, {}, { viewType: 'dayGridMonth' });
+const monthView = { currentStart: new Date(2026, 8, 1), currentEnd: new Date(2026, 9, 1) };
+const desktopMarkup = context.renderWeekRow({ rowHeight: 120 }, 0);
+const compactMarkup = context.renderCompactMonth(monthView, reminderEvents, { monthMinVisibleEvents: 3 });
+for (const markup of [desktopMarkup, compactMarkup]) {
+    assert.equal((markup.match(/data-tm-proto-event=/g) || []).length, 3, 'The actual grid must render one card per task');
+    assert.ok(markup.includes('⏰ 16:00') && markup.includes('⏰ 09:00'), `Reminder times must be visible in the grid itself: ${markup.match(/tm-proto-reminder-time[^<]+/g)}`);
+    assert.ok(markup.includes('data-tm-proto-check="taskdate:reminder-task-0"'));
+    assert.doesNotMatch(markup, /class="tm-proto-more"/, 'The grid must not count the merged reminder rows as overflow');
+}
+reminders[0].extendedProps.__tmReminderTimes = ['17:30'];
+const changedMarkup = context.renderWeekRow({ rowHeight: 120 }, 0);
+assert.ok(changedMarkup.includes('⏰ 17:30') && !changedMarkup.includes('⏰ 16:00'), 'Local month row rendering must use the latest reminder time');
+reminders[0].start = days[2]; reminders[0].end = days[3];
+reminders[0].extendedProps.__tmReminderDate = '2026-09-09';
+const movedLayout = buildLayout(reminderEvents, 5);
+assert.equal(movedLayout.visibleRegularByDay.get(1).find((event) => event.id === reminderTasks[0].id).extendedProps.__tmMergedReminderLabel, undefined);
+assert.ok(visibleIds(movedLayout, 2).includes(reminders[0].id), 'Moving a reminder to another day removes the old merged badge and keeps its new card');
 
 console.log('calendar month task dedupe layout tests passed');

@@ -7250,6 +7250,33 @@
     width: 13px;
     height: 13px;
 }
+.tm-proto-reminder-time{
+    order: 3;
+    flex: 0 8 auto;
+    min-width: 0;
+    max-width: 35%;
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+    font-size: var(--tm-cal-event-time-font-size, 10px);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.tm-proto-event:has(> .tm-proto-reminder-time) > .tm-proto-event-copy{
+    display: flex !important;
+    flex: 1 1 auto !important;
+    flex-direction: row !important;
+    order: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+.tm-proto-event:has(> .tm-proto-reminder-time) > .tm-proto-recurring-task-icon{
+    order: 2;
+}
+.tm-proto-span-bar > .tm-proto-reminder-time{
+    order: 0;
+}
 .tm-proto-event--allday > .tm-proto-event-copy{
     display: flex !important;
     flex-direction: row !important;
@@ -8254,6 +8281,16 @@
     white-space: nowrap;
     font-size: calc(var(--tm-font-size, 13px) - 1px);
     line-height: 1.35;
+}
+.tm-proto-list-task-title{
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+.tm-proto-list-task-title > .tm-kanban-card-title-inline{
+    flex: 1 1 auto;
+    width: auto;
 }
 .tm-proto-list-task-card .tm-kanban-card-meta,
 .tm-proto-list-task-card .tm-kanban-subtask-meta{

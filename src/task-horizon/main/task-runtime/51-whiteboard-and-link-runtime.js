@@ -7687,7 +7687,7 @@ return false;
             } catch (e) {}
         }
         const effectiveTask = projectedTask || taskLike;
-        const taskDone = __tmIsTaskCompletedForProjection(effectiveTask);
+        const taskDone = __tmIsTaskClosedForDisplay(effectiveTask);
         let touched = false;
         let checkbox = null;
         for (const taskId of taskIds) {
@@ -7703,6 +7703,9 @@ return false;
         }
         if (root.classList?.contains?.('tm-checklist-item')) {
             root.classList.toggle('tm-checklist-item--done', taskDone);
+        }
+        if (root.classList?.contains?.('tm-whiteboard-pool-item')) {
+            root.classList.toggle('tm-whiteboard-pool-item--done', taskDone);
         }
         if (root.classList?.contains?.('tm-kanban-card')) {
             root.classList.toggle('tm-kanban-card--done', taskDone);
@@ -10932,10 +10935,8 @@ return false;
 
     function __tmIsTaskDoneForTailGroup(task) {
         try {
-            // 放弃只归入已完成分组，不改变完成统计和循环任务的完成语义。
-            if (typeof __tmIsTaskCanceled === 'function' && __tmIsTaskCanceled(task)) return true;
-            return typeof __tmIsTaskDoneEffective === 'function'
-                ? __tmIsTaskDoneEffective(task)
+            return typeof __tmIsTaskClosedForDisplay === 'function'
+                ? __tmIsTaskClosedForDisplay(task)
                 : !!(task && task.done);
         } catch (e) {
             return !!(task && task.done);
@@ -11866,7 +11867,7 @@ return false;
             const kids = Array.isArray(viewTask?.children)
                 ? viewTask.children.slice()
                 : [];
-            const viewTaskDone = __tmIsTaskCompletedForProjection(viewTask);
+            const viewTaskDone = __tmIsTaskClosedForDisplay(viewTask);
             const totalKids = kids.length;
             const doneKids = kids.filter((child) => __tmIsTaskCompletedForProjection(child)).length;
             const childStatsHtml = totalKids > 0

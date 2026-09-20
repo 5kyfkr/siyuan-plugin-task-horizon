@@ -38,6 +38,8 @@ for (const name of [
     'getPrototypeTimelineVisibleEventSegments',
     'prototypeTimelineYForMinute',
     'resolveSharedPrototypeEventStart',
+    'isCalendarForegroundEvent',
+    'mergeCalendarAllDayReminders',
     'countSharedPrototypeAllDayEvents',
     'buildSharedPrototypeAllDayToggleMarkup',
     'buildSharedPrototypeTimelineMarkup',

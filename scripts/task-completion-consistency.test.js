@@ -232,6 +232,8 @@ function createStatusContext() {
         '__tmResolveTaskMarker',
         '__tmIsTaskNativeDone',
         '__tmIsTaskDoneEffective',
+        '__tmIsTaskCanceled',
+        '__tmIsTaskClosedForDisplay',
         '__tmResolveTaskStatusDisplayOption',
     ].forEach((name) => vm.runInContext(extractFunction(apiSource, name), context, { filename: `${name}.js` }));
     return context;
@@ -259,6 +261,11 @@ async function testMarkerRulesAndStatusResolution() {
     const heldTask = { taskMarker: 'X', customStatus: 'done', pendingNativeDoneReset: true };
     assert.equal(context.__tmIsTaskNativeDone(heldTask, options), true);
     assert.equal(context.__tmIsTaskDoneEffective(heldTask, options), false);
+    assert.equal(context.__tmIsTaskClosedForDisplay(heldTask), false);
+    for (const marker of [' ', '/', '-', 'X', '?']) {
+        assert.equal(context.__tmIsTaskClosedForDisplay({ taskMarker: marker, done: false }), ![' ', '/'].includes(marker));
+    }
+    assert.equal(context.__tmIsTaskDoneEffective({ taskMarker: '-', done: false }), false);
     assert.equal(context.__tmResolveTaskStatusDisplayOption(heldTask, options).id, 'todo');
 
     context.SettingsStore.data.legacyWin7CompatMode = true;
@@ -589,6 +596,7 @@ async function testHeldNativeCompletionUsesLogicalBaselineForNextAdvance() {
         __tmIsTaskDoneEffective: (value) => !(value?.repeatState?.pendingNativeDoneReset === true
             && value?.taskCompleteAt === value?.repeatState?.lastCompletedAt) && value?.done === true,
         __tmResolveTaskMarker: (value) => value?.taskMarker || ' ',
+        __tmIsTaskCanceled: (value) => value?.taskMarker === '-',
         __tmReadQueuedVerificationField: (value, key) => value?.[key],
         __tmApplyTaskFieldPatchToLocalMirrors: () => true,
         __tmLogRecurringAdvance: () => {},
@@ -621,6 +629,45 @@ async function testHeldNativeCompletionUsesLogicalBaselineForNextAdvance() {
     assert.equal(Object.hasOwn(duplicate.data.patch, 'taskCompleteAt'), false);
     assert.equal(context.__tmBuildSetDoneEffectsOp(duplicate), null,
         'an already completed occurrence must not advance twice');
+
+    Object.assign(task, { done: false, taskMarker: '-', repeatState: {} });
+    const reopen = {
+        type: 'setDone',
+        data: { taskId: task.id, done: false, patch: { taskCompleteAt: '' }, taskCompleteAtDerived: true },
+        inversePatch: {},
+    };
+    await context.prepare(reopen);
+    assert.equal(reopen.data.patch.taskCompleteAt, '', 'reopening cancellation must retain the timestamp clear');
+    assert.equal(reopen.inversePatch.taskCompleteAt, nextCompletedAt, 'undo must retain the canceled timestamp');
+    assert.equal(context.__tmBuildSetDoneEffectsOp(reopen), null, 'reopening cancellation must not advance or roll back recurrence');
+}
+
+async function testCanceledCheckboxReopensWithoutCompletionEffects() {
+    const context = createStatusContext();
+    const task = Object.freeze({ id: 'quit', taskMarker: '-', done: false, customStatus: 'quit',
+        markdown: '- [-] Task', taskCompleteAt: '2026-09-20T10:00:00+08:00' });
+    Object.assign(context, {
+        __tmBuildCheckboxStatusPatch: () => ({ customStatus: 'todo' }),
+        __tmFindStatusOptionById: () => ({ id: 'todo', marker: ' ' }),
+        __tmBuildTaskMarkdownWithMarker: (_task, marker) => `- [${marker}] Task`,
+        __tmCaptureTaskPatchInverse: () => ({ ...task }),
+        __tmReadTaskMutationBaseline: async () => task,
+        __tmReadQueuedVerificationField: (value, key) => value[key],
+    });
+    vm.runInContext(extractFunction(listRuntimeSource, '__tmBuildSetDoneQueuedDefinition'), context);
+    vm.runInContext(extractFunction(apiSource, '__tmPrepareSetDoneMutationData'), context);
+    vm.runInContext(extractFunction(apiSource, '__tmBuildSetDoneEffectsOp'), context);
+    const { definition } = context.__tmBuildSetDoneQueuedDefinition(task.id, false, task);
+    assert.equal(definition.data.projectionPatch.taskMarker, ' ');
+    assert.equal(definition.data.projectionPatch.customStatus, 'todo');
+    assert.equal(definition.data.projectionPatch.taskCompleteAt, '');
+    assert.equal(definition.data.projectionPatch.done, false);
+    await context.__tmPrepareSetDoneMutationData(definition);
+    assert.equal(definition.data.patch.taskCompleteAt, '');
+    assert.equal(definition.inversePatch.taskMarker, '-');
+    assert.equal(definition.inversePatch.taskCompleteAt, task.taskCompleteAt);
+    assert.equal(definition.data.rewardPriorityScore, 0);
+    assert.equal(context.__tmBuildSetDoneEffectsOp(definition), null);
 }
 
 async function testSetDoneIngressSerialization() {
@@ -724,6 +771,8 @@ function testTaskCheckboxRenderUsesLiveDoneState() {
         esc: (value) => String(value ?? ''),
     });
     vm.runInContext(extractFunction(taskModelSource, '__tmRenderTaskCheckbox'), context);
+    const statusContext = createStatusContext();
+    context.__tmIsTaskClosedForDisplay = statusContext.__tmIsTaskClosedForDisplay;
 
     const staleTask = { id: 'task-1', done: false };
     const liveHtml = context.__tmRenderTaskCheckbox('task-1', staleTask, { checked: false });
@@ -734,6 +783,12 @@ function testTaskCheckboxRenderUsesLiveDoneState() {
     const overrideHtml = context.__tmRenderTaskCheckbox('task-1', staleTask, { checked: true });
     assert.match(overrideHtml, / checked/,
         'checkbox rendering must use the TaskStore projection instead of a stale compatibility override');
+    for (const marker of [' ', '/', '-', 'X', '?']) {
+        context.__tmTaskStore.getProjected = () => ({ id: 'task-1', taskMarker: marker, done: false });
+        assert.equal(/ checked/.test(context.__tmRenderTaskCheckbox('task-1', staleTask)), ![' ', '/'].includes(marker));
+    }
+    context.__tmTaskStore.getProjected = () => ({ id: 'task-1', taskMarker: 'X', done: true, pendingNativeDoneReset: true });
+    assert.doesNotMatch(context.__tmRenderTaskCheckbox('task-1', staleTask), / checked/);
 }
 
 function testNativeDocCheckboxUsesTaskStoreProjection() {
@@ -837,6 +892,7 @@ function testDoneDomPatchTargetsOwnProjectedCheckbox() {
     });
     context.globalThis = context;
     vm.runInContext(extractFunction(writerRuntimeSource, '__tmIsTaskCompletedForProjection'), context);
+    context.__tmIsTaskClosedForDisplay = createStatusContext().__tmIsTaskClosedForDisplay;
     vm.runInContext(extractFunction(writerRuntimeSource, '__tmUpdateTaskDoneInDOM'), context);
 
     assert.equal(context.__tmUpdateTaskDoneInDOM(root, { id: 'task-1', done: true, taskMarker: 'X' }), true);
@@ -854,6 +910,13 @@ function testDoneDomPatchTargetsOwnProjectedCheckbox() {
     assert.equal(titleButton.classList.contains('tm-task-done'), false);
     assert.equal(title.innerHTML, '<span class="tm-task-reminder-emoji">badge</span>',
         'completion patches must preserve view-specific inline badges while clearing stale title styling');
+    for (const marker of ['-', '/']) {
+        context.__tmTaskStore.getProjected = () => ({ id: 'task-1', taskMarker: marker, done: false });
+        context.__tmUpdateTaskDoneInDOM(root, { id: 'task-1', done: false });
+        assert.equal(ownCheckbox.checked, marker === '-');
+        assert.equal(root.classList.contains('tm-checklist-item--done'), marker === '-');
+        assert.equal(descendantCheckbox.checked, true);
+    }
 }
 
 function testTaskDetailCompletionReadsUseLatestProjection() {
@@ -1150,6 +1213,7 @@ async function run() {
     testLocalMirrorPatch();
     testSetDoneQueueMergePreservesRollbackState();
     await testHeldNativeCompletionUsesLogicalBaselineForNextAdvance();
+    await testCanceledCheckboxReopensWithoutCompletionEffects();
     await testSetDoneIngressSerialization();
     testDoneOverrideSurvivesStaleReload();
     testTaskCheckboxRenderUsesLiveDoneState();
@@ -1163,7 +1227,7 @@ async function run() {
     assert.doesNotMatch(setDoneKernelSource, /__tmRequireTaskMutation\?\.\('patchTask'\)/);
     assert.match(setDoneKernelSource, /await __tmPersistMetaAndAttrsKernel\(id, touchPatch[\s\S]*catch \(statusErr\)[\s\S]*__tmUpdateTaskListItemMarkerWithFallback\(id, originalMarker\)[\s\S]*throw statusErr/);
     assert.doesNotMatch(setDoneKernelSource, /ev\.preventDefault\(\)/);
-    assert.match(setDoneKernelSource, /if \(taskWasDone === targetDone && opts\.force !== true\) return/);
+    assert.match(setDoneKernelSource, /if \(taskWasDone === targetDone && !__tmIsTaskCanceled\(task\) && opts\.force !== true\) return/);
     assert.match(setDoneKernelSource, /type: 'setDone'[\s\S]*patch: undoPatch[\s\S]*inversePatch/);
     assert.match(writerRuntimeSource, /__tmBuildTaskCommandPlan\(tid, nextPatch, opts\)[\s\S]*statusBefore:[\s\S]*skipNoopCheck: opts\.skipNoopCheck === true,[\s\S]*attrTargetId:/,
         'the unified mutation definition must carry status baseline and attribute routing options together');
@@ -1206,7 +1270,7 @@ async function run() {
         'temporary native checkbox diagnostics must not ship in production runtime');
     assert.doesNotMatch(taskModelSource, /pendingDoneWrite[\s\S]*disabledAttr/);
     assert.doesNotMatch(extractFunction(taskModelSource, '__tmRenderTaskCheckbox'), /doneOverrides/);
-    assert.match(taskModelSource, /__tmTaskStore\?\.getProjected\?\.[\s\S]*__tmTaskBoundary\?\.getTask\?\.[\s\S]*__tmIsTaskDoneEffective[\s\S]*checkedAttr/);
+    assert.match(taskModelSource, /__tmTaskStore\?\.getProjected\?\.[\s\S]*__tmTaskBoundary\?\.getTask\?\.[\s\S]*__tmIsTaskClosedForDisplay[\s\S]*checkedAttr/);
     assert.match(taskModelSource, /data-task-id=/);
     assert.doesNotMatch(writerRuntimeSource, /checkbox\.checked\s*=\s*!!task\.done/,
         'mounted view checkboxes must use the shared effective completion projection');
@@ -1236,7 +1300,7 @@ async function run() {
     assert.match(buildSetDoneSource, /patch: optimisticPatch,[\s\S]*projectionPatch,/,
         'completion persistence and presentation fields must remain in one command but separate patches');
     assert.match(listRuntimeSource, /effectiveTaskDone[\s\S]*originalDone[\s\S]*inversePatch\.done = originalDone/);
-    assert.match(listRuntimeSource, /const currentDone = typeof __tmIsTaskDoneEffective[\s\S]*const explicitCheckboxIntent[\s\S]*if \(currentDone === targetDone && !explicitCheckboxIntent && opts\.force !== true\) return/,
+    assert.match(listRuntimeSource, /const currentDone = typeof __tmIsTaskDoneEffective[\s\S]*const explicitCheckboxIntent[\s\S]*if \(currentDone === targetDone && !__tmIsTaskCanceled\(task\) && !explicitCheckboxIntent && opts\.force !== true\) return/,
         'an explicit checkbox intent must enter the mutation queue even when a local projection already matches it');
     assert.ok((storesSource.match(/__tmApplyDoneOverrideToTaskIfPresent\((?:task|target)\)/g) || []).length >= 4);
     assert.match(storesSource, /function __tmMergeLocalTaskPatchIntoTask\(task\)[\s\S]*__tmApplyDoneOverrideToTaskIfPresent\(target\)/);

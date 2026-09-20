@@ -2048,8 +2048,8 @@
             const liveTask = globalThis.__tmTaskStore?.getProjected?.(tid)
                 || globalThis.__tmTaskBoundary?.getTask?.(tid)
                 || task;
-            checked = typeof __tmIsTaskDoneEffective === 'function'
-                ? __tmIsTaskDoneEffective(liveTask)
+            checked = typeof __tmIsTaskClosedForDisplay === 'function'
+                ? __tmIsTaskClosedForDisplay(liveTask)
                 : !!liveTask?.done;
         } catch (e) {}
         const checkedAttr = checked ? ' checked' : '';
@@ -2291,6 +2291,7 @@
         getFields: () => __tmGetTaskCardFieldList('kanban'),
         isFieldEnabled: (field) => __tmTaskCardFieldEnabled('kanban', field),
         isDone: (task) => __tmIsTaskDoneEffective(task),
+        isCanceled: (task) => __tmIsTaskCanceled(task),
         renderCheckboxWrap: (taskId, task, options = {}) => __tmRenderTaskCheckboxWrap(taskId, task, options),
         updateCheckboxPriority: (container, task) => __tmUpdateTaskCheckboxPriorityInDOM(container, task),
         getChildren: (taskId) => globalThis.__tmRuntimeState?.listProjectedDirectChildren?.(taskId, { scanFlat: true }) || [],
