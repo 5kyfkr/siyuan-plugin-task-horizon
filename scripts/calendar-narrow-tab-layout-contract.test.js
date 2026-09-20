@@ -21,7 +21,7 @@ assert.match(source, /rootEl\.classList\.toggle\('tm-calendar-root--narrow-tab',
 assert.match(source, /rootEl\.classList\.toggle\('tm-calendar-root--dock', next \|\| isDockHost\)/);
 assert.match(source, /tm-main-body-with-cal-dock--narrow-calendar/);
 assert.match(source, /const desiredScrollTop = Math\.max\(0, weekIndex \* geometry\.rowHeight\)/);
-assert.match(source, /setPrototypeMonthPendingScrollRestore\(monthStart, desiredScrollTop\)/);
+assert.match(source, /setPrototypeMonthPendingScrollRestore\(scrollDate, desiredScrollTop\)/);
 assert.match(source, /const sanitizeMonthAnchor = \(value\) =>/);
 assert.match(source, /anchor\.getFullYear\(\) === 1970/);
 assert.match(source, /const compactToolbar = isCompactDockLayout\(\)/);

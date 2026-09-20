@@ -1355,6 +1355,8 @@
                     const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task));
                     if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoCount">${__tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task))}</span>`);
                 }
+                const customFieldChips = __tmRenderTaskCardCustomFieldChips(task, kanbanCardFields);
+                if (customFieldChips) metaParts.push(customFieldChips);
                 if (kanbanCardFields.has('h2') && task?.h2) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">${__tmRenderHeadingLevelInlineIcon(task.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })} ${esc(__tmNormalizeHeadingText(task.h2))}</span>`);
                 const docChipHtml = (isAllTabsView && !headingMode && docName)
                     ? `<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--doc" style="cursor:default;" title="${esc(docName)}"><span class="tm-icon-label">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${esc(docName)}</span></span></span>`

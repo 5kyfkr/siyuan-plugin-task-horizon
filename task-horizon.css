@@ -8653,6 +8653,42 @@ select.tm-btn-secondary {
     color: var(--tm-secondary-text);
 }
 
+.tm-task-card-custom-field {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 1 auto;
+    gap: 4px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.tm-task-card-custom-field:disabled {
+    cursor: default;
+}
+
+.tm-task-card-custom-field:focus-visible {
+    outline: 2px solid var(--tm-primary-color);
+    outline-offset: 2px;
+}
+
+.tm-task-card-custom-field .tm-status-tag {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    margin-left: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: inherit;
+}
+
 .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted:not(.tm-kanban-chip--date):not(.tm-kanban-chip--doc),
 .tm-kanban-subtask-meta .tm-kanban-chip.tm-kanban-chip--muted:not(.tm-kanban-chip--date):not(.tm-kanban-chip--doc),
 .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted[data-tm-task-time-field="tomatoSummary"],
@@ -9278,6 +9314,10 @@ select.tm-btn-secondary {
     font-size: 11px;
     line-height: 16px;
     vertical-align: middle;
+}
+
+.tm-kanban--clean .tm-task-card-custom-field .tm-status-tag {
+    display: block;
 }
 
 .tm-kanban--clean .tm-kanban-chip--muted {
@@ -14067,6 +14107,14 @@ select.tm-btn-secondary {
     }
 
     .tm-checklist-disclosure > .tm-checklist-item {
+        content-visibility: visible;
+        contain-intrinsic-size: none;
+    }
+
+    /* Mobile checklist rows are already loaded in bounded batches. Use their
+       actual heights so offscreen 108px estimates cannot shift scroll anchors. */
+    .tm-modal.tm-modal--mobile .tm-body.tm-body--checklist .tm-checklist-item,
+    .tm-modal.tm-modal--dock.tm-modal--runtime-mobile .tm-body.tm-body--checklist .tm-checklist-item {
         content-visibility: visible;
         contain-intrinsic-size: none;
     }
@@ -19390,6 +19438,180 @@ th[data-col] {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+/* Quick capture keeps the existing field pickers and only changes their layout. */
+.tm-quick-add-modal--composer .tm-quick-add-box {
+    box-sizing: border-box;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: min(560px, calc(100% - 32px));
+    min-width: 0;
+    max-height: calc(var(--tm-quick-add-viewport-height, 100dvh) - 32px);
+    padding: 18px 16px 10px;
+    border: 1px solid var(--tm-border-color);
+    border-radius: 12px;
+}
+.tm-quick-add-box:focus-within {
+    border-color: color-mix(in srgb, var(--tm-primary-color) 55%, var(--tm-border-color));
+}
+.tm-quick-add-fields {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+.tm-quick-add-box .tm-prompt-input {
+    display: block;
+    box-sizing: border-box;
+    min-height: 28px;
+    max-height: min(180px, calc(var(--tm-quick-add-viewport-height, 100dvh) * .3));
+    margin: 0;
+    padding: 2px 1px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    font-family: inherit;
+    font-size: 16px;
+    line-height: 1.6;
+    resize: none;
+    overflow-y: auto;
+}
+.tm-quick-add-box .tm-quick-add-title-input { padding-right: 32px; font-size: 18px; }
+.tm-quick-add-box .tm-quick-add-remark-input {
+    margin-top: 8px;
+    font-size: 14px;
+}
+.tm-quick-add-box .tm-prompt-input::placeholder { color: var(--tm-secondary-text); opacity: .8; }
+.tm-quick-add-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--tm-secondary-text);
+    cursor: pointer;
+    z-index: 1;
+}
+.tm-quick-add-close svg { width: 16px; height: 16px; }
+.tm-quick-add-toolbar { display: flex; gap: 10px; align-items: flex-end; flex-shrink: 0; margin-top: 14px; }
+.tm-quick-add-tools {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-height: min(180px, calc(var(--tm-quick-add-viewport-height, 100dvh) * .4));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+.tm-quick-add-tools > button,
+.tm-quick-add-tools > .tm-quick-add-date-wrap,
+.tm-quick-add-custom-fields > button { position: relative; }
+/* Place dividers in the gap; the tools container clips them at each row's start. */
+.tm-quick-add-tools > button::before,
+.tm-quick-add-tools > .tm-quick-add-date-wrap::before,
+.tm-quick-add-custom-fields > button::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 50%;
+    width: 1px;
+    height: 14px;
+    transform: translateY(-50%);
+    background: var(--tm-border-color);
+    pointer-events: none;
+}
+.tm-quick-add-box .tm-quick-add-tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-shrink: 0;
+    min-width: 32px;
+    height: 32px;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--tm-secondary-text);
+    font-size: 13px;
+    box-shadow: none;
+    white-space: nowrap;
+}
+.tm-quick-add-box .tm-quick-add-tool:hover,
+.tm-quick-add-close:hover { background: var(--tm-hover-bg); }
+.tm-quick-add-box button:focus-visible { outline: 2px solid var(--tm-primary-color); outline-offset: -2px; }
+.tm-quick-add-tool > svg { width: 17px; height: 17px; flex-shrink: 0; }
+.tm-quick-add-date-wrap { position: relative; flex-shrink: 0; }
+.tm-quick-add-native-date {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+    border: 0;
+    padding: 0;
+    overflow: hidden;
+    z-index: -1;
+}
+.tm-quick-add-date.has-extra::after { content: '·'; }
+#tmQuickAddDateLabel, #tmQuickAddDocName {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tm-quick-add-custom-fields { display: none; }
+.tm-quick-add-box .tm-quick-add-custom-field { max-width: 160px; }
+.tm-quick-add-box .tm-quick-add-submit {
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 5px 13px;
+    border-radius: 7px;
+    font-size: 13px;
+    white-space: nowrap;
+}
+.tm-quick-add-submit:disabled { opacity: .45; cursor: default; }
+.tm-quick-add-batch-hint, .tm-quick-add-keyboard-hint { color: var(--tm-secondary-text); font-size: 12px; line-height: 1.5; }
+.tm-quick-add-batch-hint { margin: 7px 0 0; }
+.tm-quick-add-keyboard-hint { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; opacity: .8; }
+@media (max-width: 640px) {
+    .tm-quick-add-modal--composer { align-items: flex-end; }
+    .tm-quick-add-modal--composer .tm-quick-add-box {
+        width: 100%;
+        max-height: calc(var(--tm-quick-add-viewport-height, 100dvh) - 8px);
+        padding: 16px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+        border-width: 1px 0 0;
+        border-radius: 16px 16px 0 0;
+    }
+    .tm-quick-add-modal--composer.tm-quick-add-keyboard-open .tm-quick-add-box { padding-bottom: 6px; }
+    .tm-quick-add-box .tm-quick-add-remark-input { font-size: 16px; }
+    .tm-quick-add-toolbar { gap: 6px; margin-top: 10px; }
+    .tm-quick-add-box .tm-quick-add-tool { min-width: 44px; height: 36px; padding: 0 9px; }
+    .tm-quick-add-box .tm-quick-add-submit { min-height: 36px; padding: 4px 12px; }
+    .tm-quick-add-tool > svg { width: 19px; height: 19px; }
+    .tm-quick-add-keyboard-hint { display: none; }
+    #tmQuickAddDocName { max-width: 100px; }
+    #tmQuickAddDateLabel { max-width: 76px; }
+    .tm-quick-add-close { top: 6px; right: 6px; width: 40px; height: 40px; }
+    .tm-task-time-hub-popover--quick-add,
+    .tm-task-time-hub-popover--quick-add .tm-task-time-hub__subpanel {
+        bottom: var(--tm-quick-add-picker-bottom, 8px);
+        max-height: var(--tm-quick-add-picker-height, calc(100dvh - 16px));
+    }
 }
 
 /* ---- Quick Add Date Popover (Time Hub style) ---- */

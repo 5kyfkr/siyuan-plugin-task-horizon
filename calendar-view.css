@@ -950,6 +950,40 @@
     font-size: 12px;
     font-weight: 600;
     color: var(--tm-text-color);
+}.tm-mini-cal--sidebar .tm-mini-cal-header{
+    position: relative;
+}.tm-mini-cal-title--button{
+    min-width: 0;
+    padding: 3px 6px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
+}.tm-mini-cal-title--button:hover,
+.tm-mini-cal-title--button[aria-expanded="true"]{
+    border-color: var(--tm-border-color);
+    background: var(--tm-section-bg);
+    color: var(--tm-primary-color);
+}.tm-mini-cal-title--button:focus-visible{
+    outline: 2px solid var(--tm-primary-color);
+    outline-offset: 1px;
+}.tm-mini-cal--sidebar .tm-mini-cal-month-picker{
+    position: absolute;
+    top: calc(100% + 6px) !important;
+    left: 50% !important;
+    right: auto;
+    bottom: auto;
+    transform: translateX(-50%);
+    width: min(254px, 100%);
+    box-sizing: border-box;
+    z-index: 4;
+    color: var(--tm-text-color);
+}.tm-mini-cal-month-picker .tm-task-time-hub__month-step-btn:disabled{
+    opacity: 0.4;
+    cursor: default;
+}.tm-mini-cal-month-picker .tm-task-time-hub__month-year-input{
+    color: var(--tm-text-color);
 }.tm-mini-cal-btn{
     width: 24px;
     height: 22px;
@@ -1700,6 +1734,7 @@
     border-radius: 0 !important;
     background: transparent !important;
     box-shadow: none !important;
+    overflow: visible;
 }.tm-calendar-nav{
     gap: 6px;
 }.tm-calendar-nav-section{
@@ -5421,10 +5456,11 @@
         z-index: 200;
         isolation: isolate;
         background: var(--tm-cal-panel);
-        box-shadow: 0 1px 0 var(--tm-cal-border);
     }
     .tm-proto-month-scroll-head .tm-proto-month-head-row{
         border-bottom: 0;
+        /* Keep the divider inside the header so it cannot cover today's top edge. */
+        box-shadow: inset 0 -1px 0 var(--tm-cal-border);
     }
     .tm-proto-month-canvas{
         position: relative;

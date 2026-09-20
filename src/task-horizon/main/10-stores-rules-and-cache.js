@@ -5684,6 +5684,9 @@
                 bulkFieldIdsSet.add(fieldId);
             });
         }
+        if (viewMode === 'kanban' || viewMode === 'whiteboard') {
+            __tmGetTaskCardFieldList(viewMode).forEach((fieldKey) => pushField(bulkFieldIdsSet, fieldKey));
+        }
         const deferredListFieldIds = [];
         if (viewMode === 'list') {
             columnFieldIds.forEach((fieldId) => {
@@ -8705,6 +8708,7 @@
             calendarShowStopwatch: true,
             calendarShowIdle: false,
             calendarColorFocus: 'var(--tm-primary-color)',
+            calendarTomatoColorMode: 'type',
             calendarColorBreak: 'var(--tm-success-color)',
             calendarColorStopwatch: 'var(--tm-warning-color, #f9ab00)',
             calendarColorIdle: 'var(--tm-secondary-text)',
@@ -9417,6 +9421,7 @@
                                 if (typeof cloudData.calendarShowStopwatch === 'boolean') this.data.calendarShowStopwatch = cloudData.calendarShowStopwatch;
                                 if (typeof cloudData.calendarShowIdle === 'boolean') this.data.calendarShowIdle = cloudData.calendarShowIdle;
                                 if (typeof cloudData.calendarColorFocus === 'string') this.data.calendarColorFocus = cloudData.calendarColorFocus;
+                                if (typeof cloudData.calendarTomatoColorMode === 'string') this.data.calendarTomatoColorMode = ['group', 'document'].includes(cloudData.calendarTomatoColorMode) ? cloudData.calendarTomatoColorMode : 'type';
                                 if (typeof cloudData.calendarColorBreak === 'string') this.data.calendarColorBreak = cloudData.calendarColorBreak;
                                 if (typeof cloudData.calendarColorStopwatch === 'string') this.data.calendarColorStopwatch = cloudData.calendarColorStopwatch;
                                 if (typeof cloudData.calendarColorIdle === 'string') this.data.calendarColorIdle = cloudData.calendarColorIdle;
@@ -10021,6 +10026,8 @@
             this.data.semanticDateAutoPromptEnabled = !!Storage.get('tm_semantic_date_auto_prompt_enabled', this.data.semanticDateAutoPromptEnabled);
             this.data.semanticDateDefaultReminderTime = String(Storage.get('tm_semantic_date_default_reminder_time', this.data.semanticDateDefaultReminderTime) || '08:00');
             this.data.calendarColorFocus = Storage.get('tm_calendar_color_focus', this.data.calendarColorFocus);
+            this.data.calendarTomatoColorMode = Storage.get('tm_calendar_tomato_color_mode', this.data.calendarTomatoColorMode);
+            if (!['group', 'document'].includes(this.data.calendarTomatoColorMode)) this.data.calendarTomatoColorMode = 'type';
             this.data.calendarColorBreak = Storage.get('tm_calendar_color_break', this.data.calendarColorBreak);
             this.data.calendarColorStopwatch = Storage.get('tm_calendar_color_stopwatch', this.data.calendarColorStopwatch);
             this.data.calendarColorIdle = Storage.get('tm_calendar_color_idle', this.data.calendarColorIdle);
@@ -10574,6 +10581,7 @@
             Storage.set('tm_semantic_date_auto_prompt_enabled', !!this.data.semanticDateAutoPromptEnabled);
             Storage.set('tm_semantic_date_default_reminder_time', String(this.data.semanticDateDefaultReminderTime || '08:00').trim() || '08:00');
             Storage.set('tm_calendar_color_focus', String(this.data.calendarColorFocus || '').trim());
+            Storage.set('tm_calendar_tomato_color_mode', ['group', 'document'].includes(this.data.calendarTomatoColorMode) ? this.data.calendarTomatoColorMode : 'type');
             Storage.set('tm_calendar_color_break', String(this.data.calendarColorBreak || '').trim());
             Storage.set('tm_calendar_color_stopwatch', String(this.data.calendarColorStopwatch || '').trim());
             Storage.set('tm_calendar_color_idle', String(this.data.calendarColorIdle || '').trim());

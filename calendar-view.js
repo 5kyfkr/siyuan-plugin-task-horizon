@@ -75,6 +75,7 @@
     // the same frame. Share the single SQL read without coupling it to either
     // title or document-color cache.
     const calendarLinkedMetadataInflight = new Map();
+    const calendarTomatoDocCache = new Map();
 
     const CALENDAR_ZH_CN_LOCALE = {
         code: 'zh-cn',
@@ -805,6 +806,7 @@
         miniMonthKey: '',
         miniRenderKey: '',
         miniAbort: null,
+        navigateMiniCalendarDate: null,
         taskListEl: null,
         taskPageHost: null,
         taskPageHtml: '',
@@ -8712,6 +8714,7 @@
             showBreak: tomatoMaster && (s.calendarShowBreak !== false),
             showStopwatch: tomatoMaster && (s.calendarShowStopwatch !== false),
             showIdle: tomatoMaster && !!s.calendarShowIdle,
+            tomatoColorMode: normalizeCalendarTomatoColorMode(readStoredJsonString('tm_calendar_tomato_color_mode', s.calendarTomatoColorMode)),
             showOtherBlockCheckbox: readStoredBool('tm_calendar_show_other_block_checkbox', typeof s.calendarShowOtherBlockCheckbox === 'boolean' ? !!s.calendarShowOtherBlockCheckbox : undefined),
             taskCheckboxCircleStyleEnabled: state.settingsStore?.data?.taskCheckboxCircleStyleEnabled === true,
             colorFocus: String(s.calendarColorFocus || 'var(--tm-primary-color)'),
@@ -9319,7 +9322,7 @@
                 <div class="tm-calendar-nav-item-row">
                     <label class="tm-calendar-nav-item tm-calendar-nav-item--grow">
                         <span class="tm-calendar-nav-left">
-                            <span class="tm-calendar-nav-dot" style="background:${esc(it.color || '#9aa0a6')};" data-tm-cal-color-kind="tomato" data-tm-cal-color-key="${esc(it.key)}" data-tm-cal-color-value="${esc(it.color || '#9aa0a6')}"></span>
+                            <span class="tm-calendar-nav-dot" style="background:${esc(it.color || '#9aa0a6')};" title="${settings.tomatoColorMode === 'type' ? '计时类型颜色' : '备用颜色：无法确定所属文档时使用'}" data-tm-cal-color-kind="tomato" data-tm-cal-color-key="${esc(it.key)}" data-tm-cal-color-value="${esc(it.color || '#9aa0a6')}"></span>
                             <span class="tm-calendar-nav-label">${esc(it.label)}</span>
                         </span>
                         <span class="tm-calendar-nav-check-wrap"><input class="tm-calendar-nav-check" type="checkbox" data-tm-cal-filter="${esc(it.key)}" ${it.checked ? 'checked' : ''} ${settings.showTomatoMaster ? '' : 'disabled'}><span class="tm-calendar-nav-check-ui" aria-hidden="true"></span></span>
@@ -10505,7 +10508,9 @@
             <div class="${rootClass}" data-tm-mini-root="1" data-tm-mini-kind="${esc(kind || 'default')}">
                 <div class="tm-mini-cal-header">
                     <button class="tm-mini-cal-btn" type="button" data-tm-mini-action="prev">‹</button>
-                    <div class="tm-mini-cal-title">${esc(String(model?.title || ''))}</div>
+                    ${kind === 'sidebar'
+                        ? `<button class="tm-mini-cal-title tm-mini-cal-title--button" type="button" data-tm-mini-action="month-picker" aria-label="选择年月" aria-haspopup="dialog" aria-expanded="false">${esc(String(model?.title || ''))}</button>`
+                        : `<div class="tm-mini-cal-title">${esc(String(model?.title || ''))}</div>`}
                     <button class="tm-mini-cal-btn" type="button" data-tm-mini-action="next">›</button>
                 </div>
                 ${showTargetLabel ? `<div class="tm-mini-cal-target${targetLabel ? ' is-active' : ''}" data-tm-mini-target>${esc(targetLabel || '拖到日期上修改截止日期')}</div>` : ''}
@@ -10553,6 +10558,103 @@
         return model;
     }
 
+    function bindMiniCalendarMonthPicker(mini, wrap, signal) {
+        const trigger = mini.querySelector('[data-tm-mini-action="month-picker"]');
+        if (!trigger) return;
+        let panel = null;
+        let year = 0;
+        let month = 0;
+        const close = (restoreFocus = false) => {
+            if (!panel) return;
+            panel.remove();
+            panel = null;
+            trigger.setAttribute('aria-expanded', 'false');
+            if (restoreFocus && trigger.isConnected) trigger.focus({ preventScroll: true });
+        };
+        const updateYear = () => {
+            const today = new Date();
+            panel.querySelector('[data-tm-mini-year-input]').value = String(year);
+            panel.querySelectorAll('[data-tm-mini-year-step]').forEach((button) => {
+                button.disabled = Number(button.dataset.tmMiniYearStep) < 0 ? year <= 1000 : year >= 9999;
+            });
+            panel.querySelectorAll('[data-tm-mini-month-pick]').forEach((button) => {
+                const index = Number(button.dataset.tmMiniMonthPick);
+                button.classList.toggle('is-active', index === month);
+                button.classList.toggle('is-current', year === today.getFullYear() && index === today.getMonth());
+                button.setAttribute('aria-pressed', String(index === month));
+                button.setAttribute('aria-label', `跳转到${year}年${index + 1}月`);
+            });
+        };
+        trigger.addEventListener('click', () => {
+            if (panel) { close(); return; }
+            const date = parseDateOnly(`${state.miniMonthKey}-01`);
+            if (!date) return;
+            year = Math.max(1000, Math.min(9999, date.getFullYear()));
+            month = date.getMonth();
+            panel = document.createElement('div');
+            panel.className = 'tm-task-time-hub__subpanel tm-task-time-hub__subpanel--month tm-mini-cal-month-picker';
+            panel.setAttribute('role', 'dialog');
+            panel.setAttribute('aria-label', '选择年月');
+            panel.innerHTML = `<div class="tm-task-time-hub__month-year-row">
+                <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-mini-year-step="-1" aria-label="上一年">‹</button>
+                <input class="tm-input tm-task-time-hub__month-year-input" type="text" inputmode="numeric" autocomplete="off" maxlength="4" aria-label="年份" data-tm-mini-year-input>
+                <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-mini-year-step="1" aria-label="下一年">›</button>
+            </div><div class="tm-task-time-hub__month-grid">${Array.from({ length: 12 }, (_, index) =>
+                `<button type="button" class="tm-task-time-hub__month-btn" data-tm-mini-month-pick="${index}">${index + 1}月</button>`
+            ).join('')}</div>`;
+            trigger.closest('.tm-mini-cal-header').appendChild(panel);
+            trigger.setAttribute('aria-expanded', 'true');
+            updateYear();
+            const sidebarBottom = mini.closest('.tm-calendar-sidebar')?.getBoundingClientRect().bottom || window.innerHeight;
+            panel.style.maxHeight = `${Math.max(80, Math.min(window.innerHeight, sidebarBottom) - panel.getBoundingClientRect().top - 8)}px`;
+            panel.querySelector('.is-active')?.focus({ preventScroll: true });
+        }, { signal });
+        mini.addEventListener('click', (event) => {
+            if (!panel || !panel.contains(event.target)) return;
+            const step = event.target.closest('[data-tm-mini-year-step]');
+            if (step) {
+                year = Math.max(1000, Math.min(9999, year + Number(step.dataset.tmMiniYearStep)));
+                updateYear();
+                return;
+            }
+            const picked = event.target.closest('[data-tm-mini-month-pick]');
+            if (!picked) return;
+            state.miniMonthKey = `${year}-${pad2(Number(picked.dataset.tmMiniMonthPick) + 1)}`;
+            close();
+            renderMiniCalendar(wrap);
+            mini.querySelector('[data-tm-mini-action="month-picker"]')?.focus({ preventScroll: true });
+        }, { signal });
+        mini.addEventListener('input', (event) => {
+            if (!panel || !event.target.matches('[data-tm-mini-year-input]')) return;
+            const raw = event.target.value.trim();
+            if (!/^\d{4}$/.test(raw) || Number(raw) < 1000) return;
+            year = Number(raw);
+            updateYear();
+        }, { signal });
+        mini.addEventListener('focusout', (event) => {
+            if (panel && event.target.matches('[data-tm-mini-year-input]')) event.target.value = String(year);
+        }, { signal });
+        document.addEventListener('pointerdown', (event) => {
+            if (panel && !panel.contains(event.target) && !trigger.contains(event.target)) close();
+        }, { capture: true, signal });
+        document.addEventListener('focusin', (event) => {
+            if (panel && !panel.contains(event.target) && !trigger.contains(event.target)) close();
+        }, { signal });
+        mini.addEventListener('keydown', (event) => {
+            if (!panel) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                close(true);
+            } else if (event.key === 'Enter' && event.target.matches('[data-tm-mini-year-input]')) {
+                event.preventDefault();
+                updateYear();
+                panel.querySelector('.is-active')?.focus({ preventScroll: true });
+            }
+        }, { signal });
+        signal.addEventListener('abort', () => close(), { once: true });
+    }
+
     function renderMiniCalendar(wrap) {
         const mini = wrap?.querySelector?.('.tm-calendar-mini');
         const calendar = state.calendar;
@@ -10576,6 +10678,7 @@
         try { state.miniAbort?.abort(); } catch (e) {}
         const abort = new AbortController();
         state.miniAbort = abort;
+        bindMiniCalendarMonthPicker(mini, wrap, abort.signal);
         mini.addEventListener('click', (e) => {
             const actionEl = e.target?.closest?.('[data-tm-mini-action]');
             const action = String(actionEl?.getAttribute?.('data-tm-mini-action') || '').trim();
@@ -10595,18 +10698,18 @@
             const d = parseDateOnly(key);
             if (!d) return;
             try {
+                if (state.navigateMiniCalendarDate?.(d) === true) {
+                    renderMiniCalendar(wrap);
+                    return;
+                }
                 const curView = String(getCalendarView(calendar)?.type || 'timeGridWeek');
-                const nextView = curView === 'dayGridMonth' ? 'timeGridDay' : curView;
-                const targetDate = resolveMainCalendarAnchorDate(d, nextView, getSettings()) || d;
+                const targetDate = resolveMainCalendarAnchorDate(d, curView, getSettings()) || d;
                 seedMainCalendarCurrentTimeScrollTime(calendar, state.calendarEl, getSettings(), {
-                    viewType: nextView,
+                    viewType: curView,
                     targetDate,
                     reason: 'mini-date',
                 });
                 callCalendarAdapter(calendar, 'gotoDate', targetDate);
-                if (curView === 'dayGridMonth') {
-                    callCalendarAdapter(calendar, 'changeView', 'timeGridDay', d);
-                }
             } catch (e2) {}
             renderMiniCalendar(wrap);
         }, { signal: abort.signal });
@@ -23352,15 +23455,20 @@
             if (!ids.length) return;
             if (type === 'deleteTask' || type === 'taskLifecycle' && String(data.action || '').trim() === 'archiveDeleted') {
                 try { __tmRemoveTaskDateEventsByTaskIds(ids, { main: true, side: true }); } catch (e) {}
+                ids.forEach((id) => calendarTomatoDocCache.delete(id));
+                if (getSettings().tomatoColorMode !== 'type' && state.calendar) {
+                    try { __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux); } catch (e) {}
+                }
                 return;
             }
             if (type === 'moveTask') {
                 const previousDocId = String(m.previousDocId || data.previousDocId || data.sourceDocId || data.fromDocId || '').trim();
                 const nextDocId = String(m.nextDocId || data.nextDocId || data.targetDocId || data.toDocId || m.docId || '').trim();
                 const movedAcrossDocuments = !!nextDocId && (!previousDocId || previousDocId !== nextDocId);
-                if (movedAcrossDocuments && getSettings().scheduleFollowDocColor === true) {
+                if (movedAcrossDocuments && (getSettings().scheduleFollowDocColor === true || getSettings().tomatoColorMode !== 'type')) {
                     ids.forEach((id) => {
                         try { state.linkedDocIdCache?.delete?.(String(id || '').trim()); } catch (e) {}
+                        calendarTomatoDocCache.delete(String(id || '').trim());
                     });
                     try {
                         scheduleCalendarRefresh({
@@ -25495,6 +25603,90 @@
         if (m === 'stopwatch') return settings.colorStopwatch;
         if (m === 'idle') return settings.colorIdle;
         return settings.colorFocus;
+    }
+
+    function normalizeCalendarTomatoColorMode(value) {
+        const mode = String(value || '').trim();
+        return mode === 'group' || mode === 'document' ? mode : 'type';
+    }
+
+    function getCalendarTomatoDocMap(records, settings) {
+        const docs = new Map();
+        if (normalizeCalendarTomatoColorMode(settings.tomatoColorMode) === 'type') return docs;
+        const now = Date.now();
+        const pending = new Map();
+        const ids = new Set(records.map((record) => String(record?.taskBlockId || record?.taskId || record?.blockId || '').trim()).filter(Boolean));
+        for (const id of ids) {
+            const snapshot = getCalendarTaskSnapshotById(id);
+            const docId = getCalendarTaskDocumentId(snapshot);
+            if (docId) {
+                docs.set(id, docId);
+                continue;
+            }
+            const cached = calendarTomatoDocCache.get(id);
+            if (cached?.docId) docs.set(id, cached.docId);
+            if (cached && (cached.pending || now - cached.loadedAt < 60000)) continue;
+            const entry = { docId: cached?.docId || '', loadedAt: now, pending: true };
+            calendarTomatoDocCache.set(id, entry);
+            pending.set(id, entry);
+        }
+        if (pending.size) {
+            // Paint immediately from snapshots; one batch fills missing documents.
+            // Cache misses too, so deleted tasks cannot cause a refetch loop.
+            loadBlockLinkedMetadataMapShared(Array.from(pending.keys())).then((metadata) => {
+                let changed = false;
+                pending.forEach((entry, id) => {
+                    if (calendarTomatoDocCache.get(id) !== entry) return;
+                    const docId = String(metadata.get(id)?.docId || '').trim();
+                    changed = changed || entry.docId !== docId;
+                    entry.docId = docId;
+                });
+                if (changed && state.calendar) __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux);
+            }).catch(() => null).finally(() => {
+                pending.forEach((entry) => { entry.pending = false; });
+                // Keep the visible range even when it exceeds the usual cap;
+                // evicting its own records would repeatedly query and repaint.
+                for (const id of calendarTomatoDocCache.keys()) {
+                    if (calendarTomatoDocCache.size <= CALENDAR_LINKED_DOC_CACHE_MAX) break;
+                    if (!ids.has(id)) calendarTomatoDocCache.delete(id);
+                }
+            });
+        }
+        return docs;
+    }
+
+    function colorCalendarTomatoEvents(events, settings) {
+        const records = events.filter((event) => event?.extendedProps?.__tmSource === 'tomato')
+            .map((event) => event.extendedProps);
+        if (!records.length) return events;
+        const mode = normalizeCalendarTomatoColorMode(settings.tomatoColorMode);
+        const docMap = getCalendarTomatoDocMap(records, settings);
+        const groupMap = mode === 'group' ? getCalendarDocsToGroupMapSnapshot() : new Map();
+        const colors = mode === 'group' ? new Map(getCalendarDefs(settings).map((def) => [def.id, def.color])) : new Map();
+        if (mode === 'group' && typeof window.tmCalendarWarmDocsToGroupCache === 'function') {
+            const calendar = state.calendar;
+            Promise.resolve().then(() => window.tmCalendarWarmDocsToGroupCache()).then(() => {
+                if (!calendar || state.calendar !== calendar) return;
+                const next = getCalendarDocsToGroupMapSnapshot();
+                if (Array.from(docMap.values()).some((id) => groupMap.get(id) !== next.get(id))) {
+                    __tmRefetchCalendarSource(calendar, EVENT_SOURCE_IDS.mainAux);
+                }
+            }).catch(() => null);
+        }
+        return events.map((event) => {
+            const ext = event?.extendedProps;
+            if (ext?.__tmSource !== 'tomato') return event;
+            const id = String(ext.taskBlockId || ext.taskId || ext.blockId || '').trim();
+            const docId = docMap.get(id) || '';
+            let color = '';
+            if (docId && mode === 'document') color = resolveCalendarDocColor(docId, '');
+            if (docId && mode === 'group') {
+                const groupId = groupMap.get(docId);
+                color = colors.get(groupId ? calendarIdForGroup(groupId) : 'default') || '';
+            }
+            color = color || resolveModeColor(ext.mode, settings);
+            return { ...event, backgroundColor: color, borderColor: color, extendedProps: { ...ext, __tmDocId: docId } };
+        });
     }
 
     function buildRecordKey(r) {
@@ -32603,7 +32795,7 @@
             };
             try { prototypeMonthScrollRaf = requestAnimationFrame(run); } catch (e) { run(); }
         };
-        const scrollPrototypeMonthToDate = (date, behavior = 'auto', reason = 'navigation') => {
+        const scrollPrototypeMonthToDate = (date, behavior = 'auto', reason = 'navigation', options = {}) => {
             if (isMobileDevice || isCompactDockLayout()) return false;
             const targetDate = date instanceof Date && !Number.isNaN(date.getTime()) ? protoDayStart(date) : null;
             const scroller = prototypeSurface?.querySelector?.('[data-tm-proto-month-scroll]');
@@ -32612,11 +32804,12 @@
             if (!(canvas instanceof HTMLElement)) return false;
             const geometry = getPrototypeMonthCanvasGeometry();
             const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
-            const weekIndex = getPrototypeMonthWeekIndex(geometry, monthStart);
+            const scrollDate = options.alignDay === true ? targetDate : monthStart;
+            const weekIndex = getPrototypeMonthWeekIndex(geometry, scrollDate);
             if (weekIndex < 0) return false;
             const maxTop = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
             // Absolute rows make the canvas coordinate system stable: the
-            // month's first week simply lands at weekIndex * rowHeight.
+            // requested week simply lands at weekIndex * rowHeight.
             const desiredScrollTop = Math.max(0, weekIndex * geometry.rowHeight);
             // A tab can be mounted while its host is hidden or before flex
             // layout has produced a scroll range. Assigning the bounded value
@@ -32625,7 +32818,7 @@
             // virtual window will use that target until the browser exposes
             // the canvas height.
             if (desiredScrollTop > 0 && maxTop <= 0) {
-                setPrototypeMonthPendingScrollRestore(monthStart, desiredScrollTop);
+                setPrototypeMonthPendingScrollRestore(scrollDate, desiredScrollTop);
                 return true;
             }
             const targetScrollTop = Math.min(maxTop, desiredScrollTop);
@@ -32641,6 +32834,48 @@
             } catch (e) {}
             syncPrototypeMonthTitle(prototypeMonthScrollAnchorDate);
             schedulePrototypeMonthScrollSync(scroller);
+            return true;
+        };
+        state.navigateMiniCalendarDate = (date) => {
+            const activeCalendar = state.calendar || calendar;
+            const viewType = String(getCalendarView(activeCalendar)?.type || '').trim();
+            const targetDate = protoDayStart(date);
+            const isMonth = viewType === 'dayGridMonth';
+            const isList = isCalendarListViewType(viewType);
+            if (!targetDate || !activeCalendar || (!isMonth && !isList)) return false;
+            prototypeMobileTimelineSwipeAnchorDate = null;
+            if (isMonth) {
+                // Explicit date picks supersede scroll positions captured by
+                // older loads, including picks within the same month.
+                prototypeMonthLoadingScrollSnapshot = null;
+                prototypeMonthPendingScrollRestore = null;
+                if (prototypeMonthEngineSyncTimer) {
+                    clearTimeout(prototypeMonthEngineSyncTimer);
+                    prototypeMonthEngineSyncTimer = 0;
+                }
+                prototypeMonthAutoSyncedMonthKey = '';
+                if (isMobileDevice || isCompactDockLayout()) {
+                    invalidatePrototypeMonthMeasurement({ resetBudget: true, resetRenderKey: false });
+                } else if (scrollPrototypeMonthToDate(targetDate, 'auto', 'mini-date', { alignDay: true })) {
+                    prototypeMonthAutoSyncedMonthKey = monthKeyLabel(targetDate);
+                }
+            } else {
+                // Invalidate delayed picker transitions so they cannot replace
+                // the date selected from the sidebar after this render.
+                prototypeListState.selectionTransitionToken += 1;
+                prototypeListState.selectionTransition = '';
+                prototypeListState.selectionTransitionFrom = '';
+                prototypeListState.selectionTransitionPhase = '';
+                prototypeListState.selectionVisibleFrom = [];
+                prototypeListState.selectionVisibleTo = [];
+                prototypeListState.focusDate = targetDate;
+                prototypeListState.monthCursor = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+                prototypeListState.listScrollRestore = { top: 0, left: 0 };
+                rememberMainCalendarNonMonthAnchorDate(activeCalendar, viewType, targetDate);
+            }
+            state.miniMonthKey = miniMonthKeyFromDate(targetDate);
+            callCalendarAdapter(activeCalendar, 'gotoDate', targetDate);
+            queuePrototypeSurfaceRender();
             return true;
         };
         const shiftPrototypeMonthScroll = (amount, options = {}) => {
@@ -36226,6 +36461,7 @@
                         settings.showStopwatch ? 's1' : 's0',
                         settings.showIdle ? 'i1' : 'i0',
                         settings.linkDockTomato ? 'link1' : 'link0',
+                        settings.tomatoColorMode,
                     ].join('|');
                     const years = getCnHolidayYearsForRange(info?.start, info?.end);
                     // Holiday days must be monotonic within a session: once a
@@ -36337,7 +36573,7 @@
                         deferCalendarTomatoHistoryRefetch(optionalBackgroundPromise, info.start, info.end);
                     }
                     if (preservedAuxEvents?.length) {
-                        success(normalizeCalendarEngineEventInputs(preservedAuxEvents));
+                        success(normalizeCalendarEngineEventInputs(colorCalendarTomatoEvents(preservedAuxEvents, settings)));
                         holdCalendarSourceEventSnapshot(EVENT_SOURCE_IDS.mainAux, info.start, info.end);
                         return;
                     }
@@ -36408,6 +36644,7 @@
                             restoredHeldCategory = true;
                         });
                     }
+                    events = colorCalendarTomatoEvents(events, settings);
                     rememberCalendarSourceEventSnapshot(
                         EVENT_SOURCE_IDS.mainAux,
                         info.start,
@@ -37608,7 +37845,8 @@
             if (k === 'cnHoliday') return '节假日颜色';
             if (k === 'tomato') {
                 const labels = { focus: '专注颜色', break: '休息颜色', stopwatch: '正计时颜色', idle: '闲置颜色' };
-                return labels[kk] || '番茄颜色';
+                const label = labels[kk] || '番茄颜色';
+                return getSettings().tomatoColorMode === 'type' ? label : `${label}（备用）`;
             }
             return '文档分组颜色';
         };
@@ -38153,6 +38391,7 @@
         state.calendar = null;
         try { state.miniAbort?.abort(); } catch (e) {}
         state.miniAbort = null;
+        state.navigateMiniCalendarDate = null;
         state.miniMonthKey = '';
         state.miniRenderKey = '';
         try { state.calendarDataStore?.clear?.(); } catch (e) {}
@@ -38170,6 +38409,7 @@
         try { state.linkedDocIdInflight.clear(); } catch (e) {}
         try { state.scheduleTaskTitleInflight.clear(); } catch (e) {}
         try { calendarLinkedMetadataInflight.clear(); } catch (e) {}
+        calendarTomatoDocCache.clear();
         try { state.linkedDocIdCache.clear(); } catch (e) {}
         try { state.scheduleTaskTitleCache.clear(); } catch (e) {}
         try { state.cnHolidayCache?.clear?.(); } catch (e) {}
@@ -39608,6 +39848,17 @@
         const tomatoRows = s.linkDockTomato ? `
                 <div class="tm-calendar-settings-row">
                     <div class="tm-calendar-settings-label">
+                        番茄记录颜色
+                        <div class="tm-calendar-settings-label-desc">按计时类型、任务所属文档分组或关联文档上色；无法确定所属文档时使用计时类型颜色。</div>
+                    </div>
+                    <select class="tm-calendar-settings-select" aria-label="番茄记录颜色" data-tm-cal-setting="calendarTomatoColorMode">
+                        <option value="type" ${s.tomatoColorMode === 'type' ? 'selected' : ''}>按计时类型</option>
+                        <option value="group" ${s.tomatoColorMode === 'group' ? 'selected' : ''}>按文档分组</option>
+                        <option value="document" ${s.tomatoColorMode === 'document' ? 'selected' : ''}>按关联文档</option>
+                    </select>
+                </div>
+                <div class="tm-calendar-settings-row">
+                    <div class="tm-calendar-settings-label">
                         月视图隐藏番茄钟
                         <div class="tm-calendar-settings-label-desc">月视图不展开专注、休息与闲置记录，其他视图不受影响。</div>
                     </div>
@@ -40174,6 +40425,8 @@
                 store.data[key] = normalizeCalendarWeekAllDayVisibleRows(el.value);
             } else if (key === 'calendarSidebarDefaultPage') {
                 store.data[key] = normalizeCalendarSidebarDefaultPage(el.value);
+            } else if (key === 'calendarTomatoColorMode') {
+                store.data[key] = normalizeCalendarTomatoColorMode(el.value);
             } else if (key === 'calendarIcsProvider') {
                 store.data[key] = String(el.value || '').trim() === 'chain' ? 'chain' : 'webdav';
             } else if (key === 'calendarIcsPublishMode') {
@@ -40289,6 +40542,10 @@
                     || key === 'calendarIndependentScheduleTaskLocation'
                     || key === 'calendarIndependentScheduleTaskCreateMode') {
                     try { renderSettings(containerEl, store); } catch (e2) {}
+                } else if (key === 'calendarTomatoColorMode') {
+                    state._tomatoEventCache = null;
+                    if (state.wrapEl) renderSidebar(state.wrapEl, getSettings());
+                    if (state.calendar) __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux);
                 } else if (key === 'calendarShowOtherBlockCheckbox' || key === 'calendarHideScheduledTaskDatesInAllDay' || key === 'calendarShowCompletedAllDaySchedules' || key === 'calendarShowTaskReminders' || key === 'calendarTaskDateColorMode' || key === 'calendarScheduleFollowDocColor') {
                     try {
                         const root = state.wrapEl;

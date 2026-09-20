@@ -47,6 +47,7 @@
         tmBtn.onclick = (e) => {
             e.preventDefault();
             e.stopPropagation();
+            if (Date.now() - (tmBtn.__tmTouchActionHandledAt || 0) < 800 && e.detail !== 0) return;
             if (tmBtn.__tmLongPressFired) {
                 tmBtn.__tmLongPressFired = false;
                 return;
@@ -59,19 +60,32 @@
 
         try {
             let pressTimer = null;
-            const startHandler = () => {
+            let touchPressActive = false;
+            const startHandler = (e) => {
+                const isTouch = e.type === 'touchstart';
+                if (!isTouch && Date.now() - (tmBtn.__tmTouchActionHandledAt || 0) < 800) return;
+                e.stopPropagation();
+                if (!isTouch) e.preventDefault();
+                touchPressActive = isTouch;
                 tmBtn.__tmLongPressFired = false;
                 try { state.__tmPluginIconLongPressing = true; } catch (e) {}
                 if (pressTimer) clearTimeout(pressTimer);
                 pressTimer = setTimeout(() => {
                     tmBtn.__tmLongPressFired = true;
+                    // 触屏长按在松手时执行，聚焦仍处于用户手势内，且不会被后续触摸事件收起键盘。
+                    if (isTouch) return;
                     try {
                         const meta = __tmGetDocTopbarButtonPressActionMeta();
                         meta.longRun?.();
                     } catch (e) {}
                 }, 450);
             };
-            const cancelHandler = () => {
+            const cancelHandler = (e) => {
+                if (e?.type?.startsWith('touch')) {
+                    e.stopPropagation();
+                    tmBtn.__tmLongPressFired = false;
+                }
+                touchPressActive = false;
                 if (pressTimer) clearTimeout(pressTimer);
                 pressTimer = null;
                 try { state.__tmPluginIconLongPressing = false; } catch (e) {}
@@ -80,6 +94,21 @@
                 if (pressTimer) clearTimeout(pressTimer);
                 pressTimer = null;
                 try { state.__tmPluginIconLongPressing = false; } catch (e) {}
+                if (e.type === 'touchend') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    tmBtn.__tmTouchActionHandledAt = Date.now();
+                    if (!touchPressActive) return;
+                    touchPressActive = false;
+                    const wasLongPress = tmBtn.__tmLongPressFired;
+                    tmBtn.__tmLongPressFired = false;
+                    try {
+                        const meta = __tmGetDocTopbarButtonPressActionMeta();
+                        if (wasLongPress) meta.longRun?.();
+                        else meta.shortRun?.();
+                    } catch (e2) {}
+                    return;
+                }
                 if (tmBtn.__tmLongPressFired) {
                     try { e.preventDefault(); } catch (e2) {}
                     try { e.stopPropagation(); } catch (e2) {}
@@ -88,6 +117,7 @@
 
             globalThis.__tmRuntimeEvents?.on?.(tmBtn, 'touchstart', startHandler, { passive: true });
             globalThis.__tmRuntimeEvents?.on?.(tmBtn, 'touchmove', cancelHandler, { passive: true });
+            globalThis.__tmRuntimeEvents?.on?.(tmBtn, 'touchcancel', cancelHandler, { passive: true });
             globalThis.__tmRuntimeEvents?.on?.(tmBtn, 'touchend', endHandler, { passive: false });
             globalThis.__tmRuntimeEvents?.on?.(tmBtn, 'mousedown', startHandler);
             globalThis.__tmRuntimeEvents?.on?.(tmBtn, 'mouseleave', cancelHandler);

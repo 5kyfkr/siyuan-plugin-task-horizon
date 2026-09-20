@@ -137,6 +137,7 @@
         let savedScrollTop = 0;
         let savedScrollLeft = 0;
         let savedListScrollAnchor = null;
+        let savedListScrollEpoch = null;
         let savedChecklistScrollAnchor = null;
         let savedChecklistDetailScrollSnapshot = null;
         let savedTimelineScrollTop = 0;
@@ -233,6 +234,10 @@
                     savedScrollTop = body.scrollTop;
                     savedScrollLeft = body.scrollLeft;
                     savedListScrollAnchor = __tmCaptureViewScrollAnchor(body, 'tr[data-id]');
+                    try {
+                        const gate = globalThis.__tmGetViewScrollGate?.('list');
+                        savedListScrollEpoch = Math.max(0, Number(gate?.userScrollEpoch) || 0);
+                    } catch (e) {}
                 }
             }
         }
@@ -978,24 +983,19 @@
                      ondrop="tmDocTabDrop(event, '')">
                     <div class="tm-doc-tabs-scroll" style="display:flex; gap:8px; flex:1; padding: ${isMobile ? '4px 0 4px 0' : '4px 0 4px 0'};" oncontextmenu="tmShowDocTabsBlankContextMenu(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '')">
                         ${docTabsArchiveButtonPosition === 'before-all' ? docTabsArchiveButtonHtml : ''}
-                        <div class="tm-doc-tab tm-doc-tab--all ${state.activeDocId === 'all' ? 'active' : ''}" onclick="tmHandleAllDocTabClick(event)" oncontextmenu="tmShowAllDocTabContextMenu(event)"${__tmBuildTooltipAttrs(`${__tmGetViewProfileSourceLabel(__tmGetEffectiveViewProfileForContext('all', currentGroupId).source)}: ${__tmDescribeViewProfile(__tmGetEffectiveViewProfileForContext('all', currentGroupId).profile)} ｜ ${docTabsArchiveMode ? '当前只看归档页签' : '右键或长按查看当前分组全部页签'}`, { side: 'bottom', ariaLabel: false })}>${docTabsArchiveMode ? '全部归档' : '全部'}</div>
+                        <div class="tm-doc-tab tm-doc-tab--all ${state.activeDocId === 'all' ? 'active' : ''}" onclick="tmHandleAllDocTabClick(event)" oncontextmenu="tmShowAllDocTabContextMenu(event)">${docTabsArchiveMode ? '全部归档' : '全部'}</div>
                         ${(() => {
                             const id = String(SettingsStore.data.newTaskDocId || '').trim();
                             if (__tmIsDocExcludedInGroup(id, currentGroupId)) return '';
                             if (!id || id === '__dailyNote__') return '';
                             if (docTabsArchiveMode) return '';
                             const docName = __tmGetDocDisplayName(id, '未命名文档');
-                            const rawName = __tmGetDocRawName(id, '未命名文档');
-                            const alias = __tmGetDocAliasValue(id);
                             const isActive = state.activeDocId === id;
                             const c = __tmGetDocColorHex(id, __tmIsDarkMode());
-                            const p = __tmGetStoredDocViewProfile(id) || __tmGetStoredGroupViewProfile(currentGroupId) || __tmGetViewProfilesStore().global;
-                            const source = __tmGetStoredDocViewProfile(id) ? '页签自定义' : (__tmGetStoredGroupViewProfile(currentGroupId) ? '分组默认' : '全局默认');
                             const expectedMeta = __tmGetCachedDocExpectedMeta(id);
                             const expectedPercent = __tmComputeDocExpectedProgressPercent(expectedMeta);
                             const expectedTip = __tmFormatDocExpectedProgressTip(expectedMeta);
                             const expectedPid = `tm-doc-expected-special-${id}`;
-                            const nameTip = alias && alias !== rawName ? `别名: ${alias} ｜ 原名: ${rawName} ｜ ` : '';
                             const procrastinationMetrics = typeof globalThis.__tmGetProcrastinationMetricsForDoc === 'function'
                                 ? globalThis.__tmGetProcrastinationMetricsForDoc(id)
                                 : null;
@@ -1005,39 +1005,30 @@
                             const procrastinationTip = typeof globalThis.__tmFormatProcrastinationTip === 'function'
                                 ? globalThis.__tmFormatProcrastinationTip(procrastinationMetrics)
                                 : '';
-                            const tip = `${nameTip}全局新建文档 ｜ ${source}: ${__tmDescribeViewProfile(p)}${expectedTip ? ` ｜ 预期进度: ${expectedTip}` : ''}${procrastinationTip ? ` ｜ ${procrastinationTip}` : ''}`;
+                            const tip = [expectedTip ? `预期进度: ${expectedTip}` : '', procrastinationTip].filter(Boolean).join('\n');
                             setTimeout(() => __tmUpdateDocTabProgress(id, '', expectedPid), 0);
                             return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" data-tm-doc-id="${esc(id)}" style="--tm-doc-color:${esc(c)};${esc(procrastinationStyle)}" oncontextmenu="tmShowDocTabContextMenu(event, '${id}')" ondragenter="tmDocTabDragEnter(event)" ondragleave="tmDocTabDragLeave(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '${id}')" onclick="tmSwitchDoc('${id}')"${__tmBuildTooltipAttrs(tip, { side: 'bottom', ariaLabel: false })}><div class="tm-doc-tab-expected${expectedPercent == null ? '' : ' is-visible'}" id="${expectedPid}" style="width:${expectedPercent || 0}%"></div><div class="tm-doc-tab-text">${__tmRenderDocIcon(id, { fallbackText: '📥', size: 14 })}<span>${esc(docName)}</span></div></div>`;
                         })()}
                         ${showOtherBlocksTab ? (() => {
                             const isActive = __tmIsOtherBlockTabId(state.activeDocId);
                             const c = __tmGetDocColorHex(__TM_OTHER_BLOCK_TAB_ID, __tmIsDarkMode());
-                            const profile = __tmGetStoredDocViewProfile(__TM_OTHER_BLOCK_TAB_ID) || __tmGetStoredGroupViewProfile(currentGroupId) || __tmGetViewProfilesStore().global;
-                            const profileSource = __tmGetStoredDocViewProfile(__TM_OTHER_BLOCK_TAB_ID) ? '页签自定义' : (__tmGetStoredGroupViewProfile(currentGroupId) ? '分组默认' : '全局默认');
-                            const tip = `${profileSource}: ${__tmDescribeViewProfile(profile)}`;
-                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" data-tm-doc-id="${esc(__TM_OTHER_BLOCK_TAB_ID)}" style="--tm-doc-color:${esc(c)}" onclick="tmSwitchDoc('${__TM_OTHER_BLOCK_TAB_ID}')" oncontextmenu="tmShowDocTabContextMenu(event, '${__TM_OTHER_BLOCK_TAB_ID}')"${__tmBuildTooltipAttrs(tip, { side: 'bottom', ariaLabel: false })}>🧩 ${esc(__TM_OTHER_BLOCK_TAB_NAME)}</div>`;
+                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" data-tm-doc-id="${esc(__TM_OTHER_BLOCK_TAB_ID)}" style="--tm-doc-color:${esc(c)}" onclick="tmSwitchDoc('${__TM_OTHER_BLOCK_TAB_ID}')" oncontextmenu="tmShowDocTabContextMenu(event, '${__TM_OTHER_BLOCK_TAB_ID}')">🧩 ${esc(__TM_OTHER_BLOCK_TAB_NAME)}</div>`;
                         })() : ''}
                         ${customTabGroups.map((entry) => {
                             const group = entry?.group || {};
                             const groupId = String(entry?.id || group.id || '').trim();
                             if (!groupId) return '';
-                            const members = Array.isArray(entry?.members) ? entry.members : [];
                             const isActive = !!entry?.active;
-                            const isAggregateActive = !!entry?.aggregateActive;
                             const groupNameText = String(entry?.name || group.name || '').trim() || '未命名页签组';
                             const label = groupNameText;
                             const c = typeof __tmGetDocTabCustomGroupColor === 'function'
                                 ? __tmGetDocTabCustomGroupColor(group)
                                 : 'var(--tm-primary-color)';
-                            const tip = members.length
-                                ? `${groupNameText} ｜ 点击查看组内全部任务 ｜ ${members.length} 个页签${isAggregateActive ? ' ｜ 当前：组内全部' : ''}`
-                                : `${groupNameText} ｜ 当前没有可显示页签`;
                             return `<div class="tm-doc-tab tm-doc-tab--custom-group ${isActive ? 'active' : ''}"
                                 data-tm-doc-tab-group-id="${esc(groupId)}"
                                 style="--tm-doc-color:${esc(c)};--tm-doc-tab-group-color:${esc(c)}"
                                 onclick="tmHandleDocTabCustomGroupClick(event, '${escSq(groupId)}')"
-                                oncontextmenu="tmShowDocTabCustomGroupAllContextMenu(event, '${escSq(groupId)}')"
-                                ${__tmBuildTooltipAttrs(tip, { side: 'bottom', ariaLabel: false })}>
+                                oncontextmenu="tmShowDocTabCustomGroupAllContextMenu(event, '${escSq(groupId)}')">
                                 <div class="tm-doc-tab-text"><span class="tm-doc-tab-label">${esc(label)}</span><button type="button" class="tm-doc-tab-group-caret" onclick="tmShowDocTabCustomGroupMenu(event, '${escSq(groupId)}')" aria-label="展开页签组" aria-expanded="false">${__tmRenderLucideIcon('caret-right', '', { size: 12 })}</button></div>
                             </div>`;
                         }).join('')}
@@ -1047,15 +1038,9 @@
                             const pid = `tm-doc-prog-${doc.id}`;
                             const expectedPid = `tm-doc-expected-${doc.id}`;
                             const docName = __tmGetDocDisplayName(doc, doc.name || '未命名文档');
-                            const rawDocName = __tmGetDocRawName(doc, doc.name || '未命名文档');
-                            const alias = __tmGetDocAliasValue(doc);
-                            const docProfile = __tmGetStoredDocViewProfile(doc.id);
-                            const groupProfile = __tmGetStoredGroupViewProfile(currentGroupId);
-                            const profileSource = docProfile ? '页签自定义' : (groupProfile ? '分组默认' : '全局默认');
                             const expectedMeta = __tmGetCachedDocExpectedMeta(doc.id);
                             const expectedPercent = __tmComputeDocExpectedProgressPercent(expectedMeta);
                             const expectedTip = __tmFormatDocExpectedProgressTip(expectedMeta);
-                            const profileTip = `${alias && alias !== rawDocName ? `别名: ${alias}\n原名: ${rawDocName}\n` : ''}${profileSource}: ${__tmDescribeViewProfile(docProfile || groupProfile || __tmGetViewProfilesStore().global)}${expectedTip ? `\n预期进度: ${expectedTip}` : ''}`;
                             const procrastinationMetrics = typeof globalThis.__tmGetProcrastinationMetricsForDoc === 'function'
                                 ? globalThis.__tmGetProcrastinationMetricsForDoc(doc.id)
                                 : null;
@@ -1065,7 +1050,7 @@
                             const procrastinationTip = typeof globalThis.__tmFormatProcrastinationTip === 'function'
                                 ? globalThis.__tmFormatProcrastinationTip(procrastinationMetrics)
                                 : '';
-                            const profileTipOneLine = `${profileTip.replace(/\s*\n+\s*/g, ' ｜ ')}${procrastinationTip ? ` ｜ ${procrastinationTip}` : ''}`;
+                            const tip = [expectedTip ? `预期进度: ${expectedTip}` : '', procrastinationTip].filter(Boolean).join('\n');
                             // 预设宽度（如果缓存有值，直接渲染，减少闪烁）
                             const cachedPercent = __tmDocProgressCache?.get(doc.id) || 0;
                             // 调度异步更新
@@ -1080,7 +1065,7 @@
                                 ondragover="tmDocTabDragOver(event)"
                                 ondrop="tmDocTabDrop(event, '${doc.id}')"
                                 onclick="tmSwitchDoc('${doc.id}')"
-                                ${__tmBuildTooltipAttrs(profileTipOneLine, { side: 'bottom', ariaLabel: false })}>
+                                ${__tmBuildTooltipAttrs(tip, { side: 'bottom', ariaLabel: false })}>
                                 <div class="tm-doc-tab-expected${expectedPercent == null ? '' : ' is-visible'}" id="${expectedPid}" style="width:${expectedPercent || 0}%"></div>
                                 <div class="tm-doc-tab-bg" id="${pid}" style="width:${cachedPercent}%"></div>
                                 <div class="tm-doc-tab-text">${iconHtml}<span>${esc(docName)}</span></div>
@@ -2730,20 +2715,48 @@
                 } else {
                     // 列表模式
                     const body = state.modal.querySelector('.tm-body');
+                    let listRestoreCancelled = false;
+                    let listRestoreExpectedTop = null;
+                    const listRestoreScrollEpoch = savedListScrollEpoch;
+                    const hasListScrollChangedSinceCapture = () => {
+                        if (listRestoreScrollEpoch === null) return false;
+                        try {
+                            const gate = globalThis.__tmGetViewScrollGate?.('list');
+                            return Math.max(0, Number(gate?.userScrollEpoch) || 0) !== listRestoreScrollEpoch;
+                        } catch (e) {
+                            return false;
+                        }
+                    };
+                    const onListRestoreScroll = () => {
+                        if (!(body instanceof HTMLElement)) return;
+                        const currentTop = Number(body.scrollTop) || 0;
+                        if (listRestoreExpectedTop !== null
+                            && Math.abs(currentTop - listRestoreExpectedTop) > 0.5) {
+                            listRestoreCancelled = true;
+                        }
+                        listRestoreExpectedTop = currentTop;
+                    };
                     if (body) {
-                        __tmRestoreViewScrollAnchor(body, desiredListAnchor);
-                        if (!desiredListAnchor?.id) body.scrollTop = desiredTop;
-                        body.scrollLeft = desiredLeft;
+                        if (!hasListScrollChangedSinceCapture()) {
+                            const restored = __tmRestoreViewScrollAnchor(body, desiredListAnchor);
+                            if (!desiredListAnchor?.id && restored !== false) body.scrollTop = desiredTop;
+                            body.scrollLeft = desiredLeft;
+                            listRestoreExpectedTop = Number(body.scrollTop) || 0;
+                        } else {
+                            listRestoreCancelled = true;
+                        }
+                        try { body.addEventListener('scroll', onListRestoreScroll, { passive: true }); } catch (e) {}
                         try { body.__tmTableScrollUpdateThumb?.(); } catch (e) {}
                     }
 
                     requestAnimationFrame(() => requestAnimationFrame(() => {
                          try {
-                             if (body) {
-                                 __tmRestoreViewScrollAnchor(body, desiredListAnchor);
-                                 if (!desiredListAnchor?.id) body.scrollTop = desiredTop;
+                             if (body && !listRestoreCancelled && !hasListScrollChangedSinceCapture()) {
+                                 const restored = __tmRestoreViewScrollAnchor(body, desiredListAnchor);
+                                 if (!desiredListAnchor?.id && restored !== false) body.scrollTop = desiredTop;
                              }
                          } catch (e) {}
+                         try { body?.removeEventListener('scroll', onListRestoreScroll); } catch (e) {}
                          try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
                          runFlipAnimationAfterRender();
                          if (state.viewMode === 'whiteboard') {

@@ -5085,9 +5085,9 @@
             "color-mix(in srgb, var(--tm-home-accent) 58%, var(--tm-home-text))",
         ][index % 5];
         const documentID = String(group?.documentID || "").trim();
-        if (documentID && typeof __tmGetDocColorHex === "function") {
+        if (documentID && typeof window.tmGetDocColorHex === "function") {
             try {
-                const color = __tmGetDocColorHex(documentID, typeof __tmIsDarkMode === "function" && __tmIsDarkMode());
+                const color = window.tmGetDocColorHex(documentID);
                 if (String(color || "").trim()) return String(color).trim();
             } catch (e) {}
         }

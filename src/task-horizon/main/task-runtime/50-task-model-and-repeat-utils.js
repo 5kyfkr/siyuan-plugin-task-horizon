@@ -141,12 +141,34 @@
         const seen = new Set();
         const out = [];
         source.forEach((item) => {
-            const key = String(item || '').trim();
-            if (!allow.has(key) || seen.has(key)) return;
+            const rawKey = String(item || '').trim();
+            const customFieldId = __tmParseCustomFieldColumnKey(rawKey);
+            const key = customFieldId ? `customField:${customFieldId}` : rawKey;
+            if ((!allow.has(key) && !customFieldId) || seen.has(key)) return;
             seen.add(key);
             out.push(key);
         });
         return out;
+    }
+
+    function __tmRenderTaskCardCustomFieldChips(task, fields, editable = true) {
+        const defs = __tmGetCustomFieldDefMap();
+        const canEdit = editable && !task?.__tmGhost && !task?.__tmGlobalFrozen && !task?.__tmGlobalCollectionOverlay;
+        return Array.from(fields || []).map((key) => {
+            const fieldId = __tmParseCustomFieldColumnKey(key);
+            const field = fieldId ? defs.get(fieldId) : null;
+            if (!field || field.enabled === false || String(field.type || '').trim() === 'text'
+                || !__tmIsCustomFieldApplicableToTask(field, task)) return '';
+            const name = String(field.name || fieldId).trim() || fieldId;
+            const html = __tmBuildCustomFieldDisplayHtml(field, __tmGetTaskCustomFieldValue(task, fieldId), {
+                emptyText: name,
+                maxTags: String(field.type || '').trim() === 'multi' ? 2 : 1,
+            });
+            const action = canEdit
+                ? `onclick="tmOpenCustomFieldSelect('${escSq(task.id)}', '${escSq(fieldId)}', event, this)"`
+                : 'disabled';
+            return `<button type="button" class="tm-task-card-custom-field" data-tm-custom-field-cell="${esc(fieldId)}" title="${esc(canEdit ? `点击编辑：${name}` : name)}" aria-label="${esc(name)}" onpointerdown="event.stopPropagation()" onmousedown="event.stopPropagation()" ${action}>${html}</button>`;
+        }).join('');
     }
 
     function __tmNormalizeTaskCardAlwaysShowFields(input, fallback = ['priority', 'status', 'date']) {

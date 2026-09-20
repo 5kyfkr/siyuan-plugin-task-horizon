@@ -1644,8 +1644,20 @@
         const on = (target, type, handler, opt = {}) => {
             try { target.addEventListener(type, handler, { ...(opt || {}), signal: abort.signal }); } catch (e) {}
         };
+        const quickAddInput = typeof __tmGetQuickAddInputForPicker === 'function'
+            ? __tmGetQuickAddInputForPicker(trigger) : null;
+        if (quickAddInput) {
+            popover.classList.add('tm-task-time-hub-popover--quick-add');
+            const cleanupFocus = __tmBindQuickAddPickerInputFocus(popover, trigger);
+            abort.signal.addEventListener('abort', cleanupFocus, { once: true });
+        }
         const position = () => {
             if (!popover.isConnected || !(trigger instanceof HTMLElement)) return;
+            if (quickAddInput) {
+                const viewport = __tmGetTaskTimeHubViewport();
+                popover.style.setProperty('--tm-quick-add-picker-bottom', `${Math.max(0, window.innerHeight - viewport.bottom) + 8}px`);
+                popover.style.setProperty('--tm-quick-add-picker-height', `${Math.max(44, viewport.height - 16)}px`);
+            }
             lastTriggerRect = __tmGetStableTaskTimeHubAnchorRect(trigger, lastTriggerRect);
             const triggerRect = lastTriggerRect;
             if (!triggerRect) return;
@@ -2532,6 +2544,10 @@
             position();
             positionEditorPanel();
         }, { capture: true });
+        if (quickAddInput && window.visualViewport) {
+            on(window.visualViewport, 'resize', position);
+            on(window.visualViewport, 'scroll', position);
+        }
         on(window, 'scroll', (ev) => {
             const target = ev?.target;
             if (target instanceof Node && popover.contains(target)) return;

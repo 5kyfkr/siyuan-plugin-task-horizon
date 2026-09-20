@@ -3122,12 +3122,14 @@
 
     function __tmSaveQuickAddDraft(value, options = {}) {
         const draftValue = String(value || '');
-        if (!draftValue.trim()) {
+        const remark = String(options.remark || '');
+        if (!draftValue.trim() && !remark.trim()) {
             __tmClearQuickAddDraft();
             return true;
         }
         __tmPersistQuickAddDraftStorage({
             value: draftValue,
+            remark,
             updatedAt: Date.now(),
             selectionStart: Number(options?.selectionStart || 0),
             selectionEnd: Number(options?.selectionEnd || 0),
@@ -3142,7 +3144,7 @@
             ? memory
             : stored;
         const updatedAt = Number(entry?.updatedAt || 0);
-        if (!entry || !String(entry.value || '').trim() || !updatedAt
+        if (!entry || (!String(entry.value || '').trim() && !String(entry.remark || '').trim()) || !updatedAt
             || Date.now() - updatedAt > __TM_QUICK_ADD_DRAFT_MAX_AGE_MS) {
             if (entry) __tmClearQuickAddDraft();
             return null;
@@ -3151,9 +3153,15 @@
         return { ...entry };
     }
 
-    function __tmClearQuickAddDraft() {
+    function __tmClearQuickAddDraft(expected = null) {
         const stored = __tmReadQuickAddDraftStorage();
         if (!stored && !__tmQuickAddDraftMemory) return false;
+        if (expected) {
+            const current = __tmGetQuickAddDraft();
+            if (!current || current.updatedAt !== expected.updatedAt
+                || current.value !== expected.value
+                || String(current.remark || '') !== String(expected.remark || '')) return false;
+        }
         __tmPersistQuickAddDraftStorage(null);
         return true;
     }
@@ -7575,8 +7583,18 @@ return false;
             if (!field || field?.enabled === false) return;
             const value = __tmGetTaskCustomFieldValue(taskLike, fieldId);
             const nodes = Array.from(root.querySelectorAll(`[data-tm-custom-field-cell="${CSS.escape(fid)}"]`))
-                .filter((node) => node instanceof HTMLElement);
+                .filter((node) => node instanceof HTMLElement
+                    && (!root.matches('.tm-kanban-card,.tm-whiteboard-node')
+                        || node.closest('.tm-kanban-card,.tm-whiteboard-node') === root));
             nodes.forEach((node) => {
+                if (node.classList.contains('tm-task-card-custom-field')) {
+                    node.innerHTML = __tmBuildCustomFieldDisplayHtml(field, value, {
+                        emptyText: String(field.name || fid).trim() || fid,
+                        maxTags: String(field?.type || '').trim() === 'multi' ? 2 : 1,
+                    });
+                    touched = true;
+                    return;
+                }
                 const cell = node.querySelector('.tm-custom-field-cell');
                 if (cell instanceof HTMLElement) {
                     cell.innerHTML = __tmBuildCustomFieldDisplayHtml(field, value, {
@@ -7859,6 +7877,7 @@ return false;
         if (!(node instanceof HTMLElement)) return false;
         if (node.classList.contains('tm-kanban-priority-chip')) return true;
         if (node.classList.contains('tm-status-tag')) return true;
+        if (node.classList.contains('tm-task-card-custom-field')) return true;
         const field = String(node.getAttribute('data-tm-task-time-field') || '').trim();
         return field === 'date'
             || field === 'remainingTime'
@@ -7940,6 +7959,8 @@ return false;
             const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(taskLike));
             if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoCount">${__tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(taskLike))}</span>`);
         }
+        const customFieldChips = __tmRenderTaskCardCustomFieldChips(taskLike, __tmGetTaskCardFieldList(viewKey), editableWhiteboard);
+        if (customFieldChips) metaParts.push(customFieldChips);
         return metaParts.join('');
     }
 
@@ -8208,6 +8229,9 @@ return false;
                     if (__tmDoesPatchAffectTaskCardMetaChips(patch)) {
                         touched = !!__tmSyncTaskCardMetaChipsInDOM(card, task, 'kanban') || touched;
                     }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'customFieldValues')) {
+                        touched = !!__tmUpdateTaskCustomFieldsInDOM(card, task, patch) || touched;
+                    }
                     if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
                         touched = !!__tmUpdateTaskCheckboxPriorityInDOM(card, task) || touched;
                     }
@@ -8222,7 +8246,7 @@ return false;
                     if (__tmDoesPatchAffectPriorityScore(patch)) {
                         const title = card.classList.contains('tm-kanban-card--sub')
                             ? card.querySelector(':scope > .tm-kanban-subtask-row-main .tm-kanban-subtask-title')
-                            : card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head > .tm-kanban-card-title-inline');
+                            : card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head .tm-kanban-card-title-inline');
                         if (title instanceof HTMLElement) touched = !!__tmApplyTaskTitleOpacityToElement(title, task) || touched;
                     }
                     if (Object.prototype.hasOwnProperty.call(patch, 'remark')) {
@@ -8255,6 +8279,9 @@ return false;
                     }
                     if (__tmDoesPatchAffectTaskCardMetaChips(patch)) {
                         touched = !!__tmSyncTaskCardMetaChipsInDOM(node, task, 'whiteboard') || touched;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'customFieldValues')) {
+                        touched = !!__tmUpdateTaskCustomFieldsInDOM(node, task, patch) || touched;
                     }
                     if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
                         touched = !!__tmUpdateTaskCheckboxPriorityInDOM(node, task) || touched;
@@ -9676,6 +9703,9 @@ return false;
             onCleanup: (fn) => cleanupFns.push(fn),
         };
 
+        const quickAddInput = typeof __tmGetQuickAddInputForPicker === 'function'
+            ? __tmGetQuickAddInputForPicker(anchorEl) : null;
+        if (quickAddInput) cleanupFns.push(__tmBindQuickAddPickerInputFocus(editor, anchorEl));
         build(api);
         try {
 
@@ -9683,8 +9713,16 @@ return false;
 
         const customRect = opts.anchorRect && typeof opts.anchorRect === 'object' ? opts.anchorRect : null;
         const rect = customRect || anchorEl.getBoundingClientRect();
-        const vw = window.innerWidth || document.documentElement.clientWidth || 0;
-        const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+        const viewport = quickAddInput ? window.visualViewport : null;
+        const leftEdge = Number(viewport?.offsetLeft) || 0;
+        const topEdge = Number(viewport?.offsetTop) || 0;
+        const vw = leftEdge + (Number(viewport?.width) || window.innerWidth || document.documentElement.clientWidth || 0);
+        const vh = topEdge + (Number(viewport?.height) || window.innerHeight || document.documentElement.clientHeight || 0);
+        if (quickAddInput) {
+            editor.style.boxSizing = 'border-box';
+            editor.style.maxHeight = `${Math.max(44, vh - topEdge - 16)}px`;
+            editor.style.overflowY = 'auto';
+        }
 
         const ew = editor.offsetWidth || 240;
         const eh = editor.offsetHeight || 120;
@@ -9692,13 +9730,13 @@ return false;
 
         let left = rect.left;
         let top = rect.bottom + gap;
-        if (left + ew + 8 > vw) left = Math.max(8, vw - ew - 8);
+        if (left + ew + 8 > vw) left = Math.max(leftEdge + 8, vw - ew - 8);
         if (top + eh + 8 > vh) {
             const up = rect.top - eh - gap;
-            if (up >= 8) top = up;
-            else top = Math.max(8, vh - eh - 8);
+            if (up >= topEdge + 8) top = up;
+            else top = Math.max(topEdge + 8, vh - eh - 8);
         }
-        left = Math.max(8, left);
+        left = Math.max(leftEdge + 8, left);
 
         editor.style.left = `${Math.round(left)}px`;
         editor.style.top = `${Math.round(top)}px`;
@@ -9720,8 +9758,10 @@ return false;
 
         try {
             const focusable = editor.querySelector('input,select,button,textarea');
-            focusable?.focus?.();
-            focusable?.select?.();
+            if (!quickAddInput) {
+                focusable?.focus?.();
+                focusable?.select?.();
+            }
         } catch (e) {}
 
         return api;
@@ -11589,7 +11629,7 @@ return false;
                 }
             });
             appendCompletedRootGroup();
-            return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
+            return maxTaskRows === Number.POSITIVE_INFINITY && cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
         }
 
         // 按任务名分组
@@ -11640,7 +11680,7 @@ return false;
                 }
             });
             appendCompletedRootGroup();
-            return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
+            return maxTaskRows === Number.POSITIVE_INFINITY && cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
         }
 
         if (state.groupByTime && normalRoots.length > 0) {
@@ -11690,7 +11730,7 @@ return false;
                 }
             });
             appendCompletedRootGroup();
-            return cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
+            return maxTaskRows === Number.POSITIVE_INFINITY && cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
         }
 
         walkTaskList(normalRoots, 0);

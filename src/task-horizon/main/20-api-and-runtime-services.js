@@ -5320,6 +5320,7 @@
         };
         const pr = Object.prototype.hasOwnProperty.call(prMap, pr0) ? prMap[pr0] : pr0;
         if (pr === 'high' || pr === 'medium' || pr === 'low') patch.priority = pr;
+        if (data.remark !== undefined) patch.remark = String(data.remark || '');
         const sd = String(data.startDate || '').trim();
         if (sd) patch.startDate = sd;
         const ct = String(data.completionTime || '').trim();
@@ -17767,12 +17768,26 @@ if (!state.homepageOpen) return;
                 }) === true;
             } catch (e) {}
         } else {
+            // Returning to the foreground is not itself a data change. Probe
+            // the currently loaded documents first and only refresh when the
+            // authoritative document/task watermarks changed. This keeps the
+            // mobile foreground path from reloading on every app switch.
+            let documentChanged = false;
             try {
-                dataRefreshed = await __tmRefreshVisibleViewAfterTaskSnapshotSync?.(
-                    `visible-resume:${sourceLabel}:task-snapshot-sync`,
-                    { commitView: false },
-                ) === true;
+                const freshness = await __tmProbeCurrentGroupTaskFreshness?.();
+                documentChanged = freshness?.status === 'changed' || freshness?.changed === true;
             } catch (e) {}
+            if (documentChanged) {
+                try {
+                    dataRefreshed = await __tmRefreshCore?.({
+                        silent: true,
+                        reason: `visible-resume:${sourceLabel}:document-changed`,
+                        preserveUi: true,
+                        commitView: false,
+                        skipSharedStateReload: true,
+                    }) === true;
+                } catch (e) {}
+            }
         }
         try {
             collapsedChanged = await __tmSyncRemoteCollapsedSessionStateIfNeeded({ rerender: false }) === true;
@@ -22042,6 +22057,9 @@ if (!state.homepageOpen) return;
             state.floatingTooltipEl = tooltipEl;
         }
         tooltipEl.textContent = text;
+        const isDocTab = target.classList.contains('tm-doc-tab');
+        tooltipEl.style.whiteSpace = isDocTab ? 'pre-line' : 'normal';
+        tooltipEl.style.maxWidth = isDocTab ? 'min(420px, calc(100vw - 24px))' : 'min(240px, calc(100vw - 24px))';
         tooltipEl.style.zIndex = String(__tmResolveFloatingTooltipZIndex(target));
         tooltipEl.style.opacity = '0';
         state.floatingTooltipTarget = target;
@@ -25543,6 +25561,10 @@ if (!state.homepageOpen) return;
             return true;
         }
         const left = Number(body?.scrollLeft) || 0;
+        const listScrollGate = typeof globalThis.__tmGetViewScrollGate === 'function'
+            ? globalThis.__tmGetViewScrollGate('list')
+            : null;
+        const scrollEpochAtCapture = Math.max(0, Number(listScrollGate?.userScrollEpoch) || 0);
         const scrollAnchor = __tmCaptureViewScrollAnchor(body, 'tr[data-id]');
         const isCalendarTaskTable = String(table?.getAttribute?.('data-tm-table') || '') === 'calendar';
         const originalOrder = SettingsStore.data.columnOrder;
@@ -25607,7 +25629,9 @@ if (!state.homepageOpen) return;
             && incrementallyPatched
             && tbody.dataset.tmLastIncrementalAppendTailOnly === '1';
         try {
-            if (body && !tailOnlyAppend) __tmRestoreViewScrollAnchor(body, scrollAnchor);
+            const scrollEpochChanged = typeof globalThis.__tmGetViewScrollGate === 'function'
+                && Math.max(0, Number(globalThis.__tmGetViewScrollGate('list')?.userScrollEpoch) || 0) !== scrollEpochAtCapture;
+            if (body && !tailOnlyAppend && !scrollEpochChanged) __tmRestoreViewScrollAnchor(body, scrollAnchor);
         } catch (e) {}
         try { if (body) body.scrollLeft = left; } catch (e) {}
         try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
@@ -26583,7 +26607,18 @@ return true;
             : null;
         if (!(currentItems instanceof HTMLElement) || !(fragmentItems instanceof HTMLElement)) return false;
         const fragmentNodes = __tmGetDirectChecklistContentNodes(fragmentItems);
-        if (!fragmentNodes.length) return false;
+        const fragmentComplete = fragmentItems.getAttribute('data-tm-checklist-window-fragment-complete') === '1';
+        // An empty complete fragment means the visible row window has reached
+        // its end (for example after a collapsed document/group). It is a
+        // successful append state: remove the tail control and avoid falling
+        // back to a full render, which replaces the scroll host and jumps.
+        if (!fragmentNodes.length) {
+            if (!fragmentComplete) return false;
+            currentItems.querySelector('.tm-checklist-load-more')?.remove?.();
+            currentItems.dataset.tmLastIncrementalAppendCount = '0';
+            currentItems.__tmLastIncrementalAppendNodes = [];
+            return true;
+        }
         const currentLoadMore = Array.from(currentItems.children || []).find((child) => (
             child instanceof HTMLElement && child.classList.contains('tm-checklist-load-more')
         )) || null;
@@ -26607,7 +26642,7 @@ return true;
                             if (!taskId || currentTaskIds.has(taskId)) item.remove();
                             else currentTaskIds.add(taskId);
                         });
-                        if (!clone.querySelector('.tm-checklist-item[data-id]')) return;
+                        if (!clone.querySelector('.tm-checklist-item[data-id]') && !key) return;
                         if (currentLoadMore instanceof HTMLElement) currentItems.insertBefore(clone, currentLoadMore);
                         else currentItems.appendChild(clone);
                         appendedNodes.push(clone);
@@ -26664,7 +26699,7 @@ return true;
                     insertedTaskCount += __tmCountChecklistTasksInNodes([node]);
                 });
             }
-            if (fragmentItems.getAttribute('data-tm-checklist-window-fragment-complete') === '1') {
+            if (fragmentComplete) {
                 currentLoadMore?.remove?.();
             }
         } catch (e) {
@@ -26672,7 +26707,7 @@ return true;
         }
         currentItems.dataset.tmLastIncrementalAppendCount = String(Math.max(0, insertedTaskCount));
         currentItems.__tmLastIncrementalAppendNodes = appendedNodes;
-        return insertedTaskCount > 0;
+        return insertedTaskCount > 0 || fragmentComplete;
     }
 
     function __tmTryAppendChecklistRenderWindow(modalEl, bodyEl, nextBodyEl, options = {}) {

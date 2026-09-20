@@ -42,8 +42,10 @@ const resumeRun = segment(
 );
 assert.match(resumeRun, /__tmMaybeAutoRefreshOnEnter\([\s\S]*commitView: false/,
     'transaction refresh must update data without exposing an intermediate view');
-assert.match(resumeRun, /__tmRefreshVisibleViewAfterTaskSnapshotSync[\s\S]*commitView: false/,
-    'snapshot refresh must update data without exposing an intermediate view');
+assert.match(resumeRun, /__tmProbeCurrentGroupTaskFreshness/,
+    'visible resume must check authoritative document freshness before refreshing');
+assert.match(resumeRun, /__tmRefreshCore[\s\S]*commitView: false/,
+    'document refresh must update data without exposing an intermediate view');
 assert.equal((resumeRun.match(/__tmCommitVisibleResumeView\(/g) || []).length, 1,
     'resume synchronization must have one final view commit');
 

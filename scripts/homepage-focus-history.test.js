@@ -6,6 +6,22 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '..', 'homepage.js'), 'utf8');
 const runtimeSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'task-horizon', 'main', '20-api-and-runtime-services.js'), 'utf8');
 
+const colorStart = source.indexOf('    function resolveFocusDistributionColor(');
+const colorEnd = source.indexOf('    function buildFocusDistributionGroups(', colorStart);
+assert.ok(colorStart >= 0 && colorEnd > colorStart, 'focus distribution color resolver must remain extractable');
+const documentColors = { docA: '#c05040', docB: '#408050' };
+const colorContext = vm.createContext({ window: { tmGetDocColorHex: (id) => documentColors[id] || '' } });
+vm.runInContext(source.slice(colorStart, colorEnd), colorContext);
+const resolveColor = colorContext.resolveFocusDistributionColor;
+assert.equal(resolveColor({ documentID: 'docA' }, 0), '#c05040', 'the first document must use its document color rather than the theme accent');
+assert.equal(resolveColor({ documentID: 'docB' }, 1), '#408050', 'each document must resolve its own color');
+assert.equal(resolveColor({ documentID: 'docA' }, 3), '#c05040', 'sorting must not change a document color');
+documentColors.docA = '#e09080';
+assert.equal(resolveColor({ documentID: 'docA' }, 0), '#e09080', 'a rerender must pick up the current themed document color');
+assert.equal(resolveColor({ documentID: '' }, 0), 'var(--tm-home-accent)', 'unassociated records must retain the fallback palette');
+colorContext.window.tmGetDocColorHex = undefined;
+assert.equal(resolveColor({ documentID: 'docA' }, 0), 'var(--tm-home-accent)', 'an unavailable color service must degrade safely');
+
 assert.match(source, /__tmFocusStatisticsService/, 'homepage focus data must come from the shared statistics service');
 assert.match(source, /bucket:\s*"day"[\s\S]*groupBy:\s*"task"/, 'homepage must request daily task statistics directly');
 assert.match(source, /FOCUS_STATS_CONTRACT_VERSION = 2/, 'homepage must declare the compatible statistics DTO version once');

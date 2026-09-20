@@ -1100,7 +1100,7 @@
             markdown: `- [${initialMarker}] ${content}`,
             priority: priority || '',
             duration: '',
-            remark: '',
+            remark: String(payload.remark || ''),
             startDate: optimisticStartDate,
             start_date: optimisticStartDate,
             completionTime: optimisticCompletionTime,
@@ -2187,7 +2187,7 @@
         return rolledBack;
     }
 
-    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, customFieldValues, atTop, appendToBottom, insertParentId, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, requestedTaskId = '', requestedContainerId = '', initialAttrs = null, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null } = {}) {
+    async function __tmCreateTaskInDocKernel({ docId, content, remark, priority, startDate, completionTime, pinned, customStatus, customFieldValues, atTop, appendToBottom, insertParentId, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, requestedTaskId = '', requestedContainerId = '', initialAttrs = null, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null } = {}) {
         const parentDocId = String(docId || '').trim();
         let targetParentId = String(insertParentId || parentDocId).trim() || parentDocId;
         const text = String(content || '').trim();
@@ -2279,6 +2279,7 @@
         };
         const pr = prMap.hasOwnProperty(pr0) ? prMap[pr0] : pr0;
         if (pr === 'high' || pr === 'medium' || pr === 'low') patch.priority = pr;
+        if (remark !== undefined) patch.remark = String(remark || '');
         const sd = String(startDate || '').trim();
         if (sd) patch.startDate = sd;
         const ct = String(completionTime || '').trim();
@@ -2321,7 +2322,7 @@
             markdown: md,
             priority: patch.priority || '',
             duration: '',
-            remark: '',
+            remark: patch.remark || '',
             startDate: patch.startDate || '',
             start_date: patch.startDate || '',
             completionTime: patch.completionTime || '',
@@ -3485,6 +3486,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     };
 
     window.tmQuickAddClose = function() {
+        state.__quickAddViewportCleanup?.();
+        state.__quickAddViewportCleanup = null;
         state.__quickAddDocPickerUnstack?.();
         state.__quickAddDocPickerUnstack = null;
         state.__quickAddUnstack?.();
@@ -3510,11 +3513,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             maxTags: isMulti ? 2 : 1,
         });
         return `
-            <button class="tm-btn tm-btn-secondary"
+            <button class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-custom-field"
                     type="button"
                     data-tm-quick-add-custom-field="${esc(fieldId)}"
-                    onclick="tmQuickAddOpenCustomFieldPicker('${escSq(fieldId)}', event)"
-                    style="padding:6px 10px;font-size:13px;display:flex;align-items:center;gap:6px;max-width:180px;min-width:0;">
+                    onclick="tmQuickAddOpenCustomFieldPicker('${escSq(fieldId)}', event)">
                 <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(fieldName)}</span>
                 <span style="display:inline-flex;align-items:center;gap:3px;min-width:0;overflow:hidden;">${displayHtml}</span>
             </button>
@@ -3536,7 +3538,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             const fieldId = String(field?.id || '').trim();
             return __tmBuildQuickAddCustomFieldButtonHtml(field, qa.customFieldValues?.[fieldId]);
         }).join('');
-        wrap.style.display = wrap.innerHTML.trim() ? 'flex' : 'none';
+        wrap.style.display = wrap.innerHTML.trim() ? 'contents' : 'none';
     }
 
     window.tmQuickAddOpenCustomFieldPicker = function(fieldId, ev) {
@@ -3644,9 +3646,102 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         });
     };
 
+    function __tmRefreshQuickAddInputLayout(modal) {
+        if (!modal?.isConnected) return;
+        const input = modal.querySelector('#tmQuickAddInput');
+        const remark = modal.querySelector('#tmQuickAddRemark');
+        const count = __tmSplitTaskInputLines(input?.value || '').length;
+        const submit = modal.querySelector('#tmQuickAddSubmitBtn');
+        if (submit) {
+            submit.textContent = count > 1 ? `添加 ${count} 个` : '添加';
+            submit.disabled = count === 0 || !!state.quickAdd?.initializing;
+        }
+        const hint = modal.querySelector('#tmQuickAddBatchHint');
+        if (hint) {
+            hint.hidden = count < 2;
+            hint.textContent = `共 ${count} 个任务，备注仅用于第一个任务`;
+        }
+        if (remark) {
+            remark.placeholder = '备注';
+            remark.setAttribute('aria-label', count > 1 ? '备注，仅用于第一个任务' : '备注');
+        }
+        [input, remark].forEach((el) => {
+            if (!el) return;
+            const scrollTop = el.scrollTop;
+            el.style.height = 'auto';
+            el.style.height = `${el.scrollHeight}px`;
+            el.scrollTop = scrollTop;
+        });
+    }
+
+    function __tmGetQuickAddInputForPicker(anchorEl) {
+        if (!window.matchMedia?.('(max-width: 640px)')?.matches) return null;
+        const modal = state.quickAddModal;
+        const input = document.activeElement;
+        if (!modal?.contains(anchorEl) || !modal.contains(input)) return null;
+        return input?.id === 'tmQuickAddInput' || input?.id === 'tmQuickAddRemark' ? input : null;
+    }
+
+    function __tmBindQuickAddPickerInputFocus(surface, anchorEl = surface) {
+        const preserve = (event) => {
+            if (!__tmGetQuickAddInputForPicker(anchorEl) || event.button > 0) return;
+            const target = event.target instanceof Element ? event.target : null;
+            // 日期、搜索等真正的输入控件仍可获得焦点；点选按钮时保留任务输入和光标。
+            if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+            if (event.type === 'pointerdown' || event.type === 'mousedown') event.preventDefault();
+            else event.stopPropagation();
+        };
+        surface.addEventListener('pointerdown', preserve, true);
+        surface.addEventListener('mousedown', preserve, true);
+        surface.addEventListener('touchstart', preserve, { passive: true });
+        surface.addEventListener('touchend', preserve, { passive: true });
+        surface.addEventListener('click', preserve);
+        return () => {
+            surface.removeEventListener('pointerdown', preserve, true);
+            surface.removeEventListener('mousedown', preserve, true);
+            surface.removeEventListener('touchstart', preserve);
+            surface.removeEventListener('touchend', preserve);
+            surface.removeEventListener('click', preserve);
+        };
+    }
+
+    function __tmBindQuickAddViewport(modal) {
+        state.__quickAddViewportCleanup?.();
+        const viewport = window.visualViewport;
+        let frame = 0;
+        const sync = () => {
+            frame = 0;
+            if (!modal.isConnected) return;
+            const mobile = window.matchMedia?.('(max-width: 640px)')?.matches;
+            const height = Number(viewport?.height) || window.innerHeight;
+            modal.style.setProperty('--tm-quick-add-viewport-height', `${height}px`);
+            modal.classList.toggle('tm-quick-add-keyboard-open', !!mobile && window.innerHeight - height > 100);
+            ['top', 'left', 'width', 'height'].forEach((key) => {
+                const value = { top: viewport?.offsetTop || 0, left: viewport?.offsetLeft || 0,
+                    width: viewport?.width || window.innerWidth, height }[key];
+                modal.style[key] = mobile ? `${value}px` : '';
+            });
+            __tmRefreshQuickAddInputLayout(modal);
+        };
+        const schedule = () => {
+            if (!frame) frame = requestAnimationFrame(sync);
+        };
+        window.addEventListener('resize', schedule, { passive: true });
+        viewport?.addEventListener('resize', schedule, { passive: true });
+        viewport?.addEventListener('scroll', schedule, { passive: true });
+        state.__quickAddViewportCleanup = () => {
+            if (frame) cancelAnimationFrame(frame);
+            window.removeEventListener('resize', schedule);
+            viewport?.removeEventListener('resize', schedule);
+            viewport?.removeEventListener('scroll', schedule);
+        };
+        sync();
+    }
+
     window.tmQuickAddOpen = async function() {
-        await __tmEnsureSettingsLoaded();
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+        state.__quickAddViewportCleanup?.();
+        state.__quickAddViewportCleanup = null;
         if (state.quickAddModal) {
             state.__quickAddUnstack?.();
             state.__quickAddUnstack = null;
@@ -3660,23 +3755,12 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             state.quickAddDocPicker = null;
         }
 
-        const initialLocation = await __tmResolveQuickAddInitialLocation();
-        const docId = String(initialLocation?.docId || '').trim();
-        if (!docId && initialLocation?.mode !== 'dailyNote') {
-            hint('⚠ 请先在设置中选择文档', 'warning');
-            showSettings();
-            return;
-        }
-        const visibleQuickAddFields = await __tmRefreshQuickAddCustomFieldScope(docId);
-
-        const initialMode = initialLocation?.mode === 'dailyNote' ? 'dailyNote' : 'doc';
-        const initialDocId = docId;
-
         const stOptions = SettingsStore.data.customStatusOptions || [];
         const defaultStatusId = __tmGetDefaultUndoneStatusId(stOptions);
         state.quickAdd = {
-            docId: initialDocId,
-            docMode: initialMode,
+            initializing: true,
+            docId: '',
+            docMode: 'doc',
             customStatus: defaultStatusId,
             priority: 'none',
             startDate: '',
@@ -3686,86 +3770,66 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             reminderDraft: null,
             reminderDraftOpening: false,
             customFieldValues: {},
+            remark: '',
         };
+        const qa = state.quickAdd;
 
         const modal = document.createElement('div');
-        modal.className = 'tm-quick-add-modal';
+        modal.className = 'tm-quick-add-modal tm-quick-add-modal--composer';
         modal.style.zIndex = '100010';
 
-        // 优先级配置
-        const prConfig = {
-            'high': { label: '高', color: 'var(--tm-danger-color)', bg: 'color-mix(in srgb, var(--tm-danger-color) 10%, transparent)' },
-            'medium': { label: '中', color: 'var(--tm-warning-color, #f9ab00)', bg: 'color-mix(in srgb, var(--tm-warning-color, #f9ab00) 10%, transparent)' },
-            'low': { label: '低', color: 'var(--tm-primary-color)', bg: 'color-mix(in srgb, var(--tm-primary-color) 10%, transparent)' },
-            'none': { label: '无', color: 'var(--tm-text-color)', bg: 'transparent' }
-        };
-
         modal.innerHTML = `
-            <div class="tm-prompt-box" style="width: min(92vw, 520px);">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-                    <div class="tm-prompt-title" style="margin:0;">添加待办</div>
-                    <button class="tm-btn tm-btn-gray" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" style="padding: 6px 12px; font-size: 13px;">关闭</button>
+            <div class="tm-prompt-box tm-quick-add-box" role="dialog" aria-modal="true" aria-label="新建任务">
+                <button type="button" class="tm-quick-add-close" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" aria-label="关闭新建任务">${__tmRenderLucideIcon('x')}</button>
+                <div class="tm-quick-add-fields">
+                    <textarea id="tmQuickAddInput" class="tm-prompt-input tm-quick-add-title-input" placeholder="准备做什么？" aria-label="任务内容，每行一个任务" enterkeyhint="enter" rows="1"></textarea>
+                    <textarea id="tmQuickAddRemark" class="tm-prompt-input tm-quick-add-remark-input" placeholder="备注" aria-label="备注" enterkeyhint="enter" rows="1"></textarea>
+                    <div id="tmQuickAddBatchHint" class="tm-quick-add-batch-hint" aria-live="polite" hidden></div>
                 </div>
-
-                <textarea id="tmQuickAddInput" class="tm-prompt-input" placeholder="输入事项…每行一个任务；回车换行，Ctrl + 回车提交" enterkeyhint="enter" rows="3" style="margin-top:16px; font-size: 16px; padding: 12px; min-height: 86px; line-height: 1.45; resize: vertical;"></textarea>
-
-                <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-top:16px;">
-                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex:1 1 280px;min-width:0;">
-                        <button class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenDocPicker()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px; max-width:100%;">
-                            📁 <span id="tmQuickAddDocName">文档</span>
+                <div class="tm-quick-add-toolbar">
+                    <div class="tm-quick-add-tools" inert aria-busy="true">
+                        <button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-doc" onclick="tmQuickAddOpenDocPicker()" aria-label="选择文档">
+                            ${__tmRenderLucideIcon('file-text')}<span id="tmQuickAddDocName">文档</span>
                         </button>
-
-                        <button id="tmQuickAddPriorityBtn" class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenPriorityPicker(event)" aria-haspopup="listbox" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
+                        <div class="tm-quick-add-date-wrap">
+                            <button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-date" onclick="tmQuickAddOpenDatePicker()" aria-label="设置日期" title="日期、循环和提醒">
+                                ${__tmRenderLucideIcon('calendar-check')}<span id="tmQuickAddDateLabel">日期</span>
+                            </button>
+                            <input type="date" id="tmQuickAddDateInput" class="tm-quick-add-native-date" tabindex="-1" aria-hidden="true" oninput="tmQuickAddDateChanged(this.value)" onchange="tmQuickAddDateChanged(this.value)">
+                        </div>
+                        <button type="button" id="tmQuickAddPriorityBtn" class="tm-btn tm-btn-secondary tm-quick-add-tool" onclick="tmQuickAddOpenPriorityPicker(event)" aria-label="设置重要性" aria-haspopup="listbox">
                             ${__tmRenderPriorityJira('none', false)}
                         </button>
-
-                        <div style="display:flex;align-items:center;gap:6px;">
-                            <button id="tmQuickAddStatusBtn" class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenStatusPicker()" style="padding: 6px 10px; font-size: 13px; height: 32px; display:flex; align-items:center; gap:6px;">
-                                状态
-                            </button>
-                        </div>
-
-                        <div style="position:relative; display:inline-block; max-width:100%;">
-                            <!-- 桌面端/移动端通用的日期选择器 -->
-                            <div style="position:relative; display:inline-block; max-width:100%;">
-                                <button class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenDatePicker()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px; max-width:100%;">
-                                    🗓 <span id="tmQuickAddDateLabel" style="display:inline-block; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">日期</span>
-                                </button>
-                                <input type="date" id="tmQuickAddDateInput" oninput="tmQuickAddDateChanged(this.value)" onchange="tmQuickAddDateChanged(this.value)"
-                                       style="position:absolute; opacity:0; width:1px; height:1px; left:0; bottom:0; pointer-events:none; border:0; padding:0; margin:0; overflow:hidden; z-index:-1;">
-                            </div>
-                        </div>
-
-                        <div id="tmQuickAddCustomFields" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;min-width:0;"></div>
+                        <button type="button" id="tmQuickAddStatusBtn" class="tm-btn tm-btn-secondary tm-quick-add-tool" onclick="tmQuickAddOpenStatusPicker()" aria-label="设置状态" aria-haspopup="listbox">状态</button>
+                        <div id="tmQuickAddCustomFields" class="tm-quick-add-custom-fields"></div>
                     </div>
-
-                    <div style="display:flex; justify-content:flex-end; flex:0 0 auto; margin-left:auto; min-width:max-content;">
-                        <button class="tm-btn tm-btn-primary" id="tmQuickAddSubmitBtn" onclick="tmQuickAddSubmit()" style="padding: 6px 14px; font-size: 13px; min-width: 96px; text-align:center; white-space:nowrap;">提交</button>
-                    </div>
+                    <button type="button" class="tm-btn tm-btn-primary tm-quick-add-submit" id="tmQuickAddSubmitBtn" onclick="tmQuickAddSubmit()" disabled>添加</button>
                 </div>
+                <div class="tm-quick-add-keyboard-hint">每行一个任务<span>Ctrl / ⌘ + Enter 添加</span></div>
             </div>
         `;
         document.body.appendChild(modal);
         state.quickAddModal = modal;
+        __tmBindQuickAddPickerInputFocus(modal.querySelector('.tm-quick-add-tools'));
+        __tmBindQuickAddViewport(modal);
         __tmApplyPopupOpenAnimation(modal, modal.querySelector('.tm-prompt-box'), {
             mode: window.matchMedia?.('(max-width: 640px)')?.matches ? 'sheet' : 'center'
         });
 
-        // 自动聚焦 (兼容移动端)
+        // 在首次异步等待前挂载并聚焦真实输入框，保留移动端点击唤起输入法的时机。
         const input = document.getElementById('tmQuickAddInput');
+        const remarkInput = document.getElementById('tmQuickAddRemark');
         if (input) {
             const persistedDraft = typeof __tmGetQuickAddDraft === 'function' ? __tmGetQuickAddDraft() : null;
-            if (persistedDraft && String(persistedDraft.value || '').trim()) {
+            if (persistedDraft) {
                 input.value = String(persistedDraft.value || '');
+                remarkInput.value = String(persistedDraft.remark || '');
+                state.quickAdd.remark = remarkInput.value;
             }
             input.enterKeyHint = 'enter';
             input.setAttribute('enterkeyhint', 'enter');
-            setTimeout(() => {
-                input.focus();
-                try { input.click(); } catch(e) {}
-            }, 300);
             input.onkeydown = (e) => {
-                if (e.key !== 'Enter') return;
+                if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
                 if (!e.ctrlKey && !e.metaKey) return;
                 try { e.preventDefault(); } catch (e2) {}
                 try { e.stopPropagation(); } catch (e2) {}
@@ -3774,10 +3838,12 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             input.addEventListener('input', () => {
                 try {
                     __tmSaveQuickAddDraft(input.value, {
+                        remark: remarkInput.value,
                         selectionStart: Number(input.selectionStart || 0),
                         selectionEnd: Number(input.selectionEnd || input.selectionStart || 0),
                     });
                 } catch (e) {}
+                __tmRefreshQuickAddInputLayout(modal);
                 const lines = __tmSplitTaskInputLines(input.value || '');
                 if (lines.length > 1 && state.quickAdd?.reminderDraft) {
                     state.quickAdd.reminderDraft = null;
@@ -3785,39 +3851,102 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     window.tmQuickAddRenderMeta?.();
                 }
             });
+            remarkInput.onkeydown = input.onkeydown;
+            remarkInput.addEventListener('input', () => {
+                if (state.quickAdd) state.quickAdd.remark = remarkInput.value;
+                __tmSaveQuickAddDraft(input.value, { remark: remarkInput.value,
+                    selectionStart: input.selectionStart, selectionEnd: input.selectionEnd });
+                __tmRefreshQuickAddInputLayout(modal);
+            });
+            remarkInput.addEventListener('focus', () => {
+                remarkInput.rows = 2;
+                __tmRefreshQuickAddInputLayout(modal);
+            });
+            remarkInput.addEventListener('blur', () => {
+                if (!remarkInput.value) remarkInput.rows = 1;
+                __tmRefreshQuickAddInputLayout(modal);
+            });
+            __tmRefreshQuickAddInputLayout(modal);
         }
 
         state.__quickAddUnstack = __tmModalStackBind(() => window.tmQuickAddClose?.());
 
+        let backdropPointerStart = null;
+        let dismissFromBackdrop = false;
+        modal.addEventListener('pointerdown', (e) => {
+            dismissFromBackdrop = false;
+            backdropPointerStart = e.target === modal && e.button === 0 && e.isPrimary !== false
+                ? { id: e.pointerId, x: e.clientX, y: e.clientY }
+                : null;
+        });
+        modal.addEventListener('pointerup', (e) => {
+            dismissFromBackdrop = !!backdropPointerStart
+                && e.target === modal && e.pointerId === backdropPointerStart.id
+                && Math.hypot(e.clientX - backdropPointerStart.x, e.clientY - backdropPointerStart.y) <= 6;
+            backdropPointerStart = null;
+        });
+        modal.addEventListener('pointercancel', () => {
+            backdropPointerStart = null;
+            dismissFromBackdrop = false;
+        });
         modal.onclick = (e) => {
-            if (e.target === modal) window.tmQuickAddClose?.();
+            if (e.target === modal && dismissFromBackdrop) window.tmQuickAddClose?.();
+            dismissFromBackdrop = false;
         };
 
-        window.tmQuickAddRenderMeta?.();
+        input?.focus({ preventScroll: true });
+
+        try {
+            await __tmEnsureSettingsLoaded();
+            if (state.quickAdd !== qa || !modal.isConnected) return;
+            const initialLocation = await __tmResolveQuickAddInitialLocation();
+            if (state.quickAdd !== qa || !modal.isConnected) return;
+            const docId = String(initialLocation?.docId || '').trim();
+            if (!docId && initialLocation?.mode !== 'dailyNote') {
+                window.tmQuickAddClose?.();
+                hint('⚠ 请先在设置中选择文档', 'warning');
+                showSettings();
+                return;
+            }
+            await __tmRefreshQuickAddCustomFieldScope(docId);
+            if (state.quickAdd !== qa || !modal.isConnected) return;
+            qa.docId = docId;
+            qa.docMode = initialLocation?.mode === 'dailyNote' ? 'dailyNote' : 'doc';
+            qa.customStatus = __tmGetDefaultUndoneStatusId(SettingsStore.data.customStatusOptions || []);
+            qa.completionTime = __tmResolveQuickAddDefaultCompletionTime();
+            qa.initializing = false;
+            const toolbar = modal.querySelector('.tm-quick-add-tools');
+            toolbar.removeAttribute('inert');
+            toolbar.removeAttribute('aria-busy');
+            try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+            window.tmQuickAddRenderMeta?.();
+            __tmRefreshQuickAddInputLayout(modal);
+            return qa;
+        } catch (e) {
+            if (state.quickAdd !== qa || !modal.isConnected) return;
+            window.tmQuickAddClose?.();
+            hint('⚠ 新建任务加载失败，草稿已保留，请重试', 'warning');
+        }
     };
 
     window.tmQuickAddOpenForDoc = async function(docId) {
         const id = String(docId || '').trim();
-        await window.tmQuickAddOpen?.();
+        const qa = await window.tmQuickAddOpen?.();
         if (!id) return;
-        if (!state.quickAdd) return;
-        state.quickAdd.docMode = 'doc';
-        state.quickAdd.docId = id;
+        if (!qa || state.quickAdd !== qa) return;
+        qa.docMode = 'doc';
+        qa.docId = id;
         await __tmRefreshQuickAddCustomFieldScope(id);
+        if (state.quickAdd !== qa) return;
         try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
-        try {
-            const input = document.getElementById('tmQuickAddInput');
-            input?.focus?.();
-        } catch (e) {}
     };
 
     window.tmQuickAddOpenForPreset = async function(docId, statusId, completionTime) {
         const did = String(docId || '').trim();
         const sid = String(statusId || '').trim();
         const date = __tmNormalizeDateOnly(String(completionTime || '').trim());
-        await window.tmQuickAddOpen?.();
-        const qa = state.quickAdd;
-        if (!qa) return;
+        const qa = await window.tmQuickAddOpen?.();
+        if (!qa || state.quickAdd !== qa) return;
         if (did) {
             qa.docMode = 'doc';
             qa.docId = did;
@@ -3832,11 +3961,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             qa.completionTime = date;
         }
         if (did) await __tmRefreshQuickAddCustomFieldScope(did);
+        if (state.quickAdd !== qa) return;
         try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
-        try {
-            const input = document.getElementById('tmQuickAddInput');
-            input?.focus?.();
-        } catch (e) {}
     };
 
     // 绑定全局点击事件，用于处理日期选择和关闭按钮（防止事件未被正确绑定）
@@ -3871,7 +3997,11 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 ? '今天日记'
                 : __tmResolveQuickAddDocName(qa.docId);
             const docBtn = document.getElementById('tmQuickAddDocName');
-            if (docBtn) docBtn.textContent = docName;
+            if (docBtn) {
+                docBtn.textContent = docName;
+                docBtn.parentElement.title = `添加到：${docName}`;
+                docBtn.parentElement.setAttribute('aria-label', `添加到：${docName}`);
+            }
 
             // 更新优先级按钮样式（Jira 风格）
             const prBtn = document.getElementById('tmQuickAddPriorityBtn');
@@ -3881,6 +4011,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 prBtn.style.color = '';
                 prBtn.style.borderColor = '';
                 prBtn.style.background = '';
+                const label = { high: '高', medium: '中', low: '低', none: '无' }[pr] || '无';
+                prBtn.title = `重要性：${label}`;
+                prBtn.setAttribute('aria-label', prBtn.title);
             }
 
             window.tmQuickAddRefreshStatusSelect?.();
@@ -3892,6 +4025,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 const chipStyle = __tmBuildStatusChipStyle(opt.color);
                 const name = String(opt?.name || opt?.id || '待办');
                 stBtn.innerHTML = `<span class="tm-status-tag" style="${chipStyle};cursor:default;">${esc(name)}</span>`;
+                stBtn.title = `状态：${name}`;
+                stBtn.setAttribute('aria-label', stBtn.title);
             }
 
             // 更新日期显示
@@ -3909,11 +4044,14 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     if (rule?.enabled && rule.type !== 'none') meta.push(`循环: ${__tmGetTaskRepeatSummary(rule, { startDate: sd, completionTime: ctValue }) || '已设置'}`);
                 } catch (e) {}
                 if (qa.reminderDraft) meta.push('提醒已设置');
-                dateLabel.textContent = meta.join(' · ');
+                dateLabel.textContent = ct;
                 dateInput.value = qa.completionTime ? __tmNormalizeDateOnly(qa.completionTime) : '';
 
                 const btn = document.getElementById('tmQuickAddDateLabel')?.parentElement;
                 if (btn) {
+                    btn.title = meta.join(' · ');
+                    btn.setAttribute('aria-label', `日期：${btn.title}`);
+                    btn.classList.toggle('has-extra', meta.length > 1);
                     if (qa.startDate || qa.completionTime || qa.reminderDraft || qa.repeatRule?.enabled) {
                         btn.style.color = 'var(--tm-primary-color)';
                         btn.style.borderColor = 'var(--tm-primary-color)';
@@ -4686,7 +4824,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
 
     window.tmQuickAddSubmit = async function() {
         const qa = state.quickAdd;
-        if (!qa) return;
+        if (!qa || qa.initializing) return;
         if (state.quickAddSubmitting) return;
         if (qa.reminderDraftOpening) {
             hint('⚠ 请先完成提醒设置', 'warning');
@@ -4696,6 +4834,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const dateInput = document.getElementById('tmQuickAddDateInput');
         const taskLines = __tmSplitTaskInputLines(input?.value || '');
         if (taskLines.length === 0) return;
+        const remark = String(document.getElementById('tmQuickAddRemark')?.value ?? qa.remark ?? '');
+        __tmSaveQuickAddDraft(input.value, { remark });
+        const submittedDraft = __tmGetQuickAddDraft();
         const hasReminderDraft = !!qa.reminderDraft && taskLines.length === 1;
         const reminderBridge = globalThis.__tomatoReminder;
         const canPersistReminder = hasReminderDraft
@@ -4727,6 +4868,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             repeatState: qa.repeatState,
             reminderDraft: canPersistReminder ? { ...qa.reminderDraft } : null,
             contents: taskLines,
+            remark,
         };
         if (hasReminderDraft && !canPersistReminder) {
             hint('⚠ 番茄钟提醒桥接未就绪，任务将创建但提醒不会写入', 'warning');
@@ -4762,9 +4904,11 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 const { headingPatch, ...createInsertOptions } = normalizedInsertOptions;
                 const insertAfterId = String(createInsertOptions.insertAfterId || '').trim();
                 const createContents = insertAfterId ? payload.contents.slice().reverse() : payload.contents;
-                const createSettled = await Promise.allSettled(createContents.map((content) => createTaskInDoc({
+                const firstContentIndex = insertAfterId ? createContents.length - 1 : 0;
+                const createSettled = await Promise.allSettled(createContents.map((content, index) => createTaskInDoc({
                         docId: targetDocId,
                         content,
+                        remark: index === firstContentIndex ? payload.remark : '',
                         priority: payload.priority,
                         customStatus: payload.customStatus,
                         customFieldValues: payload.customFieldValues,
@@ -4797,7 +4941,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     hint(`⚠ 已创建 ${createdTaskIds.length} 个任务，${createFailures.length} 个失败${message ? `: ${message}` : ''}`, 'warning');
                     return;
                 }
-                try { __tmClearQuickAddDraft?.(); } catch (e) {}
+                try { __tmClearQuickAddDraft?.(submittedDraft); } catch (e) {}
                 hint(payload.contents.length > 1 ? `✅ 已创建 ${payload.contents.length} 个任务` : '✅ 任务已创建', 'success');
                 const createdTaskId = reminderTaskId || '';
                 if (payload.reminderDraft && createdTaskId) {

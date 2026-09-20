@@ -18,6 +18,11 @@
             lastTop: 0,
             lastLeft: 0,
             direction: 0,
+            // Monotonically changes for every user scroll event. Async view
+            // refreshes use this to reject a scroll restore captured before
+            // the user moved to a different document.
+            userScrollEpoch: 0,
+            lastUserScrollTs: 0,
             endTimer: 0,
             pendingCommit: null,
             pendingCommitReason: '',
@@ -125,6 +130,12 @@
         gate.direction = nextTop === gate.lastTop ? 0 : (nextTop > gate.lastTop ? 1 : -1);
         gate.lastTop = nextTop;
         gate.lastLeft = nextLeft;
+        gate.userScrollEpoch = Math.max(0, Number(gate.userScrollEpoch) || 0) + 1;
+        gate.lastUserScrollTs = Date.now();
+        try {
+            host.__tmViewScrollEpoch = gate.userScrollEpoch;
+            host.__tmLastUserScrollTs = gate.lastUserScrollTs;
+        } catch (e) {}
         if (gate.direction < 0 && String(gate.pendingCommitDedupeKey || '').startsWith('auto-load:')) {
             gate.pendingCommit = null;
             gate.pendingCommitReason = '';

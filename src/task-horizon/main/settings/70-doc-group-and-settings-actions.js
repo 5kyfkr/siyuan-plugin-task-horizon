@@ -2462,6 +2462,7 @@
     };
 
     window.updateTaskCardFieldVisibility = async function(view, field, enabled) {
+        const prevCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
         const viewKey = String(view || '').trim() === 'whiteboard' ? 'whiteboardCardFields' : 'kanbanCardFields';
         const current = new Set(__tmNormalizeTaskCardFieldList(SettingsStore.data[viewKey], ['priority', 'status', 'date']));
         const key = String(field || '').trim();
@@ -2472,6 +2473,11 @@
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
+            const nextCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
+            if (__tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan)) {
+                await loadSelectedDocuments({ showInlineLoading: false, source: 'task-card-fields' });
+                return;
+            }
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
     };

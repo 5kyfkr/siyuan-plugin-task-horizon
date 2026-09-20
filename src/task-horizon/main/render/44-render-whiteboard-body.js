@@ -970,6 +970,8 @@
                         const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task));
                         if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoCount">${__tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task))}</span>`);
                     }
+                    const customFieldChips = __tmRenderTaskCardCustomFieldChips(task, whiteboardCardFields, editableMeta);
+                    if (customFieldChips) metaParts.push(customFieldChips);
                     if (isGhost) metaParts.push(ghostTip);
                     const cardMetaHtml = metaParts.length ? `<div class="tm-kanban-card-meta">${metaParts.join('')}</div>` : '';
                     const subtaskMetaHtml = metaParts.length ? `<div class="tm-kanban-subtask-meta">${metaParts.join('')}</div>` : '';

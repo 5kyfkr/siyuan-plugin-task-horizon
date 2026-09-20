@@ -303,6 +303,9 @@
     function __tmRefreshDocColorPresentation() {
         try { __tmDocColorHexCache.clear(); } catch (e) {}
         try { render(); } catch (e) {}
+        if (SettingsStore.data.calendarTomatoColorMode === 'document') {
+            try { globalThis.__tmCalendar?.requestRefresh?.({ reason: 'tomato-document-color', main: true, side: false, flushTaskPanel: false }); } catch (e) {}
+        }
         try { if (state.settingsModal && document.body.contains(state.settingsModal)) showSettings(); } catch (e) {}
     }
 
@@ -3588,11 +3591,15 @@ return Number(state.contextInteractionQuietUntil || 0);
         const runtimeWindow = __tmGetViewRenderWindow(state.viewMode, total);
         const step = Number(runtimeWindow?.initial || state.listRenderStep || 20);
         const currentLimit = Number(runtimeWindow?.limit || 0);
+        const checklistItems = state.viewMode === 'checklist'
+            ? state.modal?.querySelector?.('.tm-body--checklist .tm-checklist-scroll .tm-checklist-items')
+            : null;
+        const visibleWindowComplete = !!checklistItems && !checklistItems.querySelector('.tm-checklist-load-more');
         return {
             total,
             step,
             currentLimit,
-            remaining: Math.max(0, total - currentLimit),
+            remaining: visibleWindowComplete ? 0 : Math.max(0, total - currentLimit),
         };
     }
 
@@ -4237,6 +4244,18 @@ return Number(state.contextInteractionQuietUntil || 0);
         if ((now - Number(state.listAutoLoadMoreLastTs || 0)) < 120) return false;
         const meta = __tmGetListAutoLoadMoreState();
         if (meta.remaining <= 0) return false;
+        // A prepared batch may finish after the user has reversed direction.
+        // Do not commit that batch while the list is moving upward: even an
+        // append-only patch can invalidate the browser's scroll anchoring, and
+        // the following full-render fallback would move the viewport visibly.
+        if (opts.allowDuringScroll === true) {
+            const scrollGate = typeof __tmGetViewScrollGate === 'function'
+                ? __tmGetViewScrollGate(mode)
+                : null;
+            if (Number(scrollGate?.direction || 0) < 0) {
+                return false;
+            }
+        }
         state.listAutoLoadMoreInFlight = true;
         state.listAutoLoadMoreLastTs = now;
             const viewWindowJob = typeof __tmEnsureViewWindowJob === 'function'
@@ -4297,6 +4316,15 @@ return Number(state.contextInteractionQuietUntil || 0);
                         tailOnlyRequired: opts.allowDuringScroll === true,
                     });
                     if (!committed) {
+                        if (opts.allowDuringScroll === true) {
+                            // The safe append-only path was not available. Keep
+                            // the committed window aligned with the DOM and
+                            // retry after the next downward/idle scroll event.
+                            state.listRenderLimit = grown.previousLimit;
+                            if (job) job.preparedBatch = null;
+                            __tmScheduleAutoLoadMoreRecheck(mode);
+                            return false;
+                        }
                         __tmQueueViewDomCommit(mode, () => {
                             try { render(); } catch (e) {}
                             return true;
@@ -4531,7 +4559,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         };
         const onScroll = () => {
             pane.__tmAutoLoadMoreUserScrolled = true;
-            try { __tmTrackViewScroll?.(pane, mode); } catch (e) {}
+            // The list visibility binding tracks the same host earlier in the
+            // render lifecycle. Avoid counting the same native event twice;
+            // checklist/timeline hosts still need the auto-load path here.
+            if (!(mode === 'list' && pane.__tmTableScrollFxBound)) {
+                try { __tmTrackViewScroll?.(pane, mode); } catch (e) {}
+            }
             scheduleCheck();
         };
         pane.addEventListener('scroll', onScroll, { passive: true });
@@ -4566,6 +4599,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                         left: Number(pane.scrollLeft || 0),
                     };
                 } catch (e) {}
+                // Keep the scroll gate in sync even if the auto-load binding
+                // has not been attached yet after a full view rebuild.
+                try { __tmTrackViewScroll?.(pane, 'list'); } catch (e) {}
             },
         });
     }

@@ -56,7 +56,14 @@
                 const step = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
                 return Math.max(step, Math.min(total, Number(state.listRenderLimit) || step));
             })();
-            const rowModel = __tmBuildTaskRowModel({ maxTaskRows: initialChecklistTaskLimit });
+            // One extra visible row tells us whether another batch exists.
+            // filteredTasks also includes tasks hidden by collapsed branches.
+            const rowModel = __tmBuildTaskRowModel({
+                maxTaskRows: initialChecklistTaskLimit + 1,
+            });
+            const visibleTaskRowCount = rowModel.reduce((count, row) => (
+                row?.type === 'task' ? count + 1 : count
+            ), 0);
             let taskBranchRows = null;
             if (taskBranchId) {
                 const branchStart = rowModel.findIndex((row) => row?.type === 'task' && String(row?.id || '').trim() === taskBranchId);
@@ -93,6 +100,9 @@
                 : checklistVirtualEnabled
                 ? Math.max(checklistStep, Math.min(state.filteredTasks.length, Number(state.listRenderLimit) || checklistStep))
                 : Number.POSITIVE_INFINITY;
+            // Large branch expansions fall back to the bounded full list even
+            // though their row model was built without a limit.
+            const hasMoreChecklistTaskRows = visibleTaskRowCount > checklistTaskLimit;
             let renderedChecklistTaskCount = 0;
             const isDark = __tmIsDarkMode();
             const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
@@ -565,7 +575,7 @@
             const pendingFragmentGroups = [];
             const flushCompactGroupCard = () => {
                 if (!compactGroupCard) return;
-                if (renderWindowFragment && !compactGroupCard.hasFragmentTask) {
+                if (renderWindowFragment && !compactGroupCard.hasFragmentTask && !compactGroupCard.hasFragmentGroup) {
                     compactGroupCard = null;
                     return;
                 }
@@ -584,7 +594,7 @@
             };
             for (const row of taskBranchRows || rowModel) {
                 if (row?.type === 'group') {
-                    if (renderedChecklistTaskCount >= checklistTaskLimit) break;
+                    if (renderedChecklistTaskCount >= checklistTaskLimit && hasMoreChecklistTaskRows) break;
                     const groupHtml = renderGroup(row);
                     if (checklistCompact && row.kind !== 'h2') {
                         flushCompactGroupCard();
@@ -594,6 +604,7 @@
                             header: groupHtml,
                             children: [],
                             hasFragmentTask: false,
+                            hasFragmentGroup: renderWindowFragment && renderedChecklistTaskCount >= fragmentStartTaskCount,
                         };
                         continue;
                     }
@@ -635,20 +646,15 @@
             }
             flushCompactGroupCard();
             if (renderWindowFragment) {
-                const totalFragmentTaskCount = Number(rowModel.__tmTotalTaskCount)
-                    || rowModel.reduce((acc, row) => (row?.type === 'task' ? acc + 1 : acc), 0);
-                const fragmentComplete = fragmentEndTaskCount >= totalFragmentTaskCount;
+                const fragmentComplete = !hasMoreChecklistTaskRows;
+                if (fragmentComplete && !checklistCompact) items.push(...pendingFragmentGroups);
                 return `<div class="tm-checklist-items" data-tm-checklist-window-fragment="1" data-tm-checklist-window-fragment-complete="${fragmentComplete ? '1' : '0'}">${items.join('')}</div>`;
             }
             const itemsHtml = items.join('');
             if (taskBranchRows) {
                 return `<div class="tm-checklist-items" data-tm-checklist-branch-fragment="${esc(taskBranchId)}">${itemsHtml}</div>`;
             }
-            const totalChecklistTaskCount = Number(rowModel.__tmTotalTaskCount)
-                || rowModel.reduce((acc, row) => (row?.type === 'task' ? acc + 1 : acc), 0);
-            const checklistRemain = (checklistVirtualEnabled && (rowModel.__tmHasMoreTaskRows === true || renderedChecklistTaskCount >= checklistTaskLimit))
-                ? Math.max(0, totalChecklistTaskCount - renderedChecklistTaskCount)
-                : 0;
+            const checklistRemain = checklistVirtualEnabled && hasMoreChecklistTaskRows ? 1 : 0;
             const checklistLoadMoreHtml = checklistRemain > 0
                 ? `<div class="tm-checklist-load-more" style="padding:10px 0;text-align:center;"><button type="button" class="tm-btn tm-btn-secondary" onclick="tmChecklistLoadMoreRows(event)">继续加载</button></div>`
                 : '';

@@ -2372,8 +2372,12 @@
                 const activeModal = getActiveModal();
                 if (!skipRender && activeModal && isTokenCurrent()) {
                     try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
-                    const shouldPatchCurrentView = isSwitchDocGroupLoad
-                        && !forceShellRender
+                    // A background full-load (for example the cache/index
+                    // warm-up in the All tab) only fills in authoritative
+                    // rows. Keep the mounted list and reconcile it in place;
+                    // rebuilding the shell here can replay a stale document3
+                    // scroll anchor after the user has moved back to doc2.
+                    const shouldPatchCurrentView = !forceShellRender
                         && !loadBudget.enabled
                         && String(sourceLabel || '').indexOf(':full') !== -1
                         && typeof __tmRerenderCurrentViewInPlace === 'function';

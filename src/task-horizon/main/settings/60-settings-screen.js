@@ -2635,11 +2635,11 @@
                         )}
                         ${renderSingleFieldSetting(
                             '看板卡片字段',
-                            '控制看板卡片中显示哪些任务字段。',
+                            '控制看板卡片中显示哪些任务字段。自定义列支持单选、多选，点击卡片上的字段即可编辑；未设置时显示字段名。',
                             (() => {
                                 const selected = new Set(__tmGetTaskCardFieldList('kanban'));
                                 return renderSettingsChipSetting('', '', [
-                                    __tmBuildSettingsChipGroup('字段', __TM_TASK_CARD_FIELD_OPTIONS, {
+                                    __tmBuildSettingsChipGroup('字段', __TM_TASK_CARD_FIELD_OPTIONS.concat(__tmBuildSettingsCustomFieldChipItems()), {
                                         selectedSet: selected,
                                         onToggle: (item) => `updateTaskCardFieldVisibility('kanban', '${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
@@ -2649,11 +2649,11 @@
                         )}
                         ${renderSingleFieldSetting(
                             '白板卡片字段',
-                            '控制白板卡片中显示哪些任务字段。',
+                            '控制白板卡片中显示哪些任务字段。自定义列支持单选、多选，点击卡片上的字段即可编辑；未设置时显示字段名。',
                             (() => {
                                 const selected = new Set(__tmGetTaskCardFieldList('whiteboard'));
                                 return renderSettingsChipSetting('', '', [
-                                    __tmBuildSettingsChipGroup('字段', __TM_TASK_CARD_FIELD_OPTIONS, {
+                                    __tmBuildSettingsChipGroup('字段', __TM_TASK_CARD_FIELD_OPTIONS.concat(__tmBuildSettingsCustomFieldChipItems()), {
                                         selectedSet: selected,
                                         onToggle: (item) => `updateTaskCardFieldVisibility('whiteboard', '${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
