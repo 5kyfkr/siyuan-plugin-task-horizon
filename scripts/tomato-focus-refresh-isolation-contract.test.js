@@ -32,7 +32,9 @@ assert.doesNotMatch(focusSync, forbiddenRefresh, 'focus visual sync must not red
 
 const timerHook = segment(services, 'function __tmHookTomatoTimer()', 'function __tmListenTomatoAssociationCleared()');
 const tomatoListeners = segment(services, 'function __tmListenTomatoAssociationCleared()', 'function __tmClearTomatoFocusRowClasses()');
-for (const [label, source] of [['timer stop/reset hooks', timerHook], ['tomato association and focus events', tomatoListeners]]) {
+// Focus changes only update row classes; changed duration settings may update derived counts.
+const tomatoFocusListeners = segment(tomatoListeners, 'function __tmListenTomatoAssociationCleared()', '__tmTomatoHistoryUpdatedHandler =');
+for (const [label, source] of [['timer stop/reset hooks', timerHook], ['tomato association and focus events', tomatoFocusListeners]]) {
     assert.match(source, /__tmSyncTomatoFocusInPlace\(/, `${label} must use the in-place focus sync`);
     assert.doesNotMatch(source, forbiddenRefresh, `${label} must not redraw the view or calendar`);
 }

@@ -527,6 +527,14 @@
         return __tmNormalizeTomatoCountValue(task?.tomatoEstimateCount ?? task?.tomato_estimate_count ?? task?.tomatoEstimate ?? '');
     }
 
+    function __tmGetDefaultTomatoTimeMinutes() {
+        try {
+            const configured = Number(globalThis.__dockTomato?.getDefaultTomatoTimeMinutes?.());
+            if (Number.isFinite(configured) && configured > 0) return configured;
+        } catch (e) {}
+        return 30;
+    }
+
     function __tmGetTaskTomatoCount(task) {
         const values = typeof __tmGetTaskTomatoFocusValues === 'function'
             ? __tmGetTaskTomatoFocusValues(task)
@@ -538,12 +546,7 @@
             const amount = Number(mode === 'hours' ? values?.tomatoHours : values?.tomatoMinutes);
             if (!Number.isFinite(amount) || amount <= 0) return '';
             const focusMinutes = mode === 'hours' ? amount * 60 : amount;
-            let defaultTomatoMinutes = 30;
-            try {
-                const configured = Number(globalThis.__dockTomato?.getDefaultTomatoTimeMinutes?.());
-                if (Number.isFinite(configured) && configured > 0) defaultTomatoMinutes = configured;
-            } catch (e) {}
-            return __tmNormalizeActualTomatoCountValue(focusMinutes / defaultTomatoMinutes);
+            return __tmNormalizeActualTomatoCountValue(focusMinutes / __tmGetDefaultTomatoTimeMinutes());
         }
         return __tmNormalizeTomatoCountValue(values?.tomatoCount ?? values?.tomato_count ?? '');
     }

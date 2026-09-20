@@ -18909,14 +18909,24 @@ if (!state.homepageOpen) return;
                 globalThis.__tmRefreshOpenTaskDetailFocusStats?.({ availabilityChanged: true });
             } catch (e) {}
         };
+        let lastDefaultTomatoMinutes = __tmGetDefaultTomatoTimeMinutes();
         __tmTomatoDefaultDurationChangedHandler = () => {
             try {
-                if (SettingsStore?.data?.tomatoActualCountBySpentEnabled === false) return;
+                // DockTomato also publishes this event when re-reading unchanged settings on resume.
+                const minutes = __tmGetDefaultTomatoTimeMinutes();
+                const changed = minutes !== lastDefaultTomatoMinutes;
+                lastDefaultTomatoMinutes = minutes;
+                if (!changed || SettingsStore?.data?.tomatoActualCountBySpentEnabled === false) return;
                 globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true });
                 globalThis.__taskHorizonQuickbarRefreshInline?.();
                 if (state.homepageOpen) __tmScheduleHomepageRefresh('tomato-default-duration-changed', 0);
                 if (state.modal && document.body.contains(state.modal)) {
-                    Promise.resolve(loadSelectedDocuments()).catch(() => {});
+                    state.listDomRenderSignature = '';
+                    __tmScheduleViewRefresh({
+                        mode: 'current',
+                        withFilters: true,
+                        reason: 'tomato-default-duration-changed',
+                    });
                 }
             } catch (e) {}
         };

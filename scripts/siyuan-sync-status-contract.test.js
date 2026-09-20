@@ -24,10 +24,10 @@ assert.match(index, /SIYUAN_SYNC_STATUS_EVENT = "tm:task-horizon-siyuan-sync-sta
 assert.match(index, /eventBus\.on\("sync-start"|"sync-start":/);
 assert.match(index, /eventBus\.on\("sync-end"|"sync-end":/);
 assert.match(index, /eventBus\.on\("sync-fail"|"sync-fail":/);
-assert.match(index, /"sync-end": \(\) => \{[\s\S]*requestSyncedDataReload\("sync-end", \{[\s\S]*suppressStorageWrites: true/,
-    'sync completion must trigger a task data reload without writing local plugin state back');
-assert.match(index, /const suppressStorageWrites = reasons\.includes\("overwrite"\) \|\| reasons\.includes\("sync-end"\)/,
-    'post-sync reload must preserve the no-write-back guard');
+assert.doesNotMatch(index, /requestSyncedDataReload\("sync-end"/,
+    'sync completion alone must not reload task data');
+assert.match(index, /const suppressStorageWrites = [^\n]*reasons\.includes\("sync-merge-result"\)/,
+    'actual incoming document changes must preserve the no-write-back guard');
 assert.match(index, /思源数据正在同步/);
 assert.match(index, /已同步/);
 assert.match(index, /window\.dispatchEvent\(new CustomEvent\(SIYUAN_SYNC_STATUS_EVENT/);

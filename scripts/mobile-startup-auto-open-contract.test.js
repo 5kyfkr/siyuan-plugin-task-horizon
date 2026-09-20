@@ -38,13 +38,15 @@ assert.match(index, /sessionStorage\?\.setItem\?\.\(sessionKey, "1"\)/, 'startup
 assert.match(index, /MOBILE_STARTUP_READY_TIMEOUT_MS/, 'readiness waiting must be bounded');
 assert.match(index, /onLayoutReady\(\)[\s\S]*scheduleMobileStartupAutoOpen\(\)/, 'auto-open must begin from the layout-ready lifecycle');
 
-const syncStart = index.indexOf('    registerStartupSyncReloadListener()');
-const syncEnd = index.indexOf('\n    unregisterStartupSyncReloadListener()', syncStart);
+const syncStart = index.indexOf('    registerDocumentSyncReloadListener()');
+const syncEnd = index.indexOf('\n    unregisterDocumentSyncReloadListener()', syncStart);
 assert.notEqual(syncStart, -1, 'the startup sync listener must exist');
 const syncListener = index.slice(syncStart, syncEnd);
 assert.match(syncListener, /eventBus\.on\("ws-main"/, 'the listener must use SiYuan plugin events');
 assert.match(syncListener, /syncMergeResult/, 'document refresh must wait for the authoritative merge notification');
 assert.match(syncListener, /requestSyncedDataReload\("sync-merge-result"/, 'merge refresh must share the data-change reload coordinator');
+assert.doesNotMatch(syncListener, /_taskMobileStartupAutoOpenEnabled|readLocalJson/,
+    'actual document sync must refresh on desktop and mobile even when startup auto-open is disabled');
 assert.doesNotMatch(syncListener, /sync-start|sync-end|sync-fail|performSync/, 'startup must not maintain a redundant sync state machine or start another sync');
 assert.match(index, /eventBus\?\.off\?\.\("ws-main"/, 'the sync listener must be removed on unload');
 assert.match(index, /cancelMobileStartupAutoOpen\(\)/, 'startup polling must be cancelled on unload');

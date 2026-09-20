@@ -1180,7 +1180,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
         globalThis.__taskHorizonTabType = TAB_TYPE;
         globalThis.__taskHorizonMountToken = mountToken;
-        this.registerStartupSyncReloadListener();
+        this.registerDocumentSyncReloadListener();
         this.registerSiyuanSyncStatusListeners();
         globalThis.__taskHorizonGetAiExperienceMode = getAiExperienceMode;
         globalThis.__taskHorizonEnsureAiModuleLoaded = ensureAiExperienceRuntime;
@@ -1260,13 +1260,17 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         `);
     }
 
-    registerStartupSyncReloadListener() {
-        if (!this._taskMobileStartupAutoOpenEnabled || this._taskSyncMergeHandler || !this.eventBus?.on) return;
+    registerDocumentSyncReloadListener() {
+        if (this._taskSyncMergeHandler || !this.eventBus?.on) return;
         this._taskSyncMergeHandler = (event) => {
             if (String(event?.detail?.cmd || "") !== "syncMergeResult") return;
-            if (readLocalJson(MOBILE_AUTO_OPEN_ON_STARTUP_STORAGE_KEY, false) !== true) return;
+            const data = event?.detail?.data;
+            const upsertCount = Array.isArray(data?.upsertRootIDs) ? data.upsertRootIDs.length : 0;
+            const removeCount = Array.isArray(data?.removeRootIDs) ? data.removeRootIDs.length : 0;
+            if (!upsertCount && !removeCount) return;
             Promise.resolve(this.requestSyncedDataReload("sync-merge-result", {
                 delayMs: SYNCED_DATA_RELOAD_DEBOUNCE_MS,
+                suppressStorageWrites: true,
             })).catch((e) => {
                 console.warn("[task-horizon] synchronized merge reload failed", e);
             });
@@ -1276,7 +1280,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         }
     }
 
-    unregisterStartupSyncReloadListener() {
+    unregisterDocumentSyncReloadListener() {
         if (!this._taskSyncMergeHandler) return;
         try { this.eventBus?.off?.("ws-main", this._taskSyncMergeHandler); } catch (e) {}
         this._taskSyncMergeHandler = null;
@@ -1300,12 +1304,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             "sync-start": () => this.publishSiyuanSyncStatus("syncing"),
             "sync-end": () => {
                 this.publishSiyuanSyncStatus("synced");
-                Promise.resolve(this.requestSyncedDataReload("sync-end", {
-                    delayMs: SYNCED_DATA_RELOAD_DEBOUNCE_MS,
-                    suppressStorageWrites: true,
-                })).catch((e) => {
-                    console.warn("[task-horizon] post-sync task reload failed", e);
-                });
+                // Completion also fires for upload-only/no-change syncs.
+                // Documents use syncMergeResult; plugin files use onDataChanged.
             },
             "sync-fail": () => this.publishSiyuanSyncStatus("failed"),
         };
@@ -1363,7 +1363,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     : [];
                 this._taskDataChangedReasons?.clear?.();
                 const reloadReason = reasons.sort().join("+") || "siyuan-data-changed";
-                const suppressStorageWrites = reasons.includes("overwrite") || reasons.includes("sync-end");
+                const suppressStorageWrites = reasons.includes("overwrite") || reasons.includes("sync-end") || reasons.includes("sync-merge-result");
                 try {
                     if (this._taskMobileStartupOpenPromise) {
                         try { await this._taskMobileStartupOpenPromise; } catch (e) {}
@@ -3049,7 +3049,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     onunload() {
         clearPluginResourceTextCache();
         this._taskDataChangedQueued = false;
-        try { this.unregisterStartupSyncReloadListener(); } catch (e) {}
+        try { this.unregisterDocumentSyncReloadListener(); } catch (e) {}
         try { this.unregisterSiyuanSyncStatusListeners(); } catch (e) {}
         try { this.cancelMobileStartupAutoOpen(); } catch (e) {}
         try {
