@@ -97,6 +97,19 @@ test('document sync and status listeners are removed on unload', () => {
     assert.equal(h.handlers.size, 0);
 });
 
+test('cloud plugin-storage sync suppresses cache writeback, including coalesced legacy notifications', async () => {
+    const h = pluginHarness();
+    await h.plugin.onDataChanged('sync');
+    assert.equal(h.reloads.length, 1);
+    assert.equal(h.reloads[0].reason, 'sync');
+    assert.equal(h.reloads[0].suppressStorageWrites, true);
+    await Promise.all([h.plugin.onDataChanged('sync'), h.plugin.onDataChanged()]);
+    assert.equal(h.reloads.length, 2);
+    assert.equal(h.reloads[1].suppressStorageWrites, true);
+    await h.plugin.onDataChanged();
+    assert.equal(h.reloads[2].suppressStorageWrites, false, 'legacy notifications retain local-save behavior');
+});
+
 test('resume keeps unchanged or unavailable documents intact, then commits a real change once', async () => {
     let freshness = { status: 'unchanged', changed: false };
     let loads = 0;

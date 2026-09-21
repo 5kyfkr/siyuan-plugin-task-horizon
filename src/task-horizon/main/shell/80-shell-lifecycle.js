@@ -1653,6 +1653,7 @@ if (shouldMarkDirty) {
 
         try {
             if (state.modal) {
+                try { globalThis.__tmCleanupTitleWrapObservers?.(state.modal); } catch (e) {}
                 try { __tmCollapseMotion.cancel(state.modal); } catch (e2) {}
                 state.modal.remove();
                 state.modal = null;

@@ -11185,6 +11185,11 @@ select.tm-btn-secondary {
     margin: 0;
 }
 
+.tm-task-detail-remark-preview .tm-task-detail-remark-blank {
+    min-height: 1.6em;
+    line-height: 1.6;
+}
+
 .tm-task-detail-remark-preview p + p,
 .tm-task-detail-remark-preview p + blockquote,
 .tm-task-detail-remark-preview p + ul,
@@ -12382,12 +12387,14 @@ select.tm-btn-secondary {
     }
 }
 
-.tm-task-detail-remark-editor {
+.tm-task-detail-remark-shell .bc-textarea.tm-task-detail-remark-editor {
     display: none;
     position: relative;
     z-index: 4;
     min-height: 80px;
     padding: 0;
+    line-height: 1.6;
+    word-break: break-word;
     border: 0 !important;
     border-radius: 0;
     background: transparent !important;

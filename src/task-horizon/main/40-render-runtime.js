@@ -267,6 +267,7 @@
         } catch (e) {}
 
         if (prevModalSnapshot) {
+            try { globalThis.__tmCleanupTitleWrapObservers?.(prevModalSnapshot); } catch (e) {}
             // Calendar renders can be triggered by unrelated host/focus work.
             // Keep the mounted side-day calendar node across those renders;
             // rebuilding it causes all three event sources to load again.

@@ -1657,6 +1657,7 @@
         // 关闭后必须移除主面板；残留的 state.modal 会被主题/恢复刷新重新渲染为可见面板。
         const modals = document.querySelectorAll('.tm-modal, .tm-settings-modal, .tm-rules-modal, .tm-prompt-modal');
         modals.forEach(el => {
+            try { globalThis.__tmCleanupTitleWrapObservers?.(el); } catch (e) {}
             try { globalThis.__tmDisposeTaskDetailRuntime?.(el); } catch (e) {}
             try { el.remove(); } catch (e) {}
         });

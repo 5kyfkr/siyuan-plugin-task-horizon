@@ -1363,7 +1363,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     : [];
                 this._taskDataChangedReasons?.clear?.();
                 const reloadReason = reasons.sort().join("+") || "siyuan-data-changed";
-                const suppressStorageWrites = reasons.includes("overwrite") || reasons.includes("sync-end") || reasons.includes("sync-merge-result");
+                const suppressStorageWrites = reasons.includes("overwrite") || reasons.includes("sync") || reasons.includes("sync-end") || reasons.includes("sync-merge-result");
                 try {
                     if (this._taskMobileStartupOpenPromise) {
                         try { await this._taskMobileStartupOpenPromise; } catch (e) {}
@@ -1408,6 +1408,13 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         const normalizedReason = String(arguments[0] || '').trim();
         if (normalizedReason === 'overwrite') {
             return await this.requestSyncedDataReload('overwrite', {
+                delayMs: SYNCED_DATA_RELOAD_DEBOUNCE_MS,
+            });
+        }
+        if (normalizedReason === 'sync') {
+            // Cloud plugin-storage sync needs the same read-only hydration as
+            // overwrite and document sync; otherwise refresh persists caches again.
+            return await this.requestSyncedDataReload('sync', {
                 delayMs: SYNCED_DATA_RELOAD_DEBOUNCE_MS,
             });
         }
@@ -2885,6 +2892,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     destroyTaskDockFrame(element) {
         this.cancelTaskDockRecovery();
         const host = element instanceof HTMLElement ? element : this._taskDockElement;
+        try { globalThis.__tmCleanupTitleWrapObservers?.(host); } catch (e) {}
         try {
             if (host instanceof HTMLElement) host.replaceChildren();
         } catch (e) {}

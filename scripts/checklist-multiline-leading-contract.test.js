@@ -51,7 +51,7 @@ assert.match(
     /\.tm-checklist-pane--compact \.tm-checklist-item\.tm-checklist-item--title-wrapped > \.tm-checklist-leading input\.tm-task-checkbox\[type="checkbox"\]:not\(\.tm-task-checkbox--delight\)\s*\{[\s\S]*?top:\s*calc\(var\(--tm-checklist-compact-title-line-height\) \/ 2 \+ var\(--tm-checklist-compact-title-vertical-padding\)\)\s*!important;/,
     'only wrapped checklist checkboxes must be anchored to the first line',
 );
-assert.match(services, /function __tmSyncChecklistWrappedTitleClasses\(rootEl\)/);
+assert.match(services, /function __tmSyncChecklistWrappedTitleClasses\(rootEl, itemsToSync = null\)/);
 assert.match(services, /title\.getBoundingClientRect\?\.\(\)\.height/);
 assert.match(services, /tm-checklist-item--title-wrapped/);
 assert.match(renderRuntime, /__tmSyncChecklistWrappedTitleClasses\?\.\(state\.modal\)/);
