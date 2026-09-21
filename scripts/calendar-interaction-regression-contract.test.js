@@ -230,6 +230,7 @@ const sideDateClick = source.slice(sideDateClickStart, sideDateClickEnd);
 assert.match(sideDateClick, /const timeArea = target\?\.closest\?\.\('\.tm-proto-time-col'\)/);
 assert.match(sideDateClick, /const canvas = target\?\.closest\?\.\('\.tm-proto-time-canvas'\)/);
 assert.match(sideDateClick, /if \(canvas instanceof HTMLElement && !\(timeArea instanceof HTMLElement\)\) return;/, 'side time-axis clicks must not create a timed schedule outside a real day column');
+assert.match(sideDateClick, /const allDayLane = target\?\.closest\?\.\('\.tm-proto-allday, \.tm-proto-day-panel-allday'\)[\s\S]*?if \(allDayLane\) \{[\s\S]*?event\.stopPropagation\(\);[\s\S]*?return;/, 'side all-day lane clicks must not create a new schedule');
 assert.match(styles, /\.tm-proto-day-panel\s*>\s*header\s*\{[^}]*min-height:\s*40px;[^}]*padding:\s*3px 8px;/, 'the side panel header must stay compact while retaining button clearance');
 const prototypeClickStart = source.indexOf("prototypeSurface.addEventListener('click'");
 const prototypeViewStart = source.indexOf("else if (action === 'view')", prototypeClickStart);

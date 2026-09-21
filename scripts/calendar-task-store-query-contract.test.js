@@ -140,7 +140,7 @@ const taskDateRefetch = calendar.slice(
 assert.match(taskDateRefetch, /allowInactiveFullLoad: opt\.allowInactiveFullLoad === true/, 'full load must be opt-in for task-date source refresh');
 assert.match(
     calendar,
-    /deferFullLoad: taskDateCalendarName === 'side'[\s\S]*side-taskdate-background-complete/,
+    /deferFullLoad: taskDateCalendarName === 'side'\s*&& opts\.fastFirst !== false\s*&& opts\.requireCompleteCache !== true/,
     'the side dock must defer an incomplete fast-first task-date read to the shared warm path',
 );
 assert.match(

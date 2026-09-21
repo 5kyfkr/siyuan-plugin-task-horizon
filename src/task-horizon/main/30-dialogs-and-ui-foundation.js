@@ -10411,31 +10411,25 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
         }
 
-        const taskMap = customOrderProjection?.flatTasks || state.flatTasks || {};
-        const hasIncompleteAncestorMemo = new Map();
-        const hasIncompleteAncestor = (task) => {
+        const taskMap = customOrderProjection?.flatTasks || globalThis.__tmTaskStore?.getFlatMap?.() || state.flatTasks || {};
+        const hasHiddenCompletedAncestorMemo = new Map();
+        const hasHiddenCompletedAncestor = (task) => {
             const tid = String(task?.id || '').trim();
-            if (tid && hasIncompleteAncestorMemo.has(tid)) return hasIncompleteAncestorMemo.get(tid);
-            let parentId = task?.parentTaskId;
+            if (tid && hasHiddenCompletedAncestorMemo.has(tid)) return hasHiddenCompletedAncestorMemo.get(tid);
+            let parentId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
             const seen = new Set();
             while (parentId) {
                 if (seen.has(parentId)) break;
                 seen.add(parentId);
                 const parent = taskMap[parentId];
-                if (!parent) {
-                    if (tid) hasIncompleteAncestorMemo.set(tid, null);
-                    return null;
-                }
-                const parentDone = typeof __tmIsTaskDoneEffective === 'function'
-                    ? __tmIsTaskDoneEffective(parent)
-                    : parent.done === true;
-                if (!parentDone) {
-                    if (tid) hasIncompleteAncestorMemo.set(tid, true);
+                if (!parent) break;
+                if (isTaskHiddenByCompletion(parent)) {
+                    if (tid) hasHiddenCompletedAncestorMemo.set(tid, true);
                     return true;
                 }
-                parentId = parent.parentTaskId;
+                parentId = String(parent.parentTaskId || parent.parent_task_id || '').trim();
             }
-            if (tid) hasIncompleteAncestorMemo.set(tid, false);
+            if (tid) hasHiddenCompletedAncestorMemo.set(tid, false);
             return false;
         };
 
@@ -10504,18 +10498,18 @@ return Number(state.contextInteractionQuietUntil || 0);
             state.taskDocHeadingGroupTasks = [];
         }
         const includeCanceledStatus = __tmRuleIncludesCanceledStatus(rule);
+        const isTaskHiddenByCompletion = (task) => {
+            const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+                ? __tmIsTaskDoneEffective(task)
+                : task.done === true;
+            return taskDone || (!includeCanceledStatus && __tmIsTaskCanceled(task));
+        };
+        const isTaskVisibleByCompletion = (task) => !excludeCompleted
+            || (!isTaskHiddenByCompletion(task) && !hasHiddenCompletedAncestor(task));
         const filterVisibleTasks = (list) => {
             const source = Array.isArray(list) ? list : [];
             if (!excludeCompleted) return source;
-            return source.filter((t) => {
-                const ancestorState = t.parentTaskId ? hasIncompleteAncestor(t) : null;
-                if (t.parentTaskId && ancestorState === false) return false;
-                const taskDone = typeof __tmIsTaskDoneEffective === 'function'
-                    ? __tmIsTaskDoneEffective(t)
-                    : t.done === true;
-                if (taskDone || (!includeCanceledStatus && __tmIsTaskCanceled(t))) return false;
-                return true;
-            });
+            return source.filter(isTaskVisibleByCompletion);
         };
 
         const tasksForTabs = filterVisibleTasks(allTasksForTabs);
@@ -10661,7 +10655,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         const traverse = (list, ancestorMatched = false) => {
             const siblings = sortSiblings(list);
             siblings.forEach((t) => {
-                if (!t) return;
+                // 匹配父任务后展开子树时，也必须保留完成状态的可见性边界。
+                if (!t || !isTaskVisibleByCompletion(t)) return;
                 const isMatched = matchedSet.has(t.id);
                 const isAncestor = ancestorSet.has(t.id);
                 const show = isMatched || isAncestor || ancestorMatched;

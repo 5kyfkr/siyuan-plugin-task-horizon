@@ -20110,7 +20110,16 @@
                     // its clicks land on the canvas/columns layer underneath.
                     // Only a real day column may create a timed schedule.
                     if (canvas instanceof HTMLElement && !(timeArea instanceof HTMLElement)) return;
-                    const allDay = !!target?.closest?.('.tm-proto-allday');
+                    const allDayLane = target?.closest?.('.tm-proto-allday, .tm-proto-day-panel-allday')
+                        || geometryTarget?.closest?.('.tm-proto-allday, .tm-proto-day-panel-allday');
+                    // The side panel reserves its all-day lane for existing
+                    // events and the collapse toggle. Empty lane clicks must
+                    // not open the new-schedule editor.
+                    if (allDayLane) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        return;
+                    }
                     if (timeArea && canvas instanceof HTMLElement) {
                         const liveSettings = getSettings();
                         const minute = prototypeTimelineMinutesAtPoint(canvas, event.clientY, liveSettings);
@@ -20118,7 +20127,7 @@
                     }
                     const activeCalendar = state.sideDay?.calendar || cal;
                     const pointAnchor = createPrototypePointAnchor(event, timeArea || panel);
-                    callCalendarAdapter(activeCalendar, 'dispatchDateClick', date, allDay, event, pointAnchor || panel);
+                    callCalendarAdapter(activeCalendar, 'dispatchDateClick', date, false, event, pointAnchor || panel);
                 });
                 surface.addEventListener('contextmenu', (event) => {
                     const target = event.target instanceof Element ? event.target : null;
@@ -21195,18 +21204,14 @@
                 if (isLoading) {
                     return;
                 }
+                // eventsSet runs before loading(false). Its dedupe pass can
+                // mark a local mutation, but that must not prevent a completed
+                // range load from clearing the presentation marker and painting.
+                try { rootEl.classList.remove('tm-cal-view-switching'); } catch (e) {}
                 if (sourceOnlyRefresh) {
-                    // CalendarEngine emits eventsSet after this callback. Keep the
-                    // source-only marker alive until eventsSet can release it.
-                    try { __tmScheduleCalendarSourceRefetchRelease('side'); } catch (e3) {}
-                    return;
+                    try { __tmScheduleCalendarSourceRefetchRelease('side', 0); } catch (e) {}
                 }
-                try {
-                    requestAnimationFrame(() => {
-                        try { rootEl.classList.remove('tm-cal-view-switching'); } catch (e3) {}
-                        queueSidePrototypeRender();
-                    });
-                } catch (e) {}
+                queueSidePrototypeRender();
             },
         });
         try {
@@ -22674,7 +22679,6 @@
         const needsScheduleTaskDaySet = shouldApplyMonthTaskDateDedupe
             || (isTimeGridRange && settings.hideScheduledTaskDatesInAllDay);
         const forceFreshTaskDates = __tmShouldForceFreshCalendarTaskDateQuery();
-        const allowInactiveFullLoad = opts.allowInactiveFullLoad === true || opts.allowInactiveView === true;
         const taskDateSourceName = String(opts.source || 'calendar-task-date-events').trim() || 'calendar-task-date-events';
         const taskDateCalendarName = opts.calendar || (taskDateSourceName.includes('side') ? 'side' : 'main');
         const taskDateInstanceName = opts.instance || (taskDateSourceName.includes('side') ? 'side' : 'main');
@@ -22700,24 +22704,12 @@
                 requestSeq: Number(opts.requestSeq || 0) || undefined,
                 source: taskDateSourceName,
             };
-            let initial = await Promise.resolve()
+            const initial = await Promise.resolve()
                 .then(() => window.tmQueryCalendarTaskDateEvents(listHistoryStart, end, queryOptions))
                 .catch(() => []);
 
-            // Side dock startup may only have the task-list projection (a
-            // partial snapshot). If that fast projection has no events, keep
-            // the source non-blocking; the shared warm path will refetch it
-            // after the authoritative snapshot is ready.
-            const sideAllowsFullLoad = taskDateCalendarName === 'side'
-                && (queryOptions.allowInactiveFullLoad === true || queryOptions.allowInactiveView === true)
-                && queryOptions.fastFirst !== false;
-            const cacheIsComplete = window.__tmCalendarAllTasksCache?.complete === true;
-            if (sideAllowsFullLoad && (!cacheIsComplete || initial.length === 0)) {
-                // The shared task warm path refreshes the source after the
-                // authoritative snapshot is ready. Do not block the side dock
-                // on a full all-document read when fast-first had no result.
-                try { scheduleTaskDateCacheWarm('side-taskdate-background-complete'); } catch (e) {}
-            }
+            // tmQueryCalendarTaskDateEvents owns the deferred cache warm-up
+            // and refreshes the mounted source when its full snapshot is ready.
             return Array.isArray(initial) ? initial : [];
         };
         const [taskDates, schedules] = await Promise.all([

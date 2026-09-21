@@ -99,7 +99,7 @@ assert.match(
 );
 assert.match(
     source,
-    /deferFullLoad: taskDateCalendarName === 'side'[\s\S]*side-taskdate-background-complete/,
+    /deferFullLoad: taskDateCalendarName === 'side'\s*&& opts\.fastFirst !== false\s*&& opts\.requireCompleteCache !== true/,
     'side task-date sources must defer the authoritative full load after fast-first paint',
 );
 assert.match(
