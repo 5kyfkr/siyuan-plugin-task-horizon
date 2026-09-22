@@ -189,6 +189,19 @@ function createHarness(options = {}) {
     function moveBlock(body) {
         const block = blocks.get(body.id);
         if (!block) throw new Error('move source not found');
+        const targetParent = body.previousID
+            ? blocks.get(blocks.get(body.previousID)?.parent_id)
+            : blocks.get(body.parentID);
+        if (block.type === 'i' && targetParent && targetParent.type !== 'l') {
+            throw new Error('invalid block structure: NodeDocument cannot contain NodeListItem');
+        }
+        const updateDescendantRoots = (id, rootID) => {
+            for (const child of blocks.values()) {
+                if (child.parent_id !== id) continue;
+                child.root_id = rootID;
+                updateDescendantRoots(child.id, rootID);
+            }
+        };
         let parent;
         let insertIndex = 0;
         if (body.previousID) {
@@ -202,6 +215,7 @@ function createHarness(options = {}) {
             siblings.splice(insertIndex, 0, block);
             block.parent_id = previous.parent_id;
             block.root_id = previous.root_id;
+            updateDescendantRoots(block.id, block.root_id);
             siblings.forEach((item, index) => { item.sort = index + 1; });
             return;
         }
@@ -214,6 +228,7 @@ function createHarness(options = {}) {
             siblings.unshift(block);
             block.parent_id = parent.id;
             block.root_id = parent.type === 'd' ? parent.id : parent.root_id;
+            updateDescendantRoots(block.id, block.root_id);
             siblings.forEach((item, index) => { item.sort = index + 1; });
         }
     }
@@ -3112,9 +3127,12 @@ async function testNativeStatuses() {
     assert.ok((await query({ customStatuses: ['cancelled'] })).includes(IDS.secondTask));
 }
 
-run().then(testNativeStatuses).then(() => {
-    process.stdout.write('kernel contract tests passed\n');
-}).catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-});
+module.exports = { createHarness, IDS };
+if (require.main === module) {
+    run().then(testNativeStatuses).then(() => {
+        process.stdout.write('kernel contract tests passed\n');
+    }).catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+    });
+}

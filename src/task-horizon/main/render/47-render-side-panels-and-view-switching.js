@@ -777,7 +777,7 @@
                     root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败，请确认日历引擎已加载。</div>`;
                     return;
                 }
-                try { opts.onMounted?.(root); } catch (e) {}
+                try { opts.onMounted?.(modal.querySelector('#tmCalendarRoot')); } catch (e) {}
                 return;
             }
             if (attempt >= 80) {
@@ -1049,7 +1049,7 @@
             stage.replaceWith(nextStage);
             const cleanupPreviousView = () => {
                 if (prevMode === 'calendar') {
-                    try { globalThis.__tmCalendar?.unmount?.({ preserveRootHtml: false }); } catch (e) {}
+                    try { globalThis.__tmCalendar?.unmount?.({ preserveInstance: true }); } catch (e) {}
                 }
             };
             cleanupPreviousView();

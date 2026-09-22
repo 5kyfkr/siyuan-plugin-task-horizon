@@ -654,7 +654,7 @@ function testStaticContracts() {
         'permanent delete cleanup must not enqueue writes against deleted task blocks');
     assert.match(kernelSource, /if \(!containerID\)[\s\S]*independentDocument: true/,
         'document moves without an existing task list must create an independent list instead of a naked list item');
-    assert.match(apiSource, /moveToRecycleDocument[\s\S]*mode: 'recycle-document'/,
+    assert.match(apiSource, /moveToRecycleDocument[\s\S]*mode: moveToRecycleDocument \? 'recycle-document' : 'independent-document'/,
         'the lifecycle bridge must reach the recycle-specific kernel move path');
     assert.match(lifecycleSource, /__tmArchiveDeletedTask[\s\S]*moveToRecycleDocument: true[\s\S]*__tmWriteTaskLifecycleMeta/,
         'recycle metadata must be written only after the independent-list move succeeds');

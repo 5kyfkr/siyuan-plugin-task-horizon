@@ -182,6 +182,7 @@
             name,
             enabled: value.enabled !== false,
             prompt,
+            includeInternalPrompt: value.includeInternalPrompt !== false,
             conversationId: String(value.conversationId || '').trim(),
             condition: String(value.condition || '') === 'today_has_completed_tasks' ? 'today_has_completed_tasks' : 'always',
             schedule: {
@@ -913,7 +914,8 @@
             const completedTaskContext = completedTasks.length
                 ? `\n\n以下是 ${__tmScheduledLocalDateKey(occurrence)} 当天实际完成的任务（完成日期只按 taskCompleteAt 计算）：\n${JSON.stringify(completedTasks.slice(0, 300), null, 2)}`
                 : '';
-            const context = `${completedTaskContext}${__tmScheduledFocusInstruction(occurrence)}`;
+            const includeInternalPrompt = event.includeInternalPrompt !== false;
+            const context = `${completedTaskContext}${includeInternalPrompt ? __tmScheduledFocusInstruction(occurrence) : ''}`;
             const result = await globalThis.__tmAI.runAutomation({
                 prompt: `${event.prompt}${context}`,
                 eventId: event.id,
@@ -921,7 +923,8 @@
                 sessionID: conversationId,
                 sessionTitle: `定时：${event.name}`,
                 persistSession: true,
-                requireFocusTools: true,
+                includeInternalPrompt,
+                requireFocusTools: includeInternalPrompt,
             });
             const resolvedConversationId = String(result?.sessionID || '').trim();
             if (resolvedConversationId && resolvedConversationId !== event.conversationId) {

@@ -24,7 +24,7 @@ assert.match(workbench, /prepareConversationTurn\(runtime\.activeSessionID, prom
 assert.match(workbench, /userEntryID: prepared\.userEntryID,[\s\S]*contentRevision: prepared\.revision/, 'ordinary chats must anchor the request to the saved user entry revision');
 assert.match(workbench, /event\.type === 'turn'[\s\S]*turnID = text\(event\.turnID\)[\s\S]*saveSession\(turnID\)/, 'ordinary chats must commit the SiYuan runtime turn explicitly');
 assert.match(workbench, /saved\?\.session[\s\S]*runtime\.session = next/, 'ordinary chats must adopt the canonical session returned by SiYuan');
-assert.match(workbench, /const agentPrompt = `\$\{prompt\}\$\{automationSafetyInstruction\(\)\}`[\s\S]*prepareConversationTurn\(sessionID, agentPrompt[\s\S]*message: agentPrompt/, 'scheduled chats must persist and send the same read-only model prompt');
+assert.match(workbench, /const agentPrompt = includeInternalPrompt \? `\$\{prompt\}\$\{automationSafetyInstruction\(\)\}` : prompt;[\s\S]*prepareConversationTurn\(sessionID, agentPrompt[\s\S]*message: agentPrompt/, 'scheduled chats must persist and send the same model prompt, appending the internal instruction only when it is enabled');
 
 assert.match(settings, /__TM_AGENT_BACKEND_CAPABILITY_PREFIX = 'plugin\/backend\/siyuan-plugin-task-horizon\/'/, 'Task Horizon must target only its stable backend capability IDs');
 assert.match(settings, /nextAI = JSON\.parse\(JSON\.stringify\(currentAI\)\)/, 'policy updates must clone the full current AI config');

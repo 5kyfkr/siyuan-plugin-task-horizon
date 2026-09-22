@@ -38,6 +38,11 @@ assert.match(index, /sessionStorage\?\.setItem\?\.\(sessionKey, "1"\)/, 'startup
 assert.match(index, /MOBILE_STARTUP_READY_TIMEOUT_MS/, 'readiness waiting must be bounded');
 assert.match(index, /onLayoutReady\(\)[\s\S]*scheduleMobileStartupAutoOpen\(\)/, 'auto-open must begin from the layout-ready lifecycle');
 
+assert.match(index, /const isMobileTaskDockPanelOpen = \(node\) => \{/, 'a closed mobile Dock side panel must be detectable');
+assert.match(index, /if \(direct && document\.body\.contains\(direct\) && isMobileTaskDockPanelOpen\(direct\)\) return direct;/, 'a closed Dock panel must not be accepted as the manager host');
+assert.match(index, /if \(this\.isRuntimeMobileClient\(\) && !isMobileTaskDockPanelOpen\(element\)\) \{/, 'mounting must refuse a closed mobile Dock panel before the startup auto-open needs the same instance');
+assert.match(index, /data-mobile-plugin-dock-content="\$\{type\}"/, 'the Dock lookup must stay scoped to this plugin instead of matching any plugin Dock');
+
 const syncStart = index.indexOf('    registerDocumentSyncReloadListener()');
 const syncEnd = index.indexOf('\n    unregisterDocumentSyncReloadListener()', syncStart);
 assert.notEqual(syncStart, -1, 'the startup sync listener must exist');
@@ -70,5 +75,7 @@ const lifecycle = fs.readFileSync(
 assert.match(lifecycle, /const mobileStartupOpen = openOptions\.source === 'mobile-startup-auto-open'/, 'manager open must identify the cold-start path');
 assert.match(lifecycle, /waitNotebookCache: hardenMobileStartupLoad,[\s\S]*waitForDocScopeResolve: hardenMobileStartupLoad,[\s\S]*retryEmptyDocScope: hardenMobileStartupLoad/, 'cold-start loading must wait for notebook cache and retry an empty configured scope');
 assert.match(lifecycle, /if \(awaitInitialLoad\) return await initialLoadPromise/, 'cold-start opener must await the first task load');
+assert.match(lifecycle, /const waitOutStartupGate = openOptions\.source === 'mobile-startup-auto-open'[\s\S]*state\.__tmStartupOpenWaitingGate = true;[\s\S]*return openManager\(openOptions\)/, 'the cold-start open must not adopt an in-flight open that could leave the manager in the hidden Dock');
+assert.match(lifecycle, /if \(mobileStartupOpen && runtimeMobile\) \{[\s\S]*__tmSetMount\(null\);[\s\S]*__taskHorizonTabElement = null;/, 'the cold-start open must pin the manager to the full-screen host');
 
 console.log('mobile startup auto-open contract tests passed');

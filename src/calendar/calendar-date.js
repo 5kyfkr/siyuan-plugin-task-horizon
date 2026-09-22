@@ -101,6 +101,9 @@
                 end = addDays(startOfWeek(lastVisibleDay, firstDay), 7);
                 if (options.fixedWeekCount === true) end = addDays(start, 42);
             }
+        } else if (key === 'dayGridWeek' || type === 'dayGridWeek') {
+            start = startOfWeek(date, firstDay);
+            end = addDays(start, 7);
         } else if (key === 'timeGrid3Day' || config.durationDays === 3) {
             start = date;
             end = addDays(start, 3);

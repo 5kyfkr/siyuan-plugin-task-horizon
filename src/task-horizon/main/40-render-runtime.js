@@ -279,7 +279,10 @@
             try { __tmDisposeDocTabsRuntime(prevModalSnapshot, { clearHoverTimer: true }); } catch (e) {}
             try {
                 if (prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmCalendarRoot')) {
-                    globalThis.__tmCalendar?.unmount?.({ preserveRootHtml: !!(keepMountSnapshot || useSoftSwap) });
+                    globalThis.__tmCalendar?.unmount?.({
+                        preserveRootHtml: !!(keepMountSnapshot || useSoftSwap),
+                        preserveInstance: state.__tmPreserveShellDuringViewSwitchRender === true,
+                    });
                 }
             } catch (e) {}
             if (!useSoftSwap) {

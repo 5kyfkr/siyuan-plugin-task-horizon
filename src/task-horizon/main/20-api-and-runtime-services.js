@@ -6337,6 +6337,7 @@
         const headingId = String(opts.heading?.id || '').trim();
         const moveIndependentList = opts.moveIndependentList === true;
         const moveToRecycleDocument = opts.moveToRecycleDocument === true;
+        const moveToIndependentDocument = opts.moveToIndependentDocument === true;
         if (!tid) throw new Error('任务移动缺少任务 ID');
         if (headingId) {
             const moveData = {
@@ -6359,11 +6360,11 @@
             };
             return await __tmExecuteQueuedMoveKernel(null, moveData);
         }
-        if (moveToRecycleDocument) {
+        if (moveToRecycleDocument || moveToIndependentDocument) {
             return await __tmExecuteQueuedMoveKernel(null, {
                 taskId: tid,
                 targetDocId: String(targetDocId || '').trim(),
-                mode: 'recycle-document',
+                mode: moveToRecycleDocument ? 'recycle-document' : 'independent-document',
             });
         }
         const command = {

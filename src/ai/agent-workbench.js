@@ -3882,57 +3882,15 @@
         return true;
     }
 
-    const AUTOMATION_READ_TOOLS = TASK_HORIZON_READ_ONLY_TOOLS;
-    const AUTOMATION_SESSION_TOOLS = new Set(['todo_write']);
-    const AUTOMATION_NATIVE_READ_ACTIONS = new Map([
-        ['sql', new Set(['query'])],
-    ]);
-    const AUTOMATION_TOMATO_ATTR_PATTERN = /\bcustom-tomato-[a-z0-9_-]+\b/i;
     const AUTOMATION_FOCUS_TOOLS = Object.freeze(['query_focus_statistics', 'aggregate_time_usage']);
-    const AUTOMATION_READ_SKILLS = new Set(['task-capture', 'task-planning', 'task-review', 'task-template']);
 
     function automationToolName(name) {
         const raw = text(name).toLowerCase();
         return isTaskHorizonToolName(raw) ? normalizeToolName(raw) : raw;
     }
 
-    function automationToolAllowed(name, args = {}) {
-        const normalized = automationToolName(name);
-        if (AUTOMATION_READ_TOOLS.has(normalized) || AUTOMATION_SESSION_TOOLS.has(normalized)) return true;
-        const nativeActions = AUTOMATION_NATIVE_READ_ACTIONS.get(normalized);
-        if (nativeActions) {
-            if (!nativeActions.has(text(args?.action).toLowerCase())) return false;
-            // Focus data has a first-class MCP contract; never fall back to internal Tomato attributes.
-            const sqlText = [args?.stmt, args?.sql, args?.query].map((value) => text(value)).join('\n');
-            if (normalized === 'sql' && AUTOMATION_TOMATO_ATTR_PATTERN.test(sqlText)) return false;
-            return true;
-        }
-        if (normalized !== 'skill') return false;
-        const action = text(args?.action).toLowerCase();
-        if (action === 'list') return true;
-        const skillName = text(args?.name).toLowerCase();
-        return action === 'load' && AUTOMATION_READ_SKILLS.has(skillName);
-    }
-
-    function automationBlock(message) {
-        const error = new Error(message || '定时智能体请求触发了安全阻断');
-        error.code = 'TM_AUTOMATION_BLOCKED';
-        return error;
-    }
-
-    function automationEventBlocked(type) {
-        return type === 'confirm'
-            || type === 'question'
-            || type === 'browser_capability_call';
-    }
-
     function automationSafetyInstruction() {
         return '\n\n这是无人值守的定时执行。只能读取、筛选和聚合数据，也可以使用只读的 sql.query、skill.list 或加载 Task Horizon 内置技能；禁止创建、修改或删除任何数据，禁止请求用户确认或提问，禁止调用浏览器或其他前端能力。已有任务数据附在提示词中时直接使用，不要重复查询；但涉及专注时长或番茄数据时，必须从本轮 tool definitions 中选择描述为“专注统计”或“时间投入统计”的 Task Horizon MCP capability（内部标识为 query_focus_statistics 或 aggregate_time_usage），实际函数名必须使用带 plugin__siyuan_plugin_task_horizon__ 前缀和校验后缀的完整名称，禁止直接调用裸标识，也禁止通过 SQL 读取 custom-tomato-* 属性。';
-    }
-
-    function automationConfirmAllowed(event = {}) {
-        return !!text(event.confirmID)
-            && automationToolAllowed(event.name, event.arguments);
     }
 
     async function approveAutomationConfirm(event) {
@@ -3941,7 +3899,18 @@
             headers: agentHeaders(),
             body: JSON.stringify({ confirmID: text(event.confirmID), approved: true }),
         });
-        if (!response.ok) throw new Error(`只读工具确认失败 (${response.status})`);
+        if (!response.ok) throw new Error(`定时智能体工具确认失败 (${response.status})`);
+    }
+
+    async function answerAutomationQuestion(event) {
+        const questionID = text(event.questionID || event.questionId || event.id);
+        if (!questionID) throw new Error('定时智能体提问缺少 questionID');
+        const response = await fetch(`${API_ROOT}/question`, {
+            method: 'POST',
+            headers: agentHeaders(),
+            body: JSON.stringify({ questionID, answers: [] }),
+        });
+        if (!response.ok) throw new Error(`定时智能体提问处理失败 (${response.status})`);
     }
 
     function scheduleAutomationSessionCleanup(sessionID) {
@@ -4003,8 +3972,9 @@
     async function runAutomation(request = {}) {
         const prompt = text(request.prompt || request.message);
         if (!prompt) throw new Error('自动化提示词不能为空');
-        const agentPrompt = `${prompt}${automationSafetyInstruction()}`;
-        await ensureAutomationTaskToolsReady({ focusTools: request.requireFocusTools === true });
+        const includeInternalPrompt = request.includeInternalPrompt !== false;
+        const agentPrompt = includeInternalPrompt ? `${prompt}${automationSafetyInstruction()}` : prompt;
+        await ensureAutomationTaskToolsReady({ focusTools: includeInternalPrompt && request.requireFocusTools === true });
         const persistent = request.persistSession === true;
         const requestedSessionID = text(request.sessionID);
         let sessionID = persistent
@@ -4039,7 +4009,9 @@
                 references: [],
                 sessionID,
                 editorContext: {},
-                frontendCapabilities: [],
+                frontendCapabilities: Array.isArray(globalThis.__taskHorizonFrontendCapabilityDescriptors)
+                    ? globalThis.__taskHorizonFrontendCapabilityDescriptors
+                    : [],
                 ...(userEntryID ? { userEntryID, contentRevision } : {}),
             }, async (event) => {
                 if (event.type === 'turn') {
@@ -4051,26 +4023,20 @@
                     return;
                 }
                 if (event.type === 'tool_call') {
-                    const name = automationToolName(event.name);
-                    if (!automationToolAllowed(event.name, event.arguments)) {
-                        controller.abort();
-                        const action = text(event.arguments?.action);
-                        throw automationBlock(`非只读工具调用：${text(event.name) || '未知工具'}${action ? `.${action}` : ''}`);
-                    }
-                    toolCalls.push({ name, arguments: clone(event.arguments || {}) });
+                    toolCalls.push({ name: automationToolName(event.name), arguments: clone(event.arguments || {}) });
                     return;
                 }
                 if (event.type === 'confirm') {
-                    if (!automationConfirmAllowed(event)) {
-                        controller.abort();
-                        throw automationBlock(`非只读工具确认：${text(event.name) || '未知工具'}`);
-                    }
                     await approveAutomationConfirm(event);
                     return;
                 }
-                if (automationEventBlocked(event.type)) {
-                    controller.abort();
-                    throw automationBlock(`交互或前端操作：${event.type}`);
+                if (event.type === 'question') {
+                    await answerAutomationQuestion(event);
+                    return;
+                }
+                if (event.type === 'browser_capability_call') {
+                    await invokeBrowserCapability(event);
+                    return;
                 }
                 if (event.type === 'error') throw new Error(text(event.message) || '智能体执行失败');
                 if (event.type === 'interrupted') throw new Error(text(event.message) || '智能体响应已中断');
@@ -4238,9 +4204,6 @@
         toolName: automationToolName,
         normalizeToolName,
         automaticConfirmKind,
-        isAllowedTool: automationToolAllowed,
-        isAllowedConfirm: automationConfirmAllowed,
-        isBlockedEventType: automationEventBlocked,
         sanitizeAutomationOutput,
         hashContent,
         postAgentInteraction,

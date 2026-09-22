@@ -1662,6 +1662,8 @@
     --tm-cal-primary: var(--b3-theme-primary, var(--tm-primary-color, #3a6ee8));
     --tm-cal-primary-soft: color-mix(in srgb, var(--tm-cal-primary) 11%, var(--tm-cal-panel));
     --tm-cal-primary-soft-strong: color-mix(in srgb, var(--tm-cal-primary) 18%, var(--tm-cal-panel));
+    /* Keep event color opacity separate from the backdrop that softens grid lines. */
+    --tm-cal-event-panel-opacity: 50%;
     /* Blend the configured color into the panel so today stays quiet without
        losing a readable day cue. */
     --tm-cal-today-bg: color-mix(in srgb, var(--tm-calendar-today-highlight-color, var(--tm-cal-primary)) 32%, var(--tm-cal-panel));
@@ -2549,7 +2551,7 @@
     padding: 0 7px;
     overflow: visible;
     border-radius: 3px;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 2.5px 0 0 var(--tm-proto-event-color);
     color: color-mix(in srgb, var(--tm-proto-event-color) 72%, var(--tm-cal-text));
     font-size: 11px;
@@ -2597,14 +2599,14 @@
     overflow: visible;
     border: 1px solid color-mix(in srgb, var(--tm-proto-event-color) 18%, var(--tm-cal-border));
     border-radius: var(--tm-calendar-event-radius);
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 3px 0 0 var(--tm-proto-event-color);
     color: color-mix(in srgb, var(--tm-proto-event-color) 72%, var(--tm-cal-text));
     cursor: pointer;
     text-align: left;
 }.tm-proto-event:hover{
     border-color: color-mix(in srgb, var(--tm-proto-event-color) 36%, var(--tm-cal-border));
-    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
 }.tm-proto-event.is-done{
     opacity: 0.56;
 }.tm-proto-event.is-done .tm-proto-event-title{
@@ -2667,7 +2669,7 @@
     overflow: hidden;
     border: 0;
     border-radius: 4px;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 2.5px 0 0 var(--tm-proto-event-color);
     color: color-mix(in srgb, var(--tm-proto-event-color) 72%, var(--tm-cal-text));
     font-size: 11.5px;
@@ -2677,7 +2679,7 @@
 }
 .tm-proto-event--chip:hover{
     border-color: transparent;
-    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
 }
 .tm-proto-event--chip .tm-proto-event-check{
     order: -1;
@@ -2736,7 +2738,7 @@
     overflow: hidden;
     border: 0;
     border-radius: 4px;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 2.5px 0 0 var(--tm-proto-event-color);
     color: color-mix(in srgb, var(--tm-proto-event-color) 72%, var(--tm-cal-text));
     font-size: 11px;
@@ -2784,7 +2786,7 @@
     overflow: hidden;
     border: 1px solid color-mix(in srgb, var(--tm-proto-event-color) 22%, var(--tm-cal-border));
     border-radius: 5px;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 3px 0 0 var(--tm-proto-event-color), 0 1px 2px color-mix(in srgb, var(--tm-cal-border) 38%, transparent);
     color: color-mix(in srgb, var(--tm-proto-event-color) 72%, var(--tm-cal-text));
     cursor: pointer;
@@ -2793,7 +2795,7 @@
 }
 .tm-proto-time-col > .tm-proto-event--block:hover{
     border-color: color-mix(in srgb, var(--tm-proto-event-color) 36%, var(--tm-cal-border));
-    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 3px 0 0 var(--tm-proto-event-color), 0 3px 8px color-mix(in srgb, var(--tm-cal-border) 40%, transparent);
     z-index: 6;
 }
@@ -2860,7 +2862,7 @@
     margin: 2px -4px;
     padding: 0 7px;
     border-radius: 3px;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 2.5px 0 0 var(--tm-proto-event-color);
     color: color-mix(in srgb, var(--tm-proto-event-color) 72%, var(--tm-cal-text));
     font-size: 11px;
@@ -3175,14 +3177,14 @@
 .tm-proto-event--chip,
 .tm-proto-event--allday{
     border: 1px solid color-mix(in srgb, var(--tm-proto-event-color) 18%, var(--tm-cal-border));
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 3px 0 0 var(--tm-proto-event-color);
 }
 .tm-proto-event--chip:hover,
 .tm-proto-event--allday:hover,
 .tm-proto-span-bar:hover{
     border-color: color-mix(in srgb, var(--tm-proto-event-color) 36%, var(--tm-cal-border));
-    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
 }
 .tm-proto-event--chip .tm-proto-event-title,
 .tm-proto-event--allday .tm-proto-event-title{
@@ -3356,7 +3358,7 @@
     overflow: hidden !important;
     border: 1px solid color-mix(in srgb, var(--tm-proto-event-color) 22%, var(--tm-cal-border));
     border-radius: 5px;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 3px 0 0 var(--tm-proto-event-color), 0 1px 2px color-mix(in srgb, var(--tm-cal-border) 38%, transparent);
     color: color-mix(in srgb, var(--tm-proto-event-color) 72%, var(--tm-cal-text));
     font-size: 11.5px;
@@ -3366,7 +3368,7 @@
 .tm-proto-timeline .tm-proto-allday-cell > .tm-proto-event--allday:not(.is-span):hover,
 .tm-proto-day-panel-allday .tm-proto-event--allday:not(.is-span):hover{
     border-color: color-mix(in srgb, var(--tm-proto-event-color) 36%, var(--tm-cal-border));
-    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 3px 0 0 var(--tm-proto-event-color), 0 3px 8px color-mix(in srgb, var(--tm-cal-border) 40%, transparent);
 }
 .tm-proto-timeline .tm-proto-allday-cell > .tm-proto-event--allday:not(.is-span) .tm-proto-event-title,
@@ -4262,12 +4264,12 @@
 .tm-proto-month-cell.is-today{ background:var(--tm-cal-today-bg); }
 .tm-proto-event--chip:hover{
     border-color:transparent;
-    background:color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background:color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     filter:brightness(.97) saturate(1.1);
 }
 .tm-proto-time-col > .tm-proto-event--block:hover{
     border-color:color-mix(in srgb, var(--tm-proto-event-color) 22%, var(--tm-cal-border));
-    background:color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background:color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow:inset 3px 0 0 var(--tm-proto-event-color), 0 3px 8px color-mix(in srgb, var(--tm-cal-border) 40%, transparent);
     z-index:6;
 }
@@ -4567,7 +4569,7 @@
     padding: 2px 6px 2px 7px;
     border: 0;
     border-radius: 4px;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 2.5px 0 0 var(--tm-proto-event-color);
     font-size: 11px;
     font-weight: 650;
@@ -4609,7 +4611,7 @@
     display: none;
 }.tm-proto-event--allday:hover{
     border-color: transparent;
-    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
 }.tm-proto-event--allday .tm-proto-event-copy{
     gap: 0;
 }.tm-proto-event--allday .tm-proto-event-title{
@@ -5278,7 +5280,7 @@
     padding: 1px 6px 1px 5px;
     border: 0;
     border-radius: 4px;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 2.5px 0 0 var(--tm-proto-event-color);
 }
 .tm-proto-event--chip .tm-proto-event-copy{ display: contents; }
@@ -5294,7 +5296,7 @@
     padding: 2px 6px 2px 7px;
     border: 0;
     border-radius: 4px;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 2.5px 0 0 var(--tm-proto-event-color);
 }
 .tm-proto-time-col > .tm-proto-event--block{
@@ -5306,11 +5308,11 @@
     box-sizing: border-box;
     border: 1px solid color-mix(in srgb, var(--tm-proto-event-color) 22%, var(--tm-cal-border));
     border-radius: 5px;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 3px 0 0 var(--tm-proto-event-color), 0 1px 2px color-mix(in srgb, var(--tm-cal-border) 38%, transparent);
 }
 .tm-proto-time-col > .tm-proto-event--block:hover{
-    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), var(--tm-cal-panel));
+    background: color-mix(in srgb, var(--tm-proto-event-color) calc(var(--tm-cal-event-opacity, 25%) + 5%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
     box-shadow: inset 3px 0 0 var(--tm-proto-event-color), 0 3px 8px color-mix(in srgb, var(--tm-cal-border) 40%, transparent);
 }
 .tm-proto-event--block .tm-proto-event-copy{
@@ -5898,6 +5900,13 @@
     scroll-padding-bottom: var(--tm-view-bottom-inset, 0px);
 }
 
+/* The two-column week grid is a full-stage view, so it claims horizontal
+   swipes for week paging while vertical gestures keep native scrolling. */
+.tm-calendar-wrap--mobile .tm-proto-main-view > .tm-proto-week-grid,
+.tm-calendar-root--dock .tm-proto-main-view > .tm-proto-week-grid{
+    touch-action: pan-y;
+}
+
 /* Mobile month viewport fit. The month surface is a flex column inside the
    actual plugin stage, so the six week rows should divide that stage rather
    than preserve the desktop chip minimum. This also lets short phone heights
@@ -6249,7 +6258,7 @@
         padding: 2px 4px 2px 6px;
         border: 0;
         border-radius: 5px;
-        background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel));
+        background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent));
         box-shadow: inset 2.5px 0 0 var(--tm-proto-event-color);
         overflow: hidden;
     }
@@ -7235,7 +7244,7 @@
     overflow: hidden;
     border: 1px solid color-mix(in srgb, var(--tm-proto-event-color) 18%, var(--tm-cal-border)) !important;
     border-radius: 4px;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel)) !important;
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent)) !important;
     box-shadow: inset 2.5px 0 0 var(--tm-proto-event-color) !important;
 }
 .tm-proto-surface--compact-month .tm-proto-event--chip:not(.tm-proto-month-event)::before{
@@ -7632,6 +7641,13 @@
 .tm-calendar-surface[data-tm-timeline-swipe="previous"] .tm-proto-main-view > .tm-proto-timeline > .tm-proto-time-scroll .tm-proto-time-collapse{
     animation: tm-proto-mobile-timeline-in-previous 180ms ease-out both;
 }
+/* Week-grid rows reuse the same page-slide cue as the timeline columns. */
+.tm-calendar-surface[data-tm-timeline-swipe="next"] .tm-proto-main-view > .tm-proto-week-grid .tm-proto-week-grid-row{
+    animation: tm-proto-mobile-timeline-in-next 180ms ease-out both;
+}
+.tm-calendar-surface[data-tm-timeline-swipe="previous"] .tm-proto-main-view > .tm-proto-week-grid .tm-proto-week-grid-row{
+    animation: tm-proto-mobile-timeline-in-previous 180ms ease-out both;
+}
 
 /* Unified schedule editor card: primary fields stay visible, infrequent
    settings expand in place so task search and notes never require a second
@@ -7769,7 +7785,7 @@
     white-space: nowrap !important;
     border: 1px solid color-mix(in srgb, var(--tm-proto-event-color) 18%, var(--tm-cal-border)) !important;
     border-radius: var(--tm-proto-card-radius, 6px) !important;
-    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), var(--tm-cal-panel)) !important;
+    background: color-mix(in srgb, var(--tm-proto-event-color) var(--tm-cal-event-opacity, 25%), color-mix(in srgb, var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%), transparent)) !important;
     box-shadow: inset 3px 0 0 var(--tm-proto-event-color) !important;
 }
 .tm-proto-more-popover-event > .tm-proto-event--chip::before{
@@ -8849,4 +8865,190 @@
     .tm-proto-list.is-calendar-transition-collapse .tm-proto-list-week-picker,
     .tm-proto-list.is-calendar-transition-collapse .tm-proto-list-month-picker{ animation: none !important; }
     .tm-proto-list-date-cell .tm-proto-list-date-number::before{ animation: none !important; transition: none !important; }
+}
+.tm-proto-week-grid{
+    display:flex;
+    flex-direction:column;
+    flex:1 1 auto;
+    height:100%;
+    min-height:0;
+    gap:0;
+    /* The four rows share whatever height the host stage provides, and the
+       measured bottom view-switcher inset stays reserved so the last row is
+       never hidden behind the mobile/dock navigation bar. */
+    padding:0 4px calc(8px + var(--tm-view-bottom-inset,0px));
+    box-sizing:border-box;
+    /* One shared rhythm for the day header, a card row and a cross-day lane,
+       using the same card height and gap as every other calendar card. */
+    --tm-proto-week-grid-pad-top:4px;
+    --tm-proto-week-grid-head:24px;
+    --tm-proto-week-grid-pitch:calc(var(--tm-proto-card-height,22px) + var(--tm-proto-card-gap,3px));
+}
+.tm-proto-week-grid-row{
+    position:relative;
+    flex:1 1 0;
+    /* The four-lane budget must always fit, otherwise the last card would be
+       clipped instead of collapsing into a "+N" summary. */
+    min-height:calc(var(--tm-proto-week-grid-pad-top,4px) + var(--tm-proto-week-grid-head,24px) + 4 * var(--tm-proto-week-grid-pitch,25px) + 6px);
+}
+.tm-proto-week-grid-cells{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    min-height:0;
+    height:100%;
+}
+.tm-proto-week-span-layer{
+    position:absolute;
+    z-index:5;
+    /* Bars sit exactly where the cells' card area begins: cell padding plus
+       the day header, matching the month cell coordinate system. */
+    top:calc(var(--tm-proto-week-grid-pad-top,4px) + var(--tm-proto-week-grid-head,24px));
+    left:0;
+    right:0;
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-auto-rows:var(--tm-proto-week-grid-pitch,25px);
+    height:calc(var(--tm-proto-week-span-rows,0) * var(--tm-proto-week-grid-pitch,25px));
+    pointer-events:none;
+}
+.tm-proto-week-span-layer .tm-proto-span-bar{
+    position:relative;
+    display:flex;
+    top:auto !important;
+    right:auto !important;
+    left:auto !important;
+    width:auto !important;
+    min-width:0;
+    margin:0 3px;
+    /* Same card height and corner radius as every other calendar card, so the
+       cross-day bar never reads as a rounder pill than its neighbours. */
+    height:var(--tm-proto-card-height,22px);
+    min-height:var(--tm-proto-card-height,22px);
+    max-height:var(--tm-proto-card-height,22px);
+    line-height:20px;
+    pointer-events:auto;
+}
+/* Week rows repeat a cross-day bar as a rounded pill on both ends. A row wrap
+   is a visual break, not a hard cut, so the continuation chevrons carry the
+   "continues" meaning instead of square corners. */
+.tm-proto-week-span-layer .tm-proto-span-bar{
+    border-radius:var(--tm-proto-card-radius,6px) !important;
+}
+.tm-proto-week-span-layer .tm-proto-span-bar.is-continuation-start{
+    box-shadow:none !important;
+}
+.tm-proto-week-grid-cell{
+    min-width:0;
+    min-height:0;
+    height:100%;
+    padding:4px 4px 6px;
+    border-right:1px solid var(--tm-cal-border);
+    border-bottom:1px solid var(--tm-cal-border);
+    overflow:hidden;
+    box-sizing:border-box;
+}
+.tm-proto-week-grid-cells > .tm-proto-week-grid-cell:nth-child(2){ border-right:0; }
+.tm-proto-week-grid-cell .tm-proto-week-day-label{
+    flex:0 0 auto;
+    margin-right:4px;
+    color:var(--tm-cal-muted);
+    font-size:11px;
+    font-weight:600;
+    line-height:1;
+    white-space:nowrap;
+}
+.tm-proto-week-grid-cell.is-today .tm-proto-week-day-label{ color:var(--tm-cal-primary); }
+/* The weekday label narrows the room left for lunar/holiday text. */
+.tm-proto-week-grid-cell .tm-proto-date-meta{ max-width:calc(100% - 78px); }
+.tm-proto-week-grid-cell .tm-proto-month-events{ min-height:0; overflow:hidden; }
+.tm-proto-week-grid-cell .tm-proto-month-regular-stack{ gap:var(--tm-proto-card-gap,3px); }
+.tm-proto-week-grid-cell .tm-proto-month-events{ gap:var(--tm-proto-card-gap,3px); }
+.tm-proto-week-grid-cell .tm-proto-more{
+    height:var(--tm-proto-card-height,22px);
+    min-height:var(--tm-proto-card-height,22px);
+}
+.tm-proto-week-grid-cell .tm-proto-month-events{ padding-top:0; }
+.tm-proto-week-grid-cell .tm-proto-month-regular-stack{ position:relative; z-index:2; }
+/* The cross-day band is reserved by an in-flow spacer, exactly like a month
+   cell, so the gap between a bar and the first card is identical. */
+.tm-proto-week-span-reserve{
+    display:block;
+    flex:0 0 auto;
+    width:1px;
+    pointer-events:none;
+}
+.tm-proto-week-completion-cell{ padding:8px 10px; }
+.tm-proto-week-completion{ display:flex; flex-direction:column; min-height:100%; color:var(--tm-cal-text); }
+.tm-proto-week-completion > strong{ font-size:12px; font-weight:700; line-height:1.3; }
+.tm-proto-week-completion > b{ margin-top:6px; font-size:17px; line-height:1.2; font-variant-numeric:tabular-nums; }
+.tm-proto-week-completion > b em{ color:var(--tm-cal-muted); font-size:10px; font-style:normal; font-weight:600; }
+.tm-proto-week-completion-percent{ margin-top:2px; color:var(--tm-cal-muted); font-size:10px; }
+.tm-proto-week-completion-track{ height:3px; margin-top:8px; overflow:hidden; border-radius:999px; background:color-mix(in srgb,var(--tm-cal-muted) 18%,transparent); }
+.tm-proto-week-completion-track i{ display:block; height:100%; border-radius:inherit; background:var(--tm-cal-primary); }
+.tm-proto-week-stat-bars{ display:flex; align-items:flex-end; justify-content:space-between; gap:4px; min-height:38px; margin-top:auto; padding-top:8px; }
+.tm-proto-week-stat-day{ display:flex; flex:1 1 0; flex-direction:column; align-items:center; gap:2px; min-width:0; }
+.tm-proto-week-stat-bar{ position:relative; display:block; width:7px; min-height:4px; border-radius:3px; background:color-mix(in srgb,var(--tm-cal-primary) 22%,transparent); overflow:hidden; }
+.tm-proto-week-stat-bar i{ position:absolute; left:0; right:0; bottom:0; display:block; border-radius:inherit; background:var(--tm-cal-primary); }
+.tm-proto-week-stat-day small{ color:var(--tm-cal-muted); font-size:9px; line-height:1; }
+@media (max-width:768px){
+    .tm-proto-week-grid{ padding-inline:2px; --tm-proto-week-grid-pad-top:3px; }
+    .tm-proto-week-grid-cell{ padding:3px 3px 5px; }
+    .tm-proto-week-grid-cell .tm-proto-week-day-label{ margin-right:3px; font-size:10px; }
+    .tm-proto-week-completion-cell{ padding:7px 8px; }
+    /* The compact month turns its event list into a centred dot row. A week
+       cell has four full card rows, so it keeps a stacked list instead. */
+    .tm-proto-week-grid-cell .tm-proto-month-events{
+        display:flex;
+        flex-direction:column;
+        flex-wrap:nowrap;
+        align-items:stretch;
+        justify-content:flex-start;
+        gap:2px;
+        margin-top:2px;
+    }
+    .tm-proto-week-grid-cell .tm-proto-month-regular-stack{
+        display:flex;
+        flex-direction:column;
+        align-items:stretch;
+        gap:2px;
+    }
+}
+
+/* Week grid keeps readable event cards on phones and in the dock. The compact
+   month view intentionally collapses to dots, but a two-column week cell has
+   four card rows of room, so the month card text treatment stays visible. */
+.tm-calendar-root--dock .tm-proto-week-grid-cell .tm-proto-event--chip,
+.tm-calendar-wrap--mobile .tm-proto-week-grid-cell .tm-proto-event--chip{
+    display:flex !important;
+    align-items:center;
+    justify-content:flex-start;
+    width:100%;
+    height:var(--tm-proto-card-height,22px) !important;
+    min-height:var(--tm-proto-card-height,22px) !important;
+    max-height:var(--tm-proto-card-height,22px) !important;
+    padding:1px 4px 1px 5px !important;
+    border:1px solid color-mix(in srgb,var(--tm-proto-event-color) 18%,var(--tm-cal-border)) !important;
+    border-radius:var(--tm-proto-card-radius,6px);
+    background:color-mix(in srgb,var(--tm-proto-event-color) var(--tm-cal-event-opacity,25%),color-mix(in srgb,var(--tm-cal-panel) var(--tm-cal-event-panel-opacity, 50%),transparent)) !important;
+    box-shadow:inset 2.5px 0 0 var(--tm-proto-event-color) !important;
+}
+.tm-calendar-root--dock .tm-proto-week-grid-cell .tm-proto-event--chip::before,
+.tm-calendar-wrap--mobile .tm-proto-week-grid-cell .tm-proto-event--chip::before{ display:none !important; }
+.tm-calendar-root--dock .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-copy,
+.tm-calendar-wrap--mobile .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-copy{ display:block !important; min-width:0; overflow:hidden; }
+.tm-calendar-root--dock .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-title,
+.tm-calendar-wrap--mobile .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-title{ display:block !important; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--tm-cal-event-title-font-size,11px) !important; line-height:20px !important; }
+.tm-calendar-root--dock .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-time,
+.tm-calendar-wrap--mobile .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-time,
+.tm-calendar-root--dock .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-meta,
+.tm-calendar-wrap--mobile .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-meta{ display:none !important; }
+
+/* The generic mobile chip treatment hides completion controls to keep the
+   compact month dots clean. Week-grid cards have enough room for the control,
+   so restore it here for reminders and one-day task/date cards. */
+.tm-calendar-root--dock .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-check-wrap,
+.tm-calendar-root--dock .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-check,
+.tm-calendar-wrap--mobile .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-check-wrap,
+.tm-calendar-wrap--mobile .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-check{
+    display:inline-flex !important;
 }

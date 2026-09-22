@@ -39,7 +39,10 @@ assert.match(source.slice(sharedSpanStart, sharedSpanEnd), /const recurringIcon 
 const monthSpanStart = source.indexOf('        const protoSpanMarkup = (eventApi');
 const monthSpanEnd = source.indexOf('\n        const protoEventMarkup = (eventApi', monthSpanStart);
 assert.ok(monthSpanStart >= 0 && monthSpanEnd > monthSpanStart, 'month span markup must remain inspectable');
-assert.match(source.slice(monthSpanStart, monthSpanEnd), /const recurringIcon = isSegmentStart \? buildCalendarRecurringTaskIconMarkup\(ext\) : '';/, 'month cross-day spans should mark the first segment');
+// Month rows keep the icon on the first visible cell; week-grid rows repeat it
+// together with the title because every row restarts the label.
+assert.match(source.slice(monthSpanStart, monthSpanEnd), /const showSpanTitle = isSegmentStart \|\| segment\?\.repeatTitle === true;/, 'span markup must expose a shared title/icon flag');
+assert.match(source.slice(monthSpanStart, monthSpanEnd), /const recurringIcon = showSpanTitle \? buildCalendarRecurringTaskIconMarkup\(ext\) : '';/, 'cross-day spans should mark the segment that carries the title');
 
 assert.match(styles, /\.tm-proto-recurring-task-icon\s*\{/, 'recurring icon needs a dedicated calendar style');
 assert.match(styles, /flex:\s*0\s*0\s*13px/, 'recurring icon should reserve a fixed inline slot');

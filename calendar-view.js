@@ -797,6 +797,8 @@
 
     const state = {
         mounted: false,
+        mainCalendarSuspended: false,
+        mainCalendarNeedsRefresh: false,
         rootEl: null,
         calendarEl: null,
         calendar: null,
@@ -2305,6 +2307,10 @@
             type: 'timeGridWeek',
             titleFormat: { month: 'numeric', day: 'numeric' },
         },
+        dayGridWeek: {
+            type: 'dayGridWeek',
+            titleFormat: { month: 'numeric', day: 'numeric' },
+        },
         dayGridMonth: {
             type: 'dayGridMonth',
             titleFormat: { month: 'numeric' },
@@ -2322,6 +2328,7 @@
         'timeGrid3Day',
         'timeGridWorkdays',
         'timeGridWeek',
+        'dayGridWeek',
         'dayGridMonth',
         'listMonth',
     ]);
@@ -2331,6 +2338,7 @@
         { value: 'timeGrid3Day', label: '3日' },
         { value: 'timeGridWorkdays', label: '工作日' },
         { value: 'timeGridWeek', label: '周' },
+        { value: 'dayGridWeek', label: '周格' },
         { value: 'dayGridMonth', label: '月' },
         { value: 'listMonth', label: '列表' },
     ];
@@ -2340,6 +2348,28 @@
         if (key) acc[key] = String(item?.label || key);
         return acc;
     }, Object.create(null));
+    // The two-column week grid is a compact-host layout (mobile, dock and
+    // narrow tab panes). Desktop keeps its classic tab set, so the segmented
+    // control must not grow an extra option and a desktop host must never
+    // restore into the week grid.
+    const MAIN_CALENDAR_COMPACT_ONLY_VIEWS = new Set(['dayGridWeek']);
+    function isMainCalendarCompactHost() {
+        return state.isMobileDevice === true
+            || state.isDockHost === true
+            || state.isNarrowDesktopLayout === true
+            || isLikelyMobileRuntime();
+    }
+    function getMainCalendarViewOptions(options = {}) {
+        if (options.compact === true) return MAIN_CALENDAR_VIEW_OPTIONS;
+        return MAIN_CALENDAR_VIEW_OPTIONS.filter((item) => !MAIN_CALENDAR_COMPACT_ONLY_VIEWS.has(String(item?.value || '').trim()));
+    }
+    function resolveMainCalendarHostView(viewType, fallback = 'timeGridWeek', compact = false) {
+        const next = normalizeMainCalendarViewType(viewType, fallback);
+        if (compact !== true && MAIN_CALENDAR_COMPACT_ONLY_VIEWS.has(next)) {
+            return normalizeMainCalendarViewType(fallback, 'timeGridWeek');
+        }
+        return next;
+    }
     function normalizeMainCalendarViewType(value, fallback = 'timeGridWeek') {
         const clean = (input) => {
             let raw = String(input ?? '').trim();
@@ -2360,9 +2390,9 @@
         if (MAIN_CALENDAR_ALLOWED_VIEWS.has(fb)) return fb;
         return 'timeGridWeek';
     }
-    function renderMainCalendarViewOptionHtml(selectedView) {
+    function renderMainCalendarViewOptionHtml(selectedView, options = {}) {
         const active = normalizeMainCalendarViewType(selectedView, 'timeGridWeek');
-        return MAIN_CALENDAR_VIEW_OPTIONS.map((item) => {
+        return getMainCalendarViewOptions({ compact: options.compact === true }).map((item) => {
             const value = String(item?.value || '').trim();
             if (!value) return '';
             return `<option value="${esc(value)}" ${active === value ? 'selected' : ''}>${esc(item.label || value)}</option>`;
@@ -2560,7 +2590,7 @@
             select.className = 'tm-calendar-view-select';
             select.setAttribute('data-tm-cal-view-select', 'main');
             select.setAttribute('aria-label', '切换日历视图');
-            MAIN_CALENDAR_VIEW_OPTIONS.forEach((item) => {
+            getMainCalendarViewOptions({ compact: isMainCalendarCompactHost() }).forEach((item) => {
                 const opt = document.createElement('option');
                 opt.value = item.value;
                 opt.textContent = item.label;
@@ -3216,9 +3246,10 @@
 
     function getMainCalendarDefaultViewForHost(settings, meta) {
         const s = settings || getSettings();
-        return String(meta?.defaultScope || '').trim() === 'mobile-dock'
-            ? normalizeMainCalendarViewType(s.initialViewMobile, 'timeGridDay')
-            : normalizeMainCalendarViewType(s.initialViewDesktop, 'timeGridWeek');
+        const compact = String(meta?.defaultScope || '').trim() === 'mobile-dock';
+        return compact
+            ? resolveMainCalendarHostView(s.initialViewMobile, 'timeGridDay', true)
+            : resolveMainCalendarHostView(s.initialViewDesktop, 'timeGridWeek', false);
     }
 
     function resolveMainCalendarDefaultAnchorDate(viewType, settings) {
@@ -13818,7 +13849,9 @@
         if (next.flushTaskPanel !== false && wrap) {
             try { scheduleTaskPageRender(wrap, settings); } catch (e) {}
         }
-        if (next.main !== false && mainCalendar) {
+        if (next.main !== false && mainCalendar && state.mainCalendarSuspended) {
+            if (next.layoutOnly !== true) state.mainCalendarNeedsRefresh = true;
+        } else if (next.main !== false && mainCalendar) {
             try {
                 if (next.layoutOnly === true) {
                     if (wrap) applyCalendarSlotHeightStyle(wrap, settings);
@@ -18783,6 +18816,7 @@
     function scheduleMainNowIndicatorRefresh() {
         const main = state;
         if (!main || typeof main.queuePrototypeSurfaceRender !== 'function') return;
+        if (main.mainCalendarSuspended) return;
         const viewType = String(getCalendarView(main.calendar)?.type || main._lastViewType || '').trim();
         if (!isTimeGridViewType(viewType)) {
             if (main.nowIndicatorTimer) {
@@ -21786,7 +21820,7 @@
                         calendarId,
                     },
                 };
-                if (shouldHideCompletedAllDayCalendarEvent(event, settings, { viewType })) continue;
+                if (viewType !== 'dayGridWeek' && shouldHideCompletedAllDayCalendarEvent(event, settings, { viewType })) continue;
                 out.push(event);
             }
         }
@@ -22230,6 +22264,10 @@
         const cal = calendar || null;
         const id = String(sourceId || '').trim();
         if (!cal || !id) return false;
+        if (cal === state.calendar && state.mainCalendarSuspended) {
+            state.mainCalendarNeedsRefresh = true;
+            return true;
+        }
         const calendarKey = options?.calendarKey === 'side' ? 'side' : 'main';
         const existingPromise = state.calendarTaskDateInPlaceRefreshPromises?.[calendarKey];
         if (existingPromise) return true;
@@ -22385,6 +22423,7 @@
 
     function __tmSchedulePostMutationRefresh(item, action, options = {}) {
         const opt = (options && typeof options === 'object') ? options : {};
+        if (state.mainCalendarSuspended && opt.main !== false) state.mainCalendarNeedsRefresh = true;
         const patchSummary = item ? __tmPatchVisibleSingleScheduleInPlace(item, action) : {
             touchedMain: false,
             touchedSide: false,
@@ -22842,6 +22881,10 @@
         const cal = calendar || null;
         const id = String(sourceId || '').trim();
         if (!cal || !id) return false;
+        if (cal === state.calendar && state.mainCalendarSuspended) {
+            state.mainCalendarNeedsRefresh = true;
+            return true;
+        }
         const calendarKey = cal === state.calendar ? 'main' : (cal === state.sideDay?.calendar ? 'side' : '');
         try {
             const source = getCalendarAdapter(cal)?.getEventSourceById?.(id) || null;
@@ -23434,6 +23477,7 @@
             const m = (mutation && typeof mutation === 'object') ? mutation : {};
             const phase = String(m.phase || '').trim();
             if (phase && !['optimistic', 'local', 'commit', 'rollback'].includes(phase)) return;
+            if (state.mainCalendarSuspended) state.mainCalendarNeedsRefresh = true;
             const data = (m.data && typeof m.data === 'object') ? m.data : {};
             const type = String(m.type || data.type || '').trim();
             const source = String(m.source || data.source || '').trim();
@@ -28111,6 +28155,13 @@
             && state.wrapEl instanceof HTMLElement
             && (!prevRootEl || prevRootEl === rootEl || !state.mainCalendarHostSignature || state.mainCalendarHostSignature === incomingHostSignature)) {
             try {
+                const wasSuspended = state.mainCalendarSuspended === true;
+                if (wasSuspended && prevRootEl && prevRootEl !== rootEl) {
+                    // Keep the original root too: event and resize handlers
+                    // close over it when the calendar is first mounted.
+                    rootEl.replaceWith(prevRootEl);
+                    rootEl = prevRootEl;
+                }
                 if (prevRootEl !== rootEl || !rootEl.contains(state.wrapEl)) {
                     rootEl.replaceChildren(state.wrapEl);
                     state.rootEl = rootEl;
@@ -28126,6 +28177,15 @@
                 if (incomingHostSignature) state.mainCalendarHostSignature = incomingHostSignature;
                 state.opts = opts || state.opts || {};
                 if (state.opts?.settingsStore) state.settingsStore = state.opts.settingsStore;
+                state.mainCalendarSuspended = false;
+                if (wasSuspended) {
+                    syncWrapBottomInset(rootEl, state.wrapEl, state);
+                    if (state.mainCalendarNeedsRefresh) {
+                        state.mainCalendarNeedsRefresh = false;
+                        callCalendarAdapter(state.calendar, 'refetchEvents');
+                    }
+                    state.queuePrototypeSurfaceRender?.();
+                }
                 return true;
             } catch (e) {
                 // Fall through to a full mount if the existing surface cannot
@@ -28730,6 +28790,7 @@
         const queuePrototypeSurfaceRender = (options = {}) => {
             if (!(prototypeSurface instanceof HTMLElement)) return;
             if (options.taskDoneChanged === true) prototypeLastRenderKey = '';
+            if (state.mainCalendarSuspended) return;
             try { scheduleMainNowIndicatorRefresh(); } catch (e) {}
             if (prototypeRenderRaf) return;
             const run = () => {
@@ -29201,6 +29262,12 @@
                     if (target.closest('.tm-proto-resize-handle, .tm-proto-event-check, .tm-cal-task-event-check, .tm-proto-more, button, input, select, textarea, a')) return null;
                     return cell;
                 }
+                if (viewType === 'dayGridWeek') {
+                    const grid = target.closest('.tm-proto-week-grid');
+                    if (!(grid instanceof HTMLElement)) return null;
+                    if (target.closest('.tm-proto-resize-handle, .tm-proto-event-check, .tm-cal-task-event-check, .tm-proto-more, button, input, select, textarea, a')) return null;
+                    return grid;
+                }
                 if (!isTimeGridViewType(viewType)) return null;
                 const timeline = target.closest('.tm-proto-main-view > .tm-proto-timeline');
                 if (!(timeline instanceof HTMLElement)) return null;
@@ -29225,7 +29292,7 @@
             const beginMobileMonthSwipe = (event, source) => {
                 const viewType = String(getCalendarView(calendar)?.type || '').trim();
                 if (!(isMobileDevice || isDockHost)
-                    || (viewType !== 'dayGridMonth' && !isTimeGridViewType(viewType) && !isCalendarListViewType(viewType))) return;
+                    || (viewType !== 'dayGridMonth' && viewType !== 'dayGridWeek' && !isTimeGridViewType(viewType) && !isCalendarListViewType(viewType))) return;
                 if (source === 'pointer' && event?.pointerType !== 'touch') return;
                 const target = mobileMonthSwipeTarget(event?.target instanceof Element ? event.target : null);
                 if (!target) return;
@@ -29281,13 +29348,13 @@
             const getMobileTimelineStepDays = (activeCalendar, viewType) => {
                 const type = String(viewType || getCalendarView(activeCalendar)?.type || '').trim();
                 const rangeDays = Math.max(1, Number(getCalendarView(activeCalendar)?.range?.days) || 1);
-                if (type === 'timeGridWeek' || type === 'timeGridWorkdays') return 7;
+                if (type === 'timeGridWeek' || type === 'dayGridWeek' || type === 'timeGridWorkdays') return 7;
                 if (type === 'timeGrid3Day') return 3;
                 return rangeDays;
             };
             const navigateMobileTimeline = (activeCalendar, direction, options = {}) => {
                 const type = String(options.viewType || getCalendarView(activeCalendar)?.type || '').trim();
-                if (!activeCalendar || !isTimeGridViewType(type)) return false;
+                if (!activeCalendar || (type !== 'dayGridWeek' && !isTimeGridViewType(type))) return false;
                 const engineDate = protoDayStart(getCalendarDate(activeCalendar));
                 const pendingDate = protoDayStart(prototypeMobileTimelineSwipeAnchorDate);
                 const pendingMatchesEngine = pendingDate instanceof Date
@@ -29349,6 +29416,16 @@
                     }
                 } else if (viewType === 'dayGridMonth') {
                     shifted = shiftPrototypeMonthScroll(direction, { animate: true }) === true;
+                } else if (viewType === 'dayGridWeek') {
+                    prototypeMobileMonthSwipeDirection = direction;
+                    try {
+                        prototypeSurface.setAttribute('data-tm-timeline-swipe', direction < 0 ? 'previous' : 'next');
+                    } catch (e) {}
+                    shifted = navigateMobileTimeline(activeCalendar, direction, { viewType });
+                    if (!shifted) {
+                        prototypeMobileMonthSwipeDirection = 0;
+                        try { prototypeSurface.removeAttribute('data-tm-timeline-swipe'); } catch (e) {}
+                    }
                 } else if (isTimeGridViewType(viewType)) {
                     prototypeMobileMonthSwipeDirection = direction;
                     try {
@@ -30040,10 +30117,12 @@
                         }
                         const activeCalendar = state.calendar || calendar;
                         const monthCell = dayEl.closest?.('.tm-proto-month-cell');
-                        if (monthCell && String(getCalendarView(activeCalendar)?.type || '').trim() === 'dayGridMonth') {
-                            // A month date owns the single-day panel. Clicking
-                            // the same date again closes it; another date
-                            // switches the panel in place.
+                        const cellViewType = String(getCalendarView(activeCalendar)?.type || '').trim();
+                        if (monthCell && (cellViewType === 'dayGridMonth' || cellViewType === 'dayGridWeek')) {
+                            // Compact month and week-grid dates both own the
+                            // single-day panel. Clicking the same date again
+                            // closes it; another date switches the panel in
+                            // place instead of opening a new schedule card.
                             togglePrototypeDayPanelForDate(day);
                             return;
                         }
@@ -30208,9 +30287,9 @@
                 // The virtual month strip keeps week rows directly inside the
                 // scroller canvas (no .tm-proto-month-grid section), so the
                 // drop-target container must match both layouts.
-                const monthGrid = eventEl?.closest?.('.tm-proto-month-grid, [data-tm-proto-month-scroll]')
+                const monthGrid = eventEl?.closest?.('.tm-proto-month-grid, [data-tm-proto-month-scroll], .tm-proto-week-grid')
                     || (drag?.isMonthCell
-                        ? (prototypeSurface.querySelector('.tm-proto-month-grid') || prototypeSurface.querySelector('[data-tm-proto-month-scroll]'))
+                        ? (prototypeSurface.querySelector('.tm-proto-month-grid') || prototypeSurface.querySelector('[data-tm-proto-month-scroll]') || prototypeSurface.querySelector('.tm-proto-week-grid'))
                         : null);
                 const container = timeline || monthGrid;
                 if (!(container instanceof Element)) return null;
@@ -30488,7 +30567,7 @@
                     moved: false,
                     resizeEdge: resizeEdge === 'start' || resizeEdge === 'end' ? resizeEdge : '',
                     timer: 0,
-                    isMonthCell: !!eventEl.closest?.('.tm-proto-month-cell'),
+                    isMonthCell: !!eventEl.closest?.('.tm-proto-month-cell, .tm-proto-week-grid'),
                     isDayPanelEvent: !!eventEl.closest?.('.tm-proto-day-panel'),
                     // Keep an immutable drag origin. The live event object may
                     // be optimistically updated while the gesture is ending;
@@ -31408,13 +31487,16 @@
             const isWrappedSegmentEnd = continuesAfter;
             const isRowEnd = !!(segment
                 && Number(segment.segmentEndIndex) > 0
-                && Number(segment.segmentEndIndex) % 7 === 0);
-            const title = isSegmentStart ? esc(protoEventTitle(eventApi)) : '&nbsp;';
-            const titleVisualStyle = isSegmentStart && typeof buildTaskTitleOpacityStyleForTask === 'function'
+                && Number(segment.segmentEndIndex) % (Number(segment.columns) || 7) === 0);
+            // Week-grid rows repeat a cross-day title on every row it crosses;
+            // month rows keep the title on the segment's first visible cell.
+            const showSpanTitle = isSegmentStart || segment?.repeatTitle === true;
+            const title = showSpanTitle ? esc(protoEventTitle(eventApi)) : '&nbsp;';
+            const titleVisualStyle = showSpanTitle && typeof buildTaskTitleOpacityStyleForTask === 'function'
                 && typeof getCalendarEventTaskLikeForTitle === 'function'
                 ? buildTaskTitleOpacityStyleForTask(getCalendarEventTaskLikeForTitle(eventApi))
                 : '';
-            const recurringIcon = isSegmentStart ? buildCalendarRecurringTaskIconMarkup(ext) : '';
+            const recurringIcon = showSpanTitle ? buildCalendarRecurringTaskIconMarkup(ext) : '';
             const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(`${eventApi.title || ''} · 提醒时间：${ext.__tmMergedReminderLabel}`)}"` : '';
             const done = resolveCalendarEventDoneState(ext);
             const activeViewType = String(viewType || getCalendarView(calendar)?.type || state._lastViewType || '').trim();
@@ -31497,6 +31579,7 @@
         ].map((value) => Number(toMs(value)) || 0).join('|');
             const protoMonthSpanLayout = (days, events, laneLimitValue = Infinity) => {
                 const starts = new Map();
+            const columns = Math.max(1, Math.floor(Number(laneLimitValue?.columns) || 7));
             const byDay = new Map();
             const reserves = new Map();
             const rowSegments = new Map();
@@ -31519,7 +31602,7 @@
                     ? Math.max(0, Math.floor(Number(laneLimitValue.limitForRow(row)) || 0))
                     : laneLimitDefault);
             const resolveDayLaneLimit = (index) => Math.min(
-                resolveLaneLimit(Math.floor(index / 7)),
+                resolveLaneLimit(Math.floor(index / columns)),
                 typeof laneLimitValue?.limitForDay === 'function'
                     ? Math.max(0, Math.floor(Number(laneLimitValue.limitForDay(index)) || 0))
                     : Infinity,
@@ -31615,8 +31698,8 @@
                 }
                 const isScheduledDay = (dayIndex) => scheduledDayKeys.has(protoDateKey(days[dayIndex]));
                 for (let cursor = startIndex; cursor < endIndex;) {
-                    const row = Math.floor(cursor / 7);
-                    const rowEnd = Math.min(endIndex, (row + 1) * 7);
+                    const row = Math.floor(cursor / columns);
+                    const rowEnd = Math.min(endIndex, (row + 1) * columns);
                     let segmentStart = cursor;
                     while (segmentStart < rowEnd && isScheduledDay(segmentStart)) segmentStart += 1;
                     if (segmentStart >= rowEnd) {
@@ -31660,6 +31743,7 @@
                     runEnd = visibleEndIndex;
                     const segment = {
                         eventApi,
+                        columns,
                         segmentStartIndex: segmentStart,
                         segmentEndIndex: runEnd,
                         // Treat an event that starts before the visible month
@@ -31698,7 +31782,10 @@
             const defaultCapacity = Math.max(0, Math.floor(Number(options.defaultCapacity) || 0));
             const hiddenRows = options.hiddenRows instanceof Set ? options.hiddenRows : new Set();
             const maxSpanLanes = Math.max(0, Math.floor(Number(options.spanLimit) || 0));
-            const allSpansByDay = protoMonthSpanLayout(days, events, 0).hiddenByDay;
+            // Month rows are seven columns wide; the week grid reuses the same
+            // compaction with two columns per row.
+            const columns = Math.max(1, Math.floor(Number(options.columns) || 7));
+            const allSpansByDay = protoMonthSpanLayout(days, events, { limit: 0, columns }).hiddenByDay;
             // Both the compact month grid and virtual week rows use this
             // compactor. Merge before budgeting rows so +N counts real cards.
             events = mergeCalendarAllDayReminders(events);
@@ -31731,7 +31818,7 @@
                     .sort(protoCompareMonthEvents);
                 const spanEvents = Array.from(allSpansByDay.get(index) || []);
                 const capacity = getCapacity(index);
-                const spanLimit = hiddenRows.has(Math.floor(index / 7)) ? 0 : maxSpanLanes;
+                const spanLimit = hiddenRows.has(Math.floor(index / columns)) ? 0 : maxSpanLanes;
                 const hasHidden = spanEvents.length + regularEvents.length > capacity
                     || spanEvents.length > spanLimit;
                 const availableRows = Math.max(0, capacity - (hasHidden ? 1 : 0));
@@ -31747,6 +31834,7 @@
                 limitForDay: (index) => spanLimitByDay.get(index),
                 hiddenRows,
                 hiddenEventsByDay,
+                columns,
             });
             return { spanLayout, visibleRegularByDay, moreByDay };
         };
@@ -31990,6 +32078,121 @@
                 return `<div class="tm-proto-month-head ${dayIndex === 0 || dayIndex === 6 ? 'is-weekend' : ''}">${label}</div>`;
             }).join('');
             return `<div class="tm-proto-month-scroll" data-tm-proto-month-scroll="1"><div class="tm-proto-month-scroll-head"><div class="tm-proto-month-head-row">${weekdayHead}</div></div><div class="tm-proto-month-canvas"></div></div>`;
+        };
+        const protoRenderWeekGrid = (view, events, settings) => {
+            const days = protoVisibleDays(view, 'dayGridWeek').slice(0, 7);
+            const weekStart = days[0] || protoDayStart(view?.activeStart || new Date());
+            const weekEnd = days.length ? protoAddDays(days[days.length - 1], 1) : protoAddDays(weekStart, 7);
+            const eligible = (eventApi) => {
+                const source = String(eventApi?.extendedProps?.__tmSource || '').trim();
+                return isCalendarForegroundEvent(eventApi) && source !== 'cnHoliday' && source !== 'tomato';
+            };
+            const allWeekEvents = protoRangeEvents(events, weekStart, weekEnd).filter(eligible);
+            // Count the same merged set the cells draw, so a reminder that was
+            // folded into its all-day task is not counted twice.
+            const countable = Array.from(new Map(mergeCalendarAllDayReminders(allWeekEvents).map((eventApi) => [String(eventApi?.id || ''), eventApi])).values());
+            const weekEvents = allWeekEvents.filter((eventApi) => !shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { viewType: 'dayGridWeek' }));
+            const total = countable.length;
+            const done = countable.filter((eventApi) => resolveCalendarEventDoneState(eventApi?.extendedProps || {})).length;
+            const percent = total ? Math.round((done / total) * 100) : 0;
+            // Cross-day bars already have their own span layer. Exclude them
+            // from per-day bars so a Monday-starting span does not inflate
+            // Monday's single-day activity count.
+            const singleDayCountable = countable.filter((eventApi) => !protoIsSpanEvent(eventApi));
+            const dayStats = days.map((date) => {
+                const key = protoDateKey(date);
+                const dayItems = singleDayCountable.filter((eventApi) => {
+                    const start = protoDayStart(eventApi?.start);
+                    if (!start) return false;
+                    const startIndex = days.findIndex((item) => item.getTime() === start.getTime());
+                    const attributedIndex = startIndex >= 0 ? startIndex : (start < days[0] ? 0 : days.length - 1);
+                    return attributedIndex === days.indexOf(date);
+                });
+                return { key, total: dayItems.length, done: dayItems.filter((eventApi) => resolveCalendarEventDoneState(eventApi?.extendedProps || {})).length };
+            });
+            const maxDayTotal = Math.max(1, ...dayStats.map((item) => item.total));
+            const statBars = dayStats.map((item, index) => {
+                const height = Math.max(4, Math.round((item.total / maxDayTotal) * 30));
+                const doneHeight = item.total ? Math.round((item.done / item.total) * height) : 0;
+                const label = ['一', '二', '三', '四', '五', '六', '日'][index] || '';
+                return `<div class="tm-proto-week-stat-day" title="${esc(`${item.key}：${item.done}/${item.total}`)}"><span class="tm-proto-week-stat-bar" style="height:${height}px"><i style="height:${doneHeight}px"></i></span><small>${label}</small></div>`;
+            }).join('');
+            const stats = `<aside class="tm-proto-week-completion" aria-label="本周日程完成统计"><strong>本周日程</strong><b>${done} / ${total} <em>已完成</em></b><span class="tm-proto-week-completion-percent">${percent}%</span><div class="tm-proto-week-completion-track"><i style="width:${percent}%"></i></div><div class="tm-proto-week-stat-bars">${statBars}</div></aside>`;
+            const renderWeekCell = (date, visibleRegular, more, reserveLanes, spanReserveHeight) => {
+                const key = protoDateKey(date);
+                const info = protoHolidayInfo(key, settings);
+                const today = key === protoDateKey(new Date());
+                // Same per-event presentation as a month cell: all-day cards
+                // keep the month card class, timed cards keep the plain chip.
+                const eventMarkup = visibleRegular.map((eventApi) => protoEventMarkup(
+                    eventApi,
+                    'chip',
+                    eventApi?.allDay !== true,
+                    eventApi?.allDay === true ? 'tm-proto-month-event' : '',
+                    'dayGridWeek',
+                )).join('');
+                const moreMarkup = more ? `<button class="tm-proto-more" type="button" data-tm-proto-day="${key}">+${more} 项</button>` : '';
+                // The month cell reserves the cross-day band with a spacer so
+                // chips never sit under a bar. The week grid mirrors that
+                // rhythm exactly instead of padding the container.
+                const spanReserve = reserveLanes > 0
+                    ? `<span class="tm-proto-week-span-reserve" style="height:${spanReserveHeight}px !important" aria-hidden="true"></span>`
+                    : '';
+                const regularStack = `<div class="tm-proto-month-regular-stack">${eventMarkup}${moreMarkup}</div>`;
+                // The weekday sits left of the date so a two-column week cell
+                // still reads as 周一 … 周日 without a separate header row.
+                const weekdayLabel = MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS[date.getDay()] || '';
+                return `<div class="tm-proto-month-cell tm-proto-week-grid-cell${today ? ' is-today' : ''}" data-tm-proto-day="${key}" data-tm-proto-all-day="1"><div class="tm-proto-month-day-head"><span class="tm-proto-week-day-label">${esc(weekdayLabel)}</span>${protoDayNumberMarkup(date, info)}${info?.label ? protoMonthHolidayMarkup(info.label) : `<span class="tm-proto-date-meta">${esc(info?.lunar || '')}</span>`}</div><div class="tm-proto-month-events">${spanReserve}${regularStack}</div></div>`;
+            };
+            // Two day columns per row. Cross-day events reuse the month
+            // pipeline (merged reminders, task-date/schedule split, capacity
+            // compaction and +N accounting); only the row width differs, so a
+            // bar spans both columns and repeats its title once per row.
+            const WEEK_GRID_COLUMNS = 2;
+            const WEEK_GRID_VISIBLE_ROWS = 4;
+            const compactedWeekLayout = protoBuildMonthCompactedLayout(days, weekEvents, {
+                defaultCapacity: WEEK_GRID_VISIBLE_ROWS,
+                spanLimit: WEEK_GRID_VISIBLE_ROWS,
+                columns: WEEK_GRID_COLUMNS,
+            });
+            const weekSpanLayout = compactedWeekLayout.spanLayout;
+            const rows = Array.from({ length: 4 }, (_, rowIndex) => {
+                const rowStartIndex = rowIndex * WEEK_GRID_COLUMNS;
+                const rowEndIndex = Math.min(days.length, rowStartIndex + WEEK_GRID_COLUMNS);
+                const cells = days.slice(rowStartIndex, rowEndIndex).map((date, localIndex) => {
+                    const dayIndex = rowStartIndex + localIndex;
+                    const reserveLanes = Number(weekSpanLayout.reserves.get(dayIndex) || 0);
+                    const spanReserveHeight = Math.max(22, reserveLanes * 25 - 3);
+                    return renderWeekCell(
+                        date,
+                        compactedWeekLayout.visibleRegularByDay.get(dayIndex) || [],
+                        Number(compactedWeekLayout.moreByDay.get(dayIndex) || 0),
+                        reserveLanes,
+                        spanReserveHeight,
+                    );
+                }).join('');
+                const rowSegments = [];
+                for (let dayIndex = rowStartIndex; dayIndex < rowEndIndex; dayIndex += 1) {
+                    (weekSpanLayout.starts.get(dayIndex) || []).forEach((segment) => {
+                        const blockedDays = segment?.eventApi?.extendedProps?.__tmScheduledTaskDayKeys;
+                        if (Array.isArray(blockedDays) && blockedDays.includes(protoDateKey(days[dayIndex]))) return;
+                        rowSegments.push(segment);
+                    });
+                }
+                const spanMarkup = rowSegments.map((segment) => {
+                    const segmentDate = days[segment.segmentStartIndex];
+                    const markup = protoSpanMarkup(segment.eventApi, segmentDate, {
+                        ...segment,
+                        columns: WEEK_GRID_COLUMNS,
+                        repeatTitle: true,
+                    }, 'dayGridWeek');
+                    return markup.replace('style="', `style="grid-column:${segment.segmentStartIndex - rowStartIndex + 1} / ${segment.segmentEndIndex - rowStartIndex + 1};grid-row:${Number(segment.lane) + 1};`);
+                }).join('');
+                const completion = rowIndex === 3 ? `<div class="tm-proto-month-cell tm-proto-week-grid-cell tm-proto-week-completion-cell">${stats}</div>` : '';
+                const spanLayer = spanMarkup ? `<div class="tm-proto-week-span-layer">${spanMarkup}</div>` : '';
+                return `<div class="tm-proto-week-grid-row"><div class="tm-proto-week-grid-cells">${cells}${completion}</div>${spanLayer}</div>`;
+            }).join('');
+            return `<section class="tm-proto-view tm-proto-week-grid" data-tm-proto-week-grid="1">${rows}</section>`;
         };
         const monthKeyToDate = (value) => {
             const match = String(value || '').trim().match(/^(\d{4})-(\d{2})$/);
@@ -33823,6 +34026,16 @@
                     // container, not the viewport for another body-level
                     // detail card, so do not inherit its narrow width.
                     if (!(morePopover instanceof Element && morePopover.contains(node))) {
+                        // Week/month event cells use overflow:hidden solely to
+                        // clip card text. A detail editor is portaled to the
+                        // body and must not inherit that cell's half-width
+                        // rectangle as its viewport; cross-day bars already
+                        // sit outside this cell wrapper, which is why the bug
+                        // only affected single-day cards.
+                        if (node.matches?.('.tm-proto-week-grid-cell, .tm-proto-month-cell, .tm-proto-month-events, .tm-proto-month-regular-stack')) {
+                            node = node.parentElement;
+                            continue;
+                        }
                         const isListClip = node.matches?.('.tm-proto-list, .tm-proto-list-picker, .tm-proto-list-days, .tm-proto-list-day, .tm-proto-list-group-body');
                         if (ignoreListVerticalClip && isListClip) {
                             node = node.parentElement;
@@ -35515,13 +35728,22 @@
             const listView = isCalendarListViewType(viewType);
             const toolbarDate = listView ? protoListFocusDate(view) : protoSafeDate(view?.currentStart || getCalendarDate(calendar));
             const toolbarMonth = toolbarDate ? `${toolbarDate.getMonth() + 1}月${listView ? toolbarDate.getDate() + '日' : ''}` : '';
-            const viewButtons = MAIN_CALENDAR_VIEW_OPTIONS.map((item) => {
+            const toolbarWeekNumber = viewType === 'dayGridWeek' && toolbarDate
+                ? getIsoWeekNumber(toolbarDate)
+                : 0;
+            const toolbarMonthLabel = toolbarMonth
+                ? `${toolbarMonth}${toolbarWeekNumber ? ` W${String(toolbarWeekNumber).padStart(2, '0')}` : ''}`
+                : '';
+            // Desktop renders the segmented tab list, compact hosts render the
+            // select. The week-grid option only belongs to the compact list.
+            const toolbarViewOptions = getMainCalendarViewOptions({ compact: compactToolbar });
+            const viewButtons = toolbarViewOptions.map((item) => {
                 const active = item.value === activeView;
                 return `<button type="button" class="tm-proto-view-btn tm-view-seg-item bc-tabs-trigger ${active ? 'is-active' : ''}" data-state="${active ? 'active' : 'inactive'}" data-tm-proto-action="view" data-tm-proto-view="${item.value}" role="tab" aria-selected="${active ? 'true' : 'false'}">${item.label}</button>`;
             }).join('');
-            const mobileViewSelect = `<label class="tm-proto-view-select-wrap"><select class="tm-proto-view-select" data-tm-proto-view-select aria-label="切换日历视图" title="切换日历视图">${MAIN_CALENDAR_VIEW_OPTIONS.map((item) => `<option value="${item.value}"${item.value === activeView ? ' selected' : ''}>${item.label}</option>`).join('')}</select></label>`;
-            const compactMonthMarkup = compactToolbar && toolbarMonth
-                ? `<span class="tm-proto-toolbar-month" data-tm-proto-toolbar-month="1">${esc(toolbarMonth)}</span>`
+            const mobileViewSelect = `<label class="tm-proto-view-select-wrap"><select class="tm-proto-view-select" data-tm-proto-view-select aria-label="切换日历视图" title="切换日历视图">${toolbarViewOptions.map((item) => `<option value="${item.value}"${item.value === activeView ? ' selected' : ''}>${item.label}</option>`).join('')}</select></label>`;
+            const compactMonthMarkup = compactToolbar && toolbarMonthLabel
+                ? `<span class="tm-proto-toolbar-month" data-tm-proto-toolbar-month="1">${esc(toolbarMonthLabel)}</span>`
                 : '';
             const opacityMenu = prototypeOpenMenu === 'opacity' ? `<div class="tm-proto-pop tm-proto-opacity-pop"><h4>任务上色不透明度</h4><label><span>浅色模式</span><input type="range" min="${PROTOTYPE_OPACITY_MIN}" max="${PROTOTYPE_OPACITY_MAX}" step="0.05" value="${prototypeOpacityByTheme.light}" data-tm-proto-opacity="light"><b data-tm-proto-opacity-value="light">${Math.round(prototypeOpacityByTheme.light * 100)}%</b></label><label><span>深色模式</span><input type="range" min="${PROTOTYPE_OPACITY_MIN}" max="${PROTOTYPE_OPACITY_MAX}" step="0.05" value="${prototypeOpacityByTheme.dark}" data-tm-proto-opacity="dark"><b data-tm-proto-opacity-value="dark">${Math.round(prototypeOpacityByTheme.dark * 100)}%</b></label></div>` : '';
             const titleText = esc(listView && toolbarDate
@@ -35650,9 +35872,13 @@
             if (!(prototypeSurface instanceof HTMLElement) || !view || !previousSnapshots || !(nextSnapshots instanceof Map)) {
                 return rejectPartial('missing-render-prerequisite');
             }
-            if (viewType !== 'dayGridMonth' && !String(viewType || '').startsWith('timeGrid')) {
+            if (viewType !== 'dayGridMonth' && viewType !== 'dayGridWeek' && !String(viewType || '').startsWith('timeGrid')) {
                 return rejectPartial('unsupported-view');
             }
+            // The week grid includes a cross-row span layer and a completion
+            // summary cell. Rebuild the compact surface together so a
+            // completion toggle cannot leave stale bars or statistics.
+            if (viewType === 'dayGridWeek') return rejectPartial('week-grid-full-refresh');
             let partialPreviousSnapshots = previousSnapshots;
             let reusedPendingContext = false;
             const changedIds = new Set();
@@ -35850,6 +36076,7 @@
         };
         renderPrototypeSurface = () => {
             if (!(prototypeSurface instanceof HTMLElement) || !calendar) return;
+            if (state.mainCalendarSuspended) return;
             const view = getCalendarView(calendar) || {};
             const viewType = String(view.type || state._lastViewType || preferredInitialView || 'timeGridWeek').trim();
             const previousRenderedViewType = String(prototypeLastRenderedViewType || '').trim();
@@ -35909,7 +36136,7 @@
             const storedEvents = getCalendarEvents(calendar).filter((eventApi) => eventApi
                 && eventApi.start
                 && isCalendarForegroundEvent(eventApi)
-                && !shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { viewType }));
+                && !(viewType !== 'dayGridWeek' && shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { viewType })));
             // Month all-day drags must use the candidate date range in the
             // same span layout as the committed event. Mutating only the old
             // element's width leaves stale bars in the previous week row.
@@ -36077,6 +36304,7 @@
             if (monthVirtualActive && previousMonthScroller instanceof HTMLElement) {
                 monthVirtualInPlace = true;
             } else if (viewType === 'dayGridMonth') content = protoRenderMonth(view, events, settings);
+            else if (viewType === 'dayGridWeek') content = protoRenderWeekGrid(view, events, settings);
             else if (isCalendarListViewType(viewType)) content = protoRenderList(view, events, settings);
             else content = protoRenderTimeline(view, viewType, events, settings);
             if (!monthVirtualInPlace) {
@@ -36085,7 +36313,7 @@
                     prototypeSurface.innerHTML = markup;
                 }
                 if ((isMobileDevice || isDockHost) && prototypeMobileMonthSwipeDirection
-                    && (viewType === 'dayGridMonth' || isTimeGridViewType(viewType))) {
+                    && (viewType === 'dayGridMonth' || viewType === 'dayGridWeek' || isTimeGridViewType(viewType))) {
                     const swipeDirection = prototypeMobileMonthSwipeDirection < 0 ? 'previous' : 'next';
                     const swipeAttribute = viewType === 'dayGridMonth' ? 'data-tm-month-swipe' : 'data-tm-timeline-swipe';
                     const staleAttribute = viewType === 'dayGridMonth' ? 'data-tm-timeline-swipe' : 'data-tm-month-swipe';
@@ -36256,7 +36484,12 @@
             && normalizeDateOnly(state.mainCalendarLastDate) instanceof Date;
         const preferredInitialView = (() => {
             const sessionView = String(state._lastViewType || '').trim();
-            if (!shouldUseHostDefaultInitialView && sessionView && MAIN_CALENDAR_ALLOWED_VIEWS.has(sessionView)) return sessionView;
+            const compactHost = isCompactDockLayout();
+            if (!shouldUseHostDefaultInitialView && sessionView && MAIN_CALENDAR_ALLOWED_VIEWS.has(sessionView)) {
+                // A week grid restored into a desktop host falls back to the
+                // classic week instead of showing an option the tabs lack.
+                return resolveMainCalendarHostView(sessionView, 'timeGridWeek', compactHost);
+            }
             return getMainCalendarDefaultViewForHost(s, hostDefaultMeta);
         })();
         state.mainCalendarHostSignature = currentHostSignature;
@@ -37395,6 +37628,7 @@
                 height: Math.round(Number(calendarHost.clientHeight || 0)),
             };
             const calendarResizeObserver = new ResizeObserver((entries) => {
+                if (state.mainCalendarSuspended || !calendarHost.isConnected) return;
                 const entry = Array.isArray(entries)
                     ? entries.find((item) => item?.target === calendarHost)
                     : null;
@@ -38135,6 +38369,23 @@
     }
 
     function unmount(options = {}) {
+        if (options.preserveInstance === true && state.mounted && state.calendar
+            && state.rootEl instanceof HTMLElement && state.wrapEl instanceof HTMLElement) {
+            // Task-view switching parks the live calendar. Keep its range,
+            // event sources and subscriptions; only real changes need a read
+            // when the same host brings it back.
+            closeModal();
+            try { closeTrackedPrototypeMorePopover(); } catch (e) {}
+            try { closeTrackedPrototypeEventPopover(); } catch (e) {}
+            state.mainCalendarSuspended = true;
+            if (state.nowIndicatorTimer) clearTimeout(state.nowIndicatorTimer);
+            state.nowIndicatorTimer = null;
+            state.nowIndicatorTimerTarget = 0;
+            state.rootEl.remove();
+            return;
+        }
+        state.mainCalendarSuspended = false;
+        state.mainCalendarNeedsRefresh = false;
         // Factory-only mounts bind document listeners before assigning wrapEl.
         // Dispose them even when no full calendar wrapper was ever mounted.
         try { state.prototypeEventDocumentClick?.(); } catch (e) {}
@@ -39871,8 +40122,12 @@
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowIdle" ${s.showIdle ? 'checked' : ''}>
                 </div>
         ` : '';
-        const desktopInitialViewOptions = renderMainCalendarViewOptionHtml(s.initialViewDesktop || 'timeGridWeek');
-        const mobileInitialViewOptions = renderMainCalendarViewOptionHtml(s.initialViewMobile || 'timeGridDay');
+        // Week-grid paging is compact-only, so the desktop default-view list
+        // stays identical to the desktop toolbar tabs.
+        const desktopInitialViewOptions = renderMainCalendarViewOptionHtml(
+            resolveMainCalendarHostView(s.initialViewDesktop, 'timeGridWeek', false),
+        );
+        const mobileInitialViewOptions = renderMainCalendarViewOptionHtml(s.initialViewMobile || 'timeGridDay', { compact: true });
         const independentScheduleTaskLocation = String(s.independentScheduleTaskLocation || '').trim();
         const independentScheduleTaskCreateMode = s.createTaskForIndependentSchedule !== true
             ? 'scheduleOnly'

@@ -105,10 +105,17 @@ assert.match(
     /const partialContextKey = \[[\s\S]*?buildPrototypeRenderSettingsKey\(settings\)/,
     'the prototype render cache must consume the settings dependency key',
 );
+// The desktop tab list deliberately excludes the compact-only week grid, so
+// it renders the host-filtered option set instead of the raw view list.
 assert.match(
     source,
-    /const viewButtons = MAIN_CALENDAR_VIEW_OPTIONS\.map\(/,
-    'the desktop prototype toolbar must expose every supported main calendar view',
+    /const toolbarViewOptions = getMainCalendarViewOptions\(\{ compact: compactToolbar \}\);[\s\S]*?const viewButtons = toolbarViewOptions\.map\(/,
+    'the desktop prototype toolbar must render the host-filtered view list',
+);
+assert.match(
+    source,
+    /function getMainCalendarViewOptions\(options = \{\}\) \{\s*if \(options\.compact === true\) return MAIN_CALENDAR_VIEW_OPTIONS;/,
+    'compact hosts must keep every supported main calendar view',
 );
 assert.doesNotMatch(source, /protoMobileBarMarkup|tm-proto-mobilebar/, 'the mobile calendar must not render a bottom bar');
 assert.doesNotMatch(styles, /tm-proto-mobilebar/, 'removed mobile bottom bar styles must not remain');

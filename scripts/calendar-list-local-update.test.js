@@ -117,6 +117,7 @@ assert.ok(toolbarEnd > toolbarStart);
 Object.assign(context, {
     MAIN_CALENDAR_ALLOWED_VIEWS: new Set(['listMonth', 'dayGridMonth']),
     MAIN_CALENDAR_VIEW_OPTIONS: [],
+    getMainCalendarViewOptions: () => [],
     isCompactDockLayout: () => false,
     isCalendarListViewType: (viewType) => viewType === 'listMonth',
     protoListFocusDate: () => context.prototypeListState.focusDate,

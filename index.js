@@ -437,6 +437,27 @@ const getMobileTaskDockNodes = (plugin) => {
     }
 };
 
+// SiYuan creates the mobile side-panel containers for every registered plugin
+// Dock before the panel is ever opened, so a closed panel still keeps the Dock
+// node in the DOM. Mounting the manager there renders the single manager
+// instance into an invisible host and starves the full-screen entries (the
+// mobile startup auto-open included). Only an opened panel is a usable mobile
+// Dock host; opening the panel mounts the frame through SiYuan's own Dock
+// lifecycle.
+const isMobileTaskDockPanelOpen = (node) => {
+    if (!(node instanceof HTMLElement)) return false;
+    let panel = null;
+    try {
+        panel = node.closest(".side-panel");
+    } catch (e) {}
+    if (!(panel instanceof HTMLElement)) return true;
+    try {
+        return String(panel.style?.transform || "").trim() === "translateX(0px)";
+    } catch (e) {
+        return true;
+    }
+};
+
 // aria-hidden must never be applied while focus is still inside the hidden Dock.
 // Blurring the active control is the safest fallback because a Dock may not have
 // a stable trigger element (for example when SiYuan changes host layouts).
@@ -2520,12 +2541,14 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
     resolveMobileTaskDockElement(preferred = null) {
         const direct = preferred instanceof HTMLElement ? preferred : null;
-        if (direct && document.body.contains(direct)) return direct;
+        if (direct && document.body.contains(direct) && isMobileTaskDockPanelOpen(direct)) return direct;
         const cached = this._taskDockElement instanceof HTMLElement ? this._taskDockElement : null;
-        if (cached && document.body.contains(cached)) return cached;
+        if (cached && document.body.contains(cached) && isMobileTaskDockPanelOpen(cached)) return cached;
+        const type = getMobileTaskDockType(this);
         const target = getMobileTaskDockNodes(this).find((node) =>
             node instanceof HTMLElement && document.body.contains(node)
-            && (node.matches?.('[data-mobile-plugin-dock-content]') || node.matches?.('[data-type^="sidebar-"]'))
+            && (node.matches?.(`[data-mobile-plugin-dock-content="${type}"]`) || node.matches?.(`[data-type="sidebar-${type}"]`))
+            && isMobileTaskDockPanelOpen(node)
         ) || null;
         return target instanceof HTMLElement ? target : null;
     }
@@ -2977,6 +3000,11 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     },
                 ],
             );
+            return false;
+        }
+        if (this.isRuntimeMobileClient() && !isMobileTaskDockPanelOpen(element)) {
+            // Never pre-mount into a closed mobile side panel: the frame belongs to
+            // the opened panel, and SiYuan mounts it through the Dock lifecycle.
             return false;
         }
 

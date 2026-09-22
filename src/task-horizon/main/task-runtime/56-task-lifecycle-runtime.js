@@ -390,6 +390,7 @@
         }
         const moveResult = await __tmMoveTaskToPlacement(tid, targetDocId, destination.placement, {
             heading: destination.heading,
+            moveToIndependentDocument: mode === 'document' && !destination.heading,
         });
         await __tmWriteTaskLifecycleMeta(tid, {
             ...meta,

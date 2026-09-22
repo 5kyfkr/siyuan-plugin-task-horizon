@@ -8456,6 +8456,7 @@
         'timeGrid3Day',
         'timeGridWorkdays',
         'timeGridWeek',
+        'dayGridWeek',
         'dayGridMonth',
         'listMonth',
     ]);

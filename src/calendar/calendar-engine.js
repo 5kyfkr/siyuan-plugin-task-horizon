@@ -291,7 +291,7 @@
                 if (viewType === 'dayGridMonth' || viewType === 'listMonth') {
                     return shiftMonth(-1);
                 }
-                const step = (viewType === 'timeGridWeek' || viewType === 'timeGridWorkdays') ? -7 : -(view?.range?.days || 1);
+                const step = (viewType === 'timeGridWeek' || viewType === 'dayGridWeek' || viewType === 'timeGridWorkdays') ? -7 : -(view?.range?.days || 1);
                 const target = dateMath.addDays?.(currentDate, step);
                 return setDate(target);
             },
@@ -299,7 +299,7 @@
                 if (viewType === 'dayGridMonth' || viewType === 'listMonth') {
                     return shiftMonth(1);
                 }
-                const step = (viewType === 'timeGridWeek' || viewType === 'timeGridWorkdays') ? 7 : (view?.range?.days || 1);
+                const step = (viewType === 'timeGridWeek' || viewType === 'dayGridWeek' || viewType === 'timeGridWorkdays') ? 7 : (view?.range?.days || 1);
                 const target = dateMath.addDays?.(currentDate, step);
                 return setDate(target);
             },

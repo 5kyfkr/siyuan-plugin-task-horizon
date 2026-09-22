@@ -27,6 +27,7 @@
             name: source.name || '定时事件',
             enabled: source.enabled !== false,
             prompt: source.prompt || '',
+            includeInternalPrompt: source.includeInternalPrompt !== false,
             conversationId: source.conversationId || '',
             condition: source.condition || 'always',
             schedule: source.schedule || { kind: 'daily', date: __tmScheduledLocalDateKey(new Date()), weekday: 1, time: '19:00' },
@@ -120,6 +121,14 @@
                         <span>提示词</span>
                         <textarea class="b3-text-field" rows="5" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["prompt"]' placeholder="告诉智能体需要总结或分析什么">${esc(draft.prompt)}</textarea>
                     </label>
+                    <div class="tm-scheduled-events-field tm-scheduled-events-field--wide">
+                        <span>内部提示词</span>
+                        <label class="fn__flex-center" style="gap:8px;">
+                            <input class="b3-switch fn__flex-center" type="checkbox" ${draft.includeInternalPrompt ? 'checked' : ''} data-tm-call="tmScheduledUpdateDraft" data-tm-args='["includeInternalPrompt"]'>
+                            <span>附加无人值守安全规则和统计口径</span>
+                        </label>
+                        <small class="tm-settings-section-desc">只决定是否附加这段文字规则；定时执行始终自动批准思源能力确认、代答提问并处理浏览器操作。关闭后只发送你填写的提示词。</small>
+                    </div>
                     <label class="tm-scheduled-events-field">
                         <span>运行条件</span>
                         <select class="b3-select" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["condition"]'>

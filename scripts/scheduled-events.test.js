@@ -615,52 +615,23 @@ async function run() {
     assert.equal(agentSource.includes('if (!persistent) scheduleAutomationSessionCleanup(sessionID);'), true, 'persistent conversations must not be deleted');
     assert.equal(agentSource.includes('openConversation: async (sessionID)'), true, 'scheduled conversations must be openable from settings');
     assert.equal(agentSource.includes('session.entries = baseEntries;'), true, 'each automation run must append visible conversation entries');
-    assert.match(agentSource, /async function ensureAutomationTaskToolsReady\(options = \{\}\)[\s\S]*ensureTaskToolsReadyForSend\(\)[\s\S]*syncBuiltinSkills\(\)[\s\S]*async function runAutomation[\s\S]*await ensureAutomationTaskToolsReady\(\{ focusTools: request\.requireFocusTools === true \}\)/, 'scheduled automation must restore task capabilities and current built-in skills before starting a model round');
-    assert.match(scheduledRuntimeSource, /requireFocusTools: true/, 'scheduled summaries must require the focus MCP capability before starting a model round');
+    assert.match(agentSource, /async function ensureAutomationTaskToolsReady\(options = \{\}\)[\s\S]*ensureTaskToolsReadyForSend\(\)[\s\S]*syncBuiltinSkills\(\)[\s\S]*async function runAutomation[\s\S]*await ensureAutomationTaskToolsReady\(\{ focusTools: includeInternalPrompt && request\.requireFocusTools === true \}\)/, 'scheduled automation must restore task capabilities and current built-in skills before starting a model round');
+    assert.match(scheduledRuntimeSource, /requireFocusTools: includeInternalPrompt/, 'scheduled summaries must require the focus MCP capability when internal prompt is enabled');
     assert.match(agentSource, /AUTOMATION_FOCUS_TOOLS[\s\S]*query_focus_statistics[\s\S]*aggregate_time_usage/, 'scheduled automation must declare the focus MCP tools it requires');
     assert.match(agentSource, /setAgentMcpEnabled\(true, \{ notify: false, refreshSettings: false, syncAgentPolicy: true \}\)/, 'scheduled automation must repair stale denied capability policy before sending');
     assert.match(agentSource, /定时事件需要已暴露的专注 MCP 工具/, 'scheduled automation must fail before the model round when focus tools are unavailable');
+    assert.match(agentSource, /if \(event\.type === 'browser_capability_call'\) \{\s*await invokeBrowserCapability\(event\);/, 'scheduled runs must answer browser capability calls instead of timing out');
+    assert.doesNotMatch(agentSource, /automationEventBlocked|非只读工具调用|交互或前端操作/, 'scheduled runs must not gate capabilities behind the internal prompt');
     assert.equal(scheduledSettingsSource.includes('tmScheduledOpenConversation'), true, 'scheduled settings must expose the conversation entry');
-    assert.equal(safety.isAllowedTool('plugin__siyuan_plugin_task_horizon__query_tasks'), true);
-    assert.equal(safety.isAllowedTool('plugin__siyuan_plugin_task_horizon__query_tasks__0123456789ab'), true);
-    assert.equal(safety.isAllowedTool('plugin__siyuan_plugin_task_horizon__query_focus_st__0123456789ab'), true, 'SiYuan 3.8 truncated focus capability names must remain read-only');
-    assert.equal(safety.isAllowedTool('plugin__siyuan_plugin_task_horizon__aggregate_time__0123456789ab'), true, 'SiYuan 3.8 truncated time capability names must remain read-only');
+    assert.match(scheduledSettingsSource, /includeInternalPrompt[\s\S]*tmScheduledUpdateDraft/, 'scheduled settings must expose the internal prompt switch');
     assert.equal(safety.normalizeToolName('plugin__siyuan-plugin-task-horizon__query_tasks'), 'query_tasks');
     assert.equal(safety.normalizeToolName('plugin__siyuan_plugin_task_horizon__query_tasks__0123456789ab'), 'query_tasks');
     assert.equal(safety.normalizeToolName('plugin__siyuan_plugin_task_horizon__query_focus_st__0123456789ab'), 'query_focus_statistics');
     assert.equal(safety.normalizeToolName('plugin__siyuan_plugin_task_horizon__aggregate_time__0123456789ab'), 'aggregate_time_usage');
     assert.equal(safety.automaticConfirmKind({ confirmID: 'foreign', name: 'plugin__another_plugin__create_task', arguments: { action: 'create' } }), '', 'another plugin must never inherit Task Horizon quick-write approval');
-    assert.equal(safety.isAllowedTool('plugin__another_plugin__query_tasks'), false, 'scheduled automation must reject another plugin that reuses a Task Horizon local tool name');
     assert.equal(safety.automaticConfirmKind({ confirmID: 'read', name: 'plugin__siyuan-plugin-task-horizon__query_tasks', arguments: { action: 'query' } }), 'read');
     assert.equal(safety.automaticConfirmKind({ confirmID: 'reminder', name: 'plugin__siyuan-plugin-task-horizon__configure_task_reminder', arguments: { action: 'apply' } }), 'reminder');
     assert.equal(safety.automaticConfirmKind({ confirmID: 'update', name: 'plugin__siyuan-plugin-task-horizon__update_task', arguments: { action: 'update' } }), '', 'ordinary writes must still require confirmation');
-    assert.equal(safety.isAllowedTool('aggregate_task_stats'), true);
-    assert.equal(safety.isAllowedTool('todo_write', { todos: [{ content: '汇总任务', status: 'in_progress' }] }), true, 'session-only todo tracking is safe');
-    assert.equal(safety.isAllowedTool('file_write', { path: 'result.md' }), false, 'workspace writes must remain blocked');
-    assert.equal(safety.isAllowedTool('sql', { action: 'query', stmt: 'SELECT * FROM blocks LIMIT 1' }), true, 'SiYuan read-only SQL queries must be available to scheduled summaries');
-    assert.equal(safety.isAllowedTool('sql', { action: 'query', stmt: "SELECT * FROM attributes WHERE name = 'custom-tomato-applied-records'" }), false, 'scheduled focus summaries must not read the internal Tomato deduplication attribute');
-    assert.equal(safety.isAllowedTool('sql', { action: 'query', stmt: "SELECT * FROM attributes WHERE name = 'custom-tomato-unknown-internal-field'" }), false, 'all internal Tomato attributes must remain unavailable to scheduled summaries');
-    assert.equal(safety.isAllowedTool('sql', { action: 'query', stmt: 'SELECT 1', sql: "SELECT * FROM attributes WHERE name = 'custom-tomato-hidden-field'" }), false, 'Tomato attributes must be blocked across every native SQL argument alias');
-    assert.equal(safety.isAllowedTool('sql', { action: 'select', stmt: 'SELECT * FROM blocks' }), false, 'only the declared SQL query action may run unattended');
-    assert.equal(safety.isAllowedTool('sql', { stmt: 'SELECT * FROM blocks' }), false, 'SQL calls without the declared read-only action must remain blocked');
-    assert.equal(safety.isAllowedTool('skill', { action: 'list' }), true, 'listing skills is read-only in SiYuan 3.8');
-    assert.equal(safety.isAllowedTool('skill', { action: 'load', name: 'task-review' }), true);
-    assert.equal(safety.isAllowedTool('skill', { action: 'save', name: 'task-review' }), false);
-    assert.equal(safety.isAllowedTool('skill', { action: 'install', name: 'task-review' }), false);
-    assert.equal(safety.isAllowedTool('skill', { action: 'remove', name: 'task-review' }), false);
-    assert.equal(safety.isAllowedTool('skill', { action: 'rename', name: 'task-review' }), false);
-    assert.equal(safety.isAllowedTool('skill', { action: 'load', name: 'unknown-skill' }), false);
-    assert.equal(safety.isAllowedConfirm({ confirmID: 'read-skill', name: 'skill', arguments: { action: 'load', name: 'task-review' } }), true);
-    assert.equal(safety.isAllowedConfirm({ confirmID: 'write-skill', name: 'skill', arguments: { action: 'save', name: 'task-review' } }), false);
-    assert.equal(safety.isAllowedConfirm({ confirmID: 'read-tool', name: 'plugin__siyuan_plugin_task_horizon__aggregate_task_stats', arguments: { action: 'query' } }), true);
-    assert.equal(safety.isAllowedConfirm({ name: 'skill', arguments: { action: 'load', name: 'task-review' } }), false, 'confirmID is required for automatic approval');
-    assert.equal(safety.isAllowedTool('plugin__siyuan_plugin_task_horizon__update_task'), false);
-    assert.equal(safety.isAllowedTool('delete_block'), false);
-    assert.equal(safety.isAllowedTool('unknown_tool'), false);
-    assert.equal(safety.isBlockedEventType('confirm'), true);
-    assert.equal(safety.isBlockedEventType('question'), true);
-    assert.equal(safety.isBlockedEventType('browser_capability_call'), true, 'SiYuan 3.8 browser capabilities must remain blocked during unattended runs');
-    assert.equal(safety.isBlockedEventType('content'), false);
     assert.equal(safety.isScheduledEventCreateIntent('每天下午7点定时总结今日完成任务'), true);
     assert.equal(safety.isScheduledEventCreateIntent('定时事件功能怎么用'), false);
     assert.equal(safety.isScheduledEventListIntent('查看已有的定时事件'), true);
@@ -739,11 +710,91 @@ async function run() {
         assert.equal(chat.contentRevision, 1);
         assert.match(chat.message, /无人值守的定时执行[\s\S]*只能读取、筛选和聚合数据/, 'scheduled requests must tell the model about the read-only safety boundary');
         assert.match(chat.message, /query_focus_statistics[\s\S]*aggregate_time_usage[\s\S]*custom-tomato-\*/, 'scheduled requests must route focus data through MCP instead of Tomato attributes');
-        assert.deepEqual(chat.frontendCapabilities, [], 'scheduled requests must not expose SiYuan 3.8 browser capabilities');
+        assert.deepEqual(chat.frontendCapabilities, [], 'pages without registered frontend capabilities must declare an empty list');
+        assert.equal(Object.prototype.hasOwnProperty.call(chat, 'scheduled'), false, 'scheduled requests must not depend on a patched SiYuan kernel');
+        assert.equal(Object.prototype.hasOwnProperty.call(chat, 'allowUnattendedActions'), false, 'scheduled requests must not depend on a patched SiYuan kernel');
         const finalSave = requests.filter((item) => item.route === '/saveSession').at(-1);
         assert.equal(finalSave.body.commitTurnID, 'turn-new', 'scheduled conversations must explicitly commit the SiYuan 3.8 runtime turn');
         assert.equal(finalSave.body.expectedRevision, 1, 'the runtime commit must use the authoritative session revision');
         assert.equal(storedSession.entries.filter((entry) => entry.type === 'user' && entry.blockHTML === '<div>Summarize</div>').length, 1, 'finalization must not duplicate the pre-saved user prompt');
+    }
+    {
+        const automation = loadAutomationSafety();
+        const requests = [];
+        const descriptor = { id: 'native/frontend/open_document', generation: 3 };
+        automation.context.__taskHorizonFrontendCapabilityDescriptors = [descriptor];
+        automation.context.__taskHorizonInvokeAgentAction = async (capabilityID, args) => {
+            assert.equal(capabilityID, descriptor.id);
+            assert.equal(args.id, '20260722120000-abcdefg');
+            return { result: 'Opened document' };
+        };
+        const jsonResponse = (payload) => ({
+            ok: true,
+            status: 200,
+            headers: { get: () => 'application/json' },
+            text: async () => JSON.stringify(payload),
+            json: async () => payload,
+        });
+        automation.context.fetch = async (url, options = {}) => {
+            const route = String(url).replace('/api/ai/agent', '');
+            const body = options.body ? JSON.parse(options.body) : {};
+            requests.push({ route, body });
+            if (route === '/chat') {
+                const payload = [
+                    'event: confirm',
+                    'data: {"confirmID":"confirm-1","name":"update_task","arguments":{"action":"update"}}',
+                    '',
+                    'event: question',
+                    'data: {"questionID":"question-1","arguments":{"questions":[]}}',
+                    '',
+                    'event: browser_capability_call',
+                    `data: ${JSON.stringify({ callID: 'call-1', capabilityID: descriptor.id, generation: 3, arguments: { id: '20260722120000-abcdefg' } })}`,
+                    '',
+                    'event: content',
+                    'data: {"token":"Done"}',
+                    '',
+                    'event: done',
+                    'data: {"turnID":"turn-advanced"}',
+                    '',
+                ].join('\n');
+                const encoded = new TextEncoder().encode(payload);
+                let reads = 0;
+                return {
+                    ok: true,
+                    status: 200,
+                    headers: { get: () => 'text/event-stream' },
+                    body: { getReader: () => ({ read: async () => reads++ === 0 ? { done: false, value: encoded } : { done: true } }) },
+                };
+            }
+            if (route === '/confirm' || route === '/question' || route === '/browserCapabilityResult') {
+                return jsonResponse({ code: 0, data: null });
+            }
+            throw new Error(`unexpected request: ${route}`);
+        };
+        for (const includeInternalPrompt of [true, false]) {
+            requests.length = 0;
+            const result = await automation.runAutomation({ prompt: '汇总本周进展', includeInternalPrompt });
+            assert.equal(result.markdown, 'Done');
+            const chat = requests.find((item) => item.route === '/chat').body;
+            if (includeInternalPrompt) {
+                assert.match(chat.message, /无人值守的定时执行/, 'the internal prompt must still be injected when it stays enabled');
+            } else {
+                assert.doesNotMatch(chat.message, /无人值守的定时执行/, 'disabling the internal prompt must not inject the read-only safety instruction');
+            }
+            assert.deepEqual(chat.frontendCapabilities, [descriptor], 'scheduled runs must declare the frontend capabilities of the current page');
+            assert.equal(Object.prototype.hasOwnProperty.call(chat, 'scheduled'), false, 'scheduled runs must not depend on a patched SiYuan kernel');
+            assert.equal(Object.prototype.hasOwnProperty.call(chat, 'allowUnattendedActions'), false, 'scheduled runs must not depend on a patched SiYuan kernel');
+            const confirm = requests.find((item) => item.route === '/confirm');
+            assert.equal(confirm.body.approved, true, 'scheduled runs must auto-approve SiYuan capability confirmations');
+            assert.equal(confirm.body.confirmID, 'confirm-1');
+            const question = requests.find((item) => item.route === '/question');
+            assert.deepEqual(question.body.answers, [], 'scheduled runs must answer agent questions instead of stalling');
+            assert.equal(question.body.questionID, 'question-1');
+            const browser = requests.find((item) => item.route === '/browserCapabilityResult');
+            assert.equal(browser.body.callID, 'call-1', 'scheduled runs must answer browser capability calls');
+            assert.equal(browser.body.result, 'Opened document');
+            assert.equal(browser.body.isError, false);
+        }
     }
     {
         const automation = loadAutomationSafety();

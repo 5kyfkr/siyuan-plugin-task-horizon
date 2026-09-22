@@ -487,6 +487,20 @@ if (shouldMarkDirty) {
         const openOptions = (options && typeof options === 'object') ? options : {};
         const existingOpenGate = state.__tmOpenManagerInFlight;
         if (existingOpenGate?.active === true) {
+            const waitOutStartupGate = openOptions.source === 'mobile-startup-auto-open'
+                && state.__tmStartupOpenWaitingGate !== true;
+            if (waitOutStartupGate) {
+                // Adopting an in-flight open would let the cold-start auto-open report
+                // success while the manager stays in another (possibly hidden) host,
+                // so wait for it to settle and then open into the intended host.
+                state.__tmStartupOpenWaitingGate = true;
+                return Promise.resolve(existingOpenGate.promise)
+                    .catch(() => undefined)
+                    .then(() => {
+                        state.__tmStartupOpenWaitingGate = false;
+                        return openManager(openOptions);
+                    });
+            }
             return openOptions.awaitInitialLoad === true
                 ? existingOpenGate.promise
                 : undefined;
@@ -565,6 +579,14 @@ if (shouldMarkDirty) {
             try { state.__tmPreserveViewModeOnNextOpen = false; } catch (e2) {}
             state.viewMode = 'list';
             state.viewModeInitialized = true;
+        }
+        if (mobileStartupOpen && runtimeMobile) {
+            // The mobile Dock (side panel) can claim the mount while this cold-start
+            // open still waits for the first task load. Startup auto-open must always
+            // land in the full-screen host, otherwise the manager renders into the
+            // side panel and the auto-open looks broken.
+            try { __tmSetMount(null); } catch (e) {}
+            try { globalThis.__taskHorizonTabElement = null; } catch (e2) {}
         }
         // 仅在必要时重渲染，避免页签切换返回时闪烁和滚动位置丢失
         try {

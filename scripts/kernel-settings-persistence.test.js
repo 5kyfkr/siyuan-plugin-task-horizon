@@ -50,18 +50,20 @@ function createHarness() {
     };
 }
 
-function scheduledEvent() {
+function scheduledEvent(overrides = {}) {
     return {
         id: 'evt-persistence',
         name: '今晚任务总结',
         enabled: true,
         prompt: '总结今日任务',
+        includeInternalPrompt: true,
         type: 'agent_prompt',
         condition: 'always',
         createdAt: Date.now(),
         updatedAt: Date.now(),
         schedule: { kind: 'daily', date: '', weekday: 0, time: '22:00' },
         output: { mode: 'notification', documentId: '' },
+        ...overrides,
     };
 }
 
@@ -183,6 +185,11 @@ async function run() {
     assert.equal(savedEvents.ok, true);
     assert.equal(savedEvents.data.length, 1);
     assert.equal((await harness.call('taskHorizonLoadAgentSchedules')).data[0].name, '今晚任务总结');
+
+    const promptChoiceEvents = await harness.call('taskHorizonReplaceAgentSchedules', { events: [scheduledEvent({ includeInternalPrompt: false })] });
+    assert.equal(promptChoiceEvents.ok, true);
+    assert.equal(promptChoiceEvents.data[0].includeInternalPrompt, false, 'the kernel schedule store must persist the internal prompt choice');
+    assert.equal((await harness.call('taskHorizonLoadAgentSchedules')).data[0].includeInternalPrompt, false, 'the internal prompt choice must survive a kernel reload');
 
     const clearedEvents = await harness.call('taskHorizonReplaceAgentSchedules', { events: [] });
     assert.equal(clearedEvents.ok, true);

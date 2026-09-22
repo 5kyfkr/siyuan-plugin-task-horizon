@@ -2307,6 +2307,9 @@
             name,
             enabled: source.enabled == null ? previous.enabled !== false : source.enabled !== false,
             prompt,
+            includeInternalPrompt: source.includeInternalPrompt == null
+                ? previous.includeInternalPrompt !== false
+                : source.includeInternalPrompt !== false,
             conversationId: text(source.conversationId || previous.conversationId),
             condition: text(source.condition || previous.condition) === 'today_has_completed_tasks' ? 'today_has_completed_tasks' : 'always',
             schedule: {
@@ -3503,17 +3506,18 @@
             const previous = await readBlockTreePath(input.previousID || input.previousId, '前一块');
             if (previous.id === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能相对自身移动');
             if (isTreeDocumentBlock(previous.current)) throw new DomainError(ERROR.INVALID_ARGUMENT, '前一块不能是文档块');
+            if (!isTreeTaskBlock(previous.current)) {
+                throw new DomainError(ERROR.INVALID_ARGUMENT, '任务项只能直接移动到任务列表内，请使用文档或标题移动方式');
+            }
             payload.previousID = previous.id;
-            const targetPlacement = isTreeTaskBlock(previous.current)
-                ? await readTaskPlacementFromTree(previous.id, preferredListID)
-                : null;
+            const targetPlacement = await readTaskPlacementFromTree(previous.id, preferredListID);
             return {
                 payload,
-                targetListID: text(targetPlacement?.parentListID || preferredListID),
-                targetContext: targetPlacement ? {
+                targetListID: targetPlacement.parentListID,
+                targetContext: {
                     parentTaskID: targetPlacement.parentTaskID,
                     documentID: targetPlacement.documentID,
-                } : null,
+                },
             };
         }
         if (text(input.nextID || input.nextId)) {
@@ -3546,12 +3550,8 @@
                 explicitParentID || input.documentID || input.documentId,
                 explicitParentID ? '移动目标' : '目标文档',
             );
-            const allowed = isTreeDocumentBlock(target.current)
-                || isTreeListBlock(target.current)
-                || isTreeTaskBlock(target.current);
-            if (!allowed) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务只能移动到文档、列表或父任务中');
-            if (!explicitParentID && !isTreeDocumentBlock(target.current)) {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, '目标文档 ID 必须指向文档块');
+            if (!isTreeListBlock(target.current)) {
+                throw new DomainError(ERROR.INVALID_ARGUMENT, '任务项只能直接移入列表，请使用文档或父任务移动方式');
             }
             if (target.id === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能移动到自身内部');
             payload.parentID = target.id;
@@ -3560,11 +3560,11 @@
             const parentTasks = ancestors.filter(isTreeTaskBlock);
             return {
                 payload,
-                targetListID: isTreeListBlock(target.current) ? target.id : '',
-                targetContext: isTreeListBlock(target.current) ? {
+                targetListID: target.id,
+                targetContext: {
                     parentTaskID: text(parentTasks[parentTasks.length - 1]?.id),
                     documentID: text(target.document?.id),
-                } : null,
+                },
             };
         }
         throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少目标位置');
@@ -3590,7 +3590,7 @@
     function normalizeTaskMoveMode(value) {
         const mode = text(value || '');
         if (!mode || mode === 'doc') return 'docTop';
-        if (['docTop', 'docBottom', 'document-list', 'recycle-document', 'heading', 'before', 'after', 'child', 'child-top'].includes(mode)) return mode;
+        if (['docTop', 'docBottom', 'document-list', 'independent-document', 'recycle-document', 'heading', 'before', 'after', 'child', 'child-top'].includes(mode)) return mode;
         throw new DomainError(ERROR.INVALID_ARGUMENT, `不支持的任务移动方式: ${mode}`);
     }
 
@@ -3659,7 +3659,7 @@
                 moveInput: input,
             };
         }
-        if (mode === 'recycle-document') {
+        if (mode === 'recycle-document' || mode === 'independent-document') {
             const documentID = requireID(
                 input.targetDocumentID || input.targetDocumentId || input.documentID || input.documentId,
                 '目标文档 ID',
@@ -4190,9 +4190,9 @@
                 data: '- [ ]',
                 dataType: 'markdown',
             });
-            listID = requireID(extractInsertedID(scaffoldResult), '回收站任务列表 ID');
+            listID = requireID(extractInsertedID(scaffoldResult), '目标任务列表 ID');
             const scaffoldChildren = await api('/api/block/getChildBlocks', { id: listID });
-            scaffoldTaskID = requireID((Array.isArray(scaffoldChildren) ? scaffoldChildren : [])[0]?.id, '回收站占位任务 ID');
+            scaffoldTaskID = requireID((Array.isArray(scaffoldChildren) ? scaffoldChildren : [])[0]?.id, '列表占位任务 ID');
             try {
                 await api('/api/block/moveBlock', { id, parentID: listID });
                 const movedChildren = await api('/api/block/getChildBlocks', { id: listID });
@@ -4200,7 +4200,7 @@
                     .map((item) => text(item?.id))
                     .filter(Boolean);
                 if (!movedChildIDs.includes(id)) {
-                    throw new DomainError(ERROR.CONFLICT, '任务移动后未进入回收站独立列表', { taskID: id, listID, movedChildIDs });
+                    throw new DomainError(ERROR.CONFLICT, '任务移动后未进入目标独立列表', { taskID: id, listID, movedChildIDs });
                 }
                 await api('/api/block/deleteBlock', { id: scaffoldTaskID });
             } catch (error) {
@@ -4560,7 +4560,7 @@
                     command.requestedListID,
                     preparedTaskRow,
                 );
-            } else if (command.mode === 'recycle-document') {
+            } else if (command.mode === 'recycle-document' || command.mode === 'independent-document') {
                 moved = await moveTaskIntoIndependentDocument(taskID, command.documentID, 'top', preparedTaskRow);
             } else if (command.independentDocument === true) {
                 moved = await moveTaskIntoIndependentDocument(
@@ -7703,6 +7703,7 @@
             name: stringSchema('定时任务名称'),
             prompt: stringSchema('到点后交给智能体执行的指令'),
             enabled: { type: 'boolean' },
+            includeInternalPrompt: { type: 'boolean', description: '是否附加插件的无人值守内部提示词；只影响发给模型的文字规则，定时执行始终自动处理能力确认、提问和浏览器操作' },
             condition: stringSchema('运行条件', ['always', 'today_has_completed_tasks']),
             schedule: agentScheduleRule,
             output: objectSchema({
