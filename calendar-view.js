@@ -7104,6 +7104,11 @@
         const title = (segmentStart || showContinuationTitle)
             ? esc(String(eventApi?.title || ext.__tmTaskTitleMarkdown || '').trim() || '未命名事件')
             : '&nbsp;';
+        const titleVisualStyle = (segmentStart || showContinuationTitle)
+            && typeof buildTaskTitleOpacityStyleForTask === 'function'
+            && typeof getCalendarEventTaskLikeForTitle === 'function'
+            ? buildTaskTitleOpacityStyleForTask(getCalendarEventTaskLikeForTitle(eventApi))
+            : '';
         const recurringIcon = segmentStart ? buildCalendarRecurringTaskIconMarkup(ext) : '';
         const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(`${eventApi.title || ''} · 提醒时间：${ext.__tmMergedReminderLabel}`)}"` : '';
         const color = String(getCalendarEventColor(eventApi, 'var(--tm-primary-color)') || 'var(--tm-primary-color)');
@@ -7128,7 +7133,7 @@
             // The day panel has one card for the selected day, not the
             // repeated month/week segments. Keep the task name visible even
             // when the event continues in from the previous day.
-            + `<span class="tm-proto-span-title">${title}</span>${recurringIcon}${buildCalendarMergedReminderMarkup(ext)}`
+            + `<span class="tm-proto-span-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}${buildCalendarMergedReminderMarkup(ext)}`
             + `${continuesAfter ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--end" aria-hidden="true">&gt;</span>' : ''}`
             + `${canResizeRange && visualEnd && (!segment || segmentEndIndex >= (Number(segment.eventEndIndex) || segmentEndIndex)) ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>' : ''}</div>`;
     }
