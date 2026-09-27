@@ -328,12 +328,146 @@
         return expandedIds;
     }
 
+    function __tmCreateCustomFieldOptionSearch(list, onChange) {
+        const element = document.createElement('div');
+        element.className = 'tm-custom-field-search';
+        const input = document.createElement('input');
+        input.className = 'b3-text-field';
+        input.type = 'search';
+        input.placeholder = '搜索选项';
+        input.setAttribute('aria-label', '搜索选项');
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        const clear = document.createElement('button');
+        clear.type = 'button';
+        clear.className = 'block__icon tm-custom-field-search-clear';
+        clear.textContent = '×';
+        clear.title = '清除搜索';
+        clear.setAttribute('aria-label', '清除搜索');
+        clear.hidden = true;
+        const count = document.createElement('span');
+        count.className = 'tm-custom-field-search-count';
+        count.setAttribute('aria-live', 'polite');
+        count.hidden = true;
+        element.append(input, clear, count);
+        let query = '';
+        let composing = false;
+        let activeId = '';
+        let restoreInputFocus = false;
+        list.addEventListener('pointerdown', () => {
+            restoreInputFocus = document.activeElement === input;
+        });
+        const normalize = (value) => String(value || '').trim().toLowerCase();
+        const buttons = () => Array.from(list.querySelectorAll('[data-tm-custom-field-choice]'));
+        const activate = (items, index, scroll = false) => {
+            items.forEach((button, i) => button.classList.toggle('tm-custom-field-search-current', i === index));
+            activeId = items[index]?.getAttribute('data-tm-custom-field-choice') || '';
+            if (scroll) items[index]?.scrollIntoView?.({ block: 'nearest' });
+        };
+        const change = () => {
+            clear.hidden = input.value.length === 0;
+            const next = normalize(input.value);
+            if (query === next) return;
+            query = next;
+            activeId = '';
+            list.scrollTop = 0;
+            onChange();
+        };
+        input.addEventListener('compositionstart', () => { composing = true; });
+        input.addEventListener('compositionend', () => { composing = false; change(); });
+        input.addEventListener('input', (event) => {
+            if (!composing && !event.isComposing) change();
+        });
+        input.addEventListener('keydown', (event) => {
+            if (composing || event.isComposing || event.keyCode === 229) return;
+            if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (list.inert) return;
+            const items = buttons();
+            if (!items.length) return;
+            const current = items.findIndex((button) => button.getAttribute('data-tm-custom-field-choice') === activeId);
+            if (event.key === 'Enter') {
+                items[Math.max(0, current)].click();
+            } else {
+                const index = current < 0 ? (event.key === 'ArrowUp' ? items.length - 1 : 0)
+                    : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+                activate(items, index, true);
+            }
+        });
+        clear.addEventListener('click', (event) => {
+            event.stopPropagation();
+            input.value = '';
+            change();
+            input.focus({ preventScroll: true });
+        });
+        return {
+            element,
+            input,
+            get query() { return query; },
+            matches: (text) => normalize(text).includes(query),
+            refresh(selectedCount = null) {
+                count.hidden = selectedCount === null;
+                count.textContent = selectedCount === null ? '' : `已选 ${selectedCount} 项`;
+                const items = buttons();
+                const index = items.findIndex((button) => button.getAttribute('data-tm-custom-field-choice') === activeId);
+                activate(items, index >= 0 ? index : (query ? 0 : -1));
+                if (restoreInputFocus && element.isConnected) input.focus({ preventScroll: true });
+            },
+        };
+    }
+
+    function __tmBindCustomFieldPickerViewport(panel, anchor, absolute = false) {
+        const viewport = window.visualViewport;
+        const maxWidth = parseFloat(panel.style.maxWidth) || 420;
+        let anchorRect = anchor?.getBoundingClientRect() || null;
+        let frame = 0;
+        const position = () => {
+            frame = 0;
+            if (!panel.isConnected || !panel.offsetHeight) return;
+            const leftEdge = (viewport?.offsetLeft || 0) + 8;
+            const topEdge = (viewport?.offsetTop || 0) + 8;
+            const width = Math.max(0, (viewport?.width || window.innerWidth) - 16);
+            const height = Math.max(0, (viewport?.height || window.innerHeight) - 16);
+            panel.style.maxWidth = `${Math.min(maxWidth, width)}px`;
+            panel.style.maxHeight = `${height}px`;
+            if (anchor?.isConnected) anchorRect = anchor.getBoundingClientRect();
+            const rect = anchorRect;
+            const panelWidth = panel.offsetWidth;
+            const panelHeight = panel.offsetHeight;
+            const rightAligned = rect && rect.left + rect.width / 2 > leftEdge + width / 2;
+            const desiredLeft = rect ? (rightAligned ? rect.right - panelWidth : rect.left) : leftEdge + (width - panelWidth) / 2;
+            let desiredTop = rect ? rect.bottom + 6 : topEdge + (height - panelHeight) / 2;
+            if (rect && desiredTop + panelHeight > topEdge + height) desiredTop = rect.top - panelHeight - 6;
+            panel.style.left = `${Math.max(leftEdge, Math.min(desiredLeft, leftEdge + width - panelWidth)) + (absolute ? window.scrollX : 0)}px`;
+            panel.style.top = `${Math.max(topEdge, Math.min(desiredTop, topEdge + height - panelHeight)) + (absolute ? window.scrollY : 0)}px`;
+        };
+        const schedule = () => {
+            if (!frame) frame = requestAnimationFrame(position);
+        };
+        const observer = new ResizeObserver(schedule);
+        observer.observe(panel);
+        window.addEventListener('resize', schedule);
+        viewport?.addEventListener('resize', schedule);
+        viewport?.addEventListener('scroll', schedule);
+        schedule();
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', schedule);
+            viewport?.removeEventListener('resize', schedule);
+            viewport?.removeEventListener('scroll', schedule);
+            if (frame) cancelAnimationFrame(frame);
+        };
+    }
+
     function __tmRenderCustomFieldOptionTreePicker(container, field, selectedIds, options = {}) {
         if (!(container instanceof HTMLElement)) return;
         const opts = (options && typeof options === 'object') ? options : {};
         const selected = selectedIds instanceof Set ? selectedIds : new Set();
         const expandedIds = opts.expandedIds instanceof Set ? opts.expandedIds : new Set();
-        const runtime = __tmBuildCustomFieldOptionRuntime(field);
+        const runtime = opts.runtime || __tmBuildCustomFieldOptionRuntime(field);
+        const search = opts.search;
+        const searching = !!search?.query;
         const useTouchLayout = (() => {
             try { return typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice(); } catch (e) { return false; }
         })();
@@ -354,7 +488,8 @@
             label.textContent = text;
             container.appendChild(label);
         };
-        if (historicalIds.length) {
+        const appendHistory = () => {
+            if (!historicalIds.length) return;
             appendSectionLabel('已归档或历史值');
             historicalIds.forEach((optionId) => {
                 const option = runtime.optionById.get(optionId);
@@ -374,13 +509,14 @@
                 button.onclick = () => opts.onToggle?.(optionId, { historical: true });
                 container.appendChild(button);
             });
-        }
+        };
+        if (!searching) appendHistory();
 
         const rootOptions = activeChildren('');
         const appendNode = (option) => {
             const optionId = String(option?.id || '').trim();
-            const depth = Number(runtime.depthById.get(optionId) || 0);
-            const children = activeChildren(optionId);
+            const depth = searching ? 0 : Number(runtime.depthById.get(optionId) || 0);
+            const children = searching ? [] : activeChildren(optionId);
             const row = document.createElement('div');
             row.className = 'tm-custom-field-picker-tree-row';
             row.style.cssText = `display:grid;grid-template-columns:minmax(0,1fr) ${expandColumnWidth}px;align-items:center;gap:2px;box-sizing:border-box;width:100%;min-width:0;padding-left:${depth * 14}px;`;
@@ -412,10 +548,12 @@
             button.style.cssText = `display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0;height:${optionRowHeight}px;padding:4px 6px;text-align:left;`;
             button.setAttribute('data-selected', selected.has(optionId) ? 'true' : 'false');
             button.setAttribute('aria-selected', selected.has(optionId) ? 'true' : 'false');
+            button.setAttribute('data-tm-custom-field-choice', optionId);
             const chip = document.createElement('span');
             chip.className = 'tm-status-tag tm-custom-field-inline-chip';
             chip.style.cssText = __tmBuildStatusChipStyle(option?.color || '#9ca3af');
-            chip.textContent = String(option?.name || optionId || '').trim() || optionId;
+            chip.textContent = (searching ? runtime.pathById.get(optionId) : '') || String(option?.name || optionId || '').trim() || optionId;
+            button.title = runtime.pathById.get(optionId) || chip.textContent;
             const check = document.createElement('span');
             check.style.cssText = 'flex:none;color:var(--tm-primary-color);font-size:12px;';
             check.textContent = selected.has(optionId) ? '✓' : '';
@@ -425,13 +563,19 @@
             container.appendChild(row);
             if (children.length && expandedIds.has(optionId)) children.forEach(appendNode);
         };
-        rootOptions.forEach(appendNode);
-        if (!rootOptions.length && !historicalIds.length) {
+        const visibleOptions = searching
+            ? runtime.options.filter((option) => runtime.effectiveArchivedById.get(option.id) !== true
+                && search.matches(runtime.pathById.get(option.id) || option.name))
+            : rootOptions;
+        visibleOptions.forEach(appendNode);
+        if (!visibleOptions.length && (searching || !historicalIds.length)) {
             const empty = document.createElement('div');
             empty.style.cssText = 'padding:8px;color:var(--tm-secondary-text);font-size:12px;';
-            empty.textContent = '当前字段没有可选项';
+            empty.textContent = searching ? '没有匹配的选项' : '当前字段没有可选项';
             container.appendChild(empty);
         }
+        if (searching) appendHistory();
+        search?.refresh(String(field?.type || '').trim() === 'multi' ? selected.size : null);
     }
 
     function __tmOpenCustomFieldInlineEditor(taskId, fieldId, anchorEl, options = {}) {
@@ -442,10 +586,10 @@
         if (!(anchorEl instanceof Element) || !field || !task || !__tmIsCustomFieldApplicableToTask(field, task)) return;
         const selected = __tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(task, fid));
         const isMulti = String(field.type || '').trim() === 'multi';
-        __tmOpenInlineEditor(anchorEl, ({ editor, close }) => {
+        __tmOpenInlineEditor(anchorEl, ({ editor, close, onCleanup }) => {
             try { editor.classList.add('tm-custom-field-inline-editor'); } catch (e) {}
             const viewportWidth = Math.max(240, window.innerWidth || document.documentElement.clientWidth || 0);
-            const minEditorWidth = 88;
+            const minEditorWidth = 220;
             const maxEditorWidth = Math.max(minEditorWidth, Math.min(300, viewportWidth - 24));
             editor.style.minWidth = '0';
             editor.style.width = 'auto';
@@ -505,15 +649,24 @@
 
             const draft = new Set(Array.isArray(selected) ? selected : (String(selected || '').trim() ? [String(selected || '').trim()] : []));
             const expandedIds = __tmGetDefaultExpandedCustomFieldOptionIds(field);
+            const runtime = __tmBuildCustomFieldOptionRuntime(field);
+            let saving = false;
             const renderOptions = () => {
                 __tmRenderCustomFieldOptionTreePicker(list, field, draft, {
                     expandedIds,
+                    runtime,
+                    search,
                     onToggle: (optionId) => {
+                        if (saving) return;
                         if (isMulti) {
                             const nextDraft = new Set(draft);
                             if (nextDraft.has(optionId)) nextDraft.delete(optionId);
                             else if (optionId) nextDraft.add(optionId);
                             void (async () => {
+                                saving = true;
+                                list.inert = true;
+                                clearBtn.disabled = true;
+                                const restoreFocus = document.activeElement === search.input;
                                 try {
                                     const ok = await __tmPersistTaskCustomFieldValue(tid, fid, Array.from(nextDraft), options);
                                     if (ok === false) {
@@ -523,8 +676,13 @@
                                     draft.clear();
                                     nextDraft.forEach((value) => draft.add(value));
                                     renderOptions();
+                                    if (restoreFocus && editor.isConnected) search.input.focus({ preventScroll: true });
                                 } catch (e) {
                                     hint(`❌ 更新失败: ${e.message}`, 'error');
+                                } finally {
+                                    saving = false;
+                                    list.inert = false;
+                                    clearBtn.disabled = false;
                                 }
                             })();
                             return;
@@ -536,6 +694,8 @@
                 });
                 syncEditorWidth();
             };
+            const search = __tmCreateCustomFieldOptionSearch(list, renderOptions);
+            wrap.insertBefore(search.element, list);
             renderOptions();
 
             actions = document.createElement('div');
@@ -551,8 +711,12 @@
             clearBtn.style.padding = '0 10px';
             clearBtn.textContent = '清空';
             clearBtn.onclick = () => {
+                if (saving) return;
                 if (isMulti) {
                     void (async () => {
+                        saving = true;
+                        list.inert = true;
+                        clearBtn.disabled = true;
                         try {
                             const ok = await __tmPersistTaskCustomFieldValue(tid, fid, [], options);
                             if (ok === false) {
@@ -563,6 +727,10 @@
                             renderOptions();
                         } catch (e) {
                             hint(`❌ 更新失败: ${e.message}`, 'error');
+                        } finally {
+                            saving = false;
+                            list.inert = false;
+                            clearBtn.disabled = false;
                         }
                     })();
                     return;
@@ -583,7 +751,8 @@
             wrap.appendChild(actions);
             editor.appendChild(wrap);
             syncEditorWidth();
-        });
+            onCleanup(__tmBindCustomFieldPickerViewport(editor, anchorEl));
+        }, { autoFocus: !__tmIsMobileDevice() });
     }
 
     window.tmOpenCustomFieldSelect = function(id, fieldId, ev, anchorEl = null, options = {}) {

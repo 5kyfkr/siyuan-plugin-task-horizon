@@ -8240,18 +8240,7 @@
     };
 
     window.tmWhiteboardToggleShowDone = async function(enabled) {
-        if (typeof window.tmToggleShowCompletedTasks === 'function') {
-            return window.tmToggleShowCompletedTasks(!!enabled);
-        }
-        try { __tmSetShowCompletedTasksInSettings(!!enabled, SettingsStore.data); } catch (e) {
-            SettingsStore.data.showCompletedTasks = !!enabled;
-            SettingsStore.data.excludeCompletedTasks = !SettingsStore.data.showCompletedTasks;
-        }
-        state.showCompletedTasks = !!SettingsStore.data.showCompletedTasks;
-        state.excludeCompletedTasks = !state.showCompletedTasks;
-        try { await SettingsStore.save(); } catch (e) {}
-        try { __tmRecomputeTaskProjection({ reason: 'whiteboard-show-completed-toggle' }); } catch (e) {}
-        render();
+        return window.tmToggleShowCompletedTasks(!!enabled);
     };
 
     window.tmWhiteboardMoveBackToParent = async function(taskId, docId, ev) {

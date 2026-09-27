@@ -4318,9 +4318,12 @@
         const relationIndex = buildTaskRelationIndex(tasks);
         const trend = buildTrend(tasks, todayKey, runtime.rangeDays);
         const weekDone = buildTrend(tasks, todayKey, 7).points.reduce((sum, point) => sum + point.value, 0);
-        const overdue = tasks.filter((task) => !task?.done && resolveTaskDueKey(task) && dayDiff(todayKey, resolveTaskDueKey(task)) < 0).length;
-        const overdueCount = tasks.filter((task) => !task?.done && resolveTaskDueKey(task) && dayDiff(todayKey, resolveTaskDueKey(task)) < 0).length;
-        const doneCount = tasks.filter((task) => !!task?.done).length;
+        // 状态概览将取消任务归入已完成，不改变任务本身或实际完成记录。
+        const unfinishedTasks = tasks.filter((task) => !task?.done
+            && String(task?.taskMarker ?? task?.task_marker ?? task?.marker ?? "").trim() !== "-");
+        const overdue = unfinishedTasks.filter((task) => resolveTaskDueKey(task) && dayDiff(todayKey, resolveTaskDueKey(task)) < 0).length;
+        const overdueCount = overdue;
+        const doneCount = tasks.length - unfinishedTasks.length;
         const pendingCount = Math.max(0, tasks.length - doneCount - overdueCount);
         const completionRate = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
         const procrastinationDoneParentMemo = new Map();

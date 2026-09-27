@@ -10139,7 +10139,9 @@ return true;
             || Object.prototype.hasOwnProperty.call(nextPatch, 'tomatoCount')
             || Object.prototype.hasOwnProperty.call(nextPatch, 'tomatoMinutes')
             || Object.prototype.hasOwnProperty.call(nextPatch, 'tomatoHours')) syncFocusSummaryChip();
-        if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate') || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) syncTimeHubChip();
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate')
+            || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')
+            || Object.prototype.hasOwnProperty.call(nextPatch, 'repeatRule')) syncTimeHubChip();
 
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'pinned')) {
             const pinnedValue = !!(task?.pinned === true || task?.pinned === '1' || task?.pinned === 1 || String(task?.custom_pinned || '').trim() === '1');

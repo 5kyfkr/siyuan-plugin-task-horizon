@@ -1779,6 +1779,8 @@
         } catch (e) {}
         try {
             if (node.closest?.([
+                '.list-mindmap',
+                '[data-protyle-lite-render]',
                 '.tm-modal',
                 '.siyuan-comment-popover',
                 '#siyuan-comment-app',

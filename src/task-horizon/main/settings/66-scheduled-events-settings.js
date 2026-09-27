@@ -108,7 +108,7 @@
                 <div class="tm-scheduled-events-editor__heading">
                     <div>
                         <div class="tm-settings-section-title">${state.scheduledEventEditingId ? '编辑定时事件' : '新建定时事件'}</div>
-                        <div class="tm-settings-section-desc">每条事件使用一个固定智能体对话，后续运行持续追加；智能体只允许调用任务读取和聚合工具。</div>
+                        <div class="tm-settings-section-desc">改动即时生效；新事件默认暂停，配置完成后在列表中启用。结果持续追加到固定对话。</div>
                     </div>
                     <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledCancelEdit" title="关闭编辑器" aria-label="关闭编辑器">${__tmScheduledSettingsIcon('x')}</button>
                 </div>
@@ -203,8 +203,7 @@
                     ` : ''}
                 </div>
                 <div class="tm-scheduled-events-editor__actions">
-                    <button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmScheduledCancelEdit">取消</button>
-                    <button class="tm-btn tm-btn-success" type="button" data-tm-call="tmScheduledSaveDraft">保存事件</button>
+                    <button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmScheduledCancelEdit">完成</button>
                 </div>
             </section>
         `;
@@ -287,17 +286,19 @@
 
     window.tmScheduledCreate = function () {
         state.scheduledEventEditingId = '';
-        state.scheduledEventDraft = __tmScheduledSettingsDraft();
+        state.scheduledEventDraft = __tmScheduledSettingsDraft({ enabled: false, prompt: '总结今天的任务。' });
         __tmScheduledRerenderSettings();
     };
 
     window.tmScheduledUseSummaryTemplate = function () {
         state.scheduledEventEditingId = '';
         state.scheduledEventDraft = __tmScheduledSummaryTemplate();
+        state.scheduledEventDraft.enabled = false;
         __tmScheduledRerenderSettings();
     };
 
     window.tmScheduledEdit = function (id) {
+        __tmFlushSettingsInputs();
         const event = (__tmScheduledSettingsApi()?.list?.() || []).find((item) => item.id === String(id || '').trim());
         if (!event) return;
         state.scheduledEventEditingId = event.id;
@@ -306,6 +307,8 @@
     };
 
     window.tmScheduledCancelEdit = function () {
+        __tmFlushSettingsInputs();
+        __tmFlushSettingsAutosave();
         state.scheduledEventEditingId = '';
         state.scheduledEventDraft = null;
         __tmScheduledRerenderSettings();
@@ -366,11 +369,13 @@
     };
 
     window.tmScheduledToggle = async function (id, enabled) {
+        __tmFlushSettingsInputs();
         const event = (__tmScheduledSettingsApi()?.list?.() || []).find((item) => item.id === String(id || '').trim());
         if (!event) return;
-        event.enabled = enabled === true;
-        await __tmScheduledSettingsApi()?.save?.(event);
-        __tmScheduledRerenderSettings();
+        const draft = state.scheduledEventDraft?.id === event.id ? state.scheduledEventDraft : __tmSettingsClone(event);
+        draft.enabled = enabled === true;
+        __tmQueueSettingsSave(`scheduled:${event.id}`, draft, __tmPersistScheduledSetting, 0);
+        await __tmRunSettingsSave(`scheduled:${event.id}`);
     };
 
     window.tmScheduledRunNow = async function (id) {
@@ -419,7 +424,11 @@
         const event = (__tmScheduledSettingsApi()?.list?.() || []).find((item) => item.id === String(id || '').trim());
         if (!event) return;
         if (!window.confirm(`删除定时事件“${event.name}”？`)) return;
+        __tmFlushSettingsInputs();
+        await __tmRunSettingsSave(`scheduled:${event.id}`);
         await __tmScheduledSettingsApi()?.remove?.(event.id);
+        __tmSettingsSaveJobs.delete(`scheduled:${event.id}`);
+        __tmSettingsSaveFeedback(`scheduled:${event.id}`);
         if (state.scheduledEventEditingId === event.id) {
             state.scheduledEventEditingId = '';
             state.scheduledEventDraft = null;

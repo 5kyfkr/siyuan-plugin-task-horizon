@@ -123,6 +123,11 @@ Object.assign(context, {
     protoListFocusDate: () => context.prototypeListState.focusDate,
     protoSafeDate: (date) => date,
     protoToolbarIcon: () => '',
+    // The toolbar only renders the sliding week rail for week views, so the
+    // extracted harness keeps the list/month expectations unchanged.
+    isSlidingWeekViewType: () => false,
+    getSlidingWeekAnchorIndex: () => 6,
+    callCalendarAdapter: () => null,
     prototypeOpenMenu: '',
     isMobileDevice: false,
     isDockHost: false,

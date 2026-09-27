@@ -1029,7 +1029,7 @@
         __tmClearDocManualArchivedInGroups(id, currentId);
         __tmClearDocManualUnarchivedInGroups(id, currentId);
         await SettingsStore.updateDocGroups(groups);
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.removeOtherBlockSourceDocFromGroup = async function(docId, groupId) {
@@ -1191,7 +1191,7 @@
         await SettingsStore.save();
         try { window.__tmInvalidateDocScopeCache?.(); } catch (e) {}
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     function __tmGetSettingsDocPickerRoot() {
@@ -1683,7 +1683,7 @@
     window.removeDocByIndex = async function(index) {
         await SettingsStore.removeDocId(index);
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
-        showSettings(); // 重新渲染设置界面
+        if (state.settingsModal) showSettings(); // 重新渲染设置界面
     };
 
     // 清空所有文档
@@ -1691,7 +1691,7 @@
         if (!confirm('确定要清空所有已选文档吗？')) return;
         await SettingsStore.clearDocIds();
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
-        showSettings(); // 重新渲染设置界面
+        if (state.settingsModal) showSettings(); // 重新渲染设置界面
     };
 
     window.updateQueryLimit = async function(value) {
@@ -1711,7 +1711,7 @@
         try { __tmDocExpandCache?.clear?.(); } catch (e) {}
         try { window.__tmInvalidateDocScopeCache?.(); } catch (e) {}
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             try {
                 await loadSelectedDocuments({ forceFreshTasks: true, source: 'legacy-win7-compat-mode' });
@@ -1722,7 +1722,7 @@
     window.updateTaskParentLookupDepth = async function(value) {
         SettingsStore.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(value);
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             try {
                 await loadSelectedDocuments({ source: 'task-parent-lookup-depth' });
@@ -1748,7 +1748,7 @@
             await loadSelectedDocuments();
             render();
         } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateCurrentGroupCalendarSearchOptimizationDays = async function(value) {
@@ -1769,7 +1769,7 @@
             await loadSelectedDocuments();
             render();
         } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateEnableQuickbar = async function(enabled) {
@@ -1777,45 +1777,45 @@
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarToggle?.(!!enabled); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateEnableQuickbarInlineMeta = async function(enabled) {
         SettingsStore.data.enableQuickbarInlineMeta = !!enabled;
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateTaskDoneDelightEnabled = async function(enabled) {
         SettingsStore.data.taskDoneDelightEnabled = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateRecurringTaskKeepNativeDoneUntilNextOccurrence = async function(enabled) {
         SettingsStore.data.recurringTaskKeepNativeDoneUntilNextOccurrence = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateFsrsDesiredRetentionPercent = async function(value) {
         const percent = Math.max(80, Math.min(97, Math.round(Number(value) || 90)));
         SettingsStore.data.fsrsDesiredRetention = percent / 100;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateFsrsMaximumIntervalDays = async function(value) {
         SettingsStore.data.fsrsMaximumIntervalDays = Math.max(30, Math.min(3650, Math.round(Number(value) || 3650)));
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateFsrsEnableFuzz = async function(enabled) {
         SettingsStore.data.fsrsEnableFuzz = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateTaskCheckboxCircleStyleEnabled = async function(enabled) {
@@ -1825,7 +1825,7 @@
         try { state.modal?.classList?.toggle('tm-modal--task-checkbox-circle', next); } catch (e) {}
         try { document.querySelectorAll('.tm-task-detail-shell').forEach(el => el.classList?.toggle?.('tm-task-detail--task-checkbox-circle', next)); } catch (e) {}
         try { document.getElementById('tm-task-detail-overlay')?.classList?.toggle('tm-task-detail--task-checkbox-circle', next); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateTaskCheckboxPriorityColorEnabled = async function(enabled) {
@@ -1833,7 +1833,7 @@
         SettingsStore.data.taskCheckboxPriorityColorEnabled = next;
         try { globalThis.__tmApplyTaskCheckboxPriorityColorStyle?.(next); } catch (e) {}
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.tmUpdateTopbarButtonVisibility = async function(id, enabled) {
@@ -1843,7 +1843,7 @@
         next[key] = !!enabled;
         SettingsStore.data.topbarButtonVisibility = next;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             try { render(); } catch (e) {}
         }
@@ -1891,7 +1891,7 @@
         SettingsStore.data.quickbarInlineFields = next;
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateQuickbarVisibleItem = async function(field, enabled) {
@@ -1906,21 +1906,21 @@
         SettingsStore.data.quickbarVisibleItems = __tmSetQuickbarSettingItemEnabled(prev, key, !!enabled, allow, defaults, key === 'taskCompleteAt' ? 'custom-completion-time' : '');
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateQuickbarInlineShowOnMobile = async function(enabled) {
         SettingsStore.data.quickbarInlineShowOnMobile = !!enabled;
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateQuickbarSubtaskCountUnfinishedOnly = async function(enabled) {
         SettingsStore.data.quickbarSubtaskCountUnfinishedOnly = !!enabled;
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateEnableTomatoIntegration = async function(enabled) {
@@ -1928,7 +1928,7 @@
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
         if (!enabled) state.timerFocusTaskId = '';
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             try { render(); } catch (e) {}
         }
@@ -1938,21 +1938,21 @@
         SettingsStore.data.docTitleGroupFocusEnabled = !!enabled;
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { scope: true, duration: true }); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDocTitleEmbeddedTaskFocusEnabled = async function(enabled) {
         SettingsStore.data.docTitleEmbeddedTaskFocusEnabled = !!enabled;
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { scope: true, duration: true }); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateEnablePointsRewardIntegration = async function(enabled) {
         SettingsStore.data.enablePointsRewardIntegration = !!enabled;
         await SettingsStore.save();
         try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: 'points-reward-integration-toggle' }); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updatePointsRewardExcludedGroup = async function(groupId, excluded) {
@@ -1979,42 +1979,42 @@
                 });
             } catch (e) {}
         }
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateEnablePointsPenaltyIntegration = async function(enabled) {
         SettingsStore.data.enablePointsPenaltyIntegration = !!enabled;
         await SettingsStore.save();
         try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: 'points-penalty-toggle' }); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updatePointsPenaltyScheduleEnabled = async function(enabled) {
         SettingsStore.data.pointsPenaltyScheduleEnabled = !!enabled;
         await SettingsStore.save();
         try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: 'points-penalty-schedule-toggle' }); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updatePointsPenaltyDeadlineEnabled = async function(enabled) {
         SettingsStore.data.pointsPenaltyDeadlineEnabled = !!enabled;
         await SettingsStore.save();
         try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: 'points-penalty-deadline-toggle' }); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updatePointsPenaltyScheduleAmount = async function(value) {
         const amount = Number(value);
         SettingsStore.data.pointsPenaltyScheduleAmount = Number.isFinite(amount) ? Math.max(0, Math.min(9999, Math.round(amount))) : 0;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updatePointsPenaltyDeadlineAmount = async function(value) {
         const amount = Number(value);
         SettingsStore.data.pointsPenaltyDeadlineAmount = Number.isFinite(amount) ? Math.max(0, Math.min(9999, Math.round(amount))) : 0;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updatePointsPenaltyCheckTimes = async function(value) {
@@ -2067,19 +2067,19 @@
         SettingsStore.data.pointsPenaltyCheckTimes = out.length ? out.map((item) => item.normalized) : ['23:00', '+1 08:00'];
         await SettingsStore.save();
         try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: 'points-penalty-check-times-updated' }); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updatePointsPenaltyCheckOnStartup = async function(enabled) {
         SettingsStore.data.pointsPenaltyCheckOnStartup = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updatePointsPenaltyConfirmModalEnabled = async function(enabled) {
         SettingsStore.data.pointsPenaltyConfirmModalEnabled = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     function __tmNotifyTomatoPolicyChanged(reason) {
@@ -2110,7 +2110,7 @@
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             loadSelectedDocuments();
         }
@@ -2125,7 +2125,7 @@
         await SettingsStore.save();
         try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { duration: true }); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             loadSelectedDocuments();
         }
@@ -2180,15 +2180,7 @@
     };
 
     window.updateShowCompletedTasks = async function(enabled) {
-        __tmSetShowCompletedTasksInSettings(!!enabled, SettingsStore.data);
-        await SettingsStore.save();
-        state.showCompletedTasks = !!SettingsStore.data.showCompletedTasks;
-        state.excludeCompletedTasks = !state.showCompletedTasks;
-        showSettings();
-        if (state.modal && document.body.contains(state.modal)) {
-            try { __tmRecomputeTaskProjection({ reason: 'show-completed-settings' }); } catch (e) {}
-            try { if (!__tmRerenderCurrentViewInPlace(state.modal)) render(); } catch (e) { try { render(); } catch (e2) {} }
-        }
+        return window.tmToggleShowCompletedTasks(!!enabled);
     };
 
     window.updateExcludeCompletedTasks = async function(enabled) {
@@ -2201,7 +2193,7 @@
         if (!enabled) {
             try { __tmCloseSemanticDateConfirmModal(); } catch (e) {}
         }
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateSemanticDateDefaultReminderTime = async function(value) {
@@ -2213,7 +2205,7 @@
             ? `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
             : '08:00';
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDefaultViewMode = async function(mode) {
@@ -2221,7 +2213,7 @@
         SettingsStore.data.defaultViewMode = next;
         await SettingsStore.save();
         __tmDispatchDockSettingsChanged('desktop-default-view');
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDefaultViewModeMobile = async function(mode) {
@@ -2229,27 +2221,27 @@
         SettingsStore.data.defaultViewModeMobile = next;
         await SettingsStore.save();
         __tmDispatchDockSettingsChanged('mobile-default-view');
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateMobileAutoOpenOnStartup = async function(enabled) {
         SettingsStore.data.mobileAutoOpenOnStartup = enabled === true;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateMobileSidebarEnabled = async function(enabled) {
         SettingsStore.data.mobileSidebarEnabled = enabled === true;
         await SettingsStore.save();
         __tmDispatchDockSettingsChanged('mobile-sidebar-enabled');
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDockSidebarEnabled = async function(enabled) {
         SettingsStore.data.dockSidebarEnabled = !!enabled;
         await SettingsStore.save();
         __tmDispatchDockSettingsChanged('dock-enabled');
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDockDefaultViewMode = async function(mode) {
@@ -2259,34 +2251,34 @@
             : 'follow-mobile';
         await SettingsStore.save();
         __tmDispatchDockSettingsChanged('dock-default-view');
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDockSidebarFollowCurrentDocument = async function(enabled) {
         SettingsStore.data.dockSidebarFollowCurrentDocument = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateTaskTitleClickAction = async function(value) {
         SettingsStore.data.taskTitleClickAction = __tmNormalizeTaskTitleClickAction(value);
         await SettingsStore.save();
         __tmDispatchDockSettingsChanged('task-title-click-action');
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDockTaskTitleClickAction = async function(value) {
         SettingsStore.data.dockTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(value);
         await SettingsStore.save();
         __tmDispatchDockSettingsChanged('dock-task-title-click-action');
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateMobileTaskTitleClickAction = async function(value) {
         SettingsStore.data.mobileTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(value);
         await SettingsStore.save();
         __tmDispatchDockSettingsChanged('mobile-task-title-click-action');
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateChecklistCompactMetaFieldVisibility = async function(scope, fieldKey, enabled) {
@@ -2312,7 +2304,7 @@
         if (scopeKey === 'dock') {
             __tmDispatchDockSettingsChanged('dock-checklist-compact-meta-fields');
         }
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             __tmScheduleSettingsViewRefresh('checklist-compact-meta-fields');
         }
@@ -2324,7 +2316,7 @@
         if (globalThis.__tmRuntimeHost?.isDesktopDockHost?.() ?? (__tmIsDockHost() && !__tmIsRuntimeMobileClient())) {
             __tmDispatchDockSettingsChanged('checklist-compact-right-font-size');
         }
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             __tmScheduleSettingsViewRefresh('checklist-compact-right-font-size');
         }
@@ -2338,7 +2330,7 @@
         else current.delete(normalizedField);
         SettingsStore.data.timelineCardFields = __tmNormalizeTimelineCardFields(Array.from(current), []);
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             __tmScheduleSettingsViewRefresh('timeline-card-field-visibility');
         }
@@ -2364,14 +2356,14 @@
         state.viewMode = __tmGetSafeViewMode(state.viewMode);
         await SettingsStore.save();
         __tmDispatchDockSettingsChanged('enabled-views');
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) render();
     };
 
     window.updateKanbanCompactMode = async function(enabled) {
         SettingsStore.data.kanbanCompactMode = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2380,7 +2372,7 @@
     window.updateChecklistCompactMode = async function(enabled) {
         SettingsStore.data.checklistCompactMode = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2390,7 +2382,7 @@
         SettingsStore.data.checklistCompactTreeGuides = !!enabled;
         SettingsStore.data.checklistCompactTreeGuidesUpdatedAt = Date.now();
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2400,7 +2392,7 @@
         const n = Number(width);
         SettingsStore.data.kanbanColumnWidth = Number.isFinite(n) ? Math.max(220, Math.min(520, Math.round(n))) : 320;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2410,7 +2402,7 @@
         const n = Number(width);
         SettingsStore.data.whiteboardAllTabsCardMinWidth = Number.isFinite(n) ? Math.max(220, Math.min(520, Math.round(n))) : 320;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             __tmScheduleSettingsViewRefresh('whiteboard-all-tabs-card-min-width');
         }
@@ -2419,7 +2411,7 @@
     window.updateWhiteboardStreamMobileTwoColumns = async function(enabled) {
         SettingsStore.data.whiteboardStreamMobileTwoColumns = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             __tmScheduleSettingsViewRefresh('whiteboard-stream-mobile-two-columns');
         }
@@ -2429,7 +2421,7 @@
         SettingsStore.data.whiteboardSequenceScope = __tmNormalizeWhiteboardSequenceScope(scope);
         await SettingsStore.save();
         try { __tmRecomputeTaskProjection({ reason: 'whiteboard-sequence-scope' }); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2439,13 +2431,13 @@
         const n = Number(value);
         SettingsStore.data.whiteboardNoteDefaultFontSize = Number.isFinite(n) ? Math.max(10, Math.min(40, Math.round(n))) : 20;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateKanbanFillColumns = async function(enabled) {
         SettingsStore.data.kanbanFillColumns = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2455,7 +2447,7 @@
         SettingsStore.data.kanbanShowDoneColumn = !!enabled;
         await SettingsStore.save();
         try { __tmKanbanColsHtmlCache = null; } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2471,7 +2463,7 @@
         else current.delete(key);
         SettingsStore.data[viewKey] = __tmNormalizeTaskCardFieldList(Array.from(current), ['priority', 'status', 'date']);
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             const nextCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
             if (__tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan)) {
@@ -2491,7 +2483,7 @@
         SettingsStore.data.taskCardAlwaysShowFields = __tmNormalizeTaskCardAlwaysShowFields(Array.from(current), ['priority', 'status', 'date']);
         SettingsStore.data.taskCardDateOnlyWithValue = !SettingsStore.data.taskCardAlwaysShowFields.includes('date');
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2504,7 +2496,7 @@
         SettingsStore.data.taskCardAlwaysShowFields = __tmNormalizeTaskCardAlwaysShowFields(Array.from(current), ['priority', 'status', 'date']);
         SettingsStore.data.taskCardDateOnlyWithValue = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2517,7 +2509,7 @@
         if (enabled) {
             try { await __tmWarmKanbanDocHeadings(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
         }
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2527,7 +2519,7 @@
         SettingsStore.data.alwaysShowTaskDocHeadingGroups = !!enabled;
         await SettingsStore.save();
         try { __tmRecomputeTaskProjection({ reason: 'doc-heading-group-visibility' }); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2549,7 +2541,7 @@
         state.groupByTaskName = SettingsStore.data.groupByTaskName;
         state.groupByTime = SettingsStore.data.groupByTime;
         state.quadrantEnabled = !!(SettingsStore.data.quadrantConfig && SettingsStore.data.quadrantConfig.enabled);
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2560,7 +2552,7 @@
         SettingsStore.data.durationFormat = (v === 'minutes') ? 'minutes' : 'hours';
         state.durationFormat = SettingsStore.data.durationFormat;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2571,7 +2563,7 @@
         state.listRenderSignature = '';
         state.listDomRenderSignature = '';
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2580,13 +2572,13 @@
     window.updatePinNewTasksByDefault = async function(enabled) {
         SettingsStore.data.pinNewTasksByDefault = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateQuickAddDefaultCompletionToday = async function(enabled) {
         SettingsStore.data.quickAddDefaultCompletionToday = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateSubtaskInheritedField = async function(field, enabled) {
@@ -2599,67 +2591,67 @@
         else current.delete(key);
         SettingsStore.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(Array.from(current), []);
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateEnableMoveBlockToDailyNote = async function(enabled) {
         SettingsStore.data.enableMoveBlockToDailyNote = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateNewTaskDailyNoteAppendToBottom = async function(enabled) {
         SettingsStore.data.newTaskDailyNoteAppendToBottom = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateNewTaskDailyNoteTargetHeadingText = async function(value) {
         SettingsStore.data.newTaskDailyNoteTargetHeadingText = String(value || '').trim();
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDeleteTaskRemovesWhiteboardCards = async function(enabled) {
         SettingsStore.data.deleteTaskRemovesWhiteboardCards = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateTaskDeleteMode = async function(value) {
         SettingsStore.data.taskDeleteMode = __tmNormalizeTaskDeleteMode(value);
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateTaskRecycleDocId = async function(value) {
         SettingsStore.data.taskRecycleDocId = String(value || '').trim();
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateTaskCompletionArchiveMode = async function(value) {
         SettingsStore.data.taskCompletionArchiveMode = __tmNormalizeTaskCompletionArchiveMode(value);
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateTaskCompletionArchiveDocId = async function(value) {
         SettingsStore.data.taskCompletionArchiveDocId = String(value || '').trim();
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateNewTaskDailyNoteNotebookId = async function(value) {
         SettingsStore.data.newTaskDailyNoteNotebookId = String(value || '').trim();
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateHeadingGroupCreateAtSectionEnd = async function(enabled) {
         SettingsStore.data.headingGroupCreateAtSectionEnd = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     async function __tmCollectDefaultNewTaskSearchDocs() {
@@ -2730,7 +2722,7 @@
         if (state.quickAddDocPicker) {
             try { window.tmQuickAddOpenDocPicker?.(); } catch (e) {}
         }
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     // Keep the previous global name available for older settings markup.
@@ -2785,7 +2777,7 @@
         SettingsStore.data.entryIconPreset = preset;
         __tmApplyEntryIconPreset(preset);
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         return true;
     };
 
@@ -2793,28 +2785,28 @@
         SettingsStore.data.docTopbarButtonDesktop = !!enabled;
         await SettingsStore.save();
         __tmRefreshShellEntrances();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDocTopbarButtonMobile = async function(enabled) {
         SettingsStore.data.docTopbarButtonMobile = !!enabled;
         await SettingsStore.save();
         __tmRefreshShellEntrances();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDocTopbarButtonSwapPressActions = async function(enabled) {
         SettingsStore.data.docTopbarButtonSwapPressActions = !!enabled;
         await SettingsStore.save();
         __tmRefreshShellEntrances();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDocTopbarButtonLocateCurrentDocTab = async function(enabled) {
         SettingsStore.data.docTopbarButtonLocateCurrentDocTab = !!enabled;
         await SettingsStore.save();
         __tmRefreshShellEntrances();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateWindowTopbarIconDesktop = async function(enabled) {
@@ -2822,7 +2814,7 @@
         await SettingsStore.save();
         try { globalThis.__taskHorizonSyncWindowTopBar?.(); } catch (e) {}
         try { __tmRefreshShellEntrances(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateWindowTopbarIconMobile = async function(enabled) {
@@ -2830,7 +2822,7 @@
         await SettingsStore.save();
         try { globalThis.__taskHorizonSyncWindowTopBar?.(); } catch (e) {}
         try { __tmRefreshShellEntrances(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateDefaultDocId = async function(value) {
@@ -2861,7 +2853,7 @@
         const v = String(input?.value || '').trim();
         await updateDefaultDocId(v);
         hint(v ? '✅ 默认文档ID已更新' : '✅ 默认文档已清空', 'success');
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.tmClearDefaultDocIdInput = async function() {
@@ -2869,7 +2861,7 @@
         if (input) input.value = '';
         await updateDefaultDocId('');
         hint('✅ 默认文档已清空', 'success');
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     function __tmRefreshSettingsProjectionView(reason = 'settings-projection') {
@@ -3474,6 +3466,8 @@
     };
 
     window.closeSettings = function() {
+        __tmFlushSettingsInputs();
+        __tmFlushSettingsAutosave();
         try { window.tmCloseSettingsDocPicker?.({ restoreFocus: false }); } catch (e) {}
         state.__settingsUnstack?.();
         state.__settingsUnstack = null;
@@ -3488,6 +3482,9 @@
         } catch (e) {}
         state.settingsSearchHighlightTimer = null;
         if (state.settingsModal) {
+            state.settingsModal.__tmSettingsSearchUnstack?.();
+            state.settingsV3SearchOpen = false;
+            state.settingsModal.__tmChoiceObserver?.disconnect();
             state.settingsModal.remove();
             state.settingsModal = null;
         }

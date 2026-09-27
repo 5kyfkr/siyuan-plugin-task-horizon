@@ -49,6 +49,7 @@
         'currentGroupId',
         'defaultDocId',
         'defaultDocIdByGroup',
+        'showCompletedTasksByGroup',
         'allDocsExcludedDocIds',
         'newTaskDocId',
         'newTaskDefaultLocationMode',
@@ -255,7 +256,7 @@
                     SettingsStore.data[key] = __tmMergeArrayById(SettingsStore.data[key], value).slice(0, 6);
                     return;
                 }
-                if (key === 'docColorMap' || key === 'defaultDocIdByGroup' || key === 'docPinnedByGroup') {
+                if (key === 'docColorMap' || key === 'defaultDocIdByGroup' || key === 'docPinnedByGroup' || key === 'showCompletedTasksByGroup') {
                     SettingsStore.data[key] = {
                         ...(SettingsStore.data[key] && typeof SettingsStore.data[key] === 'object' ? SettingsStore.data[key] : {}),
                         ...(value && typeof value === 'object' && !Array.isArray(value) ? value : {}),
@@ -570,6 +571,9 @@
         SettingsStore.saveDirty = true;
         if (typeof SettingsStore.saveNow === 'function') await SettingsStore.saveNow();
         else await SettingsStore.save();
+        if (__tmApplyCompletedVisibilityToRuntime()) {
+            try { __tmRecomputeTaskProjection({ reason: 'show-completed-import' }); } catch (e) {}
+        }
         try { render(); } catch (e) {}
         try { if (state.settingsModal) showSettings(); } catch (e) {}
         try { globalThis.__tmCalendar?.refreshInPlace?.({ hard: true }); } catch (e) {}

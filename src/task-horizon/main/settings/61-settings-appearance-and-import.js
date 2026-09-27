@@ -33,6 +33,9 @@
         return ok;
     };
     window.tmSwitchSettingsTab = function(tab) {
+        __tmFlushSettingsInputs();
+        state.settingsV2Page = null;
+        state.settingsV2Source = null;
         const prev = state.settingsActiveTab || 'docs';
         if (tab === 'main') {
             state.settingsActiveTab = 'main';
@@ -58,16 +61,18 @@
         } else {
             state.settingsActiveTab = 'docs';
         }
-        if ((state.settingsActiveTab || 'docs') === prev) return;
+        if ((state.settingsActiveTab || 'docs') === prev && state.settingsModal?.dataset.settingsPage === __tmSettingsV2CurrentPage()) return;
+        state.settingsContentScrollTop = 0;
         showSettings();
+        if (['priority', 'quadrant'].includes(tab)) window.tmJumpSettingsSection?.(`${tab}-${tab}-algo`);
     };
 
     // 移除独立的规则管理器弹窗逻辑
     // window.showRulesManager = function() {...}
     // 改为直接跳转到设置页的规则标签
     window.showRulesManager = function() {
-        state.settingsActiveTab = 'rules';
-        showSettings();
+        window.tmOpenSettingsV2Page('algo');
+        window.tmJumpSettingsSection?.('rules-rules-algo');
     };
 
     // 渲染列设置（显示/排序/宽度）
@@ -591,7 +596,7 @@
         SettingsStore.data[k] = __tmNormalizeAppearanceMetric(value, conf.fallback, conf.min, conf.max);
         await SettingsStore.save();
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         render();
     };
 
@@ -618,14 +623,14 @@
         await SettingsStore.save();
         try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         render();
     };
 
     window.tmUpdatePriorityIconStyle = async function(value) {
         SettingsStore.data.priorityIconStyle = __tmNormalizePriorityIconStyle(value);
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
         render();
     };
 
@@ -658,7 +663,7 @@
         SettingsStore.data.completedTasksTodayOnly = !!enabled;
         await SettingsStore.save();
         state.listRenderSignature = '';
-        showSettings();
+        if (state.settingsModal) showSettings();
         render();
     };
 
@@ -666,26 +671,26 @@
         SettingsStore.data.completedTasksInlineInGroups = !!enabled;
         await SettingsStore.save();
         state.listRenderSignature = '';
-        showSettings();
+        if (state.settingsModal) showSettings();
         render();
     };
 
     window.updateCollapseAllIncludesGroups = async function(enabled) {
         SettingsStore.data.collapseAllIncludesGroups = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateServerSyncOnManualRefresh = async function(enabled) {
         SettingsStore.data.serverSyncOnManualRefresh = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.updateServerSyncSessionStateOnManualRefresh = async function(enabled) {
         SettingsStore.data.serverSyncSessionStateOnManualRefresh = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
 
     window.tmResetAppearanceColors = async function() {
@@ -703,7 +708,7 @@
         __tmApplyThemeConfigToAppearanceFields(SettingsStore.data.themeConfig);
         await SettingsStore.save();
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         render();
     };
 
@@ -726,7 +731,7 @@
         __tmApplyThemeConfigToAppearanceFields(current);
         await SettingsStore.save();
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         render();
     };
 
@@ -765,7 +770,7 @@
         __tmApplyThemeConfigToAppearanceFields(config);
         await SettingsStore.save();
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         render();
     };
 
@@ -786,7 +791,7 @@
         __tmApplyThemeConfigToAppearanceFields(config);
         await SettingsStore.save();
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         render();
     };
 
@@ -803,7 +808,7 @@
         __tmApplyThemeConfigToAppearanceFields(config);
         await SettingsStore.save();
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         render();
     };
 
@@ -824,7 +829,7 @@
         __tmApplyThemeConfigToAppearanceFields(next);
         await SettingsStore.save();
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
-        showSettings();
+        if (state.settingsModal) showSettings();
         render();
     };
 

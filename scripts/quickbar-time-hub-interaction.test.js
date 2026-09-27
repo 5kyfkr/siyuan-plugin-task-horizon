@@ -68,6 +68,7 @@ const context = vm.createContext({
     __tmCloseStandaloneTaskTimeHub: (reason) => closeReasons.push(reason),
 });
 vm.runInContext([
+    segment(quickbarSource, 'function isQuickbarNativeEditorSurface(', 'function shouldPreserveQuickbarNativeEditorDOM('),
     segment(quickbarSource, 'const __tmQBResolveInlineMetaPointerTarget =', 'const __tmQBOnInlineMetaPointerdownCapture ='),
     segment(quickbarSource, 'function showDateEditor(', 'function showFocusSummaryEditor('),
     segment(quickbarSource, 'async function handleInlineHostPointerDown(', 'function bindInlineHostPointerHandler('),

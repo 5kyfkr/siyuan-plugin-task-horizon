@@ -3796,19 +3796,12 @@ return Number(state.contextInteractionQuietUntil || 0);
                 state.__tmSilentCacheVerifyInFlight = true;
                 try {
                     const beforeFingerprint = __tmGetVisibleTaskFingerprint();
-                    await loadSelectedDocuments({
-                        skipRender: true,
-                        preferFastFirstPaint: false,
-                        showInlineLoading: false,
-                        forceFreshTasks: true,
-                        forceSyncFlowRank: true,
-                        skipSnapshotFirstPaint: true,
-                        skipTaskIndexFirstPaint: true,
-                        skipSessionRestoreFirstPaint: true,
-                        skipDocSessionRestoreFirstPaint: true,
-                        skipFullLoadAfterFastFirstPaint: true,
+                    const verified = await __tmVerifyCachedTaskScope({
                         source: `${source}:verify`,
+                        isCurrent: () => token === (Number(state.openToken) || 0)
+                            && (String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') === groupId,
                     });
+                    if (!verified.complete && !verified.changed) return;
                     const verifyContextChanged = (() => {
                         try {
                             const meta = state.__tmLastCacheVerifyContextChanged;
@@ -3824,9 +3817,11 @@ return Number(state.contextInteractionQuietUntil || 0);
                     })();
                     if (token !== (Number(state.openToken) || 0)) return;
                     if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== groupId) return;
-                    state.__tmCacheFirstPaintNeedsVerify = false;
-                    state.__tmCacheFirstPaintVerifyGroupId = '';
-                    state.__tmLastCacheVerifyAt = Date.now();
+                    if (verified.complete) {
+                        state.__tmCacheFirstPaintNeedsVerify = false;
+                        state.__tmCacheFirstPaintVerifyGroupId = '';
+                        state.__tmLastCacheVerifyAt = Date.now();
+                    }
                     const afterFingerprint = __tmGetVisibleTaskFingerprint();
                     const verifiedUnchanged = !!(afterFingerprint && beforeFingerprint && afterFingerprint === beforeFingerprint);
                     if (!verifyContextChanged && afterFingerprint && beforeFingerprint && afterFingerprint !== beforeFingerprint) {
@@ -3839,7 +3834,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                         }
                     }
                     try {
-                        if (!verifyContextChanged && !verifiedUnchanged && Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length > 0) {
+                        if (!verified.incremental && !verifyContextChanged && !verifiedUnchanged && Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length > 0) {
                             globalThis.__tmTaskSnapshotService?.schedulePersist?.({
                                 docIds: state.__tmLoadedDocIdsForTasks,
                                 groupId,
@@ -3887,34 +3882,43 @@ return Number(state.contextInteractionQuietUntil || 0);
             .map((doc) => [String(doc?.id || '').trim(), doc])
             .filter(([id]) => !!id));
         const localMap = new Map();
-        docIds.forEach((docId) => {
+        let visited = 0;
+        for (const docId of docIds) {
             const doc = taskTreeByDocId.get(docId) || allDocumentsById.get(docId) || null;
             const seenTaskIds = new Set();
             let taskCount = 0;
             let taskUpdated = '';
-            const walk = (tasks) => {
-                (Array.isArray(tasks) ? tasks : []).forEach((task) => {
-                    const taskId = String(task?.id || task?.blockId || '').trim();
-                    if (__tmIsLikelyBlockId(taskId) && !seenTaskIds.has(taskId)) {
-                        seenTaskIds.add(taskId);
-                        taskCount += 1;
-                        const updated = String(task?.updated || task?.updatedAt || '').trim();
-                        if (updated > taskUpdated) taskUpdated = updated;
-                    }
-                    if (Array.isArray(task?.children) && task.children.length > 0) walk(task.children);
-                });
-            };
-            walk(doc?.tasks);
+            const taskFingerprints = [];
+            const stack = Array.isArray(doc?.tasks) ? doc.tasks.slice() : [];
+            const seenTasks = new Set();
+            while (stack.length) {
+                const task = stack.pop();
+                if (!task || typeof task !== 'object' || seenTasks.has(task)) continue;
+                seenTasks.add(task);
+                const taskId = String(task?.id || task?.blockId || '').trim();
+                if (__tmIsLikelyBlockId(taskId) && !seenTaskIds.has(taskId)) {
+                    seenTaskIds.add(taskId);
+                    taskCount += 1;
+                    const updated = String(task?.updated || task?.updatedAt || '').trim();
+                    if (updated > taskUpdated) taskUpdated = updated;
+                    taskFingerprints.push(`${taskId}:${String(task.hash || '').trim()}:${Number(task.block_sort ?? task.blockSort ?? task.sort ?? 0) || 0}`);
+                }
+                if (Array.isArray(task.children)) {
+                    for (const child of task.children) stack.push(child);
+                }
+                if (++visited % 512 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+            }
             localMap.set(docId, {
                 docUpdated: String(doc?.updated || doc?.docUpdated || allDocumentsById.get(docId)?.updated || '').trim(),
                 taskCount,
                 taskUpdated,
+                taskFingerprint: taskFingerprints.sort().join(','),
             });
-        });
+        }
         let remoteMeta = null;
-        try { remoteMeta = await API.getTaskFreshnessByDocuments(docIds); } catch (e) { remoteMeta = null; }
+        try { remoteMeta = await API.getTaskFreshnessByDocuments(docIds); } catch (e) { remoteMeta = { unavailable: true, readFailure: true }; }
         if (!remoteMeta || remoteMeta.unavailable || !(remoteMeta.map instanceof Map)) {
-            return { status: 'unknown', changed: false, unavailable: true, docCount: docIds.length };
+            return { status: 'unknown', changed: false, unavailable: true, readFailure: remoteMeta?.readFailure === true, docCount: docIds.length };
         }
         const changedDocIds = docIds.filter((docId) => {
             const local = localMap.get(docId) || {};
@@ -3922,7 +3926,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (!remote || remote.exists !== true) return true;
             return String(remote.docUpdated || '') !== String(local.docUpdated || '')
                 || Number(remote.taskCount || 0) !== Number(local.taskCount || 0)
-                || String(remote.taskUpdated || '') !== String(local.taskUpdated || '');
+                || String(remote.taskUpdated || '') !== String(local.taskUpdated || '')
+                || String(remote.taskFingerprint || '') !== String(local.taskFingerprint || '');
         });
         return {
             status: changedDocIds.length > 0 ? 'changed' : 'unchanged',
@@ -3930,8 +3935,88 @@ return Number(state.contextInteractionQuietUntil || 0);
             unavailable: false,
             docCount: docIds.length,
             changedDocIds,
+            docFreshnessMap: remoteMeta.map,
             queryTime: Number(remoteMeta.queryTime || 0) || 0,
         };
+    }
+
+    async function __tmVerifyCachedTaskScope(options = {}) {
+        const source = String(options.source || 'cache-first-paint:verify');
+        const token = Number(state.openToken) || 0;
+        const groupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const isCurrent = () => token === (Number(state.openToken) || 0)
+            && (String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') === groupId
+            && (typeof options.isCurrent !== 'function' || options.isCurrent());
+        const key = `${token}:${groupId}`;
+        const previous = state.__tmCachedScopeVerifyInFlight;
+        if (previous?.key === key) return await previous.promise;
+        const request = Promise.resolve().then(async () => {
+            if (!isCurrent()) return { complete: false };
+            const freshness = options.freshness || await __tmProbeCurrentGroupTaskFreshness();
+            if (!isCurrent()) return { complete: false };
+            if (freshness?.status === 'unchanged') return { complete: true, changed: false };
+            // A failed lightweight read must not cause a heavier full-scope read.
+            if (freshness?.readFailure) return { complete: false };
+            if (freshness?.status === 'changed') {
+                const docIds = Array.from(new Set((freshness.changedDocIds || []).filter(__tmIsLikelyBlockId)));
+                if (!docIds.length) return { complete: false };
+                const refreshedDocIds = [];
+                let complete = true;
+                try {
+                    for (let i = 0; i < docIds.length; i += 12) {
+                        if (!isCurrent()) { complete = false; break; }
+                        const batch = docIds.slice(i, i + 12);
+                        const refreshed = await __tmRefreshAffectedDocsIncrementally({
+                            docIds: batch,
+                            forceDocRefresh: true,
+                            forcePositionRank: true,
+                            allowCalendar: true,
+                            allowUnloadedDocIds: true,
+                            preserveRenderWindow: true,
+                            commitView: false,
+                            persistCaches: false,
+                            docFreshnessMap: freshness.docFreshnessMap,
+                            withFilters: false,
+                            reason: source,
+                            isCurrent,
+                        });
+                        if (!refreshed || !isCurrent()) { complete = false; break; }
+                        refreshedDocIds.push(...batch);
+                        await new Promise((resolve) => setTimeout(resolve, 0));
+                    }
+                } catch (e) { complete = false; }
+                if (!isCurrent()) return { complete: false };
+                if (refreshedDocIds.length) {
+                    __tmRecomputeTaskProjection({ reason: source });
+                    __tmSchedulePersistTaskIndex({ docIds: refreshedDocIds, queryLimit: __TM_TASK_INDEX_QUERY_LIMIT, delayMs: 300 });
+                    __tmSchedulePersistTaskSnapshot({
+                        docIds: state.__tmLoadedDocIdsForTasks, changedDocIds: refreshedDocIds,
+                        groupId, queryLimit: __TM_TASK_INDEX_QUERY_LIMIT, delayMs: 420,
+                    });
+                }
+                return { complete, changed: refreshedDocIds.length > 0, incremental: true };
+            }
+            // Compatibility fallback only when freshness cannot be determined,
+            // at most once per group per minute; transport failures never enter it.
+            const now = Date.now();
+            const fallbackAtByGroup = state.__tmDocGroupFreshnessFallbackAtByGroup
+                || (state.__tmDocGroupFreshnessFallbackAtByGroup = {});
+            const lastFallbackAt = Number(fallbackAtByGroup[groupId] || 0);
+            if (lastFallbackAt && now - lastFallbackAt < 60000) return { complete: false };
+            fallbackAtByGroup[groupId] = now;
+            const loaded = await loadSelectedDocuments({
+                skipRender: true, showInlineLoading: false, preferFastFirstPaint: false,
+                forceFreshTasks: true, forceSyncFlowRank: true,
+                skipSnapshotFirstPaint: true, skipTaskIndexFirstPaint: true,
+                skipSessionRestoreFirstPaint: true, skipDocSessionRestoreFirstPaint: true,
+                skipFullLoadAfterFastFirstPaint: true, source: `${source}:freshness-unknown`,
+            });
+            return { complete: loaded !== false && isCurrent(), changed: true };
+        });
+        const entry = { key, promise: request };
+        state.__tmCachedScopeVerifyInFlight = entry;
+        try { return await request; }
+        finally { if (state.__tmCachedScopeVerifyInFlight === entry) state.__tmCachedScopeVerifyInFlight = null; }
     }
 
     function __tmScheduleDocGroupSwitchVerifyAfterFirstPaint(options = {}) {
@@ -3964,39 +4049,22 @@ return Number(state.contextInteractionQuietUntil || 0);
             const freshness = await __tmProbeCurrentGroupTaskFreshness();
             const freshnessStatus = String(freshness?.status || (freshness?.changed ? 'changed' : 'unknown')).trim() || 'unknown';
             if (freshnessStatus === 'unchanged') return;
-            let unknownFallbackAtByGroup = null;
-            if (freshnessStatus === 'unknown') {
-                const now = Date.now();
-                const fallbackAtByGroup = (state.__tmDocGroupFreshnessFallbackAtByGroup
-                    && typeof state.__tmDocGroupFreshnessFallbackAtByGroup === 'object')
-                    ? state.__tmDocGroupFreshnessFallbackAtByGroup
-                    : (state.__tmDocGroupFreshnessFallbackAtByGroup = {});
-                const lastFallbackAt = Number(fallbackAtByGroup[groupId] || 0) || 0;
-                if (lastFallbackAt && now - lastFallbackAt < 60000) return;
-                unknownFallbackAtByGroup = fallbackAtByGroup;
-            }
+            if (freshness?.readFailure) return;
             const refreshGate = __tmGetBackgroundRefreshGateMeta(`${source}:task-refresh`);
             if (!refreshGate.allowRun) {
                 if (refreshGate.parkUntilVisible) return;
                 schedule(Math.max(240, Number(refreshGate.waitMs || 0) || 240));
                 return;
             }
-            if (unknownFallbackAtByGroup) unknownFallbackAtByGroup[groupId] = Date.now();
-            await loadSelectedDocuments({
-                skipRender: true,
-                showInlineLoading: false,
-                preferFastFirstPaint: false,
-                forceFreshTasks: true,
-                forceRefreshScope: false,
-                skipSnapshotFirstPaint: true,
-                skipTaskIndexFirstPaint: true,
-                skipSessionRestoreFirstPaint: true,
-                skipDocSessionRestoreFirstPaint: true,
-                skipFullLoadAfterFastFirstPaint: true,
+            const verified = await __tmVerifyCachedTaskScope({
+                freshness,
                 source: freshnessStatus === 'unknown'
                     ? 'switch-doc-group:task-freshness-unknown'
                     : 'switch-doc-group:task-freshness-changed',
+                isCurrent: () => token === (Number(state.openToken) || 0)
+                    && (String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') === groupId,
             });
+            if (!verified.complete && !verified.changed) return;
             if (token !== (Number(state.openToken) || 0)) return;
             if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== groupId) return;
             try { recalcStats(); } catch (e) {}
@@ -6763,17 +6831,6 @@ return Number(state.contextInteractionQuietUntil || 0);
         return result;
     }
 
-    function __tmBuildBatchCustomFieldPromptText(field) {
-        const runtime = __tmBuildCustomFieldOptionRuntime(field);
-        const names = runtime.options
-            .filter((item) => runtime.effectiveArchivedById.get(String(item?.id || '').trim()) !== true)
-            .map((item) => runtime.pathById.get(String(item?.id || '').trim()) || String(item?.name || item?.id || '').trim())
-            .filter(Boolean);
-        return names.length
-            ? `可用选项：${names.join('、')}；多个值请用逗号分隔，留空清空`
-            : '多个值请用逗号分隔，留空清空';
-    }
-
     async function __tmBatchSetStartDate() {
         state.multiBulkEditFieldKey = 'startDate';
         try {
@@ -7190,6 +7247,63 @@ return Number(state.contextInteractionQuietUntil || 0);
         });
     }
 
+    function __tmShowCustomFieldValuePrompt(field) {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className = 'tm-prompt-modal';
+            modal.innerHTML = `<div class="tm-prompt-box tm-custom-field-value-prompt">
+                <div class="tm-prompt-title"></div>
+                <div class="tm-custom-field-prompt-list"></div>
+                <div class="tm-prompt-buttons">
+                    <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-action="clear">清空</button>
+                    <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-action="cancel">取消</button>
+                    <button type="button" class="tm-prompt-btn tm-prompt-btn-primary" data-action="confirm" disabled>确定</button>
+                </div>
+            </div>`;
+            const box = modal.firstElementChild;
+            box.querySelector('.tm-prompt-title').textContent = `批量设置 ${field.name || field.id}`;
+            const list = box.querySelector('.tm-custom-field-prompt-list');
+            const confirm = box.querySelector('[data-action="confirm"]');
+            const draft = new Set();
+            const isMulti = field.type === 'multi';
+            const runtime = __tmBuildCustomFieldOptionRuntime(field);
+            const expandedIds = __tmGetDefaultExpandedCustomFieldOptionIds(field);
+            const renderOptions = () => __tmRenderCustomFieldOptionTreePicker(list, field, draft, {
+                runtime, expandedIds, search,
+                onToggle: (optionId) => {
+                    if (isMulti && draft.has(optionId)) draft.delete(optionId);
+                    else {
+                        if (!isMulti) draft.clear();
+                        draft.add(optionId);
+                    }
+                    confirm.disabled = false;
+                    renderOptions();
+                },
+            });
+            const search = __tmCreateCustomFieldOptionSearch(list, renderOptions);
+            box.insertBefore(search.element, list);
+            renderOptions();
+            document.body.appendChild(modal);
+            const disposeViewport = __tmBindCustomFieldPickerViewport(box, null);
+            const finish = (value) => {
+                removeFromStack();
+                disposeViewport();
+                modal.remove();
+                resolve(value);
+            };
+            const removeFromStack = __tmModalStackBind(() => finish(null));
+            box.querySelector('[data-action="cancel"]').onclick = () => finish(null);
+            confirm.onclick = () => finish(isMulti ? Array.from(draft) : (Array.from(draft)[0] || ''));
+            box.querySelector('[data-action="clear"]').onclick = () => {
+                draft.clear();
+                confirm.disabled = false;
+                renderOptions();
+            };
+            modal.onclick = (event) => { if (event.target === modal) finish(null); };
+            if (!__tmIsMobileDevice()) search.input.focus();
+        });
+    }
+
     async function __tmBatchSetCustomField() {
         state.multiBulkEditFieldKey = 'customField';
         try {
@@ -7216,20 +7330,11 @@ return Number(state.contextInteractionQuietUntil || 0);
             const optionRuntime = __tmBuildCustomFieldOptionRuntime(field);
             const isActiveOptionId = (optionId) => optionRuntime.optionById.has(String(optionId || '').trim())
                 && optionRuntime.effectiveArchivedById.get(String(optionId || '').trim()) !== true;
+            const raw = await __tmShowCustomFieldValuePrompt(field);
+            if (raw === null) return;
             if (String(field?.type || '').trim() === 'multi') {
-                const raw = await showPrompt(`批量设置 ${String(field?.name || fieldId).trim()}`, __tmBuildBatchCustomFieldPromptText(field), '');
-                if (raw === null) return;
                 normalizedValue = __tmNormalizeCustomFieldValue(field, raw).filter(isActiveOptionId);
             } else {
-                const options = [
-                    { value: '', label: '清空' },
-                    ...(optionRuntime.options.filter((item) => isActiveOptionId(item?.id)).map((item) => ({
-                        value: String(item?.id || '').trim(),
-                        label: optionRuntime.pathById.get(String(item?.id || '').trim()) || String(item?.name || item?.id || '').trim() || String(item?.id || '').trim(),
-                    })).filter((item) => item.value))
-                ];
-                const raw = await showSelectPrompt(`批量设置 ${String(field?.name || fieldId).trim()}`, options, '');
-                if (raw === null) return;
                 normalizedValue = __tmNormalizeCustomFieldValue(field, raw);
             }
             await __tmApplyBatchAttrPatch({ customFieldValues: { [String(fieldId || '').trim()]: normalizedValue } }, {
@@ -8059,6 +8164,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     // 显示规则管理器
     async function showRulesManager() {
         if (state.rulesModal) return;
+        __tmInstallSettingsAutosave();
 
         state.rulesModal = document.createElement('div');
         state.rulesModal.className = 'tm-rules-manager';
@@ -8090,14 +8196,14 @@ return Number(state.contextInteractionQuietUntil || 0);
                         当前有 ${state.filterRules.filter(r => r.enabled).length} 个启用的规则
                     </div>
                     <div style="display: flex; gap: 10px;">
-                        <button class="tm-rule-btn tm-rule-btn-secondary" data-tm-action="closeRulesManager">取消</button>
-                        <button class="tm-rule-btn tm-rule-btn-success" data-tm-action="saveRules">保存规则</button>
+                        <button class="tm-rule-btn tm-rule-btn-secondary bc-btn" data-tm-action="closeRulesManager">完成</button>
                     </div>
                 </div>
             </div>
         `;
 
         document.body.appendChild(state.rulesModal);
+        __tmBindSettingsInstantInputs(state.rulesModal);
         __tmBindRulesManagerEvents(state.rulesModal);
         state.__rulesUnstack = __tmModalStackBind(() => window.closeRulesManager?.());
     }
@@ -8186,8 +8292,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         });
 
         root.addEventListener('input', (e) => {
+            if (e.isComposing) return;
             const target = e.target?.closest?.('[data-tm-call],[data-tm-input]');
             if (!target || !root.contains(target)) return;
+
+            // Settings commit text and number fields after a short pause, via change.
+            if (root.__tmInstantInputsBound && target.dataset.tmCall) return;
 
             const callName = String(target.dataset.tmCall || '');
             if (callName) {
@@ -8390,10 +8500,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
                 <div class="tm-rule-actions">
                     <button class="tm-rule-btn tm-rule-btn-secondary" data-tm-action="cancelEditRule">
-                        取消
-                    </button>
-                    <button class="tm-rule-btn tm-rule-btn-success" data-tm-action="saveEditRule">
-                        保存规则
+                        完成
                     </button>
                 </div>
             </div>
@@ -8927,7 +9034,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (embedded) {
             return `
                 <div class="tm-priority-settings" style="display:flex;flex-direction:column;gap:12px;">
-                    <div style="font-weight: 700; font-size: 15px;">⚙️ 优先级算法</div>
+                    <div class="tm-priority-embedded-title" style="font-weight: 700; font-size: 15px;">⚙️ 优先级算法</div>
 
                     <div class="tm-rule-section" style="margin-bottom:0;">
                         <div style="font-weight: 700; margin-bottom: 10px;">基础分</div>
@@ -9073,8 +9180,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     </div>
                 </div>
                 <div class="tm-settings-footer" style="padding: 12px 14px;">
-                    <button class="tm-btn tm-btn-secondary" data-tm-action="closePriorityScoreSettings">取消</button>
-                    <button class="tm-btn tm-btn-success" data-tm-action="savePriorityScoreSettings">保存</button>
+                    <button class="tm-btn tm-btn-secondary" data-tm-action="closePriorityScoreSettings">完成</button>
                 </div>
             </div>
         `;
@@ -9082,12 +9188,14 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function showPriorityScoreSettings() {
         if (state.priorityModal) return;
+        __tmInstallSettingsAutosave();
         state.priorityScoreDraft = __tmEnsurePriorityDraft();
         state.priorityModal = document.createElement('div');
         state.priorityModal.className = 'tm-modal';
         state.priorityModal.style.zIndex = '200002';
         state.priorityModal.innerHTML = __tmRenderPriorityScoreSettings(false);
         document.body.appendChild(state.priorityModal);
+        __tmBindSettingsInstantInputs(state.priorityModal);
         __tmBindRulesManagerEvents(state.priorityModal);
         state.__priorityUnstack = __tmModalStackBind(() => window.closePriorityScoreSettings?.());
     }
@@ -9103,6 +9211,8 @@ return Number(state.contextInteractionQuietUntil || 0);
     }
 
     window.closePriorityScoreSettings = function() {
+        __tmFlushSettingsInputs();
+        __tmFlushSettingsAutosave();
         state.__priorityUnstack?.();
         state.__priorityUnstack = null;
         if (state.priorityModal) {
@@ -9296,45 +9406,50 @@ return Number(state.contextInteractionQuietUntil || 0);
                     </div>
                 </div>
                 <div class="tm-prompt-buttons">
-                    <button class="tm-prompt-btn tm-prompt-btn-secondary" id="tm-cancel-quadrant-rule">取消</button>
-                    <button class="tm-prompt-btn tm-prompt-btn-primary" id="tm-save-quadrant-rule">保存</button>
+                    <button class="tm-prompt-btn tm-prompt-btn-secondary bc-btn" id="tm-cancel-quadrant-rule">完成</button>
                 </div>
             </div>
         `;
 
         document.body.appendChild(modal);
-        const __quadrantRuleUnstack = __tmModalStackBind(() => modal.remove());
-
-        document.getElementById('tm-cancel-quadrant-rule').onclick = function() {
+        const closeQuadrantEditor = () => {
             __quadrantRuleUnstack?.();
             modal.remove();
+            if (state.settingsModal) showSettings();
         };
+        const __quadrantRuleUnstack = __tmModalStackBind(closeQuadrantEditor);
+        modal.querySelector('#tm-cancel-quadrant-rule').onclick = closeQuadrantEditor;
 
-        document.getElementById('tm-save-quadrant-rule').onclick = async function() {
+        modal.addEventListener('change', function(event) {
             const selectedImportance = Array.from(modal.querySelectorAll('[data-quadrant-importance]:checked')).map(cb => cb.value);
             const selectedTimeRanges = Array.from(modal.querySelectorAll('[data-quadrant-timerange]:checked')).map(cb => cb.value);
 
             if (selectedImportance.length === 0) {
+                event.target.checked = true;
                 hint('⚠ 请至少选择一个重要性条件', 'warning');
                 return;
             }
 
             if (selectedTimeRanges.length === 0) {
+                event.target.checked = true;
                 hint('⚠ 请至少选择一个时间范围条件', 'warning');
                 return;
             }
 
-            rules[index].importance = selectedImportance;
-            rules[index].timeRanges = selectedTimeRanges;
-
-            SettingsStore.data.quadrantConfig = quadrantConfig;
-            await SettingsStore.save();
-
-            __quadrantRuleUnstack?.();
-            modal.remove();
-            hint('✅ 四象限规则已更新', 'success');
-            showSettings();
-        };
+            const next = __tmSettingsClone(SettingsStore.data.quadrantConfig || quadrantConfig);
+            next.rules[index].importance = selectedImportance;
+            next.rules[index].timeRanges = selectedTimeRanges;
+            __tmQueueSettingsSave('quadrant', next, async (snapshot) => {
+                const previous = SettingsStore.data.quadrantConfig;
+                SettingsStore.data.quadrantConfig = snapshot;
+                try { await SettingsStore.save(); }
+                catch (error) {
+                    if (SettingsStore.data.quadrantConfig === snapshot) SettingsStore.data.quadrantConfig = previous;
+                    throw error;
+                }
+                __tmScheduleRender({ withFilters: true });
+            }, 0);
+        });
     };
 
     // 重置四象限规则
@@ -9499,6 +9614,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         __tmOpenColorPickerDialog('分段颜色', current, (next) => {
             const v = __tmNormalizeHexColor(next, fallback) || fallback;
             row.color = v;
+            __tmQueueSettingsSave('priority', state.priorityScoreDraft, __tmPersistPrioritySetting);
             __tmRerenderPriorityScoreSettings();
         }, __tmBuildPresetColorPickerOptions(fallback));
     };
@@ -9513,7 +9629,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!state.priorityScoreDraft.docDeltas || typeof state.priorityScoreDraft.docDeltas !== 'object') state.priorityScoreDraft.docDeltas = {};
         state.priorityScoreDraft.docDeltas[docId] = Number(value) || 0;
         // 不再调用 __tmRerenderPriorityScoreSettings()，避免重新渲染导致输入框失去焦点
-        // 数据已保存在 state.priorityScoreDraft 中，用户点击"应用修改"或"保存"时会持久化
+        // The settings autosave queue persists this draft after each valid edit.
     };
     window.tmUpdatePriorityDocDelta = function(oldDocId, newDocId) {
         if (!state.priorityScoreDraft) return;
@@ -9836,6 +9952,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     window.editRule = function(ruleId) {
+        __tmFlushSettingsInputs();
         const rule = state.filterRules.find(r => r.id === ruleId);
         if (rule) {
             state.editingRule = JSON.parse(JSON.stringify(rule));
@@ -9844,6 +9961,8 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     window.cancelEditRule = function() {
+        __tmFlushSettingsInputs();
+        __tmFlushSettingsAutosave();
         state.editingRule = null;
         __tmRerenderRulesManagerUI();
     };
@@ -10150,28 +10269,37 @@ return Number(state.contextInteractionQuietUntil || 0);
     window.toggleRuleEnabled = function(ruleId, enabled) {
         const rule = state.filterRules.find(r => r.id === ruleId);
         if (rule) {
-            rule.enabled = enabled;
-            try {
-                SettingsStore.data.filterRules = state.filterRules;
-                SettingsStore.save();
-            } catch (e) {}
+            if (state.editingRule?.id === ruleId) state.editingRule.enabled = enabled;
+            const snapshot = __tmSettingsClone(state.editingRule?.id === ruleId ? state.editingRule : rule);
+            snapshot.enabled = enabled;
+            __tmQueueSettingsSave(`rule:${ruleId}`, snapshot, __tmPersistEditingRule, 0);
         }
     };
 
-    window.deleteRule = function(ruleId) {
+    window.deleteRule = async function(ruleId) {
         if (!confirm('确定要删除这个规则吗？')) return;
-
+        __tmFlushSettingsInputs();
+        const key = `rule:${ruleId}`;
+        const job = __tmSettingsSaveJobs.get(key);
+        if (job) {
+            clearTimeout(job.timer);
+            job.pending = null;
+            if (job.running) await job.promise;
+        }
+        await Promise.all(Array.from(__tmSettingsSaveJobs.keys()).filter((id) => id.startsWith('rule:')).map(__tmRunSettingsSave));
         const index = state.filterRules.findIndex(r => r.id === ruleId);
         if (index >= 0) {
-            state.filterRules.splice(index, 1);
-            if (state.currentRule === ruleId) {
-                state.currentRule = null;
-            }
+            const remaining = state.filterRules.filter(r => r.id !== ruleId);
             try {
-                SettingsStore.data.filterRules = state.filterRules;
+                await RuleManager.saveRules(remaining);
+                state.filterRules = remaining;
+                if (state.editingRule?.id === ruleId) state.editingRule = null;
+                if (state.currentRule === ruleId) state.currentRule = null;
                 if (SettingsStore.data.currentRule === ruleId) SettingsStore.data.currentRule = null;
-                SettingsStore.save();
-            } catch (e) {}
+                await SettingsStore.save();
+            } catch (e) { hint(`删除规则失败：${e?.message || e}`, 'error'); return; }
+            __tmSettingsSaveJobs.delete(key);
+            __tmSettingsSaveFeedback(key);
             __tmRerenderRulesManagerUI();
             hint('✅ 规则已删除', 'success');
         }
@@ -10206,6 +10334,8 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     window.closeRulesManager = function() {
+        __tmFlushSettingsInputs();
+        __tmFlushSettingsAutosave();
         state.__priorityUnstack?.();
         state.__priorityUnstack = null;
         state.__rulesUnstack?.();
@@ -14201,6 +14331,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             return;
         }
         SettingsStore.data.currentGroupId = nextGroupId;
+        __tmApplyCompletedVisibilityToRuntime();
         state.openToken = (Number(state.openToken) || 0) + 1;
         const switchToken = Number(state.openToken) || 0;
         const isSwitchCurrent = () => {
@@ -16690,6 +16821,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { activeEl?.removeEventListener?.('dragstart', onNativeDragStart, true); } catch (e) {}
             restoreDraggableState();
             restoreTouchDragStyle();
+            sourceEl.classList.remove('tm-task-touch-press');
             try { window.removeEventListener('blur', onBlur, true); } catch (e) {}
             if (captured && Number.isFinite(pointerId) && typeof sourceEl.releasePointerCapture === 'function') {
                 try { sourceEl.releasePointerCapture(pointerId); } catch (e) {}
@@ -17019,6 +17151,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             cleanup(false);
         };
 
+        sourceEl.classList.add('tm-task-touch-press');
         longPressTimer = setTimeout(() => {
             longPressTimer = null;
             startDrag();

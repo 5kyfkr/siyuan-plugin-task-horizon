@@ -38,7 +38,7 @@ assert.match(
 );
 assert.match(
     settingsSource,
-    /calendarRenderer\(calendarProbe, SettingsStore, \{ indexOnly: true \}\);[\s\S]*?__tmDecorateCalendarSettingsSearchRows\(calendarProbe\);[\s\S]*?__tmCollectRenderedSettingsSearchEntries\(calendarProbe\)/,
+    /calendarRenderer\(calendarProbe, SettingsStore, \{ indexOnly: true \}\);[\s\S]*?__tmDecorateCalendarSettingsSearchRows\(calendarProbe\);[\s\S]*?__tmCollectRenderedSettingsSearchEntries\(calendarProbe, 'calendar'\)/,
     'calendar search entries must be collected from the index-only rendered rows',
 );
 assert.match(
@@ -63,8 +63,8 @@ assert.match(
 );
 assert.match(
     settingsSource,
-    /activeTab === 'calendar'\) __tmEnsureCalendarSettingsForModal\(state\.settingsModal\)/,
-    'calendar settings tab must invoke the lazy asset bridge',
+    /try\s*\{\s*__tmEnsureCalendarSettingsForModal\(state\.settingsModal\);/,
+    'every settings page must load calendar search coverage on cold start',
 );
 
 console.log('calendar settings search contract tests passed');

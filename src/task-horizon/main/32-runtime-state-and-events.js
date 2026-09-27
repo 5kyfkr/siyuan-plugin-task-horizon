@@ -196,6 +196,11 @@
         const nextPatch = patch && typeof patch === 'object' ? patch : {};
         Object.entries(nextPatch).forEach(([key, value]) => {
             if (key === 'customFieldValues' && value && typeof value === 'object') {
+                if (typeof __tmApplyQueuedTaskFieldPatchToTask === 'function') {
+                    __tmApplyQueuedTaskFieldPatchToTask(task, { customFieldValues: value });
+                    return;
+                }
+                task.__customFieldRawValues = { ...(task.__customFieldRawValues || task.customFieldValues || {}), ...value };
                 task.customFieldValues = { ...(task.customFieldValues || {}), ...value };
                 return;
             }
@@ -221,6 +226,15 @@
             else if (key === 'taskCompleteAt') task.task_complete_at = value;
             else if (key === 'pinned') task.custom_pinned = value ? '1' : '';
             else if (key === 'allDayBottom') task.custom_all_day_bottom = value ? '1' : '';
+            else if (key === 'parentTaskId') task.parent_task_id = value;
+            else if (key === 'docId') task.root_id = value;
+            else if (key === 'repeatState') task.repeat_state = value;
+            else if (key === 'repeatHistory') task.repeat_history = value;
+            else if (key === 'taskMarker') task.task_marker = value;
+            // Keep metadata aliases in sync with the same rules as the mutation queue.
+            if (typeof __tmApplyQueuedTaskFieldPatchToTask === 'function') {
+                __tmApplyQueuedTaskFieldPatchToTask(task, { [key]: value });
+            }
         });
         return task;
     };
@@ -382,7 +396,12 @@
             const authoritative = mutation.task && typeof mutation.task === 'object' ? mutation.task : null;
             if (authoritative?.id) {
                 const authoritativeId = normalizeId(authoritative.id);
-                const current = confirmedTaskBase.get(authoritativeId)
+                // A move receipt is sparse. Its acknowledged local placement
+                // and descendants are newer than the pre-move confirmed base.
+                const current = (normalizeId(mutation.type) === 'moveTask'
+                    ? (state?.flatTasks?.[authoritativeId] || state?.pendingInsertedTasks?.[authoritativeId])
+                    : null)
+                    || confirmedTaskBase.get(authoritativeId)
                     || state?.flatTasks?.[authoritativeId]
                     || state?.pendingInsertedTasks?.[authoritativeId]
                     || overlay?.task
@@ -679,7 +698,13 @@
                     parent_task_id: entry.hasExpectedParent ? entry.expectedParentTaskId : normalizeId(local.parent_task_id || local.parentTaskId),
                     parentTaskId: entry.hasExpectedParent ? entry.expectedParentTaskId : normalizeId(local.parentTaskId || local.parent_task_id),
                     parent_id: entry.expectedParentListId || normalizeId(local.parent_id || local.parentListId),
+                    parentId: entry.expectedParentListId || normalizeId(local.parent_id || local.parentListId),
                     parentListId: entry.expectedParentListId || normalizeId(local.parentListId || local.parent_id),
+                    // The local record can still carry the OLD SQL list join.
+                    // In particular, an empty parent after outdent must not fall
+                    // back to that old parent while sibling order catches up.
+                    parent_list_parent_id: entry.hasExpectedParent ? entry.expectedParentTaskId : local.parent_list_parent_id,
+                    parentListParentId: entry.hasExpectedParent ? entry.expectedParentTaskId : local.parentListParentId,
                     __tmPendingStructural: true,
                 };
                 if (found && !removedIndexes.has(found.index)) sourceRows[found.index] = projected;
@@ -1388,32 +1413,7 @@
 
     const applyTaskStorePatch = (task, patch) => {
         if (!(task && typeof task === 'object')) return false;
-        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
-        Object.entries(nextPatch).forEach(([key, value]) => {
-            if (key === 'attachments') {
-                applyTaskStoreAttachmentPatch(task, value);
-                return;
-            }
-            task[key] = value;
-            if (key === 'title' || key === 'content') {
-                const title = String(value == null ? '' : value).trim();
-                task.title = title;
-                task.content = title;
-                task.raw_content = title;
-                task.rawContent = title;
-            }
-            if (key === 'startDate') task.start_date = value;
-            if (key === 'completionTime') task.completion_time = value;
-            if (key === 'customStatus') task.custom_status = value;
-            if (key === 'taskDateColor') task.task_date_color = value;
-            if (key === 'taskCompleteAt') task.task_complete_at = value;
-            if (key === 'parentTaskId') task.parent_task_id = value;
-            if (key === 'docId') task.root_id = value;
-            if (key === 'pinned') task.custom_pinned = value ? '1' : '';
-            if (key === 'repeatState') task.repeat_state = value;
-            if (key === 'repeatHistory') task.repeat_history = value;
-            if (key === 'taskMarker') task.task_marker = value;
-        });
+        applyOverlayPatch(task, patch);
         try { task.updated = new Date().toISOString(); } catch (e) {}
         return true;
     };

@@ -473,6 +473,11 @@
     function __tmBuildRenderSceneKanbanBodyHtml(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const bodyAnimClass = String(opts.bodyAnimClass || '');
+        const columnPatch = opts.columnPatch || null;
+        if (columnPatch) {
+            columnPatch.resultColumnKeys = [];
+            columnPatch.matchedTaskIds = new Set();
+        }
 
         const __tmRenderKanbanBodyHtml = () => {
             const isGloballyLocked = GlobalLock.isLocked();
@@ -863,7 +868,7 @@
                     globalThis.__tmTaskBoundary?.getTask?.(kanbanDetailTaskId) || null
                 )
                 : null;
-            const kanbanDetailHtml = kanbanDetailTask
+            const kanbanDetailHtml = kanbanDetailTask && !columnPatch
                 ? `
                     <aside class="tm-kanban-detail-float" id="tmKanbanDetailFloat">
                         <div class="tm-kanban-detail-float__body" id="tmKanbanDetailPanel">
@@ -1054,7 +1059,7 @@
             const progressiveKanbanRender = !!kanbanProgressiveJob
                 && String(kanbanProgressiveJob.mode || '').trim() === 'kanban'
                 && kanbanProgressiveJob.tasksRef === state.filteredTasks;
-            const kanbanColsCacheKey = progressiveKanbanRender ? null : __tmBuildKanbanColsCacheKey({
+            const kanbanColsCacheKey = (progressiveKanbanRender || columnPatch) ? null : __tmBuildKanbanColsCacheKey({
                 isAllTabsView,
                 isCompact,
                 kanbanColW,
@@ -1104,7 +1109,7 @@
                     </nav>
                 `;
             };
-            if (!progressiveKanbanRender && __tmKanbanColsHtmlCache && __tmKanbanColsHtmlCache.key === kanbanColsCacheKey) {
+            if (!columnPatch && !progressiveKanbanRender && __tmKanbanColsHtmlCache && __tmKanbanColsHtmlCache.key === kanbanColsCacheKey) {
                 const cachedNavHtml = String(__tmKanbanColsHtmlCache.navHtml || '');
                 return `
                     <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}${cachedNavHtml ? ' tm-body--kanban-has-board-nav' : ''}" ondragover="tmKanbanAutoScroll(event)">
@@ -1394,13 +1399,14 @@
                 const completedChildren = Number(directChildStats.completed) || 0;
                 const childProgressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
                 const isChildrenCollapsed = !!(totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant);
-                const cardAttrs = `data-id="${id}" ${cardDragAttrs} ${cardPointerDownAttr} ${cardClickAttr} ${cardContextMenuAttr} ondblclick="tmKanbanCardDblClick('${id}', event)"`;
+                const cardAttrs = `data-id="${id}" data-tm-placement-doc="${esc(String(task.docId || task.root_id || '').trim())}" data-tm-placement-parent="${esc(String(task.parentTaskId || task.parent_task_id || '').trim())}" ${cardDragAttrs} ${cardPointerDownAttr} ${cardClickAttr} ${cardContextMenuAttr} ondblclick="tmKanbanCardDblClick('${id}', event)"`;
                 const checkboxHtml = __tmRenderTaskCheckboxWrap(id, task, {
                     checked: taskClosed,
                     extraClass: isGloballyLocked ? 'tm-operating' : '',
                     collapsed: !!(isParent && totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant),
                 });
-                const titleInnerHtml = `${API.renderTaskContentHtml(task.markdown, content || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
+                const taskTitleHtml = API.renderTaskContentHtml(task.markdown, content || '(无内容)');
+                const titleInnerHtml = `${taskTitleHtml}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
                 const titleAttrs = `onclick="tmTaskTitleClick('${id}', event, { surface: 'kanban' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
                 const parentTaskTitleCls = !isSub ? ' tm-parent-task-title' : '';
                 const cardMetaParts = docChipHtml ? [...metaParts, docChipHtml] : metaParts;
@@ -1416,9 +1422,12 @@
                     : '';
 
                 if (isSub) {
+                    const titleWrap = typeof __tmGetTaskTitleWrapPresentation === 'function'
+                        ? __tmGetTaskTitleWrapPresentation('kanban', task.id, taskTitleHtml)
+                        : { key: '', className: '' };
                     return `
                         <div class="${cardClass}" ${cardAttrs}${pinnedCardStyle}>
-                            <div class="tm-kanban-subtask-row-main">
+                            <div class="tm-kanban-subtask-row-main${titleWrap.className}" data-tm-title-wrap-key="${titleWrap.key}">
                                 ${checkboxHtml}
                                 <div class="tm-kanban-subtask-text">
                                     <span class="tm-kanban-subtask-title tm-task-content-clickable" ${titleAttrs}>${titleInnerHtml}</span>
@@ -1570,6 +1579,13 @@
                 const renderTree = (task, depthInCol, inheritedHideCompleted = false, inCompletedRootGroup = false, insideCollapsedTask = false) => {
                     if (!insideCollapsedTask && !takeColumnCardRenderSlot()) return '';
                     const id = String(task?.id || '').trim();
+                    const reusable = columnPatch?.reuseEnabled ? columnPatch.reuseCards?.get(id) : null;
+                    if (reusable && reusable.columnKey === columnKey && reusable.sub === (depthInCol > 0)
+                        && !insideCollapsedTask
+                        && columnRenderedCardCount + reusable.count - 1 <= columnCardRenderLimit) {
+                        columnRenderedCardCount += reusable.count - 1;
+                        return `<div data-tm-kanban-reuse="${esc(id)}"></div>`;
+                    }
                     const pid = getKanbanParentTaskId(task);
                     const parentInCol = !!(pid && map.has(pid));
                     const parent = pid
@@ -2049,6 +2065,15 @@
                                 : `heading:${String(c?.docId || '').trim()}:${String(c?.headingId || '__none__').trim() || '__none__'}`)
                             : `status:${String(c?.id || '').trim()}`));
                 const isColumnCollapsed = kanbanCollapsedColumnKeys.has(columnKey);
+                // Use the renderer's own membership rules for the destination;
+                // the caller supplies source columns from the mounted cards.
+                const changedTasks = columnPatch
+                    ? list0.filter((task) => columnPatch.taskIds.has(String(task?.id || '').trim()))
+                    : [];
+                changedTasks.forEach((task) => columnPatch.matchedTaskIds.add(String(task.id).trim()));
+                const renderThisColumn = !columnPatch
+                    || columnPatch.columnKeys.has(columnKey)
+                    || changedTasks.length > 0;
                 let columnOrderPrepared = false;
                 const prepareColumnOrder = () => {
                     if (columnOrderPrepared) return;
@@ -2119,7 +2144,22 @@
                         ? Math.max(1, Math.round(Number(kanbanProgressiveJob.initialBatchSize ?? kanbanProgressiveJob.batchSize) || 10))
                         : 0)
                     : Number.POSITIVE_INFINITY;
-                const initialColumnRender = renderColumnListHtml(progressiveColumnLimit);
+                if (progressiveKanbanRender) {
+                    progressiveColumnLimit = Math.max(progressiveColumnLimit,
+                        Number(kanbanProgressiveJob.initialColumnLimits?.get?.(columnKey)) || 0);
+                }
+                if (columnPatch && renderThisColumn && progressiveColumnLimit > 0) {
+                    const mountedIds = columnPatch.mountedIdsByColumn?.get(columnKey);
+                    progressiveColumnLimit += changedTasks.filter((task) => !mountedIds?.has(String(task.id))).length;
+                }
+                if (columnPatch && !renderThisColumn) {
+                    // Keep the current DOM window and rebuild only its lazy
+                    // continuation against the new task projection.
+                    progressiveColumnLimit = Number(columnPatch.mountedLimits.get(columnKey)) || 0;
+                }
+                const initialColumnRender = renderThisColumn
+                    ? renderColumnListHtml(progressiveColumnLimit)
+                    : { html: '', rendered: progressiveColumnLimit, hasMore: list0.length > 0 };
                 listHtml = initialColumnRender.html;
                 if (progressiveKanbanRender && initialColumnRender.hasMore) {
                     __tmRegisterKanbanProgressiveColumn(kanbanProgressiveJob, {
@@ -2171,6 +2211,12 @@
                 if (headingMode && !isDoneCol && kind === 'doc' && !isColumnCollapsed
                     && !initialColumnRender.hasMore && !String(listHtml || '').trim()) {
                     return '';
+                }
+                if (columnPatch) {
+                    if (renderThisColumn || columnPatch.existingColumnKeys.has(columnKey)) {
+                        columnPatch.resultColumnKeys.push(columnKey);
+                    }
+                    if (!renderThisColumn) return '';
                 }
                 const title = isDoneCol
                     ? '✅ 已完成'
@@ -2346,6 +2392,10 @@
                 `;
             }).join('');
             const kanbanBoardNavHtml = renderKanbanBoardNavHtml(kanbanBoardNavItems);
+            if (columnPatch) {
+                columnPatch.handled = true;
+                return colsHtml;
+            }
             if (!progressiveKanbanRender) {
                 __tmKanbanColsHtmlCache = { key: kanbanColsCacheKey, html: colsHtml, navHtml: kanbanBoardNavHtml };
             }

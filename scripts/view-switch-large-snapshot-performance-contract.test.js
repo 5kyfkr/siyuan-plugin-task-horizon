@@ -36,7 +36,7 @@ assert.doesNotMatch(checklistRuntime, /Object\.values\(state\.flatTasks/, 'check
 assert.doesNotMatch(checklistRuntime, /visibleDateAliases|writeVisibleDateAlias/, 'visible date aliases must be normalized at the data boundary, not during rendering');
 assert.match(checklistRuntime, /onclick="tmChecklistLoadMoreRows\(event\)"/, 'checklist load-more must use its own render-window policy');
 assert.match(viewSwitchRuntime, /__tmStartProgressiveViewRender\(next\)[\s\S]*__tmScheduleProgressiveViewRender\(next, progressiveJob\)/, 'view switches must retain the shared column-aware kanban continuation hook');
-assert.match(viewSwitchRuntime, /__tmSetInlineLoading\(true, \{ owner: 'view-switch', styleKind: 'topbar', delayMs: 0 \}\)[\s\S]*requestAnimationFrame\(scheduleAfterFeedbackPaint\)/, 'view switches must reuse the existing topbar loading feedback before deferred body construction');
+assert.match(viewSwitchRuntime, /__tmSetInlineLoading\(true, \{ owner: 'view-switch', styleKind: 'topbar', delayMs: 180 \}\)[\s\S]*requestAnimationFrame\(scheduleAfterFeedbackPaint\)/, 'view switches must delay the loading indicator while selection and aria-busy provide immediate feedback');
 assert.doesNotMatch(viewSwitchRuntime, /tm-view-switch-progress/, 'view switches must not introduce a second loading prompt style');
 const startupShell = segment(shellLifecycleRuntime, 'if (!reusedExistingModal) {', 'const hasPendingLocalTaskWritesForOpen =');
 assert.match(startupShell, /await __tmApplyCurrentContextViewProfile\([\s\S]*?try \{ render\(\); \}/, 'startup must apply the active tab or context view profile before the first shell render');

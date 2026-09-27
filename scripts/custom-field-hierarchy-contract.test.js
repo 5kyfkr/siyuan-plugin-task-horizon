@@ -238,7 +238,7 @@ assert.match(pickerSource, /actions\.style\.width = '100%'[\s\S]*actions\.style\
 assert.match(quickAddSource, /__tmRenderCustomFieldOptionTreePicker\(list, field, draft/, 'quick add must reuse the main hierarchy picker behavior');
 assert.match(quickAddSource, /expandedIds = __tmGetDefaultExpandedCustomFieldOptionIds\(field\)/, 'quick add must open with every active parent branch expanded');
 assert.match(quickAddSource, /wrap\.style\.width = '100%'[\s\S]*list\.style\.width = '100%'/, 'quick add must give the shared tree the full popover width');
-assert.match(batchSource, /pathById[\s\S]*effectiveArchivedById[\s\S]*filter\(isActiveOptionId\)/, 'batch selection must show paths and reject archived new values');
+assert.match(batchSource, /function __tmShowCustomFieldValuePrompt[\s\S]*__tmRenderCustomFieldOptionTreePicker[\s\S]*__tmCreateCustomFieldOptionSearch[\s\S]*effectiveArchivedById[\s\S]*filter\(isActiveOptionId\)/, 'batch selection must reuse the searchable hierarchy picker and reject archived new values');
 assert.match(bridgeSource, /getCustomFieldSelectModel\(fieldId\)[\s\S]*pathLabel:[\s\S]*effectiveArchived:/, 'Quickbar must consume a read-only selection model from the main runtime');
 assert.match(quickbarSource, /parentId: String\(source\.parentId[\s\S]*archived: source\.archived === true/, 'Quickbar fallback parsing must retain hierarchy metadata');
 assert.match(quickbarSource, /activeOptions[\s\S]*option\?\.effectiveArchived !== true/, 'Quickbar must exclude effectively archived options from active choices');

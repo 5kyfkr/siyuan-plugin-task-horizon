@@ -1,4 +1,4 @@
-    const TM_SETTINGS_SEARCH_MAX_RESULTS = 12;
+    const TM_SETTINGS_SEARCH_MAX_RESULTS = Infinity;
     const __tmAgentMcpExpandedToolGroups = new Set();
     const __tmSettingsDocPickerDraft = { groupId: '', selectedIds: new Set() };
 
@@ -197,10 +197,11 @@
         const section = String(raw.section || '').trim();
         const desc = __tmPlainSettingsSearchText(raw.desc);
         const key = String(raw.key || __tmBuildSettingsSearchKey(tab, title, section)).trim();
-        const tabLabel = TM_SETTINGS_SEARCH_TAB_LABELS[tab] || tab;
-        const sectionLabel = __tmGetSettingsSearchSectionLabel(section, tab);
-        const haystack = __tmNormalizeSettingsSearchText([title, desc, tabLabel, sectionLabel].filter(Boolean).join(' '));
-        return { tab, title, desc, section, key, tabLabel, sectionLabel, haystack, rendered: !!raw.rendered };
+        const route = raw.route || __tmSettingsV3Route(tab, section);
+        const tabLabel = TM_SETTINGS_V2_PAGES.find(([id]) => id === route.page)?.[1] || TM_SETTINGS_SEARCH_TAB_LABELS[tab] || tab;
+        const sectionLabel = TM_SETTINGS_V3_SUBPAGES[route.page]?.find(([id]) => id === route.sub)?.[1] || __tmGetSettingsSearchSectionLabel(section, tab);
+        const haystack = __tmNormalizeSettingsSearchText([title, desc, raw.aliases, tabLabel, sectionLabel].filter(Boolean).join(' '));
+        return { tab, title, desc, section, key, route, tabLabel, sectionLabel, haystack, rendered: !!raw.rendered };
     }
 
     function __tmDecorateCalendarSettingsSearchRows(root) {
@@ -224,8 +225,65 @@
         });
     }
 
-    function __tmCollectRenderedSettingsSearchEntries(root) {
+    function __tmSettingsSearchStaticText(node) {
+        if (!(node instanceof Element)) return '';
+        if (node.matches('input,select,textarea,[contenteditable]')) return '';
+        const copy = node.cloneNode(true);
+        // Never index field values, API keys, prompts, or selected options.
+        copy.querySelectorAll('input,select,textarea,button,svg,script,style,[contenteditable]').forEach(el => el.remove());
+        return __tmPlainSettingsSearchText(copy.textContent);
+    }
+
+    function __tmDecorateSettingsSearchCoverage(root, sourceTab = state.settingsActiveTab || 'docs') {
+        const content = root.querySelector('.tm-settings-content') || root;
+        const headingSelector = '.tm-setting-field-title,.tm-setting-switch-title,.tm-calendar-settings-label,.tm-agent-policy-group__title,.tm-rule-section-title,.tm-settings-section-title';
+        const ignored = '.tm-settings-subtabs,.tm-settings-v3-sections,.tm-settings-choice-group,.tm-settings-search,dialog,.tm-doc-group-manager__picker';
+        content.querySelectorAll('input:not([type="hidden"]),select,textarea,button[onclick],button[data-tm-call],button[data-tm-action],a[href]').forEach(control => {
+            if (control.closest(ignored)) return;
+            const indexed = control.closest('[data-tm-settings-search-key]');
+            if (indexed && !indexed.matches('.tm-settings-panel')) {
+                if (!indexed.dataset.tmSettingsSearchAliases) indexed.dataset.tmSettingsSearchAliases = __tmSettingsSearchStaticText(indexed).slice(0, 1500);
+                return;
+            }
+            const panel = control.closest('.tm-settings-panel');
+            const tab = __tmNormalizeSettingsSearchTab(panel?.dataset.tmSettingsSearchTab || sourceTab);
+            const section = panel?.dataset.tmSettingsLegacySection || panel?.dataset.tmSettingsSection || tab;
+            const label = control.closest('label');
+            const group = control.closest('.tm-agent-policy-group,.tm-rule-section,.tm-column-row,.tm-column-item,.tm-status-option-row');
+            const contextTitle = __tmSettingsSearchStaticText(group?.querySelector(headingSelector) || panel?.querySelector(headingSelector));
+            let title = control.dataset.tmColorLabel || control.getAttribute('aria-label') || '';
+            if (!title && control.getAttribute('aria-labelledby')) {
+                const id = control.getAttribute('aria-labelledby');
+                title = Array.from(content.querySelectorAll('[id]')).find(el => el.id === id)?.textContent?.trim() || '';
+            }
+            if (!title && label) title = __tmSettingsSearchStaticText(label);
+            if (!title && control.matches('button,a')) title = __tmPlainSettingsSearchText(control.textContent) || control.getAttribute('title') || '';
+            if (!title) {
+                for (let parent = control.parentElement; parent && parent !== content; parent = parent.parentElement) {
+                    const heading = parent.querySelector(headingSelector + ',[style*="font-weight"],strong');
+                    const text = __tmSettingsSearchStaticText(heading);
+                    if (text) { title = text; break; }
+                    const textOnly = __tmSettingsSearchStaticText(parent);
+                    if (textOnly && textOnly.length < 90) { title = textOnly; break; }
+                    if (parent === panel) break;
+                }
+            }
+            title ||= control.getAttribute('placeholder') || control.getAttribute('title') || contextTitle;
+            title = __tmPlainSettingsSearchText(title).slice(0, 160);
+            if (!title) return;
+            if (contextTitle && !title.includes(contextTitle)) title = `${contextTitle} · ${title}`;
+            const identity = control.dataset.tmColorKey || control.id || ['name', 'type', 'onchange', 'onclick', 'data-tm-call', 'data-tm-args', 'data-tm-action'].map(key => control.getAttribute(key) || '').join('|');
+            control.dataset.tmSettingsSearchKey = __tmBuildSettingsSearchKey(tab, title, section) + ':' + encodeURIComponent(identity);
+            control.dataset.tmSettingsSearchTitle = title;
+            control.dataset.tmSettingsSearchTab = tab;
+            control.dataset.tmSettingsSearchSection = section;
+            control.dataset.tmSettingsSearchAliases = __tmSettingsSearchStaticText(label || group?.querySelector(headingSelector)).slice(0, 1000);
+        });
+    }
+
+    function __tmCollectRenderedSettingsSearchEntries(root, sourceTab = state.settingsActiveTab || 'docs') {
         if (!(root instanceof HTMLElement)) return [];
+        __tmDecorateSettingsSearchCoverage(root, sourceTab);
         const entries = [];
         root.querySelectorAll('[data-tm-settings-search-title]').forEach((node) => {
             if (!(node instanceof HTMLElement)) return;
@@ -240,7 +298,9 @@
                 section,
                 title: node.dataset.tmSettingsSearchTitle || '',
                 desc: node.dataset.tmSettingsSearchDesc || '',
+                aliases: node.dataset.tmSettingsSearchAliases || '',
                 key: node.dataset.tmSettingsSearchKey || '',
+                route: __tmSettingsV3Route(tab, section, node),
                 rendered: true
             });
             if (entry) entries.push(entry);
@@ -341,7 +401,7 @@
             <div class="tm-settings-search${hasQuery ? ' has-query' : ''}" data-tm-settings-search-root>
                 <div class="tm-settings-search-input-wrap">
                     <span class="tm-settings-search-icon" aria-hidden="true">🔎</span>
-                    <input class="tm-settings-search-input" type="search" value="${esc(query)}" placeholder="搜索设置项" autocomplete="off" spellcheck="false" aria-label="搜索设置项" data-tm-settings-search-input data-tm-call="tmUpdateSettingsSearch" aria-expanded="${hasQuery && state.settingsSearchResultsOpen !== false ? 'true' : 'false'}">
+                    <input class="tm-settings-search-input" type="search" value="${esc(query)}" placeholder="搜索设置项" autocomplete="off" spellcheck="false" aria-label="搜索设置项" data-tm-settings-search-input aria-expanded="${hasQuery && state.settingsSearchResultsOpen !== false ? 'true' : 'false'}">
                     <button class="tm-settings-search-clear" type="button" data-tm-action="tmClearSettingsSearch" title="清空搜索" aria-label="清空搜索"${hasQuery ? '' : ' hidden'}>×</button>
                 </div>
                 <div class="tm-settings-search-results" data-tm-settings-search-results${hasQuery && state.settingsSearchResultsOpen !== false ? '' : ' hidden'}>
@@ -352,23 +412,7 @@
     }
 
     function __tmShouldRenderSettingsSearch(activeTab) {
-        if (String(activeTab || '').trim() === 'rule_editor') return false;
-        try {
-            const info = globalThis.__tmRuntimeHost?.getInfo?.();
-            const runtimeMobile = info?.runtimeMobileClient ?? (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient());
-            const mobileUi = info?.hostUsesMobileUI ?? (typeof __tmHostUsesMobileUI === 'function' && __tmHostUsesMobileUI());
-            const mobileDevice = info?.isMobileDevice ?? (typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice());
-            const dockHost = info?.isDockHost ?? (typeof __tmIsDockHost === 'function' && __tmIsDockHost());
-            if (runtimeMobile || mobileUi || mobileDevice || dockHost) return false;
-        } catch (e) {
-            try {
-                if (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient()) return false;
-                if (typeof __tmHostUsesMobileUI === 'function' && __tmHostUsesMobileUI()) return false;
-                if (typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice()) return false;
-                if (typeof __tmIsDockHost === 'function' && __tmIsDockHost()) return false;
-            } catch (e2) {}
-        }
-        return true;
+        return String(activeTab || '').trim() !== 'rule_editor';
     }
 
     function __tmRefreshSettingsSearchResults(root = state.settingsModal) {
@@ -397,7 +441,7 @@
             const found = Array.from(root.querySelectorAll('[data-tm-settings-search-key]')).find((node) => {
                 return node instanceof HTMLElement && String(node.dataset.tmSettingsSearchKey || '') === key;
             });
-            if (found instanceof HTMLElement) return found;
+            if (found instanceof HTMLElement) return found.__tmChoiceGroup || found;
             const targetTab = __tmNormalizeSettingsSearchTab(target?.tab || state.settingsActiveTab || 'docs');
             if (targetTab === 'calendar'
                 && root.querySelector('#tm-calendar-settings-root')
@@ -407,7 +451,7 @@
         }
         const section = String(target?.section || '').trim();
         if (section) {
-            const found = root.querySelector(`.tm-settings-panel[data-tm-settings-section="${section}"]`);
+            const found = root.querySelector(`.tm-settings-panel[data-tm-settings-section="${section}"],.tm-settings-panel[data-tm-settings-legacy-section="${section}"]`);
             if (found instanceof HTMLElement) return found;
         }
         return root.querySelector('.tm-settings-content > *');
@@ -423,7 +467,7 @@
         } catch (e) {}
         try {
             target.classList.add('tm-settings-search-hit');
-            if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+            if (!target.matches('input,select,textarea,button,a[href]') && !target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
             target.focus?.({ preventScroll: true });
         } catch (e) {}
         state.settingsSearchHighlightTimer = setTimeout(() => {
@@ -442,12 +486,18 @@
         }
         const targetEl = __tmFindSettingsSearchTarget(root, target);
         if (!(targetEl instanceof HTMLElement)) return false;
+        __tmRevealSettingsV3Target(root, targetEl);
+        for (let parent = targetEl.parentElement; parent && parent !== root; parent = parent.parentElement) {
+            if (parent.tagName === 'DETAILS') parent.open = true;
+        }
         const subtabs = root.querySelector('.tm-settings-subtabs');
         const stickyOffset = (subtabs instanceof HTMLElement ? subtabs.offsetHeight : 0) + 12;
         const maxScrollTop = Math.max(0, content.scrollHeight - content.clientHeight);
         const nextTop = Math.max(0, Math.min(maxScrollTop, __tmGetSettingsSectionAnchorTop(content, targetEl) - stickyOffset));
         try { content.scrollTo({ top: nextTop, behavior: 'smooth' }); } catch (e) { content.scrollTop = nextTop; }
         __tmHighlightSettingsSearchTarget(targetEl);
+        [targetEl, ...targetEl.querySelectorAll('input:not(:disabled),select:not(:disabled),textarea:not(:disabled),button:not(:disabled)')]
+            .find((control) => control.matches('input,select,textarea,button') && !control.disabled && control.tabIndex >= 0 && control.getClientRects().length)?.focus({ preventScroll: true });
         return true;
     }
 
@@ -507,12 +557,18 @@
             openSearchResultFromElement(target);
         };
         if (input instanceof HTMLElement) {
+            // Search is immediate and never enters the settings-save debounce queue.
+            input.addEventListener('input', (event) => {
+                if (!event.isComposing) window.tmUpdateSettingsSearch(input.value);
+            });
+            input.addEventListener('compositionend', () => window.tmUpdateSettingsSearch(input.value));
             input.addEventListener('focus', () => {
                 if (!String(state.settingsSearchQuery || '').trim()) return;
                 state.settingsSearchResultsOpen = true;
                 __tmRefreshSettingsSearchResults(root);
             });
             input.addEventListener('keydown', (event) => {
+                if (event.isComposing || event.keyCode === 229) return;
                 const query = String(state.settingsSearchQuery || input.value || '').trim();
                 if (!query) return;
                 const results = __tmGetSettingsSearchResults(query, state.settingsActiveTab || 'docs');
@@ -568,6 +624,7 @@
     };
 
     window.tmOpenSettingsSearchResult = function(tab, section, key) {
+        __tmFlushSettingsInputs();
         const targetTab = __tmNormalizeSettingsSearchTab(tab);
         const pending = {
             tab: targetTab,
@@ -578,9 +635,17 @@
         state.settingsSearchResultsOpen = false;
         state.settingsSearchActiveIndex = -1;
         state.settingsSearchPendingTarget = pending;
+        const entry = __tmGetSettingsSearchEntries().find((item) => item.key === pending.key);
+        const route = entry?.route || __tmSettingsV3Route(targetTab, pending.section);
+        const targetPage = route.page;
+        const previousPage = __tmSettingsV2CurrentPage();
+        (state.settingsV3Subpages ||= {})[targetPage] = route.sub;
+        state.settingsV3SearchOpen = false;
+        state.settingsV2Page = targetPage;
+        state.settingsV2Source = targetTab;
         const currentTab = __tmNormalizeSettingsSearchTab(state.settingsActiveTab || 'docs');
         const settingsOpen = state.settingsModal instanceof HTMLElement && document.body.contains(state.settingsModal);
-        if (targetTab !== currentTab || !settingsOpen) {
+        if (targetTab !== currentTab || !settingsOpen || targetPage !== previousPage) {
             if (targetTab === 'priority') {
                 try { state.priorityScoreDraft = state.priorityScoreDraft || __tmEnsurePriorityDraft(); } catch (e) {}
             }
@@ -591,6 +656,7 @@
             return;
         }
         __tmRefreshSettingsSearchResults();
+        __tmToggleSettingsV3Search(state.settingsModal, false, false);
         if (__tmFocusSettingsSearchTarget(state.settingsModal, pending)) state.settingsSearchPendingTarget = null;
     };
 
@@ -601,9 +667,11 @@
         if (!(container instanceof HTMLElement) || typeof renderer !== 'function') return false;
         try {
             if (renderer(container, SettingsStore) === false) return false;
+            __tmDecorateCalendarSettingsSearchRows(container);
+            __tmDecorateSettingsV2(modal);
             try {
                 requestAnimationFrame(() => {
-                    try { __tmSyncSettingsSectionNav(modal); } catch (e) {}
+                    try { __tmSyncSettingsV2Nav(modal); } catch (e) {}
                 });
             } catch (e) {}
             if (__tmShouldRenderSettingsSearch(state.settingsActiveTab || 'docs')) {
@@ -619,6 +687,7 @@
     function __tmEnsureCalendarSettingsForModal(modal = state.settingsModal) {
         if (__tmRenderCalendarSettingsForModal(modal)) return;
         if (!(modal instanceof HTMLElement)) return;
+        if (typeof globalThis.__tmCalendar?.renderSettings === 'function') return;
         const container = modal.querySelector('#tm-calendar-settings-root');
         const ensure = globalThis.__taskHorizonEnsureCalendarAssets;
         if (container instanceof HTMLElement) {
@@ -643,9 +712,22 @@
         Promise.resolve().then(() => ensure()).then(() => {
             if (state.__tmCalendarSettingsLoadToken !== token) return;
             if (state.settingsModal !== modal || !document.body.contains(modal)) return;
-            if (state.settingsActiveTab !== 'calendar') return;
-            // Rebuild once so the calendar settings search entries are included too.
-            showSettings();
+            if (modal.querySelector('#tm-calendar-settings-root')) {
+                showSettings();
+                return;
+            }
+            // Cold-start search must include calendar settings before visiting Time.
+            // Refresh the index in place so loading cannot interrupt typing or drafts.
+            const renderer = globalThis.__tmCalendar?.renderSettings;
+            if (typeof renderer !== 'function') return;
+            const probe = document.createElement('div');
+            renderer(probe, SettingsStore, { indexOnly: true });
+            __tmDecorateCalendarSettingsSearchRows(probe);
+            state.settingsSearchGeneratedEntries = [
+                ...(state.settingsSearchGeneratedEntries || []).filter(entry => entry.tab !== 'calendar'),
+                ...__tmCollectRenderedSettingsSearchEntries(probe, 'calendar')
+            ];
+            __tmRefreshSettingsSearchResults(modal);
         }).catch(() => {
             if (state.__tmCalendarSettingsLoadToken !== token) return;
             if (state.settingsModal !== modal || !document.body.contains(modal)) return;
@@ -660,6 +742,10 @@
     }
 
     function showSettings() {
+        if (__tmSettingsFlushingInputs) return;
+        __tmFlushSettingsInputs();
+        __tmInstallSettingsAutosave();
+        const settingsFocus = __tmCaptureSettingsFocus(state.settingsModal);
         try { __tmHideMobileMenu(); } catch (e) {}
         const shouldAnimateOpen = !state.settingsModal;
         try {
@@ -691,10 +777,10 @@
                 shouldRestoreSettingsSearchFocus = state.settingsModal.querySelector('[data-tm-settings-search-input]') === document.activeElement;
                 if (prevSidebar) savedSettingsSidebarScrollLeft = Number(prevSidebar.scrollLeft) || 0;
                 if (prevTabs) savedSettingsTabsScrollLeft = Number(prevTabs.scrollLeft) || 0;
-                if (prevContent) savedSettingsContentScrollTop = Number(prevContent.scrollTop) || 0;
-                if (prevSubtabs) savedSettingsSubtabsScrollLeft = Number(prevSubtabs.scrollLeft) || 0;
+                if (prevContent && state.settingsModal.dataset.settingsPage === __tmSettingsV2CurrentPage()) savedSettingsContentScrollTop = Number(prevContent.scrollTop) || 0;
+                if (prevSubtabs && state.settingsModal.dataset.settingsPage === __tmSettingsV2CurrentPage()) savedSettingsSubtabsScrollLeft = Number(prevSubtabs.scrollLeft) || 0;
             } catch (e) {}
-            try { state.settingsModal.remove(); } catch (e) {}
+            try { state.settingsModal.__tmSettingsSearchUnstack?.(); state.settingsModal.__tmChoiceObserver?.disconnect(); state.settingsModal.remove(); } catch (e) {}
             state.settingsModal = null;
             state.settingsSectionJump = null;
         }
@@ -746,46 +832,7 @@
         if (state.settingsActiveTab === 'rule_editor') activeTab = 'rule_editor';
         const settingsSearchEnabled = __tmShouldRenderSettingsSearch(activeTab);
 
-        const renderSettingsActions = (extraClass = '') => {
-            const className = `tm-settings-actions${extraClass ? ` ${extraClass}` : ''}`;
-            if (activeTab === 'priority') {
-                return `
-                    <div class="${className}">
-                        <button class="tm-btn tm-btn-secondary" data-tm-action="closePriorityScoreSettings">取消</button>
-                        <button class="tm-btn tm-btn-success" data-tm-action="savePriorityScoreSettings">保存算法</button>
-                    </div>
-                `;
-            }
-            if (activeTab === 'about') {
-                return `
-                    <div class="${className}">
-                        <button class="tm-btn tm-btn-secondary" data-tm-action="closeSettings">关闭</button>
-                        <button class="tm-btn tm-btn-success" onclick="tmCopyDeviceRecognitionReport()">复制诊断</button>
-                    </div>
-                `;
-            }
-            if (activeTab === 'benefits') {
-                return `
-                    <div class="${className}">
-                        <button class="tm-btn tm-btn-secondary" data-tm-action="closeSettings">关闭</button>
-                    </div>
-                `;
-            }
-            if (activeTab === 'rule_editor') {
-                return `
-                    <div class="${className}">
-                        <button class="tm-btn tm-btn-secondary" data-tm-action="cancelEditRule">取消</button>
-                        <button class="tm-btn tm-btn-success" data-tm-action="saveEditRule">保存规则</button>
-                    </div>
-                `;
-            }
-            return `
-                <div class="${className}">
-                    <button class="tm-btn tm-btn-secondary" data-tm-action="closeSettings">取消</button>
-                    <button class="tm-btn tm-btn-success" data-tm-action="saveSettings">保存设置</button>
-                </div>
-            `;
-        };
+        const renderSettingsActions = () => '';
 
         const resolveOtherBlockSourceGroupsForSettings = () => {
             if (currentGroupId === 'all') return groups;
@@ -2767,7 +2814,7 @@
                         <div class="tm-settings-section-desc">任务检索由本地索引、快照和增量刷新自动优化；这里仅控制文档范围与分组行为。</div>
                         ${renderSingleFieldSetting(
                             '递归文档数上限',
-                            '仅用于“包含子文档”和笔记本分组时展开文档范围。数值越大，递归扫描文档越多，内存和查询压力也越大。',
+                            '限制每个笔记本或“包含子文档”来源展开的文档数量，不是任务条数。超过上限的文档不会纳入该来源；全量任务加载也受此范围约束。',
                             `<input class="b3-text-field" type="number" value="${state.recursiveDocLimit}" onchange="updateRecursiveDocLimit(this.value)" style="width:96px;">
                              <span class="tm-setting-field-unit">个文档</span>`,
                             { style: 'margin-bottom:10px;' }
@@ -2780,18 +2827,18 @@
                         )}
                         ${renderSingleFieldSetting(
                             '父任务回溯层数',
-                            '识别子任务时，从任务所在父级向上查找最近的任务块。夹在普通列表、无序列表里的任务可适当调大；0 表示不做额外回溯。',
+                            '仅影响父子任务识别，不限制扫描文档或任务数量。跨普通列表查找父任务时可调大；0 仅关闭额外回溯，仍保留直接父子关系。',
                             `<input class="b3-text-field" type="number" min="0" max="${TM_TASK_PARENT_LOOKUP_DEPTH_MAX}" value="${__tmNormalizeTaskParentLookupDepth(SettingsStore.data.taskParentLookupDepth)}" onchange="updateTaskParentLookupDepth(this.value)" style="width:96px;">
                              <span class="tm-setting-field-unit">层</span>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
                             '显示已完成任务',
-                            '关闭时仅在视图中隐藏已完成任务；任务仍会进入本地索引，可随时重新显示。',
+                            '按当前文档分组单独记忆，包含“全部文档”。关闭时仅在视图中隐藏已完成任务，任务仍会进入本地索引。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmGetShowCompletedTasksFromSettings(SettingsStore.data) ? 'checked' : ''} onchange="updateShowCompletedTasks(this.checked)">`
                         )}
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px; margin-bottom: 12px;">
-                            默认开启，避免完成任务后从列表中消失。若关闭则仅在视图中隐藏已完成任务；开启下方限制后仅显示今天完成。
+                            默认开启，避免完成任务后从列表中消失。未单独设置的分组沿用原有选择；开启下方限制后仅显示今天完成。
                             <br>规则设置中将「完成状态」设为「所有状态」或「是」时，也会显示对应已完成任务。
                         </div>
                         ${renderSingleSwitchSetting(
@@ -3114,7 +3161,7 @@
                     ` : ''}
 
                     ${activeTab === 'docs' ? `
-                    <div class="tm-settings-panel" style="margin-bottom: 16px;" ${__tmSettingsSearchAttrs('docs', '数据导入', '导入滴答 CSV，自动创建文档、二级标题和任务块')}>
+                    <div class="tm-settings-panel" data-tm-settings-section="import" style="margin-bottom: 16px;" ${__tmSettingsSearchAttrs('docs', '数据导入', '导入滴答 CSV，自动创建文档、二级标题和任务块')}>
                         <div class="tm-settings-section-title">📥 数据导入</div>
                         <div class="tm-settings-section-desc">支持导入滴答清单导出的 CSV，并自动创建文档、二级标题和任务块。滴答清单 CSV 获取路径：网页版头像 → 设置 → 账户与安全 → 备份与还原 → 生成备份。</div>
                         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
@@ -3151,21 +3198,24 @@
             const renderedSection = settingsSearchCurrentSection;
             const capturedEntries = [];
             __tmSettingsSearchIndexBuilding = true;
-            __tmSettingsSearchCaptureBuffer = capturedEntries;
+            // Index rendered controls only; inactive AI modes may still build unused markup.
+            __tmSettingsSearchCaptureBuffer = null;
             try {
                 TM_SETTINGS_SEARCH_INDEX_TABS
-                    .filter((tab) => !['calendar', 'benefits', 'about'].includes(tab))
+                    .filter((tab) => tab !== 'calendar')
                     .forEach((tab) => {
                         activeTab = tab;
                         settingsSearchCurrentSection = '';
-                        renderSettingsModalMarkup();
+                        const probe = document.createElement('div');
+                        probe.innerHTML = renderSettingsModalMarkup();
+                        __tmCollectRenderedSettingsSearchEntries(probe, tab).forEach((entry) => capturedEntries.push(entry));
                     });
                 const calendarRenderer = globalThis.__tmCalendar?.renderSettings;
                 if (typeof calendarRenderer === 'function') {
                     const calendarProbe = document.createElement('div');
                     calendarRenderer(calendarProbe, SettingsStore, { indexOnly: true });
                     __tmDecorateCalendarSettingsSearchRows(calendarProbe);
-                    __tmCollectRenderedSettingsSearchEntries(calendarProbe).forEach((entry) => capturedEntries.push(entry));
+                    __tmCollectRenderedSettingsSearchEntries(calendarProbe, 'calendar').forEach((entry) => capturedEntries.push(entry));
                 }
             } catch (e) {
                 try { console.warn('[Task Horizon] settings search index build failed', e); } catch (e2) {}
@@ -3183,7 +3233,16 @@
             });
             state.settingsSearchGeneratedEntries = Array.from(generatedMap.values());
         }
+        const sourceTab = activeTab;
+        __tmBuildSettingsV2(state.settingsModal, (tab) => {
+            activeTab = tab;
+            settingsSearchCurrentSection = '';
+            try { return renderSettingsModalMarkup(); }
+            finally { activeTab = sourceTab; }
+        });
         document.body.appendChild(state.settingsModal);
+        __tmSyncSettingsV2Nav(state.settingsModal);
+        __tmRestoreSettingsFocus(state.settingsModal, settingsFocus);
         if (shouldAnimateOpen) {
             try {
                 __tmApplyPopupOpenAnimation(state.settingsModal, state.settingsModal.querySelector('.tm-settings-box'), {
@@ -3192,6 +3251,7 @@
             } catch (e) {}
         }
         state.__settingsUnstack = __tmModalStackBind(() => window.closeSettings?.());
+        if (state.settingsV3SearchOpen) __tmToggleSettingsV3Search(state.settingsModal, true);
         try {
             const settingsSidebar = state.settingsModal.querySelector('.tm-settings-sidebar');
             const settingsTabs = state.settingsModal.querySelector('.tm-settings-tabs');
@@ -3212,7 +3272,7 @@
                 try { settingsContent.scrollTop = Number(state.settingsContentScrollTop) || 0; } catch (e) {}
                 settingsContent.addEventListener('scroll', () => {
                     try { state.settingsContentScrollTop = Number(settingsContent.scrollTop) || 0; } catch (e2) {}
-                    try { __tmSyncSettingsSectionNav(state.settingsModal); } catch (e3) {}
+                    try { __tmSyncSettingsV2Nav(state.settingsModal); } catch (e3) {}
                 }, { passive: true });
             }
             const settingsSubtabs = state.settingsModal.querySelector('.tm-settings-subtabs');
@@ -3228,7 +3288,7 @@
                 try {
                     requestAnimationFrame(() => {
                         try { activeNav.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e2) {}
-                        try { __tmSyncSettingsSectionNav(state.settingsModal); } catch (e3) {}
+                        try { __tmSyncSettingsV2Nav(state.settingsModal); } catch (e3) {}
                     });
                 } catch (e) {}
             }
@@ -3263,7 +3323,7 @@
             state.settingsSearchPendingTarget = null;
         }
         try {
-            if (activeTab === 'calendar') __tmEnsureCalendarSettingsForModal(state.settingsModal);
+            __tmEnsureCalendarSettingsForModal(state.settingsModal);
         } catch (e) {}
     }
     window.showSettings = showSettings;

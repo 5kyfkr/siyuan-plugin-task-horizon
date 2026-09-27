@@ -4,6 +4,21 @@ $root = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 $tests = Get-ChildItem -LiteralPath (Join-Path $root 'scripts') -Filter '*.test.js' -File | Sort-Object Name
 if (-not $tests.Count) { throw 'No contract tests found' }
 
+if (($tests | Where-Object { $_.Name -match 'browser.*\.test\.js$' }) -and [string]::IsNullOrWhiteSpace($env:PLAYWRIGHT_MODULE)) {
+    $playwrightVersion = '1.63.0'
+    $testDependencyDir = Join-Path ([System.IO.Path]::GetTempPath()) "task-horizon-release-tests-$playwrightVersion"
+    $playwrightModule = Join-Path $testDependencyDir 'node_modules/playwright'
+    if (-not (Test-Path -LiteralPath (Join-Path $playwrightModule 'package.json') -PathType Leaf)) {
+        & npm install --prefix $testDependencyDir --no-save --no-package-lock --ignore-scripts "playwright@$playwrightVersion"
+        if ($LASTEXITCODE -ne 0) { throw 'Playwright test dependency installation failed' }
+    }
+    $browserInstallArgs = @('install', 'chromium')
+    if ($IsLinux) { $browserInstallArgs = @('install', '--with-deps', 'chromium') }
+    & node (Join-Path $playwrightModule 'cli.js') @browserInstallArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Chromium test browser installation failed' }
+    $env:PLAYWRIGHT_MODULE = $playwrightModule
+}
+
 foreach ($test in $tests) {
     & node $test.FullName
     if ($LASTEXITCODE -ne 0) { throw "Test failed: $($test.Name)" }

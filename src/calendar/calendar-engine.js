@@ -19,6 +19,53 @@
         let view = null;
         let api = null;
 
+        const isSlidingWeekView = () => optionState.weekScroll === true
+            && (viewType === 'timeGridWeek' || viewType === 'dayGridWeek');
+        const getSlidingWeekBounds = () => {
+            const today = dateMath.startOfDay?.(optionState.weekScrollToday || new Date()) || new Date();
+            const min = dateMath.addDays?.(today, -6) || new Date(today.getTime() - 6 * 86400000);
+            return { min, max: today };
+        };
+        // Whole-week paging is free (it never dead-ends) but stays on a page
+        // grid anchored to the natural week, so repeated arrow taps keep
+        // landing on week boundaries even after a day-granular scroll.
+        let weekPageOffset = 0;
+        const getSlidingWeekNaturalStart = () => {
+            const today = dateMath.startOfDay?.(optionState.weekScrollToday || new Date()) || new Date();
+            const firstDay = Number(optionState.firstDay) === 0 ? 0 : 1;
+            today.setDate(today.getDate() - ((today.getDay() - firstDay + 7) % 7));
+            return today;
+        };
+        // The whole day-granular feature (rail, wheel, keyboard) exists only
+        // for the week window that still shows today.
+        const isSlidingWeekTodayVisible = () => {
+            const { min, max } = getSlidingWeekBounds();
+            return currentDate >= min && currentDate <= max;
+        };
+        const syncSlidingWeekPageOffset = () => {
+            if (!isSlidingWeekView()) return;
+            const naturalStart = getSlidingWeekNaturalStart();
+            weekPageOffset = Math.round((currentDate.getTime() - naturalStart.getTime()) / (7 * 86400000));
+        };
+        const stepSlidingWeekPage = (direction) => {
+            const naturalStart = getSlidingWeekNaturalStart();
+            const nextOffset = weekPageOffset + (Number(direction) < 0 ? -1 : 1);
+            const target = dateMath.addDays?.(naturalStart, nextOffset * 7) || null;
+            if (!(target instanceof Date)) return false;
+            weekPageOffset = nextOffset;
+            return setDate(target, { preserveWeekPage: true });
+        };
+        const stepSlidingWeekDay = (direction) => {
+            if (!isSlidingWeekView()) return false;
+            if (!isSlidingWeekTodayVisible()) return false;
+            const { min, max } = getSlidingWeekBounds();
+            const target = dateMath.addDays?.(currentDate, Number(direction) < 0 ? -1 : 1) || null;
+            if (!(target instanceof Date)) return false;
+            const bounded = target < min ? min : (target > max ? max : target);
+            if (dateMath.formatDateKey?.(bounded) === dateMath.formatDateKey?.(currentDate)) return false;
+            return setDate(bounded);
+        };
+
         const renderer = rendererApi.createCalendarRenderer?.({
             render(model) {
                 try { options.onRender?.(model); } catch (e) {}
@@ -38,6 +85,7 @@
                 firstDay: optionState.firstDay,
                 views: optionState.views,
                 fixedWeekCount: optionState.views?.dayGridMonth?.fixedWeekCount,
+                weekScroll: optionState.weekScroll === true,
                 monthScroll: optionState.monthScroll === true,
                 monthScrollPast: optionState.monthScrollPast,
                 monthScrollFuture: optionState.monthScrollFuture,
@@ -113,10 +161,13 @@
             if (result?.stale) return;
         }
 
-        function setDate(value) {
+        function setDate(value, meta = {}) {
             const date = dateMath.toDate?.(value);
             if (!date) return false;
             currentDate = date;
+            // Day-granular moves (slider drag, wheel, date pick) re-anchor the
+            // week pager on the page nearest the new window.
+            if (meta?.preserveWeekPage !== true) syncSlidingWeekPageOffset();
             const previousKey = view
                 ? `${dateMath.formatDateKey?.(view.activeStart) || ''}|${dateMath.formatDateKey?.(view.activeEnd) || ''}`
                 : '';
@@ -201,6 +252,7 @@
             render() {
                 if (destroyed || rendering) return api;
                 rendering = true;
+                syncSlidingWeekPageOffset();
                 buildView();
                 try { options.viewDidMount?.({ view }); } catch (e) {}
                 rendering = false;
@@ -217,6 +269,20 @@
                 try { root?.removeAttribute?.('data-tm-calendar-engine'); } catch (e) {}
             },
             getDate() { return new Date(currentDate.getTime()); },
+            getWeekScrollState() {
+                if (!isSlidingWeekView()) return null;
+                const { min, max } = getSlidingWeekBounds();
+                const active = isSlidingWeekTodayVisible();
+                return {
+                    min: new Date(min.getTime()),
+                    max: new Date(max.getTime()),
+                    date: new Date(currentDate.getTime()),
+                    active,
+                    canEarlier: active && currentDate > min,
+                    canLater: active && currentDate < max,
+                };
+            },
+            stepSlidingWeekDay(direction) { return stepSlidingWeekDay(direction); },
             getEvents() { return store?.getEvents?.() || []; },
             getEventById(id) { return store?.getEventById?.(id) || null; },
             dispatchEventClick(id, jsEvent = null, el = null) {
@@ -280,6 +346,7 @@
                 try {
                     viewType = next;
                     if (dateValue !== undefined) currentDate = dateMath.toDate?.(dateValue) || currentDate;
+                    syncSlidingWeekPageOffset();
                     buildView();
                     void load();
                     return true;
@@ -291,6 +358,7 @@
                 if (viewType === 'dayGridMonth' || viewType === 'listMonth') {
                     return shiftMonth(-1);
                 }
+                if (isSlidingWeekView()) return stepSlidingWeekPage(-1);
                 const step = (viewType === 'timeGridWeek' || viewType === 'dayGridWeek' || viewType === 'timeGridWorkdays') ? -7 : -(view?.range?.days || 1);
                 const target = dateMath.addDays?.(currentDate, step);
                 return setDate(target);
@@ -299,6 +367,7 @@
                 if (viewType === 'dayGridMonth' || viewType === 'listMonth') {
                     return shiftMonth(1);
                 }
+                if (isSlidingWeekView()) return stepSlidingWeekPage(1);
                 const step = (viewType === 'timeGridWeek' || viewType === 'dayGridWeek' || viewType === 'timeGridWorkdays') ? 7 : (view?.range?.days || 1);
                 const target = dateMath.addDays?.(currentDate, step);
                 return setDate(target);

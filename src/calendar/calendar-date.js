@@ -101,8 +101,11 @@
                 end = addDays(startOfWeek(lastVisibleDay, firstDay), 7);
                 if (options.fixedWeekCount === true) end = addDays(start, 42);
             }
-        } else if (key === 'dayGridWeek' || type === 'dayGridWeek') {
-            start = startOfWeek(date, firstDay);
+        } else if (key === 'dayGridWeek' || type === 'dayGridWeek' || key === 'timeGridWeek' || type === 'timeGridWeek') {
+            // The main week view can use a sliding seven-day window. The
+            // engine owns the bounded anchor; the date math only preserves it
+            // instead of snapping every navigation back to the week boundary.
+            start = options.weekScroll === true ? date : startOfWeek(date, firstDay);
             end = addDays(start, 7);
         } else if (key === 'timeGrid3Day' || config.durationDays === 3) {
             start = date;

@@ -4619,10 +4619,13 @@ if (ev) {
             if (opts.silent !== true) hint('⚠️ 未找到可移出的父任务', 'warning');
             return false;
         }
+        const movingHint = opts.silent === true ? null : hint('正在移动任务...', 'info', { duration: 60000 });
         try {
-            info = await __tmResolveAuthoritativeDetachSubtaskInfo(info) || info;
+            const authoritative = await __tmResolveAuthoritativeDetachSubtaskInfo(info);
+            info = authoritative || info;
         } catch (e) {}
         if (!info?.parentTaskId || !info?.targetDocId) {
+            __tmRemoveHint(movingHint);
             if (opts.silent !== true) hint('⚠️ 无法确认当前父子结构，请稍后重试', 'warning');
             return false;
         }
@@ -4637,9 +4640,11 @@ if (ev) {
             outdentResolved: true,
         };
         const onSuccess = () => {
+            __tmRemoveHint(movingHint);
             if (opts.silent !== true) hint('✅ 已移出子任务', 'success');
         };
         const onError = (e) => {
+            __tmRemoveHint(movingHint);
             if (opts.silent !== true) hint(`❌ 移出子任务失败: ${String(e?.message || e || '未知错误')}`, 'error');
         };
         try {
@@ -4648,7 +4653,7 @@ if (ev) {
                 onSuccess,
                 onError,
             });
-            if (shouldWait) onSuccess();
+            if (shouldWait) onSuccess(result);
             return result !== false;
         } catch (e) {
             onError(e);
@@ -6270,6 +6275,7 @@ if (ev) {
         buttons.forEach((button) => {
             const matched = String(button.dataset.sectionId || '') === activeId;
             button.classList.toggle('is-active', matched);
+            button.dataset.state = matched ? 'active' : 'inactive';
             button.setAttribute('aria-pressed', matched ? 'true' : 'false');
             if (matched) activeButton = button;
         });
@@ -6396,6 +6402,7 @@ if (ev) {
             return String(section?.dataset?.tmSettingsSection || '').trim() === String(sectionId || '').trim();
         });
         if (!(target instanceof HTMLElement)) return;
+        __tmRevealSettingsV3Target(root, target);
         const stickyOffset = (subtabs instanceof HTMLElement ? subtabs.offsetHeight : 0) + 6;
         const maxScrollTop = Math.max(0, content.scrollHeight - content.clientHeight);
         const nextTop = Math.max(0, Math.min(maxScrollTop, __tmGetSettingsSectionAnchorTop(content, target) - stickyOffset));

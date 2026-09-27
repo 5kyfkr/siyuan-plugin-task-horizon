@@ -106,6 +106,7 @@
             selectedDocIds: __tmNormalizeDocIdListForSync(data.selectedDocIds),
             defaultDocId: String(data.defaultDocId || '').trim(),
             defaultDocIdByGroup: __tmNormalizeDefaultDocIdByGroupForSync(data.defaultDocIdByGroup),
+            showCompletedTasksByGroup: __tmNormalizeShowCompletedTasksByGroup(data.showCompletedTasksByGroup),
             allDocsExcludedDocIds: __tmNormalizeDocGroupExcludedDocIds(data.allDocsExcludedDocIds),
             docGroups: rawGroups.map((group) => {
                 const normalized = __tmNormalizeDocGroupConfig(group, fixedGlobalScheme);
@@ -207,6 +208,7 @@
         if (Array.isArray(data.selectedDocIds) && data.selectedDocIds.length > 0) return false;
         if (String(data.defaultDocId || '').trim()) return false;
         if (data.defaultDocIdByGroup && Object.keys(data.defaultDocIdByGroup).length > 0) return false;
+        if (data.showCompletedTasksByGroup && Object.keys(data.showCompletedTasksByGroup).length > 0) return false;
         if (Array.isArray(data.allDocsExcludedDocIds) && data.allDocsExcludedDocIds.length > 0) return false;
         if (Array.isArray(data.otherBlockRefs) && data.otherBlockRefs.length > 0) return false;
         if (Array.isArray(data.docTabCustomGroups) && data.docTabCustomGroups.some((group) => Array.isArray(group?.entries) && group.entries.length > 0)) return false;
@@ -311,6 +313,10 @@
         targetData.selectedDocIds = snapshot.selectedDocIds.slice();
         targetData.defaultDocId = snapshot.defaultDocId;
         targetData.defaultDocIdByGroup = __tmSafeCloneJson(snapshot.defaultDocIdByGroup, {});
+        // Older clients have no group preference map; preserve local choices in that case.
+        if (Object.prototype.hasOwnProperty.call(source || {}, 'showCompletedTasksByGroup')) {
+            targetData.showCompletedTasksByGroup = snapshot.showCompletedTasksByGroup;
+        }
         targetData.allDocsExcludedDocIds = snapshot.allDocsExcludedDocIds.slice();
         targetData.docGroups = snapshot.docGroups
             .map((group) => __tmNormalizeDocGroupConfig(group, globalScheme))
@@ -345,6 +351,7 @@
             state.activeDocId = 'all';
             changed = true;
         }
+        if (__tmApplyCompletedVisibilityToRuntime()) changed = true;
         return changed;
     }
 
@@ -576,6 +583,7 @@
         const opt = (options && typeof options === 'object') ? options : {};
         const restoreCollapse = opt.restoreCollapse !== false;
         SettingsStore.data.currentGroupId = String(saved.currentGroupId || 'all').trim() || 'all';
+        __tmApplyCompletedVisibilityToRuntime();
         SettingsStore.data.currentRule = saved.currentRule ?? null;
         if (restoreCollapse) {
             SettingsStore.data.collapsedTaskIds = Array.isArray(saved.collapsedTaskIds) ? saved.collapsedTaskIds.slice() : [];
@@ -1068,6 +1076,7 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                 try {
                     __tmSetInlineLoading(true, {
                         token: refreshToken,
+                        reason: `refresh-core:${reason}`,
                         styleKind: 'topbar',
                         // Do not flash the top-right indicator for refreshes
                         // that complete within a frame or two. The calendar

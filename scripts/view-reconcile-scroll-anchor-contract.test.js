@@ -59,7 +59,7 @@ const optimisticFrame = segment(projection, 'const __tmOptimisticProjectionFrame
 assert.match(optimisticFrame, /entry\.mode === 'kanban'[\s\S]*__tmTryReconcileKanbanParentCards/);
 
 const batch = segment(projection, 'function __tmRunTaskProjectionBatch', 'const __tmPendingProjectionEntries');
-assert.match(batch, /batch\.structural === true[\s\S]*createSubtask[\s\S]*__tmTryReconcileKanbanParentCards/);
+assert.match(batch, /batch\.structural === true[\s\S]*createSubtask[\s\S]*__tmTryRefreshKanbanColumns/);
 
 assert.match(renderRuntime, /savedChecklistScrollAnchor = __tmCaptureViewScrollAnchor\(pane, '\.tm-checklist-item\[data-id\]'\)/);
 assert.match(renderRuntime, /savedListScrollAnchor = __tmCaptureViewScrollAnchor\(body, 'tr\[data-id\]'\)/);

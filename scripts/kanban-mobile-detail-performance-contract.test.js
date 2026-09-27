@@ -17,7 +17,8 @@ assert.match(handler, /const multiSelectActive = __tmIsMultiSelectActive\('kanba
 assert.doesNotMatch(handler, /if \(__tmIsMultiSelectActive\('kanban'\)\)\s*\{?\s*return;/, 'multi-select mode must not create a dead zone for horizontal board swipes');
 assert.doesNotMatch(handler, /pointerTarget\.closest\('button,input,select,textarea,a,\[contenteditable="true"\],\[role="button"\]'\)\)\s*\{?\s*return;/, 'interactive card descendants must not create a dead zone for horizontal board swipes');
 assert.match(handler, /const startDrag = \(options = \{\}\) => \{\s*if \(!gestureAllowsDrag\) return;/, 'the shared card gesture must guard drag activation independently from horizontal panning');
-assert.match(handler, /if \(gestureAllowsDrag\) \{\s*longPressTimer = setTimeout/, 'only draggable card origins may arm the long-press timer');
+assert.match(handler, /if \(gestureAllowsDrag\) \{\s*cardEl\.classList\.add\('tm-task-touch-press'\);\s*longPressTimer = setTimeout/, 'draggable card origins must suppress native selection before arming the long-press timer');
+assert.match(handler, /const cleanup = \(\) => \{[\s\S]*cardEl\.classList\.remove\('tm-task-touch-press'\)/, 'ending or cancelling a card press must restore native selection');
 assert.match(handler, /state\.draggingTaskIds = dragTaskIds\.length \? dragTaskIds : \[taskId\];[\s\S]*state\.__tmKanbanDragIds = state\.draggingTaskIds;/, 'mobile kanban drags must retain the full selected task set');
 assert.match(handler, /t === 'application\/x-tm-task-ids'\) return JSON\.stringify\(dragTaskIds\.length \? dragTaskIds : \[taskId\]\)/, 'mobile synthetic drops must expose all selected task ids');
 assert.match(handler, /const bodyEl = cardEl\.closest\('\.tm-body\.tm-body--kanban'\)\s*\|\| state\.modal\?\.querySelector/, 'card gestures must resolve their owning kanban body before the global modal fallback so Dock and main hosts cannot cross-control each other');

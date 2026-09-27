@@ -529,7 +529,10 @@
         const mode = String(modeInput || '').trim();
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
+        const generation = state.__tmViewSwitchCommitGeneration;
         const apply = () => {
+            if (!modal.isConnected || state.modal !== modal || state.viewMode !== mode
+                || state.__tmViewSwitchCommitGeneration !== generation) return;
             if (mode === 'timeline') {
                 const saved = state.viewScroll?.timeline || {};
                 const top = Number(saved.top) || 0;
@@ -674,7 +677,9 @@
             stage.classList.add('tm-main-stage--view-switch-pending');
             stage.setAttribute('aria-busy', 'true');
         }
-        try { __tmSetInlineLoading(true, { owner: 'view-switch', styleKind: 'topbar', delayMs: 0 }); } catch (e) {}
+        // Selection and aria-busy provide immediate feedback. Most view changes
+        // only redraw loaded data; avoid flashing a data-loading indicator.
+        try { __tmSetInlineLoading(true, { owner: 'view-switch', styleKind: 'topbar', delayMs: 180 }); } catch (e) {}
         return modal;
     }
 
@@ -1092,6 +1097,7 @@
         // change with the calendar view, so do a full shell render at this
         // boundary instead of carrying the task-view dock through a body swap.
         if (prev === 'calendar' || next === 'calendar') forceFullRender = true;
+        try { __tmRememberViewSwitchWindow(prev); } catch (e) {}
         state.viewMode = next;
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
@@ -1114,6 +1120,7 @@
                 return;
             }
             let progressiveJob = null;
+            let restoredWindow = null;
             let committed = false;
             let inPlace = false;
             try {
@@ -1126,12 +1133,19 @@
                     }
                     progressiveJob = __tmStartProgressiveViewRender(next);
                     try { __tmResetViewRenderWindow(next); } catch (e) {}
+                    try { restoredWindow = __tmRestoreViewSwitchWindow(next, progressiveJob); } catch (e) {}
                     inPlace = !forceFullRender && __tmTrySwitchViewBodyInPlace(renderedMode, next);
                     if (!inPlace) {
                         state.__tmPreserveShellDuringViewSwitchRender = true;
                         try { render(); } finally { state.__tmPreserveShellDuringViewSwitchRender = false; }
                     }
                     committed = true;
+                    if (restoredWindow?.scroll) {
+                        const scrollKey = __tmIsListLikeViewMode(next) && next !== 'timeline' ? 'list' : next;
+                        state.viewScroll = state.viewScroll || {};
+                        state.viewScroll[scrollKey] = restoredWindow.scroll;
+                        __tmRestoreBodyOnlyViewScroll(next, state.modal);
+                    }
                 }
             } catch (e) {
                 return;
@@ -1143,9 +1157,10 @@
             if (next === 'timeline') {
                 try { __tmScheduleTimelineDateHydrationAfterViewSwitch(generation); } catch (e) {}
             }
-            if (next === 'whiteboard') {
+            if (next === 'whiteboard' && !restoredWindow) {
                 try {
                     requestAnimationFrame(() => {
+                        if (state.viewMode !== next || state.__tmViewSwitchCommitGeneration !== generation) return;
                         try {
                             if (typeof __tmFitWhiteboardToVisibleCards === 'function' && __tmFitWhiteboardToVisibleCards()) return;
                             if (typeof __tmSetWhiteboardView === 'function') __tmSetWhiteboardView({ x: 64, y: 40, zoom: 1 }, { persist: false });

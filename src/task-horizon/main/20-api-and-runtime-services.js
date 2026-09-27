@@ -121,11 +121,40 @@
     }
     globalThis.__tmTaskStatusRules = __tmCreateTaskStatusRules();
 
+    const __tmReadApiPaths = new Set([
+        '/api/query/sql', '/api/block/getBlockKramdown', '/api/block/getBlockDOM',
+        '/api/block/getChildBlocks', '/api/block/getBlockInfo',
+        '/api/attr/getBlockAttrs', '/api/attr/batchGetBlockAttrs',
+        '/api/filetree/listDocsByPath', '/api/filetree/getHPathByID',
+        '/api/filetree/getPathByID', '/api/notebook/lsNotebooks',
+    ]);
+
+    async function __tmWithReadDeadline(read) {
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        let timer = null;
+        try {
+            return await Promise.race([
+                Promise.resolve().then(() => read(controller?.signal)),
+                new Promise((resolve, reject) => {
+                    timer = setTimeout(() => {
+                        // Abort the fetch AND response body, not just the waiting caller.
+                        try { controller?.abort(); } catch (e) {}
+                        reject(Object.assign(new Error('Task read timed out'), { code: 'TM_READ_TIMEOUT' }));
+                    }, 30000);
+                }),
+            ]);
+        } finally {
+            if (timer !== null) clearTimeout(timer);
+        }
+    }
+
     const API = {
         // ... 原有的API方法保持不变 ...
         async call(url, body) {
+            let isRead = false;
             try {
                 const isSql = String(url || '').trim() === '/api/query/sql';
+                isRead = isSql || __tmReadApiPaths.has(String(url || '').trim());
                 if (isSql && __tmSqlQueue && typeof __tmIsMobileDevice === 'function') {
                     __tmSqlQueue.max = 3; // 统一使用3并发
                 }
@@ -135,26 +164,29 @@
                 if (inFlightKey && __tmSqlInFlight.has(inFlightKey)) {
                     return await __tmSqlInFlight.get(inFlightKey);
                 }
-                const doFetch = async () => {
-                    const res = await fetch(url, {
+                const doFetch = async (signal) => {
+                    const request = {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(body)
-                    });
+                    };
+                    if (signal) request.signal = signal;
+                    const res = await fetch(url, request);
                     const text = await res.text();
                     let data;
                     try {
                         data = text ? JSON.parse(text) : {};
                     } catch (e) {
-                        return { code: -1, msg: `HTTP ${res.status}` };
+                        return { code: -1, msg: `HTTP ${res.status}`, readFailure: isRead };
                     }
                     if (!res.ok && (data == null || typeof data !== 'object' || typeof data.code === 'undefined')) {
-                        return { code: -1, msg: `HTTP ${res.status}` };
+                        return { code: -1, msg: `HTTP ${res.status}`, readFailure: isRead };
                     }
+                    if (!res.ok && isRead && data && typeof data === 'object') data.readFailure = true;
                     return data;
                 };
                 if (isSql) {
-                    const p = __tmRunSqlQueued(doFetch);
+                    const p = __tmRunSqlQueued(() => __tmWithReadDeadline(doFetch));
                     if (inFlightKey) __tmSqlInFlight.set(inFlightKey, p);
                     try {
                         return await p;
@@ -162,9 +194,11 @@
                         if (inFlightKey && __tmSqlInFlight.get(inFlightKey) === p) __tmSqlInFlight.delete(inFlightKey);
                     }
                 }
+                if (isRead) return await __tmRunReadQueued(() => __tmWithReadDeadline(doFetch));
                 return await doFetch();
             } catch (err) {
-                return { code: -1, msg: err.message };
+                if (!isRead) return { code: -1, msg: err.message };
+                return { code: -1, msg: err.message, readFailure: isRead, errorCode: err.code || 'TM_READ_FAILED' };
             }
         },
 
@@ -438,7 +472,7 @@
 
         async getBlockKramdown(id) {
             const res = await this.call('/api/block/getBlockKramdown', { id });
-            if (res.code !== 0) throw new Error(res.msg || '获取块内容失败');
+            if (res.code !== 0) throw Object.assign(new Error(res.msg || '获取块内容失败'), { readFailure: res.readFailure === true });
             const data = res.data;
             if (typeof data === 'string') return data;
             return data?.kramdown || data?.content || '';
@@ -446,7 +480,7 @@
 
         async getBlockDOM(id) {
             const res = await this.call('/api/block/getBlockDOM', { id });
-            if (res.code !== 0) throw new Error(res.msg || '获取块DOM失败');
+            if (res.code !== 0) throw Object.assign(new Error(res.msg || '获取块DOM失败'), { readFailure: res.readFailure === true });
             const data = res.data;
             if (typeof data === 'string') return data;
             return data?.dom || data?.content || '';
@@ -470,12 +504,15 @@
                 return cached.snapshot;
             }
             if (cached && cached.promise) {
-                try { return await cached.promise; } catch (e) {}
+                return await cached.promise;
             }
             const promise = Promise.resolve().then(async () => {
                 let km = '';
                 if (needH2Snapshot) {
-                    try { km = await this.getBlockKramdown(did); } catch (e) { km = ''; }
+                    try { km = await this.getBlockKramdown(did); } catch (e) {
+                        if (e?.readFailure) throw e;
+                        km = '';
+                    }
                 }
                 const flowRankMap = new Map();
                 const headingContextMap = new Map();
@@ -523,7 +560,10 @@
                 };
                 const applyDomFlowRanks = async () => {
                     let dom = '';
-                    try { dom = String(await this.getBlockDOM(did) || ''); } catch (e) { dom = ''; }
+                    try { dom = String(await this.getBlockDOM(did) || ''); } catch (e) {
+                        if (e?.readFailure) throw e;
+                        dom = '';
+                    }
                     const domFlowRanks = parseDomTaskFlowRanks(dom);
                     if (domFlowRanks.size <= 0) return false;
                     flowRankMap.clear();
@@ -614,6 +654,7 @@
                 return await promise;
             } catch (e) {
                 __tmDocEnhanceSnapshotCache.delete(cacheKey);
+                if (e?.readFailure) throw e;
                 return { flowRankMap: new Map(), headingContextMap: new Map() };
             }
         },
@@ -652,40 +693,28 @@
             });
             const docEntries = Array.from(tasksByDoc.entries());
             const perfTuning = __tmGetPerfTuningOptions();
-                const docConcurrency = docEntries.length > 0
-                ? Math.max(1, Math.min(docEntries.length, Number(perfTuning.docEnhanceFetchConcurrency) || 6))
-                : 0;
-            if (docConcurrency > 0) {
-                let cursor = 0;
-                const workers = Array.from({ length: docConcurrency }, async () => {
-                    while (true) {
-                        const index = cursor;
-                        cursor += 1;
-                        if (index >= docEntries.length) return;
-                        const [docId, tidSet] = docEntries[index];
-                        let snapshot = null;
-                        try {
-                            snapshot = await this.getDocEnhanceSnapshot(docId, headingLevel, {
-                                needH2,
-                                needFlow,
-                                forceFresh,
-                            });
-                        } catch (e) { snapshot = null; }
-                        if (!snapshot) continue;
-                        tidSet.forEach((tid) => {
-                            if (needFlow) {
-                                const rk = Number(snapshot.flowRankMap?.get(tid));
-                                if (Number.isFinite(rk)) taskFlowRankMap.set(tid, rk);
-                            }
-                            if (needH2) {
-                                const ctx = snapshot.headingContextMap?.get(tid);
-                                if (ctx && typeof ctx === 'object') h2ContextMap.set(tid, ctx);
-                            }
-                        });
+            const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : () => true;
+            await __tmMapReadLimited(docEntries, async ([docId, tidSet]) => {
+                let snapshot = null;
+                try {
+                    snapshot = await this.getDocEnhanceSnapshot(docId, headingLevel, { needH2, needFlow, forceFresh });
+                } catch (e) {
+                    if (e?.readFailure) throw e;
+                }
+                if (!snapshot || !isCurrent()) return;
+                tidSet.forEach((tid) => {
+                    if (needFlow) {
+                        const rk = Number(snapshot.flowRankMap?.get(tid));
+                        if (Number.isFinite(rk)) taskFlowRankMap.set(tid, rk);
+                    }
+                    if (needH2) {
+                        const ctx = snapshot.headingContextMap?.get(tid);
+                        if (ctx && typeof ctx === 'object') h2ContextMap.set(tid, ctx);
                     }
                 });
-                await Promise.all(workers);
-            }
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            }, Number(perfTuning.docEnhanceFetchConcurrency) || 3, isCurrent);
+            if (!isCurrent()) return { h2ContextMap, taskFlowRankMap };
             if (needFlow) {
                 const missingFlowIds = ids.filter((id) => !taskFlowRankMap.has(id));
                 if (missingFlowIds.length > 0) {
@@ -710,7 +739,6 @@
                             skipKramdownRealign: false,
                             forceFresh,
                         });
-                        perfMeta.fallbackH2RecoveredCount = fallbackH2 instanceof Map ? fallbackH2.size : 0;
                         fallbackH2.forEach((ctx, taskId) => {
                             const tid = String(taskId || '').trim();
                             if (!tid || h2ContextMap.has(tid)) return;
@@ -984,6 +1012,7 @@
                 docUpdated: '',
                 taskCount: 0,
                 taskUpdated: '',
+                taskFingerprint: '',
             }]));
             if (safeDocIds.length === 0) return { map, queryTime: 0, unavailable: false };
             const markdownCondition = SettingsStore.data?.legacyWin7CompatMode === true
@@ -999,10 +1028,12 @@
                         d.id AS doc_id,
                         d.updated AS doc_updated,
                         COALESCE(task_stats.task_count, 0) AS task_count,
-                        COALESCE(task_stats.task_updated, '') AS task_updated
+                        COALESCE(task_stats.task_updated, '') AS task_updated,
+                        COALESCE(task_stats.task_fingerprint, '') AS task_fingerprint
                     FROM blocks d
                     LEFT JOIN (
-                        SELECT root_id, COUNT(DISTINCT t.id) AS task_count, MAX(t.updated) AS task_updated
+                        SELECT root_id, COUNT(DISTINCT t.id) AS task_count, MAX(t.updated) AS task_updated,
+                            GROUP_CONCAT(t.id || ':' || COALESCE(t.hash, '') || ':' || COALESCE(t.sort, 0), ',') AS task_fingerprint
                         FROM blocks t
                         WHERE
                             t.type = 'i'
@@ -1017,6 +1048,7 @@
                     const res = await this.call('/api/query/sql', { stmt: sql });
                     if (!res || res.code !== 0 || !Array.isArray(res.data)) {
                         unavailable = true;
+                        if (res?.readFailure) return { map, queryTime: Date.now() - startedAt, unavailable: true, readFailure: true };
                         continue;
                     }
                     res.data.forEach((row) => {
@@ -1027,10 +1059,11 @@
                             docUpdated: String(row?.doc_updated || '').trim(),
                             taskCount: Math.max(0, Math.round(Number(row?.task_count || 0) || 0)),
                             taskUpdated: String(row?.task_updated || '').trim(),
+                            taskFingerprint: String(row?.task_fingerprint || '').split(',').filter(Boolean).sort().join(','),
                         });
                     });
                 } catch (e) {
-                    unavailable = true;
+                    return { map, queryTime: Date.now() - startedAt, unavailable: true, readFailure: true };
                 }
                 if (chunks.length > 1) {
                     try { await new Promise((resolve) => setTimeout(resolve, 0)); } catch (e) {}
@@ -1152,6 +1185,7 @@
                     task.sort as block_sort,
                     task.created,
                     task.updated,
+                    task.hash,
 
                     -- 文档信息
                     ${docSelectSql}
@@ -1214,6 +1248,7 @@
             let queryTime = Date.now() - startTime;
             if (res.code !== 0) {
                 console.error(`[查询] 文档 ${did.slice(0, 8)} 查询失败:`, res.msg);
+                if (res.readFailure) throw Object.assign(new Error(res.msg || '文档读取失败'), { readFailure: true });
                 return { tasks: [], queryTime };
             }
             const tasks = __tmDedupeTaskQueryRowsById(Array.isArray(res.data) ? res.data : []).map((row) => ({ ...row }));
@@ -1397,7 +1432,9 @@
                             limitReachedDocIdSet.add(did);
                             limitReachedDocIds.push(did);
                         });
-                    } catch (e) {}
+                    } catch (e) {
+                        if (e?.readFailure) throw e;
+                    }
                     try { await new Promise((resolve) => setTimeout(resolve, 0)); } catch (e) {}
                 }
                 const out = {
@@ -1557,6 +1594,7 @@
                         task.sort AS block_sort,
                         task.created,
                         task.updated,
+                        task.hash,
                         ${docSelectSql}
                         ROW_NUMBER() OVER (PARTITION BY task.root_id ORDER BY task.path, task.sort, task.created) AS rn
                     FROM blocks AS task
@@ -1598,6 +1636,7 @@
                     t.rn AS doc_seq,
                     t.created,
                     t.updated,
+                    t.hash,
                     t.doc_name,
                     t.doc_path,
                     t.doc_updated,
@@ -1631,9 +1670,10 @@
             const queryTime = Date.now() - startTime;
             if (res.code !== 0) {
                 console.error(`[查询] 批量查询失败:`, res.msg);
+                if (res.readFailure) throw Object.assign(new Error(res.msg || '批量读取失败'), { readFailure: true });
                 try {
                     const fallbackStart = Date.now();
-                    const results = await Promise.all(safeDocIds.map(id => this.getTasksByDocument(id, perDocLimit, options)));
+                    const results = await __tmMapReadLimited(safeDocIds, id => this.getTasksByDocument(id, perDocLimit, options));
                     const tasks = [];
                     let attrReadTime = 0;
                     let attrHostReadTime = 0;
@@ -1690,7 +1730,7 @@
                     __tmRememberTaskQueryCache(cacheKey, { t: Date.now(), v: __tmCloneTaskQueryResult(out), docIdSet, ttl: cacheTtlMs }, cacheReadToken);
                     return out;
                 } catch (e) {
-                    return { tasks: [], queryTime };
+                    throw e;
                 }
             }
             let tasks = __tmDedupeTaskQueryRowsById(Array.isArray(res.data) ? res.data : []).map((row) => ({ ...row }));
@@ -1854,6 +1894,7 @@
                     task.root_id,
                     task.created,
                     task.updated,
+                    task.hash,
                     (
                         SELECT doc.content
                         FROM blocks doc
@@ -5018,10 +5059,8 @@
 
     function __tmIsMobileCloseSyncRuntime() {
         try {
-            if (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient()) return true;
-        } catch (e) {}
-        try {
-            if (globalThis.__tmHost?.isMobileRuntime?.()) return true;
+            // Served browsers share the host kernel; closing their UI must not start a host sync.
+            return ['android-app', 'ios-app', 'harmony-app', 'mobile-app'].includes(__tmGetRuntimeClientKind());
         } catch (e) {}
         return false;
     }
@@ -7717,8 +7756,11 @@
                 docId: placement.documentId,
                 parent_id: placement.parentListId,
                 parentId: placement.parentListId,
+                parentListId: placement.parentListId,
                 parentTaskId: placement.parentTaskId,
                 parent_task_id: placement.parentTaskId,
+                parent_list_parent_id: placement.parentTaskId,
+                parentListParentId: placement.parentTaskId,
                 previousSiblingId: placement.previousSiblingId,
                 previous_sibling_id: placement.previousSiblingId,
                 nextSiblingId: placement.nextSiblingId,
@@ -10900,6 +10942,34 @@
     // Share one frame queue per surface. Reserve the immediate pass only once
     // per frame: class mutations generated by it must not drain the whole queue
     // through successive MutationObserver microtasks before the browser paints.
+    // Measurements belong to the task title, not to a disposable DOM node.
+    // Seed replacement rows before paint; observers still handle actual width
+    // changes and new titles. Bound the cache across large document switches.
+    const __tmTaskTitleWrapCache = new Map();
+    function __tmGetTaskTitleWrapPresentation(surface, taskId, titleHtml) {
+        const html = String(titleHtml || '');
+        let hash = 2166136261;
+        for (let i = 0; i < html.length; i += 1) hash = Math.imul(hash ^ html.charCodeAt(i), 16777619);
+        const key = `${html.length}:${(hash >>> 0).toString(36)}`;
+        const remembered = __tmTaskTitleWrapCache.get(`${surface}:${taskId}`);
+        const wrapped = remembered?.key === key && remembered.wrapped === true;
+        return { key, className: wrapped
+            ? (surface === 'checklist' ? ' tm-checklist-item--title-wrapped' : ' tm-kanban-subtask-row-main--title-wrapped')
+            : '' };
+    }
+
+    function __tmRememberTaskTitleWrap(surface, row, wrapped) {
+        const taskId = row.closest?.('[data-id]')?.getAttribute('data-id');
+        const key = row.getAttribute('data-tm-title-wrap-key');
+        if (!taskId || !key) return;
+        const cacheKey = `${surface}:${taskId}`;
+        __tmTaskTitleWrapCache.delete(cacheKey);
+        __tmTaskTitleWrapCache.set(cacheKey, { key, wrapped });
+        if (__tmTaskTitleWrapCache.size > 2048) {
+            __tmTaskTitleWrapCache.delete(__tmTaskTitleWrapCache.keys().next().value);
+        }
+    }
+
     function __tmCreateTitleWrapSyncQueue(root, syncRows, onDispose) {
         const pending = new Set();
         let frame = null;
@@ -10982,6 +11052,7 @@
                 if (!(item instanceof HTMLElement) || !pane.contains(item)) return;
                 const title = item.querySelector('.tm-checklist-title-button > span');
                 if (!wrapEnabled || !(title instanceof HTMLElement)) {
+                    __tmRememberTaskTitleWrap('checklist', item, false);
                     if (item.classList.contains('tm-checklist-item--title-wrapped')) {
                         updates.push([item, false]);
                     }
@@ -11012,6 +11083,7 @@
                     }
                 } catch (e) {}
                 if (measurable) {
+                    __tmRememberTaskTitleWrap('checklist', item, wrapped);
                     const next = item.classList.contains('tm-checklist-item--title-wrapped');
                     if (next !== wrapped) {
                         updates.push([item, wrapped]);
@@ -11128,6 +11200,7 @@
                 }
             } catch (e) {}
             if (measurable) {
+                __tmRememberTaskTitleWrap('kanban', row, wrapped);
                 const next = row.classList.contains('tm-kanban-subtask-row-main--title-wrapped');
                 if (next !== wrapped) {
                     updates.push([row, wrapped]);
@@ -17700,6 +17773,7 @@ if (!state.homepageOpen) return;
         }
         state.docTopbarLocateTargetActive = true;
         SettingsStore.data.currentGroupId = nextGroupId;
+        __tmApplyCompletedVisibilityToRuntime();
         state.activeDocId = docId;
         const changed = prevGroupId !== nextGroupId || prevDocId !== docId;
         if (changed) state.__tmForceShellRenderOnOpen = true;
@@ -17732,6 +17806,7 @@ if (!state.homepageOpen) return;
         const prevGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         const prevDocId = String(state.activeDocId || 'all').trim() || 'all';
         SettingsStore.data.currentGroupId = returnGroupId;
+        __tmApplyCompletedVisibilityToRuntime();
         state.activeDocId = 'all';
         const changed = prevGroupId !== returnGroupId || prevDocId !== 'all';
         if (changed) state.__tmForceShellRenderOnOpen = true;
@@ -18489,6 +18564,7 @@ if (!state.homepageOpen) return;
             const quickbarDirtyIsLocallyProtected = hadQuickbarDirty
                 && __tmQuickbarDirtyTasksHaveLocalPatchWatermarks();
             if (hadExternalDirty && (!hadQuickbarDirty || quickbarDirtyIsLocallyProtected)) {
+                let incrementalDeferred = false;
                 try {
                     const incrementalOk = await __tmRefreshAffectedDocsIncrementally({
                         docIds: pendingTargets.docIds,
@@ -18506,6 +18582,9 @@ if (!state.homepageOpen) return;
                         deletedBlockIds: Array.isArray(options?.deletedBlockIds) ? options.deletedBlockIds.slice() : [],
                         commitView,
                         refreshView: commitView,
+                        onDeferred: () => {
+                            incrementalDeferred = true;
+                        },
                     });
                     if (incrementalOk) {
                         if (quickbarDirtyIsLocallyProtected) __tmClearQuickbarModifications();
@@ -18513,6 +18592,9 @@ if (!state.homepageOpen) return;
                         return true;
                     }
                 } catch (e) {}
+                // A newer mutation invalidated this read. Keep the targets for
+                // the existing bounded WS retry; a full reload would race it too.
+                if (incrementalDeferred) return false;
             }
             if (allowHiddenDataRefresh) {
                 return false;
@@ -18689,6 +18771,9 @@ if (!state.homepageOpen) return;
                 source: 'ws-main',
                 commitView,
             }) === true;
+            // The WS coordinator owns pending/in-flight work and its retry.
+            // Tab activation must not start another read of the same targets.
+            if (__tmHasExternalTaskTxDirtySync()) return incrementalRefreshed;
             if (!__tmHasAutoRefreshPendingSync()) return incrementalRefreshed;
         }
         const hasPendingDirty = __tmHasAutoRefreshPendingSync();
@@ -21080,7 +21165,7 @@ if (!state.homepageOpen) return;
 
     function __tmRenderDiagnosticRows(rows) {
         return rows.map(([label, value]) => `
-            <div style="padding:8px 10px;border-bottom:1px solid var(--tm-border-color);font-size:12px;color:var(--tm-secondary-text);">${esc(String(label || ''))}</div>
+            <div style="min-width:0;overflow-wrap:anywhere;padding:8px 10px;border-bottom:1px solid var(--tm-border-color);font-size:12px;color:var(--tm-secondary-text);">${esc(String(label || ''))}</div>
             <div style="padding:8px 10px;border-bottom:1px solid var(--tm-border-color);font-size:12px;color:var(--tm-text-color);word-break:break-all;">${esc(__tmFormatDiagnosticValue(value))}</div>
         `).join('');
     }
@@ -21724,25 +21809,32 @@ if (!state.homepageOpen) return;
             ['plugin.json backends', snapshot.plugin.backends],
         ];
         return `
-            <div class="tm-settings-panel" style="margin-bottom:14px;">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
-                    <div style="min-width:220px;flex:1;">
-                        <div style="font-weight:700;font-size:15px;">设置备份/迁移</div>
-                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:6px;line-height:1.7;">
-                            按模块导出或导入任务管理器设置包。AI 接入设置会包含 API Key；节假日/农历只迁移已有或成功刷新到的真实缓存。
-                        </div>
+            <div class="tm-settings-panel" data-tm-settings-section="backup">
+                <div class="tm-settings-section-title">设置备份与迁移</div>
+                <div class="tm-setting-field-row">
+                    <div class="tm-setting-field-copy">
+                        <div class="tm-setting-field-title">导出设置包</div>
+                        <div class="tm-setting-field-desc">按模块备份当前配置。AI 接入设置包含 API Key，请妥善保管导出的文件。</div>
                     </div>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <div class="tm-setting-field-control">
                         <button class="tm-btn tm-btn-primary" data-tm-action="tmOpenSettingsExportDialog">导出设置包</button>
+                    </div>
+                </div>
+                <div class="tm-setting-field-row">
+                    <div class="tm-setting-field-copy">
+                        <div class="tm-setting-field-title">导入设置包</div>
+                        <div class="tm-setting-field-desc">选择需要迁移的模块；节假日与农历只迁移已有或成功刷新的真实缓存。</div>
+                    </div>
+                    <div class="tm-setting-field-control">
                         <button class="tm-btn tm-btn-secondary" data-tm-action="tmOpenSettingsImportDialog">导入设置包</button>
                     </div>
                 </div>
             </div>
-            <div class="tm-settings-panel">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+            <div class="tm-settings-panel tm-settings-device" data-tm-settings-section="device">
+                <div class="tm-settings-device-heading" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
                     <div>
-                        <div style="font-weight:700;font-size:15px;">ℹ️ 关于与设备识别</div>
-                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:6px;line-height:1.7;">这里会展示当前页面的设备识别结果、原生桥信号、浏览器信号和插件兼容声明，方便排查桌面/移动端误判。</div>
+                        <div class="tm-settings-section-title">关于与设备识别</div>
+                        <div class="tm-settings-section-desc">查看当前设备与插件信息，排查桌面端或移动端识别异常。</div>
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
                         <button class="tm-btn tm-btn-secondary" onclick="tmRefreshDeviceRecognitionStatus()">刷新检测</button>
@@ -21750,7 +21842,7 @@ if (!state.homepageOpen) return;
                     </div>
                 </div>
 
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px;">
+                <div class="tm-settings-device-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px;">
                     ${summaryCards.map(([label, value]) => `
                         <div style="padding:12px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
                             <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:6px;">${esc(String(label || ''))}</div>
@@ -21765,7 +21857,9 @@ if (!state.homepageOpen) return;
                     </div>
                 ` : ''}
 
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
+                <details class="tm-settings-device-details">
+                <summary>查看设备识别详情与兼容声明</summary>
+                <div class="tm-settings-device-tables" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
                     <div style="border:1px solid var(--tm-border-color);border-radius:10px;overflow:hidden;background:var(--tm-card-bg);">
                         <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">当前判定链路</div>
                         <div style="display:grid;grid-template-columns:132px minmax(0,1fr);">${__tmRenderDiagnosticRows(runtimeRows)}</div>
@@ -21778,9 +21872,10 @@ if (!state.homepageOpen) return;
                         <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">原生桥与联动插件</div>
                         <div style="display:grid;grid-template-columns:132px minmax(0,1fr);">${__tmRenderDiagnosticRows(bridgeRows)}</div>
                     </div>
-                    <div style="border:1px solid var(--tm-border-color);border-radius:10px;overflow:hidden;background:var(--tm-card-bg);">
-                        <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">插件兼容声明</div>
+                    <div data-tm-settings-version style="border:1px solid var(--tm-border-color);border-radius:10px;overflow:hidden;background:var(--tm-card-bg);">
+                        <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">插件版本与兼容声明</div>
                         <div style="display:grid;grid-template-columns:132px minmax(0,1fr);">${__tmRenderDiagnosticRows(pluginRows)}</div>
+                        <div style="padding:10px 12px;"><a href="https://github.com/5kyfkr/siyuan-plugin-task-horizon" target="_blank" rel="noopener noreferrer">使用说明与反馈</a></div>
                     </div>
                 </div>
 
@@ -21799,7 +21894,8 @@ if (!state.homepageOpen) return;
                     <summary style="cursor:pointer;color:var(--tm-primary-color);font-size:12px;">展开原始诊断 JSON</summary>
                     <pre style="margin-top:10px;padding:12px;border-radius:10px;background:var(--tm-sidebar-bg);border:1px solid var(--tm-border-color);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;">${esc(__tmBuildDeviceRecognitionReportText())}</pre>
                 </details>
-                <div style="margin-top:10px;font-size:12px;color:var(--tm-secondary-text);line-height:1.7;">浏览器 UA：${esc(snapshot.browser.ua)}</div>
+                <div style="margin-top:10px;font-size:12px;color:var(--tm-secondary-text);line-height:1.7;overflow-wrap:anywhere;">浏览器 UA：${esc(snapshot.browser.ua)}</div>
+                </details>
             </div>
         `;
     }
@@ -25584,6 +25680,50 @@ if (!state.homepageOpen) return;
         globalThis.__tmRestoreViewScrollAnchor = __tmRestoreViewScrollAnchor;
     } catch (e) {}
 
+    function __tmReconcileKeyedViewRows(parent, desiredRows, options = {}) {
+        if (!(parent instanceof HTMLElement) || !Array.isArray(desiredRows)) return false;
+        const selector = options.selector || '';
+        const currentRows = Array.from(parent.children).filter((row) => !selector || row.matches(selector));
+        const keyOf = typeof options.keyOf === 'function' ? options.keyOf : (row) => {
+            const taskId = String(row.getAttribute('data-id') || '').trim();
+            if (taskId) return `task:${taskId}`;
+            const groupKey = String(row.getAttribute('data-group-key') || '').trim();
+            if (groupKey) return `group:${groupKey}`;
+            if (row.matches('.tm-load-more-row, .tm-checklist-load-more')) return 'control:load-more';
+            return '';
+        };
+        const currentByKey = new Map();
+        const nextKeys = new Set();
+        for (const row of currentRows) {
+            const key = keyOf(row);
+            if (!key || currentByKey.has(key)) return false;
+            currentByKey.set(key, row);
+        }
+        const desired = [];
+        for (const row of desiredRows) {
+            if (!(row instanceof Element)) return false;
+            const key = keyOf(row);
+            if (!key || nextKeys.has(key)) return false;
+            nextKeys.add(key);
+            const current = currentByKey.get(key);
+            const equal = current && (typeof options.equal === 'function'
+                ? options.equal(current, row) : current.isEqualNode(row));
+            desired.push(equal ? current : row);
+        }
+        if (options.dryRun === true) return true;
+        // Validate the whole plan before touching live rows. Move stable nodes
+        // in place, replace only changed rows, and keep surrounding view chrome.
+        let cursor = currentRows[0] || null;
+        desired.forEach((row) => {
+            if (row === cursor) cursor = cursor.nextElementSibling;
+            else parent.insertBefore(row, cursor);
+        });
+        const retained = new Set(desired);
+        currentRows.forEach((row) => { if (!retained.has(row)) row.remove(); });
+        return true;
+    }
+    try { globalThis.__tmReconcileKeyedViewRows = __tmReconcileKeyedViewRows; } catch (e) {}
+
     function __tmReconcileListRowsForAppend(tbodyEl, nextRowsHtml, options = {}) {
         const tbody = tbodyEl instanceof HTMLElement ? tbodyEl : null;
         const opts = (options && typeof options === 'object') ? options : {};
@@ -25768,6 +25908,10 @@ if (!state.homepageOpen) return;
         try {
             if (opts.appendOnly === true && !isCalendarTaskTable) {
                 incrementallyPatched = __tmReconcileListRowsForAppend(tbody, nextRowsHtml, opts);
+            } else if (!isCalendarTaskTable && Array.isArray(opts.taskIds) && opts.taskIds.length) {
+                const staging = document.createElement('table');
+                staging.innerHTML = `<tbody>${nextRowsHtml}</tbody>`;
+                incrementallyPatched = __tmReconcileKeyedViewRows(tbody, Array.from(staging.tBodies[0].children));
             }
             if (opts.allowDuringScroll === true && opts.appendOnly === true && !incrementallyPatched) return false;
             if (!incrementallyPatched) {
@@ -26103,13 +26247,15 @@ return true;
                 || renderedTimelineColumnOrder.some((columnKey, index) => columnKey !== timelineColumnOrder[index]));
         const appendOnly = requestedAppendOnly && !timelineColumnStructureChanged;
         const reuseLeftRows = requestedReuseLeftRows && !timelineColumnStructureChanged;
+        const targetedRefresh = !timelineColumnStructureChanged && !appendOnly
+            && Array.isArray(opts.taskIds) && opts.taskIds.length > 0;
         const timelineColumnShell = __tmBuildTimelineColumnShellHtml(timelineColumnOrder, timelineTableLayout);
         const leftTableWidth = Math.round(timelineTableLayout.resolvedTotal + 2);
         if (timelineTable instanceof HTMLElement) {
             const colgroup = timelineTable.querySelector('colgroup');
             const headerRow = timelineTable.querySelector('thead tr');
-            if (colgroup) colgroup.innerHTML = timelineColumnShell.colgroupHtml;
-            if (headerRow) headerRow.innerHTML = timelineColumnShell.headerHtml;
+            if (colgroup && colgroup.innerHTML !== timelineColumnShell.colgroupHtml) colgroup.innerHTML = timelineColumnShell.colgroupHtml;
+            if (headerRow && headerRow.innerHTML !== timelineColumnShell.headerHtml) headerRow.innerHTML = timelineColumnShell.headerHtml;
             timelineTable.dataset.tmTableWidth = String(leftTableWidth);
             timelineTable.style.width = `${leftTableWidth}px`;
             timelineTable.style.minWidth = `${leftTableWidth}px`;
@@ -26255,7 +26401,11 @@ return true;
                 ? requestedRowModel
                 : (Array.isArray(state.__tmTimelineFullRowModel) ? state.__tmTimelineFullRowModel : requestedRowModel));
         try { __tmScheduleTimelineGroupRangeMetaWarmup(requestedRowModel); } catch (e) {}
-        const rowModel = timelineColumnStructureChanged && requestedAppendOnly ? rangeRowModel : requestedRowModel;
+        const rowModel = timelineColumnStructureChanged && requestedAppendOnly ? rangeRowModel
+            : (targetedRefresh && !hasExplicitRowModel
+                ? __tmSliceTaskRowModelByTaskWindow(requestedRowModel, 0, Math.max(20,
+                    Number(state.listRenderLimit) || 20, tbody.querySelectorAll('tr[data-id]').length)).rows
+                : requestedRowModel);
         if (!appendOnly) {
             try { state.__tmTimelineFullRowModel = rangeRowModel; } catch (e) {}
             try { globalThis.__tmTimelineRowModel = rangeRowModel; } catch (e) {}
@@ -26317,7 +26467,13 @@ return true;
                     tbody.appendChild(row);
                 });
             } else if (!reuseLeftRows) {
-                tbody.innerHTML = html;
+                let patched = false;
+                if (targetedRefresh) {
+                    const stagingTable = document.createElement('table');
+                    stagingTable.innerHTML = `<tbody>${html}</tbody>`;
+                    patched = __tmReconcileKeyedViewRows(tbody, Array.from(stagingTable.tBodies[0].children));
+                }
+                if (!patched) tbody.innerHTML = html;
             }
         } catch (e) { return false; }
         if (!appendOnly) {
@@ -26334,6 +26490,7 @@ return true;
                     rowModel,
                     rangeRowModel,
                     appendOnly,
+                    taskIds: targetedRefresh ? opts.taskIds : [],
                     getTaskById: (id) => {
                         const tid = String(id || '').trim();
                         return globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
@@ -27818,6 +27975,9 @@ return true;
             try {
                 const nextPane = modal.querySelector('.tm-checklist-scroll');
                 if (nextPane instanceof HTMLElement) {
+                    // Alignment can affect row height; finish it before taking
+                    // the new anchor offset, including full body replacements.
+                    globalThis.__tmSyncChecklistWrappedTitleClasses?.(nextPane);
                     __tmRestoreViewScrollAnchor(nextPane, scrollAnchor);
                     if (!scrollAnchor?.id) nextPane.scrollTop = paneTop;
                     nextPane.scrollLeft = paneLeft;
@@ -27854,9 +28014,201 @@ return true;
         return '';
     }
 
-    // Reconcile a changed parent card without replacing the kanban body. This
-    // keeps the card identity (and its surrounding scroll/layout state) stable
-    // while letting the renderer remain the single source of truth for markup.
+    function __tmPatchKanbanColumnBranches(column, nextColumn, reuseCards) {
+        const inserted = [];
+        let changes = 0;
+        const reuseSelector = '[data-tm-kanban-reuse]';
+        const syncAttributes = (current, next) => {
+            Array.from(current.attributes).forEach((attr) => {
+                if (!next.hasAttribute(attr.name)) { current.removeAttribute(attr.name); changes++; }
+            });
+            Array.from(next.attributes).forEach((attr) => {
+                if (current.getAttribute(attr.name) !== attr.value) { current.setAttribute(attr.name, attr.value); changes++; }
+            });
+        };
+        const materialize = (node) => {
+            Array.from(node.querySelectorAll(reuseSelector)).forEach((placeholder) => {
+                placeholder.replaceWith(reuseCards.get(placeholder.getAttribute('data-tm-kanban-reuse')).node);
+            });
+            return node;
+        };
+        const keyOf = (node, index) => {
+            const id = node.getAttribute('data-tm-kanban-reuse') || node.getAttribute('data-id');
+            if (id) return `task:${id}`;
+            const group = node.matches('.tm-kanban-group')
+                ? node.querySelector(':scope > [data-group-key]')?.getAttribute('data-group-key') : '';
+            return group ? `group:${group}` : `shell:${node.tagName}:${node.className}:${index}`;
+        };
+        const containers = '.tm-kanban-col-body, .tm-kanban-group, .tm-kanban-group-items';
+        const reconcile = (current, next) => {
+            syncAttributes(current, next);
+            const previous = Array.from(current.children);
+            const byKey = new Map(previous.map((node, index) => [keyOf(node, index), node]));
+            const desired = Array.from(next.children).map((node, index) => {
+                const reuseId = node.getAttribute('data-tm-kanban-reuse');
+                if (reuseId) return reuseCards.get(reuseId).node;
+                const old = byKey.get(keyOf(node, index));
+                if (old?.isEqualNode(node)) return old;
+                if (old && old.matches(containers) && node.matches(containers)) {
+                    reconcile(old, node);
+                    return old;
+                }
+                inserted.push(materialize(node));
+                return node;
+            });
+            let cursor = current.firstElementChild;
+            desired.forEach((node) => {
+                if (node === cursor) cursor = cursor.nextElementSibling;
+                else { current.insertBefore(node, cursor); changes++; }
+            });
+            const retained = new Set(desired);
+            previous.forEach((node) => {
+                if (!retained.has(node)) {
+                    try { __tmCleanupTitleWrapObservers(node); } catch (e) {}
+                    node.remove(); changes++;
+                }
+            });
+        };
+        reconcile(column, nextColumn);
+        return { inserted, changes };
+    }
+
+    // Reuse unchanged branches without serializing or recreating their cards.
+    // The renderer still decides membership, order, counts and changed markup.
+    function __tmTryRefreshKanbanColumns(modalEl, taskIds = [], options = {}) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element) || state.viewMode !== 'kanban') return false;
+        const ids = new Set((Array.isArray(taskIds) ? taskIds : []).map((id) => String(id || '').trim()).filter(Boolean));
+        if (!ids.size || typeof state.renderKanbanBodyHtml !== 'function') return false;
+        if (options.__tmQueuedCommit !== true && globalThis.__tmIsViewDomCommitBlocked?.('kanban')) {
+            const gate = __tmGetViewScrollGate('kanban');
+            const pendingScope = gate?.pendingCommit?.__tmKanbanScope;
+            const scope = pendingScope?.modal === modal ? pendingScope : {
+                modal, ids: new Set(), parents: new Set(), full: !!gate?.pendingCommit,
+            };
+            if (!scope.full) {
+                ids.forEach((id) => scope.ids.add(id));
+                (Array.isArray(options.parentTaskIds) ? options.parentTaskIds : []).forEach((id) => scope.parents.add(id));
+                if (scope.ids.size + scope.parents.size > 1000) {
+                    scope.full = true; scope.ids.clear(); scope.parents.clear();
+                }
+            }
+            const commit = () => {
+                const nextOptions = { ...options, parentTaskIds: Array.from(scope.parents), __tmQueuedCommit: true };
+                if (!scope.full && __tmTryRefreshKanbanColumns(modal, Array.from(scope.ids), nextOptions)) return true;
+                return __tmRerenderKanbanInPlace(modal, nextOptions);
+            };
+            commit.__tmKanbanScope = scope;
+            // Refreshes supersede pagination; complete refreshes use the same
+            // priority so a later layout change can still replace this scope.
+            globalThis.__tmQueueViewDomCommit?.('kanban', commit, { reason: options.reason || 'kanban-columns', priority: 1 });
+            return true;
+        }
+        const body = modal.querySelector('.tm-body.tm-body--kanban');
+        const board = body?.querySelector('.tm-kanban');
+        if (!(board instanceof HTMLElement)) return false;
+        const columns = Array.from(board.children).filter((column) => column.matches('.tm-kanban-col'));
+        const currentKeys = columns.map((column) => String(column.getAttribute('data-col-key') || '').trim());
+        if (!columns.length || currentKeys.some((key) => !key) || new Set(currentKeys).size !== columns.length) return false;
+        const sourceKeys = new Set();
+        const matchedIds = new Set();
+        const mountedLimits = new Map();
+        const mountedIdsByColumn = new Map();
+        const dirtyIds = new Set(ids);
+        const reuseCards = new Map();
+        // Include old/new parents so progress badges and nested branches update.
+        (Array.isArray(options.parentTaskIds) ? options.parentTaskIds : []).forEach((id) => {
+            const value = String(id || '').trim();
+            if (value && globalThis.__tmTaskBoundary?.getTask?.(value)) { ids.add(value); dirtyIds.add(value); }
+        });
+        ids.forEach((id) => {
+            let task = globalThis.__tmTaskBoundary?.getTask?.(id);
+            const visited = new Set();
+            while (task) {
+                const parentId = String(task.parentTaskId || task.parent_task_id || '').trim();
+                if (!parentId || visited.has(parentId)) break;
+                visited.add(parentId); dirtyIds.add(parentId);
+                task = globalThis.__tmTaskBoundary?.getTask?.(parentId);
+            }
+        });
+        columns.forEach((column, index) => {
+            const cards = Array.from(column.querySelectorAll('.tm-kanban-card[data-id]'));
+            mountedLimits.set(currentKeys[index], cards.filter((card) => !card.closest('[hidden]')).length);
+            mountedIdsByColumn.set(currentKeys[index], new Set(cards.map((card) => card.getAttribute('data-id'))));
+            cards.forEach((card) => {
+                const id = String(card.getAttribute('data-id') || '').trim();
+                reuseCards.set(id, { node: card, columnKey: currentKeys[index],
+                    sub: card.classList.contains('tm-kanban-card--sub'),
+                    count: 1 + Array.from(card.querySelectorAll('.tm-kanban-card[data-id]')).filter((node) => !node.closest('[hidden]')).length });
+                if (!ids.has(id)) return;
+                sourceKeys.add(currentKeys[index]);
+                matchedIds.add(id);
+                let ancestor = card.parentElement.closest('.tm-kanban-card[data-id]');
+                while (ancestor && column.contains(ancestor)) {
+                    dirtyIds.add(ancestor.getAttribute('data-id'));
+                    ancestor = ancestor.parentElement.closest('.tm-kanban-card[data-id]');
+                }
+            });
+        });
+        dirtyIds.forEach((id) => reuseCards.delete(id));
+        const columnPatch = {
+            taskIds: ids, columnKeys: sourceKeys, mountedLimits, mountedIdsByColumn,
+            reuseCards, reuseEnabled: true,
+            existingColumnKeys: new Set(currentKeys), handled: false,
+        };
+        let refreshJob = null;
+        let staged = null;
+        try {
+            refreshJob = __tmStartProgressiveViewRender('kanban');
+            if (refreshJob) {
+                refreshJob.initialColumnLimits = new Map(mountedLimits);
+            }
+            const html = state.renderKanbanBodyHtml({ columnPatch });
+            // Progressive continuations render fresh cards, never placeholders.
+            columnPatch.reuseEnabled = false;
+            if (!columnPatch.handled) return false;
+            // A changed column layout needs the regular renderer and navigation.
+            if (currentKeys.length !== columnPatch.resultColumnKeys.length
+                || currentKeys.some((key, index) => key !== columnPatch.resultColumnKeys[index])) return false;
+            if (Array.from(ids).some((id) => !matchedIds.has(id) && !columnPatch.matchedTaskIds.has(id))) return false;
+            staged = __tmBuildElementFromHtml(`<div>${html}</div>`);
+        } catch (e) { return false; }
+        if (!(staged instanceof HTMLElement)) return false;
+        const replacements = Array.from(staged.children).map((next) => ({
+            next, current: columns[currentKeys.indexOf(next.getAttribute('data-col-key'))],
+        }));
+        if (!replacements.length || replacements.some(({ current, next }) => !current || !next.matches('.tm-kanban-col'))) return false;
+        const reuseIds = Array.from(staged.querySelectorAll('[data-tm-kanban-reuse]'))
+            .map((node) => node.getAttribute('data-tm-kanban-reuse'));
+        if (new Set(reuseIds).size !== reuseIds.length || reuseIds.some((id) => !reuseCards.get(id)?.node?.isConnected)) return false;
+        const bodyLeft = body.scrollLeft;
+        let changed = 0;
+        replacements.forEach(({ current, next }) => {
+            // A confirmation/WS echo can produce identical markup. Leave
+            // that column's live nodes (and ongoing gestures) in place.
+            if (current.isEqualNode(next)) return;
+            const top = Number(current.querySelector('.tm-kanban-col-body')?.scrollTop) || 0;
+            const result = __tmPatchKanbanColumnBranches(current, next, reuseCards);
+            const scroll = current.querySelector('.tm-kanban-col-body');
+            if (scroll) scroll.scrollTop = top;
+            result.inserted.forEach((node) => {
+                try { __tmApplyReminderTaskNameMarks(node); } catch (e) {}
+                try { __tmApplyTodayScheduledTaskNameMarks(node); } catch (e) {}
+                try { globalThis.__tmApplySearchHighlights?.(node, state.searchKeyword); } catch (e) {}
+                try { __tmBindFloatingTooltipsAfterLocalRerender(modal, node); } catch (e) {}
+            });
+            if (result.changes) changed++;
+        });
+        body.scrollLeft = bodyLeft;
+        try { __tmKanbanColsHtmlCache = null; } catch (e) {}
+        if (changed) {
+            try { __tmScheduleKanbanBottomNavAvoidance(modal); } catch (e) {}
+        }
+        try { __tmScheduleProgressiveViewRender('kanban', refreshJob); } catch (e) {}
+        return true;
+    }
+    try { globalThis.__tmTryRefreshKanbanColumns = __tmTryRefreshKanbanColumns; } catch (e) {}
+
     function __tmTryReconcileKanbanParentCards(modalEl, taskIds = [], options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const opts = (options && typeof options === 'object') ? options : {};
@@ -27883,6 +28235,7 @@ return true;
             parentIds.add(resolvedId || id);
         };
         (Array.isArray(opts.parentTaskIds) ? opts.parentTaskIds : []).forEach(addParentId);
+        let canReconcilePlacement = true;
         (Array.isArray(taskIds) ? taskIds : []).forEach((value) => {
             const taskId = String(value || '').trim();
             if (!taskId) return;
@@ -27891,9 +28244,25 @@ return true;
                 task = globalThis.__tmTaskStore?.getProjected?.(taskId)
                     || __tmTaskStateKernel.getTask(taskId);
             } catch (e) {}
-            addParentId(task?.parentTaskId || task?.parent_task_id);
+            const nextParentId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+            addParentId(nextParentId);
+            if (!task) return;
+            const currentCards = Array.from(body.querySelectorAll(`.tm-kanban-card[data-id="${CSS.escape(taskId)}"]`));
+            currentCards.forEach((card) => {
+                const oldParentId = card.getAttribute('data-tm-placement-parent');
+                const oldDocId = card.getAttribute('data-tm-placement-doc');
+                // Parent-only reconciliation cannot add/remove root cards or
+                // rebuild document grouping. Let the main structural path do it.
+                if (oldParentId === null
+                    || oldDocId !== String(task.docId || task.root_id || '').trim()
+                    || (oldParentId !== nextParentId && (!oldParentId || !nextParentId))) {
+                    canReconcilePlacement = false;
+                    return;
+                }
+                addParentId(oldParentId);
+            });
         });
-        if (!parentIds.size) return false;
+        if (!canReconcilePlacement || !parentIds.size) return false;
 
         const findParentCard = (root, id) => {
             if (!(root instanceof Element)) return null;
@@ -27911,6 +28280,12 @@ return true;
             return !!card.querySelector('input:not([type="checkbox"]), textarea, [contenteditable="true"]');
         };
 
+        // Reject unsupported/unmounted parents before staging any board HTML.
+        for (const parentId of parentIds) {
+            const currentCard = findParentCard(body, parentId);
+            if (!(currentCard instanceof HTMLElement) || hasActiveEditor(currentCard)) return false;
+        }
+
         const progressiveJob = state.__tmProgressiveViewRender;
         const progressiveCache = typeof __tmKanbanColsHtmlCache !== 'undefined'
             ? __tmKanbanColsHtmlCache
@@ -27922,7 +28297,8 @@ return true;
             // truncated back to the initial batch during reconciliation.
             if (progressiveJob) state.__tmProgressiveViewRender = null;
             if (typeof __tmKanbanColsHtmlCache !== 'undefined') __tmKanbanColsHtmlCache = null;
-            nextBody = __tmBuildElementFromHtml(renderBodyHtml());
+            const html = renderBodyHtml();
+            nextBody = __tmBuildElementFromHtml(html);
         } catch (e) {
             return false;
         } finally {
@@ -27988,7 +28364,7 @@ return true;
             globalThis.__tmQueueViewDomCommit?.('kanban', () => __tmRerenderKanbanInPlace(modal, {
                 ...opts,
                 __tmQueuedCommit: true,
-            }), { reason: String(opts.reason || 'kanban-rerender').trim() || 'kanban-rerender' });
+            }), { reason: String(opts.reason || 'kanban-rerender').trim() || 'kanban-rerender', priority: 1 });
             return true;
         }
         if (!(modal instanceof Element)) return false;
@@ -27999,6 +28375,7 @@ return true;
         if (!(body instanceof HTMLElement)) return false;
         const bodyLeft = Number(body.scrollLeft || 0);
         const colScrollMap = new Map();
+        const mountedColumnLimits = new Map();
         try {
             modal.querySelectorAll('.tm-kanban-col').forEach((col) => {
                 if (!(col instanceof HTMLElement)) return;
@@ -28007,6 +28384,12 @@ return true;
                 const colBody = col.querySelector('.tm-kanban-col-body');
                 if (!(colBody instanceof HTMLElement)) return;
                 colScrollMap.set(colKey, Number(colBody.scrollTop || 0));
+                const mountedCount = Array.from(colBody.querySelectorAll('.tm-kanban-card[data-id]'))
+                    .filter((card) => !card.closest('[hidden]')).length;
+                // Retain the loaded window, with room for a newly outdented
+                // child. Do not expand every offscreen column after a move.
+                const renderKey = String(col.getAttribute('data-col-key') || colKey).trim();
+                if (mountedCount > 0) mountedColumnLimits.set(renderKey, mountedCount + 1);
             });
         } catch (e) {}
         try {
@@ -28027,9 +28410,15 @@ return true;
 
             } catch (e) {}
         }
+        let refreshRenderJob = null;
+        try {
+            refreshRenderJob = __tmStartProgressiveViewRender('kanban');
+            if (refreshRenderJob) refreshRenderJob.initialColumnLimits = mountedColumnLimits;
+        } catch (e) {}
         let nextBody = null;
         try {
-            nextBody = __tmBuildElementFromHtml(renderBodyHtml());
+            const html = renderBodyHtml();
+            nextBody = __tmBuildElementFromHtml(html);
         } catch (e) {
             return false;
         }
@@ -28075,10 +28464,66 @@ return true;
         };
         try { restore(); } catch (e) {}
         try { requestAnimationFrame(restore); } catch (e) {}
+        try { __tmScheduleProgressiveViewRender('kanban', refreshRenderJob); } catch (e) {}
         return true;
     }
 
-    function __tmRerenderWhiteboardInPlace(modalEl) {
+    function __tmTryReconcileWhiteboardBodies(body, nextBody) {
+        const board = body.querySelector('#tmWhiteboardWorld > .tm-whiteboard');
+        const nextBoard = nextBody.querySelector('#tmWhiteboardWorld > .tm-whiteboard');
+        const pool = body.querySelector('#tmWhiteboardPoolContent');
+        const nextPool = nextBody.querySelector('#tmWhiteboardPoolContent');
+        if (!board || !nextBoard || !pool || !nextPool) return false;
+        const docs = Array.from(board.children);
+        const nextDocs = Array.from(nextBoard.children);
+        // Document/frame layout changes still go through the full layout path.
+        if (docs.length !== nextDocs.length || docs.some((doc, index) =>
+            !doc.matches('.tm-whiteboard-doc[data-doc-id]')
+            || doc.getAttribute('data-doc-id') !== nextDocs[index].getAttribute('data-doc-id'))) return false;
+        const keyOf = (node) => {
+            for (const attr of ['data-task-id', 'data-note-id', 'data-frame-id']) {
+                const id = node.getAttribute(attr);
+                if (id) return `${attr}:${id}`;
+            }
+            if (node.matches('.tm-whiteboard-edges--subtask')) return 'edges:subtask';
+            if (node.matches('.tm-whiteboard-edges')) return 'edges:links';
+            if (node.matches('.tm-whiteboard-drawing-layer')) return 'drawings';
+            return '';
+        };
+        const equal = (current, next) => current.matches('.tm-whiteboard-edges')
+            ? current.className.baseVal === next.className.baseVal : current.isEqualNode(next);
+        const plans = docs.map((doc, index) => ({
+            doc, nextDoc: nextDocs[index],
+            parent: doc.querySelector(':scope > .tm-whiteboard-doc-body'),
+            nextParent: nextDocs[index].querySelector(':scope > .tm-whiteboard-doc-body'),
+        }));
+        if (plans.some(({ parent, nextParent }) => !parent || !nextParent
+            || !__tmReconcileKeyedViewRows(parent, Array.from(nextParent.children), { keyOf, equal, dryRun: true }))) return false;
+        const syncAttributes = (target, source) => {
+            Array.from(target.attributes).forEach((attr) => {
+                if (!source.hasAttribute(attr.name)) target.removeAttribute(attr.name);
+            });
+            Array.from(source.attributes).forEach((attr) => {
+                if (target.getAttribute(attr.name) !== attr.value) target.setAttribute(attr.name, attr.value);
+            });
+        };
+        plans.forEach(({ doc, nextDoc, parent, nextParent }) => {
+            __tmReconcileKeyedViewRows(parent, Array.from(nextParent.children), { keyOf, equal });
+            syncAttributes(doc, nextDoc);
+            syncAttributes(parent, nextParent);
+            const header = doc.querySelector(':scope > .tm-whiteboard-doc-head');
+            const nextHeader = nextDoc.querySelector(':scope > .tm-whiteboard-doc-head');
+            if (header && nextHeader && !header.isEqualNode(nextHeader)) header.replaceWith(nextHeader);
+        });
+        const poolKey = (node) => node.getAttribute('data-pool-section-key') || '';
+        if (!pool.isEqualNode(nextPool)
+            && !__tmReconcileKeyedViewRows(pool, Array.from(nextPool.children), { keyOf: poolKey })) {
+            pool.replaceChildren(...Array.from(nextPool.childNodes));
+        }
+        return true;
+    }
+
+    function __tmRerenderWhiteboardInPlace(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
         if (String(state.viewMode || '').trim() !== 'whiteboard') return false;
@@ -28093,8 +28538,12 @@ return true;
         const sidebarTop = Number(sidebar?.scrollTop || 0);
         const nextBody = __tmBuildElementFromHtml(renderBodyHtml());
         if (!(nextBody instanceof HTMLElement)) return false;
-        __tmPreserveActiveDetailNotePanelDuringBodySwap(body, nextBody);
-        try { body.replaceWith(nextBody); } catch (e) { return false; }
+        const patched = Array.isArray(options.taskIds) && options.taskIds.length > 0
+            && __tmTryReconcileWhiteboardBodies(body, nextBody);
+        if (!patched) {
+            __tmPreserveActiveDetailNotePanelDuringBodySwap(body, nextBody);
+            try { body.replaceWith(nextBody); } catch (e) { return false; }
+        }
         try { __tmBindWhiteboardViewportInput(modal); } catch (e) {}
         const scheduleWhiteboardLayoutRefresh = () => {
             try { __tmApplyWhiteboardTransform(); } catch (e) {
@@ -28128,7 +28577,7 @@ return true;
         return true;
     }
 
-    function __tmRerenderCurrentViewInPlace(modalEl) {
+    function __tmRerenderCurrentViewInPlace(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
         if (state.attachmentLibraryOpen) {
@@ -28169,7 +28618,7 @@ return true;
         if (state.viewMode === 'list') return __tmRerenderListInPlace(modal);
         if (state.viewMode === 'checklist') return __tmRerenderChecklistInPlace(modal);
         if (state.viewMode === 'kanban') return __tmRerenderKanbanInPlace(modal);
-        if (state.viewMode === 'whiteboard') return __tmRerenderWhiteboardInPlace(modal);
+        if (state.viewMode === 'whiteboard') return __tmRerenderWhiteboardInPlace(modal, options);
         return false;
     }
 

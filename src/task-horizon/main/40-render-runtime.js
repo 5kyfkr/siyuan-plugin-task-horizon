@@ -5715,6 +5715,7 @@
                 try { ghostMeta.ghost.remove(); } catch (e2) {}
             }
             try { cardEl.classList.remove('tm-kanban-card--dragging'); } catch (e2) {}
+            cardEl.classList.remove('tm-task-touch-press');
             try { __tmKanbanClearDragOver(); } catch (e2) {}
             try { __tmSetCalendarSideDockDragHidden(false); } catch (e2) {}
             try { __tmCalendarFloatingDragEnd(); } catch (e2) {}
@@ -5822,6 +5823,7 @@
         };
 
         if (gestureAllowsDrag) {
+            cardEl.classList.add('tm-task-touch-press');
             longPressTimer = setTimeout(() => {
                 if (isMouseLikePointer) armDragReady();
                 else startDrag();

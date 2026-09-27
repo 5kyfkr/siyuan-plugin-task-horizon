@@ -1316,8 +1316,26 @@
         return !!node?.querySelector?.('.sy-custom-props-inline-host[data-inline-placement="in-block"]');
     }
 
+    // SiYuan owns both the mindmap preview/lite editor and its hidden source list.
+    // Decorating the source changes the editor's HTML snapshot; capturing pointerup
+    // on the preview can also swallow the native drag/drop completion event.
+    function isQuickbarNativeEditorSurface(target) {
+        const node = target instanceof Element ? target : target?.parentElement;
+        return !!node?.closest?.('.list-mindmap, [data-protyle-lite-render], [data-type="NodeList"][custom-sy-list-mindmap="1"], [data-type="NodeList"][data-list-mindmap-rendered="true"]');
+    }
+
+    function shouldPreserveQuickbarNativeEditorDOM(target) {
+        if (!isQuickbarNativeEditorSurface(target)) return false;
+        const node = target instanceof Element ? target : target?.parentElement;
+        // Fullscreen mindmaps move their view out of the source list. Do not alter
+        // any source snapshot while a node editor is open, including in that view.
+        return !!node?.closest?.('.list-mindmap, [data-protyle-lite-render]')
+            || !!document.querySelector('.list-mindmap__editor');
+    }
+
     function touchInlineMetaHost(host, now = Date.now()) {
         if (!(host instanceof HTMLElement)) return;
+        if (isQuickbarNativeEditorSurface(host)) return;
         try { host.dataset.inlineTouchedAt = String(Math.max(0, Number(now) || Date.now())); } catch (e) {}
     }
 
@@ -1325,13 +1343,15 @@
         const directParent = parent || host?.parentElement || null;
         const layoutHostParent = layoutParent || host?.__tmQuickbarInlineLayoutParent || directParent?.closest?.('.sy-custom-props-inline-parent') || null;
         try {
-            if (directParent?.classList?.contains('sy-custom-props-inline-parent')
+            if (!shouldPreserveQuickbarNativeEditorDOM(directParent)
+                && directParent?.classList?.contains('sy-custom-props-inline-parent')
                 && !hasInlineMetaInBlockHost(directParent)) {
                 directParent.classList.remove('sy-custom-props-inline-parent');
             }
         } catch (e) {}
         try {
-            if (layoutHostParent?.classList?.contains('sy-custom-props-inline-parent')
+            if (!shouldPreserveQuickbarNativeEditorDOM(layoutHostParent)
+                && layoutHostParent?.classList?.contains('sy-custom-props-inline-parent')
                 && !hasInlineMetaInBlockHost(layoutHostParent)) {
                 layoutHostParent.classList.remove('sy-custom-props-inline-parent');
             }
@@ -1340,6 +1360,7 @@
 
     function removeInlineMetaHostNode(host, clearLayout = true) {
         if (!(host instanceof Element)) return false;
+        if (shouldPreserveQuickbarNativeEditorDOM(host)) return false;
         const ids = new Set();
         const pushId = (value) => {
             const id = String(value || '').trim();
@@ -1680,6 +1701,7 @@
 
     function getBlockElementFromTarget(target) {
         if (!target || target === document) return null;
+        if (isQuickbarNativeEditorSurface(target)) return null;
         const li = target.closest?.('.li,[data-type="NodeListItem"]');
         if (li?.dataset?.nodeId) return li;
         const block = target.closest?.('[data-node-id]');
@@ -1689,6 +1711,7 @@
 
     function getTaskBlockElementFromTarget(target) {
         if (!target || target === document) return null;
+        if (isQuickbarNativeEditorSurface(target)) return null;
         const taskIndicator = target.closest?.('.protyle-action__task,.protyle-action--task,.protyle-task--checkbox,.protyle-task,[data-task]');
         const li = (taskIndicator || target).closest?.('.li,[data-type="NodeListItem"]');
         const block = (li && li.dataset?.nodeId) ? li : (taskIndicator || target).closest?.('[data-node-id]');
@@ -2021,6 +2044,7 @@
         }
 
         function maybeRequestQuickbarSubtaskFieldInheritance(blockEl, bindingInput = null, reason = '') {
+            if (blockEl?.closest?.('.list-mindmap, [data-protyle-lite-render]')) return false;
             let sharedApi = null;
             try {
                 const api = globalThis?.['siyuan-plugin-task-horizon'];
@@ -2260,12 +2284,14 @@
     };
     document.addEventListener('pointerdown', __tmQBOnPointerdownCapture, true);
 
-    const __tmQBOnAttrHostDragStartCapture = () => {
+    const __tmQBOnAttrHostDragStartCapture = (event) => {
+        if (isQuickbarNativeEditorSurface(event?.target)) return;
         quickbarAttrHostDragActive = true;
         quickbarAttrHostLastDragAt = Date.now();
         try { clearQuickbarTaskBindingCaches(); } catch (e) {}
     };
-    const __tmQBOnAttrHostDragEndCapture = () => {
+    const __tmQBOnAttrHostDragEndCapture = (event) => {
+        if (!quickbarAttrHostDragActive && isQuickbarNativeEditorSurface(event?.target)) return;
         quickbarAttrHostDragActive = false;
         quickbarAttrHostLastDragAt = Date.now();
         quickbarAttrHostLastStructuralAt = Date.now();
@@ -2297,6 +2323,7 @@
 
     const __tmQBResolveInlineMetaPointerTarget = (e) => {
         const rawTarget = e.target;
+        if (isQuickbarNativeEditorSurface(rawTarget)) return null;
         const targetEl = rawTarget instanceof Element ? rawTarget : rawTarget?.parentElement;
         let chip = targetEl?.closest?.('.sy-custom-props-inline-chip');
         let host = chip?.closest?.('.sy-custom-props-inline-host');
@@ -2346,7 +2373,7 @@
                 removeInlineMetaHostNode(node, true);
             });
             taskList?.querySelectorAll?.('.sy-custom-props-inline-parent').forEach((node) => {
-                if (!hasInlineMetaInBlockHost(node)) {
+                if (!shouldPreserveQuickbarNativeEditorDOM(node) && !hasInlineMetaInBlockHost(node)) {
                     node.classList.remove('sy-custom-props-inline-parent');
                 }
             });
@@ -2619,6 +2646,11 @@
                 overflow-y: auto;
                 overflow-x: hidden;
                 overscroll-behavior: contain;
+                min-height: 0;
+                flex-shrink: 1;
+            }
+            .sy-custom-props-floatbar__select.is-custom-field-picker {
+                overflow: hidden;
             }
             .sy-custom-props-floatbar__option {
                 width: 100%;
@@ -2665,6 +2697,7 @@
             }
             .sy-custom-props-floatbar__select-actions {
                 display: flex;
+                flex-shrink: 0;
                 justify-content: flex-start;
                 align-items: center;
                 gap: 2px;
@@ -3330,6 +3363,12 @@
                 pointer-events: auto;
                 transition-delay: 0s, 0s;
             }
+            .list-mindmap .sy-custom-props-inline-host,
+            [data-protyle-lite-render] .sy-custom-props-inline-host,
+            [data-type="NodeList"][custom-sy-list-mindmap="1"] .sy-custom-props-inline-host,
+            [data-type="NodeList"][data-list-mindmap-rendered="true"] .sy-custom-props-inline-host {
+                display: none !important;
+            }
             .sy-custom-props-inline-host.is-wrap {
                 flex-wrap: wrap;
                 align-items: flex-start;
@@ -3501,6 +3540,14 @@
         const selectMenu = document.createElement('div');
         selectMenu.className = 'sy-custom-props-floatbar__select';
         document.body.appendChild(selectMenu);
+        let customFieldViewportCleanup = null;
+        let selectMenuSession = 0;
+        function closeSelectMenu() {
+            selectMenuSession += 1;
+            customFieldViewportCleanup?.();
+            customFieldViewportCleanup = null;
+            selectMenu.classList.remove('is-visible');
+        }
 
         // 输入编辑器
         const inputEditor = document.createElement('div');
@@ -4288,6 +4335,7 @@
 
         async function captureQuickbarAttrHostDragSnapshots(event) {
             if (quickbarDisposed) return;
+            if (isQuickbarNativeEditorSurface(event?.target)) return;
             const now = Date.now();
             pruneQuickbarAttrHostDragSnapshots(now);
             const bindings = collectQuickbarAttrHostDragSnapshotBindings(event?.target);
@@ -5812,6 +5860,7 @@
             let touched = false;
             queryInlineMetaHostsInObservedRoots('.sy-custom-props-inline-host').forEach((host) => {
                 if (!(host instanceof HTMLElement)) return;
+                if (isQuickbarNativeEditorSurface(host)) return;
                 const ownerIds = [host.dataset.blockId, host.dataset.taskId, host.dataset.attrHostId]
                     .map((id) => String(id || '').trim())
                     .filter(Boolean);
@@ -6208,11 +6257,17 @@
 
         // 显示选择菜单
         function showSelectMenu(anchorEl, config, currentValue) {
+            closeSelectMenu();
+            const session = selectMenuSession;
+            selectMenu.style.maxHeight = '';
             const options = Array.isArray(config?.options) ? config.options : [];
             const blockIdAtOpen = String(currentBlockId || '').trim();
             const isStatusSelect = String(config?.attrKey || '').trim() === 'custom-status';
             const isPrioritySelect = String(config?.attrKey || '').trim() === 'custom-priority';
             const isCustomFieldSelect = !!config?.customFieldId;
+            selectMenu.classList.toggle('is-custom-field-picker', isCustomFieldSelect);
+            let search = null;
+            let saving = false;
             const isCustomFieldMulti = isCustomFieldSelect
                 && (String(config?.customFieldType || '').trim() === 'multi' || String(config?.type || '').trim() === 'multi-select');
             let selectedCustomValues = new Set();
@@ -6222,7 +6277,7 @@
                     ? currentCustomValue.map((item) => String(item || '').trim()).filter(Boolean)
                     : (String(currentCustomValue || '').trim() ? [String(currentCustomValue || '').trim()] : []));
             }
-            if (!options.length && !selectedCustomValues.size) return;
+            if (!isCustomFieldSelect && !options.length) return;
 
             // 更新菜单内容
             const activeOptions = isCustomFieldSelect
@@ -6270,7 +6325,7 @@
                     ? `sy-custom-props-floatbar__option is-status is-custom-field ${isActive}`
                     : `sy-custom-props-floatbar__option ${isActive}`));
                 if (isCustomFieldSelect) {
-                    const displayLabel = historical
+                    const displayLabel = historical || search?.query
                         ? String(opt?.pathLabel || opt?.label || value || '').trim() || value
                         : String(opt?.label || value || '').trim() || '未命名';
                     return `
@@ -6278,6 +6333,7 @@
                                 data-value="${esc(value).replace(/"/g, '&quot;')}"
                                 data-label="${escapedValue}"
                                 data-menu-label="${esc(menuLabel).replace(/"/g, '&quot;')}"
+                                ${historical ? '' : `data-tm-custom-field-choice="${esc(value).replace(/"/g, '&quot;')}"`}
                                 title="${historical ? '移除此历史值：' : ''}${esc(displayLabel)}"
                                 ${historical ? 'data-historical="1"' : ''}>
                             <span class="sy-custom-props-floatbar__option-label sy-custom-props-floatbar__option-label--status" style="${buildStatusChipStyle(opt?.color || '#9ca3af')}">${esc(displayLabel)}</span>
@@ -6328,18 +6384,29 @@
                     </div>
                 `.trim()
                 : '';
+            if (isCustomFieldSelect) selectMenu.innerHTML = `<div class="sy-custom-props-floatbar__select-list"></div>${actionsHtml}`;
+            const selectList = isCustomFieldSelect ? selectMenu.querySelector('.sy-custom-props-floatbar__select-list') : selectMenu;
+            const customClearButton = selectMenu.querySelector('[data-clear="1"]');
             const renderSelectMenuContent = () => {
                 const activeOptionHtml = isCustomFieldSelect
-                    ? renderCustomTreeNodes()
+                    ? (search?.query
+                        ? activeOptions.filter((option) => search.matches(option.pathLabel || option.label)).map((option) => renderOptionHtml(option)).join('')
+                        : renderCustomTreeNodes())
                     : activeOptions.map((option) => renderOptionHtml(option, false)).join('');
                 const historicalOptionHtml = getHistoricalOptions().map((option) => renderOptionHtml(option, true)).join('');
+                const historicalHtml = historicalOptionHtml ? `<div class="sy-custom-props-floatbar__select-section">已归档或历史值</div>${historicalOptionHtml}` : '';
+                const activeHtml = activeOptionHtml || `<div class="sy-custom-props-floatbar__select-section">${search?.query ? '没有匹配的选项' : '当前字段没有可选项'}</div>`;
                 const optionHtml = isCustomFieldSelect
-                    ? `${historicalOptionHtml ? `<div class="sy-custom-props-floatbar__select-section">已归档或历史值</div>${historicalOptionHtml}` : ''}${activeOptionHtml}`
+                    ? (search?.query ? `${activeHtml}${historicalHtml}` : `${historicalHtml}${activeHtml}`)
                     : activeOptionHtml;
-                selectMenu.innerHTML = isCustomFieldSelect
-                    ? `<div class="sy-custom-props-floatbar__select-list">${optionHtml}</div>${actionsHtml}`
-                    : optionHtml;
+                selectList.innerHTML = optionHtml;
+                search?.refresh(isCustomFieldMulti ? selectedCustomValues.size : null);
             };
+            if (isCustomFieldSelect) {
+                const bridge = globalThis?.['siyuan-plugin-task-horizon']?.quickbarBridge;
+                search = bridge?.createCustomFieldOptionSearch?.(selectList, renderSelectMenuContent) || null;
+                if (search) selectMenu.insertBefore(search.element, selectList);
+            }
             renderSelectMenuContent();
 
             // 计算位置
@@ -6349,7 +6416,7 @@
             const viewportWidth = Math.max(0, window.innerWidth || document.documentElement.clientWidth || 0);
             const isTouchLike = isCustomFieldSelect && isMobileDevice();
             const customFieldMaxWidth = Math.min(360, Math.max(88, viewportWidth - 16));
-            const customFieldMinWidth = Math.min(customFieldMaxWidth, isTouchLike ? 200 : 160);
+            const customFieldMinWidth = Math.min(customFieldMaxWidth, search ? 220 : (isTouchLike ? 200 : 160));
             const customFieldChromeWidth = (isTouchLike ? 36 : 22) + 64;
             const menuWidth = isPrioritySelect
                 ? Math.min(140, Math.max(84, maxLen * 10 + 18))
@@ -6380,6 +6447,11 @@
             selectMenu.style.left = `${Math.max(viewportLeft + 8, Math.min(desiredLeft, maxLeft))}px`;
             selectMenu.style.top = `${window.scrollY + anchorRect.bottom + 4}px`;
             selectMenu.classList.add('is-visible');
+            if (isCustomFieldSelect) {
+                customFieldViewportCleanup = globalThis?.['siyuan-plugin-task-horizon']?.quickbarBridge
+                    ?.bindCustomFieldPickerViewport?.(selectMenu, anchorEl) || null;
+                if (search && !isMobileDevice()) search.input.focus({ preventScroll: true });
+            }
 
             // 绑定选择事件
             selectMenu.onclick = async (e) => {
@@ -6395,15 +6467,16 @@
                 }
                 const doneEl = e.target.closest('[data-done="1"]');
                 if (doneEl) {
-                    selectMenu.classList.remove('is-visible');
+                    closeSelectMenu();
                     return;
                 }
                 const clearEl = e.target.closest('[data-clear="1"]');
                 const optionEl = clearEl || e.target.closest('.sy-custom-props-floatbar__option');
                 if (!optionEl) {
-                    selectMenu.classList.remove('is-visible');
+                    if (!isCustomFieldSelect) closeSelectMenu();
                     return;
                 }
+                if (saving) return;
 
                 const selectedToken = String(optionEl.dataset.value || '').trim();
                 const isClearClick = optionEl.dataset.clear === '1';
@@ -6426,10 +6499,27 @@
                             : selectedToken))
                     : selectedToken;
 
-                const result = await saveTaskAttrWithUndo(blockIdAtOpen || currentBlockId, config.attrKey, saveValue, {
-                    label: config.name,
-                    skipNoopCheck: isCustomFieldSelect && saveValue === '',
-                });
+                let result;
+                if (isCustomFieldSelect) {
+                    saving = true;
+                    selectList.inert = true;
+                    customClearButton.disabled = true;
+                }
+                try {
+                    result = await saveTaskAttrWithUndo(blockIdAtOpen || currentBlockId, config.attrKey, saveValue, {
+                        label: config.name,
+                        skipNoopCheck: isCustomFieldSelect && saveValue === '',
+                    });
+                } catch (error) {
+                    showMessage('更新失败', true, 2000);
+                    return;
+                } finally {
+                    if (isCustomFieldSelect) {
+                        saving = false;
+                        selectList.inert = false;
+                        customClearButton.disabled = false;
+                    }
+                }
 
                 if (result.success) {
                     const targetBlockId = blockIdAtOpen || currentBlockId;
@@ -6479,8 +6569,15 @@
                     showMessage('更新失败', true, 2000);
                 }
 
-                if (!isCustomFieldMulti) selectMenu.classList.remove('is-visible');
+                if (!isCustomFieldMulti && session === selectMenuSession && (result.success || !isCustomFieldSelect)) closeSelectMenu();
             };
+            selectMenu.onkeydown = isCustomFieldSelect ? (event) => {
+                if (event.key === 'Escape' && !event.isComposing) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeSelectMenu();
+                }
+            } : null;
         }
 
         // 显示日期编辑器
@@ -6780,7 +6877,7 @@
                     } catch (e) {}
                 }
             }
-            selectMenu.classList.remove('is-visible');
+            closeSelectMenu();
             inputEditor.classList.remove('is-visible', 'is-duration', 'is-remark', 'is-focus-summary');
             cleanupFocusSummaryEditorScaffold();
             noteQuickbarActivity();
@@ -7296,7 +7393,7 @@
             const autoSave = quickbarTextEditorAutoSave;
             quickbarTextEditorAutoSave = null;
             try { autoSave?.(); } catch (e) {}
-            selectMenu.classList.remove('is-visible');
+            closeSelectMenu();
             inputEditor.classList.remove('is-visible');
             inputEditor.classList.remove('is-focus-summary');
             cleanupFocusSummaryEditorScaffold();
@@ -7429,9 +7526,13 @@
         }
 
         function removeInlineMetaNodes() {
-            try { document.querySelectorAll('.sy-custom-props-inline-layer').forEach((el) => el.remove()); } catch (e) {}
+            try { document.querySelectorAll('.sy-custom-props-inline-layer').forEach((el) => {
+                if (!shouldPreserveQuickbarNativeEditorDOM(el)) el.remove();
+            }); } catch (e) {}
             try { document.querySelectorAll('.sy-custom-props-inline-host[data-inline-placement="in-block"]').forEach((el) => removeInlineMetaHostNode(el, true)); } catch (e) {}
-            try { document.querySelectorAll('.sy-custom-props-inline-parent').forEach((el) => el.classList.remove('sy-custom-props-inline-parent')); } catch (e) {}
+            try { document.querySelectorAll('.sy-custom-props-inline-parent').forEach((el) => {
+                if (!shouldPreserveQuickbarNativeEditorDOM(el)) el.classList.remove('sy-custom-props-inline-parent');
+            }); } catch (e) {}
             inlineMetaLayer = null;
             inlineMetaMissingHostSeenAt.clear();
             invalidateInlineMetaActiveTargetsCache();
@@ -7668,6 +7769,7 @@
         }
 
         async function handleInlineHostPointerDown(host, chip, event, fallbackBlockEl = null) {
+            if (isQuickbarNativeEditorSurface(event?.target) || isQuickbarNativeEditorSurface(host)) return;
             if (!host || !chip) return;
             event?.preventDefault?.();
             event?.stopPropagation?.();
@@ -7720,6 +7822,7 @@
 
         function getInlineNativeHostMount(blockEl) {
             if (!blockEl || blockEl.closest?.('.tm-task-detail-note-mount')) return null;
+            if (isQuickbarNativeEditorSurface(blockEl)) return null;
             const paragraph = blockEl.querySelector?.(':scope > .p') || blockEl.querySelector?.('.p') || null;
             if (!(paragraph instanceof Element)) return null;
             const attrHost = paragraph.querySelector?.(':scope > .protyle-attr') || null;
@@ -7728,6 +7831,7 @@
         }
 
         function ensureInlineHost(blockEl, options = {}) {
+            if (isQuickbarNativeEditorSurface(blockEl)) return null;
             const preferOverlay = !!(options && options.preferOverlay);
             const blockId = String(options?.blockId || resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
             const renderKey = String(options?.renderKey || blockId).trim() || blockId;
@@ -7748,7 +7852,7 @@
                 try {
                     blockEl.querySelectorAll?.('.sy-custom-props-inline-parent').forEach((node) => {
                         if (node === layoutParent) return;
-                        if (!hasInlineMetaInBlockHost(node)) {
+                        if (!shouldPreserveQuickbarNativeEditorDOM(node) && !hasInlineMetaInBlockHost(node)) {
                             node.classList.remove('sy-custom-props-inline-parent');
                         }
                     });
@@ -7854,6 +7958,7 @@
         }
 
         function queueInlineMetaRenderBlock(blockEl, forceRefresh = false, visibilityBuffer = 0) {
+            if (isQuickbarNativeEditorSurface(blockEl)) return false;
             const taskId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
             const renderKey = getInlineMetaRenderKey(blockEl, taskId);
             if (!taskId || !renderKey || inlineMetaRenderQueueIds.has(renderKey) || inlineMetaRenderActiveIds.has(renderKey)) return false;
@@ -7923,6 +8028,7 @@
             const seen = new Set();
             for (let i = 0; i < sourceBlocks.length; i += 1) {
                 const blockEl = sourceBlocks[i];
+                if (isQuickbarNativeEditorSurface(blockEl)) continue;
                 const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                 const renderKey = getInlineMetaRenderKey(blockEl, blockId);
                 if (!blockId || !renderKey || seen.has(renderKey)) continue;
@@ -7957,6 +8063,7 @@
             const seen = new Set();
             for (let i = 0; i < sourceBlocks.length; i += 1) {
                 const blockEl = sourceBlocks[i];
+                if (isQuickbarNativeEditorSurface(blockEl)) continue;
                 const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                 const renderKey = getInlineMetaRenderKey(blockEl, blockId);
                 if (!blockId || !renderKey || seen.has(renderKey)) continue;
@@ -8490,6 +8597,10 @@
                         break;
                     }
                     if (!(host instanceof HTMLElement)) continue;
+                    if (isQuickbarNativeEditorSurface(host)) {
+                        if (removeInlineMetaHostNode(host, true)) removed += 1;
+                        continue;
+                    }
                     const owner = String(host.dataset.blockId || '').trim();
                     if (!owner) continue;
                     const visualOwner = String(host.dataset.inlineRenderKey || owner).trim() || owner;
@@ -8924,6 +9035,7 @@
                 const blocks = root?.querySelectorAll?.('.li[data-node-id], [data-type="NodeListItem"][data-node-id]') || [];
                 for (let i = 0; i < blocks.length; i += 1) {
                     const blockEl = blocks[i];
+                    if (isQuickbarNativeEditorSurface(blockEl)) continue;
                     const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                     const renderKey = getInlineMetaRenderKey(blockEl, blockId);
                     if (!blockId || !renderKey || nextBlocks.has(renderKey)) continue;
@@ -9125,6 +9237,7 @@
                 const removedTaskOwnerIds = new Set();
                 const stripInlineMetaArtifactsFromAddedNode = (node) => {
                     if (!(node instanceof Element)) return;
+                    if (isQuickbarNativeEditorSurface(node)) return;
                     try {
                         if (node.matches?.('.sy-custom-props-inline-host,[data-inline-meta-host="true"]')) {
                             const isLivePluginHost = !!node.closest?.('.sy-custom-props-inline-layer')
@@ -9137,7 +9250,8 @@
                             removeInlineMetaHostNode(host, true);
                         });
                         node.querySelectorAll?.('.sy-custom-props-inline-parent').forEach((parent) => {
-                            if (!hasInlineMetaInBlockHost(parent)) parent.classList.remove('sy-custom-props-inline-parent');
+                            if (!shouldPreserveQuickbarNativeEditorDOM(parent)
+                                && !hasInlineMetaInBlockHost(parent)) parent.classList.remove('sy-custom-props-inline-parent');
                         });
                         if (node.classList?.contains('sy-custom-props-inline-parent') && !hasInlineMetaInBlockHost(node)) {
                             node.classList.remove('sy-custom-props-inline-parent');
@@ -9178,6 +9292,7 @@
                 };
                 const hasStructuralChange = mutations.some((m) => {
                     if (m.type !== 'childList') return false;
+                    if (isQuickbarNativeEditorSurface(m.target)) return false;
                     if (m.target instanceof Element && isInlineMetaOwnNode(m.target)) return false;
                     const nodes = [...m.addedNodes, ...m.removedNodes];
                     if (nodes.length && nodes.every((node) => isInlineMetaOwnNode(node))) return false;
@@ -9274,7 +9389,7 @@
             const roots = getInlineMetaObserveRoots();
             inlineMetaObservedRoots = roots;
             roots.forEach((root) => {
-                try { inlineMetaObserver.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-editing'] }); } catch (e) {}
+                try { inlineMetaObserver.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-editing', 'custom-sy-list-mindmap', 'data-list-mindmap-rendered'] }); } catch (e) {}
             });
             rebindInlineMetaResizeObserver(roots);
             // Watch every .protyle for hidden→visible transitions so a tab
@@ -9408,6 +9523,7 @@
 
         function layoutInlineMetaHost(blockEl, host, renderKey, textAnchor, html, forceRefresh = false, visibilityBuffer = 0) {
             if (!blockEl || !host || !renderKey || !textAnchor) return false;
+            if (isQuickbarNativeEditorSurface(blockEl) || isQuickbarNativeEditorSurface(host)) return false;
             const isInBlockHost = String(host?.dataset?.inlinePlacement || '').trim() === 'in-block';
             const textSig = getInlineTextFastSignature(textAnchor);
             const prevLayout = inlineMetaLayoutCache.get(renderKey);
@@ -9695,6 +9811,10 @@
                     ? resolveQuickbarBindingForHostIds(sourceTaskId, attrHostId, taskId, preferredBlockEl)
                     : resolveQuickbarBindingForHostIds(sourceTaskId, attrHostId, taskId);
                 const blockEl = preferredBlockEl || liveResolved?.blockEl || getBlockElById(sourceTaskId) || getBlockElById(taskId);
+                if (isQuickbarNativeEditorSurface(blockEl)) {
+                    removeInlineMetaHostNode(host, true);
+                    continue;
+                }
                 if (liveResolved?.taskId) host.dataset.taskId = liveResolved.taskId;
                 if (liveResolved?.attrHostId) host.dataset.attrHostId = liveResolved.attrHostId;
                 const textAnchor = getInlineTextAnchor(blockEl);
@@ -9748,6 +9868,7 @@
 
         async function renderInlineMetaForBlock(blockEl, forceRefresh = false, visibilityBuffer = 0) {
             if (!isInlineMetaEnabled()) return;
+            if (isQuickbarNativeEditorSurface(blockEl)) return;
             if (isInlineMetaScrollSettling() && forceRefresh) forceRefresh = false;
             let binding = null;
             try { binding = resolveTaskBindingFromBlockEl(blockEl); } catch (e) { binding = null; }
@@ -9802,6 +9923,7 @@
                 return;
             }
             const applicableCustomFieldIds = await ensureQuickbarCustomFieldIdsForDoc(docId);
+            if (isQuickbarNativeEditorSurface(blockEl)) return;
             const useOverlayHost = isInlineMetaNativeHostSuppressed(renderKey)
                 || !QUICKBAR_INLINE_USE_NATIVE_HOST;
             const hostParent = getInlineHostParent(blockEl);
@@ -10078,6 +10200,7 @@
                 .filter(Boolean));
             try {
                 inlineMetaObservedTaskBlocks.forEach((blockEl) => {
+                    if (isQuickbarNativeEditorSurface(blockEl)) return;
                     let binding = null;
                     try { binding = resolveTaskBindingFromBlockEl(blockEl); } catch (e) { binding = null; }
                     const taskId = String(binding?.taskId || blockEl?.dataset?.nodeId || '').trim();
@@ -10349,6 +10472,10 @@
 
         function handleTrigger(e) {
             const target = e.target;
+            if (isQuickbarNativeEditorSurface(target)) {
+                if (floatBar.style.display !== 'none') hideFloatBar();
+                return;
+            }
             if (target?.closest?.('[data-type="block-ref"][data-id]')) {
                 if (floatBar.style.display !== 'none') hideFloatBar();
                 return;

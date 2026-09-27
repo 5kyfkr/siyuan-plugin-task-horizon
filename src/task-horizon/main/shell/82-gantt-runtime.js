@@ -923,6 +923,10 @@
             const endTs = range.endTs;
             const dayCount = clamp(Math.round((endTs - startTs) / DAY_MS) + 1, 1, TIMELINE_MAX_DAY_COUNT);
             const totalWidth = dayCount * dayWidth;
+            const rowLayoutKey = JSON.stringify([startTs, dayCount, dayWidth, scale, new Date().setHours(0, 0, 0, 0)]);
+            const targetedRows = !appendOnly && Array.isArray(opts.taskIds) && opts.taskIds.length > 0
+                && bodyEl.__tmGanttRowLayoutKey === rowLayoutKey
+                && !!bodyEl.querySelector('.tm-gantt-body-inner');
             const showCollapsedGroupLabels = !!bodyEl.closest?.('.tm-timeline-split--sidebar-collapsed');
             const timelineMultiSelectedSet = new Set(
                 (Array.isArray(state.timelineMultiSelectedTaskIds) ? state.timelineMultiSelectedTaskIds : [])
@@ -937,7 +941,7 @@
             try { bodyEl.dataset.tmGanttSnapDays = String(snapDays); } catch (e) {}
             try { headerEl.dataset.tmGanttScale = scale; } catch (e) {}
 
-            if (!appendOnly) {
+            if (!appendOnly && !targetedRows) {
                 headerEl.innerHTML = `
                     <div class="tm-gantt-header-inner tm-gantt-header-inner--${scale}" style="width:${totalWidth}px">
                         ${buildTimelineHeaderHtml(scale, startTs, dayCount, dayWidth)}
@@ -1251,7 +1255,16 @@
                 return;
             }
 
-            bodyEl.innerHTML = `
+            let rowsPatched = false;
+            if (targetedRows) {
+                const staging = document.createElement('div');
+                staging.innerHTML = rowsHtml.join('');
+                rowsPatched = globalThis.__tmReconcileKeyedViewRows?.(
+                    bodyEl.querySelector('.tm-gantt-body-inner'), Array.from(staging.children),
+                    { selector: '.tm-gantt-row' },
+                ) === true;
+            }
+            if (!rowsPatched) bodyEl.innerHTML = `
                 <div class="tm-gantt-body-inner" style="width:${totalWidth}px">
                     <div class="tm-gantt-day-bg-layer" aria-hidden="true">${buildTimelineDayBgHtml(startTs, dayCount, dayWidth, scale)}</div>
                     ${todayIsVisible ? `<div class="tm-gantt-today" style="left:${todayLeft}px"></div>` : ''}
@@ -1259,6 +1272,7 @@
                     ${rowsHtml.join('')}
                 </div>
             `;
+            bodyEl.__tmGanttRowLayoutKey = rowLayoutKey;
 
             const timelineScrollHost = bodyEl.closest('.tm-timeline-scroll-host') || bodyEl;
             let timelineOffscreenNavRaf = 0;

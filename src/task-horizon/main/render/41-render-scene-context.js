@@ -41,6 +41,7 @@
 
         const __tmRenderKanbanBodyHtml = (renderOptions = {}) => __tmBuildRenderSceneKanbanBodyHtml({
             bodyAnimClass: __tmGetBodyAnimClassForRender(renderOptions),
+            columnPatch: renderOptions.columnPatch,
         });
 
         const __tmRenderCalendarBodyHtml = () => __tmBuildRenderSceneCalendarBodyHtml({

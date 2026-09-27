@@ -96,7 +96,12 @@ const restoreSource = sliceBetween(
     'function __tmRestoreManualRefreshSessionState',
     'function __tmCaptureRefreshUiState',
 );
-vm.runInContext(`${restoreSource}\nthis.restore = __tmRestoreManualRefreshSessionState;`, restoreContext);
+const completedVisibilitySource = sliceBetween(
+    stores,
+    'function __tmNormalizeShowCompletedTasksByGroup',
+    'function __tmNormalizeTaskDeleteMode',
+);
+vm.runInContext(`${completedVisibilitySource}\n${restoreSource}\nthis.restore = __tmRestoreManualRefreshSessionState;`, restoreContext);
 
 const snapshot = {
     currentGroupId: 'saved-group',
@@ -115,6 +120,7 @@ const snapshot = {
 
 SettingsStore.data = {
     currentGroupId: 'remote-group',
+    showCompletedTasksByGroup: { 'saved-group': false, 'remote-group': true },
     currentRule: { id: 'remote-rule' },
     collapsedTaskIds: ['remote-task'],
     collapsedGroups: ['remote-group-collapse'],
@@ -126,6 +132,7 @@ SettingsStore.data = {
 };
 restoreContext.restore(snapshot, { restoreCollapse: false });
 assert.equal(SettingsStore.data.currentGroupId, 'saved-group', 'automatic reload must preserve the current group context');
+assert.equal(state.showCompletedTasks, false, 'restoring the group must apply its merged completed-task preference');
 assert.equal(SettingsStore.data.currentRule.id, 'saved-rule', 'automatic reload must preserve the current rule context');
 assert.deepEqual(Array.from(SettingsStore.data.collapsedTaskIds), ['remote-task'], 'automatic reload must retain the merged collapse state');
 assert.deepEqual(Array.from(state.collapsedTaskIds), ['remote-task'], 'runtime sets must hydrate from the merged collapse state');
@@ -140,6 +147,7 @@ SettingsStore.data = {
     collapseStateUpdatedAt: 900,
 };
 restoreContext.restore(snapshot);
+assert.equal(state.showCompletedTasks, true, 'a group without any saved visibility preference must default to showing completed tasks');
 assert.deepEqual(Array.from(SettingsStore.data.collapsedTaskIds), ['saved-task'], 'manual session restoration must still restore its collapse snapshot by default');
 assert.equal(SettingsStore.data.collapseStateUpdatedAt, 100, 'manual session restoration must still restore its collapse timestamp by default');
 

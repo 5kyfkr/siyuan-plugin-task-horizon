@@ -2895,6 +2895,7 @@
             reason: String(raw.reason || '').trim() || 'view-refresh',
             taskIds,
             forceRebuild: raw.forceRebuild === true,
+            detailOnly: raw.detailOnly === true,
             bypassDefer: raw.bypassDefer === true,
             bypassTaskFieldDefer: raw.bypassTaskFieldDefer === true,
             bypassScrollDefer: raw.bypassScrollDefer === true,
@@ -2923,6 +2924,7 @@
             reason: right.reason || left.reason || 'view-refresh',
             taskIds,
             forceRebuild: left.forceRebuild === true || right.forceRebuild === true,
+            detailOnly: left.detailOnly === true && right.detailOnly === true,
             bypassDefer: left.bypassDefer === true || right.bypassDefer === true,
             bypassTaskFieldDefer: left.bypassTaskFieldDefer === true || right.bypassTaskFieldDefer === true,
             bypassScrollDefer: left.bypassScrollDefer === true || right.bypassScrollDefer === true,
@@ -3674,6 +3676,11 @@
                 } catch (e) {
                 }
             });
+            // Structural projection already updates the main view (or schedules
+            // its fallback). An absent/unrelated detail panel needs no main render.
+            if (next.detailOnly) {
+                return true;
+            }
             if (!refreshed) {
                 try {
                     refreshed = !!__tmRerenderCurrentViewInPlace(state.modal);
@@ -3692,6 +3699,7 @@
             __tmRefreshMainViewInPlace({
                 withFilters: next.withFilters !== false,
                 reason: next.reason,
+                taskIds: next.taskIds,
                 deferIfDetailBusy: !bypassBusyDetailDefer,
                 allowMountedInactive,
             });
@@ -3819,6 +3827,7 @@ __tmScheduleViewRefresh(pending);
                     mode: 'current',
                     withFilters,
                     reason,
+                    taskIds: options.taskIds,
                 });
                 return;
             }
@@ -3838,19 +3847,24 @@ __tmScheduleViewRefresh(pending);
             return;
         }
         if (state.viewMode === 'timeline') {
-            if (!__tmRerenderTimelineInPlace(state.modal)) render();
+            if (!__tmRerenderTimelineInPlace(state.modal, { taskIds: options.taskIds, reason })) render();
             return;
         }
         if (state.viewMode === 'checklist') {
+            if (Array.isArray(options.taskIds) && options.taskIds.length) {
+                __tmMarkChecklistProjectionGroupRefresh(options.taskIds);
+            }
             __tmRenderChecklistPreserveScroll();
             return;
         }
         if (state.viewMode === 'kanban' || state.viewMode === 'whiteboard') {
-            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+            if (state.viewMode === 'kanban'
+                && globalThis.__tmTryRefreshKanbanColumns?.(state.modal, options.taskIds, { reason }) === true) return;
+            if (!__tmRerenderCurrentViewInPlace(state.modal, { taskIds: options.taskIds, reason })) render();
             return;
         }
         if (state.viewMode !== 'calendar' && state.viewMode !== 'checklist') {
-            if (!__tmRerenderListInPlace(state.modal)) render();
+            if (!__tmRerenderListInPlace(state.modal, { taskIds: options.taskIds, reason })) render();
             return;
         }
         render();
@@ -4343,6 +4357,12 @@ return false;
         });
     }
 
+    function __tmTaskPlacementMatchesDom(node, task) {
+        if (!(node instanceof Element) || !task) return false;
+        return node.getAttribute('data-tm-placement-doc') === String(task.docId || task.root_id || '').trim()
+            && node.getAttribute('data-tm-placement-parent') === String(task.parentTaskId || task.parent_task_id || '').trim();
+    }
+
     function __tmTryApplyChecklistOptimisticProjectionInPlace(taskId, patch = {}, options = {}) {
         const tid = String(taskId || '').trim();
         const modal = state.modal instanceof Element ? state.modal : null;
@@ -4351,6 +4371,11 @@ return false;
         if (!(item instanceof HTMLElement)) return false;
         const detailTaskId = String(state.detailTaskId || state.kanbanDetailTaskId || '').trim();
         if (options?.filtersApplied !== true) return __tmScheduleOptimisticProjectionFrame('checklist', tid, patch);
+        if (options?.structural === true) {
+            const task = globalThis.__tmTaskStore?.getProjected?.(tid) || __tmTaskStateKernel.getTask(tid);
+            // A row reorder cannot rebuild the old/new parent disclosure wrappers.
+            if (!__tmTaskPlacementMatchesDom(item, task)) return false;
+        }
 
         const rows = __tmBuildTaskRowModel();
         const taskRows = [];
@@ -4411,7 +4436,7 @@ return false;
             nextTaskRow = taskRows[index];
             break;
         }
-        const nextNode = nextTaskRow ? findTaskNode(nextTaskRow.id) : null;
+        let nextNode = nextTaskRow ? findTaskNode(nextTaskRow.id) : null;
         if (nextTaskRow && !(nextNode instanceof HTMLElement)) {
 
             return false;
@@ -4846,6 +4871,9 @@ return false;
         const sourceColumn = card.closest('.tm-kanban-col');
         if (!(sourceColumn instanceof HTMLElement)) return false;
         if (options?.filtersApplied !== true) return __tmScheduleOptimisticProjectionFrame('kanban', tid, patch);
+        // This fast path reorders existing cards, but cannot turn a root card
+        // into a subtask row or move a subtree between parent containers.
+        if (options?.structural === true && cards.some((node) => !__tmTaskPlacementMatchesDom(node, task))) return false;
 
         const projectedTask = {
             ...task,
@@ -5208,7 +5236,9 @@ return false;
             || __tmIsPluginVisibleNow());
         let filtersApplied = false;
         const filteredProjectionTaskIds = new Set();
-        const renderWindow = visible && completionClosureRequired ? __tmCaptureViewRenderWindow() : null;
+        // Priority/status/structural changes also rebuild the projection. Keep
+        // the loaded window or a deep scroll position is clamped to its end.
+        const renderWindow = visible && projectionRequired ? __tmCaptureViewRenderWindow() : null;
         const scrollHost = visible && completionClosureRequired
             ? state.modal.querySelector(state.viewMode === 'checklist' ? '.tm-checklist-scroll' : '.tm-body')
             : null;
@@ -5300,6 +5330,7 @@ return false;
                             __tmPlacement: true,
                         }, {
                             filtersApplied: true,
+                            structural: batch.structural === true,
                             reason: String(batch.reason || 'change-set-projection').trim() || 'change-set-projection',
                         })) projected = false;
                     });
@@ -5324,6 +5355,7 @@ return false;
                             __tmPlacement: true,
                         }, {
                             filtersApplied: true,
+                            structural: batch.structural === true,
                             reason: String(batch.reason || 'change-set-projection').trim() || 'change-set-projection',
                         })) projected = false;
                     });
@@ -5340,10 +5372,10 @@ return false;
                     || type === 'moveTask'
                 ))) {
                 try {
-                    projected = globalThis.__tmTryReconcileKanbanParentCards?.(
+                    projected = globalThis.__tmTryRefreshKanbanColumns?.(
                         state.modal,
                         taskIds,
-                        { parentTaskIds: batch.affectedGroupIds },
+                        { parentTaskIds: batch.affectedGroupIds, reason: batch.reason },
                     ) === true;
                 } catch (e) {}
             }
@@ -5394,6 +5426,7 @@ return false;
                     __tmScheduleViewRefresh({
                         mode: 'detail',
                         withFilters: false,
+                        detailOnly: true,
                         reason: String(batch.reason || 'change-set-detail').trim() || 'change-set-detail',
                         taskIds,
                         forceRebuild: !detailSubtasksProjected,
@@ -8184,22 +8217,41 @@ return false;
                 let touched = false;
                 const row = state.modal.querySelector(`#tmTimelineLeftTable tbody tr[data-id="${CSS.escape(tid)}"]`);
                 if (row instanceof HTMLElement) {
+                    if (Object.prototype.hasOwnProperty.call(patch, 'customFieldValues')) {
+                        touched = !!__tmUpdateTaskCustomFieldsInDOM(row, task, patch) || touched;
+                    }
                     if (Object.prototype.hasOwnProperty.call(patch, 'content')) {
                         touched = !!__tmUpdateTaskContentInDOM(row, task) || touched;
                     }
                     if (Object.prototype.hasOwnProperty.call(patch, 'done')
                         || Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
                         touched = !!__tmUpdateTaskDoneInDOM(row, task) || touched;
+                        touched = !!__tmUpdateTaskStatusTagInDOM(row, task) || touched;
                     }
                     if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
-                        touched = !!__tmUpdateTaskCheckboxPriorityInDOM(row, task) || touched;
+                        touched = !!__tmUpdateTaskPriorityInDOM(row, task) || touched;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'pinned')) touched = !!__tmUpdateTaskPinnedInDOM(row, task) || touched;
+                    if (Object.prototype.hasOwnProperty.call(patch, 'remark')) touched = !!__tmUpdateTaskRemarkInDOM(row, task) || touched;
+                    if (Object.prototype.hasOwnProperty.call(patch, 'attachments')) touched = !!__tmUpdateTaskAttachmentsInDOM(row, task) || touched;
+                    if (Object.prototype.hasOwnProperty.call(patch, 'startDate')
+                        || Object.prototype.hasOwnProperty.call(patch, 'completionTime')
+                        || Object.prototype.hasOwnProperty.call(patch, 'taskCompleteAt')
+                        || Object.prototype.hasOwnProperty.call(patch, 'duration')
+                        || Object.prototype.hasOwnProperty.call(patch, 'tomatoEstimateCount')
+                        || Object.prototype.hasOwnProperty.call(patch, 'tomatoCount')
+                        || Object.prototype.hasOwnProperty.call(patch, 'tomatoMinutes')
+                        || Object.prototype.hasOwnProperty.call(patch, 'tomatoHours')
+                        || Object.prototype.hasOwnProperty.call(patch, 'customTime')
+                        || Object.prototype.hasOwnProperty.call(patch, 'done')) {
+                        touched = !!__tmUpdateListTaskTimeInDOM(tid, row, task) || touched;
                     }
                     if (Object.prototype.hasOwnProperty.call(patch, 'startDate')
                         || Object.prototype.hasOwnProperty.call(patch, 'completionTime')
                         || Object.prototype.hasOwnProperty.call(patch, 'milestone')) {
                         touched = !!__tmUpdateTimelineTaskInDOM(tid) || touched;
                     }
-                    if (__tmDoesPatchAffectPriorityScore(patch)) touched = !!__tmApplyTaskTitleOpacityInContainer(row, task) || touched;
+                    if (__tmDoesPatchAffectPriorityScore(patch)) touched = !!__tmUpdateTaskScoreInDOM(row, task) || touched;
                 }
                 return touched;
             },
@@ -9758,7 +9810,7 @@ return false;
 
         try {
             const focusable = editor.querySelector('input,select,button,textarea');
-            if (!quickAddInput) {
+            if (!quickAddInput && opts.autoFocus !== false) {
                 focusable?.focus?.();
                 focusable?.select?.();
             }

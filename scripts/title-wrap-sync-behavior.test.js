@@ -99,3 +99,43 @@ test('timer fallback keeps the same bounds without animation-frame support', () 
     assert.equal(h.batches.flat().length, 200);
     assert.ok(h.batches.every((batch) => batch.length <= 48));
 });
+
+function wrapMemoryHarness() {
+    const context = vm.createContext({});
+    const from = source.indexOf('    const __tmTaskTitleWrapCache =');
+    assert.ok(from >= 0 && from < start);
+    vm.runInContext(source.slice(from, start), context);
+    const presentation = (surface, id, html) => context.__tmGetTaskTitleWrapPresentation(surface, id, html);
+    const remember = (surface, id, html, wrapped) => {
+        const key = presentation(surface, id, html).key;
+        const owner = { getAttribute: () => id };
+        context.__tmRememberTaskTitleWrap(surface, {
+            closest: () => owner, getAttribute: () => key,
+        }, wrapped);
+    };
+    return { presentation, remember };
+}
+
+test('replacement rows inherit measured wrapping through repeated status and drag renders', () => {
+    const h = wrapMemoryHarness();
+    const title = 'A long task <strong>title</strong> that wraps';
+    for (const surface of ['checklist', 'kanban']) {
+        assert.equal(h.presentation(surface, 'task-1', title).className, '');
+        h.remember(surface, 'task-1', title, true);
+        for (let render = 0; render < 20; render++) {
+            assert.match(h.presentation(surface, 'task-1', title).className, /--title-wrapped$/);
+        }
+        assert.equal(h.presentation(surface, 'task-1', 'Renamed').className, '', 'a different title must be measured');
+        h.remember(surface, 'task-1', title, false);
+        assert.equal(h.presentation(surface, 'task-1', title).className, '', 'a real width change can remove wrapping');
+    }
+});
+
+test('wrap memory is isolated by surface and bounded across document switches', () => {
+    const h = wrapMemoryHarness();
+    h.remember('kanban', 'first', 'Same title', true);
+    assert.equal(h.presentation('checklist', 'first', 'Same title').className, '');
+    for (let i = 0; i < 2048; i++) h.remember('kanban', `task-${i}`, 'Same title', true);
+    assert.equal(h.presentation('kanban', 'first', 'Same title').className, '');
+    assert.match(h.presentation('kanban', 'task-2047', 'Same title').className, /--title-wrapped$/);
+});

@@ -1,7 +1,7 @@
     window.tmUpdateAiEnabled = async function(enabled) {
         SettingsStore.data.aiEnabled = !!enabled;
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
     window.tmUpdateAiConversationFontSize = async function(value) {
         const n = Number(value);
@@ -40,7 +40,7 @@
             showSettings();
             return false;
         }
-        showSettings();
+        if (state.settingsModal) showSettings();
         return true;
     };
     let __tmAgentMcpEntitlementSyncPromise = null;
@@ -409,7 +409,7 @@
     window.tmUpdateAiProvider = async function(value) {
         SettingsStore.data.aiProvider = __tmResolveAiProvider(value);
         await SettingsStore.save();
-        showSettings();
+        if (state.settingsModal) showSettings();
     };
     window.tmUpdateAiApiKey = async function(value) {
         const provider = __tmResolveAiProvider(SettingsStore.data.aiProvider);

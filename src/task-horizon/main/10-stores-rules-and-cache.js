@@ -2655,7 +2655,7 @@
         const groupMode = String(opts.groupMode ?? SettingsStore?.data?.groupMode ?? '').trim();
         const viewMode = String(opts.viewMode ?? state?.viewMode ?? '').trim();
         const activeDocId = String(opts.activeDocId ?? state?.activeDocId ?? 'all').trim() || 'all';
-        const showCompleted = __tmGetShowCompletedTasksFromSettings(SettingsStore?.data) ? 1 : 0;
+        const showCompleted = __tmGetShowCompletedTasksFromSettings(SettingsStore?.data, opts.groupId) ? 1 : 0;
         const completedTodayOnly = SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0;
         const completedInlineInGroups = SettingsStore?.data?.completedTasksInlineInGroups === true ? 1 : 0;
         const resolvedColumnOrder = viewMode === 'timeline'
@@ -2728,24 +2728,53 @@
         };
     }
 
-    function __tmGetShowCompletedTasksFromSettings(data = null) {
+    function __tmNormalizeShowCompletedTasksByGroup(input) {
+        const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+        const result = {};
+        Object.keys(source).sort().forEach((key) => {
+            const groupId = String(key || '').trim();
+            if (groupId && typeof source[key] === 'boolean') result[groupId] = source[key];
+        });
+        return result;
+    }
+
+    function __tmGetShowCompletedTasksFromSettings(data = null, groupId = null) {
         const src = (data && typeof data === 'object') ? data : SettingsStore?.data;
+        const gid = String(groupId ?? src?.currentGroupId ?? 'all').trim() || 'all';
+        const byGroup = src?.showCompletedTasksByGroup;
+        if (byGroup && Object.prototype.hasOwnProperty.call(byGroup, gid) && typeof byGroup[gid] === 'boolean') return byGroup[gid];
         if (src && typeof src.showCompletedTasks === 'boolean') return !!src.showCompletedTasks;
         return !(src && src.excludeCompletedTasks === true);
     }
 
-    function __tmSetShowCompletedTasksInSettings(show, data = null) {
+    function __tmSetShowCompletedTasksInSettings(show, data = null, groupId = null) {
         const target = (data && typeof data === 'object') ? data : SettingsStore?.data;
         if (!target || typeof target !== 'object') return false;
-        target.showCompletedTasks = !!show;
-        target.excludeCompletedTasks = !target.showCompletedTasks;
+        const gid = String(groupId ?? target.currentGroupId ?? 'all').trim() || 'all';
+        target.showCompletedTasksByGroup = {
+            ...__tmNormalizeShowCompletedTasksByGroup(target.showCompletedTasksByGroup),
+            [gid]: !!show,
+        };
         return true;
     }
 
     function __tmNormalizeCompletedVisibilitySettings(data = null) {
         const target = (data && typeof data === 'object') ? data : SettingsStore?.data;
         if (!target || typeof target !== 'object') return false;
-        return __tmSetShowCompletedTasksInSettings(__tmGetShowCompletedTasksFromSettings(target), target);
+        // Legacy global values remain the fallback; group switches must never rewrite it.
+        target.showCompletedTasks = typeof target.showCompletedTasks === 'boolean'
+            ? target.showCompletedTasks : target.excludeCompletedTasks !== true;
+        target.excludeCompletedTasks = !target.showCompletedTasks;
+        target.showCompletedTasksByGroup = __tmNormalizeShowCompletedTasksByGroup(target.showCompletedTasksByGroup);
+        return true;
+    }
+
+    function __tmApplyCompletedVisibilityToRuntime() {
+        const show = __tmGetShowCompletedTasksFromSettings();
+        const changed = state.showCompletedTasks !== show;
+        state.showCompletedTasks = show;
+        state.excludeCompletedTasks = !show;
+        return changed;
     }
 
     function __tmNormalizeTaskDeleteMode(value) {
@@ -2807,7 +2836,7 @@
             groupByTime: data.groupByTime ? 1 : 0,
             quadrantEnabled: data.quadrantConfig?.enabled ? 1 : 0,
             pinTasksWithinGroups: data.pinTasksWithinGroups ? 1 : 0,
-            showCompleted: __tmGetShowCompletedTasksFromSettings(data) ? 1 : 0,
+            showCompleted: __tmGetShowCompletedTasksFromSettings(data, opts.groupId) ? 1 : 0,
             completedTodayOnly: data.completedTasksTodayOnly ? 1 : 0,
             completedInlineInGroups: data.completedTasksInlineInGroups ? 1 : 0,
             taskStructure: __tmBuildTaskSnapshotViewStructureSignature(opts),
@@ -3695,6 +3724,8 @@
         const out = {
             id,
             root_id: docId,
+            updated: String(source.updated || '').trim(),
+            hash: String(source.hash || '').trim(),
             parent_id: String(source.parent_id || '').trim(),
             parentTaskId,
             blockSort: String(source.blockSort || source.block_sort || source.sort || '').trim(),
@@ -3804,6 +3835,8 @@
             id,
             root_id: docId,
             docId,
+            updated: String(item.updated || '').trim(),
+            hash: String(item.hash || '').trim(),
             parent_id: String(item.parent_id || '').trim(),
             parentTaskId: String(item.parentTaskId || item.parent_task_id || '').trim(),
             block_sort: String(item.blockSort || item.block_sort || '').trim(),
@@ -4655,6 +4688,7 @@
         'selectedDocIds',
         'defaultDocId',
         'defaultDocIdByGroup',
+        'showCompletedTasksByGroup',
         'allDocsExcludedDocIds',
         'docGroups',
         'docTabCustomGroups',
@@ -8827,6 +8861,7 @@
             // 默认显示已完成任务（仅视图过滤，任务仍会进入索引）
             excludeCompletedTasks: false,
             showCompletedTasks: true,
+            showCompletedTasksByGroup: {},
             completedTasksTodayOnly: false,
             completedTasksInlineInGroups: false,
             // 开始日期（新增列）
@@ -9481,6 +9516,7 @@
                                 if (typeof cloudData.checklistDetailWidth === 'number') this.data.checklistDetailWidth = cloudData.checklistDetailWidth;
                                 if (shouldApplyCloudDocGroupState && typeof cloudData.defaultDocId === 'string') this.data.defaultDocId = cloudData.defaultDocId;
                                 if (shouldApplyCloudDocGroupState && cloudData.defaultDocIdByGroup && typeof cloudData.defaultDocIdByGroup === 'object') this.data.defaultDocIdByGroup = cloudData.defaultDocIdByGroup;
+                                if (shouldApplyCloudDocGroupState && cloudData.showCompletedTasksByGroup && typeof cloudData.showCompletedTasksByGroup === 'object') this.data.showCompletedTasksByGroup = __tmNormalizeShowCompletedTasksByGroup(cloudData.showCompletedTasksByGroup);
                                 if (shouldApplyCloudDocGroupState && cloudData.docDefaultTaskHeadingByDocId && typeof cloudData.docDefaultTaskHeadingByDocId === 'object') this.data.docDefaultTaskHeadingByDocId = cloudData.docDefaultTaskHeadingByDocId;
                                 if (typeof cloudData.taskDeleteMode === 'string') this.data.taskDeleteMode = __tmNormalizeTaskDeleteMode(cloudData.taskDeleteMode);
                                 if (typeof cloudData.taskRecycleDocId === 'string') this.data.taskRecycleDocId = cloudData.taskRecycleDocId;
@@ -10084,7 +10120,9 @@
             }
             this.data.excludeCompletedTasks = Storage.get('tm_exclude_completed_tasks', this.data.excludeCompletedTasks);
             if (!hasStoredShowCompletedTasks) this.data.showCompletedTasks = !this.data.excludeCompletedTasks;
+            this.data.showCompletedTasksByGroup = Storage.get('tm_show_completed_tasks_by_group', this.data.showCompletedTasksByGroup);
             __tmNormalizeCompletedVisibilitySettings(this.data);
+            __tmApplyCompletedVisibilityToRuntime();
             this.data.startDate = Storage.get('tm_start_date', this.data.startDate);
             this.data.timelineLeftWidth = Storage.get('tm_timeline_left_width', this.data.timelineLeftWidth);
             this.data.timelineSidebarCollapsed = !!Storage.get('tm_timeline_sidebar_collapsed', this.data.timelineSidebarCollapsed);
@@ -10642,6 +10680,7 @@
             __tmNormalizeCompletedVisibilitySettings(this.data);
             Storage.set('tm_show_completed_tasks', !!this.data.showCompletedTasks);
             Storage.set('tm_exclude_completed_tasks', !!this.data.excludeCompletedTasks);
+            Storage.set('tm_show_completed_tasks_by_group', this.data.showCompletedTasksByGroup);
             Storage.set('tm_start_date', Number(this.data.startDate) || 90);
             Storage.set('tm_timeline_left_width', this.data.timelineLeftWidth);
             Storage.set('tm_timeline_sidebar_collapsed', !!this.data.timelineSidebarCollapsed);
@@ -11408,6 +11447,7 @@
                 this.data.whiteboardAllTabsDocOrderByGroup = cleanMap(this.data.whiteboardAllTabsDocOrderByGroup);
                 this.data.docTabsManualArchivedByGroup = cleanMap(this.data.docTabsManualArchivedByGroup);
                 this.data.docTabsManualUnarchivedByGroup = cleanMap(this.data.docTabsManualUnarchivedByGroup);
+                this.data.showCompletedTasksByGroup = cleanMap(this.data.showCompletedTasksByGroup);
                 try { globalThis.__tmGlobalWhiteboardTaskSource?.forgetGroups?.(removedIds); } catch (e) {}
                 const removedIdSet = new Set(removedIds);
                 this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(this.data.docTabCustomGroups)
@@ -11427,6 +11467,7 @@
         // 便捷方法：更新当前分组ID
         async updateCurrentGroupId(groupId) {
             this.data.currentGroupId = groupId;
+            __tmApplyCompletedVisibilityToRuntime();
             await this.save();
         },
 
@@ -14758,20 +14799,58 @@
         return migrated;
     }
 
-    function __tmRunSqlQueued(fn) {
-        const run = () => Promise.resolve().then(fn);
+    // SQL, block content and attributes share one read budget. Writes bypass
+    // this budget instead of waiting behind a document scan.
+    function __tmRunReadQueued(fn) {
         return new Promise((resolve, reject) => {
+            let waitTimer = null;
             const start = () => {
+                if (waitTimer !== null) clearTimeout(waitTimer);
                 __tmSqlQueue.active += 1;
-                run().then(resolve, reject).finally(() => {
+                Promise.resolve().then(fn).then(resolve, reject).finally(() => {
                     __tmSqlQueue.active = Math.max(0, (__tmSqlQueue.active || 0) - 1);
                     const next = __tmSqlQueue.q.shift();
                     if (typeof next === 'function') next();
                 });
             };
             if ((__tmSqlQueue.active || 0) < (__tmSqlQueue.max || 1)) start();
-            else __tmSqlQueue.q.push(start);
+            else if (__tmSqlQueue.q.length >= 128) {
+                reject(Object.assign(new Error('Task read queue is full'), { code: 'TM_READ_OVERLOAD' }));
+            } else {
+                __tmSqlQueue.q.push(start);
+                waitTimer = setTimeout(() => {
+                    const index = __tmSqlQueue.q.indexOf(start);
+                    if (index < 0) return;
+                    __tmSqlQueue.q.splice(index, 1);
+                    reject(Object.assign(new Error('Task read queue timed out'), { code: 'TM_READ_TIMEOUT' }));
+                }, 30000);
+            }
         });
+    }
+
+    function __tmRunSqlQueued(fn) {
+        return __tmRunReadQueued(fn);
+    }
+
+    async function __tmMapReadLimited(items, read, concurrency = 3, isCurrent = () => true) {
+        const source = Array.isArray(items) ? items : [];
+        const results = new Array(source.length);
+        const workerCount = Math.min(source.length, Math.max(1, Math.min(3, Number(concurrency) || 3)));
+        let nextIndex = 0;
+        let stopped = false;
+        const worker = async () => {
+            while (!stopped && isCurrent() && nextIndex < source.length) {
+                const index = nextIndex++;
+                try {
+                    results[index] = await read(source[index], index);
+                } catch (error) {
+                    stopped = true;
+                    throw error;
+                }
+            }
+        };
+        await Promise.all(Array.from({ length: workerCount }, worker));
+        return results;
     }
 
     function __tmInvalidateTasksQueryCacheByDocId(docId) {
@@ -16785,6 +16864,18 @@
             if (!authoritative) return null;
             if (visited.has(taskId)) return authoritative;
             visited.add(taskId);
+            // SQL can still describe the pre-move placement. The resolved tree
+            // already includes pending structural protection; promote its
+            // placement too, otherwise getProjected() restores the old parent.
+            // Keep server field values for the normal field-confirmation path.
+            [
+                'root_id', 'docId', 'parent_id', 'parentId', 'parentListId',
+                'parentTaskId', 'parent_task_id', 'parent_list_parent_id', 'parentListParentId',
+                'previousSiblingId', 'previous_sibling_id', 'nextSiblingId', 'next_sibling_id',
+                'level', 'doc_seq', 'resolvedFlowRank', 'resolved_flow_rank', '__tmResolvedFlowRank',
+            ].forEach((key) => {
+                if (Object.prototype.hasOwnProperty.call(task, key)) authoritative[key] = task[key];
+            });
             authoritative.children = (Array.isArray(task?.children) ? task.children : [])
                 .map(attach)
                 .filter(Boolean);
@@ -17110,10 +17201,15 @@
     async function __tmRefreshAffectedTaskBlocksIncrementally(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const commitView = opts.commitView !== false && opts.refreshView !== false;
+        const deferRead = (reason) => {
+            try { opts.onDeferred?.(reason); } catch (e) {}
+            return false;
+        };
         const isCurrent = typeof opts.isCurrent === 'function' ? opts.isCurrent : null;
         const guardCurrent = () => {
             if (!isCurrent) return true;
-            try { return isCurrent() !== false; } catch (e) { return false; }
+            try { if (isCurrent() !== false) return true; } catch (e) {}
+            return deferRead('structural-revision-changed');
         };
         const cfg = __tmGetPerfTuningOptions();
         if (!cfg.taskBlockIncrementalRefresh) return false;
@@ -17152,7 +17248,8 @@
         ].map((id) => String(id || '').trim()).filter(Boolean)));
         const taskStoreReadToken = globalThis.__tmTaskStore?.captureRead?.(readDocIds) || null;
         const taskStoreReadCurrent = () => !taskStoreReadToken
-            || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true;
+            || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true
+            || deferRead('task-store-changed');
         const patches = [];
         const rule0 = state.currentRule ? state.filterRules.find((rule) => rule.id === state.currentRule) : null;
         const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
@@ -17412,10 +17509,15 @@
     async function __tmRefreshAffectedDocsIncrementally(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const commitView = opts.commitView !== false && opts.refreshView !== false;
+        const deferRead = (reason) => {
+            try { opts.onDeferred?.(reason); } catch (e) {}
+            return false;
+        };
         const isCurrent = typeof opts.isCurrent === 'function' ? opts.isCurrent : null;
         const guardCurrent = () => {
             if (!isCurrent) return true;
-            try { return isCurrent() !== false; } catch (e) { return false; }
+            try { if (isCurrent() !== false) return true; } catch (e) {}
+            return deferRead('structural-revision-changed');
         };
         const targets = {
             docIds: Array.isArray(opts.docIds) ? opts.docIds.slice() : [],
@@ -17445,11 +17547,16 @@
         let forcePositionRank = opts.forcePositionRank === true
             || (opts.forceDocRefresh === true && opts.preserveExistingSiblingOrder !== true);
         if (!forcePositionRank && opts.forceDocRefresh !== true) {
+            let taskBlockDeferred = false;
             try {
                 const taskBlockOk = await __tmRefreshAffectedTaskBlocksIncrementally({
                     ...opts,
                     // The outer refresh already crossed the SQL visibility barrier.
                     skipFlush: true,
+                    onDeferred: (reason) => {
+                        taskBlockDeferred = true;
+                        deferRead(reason);
+                    },
                 });
                 if (!guardCurrent()) return false;
                 if (taskBlockOk) {
@@ -17457,6 +17564,7 @@
                     return true;
                 }
             } catch (e) {}
+            if (taskBlockDeferred) return false;
         }
         const docIds = await __tmResolveIncrementalRefreshDocIds(targets.docIds, targets.blockIds, {
             allowUnloadedDocIds: opts.allowUnloadedDocIds === true,
@@ -17473,7 +17581,8 @@
             : [];
         const taskStoreReadToken = globalThis.__tmTaskStore?.captureRead?.(docIds) || null;
         const taskStoreReadCurrent = () => !taskStoreReadToken
-            || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true;
+            || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true
+            || deferRead('task-store-changed');
         docIds.forEach((docId) => {
             try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
         });
@@ -17515,6 +17624,7 @@
             customFieldIds: bulkCustomFieldIds0,
         });
         let res = await queryTasks();
+        if (!guardCurrent() || !taskStoreReadCurrent()) return false;
         let limitReachedDocIds = (Array.isArray(res?.limitReachedDocIds) ? res.limitReachedDocIds : [])
             .map((id) => String(id || '').trim())
             .filter(Boolean);
@@ -17542,6 +17652,7 @@
         ));
         if (missingInsertedTaskIds.length > 0) {
             await new Promise((resolve) => setTimeout(resolve, 120));
+            if (!guardCurrent() || !taskStoreReadCurrent()) return false;
             try { await __tmFlushSqlTransactionsSafe('doc-incremental-refresh-retry'); } catch (e) {}
             docIds.forEach((docId) => {
                 try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
@@ -17578,7 +17689,7 @@
             }
         }
         if (missingInsertedTaskIds.length > 0) {
-            return false;
+            return deferRead('insert-index-not-visible');
         }
         const authoritativeTasksById = new Map();
         const liveDocumentContentPatches = new Map();
@@ -17774,6 +17885,8 @@
                 alias: __tmNormalizeDocAliasValue(cachedDoc?.alias || existingDoc?.alias),
                 icon: __tmNormalizeDocIconValue(cachedDoc?.icon || existingDoc?.icon),
                 created: String(cachedDoc?.created || existingDoc?.created || '').trim(),
+                updated: String(opts.docFreshnessMap?.get(docId)?.docUpdated || cachedDoc?.updated || existingDoc?.updated || '').trim(),
+                docUpdated: String(opts.docFreshnessMap?.get(docId)?.docUpdated || cachedDoc?.updated || existingDoc?.docUpdated || '').trim(),
                 tasks: rootTasks,
             };
             const shouldKeepDoc = rawTasks.length > 0 || !!existingDoc || (quickAddDocId && quickAddDocId === docId);
@@ -17825,7 +17938,7 @@
         state.stats.queryTime = Number(res?.queryTime) || 0;
         recalcStats();
         try {
-            __tmSchedulePersistTaskIndex({
+            if (opts.persistCaches !== false) __tmSchedulePersistTaskIndex({
                 docIds,
                 queryLimit,
                 delayMs: 300,
@@ -17835,7 +17948,7 @@
         restoreRenderWindow();
         try {
             const loadedDocIds = __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []);
-            if (loadedDocIds.some((docId) => docIds.includes(docId))) {
+            if (opts.persistCaches !== false && loadedDocIds.some((docId) => docIds.includes(docId))) {
                 __tmSchedulePersistTaskSnapshot({
                     docIds: loadedDocIds,
                     changedDocIds: docIds,
@@ -17887,22 +18000,33 @@
         return true;
     }
 
+    let __tmSqlTransactionFlushInFlight = null;
+
     async function __tmFlushSqlTransactionsSafe(reason = '') {
-        try {
-            const adapter = globalThis.__tmTaskHorizonBackendAdapter;
-            const res = adapter && typeof adapter.flushTransaction === 'function'
-                ? await adapter.flushTransaction()
-                : await API.call('/api/sqlite/flushTransaction', {});
-            if (res && res.code !== 0) {
-                try { console.warn('[task-horizon] flushTransaction failed', reason || 'unknown', res?.msg || res); } catch (e) {}
+        if (__tmSqlTransactionFlushInFlight) return await __tmSqlTransactionFlushInFlight;
+        const request = (async () => {
+            try {
+                const adapter = globalThis.__tmTaskHorizonBackendAdapter;
+                const res = adapter && typeof adapter.flushTransaction === 'function'
+                    ? await adapter.flushTransaction()
+                    : await API.call('/api/sqlite/flushTransaction', {});
+                if (res && res.code !== 0) {
+                    try { console.warn('[task-horizon] flushTransaction failed', reason || 'unknown', res?.msg || res); } catch (e) {}
+                    return false;
+                }
+                // Give the attributes query a brief moment to observe the flushed rows.
+                await new Promise((resolve) => setTimeout(resolve, 40));
+                return true;
+            } catch (e) {
+                try { console.warn('[task-horizon] flushTransaction error', reason || 'unknown', e); } catch (err) {}
                 return false;
             }
-            // Give the attributes query a brief moment to observe the flushed rows.
-            await new Promise((resolve) => setTimeout(resolve, 40));
-            return true;
-        } catch (e) {
-            try { console.warn('[task-horizon] flushTransaction error', reason || 'unknown', e); } catch (err) {}
-            return false;
+        })();
+        __tmSqlTransactionFlushInFlight = request;
+        try {
+            return await request;
+        } finally {
+            if (__tmSqlTransactionFlushInFlight === request) __tmSqlTransactionFlushInFlight = null;
         }
     }
 

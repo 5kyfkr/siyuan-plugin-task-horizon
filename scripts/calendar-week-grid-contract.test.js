@@ -44,7 +44,7 @@ assert.match(calendar, /return resolveMainCalendarHostView\(sessionView, 'timeGr
 assert.match(calendar, /if \(viewType === 'dayGridWeek'\) \{\s*const grid = target\.closest\('\.tm-proto-week-grid'\)/, 'week grid must accept horizontal swipe gestures');
 assert.match(calendar, /viewType !== 'dayGridMonth' && viewType !== 'dayGridWeek' && !isTimeGridViewType\(viewType\)/, 'week grid must start the mobile swipe gesture');
 assert.match(calendar, /const type = String\(options\.viewType \|\| getCalendarView\(activeCalendar\)\?\.type \|\| ''\)\.trim\(\);\s*if \(!activeCalendar \|\| \(type !== 'dayGridWeek' && !isTimeGridViewType\(type\)\)\) return false;/, 'week grid paging must be allowed in the mobile timeline navigator');
-assert.match(calendar, /if \(type === 'timeGridWeek' \|\| type === 'dayGridWeek' \|\| type === 'timeGridWorkdays'\) return 7;/, 'week grid paging must step seven days');
+assert.match(calendar, /if \(isSlidingWeekViewType\(type\) \|\| type === 'timeGridWorkdays'\) return 7;/, 'week grid paging must step a full week');
 assert.match(calendar, /prototypeMobileMonthSwipeDirection = direction;[\s\S]*?setAttribute\('data-tm-timeline-swipe', direction < 0 \? 'previous' : 'next'\)/, 'week grid paging must reuse the timeline slide cue');
 assert.match(styles, /\.tm-proto-week-grid-cells\{[\s\S]*?grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
 assert.match(styles, /\.tm-proto-week-completion-track/);

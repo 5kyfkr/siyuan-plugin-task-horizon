@@ -2498,6 +2498,7 @@
         try {
             const nextGroupId = String(groupId || 'all').trim() || 'all';
             SettingsStore.data.currentGroupId = nextGroupId;
+            __tmApplyCompletedVisibilityToRuntime();
             try { SettingsStore.syncToLocal(); } catch (e) {}
             savePromise = SettingsStore.save().catch(() => null);
             state.activeDocId = 'all';
@@ -2533,6 +2534,7 @@
         } catch (e) {
             try { await savePromise; } catch (e2) {}
             SettingsStore.data.currentGroupId = previousGroupId;
+            __tmApplyCompletedVisibilityToRuntime();
             try { SettingsStore.syncToLocal(); } catch (e2) {}
             try { await SettingsStore.save(); } catch (e2) {}
             try { showSettings(); } catch (e2) {}

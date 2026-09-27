@@ -660,17 +660,11 @@
         return list;
     }
 
-    async function __tmResolveTaskSiblingOrderRanks(tasksByDoc) {
+    async function __tmResolveTaskSiblingOrderRanks(tasksByDoc, options = {}) {
         const source = tasksByDoc instanceof Map ? tasksByDoc : new Map();
         const rankMap = new Map();
-        const directListIds = new Set();
-        const parentTaskIds = new Set();
-        const listDocIdMap = new Map();
-        const parentTaskDocIdMap = new Map();
-        let preferDomDirectListCount = 0;
-        let preferDomParentTaskCount = 0;
-        let refreshedDirectListCount = 0;
-        let refreshedParentTaskCount = 0;
+        const tasksToOrderByDoc = new Map();
+        const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : () => true;
 
         const applyRanks = (taskIds, kind = 'local', options = {}) => {
             const rankKey = kind === 'parent' ? 'parentRank' : 'localRank';
@@ -687,28 +681,28 @@
             });
         };
 
-        source.forEach((rawTasks) => {
+        source.forEach((rawTasks, sourceDocId) => {
             const localCounters = new Map();
             const parentCounters = new Map();
             (Array.isArray(rawTasks) ? rawTasks : []).forEach((task) => {
                 if (!task || __tmIsRecurringInstanceTask(task)) return;
                 const taskId = String(task?.id || '').trim();
                 if (!taskId) return;
-                const docId = String(task?.root_id || task?.docId || '').trim();
+                const docId = String(task?.root_id || task?.docId || sourceDocId || '').trim();
                 const parentId = String(task?.parent_id || task?.parentId || '').trim();
                 const parentTaskId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+                if (docId && (parentId || parentTaskId)) {
+                    if (!tasksToOrderByDoc.has(docId)) tasksToOrderByDoc.set(docId, []);
+                    tasksToOrderByDoc.get(docId).push(task);
+                }
                 const prev = __tmGetTaskSiblingRankEntry(rankMap, taskId) || {};
                 const next = { ...prev };
                 if (parentId) {
-                    directListIds.add(parentId);
-                    if (docId && !listDocIdMap.has(parentId)) listDocIdMap.set(parentId, docId);
                     const localRank = Number(localCounters.get(parentId) || 0);
                     if (!Number.isFinite(Number(next.localRank))) next.localRank = localRank;
                     localCounters.set(parentId, localRank + 1);
                 }
                 if (parentTaskId) {
-                    parentTaskIds.add(parentTaskId);
-                    if (docId && !parentTaskDocIdMap.has(parentTaskId)) parentTaskDocIdMap.set(parentTaskId, docId);
                     const parentRank = Number(parentCounters.get(parentTaskId) || 0);
                     if (!Number.isFinite(Number(next.parentRank))) next.parentRank = parentRank;
                     parentCounters.set(parentTaskId, parentRank + 1);
@@ -717,35 +711,43 @@
             });
         });
 
-        await Promise.all(Array.from(parentTaskIds).map(async (parentTaskId) => {
-            const pid = String(parentTaskId || '').trim();
-            if (!pid) return;
-            const preferDom = !__tmShouldUseResolvedFlowRankForDoc(parentTaskDocIdMap.get(pid));
-            if (!preferDom) return;
-            preferDomParentTaskCount += 1;
-            try {
-                const taskIds = await API.getDirectChildTaskIdsOfTask(pid, { preferDom: true });
-                if (Array.isArray(taskIds) && taskIds.length > 0) {
-                    applyRanks(taskIds, 'parent', { force: true });
-                    refreshedParentTaskCount += 1;
-                }
-            } catch (e) {}
-        }));
-
-        await Promise.all(Array.from(directListIds).map(async (parentId) => {
-            const listId = String(parentId || '').trim();
-            if (!listId) return;
-            const preferDom = !__tmShouldUseResolvedFlowRankForDoc(listDocIdMap.get(listId));
-            if (!preferDom) return;
-            preferDomDirectListCount += 1;
-            try {
-                const taskIds = await API.getTaskIdsInList(listId, { preferDom: true });
-                if (Array.isArray(taskIds) && taskIds.length > 0) {
-                    applyRanks(taskIds, 'local', { force: true });
-                    refreshedDirectListCount += 1;
-                }
-            } catch (e) {}
-        }));
+        // One DOM snapshot gives the order of every list and parent in a
+        // document. Never issue one DOM/SQL request per list or parent task.
+        await __tmMapReadLimited(Array.from(tasksToOrderByDoc), async ([docId, tasks]) => {
+            if (__tmShouldUseResolvedFlowRankForDoc(docId)) return;
+            const localGroups = new Map();
+            const parentGroups = new Map();
+            tasks.forEach((task) => {
+                const listId = String(task.parent_id || task.parentId || '').trim();
+                const parentId = String(task.parentTaskId || task.parent_task_id || '').trim();
+                [[localGroups, listId], [parentGroups, parentId]].forEach(([groups, id]) => {
+                    if (!id) return;
+                    if (!groups.has(id)) groups.set(id, []);
+                    groups.get(id).push(task);
+                });
+            });
+            const groupsToOrder = [...localGroups.values(), ...parentGroups.values()].filter((group) => group.length > 1);
+            if (groupsToOrder.length === 0) return;
+            let flowRanks = options.flowRankMap instanceof Map ? options.flowRankMap : new Map();
+            const hasRank = (task) => flowRanks.has(String(task.id)) && Number.isFinite(Number(flowRanks.get(String(task.id))));
+            if (!groupsToOrder.every((group) => group.every(hasRank))) {
+                const snapshot = await API.getDocEnhanceSnapshot(docId, 'h2', {
+                    needH2: false, needFlow: true, forceFresh: true,
+                });
+                flowRanks = snapshot?.flowRankMap instanceof Map ? snapshot.flowRankMap : new Map();
+            }
+            if (!isCurrent() || flowRanks.size === 0) return;
+            const applyGroup = (group, kind) => {
+                // Keep the existing whole-group order if the document changed
+                // during this read; mixing partial ranks can scramble siblings.
+                if (!group.every(hasRank)) return;
+                group.sort((a, b) => Number(flowRanks.get(String(a.id))) - Number(flowRanks.get(String(b.id))));
+                applyRanks(group.map((task) => task.id), kind, { force: true });
+            };
+            localGroups.forEach((group) => applyGroup(group, 'local'));
+            parentGroups.forEach((group) => applyGroup(group, 'parent'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }, 3, isCurrent);
 
         return rankMap;
     }
@@ -1953,6 +1955,12 @@
         const nextTask = (task && typeof task === 'object') ? task : null;
         if (!nextTask) return;
         const taskId = String(nextTask.id || nextTask.blockId || '').trim();
+        // Moving a task invalidates the SQL join of its former parent list too.
+        // Keep optimistic refreshes consistent before the kernel receipt lands.
+        const parentTaskId = String(nextTask.parentTaskId ?? nextTask.parent_task_id ?? '').trim();
+        nextTask.parent_list_parent_id = parentTaskId;
+        nextTask.parentListParentId = parentTaskId;
+        nextTask.parentListId = String(nextTask.parent_id || nextTask.parentId || '').trim();
         try { delete nextTask.__tmTaskAttrContext; } catch (e) {}
         try { delete nextTask.__tmPreferSelfAttrHostValues; } catch (e) {}
         try { delete nextTask.__tmPreferSelfAttrHostId; } catch (e) {}
@@ -3577,14 +3585,15 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             qa.customFieldValues = __tmNormalizeQuickAddCustomFieldValues(qa.customFieldValues);
             window.tmQuickAddRenderMeta?.();
         };
-        __tmOpenInlineEditor(btn, ({ editor, close }) => {
+        __tmOpenInlineEditor(btn, ({ editor, close, onCleanup }) => {
             try { editor.classList.add('tm-custom-field-inline-editor'); } catch (e) {}
             editor.style.zIndex = '100020';
             editor.style.minWidth = '0';
-            editor.style.width = 'auto';
+            editor.style.width = '260px';
             editor.style.maxWidth = `${Math.max(180, Math.min(300, (window.innerWidth || 320) - 24))}px`;
             editor.style.padding = '6px';
             const wrap = document.createElement('div');
+            wrap.className = 'tm-custom-field-inline-wrap';
             wrap.style.display = 'flex';
             wrap.style.flexDirection = 'column';
             wrap.style.gap = '4px';
@@ -3594,15 +3603,19 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             title.textContent = String(field?.name || fid || '自定义列').trim() || '自定义列';
             wrap.appendChild(title);
             const list = document.createElement('div');
+            list.className = 'tm-custom-field-inline-list';
             list.style.display = 'flex';
             list.style.flexDirection = 'column';
             list.style.gap = '3px';
             list.style.width = '100%';
             wrap.appendChild(list);
+            const runtime = __tmBuildCustomFieldOptionRuntime(field);
             const renderOptions = () => {
                 __tmRenderCustomFieldOptionTreePicker(list, field, draft, {
                     expandedIds,
-                    onToggle: (optionId) => {
+                    runtime,
+                    search,
+                    onToggle: (optionId, { historical }) => {
                         if (isMulti) {
                             if (draft.has(optionId)) draft.delete(optionId);
                             else draft.add(optionId);
@@ -3611,12 +3624,14 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                             return;
                         }
                         draft.clear();
-                        draft.add(optionId);
+                        if (!historical) draft.add(optionId);
                         syncQuickAddValue();
                         close();
                     },
                 });
             };
+            const search = __tmCreateCustomFieldOptionSearch(list, renderOptions);
+            wrap.insertBefore(search.element, list);
             renderOptions();
             const actions = document.createElement('div');
             actions.style.cssText = 'display:flex;gap:4px;justify-content:flex-end;padding-top:2px;';
@@ -3643,7 +3658,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             }
             wrap.appendChild(actions);
             editor.appendChild(wrap);
-        });
+            onCleanup(__tmBindCustomFieldPickerViewport(editor, btn));
+        }, { autoFocus: !__tmIsMobileDevice() });
     };
 
     function __tmRefreshQuickAddInputLayout(modal) {

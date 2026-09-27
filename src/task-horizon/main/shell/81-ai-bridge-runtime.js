@@ -1520,6 +1520,12 @@
     }
 
     __tmNs.quickbarBridge = {
+        createCustomFieldOptionSearch(list, onChange) {
+            return __tmCreateCustomFieldOptionSearch(list, onChange);
+        },
+        bindCustomFieldPickerViewport(panel, anchor) {
+            return __tmBindCustomFieldPickerViewport(panel, anchor, true);
+        },
         async getTaskCustomPropsByAnyId(taskIdOrBlockId, options = {}) {
             return await __tmGetQuickbarTaskCustomPropsByAnyId(taskIdOrBlockId, options);
         },

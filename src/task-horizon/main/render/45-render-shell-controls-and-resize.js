@@ -469,18 +469,18 @@
     };
 
     window.tmToggleShowCompletedTasks = async function(enabled) {
-        const next = (typeof enabled === 'boolean') ? enabled : !state.showCompletedTasks;
-        try { __tmSetShowCompletedTasksInSettings(!!next, SettingsStore.data); } catch (e) {
-            SettingsStore.data.showCompletedTasks = !!next;
-            SettingsStore.data.excludeCompletedTasks = !SettingsStore.data.showCompletedTasks;
-        }
-        state.showCompletedTasks = !!SettingsStore.data.showCompletedTasks;
-        state.excludeCompletedTasks = !state.showCompletedTasks;
+        const groupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const next = (typeof enabled === 'boolean') ? enabled : !__tmGetShowCompletedTasksFromSettings();
+        __tmSetShowCompletedTasksInSettings(next, SettingsStore.data, groupId);
+        __tmApplyCompletedVisibilityToRuntime();
         try { await SettingsStore.save(); } catch (e) {}
+        if (groupId !== (String(SettingsStore.data.currentGroupId || 'all').trim() || 'all')) return;
+        __tmApplyCompletedVisibilityToRuntime();
         try { __tmRecomputeTaskProjection({ reason: 'show-completed-toggle' }); } catch (e) {}
         if (state.modal && document.body.contains(state.modal)) {
             try { if (!__tmRerenderCurrentViewInPlace(state.modal)) render(); } catch (e) { try { render(); } catch (e2) {} }
         }
+        if (state.settingsModal) showSettings();
     };
 
     window.tmToggleCompletedTasksInlineInGroups = async function(enabled) {

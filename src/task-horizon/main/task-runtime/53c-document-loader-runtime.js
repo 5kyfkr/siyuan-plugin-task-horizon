@@ -593,6 +593,7 @@
 
     // 加载所有选中文档的任务（带递归支持）
     async function loadSelectedDocuments(options = {}) {
+        __tmApplyCompletedVisibilityToRuntime();
         const runtimeState = globalThis.__tmRuntimeState;
         const token = runtimeState?.getOpenToken?.() ?? (Number(state.openToken) || 0);
         const isTokenCurrent = () => runtimeState?.isCurrentOpenToken?.(token) ?? (token === (Number(state.openToken) || 0));
@@ -922,6 +923,7 @@
             try {
                 __tmSetInlineLoading(true, {
                     token,
+                    reason: `load-documents:${sourceLabel}`,
                     styleKind: options?.loadingStyleKind,
                     delayMs: Number(options?.loadingDelayMs),
                 });
@@ -1028,8 +1030,7 @@
         state.currentRule = SettingsStore.data.currentRule;
         state.columnWidths = SettingsStore.data.columnWidths;
         try { __tmNormalizeCompletedVisibilitySettings(SettingsStore.data); } catch (e) {}
-        state.showCompletedTasks = !!SettingsStore.data.showCompletedTasks;
-        state.excludeCompletedTasks = !state.showCompletedTasks;
+        __tmApplyCompletedVisibilityToRuntime();
 
         // 加载筛选规则
         state.filterRules = await __tmEnsureFilterRulesLoaded();
@@ -1772,16 +1773,19 @@
                             needH2: needH2 && !deferH2Enhance,
                             needFlow: needFlowRank,
                             forceFresh: forceFreshTasks,
+                            isCurrent: isTokenCurrent,
                         });
                         h2ContextMap = bundle?.h2ContextMap instanceof Map ? bundle.h2ContextMap : new Map();
                         taskFlowRankMap = bundle?.taskFlowRankMap instanceof Map ? bundle.taskFlowRankMap : new Map();
                         h2EnhanceLoaded = !!(needH2 && !deferH2Enhance);
                     } catch (e) {
+                        if (e?.readFailure) throw e;
                         h2ContextMap = new Map();
                         taskFlowRankMap = new Map();
                         h2EnhanceLoaded = false;
                     }
                 }
+                if (!isTokenCurrent()) return;
                 if (forceSyncFlowRank) {
                     __tmApplyEditorDocumentTaskOrderToFlowRankMap(taskFlowRankMap, editorOrderSnapshots, new Set(taskIds0));
                 }
@@ -2024,13 +2028,13 @@
                         }
                     }
                 } else {
-                    const resolvedParentLinks = await Promise.all(allDocIds.map(async (docId) => {
+                    const resolvedParentLinks = await __tmMapReadLimited(allDocIds, async (docId) => {
                         const rawTasks = tasksByDoc.get(docId) || [];
                         const fastSwitchFirstPaint = false;
                         const parentLinkOptions = {
                             docId,
                             source: 'load-selected-documents',
-                            yieldEvery: fastSwitchFirstPaint ? 4 : 0,
+                            yieldEvery: fastSwitchFirstPaint ? 4 : 64,
                             allowOldRelationshipFallback: !fastSwitchFirstPaint,
                         };
                         if (fastSwitchFirstPaint) {
@@ -2050,9 +2054,10 @@
                                 rootTasks: Array.isArray(rawTasks) ? rawTasks.slice() : [],
                             };
                         }
-                    }));
+                    }, 3, isTokenCurrent);
                     parentLinkResults.push(...resolvedParentLinks);
                 }
+                if (!isTokenCurrent()) return;
                 parentLinkResults.forEach((result) => {
                     rootTasksByDoc.set(result.docId, Array.isArray(result.rootTasks) ? result.rootTasks : []);
                 });
@@ -2062,7 +2067,9 @@
                 const shouldSkipSiblingRank = fastSwitchFirstPaint || skipSiblingRankFirstPaint || forceSyncFlowRank || preserveExistingSiblingOrder;
                 if (!shouldSkipSiblingRank && !perfTuning.disableSiblingRank) {
                     try {
-                        siblingOrderRanks = await __tmResolveTaskSiblingOrderRanks(tasksByDoc);
+                        siblingOrderRanks = await __tmResolveTaskSiblingOrderRanks(tasksByDoc, {
+                            flowRankMap: taskFlowRankMap, isCurrent: isTokenCurrent,
+                        });
                     } catch (e) {
                         siblingOrderRanks = new Map();
                     }
@@ -2071,6 +2078,7 @@
                 }
 
                 // 按文档顺序构建树
+                if (!isTokenCurrent()) return;
                 for (const docId of allDocIds) {
                     // 获取该文档的所有任务
                     const rawTasks = tasksByDoc.get(docId) || [];
@@ -2409,7 +2417,8 @@
                             const bundle = await API.fetchTaskEnhanceBundle(deferredTaskIds, {
                                 taskDocMap: taskDocMap0,
                                 needH2: deferH2Enhance,
-                                needFlow: false
+                                needFlow: false,
+                                isCurrent: isTokenCurrent,
                             });
                             h2Map = bundle?.h2ContextMap instanceof Map ? bundle.h2ContextMap : new Map();
                         } catch (e) {

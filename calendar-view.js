@@ -459,6 +459,14 @@
                 } catch (e) {}
                 return false;
             },
+            getWeekScrollState() {
+                if (!calendar || typeof calendar.getWeekScrollState !== 'function') return null;
+                try { return calendar.getWeekScrollState() || null; } catch (e) { return null; }
+            },
+            stepSlidingWeekDay(direction) {
+                if (!calendar || typeof calendar.stepSlidingWeekDay !== 'function') return false;
+                try { return calendar.stepSlidingWeekDay(direction) === true; } catch (e) { return false; }
+            },
             refetchEvents() {
                 if (!calendar || typeof calendar.refetchEvents !== 'function') return false;
                 try { calendar.refetchEvents(); return true; } catch (e) {}
@@ -3150,6 +3158,37 @@
         return new Date(value.getFullYear(), value.getMonth(), value.getDate());
     }
 
+    function isSlidingWeekViewType(viewType) {
+        const type = String(viewType || '').trim();
+        return type === 'timeGridWeek' || type === 'dayGridWeek';
+    }
+
+    function getSlidingWeekBounds(todayValue = new Date()) {
+        const today = normalizeDateOnly(todayValue) || normalizeDateOnly(new Date());
+        const min = new Date(today.getTime());
+        min.setDate(min.getDate() - 6);
+        return { min, max: today };
+    }
+
+    function getSlidingWeekAnchorIndex(view) {
+        const start = normalizeDateOnly(view?.activeStart || view?.currentStart);
+        if (!(start instanceof Date)) return 6;
+        const { min, max } = getSlidingWeekBounds();
+        const clamped = start < min ? min : (start > max ? max : start);
+        return Math.max(0, Math.min(6, Math.round((clamped.getTime() - min.getTime()) / 86400000)));
+    }
+
+    // The window rail only makes sense while today is on screen: paging to a
+    // week without today leaves nothing for the day-granular stops to mean.
+    function isSlidingWeekWindowWithToday(view) {
+        const start = normalizeDateOnly(view?.activeStart || view?.currentStart);
+        const end = normalizeDateOnly(view?.activeEnd || view?.currentEnd);
+        if (!(start instanceof Date) || !(end instanceof Date)) return false;
+        const today = normalizeDateOnly(new Date());
+        if (!(today instanceof Date)) return false;
+        return today.getTime() >= start.getTime() && today.getTime() < end.getTime();
+    }
+
     function normalizeCalendar3DayTodayPosition(value) {
         const num = Number(value);
         return (num === 2 || num === 3) ? num : 1;
@@ -3168,7 +3207,14 @@
     function resolveMainCalendarAnchorDate(date, viewType, settings) {
         const base = normalizeDateOnly(date);
         if (!(base instanceof Date)) return null;
-        if (String(viewType || '').trim() !== 'timeGrid3Day') return base;
+        const type = String(viewType || '').trim();
+        if (isSlidingWeekViewType(type)) {
+            const firstDay = Number(settings?.firstDay) === 0 ? 0 : 1;
+            const distance = (base.getDay() - firstDay + 7) % 7;
+            base.setDate(base.getDate() - distance);
+            return base;
+        }
+        if (type !== 'timeGrid3Day') return base;
         const today = normalizeDateOnly(new Date());
         if (!(today instanceof Date)) return base;
         if (formatDateKey(base) !== formatDateKey(today)) return base;
@@ -6934,6 +6980,9 @@
         if (!current) return false;
         try { document.removeEventListener('click', current.onDocumentClick, true); } catch (e) {}
         try { document.removeEventListener('pointerdown', current.onDocumentPointerDown, true); } catch (e) {}
+        try { if (current.onPopoverPointerDownAt) current.el?.removeEventListener?.('pointerdown', current.onPopoverPointerDownAt, true); } catch (e) {}
+        try { if (current.onPopoverPointerEndAt) { window.removeEventListener('pointerup', current.onPopoverPointerEndAt, true); window.removeEventListener('pointercancel', current.onPopoverPointerEndAt, true); } } catch (e) {}
+        try { current.onPopoverPointerDispose?.(); } catch (e) {}
         try { if (current.onViewportChange) window.removeEventListener('resize', current.onViewportChange); } catch (e) {}
         try {
             if (current.onVisualViewportChange && window.visualViewport) {
@@ -8933,6 +8982,24 @@
 
     globalThis.__tmCalendarGetTaskSnapshot = getCalendarTaskSnapshotById;
 
+    function isCalendarRelationTaskDone(task) {
+        const id = String(task?.id || '').trim();
+        let current = task;
+        try {
+            current = globalThis.__tmTaskStore?.getProjected?.(id)
+                || globalThis.__tmTaskBoundary?.getTask?.(id)
+                || task;
+        } catch (e) {}
+        try {
+            const resolver = globalThis.__tmTaskBoundary?.isTaskCompleted;
+            if (typeof resolver === 'function') return resolver(current) === true;
+        } catch (e) {}
+        try {
+            if (typeof __tmIsTaskDoneEffective === 'function') return __tmIsTaskDoneEffective(current) === true;
+        } catch (e) {}
+        return current?.done === true;
+    }
+
     function shouldEnableCalendarEventContextMenu() {
         // DOCK keeps desktop pointer/context-menu semantics even when its
         // narrow layout is classified as mobile-like for sizing purposes.
@@ -9078,6 +9145,11 @@
         const marker = metadata && typeof metadata === 'object' ? metadata : {};
         if (marker.colorMode === 'custom' || marker.colorSource === 'custom' || marker.scheduleColorMode === 'custom' || marker.customColor === true || marker.colorExplicit === true || marker.scheduleColorExplicit === true) return true;
         if (marker.colorMode === 'inherited' || marker.colorSource === 'inherited' || marker.scheduleColorMode === 'inherited' || marker.colorExplicit === false || marker.scheduleColorExplicit === false) return false;
+        // Legacy quick-created task schedules stored their inherited color
+        // alongside plannedMinutes, without a color mode. That old display
+        // value must not become a custom override after the group changes.
+        const linkedId = String(marker.taskId || marker.task_id || marker.linkedTaskId || marker.linked_task_id || getScheduleLinkedBlockId(marker) || '').trim();
+        if (linkedId && Number(marker.plannedMinutes) > 0) return false;
         const colors = [
             context?.docColor,
             context?.inheritedCalendarColor,
@@ -16312,10 +16384,9 @@
         const calendarId = String(base.calendarId || '').trim() || pickDefaultCalendarId(settings);
         const title = normalizeCalendarScheduleTitleText(base.title, '任务');
         const calendarDefs = getCalendarDefs(settings);
-        const calendarColor = String((calendarDefs.find((d) => String(d?.id || '').trim() === calendarId)?.color) || '').trim();
-        const preferCalendarColor = base.preferCalendarColor === true;
-        let color = String(base.color || '').trim();
-        if (!color && preferCalendarColor && calendarColor) color = calendarColor;
+        const color = isScheduleColorExplicit(base, settings, docId, calendarId)
+            ? String(base.color || '').trim()
+            : '';
         try {
             const store = state.settingsStore || state.sideDay?.settingsStore || null;
             if (store && store.data && calendarDefs.some((d) => String(d?.id || '').trim() === calendarId)) {
@@ -16373,6 +16444,7 @@
             end: safeISO(end),
             allDay: forceAllDay ? true : isAllDayRange(start, end),
             color,
+            colorMode: color ? 'custom' : 'inherited',
             calendarId,
             taskId,
             blockId,
@@ -19950,6 +20022,17 @@
                 surface.setAttribute('data-tm-side-proto-surface', '1');
                 rootEl.appendChild(surface);
             }
+            // SiYuan decides who owns a mobile horizontal gesture during
+            // touchstart by looking for this ancestor marker. Mark the side
+            // calendar before any child (including event cards) receives a
+            // touch so its internal swipe handling can claim the gesture.
+            try {
+                const ownsOuterSwipe = state.isMobileDevice === true
+                    || state.isDockHost === true
+                    || isLikelyMobileRuntime();
+                if (ownsOuterSwipe) surface.setAttribute('data-prevent-swipe', 'true');
+                else surface.removeAttribute('data-prevent-swipe');
+            } catch (e) {}
             if (!surface.__tmSideProtoBound) {
                 surface.__tmSideProtoBound = true;
                 const resolveSidePrototypeTimedDropAtPoint = (clientX, clientY) => {
@@ -26669,6 +26752,7 @@
             const keyword = relationQuery.toLocaleLowerCase('zh-CN').trim();
             const tasks = Array.isArray(window.__tmCalendarAllTasksCache?.tasks) ? window.__tmCalendarAllTasksCache.tasks : [];
             const matches = tasks.filter((task) => {
+                if (isCalendarRelationTaskDone(task)) return false;
                 const title = taskDisplayTitle(task, '');
                 const relationMeta = getCalendarTaskRelationMeta(task);
                 return !keyword || `${title} ${relationMeta}`.toLocaleLowerCase('zh-CN').includes(keyword);
@@ -27188,7 +27272,45 @@
             }
         }, { signal: abort.signal });
 
+        // On phones the soft keyboard hides on the first tap that leaves the
+        // focused field, so the dialog is re-laid out before the browser
+        // dispatches click and the 更多设置 tap used to be swallowed. Run the
+        // toggle on the originating pointer event and let the follow-up click
+        // skip the duplicate.
+        let moreTogglePointerHandledAt = 0;
+        // The keyboard-close reflow moves this centered dialog before the
+        // browser dispatches the tap's click, so a trailing click can resolve to
+        // whatever control slid under the finger. Remember what the gesture
+        // started on and ignore such re-targeted clicks.
+        let modalPointerGesture = null;
+        const resolveModalGestureTarget = (target) => findActionTarget(target, 'data-tm-cal-action')
+            || findActionTarget(target, 'data-tm-cal-relation-action')
+            || findActionTarget(target, 'data-tm-cal-relation-result');
+        const isReTargetedModalClick = (target) => {
+            const gesture = modalPointerGesture;
+            if (!gesture) return false;
+            if (Date.now() - gesture.at > 900) { modalPointerGesture = null; return false; }
+            return resolveModalGestureTarget(target) !== gesture.el;
+        };
+        modal.addEventListener('pointerdown', (e) => {
+            modalPointerGesture = { el: resolveModalGestureTarget(e?.target), at: Date.now() };
+            if (e.pointerType === 'mouse') return;
+            const moreBtn = findActionTarget(e?.target, 'data-tm-cal-action');
+            if (String(moreBtn?.getAttribute?.('data-tm-cal-action') || '') !== 'toggleMore') return;
+            // Cancelling the touch origin also cancels the compatibility mouse
+            // events, so the reflow cannot re-target this tap onto the select and
+            // buttons that the expanded section reveals underneath the finger.
+            try { e.preventDefault(); } catch (e2) {}
+            moreTogglePointerHandledAt = Date.now();
+            moreExpanded = !moreExpanded;
+            const more = modal.querySelector('[data-tm-cal-more]');
+            const toggle = modal.querySelector('[data-tm-cal-action="toggleMore"]');
+            if (more) more.hidden = !moreExpanded;
+            if (toggle) toggle.setAttribute('aria-expanded', moreExpanded ? 'true' : 'false');
+        }, { signal: abort.signal });
+
         modal.addEventListener('click', async (e) => {
+            if (isReTargetedModalClick(e?.target)) return;
             const relationBtn = findActionTarget(e?.target, 'data-tm-cal-relation-action');
             const relationAction = String(relationBtn?.getAttribute?.('data-tm-cal-relation-action') || '');
             if (relationAction) {
@@ -27250,6 +27372,7 @@
             const action = String(btn?.getAttribute?.('data-tm-cal-action') || '');
             if (!action) return;
             if (action === 'toggleMore') {
+                if (Date.now() - moreTogglePointerHandledAt < 700) return;
                 moreExpanded = !moreExpanded;
                 const more = modal.querySelector('[data-tm-cal-more]');
                 const toggle = modal.querySelector('[data-tm-cal-action="toggleMore"]');
@@ -28179,6 +28302,14 @@
                 } catch (e) {}
                 rootEl.classList.add('tm-calendar-root');
                 rootEl.classList.toggle('tm-calendar-root--dock', state.isDockHost === true);
+                try {
+                    const reusedSurface = rootEl.querySelector?.('[data-tm-cal-surface]');
+                    const ownsOuterSwipe = state.isMobileDevice === true
+                        || state.isDockHost === true
+                        || isLikelyMobileRuntime();
+                    if (ownsOuterSwipe) reusedSurface?.setAttribute?.('data-prevent-swipe', 'true');
+                    else reusedSurface?.removeAttribute?.('data-prevent-swipe');
+                } catch (e) {}
                 if (incomingHostSignature) state.mainCalendarHostSignature = incomingHostSignature;
                 state.opts = opts || state.opts || {};
                 if (state.opts?.settingsStore) state.settingsStore = state.opts.settingsStore;
@@ -28312,7 +28443,7 @@
                 <div class="tm-calendar-sidebar-resizer" data-tm-cal-role="sidebar-resizer"></div>
                 <div class="tm-calendar-mobile-backdrop" data-tm-cal-action="closeSidebar"></div>
                 <div class="tm-calendar-main">
-                    <div class="tm-calendar-surface" data-tm-cal-surface aria-label="日历视图"></div>
+                    <div class="tm-calendar-surface" data-tm-cal-surface${isMobileDevice || isDockHost ? ' data-prevent-swipe="true"' : ''} aria-label="日历视图"></div>
                 </div>
             </div>
         `;
@@ -28470,6 +28601,16 @@
         let prototypeMonthScrollDirection = 0;
         let prototypeMonthScrollListener = null;
         let prototypeMonthUserInputListener = null;
+        let prototypeWeekWheelListener = null;
+        let prototypeListWheelListener = null;
+        let prototypeWeekWheelRemainder = 0;
+        let prototypeWeekWheelResetTimer = 0;
+        let prototypeWeekScrollPointerDownListener = null;
+        let prototypeWeekScrollKeyDownListener = null;
+        let prototypeWeekScrollDrag = null;
+        let prototypeWeekDayCommitTimer = 0;
+        let prototypeWeekStepAccumulator = 0;
+        let prototypeWeekScrollPendingDate = null;
         let prototypeMobileMonthTouchStartListener = null;
         let prototypeMobileMonthTouchMoveListener = null;
         let prototypeMobileMonthTouchEndListener = null;
@@ -29245,6 +29386,159 @@
             prototypeSurface.addEventListener('keydown', prototypeMonthUserInputListener, { capture: true, passive: false });
             prototypeSurface.addEventListener('pointerdown', prototypeMonthUserInputListener, { capture: true, passive: true });
             prototypeSurface.addEventListener('touchstart', prototypeMonthUserInputListener, { capture: true, passive: true });
+            prototypeWeekWheelListener = (event) => {
+                if (event?.type !== 'wheel') return;
+                const activeViewType = String(getCalendarView(calendar)?.type || '').trim();
+                if (!isSlidingWeekViewType(activeViewType)) return;
+                const target = event.target instanceof Element ? event.target : null;
+                if (target?.closest?.('button, input, select, textarea, a, [data-tm-proto-event]')) return;
+                const deltaX = Number(event.deltaX) || 0;
+                const deltaY = Number(event.deltaY) || 0;
+                // Shift+wheel is the documented desktop gesture; a dominant
+                // horizontal wheel (trackpad swipe) means the same thing.
+                const horizontal = Math.abs(deltaX) > Math.abs(deltaY) && deltaX !== 0;
+                if (event.shiftKey !== true && !horizontal) return;
+                const raw = horizontal ? deltaX : deltaY;
+                if (!raw) return;
+                const scale = Number(event.deltaMode) === 1 ? 16 : (Number(event.deltaMode) === 2 ? 96 : 1);
+                prototypeWeekWheelRemainder += raw * scale;
+                try { if (event.cancelable) event.preventDefault(); } catch (e) {}
+                if (prototypeWeekWheelResetTimer) clearTimeout(prototypeWeekWheelResetTimer);
+                prototypeWeekWheelResetTimer = setTimeout(() => { prototypeWeekWheelRemainder = 0; }, 200);
+                // One step per wheel notch keeps the window moving a day at a
+                // time instead of racing through the whole range.
+                if (Math.abs(prototypeWeekWheelRemainder) < 44) return;
+                const direction = prototypeWeekWheelRemainder < 0 ? -1 : 1;
+                prototypeWeekWheelRemainder = 0;
+                prototypeWeekStepAccumulator += direction;
+                const wheelTarget = resolvePrototypeWeekDayTarget(protoAddDays(getCalendarDate(calendar), prototypeWeekStepAccumulator));
+                if (wheelTarget) previewPrototypeWeekScroll(wheelTarget);
+                schedulePrototypeWeekDayCommit();
+            };
+            prototypeSurface.addEventListener('wheel', prototypeWeekWheelListener, { capture: true, passive: false });
+            // Day-granular navigation (rail drag and Shift+wheel) is deferred
+            // through one queue so a wheel burst repaints once. A drag commits
+            // every stop instead, because the grid has to follow the finger.
+            const resolvePrototypeWeekDayTarget = (value) => {
+                const range = callCalendarAdapter(calendar, 'getWeekScrollState');
+                if (!range?.active) return null;
+                const target = protoDayStart(value);
+                const from = protoDayStart(range.min);
+                const to = protoDayStart(range.max);
+                if (!(target instanceof Date) || !(from instanceof Date) || !(to instanceof Date)) return null;
+                return target < from ? from : (target > to ? to : target);
+            };
+            const previewPrototypeWeekScroll = (date) => {
+                const track = prototypeSurface.querySelector('[data-tm-proto-week-scroll]');
+                if (!(track instanceof HTMLElement)) return;
+                const { min } = getSlidingWeekBounds();
+                const dayStart = protoDayStart(date);
+                if (!(dayStart instanceof Date)) return;
+                const index = Math.max(0, Math.min(6, Math.round((dayStart.getTime() - min.getTime()) / 86400000)));
+                track.style.setProperty('--tm-proto-week-scroll-progress', String(Math.round((index / 6) * 100)));
+                const value = String(index);
+                if (track.getAttribute('aria-valuenow') !== value) track.setAttribute('aria-valuenow', value);
+            };
+            const flushPrototypeWeekDayCommit = () => {
+                prototypeWeekDayCommitTimer = 0;
+                const steps = prototypeWeekStepAccumulator;
+                const pendingDate = prototypeWeekScrollPendingDate;
+                prototypeWeekStepAccumulator = 0;
+                prototypeWeekScrollPendingDate = null;
+                const base = protoDayStart(getCalendarDate(calendar));
+                const target = steps
+                    ? resolvePrototypeWeekDayTarget(protoAddDays(base, steps))
+                    : pendingDate;
+                if (!(target instanceof Date) || !(base instanceof Date)) return;
+                if (protoDateKey(target) === protoDateKey(base)) return;
+                callCalendarAdapter(calendar, 'gotoDate', target);
+            };
+            const schedulePrototypeWeekDayCommit = () => {
+                if (prototypeWeekDayCommitTimer) {
+                    try { clearTimeout(prototypeWeekDayCommitTimer); } catch (e) {}
+                }
+                prototypeWeekDayCommitTimer = setTimeout(flushPrototypeWeekDayCommit, 170);
+            };
+            prototypeWeekScrollPointerDownListener = (event) => {
+                if (Number(event?.button ?? 0) !== 0) return;
+                if (!isSlidingWeekViewType(String(getCalendarView(calendar)?.type || '').trim())) return;
+                const track = event.target instanceof Element
+                    ? event.target.closest?.('[data-tm-proto-week-scroll]')
+                    : null;
+                if (!(track instanceof HTMLElement)) return;
+                const startDate = protoDayStart(getCalendarDate(calendar));
+                if (!(startDate instanceof Date)) return;
+                try { event.preventDefault(); } catch (e) {}
+                try { prototypeSurface.classList.add('tm-proto-week-scrolling'); } catch (e) {}
+                prototypeWeekStepAccumulator = 0;
+                prototypeWeekScrollPendingDate = null;
+                prototypeWeekScrollDrag = {
+                    pointerId: Number(event.pointerId),
+                    startX: Number(event.clientX),
+                    startDate,
+                    date: startDate,
+                };
+            };
+            const prototypeWeekScrollPointerMoveListener = (event) => {
+                const drag = prototypeWeekScrollDrag;
+                if (!drag) return;
+                if (Number.isFinite(drag.pointerId) && Number(event.pointerId) !== drag.pointerId) return;
+                const track = prototypeSurface.querySelector('[data-tm-proto-week-scroll]');
+                if (!(track instanceof HTMLElement)) return;
+                const rect = track.getBoundingClientRect?.();
+                if (!rect || !(rect.width > 0)) return;
+                const steps = Math.round((Number(event.clientX) - drag.startX) / Math.max(1, rect.width / 6));
+                const bounded = resolvePrototypeWeekDayTarget(protoAddDays(drag.startDate, steps));
+                if (!(bounded instanceof Date)) return;
+                if (protoDateKey(bounded) === protoDateKey(drag.date)) return;
+                drag.date = bounded;
+                prototypeWeekScrollPendingDate = bounded;
+                try { event.preventDefault(); } catch (e) {}
+                previewPrototypeWeekScroll(bounded);
+                // Follow the finger: commit the stop straight away. The
+                // toolbar-preserving repaint keeps the rail element alive, so
+                // the live update no longer flickers.
+                flushPrototypeWeekDayCommit();
+            };
+            const prototypeWeekScrollPointerUpListener = () => {
+                if (prototypeWeekDayCommitTimer) {
+                    try { clearTimeout(prototypeWeekDayCommitTimer); } catch (e) {}
+                    prototypeWeekDayCommitTimer = 0;
+                }
+                flushPrototypeWeekDayCommit();
+                prototypeWeekScrollDrag = null;
+                try { prototypeSurface.classList.remove('tm-proto-week-scrolling'); } catch (e) {}
+            };
+            prototypeSurface.addEventListener('pointerdown', prototypeWeekScrollPointerDownListener, { capture: true, passive: false });
+            document.addEventListener('pointermove', prototypeWeekScrollPointerMoveListener, { capture: true, passive: false });
+            document.addEventListener('pointerup', prototypeWeekScrollPointerUpListener, true);
+            document.addEventListener('pointercancel', prototypeWeekScrollPointerUpListener, true);
+            state.prototypeWeekScrollPointerCleanup = () => {
+                prototypeWeekScrollDrag = null;
+                prototypeWeekStepAccumulator = 0;
+                prototypeWeekScrollPendingDate = null;
+                if (prototypeWeekDayCommitTimer) {
+                    try { clearTimeout(prototypeWeekDayCommitTimer); } catch (e) {}
+                    prototypeWeekDayCommitTimer = 0;
+                }
+                try { prototypeSurface.classList.remove('tm-proto-week-scrolling'); } catch (e) {}
+                try { document.removeEventListener('pointermove', prototypeWeekScrollPointerMoveListener, true); } catch (e) {}
+                try { document.removeEventListener('pointerup', prototypeWeekScrollPointerUpListener, true); } catch (e) {}
+                try { document.removeEventListener('pointercancel', prototypeWeekScrollPointerUpListener, true); } catch (e) {}
+            };
+            prototypeWeekScrollKeyDownListener = (event) => {
+                const track = event.target instanceof Element
+                    ? event.target.closest?.('[data-tm-proto-week-scroll]')
+                    : null;
+                if (!(track instanceof HTMLElement)) return;
+                const key = String(event.key || '');
+                const direction = (key === 'ArrowLeft' || key === 'PageUp') ? -1
+                    : ((key === 'ArrowRight' || key === 'PageDown') ? 1 : 0);
+                if (!direction) return;
+                try { event.preventDefault(); } catch (e) {}
+                callCalendarAdapter(calendar, 'stepSlidingWeekDay', direction);
+            };
+            prototypeSurface.addEventListener('keydown', prototypeWeekScrollKeyDownListener, { capture: true, passive: false });
             // Mobile navigation is gesture-first. Keep vertical page scrolling
             // native and only claim a clearly horizontal swipe on a month
             // date cell (including its event cards) or empty time-grid
@@ -29264,19 +29558,26 @@
                 if (viewType === 'dayGridMonth') {
                     const cell = target.closest('.tm-proto-month-cell[data-tm-proto-day]');
                     if (!(cell instanceof HTMLElement)) return null;
-                    if (target.closest('.tm-proto-resize-handle, .tm-proto-event-check, .tm-cal-task-event-check, .tm-proto-more, button, input, select, textarea, a')) return null;
+                    // Keep +N taps intact while letting the calendar claim its horizontal swipe.
+                    const more = target.closest('.tm-proto-more');
+                    if (target.closest('.tm-proto-resize-handle, .tm-proto-event-check, .tm-cal-task-event-check, input, select, textarea, a')
+                        || (!more && target.closest('button'))) return null;
                     return cell;
                 }
                 if (viewType === 'dayGridWeek') {
                     const grid = target.closest('.tm-proto-week-grid');
                     if (!(grid instanceof HTMLElement)) return null;
-                    if (target.closest('.tm-proto-resize-handle, .tm-proto-event-check, .tm-cal-task-event-check, .tm-proto-more, button, input, select, textarea, a')) return null;
+                    const more = target.closest('.tm-proto-more');
+                    if (target.closest('.tm-proto-resize-handle, .tm-proto-event-check, .tm-cal-task-event-check, input, select, textarea, a')
+                        || (!more && target.closest('button'))) return null;
                     return grid;
                 }
                 if (!isTimeGridViewType(viewType)) return null;
                 const timeline = target.closest('.tm-proto-main-view > .tm-proto-timeline');
                 if (!(timeline instanceof HTMLElement)) return null;
-                if (target.closest('[data-tm-proto-event], .tm-proto-resize-handle, .tm-proto-more, button, input, select, textarea, a')) return null;
+                const more = target.closest('.tm-proto-more');
+                if (target.closest('[data-tm-proto-event], .tm-proto-resize-handle, input, select, textarea, a')
+                    || (!more && target.closest('button'))) return null;
                 return timeline;
             };
             const mobileMonthPoint = (event, touchId = null) => {
@@ -29353,7 +29654,9 @@
             const getMobileTimelineStepDays = (activeCalendar, viewType) => {
                 const type = String(viewType || getCalendarView(activeCalendar)?.type || '').trim();
                 const rangeDays = Math.max(1, Number(getCalendarView(activeCalendar)?.range?.days) || 1);
-                if (type === 'timeGridWeek' || type === 'dayGridWeek' || type === 'timeGridWorkdays') return 7;
+                // Week views keep whole-week paging here; only the wheel and
+                // the window slider walk the range one day at a time.
+                if (isSlidingWeekViewType(type) || type === 'timeGridWorkdays') return 7;
                 if (type === 'timeGrid3Day') return 3;
                 return rangeDays;
             };
@@ -29370,13 +29673,18 @@
                 const targetDate = baseDate instanceof Date
                     ? protoAddDays(baseDate, (Number(direction) < 0 ? -1 : 1) * stepDays)
                     : null;
-                const shifted = targetDate instanceof Date
-                    ? callCalendarAdapter(activeCalendar, 'gotoDate', targetDate) === true
-                    : callCalendarAdapter(activeCalendar, Number(direction) < 0 ? 'prev' : 'next') === true;
+                // Week views share the engine's week-pager grid so a swipe and
+                // the toolbar arrows always land on the same stops.
+                const shifted = isSlidingWeekViewType(type)
+                    ? callCalendarAdapter(activeCalendar, Number(direction) < 0 ? 'prev' : 'next') === true
+                    : (targetDate instanceof Date
+                        ? callCalendarAdapter(activeCalendar, 'gotoDate', targetDate) === true
+                        : callCalendarAdapter(activeCalendar, Number(direction) < 0 ? 'prev' : 'next') === true);
                 if (!shifted) return false;
-                prototypeMobileTimelineSwipeAnchorDate = targetDate instanceof Date
-                    ? new Date(targetDate.getTime())
-                    : protoDayStart(getCalendarDate(activeCalendar));
+                // The engine may clamp a week step at the window limit, so
+                // anchor on the committed date instead of the request.
+                prototypeMobileTimelineSwipeAnchorDate = protoDayStart(getCalendarDate(activeCalendar))
+                    || (targetDate instanceof Date ? new Date(targetDate.getTime()) : null);
                 rememberMainCalendarNonMonthAnchorDate(activeCalendar, type, prototypeMobileTimelineSwipeAnchorDate);
                 if (options.render !== false) {
                     try { queuePrototypeSurfaceRender(); } catch (e) {}
@@ -29549,6 +29857,28 @@
                     try { prototypeSurface.removeEventListener('pointerdown', prototypeMonthUserInputListener, true); } catch (e) {}
                     try { prototypeSurface.removeEventListener('touchstart', prototypeMonthUserInputListener, true); } catch (e) {}
                 }
+                if (prototypeWeekWheelListener) {
+                    try { prototypeSurface.removeEventListener('wheel', prototypeWeekWheelListener, true); } catch (e) {}
+                    prototypeWeekWheelListener = null;
+                }
+                if (prototypeListWheelListener) {
+                    try { prototypeSurface.removeEventListener('wheel', prototypeListWheelListener, true); } catch (e) {}
+                    prototypeListWheelListener = null;
+                }
+                if (prototypeWeekWheelResetTimer) {
+                    try { clearTimeout(prototypeWeekWheelResetTimer); } catch (e) {}
+                    prototypeWeekWheelResetTimer = 0;
+                }
+                if (prototypeWeekScrollPointerDownListener) {
+                    try { prototypeSurface.removeEventListener('pointerdown', prototypeWeekScrollPointerDownListener, true); } catch (e) {}
+                    prototypeWeekScrollPointerDownListener = null;
+                }
+                if (prototypeWeekScrollKeyDownListener) {
+                    try { prototypeSurface.removeEventListener('keydown', prototypeWeekScrollKeyDownListener, true); } catch (e) {}
+                    prototypeWeekScrollKeyDownListener = null;
+                }
+                try { state.prototypeWeekScrollPointerCleanup?.(); } catch (e) {}
+                state.prototypeWeekScrollPointerCleanup = null;
                 if (prototypeMobileMonthTouchStartListener) {
                     try { prototypeSurface.removeEventListener('pointerdown', prototypeMobileMonthTouchStartListener, true); } catch (e) {}
                 }
@@ -29663,10 +29993,10 @@
                 const button = prototypeSurface.querySelector(`[data-tm-proto-action="view"][data-tm-proto-view="${viewType}"]`);
                 try { button?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); } catch (e) { try { button?.click?.(); } catch (e2) {} }
             }, true);
-            const performPrototypeListAction = (event, listActionEl) => {
+            const performPrototypeListAction = (event, listActionEl, requestedAction = '') => {
                 if (event.__tmPrototypeListActionHandled === true) return false;
                 try { event.__tmPrototypeListActionHandled = true; } catch (e) {}
-                const listAction = String(listActionEl?.getAttribute?.('data-tm-proto-list-action') || '').trim();
+                const listAction = String(requestedAction || listActionEl?.getAttribute?.('data-tm-proto-list-action') || '').trim();
                 if (!listAction) return false;
                 event.preventDefault();
                 event.stopPropagation();
@@ -29804,6 +30134,40 @@
                 })).catch(() => {});
                 return true;
             };
+            const prototypeListWheelState = { remainder: 0, direction: 0, lastAt: 0, lastStepAt: 0, period: '' };
+            prototypeListWheelListener = (event) => {
+                // Desktop docks use mobile layout flags, but still accept a mouse wheel.
+                if (isLikelyMobileRuntime() || event.defaultPrevented
+                    || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+                if (!isCalendarListViewType(getCalendarView(state.calendar || calendar)?.type)) return;
+                const target = event.target instanceof Element ? event.target : null;
+                if (!target?.closest('.tm-proto-list-picker')) return;
+                const delta = Number(event.deltaY) || 0;
+                if (!delta || Math.abs(Number(event.deltaX) || 0) > Math.abs(delta)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const wheel = prototypeListWheelState;
+                const now = Date.now();
+                const period = prototypeListState.calendarExpanded ? 'month' : 'week';
+                const reversed = wheel.direction * delta < 0;
+                if (now - wheel.lastAt > 200 || wheel.period !== period || reversed) {
+                    wheel.remainder = 0;
+                    wheel.lastStepAt = 0;
+                }
+                wheel.lastAt = now;
+                wheel.period = period;
+                wheel.direction = Math.sign(delta);
+                const scale = Number(event.deltaMode) === 1 ? 16 : (Number(event.deltaMode) === 2 ? 96 : 1);
+                wheel.remainder += delta * scale;
+                // Accumulate fine trackpad deltas, then limit a wheel burst to
+                // one period per 200 ms instead of racing through the calendar.
+                if (Math.abs(wheel.remainder) < 44 || now - wheel.lastStepAt < 200) return;
+                const direction = wheel.remainder < 0 ? 'prev' : 'next';
+                wheel.remainder = 0;
+                wheel.lastStepAt = now;
+                performPrototypeListAction(event, null, `${direction}-${period}`);
+            };
+            prototypeSurface.addEventListener('wheel', prototypeListWheelListener, { capture: true, passive: false });
             prototypeSurface.addEventListener('click', (event) => {
                 const target = event.target instanceof Element ? event.target : null;
                 if (target?.closest?.('.tm-proto-list-task-card .tm-task-checkbox')) {
@@ -29939,7 +30303,15 @@
                             if (isMonth && monthScrolled) {
                                 prototypeMonthAutoSyncedMonthKey = monthKeyLabel(today);
                             }
-                            const todayResult = callCalendarAdapter(activeCalendar, 'gotoDate', today);
+                            // The sliding week window keeps the familiar
+                            // natural week (per the configured first day)
+                            // around today, then clamps it into range.
+                            const todayTarget = resolveMainCalendarAnchorDate(
+                                today,
+                                String(getCalendarView(activeCalendar)?.type || '').trim(),
+                                getSettings(),
+                            ) || today;
+                            const todayResult = callCalendarAdapter(activeCalendar, 'gotoDate', todayTarget);
                             if (todayResult !== false && isCalendarListViewType(String(getCalendarView(activeCalendar)?.type || '').trim())) {
                                 prototypeListState.focusDate = protoDayStart(today);
                                 prototypeListState.monthCursor = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -30166,13 +30538,17 @@
                 // The singleton state is re-pointed by every mount, including
                 // the temporary popover-editor mount. A listener left behind by
                 // such a mount must not handle clicks for the live calendar.
-                if (state.calendar !== calendar) return;
+                if (state.calendar !== calendar || state.mainCalendarSuspended || !prototypeSurface.isConnected) return;
                 if (event?.__tmPrototypeTaskDetailHandled === true
                     || event?.__tmPrototypePopoverHandled === true) return;
                 const target = event.target instanceof Element ? event.target : null;
                 if (!target) {
                     return;
                 }
+                // The side calendar and body-level +N popovers have their own
+                // click handlers. Do not consume their clicks with this main
+                // calendar's cached events, even when the event IDs match.
+                if (!prototypeSurface.contains(target)) return;
                 if (target.closest?.('[data-tm-proto-list-action]')) return;
                 if (target.closest?.('.tm-proto-list-task-card .tm-task-checkbox')) return;
                 const listFieldEl = target.closest?.('.tm-proto-list-task-card [data-tm-task-time-field],.tm-proto-list-task-card .tm-status-tag,.tm-proto-list-task-card .tm-kanban-priority-chip');
@@ -34071,6 +34447,11 @@
             let relationSearching = false;
             let relationQuery = '';
             let moreExpanded = false;
+            let moreTogglePointerHandledAt = 0;
+            let insidePointerGesture = null;
+            let activePopoverPointers = 0;
+            let viewportRepositionPending = false;
+            let viewportRepositionTimer = null;
             let colorTouched = false;
             let colorClearedByCalendarChange = false;
             const storedScheduleColor = String(ext.__tmScheduleCustomColor || '').trim();
@@ -34135,7 +34516,8 @@
                 if (!relationSearching) return '<button type="button" class="tm-proto-inline-relation-start" data-tm-proto-edit-relation="search">⌕ <span>搜索任务进行关联</span></button>';
                 const keyword = relationQuery.toLocaleLowerCase('zh-CN').trim();
                 const tasks = Array.isArray(window.__tmCalendarAllTasksCache?.tasks) ? window.__tmCalendarAllTasksCache.tasks : [];
-                const matches = tasks.filter((task) => `${titleForTask(task, '')} ${getCalendarTaskRelationMeta(task)}`.toLocaleLowerCase('zh-CN').includes(keyword));
+                const matches = tasks.filter((task) => !isCalendarRelationTaskDone(task)
+                    && `${titleForTask(task, '')} ${getCalendarTaskRelationMeta(task)}`.toLocaleLowerCase('zh-CN').includes(keyword));
                 const results = matches.length ? matches.slice(0, 8).map((task) => {
                     const id = String(task?.id || '').trim();
                     const meta = getCalendarTaskRelationMeta(task);
@@ -34990,7 +35372,7 @@
                     if (timeHub instanceof HTMLElement) { closeTimeHub(); return; }
                     openTimeHub(card.getAttribute('data-tm-proto-edit-time-card') || 'start', 'time');
                 }));
-                pop.querySelector('[data-tm-proto-edit-more]')?.addEventListener('click', () => {
+                const toggleInlineMore = () => {
                     moreExpanded = !moreExpanded;
                     const more = pop.querySelector('[data-tm-proto-inline-more]');
                     if (more) more.hidden = !moreExpanded;
@@ -35010,7 +35392,28 @@
                     pop.querySelector('[data-tm-proto-edit-more]')?.setAttribute('aria-expanded', moreExpanded ? 'true' : 'false');
                     try { position(); } catch (e) {}
                     try { requestAnimationFrame(position); } catch (e) {}
-                });
+                };
+                // On phones the soft keyboard hides on the first tap that leaves
+                // the focused title, so the card is re-laid out before the browser
+                // dispatches click and the 更多设置 tap used to be swallowed. Run
+                // the toggle on the originating pointer event and let the
+                // follow-up click skip the duplicate.
+                const moreToggle = pop.querySelector('[data-tm-proto-edit-more]');
+                if (moreToggle) {
+                    moreToggle.addEventListener('pointerdown', (event) => {
+                        if (event.pointerType === 'mouse') return;
+                        // Cancelling the touch origin also suppresses the
+                        // compatibility mouse events, so the reflow cannot
+                        // re-target this tap onto another row.
+                        try { event.preventDefault(); } catch (e) {}
+                        moreTogglePointerHandledAt = Date.now();
+                        toggleInlineMore();
+                    });
+                    moreToggle.addEventListener('click', () => {
+                        if (Date.now() - moreTogglePointerHandledAt < 700) return;
+                        toggleInlineMore();
+                    });
+                }
                 pop.querySelector('[data-tm-proto-edit-field="repeat"]')?.addEventListener('change', syncInlineRepeatControls);
                 pop.querySelector('[data-tm-proto-edit-field="repeatEvery"]')?.addEventListener('input', syncInlineRepeatControls);
                 pop.querySelector('[data-tm-proto-edit-field="repeatEndMode"]')?.addEventListener('change', syncInlineRepeatControls);
@@ -35318,6 +35721,19 @@
                 }
             };
             pop.addEventListener('wheel', onEditorWheel, { capture: true, passive: false });
+            // Closing the soft keyboard re-lays out the host inside the running
+            // gesture, so the trailing click of a tap that started inside the
+            // editor can be re-targeted to the calendar behind it. Compare the
+            // gesture origin with the click point to recognize that same tap.
+            const isReTargetedInsideTap = (event) => {
+                const origin = insidePointerGesture;
+                if (!origin) return false;
+                if (Date.now() - origin.at > 900) { insidePointerGesture = null; return false; }
+                const x = Number(event?.clientX);
+                const y = Number(event?.clientY);
+                if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+                return Math.abs(x - origin.x) <= 24 && Math.abs(y - origin.y) <= 24;
+            };
             const onDocumentClick = (event) => {
                 const target = event.target instanceof Node ? event.target : null;
                 // Pointer-capture based blank-slot selection emits a synthetic
@@ -35341,6 +35757,10 @@
                 const eventEl = target instanceof Element ? target.closest('[data-tm-proto-event]') : null;
                 const clickedId = getCalendarEventIdFromElement(eventEl);
                 if (clickedId && clickedId === popoverEventId && surfaceEl?.contains?.(eventEl)) return;
+                // Closing the soft keyboard can re-lay out the host between the
+                // tap and its trailing click. Ignore that re-targeted click once
+                // instead of treating it as a tap on the calendar behind.
+                if (isReTargetedInsideTap(event)) return;
                 close();
             };
             // Some embedded/webview surfaces suppress the follow-up click
@@ -35358,17 +35778,67 @@
                     if (!hubToggle) closeTimeHub();
                     return;
                 }
+                if (isReTargetedInsideTap(event)) return;
                 close();
+            };
+            // Repositioning is driven by visualViewport changes, which is exactly
+            // what a phone does while the soft keyboard closes. Holding the card
+            // in place until the running gesture ends keeps the tapped row under
+            // the finger so its click still targets the row the user pressed.
+            const onPopoverPointerDownAt = (event) => {
+                if (event.isPrimary === false) return;
+                insidePointerGesture = { x: Number(event.clientX) || 0, y: Number(event.clientY) || 0, at: Date.now() };
+                activePopoverPointers += 1;
+                if (viewportRepositionTimer) { clearTimeout(viewportRepositionTimer); viewportRepositionTimer = null; }
+            };
+            const onPopoverPointerEndAt = () => {
+                activePopoverPointers = Math.max(0, activePopoverPointers - 1);
+                if (activePopoverPointers > 0 || !viewportRepositionPending) return;
+                // Settle after the gesture's own click has been dispatched,
+                // otherwise the card still slides away before the browser
+                // hit-tests that click.
+                if (viewportRepositionTimer) clearTimeout(viewportRepositionTimer);
+                viewportRepositionTimer = setTimeout(() => {
+                    viewportRepositionTimer = null;
+                    if (!viewportRepositionPending) return;
+                    viewportRepositionPending = false;
+                    try { position(); } catch (e) {}
+                    try { requestAnimationFrame(position); } catch (e) {}
+                }, 0);
             };
             const onViewportChange = () => {
                 if (!pop.isConnected) return;
+                if (activePopoverPointers > 0) {
+                    // A pan or tap is still running: settle the layout once it ends
+                    // so the tap target cannot slide out from under the pointer.
+                    viewportRepositionPending = true;
+                    if (!viewportRepositionTimer) {
+                        viewportRepositionTimer = setTimeout(() => {
+                            viewportRepositionTimer = null;
+                            activePopoverPointers = 0;
+                            if (!viewportRepositionPending) return;
+                            viewportRepositionPending = false;
+                            try { position(); } catch (e) {}
+                        }, 600);
+                    }
+                    return;
+                }
                 try { position(); } catch (e) {}
                 try { positionTimeHub(); } catch (e) {}
                 try { requestAnimationFrame(position); } catch (e) { position(); }
             };
+            const disposePopoverGestureState = () => {
+                insidePointerGesture = null;
+                activePopoverPointers = 0;
+                viewportRepositionPending = false;
+                if (viewportRepositionTimer) { clearTimeout(viewportRepositionTimer); viewportRepositionTimer = null; }
+            };
             const onVisualViewportChange = onViewportChange;
             window.addEventListener('resize', onViewportChange, { passive: true });
             try { window.visualViewport?.addEventListener('resize', onVisualViewportChange, { passive: true }); window.visualViewport?.addEventListener('scroll', onVisualViewportChange, { passive: true }); } catch (e) {}
+            pop.addEventListener('pointerdown', onPopoverPointerDownAt, true);
+            window.addEventListener('pointerup', onPopoverPointerEndAt, true);
+            window.addEventListener('pointercancel', onPopoverPointerEndAt, true);
             state.__tmPrototypeEventPopover = {
                 el: pop,
                 eventId: popoverEventId,
@@ -35378,6 +35848,9 @@
                 onDocumentPointerDown,
                 onViewportChange,
                 onVisualViewportChange,
+                onPopoverPointerDownAt,
+                onPopoverPointerEndAt,
+                onPopoverPointerDispose: disposePopoverGestureState,
             };
             document.addEventListener('pointerdown', onDocumentPointerDown, true);
             document.addEventListener('click', onDocumentClick, true);
@@ -35438,15 +35911,13 @@
             }
             const calendarId = String(params.calendarId || '').trim() || pickDefaultCalendarId(getSettings());
             const settingsNow = getSettings();
-            const calendarDef = getCalendarDefs(settingsNow).find((calendar) => String(calendar?.id || '').trim() === calendarId);
             const taskId = String(params.taskId || '').trim();
             const blockId = String(params.blockId || params.task_id || '').trim();
             const docId = String(params.docId || params.documentID || params.rootId || params.root_id || '').trim();
             const requestedColor = String(params.color || '').trim();
-            const docColor = settingsNow.scheduleFollowDocColor && docId
-                ? resolveCalendarDocColor(docId, '')
-                : '';
-            const color = requestedColor || docColor || String(calendarDef?.color || 'var(--tm-primary-color)').trim();
+            const colorContext = getScheduleInheritedColorContext(calendarId, settingsNow, docId);
+            const customColor = isScheduleColorExplicitValue(requestedColor, colorContext, params) ? requestedColor : '';
+            const color = customColor || colorContext.color;
             let anchor = anchorEl instanceof Element
                 ? anchorEl
                 : (state.calendarEl instanceof Element ? state.calendarEl : state.wrapEl instanceof Element ? state.wrapEl : null);
@@ -35476,7 +35947,7 @@
                 end,
                 allDay,
                 color,
-                extendedProps: { __tmSource: 'schedule', calendarId, __tmTaskId: taskId, __tmBlockId: blockId, __tmDocId: docId, __tmScheduleCustomColor: requestedColor, __tmScheduleColorExplicit: !!requestedColor },
+                extendedProps: { __tmSource: 'schedule', calendarId, __tmTaskId: taskId, __tmBlockId: blockId, __tmDocId: docId, __tmScheduleCustomColor: customColor, __tmScheduleColorExplicit: !!customColor },
             }, anchor, { isNew: true, calendarId });
             return opened;
         };
@@ -35731,6 +36202,13 @@
             const activeView = MAIN_CALENDAR_ALLOWED_VIEWS.has(viewType) ? viewType : 'timeGridWeek';
             const compactToolbar = isCompactDockLayout();
             const listView = isCalendarListViewType(viewType);
+            const weekScrollState = isSlidingWeekViewType(viewType) && isSlidingWeekWindowWithToday(view)
+                ? callCalendarAdapter(calendar, 'getWeekScrollState')
+                : null;
+            const weekScrollIndex = weekScrollState ? getSlidingWeekAnchorIndex(view) : 0;
+            const weekScrollMarkup = weekScrollState
+                ? `<div class="tm-proto-week-scroll" data-tm-proto-week-scroll role="scrollbar" tabindex="0" aria-label="周视图日期范围" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="6" aria-valuenow="${weekScrollIndex}" style="--tm-proto-week-scroll-progress:${Math.round((weekScrollIndex / 6) * 100)}"><span class="tm-proto-week-scroll-thumb"></span></div>`
+                : '';
             const toolbarDate = listView ? protoListFocusDate(view) : protoSafeDate(view?.currentStart || getCalendarDate(calendar));
             const toolbarMonth = toolbarDate ? `${toolbarDate.getMonth() + 1}月${listView ? toolbarDate.getDate() + '日' : ''}` : '';
             const toolbarWeekNumber = viewType === 'dayGridWeek' && toolbarDate
@@ -35763,7 +36241,7 @@
                 <div class="tm-proto-nav"><button type="button" class="tm-proto-icon-btn tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="prev" aria-label="上一个">${protoToolbarIcon('chevron-left')}</button><button type="button" class="tm-proto-today tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="today">今天</button><button type="button" class="tm-proto-icon-btn tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="next" aria-label="下一个">${protoToolbarIcon('chevron-right')}</button></div>
                 <div class="tm-proto-title" data-tm-proto-title="1">${titleText}</div>
                 <div class="tm-proto-toolbar-spacer"></div>
-                <div class="tm-proto-segmented bc-tabs-list" role="tablist" aria-label="视图">${viewButtons}</div>${mobileViewSelect}${compactMonthMarkup}
+                <div class="tm-proto-segmented bc-tabs-list" role="tablist" aria-label="视图">${viewButtons}</div>${weekScrollMarkup}${mobileViewSelect}${compactMonthMarkup}
                 <div class="tm-proto-tool-wrap"><button type="button" class="tm-proto-tool-btn tm-proto-opacity-btn tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="menu" data-tm-proto-menu="opacity" aria-label="不透明度" title="不透明度">${protoToolbarIcon('circle-half')}</button>${opacityMenu}</div>
                 <button type="button" class="tm-proto-tool-btn tm-proto-day-btn tm-btn tm-btn-info bc-btn bc-btn--sm ${prototypeShowDayPanel ? 'is-active' : ''}" data-tm-proto-action="toggleDayPanel" aria-label="单日" title="单日">${protoToolbarIcon('calendar-blank')}</button>
             </header>`;
@@ -36079,6 +36557,44 @@
             commitPartialState();
             return true;
         };
+        // While the week rail is dragged the surface keeps repainting so the
+        // days follow the finger. Replacing the whole app would destroy the
+        // rail element under the pointer (that was the flicker), so the drag
+        // path replaces only the day grid and leaves the live toolbar alone.
+        const patchPrototypeSurfaceKeepingToolbar = (markup) => {
+            if (!prototypeWeekScrollDrag) return false;
+            const currentApp = prototypeSurface.querySelector('.tm-proto-app');
+            const currentToolbar = currentApp?.querySelector('.tm-proto-toolbar');
+            if (!(currentApp instanceof HTMLElement) || !(currentToolbar instanceof HTMLElement)) return false;
+            const host = document.createElement('div');
+            host.innerHTML = markup;
+            const nextApp = host.firstElementChild;
+            const nextToolbar = nextApp?.querySelector('.tm-proto-toolbar');
+            const nextMain = nextApp?.querySelector('.tm-proto-main');
+            const currentMain = currentApp.querySelector('.tm-proto-main');
+            if (!(nextToolbar instanceof HTMLElement) || !(nextMain instanceof HTMLElement)) return false;
+            if (!(currentMain instanceof HTMLElement)) return false;
+            // Only reuse the live toolbar when both frames are the same kind of
+            // toolbar, i.e. both still show the week rail being dragged.
+            if (nextToolbar.className !== currentToolbar.className) return false;
+            if (!nextToolbar.querySelector('[data-tm-proto-week-scroll]')) return false;
+            currentMain.replaceWith(nextMain);
+            // Keep the toolbar node but refresh the text it shows, so the title
+            // and month label stay in sync without a rebuild.
+            const nextTitle = nextApp.querySelector('[data-tm-proto-title]');
+            const currentTitle = currentToolbar.querySelector('[data-tm-proto-title]');
+            if (nextTitle instanceof HTMLElement && currentTitle instanceof HTMLElement) {
+                currentTitle.innerHTML = nextTitle.innerHTML;
+            }
+            const nextMonth = nextApp.querySelector('[data-tm-proto-toolbar-month]');
+            const currentMonth = currentToolbar.querySelector('[data-tm-proto-toolbar-month]');
+            if (nextMonth instanceof HTMLElement && currentMonth instanceof HTMLElement) {
+                currentMonth.textContent = nextMonth.textContent;
+            }
+            const nextOpacity = nextApp.getAttribute('style');
+            if (typeof nextOpacity === 'string') currentApp.setAttribute('style', nextOpacity);
+            return true;
+        };
         renderPrototypeSurface = () => {
             if (!(prototypeSurface instanceof HTMLElement) || !calendar) return;
             if (state.mainCalendarSuspended) return;
@@ -36314,7 +36830,12 @@
             else content = protoRenderTimeline(view, viewType, events, settings);
             if (!monthVirtualInPlace) {
                 const markup = `<div class="tm-proto-app" style="--tm-cal-event-opacity:${Math.round(prototypeOpacity * 100)}%">${protoToolbarMarkup(view, viewType, settings, title)}<main class="tm-proto-main"><div class="tm-proto-main-view">${content}</div>${protoRenderDayPanel(events, settings)}</main></div>`;
-                if (!isCalendarListViewType(viewType) || !patchPrototypeListSurface(markup)) {
+                // While the week rail is being dragged the calendar must keep
+                // following the finger, but the rail itself must survive: only
+                // the day grid is replaced and the live toolbar keeps the
+                // element under the pointer.
+                if (!patchPrototypeSurfaceKeepingToolbar(markup)
+                    && (!isCalendarListViewType(viewType) || !patchPrototypeListSurface(markup))) {
                     prototypeSurface.innerHTML = markup;
                 }
                 if ((isMobileDevice || isDockHost) && prototypeMobileMonthSwipeDirection
@@ -36551,6 +37072,7 @@
         const calendarAdapter = createCalendarEngineAdapter(prototypeSurface, {
             initialView: preferredInitialView,
             initialDate: preferredInitialDate,
+            weekScroll: true,
             views: mainCalendarViews,
             monthScroll: !isMobileDevice,
             // The virtual strip keeps a symmetric browsing window around the

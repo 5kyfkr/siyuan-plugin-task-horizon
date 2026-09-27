@@ -195,6 +195,8 @@
             try { if (gate.dragRetryTimer) clearTimeout(gate.dragRetryTimer); } catch (e) {}
             gate.endTimer = 0;
             gate.dragRetryTimer = 0;
+            gate.host = null;
+            gate.scrolling = false;
             gate.pendingCommit = null;
             gate.pendingCommitReason = '';
             gate.pendingCommitPriority = 0;
@@ -212,6 +214,13 @@
         }
         try { job.unsubscribeTaskStore?.(); } catch (e) {}
         job.unsubscribeTaskStore = null;
+        try { __tmUnbindKanbanProgressiveViewport(job); } catch (e) {}
+        // A queued callback may still hold this cancelled job until the next
+        // frame. Release its task source and DOM-capturing loaders immediately.
+        job.tasksRef = null;
+        job.columns = [];
+        job.initialColumnLimits = null;
+        job.checklistEntryWarmup = null;
         if (state?.__tmProgressiveViewRender === job) state.__tmProgressiveViewRender = null;
         return true;
     }
@@ -890,6 +899,61 @@
             String(state?.currentRule || '').trim(),
             String(state?.searchKeyword || '').trim(),
         ].join('|');
+    }
+
+    function __tmGetViewSwitchWindowContextKey(mode) {
+        return JSON.stringify([
+            __tmGetViewRenderWindowContextKey(mode),
+            typeof __tmBuildFilteredTaskRenderContextSignature === 'function'
+                ? __tmBuildFilteredTaskRenderContextSignature() : '',
+            mode === 'kanban' && typeof __tmGetKanbanBoardMode === 'function' ? __tmGetKanbanBoardMode() : '',
+            mode === 'whiteboard' && typeof __tmGetWhiteboardAllTabsLayoutMode === 'function'
+                ? __tmGetWhiteboardAllTabsLayoutMode() : '',
+        ]);
+    }
+
+    function __tmRememberViewSwitchWindow(mode) {
+        if (!__tmIsListLikeViewMode(mode) && mode !== 'kanban' && mode !== 'whiteboard') return false;
+        const modal = state?.modal;
+        // Rapid switches may change state before the previous body is replaced.
+        // Only record a window that actually belongs to the displayed view.
+        if (!modal?.isConnected || modal.getAttribute('data-tm-render-mode') !== mode || state.viewMode !== mode) return false;
+        const saved = { contextKey: __tmGetViewSwitchWindowContextKey(mode) };
+        if (mode === 'kanban') {
+            saved.columnLimits = new Map();
+            modal.querySelectorAll('.tm-body--kanban .tm-kanban-col[data-col-key]').forEach((column) => {
+                let count = 0;
+                column.querySelectorAll('.tm-kanban-card[data-id]').forEach((card) => {
+                    if (!card.closest('[hidden]')) count++;
+                });
+                saved.columnLimits.set(column.getAttribute('data-col-key'), count);
+            });
+        } else if (__tmIsListLikeViewMode(mode)) {
+            saved.window = __tmCaptureViewRenderWindow(mode);
+        } else if (typeof __tmGetWhiteboardView === 'function') {
+            saved.viewport = { ...__tmGetWhiteboardView() };
+        }
+        try { __tmCaptureBodyOnlyViewScroll(mode, modal); } catch (e) {}
+        const scrollKey = __tmIsListLikeViewMode(mode) && mode !== 'timeline' ? 'list' : mode;
+        const scroll = state.viewScroll?.[scrollKey];
+        if (scroll) saved.scroll = { ...scroll, ...(scroll.cols ? { cols: { ...scroll.cols } } : {}) };
+        // One numeric window per view; no detached DOM, task arrays or old loaders.
+        if (!(state.__tmViewSwitchWindows instanceof Map)) state.__tmViewSwitchWindows = new Map();
+        state.__tmViewSwitchWindows.set(mode, saved);
+        return true;
+    }
+
+    function __tmRestoreViewSwitchWindow(mode, job = null) {
+        const saved = state.__tmViewSwitchWindows?.get?.(mode);
+        if (!saved || state.viewMode !== mode || saved.contextKey !== __tmGetViewSwitchWindowContextKey(mode)) return null;
+        if (mode === 'kanban') {
+            if (job && saved.columnLimits instanceof Map) job.initialColumnLimits = new Map(saved.columnLimits);
+        } else if (__tmIsListLikeViewMode(mode)) {
+            if (!__tmRestoreViewRenderWindow(saved.window)) return null;
+        } else if (mode === 'whiteboard' && saved.viewport && typeof __tmSetWhiteboardView === 'function') {
+            __tmSetWhiteboardView(saved.viewport, { persist: false, syncLocal: false });
+        }
+        return saved;
     }
 
     function __tmCaptureViewRenderWindow(mode = '') {

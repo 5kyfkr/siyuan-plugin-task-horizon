@@ -225,7 +225,10 @@ test('silent verification repaints stale priority after a fresh read', async () 
         clearTimeout: () => {},
         __tmScheduleIdleTask: (callback) => { timers.push(callback); },
         __tmShouldDeferMainViewRefreshForActiveScroll: () => false,
-        loadSelectedDocuments: async () => { context.state.filteredTasks = [{ ...task, priority: 'high', custom_priority: 'high' }]; },
+        __tmVerifyCachedTaskScope: async () => {
+            context.state.filteredTasks = [{ ...task, priority: 'high', custom_priority: 'high' }];
+            return { complete: true, changed: true, incremental: true };
+        },
         recalcStats: () => {},
         Element: class Element {},
         render: () => { renders += 1; },

@@ -270,11 +270,15 @@ inlineHost.querySelector = (selector) => (
 );
 let unfinishedOnly = false;
 const quickbarContext = vm.createContext({
+    Element: FakeElement,
     HTMLElement: FakeElement,
     getQuickbarInlineSettings: () => ({ subtaskCountUnfinishedOnly: unfinishedOnly }),
     queryInlineMetaHostsInObservedRoots: () => [inlineHost],
 });
-vm.runInContext(extractFunction(quickbarSource, 'syncInlineSubtaskSummaryFromEvent'), quickbarContext);
+vm.runInContext([
+    extractFunction(quickbarSource, 'isQuickbarNativeEditorSurface'),
+    extractFunction(quickbarSource, 'syncInlineSubtaskSummaryFromEvent'),
+].join('\n'), quickbarContext);
 assert.equal(quickbarContext.syncInlineSubtaskSummaryFromEvent({ taskId: 'parent', total: 2, completed: 1 }), true);
 assert.equal(inlineValue.textContent, '1/2');
 assert.equal(inlineChip.getAttribute('data-inline-value'), '1/2');
