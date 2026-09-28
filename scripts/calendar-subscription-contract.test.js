@@ -52,7 +52,7 @@ assert.match(executeBlock, /core\.utf8ByteLength\(icsText\)[\s\S]*CALENDAR_SUBSC
 assert.match(executeBlock, /previous\.contentHash === semanticHash[\s\S]*previous\.targetKey === target\.targetKey/, 'automatic publication must skip only on content and target equality');
 assert.match(executeBlock, /options\.force !== true/, 'manual force publication must bypass semantic skip');
 assert.match(executeBlock, /!previous\.lastError/, 'a failed upload must be retried even when its semantic content is unchanged');
-assert.match(executeBlock, /refreshCalendarSubscriptionSharedSettings\(\)/, 'every publication must refresh synchronized settings before reading data');
+assert.match(executeBlock, /refreshCalendarSubscriptionSharedSettings\(run\)/, 'every publication must refresh synchronized settings with its cancellation context');
 
 assert.match(calendar, /verifyCalendarSubscriptionRemote\([\s\S]*remoteHash !== expectedFileHash/, 'providers must verify the uploaded bytes by remote readback');
 const verifyRemoteStart = calendar.indexOf('async function verifyCalendarSubscriptionRemote');
@@ -65,14 +65,14 @@ const webdavUploadBlock = calendar.slice(webdavUploadStart, webdavUploadEnd);
 assert.match(webdavUploadBlock, /const password = String\(target\.password \|\| ''\)/, 'WebDAV uploads must read the synchronized password from the resolved target');
 assert.doesNotMatch(webdavUploadBlock, /localStorage/, 'WebDAV uploads must not depend on browser-local password storage');
 assert.match(webdavUploadBlock, /buildCalendarSubscriptionWebdavRequestUrl\(target\.url, target\.username, password\)/, 'WebDAV requests must carry credentials only in their internal request URL');
-assert.match(webdavUploadBlock, /ensureCalendarSubscriptionWebdavDirectory\(parent\.toString\(\), authorization\)[\s\S]*forwardCalendarSubscriptionRequest\(requestUrl, 'PUT'/, 'WebDAV must validate its direct parent before uploading');
+assert.match(webdavUploadBlock, /ensureCalendarSubscriptionWebdavDirectory\(parent\.toString\(\), authorization, run\)[\s\S]*forwardCalendarSubscriptionRequest\(requestUrl, 'PUT'/, 'WebDAV must validate its direct parent before uploading');
 assert.match(webdavUploadBlock, /payloadEncoding: 'base64'[\s\S]*payload: encodeCalendarSubscriptionUtf8Base64\(icsText\)/, 'WebDAV PUT must send explicit UTF-8 bytes through the kernel base64 payload channel');
-assert.match(webdavUploadBlock, /verifyCalendarSubscriptionRemote\(requestUrl, fileHash, authorization, \{ cacheBust: false \}\)/, 'WebDAV verification must read the authenticated file URL without query parameters');
+assert.match(webdavUploadBlock, /verifyCalendarSubscriptionRemote\(requestUrl, fileHash, authorization, \{ cacheBust: false \}, run\)/, 'WebDAV verification must read the authenticated file URL without query parameters');
 assert.doesNotMatch(webdavUploadBlock, /verifyCalendarSubscriptionRemote\(target\.url/, 'WebDAV verification must not discard its request-only credentials');
 const chainUploadStart = calendar.indexOf('async function uploadCalendarSubscriptionChain');
 const chainUploadEnd = calendar.indexOf('\n    async function resolveCalendarSubscriptionTarget', chainUploadStart);
 const chainUploadBlock = calendar.slice(chainUploadStart, chainUploadEnd);
-assert.match(chainUploadBlock, /verifyCalendarSubscriptionRemote\(target\.url, fileHash, '', \{ cacheBust: true \}\)/, 'Chain verification must keep cache-busting its CDN URL');
+assert.match(chainUploadBlock, /verifyCalendarSubscriptionRemote\(target\.url, fileHash, '', \{ cacheBust: true \}, run\)/, 'Chain verification must keep cache-busting its CDN URL');
 assert.match(calendar, /'PROPFIND'[\s\S]*depth: 0[\s\S]*response\.status === 404[\s\S]*createCalendarSubscriptionWebdavDirectory/, 'WebDAV must check its direct parent and create it once only when it is missing');
 assert.match(webdavUploadBlock, /response\.status === 409[\s\S]*createCalendarSubscriptionWebdavDirectory[\s\S]*'PUT'/, 'WebDAV must preserve its MKCOL-and-retry fallback after a PUT conflict');
 assert.match(calendar, /status === 401 \|\| status === 403[\s\S]*坚果云第三方应用密码[\s\S]*status === 404[\s\S]*目录或文件路径不存在/, 'WebDAV errors must distinguish authentication and inaccessible paths');

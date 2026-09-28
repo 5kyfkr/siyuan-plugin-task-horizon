@@ -31,7 +31,13 @@ const selectEnd = side.indexOf('datesSet:', selectStart);
 assert.ok(selectEnd > selectStart, 'side selection callback must be bounded');
 const select = side.slice(selectStart, selectEnd);
 assert.match(select, /state\.openPrototypeNewScheduleCard/);
-assert.match(select, /newCard\(\{\s*start,\s*end/);
+assert.match(select, /const params = \{ start, end, allDay:/);
+assert.match(
+    select,
+    /!params\.allDay\s*\? bindPrototypeScheduleDraft\(sidePrototypeSurface\)\?\.show\(params, selectionAnchor, newCard, \{ preserveRange: true, suppressClick: true \}\)/,
+    'timed selection retains the exact range and defers its editor until the draft is clicked',
+);
+assert.match(select, /typeof newCard === 'function' \? newCard\(params, selectionAnchor\)/, 'all-day selections retain the shared editor');
 assert.doesNotMatch(select, /openScheduleModal\(/, 'side selection must not fall back to the legacy modal');
 
 console.log('calendar side inline editor contract tests passed');

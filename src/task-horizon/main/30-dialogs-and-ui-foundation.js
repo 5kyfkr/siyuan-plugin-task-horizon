@@ -1,4 +1,4 @@
-﻿    async function __tmMoveBlockViaBackendAdapter(blockId, placement = {}) {
+    async function __tmMoveBlockViaBackendAdapter(blockId, placement = {}) {
         const id = String(blockId || '').trim();
         if (!id) throw new Error('移动失败：缺少块 ID');
         const adapter = globalThis.__tmTaskHorizonBackendAdapter;
@@ -8437,10 +8437,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                         ${state.currentRule === rule.id ? '<span style="color: var(--tm-success-color); margin-left: 8px;">(当前应用)</span>' : ''}
                     </div>
                     <div class="tm-rule-group-controls">
-                        <button class="tm-rule-btn tm-rule-btn-primary" data-tm-action="editRule" data-rule-id="${esc(String(rule.id))}">
+                        <button class="tm-rule-btn tm-rule-btn-outline" data-tm-action="editRule" data-rule-id="${esc(String(rule.id))}">
                             编辑
                         </button>
-                        <button class="tm-rule-btn tm-rule-btn-danger" data-tm-action="deleteRule" data-rule-id="${esc(String(rule.id))}">
+                        <button class="tm-rule-btn tm-rule-btn-ghost-danger" data-tm-action="deleteRule" data-rule-id="${esc(String(rule.id))}">
                             删除
                         </button>
                     </div>
@@ -8499,7 +8499,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                 </div>
 
                 <div class="tm-rule-actions">
-                    <button class="tm-rule-btn tm-rule-btn-secondary" data-tm-action="cancelEditRule">
+                    <button class="tm-rule-btn tm-rule-btn-outline" data-tm-action="cancelEditRule">
+                        取消
+                    </button>
+                    <button class="tm-rule-btn tm-rule-btn-primary" data-tm-action="saveEditRule">
                         完成
                     </button>
                 </div>
@@ -8930,8 +8933,20 @@ return Number(state.contextInteractionQuietUntil || 0);
                 </details>
             `;
         }).join('');
-        const customFieldSection = `
-            <div class="${embedded ? 'tm-rule-section ' : ''}tm-priority-section" style="margin-bottom:${embedded ? '0' : '14px'};">
+        const customFieldSection = embedded ? `
+            <div class="tm-priority-module">
+                <div class="tm-priority-module__head">
+                    <div class="tm-priority-module__copy">
+                        <div class="tm-priority-module__title">自定义列加减分</div>
+                        <div class="tm-priority-module__desc">单选 / 多选自定义列按选项加分，展开列名逐项设置。</div>
+                    </div>
+                </div>
+                <div class="tm-priority-custom-fields">
+                    ${customFieldGroups || '<div class="tm-priority-empty">暂无单选或多选自定义列</div>'}
+                </div>
+            </div>
+        ` : `
+            <div class="tm-priority-section" style="margin-bottom:14px;">
                 <div class="tm-priority-section__title">自定义列加减分</div>
                 <div class="tm-priority-custom-fields">
                     ${customFieldGroups || '<div class="tm-priority-empty">暂无单选或多选自定义列</div>'}
@@ -8963,8 +8978,22 @@ return Number(state.contextInteractionQuietUntil || 0);
                 </div>
             `;
         }).join('');
-        const titleOpacitySection = `
-            <div class="${embedded ? 'tm-rule-section' : ''}" style="margin-bottom:${embedded ? '0' : '14px'};">
+        const titleOpacitySection = embedded ? `
+            <div class="tm-priority-module">
+                <div class="tm-priority-module__head">
+                    <div class="tm-priority-module__copy">
+                        <div class="tm-priority-module__title">分值分段显示任务名称颜色和透明度</div>
+                        <div class="tm-priority-module__desc">按优先级分值匹配区间，只改变任务名称颜色和透明度，不影响排序和奖励分值。</div>
+                    </div>
+                    <div class="tm-priority-module__actions">
+                        <input class="b3-switch fn__flex-center" type="checkbox" ${titleOpacityEnabled ? 'checked' : ''} data-tm-call="tmTogglePriorityTitleOpacity" aria-label="分值分段显示任务名称颜色和透明度">
+                        <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityTitleOpacityRange">+ 添加</button>
+                    </div>
+                </div>
+                ${titleOpacityRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
+            </div>
+        ` : `
+            <div style="margin-bottom:14px;">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
                     <label style="display:flex;align-items:center;gap:8px;font-weight:700;">
                         <input class="b3-switch fn__flex-center" type="checkbox" ${titleOpacityEnabled ? 'checked' : ''} data-tm-call="tmTogglePriorityTitleOpacity">
@@ -9033,49 +9062,74 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         if (embedded) {
             return `
-                <div class="tm-priority-settings" style="display:flex;flex-direction:column;gap:12px;">
+                <div class="tm-priority-settings tm-priority-modules">
                     <div class="tm-priority-embedded-title" style="font-weight: 700; font-size: 15px;">⚙️ 优先级算法</div>
 
-                    <div class="tm-rule-section" style="margin-bottom:0;">
-                        <div style="font-weight: 700; margin-bottom: 10px;">基础分</div>
-                        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                            <input class="b3-text-field tm-priority-number-input tm-priority-number-input--base" type="number" value="${Number(cfg.base) || 100}" data-tm-call="tmSetPriorityBase">
-                            <div style="font-size: 12px; color: var(--tm-secondary-text);">用于所有任务的起始分</div>
+                    <div class="tm-priority-module">
+                        <div class="tm-priority-module__head">
+                            <div class="tm-priority-module__copy">
+                                <div class="tm-priority-module__title">基础分</div>
+                                <div class="tm-priority-module__desc">用于所有任务的起始分，之后按下面的加减分累加。</div>
+                            </div>
+                            <div class="tm-priority-module__actions">
+                                <input class="b3-text-field tm-priority-number-input tm-priority-number-input--base" type="number" value="${Number(cfg.base) || 100}" data-tm-call="tmSetPriorityBase">
+                            </div>
                         </div>
                     </div>
 
-                    <div class="tm-rule-section" style="margin-bottom:0;">
-                        <div style="font-weight: 700; margin-bottom: 10px;">权重（微调）</div>
+                    <div class="tm-priority-module">
+                        <div class="tm-priority-module__head">
+                            <div class="tm-priority-module__copy">
+                                <div class="tm-priority-module__title">权重（微调）</div>
+                                <div class="tm-priority-module__desc">调整重要性、状态、截止日期、时长和文档的相对权重，默认均为 1。</div>
+                            </div>
+                        </div>
                         <div class="tm-priority-field-grid">${weightRows}</div>
                     </div>
 
-                    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
-                        <div class="tm-rule-section" style="margin-bottom:0;">
-                            <div style="font-weight: 700; margin-bottom: 10px;">重要性加减分</div>
-                            <div class="tm-priority-field-grid">${importanceRows}</div>
+                    <div class="tm-priority-module">
+                        <div class="tm-priority-module__head">
+                            <div class="tm-priority-module__copy">
+                                <div class="tm-priority-module__title">重要性加减分</div>
+                                <div class="tm-priority-module__desc">任务上直接标注的重要性对应的加减分。</div>
+                            </div>
                         </div>
+                        <div class="tm-priority-field-grid">${importanceRows}</div>
+                    </div>
 
-                        <div class="tm-rule-section" style="margin-bottom:0;">
-                            <div style="font-weight: 700; margin-bottom: 10px;">状态加减分</div>
-                            <div class="tm-priority-field-grid">${statusRows}</div>
-                            ${statuses.length === 0 ? '<div style="color: var(--tm-secondary-text); font-size: 12px;">暂无自定义状态</div>' : ''}
+                    <div class="tm-priority-module">
+                        <div class="tm-priority-module__head">
+                            <div class="tm-priority-module__copy">
+                                <div class="tm-priority-module__title">状态加减分</div>
+                                <div class="tm-priority-module__desc">为每个自定义状态设置加分或减分。</div>
+                            </div>
                         </div>
+                        <div class="tm-priority-field-grid">${statusRows}</div>
+                        ${statuses.length === 0 ? '<div style="color: var(--tm-secondary-text); font-size: 12px;">暂无自定义状态</div>' : ''}
                     </div>
 
                     ${customFieldSection}
 
-                    <div class="tm-rule-section" style="margin-bottom:0;">
-                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
-                            <div style="font-weight: 700;">截止日期接近度（按“≤ 天数”匹配）</div>
-                            <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDueRange">+ 添加</button>
+                    <div class="tm-priority-module">
+                        <div class="tm-priority-module__head">
+                            <div class="tm-priority-module__copy">
+                                <div class="tm-priority-module__title">截止日期接近度（按“≤ 天数”匹配）</div>
+                                <div class="tm-priority-module__desc">离截止日期越近加分越多，每行可改天数或加分，也可以删除。</div>
+                            </div>
+                            <div class="tm-priority-module__actions">
+                                <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDueRange">+ 添加</button>
+                            </div>
                         </div>
                         ${dueRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
                     </div>
 
-                    <div class="tm-rule-section" style="margin-bottom:0;">
-                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
-                            <div style="font-weight: 700;">时长分段</div>
-                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <div class="tm-priority-module">
+                        <div class="tm-priority-module__head">
+                            <div class="tm-priority-module__copy">
+                                <div class="tm-priority-module__title">时长分段</div>
+                                <div class="tm-priority-module__desc">按预计时长分档加减分，单位可选分钟或小时（支持小数）。</div>
+                            </div>
+                            <div class="tm-priority-module__actions">
                                 <select class="b3-select tm-priority-select" data-tm-call="tmSetPriorityDurationUnit">
                                     <option value="minutes" ${durationUnit === 'minutes' ? 'selected' : ''}>分钟</option>
                                     <option value="hours" ${durationUnit === 'hours' ? 'selected' : ''}>小时（可小数）</option>
@@ -9088,20 +9142,29 @@ return Number(state.contextInteractionQuietUntil || 0);
 
                     ${titleOpacitySection}
 
-                    <div class="tm-rule-section" style="margin-bottom:0;">
-                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
-                            <div style="font-weight: 700;">文档加减分</div>
-                            <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDocDelta">+ 添加</button>
+                    <div class="tm-priority-module">
+                        <div class="tm-priority-module__head">
+                            <div class="tm-priority-module__copy">
+                                <div class="tm-priority-module__title">文档加减分</div>
+                                <div class="tm-priority-module__desc">对单个文档统一加分或减分。</div>
+                            </div>
+                            <div class="tm-priority-module__actions">
+                                <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDocDelta">+ 添加</button>
+                            </div>
                         </div>
                         ${docRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
                     </div>
 
-                    <div class="tm-rule-section" style="margin-bottom:0;">
-                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
-                            <div style="font-weight: 700;">文档分组加减分</div>
-                            <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityGroupDelta">+ 添加</button>
+                    <div class="tm-priority-module">
+                        <div class="tm-priority-module__head">
+                            <div class="tm-priority-module__copy">
+                                <div class="tm-priority-module__title">文档分组加减分</div>
+                                <div class="tm-priority-module__desc">给整个文档分组内的文档统一加减分，支持笔记本分组和包含子文档的分组。</div>
+                            </div>
+                            <div class="tm-priority-module__actions">
+                                <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityGroupDelta">+ 添加</button>
+                            </div>
                         </div>
-                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:8px;">给整个文档分组内的文档统一加减分，支持笔记本分组和包含子文档的分组。</div>
                         ${groupRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
                     </div>
                 </div>
@@ -9286,7 +9349,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             const timeRangeNames = (rule.timeRanges || []).map(t => timeRangeLabels[t] || t).join('+');
 
             html += `
-                <div style="background: var(--tm-bg-color); border: 1px solid var(--tm-border-color); border-radius: 8px; padding: 12px;">
+                <div ${__tmSettingsSearchAttrs('quadrant', `${rule.name}象限规则`, '设置重要性与截止日期条件，支持编辑与重置。', { section: 'quadrant', key: `quadrant-rule-${index}` })} style="background: var(--tm-bg-color); border: 1px solid var(--tm-border-color); border-radius: 8px; padding: 12px;">
                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
                         <span class="tm-quadrant-indicator tm-quadrant-bg-${rule.color}"></span>
                         <span style="font-weight: 600; color: var(--tm-quadrant-${rule.color});">${esc(rule.name)}</span>
@@ -9940,7 +10003,12 @@ return Number(state.contextInteractionQuietUntil || 0);
                 if (el && state.editingRule) el.innerHTML = renderSortRules(state.editingRule.sort);
             } else {
                 const el = state.settingsModal.querySelector('#tm-rules-list');
-                if (el) el.innerHTML = html;
+                if (el) {
+                    el.innerHTML = html;
+                    // Inline re-render bypasses the v2 build; re-apply basecoat decoration
+                    // (the choice observer only fires when added nodes contain selects).
+                    try { __tmDecorateSettingsV2(state.settingsModal); } catch (e) {}
+                }
             }
         }
     }

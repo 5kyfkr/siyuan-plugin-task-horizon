@@ -29,7 +29,7 @@ const checkboxContext = {
     normalizeScheduleRepeatType: (value) => value || 'none',
     normalizeScheduleCompletedOccurrenceKey: (value) => String(value || ''),
 };
-for (const name of ['isRecurringScheduleEventExt', 'isDetachedTaskOccurrenceEventExt', 'isDetachedScheduleOccurrenceEventExt']) {
+for (const name of ['isIndependentScheduleEventExt', 'isRecurringScheduleEventExt', 'isDetachedTaskOccurrenceEventExt', 'isDetachedScheduleOccurrenceEventExt']) {
     checkboxContext[name] = readFunction(source, name, checkboxContext);
 }
 checkboxContext.isOtherBlockCalendarEvent = readFunction(source, 'isOtherBlockCalendarEvent', checkboxContext);

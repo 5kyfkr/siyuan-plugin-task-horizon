@@ -17,7 +17,8 @@ const end = runtime.lastIndexOf("    if (document.readyState === 'loading') {");
 assert.ok(end > 0);
 runtime = runtime.slice(0, end) + `
     window.__settingsTest = { state, SettingsStore, RuleManager, pages: TM_SETTINGS_V2_PAGES,
-        searchEntries: __tmGetSettingsSearchEntries, searchStaticText: __tmSettingsSearchStaticText,
+        searchEntries: __tmGetSettingsSearchEntries, searchResults: __tmGetSettingsSearchResults, searchStaticText: __tmSettingsSearchStaticText,
+        searchIndexReady: () => !__tmSettingsSearchIndexBuilding && !__tmSettingsSearchIndexBuildTimer,
         queue: __tmQueueSettingsSave, run: __tmRunSettingsSave, jobs: __tmSettingsSaveJobs,
         pageFor: __tmSettingsV2PageFor, policy: __tmAgentPolicyView,
         flush: __tmFlushSettingsAutosave, failures: __tmSettingsSaveErrors, applyTheme: __tmApplyAppearanceThemeVars,
@@ -107,6 +108,64 @@ const server = http.createServer((req, res) => {
         await page.waitForTimeout(300);
         if (errors.length) throw new Error(errors.join('\n'));
         await page.locator('.tm-settings-v2').waitFor();
+        await page.evaluate(() => {
+            __settingsTest.SettingsStore.data.customDurationOptions = ['0.5', '1', '2', '3'];
+            tmOpenSettingsV2Page('view', 'v-tl');
+        });
+        await page.waitForFunction(() => __settingsTest.searchIndexReady());
+        const relevance = await page.evaluate(() => {
+            return {
+                kanban: __settingsTest.searchResults('看板').map(entry => entry.title),
+                durations: __settingsTest.searchResults('时长预设').map(entry => entry.title),
+                durationRoute: __settingsTest.searchResults('时长预设')[0]?.route,
+                weekly: __settingsTest.searchResults('每周可安排时间').map(entry => entry.title),
+                actionEntries: __settingsTest.searchEntries().filter(entry => /^(?:删除|编辑规则|重置|亮色|夜间|\+ 添加)$|^rgb\(/.test(entry.title)),
+                arrowEntries: __settingsTest.searchEntries().filter(entry => /(?:^|·)\s*[↑↓×＋+−-]\s*$/.test(entry.title)).map(entry => entry.title)
+            };
+        });
+        assert.deepEqual(relevance.arrowEntries, [], 'reorder/delete controls are not independent settings');
+        assert.ok(relevance.kanban.includes('看板卡片字段'), 'real kanban settings remain searchable');
+        assert.ok(!relevance.kanban.some(title => /时长预设|白板文字默认字号|全部页签时间轴依赖线/.test(title)), 'a category breadcrumb alone never matches a setting');
+        assert.deepEqual(relevance.durations, ['时长预设'], 'preset values and actions resolve to one meaningful settings group');
+        assert.deepEqual(relevance.durationRoute, { page: 'calendar', sub: 'c-focus' }, 'duration presets belong to time and focus settings');
+        assert.deepEqual(relevance.weekly, ['每周可安排时间'], 'repeated time ranges resolve to their actual setting');
+        for (const entry of relevance.actionEntries) {
+            assert.equal(entry.tab, 'priority', 'standalone actions are scoped to the priority module editor');
+            assert.match(decodeURIComponent(entry.key), /tm(?:Add|Remove)Priority(?:DueRange|DurationBucket|TitleOpacityRange|DocDelta|GroupDelta)\|/);
+            assert.deepEqual(entry.route, { page: 'algo', sub: 'r-priority' });
+            assert.equal(entry.sectionLabel, '优先级数值', 'action results retain their settings context');
+        }
+        assert.equal(new Set(relevance.actionEntries.map(entry => entry.key)).size, relevance.actionEntries.length,
+            'repeated module actions have unique search targets');
+        const tabLayout = await page.evaluate(() => {
+            tmOpenSettingsV2Page('calendar', 'c-focus');
+            const content = document.querySelector('.tm-settings-content');
+            const tabs = content?.querySelector('.tm-settings-subtabs');
+            const close = document.querySelector('.tm-settings-v2-close');
+            const contentStyle = content ? getComputedStyle(content) : null;
+            const contentInnerWidth = content && contentStyle
+                ? content.clientWidth - parseFloat(contentStyle.paddingLeft) - parseFloat(contentStyle.paddingRight)
+                : 0;
+            return {
+                tabsWidth: tabs?.getBoundingClientRect().width || 0,
+                contentWidth: contentInnerWidth,
+                rightPadding: tabs ? getComputedStyle(tabs).paddingRight : '',
+                closeVisible: !!close?.getClientRects().length
+            };
+        });
+        assert.equal(tabLayout.tabsWidth, tabLayout.contentWidth, 'secondary tabs fill the complete content row');
+        assert.equal(tabLayout.rightPadding, '52px', 'secondary tabs reserve only the close-button safe area');
+        assert.equal(tabLayout.closeVisible, true, 'close button remains visible above the full-width tab row');
+        await page.locator('.tm-settings-v3-rail-search').click();
+        await page.locator('[data-tm-settings-search-input]').fill('看板');
+        await page.waitForFunction(() => __settingsTest.searchIndexReady());
+        assert.deepEqual(
+            (await page.locator('.tm-settings-search-result__title').allTextContents()).sort(),
+            [...relevance.kanban].sort(),
+            'live result list uses the same relevance filtering'
+        );
+        await page.locator('.tm-settings-v3').screenshot({ path: path.join(root, 'output/playwright/settings-v3-search-kanban.png') });
+        await page.locator('[data-tm-settings-search-input]').press('Escape');
         const rows = new Map();
         const pages = await page.evaluate(() => __settingsTest.pages.map(([id]) => id));
         assert.equal(pages.length, 8, 'v3 exposes eight primary categories');
@@ -165,6 +224,7 @@ const server = http.createServer((req, res) => {
             data.rows.forEach(([key, title]) => rows.set(key, title));
             assert.equal(await page.locator('.tm-settings-actions').count(), 0, 'no separate save/cancel footer');
         }
+        await page.waitForFunction(() => __settingsTest.searchIndexReady());
         const expected = await page.evaluate(() => __settingsTest.state.settingsSearchGeneratedEntries.filter((entry) => entry.rendered).map((entry) => [entry.key, entry.title]));
         assert.equal(subpageCount, 30, 'v3 exposes all thirty secondary pages');
         const missing = expected.filter(([key]) => !rows.has(key));
@@ -239,6 +299,7 @@ const server = http.createServer((req, res) => {
                 keys.forEach(key => covered.add(key));
                 assert.deepEqual(await page.evaluate(unindexedSettingsControls), [], `${scenario}/${id} has no unindexed setting controls`);
             }
+            await page.waitForFunction(() => __settingsTest.searchIndexReady());
             const expectedKeys = await page.evaluate(() => __settingsTest.state.settingsSearchGeneratedEntries.filter(entry => entry.rendered).map(entry => entry.key));
             assert.deepEqual(expectedKeys.filter(key => !covered.has(key)), [], `${scenario} setting coverage`);
             await page.locator('.tm-settings-v3-rail-search').click();

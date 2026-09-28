@@ -2844,7 +2844,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             ? stableTaskId
             : await __tmInsertBlockOnce(
                 listId,
-                stableTaskId ? API.generateTaskDOM(stableTaskId, text, false) : `- [ ] ${text}`,
+                stableTaskId ? API.generateTaskDOM(stableTaskId, text, false, { attrs: opts.initialAttrs }) : `- [ ] ${text}`,
                 { previousID: sourceTaskId },
                 {
                     ...(stableTaskId ? { dataType: 'dom', requestedID: stableTaskId } : {}),
@@ -2937,7 +2937,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             });
         } catch (e) {}
         const docId = String(parentTask?.docId || parentTask?.root_id || '').trim();
-        const inheritedPatch = __tmBuildSubtaskInheritedPatch(parentTask);
+        const inheritedPatch = { ...__tmBuildSubtaskInheritedPatch(parentTask), ...hooks.initialPatch };
         const shouldWait = hooks.wait !== false;
         let pendingPromise = null;
         const opPromise = __tmEnqueueQueuedOp({
@@ -3055,6 +3055,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             h2: parentTask.h2 || '',
             h2Id: parentTask.h2Id || '',
         };
+        if (inheritedPatchInput) __tmApplyQueuedTaskFieldPatchToTask(nextTask, inheritedPatchInput);
         try { normalizeTaskFields(nextTask, nextTask.docName || '未知文档'); } catch (e) {}
 
         try { __tmAttachOptimisticChildToParentCandidates(parentTask, rawPid || pid, nextTask); } catch (e) {}
@@ -3127,6 +3128,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             h2: sourceTask.h2 || '',
             h2Id: sourceTask.h2Id || '',
         };
+        if (opts.initialPatch) __tmApplyQueuedTaskFieldPatchToTask(nextTask, opts.initialPatch);
         try { normalizeTaskFields(nextTask, nextTask.docName || '未知文档'); } catch (e) {}
         try {
             const sourceDocSeq = Number(sourceTask?.docSeq);
@@ -3276,6 +3278,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             laneKey: docId ? `doc:${docId}` : `task:${tid}`,
             data: {
                 sourceTaskId: tid,
+                initialPatch: hooks.initialPatch,
                 clientId,
                 tempId,
                 requestedTaskId,
@@ -3321,41 +3324,11 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         }
         if (!__tmEnsureEditableTaskLike(parentTask, '新建子任务')) return;
 
-        const text = await showPrompt('新建子任务', '每行一个子任务；回车换行，Ctrl + 回车提交', '', {
-            multiline: true,
-            rows: 4,
-            minHeight: 96,
+        return await window.tmQuickAddOpen({
+            relation: 'subtask',
+            sourceTaskId: pid,
+            docId: parentTask.docId || parentTask.root_id || '',
         });
-        if (text == null) return;
-        const taskLines = __tmSplitTaskInputLines(text);
-        if (taskLines.length === 0) {
-            hint('⚠ 请输入子任务内容', 'warning');
-            return;
-        }
-
-        try {
-            const createSubtask = globalThis.__tmRequireTaskMutation?.('createSubtask');
-            if (typeof createSubtask !== 'function') throw new Error('任务写入队列未就绪: createSubtask');
-            const createSettled = await Promise.allSettled(taskLines.map((line) => createSubtask(pid, line, {
-                    silent: true,
-                    wait: true,
-                    skipInteractionGate: true,
-                })));
-            const createFailures = createSettled.filter((item) => item.status === 'rejected');
-            const successCount = createSettled.length - createFailures.length;
-            if (createFailures.length > 0) {
-                const firstError = createFailures[0]?.reason;
-                if (successCount === 0) {
-                    throw firstError instanceof Error ? firstError : new Error(String(firstError || '子任务创建失败'));
-                }
-                const message = String(firstError?.message || firstError || '').trim();
-                hint(`⚠ 已新增 ${successCount} 个子任务，${createFailures.length} 个失败${message ? `: ${message}` : ''}`, 'warning');
-                return;
-            }
-            hint(taskLines.length > 1 ? `✅ 已新增 ${taskLines.length} 个子任务` : '✅ 已新增', 'success');
-        } catch (e) {
-            hint(`❌ 新建子任务失败: ${e.message}`, 'error');
-        }
     };
 
     window.tmCreateSiblingTask = async function(taskId, ev) {
@@ -3373,24 +3346,11 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         }
         if (!__tmEnsureEditableTaskLike(currentTask, '新建同级任务')) return;
 
-        const text = await showPrompt('新建同级任务', '请输入任务内容', '');
-        if (text == null) return;
-        const nextText = String(text || '').trim();
-        if (!nextText) {
-            hint('⚠ 请输入任务内容', 'warning');
-            return;
-        }
-
-        try {
-            await __tmQueueCreateSiblingTask(tid, nextText, {
-                silent: true,
-                wait: true,
-                showErrorHint: false,
-            });
-            hint('✅ 同级任务已创建', 'success');
-        } catch (e) {
-            hint(`❌ 新建同级任务失败: ${e.message}`, 'error');
-        }
+        return await window.tmQuickAddOpen({
+            relation: 'sibling',
+            sourceTaskId: tid,
+            docId: currentTask.docId || currentTask.root_id || '',
+        });
     };
 
     let __tmQuickbarScheduledRefreshTimer = 0;
@@ -3754,7 +3714,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         sync();
     }
 
-    window.tmQuickAddOpen = async function() {
+    window.tmQuickAddOpen = async function(options = {}) {
+        const relation = options.relation === 'subtask' || options.relation === 'sibling' ? options.relation : '';
+        const sourceTaskId = relation ? String(options.sourceTaskId || '').trim() : '';
+        const dialogTitle = relation === 'subtask' ? '新建子任务' : relation === 'sibling' ? '新建同级任务' : '新建任务';
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
         state.__quickAddViewportCleanup?.();
         state.__quickAddViewportCleanup = null;
@@ -3773,8 +3736,14 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
 
         const stOptions = SettingsStore.data.customStatusOptions || [];
         const defaultStatusId = __tmGetDefaultUndoneStatusId(stOptions);
+        const inheritedPatch = relation === 'subtask'
+            ? __tmBuildSubtaskInheritedPatch(__tmResolveOptimisticTaskForLocalUse(sourceTaskId).task)
+            : {};
         state.quickAdd = {
             initializing: true,
+            relation,
+            sourceTaskId,
+            draftScope: relation ? `${relation}:${sourceTaskId}` : '',
             docId: '',
             docMode: 'doc',
             customStatus: defaultStatusId,
@@ -3787,6 +3756,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             reminderDraftOpening: false,
             customFieldValues: {},
             remark: '',
+            ...inheritedPatch,
         };
         const qa = state.quickAdd;
 
@@ -3795,8 +3765,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         modal.style.zIndex = '100010';
 
         modal.innerHTML = `
-            <div class="tm-prompt-box tm-quick-add-box" role="dialog" aria-modal="true" aria-label="新建任务">
-                <button type="button" class="tm-quick-add-close" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" aria-label="关闭新建任务">${__tmRenderLucideIcon('x')}</button>
+            <div class="tm-prompt-box tm-quick-add-box" role="dialog" aria-modal="true" aria-label="${dialogTitle}">
+                <button type="button" class="tm-quick-add-close" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" aria-label="关闭${dialogTitle}">${__tmRenderLucideIcon('x')}</button>
                 <div class="tm-quick-add-fields">
                     <textarea id="tmQuickAddInput" class="tm-prompt-input tm-quick-add-title-input" placeholder="准备做什么？" aria-label="任务内容，每行一个任务" enterkeyhint="enter" rows="1"></textarea>
                     <textarea id="tmQuickAddRemark" class="tm-prompt-input tm-quick-add-remark-input" placeholder="备注" aria-label="备注" enterkeyhint="enter" rows="1"></textarea>
@@ -3804,9 +3774,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 </div>
                 <div class="tm-quick-add-toolbar">
                     <div class="tm-quick-add-tools" inert aria-busy="true">
-                        <button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-doc" onclick="tmQuickAddOpenDocPicker()" aria-label="选择文档">
+                        ${relation ? '' : `<button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-doc" onclick="tmQuickAddOpenDocPicker()" aria-label="选择文档">
                             ${__tmRenderLucideIcon('file-text')}<span id="tmQuickAddDocName">文档</span>
-                        </button>
+                        </button>`}
                         <div class="tm-quick-add-date-wrap">
                             <button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-date" onclick="tmQuickAddOpenDatePicker()" aria-label="设置日期" title="日期、循环和提醒">
                                 ${__tmRenderLucideIcon('calendar-check')}<span id="tmQuickAddDateLabel">日期</span>
@@ -3826,6 +3796,14 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         `;
         document.body.appendChild(modal);
         state.quickAddModal = modal;
+        // 选择元数据后焦点可能停在按钮上；提交快捷键属于整个弹窗。
+        modal.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+            if (!e.ctrlKey && !e.metaKey) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (!e.repeat) modal.querySelector('#tmQuickAddSubmitBtn')?.click();
+        }, true);
         __tmBindQuickAddPickerInputFocus(modal.querySelector('.tm-quick-add-tools'));
         __tmBindQuickAddViewport(modal);
         __tmApplyPopupOpenAnimation(modal, modal.querySelector('.tm-prompt-box'), {
@@ -3836,7 +3814,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const input = document.getElementById('tmQuickAddInput');
         const remarkInput = document.getElementById('tmQuickAddRemark');
         if (input) {
-            const persistedDraft = typeof __tmGetQuickAddDraft === 'function' ? __tmGetQuickAddDraft() : null;
+            remarkInput.value = qa.remark;
+            const persistedDraft = typeof __tmGetQuickAddDraft === 'function' ? __tmGetQuickAddDraft(qa.draftScope) : null;
             if (persistedDraft) {
                 input.value = String(persistedDraft.value || '');
                 remarkInput.value = String(persistedDraft.remark || '');
@@ -3844,16 +3823,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             }
             input.enterKeyHint = 'enter';
             input.setAttribute('enterkeyhint', 'enter');
-            input.onkeydown = (e) => {
-                if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
-                if (!e.ctrlKey && !e.metaKey) return;
-                try { e.preventDefault(); } catch (e2) {}
-                try { e.stopPropagation(); } catch (e2) {}
-                window.tmQuickAddSubmit?.();
-            };
             input.addEventListener('input', () => {
                 try {
                     __tmSaveQuickAddDraft(input.value, {
+                        scope: qa.draftScope,
                         remark: remarkInput.value,
                         selectionStart: Number(input.selectionStart || 0),
                         selectionEnd: Number(input.selectionEnd || input.selectionStart || 0),
@@ -3867,10 +3840,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     window.tmQuickAddRenderMeta?.();
                 }
             });
-            remarkInput.onkeydown = input.onkeydown;
             remarkInput.addEventListener('input', () => {
                 if (state.quickAdd) state.quickAdd.remark = remarkInput.value;
-                __tmSaveQuickAddDraft(input.value, { remark: remarkInput.value,
+                __tmSaveQuickAddDraft(input.value, { scope: qa.draftScope, remark: remarkInput.value,
                     selectionStart: input.selectionStart, selectionEnd: input.selectionEnd });
                 __tmRefreshQuickAddInputLayout(modal);
             });
@@ -3915,7 +3887,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         try {
             await __tmEnsureSettingsLoaded();
             if (state.quickAdd !== qa || !modal.isConnected) return;
-            const initialLocation = await __tmResolveQuickAddInitialLocation();
+            const initialLocation = relation
+                ? { mode: 'doc', docId: options.docId }
+                : await __tmResolveQuickAddInitialLocation();
             if (state.quickAdd !== qa || !modal.isConnected) return;
             const docId = String(initialLocation?.docId || '').trim();
             if (!docId && initialLocation?.mode !== 'dailyNote') {
@@ -3928,8 +3902,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             if (state.quickAdd !== qa || !modal.isConnected) return;
             qa.docId = docId;
             qa.docMode = initialLocation?.mode === 'dailyNote' ? 'dailyNote' : 'doc';
-            qa.customStatus = __tmGetDefaultUndoneStatusId(SettingsStore.data.customStatusOptions || []);
-            qa.completionTime = __tmResolveQuickAddDefaultCompletionTime();
+            qa.customStatus = inheritedPatch.customStatus || __tmGetDefaultUndoneStatusId(SettingsStore.data.customStatusOptions || []);
+            qa.completionTime = inheritedPatch.completionTime || __tmResolveQuickAddDefaultCompletionTime();
             qa.initializing = false;
             const toolbar = modal.querySelector('.tm-quick-add-tools');
             toolbar.removeAttribute('inert');
@@ -4851,8 +4825,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const taskLines = __tmSplitTaskInputLines(input?.value || '');
         if (taskLines.length === 0) return;
         const remark = String(document.getElementById('tmQuickAddRemark')?.value ?? qa.remark ?? '');
-        __tmSaveQuickAddDraft(input.value, { remark });
-        const submittedDraft = __tmGetQuickAddDraft();
+        __tmSaveQuickAddDraft(input.value, { scope: qa.draftScope, remark });
+        const submittedDraft = __tmGetQuickAddDraft(qa.draftScope);
         const hasReminderDraft = !!qa.reminderDraft && taskLines.length === 1;
         const reminderBridge = globalThis.__tomatoReminder;
         const canPersistReminder = hasReminderDraft
@@ -4873,6 +4847,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         qa.customFieldValues = customFieldValues;
         state.quickAddSubmitting = true;
         const payload = {
+            relation: qa.relation,
+            sourceTaskId: qa.sourceTaskId,
             docId: qa.docId,
             docMode: qa.docMode,
             priority: qa.priority,
@@ -4907,10 +4883,12 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 }
                 const createdTaskIds = [];
                 let reminderTaskId = '';
-                const createTaskInDoc = globalThis.__tmRequireTaskMutation?.('createTaskInDoc');
-                if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪: createTaskInDoc');
+                const mutationName = payload.relation === 'subtask' ? 'createSubtask'
+                    : payload.relation === 'sibling' ? 'createSibling' : 'createTaskInDoc';
+                const createTask = globalThis.__tmRequireTaskMutation?.(mutationName);
+                if (typeof createTask !== 'function') throw new Error(`任务写入队列未就绪: ${mutationName}`);
                 const insertOptionsTimeoutMs = 1800;
-                const insertOptions = await Promise.race([
+                const insertOptions = payload.relation ? null : await Promise.race([
                     Promise.resolve()
                         .then(() => __tmResolveDefaultNewTaskInsertOptions(targetDocId, payload.docMode, { contentCount: payload.contents.length }))
                         .catch(() => null),
@@ -4919,9 +4897,11 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 const normalizedInsertOptions = (insertOptions && typeof insertOptions === 'object') ? insertOptions : {};
                 const { headingPatch, ...createInsertOptions } = normalizedInsertOptions;
                 const insertAfterId = String(createInsertOptions.insertAfterId || '').trim();
-                const createContents = insertAfterId ? payload.contents.slice().reverse() : payload.contents;
-                const firstContentIndex = insertAfterId ? createContents.length - 1 : 0;
-                const createSettled = await Promise.allSettled(createContents.map((content, index) => createTaskInDoc({
+                const reverseInsert = payload.relation === 'sibling' || !!insertAfterId;
+                const createContents = reverseInsert ? payload.contents.slice().reverse() : payload.contents;
+                const firstContentIndex = reverseInsert ? createContents.length - 1 : 0;
+                const createSettled = await Promise.allSettled(createContents.map(async (content, index) => {
+                    const taskPayload = {
                         docId: targetDocId,
                         content,
                         remark: index === firstContentIndex ? payload.remark : '',
@@ -4935,18 +4915,29 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                         ...createInsertOptions,
                         wait: true,
                         showErrorHint: false,
-                    }).then(async (createdTaskId) => {
-                        if (createdTaskId) {
-                            createdTaskIds.push(createdTaskId);
-                            if (payload.reminderDraft) {
-                                reminderTaskId = await __tmWaitForQuickAddRealTaskId(createdTaskId);
-                            }
-                            try {
-                                if (headingPatch) __tmApplyHeadingPatchToTaskLocal(createdTaskId, headingPatch, 'quick-add-default-heading');
-                            } catch (e) {}
+                    };
+                    const createdTaskId = payload.relation
+                        ? await createTask(payload.sourceTaskId, content, {
+                            initialPatch: {
+                                priority: '', customStatus: '', startDate: '', completionTime: '', customFieldValues: {},
+                                ...__tmBuildCreateTaskInDocAttrPatchFromPayload(taskPayload),
+                            },
+                            silent: true,
+                            wait: true,
+                            skipInteractionGate: true,
+                        })
+                        : await createTask(taskPayload);
+                    if (createdTaskId) {
+                        createdTaskIds.push(createdTaskId);
+                        if (payload.reminderDraft) {
+                            reminderTaskId = await __tmWaitForQuickAddRealTaskId(createdTaskId);
                         }
-                        return createdTaskId;
-                    })));
+                        try {
+                            if (headingPatch) __tmApplyHeadingPatchToTaskLocal(createdTaskId, headingPatch, 'quick-add-default-heading');
+                        } catch (e) {}
+                    }
+                    return createdTaskId;
+                }));
                 const createFailures = createSettled.filter((item) => item.status === 'rejected');
                 if (createFailures.length > 0) {
                     const firstError = createFailures[0]?.reason;

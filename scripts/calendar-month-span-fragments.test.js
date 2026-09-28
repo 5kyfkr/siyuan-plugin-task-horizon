@@ -30,6 +30,7 @@ const context = {
     isCompactDockLayout: () => false,
 };
 vm.runInNewContext([
+    extract('    function isIndependentScheduleEventExt(', '    function isTaskLinkedScheduleEventExt('),
     extract('    function mergeCalendarAllDayReminders(', '    function buildCalendarMergedReminderMarkup('),
     extract('    function buildCalendarMergedReminderMarkup(', '    function buildSharedPrototypeEventMarkup('),
     extract('    function resolveSharedPrototypeEventEnd(', '    function countSharedPrototypeAllDayEvents('),

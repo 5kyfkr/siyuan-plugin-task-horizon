@@ -71,6 +71,7 @@ assert.match(source, /const projected = isCalendarMonthViewType\(viewType\) \? d
     'schedule dedupe must remain limited to month-view source projection');
 
 vm.runInNewContext([
+    extract('    function isIndependentScheduleEventExt(', '    function isTaskLinkedScheduleEventExt('),
     extract('    function mergeCalendarAllDayReminders(', '    function buildCalendarMergedReminderMarkup('),
     extract('    function resolveSharedPrototypeEventStart(', '    function buildSharedPrototypeLunarText('),
     extract('    function resolveSharedPrototypeEventEnd(', '    function resolveSharedPrototypeEventStart('),

@@ -62,8 +62,19 @@
     color: var(--primary-foreground);
 }
 
+/* 修饰类 hover 必须压过 .bc-btn:hover 的通用浅底，否则白字主按钮会白底白字 */
+.bc-btn--primary:hover {
+    border-color: color-mix(in srgb, var(--primary) 68%, transparent 32%);
+    background: color-mix(in srgb, var(--primary) 88%, var(--primary-foreground) 12%);
+    color: var(--primary-foreground);
+}
+
 .bc-btn--ghost {
     background: transparent;
+}
+
+.bc-btn--ghost:hover {
+    background: var(--secondary);
 }
 
 .bc-input,

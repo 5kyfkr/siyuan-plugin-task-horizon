@@ -48,6 +48,11 @@ const calendarContext = vm.createContext({
 calendarContext.globalThis = calendarContext;
 vm.runInContext(`${calendar.slice(calendarStart, calendarEnd)}\nthis.__test = { normalizeScheduleList, serializeScheduleForSave, collectScheduleOccurrencesInRange, applyScheduleRecurringScopeMutation, applyScheduleRecurringDeleteScopeMutation, getScheduleOccurrenceOrdinal };`, calendarContext);
 const calendarApi = calendarContext.__test;
+for (const scheduleDone of [false, true]) {
+    const saved = calendarApi.serializeScheduleForSave({ id: 'independent', taskId: 'task', scheduleDone });
+    const reloaded = calendarApi.normalizeScheduleList([JSON.parse(JSON.stringify(saved))]).out[0];
+    assert.equal(reloaded.scheduleDone, scheduleDone, 'Independent completion must survive canonical serialization and reload');
+}
 
 assert.match(taskModel, /tmRepeatCore\s*=\s*Object\.freeze\([\s\S]*normalizeRule:[\s\S]*next:[\s\S]*iterate:/,
     'task runtime must expose the shared repeat facade');

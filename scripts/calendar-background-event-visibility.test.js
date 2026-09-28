@@ -48,6 +48,7 @@ for (const file of ['calendar-date.js', 'calendar-store.js']) {
     vm.runInContext(fs.readFileSync(path.join(root, 'src/calendar', file), 'utf8'), context);
 }
 for (const name of [
+    'isIndependentScheduleEventExt',
     'normalizeCalendarWeekAllDayVisibleRows', 'normalizeCalendarVisibleTime', 'getCalendarVisibleSlotRange',
     'getPrototypeTimelineMetrics', 'getPrototypeTimelineVisibleEventSegments', 'prototypeTimelineYForMinute',
     'resolveSharedPrototypeEventStart', 'resolveSharedPrototypeEventEnd', 'countSharedPrototypeAllDayEvents',

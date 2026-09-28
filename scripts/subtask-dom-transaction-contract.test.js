@@ -27,7 +27,9 @@ assert.match(api, /createSubtask:\s*__tmGuardBackendWrite\('createSubtask'/, 'su
 assert.match(create, /const requestedContainerId = __tmNewTaskBlockId\(\);/, 'queued subtask creation must reserve a list ID');
 assert.match(create, /const itemData = API\.generateTaskDOM\(stableTaskId, text, false, \{[\s\S]*itemOnly: true/);
 assert.match(create, /createSubtask\(\s*pid,\s*stableTaskId,\s*childListId \|\| requestedListId,\s*listData,\s*itemData/);
-assert.doesNotMatch(create, /stableTaskId \? API\.generateTaskDOM\(stableTaskId, text, false, \{[\s\S]*requestedID: stableTaskId/);
+const subtaskWriter = create.slice(create.indexOf('async function __tmCreateSubtaskForTaskKernel'), create.indexOf('async function __tmCreateSiblingTaskForTaskKernel'));
+assert.doesNotMatch(subtaskWriter, /stableTaskId \? API\.generateTaskDOM\(stableTaskId, text, false, \{[\s\S]*requestedID: stableTaskId/,
+    'subtasks must use their dedicated transaction writer; sibling DOM inserts may carry initial fields');
 
 assert.match(detail, /createSubtask\(parentForCreate, line,[\s\S]*wait: false/,
     'detail creation must use the shared non-blocking mutation command');

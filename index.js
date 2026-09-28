@@ -1075,7 +1075,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             if (unpinned) {
                 try { element.remove(); } catch (e) {}
             } else if (!document.contains(element)) {
-                try { document.querySelector("#menuConfigAbout")?.after(element); } catch (e) {}
+                try { document.getElementById("menuPluginTopBar")?.after(element); } catch (e) {}
             }
         } else {
             try { element.classList.toggle("fn__none", unpinned); } catch (e) {}
@@ -2299,7 +2299,6 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     syncWindowTopBar() {
         try { globalThis.__taskHorizonSyncWindowTopBar = this.syncWindowTopBar.bind(this); } catch (e) {}
         if (this.isRuntimeMobileClient()) {
-            this.removeWindowTopBar();
             return false;
         }
         if (!readWindowTopbarEnabled()) {

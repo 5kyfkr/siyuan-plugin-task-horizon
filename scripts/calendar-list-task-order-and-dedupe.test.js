@@ -46,7 +46,7 @@ const context = vm.createContext({
     doesReminderOccurOnDate: () => true, isReminderDateCompleted: () => false,
 });
 vm.runInContext([
-    ...['resolveSharedPrototypeEventStart', 'resolveSharedPrototypeEventEnd', 'mergeCalendarAllDayReminders', 'buildCalendarMergedReminderMarkup'].map(readFunction),
+    ...['isIndependentScheduleEventExt', 'resolveSharedPrototypeEventStart', 'resolveSharedPrototypeEventEnd', 'mergeCalendarAllDayReminders', 'buildCalendarMergedReminderMarkup'].map(readFunction),
     segment('const protoListEventOverlapsDay =', 'const protoListDateCell ='),
     segment('const protoRenderList =', 'const protoRenderDayPanel ='),
     segment('function isReminderFollowingTask(', 'function syncReminderDateFromTaskPatch('),
@@ -103,6 +103,13 @@ const allDaySchedule = event('all-day-scheduled-a', 'task-a', 'schedule');
 assert.deepEqual(renderIds([taskReminder, due, allDaySchedule]), ['all-day-scheduled-a'], 'All-day linked schedules must also deduplicate both the deadline and reminder');
 const secondSchedule = event('second-scheduled-a', 'task-a', 'schedule', 16);
 assert.deepEqual(renderIds([taskReminder, due, scheduled, secondSchedule]), ['scheduled-a', 'second-scheduled-a'], 'Distinct schedule slots for a task remain visible');
+const independentSchedules = ['independent-a', 'independent-b', 'independent-c'].map(id => {
+    const schedule = event(id, 'task-a', 'schedule');
+    schedule.extendedProps.__tmScheduleCompletionIndependent = true;
+    return schedule;
+});
+assert.deepEqual(renderIds(independentSchedules), ['independent-a', 'independent-b', 'independent-c'], 'Independent all-day schedules keep separate identities');
+assert.doesNotMatch(context.renderList({}, independentSchedules, {}), /tm-proto-list-task-card|onchange="tmSetDone/, 'Independent schedules must use event controls rather than task card controls');
 for (const events of [[taskReminder, due], [taskReminder, scheduled], [taskReminder, due, scheduled], [taskReminder, allDaySchedule], [yesterdayReminder, yesterdayDue], [taskReminder, spanDue]]) {
     const html = context.renderList({}, events, {});
     assert.match(html, /class="tm-proto-reminder-time"[^>]*>⏰ [^<]*09:00<\/span>/, 'The actual list task card must retain the reminder time');

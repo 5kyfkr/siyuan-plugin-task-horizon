@@ -11,9 +11,9 @@ const quickAddSource = fs.readFileSync(path.join(root, 'src', 'task-horizon', 'm
 assert.match(helperSource, /tm_quick_add_draft_v1/, 'quick-add drafts must have a dedicated storage key');
 assert.match(helperSource, /function __tmSaveQuickAddDraft[\s\S]*__tmPersistQuickAddDraftStorage/, 'quick-add drafts must persist to local storage');
 assert.match(helperSource, /function __tmGetQuickAddDraft[\s\S]*__TM_QUICK_ADD_DRAFT_MAX_AGE_MS/, 'quick-add drafts must expire after the configured age');
-assert.match(helperSource, /function __tmClearQuickAddDraft[\s\S]*__tmPersistQuickAddDraftStorage\(null\)/, 'quick-add draft cleanup must remove the stored entry');
+assert.match(helperSource, /function __tmClearQuickAddDraft[\s\S]*__tmPersistQuickAddDraftStorage\(null, scope\)/, 'quick-add draft cleanup must remove the stored entry');
 
-const openStart = quickAddSource.indexOf('window.tmQuickAddOpen = async function()');
+const openStart = quickAddSource.indexOf('window.tmQuickAddOpen = async function(');
 const openEnd = quickAddSource.indexOf('window.tmQuickAddOpenForDoc =', openStart);
 assert.ok(openStart >= 0 && openEnd > openStart, 'quick-add open flow must remain extractable');
 const openSource = quickAddSource.slice(openStart, openEnd);

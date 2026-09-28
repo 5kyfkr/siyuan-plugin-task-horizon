@@ -4363,7 +4363,7 @@
         const statusIds = new Set(statusOptions.map((item) => String(item?.id || '').trim()).filter(Boolean));
         const normalizeOne = (rawValue, done) => {
             const normalized = __tmNormalizeCheckboxStatusBindingValue(rawValue);
-            if (!normalized) return done ? '' : (__tmGetCheckboxStatusBindingFallbackId(false, statusOptions) || 'todo');
+            if (!normalized) return __tmGetCheckboxStatusBindingFallbackId(done, statusOptions) || (done ? '' : 'todo');
             if (statusIds.has(normalized) && statusOptions.some((item) => item.id === normalized && __tmNormalizeCompatTaskStatusMarker(item.marker) === (done ? 'X' : ' '))) return normalized;
             return __tmGetCheckboxStatusBindingFallbackId(done, statusOptions);
         };
@@ -4375,7 +4375,7 @@
     function __tmResolveCheckboxLinkedStatusId(done, statusOptionsInput = null) {
         const statusOptions = __tmGetStatusOptions(statusOptionsInput);
         const configured = __tmNormalizeCheckboxStatusBindingValue(done ? SettingsStore?.data?.checkboxDoneStatusId : SettingsStore?.data?.checkboxUndoneStatusId);
-        if (!configured) return '';
+        if (!configured) return done ? __tmGetCheckboxStatusBindingFallbackId(true, statusOptions) : __tmGetDefaultUndoneStatusId(statusOptions);
         if (statusOptions.some((item) => item.id === configured && __tmNormalizeCompatTaskStatusMarker(item.marker) === (done ? 'X' : ' '))) return configured;
         return done ? __tmGetCheckboxStatusBindingFallbackId(true, statusOptions) : __tmGetDefaultUndoneStatusId(statusOptions);
     }
@@ -4484,20 +4484,17 @@
 
     function __tmRenderCheckboxStatusBindingOptionsHtml(selectedValue, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        const allowNone = opts.allowNone !== false;
+        const done = opts.done !== false;
         const normalizedSelected = __tmNormalizeCheckboxStatusBindingValue(selectedValue);
         const statusOptions = Array.isArray(SettingsStore?.data?.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
-        const rows = [
-            ...(allowNone ? [{ id: '__none__', name: '不自动切换' }] : []),
-            ...statusOptions.filter((item) => __tmNormalizeCompatTaskStatusMarker(item.marker) === (allowNone ? 'X' : ' ')).map((item) => ({
-                id: String(item?.id || '').trim(),
-                name: String(item?.name || item?.id || '').trim() || String(item?.id || '').trim()
-            })).filter((item) => item.id)
-        ];
+        const rows = statusOptions.filter((item) => __tmNormalizeCompatTaskStatusMarker(item.marker) === (done ? 'X' : ' ')).map((item) => ({
+            id: String(item?.id || '').trim(),
+            name: String(item?.name || item?.id || '').trim() || String(item?.id || '').trim()
+        })).filter((item) => item.id);
         if (normalizedSelected && !rows.some((item) => item.id === normalizedSelected)) {
             rows.push({ id: normalizedSelected, name: `当前值已删除：${normalizedSelected}` });
         }
-        const selectedId = normalizedSelected || (allowNone ? '__none__' : __tmGetDefaultUndoneStatusId(statusOptions));
+        const selectedId = normalizedSelected || __tmGetCheckboxStatusBindingFallbackId(done, statusOptions);
         return rows.map((item) => `<option value="${esc(item.id)}" ${selectedId === item.id ? 'selected' : ''}>${esc(item.name)}</option>`).join('');
     }
 
@@ -5992,6 +5989,7 @@
             if (!requestedTaskId) throw new Error('新建同级任务缺少稳定块 ID');
             const realId = await __tmCreateSiblingTaskForTaskKernel(payload.sourceTaskId, payload.content, {
                 requestedTaskId,
+                initialAttrs: __tmBuildAtomicCreateAttrs(requestedTaskId, payload.initialPatch),
                 scheduleSnapshotRefresh: false,
                 deferResolveInsertedTaskId: true,
             });
@@ -6689,6 +6687,7 @@
         if (type === 'createSibling') {
             const applied = __tmApplyOptimisticSiblingTask(op?.data?.sourceTaskId, op?.data?.tempId, op?.data?.content, {
                 clientId: op?.data?.clientId,
+                initialPatch: op?.data?.initialPatch,
             });
             if (applied !== false) __tmPublishQueuedOpMutation(op, 'optimistic', {
                 task: (applied && typeof applied === 'object') ? applied : null,
@@ -17223,6 +17222,19 @@ if (opts.refresh === false) return;
         } catch (e) {}
     }
 
+    function __tmRestoreKeepaliveSnapshotScroll(snapshot) {
+        const restore = () => {
+            if (!snapshot?.isConnected) return;
+            for (const { node, top, left } of snapshot.__tmKeepaliveScrollPositions || []) {
+                node.style.scrollBehavior = 'auto';
+                node.scrollTop = top;
+                node.scrollLeft = left;
+            }
+        };
+        restore();
+        try { requestAnimationFrame(restore); } catch (e) {}
+    }
+
     function __tmCreateKeepaliveSnapshot(sourceEl, kind = 'dock') {
         if (!(sourceEl instanceof HTMLElement)) return null;
         try {
@@ -17233,6 +17245,19 @@ if (opts.refresh === false) return;
                 if (active instanceof Element && sourceEl.contains(active)) active.blur?.();
             } catch (e) {}
             const snapshot = sourceEl.cloneNode(true);
+            // cloneNode does not copy scroll offsets. In virtual month views
+            // that exposes the empty spacer instead of the rendered weeks.
+            // Capture every scroller, including timeline, list and side panes.
+            const sourceNodes = [sourceEl, ...sourceEl.querySelectorAll('*')];
+            const snapshotNodes = [snapshot, ...snapshot.querySelectorAll('*')];
+            snapshot.__tmKeepaliveScrollPositions = [];
+            sourceNodes.forEach((node, index) => {
+                const top = Number(node.scrollTop) || 0;
+                const left = Number(node.scrollLeft) || 0;
+                if ((top || left) && snapshotNodes[index] instanceof HTMLElement) {
+                    snapshot.__tmKeepaliveScrollPositions.push({ node: snapshotNodes[index], top, left });
+                }
+            });
             snapshot.setAttribute('data-task-horizon-dock-snapshot', '1');
             snapshot.setAttribute('data-task-horizon-snapshot-kind', kind === 'tab' ? 'tab' : 'dock');
             snapshot.setAttribute('aria-hidden', 'true');
@@ -21439,7 +21464,7 @@ if (!state.homepageOpen) return;
                                     <div class="tm-benefits-price"><strong>38</strong><span>元 / 年</span></div>
                                     <p>38 元解锁一年全功能。后续想长期使用，只需再补 60 元即可升级永久版，本次年费全额抵扣。</p>
                                 </div>
-                                <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenBenefitsPaymentDialog('yearly')">扫码付款</button>
+                                <button class="tm-btn tm-btn-secondary" type="button" aria-label="年度授权：扫码付款" onclick="tmOpenBenefitsPaymentDialog('yearly')">扫码付款</button>
                             </div>
                             <div class="tm-benefits-plan is-featured" data-tm-benefits-lifetime-plan>
                                 <div>
@@ -21450,7 +21475,7 @@ if (!state.homepageOpen) return;
                                     <div class="tm-benefits-price" data-tm-benefits-lifetime-price>${__tmRenderBenefitsLifetimePrice(lifetimeOffer)}</div>
                                     <p data-tm-benefits-lifetime-description>${esc(lifetimeOffer.description)}</p>
                                 </div>
-                                <button class="tm-btn tm-btn-primary" type="button" onclick="tmOpenBenefitsPaymentDialog('lifetime')">扫码付款</button>
+                                <button class="tm-btn tm-btn-primary" type="button" aria-label="永久授权：扫码付款" onclick="tmOpenBenefitsPaymentDialog('lifetime')">扫码付款</button>
                             </div>
                         </div>
 

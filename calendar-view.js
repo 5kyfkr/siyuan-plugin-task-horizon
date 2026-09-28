@@ -58,6 +58,8 @@
     const CALENDAR_SUBSCRIPTION_EVENT_LIMIT = 20000;
     const CALENDAR_SUBSCRIPTION_FILE_LIMIT = 9 * 1024 * 1024;
     const CALENDAR_SUBSCRIPTION_DEBOUNCE_MS = 30000;
+    const CALENDAR_SUBSCRIPTION_TIMEOUT_MS = 180000;
+    const CALENDAR_SUBSCRIPTION_MAX_ATTEMPTS = 3;
     const CN_HOLIDAY_CACHE_VERSION = 2;
     // View changes should reuse the same schedule/history snapshot. Mutations
     // invalidate these caches explicitly, so a longer read TTL does not delay
@@ -469,6 +471,12 @@
             },
             refetchEvents() {
                 if (!calendar || typeof calendar.refetchEvents !== 'function') return false;
+                // Defer all main-calendar reads while parked, including direct
+                // refreshes from settings and deferred view-switch callbacks.
+                if (calendar === state.calendar && state.mainCalendarSuspended === true) {
+                    state.mainCalendarNeedsRefresh = true;
+                    return true;
+                }
                 try { calendar.refetchEvents(); return true; } catch (e) {}
                 return false;
             },
@@ -4887,6 +4895,7 @@
                 wrapEl.className = taskLikeId
                     ? 'tm-cal-task-event tm-cal-task-event--schedule'
                     : 'tm-cal-schedule-stack';
+                if (isIndependentScheduleEventExt(ext)) wrapEl.classList.add('tm-cal-task-event--completion-independent');
                 wrapEl.setAttribute('data-tm-cal-content-repair', 'schedule');
                 if (taskLikeId) wrapEl.setAttribute('data-tm-task-id', taskLikeId);
                 if (isBlockLike) wrapEl.classList.add(taskLikeId ? 'tm-cal-task-event--block' : 'tm-cal-schedule-stack--block');
@@ -5445,6 +5454,7 @@
         wrapEl.className = taskLikeId
             ? 'tm-cal-task-event tm-cal-task-event--schedule tm-cal-task-event--list tm-cal-schedule-list-content'
             : 'tm-cal-schedule-stack tm-cal-schedule-stack--list tm-cal-schedule-list-content';
+        if (isIndependentScheduleEventExt(ext)) wrapEl.classList.add('tm-cal-task-event--completion-independent');
         if (taskLikeId) wrapEl.setAttribute('data-tm-task-id', taskLikeId);
         if (options.repair === true) wrapEl.setAttribute('data-tm-cal-content-repair', 'schedule');
         if (typeof options.bindTaskLikeContextMenu === 'function') options.bindTaskLikeContextMenu(wrapEl, taskLikeId);
@@ -5703,6 +5713,7 @@
             const useAllDayLayout = shouldUseAllDayEventContentLayout(arg);
             const wrapEl = document.createElement('span');
             wrapEl.className = source === 'schedule' ? 'tm-cal-task-event tm-cal-task-event--schedule' : 'tm-cal-task-event';
+            if (isIndependentScheduleEventExt(ext)) wrapEl.classList.add('tm-cal-task-event--completion-independent');
             if (tid) wrapEl.setAttribute('data-tm-task-id', tid);
             bindTaskLikeContextMenu(wrapEl, tid);
             const suppressAllDayRangeText = isDetachedTaskOccurrenceEventExt(ext)
@@ -6066,17 +6077,18 @@
         return s1 < e2 && e1 > s2;
     }
 
-    async function postJSON(url, data) {
+    async function postJSON(url, data, signal) {
         const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data || {}),
+            signal,
         });
         return res;
     }
 
-    async function getFileText(path) {
-        const res = await postJSON('/api/file/getFile', { path });
+    async function getFileText(path, signal) {
+        const res = await postJSON('/api/file/getFile', { path }, signal);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return unwrapGetFileText(await res.text());
     }
@@ -6113,13 +6125,14 @@
         return await new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
     }
 
-    async function getFileTextRetry(path, retries) {
+    async function getFileTextRetry(path, retries, signal) {
         const n = Math.max(0, Number(retries) || 0);
         let lastErr = null;
         for (let i = 0; i <= n; i += 1) {
             try {
-                return await getFileText(path);
+                return await getFileText(path, signal);
             } catch (e) {
+                if (signal?.aborted) throw e;
                 lastErr = e;
                 if (i < n) await delay(220);
             }
@@ -6293,7 +6306,9 @@
         const fitHourHeight = Number.isFinite(availableHeight) && availableHeight > 0 && layoutMinutes > 0
             ? (availableHeight - ranges.length * bandHeight) / (layoutMinutes / 60)
             : baseHourHeight;
-        const hourHeight = Math.max(baseHourHeight, fitHourHeight);
+        const hourScale = Number(options.hourScale);
+        const hourHeight = Math.max(baseHourHeight, fitHourHeight)
+            * (Number.isFinite(hourScale) && hourScale > 0 ? hourScale : 1);
         const canvasHeight = expanded
             // Expanded timelines still need a dedicated separator slot for
             // every fold control. Without these slots the controls sit on top
@@ -6636,6 +6651,16 @@
         return getCalendarHalfHourSlotHeight(settings) / 2;
     }
 
+    function normalizeMobileTimelineScale(value) {
+        const scale = Number(value);
+        return Number.isFinite(scale) && scale > 0 ? Math.max(0.75, Math.min(3, scale)) : 1;
+    }
+
+    function readMobileTimelineScale() {
+        try { return normalizeMobileTimelineScale(localStorage.getItem('tm_calendar_mobile_timeline_scale')); }
+        catch (e) { return 1; }
+    }
+
     // The visible prototype surface owns its paper-grid rhythm independently
     // from the engine's collision math.
     function getPrototypeHourHeight(settings, mobile = false) {
@@ -6812,6 +6837,7 @@
             source ? `tm-proto-event--${source}` : '',
             checkboxCircle ? 'tm-proto-event--checkbox-circle' : 'tm-proto-event--checkbox-rect',
             isBuiltinSchedule && !showCheck ? 'tm-proto-event--calendar-builtin' : '',
+            isIndependentScheduleEventExt(ext) ? 'tm-proto-event--completion-independent' : '',
             extraClass,
             done ? 'is-done' : '',
         ].filter(Boolean).join(' ');
@@ -6823,7 +6849,7 @@
         const reminderTime = buildCalendarMergedReminderMarkup(ext);
         const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(`${eventApi.title || ''} · 提醒时间：${ext.__tmMergedReminderLabel}`)}"` : '';
         const check = showCheck
-            ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>`
+            ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="${isIndependentScheduleEventExt(ext) ? '完成日程' : '完成任务'}"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>`
             : '';
         if (mode === 'block') {
             return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="--tm-proto-event-color:${color}"><span class="tm-proto-event-copy"><span class="tm-proto-event-title-row">${check}<span class="tm-proto-event-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${handles}</div>`;
@@ -7165,6 +7191,7 @@
             'tm-proto-span-bar',
             checkboxCircle ? 'tm-proto-event--checkbox-circle' : 'tm-proto-event--checkbox-rect',
             isBuiltinSchedule && !showCheck ? 'tm-proto-event--calendar-builtin' : '',
+            isIndependentScheduleEventExt(ext) ? 'tm-proto-event--completion-independent' : '',
             segmentStart ? 'is-start' : '',
             continuation ? 'is-continuation' : '',
             visualEnd ? 'is-end' : '',
@@ -7178,7 +7205,7 @@
         return `<div class="${classes}" data-tm-proto-event="${esc(id)}"${reminderTitle} style="${layoutStyle}--tm-proto-event-color:${color}">`
             + `${canResizeRange && segmentStart ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
             + `${continuesBefore ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--start" aria-hidden="true">&lt;</span>' : ''}`
-            + `${showCheck ? `<input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务">` : ''}`
+            + `${showCheck ? `<input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="${isIndependentScheduleEventExt(ext) ? '完成日程' : '完成任务'}">` : ''}`
             // The day panel has one card for the selected day, not the
             // repeated month/week segments. Keep the task name visible even
             // when the event continues in from the previous day.
@@ -7321,8 +7348,12 @@
         const hourHeight = Number.isFinite(configuredHourHeight) && configuredHourHeight > 0
             ? configuredHourHeight
             : getPrototypeHourHeight(settings, mobile);
+        // Device preference, independent of compact desktop layouts and
+        // the synchronized hour-slot setting.
+        const mobileScale = options.isMobile === true ? readMobileTimelineScale() : 1;
         const timeMetrics = getPrototypeTimelineMetrics(settings, {
             hourHeight,
+            hourScale: mobileScale,
             availableHeight: options.availableHeight,
             isMobile: mobile,
             timeRangeExpanded: options.timeRangeExpanded === true,
@@ -7392,7 +7423,7 @@
         const labels = [];
         for (let minute = 0; minute <= 1440; minute += 60) {
             if (isMinuteCollapsed(minute)) continue;
-            labels.push(`<span class="tm-proto-time-label" style="top:${timePercent(minute)}">${formatTimelineMinute(minute)}</span>`);
+            labels.push(`<span class="tm-proto-time-label" data-tm-proto-minute="${minute}" style="top:${timePercent(minute)}">${formatTimelineMinute(minute)}</span>`);
         }
         const labelsMarkup = labels.join('');
         const currentNow = new Date();
@@ -7406,14 +7437,14 @@
             ? prototypeTimelineYForMinute(currentNowMinutes, timeMetrics) / canvasHeight * 100
             : null;
         const currentNowLabelMarkup = Number.isFinite(currentNowTop)
-            ? `<span class="tm-proto-now-label" style="top:${Math.max(0, Math.min(100, currentNowTop))}%" aria-label="当前时间 ${pad2(currentNow.getHours())}:${pad2(currentNow.getMinutes())}">${pad2(currentNow.getHours())}:${pad2(currentNow.getMinutes())}</span>`
+            ? `<span class="tm-proto-now-label" data-tm-proto-minute="${currentNowMinutes}" style="top:${Math.max(0, Math.min(100, currentNowTop))}%" aria-label="当前时间 ${pad2(currentNow.getHours())}:${pad2(currentNow.getMinutes())}">${pad2(currentNow.getHours())}:${pad2(currentNow.getMinutes())}</span>`
             : '';
         const lines = [];
         for (let minute = 0; minute <= 1440; minute += 30) {
             if (isMinuteCollapsed(minute)) continue;
             const isHour = minute % 60 === 0;
             const classes = ['tm-proto-time-line', minute === 0 ? 'is-first' : '', isHour ? 'is-hour' : 'is-half-hour'].filter(Boolean).join(' ');
-            lines.push(`<i class="${classes}" style="top:${timePercent(minute)}"></i>`);
+            lines.push(`<i class="${classes}" data-tm-proto-minute="${minute}" style="top:${timePercent(minute)}"></i>`);
         }
         const actionAttr = String(options.actionAttr || 'data-tm-proto-action').trim() || 'data-tm-proto-action';
         const collapseBands = timeMetrics.expanded ? timeMetrics.ranges : timeMetrics.collapsedRanges;
@@ -7502,13 +7533,13 @@
                 ].filter(Boolean).join(' ');
                 return eventMarkup(item.eventApi, 'block', true, fragmentClass)
                     .replace('data-tm-proto-event="', `data-tm-proto-lane="${item.lane}" data-tm-proto-lane-count="${item.laneCount}" data-tm-proto-event="`)
-                    .replace('style="--tm-proto-event-color:', `style="top:${top}%;height:${Math.max(0.01, bottom - top)}%;left:calc(${left}% + 4px);width:calc(${width}% - 5px);--tm-proto-event-color:`);
+                    .replace('style="--tm-proto-event-color:', `data-tm-proto-minute="${segment.start}" data-tm-proto-end-minute="${segment.end}" style="top:${top}%;height:${Math.max(0.01, bottom - top)}%;left:calc(${left}% + 4px);width:calc(${width}% - 5px);--tm-proto-event-color:`);
             })).join('');
             const nowTop = key === currentDayKey && Number.isFinite(currentNowTop)
                 ? currentNowTop
                 : null;
             const nowMarkup = Number.isFinite(nowTop)
-                ? `<span class="tm-proto-now-indicator" style="top:${Math.max(0, Math.min(100, nowTop))}%" aria-hidden="true"><i></i></span>`
+                ? `<span class="tm-proto-now-indicator" data-tm-proto-minute="${currentNowMinutes}" style="top:${Math.max(0, Math.min(100, nowTop))}%" aria-hidden="true"><i></i></span>`
                 : '';
             return `<div class="tm-proto-time-col ${key === currentDayKey ? 'is-today' : ''}${alias('tm-proto-day-panel-events')}" data-tm-proto-day="${key}" style="--tm-proto-col:${cols}">${nowMarkup}${blocks}</div>`;
         }).join('');
@@ -7539,7 +7570,379 @@
         // axis button is intentionally omitted because it duplicated the
         // same action without identifying which range would change.
         const axisMarkup = labelsMarkup + currentNowLabelMarkup;
-        return `<section class="${timelineClass}" style="--tm-proto-cols:${cols};--tm-proto-allday-max-height:${allDayMaxHeight}px">${headerMarkup}<div class="${allDayClass}">${allDayToggle}${allDayContent}</div><div class="tm-proto-time-scroll tm-proto-day-panel-scroll"><div class="tm-proto-time-canvas tm-proto-day-panel-canvas" data-tm-proto-time-expanded="${timeMetrics.expanded ? '1' : '0'}" data-tm-proto-visible-start="${startMin}" data-tm-proto-visible-end="${endMin}" data-tm-proto-hour-height="${hourHeight}" data-tm-proto-band-height="${timeMetrics.bandHeight}" data-tm-proto-canvas-height="${canvasHeight}" style="height:${canvasHeight}px;min-height:${canvasHeight}px"><div class="tm-proto-time-axis tm-proto-day-panel-axis">${axisMarkup}</div><div class="tm-proto-time-lines tm-proto-day-panel-lines">${lines.join('')}</div><div class="tm-proto-time-columns"><span class="tm-proto-time-axis-spacer"></span>${columns}</div>${collapseBandMarkup}</div></div></section>`;
+        const mobileScaleAttr = options.isMobile === true ? ` data-tm-proto-mobile-scale="${mobileScale}"` : '';
+        return `<section class="${timelineClass}" style="--tm-proto-cols:${cols};--tm-proto-allday-max-height:${allDayMaxHeight}px">${headerMarkup}<div class="${allDayClass}">${allDayToggle}${allDayContent}</div><div class="tm-proto-time-scroll tm-proto-day-panel-scroll"><div class="tm-proto-time-canvas tm-proto-day-panel-canvas" data-tm-proto-time-expanded="${timeMetrics.expanded ? '1' : '0'}" data-tm-proto-visible-start="${startMin}" data-tm-proto-visible-end="${endMin}" data-tm-proto-hour-height="${timeMetrics.hourHeight}"${mobileScaleAttr} data-tm-proto-band-height="${timeMetrics.bandHeight}" data-tm-proto-canvas-height="${canvasHeight}" data-tm-proto-viewport-height="${timeMetrics.availableHeight}" style="height:${canvasHeight}px;min-height:${canvasHeight}px"><div class="tm-proto-time-axis tm-proto-day-panel-axis">${axisMarkup}</div><div class="tm-proto-time-lines tm-proto-day-panel-lines">${lines.join('')}</div><div class="tm-proto-time-columns"><span class="tm-proto-time-axis-spacer"></span>${columns}</div>${collapseBandMarkup}</div></div></section>`;
+    }
+
+    function applyMobileTimelineScale(canvas, value, settings) {
+        const previous = getPrototypeTimelineMetricsFromCanvas(canvas, settings);
+        const scale = normalizeMobileTimelineScale(value);
+        const previousScale = normalizeMobileTimelineScale(canvas.dataset.tmProtoMobileScale);
+        const metrics = getPrototypeTimelineMetrics(settings, {
+            hourHeight: previous.hourHeight / previousScale * scale,
+            bandHeight: previous.bandHeight,
+            timeRangeExpanded: previous.expanded,
+        });
+        metrics.canvasHeight = Math.max(1, Math.round(metrics.canvasHeight));
+        canvas.dataset.tmProtoMobileScale = String(scale);
+        canvas.dataset.tmProtoHourHeight = String(metrics.hourHeight);
+        canvas.dataset.tmProtoCanvasHeight = String(metrics.canvasHeight);
+        canvas.style.height = canvas.style.minHeight = metrics.canvasHeight + 'px';
+        const percent = (y) => y / metrics.canvasHeight * 100 + '%';
+        const now = new Date();
+        const nowMinute = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+        canvas.querySelectorAll('[data-tm-proto-minute]').forEach((node) => {
+            const minute = node.matches('.tm-proto-now-label, .tm-proto-now-indicator')
+                ? nowMinute : Number(node.dataset.tmProtoMinute);
+            const top = prototypeTimelineYForMinute(minute, metrics);
+            node.style.top = percent(top);
+            if (node.hasAttribute('data-tm-proto-end-minute')) {
+                node.style.height = percent(Math.max(0.1, prototypeTimelineYForMinute(Number(node.dataset.tmProtoEndMinute), metrics) - top));
+            }
+        });
+        canvas.querySelectorAll('[data-tm-proto-collapse]').forEach((node) => {
+            const range = metrics.ranges.find((item) => item.key === node.dataset.tmProtoCollapse);
+            if (!range) return;
+            const boundary = prototypeTimelineYForMinute(range.start, metrics);
+            const top = metrics.expanded ? Math.max(0, boundary - metrics.bandHeight) : boundary;
+            const height = metrics.expanded ? metrics.bandHeight
+                : Math.max(24, prototypeTimelineYForMinute(range.end, metrics) - top);
+            node.style.top = percent(top);
+            node.style.height = percent(height);
+        });
+        return metrics;
+    }
+
+    function bindMobileTimelinePinch(surface, options = {}) {
+        if (!(surface instanceof HTMLElement) || options.isMobile !== true) return null;
+        if (surface.__tmTimelinePinch) return surface.__tmTimelinePinch;
+        const abort = new AbortController();
+        const pointers = new Set();
+        let pinch = null;
+        let frame = 0;
+        let pendingRender = null;
+        let draftSnapshot = null;
+        let suppressClick = false;
+        const consume = (event) => {
+            if (event.cancelable) event.preventDefault();
+            event.stopImmediatePropagation();
+        };
+        const canvasAt = (touch) => {
+            const target = document.elementFromPoint(touch.clientX, touch.clientY);
+            const canvas = target?.closest?.('.tm-proto-time-canvas[data-tm-proto-mobile-scale]');
+            return canvas && surface.contains(canvas) ? canvas : null;
+        };
+        const draw = () => {
+            frame = 0;
+            if (!pinch || pinch.ended || !pinch.canvas.isConnected) return;
+            const metrics = applyMobileTimelineScale(pinch.canvas, pinch.scale, pinch.settings);
+            // Preserve the time under the fingers, even while their midpoint moves.
+            const offset = pinch.canvas.getBoundingClientRect().top
+                - pinch.scroller.getBoundingClientRect().top + pinch.scroller.scrollTop;
+            pinch.scroller.scrollTop = offset + prototypeTimelineYForMinute(pinch.minute, metrics)
+                - (pinch.centerY - pinch.scroller.getBoundingClientRect().top);
+            surface.__tmScheduleDraft?.restore();
+        };
+        const finish = (cancelled) => {
+            if (!pinch || pinch.ended) return;
+            if (frame) cancelAnimationFrame(frame);
+            if (cancelled) {
+                pinch.scale = pinch.startScale;
+                pinch.centerY = pinch.startCenterY;
+            }
+            draw();
+            if (cancelled) pinch.scroller.scrollTop = pinch.startScrollTop;
+            else {
+                try { localStorage.setItem('tm_calendar_mobile_timeline_scale', String(pinch.scale)); } catch (e) {}
+            }
+            pinch.ended = true;
+        };
+        const release = () => {
+            pinch = null;
+            pointers.clear();
+            draftSnapshot = null;
+            surface.classList.remove('tm-proto-timeline-pinching');
+            const render = pendingRender;
+            pendingRender = null;
+            if (render && surface.isConnected) requestAnimationFrame(render);
+        };
+        const cancel = () => { finish(true); release(); };
+        const listen = (type, handler) => surface.addEventListener(type, handler, {
+            capture: true, passive: false, signal: abort.signal,
+        });
+        listen('pointerdown', (event) => {
+            if (!pinch && !pointers.size) suppressClick = false;
+            if (event.pointerType !== 'touch') return;
+            if (!pinch && !canvasAt(event)) return;
+            if (!pointers.size && !pinch) {
+                draftSnapshot = surface.__tmScheduleDraft?.snapshot();
+            }
+            pointers.add(event.pointerId);
+            // The second pointer arrives before touchstart. Keep it out of
+            // the existing single-pointer handlers until the pair is claimed.
+            if (pinch || pointers.size > 1) consume(event);
+        });
+        listen('pointermove', (event) => { if (pinch) consume(event); });
+        const pointerEnd = (event) => {
+            pointers.delete(event.pointerId);
+            if (pinch) consume(event);
+        };
+        listen('pointerup', pointerEnd);
+        listen('pointercancel', pointerEnd);
+        listen('touchstart', (event) => {
+            if (pinch) { consume(event); return; }
+            if (event.touches.length === 1 && !pointers.size) {
+                suppressClick = false;
+                draftSnapshot = surface.__tmScheduleDraft?.snapshot();
+            }
+            if (event.touches.length !== 2) return;
+            const [first, second] = Array.from(event.touches);
+            const canvas = canvasAt(first);
+            if (!canvas || canvasAt(second) !== canvas) return;
+            const distance = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+            if (distance < 12) return;
+            const scroller = canvas.closest('.tm-proto-time-scroll');
+            if (!scroller) return;
+            const centerY = (first.clientY + second.clientY) / 2;
+            const settings = getSettings();
+            const startScale = normalizeMobileTimelineScale(canvas.dataset.tmProtoMobileScale);
+            pinch = { canvas, scroller, settings, ids: [first.identifier, second.identifier],
+                distance, startScale, scale: startScale, centerY, startCenterY: centerY,
+                startScrollTop: scroller.scrollTop,
+                minute: prototypeTimelineMinutesAtPoint(canvas, centerY, settings), ended: false };
+            suppressClick = true;
+            consume(event);
+            surface.__tmScheduleDraft?.cancelGesture();
+            pointers.forEach((pointerId) => {
+                surface.__tmPrototypePointerHandlers?.pointercancel?.({ pointerId });
+                try { surface.releasePointerCapture(pointerId); } catch (e) {}
+            });
+            if (draftSnapshot) surface.__tmScheduleDraft?.restore(draftSnapshot);
+            options.onStart?.();
+            surface.classList.add('tm-proto-timeline-pinching');
+        });
+        listen('touchmove', (event) => {
+            if (!pinch) return;
+            consume(event);
+            if (pinch.ended) return;
+            const touches = pinch.ids.map((id) => Array.from(event.touches).find((touch) => touch.identifier === id));
+            if (touches.some((touch) => !touch)) { finish(false); return; }
+            const [first, second] = touches;
+            pinch.scale = normalizeMobileTimelineScale(pinch.startScale
+                * Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY) / pinch.distance);
+            pinch.centerY = (first.clientY + second.clientY) / 2;
+            if (!frame) frame = requestAnimationFrame(draw);
+        });
+        const touchEnd = (event) => {
+            if (!pinch) {
+                if (!event.touches.length) { pointers.clear(); draftSnapshot = null; }
+                return;
+            }
+            consume(event);
+            const remaining = Array.from(event.touches);
+            if (event.type === 'touchcancel' || !pinch.ids.every((id) => remaining.some((touch) => touch.identifier === id))) {
+                finish(event.type === 'touchcancel');
+            }
+            // A remaining finger must not resume a drag, scroll or page swipe.
+            if (!remaining.length) release();
+        };
+        listen('touchend', touchEnd);
+        listen('touchcancel', touchEnd);
+        listen('click', (event) => { if (pinch || (suppressClick && event.detail > 0)) consume(event); });
+        window.addEventListener('blur', cancel, { signal: abort.signal });
+        surface.__tmTimelinePinch = {
+            cancel,
+            deferRender(callback) {
+                if (!pinch) return false;
+                pendingRender = callback;
+                return true;
+            },
+            dispose() {
+                pendingRender = null;
+                cancel();
+                abort.abort();
+                delete surface.__tmTimelinePinch;
+            },
+        };
+        return surface.__tmTimelinePinch;
+    }
+
+    // Clicks and completed selections share one unsaved range. Bind before the
+    // surface delegates so moving this range never starts another selection.
+    function bindPrototypeScheduleDraft(surface) {
+        if (!(surface instanceof HTMLElement)) return null;
+        if (surface.__tmScheduleDraft) return surface.__tmScheduleDraft;
+        let draft = null;
+        let gesture = null;
+        let suppressClick = false;
+        let pendingRender = null;
+        const flushRender = () => {
+            const callback = pendingRender;
+            pendingRender = null;
+            if (callback) requestAnimationFrame(callback);
+        };
+        const clear = () => {
+            const pointerId = gesture?.pointerId;
+            gesture = null;
+            if (pointerId != null) {
+                try { surface.releasePointerCapture(pointerId); } catch (e) {}
+            }
+            surface.querySelectorAll('[data-tm-proto-draft]').forEach((node) => node.remove());
+            draft = null;
+            flushRender();
+        };
+        const canvasKey = (canvas) => `${!!canvas.closest('.tm-proto-day-panel')}|${Array.from(canvas.querySelectorAll('.tm-proto-time-col')).map((column) => column.getAttribute('data-tm-proto-day')).join('|')}`;
+        const render = () => {
+            if (!draft) return false;
+            if (!surface.contains(draft.canvas)) {
+                draft.canvas = Array.from(surface.querySelectorAll('.tm-proto-time-canvas')).find((canvas) => canvasKey(canvas) === draft.canvasKey);
+            }
+            if (!draft.canvas) { clear(); return false; }
+            return renderPrototypeSelectionPreview(surface, { started: true, moved: true, draft: true }, draft);
+        };
+        const bounds = () => {
+            const days = Array.from(draft.canvas.querySelectorAll('.tm-proto-time-col')).map((column) => new Date(`${column.getAttribute('data-tm-proto-day')}T00:00:00`).getTime());
+            const end = new Date(Math.max(...days));
+            end.setDate(end.getDate() + 1);
+            return { start: Math.min(...days), end: end.getTime() };
+        };
+        const adjust = (edge, value) => {
+            if (!draft) return;
+            const limit = bounds();
+            if (edge === 'start') draft.start = new Date(Math.max(limit.start, Math.min(draft.end.getTime() - 15 * 60000, value)));
+            else draft.end = new Date(Math.min(limit.end, Math.max(draft.start.getTime() + 15 * 60000, value)));
+            render();
+        };
+        const draftAt = (event) => event.target instanceof Element ? event.target.closest('[data-tm-proto-draft]') : null;
+        const consume = (event) => { event.preventDefault(); event.stopImmediatePropagation(); };
+        surface.addEventListener('pointerdown', (event) => {
+            if (event.isPrimary === false || (typeof event.button === 'number' && event.button !== 0)) return;
+            suppressClick = false;
+            if (!draftAt(event)) { clear(); return; }
+            event.stopImmediatePropagation();
+            const edge = event.target.closest('[data-tm-draft-edge]')?.getAttribute('data-tm-draft-edge');
+            if (!draft) return;
+            if (edge) event.preventDefault();
+            const column = event.target.closest('.tm-proto-time-col');
+            gesture = { pointerId: event.pointerId, edge, start: draft.start, end: draft.end, moved: false,
+                x: event.clientX, y: event.clientY,
+                day: new Date(`${column.getAttribute('data-tm-proto-day')}T00:00:00`).getTime(),
+                minute: prototypeTimelineMinutesAtPoint(draft.canvas, event.clientY, getSettings()) };
+            if (edge) { try { surface.setPointerCapture(event.pointerId); } catch (e) {} }
+        }, true);
+        const move = (event) => {
+            if (!gesture || gesture.pointerId !== event.pointerId || !draft) return;
+            consume(event);
+            if (!gesture.moved && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) < 4) return;
+            gesture.moved = true;
+            // Capture on the stable surface before repainting range fragments.
+            try { surface.setPointerCapture(event.pointerId); } catch (e) {}
+            const minute = prototypeTimelineMinutesAtPoint(draft.canvas, event.clientY, getSettings());
+            if (!Number.isFinite(minute) || !Number.isFinite(gesture.minute)) return;
+            let delta = Math.round((minute - gesture.minute) / 15) * 15 * 60000;
+            if (gesture.edge) { adjust(gesture.edge, gesture[gesture.edge].getTime() + delta); return; }
+            const column = Array.from(draft.canvas.querySelectorAll('.tm-proto-time-col')).find((node) => {
+                const rect = node.getBoundingClientRect();
+                return event.clientX >= rect.left && event.clientX < rect.right;
+            });
+            if (column) delta += new Date(`${column.getAttribute('data-tm-proto-day')}T00:00:00`).getTime() - gesture.day;
+            const duration = gesture.end - gesture.start;
+            const limit = bounds();
+            draft.start = new Date(Math.max(limit.start, Math.min(limit.end - duration, gesture.start.getTime() + delta)));
+            draft.end = new Date(draft.start.getTime() + duration);
+            render();
+        };
+        surface.addEventListener('pointermove', move, true);
+        const finish = (event) => {
+            if (event.type === 'lostpointercapture' && event.target !== surface) return;
+            if (!gesture || gesture.pointerId !== event.pointerId) {
+                if (draftAt(event)) event.stopImmediatePropagation();
+                return;
+            }
+            const previous = gesture;
+            if (event.type === 'pointerup' && previous.moved) move(event);
+            event.stopImmediatePropagation();
+            gesture = null;
+            suppressClick = previous.moved || !!previous.edge;
+            if (suppressClick) event.preventDefault();
+            if (event.type !== 'pointerup' && draft) {
+                draft.start = previous.start;
+                draft.end = previous.end;
+                render();
+            }
+            try { surface.releasePointerCapture(event.pointerId); } catch (e) {}
+            flushRender();
+        };
+        surface.addEventListener('pointerup', finish, true);
+        surface.addEventListener('pointercancel', finish, true);
+        surface.addEventListener('lostpointercapture', finish, true);
+        surface.addEventListener('touchstart', (event) => {
+            if (draftAt(event)) event.stopImmediatePropagation();
+        }, { capture: true, passive: true });
+        surface.addEventListener('touchmove', (event) => {
+            if (gesture) consume(event);
+        }, { capture: true, passive: false });
+        surface.addEventListener('click', (event) => {
+            if (suppressClick) { suppressClick = false; consume(event); return; }
+            if (!draftAt(event) || !draft) return;
+            consume(event);
+            if (event.target.closest('[data-tm-draft-edge]')) return;
+            const current = draft;
+            current.open({ ...current.params, start: current.start, end: current.end,
+                __tmFromDraftCard: true,
+                __tmPreviewSurface: surface,
+                __tmPreviewRange: { start: current.start, end: current.end, canvas: current.canvas,
+                    metrics: getPrototypeTimelineMetricsFromCanvas(current.canvas, getSettings()) },
+            }, draftAt(event));
+            clear();
+        }, true);
+        surface.addEventListener('keydown', (event) => {
+            if (!draft) return;
+            if (event.key === 'Escape') { consume(event); clear(); return; }
+            const edge = event.target instanceof Element ? event.target.closest('[data-tm-draft-edge]')?.getAttribute('data-tm-draft-edge') : '';
+            if (edge && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+                consume(event);
+                adjust(edge, draft[edge].getTime() + (event.key === 'ArrowUp' ? -15 : 15) * 60000);
+                surface.querySelector(`[data-tm-proto-draft] [data-tm-draft-edge="${edge}"]`)?.focus({ preventScroll: true });
+            }
+        }, true);
+        surface.__tmScheduleDraft = {
+            clear,
+            snapshot: () => draft ? { ...draft, start: new Date(draft.start), end: new Date(draft.end) } : null,
+            restore(snapshot) {
+                if (snapshot) draft = snapshot;
+                return render();
+            },
+            cancelGesture() {
+                if (gesture) finish({ type: 'pointercancel', pointerId: gesture.pointerId, target: surface,
+                    preventDefault() {}, stopImmediatePropagation() {} });
+            },
+            deferRender(callback) {
+                if (!gesture) return false;
+                pendingRender = callback;
+                return true;
+            },
+            show(params, anchor, open, options = {}) {
+                clear();
+                const column = anchor?.closest?.('.tm-proto-time-col');
+                const canvas = column?.closest?.('.tm-proto-time-canvas') || params.__tmPreviewRange?.canvas || anchor?.closest?.('.tm-proto-time-canvas');
+                if (!(canvas instanceof HTMLElement) || typeof open !== 'function') return false;
+                const start = new Date(params.start.getTime());
+                const end = new Date(params.end.getTime());
+                if (!options.preserveRange) {
+                    start.setMinutes(0, 0, 0);
+                    end.setTime(start.getTime());
+                    end.setHours(end.getHours() + 1);
+                }
+                draft = { params, open, canvas, start, end, canvasKey: canvasKey(canvas) };
+                suppressClick = options.suppressClick === true;
+                renderPrototypeSelectionPreview(surface, null, null);
+                const rendered = render();
+                if (anchor?.getAttribute?.('data-tm-proto-point-anchor') === '1') anchor.remove();
+                return rendered;
+            },
+        };
+        return surface.__tmScheduleDraft;
     }
 
     function resolvePrototypeSelectionRange(surface, selection, clientX, clientY, settings = {}) {
@@ -7609,25 +8012,30 @@
 
     function renderPrototypeSelectionPreview(surface, selection, range) {
         if (!(surface instanceof HTMLElement)) return false;
+        const interactive = selection?.draft === true;
+        const selector = interactive ? '[data-tm-proto-draft]' : '[data-tm-proto-selection-preview]';
         const previewKey = selection?.started && selection?.moved && range?.start && range?.end
             ? `${range.start.getTime()}|${range.end.getTime()}`
             : '';
         if (previewKey && selection.previewKey === previewKey
-            && surface.querySelector('[data-tm-proto-selection-preview]')) return true;
+            && surface.querySelector(selector)) return true;
         if (selection) selection.previewKey = previewKey;
-        surface.querySelectorAll('[data-tm-proto-selection-preview]').forEach((element) => element.remove());
+        const previousNodes = Array.from(surface.querySelectorAll(selector));
+        if (!interactive || !previewKey) previousNodes.forEach((element) => element.remove());
         if (!previewKey) return false;
         const formatTime = (date) => `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
-        const sameDay = formatDateKey(range.start) === formatDateKey(range.end);
+        const sameDay = formatDateKey(range.start) === formatDateKey(new Date(range.end.getTime() - 1));
         const rangeText = sameDay
-            ? `${formatTime(range.start)} - ${formatTime(range.end)}`
-            : `${range.start.getMonth() + 1}月${range.start.getDate()}日 ${formatTime(range.start)} - ${range.end.getMonth() + 1}月${range.end.getDate()}日 ${formatTime(range.end)}`;
+            ? `${formatTime(range.start)} – ${formatDateKey(range.start) === formatDateKey(range.end) ? formatTime(range.end) : '24:00'}`
+            : `${range.start.getMonth() + 1}月${range.start.getDate()}日 ${formatTime(range.start)} – ${range.end.getMonth() + 1}月${range.end.getDate()}日 ${formatTime(range.end)}`;
         let rendered = false;
+        let fragmentIndex = 0;
         // Opening the schedule editor can change the available timeline
         // height. Never reuse the canvas or metrics captured before that
         // reflow: the preview is rendered into the current surface and must
         // use the current canvas' coordinate system.
-        const currentCanvas = surface.querySelector('.tm-proto-time-canvas');
+        const currentCanvas = range.canvas instanceof HTMLElement && surface.contains(range.canvas)
+            ? range.canvas : surface.querySelector('.tm-proto-time-canvas');
         const canvas = currentCanvas instanceof HTMLElement
             ? currentCanvas
             : (range.canvas instanceof HTMLElement ? range.canvas : null);
@@ -7636,16 +8044,17 @@
             : (range.metrics || null);
         if (!(canvas instanceof HTMLElement) || !metrics) return false;
         const dayMinutes = (date) => Math.max(0, Math.min(1440, (date.getTime() - new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()) / 60000));
-        surface.querySelectorAll('.tm-proto-time-col').forEach((column) => {
+        canvas.querySelectorAll('.tm-proto-time-col').forEach((column) => {
             const dayKey = String(column.getAttribute('data-tm-proto-day') || '').trim();
             const day = new Date(`${dayKey}T00:00:00`);
             if (Number.isNaN(day.getTime())) return;
-            const dayEnd = new Date(day.getTime() + 1440 * 60000);
+            const dayEnd = new Date(day.getTime());
+            dayEnd.setDate(dayEnd.getDate() + 1);
             const segmentStart = range.start > day ? range.start : day;
             const segmentEnd = range.end < dayEnd ? range.end : dayEnd;
             if (segmentEnd <= segmentStart) return;
             const startMinute = dayMinutes(segmentStart);
-            const endMinute = dayMinutes(segmentEnd);
+            const endMinute = segmentEnd.getTime() === dayEnd.getTime() ? 1440 : dayMinutes(segmentEnd);
             const visibleRanges = metrics.expanded
                 ? [{ start: 0, end: 1440 }]
                 : (Array.isArray(metrics.visibleRanges) && metrics.visibleRanges.length
@@ -7659,16 +8068,38 @@
                 const bottomPx = prototypeTimelineYForMinute(partEnd, metrics);
                 const top = Math.max(0, topPx / Math.max(1, metrics.canvasHeight) * 100);
                 const height = Math.max(0, (bottomPx - topPx) / Math.max(1, metrics.canvasHeight) * 100);
-                const preview = document.createElement('div');
-                preview.className = 'tm-proto-event tm-proto-event--block tm-proto-selection-preview';
-                preview.setAttribute('data-tm-proto-selection-preview', '1');
-                preview.setAttribute('aria-hidden', 'true');
-                preview.style.cssText = `top:${top}%;height:${Math.max(1, height)}%;left:4px;width:calc(100% - 9px);--tm-proto-event-color:var(--tm-cal-primary);`;
-                preview.innerHTML = `<span class="tm-proto-event-copy"><span class="tm-proto-event-title">新建日程</span><span class="tm-proto-event-time">${esc(rangeText)}</span></span>`;
-                column.appendChild(preview);
+                const preview = (interactive && previousNodes[fragmentIndex]) || document.createElement('div');
+                fragmentIndex += 1;
+                preview.className = interactive ? 'tm-proto-schedule-draft'
+                    : 'tm-proto-event tm-proto-event--block tm-proto-selection-preview tm-proto-schedule-draft';
+                preview.setAttribute(interactive ? 'data-tm-proto-draft' : 'data-tm-proto-selection-preview', '1');
+                if (!interactive) preview.setAttribute('aria-hidden', 'true');
+                preview.style.cssText = `top:${top}%;height:${Math.max(1, height)}%;left:0;width:100%;--tm-proto-event-color:var(--tm-cal-primary);`;
+                // Keep both handles outside the central tap target, including
+                // compact cards at the minimum 15-minute duration.
+                preview.style.setProperty('--tm-draft-handle-inset', `${Math.min(12, Math.max(0, (bottomPx - topPx) / 2 - 5))}px`);
+                preview.style.setProperty('--tm-draft-handle-size', `${Math.min(12, Math.max(4, (bottomPx - topPx) / 3))}px`);
+                const tabIndex = interactive ? '' : ' tabindex="-1"';
+                const handle = (edge, label) => `<button type="button" class="tm-proto-schedule-draft-handle" data-tm-draft-edge="${edge}" aria-label="${label}" title="${label}"${tabIndex}></button>`;
+                // Keep the pressed button connected throughout touch drags.
+                if (!preview.firstElementChild) {
+                    preview.innerHTML = `<button type="button" class="tm-proto-schedule-draft-open"${tabIndex}><svg class="tm-proto-schedule-draft-plus" aria-hidden="true" viewBox="0 0 19 19" width="19" height="19" shape-rendering="crispEdges"><path d="M2 9h15v1H2zM9 2h1v15H9z" fill="currentColor"/></svg><span class="tm-proto-schedule-draft-time"></span></button>`;
+                }
+                preview.querySelector('.tm-proto-schedule-draft-open').setAttribute('aria-label', `新建日程，${rangeText}`);
+                preview.querySelector('.tm-proto-schedule-draft-time').textContent = rangeText;
+                for (const [edge, label, visible] of [
+                    ['start', '调整开始时间', segmentStart.getTime() === range.start.getTime() && partStart === startMinute],
+                    ['end', '调整结束时间', segmentEnd.getTime() === range.end.getTime() && partEnd === endMinute],
+                ]) {
+                    const existingHandle = preview.querySelector(`[data-tm-draft-edge="${edge}"]`);
+                    if (visible && !existingHandle) preview.insertAdjacentHTML('beforeend', handle(edge, label));
+                    else if (!visible) existingHandle?.remove();
+                }
+                if (preview.parentElement !== column) column.appendChild(preview);
                 rendered = true;
             }
         });
+        if (interactive) previousNodes.slice(fragmentIndex).forEach((node) => node.remove());
         return rendered;
     }
 
@@ -8998,6 +9429,32 @@
             if (typeof __tmIsTaskDoneEffective === 'function') return __tmIsTaskDoneEffective(current) === true;
         } catch (e) {}
         return current?.done === true;
+    }
+
+    function getCalendarRelationCheckboxShapeClass() {
+        return getSettings().taskCheckboxCircleStyleEnabled === true
+            ? 'tm-task-checkbox--circle'
+            : 'tm-task-checkbox--rect';
+    }
+
+    async function handleCalendarRelationTaskCheckboxToggle(input, taskId, event) {
+        if (!(input instanceof HTMLInputElement)) return false;
+        const tid = String(taskId || '').trim();
+        if (!tid || typeof window.tmSetDone !== 'function') {
+            input.checked = !input.checked;
+            return false;
+        }
+        const nextDone = input.checked === true;
+        try {
+            const result = await window.tmSetDone(tid, nextDone, event || null, {
+                source: 'calendar-relation-checkbox',
+            });
+            if (result === false) throw new Error('任务完成状态未保存');
+            return true;
+        } catch (e) {
+            input.checked = !nextDone;
+            return false;
+        }
     }
 
     function shouldEnableCalendarEventContextMenu() {
@@ -13081,6 +13538,99 @@
         return String(n);
     }
 
+    function getCalendarTaskCompletionMode(taskId) {
+        const id = String(taskId || '').trim();
+        const store = state.settingsStore || state.sideDay?.settingsStore;
+        // Linking is the default. The map stores explicit per-task overrides,
+        // so older settings without this field keep the linked behavior.
+        return store?.data?.calendarTaskCompletionModes?.[id] === 'independent'
+            ? 'independent'
+            : 'linked';
+    }
+
+    function isScheduleCompletionIndependent(item) {
+        const taskId = getScheduleLinkedTaskId(item) || getScheduleLinkedBlockId(item);
+        return !!taskId && !isVirtualRecurringTaskScheduleItem(item)
+            && !isTaskDateRecurringExceptionScheduleItem(item)
+            && getCalendarTaskCompletionMode(taskId) === 'independent';
+    }
+
+    function getScheduleSingleCompletionDone(item) {
+        // An explicit uncheck must beat older detached-instance aliases.
+        return typeof item?.scheduleDone === 'boolean'
+            ? item.scheduleDone
+            : isTaskDateRecurringExceptionDone(item);
+    }
+
+    async function setCalendarTaskCompletionMode(taskId, linked) {
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const mode = linked ? 'linked' : 'independent';
+        if (getCalendarTaskCompletionMode(id) === mode) return;
+        const store = state.settingsStore || state.sideDay?.settingsStore;
+        if (!store?.data || typeof store.save !== 'function') throw new Error('日历设置尚未就绪');
+        const previous = store.data.calendarTaskCompletionModes;
+        const next = { ...previous, [id]: mode };
+        store.data.calendarTaskCompletionModes = next;
+        try {
+            await store.save();
+        } catch (error) {
+            if (store.data.calendarTaskCompletionModes === next) store.data.calendarTaskCompletionModes = previous;
+            throw error;
+        }
+        // Update already mounted calendar events immediately. The source
+        // refetch below is still needed for off-screen occurrences, but the
+        // visible cards should switch style without remounting the plugin.
+        try {
+            const schedules = await loadScheduleAll();
+            const patchedIds = new Set();
+            for (const item of (Array.isArray(schedules) ? schedules : [])) {
+                const linkedIds = [getScheduleLinkedTaskId(item), getScheduleLinkedBlockId(item)]
+                    .map((value) => String(value || '').trim())
+                    .filter(Boolean);
+                if (!linkedIds.includes(id) || patchedIds.has(String(item?.id || '').trim())) continue;
+                patchedIds.add(String(item?.id || '').trim());
+                if (typeof __tmPatchVisibleSingleScheduleInPlace === 'function') {
+                    __tmPatchVisibleSingleScheduleInPlace(item, 'upsert');
+                }
+            }
+        } catch (e) {}
+        try { state.queuePrototypeSurfaceRender?.({ taskDoneChanged: true }); } catch (e) {}
+        // Rebuild every schedule for this task, including other dates and the
+        // side calendar. Completion records remain untouched when modes change.
+        refetchAllCalendars({ reason: 'schedule-completion-mode', hard: true, flushTaskPanel: false });
+    }
+
+    function bindScheduleCompletionControl(host, resolveTaskId) {
+        const row = host.querySelector('[data-tm-schedule-completion]');
+        if (!row) return { sync() {}, async save() {} };
+        row.innerHTML = '<label class="tm-calendar-completion-toggle"><span>与任务完成状态联动</span><input class="b3-switch fn__flex-center" type="checkbox" data-tm-schedule-completion-linked aria-label="与任务完成状态联动"></label><small>适用于此任务的所有关联日程</small>';
+        const input = row.querySelector('input');
+        let boundId = '';
+        let dirty = false;
+        const sync = () => {
+            const id = String(resolveTaskId() || '').trim();
+            row.hidden = !id;
+            input.disabled = !id;
+            if (id !== boundId) {
+                boundId = id;
+                dirty = false;
+                input.checked = getCalendarTaskCompletionMode(id) === 'linked';
+            }
+        };
+        input.addEventListener('change', () => { dirty = true; });
+        sync();
+        return {
+            sync,
+            async save() {
+                sync();
+                if (!dirty || !boundId) return;
+                await setCalendarTaskCompletionMode(boundId, input.checked);
+                dirty = false;
+            },
+        };
+    }
+
     function normalizeScheduleCompletedOccurrences(value) {
         const list = Array.isArray(value) ? value : [];
         const out = [];
@@ -13108,6 +13658,7 @@
     }
 
     function isScheduleOccurrenceDone(item, occurrenceStartMs) {
+        if (typeof item?.scheduleDone === 'boolean' && getScheduleRepeatType(item) === 'none') return item.scheduleDone;
         const key = normalizeScheduleCompletedOccurrenceKey(occurrenceStartMs);
         if (!key) return false;
         return getScheduleCompletedOccurrenceSet(item).has(key);
@@ -16634,14 +17185,57 @@
     }
 
     async function setScheduleOccurrenceDone(scheduleId, occurrenceStartMs, done, options = {}) {
+        // Serialize the read as well as the write so rapid clicks on different
+        // schedules/occurrences cannot overwrite each other's completion.
+        const run = () => persistScheduleOccurrenceDone(scheduleId, occurrenceStartMs, done, options);
+        const pending = Promise.resolve(state.scheduleCompletionWriteTail).then(run, run);
+        state.scheduleCompletionWriteTail = pending.catch(() => undefined);
+        return pending;
+    }
+
+    async function persistScheduleOccurrenceDone(scheduleId, occurrenceStartMs, done, options = {}) {
         const sid = String(scheduleId || '').trim();
         const occurrenceKey = normalizeScheduleCompletedOccurrenceKey(occurrenceStartMs);
         if (!sid || !occurrenceKey) throw new Error('invalid schedule occurrence payload');
+        await state.scheduleWriteTail;
         const list = await loadScheduleAll();
         const idx = list.findIndex((item) => String(item?.id || '').trim() === sid);
         if (idx < 0) throw new Error('未找到日程');
         const prevItem = (list[idx] && typeof list[idx] === 'object') ? list[idx] : {};
         const opt = (options && typeof options === 'object') ? options : {};
+        const completionIndependent = isScheduleCompletionIndependent(prevItem);
+        if (normalizeScheduleRepeatType(getScheduleRepeatType(prevItem)) === 'none' && completionIndependent) {
+            const nextDone = done === true;
+            if (getScheduleSingleCompletionDone(prevItem) === nextDone) return true;
+            const nextItem = {
+                ...prevItem,
+                scheduleDone: nextDone,
+            };
+            // Keep legacy detached records consistent without adding duplicate
+            // completion fields to ordinary schedules.
+            if (Object.prototype.hasOwnProperty.call(nextItem, 'completed')) nextItem.completed = nextDone;
+            if (Object.prototype.hasOwnProperty.call(nextItem, 'done')) nextItem.done = nextDone;
+            list[idx] = nextItem;
+            await saveScheduleAll(list, {
+                reason: 'schedule-occurrence-done',
+                source: String(opt.source || 'schedule-occurrence').trim() || 'schedule-occurrence',
+                op: 'update',
+                scheduleId: sid,
+                scheduleIds: [sid],
+                rangeStart: nextItem.start,
+                rangeEnd: nextItem.end,
+            });
+            if (opt.refresh !== false) {
+                __tmSchedulePostMutationRefresh(nextItem, 'upsert', {
+                    reason: 'schedule-occurrence-done',
+                    flushTaskPanel: false,
+                    rangeStart: nextItem.start,
+                    rangeEnd: nextItem.end,
+                    version: Number(state.calendarMutationVersion) || 0,
+                });
+            }
+            return true;
+        }
         if (normalizeScheduleRepeatType(getScheduleRepeatType(prevItem)) === 'none') {
             const taskId = String(prevItem.taskId || prevItem.task_id || prevItem.linkedTaskId || prevItem.linked_task_id || '').trim();
             const linkedRecurringTask = taskId ? await isLinkedTaskRecurringTask(taskId) : false;
@@ -18007,13 +18601,29 @@
             && !!normalizeScheduleCompletedOccurrenceKey(ext?.__tmOccurrenceStartMs);
     }
 
+    function isIndependentScheduleEventExt(ext) {
+        return String(ext?.__tmSource || '').trim() === 'schedule'
+            && ext?.__tmScheduleCompletionIndependent === true
+            && ext?.__tmVirtualTaskSchedule !== true
+            && !!String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
+    }
+
+    function isTaskLinkedScheduleEventExt(ext) {
+        return String(ext?.__tmSource || '').trim() === 'schedule'
+            && ext?.__tmScheduleCompletionIndependent === false
+            && ext?.__tmVirtualTaskSchedule !== true
+            && ext?.__tmDetachedTaskOccurrence !== true
+            && !!String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
+    }
+
     function resolveCalendarEventDoneState(ext, options = {}) {
         const source = String(ext?.__tmSource || '').trim();
         if (source === 'reminder') return ext?.__tmReminderDone === true;
         if (!(source === 'taskdate' || source === 'schedule')) return false;
         if (source === 'taskdate' && isRecurringTaskDateReadOnlyOccurrence(ext)) return ext?.__tmTaskDone === true;
         if (source === 'schedule' && ext?.__tmVirtualTaskSchedule === true) return true;
-        if (isDetachedTaskOccurrenceEventExt(ext) || isDetachedScheduleOccurrenceEventExt(ext)) return ext?.__tmScheduleOccurrenceDone === true;
+        if (isDetachedTaskOccurrenceEventExt(ext) || (isDetachedScheduleOccurrenceEventExt(ext) && !isTaskLinkedScheduleEventExt(ext))) return ext?.__tmScheduleOccurrenceDone === true;
+        if (isIndependentScheduleEventExt(ext)) return ext?.__tmScheduleOccurrenceDone === true;
         const tid = String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
         const opt = (options && typeof options === 'object') ? options : {};
         let taskDone = false;
@@ -18030,9 +18640,10 @@
                     ext.__tmTaskDone = liveDone;
                 }
             } catch (e) {}
-        } else if (source === 'taskdate' && Object.prototype.hasOwnProperty.call(ext || {}, '__tmTaskDone')) {
+        } else if (Object.prototype.hasOwnProperty.call(ext || {}, '__tmTaskDone')) {
             taskDone = ext?.__tmTaskDone === true;
         }
+        if (isTaskLinkedScheduleEventExt(ext)) return taskDone;
         if (taskDone) return true;
         if (source === 'schedule' && ext?.__tmScheduleOccurrenceDone === true) return true;
         if (source === 'schedule' && isRecurringScheduleEventExt(ext)) {
@@ -18113,7 +18724,7 @@
                 applied = true;
                 return true;
             }
-            if (source === 'schedule' && (isRecurringScheduleEventExt(ext) || isDetachedTaskOccurrenceEventExt(ext) || isDetachedScheduleOccurrenceEventExt(ext))) {
+            if (source === 'schedule' && (isIndependentScheduleEventExt(ext) || (!isTaskLinkedScheduleEventExt(ext) && (isRecurringScheduleEventExt(ext) || isDetachedTaskOccurrenceEventExt(ext) || isDetachedScheduleOccurrenceEventExt(ext))))) {
                 const scheduleId = String(ext?.__tmScheduleId || '').trim();
                 const occurrenceStartMs = Number(ext?.__tmOccurrenceStartMs);
                 const setter = globalThis.__tmCalendar?.setScheduleOccurrenceDone;
@@ -18125,11 +18736,12 @@
                     detachedTaskOccurrence: isDetachedTaskOccurrenceEventExt(ext),
                     detachedScheduleOccurrence: isDetachedScheduleOccurrenceEventExt(ext),
                 });
-                if (result === false) throw new Error('循环实例状态未保存');
+                if (result === false) throw new Error('日程状态未保存');
+                try { ext.__tmScheduleOccurrenceDone = nextDone; } catch (e) {}
                 applied = true;
                 return true;
             }
-            if (source === 'schedule' && isLinkedAllDayTaskScheduleCandidateEventExt(ext) && tid && await isLinkedTaskRecurringTask(tid)) {
+            if (source === 'schedule' && !isTaskLinkedScheduleEventExt(ext) && isLinkedAllDayTaskScheduleCandidateEventExt(ext) && tid && await isLinkedTaskRecurringTask(tid)) {
                 const scheduleId = String(ext?.__tmScheduleId || '').trim();
                 const occurrenceStartMs = Number(ext?.__tmOccurrenceStartMs);
                 const setter = globalThis.__tmCalendar?.setScheduleOccurrenceDone;
@@ -18218,7 +18830,9 @@
         }
         // Recurring schedules own an occurrence completion state even when
         // they are not linked to a task block.
+        if (isIndependentScheduleEventExt(ext)) return true;
         if (isRecurringScheduleEventExt(ext) || isDetachedTaskOccurrenceEventExt(ext) || isDetachedScheduleOccurrenceEventExt(ext)) return true;
+        if (typeof isTaskLinkedScheduleEventExt === 'function' && isTaskLinkedScheduleEventExt(ext)) return true;
         if (isCalendarBuiltinScheduleEvent(ext)) return false;
         if (ext?.__tmTaskDateReadOnly === true) return resolveCalendarEventDoneState(ext) === true;
         if (!isOtherBlockCalendarEvent(ext)) return true;
@@ -18815,6 +19429,7 @@
     }
 
     function unmountSideDayTimeline() {
+        state.sideDay.rootEl?.querySelector('[data-tm-side-proto-surface]')?.__tmTimelinePinch?.dispose();
         try { closeTrackedPrototypeMorePopover(); } catch (e) {}
         try { clearTimeGridAutoCenterState('sideDay'); } catch (e) {}
         if (state.sideDay.nowIndicatorTimer) {
@@ -20035,6 +20650,15 @@
             } catch (e) {}
             if (!surface.__tmSideProtoBound) {
                 surface.__tmSideProtoBound = true;
+                bindMobileTimelinePinch(surface, {
+                    isMobile: state.isMobileDevice === true,
+                    onStart: () => {
+                        state.sideDay.autoCenterSuppressed = true;
+                        state.sideDay.autoCenterToken = Number(state.sideDay.autoCenterToken || 0) + 1;
+                        state.sideDay.autoCenterPendingKey = '';
+                    },
+                });
+                bindPrototypeScheduleDraft(surface);
                 const resolveSidePrototypeTimedDropAtPoint = (clientX, clientY) => {
                     const pointTarget = document.elementFromPoint?.(Number(clientX) || 0, Number(clientY) || 0);
                     const target = pointTarget instanceof Element ? pointTarget : null;
@@ -20245,7 +20869,7 @@
                     if (timeArea && canvas instanceof HTMLElement) {
                         const liveSettings = getSettings();
                         const minute = prototypeTimelineMinutesAtPoint(canvas, event.clientY, liveSettings);
-                        if (Number.isFinite(minute)) date.setMinutes(Math.round(minute / 15) * 15, 0, 0);
+                        if (Number.isFinite(minute)) date.setMinutes(Math.min(23, Math.floor(minute / 60)) * 60, 0, 0);
                     }
                     const activeCalendar = state.sideDay?.calendar || cal;
                     const pointAnchor = createPrototypePointAnchor(event, timeArea || panel);
@@ -20696,6 +21320,8 @@
         };
         const renderSidePrototype = () => {
             const surface = ensureSidePrototypeSurface();
+            if (surface?.__tmTimelinePinch?.deferRender(queueSidePrototypeRender)) return;
+            if (surface?.__tmScheduleDraft?.deferRender(queueSidePrototypeRender)) return;
             const active = state.sideDay?.calendar || cal;
             if (!(surface instanceof HTMLElement) || !active) return;
             const liveSettings = getSettings();
@@ -20776,6 +21402,7 @@
                 restoreScroll();
                 try { requestAnimationFrame(restoreScroll); } catch (e) {}
             }
+            surface.__tmScheduleDraft?.restore();
             try { scheduleCurrentTimeAutoCenter(surface, active, liveSettings, { scope: 'sideDay', reason: 'side-prototype-render' }); } catch (e) {}
             try { scheduleSideDayNowIndicatorRefreshFallback(); } catch (e) {}
         };
@@ -21286,8 +21913,10 @@
                     && canvas instanceof HTMLElement
                     ? { start, end, canvas, metrics: getPrototypeTimelineMetricsFromCanvas(canvas, getSettings()) }
                     : null;
-                const opened = typeof newCard === 'function'
-                    ? newCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: sidePrototypeSurface, __tmPreviewRange: previewRange }, clickAnchor)
+                const params = { start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: sidePrototypeSurface, __tmPreviewRange: previewRange };
+                const opened = previewRange
+                    ? bindPrototypeScheduleDraft(sidePrototypeSurface)?.show(params, clickAnchor, newCard)
+                    : typeof newCard === 'function' ? newCard(params, clickAnchor)
                     : false;
                 if (!opened) return;
             },
@@ -21305,8 +21934,10 @@
                     ? selectionEvent.__tmPrototypeSelectionAnchor
                     : (sidePrototypeSurface?.querySelector?.('[data-tm-proto-selection-preview]') || info?.el || selectionEvent?.target);
                 const selectionRange = selectionEvent?.__tmPrototypeSelectionRange || null;
-                const opened = typeof newCard === 'function'
-                    ? newCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: sidePrototypeSurface, __tmPreviewRange: selectionRange }, selectionAnchor)
+                const params = { start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: sidePrototypeSurface, __tmPreviewRange: selectionRange };
+                const opened = !params.allDay
+                    ? bindPrototypeScheduleDraft(sidePrototypeSurface)?.show(params, selectionAnchor, newCard, { preserveRange: true, suppressClick: true })
+                    : typeof newCard === 'function' ? newCard(params, selectionAnchor)
                     : false;
                 if (!opened) {
                     renderPrototypeSelectionPreview(sidePrototypeSurface, null, null);
@@ -21832,6 +22463,7 @@
             const isDetachedTaskOccurrence = isTaskDateRecurringExceptionScheduleItem(it);
             const isDetachedScheduleOccurrence = isDetachedScheduleOccurrenceItem(it);
             const detachedOccurrenceDone = isTaskDateRecurringExceptionDone(it);
+            const completionIndependent = !!taskLikeId && isScheduleCompletionIndependent(it);
             const isLinkedAllDayTaskSchedule = !!taskId && repeatType === 'none' && allDayBase;
             const allDayBottom = isScheduleAllDayBottom(it);
             const occurrences = collectScheduleOccurrencesInRange(it, rangeStart, rangeEnd, {
@@ -21842,9 +22474,11 @@
                 const occEnd = occurrence?.end instanceof Date ? occurrence.end : end;
                 const allDay = allDayBase || isAllDayRange(occStart, occEnd);
                 const occStartMs = Number(occurrence?.startMs || occStart.getTime());
-                const occurrenceDone = (isDetachedTaskOccurrence || isDetachedScheduleOccurrence)
-                    ? detachedOccurrenceDone
-                    : (Number.isFinite(occStartMs) && completedOccurrenceSet.has(String(Math.trunc(occStartMs))));
+                const occurrenceDone = completionIndependent && repeatType === 'none'
+                    ? getScheduleSingleCompletionDone(it)
+                    : (isDetachedTaskOccurrence || isDetachedScheduleOccurrence)
+                        ? detachedOccurrenceDone
+                        : (Number.isFinite(occStartMs) && completedOccurrenceSet.has(String(Math.trunc(occStartMs))));
                 const eventClassNames = allDay ? ['tm-cal-allday-soft-event'] : ['tm-cal-schedule-event'];
                 const event = {
                     id: repeatType === 'none' ? String(it?.id || uuid()) : `${String(it?.id || uuid())}:${occStartMs}`,
@@ -21894,6 +22528,7 @@
                         __tmOccurrenceStartMs: occStartMs,
                         __tmOccurrenceOrdinal: Number(occurrence?.ordinal) || 1,
                         __tmScheduleOccurrenceDone: occurrenceDone,
+                        __tmScheduleCompletionIndependent: completionIndependent,
                         __tmDetachedTaskOccurrence: isDetachedTaskOccurrence,
                         __tmDetachedScheduleOccurrence: isDetachedScheduleOccurrence,
                         __tmLinkedAllDayTaskSchedule: isLinkedAllDayTaskSchedule,
@@ -22022,6 +22657,7 @@
             '__tmScheduleBaseEnd',
             '__tmOccurrenceStartMs',
             '__tmScheduleOccurrenceDone',
+            '__tmScheduleCompletionIndependent',
             '__tmDetachedTaskOccurrence',
             '__tmDetachedScheduleOccurrence',
             '__tmLinkedAllDayTaskSchedule',
@@ -26772,7 +27408,9 @@
             if (id && !relationSearching) {
                 const title = taskDisplayTitle(task, '') || '已关联任务';
                 const meta = getCalendarTaskRelationMeta(task);
-                return `<div class="tm-calendar-edit-relation-current"><div class="tm-calendar-edit-relation-summary"><span class="tm-calendar-edit-relation-icon" aria-hidden="true">↗</span><span class="tm-calendar-edit-relation-copy"><b>${esc(title)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</span></div><div class="tm-calendar-edit-relation-actions"><button type="button" data-tm-cal-relation-action="open">打开任务</button><button type="button" data-tm-cal-relation-action="replace">更换</button><button type="button" data-tm-cal-relation-action="unlink" class="is-danger">解除</button></div></div>`;
+                const shapeClass = getCalendarRelationCheckboxShapeClass();
+                const checked = isCalendarRelationTaskDone(task);
+                return `<div class="tm-calendar-edit-relation-current"><div class="tm-calendar-edit-relation-summary"><input class="tm-task-checkbox tm-calendar-edit-relation-check ${shapeClass}" type="checkbox" data-tm-cal-relation-task-check="${esc(id)}" aria-label="完成关联任务"${checked ? ' checked' : ''}><span class="tm-calendar-edit-relation-copy"><b>${esc(title)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</span></div><div class="tm-calendar-edit-relation-actions"><button type="button" data-tm-cal-relation-action="open">打开任务</button><button type="button" data-tm-cal-relation-action="replace">更换</button><button type="button" data-tm-cal-relation-action="unlink" class="is-danger">解除</button></div></div>`;
             }
             if (!relationSearching) return '<button type="button" class="tm-calendar-edit-relation-start" data-tm-cal-relation-action="search"><span aria-hidden="true">⌕</span><span>搜索任务进行关联</span></button>';
             return `<div class="tm-calendar-edit-relation-search"><div class="tm-calendar-edit-relation-searchbox"><span aria-hidden="true">⌕</span><input type="search" value="${esc(relationQuery)}" data-tm-cal-field="taskSearch" placeholder="搜索任务名称或文档" aria-label="搜索关联任务"><button type="button" data-tm-cal-relation-action="cancel" aria-label="收起搜索">×</button></div><div class="tm-calendar-edit-relation-results" data-tm-cal-relation-results>${taskSearchResultsHtml()}</div></div>`;
@@ -26908,6 +27546,7 @@
                     </div>
                 </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--note"${taskDateEditor ? ' style="opacity:.55;"' : ''}><div class="tm-calendar-edit-label">备注</div><textarea class="tm-calendar-edit-input tm-calendar-edit-note" data-tm-cal-field="note" placeholder="${linkedTaskIdDraft || linkedBlockIdDraft ? '备注与关联任务共用' : '添加备注'}" ${taskDateEditor ? 'disabled' : ''}>${esc(linkedTaskInitialRemark || String(init.note || init.remark || ''))}</textarea></div>
+                ${taskDateEditor ? '' : '<div class="tm-calendar-completion-setting" data-tm-schedule-completion></div>'}
                 <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">当前设备预约</div>
                     <div class="tm-calendar-edit-value" data-tm-cal-field="deviceScheduleSummary" style="flex:1;line-height:1.4;opacity:.85;">${esc(deviceSummary0)}</div>
@@ -26925,6 +27564,7 @@
         `;
         document.body.appendChild(modal);
         state.modalEl = modal;
+        const completionControl = bindScheduleCompletionControl(modal, () => linkedTaskIdDraft || linkedBlockIdDraft);
         if (!isEdit && !taskDateEditor) {
             const titleField = modal.querySelector('[data-tm-cal-field="title"]');
             if (titleField instanceof HTMLInputElement || titleField instanceof HTMLTextAreaElement) {
@@ -27230,6 +27870,7 @@
         };
 
         const syncRelationUi = () => {
+            completionControl.sync();
             const host = modal.querySelector('[data-tm-cal-relation]');
             if (!(host instanceof HTMLElement) || taskDateEditor) return;
             host.innerHTML = renderRelation();
@@ -27270,6 +27911,12 @@
                 relationQuery = '';
                 syncRelationUi();
             }
+        }, { signal: abort.signal });
+        modal.addEventListener('change', async (e) => {
+            const input = e.target;
+            if (!(input instanceof HTMLInputElement) || !input.matches('[data-tm-cal-relation-task-check]')) return;
+            e.stopPropagation?.();
+            await handleCalendarRelationTaskCheckboxToggle(input, input.getAttribute('data-tm-cal-relation-task-check'), e);
         }, { signal: abort.signal });
 
         // On phones the soft keyboard hides on the first tap that leaves the
@@ -27787,6 +28434,7 @@
                     }
                     throw saveError;
                 }
+                await completionControl.save();
                 let taskRemarkError = null;
                 const taskMutationId = String(taskIdKeep || blockIdKeep || '').trim();
                 if (taskMutationId && note !== linkedTaskInitialRemark && typeof globalThis.__tmRequireTaskMutation === 'function') {
@@ -28068,6 +28716,10 @@
         const wrap = state.wrapEl;
         const cal = state.calendar;
         if (!wrap || !cal) return false;
+        if (state.mainCalendarSuspended === true) {
+            if (opt.layoutOnly !== true) state.mainCalendarNeedsRefresh = true;
+            return true;
+        }
         if (opt.layoutOnly !== true) {
             try { scheduleTaskPageRender(wrap, getSettings()); } catch (e2) {}
             try { callCalendarAdapter(cal, 'refetchEvents'); } catch (e2) {}
@@ -28166,6 +28818,8 @@
             events.forEach((eventApi) => {
                 const ext = eventApi?.extendedProps || {};
                 const source = String(ext.__tmSource || '').trim();
+                const independentSchedule = isIndependentScheduleEventExt(ext);
+                if (independentSchedule) return;
                 const previousDone = Object.prototype.hasOwnProperty.call(ext, '__tmTaskDone')
                     ? ext.__tmTaskDone === true : !nextDone;
                 if ((source === 'taskdate' || source === 'schedule') && !isRecurringTaskDateReadOnlyOccurrence(ext)) {
@@ -28452,6 +29106,20 @@
         // hidden layout anchor is no longer part of the rendering pipeline.
         const host = wrap.querySelector('[data-tm-cal-surface]');
         const prototypeSurface = wrap.querySelector('[data-tm-cal-surface]');
+        bindMobileTimelinePinch(prototypeSurface, {
+            isMobile: isMobileDevice === true,
+            onStart: () => {
+                prototypeMobileMonthTouch = null;
+                prototypeSurface.classList.remove('tm-proto-month--swiping', 'tm-proto-timeline--swiping');
+                prototypeDayPanelAutoCenterPendingKey = '';
+                prototypeDayPanelAutoCenterToken += 1;
+                state.mainTimeGridAutoCenterToken = Number(state.mainTimeGridAutoCenterToken || 0) + 1;
+                state.mainTimeGridAutoCenterPendingKey = '';
+                const guard = shouldAutoCenterCurrentTime(prototypeSurface, calendar || state.calendar, getSettings());
+                if (guard) state.mainTimeGridAutoCenterKey = guard.key;
+            },
+        });
+        bindPrototypeScheduleDraft(prototypeSurface);
         try { host?.setAttribute?.('data-tm-cal-engine', '1'); } catch (e) {}
         const NARROW_LAYOUT_ENTER_WIDTH = 760;
         const NARROW_LAYOUT_EXIT_WIDTH = 800;
@@ -30490,7 +31158,7 @@
                             const minutes = canvas instanceof HTMLElement
                                 ? prototypeTimelineMinutesAtPoint(canvas, event.clientY, settings)
                                 : NaN;
-                            if (Number.isFinite(minutes)) day.setMinutes(Math.round(minutes / 15) * 15, 0, 0);
+                            if (Number.isFinite(minutes)) day.setMinutes(Math.min(23, Math.floor(minutes / 60)) * 60, 0, 0);
                         }
                         const activeCalendar = state.calendar || calendar;
                         const monthCell = dayEl.closest?.('.tm-proto-month-cell');
@@ -31889,6 +32557,7 @@
             const classes = [
                 'tm-proto-span-bar',
                 checkboxCircle ? 'tm-proto-event--checkbox-circle' : 'tm-proto-event--checkbox-rect',
+                isIndependentScheduleEventExt(ext) ? 'tm-proto-event--completion-independent' : '',
                 isBuiltinSchedule && !showCheck ? 'tm-proto-event--calendar-builtin' : '',
                 isSegmentStart ? 'is-start' : '',
                 continuation ? 'is-continuation' : '',
@@ -31904,7 +32573,7 @@
             return `<div class="${classes}" data-tm-proto-event="${esc(id)}"${reminderTitle} style="${layoutStyle}--tm-proto-event-color:${protoEventColor(eventApi)}">`
                 + `${canResizeRange && !continuation ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
                 + `${continuesBefore ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--start" aria-hidden="true">&lt;</span>' : ''}`
-                + `${showCheck ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="完成任务"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>` : ''}`
+                + `${showCheck ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="${isIndependentScheduleEventExt(ext) ? '完成日程' : '完成任务'}"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>` : ''}`
                 + `<span class="tm-proto-span-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}${buildCalendarMergedReminderMarkup(ext)}`
                 + `${continuesAfter ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--end" aria-hidden="true">&gt;</span>' : ''}`
                 + `${canResizeRange && isEventEnd ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>' : ''}</div>`;
@@ -33600,6 +34269,7 @@
         const protoListEventDone = (eventApi) => resolveCalendarEventDoneState(eventApi?.extendedProps || {});
         const protoListIsTaskEvent = (eventApi) => {
             const ext = eventApi?.extendedProps || {};
+            if (isIndependentScheduleEventExt(ext)) return false;
             const source = String(ext.__tmSource || '').trim();
                 return source === 'taskdate'
                     || source === 'reminder'
@@ -34435,6 +35105,8 @@
         const showPrototypeScheduleEditorCard = (eventApi, anchorEl, options = {}) => {
             const ext = eventApi?.extendedProps || {};
             const isNew = options?.isNew === true;
+            const isMobileFullscreen = isNew && options?.fromDraftCard === true
+                && (isMobileDevice || isLikelyMobileRuntime());
             const isTaskDateEditor = options?.taskDateEditor === true;
             const scheduleId = (isNew || isTaskDateEditor) ? '' : String(ext.__tmScheduleId || eventApi?.id || '').trim();
             if ((!isNew && !isTaskDateEditor && !scheduleId) || !(anchorEl instanceof Element)) return false;
@@ -34446,7 +35118,7 @@
             let relationExplicitlyUnlinked = false;
             let relationSearching = false;
             let relationQuery = '';
-            let moreExpanded = false;
+            let moreExpanded = isMobileFullscreen;
             let moreTogglePointerHandledAt = 0;
             let insidePointerGesture = null;
             let activePopoverPointers = 0;
@@ -34511,7 +35183,9 @@
                 if (id && !relationSearching) {
                     const title = titleForTask(task, '') || (relationTitle && relationTitle !== id ? relationTitle : '') || '已关联任务';
                     const meta = getCalendarTaskRelationMeta(task);
-                    return `<div class="tm-proto-inline-relation-current"><div class="tm-proto-inline-relation-main"><span class="tm-proto-inline-relation-icon" aria-hidden="true">↗</span><span><b>${esc(title)}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</span></div><div class="tm-proto-inline-relation-actions"><button type="button" class="tm-proto-inline-relation-open" data-tm-proto-edit-relation="open">任务详情</button><button type="button" data-tm-proto-edit-relation="replace">更换</button><button type="button" data-tm-proto-edit-relation="unlink" class="is-danger">解除</button></div></div>`;
+                    const shapeClass = getCalendarRelationCheckboxShapeClass();
+                    const checked = isCalendarRelationTaskDone(task);
+                    return `<div class="tm-proto-inline-relation-current"><div class="tm-proto-inline-relation-main"><input class="tm-task-checkbox tm-proto-inline-relation-check ${shapeClass}" type="checkbox" data-tm-proto-edit-relation-task-check="${esc(id)}" aria-label="完成关联任务"${checked ? ' checked' : ''}><span><b>${esc(title)}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</span></div><div class="tm-proto-inline-relation-actions"><button type="button" class="tm-proto-inline-relation-open" data-tm-proto-edit-relation="open">任务详情</button><button type="button" data-tm-proto-edit-relation="replace">更换</button><button type="button" data-tm-proto-edit-relation="unlink" class="is-danger">解除</button></div></div>`;
                 }
                 if (!relationSearching) return '<button type="button" class="tm-proto-inline-relation-start" data-tm-proto-edit-relation="search">⌕ <span>搜索任务进行关联</span></button>';
                 const keyword = relationQuery.toLocaleLowerCase('zh-CN').trim();
@@ -34737,8 +35411,13 @@
                 const anchor = pop.querySelector(`${anchorSelector}[data-tm-proto-edit-${timeHubMode === 'time' ? 'time' : 'date'}-card="${timeHubEndpoint}"]`);
                 if (!(anchor instanceof HTMLElement)) return;
                 const rect = anchor.getBoundingClientRect();
-                const viewport = getPrototypePopoverViewport(anchorEl, { ignoreListVerticalClip: true });
+                const viewport = isMobileFullscreen
+                    ? pop.getBoundingClientRect()
+                    : getPrototypePopoverViewport(anchorEl, { ignoreListVerticalClip: true });
                 const margin = Math.min(8, Math.max(4, viewport.width / 2));
+                if (isMobileFullscreen) {
+                    timeHub.style.setProperty('max-height', `${Math.max(1, viewport.height - margin * 2)}px`, 'important');
+                }
                 const width = Math.min(timeHub.offsetWidth || 286, Math.max(0, viewport.width - margin * 2));
                 let left = Math.min(Math.max(viewport.left + margin, rect.left), Math.max(viewport.left + margin, viewport.right - width - margin));
                 let top = rect.bottom + 6;
@@ -34908,6 +35587,20 @@
             };
             const position = () => {
                 if (!pop.isConnected) return;
+                if (isMobileFullscreen) {
+                    const vv = window.visualViewport;
+                    const visibleWidth = Math.max(1, Math.min(...[
+                        vv?.width, document.documentElement?.clientWidth, window.innerWidth,
+                    ].map(Number).filter((value) => Number.isFinite(value) && value > 0)));
+                    const visibleHeight = Number(vv?.height) > 0 ? Number(vv.height) : window.innerHeight;
+                    pop.style.setProperty('width', `${Math.round(visibleWidth)}px`, 'important');
+                    pop.style.setProperty('max-width', `${Math.round(visibleWidth)}px`, 'important');
+                    pop.style.setProperty('height', `${Math.round(visibleHeight)}px`, 'important');
+                    pop.style.setProperty('max-height', `${Math.round(visibleHeight)}px`, 'important');
+                    pop.style.left = `${Math.round(Number(vv?.offsetLeft) || 0)}px`;
+                    pop.style.top = `${Math.round(Number(vv?.offsetTop) || 0)}px`;
+                    return;
+                }
                 const viewport = getPrototypePopoverViewport(anchorEl, { ignoreListVerticalClip: true });
                 const margin = Math.min(10, Math.max(4, viewport.width / 2));
                 const width = Math.min(isNew ? 326 : 312, Math.max(0, viewport.width - margin * 2));
@@ -35111,6 +35804,7 @@
                     }
                 }
             };
+            let completionControl;
             let syncTitleFieldHeight = () => {};
             const render = () => {
                 const currentStart = isTaskDateEditor
@@ -35143,7 +35837,12 @@
                 const durationText = eventApi.allDay === true
                     ? '全天'
                     : formatCalendarTaskDurationLabel((currentEnd.getTime() - currentStart.getTime()) / 60000) || formatScheduleEventRangeText(currentStart, currentEnd, false);
-                pop.className = `ev-pop unified-summary quick-pop tm-proto-event-popover tm-proto-inline-schedule-editor${isNew ? ' is-new' : ''}${isTaskDateEditor ? ' is-task-date' : ''}`;
+                pop.className = `ev-pop unified-summary quick-pop tm-proto-event-popover tm-proto-inline-schedule-editor${isNew ? ' is-new' : ''}${isTaskDateEditor ? ' is-task-date' : ''}${isMobileFullscreen ? ' is-mobile-fullscreen' : ''}`;
+                if (isMobileFullscreen) {
+                    pop.setAttribute('role', 'dialog');
+                    pop.setAttribute('aria-modal', 'true');
+                    pop.setAttribute('aria-label', '新建日程');
+                }
                 pop.style.setProperty('--tm-proto-event-color', protoEventColor(eventApi));
                 const calendarOptions = getCalendarDefs(getSettings()).map((calendar) => {
                     const id = String(calendar?.id || '').trim();
@@ -35166,9 +35865,12 @@
                         <div class="quick-range-note quick-range-summary tm-proto-event-popover-time" data-tm-proto-inline-duration>${esc(isTaskDateEditor ? '修改后同步到任务日期' : (eventApi.allDay === true ? '全天' : `共 ${durationText}`))}</div>
                     </div>
                     <div class="bd tm-proto-event-popover-body tm-proto-inline-editor-body">
-                        ${isTaskDateEditor ? `<div class="quick-setting-row tm-proto-inline-task-date-owner"><b class="quick-setting-label">归属</b><span>${esc(taskDateOwnerIcon + taskDateOwnerName)}</span></div><div class="tm-proto-event-popover-actions tm-proto-inline-task-date-actions"><button type="button" class="tm-proto-popover-open-task" data-tm-proto-task-date-action="open-task">任务详情</button><button type="button" class="tm-proto-popover-locate" data-tm-proto-task-date-action="locate">跳转笔记</button></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">颜色</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="当前颜色"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="预设颜色">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="莫兰迪预设 ${esc(color)}" aria-label="选择预设颜色 ${esc(color)}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label>` : `${isNew ? `<div class="tm-proto-event-popover-kv"><b>日历</b><span data-tm-proto-calendar-summary>${esc(calendarName)}</span></div>` : `<div class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">关联任务</b><div data-tm-proto-inline-relation>${relationHtml()}</div></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">日历</b><select class="quick-setting-control" data-tm-proto-edit-field="calendar">${calendarOptions}</select></label>`}<button type="button" class="quick-settings-toggle tm-proto-inline-more-toggle" data-tm-proto-edit-more aria-expanded="false"><span>更多设置</span><span class="chevron" aria-hidden="true">›</span></button><div class="quick-advanced tm-proto-inline-more" data-tm-proto-inline-more hidden>${isNew ? `<div class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">关联任务</b><div data-tm-proto-inline-relation>${relationHtml()}</div></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">日历</b><select class="quick-setting-control" data-tm-proto-edit-field="calendar">${calendarOptions}</select></label>` : ''}<label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">提醒</b><select class="quick-setting-control" data-tm-proto-edit-field="reminder"><option value="inherit" ${reminderValue === 'inherit' ? 'selected' : ''}>使用全局设置</option><option value="off" ${reminderValue === 'off' ? 'selected' : ''}>关闭提醒</option><option value="0" ${reminderValue === '0' ? 'selected' : ''}>准时提醒</option><option value="5" ${reminderValue === '5' ? 'selected' : ''}>提前 5 分钟</option><option value="15" ${reminderValue === '15' ? 'selected' : ''}>提前 15 分钟</option><option value="30" ${reminderValue === '30' ? 'selected' : ''}>提前 30 分钟</option><option value="60" ${reminderValue === '60' ? 'selected' : ''}>提前 1 小时</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">重复</b><select class="quick-setting-control" data-tm-proto-edit-field="repeat"><option value="none" ${repeatType === 'none' ? 'selected' : ''}>不循环</option><option value="daily" ${repeatType === 'daily' ? 'selected' : ''}>每天</option><option value="workday" ${repeatType === 'workday' ? 'selected' : ''}>工作日</option><option value="weekly" ${repeatType === 'weekly' ? 'selected' : ''}>每周</option><option value="monthly" ${repeatType === 'monthly' ? 'selected' : ''}>每月</option><option value="yearly" ${repeatType === 'yearly' ? 'selected' : ''}>每年</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">颜色</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="当前颜色"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="预设颜色">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="莫兰迪预设 ${esc(color)}" aria-label="选择预设颜色 ${esc(color)}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label><label class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">备注</b><textarea class="quick-setting-control quick-setting-note" data-tm-proto-edit-field="note" placeholder="${linkedTaskId || linkedBlockId ? '备注与关联任务共用' : '添加备注'}">${esc(noteValue)}</textarea></label>${isNew ? '' : '<div class="quick-setting-row tm-proto-inline-device-row"><span>当前设备预约</span><button type="button" data-tm-proto-edit-device>查看</button></div>'}</div>`}
+                        ${isTaskDateEditor ? `<div class="quick-setting-row tm-proto-inline-task-date-owner"><b class="quick-setting-label">归属</b><span>${esc(taskDateOwnerIcon + taskDateOwnerName)}</span></div><div class="tm-proto-event-popover-actions tm-proto-inline-task-date-actions"><button type="button" class="tm-proto-popover-open-task" data-tm-proto-task-date-action="open-task">任务详情</button><button type="button" class="tm-proto-popover-locate" data-tm-proto-task-date-action="locate">跳转笔记</button></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">颜色</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="当前颜色"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="预设颜色">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="莫兰迪预设 ${esc(color)}" aria-label="选择预设颜色 ${esc(color)}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label>` : `${isNew ? `<div class="tm-proto-event-popover-kv"><b>日历</b><span data-tm-proto-calendar-summary>${esc(calendarName)}</span></div>` : `<div class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">关联任务</b><div data-tm-proto-inline-relation>${relationHtml()}</div></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">日历</b><select class="quick-setting-control" data-tm-proto-edit-field="calendar">${calendarOptions}</select></label>`}<button type="button" class="quick-settings-toggle tm-proto-inline-more-toggle" data-tm-proto-edit-more aria-expanded="false"><span>更多设置</span><span class="chevron" aria-hidden="true">›</span></button><div class="quick-advanced tm-proto-inline-more" data-tm-proto-inline-more hidden>${isNew ? `<div class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">关联任务</b><div data-tm-proto-inline-relation>${relationHtml()}</div></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">日历</b><select class="quick-setting-control" data-tm-proto-edit-field="calendar">${calendarOptions}</select></label>` : ''}<label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">提醒</b><select class="quick-setting-control" data-tm-proto-edit-field="reminder"><option value="inherit" ${reminderValue === 'inherit' ? 'selected' : ''}>使用全局设置</option><option value="off" ${reminderValue === 'off' ? 'selected' : ''}>关闭提醒</option><option value="0" ${reminderValue === '0' ? 'selected' : ''}>准时提醒</option><option value="5" ${reminderValue === '5' ? 'selected' : ''}>提前 5 分钟</option><option value="15" ${reminderValue === '15' ? 'selected' : ''}>提前 15 分钟</option><option value="30" ${reminderValue === '30' ? 'selected' : ''}>提前 30 分钟</option><option value="60" ${reminderValue === '60' ? 'selected' : ''}>提前 1 小时</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">重复</b><select class="quick-setting-control" data-tm-proto-edit-field="repeat"><option value="none" ${repeatType === 'none' ? 'selected' : ''}>不循环</option><option value="daily" ${repeatType === 'daily' ? 'selected' : ''}>每天</option><option value="workday" ${repeatType === 'workday' ? 'selected' : ''}>工作日</option><option value="weekly" ${repeatType === 'weekly' ? 'selected' : ''}>每周</option><option value="monthly" ${repeatType === 'monthly' ? 'selected' : ''}>每月</option><option value="yearly" ${repeatType === 'yearly' ? 'selected' : ''}>每年</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">颜色</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="当前颜色"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="预设颜色">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="莫兰迪预设 ${esc(color)}" aria-label="选择预设颜色 ${esc(color)}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label><label class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">备注</b><textarea class="quick-setting-control quick-setting-note" data-tm-proto-edit-field="note" placeholder="${linkedTaskId || linkedBlockId ? '备注与关联任务共用' : '添加备注'}">${esc(noteValue)}</textarea></label><div class="tm-calendar-completion-setting" data-tm-schedule-completion></div>${isNew ? '' : '<div class="quick-setting-row tm-proto-inline-device-row"><span>当前设备预约</span><button type="button" data-tm-proto-edit-device>查看</button></div>'}</div>`}
                     </div>
                     <div class="ft quick-new-foot tm-proto-event-popover-actions tm-proto-inline-editor-actions">${isNew || isTaskDateEditor ? '<button type="button" class="secondary tm-proto-inline-cancel" data-tm-proto-edit-action="cancel">取消</button>' : ''}${isNew || isTaskDateEditor ? '' : '<button type="button" class="danger tm-proto-inline-delete" data-tm-proto-edit-action="delete">删除</button>'}<button type="button" class="primary tm-proto-inline-save" data-tm-proto-edit-action="save">${isNew ? '创建日程' : '保存'}</button></div>`;
+                const more = pop.querySelector('[data-tm-proto-inline-more]');
+                if (more) more.hidden = !moreExpanded;
+                pop.querySelector('[data-tm-proto-edit-more]')?.setAttribute('aria-expanded', moreExpanded ? 'true' : 'false');
                 if (isTaskDateEditor) {
                     const titleField = pop.querySelector('[data-tm-proto-edit-field="title"]');
                     if (titleField instanceof HTMLInputElement || titleField instanceof HTMLTextAreaElement) {
@@ -35216,6 +35918,7 @@
                     syncTitleFieldHeight();
                 }
                 pop.querySelector('[data-tm-proto-edit-field="note"]')?.addEventListener('input', () => { noteTouched = true; scheduleNote = String(pop.querySelector('[data-tm-proto-edit-field="note"]')?.value || ''); });
+                completionControl = bindScheduleCompletionControl(pop, () => linkedTaskId || linkedBlockId);
                 try { ensureInlineRepeatControls(); } catch (e) {}
                 bind();
                 try { syncInlineRepeatControls(); } catch (e) {}
@@ -35227,6 +35930,7 @@
                 try { requestAnimationFrame(position); } catch (e) {}
             };
             const syncRelation = (options = {}) => {
+                completionControl?.sync();
                 const preserveSearchInput = options?.preserveSearchInput === true;
                 const activeSearchInput = preserveSearchInput
                     ? pop.querySelector('[data-tm-proto-edit-field="taskSearch"]')
@@ -35607,7 +36311,7 @@
                         }
                         const nextId = isNew ? uuid() : scheduleId;
                         const nextCalendarId = readValue('calendar') || String(previous.calendarId || ext.calendarId || initialCalendarId || 'default');
-                        const nextItem = { ...previous, id: nextId, title: titleValue, start: safeISO(startValue), end: safeISO(endValue), allDay: eventApi.allDay === true || isAllDayRange(startValue, endValue), calendarId: nextCalendarId, taskId: taskIdKeep, blockId: blockIdKeep, reminderMode, reminderEnabled, reminderOffsetMin, repeatRule, repeatType: repeatRule.type, repeatEvery: repeatRule.every, repeatUntil: repeatRule.until, repeatMonthlyMode: repeatRule.monthlyMode, repeatCalendarMode: repeatRule.calendarMode, ...(taskIdKeep || blockIdKeep ? {} : { note: noteValue }) };
+                         const nextItem = { ...previous, id: nextId, title: titleValue, start: safeISO(startValue), end: safeISO(endValue), allDay: eventApi.allDay === true || isAllDayRange(startValue, endValue), calendarId: nextCalendarId, taskId: taskIdKeep, blockId: blockIdKeep, reminderMode, reminderEnabled, reminderOffsetMin, repeatRule, repeatType: repeatRule.type, repeatEvery: repeatRule.every, repeatUntil: repeatRule.until, repeatMonthlyMode: repeatRule.monthlyMode, repeatCalendarMode: repeatRule.calendarMode, ...(taskIdKeep || blockIdKeep ? {} : { note: noteValue }) };
                         const colorValue = readValue('color');
                         if (colorTouched || (initialCustomScheduleColor && !colorClearedByCalendarChange)) {
                             nextItem.color = normalizeColorInputHex(colorValue, initialColorInputValue);
@@ -35632,6 +36336,7 @@
                         }
                         await saveScheduleAll(list, { reason: isNew ? 'create-inline-schedule-editor' : 'save-inline-schedule-editor', op: isNew || index < 0 ? 'add' : 'update', scheduleId: nextId, scheduleIds: mutation.scheduleIds, rangeStart: mutation.rangeStart, rangeEnd: mutation.rangeEnd });
                         scheduleSaved = true;
+                        await completionControl.save();
                         const taskMutationId = String(taskIdKeep || blockIdKeep || '').trim();
                         if (taskMutationId && noteValue !== initialRemark) {
                             const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
@@ -35690,6 +36395,12 @@
             const close = () => { closeTimeHub(); closePrototypeEventPopover(); };
             const pop = document.createElement('div');
             pop.addEventListener('click', onInlineMonthDayClick);
+            pop.addEventListener('change', async (event) => {
+                const input = event.target;
+                if (!(input instanceof HTMLInputElement) || !input.matches('[data-tm-proto-edit-relation-task-check]')) return;
+                event.stopPropagation();
+                await handleCalendarRelationTaskCheckboxToggle(input, input.getAttribute('data-tm-proto-edit-relation-task-check'), event);
+            });
             pop.addEventListener('change', (event) => {
                 const field = event.target.dataset.tmMonthWeek;
                 if (isTaskDateEditor || !['ordinal', 'weekday'].includes(field)) return;
@@ -35948,7 +36659,7 @@
                 allDay,
                 color,
                 extendedProps: { __tmSource: 'schedule', calendarId, __tmTaskId: taskId, __tmBlockId: blockId, __tmDocId: docId, __tmScheduleCustomColor: customColor, __tmScheduleColorExplicit: !!customColor },
-            }, anchor, { isNew: true, calendarId });
+            }, anchor, { isNew: true, calendarId, fromDraftCard: params.__tmFromDraftCard === true });
             return opened;
         };
         state.openPrototypeNewScheduleCard = openPrototypeNewScheduleCard;
@@ -36263,6 +36974,7 @@
             taskDateEndExclusiveKey: String(eventApi?.extendedProps?.__tmTaskDateEndExclusiveKey || ''),
             taskDateSourceStartKey: String(eventApi?.extendedProps?.__tmTaskDateSourceStartKey || ''),
             taskDateSourceCompletionKey: String(eventApi?.extendedProps?.__tmTaskDateSourceCompletionKey || ''),
+            completionIndependent: isIndependentScheduleEventExt(eventApi?.extendedProps || {}),
             done: resolveCalendarEventDoneState(eventApi?.extendedProps || {}, { viewType }),
             hidden: shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { viewType }),
         });
@@ -36288,6 +37000,7 @@
                 || a.taskDateEndExclusiveKey !== b.taskDateEndExclusiveKey
                 || a.taskDateSourceStartKey !== b.taskDateSourceStartKey
                 || a.taskDateSourceCompletionKey !== b.taskDateSourceCompletionKey
+                || a.completionIndependent !== b.completionIndependent
                 || a.done !== b.done
                 || a.hidden !== b.hidden;
         };
@@ -36596,6 +37309,8 @@
             return true;
         };
         renderPrototypeSurface = () => {
+            if (prototypeSurface?.__tmTimelinePinch?.deferRender(queuePrototypeSurfaceRender)) return;
+            if (prototypeSurface?.__tmScheduleDraft?.deferRender(queuePrototypeSurfaceRender)) return;
             if (!(prototypeSurface instanceof HTMLElement) || !calendar) return;
             if (state.mainCalendarSuspended) return;
             const view = getCalendarView(calendar) || {};
@@ -36946,6 +37661,11 @@
                 if (!(scroller instanceof HTMLElement)) return false;
                 const canvas = scroller.querySelector('.tm-proto-time-canvas');
                 if (!(canvas instanceof HTMLElement)) return false;
+                if (canvas.hasAttribute('data-tm-proto-mobile-scale')) {
+                    // A zoomed-out canvas may intentionally be shorter than its
+                    // viewport. Refit only when the measured viewport changes.
+                    return Math.abs(Number(canvas.dataset.tmProtoViewportHeight || 0) - scroller.clientHeight) > 1;
+                }
                 return Number(scroller.clientHeight || 0) > Number(canvas.clientHeight || 0) + 1;
             });
             if (timelineNeedsHeightFit && !prototypeTimelineFitRaf) {
@@ -36957,6 +37677,7 @@
             }
             try { scheduleCurrentTimeAutoCenter(prototypeSurface, calendar, settings, { scope: 'main', reason: 'prototype-render' }); } catch (e) {}
             try { schedulePrototypeDayPanelCurrentTimeAutoCenter(settings); } catch (e) {}
+            prototypeSurface.__tmScheduleDraft?.restore();
             applyPrototypeSelectedEventState();
             if (activeDragPreview) {
                 syncPrototypeDragElement(prototypeEventDrag);
@@ -37680,10 +38401,6 @@
                         info.jsEvent.preventDefault?.();
                     }
                 } catch (e0) {}
-                if (isMobileDevice) {
-                    const viewType = String(getCalendarView(calendar)?.type || '').trim();
-                    if (viewType.startsWith('timeGrid')) return;
-                }
                 const viewType = String(getCalendarView(calendar)?.type || info?.view?.type || '').trim();
                 if (info?.allDay === true && isTimeGridViewType(viewType)) return;
                 const d = info?.date instanceof Date ? info.date : null;
@@ -37699,7 +38416,9 @@
                     && canvas instanceof HTMLElement
                     ? { start, end, canvas, metrics: getPrototypeTimelineMetricsFromCanvas(canvas, getSettings()) }
                     : null;
-                openPrototypeNewScheduleCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: prototypeSurface, __tmPreviewRange: previewRange }, clickAnchor);
+                const params = { start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: prototypeSurface, __tmPreviewRange: previewRange };
+                if (previewRange) bindPrototypeScheduleDraft(prototypeSurface)?.show(params, clickAnchor, openPrototypeNewScheduleCard);
+                else openPrototypeNewScheduleCard(params, clickAnchor);
             },
             eventContextMenu: (arg) => handleCalendarEventContextMenu(arg),
             eventDrop: async (arg) => {
@@ -37831,7 +38550,10 @@
                     ? selectionEvent.__tmPrototypeSelectionAnchor
                     : (prototypeSurface?.querySelector?.('[data-tm-proto-selection-preview]') || info?.el || selectionEvent?.target);
                 const selectionRange = selectionEvent?.__tmPrototypeSelectionRange || null;
-                const opened = openPrototypeNewScheduleCard({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: prototypeSurface, __tmPreviewRange: selectionRange }, selectionAnchor);
+                const params = { start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()), __tmPreviewSurface: prototypeSurface, __tmPreviewRange: selectionRange };
+                const opened = !params.allDay
+                    ? bindPrototypeScheduleDraft(prototypeSurface)?.show(params, selectionAnchor, openPrototypeNewScheduleCard, { preserveRange: true, suppressClick: true })
+                    : openPrototypeNewScheduleCard(params, selectionAnchor);
                 if (!opened) renderPrototypeSelectionPreview(prototypeSurface, null, null);
             },
             datesSet: () => {
@@ -38898,6 +39620,7 @@
     function unmount(options = {}) {
         if (options.preserveInstance === true && state.mounted && state.calendar
             && state.rootEl instanceof HTMLElement && state.wrapEl instanceof HTMLElement) {
+            state.calendarEl?.__tmTimelinePinch?.cancel();
             // Task-view switching parks the live calendar. Keep its range,
             // event sources and subscriptions; only real changes need a read
             // when the same host brings it back.
@@ -38911,6 +39634,7 @@
             state.rootEl.remove();
             return;
         }
+        state.calendarEl?.__tmTimelinePinch?.dispose();
         state.mainCalendarSuspended = false;
         state.mainCalendarNeedsRefresh = false;
         // Factory-only mounts bind document listeners before assigning wrapEl.
@@ -39247,10 +39971,8 @@
         bound: false,
         running: false,
         runningPromise: null,
-        queued: false,
-        queuedForce: false,
-        queuedInteractive: false,
-        queuedSource: '',
+        activeRun: null,
+        pendingRequest: null,
         dirtySeq: 0,
         lifecycleToken: 0,
         debounceTimer: null,
@@ -39261,6 +39983,7 @@
         tomatoUpdatedListener: null,
         taskAttrUpdatedListener: null,
         taskProjectionUpdatedListener: null,
+        taskMutationUnsubscribe: null,
         syncEventBus: null,
         syncHandler: null,
         settingsContainer: null,
@@ -39272,6 +39995,66 @@
             super(message);
             this.name = 'CalendarSubscriptionStaleError';
         }
+    }
+
+    function createCalendarSubscriptionRun() {
+        const controller = new AbortController();
+        let rejectStopped;
+        const stopped = new Promise((resolve, reject) => { rejectStopped = reject; });
+        // 超时可能发生在两个等待之间，提前处理拒绝，具体错误由 wait/check 继续传递。
+        stopped.catch(() => {});
+        const run = {
+            startedAt: Date.now(),
+            phase: '准备发布',
+            error: null,
+            remoteWriteStarted: false,
+            cancel(error) {
+                if (run.error) return;
+                run.error = error;
+                rejectStopped(error);
+                controller.abort();
+            },
+            check() {
+                if (!run.error && Date.now() - run.startedAt >= CALENDAR_SUBSCRIPTION_TIMEOUT_MS) timeout();
+                if (run.error) throw run.error;
+                if (!getSettings().icsEnabled || (run.automatic && !calendarSubscriptionPublisher.bound)) {
+                    throw new CalendarSubscriptionStaleError('日历 ICS 自动发布已停止');
+                }
+            },
+            async wait(phase, operation) {
+                run.check();
+                run.phase = phase;
+                const value = await Promise.race([
+                    stopped,
+                    Promise.resolve().then(() => {
+                        run.check();
+                        return operation(controller.signal);
+                    }),
+                ]);
+                run.check();
+                return value;
+            },
+            dispose() {
+                clearTimeout(timer);
+                run.cancel(Object.assign(new Error('日历 ICS 发布已结束'), { code: 'TM_ICS_CANCELLED' }));
+            },
+        };
+        const timeout = () => run.cancel(Object.assign(new Error(
+            `${run.phase}超时${run.remoteWriteStarted ? '，远端结果未确认，请稍后手动重试' : '，请稍后重试'}`
+        ), { code: 'TM_ICS_TIMEOUT' }));
+        const timer = setTimeout(timeout, CALENDAR_SUBSCRIPTION_TIMEOUT_MS);
+        return run;
+    }
+
+    function queueCalendarSubscriptionPublication(request) {
+        const previous = calendarSubscriptionPublisher.pendingRequest;
+        calendarSubscriptionPublisher.pendingRequest = {
+            force: previous?.force === true || request.force === true,
+            interactive: previous?.interactive === true || request.interactive === true,
+            automatic: request.automatic === true && (!previous || previous.automatic === true),
+            source: String(request.source || previous?.source || 'queued'),
+            refreshTaskDates: true,
+        };
     }
 
     function loadCalendarSubscriptionRuntimeStatus() {
@@ -39421,14 +40204,15 @@
         return `task-horizon-${token}.ics`;
     }
 
-    async function ensureCalendarSubscriptionChainFileName() {
+    async function ensureCalendarSubscriptionChainFileName(run) {
+        run.check();
         const store = state.settingsStore;
         const current = String(store?.data?.calendarIcsChainFileName || getSettings().icsChainFileName || '').trim();
         if (/^[A-Za-z0-9._-]+\.ics$/i.test(current)) return current;
         if (!store?.data) throw new Error('日历 ICS 上传设置尚未就绪');
         const next = createStableCalendarSubscriptionFileName();
         store.data.calendarIcsChainFileName = next;
-        await flushCalendarSubscriptionSettingsStore(store);
+        await run.wait('保存订阅文件名', () => flushCalendarSubscriptionSettingsStore(store));
         return next;
     }
 
@@ -39529,18 +40313,49 @@
         throw new Error('Dock Tomato 已启用，但提醒接口尚未就绪，请稍后重试');
     }
 
-    async function refreshCalendarSubscriptionSharedSettings() {
+    async function refreshCalendarSubscriptionSharedSettings(run) {
         const store = state.settingsStore;
-        if (!store?.data || store.saveDirty || store.saving) return false;
+        if (!store?.data) throw new Error('日历 ICS 上传设置尚未就绪');
+        if (store.saveDirty || store.saving) throw new CalendarSubscriptionStaleError('上传设置正在保存');
+        const settingsUpdatedAt = store.data.settingsUpdatedAt;
         let shared = null;
-        try {
-            const raw = await getFileTextRetry(CALENDAR_SUBSCRIPTION_SETTINGS_FILE, 1);
-            shared = JSON.parse(String(raw || ''));
-        } catch (error) {
-            throw new Error('日历 ICS 上传设置读取失败，已停止本次发布');
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+                shared = await run.wait('读取上传设置', async (signal) => {
+                    const response = await postJSON('/api/file/getFile', { path: CALENDAR_SUBSCRIPTION_SETTINGS_FILE }, signal);
+                    if (!response.ok) throw new Error(response.status === 404
+                        ? '设置文件尚未同步到本机' : `HTTP ${response.status}`);
+                    const parse = (text) => {
+                        try { return JSON.parse(String(text || '').replace(/^\uFEFF/, '').trim()); }
+                        catch (error) { throw new Error('设置文件为空或 JSON 格式不完整'); }
+                    };
+                    let value = parse(await response.text());
+                    // getFile normally returns the file itself. Do not mistake a
+                    // setting named content/data for a kernel response envelope.
+                    if (value && typeof value === 'object' && !Array.isArray(value)
+                        && Object.prototype.hasOwnProperty.call(value, 'code')) {
+                        if (Number(value.code) !== 0) throw new Error(Number(value.code) === 404
+                            ? '设置文件尚未同步到本机' : `内核读取错误 ${value.code}`);
+                        value = value.data ?? value.content;
+                        if (typeof value?.content === 'string') value = value.content;
+                        if (typeof value === 'string') value = parse(value);
+                    }
+                    if (!value || typeof value !== 'object' || Array.isArray(value)
+                        || !Object.keys(value).some((key) => key.startsWith('calendarIcs'))) {
+                        throw new Error('设置文件中缺少日历 ICS 配置，请重新保存日历订阅设置');
+                    }
+                    return value;
+                });
+                break;
+            } catch (error) {
+                run.check();
+                if (attempt === 1) throw new Error(`日历 ICS 上传设置读取失败：${String(error?.message || '请求失败')}；已停止本次发布`);
+                await run.wait('等待上传设置重读', () => delay(220));
+            }
         }
-        if (!shared || typeof shared !== 'object' || Array.isArray(shared)) {
-            throw new Error('日历 ICS 上传设置格式无效，已停止本次发布');
+        // A local edit/save may have started while the disk read was in flight.
+        if (store.saveDirty || store.saving || store.data.settingsUpdatedAt !== settingsUpdatedAt) {
+            throw new CalendarSubscriptionStaleError('上传设置正在保存');
         }
         const fields = {
             calendarIcsEnabled: 'boolean',
@@ -39584,15 +40399,15 @@
         return changed;
     }
 
-    async function buildCalendarSubscriptionEvents(options = {}) {
+    async function buildCalendarSubscriptionEvents(options = {}, run) {
         const settings = getSettings();
         const range = buildCalendarSubscriptionRange();
         const source = String(options?.source || '').trim();
         if (state.scheduleCache.inflight) {
-            try { await state.scheduleCache.inflight; } catch (e) {}
+            try { await run.wait('等待日程读取', () => state.scheduleCache.inflight); } catch (e) { run.check(); }
         }
         state.scheduleCache.loadedAt = 0;
-        const schedules = await loadScheduleAll();
+        const schedules = await run.wait('读取日程', () => loadScheduleAll());
         if (state.scheduleCache.lastLoadError) throw new Error('日程数据读取失败，已保留上次成功文件');
         const events = [];
         const includeTaskNotes = settings.icsIncludeTaskNotes === true;
@@ -39615,17 +40430,17 @@
             if (required.every((id) => taskRemarkById.has(id))) return;
             if (typeof window.tmEnsureCalendarTaskCache !== 'function') return;
             try {
-                const loaded = await window.tmEnsureCalendarTaskCache({
+                const loaded = await run.wait('读取任务备注', () => window.tmEnsureCalendarTaskCache({
                     source: 'calendar-ics-task-notes',
                     forceFresh: true,
                     refresh: false,
                     allowInactiveFullLoad: true,
                     allowInactiveView: true,
                     requireCompleteCache: true,
-                });
+                }));
                 addTaskRemarkRows(loaded);
                 addTaskRemarkRows(window.__tmCalendarAllTasksCache?.tasks);
-            } catch (e) {}
+            } catch (e) { run.check(); }
         };
         const resolveTaskRemark = (...ids) => {
             let cachedRemark = '';
@@ -39708,9 +40523,10 @@
             }
             let taskDateItems = null;
             const forceFreshTaskDates = options?.force === true
+                || options?.refreshTaskDates === true
                 || /^(?:startup|sync-end|day-boundary|settings|task-attr-updated|task-list-updated|task-date-follow-updated|task-completed)/.test(source);
             try {
-                taskDateItems = await window.tmQueryCalendarTaskDateEvents(range.start, range.end, {
+                taskDateItems = await run.wait('读取任务日期', () => window.tmQueryCalendarTaskDateEvents(range.start, range.end, {
                     forceFresh: forceFreshTaskDates,
                     fastFirst: !forceFreshTaskDates,
                     allowInactiveFullLoad: true,
@@ -39719,8 +40535,9 @@
                     requireCompleteCache: true,
                     excludeCompleted: true,
                     source: 'calendar-ics-task-dates',
-                });
+                }));
             } catch (error) {
+                run.check();
                 throw new Error(`任务全天日程读取失败：${String(error?.message || error || '未知错误')}`);
             }
             if (!Array.isArray(taskDateItems)) throw new Error('任务全天日程接口返回无效');
@@ -39760,13 +40577,13 @@
             sourceMode = settings.icsIncludeTaskDates
                 ? 'schedules-task-dates-and-reminders'
                 : 'schedules-and-reminders';
-            const bridge = await waitForDockTomatoSubscriptionBridge();
+            const bridge = await run.wait('等待番茄提醒接口', () => waitForDockTomatoSubscriptionBridge());
             const remaining = Math.max(1, CALENDAR_SUBSCRIPTION_EVENT_LIMIT - events.length);
-            const result = await bridge.listOccurrences({
+            const result = await run.wait('读取番茄提醒', () => bridge.listOccurrences({
                 startAt: range.startAt,
                 endAt: range.endAt,
                 limit: remaining,
-            });
+            }));
             if (!result || !Array.isArray(result.occurrences)) throw new Error('Dock Tomato 提醒接口返回无效');
             if (result.truncated === true) throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
             if (includeTaskNotes) await ensureTaskRemarks(result.occurrences.map((item) => item?.blockId));
@@ -39814,16 +40631,35 @@
         return payload.data;
     }
 
-    async function callKernelJson(path, body, context) {
-        const response = await fetch(path, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body || {}),
-        });
-        return await readKernelJsonResponse(response, context);
+    async function callKernelJson(path, body, context, run, remoteWrite = false) {
+        try {
+            return await run.wait(context, async (signal) => {
+                if (remoteWrite) run.remoteWriteStarted = true;
+                const response = await fetch(path, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body || {}),
+                    signal,
+                });
+                return await readKernelJsonResponse(response, context);
+            });
+        } catch (error) {
+            if (run.error) throw run.error;
+            // The kernel may report its own deadline before our overall timer.
+            // A lost upload acknowledgement cannot prove the remote write failed.
+            if (remoteWrite) {
+                const uncertain = Object.assign(new Error(`${context}结果未确认，远端文件可能已更新，请稍后手动重试`), {
+                    code: 'TM_ICS_REMOTE_UNCONFIRMED',
+                });
+                run.cancel(uncertain);
+                throw uncertain;
+            }
+            run.check();
+            throw error;
+        }
     }
 
-    async function putCalendarSubscriptionFile(path, text, mime = 'text/calendar; charset=utf-8') {
+    async function putCalendarSubscriptionFile(path, text, run, mime = 'text/calendar; charset=utf-8') {
         const normalizedPath = String(path || '').trim();
         const slash = normalizedPath.lastIndexOf('/');
         if (!normalizedPath.startsWith('/data/') || slash <= 5) throw new Error('日历 ICS 文件路径无效');
@@ -39832,13 +40668,15 @@
         dirForm.append('path', directory);
         dirForm.append('isDir', 'true');
         globalThis.__tmHost?.appendStorageRequestApp?.(dirForm);
-        await readKernelJsonResponse(await fetch('/api/file/putFile', { method: 'POST', body: dirForm }), '创建日历 ICS 目录');
+        await run.wait('创建日历 ICS 目录', async (signal) => readKernelJsonResponse(
+            await fetch('/api/file/putFile', { method: 'POST', body: dirForm, signal }), '创建日历 ICS 目录'));
         const form = new FormData();
         form.append('path', normalizedPath);
         form.append('isDir', 'false');
         form.append('file', new Blob([String(text ?? '')], { type: mime }));
         globalThis.__tmHost?.appendStorageRequestApp?.(form);
-        await readKernelJsonResponse(await fetch('/api/file/putFile', { method: 'POST', body: form }), '写入日历 ICS 文件');
+        await run.wait('写入日历 ICS 文件', async (signal) => readKernelJsonResponse(
+            await fetch('/api/file/putFile', { method: 'POST', body: form, signal }), '写入日历 ICS 文件'));
         return true;
     }
 
@@ -39917,7 +40755,8 @@
         return new Error(`${context}：HTTP ${Number.isFinite(status) ? status : '未知'}${hint}${detail ? `；${detail}` : ''}`);
     }
 
-    async function forwardCalendarSubscriptionRequest(url, method, options = {}) {
+    async function forwardCalendarSubscriptionRequest(url, method, options = {}, run) {
+        run.check();
         const headers = [];
         if (options.authorization) headers.push({ Authorization: options.authorization });
         if (options.contentType) headers.push({ 'Content-Type': options.contentType });
@@ -39931,26 +40770,26 @@
             payloadEncoding: String(options.payloadEncoding || 'text'),
             payload: String(options.payload ?? ''),
             responseEncoding: 'text',
-        }, `${String(method || 'GET').toUpperCase()} 请求`);
+        }, `WebDAV/ICS ${String(method || 'GET').toUpperCase()} 请求`, run, String(method).toUpperCase() === 'PUT');
         const status = Number(data?.status);
         return { status, body: String(data?.body ?? ''), headers: data?.headers || null };
     }
 
-    async function createCalendarSubscriptionWebdavDirectory(url, authorization) {
-        const response = await forwardCalendarSubscriptionRequest(url, 'MKCOL', { authorization });
+    async function createCalendarSubscriptionWebdavDirectory(url, authorization, run) {
+        const response = await forwardCalendarSubscriptionRequest(url, 'MKCOL', { authorization }, run);
         if ((response.status >= 200 && response.status < 300) || response.status === 405) return true;
         throw createCalendarSubscriptionWebdavHttpError('创建 WebDAV 目录失败', response);
     }
 
-    async function ensureCalendarSubscriptionWebdavDirectory(url, authorization) {
+    async function ensureCalendarSubscriptionWebdavDirectory(url, authorization, run) {
         const response = await forwardCalendarSubscriptionRequest(url, 'PROPFIND', {
             authorization,
             depth: 0,
             contentType: 'application/xml; charset=utf-8',
             payload: '<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>',
-        });
+        }, run);
         if (response.status >= 200 && response.status < 300) return true;
-        if (response.status === 404) return await createCalendarSubscriptionWebdavDirectory(url, authorization);
+        if (response.status === 404) return await createCalendarSubscriptionWebdavDirectory(url, authorization, run);
         if (response.status === 405 || response.status === 501) return false;
         throw createCalendarSubscriptionWebdavHttpError('检查 WebDAV 目录失败', response);
     }
@@ -39961,7 +40800,7 @@
         return url.toString();
     }
 
-    async function verifyCalendarSubscriptionRemote(url, expectedFileHash, authorization = '', options = {}) {
+    async function verifyCalendarSubscriptionRemote(url, expectedFileHash, authorization = '', options = {}, run) {
         const core = globalThis.__tmCalendarSubscriptionCore;
         let lastError = null;
         for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -39972,21 +40811,23 @@
                 const response = await forwardCalendarSubscriptionRequest(
                     readUrl,
                     'GET',
-                    { authorization }
+                    { authorization },
+                    run
                 );
                 if (response.status < 200 || response.status >= 300) throw new Error(`远端回读失败：HTTP ${response.status}`);
-                const remoteHash = await core.hashText(response.body);
+                const remoteHash = await run.wait('校验远端 ICS', () => core.hashText(response.body));
                 if (remoteHash !== expectedFileHash) throw new Error('远端文件校验失败，可能仍是旧缓存');
                 return true;
             } catch (error) {
+                run.check();
                 lastError = error;
-                if (attempt < 2) await delay(400 * (attempt + 1));
+                if (attempt < 2) await run.wait('等待远端回读重试', () => delay(400 * (attempt + 1)));
             }
         }
         throw lastError || new Error('远端文件校验失败');
     }
 
-    async function uploadCalendarSubscriptionWebdav(target, icsText, fileHash) {
+    async function uploadCalendarSubscriptionWebdav(target, icsText, fileHash, run) {
         const password = String(target.password || '');
         const authorization = encodeBasicAuthorization(target.username, password);
         const requestUrl = buildCalendarSubscriptionWebdavRequestUrl(target.url, target.username, password);
@@ -39994,20 +40835,20 @@
         parent.search = '';
         parent.hash = '';
         parent.pathname = parent.pathname.replace(/[^/]+$/, '');
-        await ensureCalendarSubscriptionWebdavDirectory(parent.toString(), authorization);
+        await ensureCalendarSubscriptionWebdavDirectory(parent.toString(), authorization, run);
         const requestOptions = {
             authorization,
             contentType: 'text/calendar; charset=utf-8',
             payloadEncoding: 'base64',
             payload: encodeCalendarSubscriptionUtf8Base64(icsText),
         };
-        let response = await forwardCalendarSubscriptionRequest(requestUrl, 'PUT', requestOptions);
+        let response = await forwardCalendarSubscriptionRequest(requestUrl, 'PUT', requestOptions, run);
         if (response.status === 409) {
-            await createCalendarSubscriptionWebdavDirectory(parent.toString(), authorization);
-            response = await forwardCalendarSubscriptionRequest(requestUrl, 'PUT', requestOptions);
+            await createCalendarSubscriptionWebdavDirectory(parent.toString(), authorization, run);
+            response = await forwardCalendarSubscriptionRequest(requestUrl, 'PUT', requestOptions, run);
         }
         if (response.status < 200 || response.status >= 300) throw createCalendarSubscriptionWebdavHttpError('WebDAV 上传失败', response);
-        await verifyCalendarSubscriptionRemote(requestUrl, fileHash, authorization, { cacheBust: false });
+        await verifyCalendarSubscriptionRemote(requestUrl, fileHash, authorization, { cacheBust: false }, run);
     }
 
     function normalizeCloudUserData(value) {
@@ -40021,12 +40862,13 @@
         return status === 0 && (expireTime === -1 || expireTime > 0);
     }
 
-    async function getCalendarSubscriptionCloudUser() {
+    async function getCalendarSubscriptionCloudUser(run) {
         let user = normalizeCloudUserData(globalThis.siyuan?.user);
         try {
-            const current = normalizeCloudUserData(await callKernelJson('/api/setting/getCloudUser', {}, '读取链滴账号'));
+            const current = normalizeCloudUserData(await callKernelJson('/api/setting/getCloudUser', {}, '读取链滴账号', run));
             if (String(current?.userId || '').trim()) user = { ...user, ...current };
         } catch (error) {
+            run.check();
             if (!String(user?.userId || '').trim()) throw error;
         }
         const userId = String(user?.userId || '').trim();
@@ -40035,21 +40877,22 @@
         return { userId, raw: user };
     }
 
-    async function uploadCalendarSubscriptionChain(target, icsText, fileHash) {
+    async function uploadCalendarSubscriptionChain(target, icsText, fileHash, run) {
         const assetPath = `/data/assets/${target.fileName}`;
-        await putCalendarSubscriptionFile(assetPath, icsText);
+        await putCalendarSubscriptionFile(assetPath, icsText, run);
+        run.check();
         await callKernelJson('/api/asset/uploadCloudByAssetsPaths', {
             paths: [`assets/${target.fileName}`],
             ignorePushMsg: true,
-        }, '链滴上传');
-        await verifyCalendarSubscriptionRemote(target.url, fileHash, '', { cacheBust: true });
+        }, '链滴上传', run, true);
+        await verifyCalendarSubscriptionRemote(target.url, fileHash, '', { cacheBust: true }, run);
     }
 
-    async function resolveCalendarSubscriptionTarget(settings) {
+    async function resolveCalendarSubscriptionTarget(settings, run) {
         if (settings.icsProvider === 'chain') {
             if (settings.icsChainPublicConfirmed !== true) throw new Error('请先确认链滴订阅 URL 的公开可访问性');
-            const fileName = await ensureCalendarSubscriptionChainFileName();
-            const cloudUser = await getCalendarSubscriptionCloudUser();
+            const fileName = await ensureCalendarSubscriptionChainFileName(run);
+            const cloudUser = await getCalendarSubscriptionCloudUser(run);
             const url = `https://assets.b3logfile.com/siyuan/${encodeURIComponent(cloudUser.userId)}/assets/${encodeURIComponent(fileName)}`;
             return { provider: 'chain', fileName, url, targetKey: `chain:${cloudUser.userId}:${fileName}` };
         }
@@ -40063,7 +40906,8 @@
         };
     }
 
-    function assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, tomatoLoaded) {
+    function assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, tomatoLoaded, run) {
+        run.check();
         if (calendarSubscriptionPublisher.dirtySeq !== capturedSeq
             || calendarSubscriptionPublisher.lifecycleToken !== capturedToken
             || isDockTomatoPluginLoaded() !== tomatoLoaded) {
@@ -40071,27 +40915,31 @@
         }
     }
 
-    async function executeCalendarSubscriptionPublication(options, capturedSeq, capturedToken) {
-        if (state.settingsStore?.saveDirty) {
-            if (typeof state.settingsStore.saveNow === 'function') await state.settingsStore.saveNow();
-            else await flushCalendarSubscriptionSettingsStore(state.settingsStore);
+    async function executeCalendarSubscriptionPublication(options, capturedSeq, capturedToken, run) {
+        if (state.settingsStore?.loadingPromise) {
+            await run.wait('等待上传设置加载', () => state.settingsStore.loadingPromise);
         }
-        await refreshCalendarSubscriptionSharedSettings();
+        if (state.settingsStore?.saveDirty || state.settingsStore?.saving) {
+            await run.wait('保存上传设置', () => typeof state.settingsStore.saveNow === 'function'
+                ? state.settingsStore.saveNow()
+                : flushCalendarSubscriptionSettingsStore(state.settingsStore));
+        }
+        await refreshCalendarSubscriptionSharedSettings(run);
         const settings = getSettings();
         if (!settings.icsEnabled) {
             throw new CalendarSubscriptionStaleError('日历 ICS 上传已关闭');
         }
         const core = globalThis.__tmCalendarSubscriptionCore;
         if (!core || typeof core.serializeCalendar !== 'function') throw new Error('日历 ICS 核心未加载');
-        const built = await buildCalendarSubscriptionEvents(options);
-        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded);
-        const target = await resolveCalendarSubscriptionTarget(settings);
-        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded);
-        const semanticHash = await core.hashText(core.stableStringify({
+        const built = await buildCalendarSubscriptionEvents(options, run);
+        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded, run);
+        const target = await resolveCalendarSubscriptionTarget(settings, run);
+        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded, run);
+        const semanticHash = await run.wait('比较日历内容', () => core.hashText(core.stableStringify({
             calendarName: settings.icsCalendarName,
             sourceMode: built.sourceMode,
             events: built.events,
-        }));
+        })));
         const previous = loadCalendarSubscriptionRuntimeStatus();
         if (options.force !== true
             && !previous.lastError
@@ -40106,12 +40954,13 @@
         });
         const byteLength = core.utf8ByteLength(icsText);
         if (byteLength > CALENDAR_SUBSCRIPTION_FILE_LIMIT) throw new Error('ICS 文件超过 9 MiB 上限');
-        const fileHash = await core.hashText(icsText);
-        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded);
-        if (target.provider === 'chain') await uploadCalendarSubscriptionChain(target, icsText, fileHash);
-        else await uploadCalendarSubscriptionWebdav(target, icsText, fileHash);
-        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded);
-        await putCalendarSubscriptionFile(STORAGE.CALENDAR_SUBSCRIPTION_FILE, icsText);
+        const fileHash = await run.wait('生成日历文件', () => core.hashText(icsText));
+        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded, run);
+        if (target.provider === 'chain') await uploadCalendarSubscriptionChain(target, icsText, fileHash, run);
+        else await uploadCalendarSubscriptionWebdav(target, icsText, fileHash, run);
+        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded, run);
+        await putCalendarSubscriptionFile(STORAGE.CALENDAR_SUBSCRIPTION_FILE, icsText, run);
+        assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded, run);
         const successAt = new Date().toISOString();
         saveCalendarSubscriptionRuntimeStatus({
             contentHash: semanticHash,
@@ -40129,65 +40978,85 @@
     async function publishCalendarSubscriptionNow(options = {}) {
         const request = options && typeof options === 'object' ? options : {};
         if (calendarSubscriptionPublisher.running) {
-            calendarSubscriptionPublisher.queued = true;
-            calendarSubscriptionPublisher.queuedForce ||= request.force === true;
-            calendarSubscriptionPublisher.queuedInteractive ||= request.interactive === true;
-            calendarSubscriptionPublisher.queuedSource = String(request.source || calendarSubscriptionPublisher.queuedSource || 'queued');
+            queueCalendarSubscriptionPublication(request);
             return calendarSubscriptionPublisher.runningPromise;
         }
+        if (request.automatic === true && !calendarSubscriptionPublisher.bound) return { skipped: true };
+        if (calendarSubscriptionPublisher.debounceTimer) clearTimeout(calendarSubscriptionPublisher.debounceTimer);
+        calendarSubscriptionPublisher.debounceTimer = null;
         calendarSubscriptionPublisher.running = true;
+        calendarSubscriptionPublisher.pendingRequest = null;
+        const run = createCalendarSubscriptionRun();
+        calendarSubscriptionPublisher.activeRun = run;
+        let deferAutomatic = false;
         let nextRequest = {
             force: request.force === true,
             interactive: request.interactive === true,
+            automatic: request.automatic === true,
+            refreshTaskDates: request.refreshTaskDates === true,
             source: String(request.source || 'manual'),
         };
-        updateCalendarSubscriptionUi();
-        calendarSubscriptionPublisher.runningPromise = (async () => {
+        calendarSubscriptionPublisher.runningPromise = Promise.resolve().then(async () => {
             let lastResult = null;
-            do {
-                calendarSubscriptionPublisher.queued = false;
-                calendarSubscriptionPublisher.queuedForce = false;
-                calendarSubscriptionPublisher.queuedInteractive = false;
-                calendarSubscriptionPublisher.queuedSource = '';
+            for (let attempt = 0; attempt < CALENDAR_SUBSCRIPTION_MAX_ATTEMPTS; attempt += 1) {
+                if (attempt > 0) calendarSubscriptionPublisher.pendingRequest = null;
+                run.automatic = nextRequest.automatic;
                 const capturedSeq = calendarSubscriptionPublisher.dirtySeq;
                 const capturedToken = calendarSubscriptionPublisher.lifecycleToken;
                 try {
-                    lastResult = await executeCalendarSubscriptionPublication(nextRequest, capturedSeq, capturedToken);
+                    run.check();
+                    lastResult = await executeCalendarSubscriptionPublication(nextRequest, capturedSeq, capturedToken, run);
                     if (nextRequest.interactive) {
                         toast(lastResult.skipped
                             ? `日历 ICS 内容无变化，共 ${lastResult.eventCount} 个事件`
                             : `日历 ICS 已上传，共 ${lastResult.eventCount} 个事件`, 'success');
                     }
                 } catch (error) {
+                    error = run.error || error;
                     if (error instanceof CalendarSubscriptionStaleError) {
                         const currentSettings = getSettings();
-                        if (currentSettings.icsEnabled) {
-                            calendarSubscriptionPublisher.queued = true;
-                            calendarSubscriptionPublisher.queuedForce ||= nextRequest.force;
-                            calendarSubscriptionPublisher.queuedInteractive ||= nextRequest.interactive;
+                        lastResult = { skipped: true, stale: true };
+                        if (currentSettings.icsEnabled && (!nextRequest.automatic || calendarSubscriptionPublisher.bound)) {
+                            queueCalendarSubscriptionPublication(nextRequest);
                         }
+                    } else if (error?.code === 'TM_ICS_CANCELLED') {
+                        return { ok: false, cancelled: true };
                     } else {
-                        const message = String(error?.message || error || '日历 ICS 上传失败');
+                        const detail = String(error?.message || error || '日历 ICS 上传失败');
+                        const message = error?.code === 'TM_ICS_TIMEOUT' ? detail : `${run.phase}：${detail}`;
                         saveCalendarSubscriptionRuntimeStatus({ lastError: message });
                         if (nextRequest.interactive) toast(`日历 ICS 上传失败：${message}`, 'error');
                         lastResult = { ok: false, error: message };
+                        // 上传超时可能仍在内核执行，不立即重传，也不继续消费旧队列。
+                        if (error?.code === 'TM_ICS_TIMEOUT' || error?.code === 'TM_ICS_REMOTE_UNCONFIRMED') break;
                     }
                 }
-                if (!calendarSubscriptionPublisher.queued) break;
-                nextRequest = {
-                    force: calendarSubscriptionPublisher.queuedForce,
-                    interactive: calendarSubscriptionPublisher.queuedInteractive,
-                    source: calendarSubscriptionPublisher.queuedSource || 'queued',
-                };
-            } while (true);
+                const pending = calendarSubscriptionPublisher.pendingRequest;
+                if (!pending || !getSettings().icsEnabled
+                    || (pending.automatic && !calendarSubscriptionPublisher.bound)) break;
+                if (attempt + 1 === CALENDAR_SUBSCRIPTION_MAX_ATTEMPTS) {
+                    deferAutomatic = calendarSubscriptionPublisher.bound;
+                    if (pending.interactive) toast('日历数据持续变化，本次更新已暂停，请稍后重试', 'warning');
+                    break;
+                }
+                nextRequest = pending;
+            }
             return lastResult;
-        })();
+        });
         try {
+            updateCalendarSubscriptionUi();
             return await calendarSubscriptionPublisher.runningPromise;
         } finally {
+            deferAutomatic = deferAutomatic || (run.taskListCheckPending === true && !run.error);
+            run.dispose();
+            calendarSubscriptionPublisher.activeRun = null;
             calendarSubscriptionPublisher.running = false;
             calendarSubscriptionPublisher.runningPromise = null;
+            calendarSubscriptionPublisher.pendingRequest = null;
             updateCalendarSubscriptionUi();
+            if (deferAutomatic) scheduleCalendarSubscriptionPublication(CALENDAR_SUBSCRIPTION_DEBOUNCE_MS, {
+                source: 'queued', refreshTaskDates: true,
+            });
         }
     }
 
@@ -40197,15 +41066,21 @@
         if (calendarSubscriptionPublisher.debounceTimer) clearTimeout(calendarSubscriptionPublisher.debounceTimer);
         calendarSubscriptionPublisher.debounceTimer = setTimeout(() => {
             calendarSubscriptionPublisher.debounceTimer = null;
-            publishCalendarSubscriptionNow({ source: options.source || 'automatic', force: options.force === true }).catch(() => {});
+            publishCalendarSubscriptionNow({
+                source: options.source || 'automatic',
+                force: options.force === true,
+                refreshTaskDates: options.refreshTaskDates === true,
+                automatic: true,
+            }).catch(() => {});
         }, Math.max(0, Number(delayMs) || 0));
         return true;
     }
 
     function markCalendarSubscriptionDirty(source = 'change', delayMs = CALENDAR_SUBSCRIPTION_DEBOUNCE_MS) {
+        if (!calendarSubscriptionPublisher.bound) return false;
         calendarSubscriptionPublisher.dirtySeq += 1;
         if (calendarSubscriptionPublisher.running) {
-            calendarSubscriptionPublisher.queued = true;
+            queueCalendarSubscriptionPublication({ automatic: true, source });
             return true;
         }
         return scheduleCalendarSubscriptionPublication(delayMs, { source });
@@ -40261,11 +41136,32 @@
         };
         calendarSubscriptionPublisher.taskProjectionUpdatedListener = (event) => {
             if (!getSettings().icsIncludeTaskDates) return;
-            const source = event?.type === 'tm:filtered-tasks-updated'
-                ? 'task-list-updated'
-                : (event?.type === 'tm:task-date-follow-updated' ? 'task-date-follow-updated' : 'task-completed');
+            if (event?.type === 'tm:filtered-tasks-updated') {
+                // Filtering and repainting also emit this event without any data
+                // mutation. Check later without invalidating the current snapshot.
+                if (calendarSubscriptionPublisher.activeRun) calendarSubscriptionPublisher.activeRun.taskListCheckPending = true;
+                else scheduleCalendarSubscriptionPublication(CALENDAR_SUBSCRIPTION_DEBOUNCE_MS, {
+                    source: 'task-list-updated', refreshTaskDates: true,
+                });
+                return;
+            }
+            const source = event?.type === 'tm:task-date-follow-updated' ? 'task-date-follow-updated' : 'task-completed';
             markCalendarSubscriptionDirty(source);
         };
+        const mutationBus = globalThis.__tmTaskMutationBus || globalThis.__tmTaskStore;
+        if (typeof mutationBus?.subscribe === 'function') {
+            calendarSubscriptionPublisher.taskMutationUnsubscribe = mutationBus.subscribe((mutation = {}) => {
+                const settings = getSettings();
+                if (!settings.icsIncludeTaskDates && !settings.icsIncludeTaskNotes) return;
+                if (mutation.phase && !['optimistic', 'local', 'commit', 'rollback'].includes(mutation.phase)) return;
+                const type = String(mutation.type || '');
+                const keys = Object.keys(mutation.patch || {});
+                const relevant = /^(?:createTaskInDoc|createSubtask|createSibling|commitTaskId|deleteTask|moveTask|taskLifecycle|setDone|contentPatch)$/.test(type)
+                    || keys.some((key) => ['startDate', 'completionTime', 'done', 'customStatus', 'taskMarker', 'content', 'title', 'markdown', 'repeatRule', 'repeatState', 'repeatHistory'].includes(key))
+                    || (settings.icsIncludeTaskNotes && keys.some((key) => ['remark', 'custom_remark', 'customRemark'].includes(key)));
+                if (relevant) markCalendarSubscriptionDirty('task-list-updated');
+            });
+        }
         window.addEventListener('tm:calendar-schedule-updated', calendarSubscriptionPublisher.scheduleUpdatedListener);
         window.addEventListener('tomato-reminder-updated', calendarSubscriptionPublisher.tomatoUpdatedListener);
         window.addEventListener('tm-task-attr-updated', calendarSubscriptionPublisher.taskAttrUpdatedListener);
@@ -40292,12 +41188,12 @@
     }
 
     function unbindCalendarSubscriptionPublisher() {
+        if (calendarSubscriptionPublisher.bound) calendarSubscriptionPublisher.lifecycleToken += 1;
         calendarSubscriptionPublisher.bound = false;
         calendarSubscriptionPublisher.startupPending = false;
-        calendarSubscriptionPublisher.lifecycleToken += 1;
-        calendarSubscriptionPublisher.queued = false;
-        calendarSubscriptionPublisher.queuedForce = false;
-        calendarSubscriptionPublisher.queuedInteractive = false;
+        try { calendarSubscriptionPublisher.taskMutationUnsubscribe?.(); } catch (e) {}
+        calendarSubscriptionPublisher.taskMutationUnsubscribe = null;
+        if (calendarSubscriptionPublisher.pendingRequest?.automatic) calendarSubscriptionPublisher.pendingRequest = null;
         if (calendarSubscriptionPublisher.debounceTimer) clearTimeout(calendarSubscriptionPublisher.debounceTimer);
         if (calendarSubscriptionPublisher.startupTimer) clearTimeout(calendarSubscriptionPublisher.startupTimer);
         if (calendarSubscriptionPublisher.dailyTimer) clearTimeout(calendarSubscriptionPublisher.dailyTimer);
@@ -40346,7 +41242,11 @@
         reconcile: reconcileCalendarSubscriptionPublisher,
         markDirty: markCalendarSubscriptionDirty,
         isRunning: () => calendarSubscriptionPublisher.running,
-        getStatus: () => ({ ...loadCalendarSubscriptionRuntimeStatus() }),
+        getStatus: () => ({
+            ...loadCalendarSubscriptionRuntimeStatus(),
+            phase: calendarSubscriptionPublisher.activeRun?.phase || '',
+            startedAt: calendarSubscriptionPublisher.activeRun?.startedAt || 0,
+        }),
     });
     globalThis.__tmCalendarSubscription = calendarSubscriptionApi;
 
@@ -41406,6 +42306,7 @@
     }
 
     function cleanup() {
+        calendarSubscriptionPublisher.activeRun?.cancel(Object.assign(new Error('日历模块已关闭'), { code: 'TM_ICS_CANCELLED' }));
         try { __tmCalendarModuleLifecycleAbort.abort(); } catch (e) {}
         unmountSideDayTimeline();
         unmount();

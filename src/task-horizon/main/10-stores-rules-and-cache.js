@@ -8751,6 +8751,7 @@
             calendarColorStopwatch: 'var(--tm-warning-color, #f9ab00)',
             calendarColorIdle: 'var(--tm-secondary-text)',
             calendarCalendarsConfig: {},
+            calendarTaskCompletionModes: {},
             calendarDefaultCalendarId: 'default',
             calendarLastViewType: '',
             calendarLastDate: '',
@@ -9471,6 +9472,7 @@
                                 if (typeof cloudData.calendarLastViewType === 'string') this.data.calendarLastViewType = cloudData.calendarLastViewType;
                                 if (typeof cloudData.calendarLastDate === 'string') this.data.calendarLastDate = cloudData.calendarLastDate;
                                 if (cloudData.calendarCalendarsConfig && typeof cloudData.calendarCalendarsConfig === 'object') this.data.calendarCalendarsConfig = cloudData.calendarCalendarsConfig;
+                                if (cloudData.calendarTaskCompletionModes && typeof cloudData.calendarTaskCompletionModes === 'object') this.data.calendarTaskCompletionModes = cloudData.calendarTaskCompletionModes;
                                 if (typeof cloudData.calendarDefaultCalendarId === 'string') this.data.calendarDefaultCalendarId = cloudData.calendarDefaultCalendarId;
                                 if (typeof cloudData.calendarSidebarCollapseCalendars === 'boolean') this.data.calendarSidebarCollapseCalendars = cloudData.calendarSidebarCollapseCalendars;
                                 if (typeof cloudData.calendarSidebarCollapseDocGroups === 'boolean') this.data.calendarSidebarCollapseDocGroups = cloudData.calendarSidebarCollapseDocGroups;
@@ -10078,6 +10080,7 @@
             this.data.calendarLastViewType = Storage.get('tm_calendar_last_view_type', this.data.calendarLastViewType);
             this.data.calendarLastDate = Storage.get('tm_calendar_last_date', this.data.calendarLastDate);
             this.data.calendarCalendarsConfig = Storage.get('tm_calendar_calendars_config', this.data.calendarCalendarsConfig) || this.data.calendarCalendarsConfig;
+            this.data.calendarTaskCompletionModes = Storage.get('tm_calendar_task_completion_modes', this.data.calendarTaskCompletionModes) || {};
             this.data.calendarDefaultCalendarId = Storage.get('tm_calendar_default_calendar_id', this.data.calendarDefaultCalendarId);
             this.data.calendarSidebarCollapseCalendars = Storage.get('tm_calendar_sidebar_collapse_calendars', this.data.calendarSidebarCollapseCalendars);
             this.data.calendarSidebarCollapseDocGroups = Storage.get('tm_calendar_sidebar_collapse_doc_groups', this.data.calendarSidebarCollapseDocGroups);
@@ -10634,6 +10637,7 @@
             Storage.set('tm_calendar_last_view_type', String(this.data.calendarLastViewType || '').trim());
             Storage.set('tm_calendar_last_date', String(this.data.calendarLastDate || '').trim());
             Storage.set('tm_calendar_calendars_config', this.data.calendarCalendarsConfig || {});
+            Storage.set('tm_calendar_task_completion_modes', this.data.calendarTaskCompletionModes || {});
             Storage.set('tm_calendar_default_calendar_id', String(this.data.calendarDefaultCalendarId || 'default').trim() || 'default');
             Storage.set('tm_calendar_sidebar_collapse_calendars', !!this.data.calendarSidebarCollapseCalendars);
             Storage.set('tm_calendar_sidebar_collapse_doc_groups', !!this.data.calendarSidebarCollapseDocGroups);

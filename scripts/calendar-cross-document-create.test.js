@@ -53,6 +53,7 @@ function createHarness() {
         __tmGenerateTempTaskId: () => 'client-' + sequence,
         __tmBuildSubtaskInheritedPatch: (task) => ({ priority: task.priority || '', startDate: task.startDate || '' }),
         __tmNormalizeSubtaskInheritedPatch: (patch) => patch,
+        __tmApplyQueuedTaskFieldPatchToTask: (task, patch) => Object.assign(task, patch),
         __tmEnsureEditableTaskLike: (task) => task.readOnly !== true,
         __tmSplitTaskInputLines: (text) => text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
         __TM_PENDING_INSERTED_TASK_KEEPALIVE_MS: 60000,
@@ -75,8 +76,7 @@ function createHarness() {
             generateTaskDOM: (id, text) => id + ':' + text,
         },
         hint: (text, kind) => hints.push({ text, kind }),
-        showPrompt: async (title) => { prompts.push(title); return sandbox.promptText; },
-        promptText: '新增任务',
+        tmQuickAddOpen: async (options) => { prompts.push({ ...options }); },
         dropCacheBeforeWrite: false,
     };
     sandbox.window = sandbox;
@@ -102,7 +102,15 @@ function createHarness() {
     };
     context = vm.createContext(sandbox);
     vm.runInContext(runtime, context);
-    return { context, active, foreign, child, pending, hints, operations, writes, prompts, invalidations, deleted };
+    const submit = async (content = '新增任务') => {
+        const options = prompts.at(-1);
+        assert.ok(options, 'Creation must open the composer before submission');
+        const queueOptions = { wait: true };
+        return options.relation === 'subtask'
+            ? context.__tmQueueCreateSubtask(options.sourceTaskId, content, queueOptions)
+            : context.__tmQueueCreateSiblingTask(options.sourceTaskId, content, queueOptions);
+    };
+    return { context, active, foreign, child, pending, hints, operations, writes, prompts, invalidations, deleted, submit };
 }
 
 async function main() {
@@ -113,7 +121,14 @@ async function main() {
                 const { context, operations, writes, hints, pending } = harness;
                 context.dropCacheBeforeWrite = dropCache;
                 await context[action](sourceId);
-                assert.equal(harness.prompts.length, 1, action + ' must open the prompt for ' + sourceId);
+                assert.equal(harness.prompts.length, 1, action + ' must open the composer for ' + sourceId);
+                assert.deepEqual(harness.prompts[0], {
+                    relation: action === 'tmCreateSubtask' ? 'subtask' : 'sibling',
+                    sourceTaskId: sourceId,
+                    docId: sourceId === 'active' ? 'doc-a' : 'doc-b',
+                });
+                assert.equal(operations.length, 0, 'Opening the composer must not create a task');
+                await harness.submit();
                 assert.equal(operations.length, 1);
                 assert.equal(writes.length, 1, action + ' must reach the kernel writer');
                 const expectedDoc = sourceId === 'active' ? 'doc-a' : 'doc-b';
@@ -142,14 +157,20 @@ async function main() {
     harness.context.__tmCalendarAllTasksCache.tasks.push({ id: 'active', content: '旧缓存' });
     assert.equal(harness.context.__tmResolveOptimisticTaskForLocalUse('active').task, harness.active);
     await harness.context.tmCreateSubtask('alias');
+    assert.equal(harness.prompts[0].sourceTaskId, 'foreign');
+    await harness.submit();
     assert.equal(harness.operations[0].data.parentTaskId, 'foreign');
     for (const action of ['tmCreateSubtask', 'tmCreateSiblingTask']) {
         for (const reason of ['missing', 'readonly', 'deleted', 'cancel']) {
             const guarded = createHarness();
             if (reason === 'readonly') guarded.foreign.readOnly = true;
             if (reason === 'deleted') guarded.deleted.add('foreign');
-            if (reason === 'cancel') guarded.context.promptText = null;
             await guarded.context[action](reason === 'missing' ? 'missing' : 'foreign');
+            if (reason === 'deleted') {
+                await assert.rejects(guarded.submit(), /正在删除/);
+            } else {
+                assert.equal(guarded.prompts.length, reason === 'cancel' ? 1 : 0);
+            }
             assert.equal(guarded.operations.length, 0, action + ' guard: ' + reason);
             assert.equal(guarded.writes.length, 0);
         }

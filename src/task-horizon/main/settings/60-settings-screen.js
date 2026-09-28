@@ -122,6 +122,8 @@
     const TM_SETTINGS_SEARCH_INDEX_TABS = Object.freeze(Object.keys(TM_SETTINGS_SEARCH_TAB_LABELS));
     let __tmSettingsSearchCaptureBuffer = null;
     let __tmSettingsSearchIndexBuilding = false;
+    let __tmSettingsSearchIndexBuildTimer = 0;
+    let __tmSettingsSearchIndexBuildGen = 0;
     function __tmNormalizeSettingsSearchTab(tab) {
         const v = String(tab || '').trim();
         if (v === 'scheduled') return 'ai';
@@ -200,7 +202,9 @@
         const route = raw.route || __tmSettingsV3Route(tab, section);
         const tabLabel = TM_SETTINGS_V2_PAGES.find(([id]) => id === route.page)?.[1] || TM_SETTINGS_SEARCH_TAB_LABELS[tab] || tab;
         const sectionLabel = TM_SETTINGS_V3_SUBPAGES[route.page]?.find(([id]) => id === route.sub)?.[1] || __tmGetSettingsSearchSectionLabel(section, tab);
-        const haystack = __tmNormalizeSettingsSearchText([title, desc, raw.aliases, tabLabel, sectionLabel].filter(Boolean).join(' '));
+        // Breadcrumbs describe where a result lives; they must not make unrelated
+        // settings match every word in a combined category such as Timeline / Kanban.
+        const haystack = __tmNormalizeSettingsSearchText([title, desc, raw.aliases].filter(Boolean).join(' '));
         return { tab, title, desc, section, key, route, tabLabel, sectionLabel, haystack, rendered: !!raw.rendered };
     }
 
@@ -238,6 +242,21 @@
         const content = root.querySelector('.tm-settings-content') || root;
         const headingSelector = '.tm-setting-field-title,.tm-setting-switch-title,.tm-calendar-settings-label,.tm-agent-policy-group__title,.tm-rule-section-title,.tm-settings-section-title';
         const ignored = '.tm-settings-subtabs,.tm-settings-v3-sections,.tm-settings-choice-group,.tm-settings-search,dialog,.tm-doc-group-manager__picker';
+        // Repeated editors are one setting, regardless of their number of rows or action buttons.
+        content.querySelectorAll('.tm-agent-policy-group,.tm-priority-settings .tm-rule-section').forEach(group => {
+            if (group.hasAttribute('data-tm-settings-search-key')) return;
+            const heading = group.querySelector('.tm-agent-policy-group__title,.tm-priority-section__title,[style*="font-weight"]');
+            const title = __tmSettingsSearchStaticText(heading);
+            if (!title) return;
+            const panel = group.closest('.tm-settings-panel');
+            const tab = __tmNormalizeSettingsSearchTab(panel?.dataset.tmSettingsSearchTab || sourceTab);
+            const section = panel?.dataset.tmSettingsLegacySection || panel?.dataset.tmSettingsSection || tab;
+            group.dataset.tmSettingsSearchKey = __tmBuildSettingsSearchKey(tab, title, section);
+            group.dataset.tmSettingsSearchTitle = title;
+            group.dataset.tmSettingsSearchTab = tab;
+            group.dataset.tmSettingsSearchSection = section;
+            group.dataset.tmSettingsSearchAliases = __tmSettingsSearchStaticText(group).slice(0, 1500);
+        });
         content.querySelectorAll('input:not([type="hidden"]),select,textarea,button[onclick],button[data-tm-call],button[data-tm-action],a[href]').forEach(control => {
             if (control.closest(ignored)) return;
             const indexed = control.closest('[data-tm-settings-search-key]');
@@ -250,7 +269,7 @@
             const section = panel?.dataset.tmSettingsLegacySection || panel?.dataset.tmSettingsSection || tab;
             const label = control.closest('label');
             const group = control.closest('.tm-agent-policy-group,.tm-rule-section,.tm-column-row,.tm-column-item,.tm-status-option-row');
-            const contextTitle = __tmSettingsSearchStaticText(group?.querySelector(headingSelector) || panel?.querySelector(headingSelector));
+            const contextTitle = __tmSettingsSearchStaticText(group?.querySelector(headingSelector));
             let title = control.dataset.tmColorLabel || control.getAttribute('aria-label') || '';
             if (!title && control.getAttribute('aria-labelledby')) {
                 const id = control.getAttribute('aria-labelledby');
@@ -260,12 +279,12 @@
             if (!title && control.matches('button,a')) title = __tmPlainSettingsSearchText(control.textContent) || control.getAttribute('title') || '';
             if (!title) {
                 for (let parent = control.parentElement; parent && parent !== content; parent = parent.parentElement) {
-                    const heading = parent.querySelector(headingSelector + ',[style*="font-weight"],strong');
+                    if (parent === panel) break;
+                    const heading = parent.querySelector(headingSelector.split(',').map(selector => ':scope > ' + selector).join(',') + ',:scope > [style*="font-weight"],:scope > strong');
                     const text = __tmSettingsSearchStaticText(heading);
                     if (text) { title = text; break; }
                     const textOnly = __tmSettingsSearchStaticText(parent);
                     if (textOnly && textOnly.length < 90) { title = textOnly; break; }
-                    if (parent === panel) break;
                 }
             }
             title ||= control.getAttribute('placeholder') || control.getAttribute('title') || contextTitle;
@@ -960,6 +979,23 @@
             }
             return doc ? __tmGetDocDisplayName(doc, doc.name || '未知文档') : '未知文档';
         };
+        /* 来源行副标题：优先显示父路径（同名文档可区分），ID 收进 title */
+        const resolveDocPathLabel = (docId, doc = null) => {
+            const id = String(docId || '').trim();
+            if (!id) return { text: '', title: '' };
+            const target = doc || state.allDocuments.find((item) => String(item?.id || '').trim() === id) || null;
+            const rawPath = String(target?.hpath || target?.path || '').trim();
+            const segs = rawPath.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+            if (segs.length) segs.pop();
+            let text = segs.join(' › ');
+            if (!text && target) {
+                const notebookId = String(target?.notebook || target?.box || '').trim();
+                if (notebookId) text = __tmGetNotebookDisplayName(notebookId, '');
+            }
+            if (!text) text = id;
+            const title = rawPath ? `${rawPath} · 文档 ID ${id}` : `文档 ID ${id}`;
+            return { text, title };
+        };
 
         let settingsDocPickerDialogMarkup = '';
         const renderDocumentGroupManager = () => {
@@ -971,9 +1007,6 @@
             const currentGroupIndex = isAllDocs
                 ? -1
                 : groups.findIndex((group) => String(group?.id || '').trim() === currentGroupId);
-            const detailTabs = isAllDocs ? ['sources', 'excluded'] : ['sources', 'excluded', 'optimization'];
-            const requestedDetailTab = String(state.settingsDocGroupDetailTab || 'sources').trim();
-            const activeDetailTab = detailTabs.includes(requestedDetailTab) ? requestedDetailTab : 'sources';
             const icon = (name, size = 16) => __tmLucideIconSvg(name, {
                 size,
                 className: 'tm-doc-group-manager__icon-svg'
@@ -1100,6 +1133,7 @@
                             const docName = isNotebook
                                 ? __tmGetNotebookDisplayName(docId, '未知笔记本')
                                 : (doc ? __tmGetDocDisplayName(doc, doc.name || '未知文档') : (fallbackOtherBlockDocName || '未知文档'));
+                            const pathLabel = isNotebook ? { text: '', title: '' } : resolveDocPathLabel(docId, doc);
                             const otherBlockBadgeTitle = `${sourceGroupName ? `${sourceGroupName}：` : ''}其他块页签来源${otherBlockCount > 0 ? `，${otherBlockCount} 个块` : ''}`;
                             const directRemoveAction = isAllDocs
                                 ? `removeDocFromAll('${escSq(docId)}')`
@@ -1108,13 +1142,13 @@
                                 <div class="tm-doc-group-manager__source-row">
                                     <span class="tm-doc-group-manager__source-icon">${icon(isNotebook ? 'archive' : 'file-text', 15)}</span>
                                     <div class="tm-doc-group-manager__source-copy">
-                                        <div class="tm-doc-group-manager__source-name" title="${esc(docName)}">${esc(docName)}</div>
-                                        <div class="tm-doc-group-manager__source-meta">
-                                            <span class="tm-doc-group-manager__source-id" title="${esc(docId)}">${esc(docId)}</span>
+                                        <div class="tm-doc-group-manager__source-top">
+                                            <div class="tm-doc-group-manager__source-name" title="${esc(docName)}">${esc(docName)}</div>
                                             ${isNotebook ? '<span class="tm-doc-group-manager__badge">笔记本</span>' : ''}
-                                            ${isRecursive ? '<span class="tm-doc-group-manager__badge">含子文档</span>' : ''}
+                                            ${isRecursive ? '<span class="tm-doc-group-manager__badge">连同子文档</span>' : ''}
                                             ${hasOtherBlockSource ? `<span class="tm-doc-group-manager__badge tm-doc-group-manager__badge--warning" title="${esc(otherBlockBadgeTitle)}">其他块${otherBlockCount > 1 ? ` ${otherBlockCount}` : ''}</span>` : ''}
                                         </div>
+                                        ${isNotebook ? '' : `<div class="tm-doc-group-manager__source-meta"><span class="tm-doc-group-manager__source-path" title="${esc(pathLabel.title)}">${esc(pathLabel.text)}</span></div>`}
                                     </div>
                                     <div class="tm-doc-group-manager__source-actions">
                                         ${isNotebook
@@ -1137,14 +1171,7 @@
                             <span>自动搜索该笔记本内包含任务的文档，名称跟随笔记本显示名。</span>
                         </div>
                     </div>
-                ` : `
-                    <div class="tm-doc-group-manager__picker-trigger-row">
-                        <button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__picker-trigger"
-                            data-tm-action="tmOpenSettingsDocPicker">
-                            <span>选择文档</span>
-                        </button>
-                    </div>
-                `;
+                ` : '';
                 if (!isNotebookGroup) {
                     settingsDocPickerDialogMarkup = `
                     <div class="tm-doc-group-manager__picker-dialog" data-tm-doc-picker-dialog hidden aria-hidden="true"
@@ -1211,14 +1238,15 @@
                     <div class="tm-doc-group-manager__source-list">
                         ${currentGroupExcludedDocIds.map((docId) => {
                             const docName = resolveDocName(docId);
+                            const excludedPathLabel = resolveDocPathLabel(docId);
                             return `
                                 <div class="tm-doc-group-manager__source-row">
                                     <span class="tm-doc-group-manager__source-icon">${icon('file-text', 15)}</span>
                                     <div class="tm-doc-group-manager__source-copy">
                                         <div class="tm-doc-group-manager__source-name" title="${esc(docName)}">${esc(docName)}</div>
-                                        <div class="tm-doc-group-manager__source-meta"><span class="tm-doc-group-manager__source-id" title="${esc(String(docId))}">${esc(String(docId))}</span></div>
+                                        <div class="tm-doc-group-manager__source-meta"><span class="tm-doc-group-manager__source-path" title="${esc(excludedPathLabel.title)}">${esc(excludedPathLabel.text)}</span></div>
                                     </div>
-                                    <button type="button" class="tm-doc-group-manager__restore" onclick="removeExcludedDocFromCurrentGroup('${escSq(docId)}')">恢复显示</button>
+                                    <div class="tm-doc-group-manager__source-actions"><button type="button" class="tm-doc-group-manager__restore" onclick="removeExcludedDocFromCurrentGroup('${escSq(docId)}')">恢复显示</button></div>
                                 </div>
                             `;
                         }).join('')}
@@ -1252,24 +1280,19 @@
                 if (isAllDocs) return '';
                 const canRename = !isNotebookGroup;
                 const canClear = isNotebookGroup || (Array.isArray(currentGroup?.docs) && currentGroup.docs.length > 0);
+                const canMoveUp = currentGroupIndex > 0;
+                const canMoveDown = currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1;
                 return `
                     <div class="tm-doc-group-manager__detail-actions">
-                        <button type="button" class="tm-doc-group-manager__icon-button"
-                            data-tm-call="tmMoveCurrentDocGroup" data-tm-args='${esc(JSON.stringify([-1]))}'
-                            title="${currentGroupIndex > 0 ? '上移分组' : '已是第一个分组'}" aria-label="上移分组"${currentGroupIndex > 0 ? '' : ' disabled'}>
-                            ${icon('arrow-up', 15)}
-                        </button>
-                        <button type="button" class="tm-doc-group-manager__icon-button"
-                            data-tm-call="tmMoveCurrentDocGroup" data-tm-args='${esc(JSON.stringify([1]))}'
-                            title="${currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1 ? '下移分组' : '已是最后一个分组'}" aria-label="下移分组"${currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1 ? '' : ' disabled'}>
-                            ${icon('arrow-down', 15)}
-                        </button>
+                        ${!isNotebookGroup ? `<button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__picker-trigger" data-tm-action="tmOpenSettingsDocPicker">${icon('plus', 14)}<span>选择文档</span></button>` : ''}
                         <button type="button" class="tm-btn tm-btn-secondary tm-doc-group-manager__export" data-tm-action="exportCurrentGroup">
                             ${icon('download', 15)}<span>导出</span>
                         </button>
                         <details class="tm-doc-group-manager__more">
                             <summary class="tm-doc-group-manager__icon-button" title="更多操作" aria-label="更多操作">${icon('dots-three', 17)}</summary>
                             <div class="tm-doc-group-manager__more-menu" role="menu">
+                                <button type="button" role="menuitem" data-tm-call="tmMoveCurrentDocGroup" data-tm-args='${esc(JSON.stringify([-1]))}' title="${currentGroupIndex > 0 ? '上移分组' : '已是第一个分组'}"${currentGroupIndex > 0 ? '' : ' disabled'}>${icon('arrow-up', 15)}<span>上移分组</span></button>
+                                <button type="button" role="menuitem" data-tm-call="tmMoveCurrentDocGroup" data-tm-args='${esc(JSON.stringify([1]))}' title="${currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1 ? '下移分组' : '已是最后一个分组'}"${currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1 ? '' : ' disabled'}>${icon('arrow-down', 15)}<span>下移分组</span></button>
                                 ${canRename ? `<button type="button" data-tm-action="renameCurrentGroup" role="menuitem">${icon('pencil', 15)}<span>重命名</span></button>` : ''}
                                 ${canClear ? `<button type="button" data-tm-action="clearCurrentGroupDocs" role="menuitem">${icon(isNotebookGroup ? 'archive' : 'trash-2', 15)}<span>${isNotebookGroup ? '解除笔记本关联' : '清空手动文档'}</span></button>` : ''}
                                 <button type="button" class="is-danger" data-tm-action="deleteCurrentGroup" role="menuitem">${icon('trash-2', 15)}<span>删除分组</span></button>
@@ -1278,20 +1301,6 @@
                     </div>
                 `;
             };
-            const renderDetailTab = (tab, label, count = null) => {
-                const active = activeDetailTab === tab;
-                return `
-                    <button type="button" class="tm-doc-group-manager__tab${active ? ' is-active' : ''}"
-                        data-tm-call="tmSetDocGroupSettingsDetailTab"
-                        data-tm-args='${esc(JSON.stringify([tab]))}'
-                        role="tab" aria-selected="${active ? 'true' : 'false'}">
-                        <span>${label}</span>${count === null ? '' : `<span class="tm-doc-group-manager__tab-count">${count}</span>`}
-                    </button>
-                `;
-            };
-            const detailPaneHtml = activeDetailTab === 'excluded'
-                ? renderExcludedPane()
-                : (activeDetailTab === 'optimization' ? renderOptimizationPane() : renderSourcePane());
             return `
                 <section class="tm-settings-panel tm-doc-group-manager" ${__tmSettingsSearchAttrs('docs', '文档分组与管理', '常驻分组列表、文档来源、隐藏文档页签和搜索优化')}>
                     <div class="tm-doc-group-manager__heading">
@@ -1343,13 +1352,18 @@
                                 </div>
                                 ${renderDetailActions()}
                             </div>
-                            <div class="tm-doc-group-manager__tabs" role="tablist" aria-label="分组详情">
-                                ${renderDetailTab('sources', '文档来源', currentDocs.length)}
-                                ${renderDetailTab('excluded', '隐藏文档页签', currentGroupExcludedDocIds.length)}
-                                ${isAllDocs ? '' : renderDetailTab('optimization', '搜索优化')}
-                            </div>
-                            <div class="tm-doc-group-manager__pane" role="tabpanel">
-                                ${detailPaneHtml}
+                            <div class="tm-doc-group-manager__pane">
+                                ${renderSourcePane()}
+                                <details class="tm-doc-group-manager__fold">
+                                    <summary>已隐藏的文档页签 <span class="tm-doc-group-manager__fold-count">${currentGroupExcludedDocIds.length}</span></summary>
+                                    ${renderExcludedPane()}
+                                </details>
+                                ${isAllDocs ? '' : `
+                                <details class="tm-doc-group-manager__fold">
+                                    <summary>搜索优化 ${currentGroupCalendarOptimization.enabled ? `<span class="tm-doc-group-manager__fold-count">已启用 · 最近 ${Number(currentGroupCalendarOptimization.days) || 30} 天</span>` : ''}</summary>
+                                    ${renderOptimizationPane()}
+                                </details>
+                                `}
                             </div>
                         </div>
                     </div>
@@ -1707,6 +1721,10 @@
             const groupsList = Array.isArray(groups) ? groups : [];
             const heading = String(title || '').trim();
             const description = String(desc || '').trim();
+            const previewType = String(opt?.preview || '').trim();
+            const previewHtml = previewType
+                ? `<div class="tm-field-preview" data-tm-field-preview="${esc(previewType)}">${__tmRenderSettingsFieldPreview(previewType)}</div>`
+                : '';
             const descHtml = String(desc || '').trim()
                 ? `<div class="tm-settings-chip-setting-desc">${desc}</div>`
                 : '';
@@ -1714,6 +1732,7 @@
                 return `
                     <div class="tm-settings-chip-stack${groupsList.length > 1 ? ' tm-settings-chip-stack--multi' : ''}${extraClass ? ` ${extraClass}` : ''}"${extraStyle ? ` style="${extraStyle}"` : ''}>
                         ${groupsList.map((group) => renderSettingsChipGroup(group)).join('')}
+                        ${previewHtml}
                     </div>
                 `;
             }
@@ -1725,9 +1744,254 @@
                     </div>
                     <div class="tm-settings-chip-stack${groupsList.length > 1 ? ' tm-settings-chip-stack--multi' : ''}">
                         ${groupsList.map((group) => renderSettingsChipGroup(group)).join('')}
+                        ${previewHtml}
                     </div>
                 </div>
             `;
+        };
+
+        // ---------- 字段设置实时效果预览（复用真实视图类名，示例数据） ----------
+        const __tmFieldPreviewStatusTag = (name, color) => {
+            try { return `<span class="tm-status-tag" style="${__tmBuildStatusChipStyle(color || '#2f9e77')}">${esc(name)}</span>`; }
+            catch (e) { return `<span class="tm-status-tag">${esc(name)}</span>`; }
+        };
+        const __tmFieldPreviewPriorityChip = () => {
+            try { return `<span class="tm-kanban-priority-chip" style="${__tmBuildPriorityChipStyle('high')}">${__tmRenderPriorityJira('high', false)}</span>`; }
+            catch (e) { return `<span class="tm-kanban-priority-chip">高</span>`; }
+        };
+        const __tmFieldPreviewCheckbox = () => {
+            try {
+                const html = __tmRenderTaskCheckbox('tm-field-preview', {}, { checked: false });
+                if (html) return html;
+            } catch (e) {}
+            return '<span class="tm-field-preview__checkbox" aria-hidden="true"></span>';
+        };
+        const __tmFieldPreviewCustomFieldName = (key) => {
+            const fieldId = String(key || '').replace(/^customField:/, '').trim();
+            if (!fieldId) return '';
+            try {
+                const field = (__tmGetCustomFieldDefs() || []).find((item) => String(item?.id || '').trim() === fieldId);
+                return String(field?.name || fieldId).trim() || fieldId;
+            } catch (e) { return fieldId; }
+        };
+        const __tmFieldPreviewListMetaChip = (key) => {
+            switch (key) {
+                case 'docName': return `<span class="tm-checklist-meta-compact-doc">周报</span>`;
+                case 'h2': return `<span class="tm-checklist-meta-compact-h2" title="本周">本周</span>`;
+                case 'startDate': return `<span class="tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start">9月20日 09:00</span>`;
+                case 'completionTime': return `<span class="tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion">9月25日</span>`;
+                case 'remainingTime': return `<span class="tm-checklist-meta-compact-remaining" title="还剩 2 天">还剩 2 天</span>`;
+                case 'duration': return `<span class="tm-checklist-meta-compact-duration">1.5h</span>`;
+                case 'tomatoSummary': return `<span class="tm-checklist-meta-compact-duration">45 分钟</span>`;
+                case 'tomatoEstimateCount': return `<span class="tm-checklist-meta-compact-duration">预计 3</span>`;
+                case 'tomatoCount': return `<span class="tm-checklist-meta-compact-duration">实际 2</span>`;
+                case 'status': return '';
+                default: {
+                    const name = __tmFieldPreviewCustomFieldName(key);
+                    return name ? `<span class="tm-checklist-meta-compact-custom-field" title="${esc(name)}">${esc(name)}·示例</span>` : '';
+                }
+            }
+        };
+        const __tmFieldPreviewListRow = (keys, narrow) => {
+            const metaParts = (Array.isArray(keys) ? keys : []).map((key) => __tmFieldPreviewListMetaChip(key)).filter(Boolean);
+            const statusTag = (Array.isArray(keys) && keys.includes('status')) ? __tmFieldPreviewStatusTag('进行中', '#2f9e77') : '';
+            const metaHtml = metaParts.length ? `<div class="tm-checklist-meta-compact">${metaParts.join('')}</div>` : '';
+            const emptyHint = (!metaHtml && !statusTag) ? '<span class="tm-field-preview__empty">右侧不显示字段</span>' : '';
+            return `
+                <div class="tm-checklist-pane tm-checklist-pane--compact tm-field-preview__list-host">
+                <div class="tm-checklist-group-card tm-field-preview__group-card">
+                <div class="tm-checklist-group-card-items">
+                <div class="tm-checklist-item tm-field-preview__row${narrow ? ' tm-field-preview__row--narrow' : ''}" style="--tm-checklist-compact-indent:0px;">
+                    <div class="tm-checklist-leading"><span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>${__tmFieldPreviewCheckbox()}</div>
+                    <div class="tm-checklist-item-main">
+                        <div class="tm-checklist-title-row${metaHtml || statusTag ? ' tm-checklist-title-row--has-compact-meta' : ''}">
+                            <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span>写周报</span></span></div></div>
+                            ${metaHtml}${statusTag}${emptyHint}
+                        </div>
+                    </div>
+                </div>
+                </div>
+                </div>
+                </div>`;
+        };
+        const __tmFieldPreviewCardChip = (key) => {
+            switch (key) {
+                case 'priority': return __tmFieldPreviewPriorityChip();
+                case 'status': return __tmFieldPreviewStatusTag('进行中', '#2f9e77');
+                case 'date': return `<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date tm-kanban-chip--date-has-value">9月25日</span>`;
+                case 'remainingTime': return `<span class="tm-kanban-chip tm-kanban-chip--muted" title="还剩 2 天">还剩 2 天</span>`;
+                case 'tomatoSummary': return `<span class="tm-kanban-chip tm-kanban-chip--muted">45 分钟</span>`;
+                case 'tomatoEstimateCount': return `<span class="tm-kanban-chip tm-kanban-chip--muted">预计 3</span>`;
+                case 'tomatoCount': return `<span class="tm-kanban-chip tm-kanban-chip--muted">实际 2</span>`;
+                case 'remark': return '';
+                default: {
+                    const name = __tmFieldPreviewCustomFieldName(key);
+                    return name ? `<span class="tm-kanban-chip tm-kanban-chip--muted" title="${esc(name)}">${esc(name)}·示例</span>` : '';
+                }
+            }
+        };
+        const __tmFieldPreviewCardFrame = (metaHtml, remarkHtml = '') => `
+            <div class="tm-kanban-card tm-field-preview__card${remarkHtml ? ' tm-kanban-card--has-remark' : ''}">
+                <div class="tm-kanban-card-top tm-kanban-card-main">
+                    <div class="tm-kanban-card-head">
+                        ${__tmFieldPreviewCheckbox()}
+                        <div class="tm-kanban-card-text"><span class="tm-kanban-card-title-inline tm-task-content-clickable">写周报</span></div>
+                    </div>
+                </div>
+                ${metaHtml ? `<div class="tm-kanban-card-meta">${metaHtml}</div>` : ''}
+                ${remarkHtml}
+            </div>`;
+        const __tmFieldPreviewCard = (keys) => {
+            const list = Array.isArray(keys) ? keys : [];
+            const metaHtml = list.map((key) => __tmFieldPreviewCardChip(key)).filter(Boolean).join('');
+            const remarkHtml = list.includes('remark') ? '<div class="tm-task-card-remark">等对方回复</div>' : '';
+            const emptyHint = (!metaHtml && !remarkHtml) ? '<span class="tm-field-preview__empty">卡片上只显示标题</span>' : '';
+            return __tmFieldPreviewCardFrame(metaHtml, remarkHtml) + emptyHint;
+        };
+        const __tmFieldPreviewStickyCard = (keys) => {
+            const labels = { priority: '重要性', status: '状态', date: '日期' };
+            const chips = (Array.isArray(keys) ? keys : [])
+                .map((key) => labels[key] ? `<span class="tm-kanban-chip tm-kanban-chip--muted tm-field-preview__chip--empty">${labels[key]} —</span>` : '')
+                .filter(Boolean).join('');
+            return __tmFieldPreviewCardFrame(chips);
+        };
+        const __tmFieldPreviewTimelineBar = (keys) => {
+            const list = Array.isArray(keys) ? keys : [];
+            const titleHtml = list.includes('title') ? '<span class="tm-gantt-bar__title">写周报</span>' : '';
+            const statusHtml = list.includes('status') ? `<span class="tm-gantt-bar__status">${__tmFieldPreviewStatusTag('进行中', '#2f9e77')}</span>` : '';
+            const completeAtHtml = list.includes('taskCompleteAt') ? '<span class="tm-gantt-bar__complete-time" title="完成时间"><span class="tm-gantt-bar__complete-time-value">09-22 18:30</span></span>' : '';
+            const emptyHint = (!titleHtml && !statusHtml && !completeAtHtml) ? '<span class="tm-field-preview__empty">甘特条上不显示内容</span>' : '';
+            return `
+                <div class="tm-field-preview__gantt-host">
+                    <div class="tm-gantt-bar tm-field-preview__gantt" style="--tm-gantt-bar-fill: var(--tm-primary-color);">
+                        <div class="tm-gantt-bar__surface"><span class="tm-gantt-bar__edge tm-gantt-bar__edge--end"></span></div>
+                        <span class="tm-gantt-bar__label-layer">${titleHtml}${statusHtml}${completeAtHtml}</span>
+                    </div>
+                    ${emptyHint}
+                </div>`;
+        };
+        const __tmFieldPreviewQuickbarProp = (attrKey, value, extraStyle = '') =>
+            `<span class="sy-custom-props-floatbar__prop sy-custom-props-floatbar__prop--core" data-attr="${esc(attrKey)}"${extraStyle ? ` style="${extraStyle}"` : ''}><span class="sy-custom-props-floatbar__prop-value">${esc(value)}</span></span>`;
+        const __tmFieldPreviewQuickbarItem = (key) => {
+            switch (key) {
+                case 'custom-status': return `<span class="sy-custom-props-floatbar__prop" data-attr="custom-status" style="background:#2f9e7720;border-color:#2f9e77;color:#2f9e77;"><span class="sy-custom-props-floatbar__prop-value">进行中</span></span>`;
+                case 'custom-priority': return __tmFieldPreviewQuickbarProp('custom-priority', '高');
+                case 'custom-start-date': return __tmFieldPreviewQuickbarProp('custom-start-date', '9月20日');
+                case 'custom-completion-time': return __tmFieldPreviewQuickbarProp('custom-completion-time', '9月25日');
+                case 'taskCompleteAt': return __tmFieldPreviewQuickbarProp('taskCompleteAt', '09-22 18:30');
+                case 'custom-focus-summary': return __tmFieldPreviewQuickbarProp('custom-focus-summary', '45 分钟');
+                case 'custom-remark': return __tmFieldPreviewQuickbarProp('custom-remark', '等对方回复');
+                case 'action-ai-title': return '<span class="sy-custom-props-floatbar__action" data-action="ai-title" title="AI 优化任务名称"><span class="qb-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z"/></svg></span></span>';
+                case 'action-reminder': return '<span class="sy-custom-props-floatbar__action" data-action="reminder" title="提醒"><span class="qb-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="7"/><path d="M12 9.5V13l2.5 2.5M4.5 3.5L2.8 5.2m18.4-1.7l1.7 1.7"/></svg></span></span>';
+                case 'action-more': return '<span class="sy-custom-props-floatbar__action" data-action="more" title="更多"><span class="qb-icon"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></span></span>';
+                default: {
+                    const name = __tmFieldPreviewCustomFieldName(key);
+                    return name ? __tmFieldPreviewQuickbarProp(key, `${name}·示例`) : '';
+                }
+            }
+        };
+        const __tmFieldPreviewQuickbar = (keys) => {
+            const items = (Array.isArray(keys) ? keys : []).map((key) => __tmFieldPreviewQuickbarItem(key)).filter(Boolean).join('');
+            const mainRow = `<div class="sy-custom-props-floatbar__row sy-custom-props-floatbar__row--main">${items || '<span class="tm-field-preview__empty">悬浮条不显示字段</span>'}</div>`;
+            return `<div class="sy-custom-props-floatbar tm-field-preview__floatbar">${mainRow}</div>`;
+        };
+        const __tmFieldPreviewInlineChip = (key) => {
+            const chip = (cls, label, value) => `<span class="sy-custom-props-inline-chip${cls ? ` ${cls}` : ''}"><span class="sy-custom-props-inline-chip-label">${esc(label)}</span><span class="sy-custom-props-inline-chip-value">${esc(value)}</span></span>`;
+            switch (key) {
+                case 'subtask-count': return chip('', '子任务', '2/5');
+                case 'custom-status': return chip('sy-custom-props-inline-chip--status', '状态', '进行中');
+                case 'custom-priority': return chip('', '重要性', '高');
+                case 'custom-start-date': return chip('sy-custom-props-inline-chip--time', '开始', '9月20日');
+                case 'custom-completion-time': return chip('sy-custom-props-inline-chip--time', '截止', '9月25日');
+                case 'remainingTime': return chip('', '剩余', '还剩 2 天');
+                case 'taskCompleteAt': return chip('sy-custom-props-inline-chip--time', '完成', '09-22 18:30');
+                case 'custom-focus-summary': return chip('', '专注', '45 分钟');
+                case 'custom-remark': return chip('', '备注', '等对方回复');
+                default: {
+                    const name = __tmFieldPreviewCustomFieldName(key);
+                    return name ? chip('', name, '示例') : '';
+                }
+            }
+        };
+        const __tmFieldPreviewInlineRow = (keys) => {
+            const chips = (Array.isArray(keys) ? keys : []).map((key) => __tmFieldPreviewInlineChip(key)).filter(Boolean).join('');
+            return `<div class="tm-field-preview__docline"><span class="tm-field-preview__docline-text">☐ 写周报</span>${chips || '<span class="tm-field-preview__empty">行末不显示字段</span>'}</div>`;
+        };
+        const __tmRenderSettingsFieldPreview = (type) => {
+            let caption = '效果预览';
+            let stage = '';
+            let note = '';
+            try {
+                const data = SettingsStore.data || {};
+                switch (String(type || '').trim()) {
+                    case 'list-desktop':
+                        caption = '清单 · 桌面端紧凑模式：任务右侧字段排列';
+                        stage = __tmFieldPreviewListRow(__tmNormalizeCompactChecklistMetaFields(data.desktopChecklistCompactMetaFields), false);
+                        break;
+                    case 'list-dock':
+                        caption = '清单 · Dock / 移动端：窄屏右侧字段';
+                        stage = __tmFieldPreviewListRow(__tmNormalizeCompactChecklistMetaFields(data.dockChecklistCompactMetaFields), true);
+                        break;
+                    case 'timeline':
+                        caption = '时间轴 · 甘特条卡片';
+                        stage = __tmFieldPreviewTimelineBar(__tmNormalizeTimelineCardFields(data.timelineCardFields));
+                        break;
+                    case 'kanban':
+                        caption = '看板卡片';
+                        stage = __tmFieldPreviewCard(__tmGetTaskCardFieldList('kanban'));
+                        break;
+                    case 'whiteboard':
+                        caption = '白板卡片';
+                        stage = __tmFieldPreviewCard(__tmGetTaskCardFieldList('whiteboard'));
+                        break;
+                    case 'sticky':
+                        caption = '看板 / 白板卡片：空值字段留位';
+                        stage = __tmFieldPreviewStickyCard(__tmGetTaskCardAlwaysShowFieldList());
+                        note = '<div class="tm-field-preview__note">选中的字段没有值时也保留位置（虚线示意），卡片高度更整齐。</div>';
+                        break;
+                    case 'quickbar':
+                        caption = '任务悬浮条：直接显示的字段与动作';
+                        stage = __tmFieldPreviewQuickbar((Array.isArray(data.quickbarVisibleItems) ? data.quickbarVisibleItems : []).map((value) => String(value || '').trim()).filter(Boolean));
+                        break;
+                    case 'quickbar-inline':
+                        caption = '文档任务行末尾：常驻字段';
+                        stage = __tmFieldPreviewInlineRow((Array.isArray(data.quickbarInlineFields) ? data.quickbarInlineFields : []).map((value) => String(value || '').trim()).filter(Boolean));
+                        break;
+                    default:
+                        break;
+                }
+            } catch (e) {}
+            return `<span class="tm-field-preview__cap">${caption}</span><div class="tm-field-preview__stage">${stage || '<span class="tm-field-preview__empty">未选择字段</span>'}</div>${note}`;
+        };
+        const __tmRefreshSettingsFieldPreviews = (root) => {
+            const modal = root || state.settingsModal;
+            if (!modal || typeof modal.querySelectorAll !== 'function') return;
+            modal.querySelectorAll('[data-tm-field-preview]').forEach((host) => {
+                try { host.innerHTML = __tmRenderSettingsFieldPreview(host.dataset.tmFieldPreview); } catch (e) {}
+            });
+        };
+        const __tmBindSettingsFieldPreviewRefresh = (modal) => {
+            if (!modal || modal.__tmFieldPreviewRefreshBound) return;
+            modal.__tmFieldPreviewRefreshBound = true;
+            modal.addEventListener('change', () => {
+                setTimeout(() => { try { __tmRefreshSettingsFieldPreviews(modal); } catch (e) {} }, 0);
+            });
+        };
+        // 轻量刷新：chip 勾选类设置不改动设置页结构，跳过整窗重渲染，只同步选中态、计数与字段预览。
+        state.__tmSettingsChipLightRefresh = () => {
+            const modal = state.settingsModal;
+            if (!(modal instanceof HTMLElement) || !document.body.contains(modal)) return;
+            modal.querySelectorAll('.tm-settings-chip-group').forEach((section) => {
+                const inputs = Array.from(section.querySelectorAll('.tm-settings-chip__input'));
+                if (!inputs.length) return;
+                inputs.forEach((input) => {
+                    const chip = input.closest('.tm-settings-chip');
+                    if (chip) chip.classList.toggle('is-selected', !!input.checked);
+                });
+                const countEl = section.querySelector('.tm-settings-chip-group-count');
+                if (countEl) countEl.textContent = `已选 ${inputs.filter((input) => input.checked).length}/${inputs.length}`;
+            });
+            try { __tmRefreshSettingsFieldPreviews(modal); } catch (e) {}
         };
         const renderAiSettingsPanel = () => {
             const experienceMode = String(SettingsStore.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent';
@@ -2105,7 +2369,6 @@
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                 <div style="font-weight: 600;">📋 筛选规则管理</div>
                                 <div style="display:flex;gap:8px;align-items:center;">
-                                    <button class="tm-btn tm-btn-secondary" data-tm-action="tmSwitchSettingsTab" data-tab="priority" style="padding: 4px 10px; font-size: 12px;">优先级算法</button>
                                     <button class="tm-btn tm-btn-primary" data-tm-action="addNewRule" style="padding: 4px 10px; font-size: 12px;">+ 新建规则</button>
                                 </div>
                             </div>
@@ -2403,13 +2666,15 @@
                     <div class="tm-settings-panel" style="margin-bottom: 16px;" data-tm-settings-section="status">
                         <div class="tm-settings-section-title">🏷️ 状态选项</div>
                         <div class="tm-settings-section-desc">${SettingsStore.data.legacyWin7CompatMode ? '维护任务状态列表；兼容旧版 Win7 思源时，任务方括号内仅使用空格和 X，未完成状态统一写为空格，已完成状态写为 X。' : '维护任务状态列表；语法标记会写入任务 <code>- [ ]</code> 的方括号中，空格和 / 为未完成，X 为已完成，- 为放弃；除空格外，语法标记不能重复。'}</div>
+                        <div ${__tmSettingsSearchAttrs('main', '状态列表', '新增、编辑、排序和删除任务状态，设置状态颜色、属性名与语法标记。', { section: 'status', key: 'main-status-options-list' })}>
                         <div id="tm-status-options-list">
                             ${renderStatusOptionsList()}
                         </div>
                         <button class="tm-btn tm-btn-primary" data-tm-action="addStatusOption" style="margin-top: 8px; margin-bottom: 10px; font-size: 12px;">+ 添加状态</button>
+                        </div>
                         ${renderSingleFieldSetting(
                             '勾选完成时状态',
-                            '任务复选框被勾选为完成时，自动切换到这里设置的状态；可选择“不自动切换”。',
+                            '任务复选框被勾选为完成时，自动切换到这里设置的状态。',
                             `<select class="b3-select" onchange="updateCheckboxStatusBinding('done', this.value)" style="width:180px;">
                                 ${__tmRenderCheckboxStatusBindingOptionsHtml(SettingsStore.data.checkboxDoneStatusId)}
                             </select>`,
@@ -2419,7 +2684,7 @@
                             '未完成状态默认状态',
                             '未完成任务在取消勾选回退、快速新建默认状态、以及空状态显示回退时，统一使用这里设置的状态。',
                             `<select class="b3-select" onchange="updateCheckboxStatusBinding('undone', this.value)" style="width:180px;">
-                                ${__tmRenderCheckboxStatusBindingOptionsHtml(SettingsStore.data.checkboxUndoneStatusId, { allowNone: false })}
+                                ${__tmRenderCheckboxStatusBindingOptionsHtml(SettingsStore.data.checkboxUndoneStatusId, { done: false })}
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -2576,7 +2841,7 @@
                                         selectedSet: selected,
                                         onToggle: (item) => `updateChecklistCompactMetaFieldVisibility('dock', '${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
-                                ]);
+                                ], { preview: 'list-dock' });
                             })()
                             )}
                         </div>
@@ -2595,7 +2860,7 @@
                                         selectedSet: selected,
                                         onToggle: (item) => `updateChecklistCompactMetaFieldVisibility('desktop', '${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
-                                ]);
+                                ], { preview: 'list-desktop' });
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -2617,7 +2882,7 @@
                                         selectedSet: selected,
                                         onToggle: (item) => `updateTimelineCardFieldVisibility('${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
-                                ]);
+                                ], { preview: 'timeline' });
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -2630,7 +2895,7 @@
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
-                        <div style="margin-bottom:10px;">
+                        <div style="margin-bottom:10px;" ${__tmSettingsSearchAttrs('main', '显示视图', '选择启用表格、清单、时间轴、看板、日历和白板视图，至少保留一个。', { section: 'layout', key: 'main-enabled-views' })}>
                             ${renderSettingsChipSetting('', '', [
                                 __tmBuildSettingsChipGroup('显示视图', __TM_ALL_VIEWS.map((view) => {
                                     const enabledViews = __tmGetEnabledViews();
@@ -2690,7 +2955,7 @@
                                         selectedSet: selected,
                                         onToggle: (item) => `updateTaskCardFieldVisibility('kanban', '${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
-                                ]);
+                                ], { preview: 'kanban' });
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -2704,7 +2969,7 @@
                                         selectedSet: selected,
                                         onToggle: (item) => `updateTaskCardFieldVisibility('whiteboard', '${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
-                                ]);
+                                ], { preview: 'whiteboard' });
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -2740,7 +3005,7 @@
                                         selectedSet: selected,
                                         onToggle: (item) => `updateTaskCardAlwaysShowField('${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
-                                ]);
+                                ], { preview: 'sticky' });
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -2783,7 +3048,7 @@
                                 <option value="minutes" ${String(SettingsStore.data.durationFormat || '') === 'minutes' ? 'selected' : ''}>分钟 (如 90min)</option>
                             </select>`
                         )}
-                        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);">
+                        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);" ${__tmSettingsSearchAttrs('main', '时长预设', '用于任务详情、悬浮条和表格的时长快捷选择，支持新增、修改、排序和删除预设。', { section: 'layout', key: 'main-duration-presets' })}>
                             <div style="font-size:13px;font-weight:600;margin-bottom:6px;">时长预设</div>
                             <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">用于任务详情、悬浮条和表格视图的时长快捷选择。仍支持直接填写自定义数值；如果这里不添加任何预设，就继续使用当前的自由输入方式。预设里即使写了 h、min 等字符，也只会取数字部分。</div>
                             <div id="tm-duration-options-list">
@@ -3008,7 +3273,7 @@
                                         disabled: !SettingsStore.data.enableQuickbar,
                                         onToggle: (item) => `updateQuickbarVisibleItem('${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
-                                ]),
+                                ], { preview: 'quickbar' }),
                                 { style: 'margin-top:8px;margin-bottom:10px;' }
                             )}
                         </div>
@@ -3033,7 +3298,7 @@
                                         disabled: !SettingsStore.data.enableQuickbarInlineMeta,
                                         onToggle: (item) => `updateQuickbarInlineField('${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
-                                ]),
+                                ], { preview: 'quickbar-inline' }),
                                 { style: 'margin-bottom:10px;' }
                             )}
                             ${renderSingleSwitchSetting(
@@ -3174,13 +3439,13 @@
 
                     ${renderDocumentGroupManager()}
 
-                    <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;" ${__tmSettingsSearchAttrs('docs', '页签自定义分组', '独立弹窗管理页签组，勾选当前文档分组页签并选择是否包含子文档')}>
-                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-                            <div>
-                                <div style="font-weight:600;">📑 页签自定义分组</div>
-                                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;margin-top:4px;">右击页签可快速加入；完整勾选、包含子文档和重命名请在独立弹窗中管理。</div>
-                            </div>
-                            <button class="tm-btn tm-btn-info" onclick="tmOpenDocTabCustomGroupSettings()" style="padding: 6px 12px; font-size: 12px;">管理页签分组</button>
+                    <div class="tm-setting-field-row" ${__tmSettingsSearchAttrs('docs', '页签自定义分组', '独立弹窗管理页签组，勾选当前文档分组页签并选择是否包含子文档')}>
+                        <div class="tm-setting-field-copy">
+                            <div class="tm-setting-field-title">页签分组</div>
+                            <div class="tm-setting-field-desc">右击页签可快速加入；完整勾选、包含子文档和重命名请在独立弹窗中管理。</div>
+                        </div>
+                        <div class="tm-setting-field-control">
+                            <button class="tm-btn tm-btn-secondary" onclick="tmOpenDocTabCustomGroupSettings()">管理页签分组</button>
                         </div>
                     </div>
 
@@ -3193,45 +3458,73 @@
             ${settingsDocPickerDialogMarkup}
         `;
         state.settingsModal.innerHTML = renderSettingsModalMarkup();
+        try { __tmBindSettingsFieldPreviewRefresh(state.settingsModal); } catch (e) {}
+        // 搜索索引改为异步分片构建：每次设置项变更都会触发整窗重渲染，若同步为每个页签
+        // 各渲染一遍 probe 会造成明显卡顿。这里按页签分片、让出主线程，保持交互流畅；
+        // 构建期间搜索结果沿用 __tmSettingsSearchIndexBuilding 语义暂时为空，完成后自动刷新。
         {
+            const buildGen = ++__tmSettingsSearchIndexBuildGen;
+            if (__tmSettingsSearchIndexBuildTimer) {
+                clearTimeout(__tmSettingsSearchIndexBuildTimer);
+                __tmSettingsSearchIndexBuildTimer = 0;
+            }
+            const buildTabs = TM_SETTINGS_SEARCH_INDEX_TABS.filter((tab) => tab !== 'calendar');
+            const capturedEntries = [];
             const renderedActiveTab = activeTab;
             const renderedSection = settingsSearchCurrentSection;
-            const capturedEntries = [];
-            __tmSettingsSearchIndexBuilding = true;
-            // Index rendered controls only; inactive AI modes may still build unused markup.
-            __tmSettingsSearchCaptureBuffer = null;
-            try {
-                TM_SETTINGS_SEARCH_INDEX_TABS
-                    .filter((tab) => tab !== 'calendar')
-                    .forEach((tab) => {
-                        activeTab = tab;
-                        settingsSearchCurrentSection = '';
-                        const probe = document.createElement('div');
-                        probe.innerHTML = renderSettingsModalMarkup();
-                        __tmCollectRenderedSettingsSearchEntries(probe, tab).forEach((entry) => capturedEntries.push(entry));
-                    });
-                const calendarRenderer = globalThis.__tmCalendar?.renderSettings;
-                if (typeof calendarRenderer === 'function') {
-                    const calendarProbe = document.createElement('div');
-                    calendarRenderer(calendarProbe, SettingsStore, { indexOnly: true });
-                    __tmDecorateCalendarSettingsSearchRows(calendarProbe);
-                    __tmCollectRenderedSettingsSearchEntries(calendarProbe, 'calendar').forEach((entry) => capturedEntries.push(entry));
+            let buildIndex = 0;
+            const finalizeBuild = () => {
+                try {
+                    const calendarRenderer = globalThis.__tmCalendar?.renderSettings;
+                    if (typeof calendarRenderer === 'function') {
+                        const calendarProbe = document.createElement('div');
+                        calendarRenderer(calendarProbe, SettingsStore, { indexOnly: true });
+                        __tmDecorateCalendarSettingsSearchRows(calendarProbe);
+                        __tmCollectRenderedSettingsSearchEntries(calendarProbe, 'calendar').forEach((entry) => capturedEntries.push(entry));
+                    }
+                } catch (e) {}
+                const generatedMap = new Map();
+                capturedEntries.forEach((raw) => {
+                    const entry = raw?.haystack ? raw : __tmCreateSettingsSearchEntry(raw);
+                    if (!entry) return;
+                    generatedMap.set(`${entry.tab}:${entry.key}`, entry);
+                });
+                state.settingsSearchGeneratedEntries = Array.from(generatedMap.values());
+            };
+            const runChunk = () => {
+                __tmSettingsSearchIndexBuildTimer = 0;
+                if (buildGen !== __tmSettingsSearchIndexBuildGen) return;
+                if (!state.settingsModal || !document.body.contains(state.settingsModal)) {
+                    __tmSettingsSearchIndexBuilding = false;
+                    return;
                 }
-            } catch (e) {
-                try { console.warn('[Task Horizon] settings search index build failed', e); } catch (e2) {}
-            } finally {
-                activeTab = renderedActiveTab;
-                settingsSearchCurrentSection = renderedSection;
+                __tmSettingsSearchIndexBuilding = true;
                 __tmSettingsSearchCaptureBuffer = null;
+                try {
+                    const tab = buildTabs[buildIndex];
+                    activeTab = tab;
+                    settingsSearchCurrentSection = '';
+                    const probe = document.createElement('div');
+                    probe.innerHTML = renderSettingsModalMarkup();
+                    __tmCollectRenderedSettingsSearchEntries(probe, tab).forEach((entry) => capturedEntries.push(entry));
+                } catch (e) {
+                    try { console.warn('[Task Horizon] settings search index build failed', e); } catch (e2) {}
+                } finally {
+                    activeTab = renderedActiveTab;
+                    settingsSearchCurrentSection = renderedSection;
+                    __tmSettingsSearchCaptureBuffer = null;
+                }
+                buildIndex += 1;
+                if (buildIndex < buildTabs.length) {
+                    __tmSettingsSearchIndexBuildTimer = setTimeout(runChunk, 0);
+                    return;
+                }
+                finalizeBuild();
                 __tmSettingsSearchIndexBuilding = false;
-            }
-            const generatedMap = new Map();
-            capturedEntries.forEach((raw) => {
-                const entry = raw?.haystack ? raw : __tmCreateSettingsSearchEntry(raw);
-                if (!entry) return;
-                generatedMap.set(`${entry.tab}:${entry.key}`, entry);
-            });
-            state.settingsSearchGeneratedEntries = Array.from(generatedMap.values());
+                try { __tmRefreshSettingsSearchResults(state.settingsModal); } catch (e) {}
+            };
+            __tmSettingsSearchIndexBuilding = true;
+            __tmSettingsSearchIndexBuildTimer = setTimeout(runChunk, 0);
         }
         const sourceTab = activeTab;
         __tmBuildSettingsV2(state.settingsModal, (tab) => {

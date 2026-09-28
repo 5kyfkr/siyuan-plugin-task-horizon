@@ -28,6 +28,7 @@ const checkboxContext = {
     resolveCalendarEventDoneState: (ext) => ext?.done === true,
 };
 checkboxContext.isOtherBlockCalendarEvent = readFunction('isOtherBlockCalendarEvent', checkboxContext);
+checkboxContext.isIndependentScheduleEventExt = readFunction('isIndependentScheduleEventExt', checkboxContext);
 checkboxContext.isCalendarBuiltinScheduleEvent = readFunction('isCalendarBuiltinScheduleEvent', checkboxContext);
 checkboxContext.normalizeScheduleRepeatType = readFunction('normalizeScheduleRepeatType', checkboxContext);
 checkboxContext.normalizeScheduleCompletedOccurrenceKey = readFunction('normalizeScheduleCompletedOccurrenceKey', checkboxContext);

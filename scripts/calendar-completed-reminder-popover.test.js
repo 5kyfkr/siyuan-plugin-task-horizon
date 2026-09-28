@@ -79,6 +79,7 @@ const context = vm.createContext({
     protoEventMarkup: (event) => event.title,
 });
 vm.runInContext([
+    'isIndependentScheduleEventExt', 'isTaskLinkedScheduleEventExt',
     'resolveSharedPrototypeEventStart', 'resolveSharedPrototypeEventEnd',
     'isCalendarForegroundEvent',
     'mergeCalendarAllDayReminders',

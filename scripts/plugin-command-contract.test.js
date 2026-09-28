@@ -34,9 +34,9 @@ assert.match(indexSource, /async openQuickAddTaskWindow\(\)[\s\S]*ensureTaskMain
 assert.doesNotMatch(indexSource, /new runtime\.BrowserWindow|QUICK_ADD_WINDOW|ExternalQuickAdd|externalQuickAdd|transparent: true/, 'the shortcut must not create a second transparent window');
 
 const quickAddRuntimeSource = fs.readFileSync(path.join(root, 'src', 'task-horizon', 'main', 'task-runtime', '53b-task-create-and-quick-add-runtime.js'), 'utf8');
-assert.match(quickAddRuntimeSource, /window\.tmQuickAddOpen = async function\(\)[\s\S]*tmQuickAddOpenDatePicker/, 'the main-window shortcut must reuse the original quick-add implementation and date hub');
+assert.match(quickAddRuntimeSource, /window\.tmQuickAddOpen = async function\(options = \{\}\)[\s\S]*tmQuickAddOpenDatePicker/, 'the main-window shortcut must reuse the original quick-add implementation and date hub');
 assert.match(quickAddRuntimeSource, /onclick="tmQuickAddOpenDatePicker\(\)"/, 'the original date control must remain unchanged');
-assert.match(quickAddRuntimeSource, /window\.tmQuickAddOpen = async function\(\) \{[\s\S]*?await __tmEnsureSettingsLoaded\(\);/, 'quick-add must wait for settings when opened during background startup');
+assert.match(quickAddRuntimeSource, /window\.tmQuickAddOpen = async function\(options = \{\}\) \{[\s\S]*?await __tmEnsureSettingsLoaded\(\);/, 'quick-add must wait for settings when opened during background startup');
 assert.match(quickAddRuntimeSource, /window\.tmQuickAddSubmit = async function\(\)[\s\S]*return \(async \(\) => \{/, 'quick-add submit must return the actual task creation promise');
 assert.doesNotMatch(quickAddRuntimeSource, /__tmQuickAddDebug|runtime-submit:(?:start|background|create-success|create-error)/, 'quick-add timing diagnostics must be removed');
 assert.match(quickAddRuntimeSource, /__tmRefreshQuickAddCustomFieldScope[\s\S]*tmQuickAddSelectDoc[\s\S]*await __tmRefreshQuickAddCustomFieldScope/, 'document changes must refresh scoped custom fields before rendering');

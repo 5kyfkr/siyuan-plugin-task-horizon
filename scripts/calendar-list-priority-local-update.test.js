@@ -29,12 +29,14 @@ class Input extends Element {
         this.style = { setProperty(name, value) { this[name] = value; } };
         this.parentElement = new Element([this]);
     }
+    getAttribute(name) { return name === 'data-task-id' ? this.taskId : null; }
 }
 const parent = new Input('parent');
 const repeated = new Input('parent');
 const child = new Input('child');
 const external = new Input('external');
 const side = new Input('parent');
+const nestedParentCard = new Element([parent, child]);
 const tasks = { parent: { id: 'parent', priority: 'high' }, child: { id: 'child', priority: 'low' } };
 const context = vm.createContext({
     Element, HTMLElement: Element, HTMLInputElement: Input,
@@ -51,6 +53,14 @@ vm.runInContext(extract(modelSource, 'function __tmResolveTaskPriorityValue(', '
 assert.equal(context.sync('parent'), true);
 for (const input of [parent, repeated, side]) assert.equal(input.style.borderColor, '#ff0000');
 assert.equal(child.style.borderColor, undefined, 'Parent edits must not recolor children');
+assert.equal(child.checked, true);
+context.sync('child');
+assert.equal(context.__tmCalendarKanbanCardHelpers.updateCheckboxPriority(nestedParentCard, tasks.parent), true);
+assert.equal(parent.style.borderColor, '#ff0000');
+assert.equal(child.style.borderColor, '#0000ff', 'Nested kanban child checkboxes must keep their own priority color');
+assert.equal(child.style['--tm-checklist-checkbox-color'], '#0000ff');
+assert.equal(context.__tmCalendarKanbanCardHelpers.updateCheckboxPriority(new Element([child]), tasks.parent), true);
+assert.equal(child.style.borderColor, '#0000ff', 'A missing parent checkbox must not fall back to recoloring children');
 assert.equal(child.checked, true);
 assert.equal(context.sync('external'), true, 'Tasks outside the current document group use the shared calendar snapshot');
 assert.equal(external.style.borderColor, '#ff9900');

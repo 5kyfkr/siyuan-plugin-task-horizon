@@ -25,7 +25,7 @@
         calendar: [['c-cal', '日历'], ['c-content', '日程与显示'], ['c-remind', '提醒通知'], ['c-ics', 'ICS 订阅'], ['c-focus', '专注与联动']],
         appearance: [['l-density', '字号与密度'], ['l-icon', '图标与复选框'], ['l-color', '配色'], ['l-top', '顶栏控件']],
         ai: [['a-mode', '工作方式'], ['a-agent', '智能体'], ['a-legacy', '旧版接入'], ['a-policy', '安排规则']],
-        algo: [['r-rules', '规则管理'], ['r-priority', '优先级'], ['r-quadrant', '四象限']],
+        algo: [['r-rules', '筛选与排序'], ['r-priority', '优先级数值'], ['r-quadrant', '四象限']],
         about: [['d-io', '导入导出'], ['d-sync', '同步与设备'], ['d-about', '版本与帮助'], ['d-reset', '重置']],
         benefits: [],
     };
@@ -70,6 +70,7 @@
             else if (/update(?:RecursiveDocLimit|TaskParentLookupDepth)/.test(handlers)) sub = 't-src';
             else if (/update(?:LegacyWin7|ServerSync)/.test(handlers)) sub = 'd-sync';
             else if (/update(?:DurationFormat|TomatoCountAttrKey|TomatoEstimateAttrKey|DocTitleEmbeddedTaskFocus)/.test(handlers)) sub = 'c-focus';
+            else if (/(?:add|update|move|delete)DurationOption/.test(handlers)) sub = 'c-focus';
             else if (/updateChecklistCompactRightFontSize/.test(handlers)) sub = 'l-density';
             else if (/update(?:TaskTitleClickAction|DockTaskTitleClickAction|MobileTaskTitleClickAction)/.test(handlers)) sub = 'v-float';
             else if (/updateChecklistCompactMetaFieldVisibility/.test(handlers)) sub = 'v-fields';
@@ -298,7 +299,7 @@
         __tmGuardSettingsControlHandlers(root);
         root.querySelectorAll('.tm-btn,.tm-rule-btn').forEach(button => {
             button.classList.add('bc-btn');
-            button.classList.add(button.matches('.tm-btn-primary,.tm-btn-success,.tm-rule-btn-success') ? 'bc-btn--primary' : 'bc-btn--ghost');
+            button.classList.add(button.matches('.tm-btn-primary,.tm-btn-success,.tm-rule-btn-primary,.tm-rule-btn-success') ? 'bc-btn--primary' : 'bc-btn--ghost');
         });
         root.querySelectorAll('input.b3-text-field,textarea.b3-text-field').forEach(input => input.classList.add(input.tagName === 'TEXTAREA' ? 'bc-textarea' : 'bc-input'));
         root.querySelectorAll('.tm-setting-switch-row,.tm-setting-field-row').forEach((row, index) => {

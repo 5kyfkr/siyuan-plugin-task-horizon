@@ -54,6 +54,14 @@ const collapsedWindow = getPrototypeTimelineMetrics({ visibleStartTime: '07:30',
 assert.ok(collapsedWindow.hourHeight > 48, 'a collapsed timeline should stretch only its visible ranges and reserve the fold control');
 assert.equal(Math.round(collapsedWindow.canvasHeight), 1000, 'collapsed timeline fitting should include its fold-control band');
 
+const mobileZoomOut = getPrototypeTimelineMetrics({ visibleStartTime: '12:00', visibleEndTime: '18:00' }, {
+    hourHeight: 42,
+    availableHeight: 600,
+    hourScale: 0.75,
+});
+assert.equal(mobileZoomOut.hourHeight, 68, 'continuous zoom applies after fitting the mobile viewport');
+assert.equal(mobileZoomOut.canvasHeight, 464, 'zoom-out must not be stretched back to the viewport; fold bands stay fixed');
+
 const overnight = getPrototypeTimelineMetrics({ visibleStartTime: '22:00', visibleEndTime: '06:00' }, {
     hourHeight: 48,
     availableHeight: 300,

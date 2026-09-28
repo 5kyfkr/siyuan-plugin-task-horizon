@@ -1891,7 +1891,7 @@
         SettingsStore.data.quickbarInlineFields = next;
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
-        if (state.settingsModal) showSettings();
+        if (state.settingsModal) { try { state.__tmSettingsChipLightRefresh?.(); } catch (e) {} }
     };
 
     window.updateQuickbarVisibleItem = async function(field, enabled) {
@@ -1906,7 +1906,7 @@
         SettingsStore.data.quickbarVisibleItems = __tmSetQuickbarSettingItemEnabled(prev, key, !!enabled, allow, defaults, key === 'taskCompleteAt' ? 'custom-completion-time' : '');
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
-        if (state.settingsModal) showSettings();
+        if (state.settingsModal) { try { state.__tmSettingsChipLightRefresh?.(); } catch (e) {} }
     };
 
     window.updateQuickbarInlineShowOnMobile = async function(enabled) {
@@ -1979,7 +1979,7 @@
                 });
             } catch (e) {}
         }
-        if (state.settingsModal) showSettings();
+        if (state.settingsModal) { try { state.__tmSettingsChipLightRefresh?.(); } catch (e) {} }
     };
 
     window.updateEnablePointsPenaltyIntegration = async function(enabled) {
@@ -2304,7 +2304,7 @@
         if (scopeKey === 'dock') {
             __tmDispatchDockSettingsChanged('dock-checklist-compact-meta-fields');
         }
-        if (state.settingsModal) showSettings();
+        if (state.settingsModal) { try { state.__tmSettingsChipLightRefresh?.(); } catch (e) {} }
         if (state.modal && document.body.contains(state.modal)) {
             __tmScheduleSettingsViewRefresh('checklist-compact-meta-fields');
         }
@@ -2330,7 +2330,7 @@
         else current.delete(normalizedField);
         SettingsStore.data.timelineCardFields = __tmNormalizeTimelineCardFields(Array.from(current), []);
         await SettingsStore.save();
-        if (state.settingsModal) showSettings();
+        if (state.settingsModal) { try { state.__tmSettingsChipLightRefresh?.(); } catch (e) {} }
         if (state.modal && document.body.contains(state.modal)) {
             __tmScheduleSettingsViewRefresh('timeline-card-field-visibility');
         }
@@ -2463,7 +2463,7 @@
         else current.delete(key);
         SettingsStore.data[viewKey] = __tmNormalizeTaskCardFieldList(Array.from(current), ['priority', 'status', 'date']);
         await SettingsStore.save();
-        if (state.settingsModal) showSettings();
+        if (state.settingsModal) { try { state.__tmSettingsChipLightRefresh?.(); } catch (e) {} }
         if (state.modal && document.body.contains(state.modal)) {
             const nextCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
             if (__tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan)) {
@@ -2483,7 +2483,7 @@
         SettingsStore.data.taskCardAlwaysShowFields = __tmNormalizeTaskCardAlwaysShowFields(Array.from(current), ['priority', 'status', 'date']);
         SettingsStore.data.taskCardDateOnlyWithValue = !SettingsStore.data.taskCardAlwaysShowFields.includes('date');
         await SettingsStore.save();
-        if (state.settingsModal) showSettings();
+        if (state.settingsModal) { try { state.__tmSettingsChipLightRefresh?.(); } catch (e) {} }
         if (state.modal && document.body.contains(state.modal)) {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
@@ -2591,7 +2591,7 @@
         else current.delete(key);
         SettingsStore.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(Array.from(current), []);
         await SettingsStore.save();
-        if (state.settingsModal) showSettings();
+        if (state.settingsModal) { try { state.__tmSettingsChipLightRefresh?.(); } catch (e) {} }
     };
 
     window.updateEnableMoveBlockToDailyNote = async function(enabled) {

@@ -425,8 +425,10 @@
         if (!key) return;
         const options = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
         let nextValue = __tmNormalizeCheckboxStatusBindingValue(value);
-        if (mode === 'undone' && !nextValue) {
-            nextValue = __tmGetDefaultUndoneStatusId(options);
+        if (!nextValue) {
+            nextValue = mode === 'done'
+                ? __tmGetCheckboxStatusBindingFallbackId(true, options)
+                : __tmGetDefaultUndoneStatusId(options);
         }
         if (nextValue && !options.some((item) => String(item?.id || '').trim() === nextValue)) {
             hint('状态不存在，请重新选择', 'warning');

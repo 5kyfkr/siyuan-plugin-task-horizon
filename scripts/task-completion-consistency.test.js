@@ -1202,7 +1202,38 @@ async function testDuplicateMarkerSettingsWarning() {
     assert.equal(context.SettingsStore.data.customStatusOptions.find((item) => item.id === 'another').marker, '/');
 }
 
+function testRemovedNoAutoSwitchBinding() {
+    const options = [{ id: 'todo', name: '待办', marker: ' ' }, { id: 'done', name: '已完成', marker: 'X' }];
+    const context = vm.createContext({
+        SettingsStore: { data: { customStatusOptions: options, checkboxDoneStatusId: '__none__', checkboxUndoneStatusId: 'todo' } },
+        __tmNormalizeCustomStatusOptions: (items) => items,
+        __tmGetStatusOptions: (items) => items || options,
+        __tmNormalizeCompatTaskStatusMarker: (marker) => marker,
+        esc: (value) => String(value),
+    });
+    for (const name of [
+        '__tmNormalizeCheckboxStatusBindingValue',
+        '__tmGetCheckboxStatusBindingFallbackId',
+        '__tmNormalizeCheckboxStatusBindingConfig',
+        '__tmResolveCheckboxLinkedStatusId',
+        '__tmRenderCheckboxStatusBindingOptionsHtml',
+    ]) vm.runInContext(extractFunction(apiSource, name), context);
+
+    context.__tmNormalizeCheckboxStatusBindingConfig(context.SettingsStore.data);
+    assert.equal(context.SettingsStore.data.checkboxDoneStatusId, 'done');
+    assert.equal(context.__tmResolveCheckboxLinkedStatusId(true), 'done');
+    const html = context.__tmRenderCheckboxStatusBindingOptionsHtml('__none__');
+    assert.match(html, /value="done" selected/);
+    assert.doesNotMatch(html, /不自动切换|__none__/);
+    assert.match(context.__tmRenderCheckboxStatusBindingOptionsHtml('todo', { done: false }), /value="todo" selected/);
+
+    context.SettingsStore.data.checkboxDoneStatusId = '';
+    context.__tmNormalizeCheckboxStatusBindingConfig(context.SettingsStore.data);
+    assert.equal(context.SettingsStore.data.checkboxDoneStatusId, 'done');
+}
+
 async function run() {
+    testRemovedNoAutoSwitchBinding();
     await testDuplicateMarkerSettingsWarning();
     testNativeStatusCompatibility();
     await testMarkerRulesAndStatusResolution();

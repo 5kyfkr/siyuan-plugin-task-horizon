@@ -267,6 +267,12 @@
         } catch (e) {}
 
         if (prevModalSnapshot) {
+            // Freeze the visible calendar before unmount removes its layout
+            // classes/styles or rebuilds its DOM, and before side panes move.
+            let keepaliveSnapshot = null;
+            if (keepMountSnapshot) {
+                try { keepaliveSnapshot = __tmCreateKeepaliveSnapshot(prevModalSnapshot, snapshotKind); } catch (e) {}
+            }
             try { globalThis.__tmCleanupTitleWrapObservers?.(prevModalSnapshot); } catch (e) {}
             // Calendar renders can be triggered by unrelated host/focus work.
             // Keep the mounted side-day calendar node across those renders;
@@ -285,14 +291,15 @@
                     });
                 }
             } catch (e) {}
-            if (!useSoftSwap) {
+            if (!useSoftSwap || keepMountSnapshot) {
                 if (keepMountSnapshot && prevMountRoot instanceof HTMLElement) {
                     try {
-                        const snapshot = __tmCreateKeepaliveSnapshot(prevModalSnapshot, snapshotKind);
+                        const snapshot = keepaliveSnapshot;
                         try { prevModalSnapshot.remove(); } catch (e2) {}
                         if (snapshot) {
                             try { __tmBindKeepaliveSnapshotRestore(snapshot, prevMountRoot); } catch (e2) {}
                             try { prevMountRoot.replaceChildren(snapshot); } catch (e2) {}
+                            try { __tmRestoreKeepaliveSnapshotScroll(snapshot); } catch (e2) {}
                         }
                     } catch (e) {
                         try { prevModalSnapshot.remove(); } catch (e2) {}

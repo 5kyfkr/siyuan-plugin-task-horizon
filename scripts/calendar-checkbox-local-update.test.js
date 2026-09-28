@@ -51,7 +51,8 @@ const dateEvent = { id: 'date-a', allDay: true, extendedProps: { __tmSource: 'ta
 const schedule = { id: 'schedule-a', allDay: false, extendedProps: { __tmSource: 'schedule', __tmTaskId: 'a' } };
 const history = { id: 'history-a', allDay: true, extendedProps: { __tmSource: 'taskdate', __tmTaskId: 'a', __tmSourceTaskId: 'a', __tmTaskDateReadOnly: true, __tmRecurringCompletedAt: '2026-09-09', __tmTaskDone: true } };
 const unrelated = { id: 'date-b', allDay: true, extendedProps: { __tmSource: 'taskdate', __tmTaskId: 'b', __tmTaskDone: false } };
-const calendar = { events: [dateEvent, schedule, history, unrelated], view: { type: 'dayGridMonth' } };
+const independent = { id: 'schedule-independent', allDay: true, extendedProps: { __tmSource: 'schedule', __tmTaskId: 'a', __tmTaskDone: false, __tmScheduleCompletionIndependent: true, __tmScheduleOccurrenceDone: false } };
+const calendar = { events: [dateEvent, schedule, history, unrelated, independent], view: { type: 'dayGridMonth' } };
 context.state.calendar = calendar;
 context.state.sideDay.calendar = { events: [], view: { type: 'timeGridDay' } };
 assert.equal(context.resolveCalendarEventDoneState(dateEvent.extendedProps, { taskDoneOverride: false }), false, 'explicit uncomplete must beat the old event snapshot');
@@ -69,12 +70,14 @@ for (const done of [true, false, true, false]) {
     assert.equal(history.extendedProps.__tmTaskDone, true, 'source-task changes must not overwrite completed recurring history');
     assert.equal(context.resolveCalendarEventDoneState(history.extendedProps), true);
     assert.equal(unrelated.extendedProps.__tmTaskDone, false);
+    assert.equal(independent.extendedProps.__tmTaskDone, false, 'task completion must not touch independent schedule presentation');
+    assert.equal(context.resolveCalendarEventDoneState(independent.extendedProps), false);
 }
 assert.deepEqual(counters, { main: 0, side: 0, store: 0 }, 'ordinary completion must not reload sources or redraw surfaces');
 settings.showCompletedAllDaySchedules = false;
 context.syncTaskDoneInPlace('a', true, { flushTaskPanel: false });
 assert.equal(counters.main, 1, 'hiding completed events requires a local layout refresh');
-assert.equal(calendar.events.length, 4, 'hidden events must remain available for undo');
+assert.equal(calendar.events.length, 5, 'hidden events must remain available for undo');
 context.syncTaskDoneInPlace('a', false, { flushTaskPanel: false });
 assert.equal(counters.main, 2);
 settings.showCompletedAllDaySchedules = true;

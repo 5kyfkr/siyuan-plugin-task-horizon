@@ -36,6 +36,7 @@ function harness() {
         resolveCalendarDocColor: () => '#228844',
         getScheduleLinkedDocId: (item) => item?.docId || '',
         getScheduleLinkedBlockId: (item) => item?.blockId || '',
+        getScheduleLinkedTaskId: (item) => item?.taskId || '',
         getCalendarTaskSnapshotById: () => null,
         isCalendarDocVisibleForEvent: () => true,
         shouldPreferDeviceNotificationBackend: () => false,
@@ -70,6 +71,7 @@ function harness() {
         showPrototypeScheduleEditorCard: (event) => { preview = event; return true; },
     });
     vm.runInContext([
+        extract('    function getCalendarTaskCompletionMode(', '    async function setCalendarTaskCompletionMode('),
         extract('    function hashColor(', '    function isCalendarDocEnabled('),
         extract('    async function addTaskScheduleCore(', '    async function upsertTaskScheduleTime('),
         extract('    function buildEventsFromSchedule(', '    function isMonthScheduleEventRange('),

@@ -3101,11 +3101,12 @@
 
     const __TM_QUICK_ADD_DRAFT_STORAGE_KEY = 'tm_quick_add_draft_v1';
     const __TM_QUICK_ADD_DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-    let __tmQuickAddDraftMemory = null;
+    const __tmQuickAddDraftMemory = new Map();
 
-    function __tmReadQuickAddDraftStorage() {
+    function __tmReadQuickAddDraftStorage(scope = '') {
         try {
-            const raw = globalThis.localStorage?.getItem?.(__TM_QUICK_ADD_DRAFT_STORAGE_KEY);
+            const key = scope ? `${__TM_QUICK_ADD_DRAFT_STORAGE_KEY}:${scope}` : __TM_QUICK_ADD_DRAFT_STORAGE_KEY;
+            const raw = globalThis.localStorage?.getItem?.(key);
             const stored = raw ? JSON.parse(raw) : null;
             return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : null;
         } catch (e) {
@@ -3113,58 +3114,62 @@
         }
     }
 
-    function __tmPersistQuickAddDraftStorage(entry) {
+    function __tmPersistQuickAddDraftStorage(entry, scope = '') {
         const next = entry && typeof entry === 'object' ? entry : null;
-        __tmQuickAddDraftMemory = next;
+        if (next) __tmQuickAddDraftMemory.set(scope, next);
+        else __tmQuickAddDraftMemory.delete(scope);
         try {
-            if (next) globalThis.localStorage?.setItem?.(__TM_QUICK_ADD_DRAFT_STORAGE_KEY, JSON.stringify(next));
-            else globalThis.localStorage?.removeItem?.(__TM_QUICK_ADD_DRAFT_STORAGE_KEY);
+            const key = scope ? `${__TM_QUICK_ADD_DRAFT_STORAGE_KEY}:${scope}` : __TM_QUICK_ADD_DRAFT_STORAGE_KEY;
+            if (next) globalThis.localStorage?.setItem?.(key, JSON.stringify(next));
+            else globalThis.localStorage?.removeItem?.(key);
         } catch (e) {}
     }
 
     function __tmSaveQuickAddDraft(value, options = {}) {
         const draftValue = String(value || '');
         const remark = String(options.remark || '');
+        const scope = String(options.scope || '');
         if (!draftValue.trim() && !remark.trim()) {
-            __tmClearQuickAddDraft();
+            __tmClearQuickAddDraft(null, scope);
             return true;
         }
         __tmPersistQuickAddDraftStorage({
             value: draftValue,
             remark,
+            scope,
             updatedAt: Date.now(),
             selectionStart: Number(options?.selectionStart || 0),
             selectionEnd: Number(options?.selectionEnd || 0),
-        });
+        }, scope);
         return true;
     }
 
-    function __tmGetQuickAddDraft() {
-        const stored = __tmReadQuickAddDraftStorage();
-        const memory = __tmQuickAddDraftMemory;
+    function __tmGetQuickAddDraft(scope = '') {
+        const stored = __tmReadQuickAddDraftStorage(scope);
+        const memory = __tmQuickAddDraftMemory.get(scope);
         const entry = memory && (!stored || Number(memory.updatedAt || 0) >= Number(stored.updatedAt || 0))
             ? memory
             : stored;
         const updatedAt = Number(entry?.updatedAt || 0);
         if (!entry || (!String(entry.value || '').trim() && !String(entry.remark || '').trim()) || !updatedAt
             || Date.now() - updatedAt > __TM_QUICK_ADD_DRAFT_MAX_AGE_MS) {
-            if (entry) __tmClearQuickAddDraft();
+            if (entry) __tmClearQuickAddDraft(null, scope);
             return null;
         }
-        __tmQuickAddDraftMemory = entry;
+        __tmQuickAddDraftMemory.set(scope, entry);
         return { ...entry };
     }
 
-    function __tmClearQuickAddDraft(expected = null) {
-        const stored = __tmReadQuickAddDraftStorage();
-        if (!stored && !__tmQuickAddDraftMemory) return false;
+    function __tmClearQuickAddDraft(expected = null, scope = expected?.scope || '') {
+        const stored = __tmReadQuickAddDraftStorage(scope);
+        if (!stored && !__tmQuickAddDraftMemory.has(scope)) return false;
         if (expected) {
-            const current = __tmGetQuickAddDraft();
+            const current = __tmGetQuickAddDraft(scope);
             if (!current || current.updatedAt !== expected.updatedAt
                 || current.value !== expected.value
                 || String(current.remark || '') !== String(expected.remark || '')) return false;
         }
-        __tmPersistQuickAddDraftStorage(null);
+        __tmPersistQuickAddDraftStorage(null, scope);
         return true;
     }
 
@@ -5689,8 +5694,11 @@ return false;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
         const color = __tmGetPriorityAccentColor(__tmResolveTaskPriorityValue(taskLike)) || '#a9afb8';
+        const taskId = String(taskLike.id || taskLike.blockId || '').trim();
+        // Parent cards contain subtask inputs; only recolor the requested task.
         const checkboxes = Array.from(root.querySelectorAll('.tm-task-checkbox'))
-            .filter((node) => node instanceof HTMLInputElement);
+            .filter((node) => node instanceof HTMLInputElement
+                && node.getAttribute('data-task-id') === taskId);
         if (!checkboxes.length) return true;
         checkboxes.forEach((checkbox) => {
             checkbox.style.setProperty('--tm-checklist-checkbox-color', color);

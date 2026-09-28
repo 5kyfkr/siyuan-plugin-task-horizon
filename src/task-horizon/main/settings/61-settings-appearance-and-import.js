@@ -110,7 +110,7 @@
             const widthText = isFixedDateColumn ? `${width}px 固定` : `${width}px`;
 
             html += `
-                <div class="tm-column-item" style="display: flex; align-items: center; gap: 8px; padding: 6px; background: var(--tm-input-bg); margin-bottom: 4px; border-radius: 4px;">
+                <div class="tm-column-item" ${__tmSettingsSearchAttrs('appearance', `${colDef.label || key}列设置`, '控制该列的显示、排序与列宽。', { section: 'columns', key: `appearance-column-${key}` })} style="display: flex; align-items: center; gap: 8px; padding: 6px; background: var(--tm-input-bg); margin-bottom: 4px; border-radius: 4px;">
                     <input type="checkbox" checked onchange="toggleColumn('${key}', false)" title="显示/隐藏">
                     <span style="width: 110px; font-weight: bold; font-size: 13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(colDef.label || key)}">${esc(colDef.label || key)}</span>
                     <div style="display: flex; gap: 2px;">
@@ -129,7 +129,7 @@
             html += '<div style="margin-top: 12px; font-size: 12px; color: var(--tm-secondary-text); margin-bottom: 4px;">隐藏的列 (勾选以显示):</div>';
             hiddenCols.forEach(col => {
                 html += `
-                    <div class="tm-column-item" style="display: flex; align-items: center; gap: 8px; padding: 6px; opacity: 0.7;">
+                    <div class="tm-column-item" ${__tmSettingsSearchAttrs('appearance', `${col.label || col.key}列设置`, '控制该列的显示、排序与列宽。', { section: 'columns', key: `appearance-column-${col.key}` })} style="display: flex; align-items: center; gap: 8px; padding: 6px; opacity: 0.7;">
                         <input type="checkbox" onchange="toggleColumn('${col.key}', true)">
                         <span style="font-size: 13px;">${esc(col.label || col.key)}</span>
                     </div>
@@ -300,7 +300,7 @@
         `;
 
         const cards = items.map((it) => `
-            <div style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
+            <div ${__tmSettingsSearchAttrs('appearance', it.title, '调整亮色与夜间配色。', { section: 'colors', key: `appearance-colors-${it.rows[0].key}` })} style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
                 <div style="font-weight:600;margin-bottom:10px;">${esc(it.title)}</div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
                     ${(it.rows || []).map(renderRow).join('')}
@@ -338,7 +338,7 @@
             const lightOverridden = !!String(themeConfig.overrideLight?.[token.key] || '').trim();
             const darkOverridden = !!String(themeConfig.overrideDark?.[token.key] || '').trim();
             return `
-                <div style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-bg-color);display:flex;flex-direction:column;gap:8px;">
+                <div ${__tmSettingsSearchAttrs('appearance', `主题${token.label}颜色`, '调整主题亮色、夜间颜色，支持清除覆盖。', { section: 'colors', key: `appearance-theme-token-${token.key}` })} style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-bg-color);display:flex;flex-direction:column;gap:8px;">
                     <div style="font-size:12px;font-weight:600;color:var(--tm-text-color);">${esc(token.label)}</div>
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
                         <span style="font-size:12px;color:var(--tm-secondary-text);">亮色${lightOverridden ? ' · 已覆盖' : ''}</span>
@@ -396,7 +396,7 @@
                         <div style="margin-top:4px;font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">支持内置预设与 TweakCN / shadcn CSS 变量导入。切换方案时，会同步刷新插件背景、Basecoat 控件和下面的外观微调项。<a href="${esc(__TM_TWEAKCN_URL)}" target="_blank" rel="noopener noreferrer" style="margin-left:6px;color:var(--tm-primary-color);text-decoration:none;">打开 TweakCN ↗</a></div>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                        <select class="tm-rule-select" onchange="tmSelectAppearanceTheme(this.value)" style="min-width:180px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>
+                        <select class="tm-rule-select" aria-label="主题方案" onchange="tmSelectAppearanceTheme(this.value)" style="min-width:180px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>
                             ${themeOptions}
                             ${hasImportedTheme ? `<option value="__imported__" ${themeSelectValue === '__imported__' ? 'selected' : ''}>导入主题 · ${esc(themeConfig.importName || 'Custom')}</option>` : ''}
                         </select>

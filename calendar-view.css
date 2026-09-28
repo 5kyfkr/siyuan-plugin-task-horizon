@@ -3621,7 +3621,17 @@
 .tm-proto-inline-device-row button:hover{color:var(--tm-cal-text)}
 .tm-proto-inline-relation-current{border:1px solid var(--tm-cal-border);border-radius:6px;background:var(--tm-cal-panel);overflow:hidden}
 .tm-proto-inline-relation-main{display:flex;align-items:center;gap:7px;padding:7px 8px;min-width:0}
-.tm-proto-inline-relation-icon{width:19px;height:19px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;background:color-mix(in srgb,var(--tm-cal-primary) 14%,transparent);color:var(--tm-cal-primary);flex:none}
+.tm-proto-inline-relation-check,
+.tm-calendar-edit-relation-check{--tm-checklist-checkbox-color:var(--tm-cal-primary, var(--tm-primary-color));width:19px;height:19px;flex:0 0 19px;}
+.tm-calendar-edit-relation-check{--tm-checklist-checkbox-color:var(--tm-primary-color);}
+.tm-calendar-schedule-editor-modal input.tm-calendar-edit-relation-check[type="checkbox"],
+.tm-proto-inline-schedule-editor input.tm-proto-inline-relation-check[type="checkbox"]{appearance:none;-webkit-appearance:none;width:19px!important;height:19px!important;min-width:19px;min-height:19px;margin:0;padding:0;box-sizing:border-box;flex:0 0 19px;}
+.tm-proto-inline-relation-check.tm-task-checkbox--circle,
+.tm-calendar-edit-relation-check.tm-task-checkbox--circle{width:19px;height:19px;border-radius:999px;--tm-task-checkbox-mark-left:50%;--tm-task-checkbox-mark-top:47%;--tm-task-checkbox-mark-width:calc(19px * .22);--tm-task-checkbox-mark-height:calc(19px * .43);}
+.tm-proto-inline-relation-check.tm-task-checkbox--circle:checked,
+.tm-calendar-edit-relation-check.tm-task-checkbox--circle:checked{background:color-mix(in srgb,var(--tm-checklist-checkbox-color) 92%,var(--tm-cal-panel, var(--tm-input-bg)));}
+.tm-proto-inline-relation-check.tm-task-checkbox--circle:checked::after,
+.tm-calendar-edit-relation-check.tm-task-checkbox--circle:checked::after{border-right-color:var(--primary-foreground,#f8fafc);border-bottom-color:var(--primary-foreground,#f8fafc);transform:translate(-50%,-50%) rotate(45deg);transform-origin:50% 50%;}
 .tm-proto-inline-relation-main>b,.tm-proto-inline-relation-main>span{min-width:0}.tm-proto-inline-relation-main b,.tm-proto-inline-relation-main small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tm-proto-inline-relation-main b{font-size:11.5px}.tm-proto-inline-relation-main small{margin-top:2px;color:var(--tm-cal-muted);font-size:10px}
 .tm-proto-inline-relation-actions{display:flex;gap:4px;padding:4px 6px;border-top:1px solid var(--tm-cal-border)}
 .tm-proto-inline-relation-actions button,.tm-proto-inline-relation-searchbox button{height:24px;padding:0 7px;border:0;border-radius:5px;background:transparent;color:var(--tm-cal-muted);font-size:10.5px}.tm-proto-inline-relation-actions button:hover,.tm-proto-inline-relation-searchbox button:hover{background:var(--tm-cal-panel-2);color:var(--tm-cal-text)}.tm-proto-inline-relation-actions .is-danger:hover{color:var(--b3-theme-error,#d84a4a)}
@@ -4178,6 +4188,27 @@
     .tm-proto-inline-schedule-editor.is-task-date .tm-proto-inline-date-time-row{grid-template-columns:58px minmax(0,1fr)}
     .tm-proto-inline-schedule-editor .tm-proto-inline-date-card,
     .tm-proto-inline-schedule-editor .tm-proto-inline-time-card{padding-left:5px;padding-right:5px;font-size:11px}
+}
+
+.tm-proto-event-popover.tm-proto-inline-schedule-editor.is-mobile-fullscreen{
+    display:flex !important;
+    border:0 !important;
+    border-radius:0 !important;
+    box-shadow:none !important;
+    animation:none !important;
+}
+.tm-proto-inline-schedule-editor.is-mobile-fullscreen .tm-proto-inline-editor-head{
+    border-left:0 !important;
+    border-bottom:1px solid var(--tm-cal-border);
+    padding-top:max(10px, env(safe-area-inset-top)) !important;
+}
+.tm-proto-inline-schedule-editor.is-mobile-fullscreen .tm-proto-inline-editor-body{
+    flex:1 1 auto;
+    min-height:0;
+}
+.tm-proto-inline-schedule-editor.is-mobile-fullscreen .tm-proto-inline-editor-actions{
+    padding-bottom:max(10px, env(safe-area-inset-bottom)) !important;
+    background:var(--tm-cal-panel);
 }
 
 /* Time centre opened from a start/end card. It follows the task detail
@@ -6177,9 +6208,12 @@
 .tm-calendar-side-dock{
     position: relative;
     isolation: isolate;
-    border-left: 1px solid var(--tm-cal-border, var(--tm-border-color)) !important;
+    border-left: 1px solid var(--tm-cal-border, var(--tm-border-color));
     background: var(--tm-cal-surface, var(--tm-bg-color)) !important;
     box-shadow: -8px 0 22px color-mix(in srgb, var(--tm-cal-border, var(--tm-border-color)) 30%, transparent);
+}
+.tm-calendar-side-dock-resizer + .tm-calendar-side-dock{
+    box-shadow: none;
 }
 #tmCalendarSideDockTimeline{
     min-width: 0;
@@ -6439,20 +6473,91 @@
     }
 }
 
+/* Clicks and selections share the same movable, resizable schedule draft. */
+.tm-proto-schedule-draft{
+    position: absolute;
+    z-index: 103;
+    left: 0;
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid color-mix(in srgb, var(--tm-cal-primary) 45%, transparent);
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--tm-cal-primary) 10%, var(--tm-cal-panel));
+    color: var(--tm-cal-primary);
+    user-select: none;
+}
+.tm-proto-schedule-draft-open{
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: grab;
+    touch-action: none;
+    overflow: hidden;
+}
+.tm-proto-schedule-draft-open:active{cursor: grabbing;}
+.tm-proto-schedule-draft-plus{display: block;width: 19px;height: 19px;flex: 0 0 19px;pointer-events: none;}
+.tm-proto-schedule-draft-time{position: absolute;left: 8px;top: 5px;max-width: calc(100% - 16px);font-size: 11px;line-height: 1.2;white-space: nowrap;overflow: hidden;text-overflow: ellipsis;pointer-events: none;}
+.tm-proto-schedule-draft-handle{
+    position: absolute;
+    z-index: 1;
+    top: calc(var(--tm-draft-handle-inset, 12px) - 44px);
+    left: calc(50% - 22px);
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: ns-resize;
+    touch-action: none;
+}
+.tm-proto-schedule-draft-handle[data-tm-draft-edge="end"]{top: auto;bottom: calc(var(--tm-draft-handle-inset, 12px) - 44px);}
+.tm-proto-schedule-draft-handle::after{
+    content: '';
+    position: absolute;
+    top: calc(44px - var(--tm-draft-handle-inset, 12px) - var(--tm-draft-handle-size, 12px) / 2);
+    left: calc(22px - var(--tm-draft-handle-size, 12px) / 2);
+    width: var(--tm-draft-handle-size, 12px);
+    height: var(--tm-draft-handle-size, 12px);
+    box-sizing: border-box;
+    border: 1.5px solid currentColor;
+    border-radius: 50%;
+    background: var(--tm-cal-panel);
+    pointer-events: none;
+}
+.tm-proto-schedule-draft-handle[data-tm-draft-edge="end"]::after{top: calc(var(--tm-draft-handle-inset, 12px) - var(--tm-draft-handle-size, 12px) / 2);}
+.tm-proto-schedule-draft-open:focus-visible,
+.tm-proto-schedule-draft-handle:focus-visible{outline: 2px solid var(--tm-cal-primary);outline-offset: 2px;}
+
 /* Blank time-range selection uses the final event-card geometry so the live
    preview matches the schedule block created on pointer release. */
 .tm-proto-time-col > .tm-proto-event--block.tm-proto-selection-preview,
 .tm-proto-time-col > .tm-proto-event--block.tm-proto-selection-preview:hover{
     z-index: 102 !important;
     pointer-events: none;
-    border-style: dashed !important;
-    border-color: color-mix(in srgb, var(--tm-cal-primary) 58%, var(--tm-cal-border)) !important;
-    background: color-mix(in srgb, var(--tm-cal-primary) 18%, var(--tm-cal-panel)) !important;
-    box-shadow: inset 3px 0 0 var(--tm-cal-primary), 0 2px 8px color-mix(in srgb, var(--tm-cal-primary) 22%, transparent) !important;
+    display: block !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    opacity: 1 !important;
+    border: 1px solid color-mix(in srgb, var(--tm-cal-primary) 45%, transparent) !important;
+    border-radius: 3px !important;
+    background: color-mix(in srgb, var(--tm-cal-primary) 10%, var(--tm-cal-panel)) !important;
+    box-shadow: none !important;
     color: var(--tm-cal-primary) !important;
     cursor: default;
     transition: none !important;
 }
+.tm-proto-selection-preview *{pointer-events: none !important;}
 
 /* Final shared-timeline compatibility pass. The dock aliases are placed on
    the same axis/canvas/column nodes as the main timeline; neutralize the old
@@ -7252,6 +7357,25 @@
     display: none !important;
 }
 
+.tm-calendar-completion-setting{
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 0;
+}
+.tm-calendar-completion-setting[hidden]{ display: none; }
+.tm-calendar-completion-toggle{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: pointer;
+    min-height: 28px;
+}
+.tm-calendar-completion-toggle > span{ font-weight: 650; }
+.tm-calendar-completion-toggle input{ margin: 0; flex: 0 0 auto; }
+.tm-calendar-completion-setting small{ color: var(--tm-text-secondary, var(--b3-theme-on-surface)); }
+
 /* Non-month mobile views use one compact navigation row. The generic mobile
    toolbar wraps its controls for legacy layouts, which leaves a tall empty
    band above the time grid. Month keeps its dedicated two-line rhythm. */
@@ -7711,6 +7835,17 @@
     touch-action: pan-y;
 }
 
+/* Only canvases explicitly mounted for a mobile host opt into pinch density.
+   Native one-finger vertical scrolling remains available between gestures. */
+.tm-proto-time-canvas[data-tm-proto-mobile-scale]{
+    touch-action: pan-y;
+    overflow-anchor: none;
+}
+.tm-proto-timeline-pinching .tm-proto-time-scroll{
+    scroll-behavior: auto !important;
+    overflow-anchor: none;
+}
+
 @keyframes tm-proto-mobile-timeline-in-next{
     from{ opacity: .35; transform: translateX(18px); }
     to{ opacity: 1; transform: translateX(0); }
@@ -7800,7 +7935,9 @@
 .tm-calendar-edit-relation{min-width:0;position:relative}
 .tm-calendar-edit-relation-current{width:100%;border:1px solid var(--tm-border-color);border-radius:6px;background:var(--tm-input-bg);overflow:hidden}
 .tm-calendar-edit-relation-summary{display:flex;align-items:center;gap:8px;padding:8px 10px;min-width:0}
-.tm-calendar-edit-relation-icon{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;background:color-mix(in srgb,var(--tm-primary-color) 14%,transparent);color:var(--tm-primary-color);font-size:13px;flex:none}
+.tm-calendar-edit-relation-check{width:20px;height:20px;flex-basis:20px;}
+.tm-calendar-schedule-editor-modal input.tm-calendar-edit-relation-check[type="checkbox"]{width:20px!important;height:20px!important;min-width:20px;min-height:20px;flex-basis:20px;}
+.tm-calendar-edit-relation-check.tm-task-checkbox--circle{width:20px;height:20px;--tm-task-checkbox-mark-width:calc(20px * .22);--tm-task-checkbox-mark-height:calc(20px * .43);}
 .tm-calendar-edit-relation-copy{display:block;min-width:0;flex:1}
 .tm-calendar-edit-relation-copy b,.tm-calendar-edit-relation-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tm-calendar-edit-relation-copy b{font-size:12px;font-weight:700;color:var(--tm-text-color)}
@@ -9144,4 +9281,12 @@
 .tm-calendar-wrap--mobile .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-check-wrap,
 .tm-calendar-wrap--mobile .tm-proto-week-grid-cell .tm-proto-event--chip .tm-proto-event-check{
     display:inline-flex !important;
+}
+
+/* Separation changes only the checkbox outline. Keep the original native
+   dashed treatment for both circular and square checkbox settings. */
+.tm-proto-event--completion-independent input.tm-proto-event-check[type="checkbox"]:not(.b3-switch),
+.tm-proto-span-bar.tm-proto-event--completion-independent input.tm-proto-event-check[type="checkbox"]:not(.b3-switch),
+.tm-cal-task-event--completion-independent input.tm-cal-task-event-check[type="checkbox"]:not(.b3-switch){
+    border: 2px dashed var(--tm-proto-event-color, var(--tm-cal-schedule-accent, var(--tm-primary-color))) !important;
 }
