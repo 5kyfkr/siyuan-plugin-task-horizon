@@ -17539,6 +17539,276 @@ if (opts.refresh === false) return;
         return out;
     }
 
+    let __tmHomepageProjectsWarmupKey = '';
+    let __tmHomepageProjectsWarmupIds = new Set();
+
+    function __tmBuildHomepageProjects(homepageTasks, todayKey) {
+        const empty = { scope: 'all', sections: [], doc: null, h2Cards: [], noH2Card: null };
+        try {
+            const tasks = Array.isArray(homepageTasks) ? homepageTasks : [];
+            const today = String(todayKey || '').trim() || __tmNormalizeDateOnly(new Date());
+            const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+            const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+            if (typeof __tmIsOtherBlockTabId === 'function' && __tmIsOtherBlockTabId(activeDocId)) {
+                return { ...empty, scope: 'unsupported' };
+            }
+            const isDark = (typeof __tmIsDarkMode === 'function') ? __tmIsDarkMode() : false;
+            const missingProgressIds = [];
+            const missingMetaIds = [];
+            const noteMissingProgress = (id) => { if (id && !missingProgressIds.includes(id)) missingProgressIds.push(id); };
+            const noteMissingMeta = (id) => { if (id && !missingMetaIds.includes(id)) missingMetaIds.push(id); };
+
+            const createAgg = () => ({ total: 0, done: 0, doing: 0, overdue: 0 });
+            const addTaskToAgg = (agg, task) => {
+                if (!agg || !task || typeof task !== 'object') return;
+                agg.total += 1;
+                const marker = String(task?.taskMarker ?? task?.task_marker ?? task?.marker ?? '').trim();
+                const cancelled = marker === '-';
+                if (task.done === true || cancelled) {
+                    agg.done += 1;
+                    return;
+                }
+                if (marker === '/') agg.doing += 1;
+                const dueKey = __tmNormalizeDateOnly(String(
+                    task?.completionTime ?? task?.completion_time ?? task?.['custom-completion-time'] ?? ''
+                ).trim());
+                if (dueKey && today && dueKey < today) agg.overdue += 1;
+            };
+
+            const docAgg = new Map();
+            const h2Agg = new Map();
+            const noH2Agg = new Map();
+            tasks.forEach((task) => {
+                const docId = String(task?.root_id || task?.docId || task?.documentID || '').trim();
+                if (!docId) return;
+                if (!docAgg.has(docId)) docAgg.set(docId, createAgg());
+                addTaskToAgg(docAgg.get(docId), task);
+                const h2Name = String(task?.h2 || '').trim();
+                const h2Id = String(task?.h2Id || '').trim();
+                if (h2Name || h2Id) {
+                    const key = h2Id || `name:${h2Name}`;
+                    if (!h2Agg.has(docId)) h2Agg.set(docId, new Map());
+                    const bucket = h2Agg.get(docId);
+                    if (!bucket.has(key)) bucket.set(key, { key, h2Id, name: h2Name || '(空标题)', ...createAgg() });
+                    addTaskToAgg(bucket.get(key), task);
+                } else {
+                    if (!noH2Agg.has(docId)) noH2Agg.set(docId, createAgg());
+                    addTaskToAgg(noH2Agg.get(docId), task);
+                }
+            });
+
+            const computeOverdueDays = (deadline, progress) => {
+                const dl = String(deadline || '').trim();
+                if (!dl || !today || dl >= today) return 0;
+                if (Number(progress) >= 100) return 0;
+                const endTs = __tmParseDateOnlyToLocalNoonTs(today);
+                const dlTs = __tmParseDateOnlyToLocalNoonTs(dl);
+                if (!endTs || !dlTs || endTs <= dlTs) return 0;
+                return Math.max(1, Math.round((endTs - dlTs) / 86400000));
+            };
+
+            const buildDocCard = (docEntry) => {
+                const id = String(docEntry?.id || '').trim();
+                if (!id) return null;
+                const agg = docAgg.get(id) || createAgg();
+                const cachedProgress = __tmGetFreshDocProgress(id);
+                if (cachedProgress === null) noteMissingProgress(id);
+                const progress = cachedProgress !== null
+                    ? cachedProgress
+                    : (agg.total ? Math.min(100, Math.max(0, Math.round((agg.done / agg.total) * 100))) : 0);
+                const meta = __tmGetCachedDocExpectedMeta(id);
+                if (!meta) noteMissingMeta(id);
+                const expected = __tmComputeDocExpectedProgressPercent(meta);
+                const startDate = String(meta?.startDate || '').trim();
+                const deadline = String(meta?.deadline || '').trim();
+                return {
+                    id,
+                    name: String(docEntry?.name || '').trim() || '未命名文档',
+                    color: __tmGetDocColorHex(id, isDark),
+                    total: agg.total,
+                    done: agg.done,
+                    doing: agg.doing,
+                    overdue: agg.overdue,
+                    progress,
+                    expected,
+                    startDate,
+                    deadline,
+                    overdueDays: computeOverdueDays(deadline, progress),
+                    active: id === activeDocId,
+                };
+            };
+
+            const buildH2Card = (entry, index) => {
+                const h2Id = String(entry?.h2Id || '').trim();
+                const meta = h2Id ? __tmGetCachedDocExpectedMeta(h2Id) : null;
+                if (h2Id && !meta) noteMissingMeta(h2Id);
+                const expected = __tmComputeDocExpectedProgressPercent(meta);
+                const startDate = String(meta?.startDate || '').trim();
+                const deadline = String(meta?.deadline || '').trim();
+                const total = Number(entry?.total) || 0;
+                const done = Number(entry?.done) || 0;
+                const progress = total ? Math.min(100, Math.max(0, Math.round((done / total) * 100))) : 0;
+                return {
+                    key: String(entry?.key || '').trim(),
+                    h2Id,
+                    name: String(entry?.name || '').trim() || '(空标题)',
+                    index,
+                    total,
+                    done,
+                    doing: Number(entry?.doing) || 0,
+                    overdue: Number(entry?.overdue) || 0,
+                    progress,
+                    expected,
+                    startDate,
+                    deadline,
+                    overdueDays: computeOverdueDays(deadline, progress),
+                };
+            };
+
+            const buildSectionAgg = (cards) => {
+                const list = Array.isArray(cards) ? cards : [];
+                const total = list.reduce((sum, card) => sum + (Number(card?.total) || 0), 0);
+                const done = list.reduce((sum, card) => sum + (Number(card?.done) || 0), 0);
+                return {
+                    total,
+                    done,
+                    pct: total ? Math.min(100, Math.max(0, Math.round((done / total) * 100))) : 0,
+                    overdueDocs: list.filter((card) => (Number(card?.overdueDays) || 0) > 0).length,
+                };
+            };
+
+            const currentRule = state.currentRule
+                ? (Array.isArray(state.filterRules) ? state.filterRules.find((rule) => String(rule?.id || '').trim() === String(state.currentRule || '').trim()) : null)
+                : null;
+            const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+            const docsForTabs = __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId);
+            const docStateCache = new Map();
+            const visibleDocs = docsForTabs
+                .filter((doc) => {
+                    const docId = String(doc?.id || '').trim();
+                    if (!docId) return false;
+                    if (activeDocId && activeDocId !== 'all' && docId === activeDocId) return true;
+                    return __tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode: false, groupId: currentGroupId, docStateCache });
+                })
+                .filter((doc) => !globalNewTaskDocId || String(doc?.id || '').trim() !== globalNewTaskDocId);
+
+            const customGroupId = (typeof __tmParseDocTabCustomGroupActiveId === 'function')
+                ? __tmParseDocTabCustomGroupActiveId(activeDocId)
+                : '';
+            const isSingleDoc = !!(activeDocId && activeDocId !== 'all' && !customGroupId);
+
+            let result = null;
+            if (isSingleDoc) {
+                const docEntry = visibleDocs.find((doc) => String(doc?.id || '').trim() === activeDocId)
+                    || (Array.isArray(state.taskTree) ? state.taskTree : []).find((doc) => String(doc?.id || '').trim() === activeDocId)
+                    || { id: activeDocId, name: '' };
+                const doc = buildDocCard(docEntry);
+                const h2Bucket = h2Agg.get(activeDocId);
+                const h2Cards = h2Bucket instanceof Map
+                    ? Array.from(h2Bucket.values()).map((entry, index) => buildH2Card(entry, index)).filter(Boolean)
+                    : [];
+                const noH2 = noH2Agg.get(activeDocId);
+                const noH2Card = (h2Cards.length && noH2 && noH2.total > 0) ? {
+                    key: 'no-h2',
+                    h2Id: '',
+                    name: '未分类任务',
+                    index: h2Cards.length,
+                    total: noH2.total,
+                    done: noH2.done,
+                    doing: noH2.doing,
+                    overdue: noH2.overdue,
+                    progress: noH2.total ? Math.min(100, Math.max(0, Math.round((noH2.done / noH2.total) * 100))) : 0,
+                    expected: null,
+                    startDate: '',
+                    deadline: '',
+                    overdueDays: 0,
+                } : null;
+                result = { scope: 'doc', sections: [], doc, h2Cards, noH2Card };
+            } else {
+                const groupedView = __tmBuildDocTabGroupedView(visibleDocs, {
+                    currentGroupId,
+                    activeDocId,
+                    allDocsForTabs: docsForTabs,
+                    currentRule,
+                    archiveMode: false,
+                    globalNewTaskDocId,
+                });
+                const viewGroups = Array.isArray(groupedView?.groups) ? groupedView.groups : [];
+                const sections = [];
+                if (customGroupId) {
+                    const activeGroup = viewGroups.find((group) => String(group?.id || '').trim() === customGroupId) || null;
+                    const cards = (Array.isArray(activeGroup?.members) ? activeGroup.members : [])
+                        .map(buildDocCard)
+                        .filter(Boolean);
+                    sections.push({
+                        key: `group:${customGroupId}`,
+                        label: String(activeGroup?.name || '').trim() || '页签分组',
+                        color: activeGroup ? __tmGetDocTabCustomGroupColor(activeGroup.group) : '',
+                        cards,
+                        agg: buildSectionAgg(cards),
+                    });
+                    result = { scope: 'group', sections, doc: null, h2Cards: [], noH2Card: null };
+                } else {
+                    viewGroups.forEach((group) => {
+                        const cards = (Array.isArray(group?.members) ? group.members : [])
+                            .map(buildDocCard)
+                            .filter(Boolean);
+                        if (!cards.length) return;
+                        sections.push({
+                            key: `group:${String(group?.id || '').trim()}`,
+                            label: String(group?.name || '').trim() || '未命名页签组',
+                            color: __tmGetDocTabCustomGroupColor(group?.group),
+                            cards,
+                            agg: buildSectionAgg(cards),
+                        });
+                    });
+                    const normalCards = (Array.isArray(groupedView?.normalDocs) ? groupedView.normalDocs : [])
+                        .map(buildDocCard)
+                        .filter(Boolean);
+                    if (normalCards.length) {
+                        sections.push({
+                            key: 'ungrouped',
+                            label: '未分组',
+                            color: '',
+                            cards: normalCards,
+                            agg: buildSectionAgg(normalCards),
+                        });
+                    }
+                    result = { scope: 'all', sections, doc: null, h2Cards: [], noH2Card: null };
+                }
+            }
+
+            const warmupKey = `${currentGroupId}|${activeDocId}`;
+            if (__tmHomepageProjectsWarmupKey !== warmupKey) {
+                __tmHomepageProjectsWarmupKey = warmupKey;
+                __tmHomepageProjectsWarmupIds = new Set();
+            }
+            const progressToLoad = missingProgressIds.filter((id) => !__tmHomepageProjectsWarmupIds.has(`p:${id}`));
+            const metaToLoad = missingMetaIds.filter((id) => !__tmHomepageProjectsWarmupIds.has(`m:${id}`));
+            progressToLoad.forEach((id) => __tmHomepageProjectsWarmupIds.add(`p:${id}`));
+            metaToLoad.forEach((id) => __tmHomepageProjectsWarmupIds.add(`m:${id}`));
+            if (progressToLoad.length || metaToLoad.length) {
+                const jobs = [];
+                if (progressToLoad.length) {
+                    jobs.push(Promise.all(progressToLoad.map((id) => {
+                        try { return __tmQueueDocProgressLoad(id).catch(() => null); } catch (e) { return Promise.resolve(null); }
+                    })));
+                }
+                if (metaToLoad.length) {
+                    try { jobs.push(__tmLoadDocExpectedMetaBatch(metaToLoad).catch(() => null)); } catch (e) {}
+                }
+                if (jobs.length) {
+                    Promise.all(jobs).then(() => {
+                        try { __tmScheduleHomepageRefresh('projects-warmup'); } catch (e) {}
+                    }).catch(() => null);
+                }
+            }
+            return result || empty;
+        } catch (e) {
+            return empty;
+        }
+    }
+
     function __tmBuildHomepageCtx(rootEl = null) {
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
@@ -17589,6 +17859,7 @@ if (opts.refresh === false) return;
             containerHeight: height,
             todayKey,
             procrastinationMetrics: __tmGetProcrastinationMetricsForTasks(homepageTasks, { todayKey }),
+            projects: __tmBuildHomepageProjects(homepageTasks, todayKey),
             animateOnMount: state.__tmHomepageNextMountAnimate !== false,
             onOpenTask(taskId) {
                 try { window.tmOpenTaskDetail?.(taskId); } catch (e) {}

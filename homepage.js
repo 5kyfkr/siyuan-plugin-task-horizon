@@ -40,6 +40,7 @@
     const FOCUS_SCOPE_TASK_ID_LIMIT = 10000;
     const HOMEPAGE_SETTINGS_DATA_KEY = "homepage-settings.json";
     const HOMEPAGE_MODULE_DEFS = Object.freeze([
+        { id: "projects", label: "项目进度", desc: "按分组/文档/二级标题的进度卡片", wide: true, collapsible: true },
         { id: "overview", label: "任务概览", desc: "任务状态、完成摘要", wide: true },
         { id: "focus", label: "专注统计", desc: "番茄联动开启时展示", wide: true },
         { id: "trend", label: "完成趋势", desc: "最近完成曲线", wide: true },
@@ -66,7 +67,10 @@
             if (id && HOMEPAGE_MODULE_DEF_BY_ID[id] && !out.includes(id)) out.push(id);
         });
         HOMEPAGE_DEFAULT_MODULE_ORDER.forEach((id) => {
-            if (!out.includes(id)) out.push(id);
+            if (out.includes(id)) return;
+            // 项目进度模块默认置顶：老用户已存顺序里没有它时插到最前，而不是追加到末尾
+            if (id === "projects") out.unshift(id);
+            else out.push(id);
         });
         return out;
     }
@@ -80,6 +84,7 @@
         return {
             moduleOrder: normalizeHomepageModuleOrder(source.moduleOrder),
             moduleLayout: normalizeHomepageModuleLayout(source.moduleLayout),
+            moduleCollapsed: normalizeHomepageModuleCollapsed(source.moduleCollapsed),
         };
     }
 
@@ -162,6 +167,36 @@
             focus: String(source.focus || "wide").trim() === "narrow" ? "narrow" : "wide",
             trend: String(source.trend || "wide").trim() === "narrow" ? "narrow" : "wide",
         };
+    }
+
+    function normalizeHomepageModuleCollapsed(value) {
+        const source = (value && typeof value === "object" && !Array.isArray(value)) ? value : {};
+        const out = {};
+        Object.keys(source).forEach((key) => {
+            const id = String(key || "").trim();
+            if (id && HOMEPAGE_MODULE_DEF_BY_ID[id] && source[key] === true) out[id] = true;
+        });
+        return out;
+    }
+
+    function readHomepageModuleCollapsed() {
+        return getHomepageSettingsData().moduleCollapsed;
+    }
+
+    function isHomepageModuleCollapsed(id) {
+        return readHomepageModuleCollapsed()[String(id || "").trim()] === true;
+    }
+
+    function setHomepageModuleCollapsed(id, collapsed) {
+        const key = String(id || "").trim();
+        if (!HOMEPAGE_MODULE_DEF_BY_ID[key]) return readHomepageModuleCollapsed();
+        const next = { ...readHomepageModuleCollapsed() };
+        if (collapsed === true) next[key] = true;
+        else delete next[key];
+        return saveHomepageSettings({
+            ...getHomepageSettingsData(),
+            moduleCollapsed: normalizeHomepageModuleCollapsed(next),
+        }).moduleCollapsed;
     }
 
     function readHomepageModuleLayout() {
@@ -3077,6 +3112,415 @@
     }
 }
 
+/* ---- 项目进度卡片模块 ---- */
+.tm-home-projects-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.tm-home-projects-collapsed-summary {
+    font-size: 11px;
+    color: var(--tm-home-text-muted);
+    white-space: nowrap;
+}
+
+.tm-home-projects-collapse {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--tm-home-border);
+    border-radius: 6px;
+    background: var(--tm-home-surface);
+    color: var(--tm-home-text-muted);
+    cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+}
+
+.tm-home-projects-collapse:hover {
+    border-color: var(--tm-home-accent);
+    color: var(--tm-home-accent);
+    background: var(--tm-home-accent-soft);
+}
+
+.tm-home-projects-collapse svg {
+    transition: transform .15s;
+}
+
+.tm-home-projects-collapse.is-collapsed svg {
+    transform: rotate(-90deg);
+}
+
+.tm-homepage-card--projects.is-collapsed {
+    padding-bottom: 14px;
+}
+
+.tm-home-projects-body {
+    display: flex;
+    flex-direction: column;
+    max-height: 480px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+
+.tm-home-projects-empty {
+    padding: 22px 12px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--tm-home-text-muted);
+    border: 1px dashed var(--tm-home-border);
+    border-radius: 10px;
+    background: var(--tm-home-surface-soft);
+}
+
+.tm-home-projects-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* 多分组归组：区块之间用虚线分隔 */
+.tm-home-projects-section + .tm-home-projects-section {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--tm-home-border);
+}
+
+/* 区块头：滚动时吸附在模块顶部，多卡片场景下始终知道自己在哪个分组 */
+.tm-home-projects-section-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 2px;
+    background: var(--tm-home-surface);
+}
+
+.tm-home-projects-section-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--tm-group-color, var(--tm-home-text-muted));
+    flex-shrink: 0;
+}
+
+.tm-home-projects-section-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--tm-home-text);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tm-home-projects-section-agg {
+    font-size: 11px;
+    color: var(--tm-home-text-muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tm-home-projects-section-agg .is-overdue {
+    color: var(--tm-home-danger);
+    font-weight: 600;
+}
+
+/* 右侧「进度条 + 百分比」固定宽度块：各区块头右缘始终对齐 */
+.tm-home-projects-section-bar {
+    position: relative;
+    flex: 0 0 160px;
+    height: 4px;
+    margin-left: auto;
+    background: color-mix(in srgb, var(--tm-home-border) 60%, transparent);
+    border-radius: 2px;
+}
+
+.tm-home-projects-section-bar-fill {
+    display: block;
+    height: 100%;
+    background: var(--tm-group-color, var(--tm-home-text-muted));
+    border-radius: 2px;
+}
+
+.tm-home-projects-section-bar-expected {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--tm-home-text);
+    opacity: .55;
+}
+
+.tm-home-projects-section-pct {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--tm-home-text);
+    min-width: 36px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.tm-home-projects-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+    gap: 10px;
+}
+
+.tm-home-project-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 13px 14px 12px;
+    background: var(--tm-home-surface);
+    border: 1px solid var(--tm-home-border);
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+    min-width: 0;
+    overflow: hidden;
+    transition: box-shadow .15s, border-color .15s, transform .15s;
+}
+
+.tm-home-project-card:hover {
+    border-color: var(--tm-doc-color, var(--tm-home-accent));
+    box-shadow: 0 4px 14px rgba(15, 23, 42, .08);
+    transform: translateY(-1px);
+}
+
+.tm-home-project-card.is-active {
+    border-color: var(--tm-doc-color, var(--tm-home-accent));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--tm-doc-color, var(--tm-home-accent)) 22%, transparent);
+}
+
+/* 左侧 3px 文档色条：一眼区分项目 */
+.tm-home-project-card::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--tm-doc-color, var(--tm-home-accent));
+    opacity: .85;
+}
+
+.tm-home-project-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tm-home-project-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--tm-doc-color, var(--tm-home-accent));
+    flex-shrink: 0;
+}
+
+.tm-home-project-h2-index {
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--tm-doc-color, var(--tm-home-accent)) 14%, var(--tm-home-surface));
+    color: var(--tm-doc-color, var(--tm-home-accent));
+    font-size: 10px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.tm-home-project-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--tm-home-text);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tm-home-project-card--h2 .tm-home-project-name {
+    font-size: 12.5px;
+}
+
+.tm-home-project-risk {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    color: var(--tm-home-danger);
+    background: var(--tm-home-danger-soft);
+}
+
+.tm-home-project-cal {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--tm-home-text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background .15s, color .15s;
+}
+
+.tm-home-project-cal:hover {
+    background: var(--tm-home-accent-soft);
+    color: var(--tm-home-accent);
+}
+
+/* 未设置日期时给提示色，引导补全 */
+.tm-home-project-cal.is-empty {
+    color: var(--tm-home-warning);
+}
+
+.tm-home-project-cal-name {
+    display: none;
+}
+
+.tm-home-project-stats {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--tm-home-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+/* 统计项内部不换行：避免 "966 任务" 这类文本从中间折断 */
+.tm-home-project-stats > span {
+    white-space: nowrap;
+}
+
+.tm-home-project-stats .n {
+    font-weight: 600;
+    color: var(--tm-home-text);
+}
+
+.tm-home-project-stats .n.is-done {
+    color: var(--tm-home-success);
+}
+
+.tm-home-project-stats .range {
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.tm-home-project-stats .range.is-urgent {
+    color: var(--tm-home-danger);
+    font-weight: 600;
+}
+
+.tm-home-project-stats .range.is-none {
+    opacity: .8;
+}
+
+/* 双进度条：实际进度填充 + 预期进度刻度（页签进度逻辑的卡片化） */
+.tm-home-project-progress {
+    position: relative;
+    height: 6px;
+    background: color-mix(in srgb, var(--tm-home-border) 60%, transparent);
+    border-radius: 3px;
+    margin-top: 2px;
+}
+
+.tm-home-project-progress-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 3px;
+    background: var(--tm-doc-color, var(--tm-home-accent));
+    transition: width .3s;
+}
+
+.tm-home-project-progress-expected {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--tm-home-text);
+    opacity: .55;
+}
+
+.tm-home-project-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11px;
+    color: var(--tm-home-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.tm-home-project-progress-meta .pct {
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--tm-home-text);
+}
+
+.tm-home-project-progress-meta .delta {
+    font-weight: 600;
+}
+
+.tm-home-project-progress-meta .delta.is-behind {
+    color: var(--tm-home-danger);
+}
+
+.tm-home-project-progress-meta .delta.is-ahead {
+    color: var(--tm-home-success);
+}
+
+.tm-home-projects-noh2-hint {
+    font-size: 11px;
+    color: var(--tm-home-text-muted);
+    padding: 2px 2px 0;
+}
+
+/* 窄屏（dock）：卡片略窄，区块头的聚合条让位 */
+.tm-homepage--dock .tm-home-projects-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+}
+
+.tm-homepage--dock .tm-home-projects-section-bar {
+    flex-basis: 110px;
+}
+
+/* 手机端：单列平铺，不再限制高度内滚 */
+.tm-homepage--mobile .tm-home-projects-body {
+    max-height: none;
+    overflow: visible;
+}
+
+.tm-homepage--mobile .tm-home-projects-grid {
+    grid-template-columns: 1fr;
+}
+
+.tm-homepage--mobile .tm-home-projects-section-bar {
+    display: none;
+}
+
+.tm-homepage--mobile .tm-home-projects-section-head {
+    position: static;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .tm-homepage-header,
     .tm-homepage-module {
@@ -5449,6 +5893,212 @@
         `;
     }
 
+    // 与时间轴视图日期触发器相同的图标（Phosphor bold calendar-range / calendar-dots）
+    const PROJECT_CAL_SVG = `<svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28ZM68,52a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16V76H52V52ZM52,204V100H204V204Zm92-76a16,16,0,1,1-16-16A16,16,0,0,1,144,128Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,192,128ZM96,176a16,16,0,1,1-16-16A16,16,0,0,1,96,176Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,144,176Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,192,176Z"/></svg>`;
+
+    function formatProjectDateRange(entity) {
+        const start = String(entity?.startDate || "").trim();
+        const deadline = String(entity?.deadline || "").trim();
+        if (!start && !deadline) return "";
+        const s = start ? start.slice(5) : "-";
+        const e = deadline ? deadline.slice(5) : "-";
+        return `${s} → ${e}`;
+    }
+
+    function renderProjectCalButton(kind, id, name, hasDates, title) {
+        const entityId = String(id || "").trim();
+        if (!entityId) return "";
+        return `<button type="button" class="tm-home-project-cal ${hasDates ? "" : "is-empty"}"
+            data-tm-home-project-dates="${esc(kind)}"
+            data-tm-home-project-id="${esc(entityId)}"
+            title="${esc(title)}">${PROJECT_CAL_SVG}<span class="tm-home-project-cal-name">${esc(name)}</span></button>`;
+    }
+
+    function renderProjectProgressHtml(entity) {
+        const progress = Math.max(0, Math.min(100, Math.round(toNumber(entity?.progress, 0))));
+        const expected = Number.isFinite(Number(entity?.expected)) ? Math.max(0, Math.min(100, Math.round(Number(entity.expected)))) : null;
+        const delta = expected != null ? progress - expected : null;
+        const deltaHtml = delta == null ? ""
+            : delta >= 0
+                ? `<span class="delta is-ahead">超前 ${delta}%</span>`
+                : `<span class="delta is-behind">落后 ${-delta}%</span>`;
+        return `
+            <div class="tm-home-project-progress">
+                <div class="tm-home-project-progress-fill" style="width:${progress}%"></div>
+                ${expected != null ? `<div class="tm-home-project-progress-expected" style="left:calc(${expected}% - 1px)" title="预期进度 ${expected}%"></div>` : ""}
+            </div>
+            <div class="tm-home-project-progress-meta">
+                <span><span class="pct">${progress}%</span>${expected != null ? ` · 预期 ${expected}%` : ""}</span>
+                ${deltaHtml}
+            </div>`;
+    }
+
+    function renderProjectStatsHtml(entity, overdueDays) {
+        const range = formatProjectDateRange(entity);
+        return `
+            <div class="tm-home-project-stats">
+                <span><span class="n">${toNumber(entity?.total, 0)}</span> 任务</span>
+                <span><span class="n is-done">${toNumber(entity?.done, 0)}</span> 完成</span>
+                <span><span class="n">${toNumber(entity?.doing, 0)}</span> 进行中</span>
+                ${range
+                    ? `<span class="range ${overdueDays > 0 ? "is-urgent" : ""}">${esc(range)}</span>`
+                    : `<span class="range is-none">未设置时间</span>`}
+            </div>`;
+    }
+
+    function renderProjectDocCard(card) {
+        if (!card || !card.id) return "";
+        const overdueDays = Math.max(0, Math.round(toNumber(card.overdueDays, 0)));
+        const riskHtml = overdueDays > 0 ? `<span class="tm-home-project-risk">逾期 ${overdueDays} 天</span>` : "";
+        const range = formatProjectDateRange(card);
+        const color = String(card.color || "").trim();
+        return `
+        <div class="tm-home-project-card ${card.active ? "is-active" : ""}"
+             ${color ? `style="--tm-doc-color:${esc(color)}"` : ""}
+             data-tm-home-project-doc="${esc(card.id)}"
+             title="点击切换：查看「${esc(card.name)}」按二级标题的进度">
+            <div class="tm-home-project-top">
+                <span class="tm-home-project-dot"></span>
+                <span class="tm-home-project-name">${esc(card.name)}</span>
+                ${riskHtml}
+                ${renderProjectCalButton("doc", card.id, card.name, !!range, range ? `设置文档日期（${range}）` : "设置文档开始/截止日期")}
+            </div>
+            ${renderProjectStatsHtml(card, overdueDays)}
+            ${renderProjectProgressHtml(card)}
+        </div>`;
+    }
+
+    function renderProjectH2Card(h, doc) {
+        if (!h) return "";
+        const overdueDays = Math.max(0, Math.round(toNumber(h.overdueDays, 0)));
+        const overdueTasks = Math.max(0, Math.round(toNumber(h.overdue, 0)));
+        const riskHtml = overdueTasks > 0
+            ? `<span class="tm-home-project-risk">逾期 ${overdueTasks}</span>`
+            : overdueDays > 0 ? `<span class="tm-home-project-risk">已逾期</span>` : "";
+        const range = formatProjectDateRange(h);
+        const color = String(doc?.color || "").trim();
+        return `
+        <div class="tm-home-project-card tm-home-project-card--h2"
+             ${color ? `style="--tm-doc-color:${esc(color)}"` : ""}
+             title="「${esc(doc?.name || "")}」/ ${esc(h.name)}">
+            <div class="tm-home-project-top">
+                <span class="tm-home-project-h2-index">${toNumber(h.index, 0) + 1}</span>
+                <span class="tm-home-project-name">${esc(h.name)}</span>
+                ${riskHtml}
+                ${renderProjectCalButton("heading", h.h2Id, h.name, !!range, range ? `设置标题日期（${range}）` : "设置该二级标题的开始/截止日期")}
+            </div>
+            ${renderProjectStatsHtml(h, overdueDays)}
+            ${renderProjectProgressHtml(h)}
+        </div>`;
+    }
+
+    function renderProjectsSectionHead(name, color, aggHtml, pct, expected) {
+        const safePct = Math.max(0, Math.min(100, Math.round(toNumber(pct, 0))));
+        const exp = Number.isFinite(Number(expected)) ? Math.max(0, Math.min(100, Math.round(Number(expected)))) : null;
+        const safeColor = String(color || "").trim();
+        return `
+        <div class="tm-home-projects-section-head" ${safeColor ? `style="--tm-group-color:${esc(safeColor)}"` : ""}>
+            <span class="tm-home-projects-section-dot"></span>
+            <span class="tm-home-projects-section-name">${esc(name)}</span>
+            <span class="tm-home-projects-section-agg">${aggHtml}</span>
+            <span class="tm-home-projects-section-bar">
+                <span class="tm-home-projects-section-bar-fill" style="width:${safePct}%"></span>
+                ${exp != null ? `<span class="tm-home-projects-section-bar-expected" style="left:calc(${exp}% - 1px)" title="预期进度 ${exp}%"></span>` : ""}
+            </span>
+            <span class="tm-home-projects-section-pct">${safePct}%</span>
+        </div>`;
+    }
+
+    function renderProjectsSection(section) {
+        const cards = Array.isArray(section?.cards) ? section.cards : [];
+        const agg = section?.agg && typeof section.agg === "object" ? section.agg : {};
+        const overdueDocs = Math.max(0, Math.round(toNumber(agg.overdueDocs, 0)));
+        const aggHtml = `${cards.length} 个文档 · ${toNumber(agg.total, 0)} 任务 / ${toNumber(agg.done, 0)} 完成`
+            + (overdueDocs ? ` · <span class="is-overdue">${overdueDocs} 个逾期</span>` : "");
+        return `
+        <div class="tm-home-projects-section">
+            ${renderProjectsSectionHead(section?.label || "未分组", section?.color, aggHtml, agg.pct, null)}
+            <div class="tm-home-projects-grid">${cards.map((card) => renderProjectDocCard(card)).join("")}</div>
+        </div>`;
+    }
+
+    function renderProjectsDocScope(projects) {
+        const doc = projects.doc;
+        const expected = Number.isFinite(Number(doc.expected)) ? Math.round(Number(doc.expected)) : null;
+        const delta = expected != null ? Math.round(toNumber(doc.progress, 0)) - expected : null;
+        const range = formatProjectDateRange(doc);
+        const aggHtml = `${toNumber(doc.total, 0)} 任务 / ${toNumber(doc.done, 0)} 完成`
+            + (range ? ` · ${esc(range)}` : " · 未设置时间")
+            + (delta != null ? ` · <span style="color:${delta >= 0 ? "var(--tm-home-success)" : "var(--tm-home-danger)"};font-weight:600">${delta >= 0 ? "超前" : "落后"} ${Math.abs(delta)}%</span>` : "");
+        const h2Cards = Array.isArray(projects.h2Cards) ? projects.h2Cards : [];
+        let inner;
+        if (h2Cards.length) {
+            const cardsHtml = h2Cards.map((h) => renderProjectH2Card(h, doc)).join("")
+                + (projects.noH2Card ? renderProjectH2Card(projects.noH2Card, doc) : "");
+            inner = `<div class="tm-home-projects-grid">${cardsHtml}</div>`;
+        } else {
+            inner = `
+            <div class="tm-home-projects-noh2-hint">该文档没有二级标题，显示文档整体进度</div>
+            <div class="tm-home-projects-grid">${renderProjectDocCard(doc)}</div>`;
+        }
+        return `
+        <div class="tm-home-projects-section">
+            ${renderProjectsSectionHead(doc.name, doc.color, aggHtml, doc.progress, expected)}
+            ${inner}
+        </div>`;
+    }
+
+    function renderProjectsModule(ctx) {
+        const projects = ctx?.projects;
+        if (!projects || typeof projects !== "object" || projects.scope === "unsupported") return "";
+        const descByScope = {
+            all: "全部范围 · 按页签分组归组 · 刻度线为预期进度 · 点击卡片切换到对应文档",
+            group: "当前分组 · 只显示该分组下的文档 · 点击卡片切换到对应文档",
+            doc: "当前文档 · 按二级标题统计 · 日历按钮可设置开始/截止日期",
+        };
+        const collapsed = isHomepageModuleCollapsed("projects");
+        let body = "";
+        let totalTasks = 0;
+        let doneTasks = 0;
+        if (projects.scope === "doc" && projects.doc) {
+            body = renderProjectsDocScope(projects);
+            totalTasks = toNumber(projects.doc.total, 0);
+            doneTasks = toNumber(projects.doc.done, 0);
+        } else {
+            const sections = (Array.isArray(projects.sections) ? projects.sections : [])
+                .filter((section) => Array.isArray(section?.cards) && section.cards.length);
+            body = sections.length
+                ? sections.map((section) => renderProjectsSection(section)).join("")
+                : `<div class="tm-home-projects-empty">当前范围没有可展示的文档</div>`;
+            sections.forEach((section) => {
+                totalTasks += toNumber(section?.agg?.total, 0);
+                doneTasks += toNumber(section?.agg?.done, 0);
+            });
+        }
+        const collapsedPct = totalTasks ? Math.min(100, Math.max(0, Math.round((doneTasks / totalTasks) * 100))) : 0;
+        const headActions = `
+            <div class="tm-home-projects-head-actions">
+                ${collapsed ? `<span class="tm-home-projects-collapsed-summary">${totalTasks} 任务 · 完成 ${collapsedPct}%</span>` : ""}
+                <button type="button" class="tm-home-projects-collapse ${collapsed ? "is-collapsed" : ""}"
+                    data-tm-home-module-collapse="projects"
+                    aria-expanded="${collapsed ? "false" : "true"}"
+                    title="${collapsed ? "展开项目进度" : "折叠项目进度"}">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+            </div>`;
+        return `
+            <section class="tm-homepage-card tm-homepage-card--projects ${collapsed ? "is-collapsed" : ""}">
+                <div class="tm-homepage-card-head">
+                    <div>
+                        <div class="tm-homepage-card-title">项目进度</div>
+                        <div class="tm-homepage-card-desc">${esc(descByScope[projects.scope] || descByScope.all)}</div>
+                    </div>
+                    ${headActions}
+                </div>
+                ${collapsed ? "" : `<div class="tm-home-projects-body">${body}</div>`}
+            </section>`;
+    }
+
     function wrapHomepageModule(id, content) {
         const def = HOMEPAGE_MODULE_DEF_BY_ID[id];
         const html = String(content || "").trim();
@@ -5465,6 +6115,8 @@
         switch (id) {
             case "overview":
                 return wrapHomepageModule(id, renderHeroSection(overview));
+            case "projects":
+                return wrapHomepageModule(id, renderProjectsModule(ctx));
             case "focus":
                 return wrapHomepageModule(id, renderFocusSlot(ctx, profile));
             case "trend":
@@ -5621,7 +6273,7 @@
                 runtime.homepageSettingsOpen = false;
                 updateHomepageSettingsSlot();
             }
-            const target = source ? source.closest("[data-tm-home-range],[data-tm-home-open-task],[data-tm-home-focus-task],[data-tm-home-focus-day],[data-tm-home-focus-day-page],[data-tm-home-focus-mode],[data-tm-home-focus-view],[data-tm-home-focus-distribution-range],[data-tm-home-focus-distribution-item],[data-tm-home-focus-task-popover-close],[data-tm-home-focus-calendar-toggle],[data-tm-home-focus-calendar-month],[data-tm-home-focus-calendar-date],[data-tm-home-settings-toggle],[data-tm-home-module-layout],[data-tm-home-module-move],[data-tm-home-module-reset]") : null;
+            const target = source ? source.closest("[data-tm-home-range],[data-tm-home-open-task],[data-tm-home-focus-task],[data-tm-home-focus-day],[data-tm-home-focus-day-page],[data-tm-home-focus-mode],[data-tm-home-focus-view],[data-tm-home-focus-distribution-range],[data-tm-home-focus-distribution-item],[data-tm-home-focus-task-popover-close],[data-tm-home-focus-calendar-toggle],[data-tm-home-focus-calendar-month],[data-tm-home-focus-calendar-date],[data-tm-home-settings-toggle],[data-tm-home-module-layout],[data-tm-home-module-move],[data-tm-home-module-reset],[data-tm-home-module-collapse],[data-tm-home-project-doc],[data-tm-home-project-dates]") : null;
             if (!(target instanceof Element)) return;
             const focusTaskPopoverClose = String(target.getAttribute("data-tm-home-focus-task-popover-close") || "").trim();
             if (focusTaskPopoverClose) {
@@ -5661,6 +6313,12 @@
             if (moduleReset) {
                 resetHomepageModuleOrder();
                 runtime.homepageSettingsOpen = true;
+                doRender();
+                return;
+            }
+            const moduleCollapse = String(target.getAttribute("data-tm-home-module-collapse") || "").trim();
+            if (moduleCollapse) {
+                setHomepageModuleCollapsed(moduleCollapse, !isHomepageModuleCollapsed(moduleCollapse));
                 doRender();
                 return;
             }
@@ -5793,6 +6451,29 @@
             if (focusTaskId) {
                 runtime.selectedFocusTaskId = focusTaskId;
                 if (!updateFocusRecentSlot()) updateFocusSlot();
+            }
+            const projectDates = String(target.getAttribute("data-tm-home-project-dates") || "").trim();
+            if (projectDates) {
+                const entityId = String(target.getAttribute("data-tm-home-project-id") || "").trim();
+                if (entityId && typeof globalThis.tmOpenTimelineGroupRangeEditor === "function") {
+                    try { event.preventDefault?.(); } catch (e) {}
+                    try { event.stopPropagation?.(); } catch (e) {}
+                    const syntheticEvent = {
+                        preventDefault() {},
+                        stopPropagation() {},
+                        target,
+                        currentTarget: target,
+                    };
+                    try { globalThis.tmOpenTimelineGroupRangeEditor(syntheticEvent, projectDates, entityId); } catch (e) {}
+                }
+                return;
+            }
+            const projectDocId = String(target.getAttribute("data-tm-home-project-doc") || "").trim();
+            if (projectDocId) {
+                if (typeof globalThis.tmSwitchDoc === "function") {
+                    try { globalThis.tmSwitchDoc(projectDocId); } catch (e) {}
+                }
+                return;
             }
             const taskId = String(target.getAttribute("data-tm-home-open-task") || "").trim();
             if (taskId && typeof runtime.ctx?.onOpenTask === "function") runtime.ctx.onOpenTask(taskId);

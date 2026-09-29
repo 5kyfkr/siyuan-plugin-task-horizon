@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>首页项目进度卡片 · 原型对比</title>
+<style>
+/* ============================================================
+   原型说明：
+   - 方案 A：首页新增「项目进度」模块（卡片网格），页签栏保持不变
+   - 方案 B：把文档页签直接替换成项目卡片（仅作对比演示）
+
+   模块三级范围（对齐现有数据语义）：
+   1. 全部        → 按页签分组归组（__tmBuildDocTabGroupedView：
+                    分组区块 + 未分组区块，多分组文档按首个归属去重）
+   2. 单个分组    → 平铺该分组下的文档卡片
+   3. 单个文档    → 按二级标题（task.h2 / task.h2Id）出卡片，
+                    与首页分布模块「当前文档 · 按二级标题分布」同一语义；
+                    无 H2 的文档回退为文档整体卡片
+
+   开始/截止日期（复用时间轴视图的机制）：
+   - 文档块和标题块共用同一套 block attrs（__tmSaveTimelineBlockDatePatch，
+     entityKind: 'doc' | 'heading'），卡片上的日历按钮 = 时间轴分组行
+     的 tmOpenTimelineGroupRangeEditor 弹窗（tmOpenTaskTimeHub, groupRange）
+   - 预期进度由日期推导（__tmComputeDocExpectedProgressPercent），
+     本原型中改日期会实时重算预期刻度与超前/落后
+   ============================================================ */
+
+:root {
+    /* 对齐 task-horizon homepage 的变量体系 */
+    --tm-home-bg: #f4f5f9;
+    --tm-home-surface: #ffffff;
+    --tm-home-surface-soft: #f7f8fb;
+    --tm-home-text: #1f2329;
+    --tm-home-text-muted: #8a8f99;
+    --tm-home-border: #e5e7ee;
+    --tm-home-border-soft: rgba(229, 231, 238, .7);
+    --tm-home-accent: #5b6cff;
+    --tm-home-accent-soft: rgba(91, 108, 255, .1);
+    --tm-home-success: #34a853;
+    --tm-home-warning: #f9ab00;
+    --tm-home-danger: #ef4444;
+    --tm-home-card-radius: 12px;
+    --tm-home-gap: 16px;
+    --tm-home-shadow: 0 8px 20px rgba(15, 23, 42, .045);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #e9ebf2;
+    color: var(--tm-home-text);
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 24px 16px 64px;
+}
+
+/* ---------- 原型说明头 ---------- */
+.proto-note {
+    max-width: 1180px;
+    margin: 0 auto 16px;
+    padding: 12px 16px;
+    background: #fff8e6;
+    border: 1px solid #f0dfa8;
+    border-radius: 10px;
+    color: #7a5d00;
+    font-size: 12px;
+}
+.proto-note b { color: #5c4700; }
+
+/* ---------- 方案切换 ---------- */
+.proto-switch {
+    max-width: 1180px;
+    margin: 0 auto 14px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.proto-switch .sw-label { font-size: 12px; color: #6b7280; margin-right: 4px; }
+.proto-switch button {
+    border: 1px solid var(--tm-home-border);
+    background: #fff;
+    color: #4b5563;
+    font-size: 12px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all .15s;
+}
+.proto-switch button.active {
+    background: var(--tm-home-accent);
+    border-color: var(--tm-home-accent);
+    color: #fff;
+    font-weight: 600;
+}
+.proto-view { display: none; }
+.proto-view.active { display: block; }
+
+/* ---------- 模拟插件窗口 ---------- */
+.tm-window {
+    max-width: 1180px;
+    margin: 0 auto;
+    background: var(--tm-home-bg);
+    border: 1px solid #d8dbe6;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 18px 48px rgba(30, 35, 60, .12);
+}
+
+/* ---------- 页签栏（现有样式微缩还原） ---------- */
+.tm-doc-tabs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--tm-home-surface);
+    border-bottom: 1px solid var(--tm-home-border);
+}
+.tm-doc-tabs-scroll {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+    overflow-x: auto;
+    padding: 4px 0;
+    scrollbar-width: none;
+}
+.tm-doc-tabs-scroll::-webkit-scrollbar { display: none; }
+
+.tm-doc-tab {
+    position: relative;
+    flex-shrink: 0;
+    padding: 5px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--tm-home-border-soft);
+    background: var(--tm-home-surface-soft);
+    color: #4b5563;
+    font-size: 12px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color .15s, color .15s;
+    user-select: none;
+}
+.tm-doc-tab:hover { border-color: var(--tm-doc-color, var(--tm-home-accent)); }
+.tm-doc-tab.active {
+    border-color: var(--tm-doc-color, var(--tm-home-accent));
+    color: var(--tm-home-text);
+    font-weight: 600;
+}
+/* 分组页签：虚线边框 + 小三角，呼应现有 UI 里分组页签的 caret */
+.tm-doc-tab--group {
+    border-style: dashed;
+    background: var(--tm-home-surface);
+}
+/* 现有逻辑：实际进度 = 背景填充宽度 */
+.tm-doc-tab-bg {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0;
+    background: color-mix(in srgb, var(--tm-doc-color, var(--tm-home-accent)) 14%, transparent);
+    transition: width .3s;
+    pointer-events: none;
+}
+/* 现有逻辑：预期进度 = 底部 2px 刻度条 */
+.tm-doc-tab-expected {
+    position: absolute;
+    left: 0; bottom: 0;
+    height: 2px;
+    width: 0;
+    background: color-mix(in srgb, var(--tm-doc-color, var(--tm-home-accent)) 55%, transparent);
+    pointer-events: none;
+}
+.tm-doc-tab-text {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+.tm-doc-tab-text .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--tm-doc-color, var(--tm-home-accent));
+    flex-shrink: 0;
+}
+.tm-doc-tab--all {
+    background: var(--tm-home-surface);
+    font-weight: 500;
+}
+
+/* ---------- 首页模块流 ---------- */
+.tm-homepage-main {
+    padding: 18px 20px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--tm-home-gap);
+    background:
+        radial-gradient(1200px 340px at -6% -14%, rgba(91,108,255,.05), transparent 62%),
+        radial-gradient(920px 280px at 108% 0%, rgba(91,108,255,.04), transparent 58%),
+        var(--tm-home-bg);
+}
+.tm-homepage-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+}
+.tm-homepage-title { font-size: 18px; font-weight: 700; }
+.tm-homepage-subtitle { font-size: 12px; color: var(--tm-home-text-muted); margin-top: 2px; }
+.tm-homepage-toolbar { display: flex; gap: 6px; }
+.tm-homepage-toolbar span {
+    font-size: 11px;
+    color: var(--tm-home-text-muted);
+    border: 1px solid var(--tm-home-border);
+    background: var(--tm-home-surface);
+    padding: 4px 10px;
+    border-radius: 999px;
+}
+
+.tm-homepage-card {
+    background: var(--tm-home-surface);
+    border: 1px solid var(--tm-home-border-soft);
+    border-radius: var(--tm-home-card-radius);
+    padding: 15px 16px;
+    box-shadow: var(--tm-home-shadow);
+}
+.tm-homepage-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+.tm-homepage-card-title { font-size: 14px; font-weight: 600; }
+.tm-homepage-card-desc { font-size: 11px; color: var(--tm-home-text-muted); margin-top: 2px; }
+
+/* hero 占位（概览仪表 + 摘要，仅示意位置） */
+.tm-hero-grid {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: var(--tm-home-gap);
+}
+.tm-hero-gauge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 18px;
+}
+.tm-hero-gauge svg { display: block; }
+.tm-hero-gauge .g-label { font-size: 11px; color: var(--tm-home-text-muted); }
+.tm-hero-summary { display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+.tm-hero-summary .nums { display: flex; gap: 26px; }
+.tm-hero-summary .num-item .v { font-size: 22px; font-weight: 700; }
+.tm-hero-summary .num-item .v.done { color: var(--tm-home-success); }
+.tm-hero-summary .num-item .v.doing { color: var(--tm-home-accent); }
+.tm-hero-summary .num-item .v.overdue { color: var(--tm-home-danger); }
+.tm-hero-summary .num-item .k { font-size: 11px; color: var(--tm-home-text-muted); }
+.tm-hero-summary .hint { font-size: 11px; color: var(--tm-home-text-muted); }
+
+/* ============================================================
+   ★ 新增模块：项目进度卡片（方案 A 主体）
+   ============================================================ */
+.tm-project-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr));
+    gap: 10px;
+}
+.tm-project-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 13px 14px 12px;
+    background: var(--tm-home-surface);
+    border: 1px solid var(--tm-home-border);
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+    transition: box-shadow .15s, border-color .15s, transform .15s;
+    min-width: 0;
+    overflow: hidden;
+}
+.tm-project-card:hover {
+    border-color: var(--tm-doc-color, var(--tm-home-accent));
+    box-shadow: 0 4px 14px rgba(15, 23, 42, .08);
+    transform: translateY(-1px);
+}
+.tm-project-card.active {
+    border-color: var(--tm-doc-color, var(--tm-home-accent));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--tm-doc-color, var(--tm-home-accent)) 22%, transparent);
+}
+/* 左侧 3px 文档色条：远处一眼区分项目 */
+.tm-project-card::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--tm-doc-color, var(--tm-home-accent));
+    opacity: .85;
+}
+
+.tm-pc-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.tm-pc-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--tm-doc-color, var(--tm-home-accent));
+    flex-shrink: 0;
+}
+.tm-pc-name {
+    font-size: 13px;
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tm-pc-badge {
+    font-size: 10px;
+    color: var(--tm-home-text-muted);
+    background: var(--tm-home-surface-soft);
+    border: 1px solid var(--tm-home-border-soft);
+    padding: 1px 7px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+/* 风险角标：只给逾期这种强警示 */
+.tm-pc-risk {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    color: var(--tm-home-danger);
+    background: color-mix(in srgb, var(--tm-home-danger) 12%, #fff);
+}
+
+/* 日历按钮：复用时间轴分组行的 calendar-range 触发器语义 */
+.tm-pc-cal {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--tm-home-text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background .15s, color .15s;
+}
+.tm-pc-cal:hover {
+    background: var(--tm-home-accent-soft);
+    color: var(--tm-home-accent);
+}
+/* 未设置日期时给一点提示色，引导补全 */
+.tm-pc-cal.tm-pc-cal--empty { color: var(--tm-home-warning); }
+
+.tm-pc-stats {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--tm-home-text-muted);
+}
+.tm-pc-stats .n { font-weight: 600; color: var(--tm-home-text); }
+.tm-pc-stats .n.done { color: var(--tm-home-success); }
+.tm-pc-stats .range { margin-left: auto; white-space: nowrap; }
+.tm-pc-stats .range.urgent { color: var(--tm-home-danger); font-weight: 600; }
+.tm-pc-stats .range.none { color: var(--tm-home-text-muted); opacity: .8; }
+
+/* 双进度条：实际进度填充 + 预期进度刻度（页签逻辑的卡片化放大） */
+.tm-pc-progress {
+    position: relative;
+    height: 6px;
+    background: color-mix(in srgb, var(--tm-home-border) 60%, transparent);
+    border-radius: 3px;
+    margin-top: 2px;
+}
+.tm-pc-progress-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 3px;
+    background: var(--tm-doc-color, var(--tm-home-accent));
+    transition: width .3s;
+}
+.tm-pc-progress-expected {
+    position: absolute;
+    top: -2px; bottom: -2px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--tm-home-text);
+    opacity: .55;
+}
+.tm-pc-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11px;
+    color: var(--tm-home-text-muted);
+}
+.tm-pc-progress-meta .pct { font-weight: 700; font-size: 12px; color: var(--tm-home-text); }
+.tm-pc-progress-meta .delta { font-weight: 600; }
+.tm-pc-progress-meta .delta.behind { color: var(--tm-home-danger); }
+.tm-pc-progress-meta .delta.ahead { color: var(--tm-home-success); }
+
+/* 模块头部右侧的小操作 */
+.tm-pc-module-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 11px;
+    color: var(--tm-home-text-muted);
+}
+.tm-pc-module-actions .sort-btn {
+    border: 1px solid var(--tm-home-border);
+    background: var(--tm-home-surface);
+    border-radius: 6px;
+    padding: 3px 9px;
+    cursor: pointer;
+    color: #4b5563;
+    font-size: 11px;
+}
+.tm-pc-module-actions .sort-btn:hover { border-color: var(--tm-home-accent); color: var(--tm-home-accent); }
+
+/* ---- 区块头：分组区块 / 单文档头部共用 ---- */
+.tm-pc-group-section { display: flex; flex-direction: column; gap: 10px; }
+.tm-pc-group-section + .tm-pc-group-section {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--tm-home-border);
+}
+.tm-pc-group-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 2px;
+}
+.tm-pc-group-dot {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--tm-group-color, var(--tm-home-text-muted));
+    flex-shrink: 0;
+}
+.tm-pc-group-name { font-size: 12px; font-weight: 600; }
+.tm-pc-group-agg { font-size: 11px; color: var(--tm-home-text-muted); }
+.tm-pc-group-bar {
+    position: relative;
+    flex: 0 1 160px;
+    height: 4px;
+    margin-left: auto;
+    background: color-mix(in srgb, var(--tm-home-border) 60%, transparent);
+    border-radius: 2px;
+    overflow: visible;
+}
+.tm-pc-group-bar-fill {
+    display: block;
+    height: 100%;
+    background: var(--tm-group-color, var(--tm-home-text-muted));
+    border-radius: 2px;
+}
+/* 文档级头部保留预期进度刻度（预期进度由日期推导） */
+.tm-pc-group-bar-expected {
+    position: absolute;
+    top: -2px; bottom: -2px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--tm-home-text);
+    opacity: .55;
+}
+.tm-pc-group-pct {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--tm-home-text);
+    min-width: 32px;
+    text-align: right;
+}
+
+/* 单文档模式的面包屑返回 */
+.tm-pc-back {
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: 11px;
+    color: var(--tm-home-accent);
+    cursor: pointer;
+}
+.tm-pc-back:hover { text-decoration: underline; }
+
+/* H2 卡片：比文档卡片略紧凑，标题前是编号式色块而非圆点 */
+.tm-h2-card .tm-pc-name { font-size: 12.5px; }
+.tm-h2-index {
+    width: 16px; height: 16px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--tm-doc-color, var(--tm-home-accent)) 14%, #fff);
+    color: var(--tm-doc-color, var(--tm-home-accent));
+    font-size: 10px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.tm-pc-noh2-hint {
+    font-size: 11px;
+    color: var(--tm-home-text-muted);
+    padding: 2px 2px 0;
+}
+
+/* ---- 日期设置弹窗：模拟 tmOpenTaskTimeHub(groupRange) ---- */
+.tm-date-pop {
+    position: fixed;
+    z-index: 99;
+    width: 240px;
+    background: var(--tm-home-surface);
+    border: 1px solid var(--tm-home-border);
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, .16);
+    padding: 14px;
+    display: none;
+}
+.tm-date-pop.open { display: block; }
+.tm-date-pop-title {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.tm-date-pop-title .who { color: var(--tm-home-text-muted); font-weight: 400; }
+.tm-date-pop-field { margin-bottom: 10px; }
+.tm-date-pop-field label {
+    display: block;
+    font-size: 11px;
+    color: var(--tm-home-text-muted);
+    margin-bottom: 4px;
+}
+.tm-date-pop-field input {
+    width: 100%;
+    border: 1px solid var(--tm-home-border);
+    border-radius: 8px;
+    padding: 6px 9px;
+    font-size: 12px;
+    font-family: inherit;
+    color: var(--tm-home-text);
+    background: var(--tm-home-surface);
+}
+.tm-date-pop-field input:focus {
+    outline: none;
+    border-color: var(--tm-home-accent);
+    box-shadow: 0 0 0 2px var(--tm-home-accent-soft);
+}
+.tm-date-pop-error {
+    display: none;
+    font-size: 11px;
+    color: var(--tm-home-danger);
+    margin: -4px 0 8px;
+}
+.tm-date-pop-error.show { display: block; }
+.tm-date-pop-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+.tm-date-pop-actions button {
+    border: 1px solid var(--tm-home-border);
+    background: var(--tm-home-surface);
+    border-radius: 7px;
+    padding: 5px 12px;
+    font-size: 11px;
+    cursor: pointer;
+    color: #4b5563;
+}
+.tm-date-pop-actions button.primary {
+    background: var(--tm-home-accent);
+    border-color: var(--tm-home-accent);
+    color: #fff;
+    font-weight: 600;
+}
+.tm-date-pop-actions button.clear { margin-right: auto; color: var(--tm-home-danger); }
+.tm-date-pop-note {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--tm-home-border);
+    font-size: 10px;
+    color: var(--tm-home-text-muted);
+}
+
+/* 小 toast */
+.tm-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 32px;
+    transform: translateX(-50%) translateY(8px);
+    background: #1f2329;
+    color: #fff;
+    font-size: 12px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    opacity: 0;
+    transition: opacity .2s, transform .2s;
+    pointer-events: none;
+    z-index: 100;
+}
+.tm-toast.show { opacity: .94; transform: translateX(-50%) translateY(0); }
+
+/* 占位模块（趋势 / 风险，仅示意模块流位置） */
+.tm-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 90px;
+    color: var(--tm-home-text-muted);
+    font-size: 12px;
+    border: 1px dashed var(--tm-home-border);
+    border-radius: 8px;
+    background: var(--tm-home-surface-soft);
+}
+
+/* ============================================================
+   方案 B：页签直接卡片化（对比演示）
+   ============================================================ */
+.tm-tab-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+    gap: 10px;
+    padding: 12px;
+    background: var(--tm-home-surface);
+    border-bottom: 1px solid var(--tm-home-border);
+    max-height: 300px;
+    overflow-y: auto;
+}
+.tm-tab-cards .tm-project-card { cursor: pointer; }
+.planb-warning {
+    max-width: 1180px;
+    margin: 12px auto 0;
+    padding: 12px 16px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    color: #991b1b;
+    font-size: 12px;
+}
+.planb-warning b { color: #7f1d1d; }
+.planb-warning ul { margin: 6px 0 0 18px; }
+.planb-warning li { margin: 2px 0; }
+
+@media (max-width: 720px) {
+    .tm-hero-grid { grid-template-columns: 1fr; }
+    .tm-project-cards { grid-template-columns: 1fr 1fr; }
+    .tm-pc-group-bar { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="proto-note">
+    <b>原型说明：</b>模块按当前页签范围三级切换——「全部」按页签分组归组；选中分组平铺该组文档；
+    <b>选中单个文档按二级标题出进度卡片</b>（任务自带 <code>h2 / h2Id</code> 字段）。
+    卡片上的 <b>日历按钮</b>复用时间轴视图的日期弹窗（<code>tmOpenTimelineGroupRangeEditor</code>，文档块与标题块同一套 block attrs），
+    开始/截止日期决定预期进度刻度——<b>改日期会实时重算预期与超前/落后</b>，可以试试。数据均为演示假数据。
+</div>
+
+<div class="proto-switch">
+    <span class="sw-label">对比方案：</span>
+    <button id="btnA" class="active" onclick="switchView('A')">方案 A · 首页加项目卡片模块（推荐）</button>
+    <button id="btnB" onclick="switchView('B')">方案 B · 页签栏直接卡片化</button>
+</div>
+
+<!-- ==================== 方案 A ==================== -->
+<div class="proto-view active" id="viewA">
+    <div class="tm-window">
+
+        <!-- 现有页签栏：保持不变（全部 / 分组页签 / 文档页签） -->
+        <div class="tm-doc-tabs">
+            <div class="tm-doc-tabs-scroll" id="tabBarA">
+                <div class="tm-doc-tab tm-doc-tab--all active" data-doc="all" onclick="activateAll('A')">全部</div>
+                <!-- 分组页签 + 文档页签由 JS 渲染 -->
+            </div>
+        </div>
+
+        <div class="tm-homepage-main">
+            <div class="tm-homepage-header">
+                <div>
+                    <div class="tm-homepage-title">主页</div>
+                    <div class="tm-homepage-subtitle" id="homeSubtitle">全部页签 · 共 47 条任务 · 今天周三</div>
+                </div>
+                <div class="tm-homepage-toolbar"><span>近 30 天</span><span>模块设置</span></div>
+            </div>
+
+            <!-- 现有模块：概览（简化示意） -->
+            <div class="tm-hero-grid">
+                <div class="tm-homepage-card tm-hero-gauge">
+                    <svg width="86" height="86" viewBox="0 0 36 36">
+                        <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7ee" stroke-width="3.4"/>
+                        <circle cx="18" cy="18" r="15.9" fill="none" stroke="#34a853" stroke-width="3.4"
+                            stroke-dasharray="100" stroke-dashoffset="46" stroke-linecap="round"
+                            transform="rotate(-90 18 18)"/>
+                        <text x="18" y="20.5" text-anchor="middle" font-size="8" font-weight="700" fill="#1f2329">54%</text>
+                    </svg>
+                    <span class="g-label">总体完成率</span>
+                </div>
+                <div class="tm-homepage-card tm-hero-summary">
+                    <div class="nums">
+                        <div class="num-item"><div class="v">47</div><div class="k">总任务</div></div>
+                        <div class="num-item"><div class="v doing">14</div><div class="k">进行中</div></div>
+                        <div class="num-item"><div class="v done">25</div><div class="k">已完成</div></div>
+                        <div class="num-item"><div class="v overdue">4</div><div class="k">已逾期</div></div>
+                    </div>
+                    <div class="hint">近 7 天完成 9 条 · 连续完成 6 天</div>
+                </div>
+            </div>
+
+            <!-- ★ 新增模块：项目进度 -->
+            <section class="tm-homepage-card">
+                <div class="tm-homepage-card-head">
+                    <div>
+                        <div class="tm-homepage-card-title">项目进度</div>
+                        <div class="tm-homepage-card-desc" id="projectModuleDesc">全部范围 · 按页签分组归组 · 刻度线为预期进度 · 点击卡片下钻到文档</div>
+                    </div>
+                    <div class="tm-pc-module-actions">
+                        <button class="sort-btn" onclick="sortCards(this)">按进度 ↓</button>
+                    </div>
+                </div>
+                <div id="projectModule"><!-- JS 渲染：分组区块 / 单分组网格 / 单文档 H2 网格 --></div>
+            </section>
+
+            <!-- 现有模块：占位示意 -->
+            <section class="tm-homepage-card">
+                <div class="tm-homepage-card-head">
+                    <div>
+                        <div class="tm-homepage-card-title">完成趋势</div>
+                        <div class="tm-homepage-card-desc">现有模块，位置示意</div>
+                    </div>
+                </div>
+                <div class="tm-placeholder">趋势图（现有模块）</div>
+            </section>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 方案 B ==================== -->
+<div class="proto-view" id="viewB">
+    <div class="tm-window">
+        <!-- 页签栏被卡片网格取代 -->
+        <div class="tm-tab-cards" id="tabCardsB"><!-- JS 渲染（同一套卡片，平铺） --></div>
+
+        <div class="tm-homepage-main">
+            <div class="tm-homepage-header">
+                <div>
+                    <div class="tm-homepage-title">清单</div>
+                    <div class="tm-homepage-subtitle">当前文档：思源笔记插件开发项目</div>
+                </div>
+            </div>
+            <div class="tm-homepage-card">
+                <div class="tm-placeholder" style="height:260px;">任务列表区域（被上方卡片网格挤压）</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="planb-warning">
+        <b>方案 B 的主要问题（演示中可直观感受）：</b>
+        <ul>
+            <li>页签栏是高频导航，卡片化后 5 个文档就占了约 300px 垂直空间；10+ 文档时任务列表被完全挤出首屏</li>
+            <li>失去现有页签能力：单行/多行折叠、横向滚动、拖拽排序、右键菜单、自动隐藏都要为卡片重做</li>
+            <li>分组页签的层级关系（分组 → 文档）在卡片网格里无法紧凑表达，分组语义被摊平</li>
+            <li>首页仍然是纯统计页，没有解决「缺少项目管理入口」的原始诉求</li>
+        </ul>
+    </div>
+</div>
+
+<!-- 日期设置弹窗（模拟 tmOpenTaskTimeHub groupRange 模式） -->
+<div class="tm-date-pop" id="datePop">
+    <div class="tm-date-pop-title">设置日期 <span class="who" id="datePopWho"></span></div>
+    <div class="tm-date-pop-field">
+        <label>开始日期</label>
+        <input type="date" id="datePopStart">
+    </div>
+    <div class="tm-date-pop-field">
+        <label>截止日期</label>
+        <input type="date" id="datePopEnd">
+    </div>
+    <div class="tm-date-pop-error" id="datePopError">开始日期不能晚于截止日期</div>
+    <div class="tm-date-pop-actions">
+        <button class="clear" onclick="clearDates()">清除</button>
+        <button onclick="closeDatePop()">取消</button>
+        <button class="primary" onclick="saveDates()">保存</button>
+    </div>
+    <div class="tm-date-pop-note">复用时间轴视图的时间设置弹窗 · 文档块与标题块同一套属性 · 预期进度由日期推导</div>
+</div>
+<div class="tm-toast" id="toast"></div>
+
+<script>
+/* 演示数据：字段对应插件里已存在的进度数据维度
+   progress        ← __tmDocProgressCache（实际完成 %）
+   startDate/deadline ← block attrs（__tmSaveTimelineBlockDatePatch，
+                        文档块 entityKind='doc' / 标题块 entityKind='heading' 同一套）
+   expected        ← __tmComputeDocExpectedProgressPercent(startDate, deadline)，
+                     本原型按同样规则实时计算（相对今天 2026-09-29 的线性位置）
+   groupId         ← 页签分组归属（__tmBuildDocTabGroupedView 的 membershipByDocId，
+                     真实数据支持多分组，按首个归属去重；演示简化为单分组）
+   h2              ← 任务自带 task.h2 / task.h2Id，单文档范围按它聚合
+*/
+const TODAY = '2026-09-29';
+
+const GROUPS = [
+    { id: 'g1', name: '插件开发', color: '#5b6cff' },
+    { id: 'g2', name: '个人成长', color: '#8e4ec6' },
+];
+const DOCS = [
+    { id: 'd1', name: '思源笔记插件开发项目', color: '#5b6cff', badge: '工作', groupId: 'g1',
+      total: 18, done: 9, doing: 5, progress: 50,
+      startDate: '2026-09-10', deadline: '2026-10-09' },
+    { id: 'd2', name: '番茄钟插件 v2.1', color: '#e5484d', badge: '工作', groupId: 'g1',
+      total: 12, done: 10, doing: 1, progress: 83,
+      startDate: '2026-09-15', deadline: '2026-10-05' },
+    { id: 'd3', name: '读书笔记 · 认知设计', color: '#12a594', badge: '学习', groupId: 'g2',
+      total: 8, done: 2, doing: 2, progress: 25,
+      startDate: '2026-09-20', deadline: '2026-10-20' },
+    { id: 'd5', name: 'Q4 OKR 复盘', color: '#8e4ec6', badge: '工作', groupId: 'g2',
+      total: 6, done: 0, doing: 1, progress: 0,
+      startDate: '2026-09-20', deadline: '2026-09-27' },
+    { id: 'd4', name: '家庭装修采购清单', color: '#f76b15', badge: '生活', groupId: null,
+      total: 9, done: 7, doing: 1, progress: 78,
+      startDate: '', deadline: '' },
+];
+
+/* 各文档的二级标题分区（日期同样写在标题块 attrs 上，可独立设置） */
+const DOC_H2 = {
+    d1: [
+        { name: '基础准备阶段', total: 6, done: 5, doing: 1, progress: 83,  overdue: 1,
+          startDate: '2026-09-10', deadline: '2026-09-28' },
+        { name: '插件核心配置', total: 8, done: 4, doing: 3, progress: 50,  overdue: 0,
+          startDate: '2026-09-15', deadline: '2026-10-02' },
+        { name: '代码开发阶段', total: 4, done: 0, doing: 1, progress: 0,   overdue: 0,
+          startDate: '', deadline: '' },
+    ],
+    d2: [
+        { name: '核心计时逻辑', total: 5, done: 5, doing: 0, progress: 100, overdue: 0,
+          startDate: '2026-09-15', deadline: '2026-09-25' },
+        { name: '设置页重构',   total: 4, done: 3, doing: 1, progress: 75,  overdue: 0,
+          startDate: '2026-09-20', deadline: '2026-09-30' },
+        { name: '发布准备',     total: 3, done: 2, doing: 0, progress: 67,  overdue: 0,
+          startDate: '', deadline: '' },
+    ],
+    d3: [
+        { name: '第 1–3 章', total: 4, done: 2, doing: 1, progress: 50, overdue: 0,
+          startDate: '2026-09-20', deadline: '2026-10-05' },
+        { name: '第 4–6 章', total: 4, done: 0, doing: 1, progress: 0,  overdue: 0,
+          startDate: '', deadline: '' },
+    ],
+    d5: [
+        { name: '数据收集',     total: 3, done: 0, doing: 1, progress: 0, overdue: 2,
+          startDate: '2026-09-20', deadline: '2026-09-25' },
+        { name: '复盘文档撰写', total: 3, done: 0, doing: 0, progress: 0, overdue: 1,
+          startDate: '2026-09-22', deadline: '2026-09-27' },
+    ],
+    // d4 无二级标题 → 回退为文档整体卡片
+};
+
+/* 当前模块范围：'all' | 'group:<id>' | 'doc:<id>' */
+let cardScope = 'all';
+
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ---- 日期 → 预期进度（对齐 __tmComputeDocExpectedProgressPercent 的语义） ---- */
+function dayDiff(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
+function computeExpected(startDate, deadline) {
+    if (!startDate || !deadline) return null;
+    const total = dayDiff(startDate, deadline);
+    if (total <= 0) return null;
+    return Math.max(0, Math.min(100, Math.round(dayDiff(startDate, TODAY) / total * 100)));
+}
+function isOverdue(entity) {
+    return !!(entity.deadline && entity.deadline < TODAY && entity.progress < 100);
+}
+function expectedOf(entity) { return computeExpected(entity.startDate, entity.deadline); }
+function fmtRange(entity) {
+    if (!entity.startDate && !entity.deadline) return '';
+    const s = entity.startDate ? entity.startDate.slice(5) : '…';
+    const e = entity.deadline ? entity.deadline.slice(5) : '…';
+    return `${s} → ${e}`;
+}
+
+/* ---- 页签栏：全部 / 分组页签 / 文档页签（现有样式还原） ---- */
+function renderTabs(containerId, view) {
+    const bar = document.getElementById(containerId);
+    GROUPS.forEach(g => {
+        const el = document.createElement('div');
+        el.className = 'tm-doc-tab tm-doc-tab--group';
+        el.dataset.group = g.id;
+        el.style.setProperty('--tm-doc-color', g.color);
+        el.title = `页签分组：${g.name}（点击只看该分组）`;
+        el.onclick = () => activateGroup(g.id, view);
+        el.innerHTML = `<div class="tm-doc-tab-text"><span class="dot"></span><span>${esc(g.name)}</span><span style="font-size:10px;opacity:.55">▸</span></div>`;
+        bar.appendChild(el);
+    });
+    DOCS.forEach(d => {
+        const exp = expectedOf(d);
+        const el = document.createElement('div');
+        el.className = 'tm-doc-tab';
+        el.dataset.doc = d.id;
+        el.style.setProperty('--tm-doc-color', d.color);
+        el.setAttribute('title',
+            `实际进度: ${d.progress}%` + (exp != null ? `\n预期进度: ${exp}%` : '')
+            + (fmtRange(d) ? `\n${fmtRange(d)}` : '\n未设置时间'));
+        el.onclick = () => activateDoc(d.id, view);
+        el.innerHTML = `
+            <div class="tm-doc-tab-expected" style="width:${exp || 0}%"></div>
+            <div class="tm-doc-tab-bg" style="width:${d.progress}%"></div>
+            <div class="tm-doc-tab-text"><span class="dot"></span><span>${esc(d.name)}</span></div>`;
+        bar.appendChild(el);
+    });
+}
+
+/* 日历按钮 SVG（calendar-range） */
+const CAL_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 15h3"/><path d="M15 15h1"/><path d="M8 18h1"/></svg>`;
+
+function calBtnHtml(kind, id, hasDates, title) {
+    return `<button class="tm-pc-cal ${hasDates ? '' : 'tm-pc-cal--empty'}"
+        onclick="openDatePop(event, '${kind}', '${id}')"
+        title="${esc(title)}">${CAL_SVG}</button>`;
+}
+
+/* ---- 文档卡片（ProjectManager 结构 + task-horizon 进度维度 + 日期范围） ---- */
+function docCardHtml(d, view) {
+    const exp = expectedOf(d);
+    const delta = exp != null ? d.progress - exp : null;
+    const deltaHtml = delta == null ? '' :
+        delta >= 0
+            ? `<span class="delta ahead">超前 ${delta}%</span>`
+            : `<span class="delta behind">落后 ${-delta}%</span>`;
+    const overdue = isOverdue(d);
+    const riskHtml = overdue ? `<span class="tm-pc-risk">逾期 ${dayDiff(d.deadline, TODAY)} 天</span>` : '';
+    const range = fmtRange(d);
+    return `
+    <div class="tm-project-card" data-doc="${d.id}" data-progress="${d.progress}"
+         style="--tm-doc-color:${d.color}"
+         onclick="activateDoc('${d.id}','${view}')"
+         title="点击下钻：查看「${esc(d.name)}」按二级标题的进度">
+        <div class="tm-pc-top">
+            <span class="tm-pc-dot"></span>
+            <span class="tm-pc-name">${esc(d.name)}</span>
+            ${riskHtml}
+            <span class="tm-pc-badge">${esc(d.badge)}</span>
+            ${calBtnHtml('doc', d.id, !!range, range ? `设置文档日期（${range}）` : '设置文档开始/截止日期')}
+        </div>
+        <div class="tm-pc-stats">
+            <span><span class="n">${d.total}</span> 任务</span>
+            <span><span class="n done">${d.done}</span> 完成</span>
+            <span><span class="n">${d.doing}</span> 进行中</span>
+            ${range
+                ? `<span class="range ${overdue ? 'urgent' : ''}">${range}</span>`
+                : `<span class="range none">未设置时间</span>`}
+        </div>
+        <div class="tm-pc-progress">
+            <div class="tm-pc-progress-fill" style="width:${d.progress}%"></div>
+            ${exp != null ? `<div class="tm-pc-progress-expected" style="left:calc(${exp}% - 1px)" title="预期进度 ${exp}%"></div>` : ''}
+        </div>
+        <div class="tm-pc-progress-meta">
+            <span><span class="pct">${d.progress}%</span>${exp != null ? ` · 预期 ${exp}%` : ''}</span>
+            ${deltaHtml}
+        </div>
+    </div>`;
+}
+
+/* ---- H2 卡片：标题块同样可以挂日期 attrs，有日期就有预期刻度 ---- */
+function h2CardHtml(h, idx, doc, view) {
+    const h2Id = `${doc.id}:${idx}`;
+    const exp = expectedOf(h);
+    const delta = exp != null ? h.progress - exp : null;
+    const deltaHtml = delta == null ? '' :
+        delta >= 0
+            ? `<span class="delta ahead">超前 ${delta}%</span>`
+            : `<span class="delta behind">落后 ${-delta}%</span>`;
+    const overdue = isOverdue(h);
+    const riskHtml = h.overdue > 0 ? `<span class="tm-pc-risk">逾期 ${h.overdue}</span>`
+        : overdue ? `<span class="tm-pc-risk">已逾期</span>` : '';
+    const range = fmtRange(h);
+    return `
+    <div class="tm-project-card tm-h2-card" data-progress="${h.progress}"
+         style="--tm-doc-color:${doc.color}"
+         title="「${esc(doc.name)}」/ ${esc(h.name)}">
+        <div class="tm-pc-top">
+            <span class="tm-h2-index">${idx + 1}</span>
+            <span class="tm-pc-name">${esc(h.name)}</span>
+            ${riskHtml}
+            ${calBtnHtml('h2', h2Id, !!range, range ? `设置标题日期（${range}）` : '设置该二级标题的开始/截止日期')}
+        </div>
+        <div class="tm-pc-stats">
+            <span><span class="n">${h.total}</span> 任务</span>
+            <span><span class="n done">${h.done}</span> 完成</span>
+            <span><span class="n">${h.doing}</span> 进行中</span>
+            ${range
+                ? `<span class="range ${overdue ? 'urgent' : ''}">${range}</span>`
+                : `<span class="range none">未设置时间</span>`}
+        </div>
+        <div class="tm-pc-progress">
+            <div class="tm-pc-progress-fill" style="width:${h.progress}%"></div>
+            ${exp != null ? `<div class="tm-pc-progress-expected" style="left:calc(${exp}% - 1px)" title="预期进度 ${exp}%"></div>` : ''}
+        </div>
+        <div class="tm-pc-progress-meta">
+            <span><span class="pct">${h.progress}%</span>${exp != null ? ` · 预期 ${exp}%` : ''}</span>
+            ${deltaHtml}
+        </div>
+    </div>`;
+}
+
+/* ---- 区块头：分组 / 单文档共用（expected 非空时画预期刻度） ---- */
+function sectionHeadHtml(name, color, aggText, pct, expected) {
+    return `
+    <div class="tm-pc-group-head" style="--tm-group-color:${color || ''}">
+        <span class="tm-pc-group-dot"></span>
+        <span class="tm-pc-group-name">${esc(name)}</span>
+        <span class="tm-pc-group-agg">${aggText}</span>
+        <span class="tm-pc-group-bar">
+            <span class="tm-pc-group-bar-fill" style="width:${pct}%"></span>
+            ${expected != null ? `<span class="tm-pc-group-bar-expected" style="left:calc(${expected}% - 1px)" title="预期进度 ${expected}%"></span>` : ''}
+        </span>
+        <span class="tm-pc-group-pct">${pct}%</span>
+    </div>`;
+}
+
+function groupAgg(members) {
+    const total = members.reduce((s, d) => s + d.total, 0);
+    const done = members.reduce((s, d) => s + d.done, 0);
+    const pct = total ? Math.round(done / total * 100) : 0;
+    const overdue = members.filter(d => isOverdue(d)).length;
+    return { total, done, pct, overdue };
+}
+
+function groupSectionHtml(name, color, members, view) {
+    const agg = groupAgg(members);
+    const aggText = `${members.length} 个项目 · ${agg.total} 任务 / ${agg.done} 完成`
+        + (agg.overdue ? ` · <span style="color:var(--tm-home-danger);font-weight:600">${agg.overdue} 个逾期</span>` : '');
+    return `
+    <div class="tm-pc-group-section">
+        ${sectionHeadHtml(name, color, aggText, agg.pct, null)}
+        <div class="tm-project-cards">${members.map(d => docCardHtml(d, view)).join('')}</div>
+    </div>`;
+}
+
+/* ---- 单文档视图：文档头（含预期刻度）+ H2 卡片网格；无 H2 回退文档卡片 ---- */
+function docSectionHtml(doc, view) {
+    const exp = expectedOf(doc);
+    const delta = exp != null ? doc.progress - exp : null;
+    const aggText = `${doc.total} 任务 / ${doc.done} 完成`
+        + (fmtRange(doc) ? ` · ${fmtRange(doc)}` : ' · 未设置时间')
+        + (delta != null ? ` · <span style="color:${delta >= 0 ? 'var(--tm-home-success)' : 'var(--tm-home-danger)'};font-weight:600">${delta >= 0 ? '超前' : '落后'} ${Math.abs(delta)}%</span>` : '');
+    const h2List = DOC_H2[doc.id];
+    let body;
+    if (Array.isArray(h2List) && h2List.length) {
+        body = `<div class="tm-project-cards">${h2List.map((h, i) => h2CardHtml(h, i, doc, view)).join('')}</div>`;
+    } else {
+        body = `
+        <div class="tm-pc-noh2-hint">该文档没有二级标题，显示文档整体进度</div>
+        <div class="tm-project-cards">${docCardHtml(doc, view)}</div>`;
+    }
+    return `
+    <div class="tm-pc-group-section">
+        ${sectionHeadHtml(doc.name, doc.color, aggText, doc.progress, exp)}
+        ${body}
+    </div>`;
+}
+
+/* ---- 模块渲染：三级范围 ---- */
+function renderModule(view) {
+    const wrap = document.getElementById('projectModule');
+    const desc = document.getElementById('projectModuleDesc');
+    if (cardScope === 'all') {
+        const parts = GROUPS
+            .map(g => ({ g, members: DOCS.filter(d => d.groupId === g.id) }))
+            .filter(x => x.members.length)
+            .map(x => groupSectionHtml(x.g.name, x.g.color, x.members, view));
+        const rest = DOCS.filter(d => !d.groupId);
+        if (rest.length) parts.push(groupSectionHtml('未分组', null, rest, view));
+        wrap.innerHTML = parts.join('');
+        desc.innerHTML = '全部范围 · 按页签分组归组 · 刻度线为预期进度 · 点击卡片下钻到文档';
+    } else if (cardScope.startsWith('group:')) {
+        const g = GROUPS.find(x => x.id === cardScope.slice(6));
+        const members = DOCS.filter(d => d.groupId === g.id);
+        wrap.innerHTML = groupSectionHtml(g.name, g.color, members, view);
+        desc.innerHTML = `分组「${esc(g.name)}」· 只显示该分组下的项目 · 点击卡片下钻到文档`;
+    } else {
+        const doc = DOCS.find(d => d.id === cardScope.slice(4));
+        const hasH2 = Array.isArray(DOC_H2[doc.id]) && DOC_H2[doc.id].length;
+        wrap.innerHTML = docSectionHtml(doc, view);
+        desc.innerHTML = `<button class="tm-pc-back" onclick="activateAll('${view}')">← 返回全部</button>&nbsp;&nbsp;文档「${esc(doc.name)}」· ${hasH2 ? '按二级标题统计' : '无二级标题，显示整体进度'}`;
+    }
+    updateSubtitle();
+}
+
+function updateSubtitle() {
+    const el = document.getElementById('homeSubtitle');
+    if (!el) return;
+    if (cardScope === 'all') {
+        el.textContent = '全部页签 · 共 47 条任务 · 今天周三';
+    } else if (cardScope.startsWith('group:')) {
+        const g = GROUPS.find(x => x.id === cardScope.slice(6));
+        const members = DOCS.filter(d => d.groupId === g.id);
+        const total = members.reduce((s, d) => s + d.total, 0);
+        el.textContent = `分组「${g.name}」· ${members.length} 个文档 · 共 ${total} 条任务`;
+    } else {
+        const doc = DOCS.find(d => d.id === cardScope.slice(4));
+        el.textContent = `当前文档：${doc.name} · ${doc.total} 条任务 · 完成 ${doc.done}`;
+    }
+}
+
+/* ---- 联动：全部 / 分组页签 / 文档页签 / 卡片（模拟 tmSwitchDoc 与分组切换） ---- */
+function syncTabActive(view) {
+    const root = document.getElementById('view' + view);
+    root.querySelectorAll('.tm-doc-tab').forEach(t => {
+        if (t.classList.contains('tm-doc-tab--all')) {
+            t.classList.toggle('active', cardScope === 'all');
+        } else if (t.classList.contains('tm-doc-tab--group')) {
+            t.classList.toggle('active', cardScope === `group:${t.dataset.group}`);
+        } else {
+            t.classList.toggle('active', cardScope === `doc:${t.dataset.doc}`);
+        }
+    });
+}
+
+function activateAll(view) {
+    cardScope = 'all';
+    renderModule(view);
+    syncTabActive(view);
+}
+
+function activateGroup(groupId, view) {
+    cardScope = `group:${groupId}`;
+    renderModule(view);
+    syncTabActive(view);
+}
+
+function activateDoc(docId, view) {
+    cardScope = `doc:${docId}`;
+    renderModule(view);
+    syncTabActive(view);
+    if (view === 'A') {
+        const mod = document.getElementById('projectModule');
+        if (mod) mod.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+
+/* ---- 日期设置弹窗（模拟 tmOpenTaskTimeHub 的 groupRange 模式） ---- */
+let dateTarget = null; // { kind: 'doc'|'h2', id }
+function findDateTarget() {
+    if (!dateTarget) return null;
+    if (dateTarget.kind === 'doc') return DOCS.find(d => d.id === dateTarget.id);
+    const [docId, idx] = dateTarget.id.split(':');
+    return (DOC_H2[docId] || [])[Number(idx)] || null;
+}
+function openDatePop(event, kind, id) {
+    event.stopPropagation();
+    event.preventDefault();
+    dateTarget = { kind, id };
+    const entity = findDateTarget();
+    const pop = document.getElementById('datePop');
+    const who = kind === 'doc'
+        ? `文档 · ${entity.name}`
+        : `二级标题 · ${entity.name}`;
+    document.getElementById('datePopWho').textContent = who;
+    document.getElementById('datePopStart').value = entity.startDate || '';
+    document.getElementById('datePopEnd').value = entity.deadline || '';
+    document.getElementById('datePopError').classList.remove('show');
+    pop.classList.add('open');
+    const r = event.currentTarget.getBoundingClientRect();
+    const pw = 240, ph = 300;
+    let x = Math.min(r.left, window.innerWidth - pw - 16);
+    let y = r.bottom + 8;
+    if (y + ph > window.innerHeight) y = Math.max(16, r.top - ph - 8);
+    pop.style.left = Math.max(16, x) + 'px';
+    pop.style.top = y + 'px';
+}
+function closeDatePop() {
+    document.getElementById('datePop').classList.remove('open');
+    dateTarget = null;
+}
+function saveDates() {
+    const entity = findDateTarget();
+    if (!entity) return closeDatePop();
+    const s = document.getElementById('datePopStart').value;
+    const e = document.getElementById('datePopEnd').value;
+    if (s && e && s > e) {
+        document.getElementById('datePopError').classList.add('show');
+        return;
+    }
+    entity.startDate = s;
+    entity.deadline = e;
+    closeDatePop();
+    renderModule('A');
+    renderTabsRefresh();
+    toast(s || e ? '✅ 日期已更新，预期进度已重算' : '✅ 日期已清空');
+}
+function clearDates() {
+    const entity = findDateTarget();
+    if (!entity) return closeDatePop();
+    entity.startDate = '';
+    entity.deadline = '';
+    closeDatePop();
+    renderModule('A');
+    renderTabsRefresh();
+    toast('✅ 日期已清空');
+}
+function renderTabsRefresh() {
+    // 页签上的预期刻度也随日期变化（__tmUpdateDocTabProgress 语义）
+    const bar = document.getElementById('tabBarA');
+    bar.querySelectorAll('.tm-doc-tab[data-doc]').forEach(t => {
+        const d = DOCS.find(x => x.id === t.dataset.doc);
+        if (!d) return;
+        const exp = expectedOf(d);
+        const expEl = t.querySelector('.tm-doc-tab-expected');
+        if (expEl) expEl.style.width = (exp || 0) + '%';
+    });
+}
+let toastTimer = 0;
+function toast(text) {
+    const el = document.getElementById('toast');
+    el.textContent = text;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+document.addEventListener('click', (e) => {
+    const pop = document.getElementById('datePop');
+    if (pop.classList.contains('open') && !pop.contains(e.target) && !e.target.closest('.tm-pc-cal')) {
+        closeDatePop();
+    }
+});
+
+/* ---- 排序演示：对当前所有卡片网格分别排序 ---- */
+let sortMode = 0;
+function sortCards(btn) {
+    sortMode = (sortMode + 1) % 3;
+    document.querySelectorAll('#projectModule .tm-project-cards').forEach(wrap => {
+        const cards = Array.from(wrap.children);
+        const key = sortMode === 1
+            ? (a, b) => +b.dataset.progress - +a.dataset.progress
+            : sortMode === 2
+                ? (a, b) => +a.dataset.progress - +b.dataset.progress
+                : null;
+        if (key) cards.sort(key).forEach(c => wrap.appendChild(c));
+    });
+    btn.textContent = sortMode === 1 ? '按进度 ↓' : sortMode === 2 ? '按进度 ↑' : '默认顺序';
+    if (sortMode === 0) renderModule('A');
+}
+
+/* ---- 方案切换 ---- */
+function switchView(v) {
+    document.getElementById('viewA').classList.toggle('active', v === 'A');
+    document.getElementById('viewB').classList.toggle('active', v === 'B');
+    document.getElementById('btnA').classList.toggle('active', v === 'A');
+    document.getElementById('btnB').classList.toggle('active', v === 'B');
+}
+
+renderTabs('tabBarA', 'A');
+renderModule('A');
+/* 方案 B：卡片平铺（分组语义被摊平，正是它的问题之一） */
+document.getElementById('tabCardsB').innerHTML = DOCS.map(d => docCardHtml(d, 'B')).join('');
+</script>
+</body>
+</html>
