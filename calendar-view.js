@@ -36478,6 +36478,12 @@
                     if (timeHub instanceof HTMLElement && !timeHub.contains(target) && !timeHubToggle) closeTimeHub();
                     return;
                 }
+                // Fullscreen editors close through their own controls. Outside
+                // events may dismiss the date/time picker, but never the draft.
+                if (isMobileFullscreen) {
+                    if (!timeHub?.contains?.(target)) closeTimeHub();
+                    return;
+                }
                 if (target && (anchorEl.contains(target) || timeHub?.contains?.(target))) return;
                 // The anchor can be replaced by a calendar repaint between
                 // taps. Treat a click on the same event in this surface as an
@@ -36507,6 +36513,7 @@
                     if (!hubToggle) closeTimeHub();
                     return;
                 }
+                if (isMobileFullscreen) { closeTimeHub(); return; }
                 if (isReTargetedInsideTap(event)) return;
                 close();
             };

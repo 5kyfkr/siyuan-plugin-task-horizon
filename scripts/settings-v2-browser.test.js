@@ -232,6 +232,8 @@ const server = http.createServer((req, res) => {
         assert.deepEqual(missing, [], 'every indexed production setting must remain reachable');
         await page.evaluate(() => tmOpenSettingsV2Page('appearance', 'l-density'));
         await page.locator('.tm-settings-v3-rail-search').click();
+        // Page navigation rebuilds the index; settle it before testing synchronous input results.
+        await page.waitForFunction(() => __settingsTest.searchIndexReady());
         const realtime = await page.evaluate(() => {
             const input = document.querySelector('[data-tm-settings-search-input]');
             const jobCount = __settingsTest.jobs.size;

@@ -3163,7 +3163,6 @@
     flex-direction: column;
     max-height: 480px;
     overflow-y: auto;
-    overscroll-behavior: contain;
     scrollbar-width: thin;
 }
 
@@ -3282,9 +3281,11 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 13px 14px 12px;
+    padding: 13px 14px 12px 12px;
     background: var(--tm-home-surface);
     border: 1px solid var(--tm-home-border);
+    /* 与看板置顶卡片一致：用卡片自身的左边框做文档色条，拐角自然跟随圆角 */
+    border-left: 3px solid var(--tm-doc-color, var(--tm-home-accent));
     border-radius: 10px;
     cursor: pointer;
     text-align: left;
@@ -3295,25 +3296,15 @@
 
 .tm-home-project-card:hover {
     border-color: var(--tm-doc-color, var(--tm-home-accent));
+    border-left-width: 3px;
     box-shadow: 0 4px 14px rgba(15, 23, 42, .08);
     transform: translateY(-1px);
 }
 
 .tm-home-project-card.is-active {
     border-color: var(--tm-doc-color, var(--tm-home-accent));
+    border-left-width: 3px;
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--tm-doc-color, var(--tm-home-accent)) 22%, transparent);
-}
-
-/* 左侧 3px 文档色条：一眼区分项目 */
-.tm-home-project-card::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: var(--tm-doc-color, var(--tm-home-accent));
-    opacity: .85;
 }
 
 .tm-home-project-top {
@@ -4756,20 +4747,30 @@
         return `${item.levelLabel} · ${parts.join("，")}`;
     }
 
+    // 任务状态、任务分布、风险提醒与项目进度卡片保持同一统计范围：只统计实际展示为页签/卡片的文档，
+    // 不含被规则过滤、归档隐藏或全局收集箱里的任务。
+    function resolveOverviewScopeTasks(tasks, projects) {
+        const ids = Array.isArray(projects?.includedDocIds) ? projects.includedDocIds : null;
+        if (!ids || String(projects?.scope || "") === "unsupported") return tasks;
+        const idSet = new Set(ids.map((id) => String(id || "").trim()).filter(Boolean));
+        return (Array.isArray(tasks) ? tasks : []).filter((task) => idSet.has(String(task?.root_id || task?.docId || task?.documentID || "").trim()));
+    }
+
     function buildOverview(ctx) {
         const todayKey = normalizeDateKey(ctx?.todayKey) || formatDateKey(new Date());
         const tasks = flattenTasks(ctx?.tasks || []);
+        const scopeTasks = resolveOverviewScopeTasks(tasks, ctx?.projects);
         const relationIndex = buildTaskRelationIndex(tasks);
         const trend = buildTrend(tasks, todayKey, runtime.rangeDays);
         const weekDone = buildTrend(tasks, todayKey, 7).points.reduce((sum, point) => sum + point.value, 0);
         // 状态概览将取消任务归入已完成，不改变任务本身或实际完成记录。
-        const unfinishedTasks = tasks.filter((task) => !task?.done
+        const unfinishedTasks = scopeTasks.filter((task) => !task?.done
             && String(task?.taskMarker ?? task?.task_marker ?? task?.marker ?? "").trim() !== "-");
         const overdue = unfinishedTasks.filter((task) => resolveTaskDueKey(task) && dayDiff(todayKey, resolveTaskDueKey(task)) < 0).length;
         const overdueCount = overdue;
-        const doneCount = tasks.length - unfinishedTasks.length;
-        const pendingCount = Math.max(0, tasks.length - doneCount - overdueCount);
-        const completionRate = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
+        const doneCount = scopeTasks.length - unfinishedTasks.length;
+        const pendingCount = Math.max(0, scopeTasks.length - doneCount - overdueCount);
+        const completionRate = scopeTasks.length ? Math.round((doneCount / scopeTasks.length) * 100) : 0;
         const procrastinationDoneParentMemo = new Map();
         let procrastinationDueTaskCount = 0;
         let procrastinationOverdueCount = 0;
@@ -4812,9 +4813,9 @@
             tasks,
             trend,
             heatmap: buildHeatmap(tasks, todayKey, ctx, profile),
-            distribution: buildDistribution(tasks),
+            distribution: buildDistribution(scopeTasks),
             recentDone: buildRecentDone(tasks, todayKey),
-            riskList: buildRiskList(tasks, todayKey, relationIndex),
+            riskList: buildRiskList(scopeTasks, todayKey, relationIndex),
             procrastination,
             title: `主页 - ${scopeLabel}`,
             subtitle: subtitleParts.length
@@ -4824,7 +4825,7 @@
                 todayDone: trend.points.length ? trend.points[trend.points.length - 1].value : 0,
                 weekDone,
                 overdue,
-                total: tasks.length,
+                total: scopeTasks.length,
                 doneCount,
                 overdueCount,
                 pendingCount,
@@ -5914,9 +5915,17 @@
             title="${esc(title)}">${PROJECT_CAL_SVG}<span class="tm-home-project-cal-name">${esc(name)}</span></button>`;
     }
 
+    // 预期进度只有完整设置了开始+截止日期才存在；null/undefined/空串一律视为无指示器
+    function normalizeProjectExpected(value) {
+        if (value === null || value === undefined || value === "") return null;
+        const num = Number(value);
+        if (!Number.isFinite(num)) return null;
+        return Math.max(0, Math.min(100, Math.round(num)));
+    }
+
     function renderProjectProgressHtml(entity) {
         const progress = Math.max(0, Math.min(100, Math.round(toNumber(entity?.progress, 0))));
-        const expected = Number.isFinite(Number(entity?.expected)) ? Math.max(0, Math.min(100, Math.round(Number(entity.expected)))) : null;
+        const expected = normalizeProjectExpected(entity?.expected);
         const delta = expected != null ? progress - expected : null;
         const deltaHtml = delta == null ? ""
             : delta >= 0
@@ -5994,7 +6003,7 @@
 
     function renderProjectsSectionHead(name, color, aggHtml, pct, expected) {
         const safePct = Math.max(0, Math.min(100, Math.round(toNumber(pct, 0))));
-        const exp = Number.isFinite(Number(expected)) ? Math.max(0, Math.min(100, Math.round(Number(expected)))) : null;
+        const exp = normalizeProjectExpected(expected);
         const safeColor = String(color || "").trim();
         return `
         <div class="tm-home-projects-section-head" ${safeColor ? `style="--tm-group-color:${esc(safeColor)}"` : ""}>
@@ -6024,7 +6033,7 @@
 
     function renderProjectsDocScope(projects) {
         const doc = projects.doc;
-        const expected = Number.isFinite(Number(doc.expected)) ? Math.round(Number(doc.expected)) : null;
+        const expected = normalizeProjectExpected(doc.expected);
         const delta = expected != null ? Math.round(toNumber(doc.progress, 0)) - expected : null;
         const range = formatProjectDateRange(doc);
         const aggHtml = `${toNumber(doc.total, 0)} 任务 / ${toNumber(doc.done, 0)} 完成`

@@ -17543,7 +17543,7 @@ if (opts.refresh === false) return;
     let __tmHomepageProjectsWarmupIds = new Set();
 
     function __tmBuildHomepageProjects(homepageTasks, todayKey) {
-        const empty = { scope: 'all', sections: [], doc: null, h2Cards: [], noH2Card: null };
+        const empty = { scope: 'all', sections: [], doc: null, h2Cards: [], noH2Card: null, includedDocIds: [] };
         try {
             const tasks = Array.isArray(homepageTasks) ? homepageTasks : [];
             const today = String(todayKey || '').trim() || __tmNormalizeDateOnly(new Date());
@@ -17681,6 +17681,8 @@ if (opts.refresh === false) return;
                 ? (Array.isArray(state.filterRules) ? state.filterRules.find((rule) => String(rule?.id || '').trim() === String(state.currentRule || '').trim()) : null)
                 : null;
             const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+            // 跟随页签栏的归档模式：归档视图下展示归档文档的进度卡片
+            const archiveMode = state.docTabsArchiveMode === true;
             const docsForTabs = __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId);
             const docStateCache = new Map();
             const visibleDocs = docsForTabs
@@ -17688,7 +17690,7 @@ if (opts.refresh === false) return;
                     const docId = String(doc?.id || '').trim();
                     if (!docId) return false;
                     if (activeDocId && activeDocId !== 'all' && docId === activeDocId) return true;
-                    return __tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode: false, groupId: currentGroupId, docStateCache });
+                    return __tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode, groupId: currentGroupId, docStateCache });
                 })
                 .filter((doc) => !globalNewTaskDocId || String(doc?.id || '').trim() !== globalNewTaskDocId);
 
@@ -17723,14 +17725,14 @@ if (opts.refresh === false) return;
                     deadline: '',
                     overdueDays: 0,
                 } : null;
-                result = { scope: 'doc', sections: [], doc, h2Cards, noH2Card };
+                result = { scope: 'doc', sections: [], doc, h2Cards, noH2Card, includedDocIds: doc ? [doc.id] : [] };
             } else {
                 const groupedView = __tmBuildDocTabGroupedView(visibleDocs, {
                     currentGroupId,
                     activeDocId,
                     allDocsForTabs: docsForTabs,
                     currentRule,
-                    archiveMode: false,
+                    archiveMode,
                     globalNewTaskDocId,
                 });
                 const viewGroups = Array.isArray(groupedView?.groups) ? groupedView.groups : [];
@@ -17747,7 +17749,7 @@ if (opts.refresh === false) return;
                         cards,
                         agg: buildSectionAgg(cards),
                     });
-                    result = { scope: 'group', sections, doc: null, h2Cards: [], noH2Card: null };
+                    result = { scope: 'group', sections, doc: null, h2Cards: [], noH2Card: null, includedDocIds: cards.map((card) => card.id) };
                 } else {
                     viewGroups.forEach((group) => {
                         const cards = (Array.isArray(group?.members) ? group.members : [])
@@ -17774,11 +17776,18 @@ if (opts.refresh === false) return;
                             agg: buildSectionAgg(normalCards),
                         });
                     }
-                    result = { scope: 'all', sections, doc: null, h2Cards: [], noH2Card: null };
+                    result = {
+                        scope: 'all',
+                        sections,
+                        doc: null,
+                        h2Cards: [],
+                        noH2Card: null,
+                        includedDocIds: sections.flatMap((section) => section.cards.map((card) => card.id)),
+                    };
                 }
             }
 
-            const warmupKey = `${currentGroupId}|${activeDocId}`;
+            const warmupKey = `${currentGroupId}|${activeDocId}|${archiveMode ? 1 : 0}`;
             if (__tmHomepageProjectsWarmupKey !== warmupKey) {
                 __tmHomepageProjectsWarmupKey = warmupKey;
                 __tmHomepageProjectsWarmupIds = new Set();
