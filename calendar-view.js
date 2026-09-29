@@ -18616,6 +18616,14 @@
             && !!String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
     }
 
+    function isRecurringTaskLinkedScheduleEventExt(ext) {
+        if (!isTaskLinkedScheduleEventExt(ext)
+            || normalizeScheduleRepeatType(ext?.__tmRepeatType) !== 'none') return false;
+        if (ext?.__tmLinkedTaskRecurring === true) return true;
+        const taskId = String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
+        try { return isCalendarTaskRecurringSnapshot(getCalendarTaskSnapshotById(taskId)); } catch (e) { return false; }
+    }
+
     function resolveCalendarEventDoneState(ext, options = {}) {
         const source = String(ext?.__tmSource || '').trim();
         if (source === 'reminder') return ext?.__tmReminderDone === true;
@@ -18624,6 +18632,11 @@
         if (source === 'schedule' && ext?.__tmVirtualTaskSchedule === true) return true;
         if (isDetachedTaskOccurrenceEventExt(ext) || (isDetachedScheduleOccurrenceEventExt(ext) && !isTaskLinkedScheduleEventExt(ext))) return ext?.__tmScheduleOccurrenceDone === true;
         if (isIndependentScheduleEventExt(ext)) return ext?.__tmScheduleOccurrenceDone === true;
+        // A one-off schedule of a recurring task represents one completion.
+        // The recurrence transaction reassigns only the clicked schedule to
+        // its history instance. Never spread the source task's intermediate
+        // done state (or its cached value) to the other pending schedules.
+        if (isRecurringTaskLinkedScheduleEventExt(ext)) return ext?.__tmScheduleOccurrenceDone === true;
         const tid = String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
         const opt = (options && typeof options === 'object') ? options : {};
         let taskDone = false;
@@ -18712,6 +18725,9 @@
         // after stopPropagation. Claim it before any asynchronous write.
         if (opt.jsEvent?.__tmCalendarCheckboxHandled === true) return false;
         if (opt.jsEvent) opt.jsEvent.__tmCalendarCheckboxHandled = true;
+        const recurringTaskSchedule = isRecurringTaskLinkedScheduleEventExt(ext);
+        const previousOccurrenceDone = ext?.__tmScheduleOccurrenceDone;
+        if (recurringTaskSchedule) ext.__tmScheduleOccurrenceDone = nextDone;
         let applied = false;
         applyTaskDoneVisual(wrapEl, titleText, nextDone);
         try {
@@ -18781,6 +18797,7 @@
             applied = true;
             return true;
         } catch (e) {
+            if (recurringTaskSchedule) ext.__tmScheduleOccurrenceDone = previousOccurrenceDone;
             cb.checked = !nextDone;
             applyTaskDoneVisual(wrapEl, titleText, !nextDone);
             throw e;
@@ -22661,6 +22678,7 @@
             '__tmDetachedTaskOccurrence',
             '__tmDetachedScheduleOccurrence',
             '__tmLinkedAllDayTaskSchedule',
+            '__tmLinkedTaskRecurring',
             '__tmAllDayBottom',
             '__tmDocId',
             'calendarId',
