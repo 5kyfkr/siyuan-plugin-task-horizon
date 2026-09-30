@@ -90,6 +90,7 @@ const state = {
 };
 const fixture = {
     state, Map, Set, SettingsStore: { data: { docH2SubgroupEnabled: false } },
+    __tmGetTaskDateFieldDisplayValue: (task, field) => String(task[field] || ''),
     __tmBuildTaskRowModelCacheMeta: () => ({ viewMode: 'checklist', filteredTasksRef: tasks }),
     __tmGetAlwaysVisibleTaskDocHeadingTasks: () => [],
     __tmGetFilteredTaskDerivedState: () => ({

@@ -5297,7 +5297,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 : 'due';
             const currentRepeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
             const currentEndMode = currentRule.maxOccurrences > 0 ? 'count' : (currentRule.until ? 'date' : 'never');
-            const anchorDate = __tmNormalizeDateOnly(currentRule.anchorDate || task?.completionTime || task?.startDate || new Date());
+            let anchorDate = __tmNormalizeDateOnly(currentRule.anchorDate || task?.completionTime || task?.startDate || new Date());
             const modal = document.createElement('div');
             modal.className = 'tm-repeat-modal';
             modal.innerHTML = `
@@ -5309,6 +5309,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                             <select class="tm-repeat-select" data-tm-repeat-field="triggerType">
                                 <option value="due"${currentTriggerType === 'due' ? ' selected' : ''}>到期重复</option>
                                 <option value="complete"${currentTriggerType === 'complete' ? ' selected' : ''}>完成重复</option>
+                                <option value="checkin"${currentTriggerType === 'checkin' ? ' selected' : ''}>打卡循环</option>
                                 <option value="fsrs"${currentTriggerType === 'fsrs' ? ' selected' : ''}>FSRS 间隔重复</option>
                                 <option value="none"${currentTriggerType === 'none' ? ' selected' : ''}>不循环</option>
                             </select>
@@ -5361,7 +5362,11 @@ return Number(state.contextInteractionQuietUntil || 0);
                                 <input class="tm-repeat-input" data-tm-repeat-field="maxOccurrences" type="number" min="1" max="200" step="1" value="${esc(String(currentRule.maxOccurrences || 1))}">
                                 <div class="tm-repeat-inline-prefix">次（含本次）</div>
                             </div>
-                            <div class="tm-repeat-muted">基准日期：${esc(anchorDate || '未设置')}</div>
+                            <div class="tm-repeat-muted" data-tm-repeat-anchor-summary>基准日期：${esc(anchorDate || '未设置')}</div>
+                        </div>
+                        <div class="tm-repeat-field" data-tm-repeat-anchor-wrap style="display:${currentTriggerType === 'checkin' ? '' : 'none'};">
+                            <label class="tm-repeat-label" for="tm-repeat-checkin-anchor">计划起始日期</label>
+                            <input id="tm-repeat-checkin-anchor" class="tm-repeat-input" data-tm-repeat-field="anchorDate" type="date" value="${esc(anchorDate)}">
                         </div>
                         <div class="tm-repeat-summary" data-tm-repeat-summary></div>
                         <div class="tm-repeat-actions">
@@ -5379,6 +5384,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             const typeEl = modal.querySelector('[data-tm-repeat-field="type"]');
             const endModeEl = modal.querySelector('[data-tm-repeat-field="endMode"]');
             const untilEl = modal.querySelector('[data-tm-repeat-field="until"]');
+            const anchorEl = modal.querySelector('[data-tm-repeat-field="anchorDate"]');
+            const anchorWrap = modal.querySelector('[data-tm-repeat-anchor-wrap]');
+            const anchorSummary = modal.querySelector('[data-tm-repeat-anchor-summary]');
             const maxOccurrencesEl = modal.querySelector('[data-tm-repeat-field="maxOccurrences"]');
             const countWrap = modal.querySelector('[data-tm-repeat-count-wrap]');
             const frequencyWrap = modal.querySelector('[data-tm-repeat-frequency-wrap]');
@@ -5477,6 +5485,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             };
             const syncUi = () => {
                 const triggerType = String(triggerTypeEl?.value || 'none').trim();
+                if (triggerType === 'checkin') anchorDate = __tmNormalizeDateOnly(anchorEl?.value) || anchorDate;
+                if (anchorWrap instanceof HTMLElement) anchorWrap.style.display = triggerType === 'checkin' ? '' : 'none';
+                if (anchorSummary instanceof HTMLElement) anchorSummary.textContent = `基准日期：${anchorDate || '未设置'}`;
                 const type = __tmNormalizeTaskRepeatType(typeEl?.value || currentRule.type || 'daily');
                 const fsrs = triggerType === 'fsrs';
                 const completionBased = triggerType === 'complete';
@@ -5514,6 +5525,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                         : '当前任务不会自动循环。';
                     if (draft.enabled && draft.trigger === 'complete' && draft.type !== 'fsrs') {
                         summaryEl.textContent += ' 从实际完成日期计算下一期；未完成前不预排后续日期。';
+                    }
+                    if (draft.enabled && draft.trigger === 'checkin') {
+                        summaryEl.textContent += ' 按计划日期独立打卡；笔记勾选表示今日已打卡，当天保持勾选。此模式没有永久完成状态，需切换循环方式或关闭循环后才能完成任务。';
                     }
                     if (__tmMonthRepeatCore.isExplicit(draft)) {
                         const dates = __tmMonthRepeatCore.iterate(draft, { fromDateKey: __tmNormalizeDateOnly(new Date()), toDateKey: '9999-12-31', limit: 3 });
@@ -5567,6 +5581,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             everyEl?.addEventListener('input', syncUi);
             endModeEl?.addEventListener('change', syncUi);
             untilEl?.addEventListener('change', syncUi);
+            anchorEl?.addEventListener('change', syncUi);
             maxOccurrencesEl?.addEventListener('input', syncUi);
             confirmBtn?.addEventListener('click', () => {
                 const draft = readDraft();
@@ -6807,7 +6822,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     }
 
     async function __tmApplyBatchAttrPatch(patch, options = {}) {
-        const targetIds = __tmGetMultiSelectTargetIds();
+        let targetIds = __tmGetMultiSelectTargetIds();
         if (!targetIds.length) {
             hint('⚠ 请先选择至少一条任务', 'warning');
             return { successCount: 0, failureCount: 0, failures: [] };
@@ -6816,6 +6831,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!Object.keys(nextPatch).length) {
             hint('⚠ 未找到可批量更新的内容', 'warning');
             return { successCount: 0, failureCount: 0, failures: [] };
+        }
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate') || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) {
+            const count = targetIds.length;
+            targetIds = targetIds.filter(id => !__tmIsCheckinTask(globalThis.__tmTaskBoundary?.getTask?.(id)));
+            if (targetIds.length < count) hint('已跳过打卡任务，请在循环设置中调整打卡日期', 'info');
+            if (!targetIds.length) return { successCount: 0, failureCount: 0, failures: [] };
         }
         const result = await __tmMutationEngine.requestTaskPatchBatch(targetIds, nextPatch, {
             source: String(options?.source || 'batch-attr').trim() || 'batch-attr',
@@ -10697,9 +10718,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         const includeCanceledStatus = __tmRuleIncludesCanceledStatus(rule);
         const isTaskHiddenByCompletion = (task) => {
-            const taskDone = typeof __tmIsTaskDoneEffective === 'function'
-                ? __tmIsTaskDoneEffective(task)
-                : task.done === true;
+            const taskDone = typeof __tmIsTaskCompletedForProjection === 'function'
+                ? __tmIsTaskCompletedForProjection(task)
+                : (typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(task) : task.done === true);
             return taskDone || (!includeCanceledStatus && __tmIsTaskCanceled(task));
         };
         const isTaskVisibleByCompletion = (task) => !excludeCompleted
@@ -14432,6 +14453,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         try {
             const snapshotService = globalThis.__tmTaskSnapshotService || null;
             let snapshot = null;
+            let switchDocIds = null;
             try {
                 const snapshotRaceTimeoutMs = runtimeMobileFastPath ? 260 : 220;
                 snapshot = await Promise.race([
@@ -14444,12 +14466,34 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (!isSwitchCurrent()) {
                 return;
             }
+            if (snapshot) {
+                try {
+                    switchDocIds = __tmNormalizeTaskSnapshotDocIds(await resolveDocIdsFromGroups({
+                        groupId: nextGroupId,
+                        skipPersistedScope: true,
+                        verifyCachedScope: false,
+                    }));
+                } catch (e) {}
+                if (!isSwitchCurrent()) {
+                    return;
+                }
+                const expectedDocSet = new Set(switchDocIds || []);
+                const unexpectedTreeDocIds = (Array.isArray(snapshot.taskTree) ? snapshot.taskTree : [])
+                    .map((doc) => String(doc?.id || '').trim())
+                    .filter((id) => !expectedDocSet.has(id));
+                const scopeMatches = Array.isArray(switchDocIds)
+                    && __tmValidateTaskSnapshotForScope(snapshot, { groupId: nextGroupId, docIds: switchDocIds })
+                    && __tmNormalizeTaskSnapshotDocIds(snapshot.docIds).join(',') === switchDocIds.join(',')
+                    && unexpectedTreeDocIds.length === 0;
+                if (!scopeMatches) snapshot = null;
+            }
             try { if (!snapshot) snapshotService?.warm?.(); } catch (e) {}
             let snapshotRendered = false;
             if (isSwitchCurrent()) {
                 state.otherBlocks = [];
                 const snapshotMeta = snapshotService?.restore?.(snapshot, {
                     groupId: nextGroupId,
+                    docIds: switchDocIds,
                     taskCountMap: null
                 });
                 if (snapshotMeta) {
@@ -15104,6 +15148,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                 return;
             }
             if (!__tmEnsureEditableTaskLike(check.task, '修改截止日期')) return;
+            if (__tmIsCheckinTask(check.task)) {
+                hint('打卡日期由循环计划决定，请在循环设置中调整', 'info');
+                return;
+            }
             const currentDate = __tmNormalizeDateOnly(check.task?.completionTime || check.task?.completion_time || '');
             if (currentDate === check.dateKey) {
                 hint(`截止日期已是 ${check.dateKey}`, 'info');

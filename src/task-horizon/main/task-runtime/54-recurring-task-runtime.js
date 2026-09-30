@@ -125,7 +125,7 @@
             occurrenceCount,
             lastInstanceStart: __tmNormalizeDateOnly(task?.startDate || ''),
             lastInstanceDue: __tmNormalizeDateOnly(task?.completionTime || ''),
-            pendingNativeDoneReset: (!nextRule.enabled || nextRule.type === 'none')
+            pendingNativeDoneReset: (!nextRule.enabled || nextRule.type === 'none' || nextRule.trigger === 'checkin')
                 ? false
                 : currentState.pendingNativeDoneReset,
             fsrsCard: nextRule.type === 'fsrs' ? currentState.fsrsCard : null,
@@ -137,7 +137,7 @@
             repeatRule: nextRule,
             repeatState: nextState,
         };
-        if (scheduleChanged && __tmMonthRepeatCore?.isExplicit(nextRule)) {
+        if (scheduleChanged && nextRule.trigger !== 'checkin' && __tmMonthRepeatCore?.isExplicit(nextRule)) {
             const currentKey = __tmNormalizeDateOnly(task.completionTime || task.startDate || nextRule.anchorDate);
             const firstKey = __tmMonthRepeatCore.nextDateKey(nextRule, currentKey, true);
             if (!firstKey) throw new Error('月循环没有有效日期，请检查日期和结束条件');
@@ -491,6 +491,9 @@
             }
         } catch (e) {}
         if (!task?.id) {
+            return false;
+        }
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
             return false;
         }
         const latestLocal = globalThis.__tmTaskBoundary?.getTask?.(String(task.id || taskId));
@@ -896,12 +899,23 @@
         const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1, 0);
         __tmRecurringNativeDoneResetSweepTimer = setTimeout(() => {
             __tmRecurringNativeDoneResetSweepTimer = null;
+            try { __tmRefreshNativeDocCheckinCheckboxes(); } catch (e) {}
+            try {
+                __tmRefreshViewsAfterTaskMutation({
+                    refresh: true,
+                    refreshCalendar: true,
+                    withFilters: true,
+                    hard: false,
+                    reason: 'task-checkin-new-day',
+                });
+            } catch (e) {}
             void __tmRunRecurringNativeDoneResetSweep({ source: 'task-repeat-native-reset-midnight' });
             __tmArmRecurringNativeDoneResetSweepTimer();
         }, Math.max(1000, nextMidnight.getTime() - now.getTime()));
     }
 
     function __tmScheduleRecurringNativeDoneResetSweep(source = '') {
+        try { __tmRefreshNativeDocCheckinCheckboxes(); } catch (e) {}
         __tmArmRecurringNativeDoneResetSweepTimer();
         return __tmRunRecurringNativeDoneResetSweep({
             source: String(source || 'task-repeat-native-reset-schedule').trim() || 'task-repeat-native-reset-schedule',
@@ -975,6 +989,7 @@
                 }
                 const rule = __tmGetTaskRepeatRule(task);
                 if (!rule.enabled || rule.type === 'none') continue;
+                if (rule.trigger === 'checkin' || (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task))) continue;
                 if (__tmIsTaskNativeDone(task)) {
                     const kernelCompletedAt = __tmNormalizeTaskCompleteAtValue(task?.taskCompleteAt || task?.task_complete_at || '');
                     if (!kernelCompletedAt) continue;
@@ -1139,12 +1154,13 @@
         if (!taskRef) throw new Error('任务 ID 为空');
         const task = await __tmResolveTaskForRepeat(taskRef);
         if (!task?.id) throw new Error('未找到任务');
-        const completionTime = __tmNormalizeDateOnly(source.completionTime || '');
-        if (!completionTime) throw new Error('任务截止日不能为空');
         const currentRule = __tmNormalizeTaskRepeatRule(task?.repeatRule, {
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });
+        const checkin = currentRule?.enabled && currentRule.trigger === 'checkin';
+        const completionTime = __tmNormalizeDateOnly(checkin ? task?.completionTime || '' : source.completionTime || '');
+        if (!checkin && !completionTime) throw new Error('任务截止日不能为空');
         const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
         const completionChanged = __tmNormalizeDateOnly(task?.completionTime || '') !== completionTime;
         if (completionChanged) {

@@ -2732,6 +2732,10 @@
         if (!dueRanges.length) return 0;
         const nowTs = Number.isFinite(Number(opts.nowTs)) ? Number(opts.nowTs) : Date.now();
         let nextBoundaryTs = 0;
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+            const nowDate = new Date(nowTs);
+            nextBoundaryTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + 1).getTime();
+        }
         for (const range of dueRanges) {
             const boundaryTs = dueTs - (Number(range.days) * 86400000);
             if (!(Number.isFinite(boundaryTs) && boundaryTs > nowTs)) continue;
@@ -7757,7 +7761,14 @@ return false;
             checkbox = root.querySelector('.tm-task-checkbox');
         }
         if (checkbox instanceof HTMLInputElement) {
-            checkbox.checked = taskDone;
+            if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(effectiveTask)) {
+                const checkinDate = __tmNormalizeDateOnly(new Date());
+                checkbox.checked = __tmIsTaskCheckinChecked(effectiveTask, checkinDate);
+                checkbox.disabled = false;
+                checkbox.title = __tmGetTaskCheckinTodayHint(effectiveTask);
+            } else {
+                checkbox.checked = taskDone;
+            }
             touched = true;
         }
         if (root.classList?.contains?.('tm-checklist-item')) {
@@ -7976,7 +7987,7 @@ return false;
             }
         }
 
-        if (__tmTaskCardFieldEnabled(viewKey, 'remainingTime') && __tmShouldRenderTaskCardRemainingTime(taskLike)) {
+        if (__tmTaskCardFieldEnabled(viewKey, 'remainingTime') && __tmShouldRenderTaskCardRemainingTime(taskLike, __tmTaskCardFieldEnabled(viewKey, 'date'))) {
             const remainingInfo = __tmGetTaskRemainingTimeInfo(taskLike);
             const remainingLabel = String(remainingInfo?.label || '').trim();
             metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="remainingTime" title="${esc(remainingLabel)}">${__tmRenderTaskRemainingTimeInfoHtml(remainingInfo)}</span>`);
@@ -8743,6 +8754,10 @@ return false;
         const inversePatch = __tmCaptureTaskPatchInverse(tid, plan.projectionPatch);
         if (opts.skipNoopCheck !== true && __tmIsPatchNoop(plan.normalizedPatch, inversePatch)) return Promise.resolve(false);
         const taskLike = __tmTaskStateKernel.getTask(tid);
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask({ ...taskLike, ...plan.normalizedPatch })
+            && (plan.explicitDone || (plan.explicitCustomStatus && plan.normalizedPatch.done === true))) {
+            return Promise.reject(new Error('打卡模式没有永久完成状态；请使用打卡复选框，或先切换循环方式'));
+        }
         const attachmentPreviousSnapshot = Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'attachments')
             ? {
                 paths: __tmGetTaskAttachmentPaths(taskLike || {}),
@@ -11298,8 +11313,8 @@ return false;
                 const bucket = __tmGetDocHeadingBucket(t, '无标题');
                 const h2Key = `${docId}::${String(bucket?.key || 'label:__none__')}`;
                 const preferChildTime = !!(SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant && (state.groupByTime || state.quadrantEnabled));
-                const info = preferChildTime
-                    ? __tmGetTaskTimePriorityInfo(t, { memo: timeInfoMemo })
+                const info = preferChildTime || __tmIsCheckinTask(t)
+                    ? __tmGetTaskTimePriorityInfo(t, { memo: timeInfoMemo, useBestSubtaskTime: preferChildTime })
                     : { ts: __tmParseTimeToTs(t?.completionTime), diffDays: Infinity, hasDate: false };
                 const ts = Number(info?.ts || 0);
                 // 计算任务日期距离今天的天数（正数表示未来，负数表示过去，0表示今天）
@@ -12571,4 +12586,15 @@ return false;
                 <div class="tm-task-detail-history-list">${itemsHtml}</div>
             </section>
         `;
+    }
+
+    function __tmBuildTaskCheckinHistorySectionHtml(task) {
+        if (typeof __tmIsCheckinTask !== 'function' || !__tmIsCheckinTask(task)) return '';
+        const history = typeof __tmGetTaskCheckinHistory === 'function' ? __tmGetTaskCheckinHistory(task) : [];
+        const rows = history.slice().sort((a, b) => String(b.scheduledDate).localeCompare(String(a.scheduledDate))).map((entry) => {
+            const date = String(entry?.scheduledDate || '').trim();
+            const checkedAt = String(entry?.checkedAt || '').trim();
+            return `<div class="tm-task-detail-history-item"><div class="tm-task-detail-history-head"><div class="tm-task-detail-history-main">${esc(date)} · 已打卡</div><button type="button" class="tm-task-detail-history-delete" data-tm-detail-checkin-toggle="${esc(date)}">取消</button></div><div class="tm-task-detail-history-sub">记录于 ${esc(checkedAt ? __tmFormatTaskTime(checkedAt) : '未知时间')}</div></div>`;
+        }).join('');
+        return `<section class="tm-task-detail-section" data-tm-detail-collapsible-section data-tm-detail-checkin-section><div class="tm-task-detail-section-head"><button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="false"><span class="tm-task-detail-section-title">打卡记录</span><span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span></button><div class="tm-task-detail-section-tools"><span class="tm-task-detail-section-count">${history.length}</span></div></div><div class="tm-task-detail-history-list" hidden>${rows || '<div class="tm-task-detail-history-sub">暂无打卡记录；计划日会显示在日历中。</div>'}</div></section>`;
     }

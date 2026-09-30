@@ -1648,16 +1648,18 @@
 .tm-calendar-root,
 .tm-calendar-wrap,
 .tm-calendar-side-dock,
+.tm-proto-event-popover,
 #tmCalendarSideDockTimeline{
     /* Derive calendar surfaces from the plugin/host theme instead of fixed
-       daytime whites. Explicit calendar overrides still win. */
+       daytime whites. Body-level popovers also need these tokens when opened
+       from task details without a mounted calendar. Explicit overrides win. */
     --tm-cal-surface: var(--tm-calendar-surface-bg, var(--tm-bg-color, var(--b3-theme-background, #ffffff)));
     --tm-cal-panel: var(--tm-calendar-panel-bg, var(--tm-card-bg, var(--tm-section-bg, var(--tm-cal-surface))));
     --tm-cal-panel-2: var(--tm-calendar-panel-muted-bg, color-mix(in srgb, var(--tm-cal-panel) 94%, var(--tm-primary-color, var(--b3-theme-primary, #3a6ee8)) 6%));
     --tm-cal-border: color-mix(in srgb, var(--tm-calendar-grid-border-color, var(--tm-border-color, var(--b3-border-color, #e8eaef))) 95%, var(--tm-cal-text) 5%);
     --tm-cal-border-soft: color-mix(in srgb, var(--tm-cal-border) 62%, transparent);
-    --tm-cal-text: var(--tm-text-color, #20242b);
-    --tm-cal-muted: var(--tm-secondary-text, #646a73);
+    --tm-cal-text: var(--tm-text-color, var(--b3-theme-on-background, #20242b));
+    --tm-cal-muted: var(--tm-secondary-text, var(--b3-theme-on-surface, #646a73));
     --tm-cal-faint: color-mix(in srgb, var(--tm-cal-muted) 68%, transparent);
     --tm-cal-primary: var(--b3-theme-primary, var(--tm-primary-color, #3a6ee8));
     --tm-cal-primary-soft: color-mix(in srgb, var(--tm-cal-primary) 11%, var(--tm-cal-panel));
@@ -1688,6 +1690,7 @@
 }[data-theme-mode="dark"] .tm-calendar-root,
 [data-theme-mode="dark"] .tm-calendar-wrap,
 [data-theme-mode="dark"] .tm-calendar-side-dock,
+[data-theme-mode="dark"] .tm-proto-event-popover,
 [data-theme-mode="dark"] #tmCalendarSideDockTimeline{
     --tm-cal-surface: var(--tm-calendar-surface-bg-dark, var(--tm-bg-color, var(--b3-theme-background, var(--b3-theme-surface, #25272c))));
     --tm-cal-panel: var(--tm-calendar-panel-bg-dark, var(--tm-card-bg, var(--tm-section-bg, var(--b3-theme-surface, #25272c))));
@@ -3959,7 +3962,8 @@
     justify-content:space-between;
     gap:8px;
     border:0;
-    border-top:1px solid color-mix(in srgb, var(--tm-cal-border) 70%, transparent);
+    box-shadow:none;
+    appearance:none;
     border-radius:0;
     background:transparent;
     color:var(--tm-cal-muted);
@@ -7925,7 +7929,7 @@
 .tm-calendar-edit-note{min-height:74px;resize:vertical;line-height:1.5}
 .tm-calendar-edit-more-toggle{
     width:100%;min-height:40px;margin:8px 0 2px;padding:0 2px;display:flex;align-items:center;justify-content:space-between;
-    border-top:1px solid color-mix(in srgb, var(--tm-border-color) 72%, transparent);color:var(--tm-secondary-text);font-size:12px;font-weight:700;text-align:left;
+    border:0;background:transparent;box-shadow:none;appearance:none;color:var(--tm-secondary-text);font-size:12px;font-weight:700;text-align:left;
 }
 .tm-calendar-edit-more-toggle:hover{color:var(--tm-primary-color)}
 .tm-calendar-edit-more-chevron{font-size:18px;line-height:1;transition:transform .16s ease-out}

@@ -55,6 +55,7 @@
     function __tmResolveTaskCompletedAtRaw(task, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         if (!(task && typeof task === 'object')) return '';
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) return '';
         if (opts.completedOnly !== false && !task.done
             && !(typeof __tmIsTaskCanceled === 'function' && __tmIsTaskCanceled(task))) return '';
         const taskCompleteAtAttrValue = typeof __tmReadTaskMetaAttrValue === 'function'
@@ -230,11 +231,26 @@
     }
 
     function __tmGetTaskCardDateValue(task) {
+        if (__tmIsCheckinTask(task)) return __tmGetTaskCheckinCurrentDate(task);
         return String(task?.completionTime || '').trim() || String(task?.startDate || '').trim();
+    }
+
+    function __tmGetTaskDateFieldDisplayValue(task, field) {
+        if (__tmIsCheckinTask(task)) return field === 'completionTime' ? __tmGetTaskCheckinCurrentDate(task) : '';
+        return String(field === 'startDate'
+            ? (task?.startDate || task?.start_date || '')
+            : (task?.completionTime || task?.completion_time || '')).trim();
+    }
+
+    function __tmFormatTaskDateFieldDisplayValue(task, field, compact = false) {
+        const value = __tmGetTaskDateFieldDisplayValue(task, field);
+        const text = compact ? __tmFormatTaskCardDateValueFromValue(value) : __tmFormatTaskTime(value);
+        return value && __tmIsCheckinTask(task) ? `打卡 ${text}` : text;
     }
 
     function __tmHasTaskCardDate(task) {
         if (!(task && typeof task === 'object')) return false;
+        if (__tmIsCheckinTask(task)) return !!__tmGetTaskCheckinCurrentDate(task);
         return !!String(
             task?.startDate
             || task?.start_date
@@ -291,6 +307,7 @@
 
     function __tmIsTaskCardDateOverdue(task, todayKey = '') {
         if (!(task && typeof task === 'object')) return false;
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) return false;
         let done = task.done === true;
         try {
             if (typeof __tmIsTaskDoneEffective === 'function') done = __tmIsTaskDoneEffective(task);
@@ -303,6 +320,14 @@
     }
 
     function __tmFormatTaskCardDateValue(task) {
+        if (__tmIsCheckinTask(task)) {
+            const date = __tmGetTaskCheckinCurrentDate(task);
+            if (!date) return '打卡计划已结束';
+            if (date === __tmNormalizeDateOnly(new Date())) {
+                return __tmIsTaskCheckinChecked(task, date) ? '今日已打卡' : '今日待打卡';
+            }
+            return `下次打卡 ${__tmFormatTaskCardDateValueFromValue(date)}`;
+        }
         return __tmFormatTaskCardDateValueFromValue(__tmGetTaskCardDateValue(task));
     }
 
@@ -310,7 +335,8 @@
         return __tmTaskCardAlwaysShowFieldEnabled('date') || !!String(__tmGetTaskCardDateValue(task) || '').trim();
     }
 
-    function __tmShouldRenderTaskCardRemainingTime(task) {
+    function __tmShouldRenderTaskCardRemainingTime(task, dateVisible = false) {
+        if (dateVisible && __tmIsCheckinTask(task)) return false;
         return !!String(__tmGetTaskCardDateValue(task) || '').trim();
     }
 
@@ -661,7 +687,9 @@
     const __tmMonthRepeatCore = __createMonthRepeatCore();
 
     function __tmNormalizeTaskRepeatTrigger(value) {
-        return String(value || '').trim().toLowerCase() === 'complete' ? 'complete' : 'due';
+        const raw = String(value || '').trim().toLowerCase();
+        if (raw === 'checkin' || raw === 'check-in' || raw === 'check_in' || raw === '打卡') return 'checkin';
+        return raw === 'complete' ? 'complete' : 'due';
     }
 
     function __tmNormalizeTaskRepeatType(value) {
@@ -724,6 +752,22 @@
     function __tmNormalizeTaskRepeatState(value) {
         const raw = __tmParseTaskRepeatJson(value) || {};
         const fsrsCard = __tmNormalizeFsrsCardState(raw.fsrsCard || raw.fsrs_card || null);
+        const checkinHistory = (Array.isArray(raw.checkinHistory) ? raw.checkinHistory : (Array.isArray(raw.checkin_history) ? raw.checkin_history : []))
+            .map((entry) => ({
+                scheduledDate: __tmNormalizeDateOnly(entry?.scheduledDate || entry?.scheduled_date || entry?.date || ''),
+                checkedAt: String(entry?.checkedAt || entry?.checked_at || '').trim(),
+                source: String(entry?.source || '').trim(),
+            }))
+            .filter((entry) => entry.scheduledDate && entry.checkedAt)
+            .reduce((out, entry) => {
+                const previous = out.byDate.get(entry.scheduledDate);
+                if (!previous || String(entry.checkedAt) >= String(previous.checkedAt)) {
+                    out.byDate.set(entry.scheduledDate, entry);
+                }
+                return out;
+            }, { byDate: new Map() });
+        const normalizedCheckinHistory = Array.from(checkinHistory.byDate.values())
+            .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
         const hasBaselineFlag = Object.prototype.hasOwnProperty.call(raw, 'tomatoBaselineSet')
             || Object.prototype.hasOwnProperty.call(raw, 'tomato_baseline_set');
         const tomatoBaselineSet = hasBaselineFlag
@@ -746,12 +790,75 @@
             tomatoBaselineHours: __tmNormalizeTaskTomatoAmount(raw.tomatoBaselineHours ?? raw.tomato_baseline_hours),
             tomatoBaselineCount: __tmNormalizeTaskTomatoCount(raw.tomatoBaselineCount ?? raw.tomato_baseline_count),
             tomatoBaselineSet,
+            checkinHistory: normalizedCheckinHistory,
             fsrsCard,
         };
     }
 
+    function __tmIsCheckinTask(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const rule = __tmNormalizeTaskRepeatRule(task.repeatRule || task.repeat_rule || '', {
+            startDate: task?.startDate,
+            completionTime: task?.completionTime,
+        });
+        return rule.enabled === true && rule.type !== 'none' && rule.trigger === 'checkin';
+    }
+
+    function __tmGetTaskCheckinHistory(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        return __tmNormalizeTaskRepeatState(task.repeatState || task.repeat_state || '').checkinHistory;
+    }
+
+    function __tmGetTaskCheckinScheduledDate(taskLike, dateLike = '') {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        if (!__tmIsCheckinTask(task)) return '';
+        const target = __tmNormalizeDateOnly(dateLike || new Date());
+        if (!target) return '';
+        const rule = __tmNormalizeTaskRepeatRule(task.repeatRule || task.repeat_rule || '', {
+            startDate: task?.startDate,
+            completionTime: task?.completionTime,
+        });
+        return __tmRepeatCoreOrdinal(rule, target) > 0 ? target : '';
+    }
+
+    function __tmIsTaskCheckinChecked(taskLike, dateLike = '') {
+        const scheduledDate = __tmNormalizeDateOnly(dateLike || new Date());
+        if (!scheduledDate) return false;
+        return __tmGetTaskCheckinHistory(taskLike).some((entry) => entry.scheduledDate === scheduledDate);
+    }
+
+    function __tmGetTaskCheckinNextDate(taskLike, fromDate = '') {
+        if (!__tmIsCheckinTask(taskLike)) return '';
+        const from = __tmNormalizeDateOnly(fromDate || new Date());
+        const rule = __tmNormalizeTaskRepeatRule(taskLike?.repeatRule || taskLike?.repeat_rule || '', {
+            startDate: taskLike?.startDate,
+            completionTime: taskLike?.completionTime,
+        });
+        return __tmRepeatCoreIterate(rule, {
+            fromDateKey: from, toDateKey: '9999-12-31', limit: 1,
+        })[0]?.dateKey || '';
+    }
+
+    // A view date, never a stored start/due date. Keep today's check-in visible
+    // until midnight, including an extra check-in outside the planned schedule.
+    function __tmGetTaskCheckinCurrentDate(taskLike, todayLike = '') {
+        if (!__tmIsCheckinTask(taskLike)) return '';
+        const today = __tmNormalizeDateOnly(todayLike || new Date());
+        if (__tmIsTaskCheckinChecked(taskLike, today)) return today;
+        return __tmGetTaskCheckinNextDate(taskLike, today);
+    }
+
+    function __tmGetTaskCheckinTodayHint(taskLike) {
+        const today = __tmNormalizeDateOnly(new Date());
+        if (__tmIsTaskCheckinChecked(taskLike, today)) return '今日已打卡';
+        const next = __tmGetTaskCheckinNextDate(taskLike, today);
+        if (next === today) return '今日待打卡';
+        return next ? `今日可额外打卡 · 下次 ${next}` : '打卡计划已结束 · 今日可额外打卡';
+    }
+
     function __tmIsRecurringNativeDoneHeld(taskLike) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) return false;
         const repeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
         if (repeatState.pendingNativeDoneReset !== true) return false;
         const marker = typeof __tmResolveTaskMarker === 'function' ? __tmResolveTaskMarker(task) : (task.taskMarker ?? task.task_marker);
@@ -917,6 +1024,7 @@
             { startDate: task?.startDate, completionTime: task?.completionTime }
         );
         const state = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state);
+        if (rule.trigger === 'checkin') return state.checkinHistory.length;
         let completed = Math.max(0, state.occurrenceCount - 1);
         let done = task?.done === true;
         try {
@@ -1446,9 +1554,20 @@
         }
         const limit = Math.max(1, Math.min(2400, Math.trunc(Number(opts.limit) || 2400)));
         let current = { dateKey: anchorDate, ordinal: 1 };
+        if (rule.trigger === 'checkin') {
+            const firstDate = __tmBuildLocalNoonDateFromKey(anchorDate);
+            if (rule.type === 'weekly' && !rule.weekdays.includes(firstDate.getDay())) {
+                current.dateKey = __tmAdvanceTaskRepeatDateKey(anchorDate, rule);
+            } else if (rule.type === 'workday') {
+                while (firstDate.getDay() === 0 || firstDate.getDay() === 6) firstDate.setDate(firstDate.getDate() + 1);
+                current.dateKey = __tmFormatDateKeyFromDate(firstDate);
+            }
+            if (!current.dateKey) return [];
+        }
         const out = [];
-        const guardLimit = Math.max(2400, Math.min(200000, limit * 16));
+        const guardLimit = rule.trigger === 'checkin' ? 200000 : Math.max(2400, Math.min(200000, limit * 16));
         for (let guard = 0; guard < guardLimit && out.length < limit; guard += 1) {
+            if (rule.maxOccurrences > 0 && current.ordinal > rule.maxOccurrences) break;
             if (rule.until && current.dateKey > rule.until) break;
             if (current.dateKey >= fromDateKey && current.dateKey <= toDateKey) out.push({ ...current });
             if (current.dateKey >= toDateKey) break;
@@ -1467,6 +1586,9 @@
         if (__tmMonthRepeatCore?.isExplicit(rule)) {
             const number = __tmMonthRepeatCore.ordinal(rule, target);
             return rule.maxOccurrences > 0 && number > rule.maxOccurrences ? 0 : number;
+        }
+        if (rule.trigger === 'checkin' && rule.type !== 'daily') {
+            return __tmRepeatCoreIterate(rule, { fromDateKey: target, toDateKey: target, limit: 1 })[0]?.ordinal || 0;
         }
         if (rule.type === 'daily') {
             const delta = __tmGetTaskRepeatLocalDayOrdinal(target) - __tmGetTaskRepeatLocalDayOrdinal(rule.anchorDate);
@@ -1525,7 +1647,7 @@
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });
-        if (!rule.enabled || rule.type === 'none' || rule.type === 'fsrs') return null;
+        if (!rule.enabled || rule.type === 'none' || rule.type === 'fsrs' || rule.trigger === 'checkin') return null;
         const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
         if (rule.maxOccurrences > 0 && currentState.occurrenceCount >= rule.maxOccurrences) return null;
         const prevStart = __tmNormalizeDateOnly(task?.startDate || '');
@@ -1600,7 +1722,7 @@
         const rule = __tmNormalizeTaskRepeatRule(ruleInput, options);
         if (!rule.enabled || rule.type === 'none') return '';
         if (rule.type === 'fsrs') return 'FSRS 间隔重复';
-        const triggerText = rule.trigger === 'complete' ? '完成后' : '到期后';
+        const triggerText = rule.trigger === 'complete' ? '完成后' : (rule.trigger === 'checkin' ? '打卡' : '到期后');
         const unitText = __tmGetTaskRepeatCalendarUnitLabel(rule.type, rule.every, rule.calendarMode);
         const untilText = rule.until ? ` · 至 ${rule.until}` : '';
         const countText = rule.maxOccurrences > 0 ? ` · 共 ${rule.maxOccurrences} 次` : '';
@@ -1785,7 +1907,8 @@
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });
-        const tooltip = summary ? `循环任务：${summary}` : '循环任务';
+        const checkinHint = rule.trigger === 'checkin' ? ` · ${__tmGetTaskCheckinTodayHint(task)}` : '';
+        const tooltip = summary ? `循环任务：${summary}${checkinHint}` : `循环任务${checkinHint}`;
         return `<span class="${classes.join(' ')}"${__tmBuildTooltipAttrs(tooltip, { side: String(options?.tooltipSide || 'bottom').trim() || 'bottom', ariaLabel: false })}>${__tmRenderLucideIcon('repeat')}</span>`;
     }
 
@@ -1948,6 +2071,13 @@
         const fromDate = typeof __tmGetTaskRepeatLocalDayOrdinal === 'function'
             ? (requestedFromDate || __tmNormalizeDateOnly(new Date()))
             : '';
+        if (rule.trigger === 'checkin') {
+            return __tmRepeatCoreIterate(rule, {
+                fromDateKey: fromDate || rule.anchorDate,
+                toDateKey: untilDate || rule.until || '9999-12-31',
+                limit,
+            }).map((occurrence) => occurrence.dateKey);
+        }
         const out = [];
         let cursorTask = {
             ...task,
@@ -2063,6 +2193,8 @@
         const tid = String(taskId || task?.id || '').trim();
         if (!tid) return '';
         const readOnly = __tmIsCollectedOtherBlockTask(task);
+        const checkinTask = typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task);
+        const todayKey = checkinTask ? __tmNormalizeDateOnly(new Date()) : '';
         const jsTid = tid.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         const extraClass = String(options?.extraClass || '').trim();
         let checked = !!options?.checked;
@@ -2070,14 +2202,18 @@
             const liveTask = globalThis.__tmTaskStore?.getProjected?.(tid)
                 || globalThis.__tmTaskBoundary?.getTask?.(tid)
                 || task;
-            checked = typeof __tmIsTaskClosedForDisplay === 'function'
-                ? __tmIsTaskClosedForDisplay(liveTask)
-                : !!liveTask?.done;
+            checked = checkinTask
+                ? __tmIsTaskCheckinChecked(liveTask, todayKey)
+                : (typeof __tmIsTaskClosedForDisplay === 'function'
+                    ? __tmIsTaskClosedForDisplay(liveTask)
+                    : !!liveTask?.done);
         } catch (e) {}
         const checkedAttr = checked ? ' checked' : '';
         const disabledAttr = options?.disabled ? ' disabled' : '';
         const taskIdAttr = ` data-task-id="${esc(tid)}"`;
-        const title = String(options?.title || (readOnly ? '完成状态仅在插件内生效，不会修改原块内容' : '')).trim();
+        const title = String(options?.title || (checkinTask
+            ? __tmGetTaskCheckinTodayHint(task)
+            : (readOnly ? '完成状态仅在插件内生效，不会修改原块内容' : ''))).trim();
         const titleAttr = title ? ` title="${esc(title)}"` : '';
         const mouseDownAttr = options?.stopMouseDown ? ' onmousedown="event.stopPropagation()"' : '';
         const pointerDownAttr = options?.stopPointerDown ? ' onpointerdown="event.stopPropagation()"' : '';
@@ -2181,8 +2317,12 @@
         };
 
         const toInfo = (srcTask, sourceTaskId, fromChild) => {
-            const rawTs = __tmParseTimeToTs(srcTask?.completionTime);
-            const dayTs = parseToLocalDayStartTs(srcTask?.completionTime);
+            const checkinTask = __tmIsCheckinTask(srcTask);
+            const date = checkinTask
+                ? __tmGetTaskCheckinCurrentDate(srcTask, new Date(todayStartTs))
+                : srcTask?.completionTime;
+            const dayTs = parseToLocalDayStartTs(date);
+            const rawTs = checkinTask ? dayTs : __tmParseTimeToTs(date);
             const out = {
                 ts: Number.isFinite(rawTs) && rawTs > 0 ? rawTs : 0,
                 dayTs: Number.isFinite(dayTs) && dayTs > 0 ? dayTs : 0,
@@ -2217,7 +2357,7 @@
         };
 
         let best = toInfo(t, taskId || String(t?.id || ''), false);
-        if (preferChild) {
+        if (preferChild && !__tmIsCheckinTask(t)) {
             const stack = Array.isArray(t?.children) ? [...t.children] : [];
             const visited = new Set();
             let bestChild = null;
@@ -2327,7 +2467,7 @@
         shouldRenderPriority: (task) => __tmShouldRenderTaskCardPriority(task),
          shouldRenderStatus: (task) => __tmShouldRenderTaskCardStatus(task),
          keepCompletedStatus: () => __tmTaskCardAlwaysShowFieldEnabled('status'),
-        shouldRenderRemainingTime: (task) => __tmShouldRenderTaskCardRemainingTime(task),
+        shouldRenderRemainingTime: (task) => __tmShouldRenderTaskCardRemainingTime(task, __tmTaskCardFieldEnabled('kanban', 'date')),
         getRemainingTime: (task) => __tmGetTaskRemainingTimeInfo(task),
         renderRemainingTime: (info) => __tmRenderTaskRemainingTimeInfoHtml(info),
         renderRemark: (task) => __tmRenderTaskCardRemark(task),

@@ -67,6 +67,10 @@
 
         const isTaskCompleted = (task) => {
             if (!(task && typeof task === 'object')) return false;
+            // View visibility follows today's check-in, without permanently completing the task.
+            if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+                return __tmIsTaskCheckinChecked(task, new Date());
+            }
             try {
                 const resolver = globalThis.__tmTaskBoundary?.isTaskCompleted;
                 if (typeof resolver === 'function') return resolver(task) === true;

@@ -93,9 +93,12 @@
     }
 
     function __tmIsTaskLifecycleDone(task, localTask = null) {
+        try {
+            if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task || localTask)) return false;
+            if (typeof __tmIsTaskDoneEffective === 'function') return !!__tmIsTaskDoneEffective(task || localTask);
+        } catch (e) {}
         if (task && typeof task.done === 'boolean') return task.done;
         if (localTask && typeof localTask.done === 'boolean') return localTask.done;
-        try { return typeof __tmIsTaskDoneEffective === 'function' ? !!__tmIsTaskDoneEffective(task) : !!task?.done; } catch (e) {}
         return !!task?.done;
     }
 

@@ -47,6 +47,7 @@ function harness(overrides = {}) {
     const notices = [];
     const uiStates = [];
     const eventListeners = new Map();
+    const syncListeners = new Map();
     const mutationListeners = new Set();
     const settings = {
         icsEnabled: true, icsPublishMode: 'auto', icsProvider: 'webdav',
@@ -95,6 +96,13 @@ function harness(overrides = {}) {
         __tmTaskMutationBus: {
             subscribe(listener) { mutationListeners.add(listener); return () => mutationListeners.delete(listener); },
         },
+        __taskHorizonHostBridge: { eventBus: {
+            on(type, listener) {
+                if (!syncListeners.has(type)) syncListeners.set(type, new Set());
+                syncListeners.get(type).add(listener);
+            },
+            off(type, listener) { syncListeners.get(type)?.delete(listener); },
+        } },
         tmQueryCalendarTaskDateEvents: async (start, end, options) => { taskReads.push(options); return []; },
         siyuan: { user: { userId: 'test-user', userSiYuanSubscriptionStatus: 0, userSiYuanProExpireTime: -1 } },
     };
@@ -139,6 +147,7 @@ function harness(overrides = {}) {
             context.publisher.dailyTimer = null;
         },
         dispatch(type, detail = {}) { for (const listener of eventListeners.get(type) || []) listener({ type, detail }); },
+        sync() { for (const listener of syncListeners.get('sync-end') || []) listener({ detail: { code: 1 } }); },
         mutate(mutation) { for (const listener of mutationListeners) listener(mutation); },
         async advance(ms) {
             const end = now + ms;
@@ -357,6 +366,130 @@ test('unchanged filter refreshes do not invalidate any publication attempt', asy
     await h.advance(30000);
     assert.equal(h.taskReads.at(-1).forceFresh, true);
     assert.equal(h.requests.filter((r) => r.url === '/api/network/forwardProxy' && JSON.parse(r.init.body).method === 'PUT').length, 1);
+    assert.equal(h.timers.size, 0);
+});
+
+function enableAllSubscriptionSources(h) {
+    Object.assign(h.settings, {
+        icsExcludeCompletedSchedules: true,
+        icsIncludeTaskDates: true,
+        icsIncludeTaskNotes: true,
+        icsIncludeTomatoReminders: true,
+        icsIncludeCustomHolidays: true,
+        customHolidayOverrides: { '2026-09-28': { type: 'holiday', name: 'Personal holiday' } },
+        scheduleReminderEnabled: true,
+        scheduleReminderWechatEnabled: true,
+        scheduleReminderDefaultMode: 15,
+    });
+    const schedules = [
+        { id: 'schedule-1', title: 'Meeting', taskId: 'task-1', note: 'Schedule note', start: '2026-09-28T10:00:00Z', end: '2026-09-28T11:00:00Z' },
+        { id: 'schedule-done', title: 'Completed meeting', done: true, start: '2026-09-28T12:00:00Z', end: '2026-09-28T13:00:00Z' },
+    ];
+    const scheduleReads = [];
+    Object.assign(h.context, {
+        loadScheduleAll: async (options) => { scheduleReads.push(options); return schedules; },
+        toMs: (value) => Date.parse(value),
+        isAllDayRange: () => false,
+        getScheduleLinkedTaskId: (item) => item.taskId || '',
+        getScheduleLinkedBlockId: (item) => item.blockId || '',
+        normalizeCalendarScheduleTitleText: (title, fallback) => title || fallback,
+        collectScheduleOccurrencesInRange: (item) => [{ startMs: Date.parse(item.start), endMs: Date.parse(item.end) }],
+        isScheduleOccurrenceDone: (item) => item.done === true,
+        getCalendarTaskSnapshotById: () => null,
+        __tmCalendarAllTasksCache: { tasks: [{ id: 'task-1', remark: 'Task note' }] },
+        normalizeCalendarCustomHolidayOverrides: (value) => value || {},
+        getCalendarCustomHolidaySignature: (value) => JSON.stringify(value || {}),
+        tmQueryCalendarTaskDateEvents: async (start, end, options) => {
+            h.taskReads.push(options);
+            return [{ id: 'task-1', title: 'Dated task', start: '2026-09-28', endExclusive: '2026-09-29' }];
+        },
+        __tomatoReminder: { version: 2, listOccurrences: async () => ({ occurrences: [{
+            blockId: 'task-1', occurrenceKey: '2026-09-28:09:00', title: 'Tomato reminder', startAt: Date.parse('2026-09-28T09:00:00Z'),
+        }] }) },
+    });
+    h.context.siyuan.plugins = [{ name: 'siyuan-plugin-docktomato' }];
+    return { schedules, scheduleReads };
+}
+
+for (const stage of ['schedule-read', 'tomato-read', 'webdav-upload', 'local-snapshot']) {
+    test(`all subscription options tolerate sync completion during ${stage}`, async () => {
+        let syncing = true;
+        const h = harness({ fetch: (url, init, next) => {
+            if (syncing && ((stage === 'webdav-upload' && url === '/api/network/forwardProxy' && JSON.parse(init.body).method === 'PUT')
+                || (stage === 'local-snapshot' && url === '/api/file/putFile'))) h.sync();
+            return next(url, init);
+        } });
+        const { scheduleReads } = enableAllSubscriptionSources(h);
+        h.bind();
+        const loadSchedules = h.context.loadScheduleAll;
+        h.context.loadScheduleAll = async (options) => {
+            if (syncing && stage === 'schedule-read') h.sync();
+            return loadSchedules(options);
+        };
+        const listOccurrences = h.context.__tomatoReminder.listOccurrences;
+        h.context.__tomatoReminder.listOccurrences = async () => {
+            if (syncing && stage === 'tomato-read') h.sync();
+            return listOccurrences();
+        };
+        const result = await h.api.publishNow({ force: true, interactive: true });
+        assert.equal(result.skipped, false);
+        assert.equal(result.eventCount, 4);
+        assert.equal(scheduleReads.length, 1, 'sync completion must not consume publication retries');
+        assert.equal(h.notices.some((notice) => notice.kind === 'warning'), false);
+        const puts = () => h.requests.filter((r) => r.url === '/api/network/forwardProxy' && JSON.parse(r.init.body).method === 'PUT');
+        assert.equal(puts().length, 1);
+        const ics = Buffer.from(JSON.parse(puts()[0].init.body).payload, 'base64').toString('utf8');
+        for (const text of ['Meeting', 'Schedule note', 'Task note', 'Dated task', 'Tomato reminder', 'Personal holiday', 'BEGIN:VALARM']) {
+            assert.ok(ics.includes(text), text);
+        }
+        assert.doesNotMatch(ics, /Completed meeting/);
+        syncing = false;
+        await h.advance(30000);
+        assert.equal(scheduleReads.length, 2, 'coalesced sync notifications must recheck source content');
+        assert.ok(scheduleReads.every((options) => options?.force === true), 'sync rechecks must bypass the local schedule shadow');
+        assert.equal(puts().length, 1, 'unchanged reminder bookkeeping must not upload another ICS');
+        assert.equal(h.timers.size, 0);
+    });
+}
+
+test('a remote schedule change during upload is included by the deferred sync check', async () => {
+    const upload = deferred();
+    let uploads = 0;
+    const h = harness({ fetch: async (url, init, next) => {
+        if (url === '/api/network/forwardProxy' && JSON.parse(init.body).method === 'PUT' && ++uploads === 1) await upload.promise;
+        return next(url, init);
+    } });
+    const { schedules } = enableAllSubscriptionSources(h);
+    h.bind();
+    const job = h.api.publishNow({ force: true, interactive: true });
+    await drain();
+    assert.equal(uploads, 1);
+    schedules[0] = { ...schedules[0], title: 'Synced meeting', start: '2026-09-28T14:00:00Z', end: '2026-09-28T15:00:00Z' };
+    h.sync();
+    upload.resolve();
+    assert.equal((await job).skipped, false);
+    assert.equal(uploads, 1, 'sync completion must defer the content check until after this publication');
+    await h.advance(30000);
+    const puts = h.requests.filter((r) => r.url === '/api/network/forwardProxy' && JSON.parse(r.init.body).method === 'PUT');
+    assert.equal(puts.length, 2);
+    const latest = Buffer.from(JSON.parse(puts.at(-1).init.body).payload, 'base64').toString('utf8');
+    assert.match(latest, /SUMMARY:Synced meeting/);
+    assert.match(latest, /DTSTART;TZID=Asia\/Shanghai:20260928T220000/);
+    assert.equal(h.timers.size, 0);
+});
+
+test('the first sync completion during a manual publication releases startup without invalidating it', async () => {
+    const h = harness();
+    h.publisher.bound = false;
+    h.context.bindCalendarSubscriptionPublisher();
+    h.context.loadScheduleAll = async () => { h.sync(); return []; };
+    const result = await h.api.publishNow({ force: true, interactive: true });
+    assert.equal(result.skipped, false);
+    assert.equal(h.publisher.startupPending, false);
+    assert.equal(h.publisher.startupTimer, null);
+    assert.equal(h.notices.some((notice) => notice.kind === 'warning'), false);
+    h.settings.icsPublishMode = 'manual';
+    h.api.reconcile();
     assert.equal(h.timers.size, 0);
 });
 

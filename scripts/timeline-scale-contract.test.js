@@ -88,6 +88,7 @@ const renderTimelineTaskCells = new Function(`
     const __tmResolveTaskCompletedAtRaw = (task) => task.taskCompleteAt;
     const __tmRenderPriorityJira = (value) => String(value || '');
     const __tmFormatTaskTime = (value) => String(value || '');
+    const __tmFormatTaskDateFieldDisplayValue = (task, field) => __tmFormatTaskTime(task[field]);
     const esc = (value) => String(value ?? '');
     ${timelineTaskCells}
     return __tmRenderTimelineTaskCellsHtml;

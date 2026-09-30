@@ -5944,11 +5944,12 @@
 
     function renderProjectStatsHtml(entity, overdueDays) {
         const range = formatProjectDateRange(entity);
+        const doing = Math.max(0, Math.round(toNumber(entity?.doing, 0)));
         return `
             <div class="tm-home-project-stats">
                 <span><span class="n">${toNumber(entity?.total, 0)}</span> 任务</span>
                 <span><span class="n is-done">${toNumber(entity?.done, 0)}</span> 完成</span>
-                <span><span class="n">${toNumber(entity?.doing, 0)}</span> 进行中</span>
+                ${doing > 0 ? `<span><span class="n">${doing}</span> 进行中</span>` : ""}
                 ${range
                     ? `<span class="range ${overdueDays > 0 ? "is-urgent" : ""}">${esc(range)}</span>`
                     : `<span class="range is-none">未设置时间</span>`}
@@ -5979,6 +5980,7 @@
 
     function renderProjectH2Card(h, doc) {
         if (!h) return "";
+        const titlePresentation = getTaskTitlePresentation(h.name, "(空标题)");
         const overdueDays = Math.max(0, Math.round(toNumber(h.overdueDays, 0)));
         const overdueTasks = Math.max(0, Math.round(toNumber(h.overdue, 0)));
         const riskHtml = overdueTasks > 0
@@ -5989,12 +5991,12 @@
         return `
         <div class="tm-home-project-card tm-home-project-card--h2"
              ${color ? `style="--tm-doc-color:${esc(color)}"` : ""}
-             title="「${esc(doc?.name || "")}」/ ${esc(h.name)}">
+             title="「${esc(doc?.name || "")}」/ ${esc(titlePresentation.text)}">
             <div class="tm-home-project-top">
                 <span class="tm-home-project-h2-index">${toNumber(h.index, 0) + 1}</span>
-                <span class="tm-home-project-name">${esc(h.name)}</span>
+                <span class="tm-home-project-name">${titlePresentation.html}</span>
                 ${riskHtml}
-                ${renderProjectCalButton("heading", h.h2Id, h.name, !!range, range ? `设置标题日期（${range}）` : "设置该二级标题的开始/截止日期")}
+                ${renderProjectCalButton("heading", h.h2Id, titlePresentation.text, !!range, range ? `设置标题日期（${range}）` : "设置该二级标题的开始/截止日期")}
             </div>
             ${renderProjectStatsHtml(h, overdueDays)}
             ${renderProjectProgressHtml(h)}

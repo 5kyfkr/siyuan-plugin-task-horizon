@@ -2054,6 +2054,7 @@ return finish(false, 'noop');
         if (!tid) return false;
         const latestTask = globalThis.__tmTaskBoundary?.getTask?.(tid)
             || ((opts.task && typeof opts.task === 'object') ? opts.task : null);
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(latestTask)) return false;
         if (!targetDone) {
             try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
             if (opts.previousDone === true) {
@@ -2159,6 +2160,9 @@ return finish(false, 'noop');
         if (!tid) throw new Error('完成后的关联处理缺少任务 ID');
         let latestTask = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         const followUpOps = [];
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(latestTask)) {
+            return { completed: true, recurringAdvanced: false, rewardDispatched: false, followUpOps };
+        }
         const effectId = String(opts.effectId || tid).trim() || tid;
         const targetDone = opts.done === true;
 
@@ -2356,6 +2360,9 @@ return finish(false, 'noop');
                 try { await __tmSettleTomatoAfterTaskDone(id, { source: opts.source }); } catch (e) {}
             }
             return;
+        }
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+            throw new Error('打卡模式只记录打卡；请先切换循环方式或关闭循环，再完成任务');
         }
         const statusPatch = __tmBuildCheckboxStatusPatch(task, targetDone, opts.statusPatch);
         const taskWasDone = Object.prototype.hasOwnProperty.call(opts, 'previousDone')
@@ -2900,6 +2907,7 @@ return finish(false, 'noop');
             ? task
             : (globalThis.__tmTaskBoundary?.getTask?.(tid) || null);
         if (!tid || !taskLike) return null;
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(taskLike)) return null;
         const targetDone = !!done;
         const effectiveTaskDone = typeof __tmIsTaskDoneEffective === 'function'
             ? !!__tmIsTaskDoneEffective(taskLike)
@@ -3168,6 +3176,112 @@ return finish(false, 'noop');
         return request;
     }
 
+    const __tmTaskCheckinIngressByTask = new Map();
+
+    function __tmGetCheckinTaskById(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        let task = null;
+        try { task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null; } catch (e) {}
+        if (!task) {
+            try { task = globalThis.__tmTaskStore?.getProjected?.(tid) || globalThis.__tmTaskStore?.get?.(tid) || null; } catch (e) {}
+        }
+        return task && typeof task === 'object' ? task : null;
+    }
+
+    async function __tmSetTaskCheckin(taskId, scheduledDate, checked, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        let task = __tmGetCheckinTaskById(tid);
+        if (!task) {
+            try { task = await __tmEnsureTaskInStateById(tid); } catch (e) { task = null; }
+        }
+        if (!task || typeof __tmIsCheckinTask !== 'function' || !__tmIsCheckinTask(task)) return false;
+        const today = __tmNormalizeDateOnly(new Date());
+        // Extra and retrospective check-ins only add history, never move the plan.
+        const planDate = __tmNormalizeDateOnly(scheduledDate || today);
+        if (!planDate) throw new Error('无效的打卡日期');
+        if (planDate > today) throw new Error('未来的打卡日期暂不可操作');
+        const currentState = __tmNormalizeTaskRepeatState(task.repeatState || task.repeat_state || '');
+        const history = Array.isArray(currentState.checkinHistory) ? currentState.checkinHistory.slice() : [];
+        const existing = history.findIndex((entry) => entry.scheduledDate === planDate);
+        if (checked === true) {
+            const entry = { scheduledDate: planDate, checkedAt: new Date().toISOString(), source: String(options.source || 'ui').trim() || 'ui' };
+            if (existing >= 0) history[existing] = entry;
+            else history.push(entry);
+        } else if (existing >= 0) {
+            history.splice(existing, 1);
+        }
+        history.sort((a, b) => String(a.scheduledDate).localeCompare(String(b.scheduledDate)));
+        const nextState = __tmNormalizeTaskRepeatState({ ...currentState, checkinHistory: history });
+        const source = String(options.source || 'task-checkin').trim() || 'task-checkin';
+        let result = false;
+        try {
+            result = await __tmPersistMetaAndAttrsKernel(tid, { repeatState: nextState }, {
+                source: String(options.source || 'task-checkin').trim() || 'task-checkin',
+                touchMetaStore: true,
+                skipFlush: false,
+            });
+        } catch (error) {
+            try { task.repeatState = currentState; task.repeat_state = currentState; } catch (e) {}
+            try { MetaStore.set(tid, { repeatState: currentState, repeat_state: currentState }); } catch (e) {}
+            throw error;
+        }
+        if (result === false) {
+            try { task.repeatState = currentState; task.repeat_state = currentState; } catch (e) {}
+            try { MetaStore.set(tid, { repeatState: currentState, repeat_state: currentState }); } catch (e) {}
+            throw new Error('打卡记录未保存');
+        }
+        const checkinPatch = { repeatState: nextState };
+        try { __tmMarkLocalTaskPatchWatermark(tid, checkinPatch, { source }); } catch (e) {}
+        try {
+            task.repeatState = nextState;
+            task.repeat_state = nextState;
+            // Commit the same state that checkbox renderers read, and invalidate
+            // reads started before this write so they cannot restore old history.
+            globalThis.__tmTaskStore?.applyMutation?.({
+                type: 'taskPatch', phase: 'commit', taskId: tid,
+                docId: String(task.root_id || task.docId || '').trim(),
+                source, patch: checkinPatch,
+            });
+        } catch (e) {}
+        try { MetaStore.set(tid, { repeatState: nextState, repeat_state: nextState }); } catch (e) {}
+        try {
+            Promise.resolve(globalThis.__tomatoReminder?.taskContextChanged?.(tid, { reason: 'task-checkin' })).catch(() => {});
+        } catch (e) {}
+        if (options.projectNative !== false) {
+            try { __tmRefreshNativeDocCheckinCheckboxes(tid); } catch (e) {}
+        }
+        try {
+            window.dispatchEvent(new CustomEvent('tm-checkin-updated', {
+                detail: { taskId: tid, scheduledDate: planDate, checked: checked === true, source: options.source || 'task-checkin' },
+            }));
+        } catch (e) {}
+        try { window.__tmCalendarTaskDateForceFreshUntil = Date.now() + 5000; } catch (e) {}
+        try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+        try {
+            if (typeof __tmScheduleViewRefresh === 'function' && options.refresh !== false) {
+                __tmScheduleViewRefresh({ mode: 'current', withFilters: true, reason: 'task-checkin' });
+            }
+        } catch (e) {}
+        return true;
+    }
+
+    window.tmSetTaskCheckin = function(taskId, scheduledDate, checked, options = {}) {
+        const tid = String(taskId || '').trim();
+        const run = () => __tmSetTaskCheckin(tid, scheduledDate, checked === true, options);
+        const previous = tid ? __tmTaskCheckinIngressByTask.get(tid) : null;
+        const request = (previous ? previous.catch(() => null).then(run) : Promise.resolve().then(run));
+        if (tid) {
+            const settled = request.then(() => undefined, () => undefined);
+            __tmTaskCheckinIngressByTask.set(tid, settled);
+            settled.finally(() => {
+                if (__tmTaskCheckinIngressByTask.get(tid) === settled) __tmTaskCheckinIngressByTask.delete(tid);
+            });
+        }
+        return request;
+    };
+
     async function __tmSetDoneFromUi(id, done, ev, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
 if (ev) {
@@ -3250,6 +3364,26 @@ if (ev) {
                 return false;
             }
             return await __tmSetDoneKernel(tid, done, ev, opts);
+        }
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+            try {
+                const result = await window.tmSetTaskCheckin(tid, opts.scheduledDate || __tmNormalizeDateOnly(new Date()), targetDone, {
+                    ...opts,
+                    source: String(opts.source || 'task-checkbox').trim() || 'task-checkbox',
+                    refresh: opts.refresh !== false,
+                });
+                if (ev?.target) {
+                    try { ev.target.checked = targetDone; } catch (e) {}
+                }
+                if (opts.suppressHint !== true) hint(targetDone ? '✅ 今日已打卡' : '✅ 已取消今日打卡', 'success');
+                return result;
+            } catch (e) {
+                if (ev?.target) {
+                    try { ev.target.checked = !targetDone; } catch (e2) {}
+                }
+                if (opts.suppressHint !== true) hint(`❌ 打卡失败: ${e?.message || String(e)}`, 'error');
+                return false;
+            }
         }
         if (!targetDone
             && typeof __tmIsRecurringNativeDoneHeld === 'function'

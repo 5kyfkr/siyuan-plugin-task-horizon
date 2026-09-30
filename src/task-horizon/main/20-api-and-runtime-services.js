@@ -4308,6 +4308,9 @@
         if (typeof __tmIsRecurringNativeDoneHeld === 'function' && __tmIsRecurringNativeDoneHeld(task)) {
             return __tmGetDefaultUndoneStatusId(statusOptions);
         }
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+            return __tmGetDefaultUndoneStatusId(statusOptions);
+        }
         const configuredStatus = String(task?.customStatus ?? task?.custom_status ?? '').trim();
         const marker = __tmResolveTaskMarker(task, statusOptions);
         const matched = globalThis.__tmTaskStatusRules.resolveOption(marker, configuredStatus, statusOptions, __tmGetDefaultUndoneStatusId(statusOptions));
@@ -4320,6 +4323,7 @@
     function __tmIsTaskDoneEffective(task, statusOptionsInput = null) {
         const taskLike = (task && typeof task === 'object') ? task : {};
         if (typeof __tmIsRecurringNativeDoneHeld === 'function' && __tmIsRecurringNativeDoneHeld(taskLike)) return false;
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(taskLike)) return false;
         return __tmIsTaskNativeDone(taskLike, statusOptionsInput);
     }
 
@@ -4407,7 +4411,8 @@
         const statusOptions = Array.isArray(statusArtifacts.options) ? statusArtifacts.options : [];
         const opts = (options && typeof options === 'object') ? options : {};
         const taskLike = (task && typeof task === 'object') ? task : {};
-        const nativeDoneHeld = typeof __tmIsRecurringNativeDoneHeld === 'function' && __tmIsRecurringNativeDoneHeld(taskLike);
+        const nativeDoneHeld = (typeof __tmIsRecurringNativeDoneHeld === 'function' && __tmIsRecurringNativeDoneHeld(taskLike))
+            || (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(taskLike));
         const directMarker = nativeDoneHeld ? ' ' : (taskLike.taskMarker ?? taskLike.task_marker ?? taskLike.marker);
         let marker = __tmNormalizeTaskStatusMarker(directMarker, '');
         if (!marker) marker = __tmResolveTaskMarkdownMarker(taskLike);
@@ -5825,6 +5830,10 @@
             statusOption.marker,
             __tmGuessStatusOptionDefaultMarker(statusOption),
         );
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask({ ...task, ...nextPatch })
+            && __tmIsTaskMarkerClosed(nextMarker)) {
+            throw new Error('打卡模式没有永久完成状态；请先切换循环方式或关闭循环');
+        }
         nextPatch.customStatus = String(statusOption.id || statusId).trim();
         nextPatch.done = __tmIsTaskMarkerDone(nextMarker);
         let markerResult = null;
@@ -6195,16 +6204,18 @@
                 === JSON.stringify(__tmNormalizeTaskAttachmentPaths(expected));
         }
         if (key === 'repeatRule') {
-            return __tmTaskWriteSignature(__tmNormalizeTaskRepeatRule(actual))
-                === __tmTaskWriteSignature(__tmNormalizeTaskRepeatRule(expected));
+            return __tmGetSettingsFieldFingerprint(__tmNormalizeTaskRepeatRule(actual))
+                === __tmGetSettingsFieldFingerprint(__tmNormalizeTaskRepeatRule(expected));
         }
         if (key === 'repeatState') {
-            return __tmTaskWriteSignature(__tmNormalizeTaskRepeatState(actual))
-                === __tmTaskWriteSignature(__tmNormalizeTaskRepeatState(expected));
+            // A schedule signature omits check-in history and can falsely
+            // confirm a stale read, releasing its local write protection.
+            return __tmGetSettingsFieldFingerprint(__tmNormalizeTaskRepeatState(actual))
+                === __tmGetSettingsFieldFingerprint(__tmNormalizeTaskRepeatState(expected));
         }
         if (key === 'repeatHistory') {
-            return __tmTaskWriteSignature(__tmNormalizeTaskRepeatHistory(actual))
-                === __tmTaskWriteSignature(__tmNormalizeTaskRepeatHistory(expected));
+            return __tmGetSettingsFieldFingerprint(__tmNormalizeTaskRepeatHistory(actual))
+                === __tmGetSettingsFieldFingerprint(__tmNormalizeTaskRepeatHistory(expected));
         }
         if (key === 'done' || key === 'pinned' || key === 'milestone') {
             return !!(actual === true || actual === 1 || actual === '1')
@@ -6216,7 +6227,7 @@
         const actualValue = actual == null ? '' : actual;
         const expectedValue = expected == null ? '' : expected;
         if (typeof actualValue === 'object' || typeof expectedValue === 'object') {
-            return __tmTaskWriteSignature(actualValue) === __tmTaskWriteSignature(expectedValue);
+            return __tmGetSettingsFieldFingerprint(actualValue) === __tmGetSettingsFieldFingerprint(expectedValue);
         }
         return String(actualValue).trim() === String(expectedValue).trim();
     }
@@ -8484,6 +8495,9 @@
         if (!initialTask) return Promise.reject(new Error('未找到任务'));
         const enqueue = () => {
             const latestTask = __tmMutationGetTask(tid, { includePending: true, preferPending: true }) || initialTask;
+            if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(latestTask)) {
+                return window.tmSetTaskCheckin(tid, options.scheduledDate || __tmNormalizeDateOnly(new Date()), !!done, options);
+            }
             return __tmQueueSetDoneTask(tid, !!done, latestTask, options);
         };
         const waitForPendingTaskWrites = globalThis.__tmWaitForPendingTaskWrites;
@@ -11723,10 +11737,12 @@
             ? Math.max(0, Math.min(200, parseInt(raw.maxOccurrences, 10) || 0))
             : 0;
         const anchorDate = __tmNormalizeReminderDateKey(raw.anchorDate || '');
-        const completionBased = String(raw.trigger || '').trim().toLowerCase() === 'complete';
+        const triggerRaw = String(raw.trigger || '').trim().toLowerCase();
+        const completionBased = triggerRaw === 'complete';
+        const checkinBased = triggerRaw === 'checkin' || triggerRaw === 'check-in' || triggerRaw === 'check_in' || triggerRaw === '打卡';
         return {
             enabled: enabled && type !== 'none',
-            trigger: String(raw.trigger || '').trim().toLowerCase() === 'complete' ? 'complete' : 'due',
+            trigger: checkinBased ? 'checkin' : (completionBased ? 'complete' : 'due'),
             type,
             every: Math.max(1, Math.min(3650, parseInt(raw.every, 10) || 1)),
             weekdays: enabled && !completionBased && type === 'weekly'
@@ -11757,15 +11773,27 @@
     }
 
     function __tmGetReminderFollowTaskAnchorKey(reminder) {
+        const taskRule = __tmNormalizeReminderTaskRepeatRule(reminder?.taskRepeatRule);
+        if (taskRule?.trigger === 'checkin' && taskRule.anchorDate) return taskRule.anchorDate;
         const dueKey = __tmNormalizeReminderDateKey(reminder?.taskCompletionTime || '');
         if (dueKey) return dueKey;
         return __tmNormalizeReminderDateKey(reminder?.startDate || '');
     }
 
+    function __tmGetReminderCompletedOccurrences(reminder) {
+        const rule = __tmNormalizeReminderTaskRepeatRule(reminder?.taskRepeatRule);
+        if (__tmGetReminderRepeatMode(reminder) !== __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK || !rule?.enabled || rule.trigger !== 'checkin') {
+            return reminder?.completedOccurrences || reminder?.completed || reminder?.done || [];
+        }
+        const history = __tmNormalizeTaskRepeatState(reminder.taskRepeatState).checkinHistory;
+        const times = Array.from(new Set((reminder.times || []).map(time => __tmParseReminderTime(time)?.key).filter(Boolean)));
+        return history.flatMap(entry => times.map(time => ({ date: entry.scheduledDate, time, doneAt: entry.checkedAt })));
+    }
+
     function __tmGetReminderCompletedSet(reminder) {
         const set = new Set();
         try {
-            const arr = reminder?.completedOccurrences || reminder?.completed || reminder?.done || [];
+            const arr = __tmGetReminderCompletedOccurrences(reminder);
             if (!Array.isArray(arr)) return set;
             arr.forEach((item) => {
                 if (!item) return;
@@ -12047,6 +12075,34 @@
         return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
     }
 
+    function __tmBuildCheckinReminderSchedule(reminder, rule) {
+        const schedule = {
+            ...reminder,
+            completedOccurrences: __tmGetReminderCompletedOccurrences(reminder),
+            repeatMode: __TM_REMINDER_REPEAT_MODE_MANUAL,
+            trigger: 'due',
+            interval: rule.type,
+            every: rule.every,
+            weekdays: rule.weekdays,
+            monthlyMode: rule.monthlyMode,
+            monthDays: rule.monthDays,
+            monthWeek: rule.monthWeek,
+            calendarMode: rule.calendarMode,
+            startDate: rule.anchorDate || __tmGetReminderFollowTaskAnchorKey(reminder),
+            endDate: rule.until || '',
+            taskRepeatRule: null,
+            taskCompletionTime: '',
+            taskStartDate: '',
+            syncTaskDone: false,
+        };
+        if (rule.maxOccurrences > 0) {
+            const dates = __tmRepeatCoreIterate(rule, { fromDateKey: schedule.startDate, toDateKey: '9999-12-31', limit: rule.maxOccurrences });
+            schedule.endDate = dates[dates.length - 1]?.dateKey || '';
+            if (!schedule.endDate) schedule.enabled = false;
+        }
+        return schedule;
+    }
+
     function __tmGetNextReminderDateTime(reminder, fromDate) {
         if (!reminder?.enabled) return null;
         const times = Array.from(new Set((reminder.times || [])
@@ -12062,6 +12118,9 @@
         const startKey = __tmGetReminderStartDateKey(reminder);
         const interval = __tmNormalizeReminderInterval(reminder?.interval || 'daily');
         const repeatRule = __tmNormalizeReminderTaskRepeatRule(reminder?.taskRepeatRule);
+        if (repeatRule?.enabled && repeatRule.trigger === 'checkin' && __tmGetReminderRepeatMode(reminder) === __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK) {
+            return __tmGetNextReminderDateTime(__tmBuildCheckinReminderSchedule(reminder, repeatRule), fromDate);
+        }
         const calendarMode = __tmNormalizeReminderCalendarMode(
             reminder?.calendarMode || reminder?.repeatCalendarMode || repeatRule?.calendarMode || '',
             interval
@@ -12350,6 +12409,7 @@
     function __tmGetNextFollowTaskReminderPreviewDateTime(reminder, fromDate) {
         const rule = __tmNormalizeReminderTaskRepeatRule(reminder?.taskRepeatRule);
         if (__tmGetReminderRepeatMode(reminder) !== __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK || !rule?.enabled || rule.type === 'none' || rule.trigger === 'complete') return null;
+        if (rule.trigger === 'checkin') return __tmGetNextReminderDateTime(__tmBuildCheckinReminderSchedule(reminder, rule), fromDate);
         if (rule.maxOccurrences > 0 && __tmGetReminderTaskRepeatOccurrenceCount(reminder) >= rule.maxOccurrences) return null;
         const followKey = __tmGetReminderFollowTaskAnchorKey(reminder);
         if (!followKey) return null;
@@ -12400,6 +12460,9 @@
             const startKey = __tmGetReminderStartDateKey(reminder);
             const interval = __tmNormalizeReminderInterval(reminder?.interval || 'daily');
             const repeatRule = __tmNormalizeReminderTaskRepeatRule(reminder?.taskRepeatRule);
+            if (repeatRule?.enabled && repeatRule.trigger === 'checkin' && __tmGetReminderRepeatMode(reminder) === __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK) {
+                return __tmGetLastDueReminderDateTime(__tmBuildCheckinReminderSchedule(reminder, repeatRule), toDate);
+            }
             const calendarMode = __tmNormalizeReminderCalendarMode(
                 reminder?.calendarMode || reminder?.repeatCalendarMode || repeatRule?.calendarMode || '',
                 interval
@@ -13018,7 +13081,7 @@
     }
 
     function __tmGetReminderCompletedEntries(reminder) {
-        const arr = reminder?.completedOccurrences || reminder?.completed || reminder?.done || [];
+        const arr = __tmGetReminderCompletedOccurrences(reminder);
         if (!Array.isArray(arr)) return [];
         return arr.map((item, index) => {
             if (!item) return null;
@@ -13164,17 +13227,33 @@
         if (!task?.id) return false;
         try { if (typeof __tmIsRecurringInstanceTask === 'function' && __tmIsRecurringInstanceTask(task)) return false; } catch (e) {}
         if (__tmIsTaskCanceled(task)) return false;
-        let alreadyDone = !!task.done;
-        try {
-            if (typeof __tmIsTaskDoneEffective === 'function') alreadyDone = !!__tmIsTaskDoneEffective(task);
-        } catch (e) {}
-        if (alreadyDone) return false;
         const repeatRule = typeof __tmGetTaskRepeatRule === 'function'
             ? __tmGetTaskRepeatRule(task)
             : __tmNormalizeTaskRepeatRule(task.repeatRule || task.repeat_rule || '', {
                 startDate: task?.startDate,
                 completionTime: task?.completionTime,
             });
+        if (repeatRule?.enabled && repeatRule.trigger === 'checkin') {
+            if (typeof window?.tmSetTaskCheckin !== 'function') return false;
+            const detail = opts.detail || {};
+            const occurrenceKey = String(detail.occurrenceKey || '').trim();
+            const dateKey = __tmNormalizeReminderDateKey(occurrenceKey.split(/\s+/)[0] || '') || occurrenceKey.slice(0, 10);
+            if (!dateKey) return false;
+            try {
+                const applied = await window.tmSetTaskCheckin(task.id, dateKey, opts.checked !== false, {
+                    source: 'tomato-reminder-checkin-bridge',
+                });
+                return applied === true;
+            } catch (e) {
+                return false;
+            }
+        }
+        if (opts.checkinOnly === true) return false;
+        let alreadyDone = !!task.done;
+        try {
+            if (typeof __tmIsTaskDoneEffective === 'function') alreadyDone = !!__tmIsTaskDoneEffective(task);
+        } catch (e) {}
+        if (alreadyDone) return false;
         const canAdvanceRepeat = shouldFollowTaskRepeat && !!(repeatRule?.enabled && repeatRule.type !== 'none');
         const picked = __tmPickReminderFollowTaskCompletedEntry(reminder, task, {
             detail: opts.detail || null,
@@ -13228,8 +13307,18 @@
     }
 
     __tmNs.reminderBridge = {
-        version: 1,
-        capabilities: Object.freeze({ completeFromReminder: true }),
+        version: 2,
+        capabilities: Object.freeze({ completeFromReminder: true, checkinFromReminder: true, setCheckinFromReminder: true }),
+        async setCheckinFromReminder(payload = {}) {
+            const taskRef = String(payload.taskId || payload.blockId || '').trim();
+            if (!taskRef || !payload.reminder || typeof payload.checked !== 'boolean') return { ok: false, applied: false, code: 'INVALID_ARGUMENT' };
+            const applied = await __tmMaybeAdvanceRecurringTaskFromReminderRecord(taskRef, payload.reminder, {
+                checkinOnly: true,
+                checked: payload.checked,
+                detail: { occurrenceKey: payload.occurrenceKey || '' },
+            });
+            return { ok: applied === true, applied: applied === true };
+        },
         async completeFromReminder(payload = {}) {
             const source = payload && typeof payload === 'object' ? payload : {};
             const taskRef = String(source.taskId || source.blockId || source.attrHostId || '').trim();

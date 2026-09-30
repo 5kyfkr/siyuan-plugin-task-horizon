@@ -31,6 +31,7 @@ const context = {
     },
     __tmIsTaskCanceled(task) { return task?.taskMarker === '-'; },
     __tmIsTaskDoneEffective(task) { return task?.done === true; },
+    __tmIsCheckinTask() { return false; },
 };
 context.globalThis = context;
 vm.runInNewContext(`

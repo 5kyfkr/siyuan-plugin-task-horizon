@@ -33,7 +33,7 @@ assert.match(detailCss, /\.tm-task-time-hub-popover--date-only \.tm-task-time-hu
 assert.match(standaloneSource, /applyDraftRepeatRule[\s\S]*draft: true/, 'draft repeat changes must stay local and notify the new-task owner');
 assert.match(standaloneSource, /onReminderDraftToggle/, 'draft reminder cards must delegate intent to the new-task owner');
 assert.match(recurringSource, /const draftTask = options\?\.draft === true[\s\S]*if \(draftTask\) return nextRule/, 'custom repeat editing must support draft tasks without writing before create');
-assert.match(detailSource, /function __tmGetTaskTimeHubRepeatDates[\s\S]*__tmCollectTaskRepeatPreviewDates\(task, \{ limit, until \}\)/, 'calendar repeat preview must reuse the authoritative recurring preview resolver through the visible grid end');
+assert.match(detailSource, /function __tmGetTaskTimeHubRepeatDates[\s\S]*__tmCollectTaskRepeatPreviewDates\(task, \{ limit, until, fromDateKey: fromDate \}\)/, 'calendar repeat preview must reuse the authoritative recurring preview resolver through the visible grid range');
 assert.equal((detailSource.match(/nextRepeatValues\.includes\(key\) && key !== activeValue \? 'is-next-repeat'/g) || []).length, 2, 'both time hub calendars must mark every visible recurring date without overriding the active date');
 assert.equal((detailSource.match(/currentChoice === 'custom' \? 'is-selected'/g) || []).length, 2, 'both repeat menus must select the custom choice for custom rule shapes');
 assert.equal((detailSource.match(/listTaskSchedulesByTaskId\([^\n]+\{ futureOnly: false \}\)/g) || []).length, 2, 'both time hub schedule lists must keep historical schedules available');

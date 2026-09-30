@@ -39,10 +39,10 @@
                     html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-field="priority" style="${getCellStyle('priority', 'text-align:center;')}" onclick="tmPickPriority('${task.id}', this, event)">${__tmRenderPriorityJira(task.priority, false)}</td>`;
                     break;
                 case 'startDate':
-                    html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="startDate" style="${getCellStyle('startDate')}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>`;
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="startDate" style="${getCellStyle('startDate')}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskDateFieldDisplayValue(task, 'startDate')}</td>`;
                     break;
                 case 'completionTime':
-                    html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="completionTime" style="${getCellStyle('completionTime')}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>`;
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="completionTime" style="${getCellStyle('completionTime')}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskDateFieldDisplayValue(task, 'completionTime')}</td>`;
                     break;
                 case 'taskCompleteAt':
                     html += `<td class="tm-task-meta-cell" data-tm-task-time-field="taskCompleteAt" style="${getCellStyle('taskCompleteAt')}" title="${esc(taskCompleteAtText)}">${esc(taskCompleteAtText)}</td>`;
@@ -963,7 +963,9 @@
                 return 'none';
             };
             const getTimeRange = (task) => {
-                const timeStr = String(task?.completionTime || '').trim();
+                const timeStr = __tmIsCheckinTask(task)
+                    ? __tmGetTaskCheckinCurrentDate(task)
+                    : String(task?.completionTime || '').trim();
                 if (!timeStr) return 'nodate';
                 const taskDate = new Date(timeStr);
                 if (isNaN(taskDate.getTime())) return 'nodate';
@@ -978,7 +980,9 @@
                 return 'beyond30days';
             };
             const getTaskDays = (task) => {
-                const timeStr = String(task?.completionTime || '').trim();
+                const timeStr = __tmIsCheckinTask(task)
+                    ? __tmGetTaskCheckinCurrentDate(task)
+                    : String(task?.completionTime || '').trim();
                 if (!timeStr) return Infinity;
                 const taskDate = new Date(timeStr);
                 if (isNaN(taskDate.getTime())) return Infinity;
@@ -1343,7 +1347,7 @@
                     const dateChipClass = `${timeTxt ? ' tm-kanban-chip--date-has-value' : ' tm-kanban-chip--date-empty'}${isTaskOverdue ? ' tm-kanban-chip--date-overdue' : ''}`;
                     metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">${esc(dateTxt || '日期')}</span>`);
                 }
-                if (kanbanCardFields.has('remainingTime') && __tmShouldRenderTaskCardRemainingTime(task)) {
+                if (kanbanCardFields.has('remainingTime') && __tmShouldRenderTaskCardRemainingTime(task, kanbanCardFields.has('date'))) {
                     const remainingInfo = __tmGetTaskRemainingTimeInfo(task);
                     const remainingLabel = String(remainingInfo?.label || '').trim();
                     metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="remainingTime" title="${esc(remainingLabel)}">${__tmRenderTaskRemainingTimeInfoHtml(remainingInfo)}</span>`);

@@ -410,6 +410,29 @@ async function exercisePersistence(legacy, packed) {
     onRead = null;
     assert.equal(writes, beforeRevisionChange, 'a projection captured before an intervening task change must not be persisted');
 
+    const scopeBeforeRead = {
+        groupId: context.SettingsStore.data.currentGroupId,
+        openToken: Number(context.state.openToken) || 0,
+        docIds: context.state.__tmLoadedDocIdsForTasks,
+    };
+    for (const [label, changeScope] of [
+        ['group', () => { context.SettingsStore.data.currentGroupId = 'another-group'; }],
+        ['documents', () => { context.state.__tmLoadedDocIdsForTasks = ['20260905000000-0000099']; }],
+        ['switch token', () => { context.state.openToken = scopeBeforeRead.openToken + 1; }],
+    ]) {
+        const writesBeforeScopeChange = writes;
+        context.state.taskTree[0].tasks[0].taskDateColor = `stale-${label}`;
+        onRead = changeScope;
+        await persist();
+        onRead = null;
+        context.SettingsStore.data.currentGroupId = scopeBeforeRead.groupId;
+        context.state.openToken = scopeBeforeRead.openToken;
+        context.state.__tmLoadedDocIdsForTasks = scopeBeforeRead.docIds;
+        context.state.taskTree[0].tasks[0].taskDateColor = 'blue';
+        assert.equal(writes, writesBeforeScopeChange,
+            `changing ${label} during the disk read must reject the save even when task revisions stay unchanged`);
+    }
+
     const cached = context.__tmTaskSnapshotStoreCache;
     const cachedBefore = clone(cached);
     const diskBefore = clone(disk);

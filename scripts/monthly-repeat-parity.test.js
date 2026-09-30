@@ -113,6 +113,7 @@ if (fs.existsSync(tomatoPath)) {
 }
 const apiSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/20-api-and-runtime-services.js'), 'utf8');
 context.__TM_REMINDER_REPEAT_MODE_FOLLOW_TASK = 'followTaskRepeat';
+context.__TM_REMINDER_REPEAT_MODE_MANUAL = 'manual';
 vm.runInContext(apiSource.slice(apiSource.indexOf('function __tmReminderToDateSafe'), apiSource.indexOf('function __tmFormatReminderDateTimeCompact')), context);
 const rawReminder = { enabled: true, interval: 'monthly', repeatMode: 'manual', every: 2, monthDays: [10, 11], monthlyMode: 'date', calendarMode: 'solar', startDate: '2026-09-10', times: ['09:00', '18:00'] };
 const reminder = context.__tmNormalizeReminderRecord(rawReminder, 'monthly-test');
@@ -128,4 +129,21 @@ assert.equal(dateKey(context.__tmGetLastDueReminderDateTime(weekReminder, new Da
 const followMonth = { ...reminder, repeatMode: 'followTaskRepeat', interval: 'once', taskCompletionTime: '2026-09-10', taskRepeatRule: rule({ every: 2, monthDays: [10, 11], maxOccurrences: 2 }), taskRepeatState: { occurrenceCount: 1 } };
 assert.equal(dateKey(context.__tmGetNextFollowTaskReminderPreviewDateTime(followMonth, new Date('2026-09-10T19:00:00'))), '2026-09-11');
 assert.equal(context.__tmGetNextFollowTaskReminderPreviewDateTime(followMonth, new Date('2026-09-11T19:00:00')), null);
+for (const [fields, after, expected] of [
+    [{ type: 'daily', every: 1 }, '2026-09-30', '2026-10-01'],
+    [{ type: 'daily', every: 2 }, '2026-09-30', '2026-10-02'],
+    [{ type: 'weekly', every: 1, weekdays: [3, 5] }, '2026-09-28', '2026-09-30'],
+    [{ type: 'workday', every: 1 }, '2026-10-02', '2026-10-05'],
+    [{ type: 'monthly', every: 1, monthDays: [28, 30] }, '2026-09-30', '2026-10-28'],
+    [{ type: 'yearly', every: 1 }, '2026-09-28', '2027-09-28'],
+]) {
+    const checkin = { ...followMonth, times: ['09:00'], taskRepeatRule: { enabled: true, trigger: 'checkin', anchorDate: '2026-09-28', ...fields }, taskRepeatState: { occurrenceCount: 200 } };
+    const at = new Date(`${after}T19:00:00`);
+    assert.equal(dateKey(context.__tmGetNextReminderDateTime(checkin, at)), expected, `check-in reminders progress without completion: ${fields.type}`);
+    assert.equal(dateKey(context.__tmGetNextFollowTaskReminderPreviewDateTime(checkin, at)), expected);
+    assert.equal(dateKey(context.__tmGetLastDueReminderDateTime(checkin, new Date(`${expected}T10:00:00`))), expected);
+}
+const singleCheckin = { ...followMonth, times: ['09:00'], taskRepeatRule: { enabled: true, trigger: 'checkin', type: 'weekly', every: 1, weekdays: [3, 5], anchorDate: '2026-09-28', maxOccurrences: 1 } };
+assert.equal(dateKey(context.__tmGetNextReminderDateTime(singleCheckin, new Date('2026-09-28T10:00:00'))), '2026-09-30');
+assert.equal(context.__tmGetNextReminderDateTime(singleCheckin, new Date('2026-09-30T10:00:00')), null, 'limits count scheduled days, not completed check-ins');
 console.log('monthly repeat parity tests passed (80 date ranges + 42 weekday patterns)');

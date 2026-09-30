@@ -6351,6 +6351,10 @@
             return false;
         };
         if (kind === 'time') {
+            if (baseIds.some((tid) => __tmIsCheckinTask(globalThis.__tmTaskBoundary?.getTask?.(String(tid || '').trim())))) {
+                hint('打卡任务按循环计划分组，请在循环设置中调整日期', 'info');
+                return;
+            }
             const target = __tmBuildKanbanTimeDropTarget(targetTimeKey);
             if (!target) {
                 hint(targetTimeKey === 'overdue' ? '已过期看板不能作为拖放目标' : '该时间看板不能作为拖放目标', 'info');

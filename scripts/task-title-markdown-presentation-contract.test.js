@@ -126,6 +126,48 @@ const dangerousPresentation = renderer.getTaskTitlePresentation('- [ ] <img src=
 assert.equal(dangerousPresentation.html, '安全');
 assert.equal(dangerousPresentation.text, '安全');
 
+vm.runInContext(sliceBetween(
+    apiSource,
+    '    globalThis.__tmGetTaskTitlePresentation = function',
+    '    const __TM_WRITER_GUARD_STORAGE_KEY',
+    'shared title presentation bridge',
+), context);
+vm.runInContext(homepageSource.replace('    globalThis.__tmHomepage = {', `
+    globalThis.__homepageProjectTitleTest = { renderProjectH2Card, renderProjectsDocScope };
+    globalThis.__tmHomepage = {`), context);
+const { renderProjectH2Card, renderProjectsDocScope } = context.__homepageProjectTitleTest;
+const projectDoc = { id: 'doc-id', name: '示例文档', total: 17, done: 16, progress: 94 };
+const projectHeading = { h2Id: 'heading-id', index: 13, total: 17, done: 16, progress: 94 };
+const blockRefId = '20260820102422-qeltiuw';
+for (const quote of ['"', "'"]) {
+    const name = `((${blockRefId} ${quote}项目计划${quote}))`;
+    const html = renderProjectsDocScope({ doc: projectDoc, h2Cards: [{ ...projectHeading, name }] });
+    assert.ok(html.includes(`class="tm-linked-text tm-task-title-block-ref" data-tm-block-ref-id="${blockRefId}"`),
+        'single-document project cards must preserve the shared block-reference presentation');
+    assert.ok(html.includes('<span class="tm-task-title-block-ref__text">项目计划</span>'));
+    assert.ok(html.includes('title="「示例文档」/ 项目计划"'), 'card tooltips must use the readable heading label');
+    assert.ok(html.includes('<span class="tm-home-project-cal-name">项目计划</span>'),
+        'the date button must use the readable heading label');
+    assert.ok(html.includes('data-tm-home-project-id="heading-id"'), 'date editing must still target the heading');
+    assert.ok(html.includes('<span class="tm-home-project-h2-index">14</span>'));
+    assert.doesNotMatch(html, /\(\(20260820102422-qeltiuw/, 'raw block-reference syntax must not leak into the card');
+}
+for (const [name, expectedHtml, expectedText] of [
+    ['普通标题', '普通标题', '普通标题'],
+    ['## **方案** / [文档](https://example.com) / `API`',
+        '<strong>方案</strong> / <span class="tm-linked-text">文档</span> / <code>API</code>', '方案 / 文档 / API'],
+    ['"发布日期" & <img src=x onerror=alert(1)>安全', '&quot;发布日期&quot; &amp; 安全', '&quot;发布日期&quot; &amp; 安全'],
+    ['', '(空标题)', '(空标题)'],
+]) {
+    const html = renderProjectH2Card({ ...projectHeading, name }, projectDoc);
+    assert.ok(html.includes(`<span class="tm-home-project-name">${expectedHtml}</span>`), name);
+    assert.ok(html.includes(`title="「示例文档」/ ${expectedText}"`), name);
+    assert.doesNotMatch(html, /<img\b|onerror=/, 'heading markup must use the shared safe renderer');
+}
+const noHeadingHtml = renderProjectH2Card({ ...projectHeading, h2Id: '', name: '未分类任务' }, projectDoc);
+assert.ok(noHeadingHtml.includes('<span class="tm-home-project-name">未分类任务</span>'));
+assert.doesNotMatch(noHeadingHtml, /data-tm-home-project-dates/, 'unclassified tasks must not get a heading date button');
+
 assert.match(apiSource, /globalThis\.__tmGetTaskTitlePresentation\s*=\s*function/,
     'standalone modules must receive one lifecycle-managed title bridge');
 assert.match(ganttSource, /taskTitleHtml:\s*taskTitlePresentation\.html/);

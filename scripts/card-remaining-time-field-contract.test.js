@@ -20,7 +20,7 @@ assert.match(
 );
 assert.match(
     taskModelSource,
-    /function __tmShouldRenderTaskCardRemainingTime\(task\) \{\s*return !!String\(__tmGetTaskCardDateValue\(task\) \|\| ''\)\.trim\(\);\s*\}/,
+    /function __tmShouldRenderTaskCardRemainingTime\(task, dateVisible = false\)[\s\S]*return !!String\(__tmGetTaskCardDateValue\(task\) \|\| ''\)\.trim\(\);/,
     'remaining time must stay hidden when both start and due dates are empty',
 );
 assert.match(
@@ -30,12 +30,12 @@ assert.match(
 );
 assert.match(
     kanbanSource,
-    /has\('date'\)[\s\S]*has\('remainingTime'\) && __tmShouldRenderTaskCardRemainingTime\(task\)[\s\S]*data-tm-task-time-field="remainingTime"[\s\S]*has\('tomatoSummary'\)/,
+    /has\('date'\)[\s\S]*has\('remainingTime'\) && __tmShouldRenderTaskCardRemainingTime\(task, kanbanCardFields.has\('date'\)\)[\s\S]*data-tm-task-time-field="remainingTime"[\s\S]*has\('tomatoSummary'\)/,
     'kanban cards must render remaining time after the due date',
 );
 assert.match(
     whiteboardSource,
-    /has\('date'\)[\s\S]*has\('remainingTime'\) && __tmShouldRenderTaskCardRemainingTime\(task\)[\s\S]*data-tm-task-time-field="remainingTime"[\s\S]*has\('tomatoSummary'\)/,
+    /has\('date'\)[\s\S]*has\('remainingTime'\) && __tmShouldRenderTaskCardRemainingTime\(task, whiteboardCardFields.has\('date'\)\)[\s\S]*data-tm-task-time-field="remainingTime"[\s\S]*has\('tomatoSummary'\)/,
     'whiteboard cards must render remaining time after the due date',
 );
 assert.match(
@@ -45,7 +45,7 @@ assert.match(
 );
 assert.match(
     cardRuntimeSource,
-    /__tmTaskCardFieldEnabled\(viewKey, 'remainingTime'\) && __tmShouldRenderTaskCardRemainingTime\(taskLike\)[\s\S]*__tmGetTaskRemainingTimeInfo\(taskLike\)[\s\S]*__tmRenderTaskRemainingTimeInfoHtml\(remainingInfo\)/,
+    /__tmTaskCardFieldEnabled\(viewKey, 'remainingTime'\) && __tmShouldRenderTaskCardRemainingTime\(taskLike, __tmTaskCardFieldEnabled\(viewKey, 'date'\)\)[\s\S]*__tmGetTaskRemainingTimeInfo\(taskLike\)[\s\S]*__tmRenderTaskRemainingTimeInfoHtml\(remainingInfo\)/,
     'live card metadata updates must reuse the canonical remaining-time calculation and renderer',
 );
 

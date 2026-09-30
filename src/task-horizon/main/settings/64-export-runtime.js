@@ -809,6 +809,15 @@
             ? __tmIsTaskDoneEffective(task)
             : task?.done === true;
         if (__tmIsTaskCanceled(task)) return makeInfo('放弃', colors.waiting, '9');
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+            const today = __tmNormalizeDateOnly(new Date(todayStartTs));
+            if (__tmIsTaskCheckinChecked(task, today)) return makeInfo('今日已打卡', colors.done, '9');
+            const date = __tmGetTaskCheckinCurrentDate(task, today);
+            if (!date) return makeInfo('打卡计划已结束', colors.pending, '8');
+            const days = calcDayDiff(parseToLocalDayBoundaryTs(date, 'start'));
+            if (days === 0) return makeInfo('今日待打卡', colors.activeStrong, '1', true);
+            return makeInfo(`下次打卡 ${days}天后`, colors.waiting, '4');
+        }
         if (taskDone) {
             const completionRaw = typeof __tmResolveTaskCompletedAtRaw === 'function'
                 ? __tmResolveTaskCompletedAtRaw(task, { completedOnly: false })

@@ -13003,6 +13003,11 @@ select.tm-btn-secondary {
     color: var(--tm-primary-color);
 }
 
+.tm-task-time-hub__date-card.tm-task-time-hub__checkin-card {
+    grid-column: 1 / -1;
+    cursor: default;
+}
+
 .tm-task-time-hub__date-clear {
     position: absolute;
     right: 6px;
@@ -13201,6 +13206,67 @@ select.tm-btn-secondary {
 .tm-task-time-hub__day.is-next-repeat::after {
     background: color-mix(in srgb, var(--tm-primary-color) 11%, var(--tm-card-bg) 89%);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tm-primary-color) 30%, transparent);
+}
+
+.tm-task-time-hub__day.tm-task-time-hub__checkin-day {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.tm-task-time-hub__day.tm-task-time-hub__checkin-day:disabled {
+    cursor: default;
+}
+
+.tm-task-time-hub__day.tm-task-time-hub__checkin-day:focus-visible {
+    outline: 2px solid var(--tm-primary-color);
+    outline-offset: -2px;
+}
+
+.tm-task-time-hub__day.tm-task-time-hub__checkin-day.is-active:not(.is-checkin-checked) {
+    color: var(--tm-primary-color);
+}
+
+.tm-task-time-hub__day.tm-task-time-hub__checkin-day.is-active:not(.is-checkin-checked)::after {
+    background: color-mix(in srgb, var(--tm-primary-color) 11%, var(--tm-card-bg) 89%);
+}
+
+.tm-task-time-hub__day.tm-task-time-hub__checkin-day.is-checkin-checked {
+    --tm-checkin-fill: color-mix(in oklch, var(--b3-theme-success, oklch(52% 0.12 150)) 72%, oklch(30% 0.06 150));
+    color: var(--primary-foreground);
+    gap: 3px;
+}
+
+.tm-task-time-hub__day.tm-task-time-hub__checkin-day.is-checkin-checked::after {
+    background: var(--tm-checkin-fill);
+    box-shadow: none;
+}
+
+.tm-task-time-hub__day.tm-task-time-hub__checkin-day.is-checkin-checked:hover::after {
+    background: color-mix(in oklch, var(--tm-checkin-fill) 90%, oklch(25% 0.04 150));
+}
+
+.tm-task-time-hub__checkin-mark {
+    display: block;
+    position: relative;
+    flex: 0 0 auto;
+    width: 10px;
+    height: 12px;
+    color: inherit;
+}
+
+.tm-task-time-hub__checkin-mark::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 45%;
+    width: 3px;
+    height: 7px;
+    box-sizing: content-box;
+    border: solid currentColor;
+    border-width: 0 1.5px 1.5px 0;
+    transform: translate(-50%, -50%) rotate(45deg);
 }
 
 .tm-task-time-hub__day.is-fsrs-good {

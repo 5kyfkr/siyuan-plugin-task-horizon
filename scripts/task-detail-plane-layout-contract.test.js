@@ -36,6 +36,7 @@ for (const marker of [
     '__tmBuildTaskDetailSubtasksHtml(task)',
     '__tmBuildTaskDetailAttachmentSectionHtml(task, detailTip)',
     '__tmBuildTaskRepeatHistorySectionHtml(task)',
+    '__tmBuildTaskCheckinHistorySectionHtml(task)',
 ]) {
     assert.ok(detailBuilder.includes(marker), `task detail must preserve ${marker}`);
 }
@@ -114,13 +115,19 @@ for (const tool of ['outdent', 'indent', 'bullet', 'ordered', 'bold', 'italic', 
 }
 
 const historyBuilderStart = helperSource.indexOf('function __tmBuildTaskRepeatHistorySectionHtml(');
-const historyBuilder = helperSource.slice(historyBuilderStart);
+const checkinBuilderStart = helperSource.indexOf('function __tmBuildTaskCheckinHistorySectionHtml(', historyBuilderStart);
+assert.ok(historyBuilderStart >= 0 && checkinBuilderStart > historyBuilderStart, 'repeat and check-in history builders must remain separately extractable');
+const historyBuilder = helperSource.slice(historyBuilderStart, checkinBuilderStart);
 assert.match(historyBuilder, /data-tm-detail-section-toggle[\s\S]*循环完成记录[\s\S]*tm-task-detail-section-count/, 'repeat history must preserve its folding title and count');
 assert.ok(historyBuilder.includes('data-tm-detail-repeat-history-delete'), 'repeat history must preserve its delete action');
 
-const foldButtons = [detailBuilder, attachmentBuilder, remarkBuilder, historyBuilder]
+const checkinBuilder = helperSource.slice(checkinBuilderStart);
+assert.match(checkinBuilder, /data-tm-detail-section-toggle[\s\S]*打卡记录[\s\S]*tm-task-detail-section-count/, 'check-in history must preserve its folding title and count');
+assert.ok(checkinBuilder.includes('data-tm-detail-checkin-toggle'), 'check-in history must preserve its cancel action');
+
+const foldButtons = [detailBuilder, attachmentBuilder, remarkBuilder, historyBuilder, checkinBuilder]
     .flatMap((source) => Array.from(source.matchAll(/<button\b[^>]*data-tm-detail-section-toggle[^>]*>([\s\S]*?)<\/button>/g), (match) => match[1]));
-assert.equal(foldButtons.length, 5, 'all five collapsible section templates must use the shared folding button');
+assert.equal(foldButtons.length, 6, 'all six collapsible section templates, including check-in history, must use the shared folding button');
 foldButtons.forEach((buttonBody) => {
     assert.ok(
         buttonBody.indexOf('tm-task-detail-section-title') < buttonBody.indexOf('tm-task-detail-section-chevron'),

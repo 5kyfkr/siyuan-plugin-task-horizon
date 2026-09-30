@@ -434,8 +434,10 @@
                 const compactHeadingText = checklistCompact && compactChecklistMetaFieldSet.has('h2')
                     ? __tmNormalizeHeadingText(task.h2)
                     : '';
-                const showCompactStartDate = checklistCompact && compactChecklistMetaFieldSet.has('startDate') && !!task.startDate;
-                const showCompactCompletionTime = checklistCompact && compactChecklistMetaFieldSet.has('completionTime') && !!task.completionTime;
+                const displayStartDate = __tmGetTaskDateFieldDisplayValue(task, 'startDate');
+                const displayCompletionTime = __tmGetTaskDateFieldDisplayValue(task, 'completionTime');
+                const showCompactStartDate = checklistCompact && compactChecklistMetaFieldSet.has('startDate') && !!displayStartDate;
+                const showCompactCompletionTime = checklistCompact && compactChecklistMetaFieldSet.has('completionTime') && !!displayCompletionTime;
                 const compactRemainingTimeInfo = checklistCompact && compactChecklistMetaFieldSet.has('remainingTime')
                     ? __tmGetTaskRemainingTimeInfo(task)
                     : null;
@@ -443,7 +445,8 @@
                 const compactRemainingTimeHtml = compactRemainingTimeLabel
                     ? __tmRenderTaskRemainingTimeInfoHtml(compactRemainingTimeInfo)
                     : '';
-                const showCompactRemainingTime = !!compactRemainingTimeLabel && !!(String(task?.startDate || '').trim() || String(task?.completionTime || '').trim());
+                const showCompactRemainingTime = !!compactRemainingTimeLabel
+                    && __tmShouldRenderTaskCardRemainingTime(task, showCompactStartDate || showCompactCompletionTime);
                 const compactDurationText = checklistCompact && compactChecklistMetaFieldSet.has('duration')
                     ? __tmFormatDurationDisplayValue(task.duration || '')
                     : '';
@@ -471,14 +474,14 @@
                 if (showTaskDocName && task.docName) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderLucideIcon('file-text')} ${esc(String(task.docName || ''))}</span>`);
                 if (task.h2) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderHeadingLevelInlineIcon(task.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })} ${esc(__tmNormalizeHeadingText(task.h2))}</span>`);
                 if (String(task.priority || '').trim() && String(task.priority || '').trim() !== 'none') meta.push(`<span class="tm-checklist-meta-chip" data-tm-field="priority">${priorityIcon}</span>`);
-                if (task.completionTime) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="completionTime">${esc(__tmFormatTaskTime(task.completionTime))}</span>`);
+                if (displayCompletionTime) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="completionTime">${esc(__tmFormatTaskDateFieldDisplayValue(task, 'completionTime'))}</span>`);
                 if (focusSummaryText) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="tomatoSummary" onclick="tmEditFocusSummaryInline('${esc(task.id)}', this)">${__tmRenderLucideIcon('timer')} ${focusSummaryHtml}</span>`);
                 if (totalChildren > 0) meta.push(`<span class="tm-checklist-meta-chip" data-tm-subtask-count-owner="${esc(String(task.id || ''))}">子任务 ${completedChildren}/${totalChildren}</span>`);
                 const compactMetaParts = [];
                 if (showCompactDocName) compactMetaParts.push(`<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>`);
                 if (compactHeadingText) compactMetaParts.push(`<span class="tm-checklist-meta-compact-h2" title="${esc(compactHeadingText)}">${API.renderTaskContentHtml(compactHeadingText, compactHeadingText)}</span>`);
-                if (showCompactStartDate) compactMetaParts.push(`<span class="tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start" data-tm-task-time-field="startDateCompact">${esc(__tmFormatTaskCardDateValueFromValue(task.startDate))}</span>`);
-                if (showCompactCompletionTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion${__tmIsTaskCardDateOverdue(task, completedTodayKey) ? ' tm-checklist-meta-compact-date--overdue' : ''}" data-tm-task-time-field="completionTimeCompact">${esc(__tmFormatTaskCardDateValueFromValue(task.completionTime))}</span>`);
+                if (showCompactStartDate) compactMetaParts.push(`<span class="tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start" data-tm-task-time-field="startDateCompact">${esc(__tmFormatTaskDateFieldDisplayValue(task, 'startDate', true))}</span>`);
+                if (showCompactCompletionTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion${__tmIsTaskCardDateOverdue(task, completedTodayKey) ? ' tm-checklist-meta-compact-date--overdue' : ''}" data-tm-task-time-field="completionTimeCompact">${esc(__tmFormatTaskDateFieldDisplayValue(task, 'completionTime', true))}</span>`);
                 if (showCompactRemainingTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-remaining" data-tm-task-time-field="remainingTimeCompact" title="${esc(compactRemainingTimeLabel)}">${compactRemainingTimeHtml}</span>`);
                 if (showCompactDuration) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="durationCompact">${esc(compactDurationText)}</span>`);
                 if (compactFocusSummaryText) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="tomatoSummaryCompact" onclick="tmEditFocusSummaryInline('${esc(task.id)}', this)">${compactFocusSummaryHtml}</span>`);

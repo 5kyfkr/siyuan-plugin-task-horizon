@@ -416,6 +416,10 @@
         const entries = [];
         list.forEach((task) => {
             if (!task || typeof task !== 'object') return;
+            if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+                entries.push({ task, startTs: 0, endTs: Number.MAX_SAFE_INTEGER });
+                return;
+            }
             const startKey = __tmNormalizeDateOnly(task.startDate);
             const endKey = __tmNormalizeDateOnly(task.completionTime);
             if (!startKey && !endKey) return;
@@ -912,7 +916,7 @@
         const out = [];
         for (const t of tasks) {
             if (!t) continue;
-            if (t.done) continue;
+            if ((typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(t) : t.done) && !(typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(t))) continue;
             const id = String(t.id || '').trim();
             if (!id) continue;
             const title = __tmResolveCalendarTaskDisplayTitle(t, '');
@@ -977,7 +981,7 @@
         const all = [];
         for (const t of tasks) {
             if (!t) continue;
-            if (t.done) continue;
+            if ((typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(t) : t.done) && !(typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(t))) continue;
             const id = String(t.id || '').trim();
             if (!id) continue;
             const title = __tmResolveCalendarTaskDisplayTitle(t, '(无标题)');
@@ -1019,6 +1023,70 @@
         const items = all.slice(start, start + size);
         return { total, page, pageSize: size, items };
     };
+
+    function __tmBuildCalendarCheckinTaskDateEvents(task, rangeStart, rangeEnd, docsToGroup = null) {
+        if (typeof __tmIsCheckinTask !== 'function' || !__tmIsCheckinTask(task)) return null;
+        const id = String(task?.id || '').trim();
+        if (!id || __tmIsCalendarTaskPendingDeletedSync(id)) return [];
+        const startKey = __tmNormalizeDateOnly(rangeStart);
+        const endKey = __tmNormalizeDateOnly(rangeEnd);
+        if (!startKey || !endKey || endKey < startKey) return [];
+        const dates = __tmRepeatCoreIterate(task.repeatRule || task.repeat_rule || {}, {
+            fromDateKey: startKey,
+            toDateKey: endKey,
+            limit: 2400,
+        });
+        const title = __tmResolveCalendarTaskDisplayTitle(task, '(无标题)');
+        const docId = String(task.root_id || '').trim();
+        const groupMap = docsToGroup instanceof Map ? docsToGroup : __tmGetCalendarDocsToGroupMapSync();
+        const gid = docId ? groupMap.get(docId) : '';
+        const calendarId = gid ? `group:${gid}` : 'default';
+        const itemColor = typeof __tmReadTaskMetaAttrValue === 'function'
+            ? __tmReadTaskMetaAttrValue(task, 'taskDateColor')
+            : '';
+        const taskDateColor = String(task.taskDateColor || task.task_date_color || itemColor || '').trim();
+        const todayKey = __tmNormalizeDateOnly(new Date());
+        const history = __tmGetTaskCheckinHistory(task);
+        const checkedDates = new Set(history.map((entry) => entry.scheduledDate));
+        const dateMap = new Map(dates.map((occurrence) => [occurrence.dateKey, occurrence]));
+        history.forEach((entry) => {
+            const day = entry.scheduledDate;
+            if (day >= startKey && day <= endKey && day) dateMap.set(day, { dateKey: day, historical: true });
+        });
+        return Array.from(dateMap.values()).sort((a, b) => a.dateKey.localeCompare(b.dateKey)).map((occurrence) => {
+            const day = occurrence.dateKey;
+            const future = !!todayKey && day > todayKey;
+            return {
+                id: `checkin:${id}:${day}`,
+                taskId: id,
+                title,
+                titleMarkdown: String(task.markdown || task.content || title || '').trim(),
+                remark: String(task.remark || '').trim(),
+                start: day,
+                endExclusive: __tmShiftTaskRepeatDateKey(day, 1),
+                calendarId,
+                docId,
+                taskDateColor,
+                color: taskDateColor,
+                sourceStart: day,
+                sourceCompletion: day,
+                milestone: true,
+                sourceTaskId: '',
+                recurringSourceTaskId: '',
+                recurringCompletedAt: '',
+                isRecurringInstance: false,
+                isRecurringInstanceReadOnly: future,
+                checkin: true,
+                checkinDate: day,
+                checkinHistorical: occurrence.historical === true,
+                checkinFuture: future,
+                allDayBottom: false,
+                done: checkedDates.has(day),
+            };
+        });
+    }
+
+    window.tmBuildCalendarCheckinTaskDateEvents = __tmBuildCalendarCheckinTaskDateEvents;
 
     window.tmQueryCalendarTaskDateEvents = async function(rangeStart, rangeEnd, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
@@ -1184,6 +1252,11 @@
                 if (!t) continue;
                 const id = String(t.id || '').trim();
                 if (!id || __tmIsCalendarTaskPendingDeletedSync(id)) continue;
+                const checkinEvents = __tmBuildCalendarCheckinTaskDateEvents(t, startKey, endKey, groupMap);
+                if (checkinEvents) {
+                    out.push(...checkinEvents);
+                    continue;
+                }
                 let done = __tmIsCalendarTaskDoneSync(t);
                 try {
                     const liveTask = __tmGetCalendarFlatTaskByIdSync(id);
@@ -1698,6 +1771,9 @@
         const persistId = String(task?.id || resolvedId || requestedId).trim();
         if (!persistId) {
             throw new Error('未找到任务');
+        }
+        if ((hasStartDate || hasCompletionTime) && typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+            throw new Error('打卡日期由循环计划决定，请在循环设置中调整');
         }
 
         const normalizeDate = (value) => {

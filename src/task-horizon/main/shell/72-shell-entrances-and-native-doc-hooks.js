@@ -2044,21 +2044,27 @@
         const rawId = String(blockId || '').trim();
         if (!rawId) return null;
         const opts = (options && typeof options === 'object') ? options : {};
+        const source = String(opts.source || '').trim();
+        const userInitiatedEvent = /^native-doc-checkbox-(?:click|pointerup)$/.test(source);
         const now = Date.now();
         const hasExplicitPreviousDone = typeof opts.previousDone === 'boolean';
         let existing = null;
         try {
             existing = __tmNativeDocCheckboxPreviousStateMap.get(rawId) || null;
             if (existing && Number(existing.expiresAt || 0) <= now) existing = null;
-            if (existing && !hasExplicitPreviousDone) return existing;
+            if (existing && !hasExplicitPreviousDone) {
+                if (!userInitiatedEvent || existing.userInitiated === true) return existing;
+                // A saved check-in's DOM projection can leave an observer-only
+                // snapshot. It must not swallow the user's next real click.
+                existing = null;
+            }
         } catch (e) {}
         const previousDone = hasExplicitPreviousDone
             ? opts.previousDone
             : __tmReadNativeDocTaskDoneFromDom(rawId);
         if (previousDone === null) return null;
         const snapshot = existing || __tmReadNativeDocCheckboxTaskSnapshot(rawId);
-        const source = String(opts.source || '').trim();
-        const userInitiated = /^native-doc-checkbox-(?:click|pointerup)$/.test(source) || existing?.userInitiated === true;
+        const userInitiated = userInitiatedEvent || existing?.userInitiated === true;
         const entry = {
             blockId: rawId,
             taskId: String(snapshot.taskId || rawId).trim() || rawId,
@@ -2471,12 +2477,48 @@
         }
     }
 
+    function __tmProjectNativeDocCheckinCheckbox(blockId, checked) {
+        const marker = checked ? 'X' : ' ';
+        __tmFindNativeDocTaskListItemsByIds([blockId]).forEach((item) => {
+            // Project today's record onto the native editor without persisting a
+            // normal task completion or changing a nested task's checkbox.
+            if (item.getAttribute('data-task') !== marker) item.setAttribute('data-task', marker);
+            item.classList.toggle('protyle-task--done', !!checked);
+            const action = Array.from(item.children || []).find((child) => child.classList?.contains('protyle-action--task'));
+            const icon = action?.querySelector('use');
+            const href = checked ? '#iconCheck' : '#iconUncheck';
+            if (icon && icon.getAttribute('xlink:href') !== href) icon.setAttribute('xlink:href', href);
+            if (icon?.hasAttribute('href') && icon.getAttribute('href') !== href) icon.setAttribute('href', href);
+            item.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+                if (__tmFindNativeDocTaskListItem(input) === item) input.checked = !!checked;
+            });
+        });
+        __tmMarkNativeDocCheckboxSyncedState([blockId], !!checked);
+        return true;
+    }
+
+    function __tmRefreshNativeDocCheckinCheckboxes(taskId = '') {
+        const today = __tmNormalizeDateOnly(new Date());
+        const ids = taskId ? [String(taskId)] : Array.from(new Set(
+            Array.from(document.querySelectorAll('.protyle-wysiwyg .protyle-action--task'))
+                .map((action) => __tmResolveNativeDocTaskBlockId(action)).filter(Boolean),
+        ));
+        ids.forEach((id) => {
+            const task = globalThis.__tmTaskBoundary?.getTask?.(id);
+            if (!task || !__tmIsCheckinTask(task)) return;
+            __tmProjectNativeDocCheckinCheckbox(id, __tmIsTaskCheckinChecked(task, today));
+        });
+    }
+
     function __tmApplyNativeDocCheckboxDomProjection(blockId, done, source = 'native-doc-checkbox-dom') {
         const rawId = String(blockId || '').trim();
         if (!rawId || typeof done !== 'boolean') return false;
         const task = globalThis.__tmTaskBoundary?.getTask?.(rawId, { includePending: false, preferPending: false }) || null;
         const tid = String(task?.id || rawId).trim();
         if (!task || !tid) return false;
+        // A native click is still in flight here. The shared check-in service
+        // projects its result after saving; never copy this marker into done.
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) return true;
         const marker = __tmReadNativeDocTaskMarkerFromDom(rawId) || (done ? 'X' : ' ');
         done = __tmIsTaskMarkerDone(marker);
         const patch = {
@@ -2610,6 +2652,40 @@
             if (liveTask && typeof liveTask === 'object') task = { ...liveTask };
         } catch (e) {}
         try { normalizeTaskFields(task, String(task.doc_name || task.docName || '').trim()); } catch (e) {}
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+            const todayKey = __tmNormalizeDateOnly(new Date());
+            const userInitiatedCheckin = previousState?.userInitiated === true;
+            if (userInitiatedCheckin) {
+                try {
+                    const saved = await window.tmSetTaskCheckin(tid, todayKey, !!domDone, {
+                        source: 'native-doc-checkbox-checkin',
+                        projectNative: false,
+                    });
+                    if (saved !== true) throw new Error('任务的打卡模式已变更，请刷新后重试');
+                } catch (e) {
+                    try {
+                        if (__tmReadNativeDocTaskDoneFromDom(rawId) === domDone) {
+                            __tmProjectNativeDocCheckinCheckbox(rawId, __tmIsTaskCheckinChecked(task, todayKey));
+                        }
+                    } catch (e2) {}
+                    try { hint(`❌ 打卡失败: ${e?.message || String(e)}`, 'error'); } catch (e2) {}
+                    return false;
+                }
+                // A second click during persistence belongs to the next queued
+                // sync; do not overwrite it with this request's projection.
+                if (__tmReadNativeDocTaskDoneFromDom(rawId) === domDone) {
+                    try { __tmProjectNativeDocCheckinCheckbox(rawId, !!domDone); } catch (e) {}
+                } else {
+                    __tmMarkNativeDocCheckboxSyncedState([rawId, tid], !!domDone);
+                }
+            } else {
+                const projected = typeof __tmIsTaskCheckinChecked === 'function'
+                    ? __tmIsTaskCheckinChecked(task, todayKey)
+                    : false;
+                try { __tmProjectNativeDocCheckinCheckbox(rawId, projected); } catch (e) {}
+            }
+            return true;
+        }
         let checkboxAttrTargetId = '';
         try { checkboxAttrTargetId = __tmResolveNativeDocCheckboxAttrHostIdFromDom(rawId, tid); } catch (e) { checkboxAttrTargetId = ''; }
         if (!checkboxAttrTargetId) {
@@ -3316,8 +3392,10 @@
             };
 
             document.querySelectorAll('.protyle-wysiwyg').forEach((root) => observeRoot(root));
+            __tmRefreshNativeDocCheckinCheckboxes();
             __tmNativeDocProtyleLoadedHandler = (event) => {
                 try { observeRoot(event?.detail?.protyle || event?.protyle || null); } catch (e) {}
+                try { __tmRefreshNativeDocCheckinCheckboxes(); } catch (e) {}
                 try { observeBreadcrumb(); } catch (e) {}
             };
             __tmNativeDocProtyleDestroyedHandler = (event) => {

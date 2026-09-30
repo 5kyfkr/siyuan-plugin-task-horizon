@@ -2900,11 +2900,23 @@
             }
             .sy-custom-props-floatbar__input-editor.is-visible {
                 display: block;
+                overflow-y: auto;
             }
             .sy-custom-props-floatbar__input-editor.is-remark {
                 width: min(72vw, 420px);
                 min-width: min(72vw, 240px);
                 max-width: calc(100vw - 12px);
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark.is-visible {
+                display: flex;
+                flex-direction: column;
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__textarea {
+                min-height: 34px;
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__remark-toolbar,
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__input-actions {
+                flex-shrink: 0;
             }
             .sy-custom-props-floatbar__input-editor.is-duration {
                 width: min(228px, calc(100vw - 12px));
@@ -3587,6 +3599,7 @@
         let activePropConfig = null;  // 当前编辑的属性配置
         let inputResolve = null;  // 输入框Promise解析器
         let quickbarTextEditorAutoSave = null;
+        let inputEditorViewportCleanup = null;
         const QUICKBAR_AUTO_HIDE_DELAY = 5000;
         let quickbarAutoHideTimer = null;
         let quickbarAutoHidePointerEnterHandler = null;
@@ -3627,20 +3640,26 @@
         function syncInputEditorTextareaHeight(textarea, minHeight = 76) {
             if (!(textarea instanceof HTMLTextAreaElement)) return;
             const baseHeight = Math.max(34, Number(minHeight) || 76);
+            const scrollTop = textarea.scrollTop;
             try { textarea.style.height = 'auto'; } catch (e) {}
             const nextHeight = Math.max(baseHeight, Math.min(420, textarea.scrollHeight || 0));
             textarea.style.height = `${nextHeight}px`;
-            try { textarea.style.overflowY = (textarea.scrollHeight > nextHeight) ? 'auto' : 'hidden'; } catch (e) {}
+            // Flex sizing can shrink the textarea further when the keyboard is open.
+            textarea.style.overflowY = 'auto';
+            textarea.scrollTop = scrollTop;
         }
 
         function positionPopupNearAnchor(popupEl, anchorEl, options = {}) {
             if (!(popupEl instanceof HTMLElement) || !(anchorEl instanceof HTMLElement)) return;
             const gap = Math.max(0, Number(options.gap) || 4);
             const viewportMargin = Math.max(4, Number(options.viewportMargin) || 6);
-            const viewportW = document.documentElement?.clientWidth || window.innerWidth || 0;
-            const viewportH = document.documentElement?.clientHeight || window.innerHeight || 0;
+            const viewport = window.visualViewport;
+            const viewportW = viewport?.width || document.documentElement?.clientWidth || window.innerWidth || 0;
+            const viewportH = viewport?.height || window.innerHeight || document.documentElement?.clientHeight || 0;
             if (!viewportW || !viewportH) return;
 
+            popupEl.style.maxWidth = `${Math.max(0, viewportW - viewportMargin * 2)}px`;
+            popupEl.style.maxHeight = `${Math.max(0, viewportH - viewportMargin * 2)}px`;
             const anchorRect = anchorEl.getBoundingClientRect();
             const popupRect = popupEl.getBoundingClientRect();
             const popupWidth = Math.min(
@@ -3651,20 +3670,20 @@
                 Math.max(0, popupRect.height || popupEl.offsetHeight || 0),
                 Math.max(0, viewportH - viewportMargin * 2)
             );
-            const viewportLeft = window.scrollX;
-            const viewportTop = window.scrollY;
+            const viewportLeft = window.scrollX + (viewport?.offsetLeft || 0);
+            const viewportTop = window.scrollY + (viewport?.offsetTop || 0);
             const minLeft = viewportLeft + viewportMargin;
             const maxLeft = viewportLeft + Math.max(viewportMargin, viewportW - popupWidth - viewportMargin);
-            let left = viewportLeft + anchorRect.left;
+            let left = window.scrollX + anchorRect.left;
             if (left + popupWidth > viewportLeft + viewportW - viewportMargin) {
-                left = viewportLeft + anchorRect.right - popupWidth;
+                left = window.scrollX + anchorRect.right - popupWidth;
             }
             left = Math.max(minLeft, Math.min(left, maxLeft));
 
             const minTop = viewportTop + viewportMargin;
             const maxTop = viewportTop + Math.max(viewportMargin, viewportH - popupHeight - viewportMargin);
-            const belowTop = viewportTop + anchorRect.bottom + gap;
-            const aboveTop = viewportTop + anchorRect.top - popupHeight - gap;
+            const belowTop = window.scrollY + anchorRect.bottom + gap;
+            const aboveTop = window.scrollY + anchorRect.top - popupHeight - gap;
             let top = belowTop;
             if (belowTop + popupHeight > viewportTop + viewportH - viewportMargin && aboveTop >= minTop) {
                 top = aboveTop;
@@ -3673,6 +3692,39 @@
 
             popupEl.style.left = `${Math.round(left)}px`;
             popupEl.style.top = `${Math.round(top)}px`;
+        }
+
+        function closeInputEditor() {
+            inputEditorViewportCleanup?.();
+            inputEditorViewportCleanup = null;
+            inputEditor.classList.remove('is-visible');
+        }
+
+        function bindInputEditorViewport(reposition) {
+            inputEditorViewportCleanup?.();
+            const viewport = window.visualViewport;
+            let frame = 0;
+            const schedule = (event) => {
+                if (event?.type === 'scroll' && event.target instanceof Node && inputEditor.contains(event.target)) return;
+                if (frame || !inputEditor.classList.contains('is-visible')) return;
+                frame = requestAnimationFrame(() => {
+                    frame = 0;
+                    if (inputEditor.classList.contains('is-visible')) reposition();
+                });
+            };
+            window.addEventListener('resize', schedule);
+            document.addEventListener('scroll', schedule, true);
+            viewport?.addEventListener('resize', schedule);
+            viewport?.addEventListener('scroll', schedule);
+            inputEditorViewportCleanup = () => {
+                window.removeEventListener('resize', schedule);
+                document.removeEventListener('scroll', schedule, true);
+                viewport?.removeEventListener('resize', schedule);
+                viewport?.removeEventListener('scroll', schedule);
+                if (frame) cancelAnimationFrame(frame);
+                frame = 0;
+            };
+            schedule();
         }
 
         function isQuickbarInteractionTarget(target) {
@@ -3752,6 +3804,8 @@
         }
 
         function setInputEditorMode(mode = 'input') {
+            inputEditorViewportCleanup?.();
+            inputEditorViewportCleanup = null;
             cleanupFocusSummaryEditorScaffold();
             const { input, textarea } = getInputEditorControls();
             const useTextarea = mode === 'textarea';
@@ -6589,7 +6643,7 @@
             }
             const attrKey = String(config?.attrKey || '').trim();
             if ((attrKey === 'custom-start-date' || attrKey === 'custom-completion-time') && typeof window.tmOpenTaskTimeHub === 'function') {
-                try { inputEditor.classList.remove('is-visible'); } catch (e) {}
+                try { closeInputEditor(); } catch (e) {}
                 const activeField = attrKey === 'custom-start-date' ? 'startDate' : 'completionTime';
                 Promise.resolve(window.tmOpenTaskTimeHub(blockIdAtOpen, anchorEl, {
                     activeField,
@@ -6871,7 +6925,7 @@
                 const detailId = String(resolveCurrentTaskId() || blockIdAtOpen).trim() || blockIdAtOpen;
                 if (typeof window.tmEditFocusSummaryInline === 'function') {
                     try {
-                        inputEditor.classList.remove('is-visible');
+                        closeInputEditor();
                         window.tmEditFocusSummaryInline(detailId, anchorEl);
                         return;
                     } catch (e) {}
@@ -7160,7 +7214,7 @@
                     label: config.name,
                 });
                 if (applySaveResult(newValue, result)) {
-                    inputEditor.classList.remove('is-visible');
+                    closeInputEditor();
                 }
             };
 
@@ -7189,17 +7243,12 @@
 
             // 计算位置
             inputEditor.classList.add('is-visible');
-            const repositionEditor = () => positionPopupNearAnchor(inputEditor, anchorEl, { gap: 4, viewportMargin: 6 });
+            const repositionEditor = () => {
+                if (textarea instanceof HTMLTextAreaElement) syncInputEditorTextareaHeight(textarea, 76);
+                positionPopupNearAnchor(inputEditor, anchorEl, { gap: 4, viewportMargin: 6 });
+            };
             repositionEditor();
-            if (textarea instanceof HTMLTextAreaElement) {
-                syncInputEditorTextareaHeight(textarea, 76);
-                try {
-                    requestAnimationFrame(() => {
-                        syncInputEditorTextareaHeight(textarea, 76);
-                        repositionEditor();
-                    });
-                } catch (e) {}
-            }
+            bindInputEditorViewport(repositionEditor);
 
             valueSource.focus();
             if (input instanceof HTMLInputElement) {
@@ -7240,7 +7289,7 @@
                     return;
                 }
 
-                inputEditor.classList.remove('is-visible');
+                closeInputEditor();
                 if (isRemark && textarea instanceof HTMLTextAreaElement) {
                     try { textarea.dataset.savedValue = newValue; } catch (e) {}
                     try { delete textarea.dataset.dirty; } catch (e) {}
@@ -7293,9 +7342,10 @@
                         if (remarkToolbar instanceof HTMLElement && remarkToolbar.classList.contains('is-open')) {
                             remarkToolbar.classList.remove('is-open');
                             remarkToolbar.hidden = true;
+                            repositionEditor();
                             return;
                         }
-                        inputEditor.classList.remove('is-visible');
+                        closeInputEditor();
                     }
                 };
             }
@@ -7306,7 +7356,7 @@
                         saveText();
                     } else if (e.key === 'Escape') {
                         e.preventDefault();
-                        inputEditor.classList.remove('is-visible');
+                        closeInputEditor();
                     }
                 };
             }
@@ -7384,7 +7434,7 @@
                     remarkToolbar.classList.remove('is-open');
                     remarkToolbar.hidden = true;
                 }
-                inputEditor.classList.remove('is-visible');
+                closeInputEditor();
             };
         }
 
@@ -7394,7 +7444,7 @@
             quickbarTextEditorAutoSave = null;
             try { autoSave?.(); } catch (e) {}
             closeSelectMenu();
-            inputEditor.classList.remove('is-visible');
+            closeInputEditor();
             inputEditor.classList.remove('is-focus-summary');
             cleanupFocusSummaryEditorScaffold();
         }

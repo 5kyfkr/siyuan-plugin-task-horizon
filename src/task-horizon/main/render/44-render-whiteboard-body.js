@@ -953,7 +953,7 @@
                         const dateChipClass = `${dateValue ? ' tm-kanban-chip--date-has-value' : ' tm-kanban-chip--date-empty'}${isTaskOverdue ? ' tm-kanban-chip--date-overdue' : ''}`;
                         metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? '点击选择日期' : ''}">${esc(dateTxt || '日期')}</span>`);
                     }
-                    if (whiteboardCardFields.has('remainingTime') && __tmShouldRenderTaskCardRemainingTime(task)) {
+                    if (whiteboardCardFields.has('remainingTime') && __tmShouldRenderTaskCardRemainingTime(task, whiteboardCardFields.has('date'))) {
                         const remainingInfo = __tmGetTaskRemainingTimeInfo(task);
                         const remainingLabel = String(remainingInfo?.label || '').trim();
                         metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="remainingTime" title="${esc(remainingLabel)}">${__tmRenderTaskRemainingTimeInfoHtml(remainingInfo)}</span>`);

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const test = require('node:test');
 
 const root = path.resolve(__dirname, '..');
 const calendar = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');
@@ -41,12 +42,17 @@ const calendarContext = vm.createContext({
     safeISO: (value) => value instanceof Date ? value.toISOString() : '',
     getScheduleLinkedBlockId: () => '',
     normalizeCalendarScheduleTitleText: (value, fallback) => String(value || '').trim() || fallback,
-    sanitizeScheduleNotificationSchedules: (value) => value && typeof value === 'object' ? value : {},
     overlap: (start, end, rangeStart, rangeEnd) => end > rangeStart && start < rangeEnd,
     isAllDayRange: (start, end) => start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0,
 });
 calendarContext.globalThis = calendarContext;
-vm.runInContext(`${calendar.slice(calendarStart, calendarEnd)}\nthis.__test = { normalizeScheduleList, serializeScheduleForSave, collectScheduleOccurrencesInRange, applyScheduleRecurringScopeMutation, applyScheduleRecurringDeleteScopeMutation, getScheduleOccurrenceOrdinal };`, calendarContext);
+const notificationIdStart = calendar.indexOf('    function normalizeNotificationId(');
+const notificationIdEnd = calendar.indexOf('    function extractNotificationIdFromUnknownPayload(', notificationIdStart);
+const notificationStart = calendar.indexOf('    function sanitizeScheduleNotificationEntries(');
+const notificationEnd = calendar.indexOf('    function loadScheduleMobileRegistry(', notificationStart);
+assert.ok(notificationIdStart >= 0 && notificationIdEnd > notificationIdStart);
+assert.ok(notificationStart >= 0 && notificationEnd > notificationStart);
+vm.runInContext(`${calendar.slice(notificationIdStart, notificationIdEnd)}\n${calendar.slice(notificationStart, notificationEnd)}\n${calendar.slice(calendarStart, calendarEnd)}\nthis.__test = { normalizeScheduleList, serializeScheduleForSave, queueScheduleCanonicalMigration, collectScheduleOccurrencesInRange, applyScheduleRecurringScopeMutation, applyScheduleRecurringDeleteScopeMutation, getScheduleOccurrenceOrdinal };`, calendarContext);
 const calendarApi = calendarContext.__test;
 for (const scheduleDone of [false, true]) {
     const saved = calendarApi.serializeScheduleForSave({ id: 'independent', taskId: 'task', scheduleDone });
@@ -214,3 +220,76 @@ assert.deepEqual(Array.from(calendarApi.collectScheduleOccurrencesInRange(monthl
 assert.match(calendar, /data-tm-cal-month-days/);
 assert.match(calendar, /data-tm-proto-month-days/);
 console.log('calendar repeat core contract tests passed');
+
+// RPC round trips can reorder JSON object keys; array order and values remain significant.
+function reorderObjectKeys(value) {
+    return JSON.parse(JSON.stringify(value, (key, item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+        return Object.fromEntries(Object.keys(item).sort().map((name) => [name, item[name]]));
+    }));
+}
+
+function canonicalScheduleWithNotifications() {
+    const normalized = calendarApi.normalizeScheduleList([{
+        ...monthlyWeekSaved,
+        notificationSchedules: {
+            desktop: {
+                planKey: 'plan', updatedAt: '2026-09-30T02:00:00Z', status: 'scheduled',
+                entries: [{ notificationKey: 'notice', dateKey: '2026-10-30', timeKey: '09:00',
+                    atMs: 1793322000000, id: 42, delayInSeconds: 60, status: 'scheduled' }],
+            },
+        },
+    }]).out[0];
+    return JSON.parse(JSON.stringify(calendarApi.serializeScheduleForSave(normalized)));
+}
+
+test('canonical schedule reloads are stable before and after RPC object key reordering', () => {
+    for (const saved of [serialized, monthSaved, monthlyWeekSaved, canonicalScheduleWithNotifications()]) {
+        const wire = JSON.parse(JSON.stringify(saved));
+        assert.equal(calendarApi.normalizeScheduleList([wire]).changed, false, 'saved canonical data must be stable');
+        assert.equal(calendarApi.normalizeScheduleList([reorderObjectKeys(wire)]).changed, false,
+            'RPC object key order must not schedule another migration');
+    }
+});
+
+test('nested reminder object key order alone does not trigger schedule migration', () => {
+    const saved = canonicalScheduleWithNotifications();
+    saved.notificationSchedules = reorderObjectKeys(saved.notificationSchedules);
+    assert.equal(calendarApi.normalizeScheduleList([saved]).changed, false);
+});
+
+test('real rule and reminder corrections still migrate once and then settle', () => {
+    for (const mutate of [
+        (item) => { item.repeatRule.every = '2'; },
+        (item) => { item.repeatRule.monthWeek.weekday = '5'; },
+        (item) => { item.notificationSchedules.desktop.entries[0].delayInSeconds = '60'; },
+        (item) => { item.notificationSchedules.desktop.entries.push({ id: -2 }); },
+        (item) => { item.repeatType = 'monthly'; },
+        (item) => { item.completedOccurrences = ['2026-10-30T01:00:00.000Z', '2026-10-30T01:00:00.000Z']; },
+    ]) {
+        const saved = canonicalScheduleWithNotifications();
+        mutate(saved);
+        const normalized = calendarApi.normalizeScheduleList([saved]);
+        assert.equal(normalized.changed, true, 'actual normalization changes must still be saved');
+        const migrated = calendarApi.serializeScheduleForSave(normalized.out[0]);
+        assert.equal(calendarApi.normalizeScheduleList([reorderObjectKeys(migrated)]).changed, false,
+            'corrected data must not migrate again');
+    }
+});
+
+test('migration save followed by reminder reloads does not create a write loop', async () => {
+    let stored = [{ id: 'legacy-series', title: 'Legacy', start: '2026-09-30T01:00:00Z',
+        end: '2026-09-30T02:00:00Z', repeatType: 'weekly', repeatEvery: 1 }];
+    let saves = 0;
+    calendarContext.saveScheduleAll = async (items, options) => {
+        saves += 1;
+        assert.equal(options.reason, 'schedule-repeat-migration');
+        stored = reorderObjectKeys(items);
+        return true;
+    };
+    for (let read = 0; read < 6; read += 1) {
+        const { out, changed } = calendarApi.normalizeScheduleList(stored);
+        await calendarApi.queueScheduleCanonicalMigration(out, changed, 'test-source-signature');
+    }
+    assert.equal(saves, 1, 'WeChat/ICS reads after the first migration must not keep saving unchanged schedules');
+});

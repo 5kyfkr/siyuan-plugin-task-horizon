@@ -56,7 +56,7 @@
         </div>`;
     }
 
-    function __tmGetTaskTimeHubRepeatDates(taskLike, datePatch = {}, untilDate = '') {
+    function __tmGetTaskTimeHubRepeatDates(taskLike, datePatch = {}, untilDate = '', fromDateKey = '') {
         const source = (taskLike && typeof taskLike === 'object') ? taskLike : {};
         const patch = (datePatch && typeof datePatch === 'object') ? datePatch : {};
         const task = {
@@ -71,12 +71,16 @@
                 startDate: task.startDate,
                 completionTime: task.completionTime,
             });
-            const base = task.completionTime || task.startDate || rule.anchorDate;
+            const fromDate = rule.trigger === 'checkin'
+                ? (__tmNormalizeDateOnly(fromDateKey) || rule.anchorDate)
+                : '';
+            const base = fromDate || task.completionTime || task.startDate || rule.anchorDate;
             const span = __tmGetTaskRepeatLocalDayOrdinal(until) - __tmGetTaskRepeatLocalDayOrdinal(base);
             const limit = Math.max(42, Math.min(4096, (Number.isFinite(span) ? Math.max(0, span) : 35) + 7));
-            return Array.from(new Set(__tmCollectTaskRepeatPreviewDates(task, { limit, until })
+            const dates = Array.from(new Set(__tmCollectTaskRepeatPreviewDates(task, { limit, until, fromDateKey: fromDate })
                 .map((value) => __tmNormalizeDateOnly(value))
                 .filter(Boolean)));
+            return dates;
         } catch (e) {
             return [];
         }
@@ -1277,7 +1281,8 @@
         const hasReminder = opts.hasReminder === true || !!reminderText;
         const scheduleText = String(opts.scheduleText || '').trim();
         const parts = [];
-        if (endValue) parts.push(__tmFormatTaskDetailShortDate(endValue));
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(source)) parts.push(__tmFormatTaskCardDateValue(source));
+        else if (endValue) parts.push(__tmFormatTaskDetailShortDate(endValue));
         if (scheduleText) parts.push(scheduleText);
         if (hasReminder) parts.push(reminderText || '已提醒');
         return parts;
@@ -1308,6 +1313,30 @@
     }
 
     let __tmStandaloneTaskTimeHub = null;
+
+    function __tmRenderTaskTimeHubCheckinDateCardHtml(task) {
+        const date = __tmGetTaskCheckinCurrentDate(task);
+        const label = date === __tmNormalizeDateOnly(new Date()) ? '今日打卡' : '下次打卡';
+        return `<div class="tm-task-time-hub__date-card tm-task-time-hub__checkin-card">
+            <span>${date ? label : '打卡日期'}</span>
+            <strong>${esc(date ? __tmFormatTaskDetailShortDate(date) : '计划已结束')}</strong>
+            <span>日期由循环计划决定 · 在「循环」中调整</span>
+        </div>`;
+    }
+
+    function __tmRenderTaskTimeHubCheckinDayHtml(key, day, classes, checked, planned, today, readOnly = false) {
+        const status = checked ? '已打卡' : (planned ? (key < today ? '未打卡' : '计划打卡') : (key < today ? '可补打卡' : (key === today ? '可额外打卡' : '无打卡计划')));
+        const enabled = !readOnly && key <= today;
+        const title = `${key} ${status}${enabled ? (checked ? '，点击取消打卡' : '，点击打卡') : ''}`;
+        return `<button type="button" class="${classes} tm-task-time-hub__checkin-day${checked ? ' is-checkin-checked' : ''}" data-tm-checkin-date="${esc(key)}" title="${esc(title)}" aria-label="${esc(title)}" aria-pressed="${checked ? 'true' : 'false'}"${enabled ? '' : ' disabled'}>${day}${checked ? '<span class="tm-task-time-hub__checkin-mark" aria-hidden="true"></span>' : ''}</button>`;
+    }
+
+    async function __tmToggleTaskTimeHubCheckin(task, date) {
+        const id = String(task?.id || '').trim();
+        const current = globalThis.__tmTaskBoundary?.getTask?.(id) || task;
+        await window.tmSetTaskCheckin(id, date, !__tmIsTaskCheckinChecked(current, date), { source: 'time-hub-checkin' });
+        return globalThis.__tmTaskBoundary?.getTask?.(id) || await __tmResolveTaskForTimeHub(id, null) || current;
+    }
 
     function __tmCloseStandaloneTaskTimeHub(reason = 'manual', options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
@@ -1466,6 +1495,7 @@
                 ? (source.startDate || source.start_date || '')
                 : (source.completionTime || source.completion_time || ''));
         };
+        const isCheckin = () => typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task);
         const writeTaskDatesLocal = (patch = {}) => {
             task = {
                 ...(task || {}),
@@ -1589,7 +1619,7 @@
 
         const requestedField = String(opts.activeField || '').trim();
         const initialActiveField = requestedField === 'startDate' ? 'startDate' : 'completionTime';
-        const initialMonth = parseDateKey(readTaskDate(initialActiveField) || readTaskDate('completionTime') || readTaskDate('startDate') || todayKey) || new Date();
+        const initialMonth = parseDateKey(isCheckin() ? (__tmGetTaskCheckinCurrentDate(task) || todayKey) : (readTaskDate(initialActiveField) || readTaskDate('completionTime') || readTaskDate('startDate') || todayKey)) || new Date();
         const hubState = {
             tab: !hideSchedule && String(opts.tab || '').trim() === 'schedule' ? 'schedule' : 'date',
             activeField: initialActiveField,
@@ -1721,6 +1751,7 @@
             `;
         };
         const renderDateCards = () => {
+            if (isCheckin()) return __tmRenderTaskTimeHubCheckinDateCardHtml(task);
             const cards = [
                 ['startDate', '开始', readTaskDate('startDate')],
                 ['completionTime', '截止', readTaskDate('completionTime')],
@@ -1743,10 +1774,12 @@
             const endValue = readTaskDate('completionTime');
             const calendarTask = { ...(task || {}), startDate: startValue, completionTime: endValue };
             const selectingUntil = hubState.editor === 'end' && hubState.repeatEndMode === 'date';
-            const activeValue = selectingUntil ? normalizeDate(hubState.untilDraft) : readTaskDate(hubState.activeField);
-            const nextRepeatValues = selectingUntil || draftMode ? [] : __tmGetTaskTimeHubRepeatDates(calendarTask, {}, toDateKey(gridEnd));
+            const checkin = isCheckin();
+            const checkedDates = new Set(checkin ? __tmGetTaskCheckinHistory(calendarTask).map(entry => entry.scheduledDate) : []);
+            const activeValue = selectingUntil ? normalizeDate(hubState.untilDraft) : (checkin ? __tmGetTaskCheckinCurrentDate(calendarTask) : readTaskDate(hubState.activeField));
+            const nextRepeatValues = selectingUntil || (draftMode && !checkin) ? [] : __tmGetTaskTimeHubRepeatDates(calendarTask, {}, toDateKey(gridEnd), toDateKey(gridStart));
             const fsrsGoodValue = selectingUntil || draftMode ? '' : __tmGetTaskTimeHubFsrsGoodDate(calendarTask);
-            const savedRange = !selectingUntil && startValue && endValue ? sortDateRange(startValue, endValue) : null;
+            const savedRange = !checkin && !selectingUntil && startValue && endValue ? sortDateRange(startValue, endValue) : null;
             const dragRange = !selectingUntil && hubState.rangeDrag ? sortDateRange(hubState.rangeDrag.anchor, hubState.rangeDrag.current) : null;
             const days = [];
             for (let i = 0; i < 42; i += 1) {
@@ -1764,13 +1797,15 @@
                     key === activeValue ? 'is-active' : '',
                     nextRepeatValues.includes(key) && key !== activeValue ? 'is-next-repeat' : '',
                     key === fsrsGoodValue ? 'is-fsrs-good' : '',
-                    !selectingUntil && key === startValue ? 'is-start' : '',
-                    !selectingUntil && key === endValue ? 'is-due' : '',
+                    !checkin && !selectingUntil && key === startValue ? 'is-start' : '',
+                    !checkin && !selectingUntil && key === endValue ? 'is-due' : '',
                     dragRange && isKeyInDateRange(key, dragRange.start, dragRange.end) ? 'is-range-preview' : '',
                     dragRange && key === dragRange.start ? 'is-range-start-preview' : '',
                     dragRange && key === dragRange.end ? 'is-range-end-preview' : '',
                 ].filter(Boolean).join(' ');
-                days.push(`<button type="button" class="${classes}" data-tm-time-hub-date="${esc(key)}">${d.getDate()}</button>`);
+                days.push(checkin && !selectingUntil
+                    ? __tmRenderTaskTimeHubCheckinDayHtml(key, d.getDate(), classes, checkedDates.has(key), nextRepeatValues.includes(key), todayKey, draftMode)
+                    : `<button type="button" class="${classes}" data-tm-time-hub-date="${esc(key)}">${d.getDate()}</button>`);
             }
             return `
                 <div class="tm-task-time-hub__calendar-head">
@@ -1810,7 +1845,7 @@
             </div>`;
         };
         const renderSettingCards = () => {
-            const disabled = hubState.activeField === 'startDate';
+            const disabled = hubState.activeField === 'startDate' && !isCheckin();
             const reminderText = readReminderValue() ? (readReminderDisplayValue() || '已提醒') : '不提醒';
             const repeatText = getRepeatSummary() || '不循环';
             const rule = getRepeatRule();
@@ -1912,7 +1947,7 @@
                 ${hubState.tab === 'date' ? `
                     <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
-                        ${__tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' && hubState.repeatEndMode === 'date' ? hubState.untilDraft : readTaskDate(hubState.activeField))}
+                        ${isCheckin() && hubState.editor !== 'end' ? '' : __tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' && hubState.repeatEndMode === 'date' ? hubState.untilDraft : readTaskDate(hubState.activeField))}
                         ${renderCalendarHtml()}
                         ${renderMonthEditorHtml()}
                         ${(() => {
@@ -1973,6 +2008,7 @@
             }
         };
         const updateDatePatch = async (patch, source = 'task-time-hub') => {
+            if (isCheckin()) return null;
             if (updateDates) {
                 const requestedPatch = {};
                 if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) requestedPatch.startDate = normalizeDate(patch.startDate);
@@ -2183,6 +2219,8 @@
                     end: end.toISOString(),
                     startDate: readTaskDate('startDate'),
                     completionTime: readTaskDate('completionTime'),
+                    // Schedule refreshes replace the buttons, but keep this hub mounted.
+                    anchorEl: popover,
                     forceNew: true,
                 });
                 await loadHubSchedules(true);
@@ -2204,6 +2242,19 @@
         on(popover, 'click', async (ev) => {
             const target = ev.target instanceof Element ? ev.target : null;
             if (!target || busy) return;
+            const checkinBtn = target.closest('[data-tm-checkin-date]');
+            if (checkinBtn) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (checkinBtn.disabled || draftMode) return;
+                setBusy(true);
+                try {
+                    task = await __tmToggleTaskTimeHubCheckin(task, checkinBtn.getAttribute('data-tm-checkin-date'));
+                    await notifyChange({ repeatState: task.repeatState }, { kind: 'checkin' });
+                } catch (error) { hint(`打卡失败：${error.message || error}`, 'error'); }
+                finally { setBusy(false); render(); }
+                return;
+            }
             const monthOpenBtn = target.closest('[data-tm-time-hub-month-open]');
             if (monthOpenBtn) {
                 try { ev.preventDefault(); } catch (e) {}
@@ -2456,7 +2507,7 @@
             input.value = String(getHubMonthDate().getFullYear());
         });
         on(popover, 'pointerdown', (ev) => {
-            if (hubState.editor === 'end') return;
+            if (hubState.editor === 'end' || isCheckin()) return;
             const target = ev.target instanceof Element ? ev.target : null;
             const dayBtn = target?.closest?.('[data-tm-time-hub-date]');
             if (!(dayBtn instanceof HTMLElement)) return;
@@ -3263,6 +3314,7 @@
                 ${detailColumnSectionsHtml}
                 ${__tmBuildTaskDetailAttachmentSectionHtml(task, detailTip)}
                 ${__tmBuildTaskRepeatHistorySectionHtml(task)}
+                ${__tmBuildTaskCheckinHistorySectionHtml(task)}
             </div>
         `;
     }
@@ -6656,9 +6708,11 @@
             const hideReminder = options?.hideReminder === true;
             const hideSchedule = options?.hideSchedule === true;
             const hideRepeat = options?.hideRepeat === true;
+            const isCheckin = () => typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(getBoundTask());
+            let checkinBusy = false;
             const requestedField = String(options?.activeField || '').trim();
             const initialActiveField = requestedField === 'startDate' ? 'startDate' : 'completionTime';
-            const initialMonth = parseDateKey(readHiddenInputValue(initialActiveField) || readHiddenInputValue('completionTime') || readHiddenInputValue('startDate') || todayKey) || new Date();
+            const initialMonth = parseDateKey(isCheckin() ? (__tmGetTaskCheckinCurrentDate(getBoundTask()) || todayKey) : (readHiddenInputValue(initialActiveField) || readHiddenInputValue('completionTime') || readHiddenInputValue('startDate') || todayKey)) || new Date();
             const hubState = {
                 tab: 'date',
                 activeField: initialActiveField,
@@ -6735,6 +6789,7 @@
                 `;
             };
             const renderDateCards = () => {
+                if (isCheckin()) return __tmRenderTaskTimeHubCheckinDateCardHtml(getBoundTask());
                 const cards = [
                     ['startDate', '开始', readHiddenInputValue('startDate')],
                     ['completionTime', '截止', readHiddenInputValue('completionTime')],
@@ -6757,10 +6812,12 @@
                 const endValue = readHiddenInputValue('completionTime');
                 const calendarTask = { ...(getBoundTask() || {}), startDate: startValue, completionTime: endValue };
                 const selectingUntil = hubState.editor === 'end' && hubState.repeatEndMode === 'date';
-                const activeValue = selectingUntil ? __tmNormalizeDateOnly(hubState.untilDraft) : readHiddenInputValue(hubState.activeField);
-                const nextRepeatValues = selectingUntil ? [] : __tmGetTaskTimeHubRepeatDates(calendarTask, {}, toDateKey(gridEnd));
+                const checkin = isCheckin();
+                const checkedDates = new Set(checkin ? __tmGetTaskCheckinHistory(calendarTask).map(entry => entry.scheduledDate) : []);
+                const activeValue = selectingUntil ? __tmNormalizeDateOnly(hubState.untilDraft) : (checkin ? __tmGetTaskCheckinCurrentDate(calendarTask) : readHiddenInputValue(hubState.activeField));
+                const nextRepeatValues = selectingUntil ? [] : __tmGetTaskTimeHubRepeatDates(calendarTask, {}, toDateKey(gridEnd), toDateKey(gridStart));
                 const fsrsGoodValue = selectingUntil ? '' : __tmGetTaskTimeHubFsrsGoodDate(calendarTask);
-                const savedRange = !selectingUntil && startValue && endValue ? sortDateRange(startValue, endValue) : null;
+                const savedRange = !checkin && !selectingUntil && startValue && endValue ? sortDateRange(startValue, endValue) : null;
                 const dragRange = !selectingUntil && hubState.rangeDrag
                     ? sortDateRange(hubState.rangeDrag.anchor, hubState.rangeDrag.current)
                     : null;
@@ -6780,13 +6837,15 @@
                         key === activeValue ? 'is-active' : '',
                         nextRepeatValues.includes(key) && key !== activeValue ? 'is-next-repeat' : '',
                         key === fsrsGoodValue ? 'is-fsrs-good' : '',
-                        !selectingUntil && key === startValue ? 'is-start' : '',
-                        !selectingUntil && key === endValue ? 'is-due' : '',
+                        !checkin && !selectingUntil && key === startValue ? 'is-start' : '',
+                        !checkin && !selectingUntil && key === endValue ? 'is-due' : '',
                         dragRange && isKeyInDateRange(key, dragRange.start, dragRange.end) ? 'is-range-preview' : '',
                         dragRange && key === dragRange.start ? 'is-range-start-preview' : '',
                         dragRange && key === dragRange.end ? 'is-range-end-preview' : '',
                     ].filter(Boolean).join(' ');
-                    days.push(`<button type="button" class="${classes}" data-tm-time-hub-date="${esc(key)}">${d.getDate()}</button>`);
+                    days.push(checkin && !selectingUntil
+                        ? __tmRenderTaskTimeHubCheckinDayHtml(key, d.getDate(), classes, checkedDates.has(key), nextRepeatValues.includes(key), todayKey)
+                        : `<button type="button" class="${classes}" data-tm-time-hub-date="${esc(key)}">${d.getDate()}</button>`);
                 }
                 return `
                     <div class="tm-task-time-hub__calendar-head">
@@ -6826,7 +6885,7 @@
                 </div>`;
             };
             const renderSettingCards = () => {
-                const disabled = hubState.activeField === 'startDate';
+                const disabled = hubState.activeField === 'startDate' && !isCheckin();
                 const reminderText = readReminderValue() ? (readReminderDisplayValue() || '已提醒') : '不提醒';
                 const repeatText = getRepeatSummary() || '不循环';
                 const rule = getRepeatRule();
@@ -6941,7 +7000,7 @@
                     ${hubState.tab === 'date' ? `
                         <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
-                        ${__tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' && hubState.repeatEndMode === 'date' ? hubState.untilDraft : readHiddenInputValue(hubState.activeField))}
+                        ${isCheckin() && hubState.editor !== 'end' ? '' : __tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' && hubState.repeatEndMode === 'date' ? hubState.untilDraft : readHiddenInputValue(hubState.activeField))}
                         ${renderCalendarHtml()}
                         ${renderMonthEditorHtml()}
                         ${(() => {
@@ -7008,6 +7067,7 @@
                 panel.style.top = `${top}px`;
             };
             const updateDateField = async (field, value) => {
+                if (isCheckin()) return;
                 const key = value ? __tmNormalizeDateOnly(value) : '';
                 setHiddenInputValue(field, key);
                 syncMetaChipFaces();
@@ -7039,6 +7099,7 @@
                 render();
             };
             const updateDateRange = async (left, right) => {
+                if (isCheckin()) return;
                 const range = sortDateRange(left, right);
                 setHiddenInputValue('startDate', range.start);
                 setHiddenInputValue('completionTime', range.end);
@@ -7196,6 +7257,8 @@
                         end: end.toISOString(),
                         startDate: readHiddenInputValue('startDate'),
                         completionTime: readHiddenInputValue('completionTime'),
+                        // Schedule refreshes replace the buttons, but keep this hub mounted.
+                        anchorEl: popover,
                         forceNew: true,
                     });
                     await loadHubSchedules(true);
@@ -7215,7 +7278,26 @@
 
             on(popover, 'click', async (ev) => {
                 const target = ev.target instanceof Element ? ev.target : null;
-                if (!target) return;
+                if (!target || checkinBusy) return;
+                const checkinBtn = target.closest('[data-tm-checkin-date]');
+                if (checkinBtn) {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    if (checkinBtn.disabled) return;
+                    checkinBusy = true;
+                    setInlinePopoverBusyState(true, popover);
+                    try {
+                        root.__tmTaskDetailTask = await __tmToggleTaskTimeHubCheckin(getBoundTask(), checkinBtn.getAttribute('data-tm-checkin-date'));
+                        syncMetaChipFaces();
+                        syncSerializedSnapshot();
+                    } catch (error) { hint(`打卡失败：${error.message || error}`, 'error'); }
+                    finally {
+                        checkinBusy = false;
+                        setInlinePopoverBusyState(false, popover);
+                        if (activeInlinePopover === popover) render();
+                    }
+                    return;
+                }
                 const monthOpenBtn = target.closest('[data-tm-time-hub-month-open]');
                 if (monthOpenBtn) {
                     try { ev.preventDefault(); } catch (e) {}
@@ -7450,7 +7532,7 @@
                 input.value = String(getHubMonthDate().getFullYear());
             });
             on(popover, 'pointerdown', (ev) => {
-                if (hubState.editor === 'end') return;
+                if (hubState.editor === 'end' || isCheckin()) return;
                 const target = ev.target instanceof Element ? ev.target : null;
                 const dayBtn = target?.closest?.('[data-tm-time-hub-date]');
                 if (!(dayBtn instanceof HTMLElement)) return;
@@ -7612,6 +7694,12 @@
             if (inlinePopoverCommitting) return;
             const target = ev?.target;
             if (target instanceof Node && activeInlinePopover.contains(target)) return;
+            // Saving check-in history may scroll the host while its layout updates.
+            // Match the standalone time hub: keep the calendar open and anchored.
+            if (activeInlinePopover.classList.contains('tm-task-time-hub-popover')) {
+                positionInlinePopover();
+                return;
+            }
             closeInlinePopover(false, 'window-scroll');
         }, { capture: true, passive: true });
         const clearSubtaskSaveTimer = (subtaskId) => {
@@ -8568,6 +8656,22 @@
                     }
                 });
             });
+            root.querySelectorAll('[data-tm-detail-checkin-toggle]').forEach((btn) => {
+                if (!(btn instanceof HTMLButtonElement)) return;
+                on(btn, 'click', async (ev) => {
+                    try { ev.preventDefault(); } catch (e) {}
+                    try { ev.stopPropagation(); } catch (e) {}
+                    const dateKey = String(btn.getAttribute('data-tm-detail-checkin-toggle') || '').trim();
+                    if (!dateKey || typeof window.tmSetTaskCheckin !== 'function') return;
+                    try {
+                        await window.tmSetTaskCheckin(getBoundTaskId() || taskId, dateKey, false, { source: 'detail-checkin-undo' });
+                        refreshBoundDetail(getBoundTaskId() || taskId);
+                        try { hint('✅ 已取消该日打卡', 'success'); } catch (e) {}
+                    } catch (e) {
+                        try { hint(`❌ 取消打卡失败: ${String(e?.message || e || '')}`, 'error'); } catch (e2) {}
+                    }
+                });
+            });
             on(root.querySelector('[data-tm-detail="create-subtask"]'), 'click', (ev) => {
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
@@ -9460,6 +9564,8 @@
         if (!(panel instanceof Element) || !tid) return false;
         const currentId = String(panel.dataset?.tmDetailTaskId || panel.__tmTaskDetailTaskId || panel.__tmTaskDetailTask?.id || '').trim();
         if (currentId && !__tmAreTaskDetailIdsEquivalent(currentId, tid)) return false;
+        const popover = panel.__tmTaskDetailActiveInlinePopover;
+        if (popover instanceof Element && popover.isConnected && popover.classList.contains('tm-task-time-hub-popover')) return true;
         if (panel.querySelector?.('[data-tm-detail-subtask-draft]')) return true;
         const active = document.activeElement;
         return active instanceof Element

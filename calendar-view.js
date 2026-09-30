@@ -5470,7 +5470,7 @@
             cb.checked = resolveCalendarEventDoneState(ext);
             if (shouldDisableCalendarEventCheckbox(ext)) {
                 cb.disabled = true;
-                cb.title = '已完成的循环实例';
+                cb.title = ext?.__tmCheckin === true ? '未来计划日期暂不可打卡' : '已完成的循环实例';
             }
             cb.onclick = (ev) => {
                 try { ev.stopPropagation(); } catch (e) {}
@@ -5751,7 +5751,7 @@
                 cb.checked = done;
                 if (shouldDisableCalendarEventCheckbox(ext)) {
                     cb.disabled = true;
-                    cb.title = '已完成的循环实例';
+                    cb.title = ext?.__tmCheckin === true ? '未来计划日期暂不可打卡' : '已完成的循环实例';
                 }
                 cb.onclick = (ev) => {
                     try { ev.stopPropagation(); } catch (e) {}
@@ -13277,6 +13277,15 @@
         };
     }
 
+    function stringifyScheduleCanonicalValue(value) {
+        // Kernel/RPC JSON round trips can reorder object keys. Compare content so
+        // a read does not keep saving migrations and triggering reminder reloads.
+        return JSON.stringify(value, (_key, item) => {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+            return Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]]));
+        });
+    }
+
     function normalizeScheduleList(arr) {
         const list0 = Array.isArray(arr) ? arr : [];
         let changed = false;
@@ -13309,9 +13318,9 @@
             const completedOccurrences0 = normalizeScheduleCompletedOccurrences(base.completedOccurrences);
             const skippedOccurrences0 = normalizeScheduleSkippedOccurrences(base.skippedOccurrences);
             if (String(base.reminderMode || '').trim() !== reminderMode0) changed = true;
-            if (JSON.stringify(base.repeatRule || null) !== JSON.stringify(repeatRule0)) changed = true;
+            if (stringifyScheduleCanonicalValue(base.repeatRule || null) !== stringifyScheduleCanonicalValue(repeatRule0)) changed = true;
             if (SCHEDULE_LEGACY_REPEAT_FIELDS.some((key) => Object.prototype.hasOwnProperty.call(base, key))) changed = true;
-            if (JSON.stringify(base.notificationSchedules || {}) !== JSON.stringify(notificationSchedules0)) changed = true;
+            if (stringifyScheduleCanonicalValue(base.notificationSchedules || {}) !== stringifyScheduleCanonicalValue(notificationSchedules0)) changed = true;
             if (JSON.stringify(Array.isArray(base.completedOccurrences) ? base.completedOccurrences : []) !== JSON.stringify(completedOccurrences0)) changed = true;
             if (JSON.stringify(Array.isArray(base.skippedOccurrences) ? base.skippedOccurrences : []) !== JSON.stringify(skippedOccurrences0)) changed = true;
             return {
@@ -18628,6 +18637,15 @@
         const source = String(ext?.__tmSource || '').trim();
         if (source === 'reminder') return ext?.__tmReminderDone === true;
         if (!(source === 'taskdate' || source === 'schedule')) return false;
+        if (ext?.__tmCheckin === true) {
+            const tid = String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
+            const day = String(ext?.__tmCheckinDate || '').trim();
+            try {
+                const task = getCalendarTaskSnapshotById(tid);
+                if (task && typeof __tmIsTaskCheckinChecked === 'function') return __tmIsTaskCheckinChecked(task, day);
+            } catch (e) {}
+            return ext?.__tmTaskDone === true;
+        }
         if (source === 'taskdate' && isRecurringTaskDateReadOnlyOccurrence(ext)) return ext?.__tmTaskDone === true;
         if (source === 'schedule' && ext?.__tmVirtualTaskSchedule === true) return true;
         if (isDetachedTaskOccurrenceEventExt(ext) || (isDetachedScheduleOccurrenceEventExt(ext) && !isTaskLinkedScheduleEventExt(ext))) return ext?.__tmScheduleOccurrenceDone === true;
@@ -18712,6 +18730,7 @@
         if (!eventLike || !settings || settings.showCompletedAllDaySchedules !== false) return false;
         if (eventLike.allDay !== true) return false;
         if (String(eventLike.extendedProps?.__tmSource || '').trim() === 'reminder') return false;
+        if (eventLike.extendedProps?.__tmCheckin === true) return false;
         return resolveCalendarEventDoneState(eventLike.extendedProps || {}, options) === true;
     }
 
@@ -18725,6 +18744,21 @@
         // after stopPropagation. Claim it before any asynchronous write.
         if (opt.jsEvent?.__tmCalendarCheckboxHandled === true) return false;
         if (opt.jsEvent) opt.jsEvent.__tmCalendarCheckboxHandled = true;
+        if (ext?.__tmCheckin === true) {
+            const day = String(ext?.__tmCheckinDate || '').trim();
+            if (!tid || typeof window.tmSetTaskCheckin !== 'function') throw new Error('打卡接口不可用');
+            try {
+                await window.tmSetTaskCheckin(tid, day, nextDone, { source: 'calendar-checkin', refresh: false });
+                ext.__tmTaskDone = nextDone;
+                applyTaskDoneVisual(wrapEl, titleText, nextDone);
+                collectCalendarsForTaskSync().forEach((cal) => queueTaskDateCalendarRender(cal));
+                return true;
+            } catch (e) {
+                cb.checked = !nextDone;
+                applyTaskDoneVisual(wrapEl, titleText, !nextDone);
+                throw e;
+            }
+        }
         const recurringTaskSchedule = isRecurringTaskLinkedScheduleEventExt(ext);
         const previousOccurrenceDone = ext?.__tmScheduleOccurrenceDone;
         if (recurringTaskSchedule) ext.__tmScheduleOccurrenceDone = nextDone;
@@ -18845,6 +18879,7 @@
             && (runtimeState.isMobileDevice === true || runtimeState.isDockHost === true || runtimeState.compactMonthView === true || compactMonthOption)) {
             return false;
         }
+        if (ext?.__tmCheckin === true) return true;
         // Recurring schedules own an occurrence completion state even when
         // they are not linked to a task block.
         if (isIndependentScheduleEventExt(ext)) return true;
@@ -18864,6 +18899,7 @@
     }
 
     function shouldDisableCalendarEventCheckbox(ext) {
+        if (ext?.__tmCheckin === true) return ext?.__tmCheckinFuture === true;
         if (isRecurringTaskDateReadOnlyOccurrence(ext)) return false;
         return ext?.__tmTaskDateReadOnly === true;
     }
@@ -22792,9 +22828,14 @@
                     || ''
                 ).trim();
                 if (!taskId) return;
-                const list = groups.get(taskId) || [];
+                // Check-ins share a task but each planned date is a distinct
+                // event. Only duplicate copies of that date may be removed.
+                const key = ext.__tmCheckin === true
+                    ? `checkin:${taskId}:${String(ext.__tmCheckinDate || eventApi.id || '').trim()}`
+                    : taskId;
+                const list = groups.get(key) || [];
                 list.push(eventApi);
-                groups.set(taskId, list);
+                groups.set(key, list);
             });
         } catch (e) {
             return { removed: 0 };
@@ -23280,15 +23321,16 @@
         const defMap = new Map(defs.map((d) => [d.id, d]));
         const events = (Array.isArray(items) ? items : []).map((it) => {
             const taskId = String(it?.id || '').trim();
+            const linkedTaskId = String(it?.taskId || '').trim();
             try {
                 if (taskId && globalThis.__tmRuntimeState?.isPendingDeletedTaskId?.(taskId)) return null;
             } catch (e) {}
             const sourceTaskId = String(it?.sourceTaskId || it?.recurringSourceTaskId || '').trim();
-            const actionTaskId = sourceTaskId || taskId;
+            const actionTaskId = linkedTaskId || sourceTaskId || taskId;
             const title = String(it?.title || '').trim() || '任务';
             const titleMarkdown = String(it?.titleMarkdown || it?.markdown || title).trim() || title;
             const taskSnapshot = (() => {
-                try { return getCalendarTaskSnapshotById(sourceTaskId || taskId); } catch (e) { return null; }
+                try { return getCalendarTaskSnapshotById(linkedTaskId || sourceTaskId || taskId); } catch (e) { return null; }
             })();
             const taskPriorityScore = Number(it?.priorityScore ?? taskSnapshot?.priorityScore);
             const taskPinned = [it?.pinned, it?.custom_pinned, taskSnapshot?.pinned, taskSnapshot?.custom_pinned]
@@ -23302,7 +23344,12 @@
             const startKey = displayRange.startKey || String(it?.start || '').trim();
             const endKey = displayRange.endKey || startKey;
             const endExKey = endKey ? shiftDateKey(endKey, 1) : String(it?.endExclusive || '').trim();
-            const isReadOnlyInstance = it?.isRecurringInstanceReadOnly === true || it?.isRecurringInstance === true;
+            const isCheckin = it?.checkin === true || String(it?.checkinDate || '').trim() !== '';
+            const checkinDate = String(it?.checkinDate || (isCheckin ? startKey : '')).trim();
+            const isFutureCheckin = isCheckin && checkinDate > formatDateKey(new Date());
+            // Filter display only: future dates still feed schedule previews and reminders.
+            if (isFutureCheckin) return null;
+            const isReadOnlyInstance = !isCheckin && (it?.isRecurringInstanceReadOnly === true || it?.isRecurringInstance === true);
             const calendarId = String(it?.calendarId || 'default').trim() || 'default';
             const docId = String(it?.docId || it?.rootId || it?.root_id || '').trim();
             const allDayBottom = isScheduleAllDayBottom(it);
@@ -23349,7 +23396,7 @@
                 : '';
             const bg = itemColor || docColor || ((mode === 'group') ? calColor : (settings.taskDatesColor || '#6b7280'));
             const event = {
-                id: `taskdate:${taskId}`,
+                id: isCheckin ? `checkin:${actionTaskId}:${checkinDate}` : `taskdate:${taskId}`,
                 title,
                 start: startKey,
                 end: endExKey,
@@ -23359,14 +23406,14 @@
                 textColor: '#fff',
                 __tmRank: 2,
                 __tmAllDayBottom: allDayBottom,
-                editable: !isReadOnlyInstance && !isScheduleSplit,
-                startEditable: !isReadOnlyInstance && !isScheduleSplit,
-                durationEditable: !isReadOnlyInstance && !isScheduleSplit,
+                editable: !isReadOnlyInstance && !isScheduleSplit && !isCheckin,
+                startEditable: !isReadOnlyInstance && !isScheduleSplit && !isCheckin,
+                durationEditable: !isReadOnlyInstance && !isScheduleSplit && !isCheckin,
                 extendedProps: {
                     __tmSource: 'taskdate',
                     __tmTaskId: actionTaskId,
                     __tmTaskTitleMarkdown: titleMarkdown,
-                    __tmTaskDateEventTaskId: taskId,
+                    __tmTaskDateEventTaskId: linkedTaskId || taskId,
                     __tmSourceTaskId: sourceTaskId,
                     __tmRank: 2,
                     __tmAllDayBottom: allDayBottom,
@@ -23377,6 +23424,10 @@
                     __tmTaskDateColor: itemColor,
                     __tmTaskDateMilestone: isMilestone,
                     __tmTaskDateReadOnly: isReadOnlyInstance,
+                    __tmCheckin: isCheckin,
+                    __tmCheckinDate: checkinDate,
+                    __tmCheckinFuture: isFutureCheckin,
+                    __tmCheckinHistorical: it?.checkinHistorical === true,
                     __tmScheduledTaskDayKeys: Array.from(monthScheduleOverlap),
                     __tmTaskDateScheduleSplit: isScheduleSplit,
                     __tmRecurringCompletedAt: String(it?.recurringCompletedAt || '').trim(),
@@ -23721,6 +23772,10 @@
             '__tmTaskPinned',
             '__tmTaskDateMilestone',
             '__tmTaskDateReadOnly',
+            '__tmCheckin',
+            '__tmCheckinDate',
+            '__tmCheckinFuture',
+            '__tmCheckinHistorical',
             '__tmScheduledTaskDayKeys',
             '__tmTaskDateScheduleSplit',
             '__tmRecurringCompletedAt',
@@ -24059,6 +24114,53 @@
             const cal = target.calendar;
             const eventId = `taskdate:${tid}`;
             const existingEvents = findTaskDateEvents(cal);
+            const task = getCalendarTaskSnapshotById(tid);
+            const range = __tmGetCalendarVisibleRange(cal);
+            const projectedTask = task ? { ...task, ...patch } : null;
+            const checkinItems = projectedTask && range && typeof window.tmBuildCalendarCheckinTaskDateEvents === 'function'
+                ? window.tmBuildCalendarCheckinTaskDateEvents(projectedTask, range.start, range.end)
+                : null;
+            const hadCheckin = existingEvents.some((eventApi) => eventApi.extendedProps?.__tmCheckin === true);
+            if (Array.isArray(checkinItems) || hadCheckin) {
+                // Each planned date owns an event. Never run the ordinary
+                // single-task dedupe over a check-in series.
+                if (!projectedTask || !range || typeof window.tmBuildCalendarCheckinTaskDateEvents !== 'function') {
+                    if (target.key === 'main') needsMainRefresh = true;
+                    if (target.key === 'side') needsSideRefresh = true;
+                    return;
+                }
+                const nextEvents = Array.isArray(checkinItems)
+                    ? buildEventsFromTaskDates(checkinItems, settings, {
+                        scheduleTaskDaySet: buildTaskDatePatchScheduleTaskDaySet(cal, settings, scheduleList),
+                        viewType: String(getCalendarView(cal)?.type || '').trim(),
+                    })
+                    : [buildTaskDateEventFromDateFollowPatch(tid, {
+                        ...patch,
+                        startDate: projectedTask.startDate || '',
+                        completionTime: projectedTask.completionTime || '',
+                    }, cal, settings, null, { scheduleList })].filter(Boolean);
+                const nextById = new Map(nextEvents.map((event) => [event.id, event]));
+                const mutationKey = __tmBeginCalendarLocalEventMutation(cal);
+                try {
+                    existingEvents.forEach((eventApi) => {
+                        const next = nextById.get(eventApi.id);
+                        if (next) {
+                            __tmApplyTaskDateEventProps(eventApi, next);
+                            nextById.delete(eventApi.id);
+                        } else {
+                            eventApi.remove?.();
+                        }
+                    });
+                    if (allowAdd) nextById.forEach((event) => addManagedTaskDateEvent(cal, event, target.sourceId));
+                    markTargetTouched(target);
+                } catch (e) {
+                    if (target.key === 'main') needsMainRefresh = true;
+                    if (target.key === 'side') needsSideRefresh = true;
+                } finally {
+                    __tmEndCalendarLocalEventMutation(mutationKey);
+                }
+                return;
+            }
             const existing = pickManagedEvent(existingEvents, target.sourceId);
             let nextEvent = null;
             let usedFastPath = false;
@@ -24274,7 +24376,7 @@
                 });
                 return;
             }
-            const calendarKeys = new Set(['startDate', 'completionTime', 'taskDateColor', 'color', 'content', 'title', 'done']);
+            const calendarKeys = new Set(['startDate', 'completionTime', 'taskDateColor', 'color', 'content', 'title', 'done', 'repeatRule', 'repeatState']);
             if (!patchKeys.some((key) => calendarKeys.has(String(key || '').trim()))) return;
             // Reminder cards belong to the auxiliary source, so the task-date
             // writer's own projection does not move them. Include its echoes.
@@ -24441,6 +24543,7 @@
             const ext = eventInput?.extendedProps && typeof eventInput.extendedProps === 'object'
                 ? eventInput.extendedProps
                 : {};
+            if (ext.__tmCheckin === true) return eventInput;
             const tid = String(ext.__tmTaskId || eventInput?.id || '').trim().replace(/^taskdate:/, '');
             const pending = tid ? pendingMap.get(tid) : null;
             if (!pending) return eventInput;
@@ -25208,6 +25311,10 @@
         const dk = String(dateKey || '').trim();
         if (!/^\d{4}-\d{2}-\d{2}$/.test(dk)) return false;
         if (reminder?.enabled === false) return false;
+        if (isReminderFollowingTask(reminder) && reminder?.taskRepeatRule?.enabled && reminder.taskRepeatRule.trigger === 'checkin') {
+            if (dk > formatDateKey(new Date())) return false;
+            return globalThis.__tomatoReminder?.isCheckinDate?.(reminder, dk) === true;
+        }
         const startKey = getReminderStartDateKey(reminder);
         if (isReminderFollowingTask(reminder)) return !!startKey && dk === startKey;
         if (reminder?.trigger === 'complete' && reminder.interval !== 'once') {
@@ -40431,8 +40538,9 @@
         if (state.scheduleCache.inflight) {
             try { await run.wait('等待日程读取', () => state.scheduleCache.inflight); } catch (e) { run.check(); }
         }
-        state.scheduleCache.loadedAt = 0;
-        const schedules = await run.wait('读取日程', () => loadScheduleAll());
+        // Publication and sync rechecks need the shared source, not a local
+        // shadow that can still contain the snapshot from before sync-end.
+        const schedules = await run.wait('读取日程', () => loadScheduleAll({ force: true }));
         if (state.scheduleCache.lastLoadError) throw new Error('日程数据读取失败，已保留上次成功文件');
         const events = [];
         const includeTaskNotes = settings.icsIncludeTaskNotes === true;
@@ -41072,7 +41180,7 @@
             updateCalendarSubscriptionUi();
             return await calendarSubscriptionPublisher.runningPromise;
         } finally {
-            deferAutomatic = deferAutomatic || (run.taskListCheckPending === true && !run.error);
+            deferAutomatic = deferAutomatic || (run.contentCheckPending === true && !run.error);
             run.dispose();
             calendarSubscriptionPublisher.activeRun = null;
             calendarSubscriptionPublisher.running = false;
@@ -41111,6 +41219,17 @@
         return scheduleCalendarSubscriptionPublication(delayMs, { source });
     }
 
+    function scheduleCalendarSubscriptionContentCheck(source, delayMs = CALENDAR_SUBSCRIPTION_DEBOUNCE_MS) {
+        if (!calendarSubscriptionPublisher.bound) return false;
+        // Sync completion may only concern reminder registries or our own ICS
+        // snapshot. Recheck content once afterward without invalidating an upload.
+        if (calendarSubscriptionPublisher.activeRun) {
+            calendarSubscriptionPublisher.activeRun.contentCheckPending = true;
+            return true;
+        }
+        return scheduleCalendarSubscriptionPublication(delayMs, { source, refreshTaskDates: true });
+    }
+
     function armCalendarSubscriptionDailyTimer() {
         if (!calendarSubscriptionPublisher.bound) return;
         if (calendarSubscriptionPublisher.dailyTimer) clearTimeout(calendarSubscriptionPublisher.dailyTimer);
@@ -41129,7 +41248,7 @@
         calendarSubscriptionPublisher.startupPending = false;
         if (calendarSubscriptionPublisher.startupTimer) clearTimeout(calendarSubscriptionPublisher.startupTimer);
         calendarSubscriptionPublisher.startupTimer = null;
-        markCalendarSubscriptionDirty(reason, delayMs);
+        scheduleCalendarSubscriptionContentCheck(reason, delayMs);
         return true;
     }
 
@@ -41164,10 +41283,7 @@
             if (event?.type === 'tm:filtered-tasks-updated') {
                 // Filtering and repainting also emit this event without any data
                 // mutation. Check later without invalidating the current snapshot.
-                if (calendarSubscriptionPublisher.activeRun) calendarSubscriptionPublisher.activeRun.taskListCheckPending = true;
-                else scheduleCalendarSubscriptionPublication(CALENDAR_SUBSCRIPTION_DEBOUNCE_MS, {
-                    source: 'task-list-updated', refreshTaskDates: true,
-                });
+                scheduleCalendarSubscriptionContentCheck('task-list-updated');
                 return;
             }
             const source = event?.type === 'tm:task-date-follow-updated' ? 'task-date-follow-updated' : 'task-completed';
@@ -41198,7 +41314,7 @@
             if (eventBus && typeof eventBus.on === 'function') {
                 calendarSubscriptionPublisher.syncHandler = () => {
                     if (!releaseCalendarSubscriptionStartup('sync-end', 1000)) {
-                        markCalendarSubscriptionDirty('sync-end', 1000);
+                        scheduleCalendarSubscriptionContentCheck('sync-end', 1000);
                     }
                 };
                 calendarSubscriptionPublisher.syncEventBus = eventBus;

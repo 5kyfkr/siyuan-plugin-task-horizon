@@ -11884,7 +11884,7 @@
                     conditions: [
                         { field: 'done', operator: '=', value: false },
                         {
-                            field: 'completionTime',
+                            field: 'taskDate',
                             operator: 'range_overlap_today',
                             value: ''
                         }
@@ -11922,15 +11922,15 @@
                 if (String(rule?.id || '').trim() !== 'default_today' || !Array.isArray(rule?.conditions)) return rule;
                 const hasLegacyTodayCondition = rule.conditions.some((condition) => (
                     String(condition?.field || '').trim() === 'completionTime'
-                    && String(condition?.operator || '').trim() === 'range_today'
+                    && ['range_today', 'range_overlap_today'].includes(String(condition?.operator || '').trim())
                 ));
                 if (!hasLegacyTodayCondition) return rule;
                 return {
                     ...rule,
                     conditions: rule.conditions.map((condition) => (
                         String(condition?.field || '').trim() === 'completionTime'
-                            && String(condition?.operator || '').trim() === 'range_today'
-                            ? { ...condition, operator: 'range_overlap_today', value: '' }
+                            && ['range_today', 'range_overlap_today'].includes(String(condition?.operator || '').trim())
+                            ? { ...condition, field: 'taskDate', operator: 'range_overlap_today', value: '' }
                             : condition
                     )),
                 };
@@ -12050,6 +12050,7 @@
                 },
                 { value: 'startDate', label: '开始日期', type: 'datetime' },
                 { value: 'completionTime', label: '截止日期', type: 'datetime' },
+                { value: 'taskDate', label: '任务日期（含打卡计划）', type: 'datetime' },
                 { value: 'taskCompleteAt', label: '完成时间', type: 'datetime' },
                 { value: 'created', label: '创建时间', type: 'datetime' },
                 { value: 'updated', label: '更新时间', type: 'datetime' },
@@ -12120,6 +12121,11 @@
             else if (key === 'tomatoCount') result = Number(__tmGetTaskTomatoCount(task) || 0);
             else if (key === 'startDate') result = task?.startDate ?? task?.start_date;
             else if (key === 'completionTime') result = task?.completionTime ?? task?.completion_time;
+            // Keep explicit start/due filters on stored values. Only this virtual
+            // field follows the current check-in occurrence.
+            else if (key === 'taskDate') result = typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)
+                ? __tmGetTaskCheckinCurrentDate(task, opts.nowDate)
+                : (task?.completionTime || task?.completion_time || task?.startDate || task?.start_date || '');
             else if (key === 'taskCompleteAt') result = typeof __tmResolveTaskCompletedAtRaw === 'function'
                 ? __tmResolveTaskCompletedAtRaw(task)
                 : (task?.taskCompleteAt ?? task?.task_complete_at);
@@ -12401,6 +12407,7 @@
                 { value: 'docSeq', label: '文档出现顺序' },
                 { value: 'startDate', label: '开始日期' },
                 { value: 'completionTime', label: '截止日期' },
+                { value: 'taskDate', label: '任务日期（含打卡计划）' },
                 { value: 'taskCompleteAt', label: '完成时间' },
                 { value: 'created', label: '创建时间' },
                 { value: 'updated', label: '更新时间' },
@@ -12616,6 +12623,9 @@
             const taskTs = this.getTaskTimeValue(task, runtime.fieldInfo || runtime.field, opts);
             const timeRuntime = runtime?.timeRuntime || null;
             if (operator === 'range_overlap_today') {
+                if (runtime.field === 'taskDate' && typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+                    return taskTs >= Number(timeRuntime?.todayStartTs || 0) && taskTs < Number(timeRuntime?.tomorrowStartTs || 0);
+                }
                 const startTs = this.getTaskTimeValue(task, 'startDate', opts);
                 const completionTs = this.getTaskTimeValue(task, 'completionTime', opts);
                 const todayStartTs = Number(timeRuntime?.todayStartTs || 0);
@@ -12797,8 +12807,13 @@
 
             const buildPreparedSortKey = (task, ctx) => {
                 let raw;
-                if (ctx.useEffectiveCompletionTime) {
-                    raw = __tmGetTaskEffectiveCompletionTimeSortValue(task, { field: ctx.field, memo: timeSortMemo });
+                if (ctx.useEffectiveCompletionTime || (ctx.field === 'completionTime' && typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task))) {
+                    raw = __tmGetTaskEffectiveCompletionTimeSortValue(task, {
+                        field: ctx.field, memo: timeSortMemo,
+                        todayStartTs: opts.nowDate instanceof Date
+                            ? new Date(opts.nowDate.getFullYear(), opts.nowDate.getMonth(), opts.nowDate.getDate()).getTime()
+                            : undefined,
+                    });
                 } else if (ctx.field === 'priorityScore') {
                     // Task mirrors are updated in place. Derive this key from the
                     // current fields so an older score cache cannot win a sort.
@@ -18145,10 +18160,18 @@
         const scheduledGroupId = groupId;
         const scheduledDocKey = docIds.join(',');
         const scheduledActiveDocId = activeDocId;
+        const scheduledOpenToken = Number(state.openToken) || 0;
+        const isSaveContextCurrent = () => scheduledGroupId === (String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all')
+            && scheduledActiveDocId === (String(state.activeDocId || 'all').trim() || 'all')
+            && scheduledOpenToken === (Number(state.openToken) || 0)
+            && scheduledDocKey === __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []).join(',');
         __tmTaskSnapshotSaveTimer = setTimeout(() => {
             __tmTaskSnapshotSaveTimer = null;
             const runSave = () => {
                 if (saveGeneration !== __tmTaskSnapshotSaveGeneration) return;
+                if (!isSaveContextCurrent()) {
+                    return;
+                }
                 let backgroundWaitMs = 0;
                 try { backgroundWaitMs = Math.max(backgroundWaitMs, __tmGetHighPriorityInteractionWaitMs(120)); } catch (e) {}
                 try {
@@ -18194,7 +18217,8 @@
                         .map((doc) => doc?.id));
                     const scheduledDocSet = new Set(docIds);
                     const hasUnexpectedTreeDoc = currentTreeDocIds.some((docId) => !scheduledDocSet.has(docId));
-                    if (currentGroupId !== scheduledGroupId
+                    if (!isSaveContextCurrent()
+                        || currentGroupId !== scheduledGroupId
                         || currentActiveDocId !== scheduledActiveDocId
                         || (currentLoadedDocKey && currentLoadedDocKey !== scheduledDocKey)
                         || hasUnexpectedTreeDoc) {
@@ -18217,8 +18241,8 @@
                         } catch (e) {}
                     }
                     const taskStoreReadToken = globalThis.__tmTaskStore?.captureRead?.(docIds) || null;
-                    const isProjectionCurrent = () => !taskStoreReadToken
-                        || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true;
+                    const isProjectionCurrent = () => isSaveContextCurrent()
+                        && (!taskStoreReadToken || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true);
                     const readStartedAt = Date.now();
                     const rawStore = await __tmReadDerivedCacheFile(TASK_SNAPSHOT_FILE_PATH);
                     if (saveGeneration !== __tmTaskSnapshotSaveGeneration || !isProjectionCurrent()) return;
@@ -18277,7 +18301,7 @@
                     }
                     const nextStore = __tmBuildTaskSnapshotStore(store);
                     if (!nextStore.snapshots[payload.scopeKey]) return;
-                    if (saveGeneration !== __tmTaskSnapshotSaveGeneration) return;
+                    if (saveGeneration !== __tmTaskSnapshotSaveGeneration || !isProjectionCurrent()) return;
                     const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
                     if (saved) {
                         clearPending();

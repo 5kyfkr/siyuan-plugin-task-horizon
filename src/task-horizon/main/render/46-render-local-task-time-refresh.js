@@ -36,8 +36,8 @@
                 const startDateCell = row.querySelector('[data-tm-task-time-field="startDate"]');
                 const completionTimeCell = row.querySelector('[data-tm-task-time-field="completionTime"]');
                 if (startDateCell || completionTimeCell) {
-                    try { if (startDateCell) startDateCell.textContent = __tmFormatTaskTime(task.startDate); } catch (e) {}
-                    try { if (completionTimeCell) completionTimeCell.textContent = __tmFormatTaskTime(task.completionTime); } catch (e) {}
+                    try { if (startDateCell) startDateCell.textContent = __tmFormatTaskDateFieldDisplayValue(task, 'startDate'); } catch (e) {}
+                    try { if (completionTimeCell) completionTimeCell.textContent = __tmFormatTaskDateFieldDisplayValue(task, 'completionTime'); } catch (e) {}
                     try { __tmSyncTimelineDateColumnWidths(modal); } catch (e) {}
                 }
             }
@@ -170,8 +170,8 @@ return false;
             touched = true;
             return true;
         };
-        setCell('startDate', __tmFormatTaskTime(task.startDate));
-        setCell('completionTime', __tmFormatTaskTime(task.completionTime));
+        setCell('startDate', __tmFormatTaskDateFieldDisplayValue(task, 'startDate'));
+        setCell('completionTime', __tmFormatTaskDateFieldDisplayValue(task, 'completionTime'));
         const taskCompleteAtText = __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task));
         setCell('taskCompleteAt', taskCompleteAtText, { title: taskCompleteAtText });
         setCell('duration', esc(__tmFormatDurationDisplayValue(task.duration || '')), { html: true });
@@ -212,10 +212,8 @@ return ok;
         const enabledCompactFields = (!!SettingsStore?.data?.checklistCompactMode)
             ? (globalThis.__tmViewPolicy?.getCompactChecklistMetaFieldSetForCurrentHost?.() || new Set(__tmGetCompactChecklistMetaFieldsForCurrentHost()))
             : null;
-        const taskStartDateValue = String(task?.startDate || task?.start_date || '').trim();
-        const taskCompletionTimeValue = String(task?.completionTime || task?.completion_time || '').trim();
-        if (taskStartDateValue && !String(task?.startDate || '').trim()) task.startDate = taskStartDateValue;
-        if (taskCompletionTimeValue && !String(task?.completionTime || '').trim()) task.completionTime = taskCompletionTimeValue;
+        const taskStartDateValue = __tmGetTaskDateFieldDisplayValue(task, 'startDate');
+        const taskCompletionTimeValue = __tmGetTaskDateFieldDisplayValue(task, 'completionTime');
         let touched = false;
         let sawNode = false;
         let valid = true;
@@ -257,15 +255,15 @@ return ok;
                 node.classList.toggle('tm-checklist-meta-compact-date--overdue', !!overdue);
             });
         };
-        const completionText = __tmFormatTaskTime(taskCompletionTimeValue);
+        const completionText = __tmFormatTaskDateFieldDisplayValue(task, 'completionTime');
         const durationText = __tmFormatDurationDisplayValue(task.duration || '');
         const focusSummaryText = __tmGetTaskTomatoSummaryText(task);
         const focusSummaryHtml = __tmGetTaskTomatoSummaryHtml(task);
         const tomatoEstimateText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task));
         const tomatoCountText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task));
         const tomatoCountHtml = __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task));
-        const compactStartText = __tmFormatTaskCardDateValueFromValue(taskStartDateValue);
-        const compactCompletionText = __tmFormatTaskCardDateValueFromValue(taskCompletionTimeValue);
+        const compactStartText = __tmFormatTaskDateFieldDisplayValue(task, 'startDate', true);
+        const compactCompletionText = __tmFormatTaskDateFieldDisplayValue(task, 'completionTime', true);
         const compactRemainingInfo = __tmGetTaskRemainingTimeInfo(task);
         const compactRemainingText = String(compactRemainingInfo?.label || '').trim();
         const compactRemainingHtml = compactRemainingText ? __tmRenderTaskRemainingTimeInfoHtml(compactRemainingInfo) : '';
@@ -285,7 +283,9 @@ return ok;
         if (!syncNode('completionTimeCompact', compactCompletionText, { shouldExist: !!compactCompletionText })) valid = false;
         syncCompactDateClass('startDateCompact', 'tm-checklist-meta-compact-date--start');
         syncCompactDateClass('completionTimeCompact', 'tm-checklist-meta-compact-date--completion', !!taskCompletionTimeValue && __tmIsTaskCardDateOverdue(task));
-        if (!syncNode('remainingTimeCompact', compactRemainingHtml, { html: true, title: compactRemainingText, shouldExist: !!compactRemainingText && !!(taskStartDateValue || taskCompletionTimeValue) })) valid = false;
+        const compactDateVisible = (enabledCompactFields?.has('startDate') && !!taskStartDateValue)
+            || (enabledCompactFields?.has('completionTime') && !!taskCompletionTimeValue);
+        if (!syncNode('remainingTimeCompact', compactRemainingHtml, { html: true, title: compactRemainingText, shouldExist: !!compactRemainingText && __tmShouldRenderTaskCardRemainingTime(task, compactDateVisible) })) valid = false;
         if (!syncNode('durationCompact', compactDurationText, { shouldExist: !!compactDurationText })) valid = false;
         if (!syncNode('tomatoSummaryCompact', compactFocusSummaryHtml, { html: true, shouldExist: !!compactFocusSummaryText })) valid = false;
         if (!syncNode('tomatoEstimateCountCompact', compactTomatoEstimateText, { shouldExist: !!compactTomatoEstimateText })) valid = false;
