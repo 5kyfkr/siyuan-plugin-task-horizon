@@ -19815,6 +19815,26 @@ if (!state.homepageOpen) return;
     const __tmRemarkRenderCache = new Map();
     const __tmRemarkStripCache = new Map();
 
+    let __tmRemarkLute = null;
+    function __tmGetRemarkLute() {
+        if (__tmRemarkLute) return __tmRemarkLute;
+        try {
+            const factory = globalThis.Lute || globalThis.window?.Lute;
+            const lute = factory?.New?.();
+            if (typeof lute?.RenderJSON !== 'function') return null;
+            // Use SiYuan's parser for delimiter matching; render only safe inline nodes below.
+            for (const [method, value] of [
+                ['SetInlineAsterisk', true], ['SetInlineUnderscore', true],
+                ['SetGFMStrikethrough', true], ['SetGFMStrikethrough1', false],
+                ['SetMark', true], ['SetSup', true], ['SetSub', true],
+                ['SetAutoSpace', false], ['SetFixTermTypo', false], ['SetEmoji', false],
+                ['SetGFMAutoLink', false], ['SetInlineMath', false], ['SetKramdownIAL', false],
+            ]) lute[method]?.(value);
+            __tmRemarkLute = lute;
+        } catch (e) {}
+        return __tmRemarkLute;
+    }
+
     function __tmTrimOuterBlankLines(input) {
         const lines = String(input || '').split('\n');
         while (lines.length && !String(lines[0] || '').trim()) lines.shift();
@@ -19847,29 +19867,45 @@ if (!state.homepageOpen) return;
         return /^\/(?!\/)/.test(href) ? href : '';
     }
 
-    function __tmRenderRemarkInlineHtml(input, depth = 0) {
-        const text = String(input || '');
-        if (!text) return '';
-        if (depth > 6) return esc(text);
-        const tokens = [];
-        const stash = (html) => `\u0000${tokens.push(String(html || '')) - 1}\u0000`;
-        let source = text;
-
-        source = source.replace(/\[([^\]]+)\]\(([^)\s]+(?:\s[^)]*)?)\)/g, (match, label, href) => {
-            const safeHref = __tmSanitizeRemarkHref(href);
-            const labelHtml = __tmRenderRemarkInlineHtml(label, depth + 1);
-            if (!safeHref) return stash(labelHtml);
-            return stash(`<a class="tm-task-detail-remark-link" href="${esc(safeHref)}" target="_blank" rel="noopener noreferrer">${labelHtml}</a>`);
-        });
-        source = source.replace(/\*\*([\s\S]+?)\*\*/g, (match, inner) => stash(`<strong>${__tmRenderRemarkInlineHtml(inner, depth + 1)}</strong>`));
-        source = source.replace(/__([\s\S]+?)__/g, (match, inner) => stash(`<strong>${__tmRenderRemarkInlineHtml(inner, depth + 1)}</strong>`));
-        source = source.replace(/(^|[^\*])\*([^\*\n]+)\*(?!\*)/g, (match, prefix, inner) => `${prefix}${stash(`<em>${__tmRenderRemarkInlineHtml(inner, depth + 1)}</em>`)}`);
-        source = source.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, (match, prefix, inner) => `${prefix}${stash(`<em>${__tmRenderRemarkInlineHtml(inner, depth + 1)}</em>`)}`);
-        source = source.replace(/`([^`\n]+)`/g, (match, inner) => stash(`<code>${esc(inner)}</code>`));
-
-        let html = esc(source);
-        html = html.replace(/\u0000(\d+)\u0000/g, (match, index) => tokens[Number(index)] || '');
-        return html;
+    function __tmRenderRemarkInlineHtml(input, plainText = false) {
+        const source = String(input || '');
+        const renderText = (value) => plainText ? String(value || '') : esc(value);
+        if (!source) return '';
+        try {
+            const lute = __tmGetRemarkLute();
+            if (!lute) return renderText(source);
+            // A plain prefix keeps this an inline paragraph, including lines starting with # or ---.
+            const prefix = 'tm-inline ';
+            const tree = JSON.parse(lute.RenderJSON(prefix + source));
+            const tags = {
+                NodeStrong: 'strong', NodeEmphasis: 'em', NodeStrikethrough: 'del',
+                NodeMark: 'mark', NodeSup: 'sup', NodeSub: 'sub',
+            };
+            const render = (node) => {
+                const children = Array.isArray(node.Children) ? node.Children : [];
+                const tag = tags[node.Type];
+                if (tag) {
+                    const inner = children.filter((child) => !/Marker$/.test(child.Type)).map(render).join('');
+                    return plainText ? inner : `<${tag}>${inner}</${tag}>`;
+                }
+                if (node.Type === 'NodeCodeSpan') {
+                    const text = children.find((child) => child.Type === 'NodeCodeSpanContent')?.Data || '';
+                    return plainText ? text : `<code>${esc(text)}</code>`;
+                }
+                if (node.Type === 'NodeLink') {
+                    const href = __tmSanitizeRemarkHref(children.find((child) => child.Type === 'NodeLinkDest')?.Data);
+                    const title = children.find((child) => child.Type === 'NodeLinkTitle')?.Data || '';
+                    const label = children.filter((child) => !['NodeOpenBracket', 'NodeCloseBracket', 'NodeOpenParen',
+                        'NodeCloseParen', 'NodeLinkDest', 'NodeLinkSpace', 'NodeLinkTitle'].includes(child.Type)).map(render).join('');
+                    if (plainText || !href) return label;
+                    return `<a class="tm-task-detail-remark-link" href="${esc(href)}"${title ? ` title="${esc(title)}"` : ''} target="_blank" rel="noopener noreferrer">${label}</a>`;
+                }
+                return children.length ? children.map(render).join('') : renderText(node.Data);
+            };
+            const html = render(tree);
+            if (html.startsWith(prefix)) return html.slice(prefix.length);
+        } catch (e) {}
+        return renderText(source);
     }
 
     function __tmRenderRemarkLineHtml(input) {
@@ -20010,7 +20046,7 @@ if (!state.homepageOpen) return;
 
         const html = blocks.join('') || '<div class="tm-task-detail-remark-empty">点击添加备注</div>';
         if (__tmRemarkRenderCache.size > 400) __tmRemarkRenderCache.clear();
-        __tmRemarkRenderCache.set(source, html);
+        if (__tmRemarkLute) __tmRemarkRenderCache.set(source, html);
         return html;
     }
 
@@ -20019,20 +20055,15 @@ if (!state.homepageOpen) return;
         if (!source) return '';
         const cached = __tmRemarkStripCache.get(source);
         if (cached !== undefined) return cached;
-        const text = source
-            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+        const inlineSource = source
             .replace(/^\s*>\s?/gm, '')
             .replace(/^\s*[-*+]\s+/gm, '')
-            .replace(/^\s*\d+\.\s+/gm, '')
-            .replace(/(\*\*|__)([\s\S]+?)\1/g, '$2')
-            .replace(/(^|[^\*])\*([^\*\n]+)\*(?!\*)/g, '$1$2')
-            .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1$2')
-            .replace(/`([^`\n]+)`/g, '$1')
-            .replace(/\n+/g, ' ')
+            .replace(/^\s*\d+\.\s+/gm, '');
+        const text = inlineSource.split('\n').map((line) => __tmRenderRemarkInlineHtml(line, true)).join(' ')
             .replace(/\s{2,}/g, ' ')
             .trim();
         if (__tmRemarkStripCache.size > 400) __tmRemarkStripCache.clear();
-        __tmRemarkStripCache.set(source, text);
+        if (__tmRemarkLute) __tmRemarkStripCache.set(source, text);
         return text;
     }
 
