@@ -57,7 +57,7 @@ vm.runInContext([
     between('    function isRecurringScheduleEventExt(', '    async function setCalendarReminderOccurrenceDone('),
     extract('isRecurringTaskDateReadOnlyOccurrence'), extract('isCalendarTaskRecurringSnapshot'),
     extract('shouldHideCompletedAllDayCalendarEvent'), extract('handleCalendarEventCheckboxToggle'),
-    extract('syncTaskDoneInPlace'), extract('reassignScheduleLinkedTask'),
+    extract('isCalendarForegroundEvent'), extract('syncTaskDoneInPlace'), extract('reassignScheduleLinkedTask'),
 ].join('\n'), context);
 const checked = () => events.map(event => context.resolveCalendarEventDoneState(event.extendedProps));
 

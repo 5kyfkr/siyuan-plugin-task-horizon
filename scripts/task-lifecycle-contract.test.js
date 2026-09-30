@@ -28,6 +28,7 @@ function createHarness(options = {}) {
     const persistedTasks = new Map();
     const moves = [];
     const queued = [];
+    const refreshScopes = [];
     let documentKramdown = '';
     let appendedHeadingCount = 0;
     let flushedHeadingCount = 0;
@@ -56,6 +57,7 @@ function createHarness(options = {}) {
         setTimeout,
         clearTimeout,
         state: { flatTasks: {}, pendingInsertedTasks: {} },
+        __tmScheduleTaskIncrementalRefreshFromTx: (_payload, options) => refreshScopes.push(plain(options)),
         SettingsStore: {
             data: {
                 taskHeadingLevel: 'h3',
@@ -198,6 +200,7 @@ function createHarness(options = {}) {
         persistedTasks,
         moves,
         queued,
+        refreshScopes,
         reminderTaskIds,
         removedReminderIds,
         cleanupSteps,
@@ -265,6 +268,10 @@ async function testMetadataAndRestoreComposition() {
     assert.equal(moves.at(-1).options.moveToRecycleDocument, true,
         'recycle must use the independent-list document move path');
     assert.deepEqual(removedReminderIds, ['task-delete'], 'recycling a task must clear its linked reminder');
+    assert.deepEqual(harness.refreshScopes.at(-1), {
+        docIds: ['doc-source', 'doc-recycle'], blockIds: ['task-delete'],
+        structural: true, committed: true, source: 'task-recycle-confirmation', delayMs: 180,
+    }, 'confirmed recycling must retain both document scopes even if its attribute echo was suppressed');
 
     await context.__tmTaskLifecycle.execute({ action: 'restoreDeleted', taskId: 'task-delete' });
     stored = JSON.parse(attrs.get('task-delete')['custom-task-horizon-lifecycle']);

@@ -20,7 +20,8 @@ function readFunction(name) {
     throw new Error(`Incomplete function ${name}`);
 }
 const helpers = ['normalizeCalendarVisibleTime', 'getCalendarVisibleSlotRange', 'getPrototypeTimelineMetrics',
-    'normalizeMobileTimelineScale', 'readMobileTimelineScale', 'applyMobileTimelineScale', 'bindMobileTimelinePinch',
+    'normalizePrototypeTimelineScale', 'readMobileTimelineScale', 'readDesktopTimelineScale',
+    'applyPrototypeTimelineScale', 'bindMobileTimelinePinch', 'bindDesktopTimelineZoom',
     'resolvePrototypeSelectionRange', 'renderPrototypeSelectionPreview',
     'bindPrototypeSurfacePointerHandler',
     'prototypeTimelineYForMinute', 'prototypeTimelineMinuteForY', 'getPrototypeTimelineMetricsFromCanvas',

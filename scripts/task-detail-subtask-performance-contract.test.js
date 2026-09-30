@@ -176,6 +176,30 @@ assert.deepEqual(Array.from(smallResult[0].children, (task) => task.id), ['c', '
 assert.equal(smallResult[0].children[0].done, true, 'projected child fields must be applied');
 assert.equal(smallResult[0].children[1].content, 'A projected', 'moved child projections must be applied');
 
+const incomingChild = { id: 'incoming', parentTaskId: 'outside', children: [] };
+const incomingGrandchild = { id: 'incoming-child', parentTaskId: 'incoming', children: [] };
+incomingChild.children = [incomingGrandchild];
+const unrelatedTasks = Array.from({ length: 1500 }, (_, index) => ({
+    id: `unrelated-${index}`, parentTaskId: 'outside', children: [],
+}));
+const pendingScopeHarness = buildHarness(smallRoot, {
+    ...smallFlatTasks,
+    incoming: incomingChild,
+    'incoming-child': incomingGrandchild,
+    ...Object.fromEntries(unrelatedTasks.map((task) => [task.id, task])),
+}, { d: pendingD }, {
+    incoming: { parentTaskId: 'small-root' },
+    a: { parentTaskId: 'b', content: 'A projected' },
+});
+const pendingScopeResult = pendingScopeHarness.context.runProjectedChildren(smallRoot, { structuralTask: smallRoot });
+assert.deepEqual(Array.from(pendingScopeResult, (task) => task.id), ['b', 'incoming'],
+    'an overlaid move into the detail subtree must not be lost when unrelated task reads are skipped');
+assert.deepEqual(Array.from(pendingScopeResult[1].children, (task) => task.id), ['incoming-child'],
+    'moving in a subtree must preserve its descendants');
+assert.deepEqual(Array.from(pendingScopeResult[0].children, (task) => task.id), ['c', 'a', 'd']);
+assert.ok(pendingScopeHarness.metrics.getProjectedCalls <= 8,
+    `a pending operation must not project 1500 unrelated tasks; got ${pendingScopeHarness.metrics.getProjectedCalls} reads`);
+
 const toggleStart = loaderSource.indexOf('window.tmToggleTaskDetailCompletedSubtasks = function(');
 const toggleEnd = loaderSource.indexOf('\n\n    // 辅助：手动插入任务到树中', toggleStart);
 assert.ok(toggleStart >= 0 && toggleEnd > toggleStart, 'completed-subtask toggle must remain extractable');

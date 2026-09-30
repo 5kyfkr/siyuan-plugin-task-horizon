@@ -7845,7 +7845,11 @@
     touch-action: pan-y;
     overflow-anchor: none;
 }
-.tm-proto-timeline-pinching .tm-proto-time-scroll{
+.tm-proto-time-canvas[data-tm-proto-desktop-scale]{
+    overflow-anchor: none;
+}
+.tm-proto-timeline-pinching .tm-proto-time-scroll,
+.tm-proto-timeline-zooming .tm-proto-time-scroll{
     scroll-behavior: auto !important;
     overflow-anchor: none;
 }

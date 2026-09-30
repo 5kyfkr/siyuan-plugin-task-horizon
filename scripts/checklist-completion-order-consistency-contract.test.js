@@ -71,7 +71,7 @@ assert.doesNotMatch(
 const checklistRerender = extractFunction(runtimeServices, '__tmRerenderChecklistInPlace');
 assert.match(
     checklistRerender,
-    /const checklistProjectionTaskIds = __tmGetChecklistProjectionGroupRefreshTaskIds\(\);[\s\S]*checklistProjectionTaskIds\.length === 0[\s\S]*state\.listDomRenderSignature/,
+    /(?:const|let) checklistProjectionTaskIds = __tmGetChecklistProjectionGroupRefreshTaskIds\(\);[\s\S]*checklistProjectionTaskIds\.length === 0[\s\S]*state\.listDomRenderSignature/,
     'pending checklist completion reconciliation must take precedence over the sampled render-signature fast path',
 );
 

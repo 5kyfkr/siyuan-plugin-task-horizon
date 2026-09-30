@@ -678,10 +678,12 @@
         if (!structuralTask || !Array.isArray(structuralTask.children)) {
             structuralTask = findStructuralTask() || structuralTask || task;
         }
+        let pendingOverlays = null;
         const canUseStructuralFastPath = (() => {
             try {
                 if (typeof taskStore?.listPendingOverlays !== 'function') return false;
-                if ((taskStore.listPendingOverlays() || []).length > 0) return false;
+                pendingOverlays = taskStore.listPendingOverlays() || [];
+                if (pendingOverlays.length > 0) return false;
                 const pendingMap = taskStore?.getPendingMap?.() || state.pendingInsertedTasks;
                 return !Object.keys((pendingMap && typeof pendingMap === 'object') ? pendingMap : {}).length;
             } catch (e) {
@@ -758,17 +760,56 @@
             return Object.values((taskMap && typeof taskMap === 'object') ? taskMap : {});
         };
         readTaskList('listFlat', 'getFlatMap', state.flatTasks).forEach(appendCandidate);
-        readTaskList('listPending', 'getPendingMap', state.pendingInsertedTasks).forEach(appendCandidate);
+        const pendingCandidates = readTaskList('listPending', 'getPendingMap', state.pendingInsertedTasks);
+        pendingCandidates.forEach(appendCandidate);
 
         const projectedById = new Map();
         const projectedParentById = new Map();
         const hasProjectionReader = typeof taskStore?.getProjected === 'function';
+        const earlyProjected = new Map();
+        let projectionScopeIds = null;
+        if (Array.isArray(pendingOverlays) && hasProjectionReader) {
+            // Build a cheap parent index first. Only overlays/pending inserts can
+            // differ from the local placement; do not clone every unrelated task
+            // merely because a single create or move is waiting for confirmation.
+            const changedIds = new Set(pendingCandidates.map((item) => normalizeTaskId(item?.id || item?.blockId)));
+            pendingOverlays.forEach((entry) => {
+                (Array.isArray(entry?.taskIds) ? entry.taskIds : []).forEach((id) => changedIds.add(normalizeTaskId(id)));
+            });
+            try {
+                (taskStore.listPendingStructural?.() || []).forEach((entry) => changedIds.add(normalizeTaskId(entry?.taskId)));
+            } catch (e) {}
+            changedIds.forEach((id) => {
+                if (!id || !candidateIds.has(id)) return;
+                try { earlyProjected.set(id, taskStore.getProjected(id)); } catch (e) { earlyProjected.set(id, null); }
+            });
+            const candidateChildren = new Map();
+            candidates.forEach((candidate) => {
+                const id = normalizeTaskId(candidate.id || candidate.blockId);
+                const projected = earlyProjected.has(id) ? earlyProjected.get(id) : candidate;
+                if (!(projected && typeof projected === 'object')) return;
+                const parentId = normalizeTaskId(projected.parentTaskId || projected.parent_task_id)
+                    || structuralParentByChild.get(id) || '';
+                if (!parentId || parentId === id) return;
+                if (!candidateChildren.has(parentId)) candidateChildren.set(parentId, []);
+                candidateChildren.get(parentId).push(id);
+            });
+            projectionScopeIds = new Set([taskId]);
+            const queue = [taskId];
+            for (let index = 0; index < queue.length; index++) {
+                (candidateChildren.get(queue[index]) || []).forEach((id) => {
+                    if (projectionScopeIds.has(id)) return;
+                    projectionScopeIds.add(id);
+                    queue.push(id);
+                });
+            }
+        }
         candidates.forEach((candidate) => {
             const childId = normalizeTaskId(candidate.id || candidate.blockId);
-            if (!childId) return;
+            if (!childId || (projectionScopeIds && !projectionScopeIds.has(childId))) return;
             let projected = candidate;
             if (hasProjectionReader) {
-                try { projected = taskStore.getProjected(childId); } catch (e) { projected = null; }
+                try { projected = earlyProjected.has(childId) ? earlyProjected.get(childId) : taskStore.getProjected(childId); } catch (e) { projected = null; }
                 if (!(projected && typeof projected === 'object')) return;
             }
             const structuralChild = structuralById.get(childId);

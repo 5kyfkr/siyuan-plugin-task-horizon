@@ -2898,6 +2898,7 @@
             withFilters: raw.withFilters === true || (mode === 'full' && raw.withFilters !== false),
             reason: String(raw.reason || '').trim() || 'view-refresh',
             taskIds,
+            docIds: Array.isArray(raw.docIds) ? raw.docIds.map((id) => String(id || '').trim()).filter(Boolean) : [],
             forceRebuild: raw.forceRebuild === true,
             detailOnly: raw.detailOnly === true,
             bypassDefer: raw.bypassDefer === true,
@@ -2927,6 +2928,7 @@
             withFilters: left.withFilters !== false || right.withFilters !== false,
             reason: right.reason || left.reason || 'view-refresh',
             taskIds,
+            docIds: Array.from(new Set([...left.docIds, ...right.docIds])),
             forceRebuild: left.forceRebuild === true || right.forceRebuild === true,
             detailOnly: left.detailOnly === true && right.detailOnly === true,
             bypassDefer: left.bypassDefer === true || right.bypassDefer === true,
@@ -3709,6 +3711,7 @@
                 withFilters: next.withFilters !== false,
                 reason: next.reason,
                 taskIds: next.taskIds,
+                docIds: next.docIds,
                 deferIfDetailBusy: !bypassBusyDetailDefer,
                 allowMountedInactive,
             });
@@ -3837,6 +3840,7 @@ __tmScheduleViewRefresh(pending);
                     withFilters,
                     reason,
                     taskIds: options.taskIds,
+                    docIds: options.docIds,
                 });
                 return;
             }
@@ -3863,12 +3867,12 @@ __tmScheduleViewRefresh(pending);
             if (Array.isArray(options.taskIds) && options.taskIds.length) {
                 __tmMarkChecklistProjectionGroupRefresh(options.taskIds);
             }
-            __tmRenderChecklistPreserveScroll();
+            __tmRenderChecklistPreserveScroll({ docIds: options.docIds, reason });
             return;
         }
         if (state.viewMode === 'kanban' || state.viewMode === 'whiteboard') {
             if (state.viewMode === 'kanban'
-                && globalThis.__tmTryRefreshKanbanColumns?.(state.modal, options.taskIds, { reason }) === true) return;
+                && globalThis.__tmTryRefreshKanbanColumns?.(state.modal, options.taskIds, { reason, docIds: options.docIds }) === true) return;
             if (!__tmRerenderCurrentViewInPlace(state.modal, { taskIds: options.taskIds, reason })) render();
             return;
         }

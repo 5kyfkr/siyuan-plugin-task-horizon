@@ -109,7 +109,7 @@ async function run() {
             await page.route('https://calendar.test/**',route => route.fulfill({contentType:'text/html',body:'<!doctype html><html><body></body></html>'}));
             const errors = []; page.on('pageerror',error => errors.push(error.message));
             await mount(page,true,side);
-            assert.deepEqual(await page.evaluate(() => [null,0,-1,'bad',Infinity,0.1,1.234,9].map(normalizeMobileTimelineScale)),
+            assert.deepEqual(await page.evaluate(() => [null,0,-1,'bad',Infinity,0.1,1.234,9].map(normalizePrototypeTimelineScale)),
                 [1,1,1,1,1,0.75,1.234,3],'stored preferences are validated without discrete zoom steps');
             const initial = await snapshot(page);
             assert.equal(initial.hour,42);

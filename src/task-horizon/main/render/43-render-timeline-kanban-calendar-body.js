@@ -2072,7 +2072,8 @@
                 // Use the renderer's own membership rules for the destination;
                 // the caller supplies source columns from the mounted cards.
                 const changedTasks = columnPatch
-                    ? list0.filter((task) => columnPatch.taskIds.has(String(task?.id || '').trim()))
+                    ? list0.filter((task) => columnPatch.taskIds.has(String(task?.id || '').trim())
+                        || columnPatch.docIds?.has(String(task?.root_id || task?.docId || '').trim()))
                     : [];
                 changedTasks.forEach((task) => columnPatch.matchedTaskIds.add(String(task.id).trim()));
                 const renderThisColumn = !columnPatch

@@ -16487,6 +16487,22 @@
             const did = String(docId || '').trim();
             if (loadedDocIds.has(did)) docIds.add(did);
         });
+        // Structural blocks often omit root IDs (for example recycle containers).
+        // Resolve their scope before widening the refresh, but keep the full-scope
+        // fallback when deleted blocks or a failed lookup leave it unknown.
+        if ((meta.structural === true || meta.truncated === true)
+            && (resolved?.resolutionFailed || docIds.size === 0)) {
+            return {
+                reason: 'structural-scope-unresolved',
+                relevant: loadedDocIds.size > 0,
+                docIds: Array.from(loadedDocIds),
+                blockIds: [],
+                resolvedTaskIds: [],
+                forceDocRefresh: true,
+                preserveExistingSiblingOrder: false,
+                committed: meta.committed === true,
+            };
+        }
         if (resolved?.resolutionFailed) {
             return {
                 reason: 'task-impact-resolution-failed',
@@ -17074,6 +17090,20 @@
         return true;
     }
 
+    function __tmShouldRetryCommittedMoveTaskRow(row, previousTask, pending) {
+        if (!row || !previousTask || pending?.type !== 'moveTask' || pending.phase !== 'commit') return false;
+        const expectedDocId = String(pending.expectedDocId || '').trim();
+        const expectedParentId = String(pending.expectedParentTaskId || '').trim();
+        const previousDocId = String(previousTask.root_id || previousTask.docId || '').trim();
+        const previousParentId = String(previousTask.parentTaskId || previousTask.parent_task_id || '').trim();
+        if (!expectedDocId || previousDocId !== expectedDocId
+            || (pending.hasExpectedParent && previousParentId !== expectedParentId)) return false;
+        const actualDocId = String(row.root_id || row.docId || '').trim();
+        const actualParentId = String(row.parent_task_id ?? row.parentTaskId ?? '').trim();
+        return actualDocId !== expectedDocId
+            || (pending.hasExpectedParent && actualParentId !== expectedParentId);
+    }
+
     function __tmPatchLoadedTaskBlockInPlace(taskId, nextTask) {
         const tid = String(taskId || '').trim();
         const slot = __tmFindLoadedTaskTreeSlot(tid);
@@ -17305,6 +17335,17 @@
             if (!row || typeof row !== 'object') {
                 return false;
             }
+            const pendingMove = globalThis.__tmTaskStore?.getPendingStructural?.(taskId);
+            if (opts.committed === true && __tmShouldRetryCommittedMoveTaskRow(row, prevTask, pendingMove)) {
+                // The kernel has committed the move, but its SQL parent join can
+                // still lag. Confirm one task after flushing before reading its
+                // entire document. The normal structural guards still apply.
+                try { await __tmFlushSqlTransactionsSafe('task-block-local-move-confirmation'); } catch (e) {}
+                if (!guardCurrent() || !taskStoreReadCurrent()) return false;
+                try { row = await API.getTaskById(taskId); } catch (e) { row = null; }
+                if (!guardCurrent() || !taskStoreReadCurrent()) return false;
+                if (!row || typeof row !== 'object') return false;
+            }
             const documentContentPatch = opts.committed === true
                 && __tmTaskHasLocalPatchWatermarkForFields(taskId, ['content', 'markdown', 'done'])
                 ? __tmReadLiveDocumentTaskContentPatch(taskId)
@@ -17523,6 +17564,16 @@
             }
         });
         return count;
+    }
+
+    function __tmResolveKanbanRefreshTaskIds(blockIds = [], resolvedTaskIds = [], previousTaskIdsByDoc = new Map()) {
+        const previousSets = Array.from(previousTaskIdsByDoc.values());
+        const knownIds = (Array.isArray(blockIds) ? blockIds : [])
+            .map((id) => String(id || '').trim()).filter((id) => id && (
+                globalThis.__tmTaskBoundary?.getTask?.(id)
+                || previousSets.some((ids) => ids.has(id))));
+        return Array.from(new Set(knownIds.concat(Array.isArray(resolvedTaskIds) ? resolvedTaskIds : [])
+            .map((id) => String(id || '').trim()).filter(Boolean)));
     }
 
     async function __tmRefreshAffectedDocsIncrementally(options = {}) {
@@ -18005,12 +18056,20 @@
                     );
                     state.listDomRenderSignature = '';
                 }
+                let viewTaskIds = targets.blockIds.slice();
+                if (viewMode === 'kanban' || viewMode === 'checklist') {
+                    // WS block IDs also contain list containers and adjacent
+                    // blocks. Preserve actual tasks, including deleted tasks
+                    // from the previous document snapshot, and resolved parents.
+                    viewTaskIds = __tmResolveKanbanRefreshTaskIds(viewTaskIds, opts.resolvedTaskIds, previousTaskIdsByDoc);
+                }
                 __tmScheduleViewRefresh({
                     mode: 'current',
                     withFilters: false,
                     reason: String(opts.reason || 'incremental-doc-refresh').trim() || 'incremental-doc-refresh',
                     deferIfDetailBusy: opts.deferIfDetailBusy !== false,
-                    taskIds: Array.isArray(targets.blockIds) ? targets.blockIds.slice() : [],
+                    taskIds: viewTaskIds,
+                    docIds: (viewMode === 'kanban' || viewMode === 'checklist') && !viewTaskIds.length ? docIds : [],
                 });
             } catch (e) {
                 try { render(); } catch (e2) {}
@@ -18895,6 +18954,15 @@
         let refreshSucceeded = false;
         __tmTxTaskRefreshInFlight = true;
         try {
+            // Keep the batch pending while its local write is still running.
+            // Reading now would compare SQL's old parent with the optimistic
+            // parent, then discard the document query when that write commits.
+            const localWritePending = pendingTargets?.meta?.wholeScopeDirty === true
+                ? globalThis.__tmTaskMutations?.hasPending?.() === true
+                : pendingBlockIds.some((id) => globalThis.__tmTaskMutations?.hasPendingForTask?.(id) === true);
+            if (localWritePending) {
+                return false;
+            }
             const classified = await __tmClassifyPendingTaskTxRefresh(pendingTargets);
             if (!classified?.relevant) {
                 if (__tmClearPendingTxRefreshTargets(pendingTargets)) __tmClearExternalTaskTxDirty();
@@ -19216,13 +19284,17 @@
                     txTargets.truncated = true;
                     txTargets.structural = true;
                 }
+                // A bounded block list can still resolve the missing document
+                // IDs after batching. Do not poison that batch as whole-scope.
+                const wholeScopeDirty = txTargets.wholeScopeDirty === true
+                    || (txTargets.structural === true && !(txTargets.docIds?.size > 0)
+                        && (txTargets.truncated === true || !(txTargets.blockIds?.size > 0)));
                 __tmScheduleBatchedTaskIncrementalRefreshFromTx(null, {
                     targets: txTargets,
                     structural: txTargets.structural === true,
                     committed: txTargets.committed === true,
                     truncated: txTargets.truncated === true,
-                    wholeScopeDirty: txTargets.wholeScopeDirty === true
-                        || (txTargets.structural === true && !(txTargets.docIds?.size > 0)),
+                    wholeScopeDirty,
                     source: 'ws-main-batch',
                     insertedBlockIds: Array.from(txTargets.insertedBlockIds || []),
                     deletedBlockIds: Array.from(txTargets.deletedBlockIds || []),

@@ -6651,13 +6651,18 @@
         return getCalendarHalfHourSlotHeight(settings) / 2;
     }
 
-    function normalizeMobileTimelineScale(value) {
+    function normalizePrototypeTimelineScale(value) {
         const scale = Number(value);
         return Number.isFinite(scale) && scale > 0 ? Math.max(0.75, Math.min(3, scale)) : 1;
     }
 
     function readMobileTimelineScale() {
-        try { return normalizeMobileTimelineScale(localStorage.getItem('tm_calendar_mobile_timeline_scale')); }
+        try { return normalizePrototypeTimelineScale(localStorage.getItem('tm_calendar_mobile_timeline_scale')); }
+        catch (e) { return 1; }
+    }
+
+    function readDesktopTimelineScale() {
+        try { return normalizePrototypeTimelineScale(localStorage.getItem('tm_calendar_desktop_timeline_scale')); }
         catch (e) { return 1; }
     }
 
@@ -6725,8 +6730,29 @@
         if (!eventApi) return false;
         const display = String(eventApi.display || '').trim();
         // Older in-memory holiday events may have lost their display mode.
-        return display !== 'background' && display !== 'inverse-background' && display !== 'none'
-            && !String(eventApi.id || '').startsWith('cn-holiday-bg:');
+        if (display === 'background' || display === 'inverse-background' || display === 'none'
+            || String(eventApi.id || '').startsWith('cn-holiday-bg:')) return false;
+        const ext = eventApi.extendedProps || {};
+        const source = String(ext.__tmSource || '').trim();
+        if (!['taskdate', 'schedule', 'reminder'].includes(source)) return true;
+        // Independent schedules and completed recurrence history retain their
+        // own lifecycle when the source task is abandoned.
+        if (source === 'taskdate' && ext.__tmTaskDateReadOnly === true) return true;
+        if (source === 'schedule' && (ext.__tmScheduleCompletionIndependent === true
+            || ext.__tmVirtualTaskSchedule === true)) return true;
+        const taskId = String(ext.__tmTaskId || ext.__tmTaskDateEventTaskId || ext.__tmSourceTaskId
+            || ext.__tmReminderTaskId || ext.__tmBlockId || ext.__tmReminderBlockId || '').trim();
+        try {
+            const task = globalThis.__tmTaskStore?.getProjected?.(taskId)
+                || globalThis.__tmTaskBoundary?.getTask?.(taskId)
+                || (typeof getCalendarTaskSnapshotById === 'function' ? getCalendarTaskSnapshotById(taskId) : null);
+            const isCanceled = globalThis.__tmCalendarKanbanCardHelpers?.isCanceled
+                || (typeof __tmIsTaskCanceled === 'function' ? __tmIsTaskCanceled : null);
+            if (task && typeof isCanceled === 'function') ext.__tmTaskCanceled = isCanceled(task) === true;
+        } catch (e) {}
+        // Cache invalidation is not a reopen. Only a known live task may clear
+        // the last cancellation state, just as with the completion snapshot.
+        return ext.__tmTaskCanceled !== true;
     }
 
     function mergeCalendarAllDayReminders(events, options = {}) {
@@ -7350,10 +7376,13 @@
             : getPrototypeHourHeight(settings, mobile);
         // Device preference, independent of compact desktop layouts and
         // the synchronized hour-slot setting.
-        const mobileScale = options.isMobile === true ? readMobileTimelineScale() : 1;
+        // Dock hosts deliberately use a mobile-shaped layout on desktop.
+        // Input gestures and stored density follow the runtime, not that UI flag.
+        const mobileTimeline = isLikelyMobileRuntime();
+        const timelineScale = mobileTimeline ? readMobileTimelineScale() : readDesktopTimelineScale();
         const timeMetrics = getPrototypeTimelineMetrics(settings, {
             hourHeight,
-            hourScale: mobileScale,
+            hourScale: timelineScale,
             availableHeight: options.availableHeight,
             isMobile: mobile,
             timeRangeExpanded: options.timeRangeExpanded === true,
@@ -7570,21 +7599,32 @@
         // axis button is intentionally omitted because it duplicated the
         // same action without identifying which range would change.
         const axisMarkup = labelsMarkup + currentNowLabelMarkup;
-        const mobileScaleAttr = options.isMobile === true ? ` data-tm-proto-mobile-scale="${mobileScale}"` : '';
-        return `<section class="${timelineClass}" style="--tm-proto-cols:${cols};--tm-proto-allday-max-height:${allDayMaxHeight}px">${headerMarkup}<div class="${allDayClass}">${allDayToggle}${allDayContent}</div><div class="tm-proto-time-scroll tm-proto-day-panel-scroll"><div class="tm-proto-time-canvas tm-proto-day-panel-canvas" data-tm-proto-time-expanded="${timeMetrics.expanded ? '1' : '0'}" data-tm-proto-visible-start="${startMin}" data-tm-proto-visible-end="${endMin}" data-tm-proto-hour-height="${timeMetrics.hourHeight}"${mobileScaleAttr} data-tm-proto-band-height="${timeMetrics.bandHeight}" data-tm-proto-canvas-height="${canvasHeight}" data-tm-proto-viewport-height="${timeMetrics.availableHeight}" style="height:${canvasHeight}px;min-height:${canvasHeight}px"><div class="tm-proto-time-axis tm-proto-day-panel-axis">${axisMarkup}</div><div class="tm-proto-time-lines tm-proto-day-panel-lines">${lines.join('')}</div><div class="tm-proto-time-columns"><span class="tm-proto-time-axis-spacer"></span>${columns}</div>${collapseBandMarkup}</div></div></section>`;
+        const timelineScaleAttr = mobileTimeline
+            ? ` data-tm-proto-mobile-scale="${timelineScale}"`
+            : ` data-tm-proto-desktop-scale="${timelineScale}"`;
+        return `<section class="${timelineClass}" style="--tm-proto-cols:${cols};--tm-proto-allday-max-height:${allDayMaxHeight}px">${headerMarkup}<div class="${allDayClass}">${allDayToggle}${allDayContent}</div><div class="tm-proto-time-scroll tm-proto-day-panel-scroll"><div class="tm-proto-time-canvas tm-proto-day-panel-canvas" data-tm-proto-time-expanded="${timeMetrics.expanded ? '1' : '0'}" data-tm-proto-visible-start="${startMin}" data-tm-proto-visible-end="${endMin}" data-tm-proto-base-hour-height="${hourHeight}" data-tm-proto-hour-height="${timeMetrics.hourHeight}"${timelineScaleAttr} data-tm-proto-band-height="${timeMetrics.bandHeight}" data-tm-proto-canvas-height="${canvasHeight}" data-tm-proto-viewport-height="${timeMetrics.availableHeight}" style="height:${canvasHeight}px;min-height:${canvasHeight}px"><div class="tm-proto-time-axis tm-proto-day-panel-axis">${axisMarkup}</div><div class="tm-proto-time-lines tm-proto-day-panel-lines">${lines.join('')}</div><div class="tm-proto-time-columns"><span class="tm-proto-time-axis-spacer"></span>${columns}</div>${collapseBandMarkup}</div></div></section>`;
     }
 
-    function applyMobileTimelineScale(canvas, value, settings) {
+    function applyPrototypeTimelineScale(canvas, value, settings, options = {}) {
         const previous = getPrototypeTimelineMetricsFromCanvas(canvas, settings);
-        const scale = normalizeMobileTimelineScale(value);
-        const previousScale = normalizeMobileTimelineScale(canvas.dataset.tmProtoMobileScale);
+        const mobile = canvas.hasAttribute('data-tm-proto-mobile-scale');
+        const scaleField = mobile ? 'tmProtoMobileScale' : 'tmProtoDesktopScale';
+        const scale = normalizePrototypeTimelineScale(value);
+        const previousScale = normalizePrototypeTimelineScale(canvas.dataset[scaleField]);
+        const availableHeight = Number(options.availableHeight);
+        const refit = Number.isFinite(availableHeight) && availableHeight > 0;
         const metrics = getPrototypeTimelineMetrics(settings, {
-            hourHeight: previous.hourHeight / previousScale * scale,
+            hourHeight: refit
+                ? (Number(canvas.dataset.tmProtoBaseHourHeight) || getPrototypeHourHeight(settings, mobile))
+                : previous.hourHeight / previousScale,
+            hourScale: scale,
+            availableHeight: refit ? availableHeight : undefined,
             bandHeight: previous.bandHeight,
             timeRangeExpanded: previous.expanded,
         });
         metrics.canvasHeight = Math.max(1, Math.round(metrics.canvasHeight));
-        canvas.dataset.tmProtoMobileScale = String(scale);
+        canvas.dataset[scaleField] = String(scale);
+        if (refit) canvas.dataset.tmProtoViewportHeight = String(availableHeight);
         canvas.dataset.tmProtoHourHeight = String(metrics.hourHeight);
         canvas.dataset.tmProtoCanvasHeight = String(metrics.canvasHeight);
         canvas.style.height = canvas.style.minHeight = metrics.canvasHeight + 'px';
@@ -7613,6 +7653,133 @@
         return metrics;
     }
 
+    function bindDesktopTimelineZoom(surface, options = {}) {
+        if (!(surface instanceof HTMLElement) || options.isMobile === true) return null;
+        if (surface.__tmTimelineZoom) return surface.__tmTimelineZoom;
+        const abort = new AbortController();
+        const observed = new Set();
+        let gesture = null;
+        let frame = 0;
+        let resizeFrame = 0;
+        let finishTimer = 0;
+        let pendingRender = null;
+        const canvases = () => Array.from(surface.querySelectorAll('.tm-proto-time-canvas[data-tm-proto-desktop-scale]'));
+        const canvasOffset = (canvas, scroller) => canvas.getBoundingClientRect().top
+            - scroller.getBoundingClientRect().top + scroller.scrollTop;
+        const refit = (canvas, scale) => {
+            const scroller = canvas.closest('.tm-proto-time-scroll');
+            const height = Number(scroller?.clientHeight || 0);
+            if (!height) return;
+            const oldHeight = Number(canvas.dataset.tmProtoViewportHeight || height);
+            if (Math.abs(oldHeight - height) <= 1 && Number(canvas.dataset.tmProtoDesktopScale) === scale
+                && Number(canvas.dataset.tmProtoViewportHeight) > 0) return;
+            const settings = getSettings();
+            const previous = getPrototypeTimelineMetricsFromCanvas(canvas, settings);
+            const offset = canvasOffset(canvas, scroller);
+            const minute = prototypeTimelineMinuteForY(scroller.scrollTop - offset + oldHeight / 2, previous);
+            const metrics = applyPrototypeTimelineScale(canvas, scale, settings, { availableHeight: height });
+            scroller.scrollTop = offset + prototypeTimelineYForMinute(minute, metrics) - height / 2;
+        };
+        const refresh = () => {
+            if (!surface.isConnected || gesture) return;
+            const scale = readDesktopTimelineScale();
+            const activeScrollers = new Set();
+            canvases().forEach((canvas) => {
+                const scroller = canvas.closest('.tm-proto-time-scroll');
+                if (!scroller) return;
+                activeScrollers.add(scroller);
+                if (!observed.has(scroller)) { observed.add(scroller); observer?.observe(scroller); }
+                refit(canvas, scale);
+            });
+            observed.forEach((scroller) => {
+                if (activeScrollers.has(scroller)) return;
+                observer?.unobserve(scroller);
+                observed.delete(scroller);
+            });
+            surface.__tmScheduleDraft?.restore();
+        };
+        // Observe the constrained viewport, never the canvas we resize. This
+        // also catches all-day/header changes without a full calendar render.
+        const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+            if (resizeFrame || gesture) return;
+            resizeFrame = requestAnimationFrame(() => { resizeFrame = 0; refresh(); });
+        }) : null;
+        const draw = () => {
+            frame = 0;
+            if (!gesture || !gesture.canvas.isConnected) return;
+            const { canvas, scroller, scale, minute, clientY } = gesture;
+            const metrics = applyPrototypeTimelineScale(canvas, scale, getSettings());
+            scroller.scrollTop = canvasOffset(canvas, scroller) + prototypeTimelineYForMinute(minute, metrics)
+                - (clientY - scroller.getBoundingClientRect().top);
+            surface.__tmScheduleDraft?.restore();
+        };
+        const finish = () => {
+            clearTimeout(finishTimer);
+            finishTimer = 0;
+            if (!gesture) return;
+            if (frame) cancelAnimationFrame(frame);
+            draw();
+            try { localStorage.setItem('tm_calendar_desktop_timeline_scale', String(gesture.scale)); } catch (e) {}
+            gesture = null;
+            surface.classList.remove('tm-proto-timeline-zooming');
+            refresh();
+            window.dispatchEvent(new CustomEvent('tm-calendar-desktop-timeline-scale'));
+            const render = pendingRender;
+            pendingRender = null;
+            if (render && surface.isConnected) requestAnimationFrame(render);
+        };
+        surface.addEventListener('wheel', (event) => {
+            if (!event.ctrlKey || event.altKey || event.metaKey || event.defaultPrevented) return;
+            const target = event.target instanceof Element ? event.target : null;
+            const scroller = target?.closest('.tm-proto-time-scroll');
+            const canvas = scroller?.querySelector('.tm-proto-time-canvas[data-tm-proto-desktop-scale]');
+            if (!canvas || !surface.contains(canvas) || !event.cancelable) return;
+            const editor = target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], .tm-proto-pop');
+            if (editor && scroller.contains(editor)) return;
+            // Consume even at the bounds or during a drag so a claimed Ctrl
+            // gesture cannot leak into browser zoom or Shift+wheel navigation.
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (event.buttons || options.isBusy?.()) return;
+            const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scroller.clientHeight : 1;
+            const delta = Math.max(-240, Math.min(240, Number(event.deltaY) * unit));
+            if (!Number.isFinite(delta) || !delta) return;
+            if (gesture && gesture.canvas !== canvas) finish();
+            if (!gesture) {
+                options.onStart?.();
+                gesture = { canvas, scroller, scale: normalizePrototypeTimelineScale(canvas.dataset.tmProtoDesktopScale) };
+                surface.classList.add('tm-proto-timeline-zooming');
+            }
+            gesture.minute = prototypeTimelineMinutesAtPoint(canvas, event.clientY, getSettings());
+            gesture.clientY = event.clientY;
+            gesture.scale = normalizePrototypeTimelineScale(gesture.scale * Math.exp(-delta * 0.002));
+            if (!frame) frame = requestAnimationFrame(draw);
+            clearTimeout(finishTimer);
+            finishTimer = setTimeout(finish, 160);
+        }, { capture: true, passive: false, signal: abort.signal });
+        surface.addEventListener('pointerdown', finish, { capture: true, signal: abort.signal });
+        window.addEventListener('blur', finish, { signal: abort.signal });
+        window.addEventListener('tm-calendar-desktop-timeline-scale', refresh, { signal: abort.signal });
+        surface.__tmTimelineZoom = {
+            refresh,
+            finish,
+            deferRender(callback) {
+                if (!gesture) return false;
+                pendingRender = callback;
+                return true;
+            },
+            dispose() {
+                pendingRender = null;
+                finish();
+                abort.abort();
+                observer?.disconnect();
+                if (resizeFrame) cancelAnimationFrame(resizeFrame);
+                delete surface.__tmTimelineZoom;
+            },
+        };
+        return surface.__tmTimelineZoom;
+    }
+
     function bindMobileTimelinePinch(surface, options = {}) {
         if (!(surface instanceof HTMLElement) || options.isMobile !== true) return null;
         if (surface.__tmTimelinePinch) return surface.__tmTimelinePinch;
@@ -7635,7 +7802,7 @@
         const draw = () => {
             frame = 0;
             if (!pinch || pinch.ended || !pinch.canvas.isConnected) return;
-            const metrics = applyMobileTimelineScale(pinch.canvas, pinch.scale, pinch.settings);
+            const metrics = applyPrototypeTimelineScale(pinch.canvas, pinch.scale, pinch.settings);
             // Preserve the time under the fingers, even while their midpoint moves.
             const offset = pinch.canvas.getBoundingClientRect().top
                 - pinch.scroller.getBoundingClientRect().top + pinch.scroller.scrollTop;
@@ -7705,7 +7872,7 @@
             if (!scroller) return;
             const centerY = (first.clientY + second.clientY) / 2;
             const settings = getSettings();
-            const startScale = normalizeMobileTimelineScale(canvas.dataset.tmProtoMobileScale);
+            const startScale = normalizePrototypeTimelineScale(canvas.dataset.tmProtoMobileScale);
             pinch = { canvas, scroller, settings, ids: [first.identifier, second.identifier],
                 distance, startScale, scale: startScale, centerY, startCenterY: centerY,
                 startScrollTop: scroller.scrollTop,
@@ -7728,7 +7895,7 @@
             const touches = pinch.ids.map((id) => Array.from(event.touches).find((touch) => touch.identifier === id));
             if (touches.some((touch) => !touch)) { finish(false); return; }
             const [first, second] = touches;
-            pinch.scale = normalizeMobileTimelineScale(pinch.startScale
+            pinch.scale = normalizePrototypeTimelineScale(pinch.startScale
                 * Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY) / pinch.distance);
             pinch.centerY = (first.clientY + second.clientY) / 2;
             if (!frame) frame = requestAnimationFrame(draw);
@@ -9420,6 +9587,10 @@
             current = globalThis.__tmTaskStore?.getProjected?.(id)
                 || globalThis.__tmTaskBoundary?.getTask?.(id)
                 || task;
+        } catch (e) {}
+        try {
+            if (typeof __tmIsTaskClosedForDisplay === 'function') return __tmIsTaskClosedForDisplay(current) === true;
+            if (globalThis.__tmCalendarKanbanCardHelpers?.isCanceled?.(current) === true) return true;
         } catch (e) {}
         try {
             const resolver = globalThis.__tmTaskBoundary?.isTaskCompleted;
@@ -19483,6 +19654,7 @@
 
     function unmountSideDayTimeline() {
         state.sideDay.rootEl?.querySelector('[data-tm-side-proto-surface]')?.__tmTimelinePinch?.dispose();
+        state.sideDay.rootEl?.querySelector('[data-tm-side-proto-surface]')?.__tmTimelineZoom?.dispose();
         try { closeTrackedPrototypeMorePopover(); } catch (e) {}
         try { clearTimeGridAutoCenterState('sideDay'); } catch (e) {}
         if (state.sideDay.nowIndicatorTimer) {
@@ -20703,14 +20875,17 @@
             } catch (e) {}
             if (!surface.__tmSideProtoBound) {
                 surface.__tmSideProtoBound = true;
-                bindMobileTimelinePinch(surface, {
-                    isMobile: state.isMobileDevice === true,
+                const timelineGestureOptions = {
+                    isMobile: isLikelyMobileRuntime(),
+                    isBusy: () => !!sidePrototypeEventDrag || !!sidePrototypePointerSelection,
                     onStart: () => {
                         state.sideDay.autoCenterSuppressed = true;
                         state.sideDay.autoCenterToken = Number(state.sideDay.autoCenterToken || 0) + 1;
                         state.sideDay.autoCenterPendingKey = '';
                     },
-                });
+                };
+                bindMobileTimelinePinch(surface, timelineGestureOptions);
+                bindDesktopTimelineZoom(surface, timelineGestureOptions);
                 bindPrototypeScheduleDraft(surface);
                 const resolveSidePrototypeTimedDropAtPoint = (clientX, clientY) => {
                     const pointTarget = document.elementFromPoint?.(Number(clientX) || 0, Number(clientY) || 0);
@@ -21374,6 +21549,7 @@
         const renderSidePrototype = () => {
             const surface = ensureSidePrototypeSurface();
             if (surface?.__tmTimelinePinch?.deferRender(queueSidePrototypeRender)) return;
+            if (surface?.__tmTimelineZoom?.deferRender(queueSidePrototypeRender)) return;
             if (surface?.__tmScheduleDraft?.deferRender(queueSidePrototypeRender)) return;
             const active = state.sideDay?.calendar || cal;
             if (!(surface instanceof HTMLElement) || !active) return;
@@ -21448,14 +21624,18 @@
                 try { nextTimeScroller.scrollTop = previousTimeScrollTop; } catch (e) {}
             }
             if (nextTimeScroller instanceof HTMLElement && Number.isFinite(restoreTimeScrollTop)) {
+                const restoreCanvas = nextTimeScroller.querySelector('.tm-proto-time-canvas');
+                const restoreHourHeight = restoreCanvas?.dataset.tmProtoHourHeight;
                 const restoreScroll = () => {
                     if (!nextTimeScroller.isConnected) return;
+                    if (restoreCanvas?.dataset.tmProtoHourHeight !== restoreHourHeight) return;
                     try { nextTimeScroller.scrollTop = restoreTimeScrollTop; } catch (e) {}
                 };
                 restoreScroll();
                 try { requestAnimationFrame(restoreScroll); } catch (e) {}
             }
             surface.__tmScheduleDraft?.restore();
+            surface.__tmTimelineZoom?.refresh();
             try { scheduleCurrentTimeAutoCenter(surface, active, liveSettings, { scope: 'sideDay', reason: 'side-prototype-render' }); } catch (e) {}
             try { scheduleSideDayNowIndicatorRefreshFallback(); } catch (e) {}
         };
@@ -28947,15 +29127,19 @@
                 if (independentSchedule) return;
                 const previousDone = Object.prototype.hasOwnProperty.call(ext, '__tmTaskDone')
                     ? ext.__tmTaskDone === true : !nextDone;
+                const previousCanceled = ext.__tmTaskCanceled === true;
+                isCalendarForegroundEvent(eventApi);
+                const canceled = ext.__tmTaskCanceled === true;
                 if ((source === 'taskdate' || source === 'schedule') && !isRecurringTaskDateReadOnlyOccurrence(ext)) {
                     // This presentation field does not change event geometry.
                     // setExtendedProp emits eventsSet and redraws all-day lanes.
                     ext.__tmTaskDone = nextDone;
                 }
                 const resolvedDone = resolveCalendarEventDoneState(ext, { taskDoneOverride: nextDone });
-                if (applyRenderedEventDoneStateById(eventApi?.id, resolvedDone, opt)) touched = true;
+                if (applyRenderedEventDoneStateById(eventApi?.id, resolvedDone || canceled, opt)) touched = true;
                 const settings = getSettings();
                 visibilityChanged = visibilityChanged
+                    || previousCanceled !== canceled
                     || shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { taskDoneOverride: previousDone })
                         !== shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { taskDoneOverride: nextDone });
             });
@@ -29231,8 +29415,9 @@
         // hidden layout anchor is no longer part of the rendering pipeline.
         const host = wrap.querySelector('[data-tm-cal-surface]');
         const prototypeSurface = wrap.querySelector('[data-tm-cal-surface]');
-        bindMobileTimelinePinch(prototypeSurface, {
-            isMobile: isMobileDevice === true,
+        const timelineGestureOptions = {
+            isMobile: isLikelyMobileRuntime(),
+            isBusy: () => !!prototypeEventDrag || !!prototypePointerSelection,
             onStart: () => {
                 prototypeMobileMonthTouch = null;
                 prototypeSurface.classList.remove('tm-proto-month--swiping', 'tm-proto-timeline--swiping');
@@ -29243,7 +29428,9 @@
                 const guard = shouldAutoCenterCurrentTime(prototypeSurface, calendar || state.calendar, getSettings());
                 if (guard) state.mainTimeGridAutoCenterKey = guard.key;
             },
-        });
+        };
+        bindMobileTimelinePinch(prototypeSurface, timelineGestureOptions);
+        bindDesktopTimelineZoom(prototypeSurface, timelineGestureOptions);
         bindPrototypeScheduleDraft(prototypeSurface);
         try { host?.setAttribute?.('data-tm-cal-engine', '1'); } catch (e) {}
         const NARROW_LAYOUT_ENTER_WIDTH = 760;
@@ -30181,6 +30368,7 @@
             prototypeSurface.addEventListener('touchstart', prototypeMonthUserInputListener, { capture: true, passive: true });
             prototypeWeekWheelListener = (event) => {
                 if (event?.type !== 'wheel') return;
+                if (event.ctrlKey || event.metaKey || event.defaultPrevented) return;
                 const activeViewType = String(getCalendarView(calendar)?.type || '').trim();
                 if (!isSlidingWeekViewType(activeViewType)) return;
                 const target = event.target instanceof Element ? event.target : null;
@@ -37442,6 +37630,7 @@
         };
         renderPrototypeSurface = () => {
             if (prototypeSurface?.__tmTimelinePinch?.deferRender(queuePrototypeSurfaceRender)) return;
+            if (prototypeSurface?.__tmTimelineZoom?.deferRender(queuePrototypeSurfaceRender)) return;
             if (prototypeSurface?.__tmScheduleDraft?.deferRender(queuePrototypeSurfaceRender)) return;
             if (!(prototypeSurface instanceof HTMLElement) || !calendar) return;
             if (state.mainCalendarSuspended) return;
@@ -37605,6 +37794,9 @@
             ].join('||');
             const renderKey = `${renderContextKey}||${monthCapacityKey}`;
             if (renderKey === prototypeLastRenderKey) {
+                // Geometry has its own update path; a size change must not be
+                // swallowed by an unchanged event/settings render key.
+                prototypeSurface.__tmTimelineZoom?.refresh();
                 prototypeLastEventSnapshot = nextEventSnapshot;
                 if (viewType === 'dayGridMonth') {
                     syncPrototypeMonthVirtualWindow(prototypeSurface.querySelector('[data-tm-proto-month-scroll]'), { reason: 'render-key-hit' });
@@ -37719,8 +37911,11 @@
             }
             const nextTimeScroller = prototypeSurface.querySelector('.tm-proto-time-scroll');
             if (nextTimeScroller instanceof HTMLElement && Number.isFinite(previousTimeScrollTop)) {
+                const restoreCanvas = nextTimeScroller.querySelector('.tm-proto-time-canvas');
+                const restoreHourHeight = restoreCanvas?.dataset.tmProtoHourHeight;
                 const restoreScroll = () => {
                     if (!nextTimeScroller.isConnected) return;
+                    if (restoreCanvas?.dataset.tmProtoHourHeight !== restoreHourHeight) return;
                     try { nextTimeScroller.scrollTop = previousTimeScrollTop; } catch (e) {}
                 };
                 restoreScroll();
@@ -37789,10 +37984,14 @@
             if (viewType === 'dayGridMonth' && !monthVirtualActive) {
                 try { schedulePrototypeMonthAdaptiveMeasure(); } catch (e) {}
             }
+            prototypeSurface.__tmTimelineZoom?.refresh();
             const timelineNeedsHeightFit = Array.from(prototypeSurface.querySelectorAll('.tm-proto-time-scroll')).some((scroller) => {
                 if (!(scroller instanceof HTMLElement)) return false;
                 const canvas = scroller.querySelector('.tm-proto-time-canvas');
                 if (!(canvas instanceof HTMLElement)) return false;
+                // Desktop viewports refit in place through their observer,
+                // including intentional zoom-out space below a short canvas.
+                if (canvas.hasAttribute('data-tm-proto-desktop-scale')) return false;
                 if (canvas.hasAttribute('data-tm-proto-mobile-scale')) {
                     // A zoomed-out canvas may intentionally be shorter than its
                     // viewport. Refit only when the measured viewport changes.
@@ -39049,6 +39248,7 @@
                 // month rows in real time even when the adaptive measurement is
                 // still deferred by a lingering view-switching marker.
                 if (!widthChanged) {
+                    prototypeSurface.__tmTimelineZoom?.refresh();
                     if (String(getCalendarView(calendar)?.type || '').trim() === 'dayGridMonth') {
                         try { restorePrototypeMonthPendingScroll(prototypeSurface.querySelector('[data-tm-proto-month-scroll]')); } catch (e2) {}
                         try { schedulePrototypeMonthAdaptiveMeasure(); } catch (e2) {}
@@ -39753,6 +39953,7 @@
         if (options.preserveInstance === true && state.mounted && state.calendar
             && state.rootEl instanceof HTMLElement && state.wrapEl instanceof HTMLElement) {
             state.calendarEl?.__tmTimelinePinch?.cancel();
+            state.calendarEl?.__tmTimelineZoom?.finish();
             // Task-view switching parks the live calendar. Keep its range,
             // event sources and subscriptions; only real changes need a read
             // when the same host brings it back.
@@ -39767,6 +39968,7 @@
             return;
         }
         state.calendarEl?.__tmTimelinePinch?.dispose();
+        state.calendarEl?.__tmTimelineZoom?.dispose();
         state.mainCalendarSuspended = false;
         state.mainCalendarNeedsRefresh = false;
         // Factory-only mounts bind document listeners before assigning wrapEl.

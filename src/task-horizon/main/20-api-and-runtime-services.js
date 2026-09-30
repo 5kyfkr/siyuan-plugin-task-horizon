@@ -10733,6 +10733,10 @@
             if (!tid) return;
             if (__tmHasTaskScheduledToday(tid)) el.style.color = 'var(--tm-primary-color)';
             else {
+                // Fresh markup already includes its priority title style. A
+                // scoped set excludes reused branches that still need updates.
+                if (options.preserveRenderedTitleStyle === true
+                    || options.preserveRenderedTitleStyle instanceof Set && options.preserveRenderedTitleStyle.has(el)) return;
                 const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
                 const target = el.matches?.('.tm-checklist-title')
                     ? (el.querySelector?.('.tm-checklist-title-button > span') || el)
@@ -13441,16 +13445,21 @@
         }).catch(() => null);
     }
 
-    function __tmScheduleTodayScheduledTaskNameMarksRefresh(modalEl, force = false, rootEl = null) {
+    function __tmScheduleTodayScheduledTaskNameMarksRefresh(modalEl, force = false, rootEl = null, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
         const root = rootEl instanceof Element ? rootEl : modal;
+        const appliedDay = String(state.todayScheduledTaskIdsDay || '');
+        const alreadyApplied = options.alreadyApplied === true && state.todayScheduledSourceReady === true
+            && appliedDay === __tmGetTodayDateKey();
         Promise.resolve().then(async () => {
+            let result = null;
             try {
-                await __tmLoadTodayScheduledTaskIds(force);
+                result = await __tmLoadTodayScheduledTaskIds(force);
             } catch (e) {}
             if (!modal.isConnected) return;
             if (!modal.isConnected || (root !== modal && !root.isConnected)) return;
+            if (alreadyApplied && result?.changed === false && appliedDay === __tmGetTodayDateKey()) return;
             __tmApplyTodayScheduledTaskNameMarks(modal, { rootEl: root });
         }).catch(() => null);
     }
@@ -27784,6 +27793,8 @@ return true;
             const newKey = __tmFindChecklistSegmentKeyByTask(nextItems, id);
             if (oldKey) keys.add(oldKey);
             if (newKey) keys.add(newKey);
+            const removedKey = currentItems.__tmChecklistRemovedTaskGroups?.get(id);
+            if (removedKey) keys.add(removedKey);
         });
         if (!keys.size) return false;
         let changed = false;
@@ -27804,6 +27815,7 @@ return true;
             }
         });
         if (!changed) return false;
+        (Array.isArray(taskIds) ? taskIds : []).forEach((id) => currentItems.__tmChecklistRemovedTaskGroups?.delete(id));
         try { __tmRefreshChecklistSelectionInPlace(modal, 'checklist-segment-projection'); } catch (e) {}
         try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
@@ -28138,6 +28150,8 @@ return true;
             const newKey = __tmGetChecklistGroupKeyFromCard(newCard);
             if (oldKey) keys.add(oldKey);
             if (newKey) keys.add(newKey);
+            const removedKey = currentItems.__tmChecklistRemovedTaskGroups?.get(id);
+            if (removedKey) keys.add(removedKey);
         });
         if (!keys.size) return false;
         const currentMap = __tmBuildChecklistCardMap(currentItems);
@@ -28176,6 +28190,7 @@ return true;
             }
         });
         if (!changed) return false;
+        (Array.isArray(taskIds) ? taskIds : []).forEach((id) => currentItems.__tmChecklistRemovedTaskGroups?.delete(id));
         try { __tmRefreshChecklistSelectionInPlace(modal, 'checklist-group-projection'); } catch (e) {}
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
@@ -28203,6 +28218,22 @@ return true;
         state.pendingChecklistRenderRestore = null;
         __tmClearChecklistProjectionGroupRefresh();
         return true;
+    }
+
+    function __tmCollectChecklistDocumentRefreshTaskIds(body, nextBody, taskIds = [], docIds = []) {
+        const docs = new Set(docIds.map((id) => String(id || '').trim()).filter(Boolean));
+        const ids = new Set(taskIds.map((id) => String(id || '').trim()).filter(Boolean));
+        [body, nextBody].forEach((root) => {
+            root?.querySelectorAll?.('.tm-checklist-item[data-id]').forEach((item) => {
+                const id = String(item.getAttribute('data-id') || '').trim();
+                if (!id) return;
+                const task = state.flatTasks?.[id] || state.pendingInsertedTasks?.[id];
+                // Missing old rows must participate too, so external deletions
+                // can remove their old group instead of leaving stale cards.
+                if (!task || docs.has(String(task.root_id || task.docId || '').trim())) ids.add(id);
+            });
+        });
+        return Array.from(ids);
     }
 
     function __tmRerenderChecklistInPlace(modalEl, options = {}) {
@@ -28233,7 +28264,7 @@ return true;
         const renderSignature = typeof __tmBuildCurrentViewDomRenderSignature === 'function'
             ? __tmBuildCurrentViewDomRenderSignature('checklist')
             : '';
-        const checklistProjectionTaskIds = __tmGetChecklistProjectionGroupRefreshTaskIds();
+        let checklistProjectionTaskIds = __tmGetChecklistProjectionGroupRefreshTaskIds();
         if (opts.requireAppend === true && checklistProjectionTaskIds.length > 0) {
             return false;
         }
@@ -28361,6 +28392,9 @@ return true;
             }
             state.pendingChecklistRenderRestore = null;
             return true;
+        }
+        if (Array.isArray(opts.docIds) && opts.docIds.length) {
+            checklistProjectionTaskIds = __tmCollectChecklistDocumentRefreshTaskIds(body, nextBody, checklistProjectionTaskIds, opts.docIds);
         }
         if (checklistProjectionTaskIds.length > 0
             && __tmTryRefreshChecklistProjectionGroups(modal, body, nextBody, checklistProjectionTaskIds, {
@@ -28502,24 +28536,27 @@ return true;
     // The renderer still decides membership, order, counts and changed markup.
     function __tmTryRefreshKanbanColumns(modalEl, taskIds = [], options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
-        if (!(modal instanceof Element) || state.viewMode !== 'kanban') return false;
         const ids = new Set((Array.isArray(taskIds) ? taskIds : []).map((id) => String(id || '').trim()).filter(Boolean));
-        if (!ids.size || typeof state.renderKanbanBodyHtml !== 'function') return false;
+        const docIds = new Set((Array.isArray(options.docIds) ? options.docIds : []).map((id) => String(id || '').trim()).filter(Boolean));
+        if (!(modal instanceof Element) || state.viewMode !== 'kanban') return false;
+        if (!ids.size && !docIds.size) return false;
+        if (typeof state.renderKanbanBodyHtml !== 'function') return false;
         if (options.__tmQueuedCommit !== true && globalThis.__tmIsViewDomCommitBlocked?.('kanban')) {
             const gate = __tmGetViewScrollGate('kanban');
             const pendingScope = gate?.pendingCommit?.__tmKanbanScope;
             const scope = pendingScope?.modal === modal ? pendingScope : {
-                modal, ids: new Set(), parents: new Set(), full: !!gate?.pendingCommit,
+                modal, ids: new Set(), parents: new Set(), docIds: new Set(), full: !!gate?.pendingCommit,
             };
             if (!scope.full) {
                 ids.forEach((id) => scope.ids.add(id));
+                docIds.forEach((id) => scope.docIds.add(id));
                 (Array.isArray(options.parentTaskIds) ? options.parentTaskIds : []).forEach((id) => scope.parents.add(id));
-                if (scope.ids.size + scope.parents.size > 1000) {
-                    scope.full = true; scope.ids.clear(); scope.parents.clear();
+                if (scope.ids.size + scope.parents.size + scope.docIds.size > 1000) {
+                    scope.full = true; scope.ids.clear(); scope.parents.clear(); scope.docIds.clear();
                 }
             }
             const commit = () => {
-                const nextOptions = { ...options, parentTaskIds: Array.from(scope.parents), __tmQueuedCommit: true };
+                const nextOptions = { ...options, parentTaskIds: Array.from(scope.parents), docIds: Array.from(scope.docIds), __tmQueuedCommit: true };
                 if (!scope.full && __tmTryRefreshKanbanColumns(modal, Array.from(scope.ids), nextOptions)) return true;
                 return __tmRerenderKanbanInPlace(modal, nextOptions);
             };
@@ -28534,7 +28571,9 @@ return true;
         if (!(board instanceof HTMLElement)) return false;
         const columns = Array.from(board.children).filter((column) => column.matches('.tm-kanban-col'));
         const currentKeys = columns.map((column) => String(column.getAttribute('data-col-key') || '').trim());
-        if (!columns.length || currentKeys.some((key) => !key) || new Set(currentKeys).size !== columns.length) return false;
+        if (!columns.length || currentKeys.some((key) => !key) || new Set(currentKeys).size !== columns.length) {
+            return false;
+        }
         const sourceKeys = new Set();
         const matchedIds = new Set();
         const mountedLimits = new Map();
@@ -28557,15 +28596,24 @@ return true;
             }
         });
         columns.forEach((column, index) => {
+            column.__tmKanbanRemovedTasks?.forEach((parents, id) => {
+                if (!ids.has(id)) return;
+                sourceKeys.add(currentKeys[index]);
+                matchedIds.add(id);
+                parents.forEach((parentId) => dirtyIds.add(parentId));
+            });
             const cards = Array.from(column.querySelectorAll('.tm-kanban-card[data-id]'));
             mountedLimits.set(currentKeys[index], cards.filter((card) => !card.closest('[hidden]')).length);
             mountedIdsByColumn.set(currentKeys[index], new Set(cards.map((card) => card.getAttribute('data-id'))));
             cards.forEach((card) => {
                 const id = String(card.getAttribute('data-id') || '').trim();
+                const task = docIds.size ? globalThis.__tmTaskBoundary?.getTask?.(id) : null;
+                const inDocumentScope = docIds.size > 0 && (!task || docIds.has(String(task.root_id || task.docId || '').trim()));
                 reuseCards.set(id, { node: card, columnKey: currentKeys[index],
                     sub: card.classList.contains('tm-kanban-card--sub'),
                     count: 1 + Array.from(card.querySelectorAll('.tm-kanban-card[data-id]')).filter((node) => !node.closest('[hidden]')).length });
-                if (!ids.has(id)) return;
+                if (!ids.has(id) && !inDocumentScope) return;
+                if (inDocumentScope) dirtyIds.add(id);
                 sourceKeys.add(currentKeys[index]);
                 matchedIds.add(id);
                 let ancestor = card.parentElement.closest('.tm-kanban-card[data-id]');
@@ -28577,7 +28625,7 @@ return true;
         });
         dirtyIds.forEach((id) => reuseCards.delete(id));
         const columnPatch = {
-            taskIds: ids, columnKeys: sourceKeys, mountedLimits, mountedIdsByColumn,
+            taskIds: ids, docIds, columnKeys: sourceKeys, mountedLimits, mountedIdsByColumn,
             reuseCards, reuseEnabled: true,
             existingColumnKeys: new Set(currentKeys), handled: false,
         };
@@ -28594,31 +28642,49 @@ return true;
             if (!columnPatch.handled) return false;
             // A changed column layout needs the regular renderer and navigation.
             if (currentKeys.length !== columnPatch.resultColumnKeys.length
-                || currentKeys.some((key, index) => key !== columnPatch.resultColumnKeys[index])) return false;
-            if (Array.from(ids).some((id) => !matchedIds.has(id) && !columnPatch.matchedTaskIds.has(id))) return false;
+                || currentKeys.some((key, index) => key !== columnPatch.resultColumnKeys[index])) {
+                return false;
+            }
+            const missingTaskIds = Array.from(ids).filter((id) => !matchedIds.has(id) && !columnPatch.matchedTaskIds.has(id)
+                && globalThis.__tmRuntimeState?.isPendingDeletedTaskId?.(id) !== true);
+            if (missingTaskIds.length) return false;
             staged = __tmBuildElementFromHtml(`<div>${html}</div>`);
         } catch (e) { return false; }
         if (!(staged instanceof HTMLElement)) return false;
         const replacements = Array.from(staged.children).map((next) => ({
             next, current: columns[currentKeys.indexOf(next.getAttribute('data-col-key'))],
         }));
-        if (!replacements.length || replacements.some(({ current, next }) => !current || !next.matches('.tm-kanban-col'))) return false;
+        if (!replacements.length && docIds.size && !ids.size) {
+            try { __tmScheduleProgressiveViewRender('kanban', refreshJob); } catch (e) {}
+            return true;
+        }
+        if (!replacements.length || replacements.some(({ current, next }) => !current || !next.matches('.tm-kanban-col'))) {
+            return false;
+        }
         const reuseIds = Array.from(staged.querySelectorAll('[data-tm-kanban-reuse]'))
             .map((node) => node.getAttribute('data-tm-kanban-reuse'));
-        if (new Set(reuseIds).size !== reuseIds.length || reuseIds.some((id) => !reuseCards.get(id)?.node?.isConnected)) return false;
+        if (new Set(reuseIds).size !== reuseIds.length) return false;
+        if (reuseIds.some((id) => !reuseCards.get(id)?.node?.isConnected)) return false;
         const bodyLeft = body.scrollLeft;
         let changed = 0;
         replacements.forEach(({ current, next }) => {
             // A confirmation/WS echo can produce identical markup. Leave
             // that column's live nodes (and ongoing gestures) in place.
-            if (current.isEqualNode(next)) return;
+            if (current.isEqualNode(next)) {
+                current.__tmKanbanRemovedTasks?.clear();
+                return;
+            }
             const top = Number(current.querySelector('.tm-kanban-col-body')?.scrollTop) || 0;
+            // Capture only freshly rendered titles before reused live branches
+            // are materialized into the replacement markup.
+            const renderedTitles = new Set(next.querySelectorAll('.tm-task-content-clickable'));
             const result = __tmPatchKanbanColumnBranches(current, next, reuseCards);
+            current.__tmKanbanRemovedTasks?.clear();
             const scroll = current.querySelector('.tm-kanban-col-body');
             if (scroll) scroll.scrollTop = top;
             result.inserted.forEach((node) => {
                 try { __tmApplyReminderTaskNameMarks(node); } catch (e) {}
-                try { __tmApplyTodayScheduledTaskNameMarks(node); } catch (e) {}
+                try { __tmApplyTodayScheduledTaskNameMarks(node, { preserveRenderedTitleStyle: renderedTitles }); } catch (e) {}
                 try { globalThis.__tmApplySearchHighlights?.(node, state.searchKeyword); } catch (e) {}
                 try { __tmBindFloatingTooltipsAfterLocalRerender(modal, node); } catch (e) {}
             });
@@ -28862,8 +28928,8 @@ return true;
         try { __tmRefreshKanbanDetailInPlace(modal, { scrollSnapshot: detailScrollSnapshot, source: 'kanban-rerender-in-place' }); } catch (e) {}
         try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
-        try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
-        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        try { __tmApplyTodayScheduledTaskNameMarks(modal, { rootEl: nextBody, preserveRenderedTitleStyle: true }); } catch (e) {}
+        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal, false, nextBody, { alreadyApplied: true }); } catch (e) {}
         try { __tmSyncKanbanHeadingModeSegmentedUi(modal); } catch (e) {}
         __tmBindFloatingTooltipsAfterLocalRerender(modal);
         const restore = () => {

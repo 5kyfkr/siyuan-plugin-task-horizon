@@ -21,10 +21,13 @@ renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, c
     renderedTaskIds.push(task.id);
     return '<article class="tm-kanban-card' + (sub ? ' tm-kanban-card--sub' : '')
         + '" data-id="' + task.id + '" data-tm-placement-parent="' + (task.parentTaskId || '')
-        + '"><span>' + task.content + '</span><div class="tm-kanban-subtasks-list">' + children + '</div></article>';
+        + '"><span class="tm-task-content-clickable" style="color:rgb(70,70,70)">' + task.content + '</span><div class="tm-kanban-subtasks-list">' + children + '</div></article>';
 };\n`);
 const code = [read('32-runtime-state-and-events.js'), read('21-view-render-state.js'), renderer,
+    section(read('task-runtime/53b-task-create-and-quick-add-runtime.js'), 'function __tmRemoveTaskDomNodes(', 'function __tmApplyDeleteOptimisticLocal('),
+    section(read('10-stores-rules-and-cache.js'), 'function __tmResolveKanbanRefreshTaskIds(', 'async function __tmRefreshAffectedDocsIncrementally('),
     section(runtime, 'function __tmPatchKanbanColumnBranches(', 'function __tmTryReconcileKanbanParentCards('),
+    section(runtime, 'function __tmApplyTodayScheduledTaskNameMarks(', 'function __tmGetPriorityTitleOpacityRanges('),
     section(viewSwitch, 'function __tmCaptureBodyOnlyViewScroll(', 'function __tmRenderBodyOnlyViewToolbarExtra('),
     section(viewSwitch, 'window.tmSwitchViewMode = function(mode)', '\n    };') + '\n    };',
 ].join('\n');
@@ -209,6 +212,30 @@ async function setup(page) {
             assert.deepEqual(result.child, [{ column: 'status:doing', parent: 'b' }]);
             assert.deepEqual(new Set(result.rendered), new Set(['a', 'child', 'b']));
         });
+        await run('fresh title styles are retained while reused descendants clear stale today marks', async (page) => {
+            const result = await page.evaluate(() => {
+                const rows = [{ id: 'parent' }, { id: 'child', parentTaskId: 'parent' }, { id: 'other' }];
+                setModel(rows); mount();
+                const child = state.modal.querySelector('[data-id="child"]');
+                child.querySelector('.tm-task-content-clickable').style.color = 'var(--tm-primary-color)';
+                const updatedTitles = [];
+                window.__tmHasTaskScheduledToday = (id) => id === 'new';
+                window.__tmApplyTaskTitleOpacityToElement = (el, task) => {
+                    updatedTitles.push(task.id); el.style.color = 'rgb(11, 22, 33)';
+                };
+                setModel(rows.map((task) => task.id === 'parent' ? { ...task, content: 'changed parent' } : task)
+                    .concat({ id: 'new', parentTaskId: 'parent' }));
+                const ok = patch(['parent', 'new']);
+                const color = (id) => state.modal.querySelector('[data-id="' + id + '"] > .tm-task-content-clickable').style.color;
+                return { ok, updatedTitles, sameChild: child === state.modal.querySelector('[data-id="child"]'),
+                    parentColor: color('parent'), childColor: color('child'), newColor: color('new') };
+            });
+            assert.equal(result.ok, true); assert.equal(result.sameChild, true);
+            assert.deepEqual(result.updatedTitles, ['child']);
+            assert.equal(result.parentColor, 'rgb(70, 70, 70)');
+            assert.equal(result.childColor, 'rgb(11, 22, 33)');
+            assert.equal(result.newColor, 'var(--tm-primary-color)');
+        });
         await run('document boards use real source and destination membership', async (page) => {
             const result = await page.evaluate(() => {
                 boardMode = 'heading';
@@ -287,6 +314,93 @@ async function setup(page) {
             assert.equal(result.ok, true); assert.equal(result.sameSibling, true); assert.equal(result.placeholders, 0);
             assert.deepEqual(result.child, [{ column: 'status:todo', parent: 'grand' }]);
             assert.deepEqual(new Set(result.rendered), new Set(['grand', 'parent', 'child']));
+        });
+        await run('mixed WS block IDs update a task without replacing the board or unrelated cards', async (page) => {
+            const result = await page.evaluate(() => {
+                setModel([{ id: 'parent' }, { id: 'other', customStatus: 'doing' }]); mount();
+                const body = state.modal.querySelector('.tm-body--kanban');
+                const other = state.modal.querySelector('[data-id="other"]');
+                setModel([{ id: 'parent' }, { id: 'child', parentTaskId: 'parent' }, { id: 'other', customStatus: 'doing' }]);
+                const ids = __tmResolveKanbanRefreshTaskIds(['child', 'list-container', 'paragraph'], ['parent']);
+                const ok = patch(ids);
+                return { ok, ids, child: placement('child'), bodyKept: body === state.modal.querySelector('.tm-body--kanban'),
+                    otherKept: other === state.modal.querySelector('[data-id="other"]') };
+            });
+            assert.deepEqual(result, { ok: true, ids: ['child', 'parent'], child: [{ column: 'status:todo', parent: 'parent' }],
+                bodyKept: true, otherKept: true });
+        });
+        await run('a deleted child already removed by projection does not force a board replacement', async (page) => {
+            const result = await page.evaluate(() => {
+                setModel([{ id: 'parent' }, { id: 'child', parentTaskId: 'parent' }, { id: 'other' }]); mount();
+                const body = state.modal.querySelector('.tm-body--kanban');
+                const other = state.modal.querySelector('[data-id="other"]');
+                state.modal.querySelector('[data-id="child"]').remove();
+                setModel([{ id: 'parent' }, { id: 'other' }]);
+                __tmTaskStore.markPendingDeleted('child');
+                const ok = patch(['child', 'parent']);
+                return { ok, children: placement('child').length, bodyKept: body === state.modal.querySelector('.tm-body--kanban'),
+                    otherKept: other === state.modal.querySelector('[data-id="other"]') };
+            });
+            assert.deepEqual(result, { ok: true, children: 0, bodyKept: true, otherKept: true });
+        });
+        await run('optimistic top-level removal retains its source column for counts and keyed refresh', async (page) => {
+            const result = await page.evaluate(() => {
+                setModel([{ id: 'deleted' }, { id: 'sibling' }, { id: 'other', customStatus: 'doing' }]); mount();
+                const body = state.modal.querySelector('.tm-body--kanban');
+                const sibling = state.modal.querySelector('[data-id="sibling"]');
+                const headerBefore = column('status:todo').querySelector('.tm-kanban-col-header').textContent;
+                __tmRemoveTaskDomNodes('deleted');
+                setModel([{ id: 'sibling' }, { id: 'other', customStatus: 'doing' }]);
+                __tmTaskStore.markPendingDeleted('deleted');
+                const ok = patch(['deleted']);
+                return { ok, bodyKept: body === state.modal.querySelector('.tm-body--kanban'),
+                    siblingKept: sibling === state.modal.querySelector('[data-id="sibling"]'),
+                    deleted: placement('deleted').length,
+                    countChanged: headerBefore !== column('status:todo').querySelector('.tm-kanban-col-header').textContent,
+                    pendingRemovals: column('status:todo').__tmKanbanRemovedTasks.size };
+            });
+            assert.deepEqual(result, { ok: true, bodyKept: true, siblingKept: true, deleted: 0, countChanged: true, pendingRemovals: 0 });
+        });
+        await run('document-only confirmation updates affected cards while preserving other documents', async (page) => {
+            const result = await page.evaluate(() => {
+                setModel([{ id: 'changed' }, { id: 'deleted' }, { id: 'other', root_id: 'doc2', customStatus: 'doing' }]); mount();
+                const body = state.modal.querySelector('.tm-body--kanban');
+                const other = state.modal.querySelector('[data-id="other"]');
+                setModel([{ id: 'changed', content: 'fresh title' }, { id: 'created' }, { id: 'other', root_id: 'doc2', customStatus: 'doing' }]);
+                const ok = __tmTryRefreshKanbanColumns(state.modal, [], { docIds: ['doc'] });
+                return { ok, bodyKept: body === state.modal.querySelector('.tm-body--kanban'),
+                    otherKept: other === state.modal.querySelector('[data-id="other"]'),
+                    title: state.modal.querySelector('[data-id="changed"] > span').textContent,
+                    created: placement('created').length, deleted: placement('deleted').length };
+            });
+            assert.deepEqual(result, { ok: true, bodyKept: true, otherKept: true, title: 'fresh title', created: 1, deleted: 0 });
+        });
+        await run('document-only confirmation outside visible columns leaves the board unchanged', async (page) => {
+            const result = await page.evaluate(() => {
+                setModel([{ id: 'visible' }]); mount();
+                const body = state.modal.querySelector('.tm-body--kanban');
+                const card = state.modal.querySelector('[data-id="visible"]');
+                const ok = __tmTryRefreshKanbanColumns(state.modal, [], { docIds: ['doc3'] });
+                return { ok, bodyKept: body === state.modal.querySelector('.tm-body--kanban'),
+                    cardKept: card === state.modal.querySelector('[data-id="visible"]') };
+            });
+            assert.deepEqual(result, { ok: true, bodyKept: true, cardKept: true });
+        });
+        await run('scroll-deferred refresh merges document scopes without losing updates', async (page) => {
+            const result = await page.evaluate(() => {
+                setModel([{ id: 'a' }, { id: 'b', root_id: 'doc2' }, { id: 'other', root_id: 'doc3' }]); mount();
+                const other = state.modal.querySelector('[data-id="other"]');
+                const gate = __tmGetViewScrollGate('kanban'); gate.scrolling = true;
+                setModel([{ id: 'a', content: 'new a' }, { id: 'b', root_id: 'doc2', content: 'new b' }, { id: 'other', root_id: 'doc3' }]);
+                const first = __tmTryRefreshKanbanColumns(state.modal, [], { docIds: ['doc'] });
+                const second = __tmTryRefreshKanbanColumns(state.modal, [], { docIds: ['doc2'] });
+                gate.scrolling = false;
+                const flushed = __tmFlushViewDomCommit('kanban');
+                return { first, second, flushed, otherKept: other === state.modal.querySelector('[data-id="other"]'),
+                    a: state.modal.querySelector('[data-id="a"] > span').textContent,
+                    b: state.modal.querySelector('[data-id="b"] > span').textContent };
+            });
+            assert.deepEqual(result, { first: true, second: true, flushed: true, otherKept: true, a: 'new a', b: 'new b' });
         });
         await run('scroll-deferred moves merge scopes and survive a later pagination request', async (page) => {
             const result = await page.evaluate(() => {

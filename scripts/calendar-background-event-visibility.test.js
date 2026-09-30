@@ -48,6 +48,7 @@ for (const file of ['calendar-date.js', 'calendar-store.js']) {
     vm.runInContext(fs.readFileSync(path.join(root, 'src/calendar', file), 'utf8'), context);
 }
 for (const name of [
+    'normalizePrototypeTimelineScale', 'readMobileTimelineScale', 'readDesktopTimelineScale',
     'isIndependentScheduleEventExt',
     'normalizeCalendarWeekAllDayVisibleRows', 'normalizeCalendarVisibleTime', 'getCalendarVisibleSlotRange',
     'getPrototypeTimelineMetrics', 'getPrototypeTimelineVisibleEventSegments', 'prototypeTimelineYForMinute',
@@ -116,6 +117,26 @@ context.openMainPopover(new Element(), '2026-10-01', store);
 popover = context.state.__tmPrototypeMorePopover.el.innerHTML;
 assert.doesNotMatch(popover, /未命名事件|cn-holiday-bg:|custom-bg|隐藏事件/);
 assert.match(popover, /国庆节/);
+
+// Calendar cards, side panels, folded counts and overflow must share the
+// same cancellation filter as the calendar list.
+store.addEvent({ id: 'canceled-timed', title: '放弃后的关联日程',
+    start: '2026-10-01T10:00:00', end: '2026-10-01T11:00:00', allDay: false,
+    extendedProps: { __tmSource: 'schedule', __tmTaskId: 'task', __tmScheduleCompletionIndependent: false } });
+let taskCanceled = true;
+context.getCalendarTaskSnapshotById = id => id === 'task' ? { id, taskMarker: taskCanceled ? '-' : ' ' } : null;
+context.__tmCalendarKanbanCardHelpers = { isCanceled: task => task.taskMarker === '-' };
+assert.doesNotMatch(render(), /真实全天任务|放弃后的关联日程/, 'week/day timelines must exclude abandoned all-day and timed entries');
+assert.equal(context.countSharedPrototypeAllDayEvents(store.getEvents(), day), 2, 'abandoned tasks must not inflate folded all-day counts');
+assert.doesNotMatch(context.buildSharedPrototypeDayPanelMarkup({ date: day, events: store.getEvents(), settings }),
+    /真实全天任务|放弃后的关联日程/, 'side-day panels must exclude abandoned tasks');
+context.showSharedPrototypeMorePopover(new Element(), '2026-10-01', store);
+assert.doesNotMatch(context.state.__tmPrototypeMorePopover.el.innerHTML, /真实全天任务|放弃后的关联日程/);
+context.openMainPopover(new Element(), '2026-10-01', store);
+assert.doesNotMatch(context.state.__tmPrototypeMorePopover.el.innerHTML, /真实全天任务|放弃后的关联日程/, 'month overflow must exclude abandoned tasks');
+taskCanceled = false;
+assert.match(render(), /真实全天任务/);
+assert.match(render(), /放弃后的关联日程/, 'reopened tasks must reappear without rebuilding the event source');
 
 for (const name of ['我的休息日', '']) {
     const days = context.__tmCalendar.applyCalendarCustomHolidayOverrides([], {

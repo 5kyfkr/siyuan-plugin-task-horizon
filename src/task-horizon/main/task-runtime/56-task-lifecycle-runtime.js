@@ -353,6 +353,19 @@
         });
         payload.docId = originDocId;
         payload.targetDocId = targetDocId;
+        // A no-op attribute echo may be suppressed before the later container
+        // transactions arrive. Preserve the confirmed move's source/destination
+        // scope explicitly, including when those containers are already deleted.
+        try {
+            __tmScheduleTaskIncrementalRefreshFromTx(null, {
+                docIds: [originDocId, targetDocId],
+                blockIds: [tid],
+                structural: true,
+                committed: true,
+                source: 'task-recycle-confirmation',
+                delayMs: 180,
+            });
+        } catch (e) {}
         return {
             ok: true,
             action: 'archiveDeleted',

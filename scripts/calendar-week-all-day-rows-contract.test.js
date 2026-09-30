@@ -31,6 +31,7 @@ const context = {
     isScheduleAllDayBottom: (event) => event.__tmAllDayBottom === true,
 };
 for (const name of [
+    'normalizePrototypeTimelineScale', 'readMobileTimelineScale', 'readDesktopTimelineScale',
     'normalizeCalendarWeekAllDayVisibleRows',
     'normalizeCalendarVisibleTime',
     'getCalendarVisibleSlotRange',

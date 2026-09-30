@@ -1635,6 +1635,33 @@
             if (target instanceof HTMLElement) removeTargets.add(target);
         });
         removeTargets.forEach((node) => {
+            if (node.matches('.tm-checklist-item')) {
+                const items = node.closest('.tm-checklist-items');
+                const card = node.closest('.tm-checklist-group-card');
+                const key = card ? __tmGetChecklistGroupKeyFromCard(card)
+                    : __tmFindChecklistSegmentKeyByTask(items, tid);
+                if (items && key) {
+                    const removed = items.__tmChecklistRemovedTaskGroups || new Map();
+                    removed.set(tid, key);
+                    items.__tmChecklistRemovedTaskGroups = removed;
+                }
+            }
+            // Keep the source column/parents available after optimistic removal,
+            // so the next keyed refresh can update counts without replacing the board.
+            if (node.matches('.tm-kanban-card')) {
+                const column = node.closest('.tm-kanban-col');
+                if (column) {
+                    const removed = column.__tmKanbanRemovedTasks || new Map();
+                    const parents = [];
+                    let parent = node.parentElement?.closest('.tm-kanban-card[data-id]');
+                    while (parent && column.contains(parent)) {
+                        parents.push(parent.getAttribute('data-id'));
+                        parent = parent.parentElement?.closest('.tm-kanban-card[data-id]');
+                    }
+                    removed.set(tid, parents);
+                    column.__tmKanbanRemovedTasks = removed;
+                }
+            }
             try { node.remove(); } catch (e) {}
         });
         return removeTargets.size > 0;

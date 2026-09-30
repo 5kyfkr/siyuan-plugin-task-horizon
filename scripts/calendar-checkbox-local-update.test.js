@@ -14,6 +14,7 @@ function between(text, start, end, from = 0) {
     return text.slice(a, b);
 }
 const functions = [
+    between(source, '    function isCalendarForegroundEvent(', '    function mergeCalendarAllDayReminders('),
     between(source, '    function applyTaskDoneVisual(', '    function applyCalendarEventDoneBorderTone('),
     between(source, '    function isRecurringScheduleEventExt(', '    async function setCalendarReminderOccurrenceDone('),
     between(source, '    function shouldHideCompletedAllDayCalendarEvent(', '    function getCalendarCompactEventLeadingLayoutVars('),
@@ -138,6 +139,38 @@ for (const mode of ['chip', 'allday', 'block']) {
     assert.match(markup, /class="tm-proto-event-check"/, 'standalone recurring schedules must render an operable occurrence checkbox');
     assert.doesNotMatch(markup, /tm-proto-event--calendar-builtin/, 'all-day CSS must not hide a recurring occurrence checkbox');
 }
+
+// Abandoning and reopening both have done=false, but must change visibility.
+const canceledTasks = new Set();
+const painted = new Map();
+context.getCalendarTaskSnapshotById = id => ({ id, done: tasks[id] === true });
+context.__tmCalendarKanbanCardHelpers = { isCanceled: task => canceledTasks.has(task.id) };
+context.applyRenderedEventDoneStateById = (id, done) => { painted.set(id, done); return true; };
+calendar.view.type = 'dayGridMonth';
+tasks.a = false;
+assert.equal(context.isCalendarForegroundEvent(dateEvent), true);
+context.state.sideDay.calendar.events.push({ ...dateEvent, extendedProps: { ...dateEvent.extendedProps } });
+const rendersBeforeCancel = counters.main;
+const sideRendersBeforeCancel = counters.side;
+canceledTasks.add('a');
+context.syncTaskDoneInPlace('a', false, { flushTaskPanel: false });
+assert.equal(counters.main, rendersBeforeCancel + 1, 'abandonment must repaint month/week surfaces even when done stays false');
+assert.equal(counters.side, sideRendersBeforeCancel + 1, 'the side calendar must hide abandoned tasks immediately');
+assert.equal(context.isCalendarForegroundEvent(dateEvent), false);
+assert.equal(context.isCalendarForegroundEvent(schedule), false);
+assert.equal(painted.get(dateEvent.id), true, 'until removal, cancellation must use the same checked visual as the list');
+assert.equal(dateEvent.extendedProps.__tmTaskDone, false, 'cancellation must never enter completion statistics');
+assert.equal(context.isCalendarForegroundEvent(history), true, 'completed history must keep its own state');
+assert.equal(context.isCalendarForegroundEvent(independent), true, 'independent schedules must keep their own state');
+context.syncTaskDoneInPlace('a', false, { flushTaskPanel: false });
+assert.equal(counters.main, rendersBeforeCancel + 1, 'unchanged cancellation must not cause another repaint');
+canceledTasks.delete('a');
+context.syncTaskDoneInPlace('a', false, { flushTaskPanel: false });
+assert.equal(counters.main, rendersBeforeCancel + 2, 'reopening must repaint even though done remains false');
+assert.equal(counters.side, sideRendersBeforeCancel + 2, 'the side calendar must restore reopened tasks immediately');
+assert.equal(context.isCalendarForegroundEvent(dateEvent), true);
+assert.equal(painted.get(dateEvent.id), false);
+assert.equal(calendar.events.length, 5, 'hidden abandoned tasks must remain available for reopening');
 
 // Build an isolated browser fixture using the actual click handlers, event store,
 // completion bridge and list reconciliation. No live user task is modified.
