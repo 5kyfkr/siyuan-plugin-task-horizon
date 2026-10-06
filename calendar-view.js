@@ -3368,7 +3368,12 @@
     }
 
     function shouldApplyMonthTaskDateScheduleDedupe(viewType) {
-        return isCalendarMonthViewType(viewType);
+        const type = String(viewType || '').trim();
+        // The compact week grid paints the same all-day/task-date cards as
+        // the month pipeline. It must therefore receive the schedule-day
+        // projection too, otherwise a timed schedule and its task date are
+        // rendered as two cards for the same task.
+        return isCalendarMonthViewType(type) || type === 'dayGridWeek';
     }
 
     function inferMainCalendarEventSourceViewType(calendar, info, fallback = 'timeGridWeek') {
@@ -14823,14 +14828,6 @@
 
     function hasOfficialMobileRuntimeSignal() {
         const container = getRuntimeBackendType();
-        const frontend = (() => {
-            try {
-                const value = String(globalThis.__taskHorizonFrontend || '').trim().toLowerCase();
-                if (value) return value;
-            } catch (e) {}
-            try { return String(document?.documentElement?.dataset?.frontend || '').trim().toLowerCase(); } catch (e) { return ''; }
-        })();
-        if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return false;
         try {
             if (container === 'android' && globalThis?.JSAndroid) return true;
         } catch (e) {}
@@ -14909,9 +14906,7 @@
     }
 
     function shouldPreferDeviceNotificationBackend() {
-        // 🔧 修复：只使用 isLikelyMobileRuntime() 来判断是否使用预约机制
-        // 桌面端应该使用实时提醒机制，不预先预约系统通知
-        // 移除 getPlatformUtilsCompat() 检查，因为它在桌面端也存在
+        // 原生通知预约取决于本机桥接能力，平板的桌面界面同样可以使用。
         return shouldUseOfficialMobileNotificationBackend();
     }
 
@@ -16049,10 +16044,8 @@
     }
 
     async function reconcileSingleScheduleMobileNotification(item, settings, registry) {
-        // 🔧 修复：桌面端使用实时提醒模式，不预先预约系统通知
-        // 只有真正的移动端（手机/平板）才使用预先预约机制
-        const isMobile = isLikelyMobileRuntime() || state.isMobileDevice;
-        if (!isMobile) {
+        const useDeviceNotifications = shouldPreferDeviceNotificationBackend();
+        if (!useDeviceNotifications) {
             // 桌面端：清理旧的预约（如果有的话）
             const existing = registry[String(item?.id || '').trim()] || getScheduleDeviceSchedule(item) || null;
             const validExistingEntries = sanitizeScheduleNotificationEntries(existing?.entries);
@@ -16152,10 +16145,8 @@
             return false;
         }
         
-        // 🔧 修复：桌面端使用实时提醒模式，不预先预约系统通知
-        // 只有真正的移动端才执行预约同步
-        const isMobile = isLikelyMobileRuntime() || state.isMobileDevice;
-        if (!isMobile) {
+        const useDeviceNotifications = shouldPreferDeviceNotificationBackend();
+        if (!useDeviceNotifications) {
             try { await reconcileScheduleNotificationRecordLedger(); } catch (e) {}
             // 桌面端：只清理孤立的预约，不执行预约同步
             try {
@@ -16168,7 +16159,6 @@
             return false;
         }
         
-        if (!shouldPreferDeviceNotificationBackend()) return false;
         sr.mobileSyncRunning = true;
         try {
             try { await reconcileScheduleNotificationRecordLedger(); } catch (e) {}
@@ -16504,11 +16494,9 @@
         sr.enabled = true;
         try { await reconcileScheduleNotificationRecordLedger(); } catch (e) {}
 
-        // 🔧 修复：桌面端启动时立即清理所有旧的系统通知预约
-        // 避免旧的预约在到点时触发通知
-        // 只使用 isLikelyMobileRuntime()，确保桌面端不使用预约机制
-        const isMobile = isLikelyMobileRuntime() || state.isMobileDevice;
-        if (!isMobile && settings.scheduleReminderEnabled) {
+        // 无原生预约能力时使用实时提醒，并清理旧预约。
+        const useDeviceNotifications = shouldPreferDeviceNotificationBackend();
+        if (!useDeviceNotifications && settings.scheduleReminderEnabled) {
             // 桌面端：立即清理所有旧的预约
             try {
                 const registry = loadScheduleMobileRegistry();
@@ -21664,9 +21652,9 @@
             eventStartEditable: true,
             eventDurationEditable: true,
             eventResizableFromStart: true,
-            longPressDelay: (state.isMobileDevice || isLikelyMobileRuntime()) ? CALENDAR_MOBILE_LONG_PRESS_DELAY : undefined,
-            eventLongPressDelay: (state.isMobileDevice || isLikelyMobileRuntime()) ? CALENDAR_MOBILE_LONG_PRESS_DELAY : undefined,
-            selectLongPressDelay: (state.isMobileDevice || isLikelyMobileRuntime()) ? CALENDAR_MOBILE_LONG_PRESS_DELAY : undefined,
+            longPressDelay: CALENDAR_MOBILE_LONG_PRESS_DELAY,
+            eventLongPressDelay: CALENDAR_MOBILE_LONG_PRESS_DELAY,
+            selectLongPressDelay: CALENDAR_MOBILE_LONG_PRESS_DELAY,
             eventDragMinDistance: (state.isMobileDevice || isLikelyMobileRuntime()) ? 0 : 8,
             selectable: true,
             selectMirror: true,
@@ -38155,9 +38143,9 @@
             eventStartEditable: true,
             eventDurationEditable: true,
             eventResizableFromStart: true,
-            longPressDelay: isMobileDevice ? CALENDAR_MOBILE_LONG_PRESS_DELAY : undefined,
-            eventLongPressDelay: isMobileDevice ? CALENDAR_MOBILE_LONG_PRESS_DELAY : undefined,
-            selectLongPressDelay: isMobileDevice ? CALENDAR_MOBILE_LONG_PRESS_DELAY : undefined,
+            longPressDelay: CALENDAR_MOBILE_LONG_PRESS_DELAY,
+            eventLongPressDelay: CALENDAR_MOBILE_LONG_PRESS_DELAY,
+            selectLongPressDelay: CALENDAR_MOBILE_LONG_PRESS_DELAY,
             eventDragMinDistance: isMobileDevice ? 0 : 8,
             selectable: true,
             selectMirror: true,

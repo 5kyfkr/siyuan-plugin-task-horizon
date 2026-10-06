@@ -82,6 +82,21 @@ for (const options of [
     });
 }
 
+for (const options of [
+    { container: 'android', nativeBridge: { JSAndroid: {} } },
+    { container: 'ios', nativeBridge: { webkit: { messageHandlers: {} } } },
+    { container: 'harmony', nativeBridge: { JSHarmony: {} } },
+]) {
+    test(`native tablet ${options.container} desktop UI retains close sync after changes`, async () => {
+        const { context, calls } = createRuntime({ frontend: 'desktop', ...options });
+        assert.equal(context.__tmMarkMobileCloseSyncDirty('task-setDone'), true);
+        assert.equal(context.__tmSyncOnMobileCloseIfDirty('topbar-close'), true);
+        await new Promise(setImmediate);
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].url, '/api/sync/performSync');
+    });
+}
+
 test('explicit mobile-browser classification overrides mobile UI signals', () => {
     const { context } = createRuntime({ frontend: 'mobile', kind: 'mobile-browser' });
     assert.equal(context.__tmIsMobileCloseSyncRuntime(), false);

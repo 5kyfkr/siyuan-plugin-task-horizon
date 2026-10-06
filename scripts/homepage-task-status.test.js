@@ -24,16 +24,19 @@ function assertCounts(overview, expected) {
 }
 
 for (const field of ['taskMarker', 'task_marker', 'marker']) {
-    for (const completionTime of ['', '2026-09-26', '2026-09-28']) {
+    for (const completionTime of ['', '2026-09-26', todayKey, '2026-09-28', '2026-10-04']) {
         const task = Object.freeze({ id: 'cancelled', done: false, [field]: '-', completionTime });
         assertCounts(overviewFor([task]), {
             total: 1, doneCount: 1, overdueCount: 0, overdue: 0, pendingCount: 0, completionRate: 100,
         });
         assert.equal(task.done, false, 'statistical grouping must not mark a cancelled task as actually completed');
+        assert.equal(overviewFor([task]).riskList.length, 0, 'cancelled tasks must not appear in risk reminders');
     }
+    assert.equal(overviewFor([{ id: 'cancelled-spaced', done: false, [field]: ' - ', completionTime: todayKey }]).riskList.length, 0,
+        'cancelled markers must tolerate surrounding whitespace');
 }
 
-const cancelledChild = Object.freeze({ id: 'cancelled-child', done: false, taskMarker: '-', customStatus: 'abandoned' });
+const cancelledChild = Object.freeze({ id: 'cancelled-child', done: false, taskMarker: '-', customStatus: 'abandoned', completionTime: todayKey });
 const tasks = Object.freeze([
     Object.freeze({ id: 'done', done: true, taskMarker: 'X', taskCompleteAt: todayKey }),
     Object.freeze({ id: 'cancelled-overdue', done: false, taskMarker: '-', completionTime: '2026-09-26', taskCompleteAt: todayKey }),
@@ -48,6 +51,8 @@ assert.equal(overview.kpis.todayDone, 1, 'cancelled tasks must not become succes
 assert.equal(overview.kpis.weekDone, 1, 'completion history must retain actual completion semantics');
 assert.equal(overview.subtitle, '近 30 天完成 1 项，逾期 1 项');
 assert.equal(overview.recentDone.length, 1);
+assert.deepEqual(Array.from(overview.riskList, (task) => task.id), ['overdue', 'doing'],
+    'risk reminders must keep active overdue and upcoming tasks while excluding cancelled tasks and children');
 assert.deepEqual(
     JSON.parse(JSON.stringify(buildGaugeSegments(overview).map(({ key, value, pct }) => ({ key, value, pct })))),
     [
@@ -67,5 +72,23 @@ assertCounts(overviewFor([
     { id: 'doing', done: false, taskMarker: '/' },
     { id: 'legacy-done', done: true },
 ]), { total: 3, doneCount: 1, overdueCount: 0, overdue: 0, pendingCount: 2, completionRate: 33 });
+
+const reopenedTask = { id: 'reopened', done: false, taskMarker: '-', completionTime: todayKey };
+assert.equal(overviewFor([reopenedTask]).riskList.length, 0);
+reopenedTask.taskMarker = ' ';
+assert.deepEqual(Array.from(overviewFor([reopenedTask]).riskList, (task) => task.id), ['reopened'],
+    'restoring a cancelled task to todo must restore its risk reminder');
+
+const limitedRiskTasks = [
+    ...Array.from({ length: 6 }, (_, index) => ({
+        id: `cancelled-${index}`, done: false, taskMarker: '-', completionTime: '2026-09-26',
+    })),
+    ...Array.from({ length: 7 }, (_, index) => ({
+        id: `active-${index}`, title: `active-${index}`, done: false, taskMarker: '/', completionTime: todayKey,
+    })),
+];
+assert.deepEqual(Array.from(overviewFor(limitedRiskTasks).riskList, (task) => task.id),
+    Array.from({ length: 6 }, (_, index) => `active-${index}`),
+    'cancelled tasks must not occupy the six available risk reminder slots');
 
 console.log('homepage task status tests passed');

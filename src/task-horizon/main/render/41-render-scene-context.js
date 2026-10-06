@@ -125,8 +125,6 @@
         const whiteboardActiveDocId = String(state.activeDocId || 'all').trim() || 'all';
         const showWhiteboardAllTabsModeToggle = renderMode === 'whiteboard' && whiteboardActiveDocId === 'all';
         const whiteboardAllTabsLayoutMode = __tmGetWhiteboardAllTabsLayoutMode();
-        const showWhiteboardMobileLayoutModeToggle = renderMode === 'whiteboard';
-        const whiteboardMobileMenuLayoutMode = showWhiteboardAllTabsModeToggle ? whiteboardAllTabsLayoutMode : 'board';
         const showInlineDocGroupQuickSelect = isMobile || isDockHost;
         const showAdaptiveTabDocGroupQuickSelect = !!(__tmMountEl && !isMobile && !isDockHost);
         const showMobileTimelineFloatingToolbar = !!(isMobile && !isDockHost && !isLandscape && renderMode === 'timeline');
@@ -316,8 +314,6 @@
             whiteboardActiveDocId,
             showWhiteboardAllTabsModeToggle,
             whiteboardAllTabsLayoutMode,
-            showWhiteboardMobileLayoutModeToggle,
-            whiteboardMobileMenuLayoutMode,
             showInlineDocGroupQuickSelect,
             showAdaptiveTabDocGroupQuickSelect,
             showMobileTimelineFloatingToolbar,

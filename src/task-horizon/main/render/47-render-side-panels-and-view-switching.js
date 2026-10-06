@@ -595,18 +595,22 @@
         // Calendar owns its sidebar trigger in the calendar toolbar on desktop;
         // mobile and dock hosts use the reusable topbar compact button instead.
         if (mode === 'calendar') return '';
+        if (mode === 'whiteboard' && scene?.showWhiteboardAllTabsModeToggle) {
+            return __tmRenderTopbarSelect({
+                id: 'tmTopbarWhiteboardLayoutSelect',
+                label: '白板模式',
+                className: 'tm-kanban-mode-select tm-topbar-select--narrow',
+                tooltip: '切换白板模式',
+                options: __tmBuildWhiteboardLayoutMenuOptions(scene.whiteboardAllTabsLayoutMode),
+            });
+        }
         if (mode !== 'kanban') return '';
-        const boardMode = __tmGetKanbanBoardMode();
         return __tmRenderTopbarSelect({
             id: 'tmTopbarKanbanModeSelect',
             label: '看板模式',
             className: 'tm-kanban-mode-select tm-topbar-select--narrow',
             tooltip: '切换看板模式',
-            options: [
-                { value: 'status', label: '状态', selected: boardMode === 'status', action: "tmSetKanbanBoardMode('status')" },
-                { value: 'heading', label: '标题', selected: boardMode === 'heading', action: "tmSetKanbanBoardMode('heading')" },
-                { value: 'time', label: '时间', selected: boardMode === 'time', action: "tmSetKanbanBoardMode('time')" },
-            ],
+            options: __tmBuildKanbanModeMenuOptions(),
         });
     }
 
@@ -1060,6 +1064,7 @@
             cleanupPreviousView();
             __tmReleaseDetachedViewStage(stage);
             modal.setAttribute('data-tm-render-mode', nextMode);
+            __tmSyncMobileMenuForView(nextMode, scene, modal);
             __tmSyncBodyOnlyViewSwitcherButtons(modal, nextMode);
             if (!__tmBindBodyOnlyViewAfterSwitch(nextMode, modal, scene)) return false;
             __tmSyncPersistentSideDocksAfterViewSwitch(persistentDockTransfers, modal);

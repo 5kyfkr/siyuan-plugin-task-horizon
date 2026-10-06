@@ -5062,7 +5062,8 @@
     function __tmIsMobileCloseSyncRuntime() {
         try {
             // Served browsers share the host kernel; closing their UI must not start a host sync.
-            return ['android-app', 'ios-app', 'harmony-app', 'mobile-app'].includes(__tmGetRuntimeClientKind());
+            return ['android-app', 'ios-app', 'harmony-app', 'mobile-app'].includes(__tmGetRuntimeClientKind())
+                || __tmIsNativeMobileRuntimeClient();
         } catch (e) {}
         return false;
     }
@@ -17115,7 +17116,7 @@ if (opts.refresh === false) return;
             if (!__tmIsMultiSelectActive()) return;
             if (ev && typeof ev.button === 'number' && ev.button !== 0) return;
             const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
-            if (pointerType === 'touch') return;
+            if (pointerType === 'touch' || pointerType === 'pen') return;
             const source = __tmResolveMultiSelectSweepSource(ev?.target);
             if (!source) return;
 
@@ -21243,13 +21244,6 @@ if (!state.homepageOpen) return;
     const __tmHasOfficialMobileRuntimeSignal = () => {
         const container = __tmGetRuntimeBackendType();
         try {
-            const frontend = __tmGetOfficialFrontend();
-            if (frontend === 'desktop' || frontend === 'desktop-window' || frontend === 'browser-desktop') return false;
-        } catch (e) {}
-        try {
-            if (String(globalThis.__taskHorizonRuntimeClientKind || '').trim() === 'desktop-browser') return false;
-        } catch (e) {}
-        try {
             if (globalThis.__taskHorizonPluginIsNativeMobile !== undefined) return !!globalThis.__taskHorizonPluginIsNativeMobile;
         } catch (e) {}
         try {
@@ -21327,9 +21321,7 @@ if (!state.homepageOpen) return;
         return __tmGetRuntimeClientKind() !== 'desktop-browser';
     };
 
-    const __tmIsNativeMobileRuntimeClient = () => (
-        __tmGetRuntimeClientKind() !== 'desktop-browser' && __tmHasOfficialMobileRuntimeSignal()
-    );
+    const __tmIsNativeMobileRuntimeClient = () => __tmHasOfficialMobileRuntimeSignal();
 
     const __tmIsMobileDevice = () => {
         if (__tmHostUsesMobileUI()) return true;
@@ -21360,9 +21352,22 @@ if (!state.homepageOpen) return;
 
     const __tmShouldUseBrowserTouchTaskDrag = () => __tmGetRuntimeClientKind() === 'mobile-browser';
 
+    const __tmHasTouchInputCapability = () => {
+        try {
+            if (Number(navigator?.maxTouchPoints) > 0 || Number(navigator?.msMaxTouchPoints) > 0) return true;
+        } catch (e) {}
+        try {
+            if (window?.matchMedia?.('(pointer: coarse)')?.matches) return true;
+        } catch (e) {}
+        try {
+            return 'ontouchstart' in window;
+        } catch (e) {}
+        return false;
+    };
+
     const __tmShouldUseCustomTouchTaskDrag = () => {
         const kind = __tmGetRuntimeClientKind();
-        return kind !== 'desktop-browser';
+        return kind !== 'desktop-browser' || __tmHasTouchInputCapability();
     };
 
     const __tmResolveNavigationTopWindow = (isDockHost = __tmIsDockHost()) => {

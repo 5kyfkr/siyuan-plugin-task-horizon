@@ -293,7 +293,109 @@
         ];
     }
 
+    function __tmBuildKanbanModeMenuOptions() {
+        const mode = __tmGetKanbanBoardMode();
+        return [['status', '状态'], ['heading', '标题'], ['time', '时间']].map(([value, label]) => ({
+            value, label, selected: mode === value, action: `tmSetKanbanBoardMode('${value}')`,
+        }));
+    }
+
+    function __tmBuildWhiteboardLayoutMenuOptions(modeValue, fromMobileMenu = false) {
+        const mode = __tmNormalizeWhiteboardAllTabsLayoutMode(modeValue);
+        const action = fromMobileMenu ? 'tmSetWhiteboardLayoutModeFromMobileMenu' : 'tmSetWhiteboardAllTabsLayoutMode';
+        return [['global', '全局白板'], ['board', '文档框'], ['stream', '卡片流']].map(([value, label]) => ({
+            value, label, selected: mode === value, action: `${action}('${value}')`,
+        }));
+    }
+
+    function __tmSyncMobileMenuForView(mode, scene, modal) {
+        const menu = modal?.querySelector?.('#tmMobileMenu');
+        if (!(menu instanceof HTMLElement)) return;
+        menu.innerHTML = __tmRenderTopbarMenuContent({
+            mobile: true,
+            viewMode: mode,
+            showViews: !scene.showMobileBottomViewBar,
+            showDoc: !scene.showInlineDocGroupQuickSelect,
+        });
+    }
+
+    function __tmRenderTopbarMenuContent(opts = {}) {
+        const mobile = opts.mobile === true;
+        const prefix = mobile ? 'tmMobile' : 'tmDesktop';
+        const closeAction = mobile ? 'tmHideMobileMenu()' : 'tmCloseDesktopMenu()';
+        const viewMode = String(opts.viewMode || state.viewMode || '').trim();
+        const docOptions = opts.docOptions || __tmBuildDocGroupMenuOptions();
+        const ruleOptions = opts.ruleOptions || __tmBuildRuleMenuOptions();
+        const groupOptions = opts.groupOptions || __tmBuildGroupModeMenuOptions();
+        const selectedLabel = (options, fallback) => String(options.find((item) => item.selected)?.label || fallback);
+        const renderField = (suffix, label, options) => `
+            <div class="tm-topbar-menu__field" role="group" aria-label="${__tmEscAttr(label)}">
+                <span class="tm-topbar-menu__field-label">${esc(label)}</span>
+                ${__tmRenderTopbarSelect({ id: prefix + suffix, label, options, autoWidth: false })}
+            </div>`;
+        const renderCommand = (label, icon, action, extraClass = '', pressed = null) => `
+            <button type="button" class="tm-btn bc-btn bc-btn--sm tm-topbar-menu__command ${extraClass}"
+                title="${__tmEscAttr(label)}"${pressed === null ? '' : ` aria-pressed="${pressed ? 'true' : 'false'}"`} onclick="${action}; ${closeAction}">
+                ${__tmRenderLucideIcon(icon)}<span>${esc(label)}</span>
+            </button>`;
+        const renderToggle = (label, checked, action) => `
+            <label class="tm-topbar-menu__toggle">
+                <span>${esc(label)}</span>
+                <input class="b3-switch fn__flex-center" type="checkbox" ${checked ? 'checked' : ''}
+                    onchange="${action}; ${closeAction}">
+            </label>`;
+        const keyword = String(state.searchKeyword || '').trim();
+        const aiWorkbenchOpen = __tmAiUsesOverlayPanel() ? !!state.aiMobilePanelOpen : !!state.aiSidebarOpen;
+        const whiteboardMenuLayoutMode = String(state.activeDocId || 'all').trim() === 'all'
+            ? __tmGetWhiteboardAllTabsLayoutMode()
+            : 'board';
+        return `
+            <div class="tm-topbar-menu__body">
+                ${opts.showViews ? `
+                <div class="tm-topbar-menu__views">
+                    <div class="tm-view-segmented bc-tabs-list tm-mobile-view-switcher" role="tablist" aria-label="视图"
+                        style="--tm-menu-view-count:${Math.max(1, __tmGetEnabledViews().length)}">
+                        ${__tmRenderViewSwitcherButtons({ compact: true })}
+                    </div>
+                </div>` : ''}
+                ${mobile && viewMode === 'kanban' ? renderField('KanbanModeSelect', '看板模式', __tmBuildKanbanModeMenuOptions()) : ''}
+                ${mobile && viewMode === 'whiteboard' ? renderField('WhiteboardLayoutSelect', '白板模式', __tmBuildWhiteboardLayoutMenuOptions(whiteboardMenuLayoutMode, true)) : ''}
+                ${opts.showSelectors !== false ? `
+                <details class="tm-topbar-menu__disclosure">
+                    <summary>
+                        <span class="tm-topbar-menu__summary-text" title="${__tmEscAttr(`分组 ${selectedLabel(groupOptions, '不分组')} · 规则 ${selectedLabel(ruleOptions, '全部')}`)}">分组 <b>${esc(selectedLabel(groupOptions, '不分组'))}</b><span class="tm-topbar-menu__summary-sep">·</span>规则 <b>${esc(selectedLabel(ruleOptions, '全部'))}</b></span>
+                        ${__tmRenderLucideIcon('caret-down')}
+                    </summary>
+                    <div class="tm-topbar-menu__fields">
+                        ${opts.showDoc !== false ? renderField('DocSelect', '文档', docOptions) : ''}
+                        ${renderField('GroupModeSelect', '分组', groupOptions)}
+                        ${renderField('RuleSelect', '筛选与排序规则', ruleOptions)}
+                    </div>
+                </details>` : ''}
+                <div class="tm-topbar-menu__commands" role="group" aria-label="任务操作">
+                    ${renderCommand(keyword ? `搜索（${keyword}）` : '搜索', 'search', 'tmShowSearchModal()')}
+                    ${renderCommand('摘要', 'file-text', 'tmShowSummaryModal()')}
+                    ${renderCommand(state.attachmentLibraryOpen ? '返回工作区' : '附件库', 'paperclip', 'tmToggleAttachmentLibrary()')}
+                    ${__tmIsAiFeatureEnabled() ? renderCommand('AI 工作台', 'bot', 'tmToggleAiSidebar()', aiWorkbenchOpen ? 'is-active' : '', aiWorkbenchOpen) : ''}
+                    ${viewMode === 'list' ? renderCommand('导出 Excel', 'chart-column', 'tmExportCurrentTableExcel()') : ''}
+                    ${keyword ? renderCommand('清除搜索', 'x', "tmSearch('')", 'tm-topbar-menu__command--clear') : ''}
+                </div>
+                <div class="tm-topbar-menu__preferences" role="group" aria-label="显示与交互">
+                    ${renderToggle('多选模式', !!state.multiSelectModeEnabled, 'tmToggleMultiSelectMode(this.checked)')}
+                    ${renderToggle('显示已完成任务', !!state.showCompletedTasks, 'tmToggleShowCompletedTasks(this.checked)')}
+                    ${renderToggle('已完成任务不分组', !!SettingsStore.data.completedTasksInlineInGroups, 'tmToggleCompletedTasksInlineInGroups(this.checked)')}
+                    ${opts.showCalendarSideDock ? renderToggle('日历侧边栏', !!SettingsStore.data.calendarSideDockEnabled, 'tmToggleCalendarSideDock(this.checked)') : ''}
+                    ${renderToggle('白板顺序模式', !!SettingsStore.data.whiteboardSequenceMode, 'tmToggleWhiteboardSequenceMode(this.checked)')}
+                </div>
+                <div class="tm-topbar-menu__commands tm-topbar-menu__tree-actions" role="group" aria-label="任务展开状态">
+                    ${renderCommand('全部折叠', 'chevrons-down-up', 'tmCollapseAllTasks()')}
+                    ${renderCommand('全部展开', 'chevrons-up-down', 'tmExpandAllTasks()')}
+                </div>
+            </div>`;
+    }
+
     let __desktopMenuUnstack = null;
+    let __mobileMenuUnstack = null;
 
     window.tmToggleDesktopMenu = function(e) {
         if (e) { e.stopPropagation(); e.preventDefault(); }
@@ -314,43 +416,23 @@
 
         const menu = document.createElement('div');
         menu.id = 'tmDesktopMenu';
-        menu.className = 'tm-popup-menu bc-dropdown-menu';
-        if (!__tmIsDarkMode()) menu.classList.add('tm-desktop-menu--light');
+        menu.className = 'tm-popup-menu bc-dropdown-menu tm-topbar-menu tm-topbar-menu--desktop';
+        menu.setAttribute('role', 'dialog');
+        menu.setAttribute('aria-label', '任务管理器菜单');
         menu.style.cssText = `
             position: fixed;
             background: var(--tm-ui-popover);
-            border: var(--tm-topbar-control-border-width) solid var(--tm-ui-border);
+            border: var(--tm-topbar-control-border-width) solid var(--tm-input-border);
             border-radius: calc(var(--tm-topbar-control-radius) + 2px);
             box-shadow: 0 10px 26px rgba(15,23,42,0.16);
-            padding: 8px;
+            padding: 0;
             z-index: 10000;
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 0;
             min-width: 0;
-            width: max-content;
+            width: min(312px, calc(100vw - 16px));
             max-width: calc(100vw - 16px);
-        `;
-        const renderDesktopMenuButton = (labelHtml, action, extraClass = '') => `
-            <div class="tm-desktop-menu-row ${extraClass}">
-                <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="${action}" style="flex:1; padding: 6px 10px;">
-                    <span class="tm-desktop-menu-btn-content">${labelHtml}</span>
-                </button>
-            </div>
-        `;
-        const renderDesktopMenuToggle = (labelText, checked, action, extraClass = '') => `
-            <div class="tm-desktop-menu-row ${extraClass}">
-                <label class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-desktop-menu-toggle" title="${esc(String(labelText || '').trim())}">
-                    <span class="tm-desktop-menu-toggle-content"><span>${esc(String(labelText || '').trim())}</span></span>
-                    <input class="b3-switch fn__flex-center" type="checkbox" ${checked ? 'checked' : ''} onchange="${action}">
-                </label>
-            </div>
-        `;
-        const renderDesktopMenuSelect = (labelText, selectHtml, extraClass = '') => `
-            <div class="tm-desktop-menu-row tm-desktop-menu-row--select ${extraClass}">
-                <span class="tm-desktop-menu-label">${esc(String(labelText || '').trim())}:</span>
-                <div class="tm-desktop-menu-item__main">${selectHtml}</div>
-            </div>
         `;
         const showTopbarSelectorsInMenu = __tmShouldShowTopbarSelectorsInDesktopMenu();
         const docGroupMenuOptions = showTopbarSelectorsInMenu ? __tmBuildDocGroupMenuOptions() : [];
@@ -371,41 +453,17 @@
         })();
         if (showTopbarSelectorsInMenu) menu.classList.add('tm-desktop-menu--with-selects');
 
-        menu.innerHTML = `
-            ${showTopbarSelectorsInMenu ? renderDesktopMenuSelect('文档', __tmRenderTopbarSelect({ id: 'tmDesktopDocSelect', label: '文档', options: docGroupMenuOptions, style: 'flex:1;' })) : ''}
-            ${showTopbarSelectorsInMenu ? renderDesktopMenuSelect('规则', __tmRenderTopbarSelect({ id: 'tmDesktopRuleSelect', label: '规则', options: ruleMenuOptions, style: 'flex:1;' })) : ''}
-            ${showTopbarSelectorsInMenu ? renderDesktopMenuSelect('分组', __tmRenderTopbarSelect({ id: 'tmDesktopGroupModeSelect', label: '分组', options: groupModeMenuOptions, style: 'flex:1;' })) : ''}
-            ${renderDesktopMenuButton(`${__tmRenderLucideIcon('paperclip')}<span>${state.attachmentLibraryOpen ? '返回工作区' : '附件库'}</span>`, `tmToggleAttachmentLibrary(); tmCloseDesktopMenu()`) }
-            ${renderDesktopMenuButton(`${__tmRenderLucideIcon('search')}<span>搜索${state.searchKeyword ? ` (${esc(String(state.searchKeyword || '').trim())})` : ''}</span>`, `tmShowSearchModal(); tmCloseDesktopMenu()`)}
-            ${renderDesktopMenuButton(`${__tmRenderLucideIcon('file-text')}<span>摘要</span>`, `tmShowSummaryModal(); tmCloseDesktopMenu()`)}
-            ${String(state.viewMode || '').trim() === 'list' ? renderDesktopMenuButton(`${__tmRenderLucideIcon('chart-column')}<span>导出 Excel</span>`, `tmExportCurrentTableExcel(); tmCloseDesktopMenu()`) : ''}
-            ${renderDesktopMenuToggle('多选模式', !!state.multiSelectModeEnabled, `tmToggleMultiSelectMode(this.checked); tmCloseDesktopMenu()`)}
-            ${renderDesktopMenuToggle('显示已完成任务', !!state.showCompletedTasks, `tmToggleShowCompletedTasks(this.checked); tmCloseDesktopMenu()`)}
-            ${renderDesktopMenuToggle('已完成任务不分组', !!SettingsStore.data.completedTasksInlineInGroups, `tmToggleCompletedTasksInlineInGroups(this.checked); tmCloseDesktopMenu()`)}
-            ${__tmIsAiFeatureEnabled() ? renderDesktopMenuToggle('AI 对话', !!SettingsStore.data.aiSideDockEnabled, `tmToggleAiSideDock(this.checked); tmCloseDesktopMenu()`) : ''}
-            ${showCalendarSideDockMenuToggle ? renderDesktopMenuToggle('日历侧边栏', !!SettingsStore.data.calendarSideDockEnabled, `tmToggleCalendarSideDock(this.checked); tmCloseDesktopMenu()`) : ''}
-            ${state.searchKeyword ? renderDesktopMenuButton(`<span>清除搜索</span>`, `tmSearch(''); tmCloseDesktopMenu()`) : ''}
-            ${renderDesktopMenuToggle('白板顺序模式', !!SettingsStore.data.whiteboardSequenceMode, `tmToggleWhiteboardSequenceMode(this.checked); tmCloseDesktopMenu()`)}
-            ${renderDesktopMenuButton(`${__tmRenderLucideIcon('chevrons-down-up')}<span>全部折叠</span>`, `tmCollapseAllTasks(); tmCloseDesktopMenu()`)}
-            ${renderDesktopMenuButton(`${__tmRenderLucideIcon('chevrons-up-down')}<span>全部展开</span>`, `tmExpandAllTasks(); tmCloseDesktopMenu()`)}
-        `;
-        if (!__tmIsDarkMode()) {
-            try {
-                menu.querySelectorAll('.bc-btn, .bc-btn span, .tm-tree-toggle-icon').forEach((el) => {
-                    try { el.style.setProperty('color', '#1f2329', 'important'); } catch (e2) {}
-                });
-                menu.querySelectorAll('.bc-btn').forEach((el) => {
-                    try { el.style.setProperty('border-color', '#1f2329', 'important'); } catch (e2) {}
-                });
-                menu.querySelectorAll('.tm-tree-toggle-icon path').forEach((el) => {
-                    try { el.style.setProperty('stroke', '#1f2329', 'important'); } catch (e2) {}
-                });
-            } catch (e2) {}
-        }
+        menu.innerHTML = __tmRenderTopbarMenuContent({
+            showSelectors: showTopbarSelectorsInMenu,
+            docOptions: docGroupMenuOptions,
+            ruleOptions: ruleMenuOptions,
+            groupOptions: groupModeMenuOptions,
+            showCalendarSideDock: showCalendarSideDockMenuToggle,
+        });
 
         // 点击外部关闭
         const closeHandler = (ev) => {
-            if (!menu.contains(ev.target) && ev.target !== e.target) {
+            if (!menu.contains(ev.target) && ev.target !== e?.target && !ev.target?.closest?.('#tmTopbarFloatingMenu')) {
                 __desktopMenuUnstack?.();
                 __desktopMenuUnstack = null;
                 try { __tmAnimatePopupOutAndRemove(menu); } catch (e2) { try { menu.remove(); } catch (e3) {} }
@@ -421,7 +479,8 @@
             ? e.currentTarget
             : (e?.target instanceof Element ? e.target.closest('.tm-desktop-menu-btn') : null);
         const rect = trigger instanceof Element ? trigger.getBoundingClientRect() : null;
-        const fallbackWidth = 220;
+        menu.style.zIndex = String(__tmResolveFloatingTooltipZIndex(trigger || state.modal, 10000));
+        const fallbackWidth = 312;
         const left0 = rect ? Math.round(rect.right - fallbackWidth) : Math.max(8, window.innerWidth - fallbackWidth - 16);
         const top0 = rect ? Math.round(rect.bottom + 8) : 56;
         menu.style.left = `${Math.max(8, left0)}px`;
@@ -439,6 +498,7 @@
             );
             menu.style.left = `${nextLeft}px`;
             menu.style.top = `${nextTop}px`;
+            menu.style.setProperty('--tm-menu-max-height', `${Math.max(0, window.innerHeight - nextTop - 10)}px`);
         } catch (e2) {}
         __tmAnimatePopupIn(menu, { origin: 'top-right' });
         __desktopMenuUnstack = __tmModalStackBind(window.tmCloseDesktopMenu);
@@ -496,6 +556,8 @@
     };
 
     function __tmHideMobileMenu() {
+        __mobileMenuUnstack?.();
+        __mobileMenuUnstack = null;
         const menu = document.getElementById('tmMobileMenu');
         if (menu instanceof HTMLElement) {
             try {
@@ -578,33 +640,23 @@
             menu.style.display = 'block';
             try { __tmAnimatePopupIn(menu, { origin: 'top-right' }); } catch (e2) {}
             try {
-                const switcher = menu.querySelector('.tm-mobile-view-switcher');
-                if (switcher instanceof HTMLElement) {
-                    const switcherWidth = switcher.getBoundingClientRect().width;
-                    const sidePadding = 20; // 菜单左右各 10px 内边距
-                    const hostWidth = (() => {
-                        try {
-                            const modal = menu.closest('.tm-modal');
-                            if (modal instanceof HTMLElement) return Number(modal.clientWidth) || 0;
-                        } catch (e3) {}
-                        return 0;
-                    })();
-                    const maxWidth = Math.max(0, Math.min(
-                        Math.max(0, window.innerWidth - 20),
-                        hostWidth > 0 ? Math.max(180, hostWidth - 16) : Number.POSITIVE_INFINITY
-                    ));
-                    const nextWidth = Math.round(Math.min(maxWidth, Math.max(180, switcherWidth + sidePadding)));
-                    if (nextWidth > 0) {
-                        menu.style.setProperty('width', `${nextWidth}px`, 'important');
-                        menu.style.setProperty('max-width', `${nextWidth}px`, 'important');
-                        const contentMax = Math.max(120, nextWidth - sidePadding);
-                        menu.querySelectorAll('.tm-mobile-only-item, .tm-mobile-menu-row').forEach((el) => {
-                            if (!(el instanceof HTMLElement)) return;
-                            try { el.style.setProperty('max-width', `${contentMax}px`, 'important'); } catch (e3) {}
-                            try { el.style.setProperty('min-width', '0', 'important'); } catch (e3) {}
-                        });
-                    }
-                }
+                const host = menu.closest('.tm-filter-rule-bar');
+                const hostRect = host instanceof HTMLElement ? host.getBoundingClientRect() : null;
+                const hostWidth = hostRect ? hostRect.width : window.innerWidth;
+                const nextWidth = Math.max(0, Math.min(320, window.innerWidth - 16, hostWidth - 8));
+                menu.style.width = `${nextWidth}px`;
+                menu.style.maxWidth = `${nextWidth}px`;
+                menu.style.right = '4px';
+                const trigger = e?.currentTarget instanceof Element
+                    ? e.currentTarget
+                    : e?.target?.closest?.('.tm-mobile-menu-btn button');
+                const triggerRect = trigger instanceof Element ? trigger.getBoundingClientRect() : null;
+                const top = Math.max(0, triggerRect && hostRect ? triggerRect.bottom - hostRect.top + 8 : 45);
+                menu.style.top = `${Math.round(top)}px`;
+                const menuTop = hostRect ? hostRect.top + top : top;
+                const viewport = window.visualViewport;
+                const viewportBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+                menu.style.setProperty('--tm-menu-max-height', `${Math.max(0, viewportBottom - menuTop - 10)}px`);
             } catch (e2) {}
             try {
                 requestAnimationFrame(() => {
@@ -619,13 +671,15 @@
             const closeHandler = (ev) => {
                 const target = ev?.target instanceof Element ? ev.target : null;
                 if (target && menu.contains(target)) return;
-                if (target?.closest?.('.tm-mobile-menu-btn')) return;
+                if (target?.closest?.('.tm-mobile-menu-btn, #tmTopbarFloatingMenu')) return;
                 __tmHideMobileMenu();
             };
             state.mobileMenuCloseHandler = closeHandler;
 
             try { if (state.mobileMenuCloseTimer) { clearTimeout(state.mobileMenuCloseTimer); state.mobileMenuCloseTimer = null; } } catch (e2) {}
             try { __tmScheduleBindOutsideCloseHandler(closeHandler, { ignoreSelector: '#tmMobileMenu, .tm-mobile-menu-btn', capture: true }); } catch (e2) {}
+            __mobileMenuUnstack?.();
+            __mobileMenuUnstack = __tmModalStackBind(__tmHideMobileMenu);
         } else {
             __tmHideMobileMenu();
         }

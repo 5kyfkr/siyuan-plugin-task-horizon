@@ -6,15 +6,14 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const render = fs.readFileSync(path.join(root, 'src/task-horizon/main/40-render-runtime.js'), 'utf8');
+const menuControls = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/45-render-shell-controls-and-resize.js'), 'utf8');
 const panels = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/47-render-side-panels-and-view-switching.js'), 'utf8');
 const scene = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/41-render-scene-context.js'), 'utf8');
 const workbench = fs.readFileSync(path.join(root, 'src/ai/agent-workbench.js'), 'utf8');
 const styles = fs.readFileSync(path.join(root, 'src/ai/agent-workbench.css'), 'utf8');
 
-assert.doesNotMatch(render, /AI 对话（移动端关闭）|移动端不启用 AI 对话侧栏/, 'mobile menu must not disable AI chat');
-assert.match(render, /<span>AI 对话<\/span>[\s\S]*class="b3-switch fn__flex-center"[\s\S]*tmToggleAiSideDock\(this\.checked\)/, 'mobile AI option must use the same switch control as desktop');
-assert.match(render, /justify-content:space-between[\s\S]{0,300}<span>AI 对话<\/span>/, 'mobile AI text and switch must align like the neighboring mobile toggles');
-assert.doesNotMatch(render, /tm-desktop-menu-toggle[^\n]*title="AI 对话"/, 'mobile AI option must not inherit the centered desktop menu layout');
+assert.match(menuControls, /renderCommand\('AI 工作台', 'bot', 'tmToggleAiSidebar\(\)',/, 'desktop and mobile menus must expose AI 工作台 as a command button');
+assert.doesNotMatch(menuControls, /renderToggle\('AI 对话'|renderToggle\('AI 工作台'/, 'AI 工作台 must not be rendered as a preference switch');
 assert.match(render, /class="tm-main-stage[\s\S]*\(isMobile \|\| isDockHost\) && state\.aiMobilePanelOpen[\s\S]*id="tmAiMobileSidebarPanel"[\s\S]*<\/div>[\s\S]*showMobileBottomViewBar/, 'mobile and Dock AI panels must stay inside the main stage below the top and document tabs');
 assert.match(render, /\.tm-ai-mobile-shell\s*\{[\s\S]*position: absolute;[\s\S]*inset: 0;/, 'mobile and Dock AI panels must fill the entire main stage');
 assert.doesNotMatch(render, /\.tm-ai-mobile-shell\s*\{[\s\S]{0,180}bottom: var\(--tm-view-bottom-inset/, 'mobile and Dock AI panels must not be raised above the bottom area');

@@ -874,8 +874,8 @@
                 }
             })();
             let mobileTimelineTouchLockRelease = null;
-            const setMobileTimelineTouchLock = (enabled) => {
-                if (!isMobileTimelineGlobal) return;
+            const setMobileTimelineTouchLock = (enabled, touchInput = false) => {
+                if (enabled && !isMobileTimelineGlobal && !touchInput) return;
                 if (!enabled) {
                     if (typeof mobileTimelineTouchLockRelease === 'function') {
                         try { mobileTimelineTouchLockRelease(); } catch (e) {}
@@ -887,6 +887,7 @@
                 const modal = mobileTimelineModalEl;
                 if (!(modal instanceof HTMLElement)) return;
                 const scrollHost = modal.querySelector('.tm-timeline-scroll-host')
+                    || modal.querySelector('.tm-timeline-right-body')
                     || modal.querySelector('.tm-body.tm-body--timeline');
                 const lockedScrollLeft = scrollHost instanceof HTMLElement ? scrollHost.scrollLeft : 0;
                 const lockedScrollTop = scrollHost instanceof HTMLElement ? scrollHost.scrollTop : 0;
@@ -1952,8 +1953,7 @@
                     : onUpdateTaskDates;
                 if (!entityId || !updateEntityDates) return;
                 const pointerType = String(e?.pointerType || '').trim().toLowerCase();
-                const compactEntity = isGroupEntity ? isCompactTimelineGlobal : isMobileTimelineGlobal;
-                const useMobileLongPressMove = !!(compactEntity && !handleEl && pointerType === 'touch');
+                const useMobileLongPressMove = !!(!handleEl && (pointerType === 'touch' || pointerType === 'pen'));
                 if (isMobileTimelineGlobal && !handleEl && !useMobileLongPressMove) return;
                 const taskId = entityId;
                 if (!isGroupEntity && isMobileTimelineGlobal && handleEl
@@ -2008,6 +2008,7 @@
                 const activePointerId = Number.isFinite(pointerIdValue) ? pointerIdValue : null;
                 const pendingScrollHost = useMobileLongPressMove
                     ? (mobileTimelineModalEl?.querySelector?.('.tm-timeline-scroll-host')
+                        || mobileTimelineModalEl?.querySelector?.('.tm-timeline-right-body')
                         || mobileTimelineModalEl?.querySelector?.('.tm-body.tm-body--timeline'))
                     : null;
                 const initialPendingScrollLeft = pendingScrollHost instanceof HTMLElement ? pendingScrollHost.scrollLeft : 0;
@@ -2144,7 +2145,7 @@
                     if (dragActive) return;
                     dragActive = true;
                     setTimelineDraggingX(true);
-                    setMobileTimelineTouchLock(true);
+                    setMobileTimelineTouchLock(true, useMobileLongPressMove);
                     setBarDragState(barEl, true);
                     groupItems.forEach((it) => setBarDragState(it.barEl, true, 'move'));
                 };

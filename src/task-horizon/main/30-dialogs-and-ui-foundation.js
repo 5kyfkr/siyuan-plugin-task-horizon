@@ -16205,7 +16205,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (!__tmDockPointerTaskDragIsEnabled()) return;
             if (ev && typeof ev.button === 'number' && ev.button !== 0) return;
             const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
-            if (pointerType === 'touch') return;
+            if (pointerType === 'touch' || pointerType === 'pen') return;
             const source = __tmResolveDockPointerTaskDragSource(ev?.target);
             if (!source) return;
             if (
@@ -16732,8 +16732,9 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function __tmIsTouchLikeChecklistPointer(ev) {
         const pType = String(ev?.pointerType || '').trim().toLowerCase();
-        if (__tmShouldUseCustomTouchTaskDrag()) return true;
-        return pType === 'touch' || pType === 'pen' || (!pType && __tmIsRuntimeMobileClient());
+        if (pType === 'touch' || pType === 'pen') return true;
+        if (pType === 'mouse') return false;
+        return __tmShouldUseCustomTouchTaskDrag();
     }
 
     function __tmResolveTouchTaskDragSource(ev, taskId) {

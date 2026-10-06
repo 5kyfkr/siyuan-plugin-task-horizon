@@ -555,27 +555,7 @@
                 action: `tmSwitchGroupMode('task')`
             }] : [])
         ];
-        const kanbanBoardMode = __tmGetKanbanBoardMode();
-        const kanbanModeMenuOptions = [
-            {
-                value: 'status',
-                label: '状态',
-                selected: kanbanBoardMode === 'status',
-                action: `tmSetKanbanBoardMode('status')`
-            },
-            {
-                value: 'heading',
-                label: '标题',
-                selected: kanbanBoardMode === 'heading',
-                action: `tmSetKanbanBoardMode('heading')`
-            },
-            {
-                value: 'time',
-                label: '时间',
-                selected: kanbanBoardMode === 'time',
-                action: `tmSetKanbanBoardMode('time')`
-            }
-        ];
+        const kanbanModeMenuOptions = __tmBuildKanbanModeMenuOptions();
         const {
             renderMode,
             mainBodyHtml,
@@ -596,8 +576,6 @@
             whiteboardActiveDocId,
             showWhiteboardAllTabsModeToggle,
             whiteboardAllTabsLayoutMode,
-            showWhiteboardMobileLayoutModeToggle,
-            whiteboardMobileMenuLayoutMode,
             showInlineDocGroupQuickSelect,
             showAdaptiveTabDocGroupQuickSelect,
             showMobileTimelineFloatingToolbar,
@@ -633,32 +611,7 @@
             isDesktopNarrow,
             mountEl: __tmMountEl,
         });
-        const whiteboardLayoutLabelMap = { global: '全局白板', board: '文档框', stream: '卡片流' };
-        const buildWhiteboardLayoutMenuOptions = (modeValue, fromMobileMenu = false) => {
-            const mode = __tmNormalizeWhiteboardAllTabsLayoutMode(modeValue);
-            return [
-                {
-                    value: 'global',
-                    label: whiteboardLayoutLabelMap.global,
-                    selected: mode === 'global',
-                    action: fromMobileMenu ? `tmSetWhiteboardLayoutModeFromMobileMenu('global')` : `tmSetWhiteboardAllTabsLayoutMode('global')`
-                },
-                {
-                    value: 'board',
-                    label: whiteboardLayoutLabelMap.board,
-                    selected: mode === 'board',
-                    action: fromMobileMenu ? `tmSetWhiteboardLayoutModeFromMobileMenu('board')` : `tmSetWhiteboardAllTabsLayoutMode('board')`
-                },
-                {
-                    value: 'stream',
-                    label: whiteboardLayoutLabelMap.stream,
-                    selected: mode === 'stream',
-                    action: fromMobileMenu ? `tmSetWhiteboardLayoutModeFromMobileMenu('stream')` : `tmSetWhiteboardAllTabsLayoutMode('stream')`
-                }
-            ];
-        };
-        const whiteboardLayoutMenuOptions = buildWhiteboardLayoutMenuOptions(whiteboardAllTabsLayoutMode, false);
-        const whiteboardMobileLayoutMenuOptions = buildWhiteboardLayoutMenuOptions(whiteboardMobileMenuLayoutMode, true);
+        const whiteboardLayoutMenuOptions = __tmBuildWhiteboardLayoutMenuOptions(whiteboardAllTabsLayoutMode);
         // A desktop Dock can use the compact/mobile-shaped layout when narrow,
         // but it is still a desktop host and should keep desktop-only controls.
         const isDesktopCalendarHost = !isRuntimeMobile && (!isMobile || isDockHost);
@@ -833,6 +786,7 @@
                                 ${showMobileLandscapeTimelineTopbar ? timelineCompactToolbarButtonsHtml : ''}
                                 ${isMobile ? topbarAddBtnHtml : ''}
                                 ${isMobile ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('刷新', { side: 'bottom' })}>${__tmRenderLucideIcon('arrow-clockwise')}</button>` : ''}
+                                <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-mobile-topbar-settings" onclick="tmHideMobileMenu(); showSettings()" aria-label="设置" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('设置', { side: 'bottom' })}>${__tmRenderLucideIcon('settings')}</button>
                                 ${!isMobile ? `
                                 ` : ''}<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('菜单', { side: 'bottom' })}>
                                     ${__tmRenderLucideIcon('menu')}
@@ -871,121 +825,18 @@
                     </div>
 
                         <!-- 移动端下拉菜单 -->
-                        <div id="tmMobileMenu" style="display:none; position:absolute; right:0; top:45px; width:max-content; max-width:min(420px, calc(100% - 8px)); min-width:0; box-sizing:border-box; padding:10px; border:1px solid var(--tm-border-color); border-radius:6px; background:var(--tm-header-bg); z-index:10001; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-                            <div style="display:flex; flex-direction:column; gap:10px;">
-                                <div class="tm-mobile-only-item" style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
-                                    <span style="color:var(--tm-text-color);">视图:</span>
-                                    <div class="tm-mobile-view-switcher-wrap">
-                                        <div class="tm-view-segmented bc-tabs-list tm-mobile-view-switcher" role="tablist" aria-label="视图">
-                                            ${__tmRenderViewSwitcherButtons({ compact: true })}
-                                        </div>
-                                    </div>
-                                </div>
-                                ${renderMode === 'kanban' ? `
-                                <div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">
-                                    <span class="tm-mobile-menu-label" style="color:var(--tm-text-color);width:60px;">看板:</span>
-                                    ${__tmRenderTopbarSelect({ id: 'tmMobileKanbanModeSelect', label: '看板模式', options: kanbanModeMenuOptions, style: 'flex:1;' })}
-                                </div>
-                                ` : ''}
-                                ${showWhiteboardMobileLayoutModeToggle ? `
-                                <div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">
-                                    <span class="tm-mobile-menu-label" style="color:var(--tm-text-color);width:60px;">白板:</span>
-                                    ${__tmRenderTopbarSelect({ id: 'tmMobileWhiteboardLayoutSelect', label: '白板模式', options: whiteboardMobileLayoutMenuOptions, style: 'flex:1;' })}
-                                </div>
-                                ` : ''}
-                                ${showInlineDocGroupQuickSelect ? '' : `<div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">
-                                    <span class="tm-mobile-menu-label" style="color:var(--tm-text-color);width:60px;">文档:</span>
-                                    ${__tmRenderTopbarSelect({ id: 'tmMobileDocSelect', label: '文档', options: docGroupMenuOptions, style: 'flex:1;' })}
-                                </div>`}
-                                <div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">
-                                    <span class="tm-mobile-menu-label" style="color:var(--tm-text-color);width:60px;">规则:</span>
-                                    ${__tmRenderTopbarSelect({ id: 'tmMobileRuleSelect', label: '规则', options: ruleMenuOptions, style: 'flex:1;' })}
-                                </div>
-                                <div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">
-                                    <span class="tm-mobile-menu-label" style="color:var(--tm-text-color);width:60px;">分组:</span>
-                                    ${__tmRenderTopbarSelect({ id: 'tmMobileGroupModeSelect', label: '分组', options: groupModeMenuOptions, style: 'flex:1;' })}
-                                </div>
-                                <div style="display:flex; gap:10px; align-items:center;">
-                                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('search')}<span>搜索 ${state.searchKeyword ? `(${state.searchKeyword})` : ''}</span></span>
-                                    </button>
-                                </div>
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSummaryModal(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('file-text')}<span>摘要</span></span>
-                                    </button>
-                                </div>
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleAttachmentLibrary(); tmHideMobileMenu();" style="flex:1; padding: 8px; min-height:44px;">
-                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('paperclip')}<span>${state.attachmentLibraryOpen ? '返回工作区' : '附件库'}</span></span>
-                                    </button>
-                                </div>
-                                ${renderMode === 'list' ? `
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmExportCurrentTableExcel(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('chart-column')}<span>导出 Excel</span></span>
-                                    </button>
-                                </div>
-                                ` : ''}
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                                        <span>多选模式</span>
-                                        <input class="b3-switch fn__flex-center" type="checkbox" ${state.multiSelectModeEnabled ? 'checked' : ''} onchange="tmToggleMultiSelectMode(this.checked); tmHideMobileMenu();">
-                                    </div>
-                                </div>
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                                        <span>显示已完成任务</span>
-                                        <input class="b3-switch fn__flex-center" type="checkbox" ${state.showCompletedTasks ? 'checked' : ''} onchange="tmToggleShowCompletedTasks(this.checked); tmHideMobileMenu();">
-                                    </div>
-                                </div>
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                                        <span>已完成任务不分组</span>
-                                        <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.completedTasksInlineInGroups ? 'checked' : ''} onchange="tmToggleCompletedTasksInlineInGroups(this.checked); tmHideMobileMenu();">
-                                    </div>
-                                </div>
-                                ${__tmIsAiFeatureEnabled() ? `
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; min-height:44px; padding:6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                                        <span>AI 对话</span>
-                                        <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiSideDockEnabled && state.aiMobilePanelOpen ? 'checked' : ''} onchange="tmToggleAiSideDock(this.checked); tmHideMobileMenu();">
-                                    </div>
-                                </div>
-                                ` : ''}
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                                        <span>白板顺序模式</span>
-                                        <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.whiteboardSequenceMode ? 'checked' : ''} onchange="tmToggleWhiteboardSequenceMode(this.checked); tmHideMobileMenu();">
-                                    </div>
-                                </div>
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
-                                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="showSettings()" style="flex:1; padding: 6px;">
-                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('settings')}<span>设置</span></span>
-                                     </button>
-                                </div>
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
-                                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCollapseAllTasks()" style="flex:1; padding: 6px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('chevrons-down-up')}<span>折叠</span></span></button>
-                                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmExpandAllTasks()" style="flex:1; padding: 6px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('chevrons-up-down')}<span>展开</span></span></button>
-                                </div>
-                                ${currentRule ? `<div class="tm-mobile-only-item" style="color:var(--tm-secondary-text);font-size:12px;">当前规则: ${esc(currentRule.name)} (${filteredCount}任务)</div>` : ''}
-                            </div>
+                        <div id="tmMobileMenu" class="tm-topbar-menu tm-topbar-menu--mobile" role="dialog" aria-label="任务管理器菜单" style="display:none; position:absolute; right:0; top:45px; z-index:10001;">
+                            ${__tmRenderTopbarMenuContent({
+                                mobile: true,
+                                viewMode: renderMode,
+                                showViews: !showMobileBottomViewBar,
+                                showDoc: !showInlineDocGroupQuickSelect,
+                                docOptions: docGroupMenuOptions,
+                                ruleOptions: ruleMenuOptions,
+                                groupOptions: groupModeMenuOptions,
+                            })}
                         </div>
                     </div>
-
-                    <style>
-                        /* 默认隐藏移动端专属项（因为桌面端工具栏已经有了） */
-                        .tm-mobile-only-item {
-                            display: none !important;
-                        }
-
-                        /* 移动端下显示 */
-                        @media (max-width: 768px) {
-                            .tm-mobile-only-item {
-                                display: flex !important;
-                            }
-                        }
-                    </style>
 
                 <div class="tm-doc-tabs ${docTabsClass}"
                     ondragenter="tmDocTabDragEnter(event)"
@@ -4217,8 +4068,9 @@
 
     function __tmIsKanbanTouchPointer(ev) {
         const pType = String(ev?.pointerType || '').trim().toLowerCase();
-        if (__tmShouldUseCustomTouchTaskDrag()) return true;
-        return pType === 'touch' || pType === 'pen' || (!pType && __tmIsRuntimeMobileClient());
+        if (pType === 'touch' || pType === 'pen') return true;
+        if (pType === 'mouse') return false;
+        return __tmShouldUseCustomTouchTaskDrag();
     }
 
     function __tmResolveKanbanPointTarget(x, y) {
@@ -5483,7 +5335,7 @@
         let floatingMiniRevealTimer = null;
         let preventTouchGestureScrollBound = false;
         const prevCardDraggableAttr = cardEl.getAttribute('draggable');
-        const cardDraggableTouched = __tmIsKanbanColumnSnapMode(bodyEl) && prevCardDraggableAttr !== 'false';
+        const cardDraggableTouched = prevCardDraggableAttr !== 'false';
         if (cardDraggableTouched) {
             try { cardEl.setAttribute('draggable', 'false'); } catch (e2) {}
         }

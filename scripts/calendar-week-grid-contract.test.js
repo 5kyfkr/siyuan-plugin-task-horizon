@@ -98,6 +98,18 @@ assert.equal(viewContext.__views.resolveMainCalendarHostView('dayGridWeek', 'tim
 assert.equal(viewContext.__views.resolveMainCalendarHostView('dayGridWeek', 'timeGridWeek', true), 'dayGridWeek', 'compact hosts must keep a saved week grid');
 assert.equal(viewContext.__views.isMainCalendarCompactHost(), false, 'a plain desktop state is not a compact host');
 
+const dedupeStart = calendar.indexOf('    function isCalendarMonthViewType(');
+const dedupeEnd = calendar.indexOf('    function inferMainCalendarEventSourceViewType(', dedupeStart);
+assert.ok(dedupeStart >= 0 && dedupeEnd > dedupeStart, 'grid task-date dedupe helpers must remain inspectable');
+const dedupeContext = {};
+vm.runInNewContext([
+    calendar.slice(dedupeStart, dedupeEnd),
+    'globalThis.shouldDedupe = shouldApplyMonthTaskDateScheduleDedupe;',
+].join('\n'), dedupeContext);
+assert.equal(dedupeContext.shouldDedupe('dayGridMonth'), true, 'month view must keep task-date/schedule dedupe');
+assert.equal(dedupeContext.shouldDedupe('dayGridWeek'), true, 'week grid must use the same task-date/schedule dedupe');
+assert.equal(dedupeContext.shouldDedupe('timeGridWeek'), false, 'time-grid behavior must remain controlled by its existing setting');
+
 // A single-day cell can be wide enough to look like a clipping pane. Its
 // overflow only clips card contents; the body-level editor must use the same
 // viewport as a cross-day bar painted in the sibling span layer.

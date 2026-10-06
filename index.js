@@ -242,10 +242,6 @@ const readWindowTopbarEnabled = () => {
 };
 
 const hasOfficialMobileRuntimeSignal = () => {
-    try {
-        const frontend = getOfficialFrontend();
-        if (frontend === "desktop" || frontend === "desktop-window" || frontend === "browser-desktop") return false;
-    } catch (e) {}
     let container = "";
     try { container = String(globalThis?.siyuan?.config?.system?.container || "").trim().toLowerCase(); } catch (e) {}
     try {

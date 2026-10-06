@@ -4665,7 +4665,8 @@
     function buildRiskList(tasks, todayKey, relationIndex = null) {
         const doneParentMemo = new Map();
         return tasks
-            .filter((task) => !task?.done)
+            .filter((task) => !task?.done
+                && String(task?.taskMarker ?? task?.task_marker ?? task?.marker ?? "").trim() !== "-")
             .filter((task) => !hasDoneParentTask(task, relationIndex, doneParentMemo))
             .map((task) => {
                 const dueKey = resolveTaskDueKey(task);

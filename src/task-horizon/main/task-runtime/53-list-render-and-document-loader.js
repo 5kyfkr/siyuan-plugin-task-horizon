@@ -2325,6 +2325,29 @@ return finish(false, 'noop');
 
     try { globalThis.__tmRunCommittedSetDoneEffects = __tmRunCommittedSetDoneEffects; } catch (e) {}
 
+    function __tmGetLatestTaskDoneUndoRecord(taskId) {
+        const tid = String(taskId || '').trim();
+        const stack = Array.isArray(__tmUndoState?.undoStack) ? __tmUndoState.undoStack : [];
+        const record = stack.length ? stack[stack.length - 1] : null;
+        if (!tid || !record || record.type !== 'setDone' || String(record.taskId || '').trim() !== tid) return null;
+        if (record.patch?.done !== true || record.inversePatch?.done === true) return null;
+        return record;
+    }
+
+    function __tmShowTaskDoneUndoHint(taskId, message, record) {
+        const tid = String(taskId || '').trim();
+        if (!tid || !record || typeof __tmShowActionHint !== 'function') return false;
+        __tmShowActionHint(String(message || '✅ 任务已完成').trim() || '✅ 任务已完成', 'success', '撤销', async () => {
+            const stack = Array.isArray(__tmUndoState?.undoStack) ? __tmUndoState.undoStack : [];
+            if (stack[stack.length - 1] !== record) {
+                hint('ℹ 该撤销提示已过期，请使用 Ctrl+Z', 'info');
+                return false;
+            }
+            return __tmUndoLastMutation({ silentError: false });
+        }, { duration: 5000 });
+        return true;
+    }
+
     async function __tmSetDoneKernel(id, done, ev, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const targetDone = !!done;
@@ -2639,6 +2662,7 @@ return finish(false, 'noop');
                     status: 'set-done-success',
                 });
             } catch (e) {}
+            let undoRecord = null;
             if (opts.recordUndo !== false && !__tmUndoState?.applying) {
                 const undoPatch = { done: actualDone, ...touchPatch };
                 const inversePatch = { done: originalDone };
@@ -2648,7 +2672,7 @@ return finish(false, 'noop');
                 if (Object.prototype.hasOwnProperty.call(touchPatch, 'customStatus')) inversePatch.customStatus = originalCustomStatus;
                 if (Object.prototype.hasOwnProperty.call(touchPatch, 'taskCompleteAt')) inversePatch.taskCompleteAt = originalTaskCompleteAt;
                 try {
-                    __tmPushUndoRecord({
+                    undoRecord = __tmPushUndoRecord({
                         type: 'setDone',
                         taskId: String(id || '').trim(),
                         requestedTaskId: String(id || '').trim(),
@@ -2725,7 +2749,10 @@ return finish(false, 'noop');
             } catch (e) {}
 
             if (opts.suppressHint !== true) {
-                hint(__tmBuildTaskDoneSuccessHint(!!actualDone, '✅ 任务已完成'), 'success');
+                const successHint = __tmBuildTaskDoneSuccessHint(!!actualDone, '✅ 任务已完成');
+                if (!(actualDone && __tmShowTaskDoneUndoHint(id, successHint, undoRecord))) {
+                    hint(successHint, 'success');
+                }
             }
             if (opts.deferCompletionEffects !== true) {
                 __tmRunSetDonePostCommitEffects(id, {
@@ -3140,7 +3167,13 @@ return finish(false, 'noop');
                 try { __tmQueueTaskDoneDelight(tid, { done: true, suppressHint: opts.suppressHint, source: opts.source }); } catch (e) {}
             }
             if (opts.suppressHint !== true) {
-                try { hint(__tmBuildTaskDoneSuccessHint(targetDone, targetDone ? '✅ 任务已完成' : '✅ 已取消完成'), 'success'); } catch (e) {}
+                try {
+                    const successHint = __tmBuildTaskDoneSuccessHint(targetDone, targetDone ? '✅ 任务已完成' : '✅ 已取消完成');
+                    const undoRecord = targetDone ? __tmGetLatestTaskDoneUndoRecord(tid) : null;
+                    if (!(targetDone && __tmShowTaskDoneUndoHint(tid, successHint, undoRecord))) {
+                        hint(successHint, 'success');
+                    }
+                } catch (e) {}
             }
         }).catch((e) => {
             if (intentRevision && !__tmIsLatestSetDoneIntent(tid, intentRevision)) return;
