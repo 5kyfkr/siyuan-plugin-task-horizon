@@ -16,7 +16,7 @@ let runtime = manifest.scripts.map((file) => read(`src/task-horizon/${file}`)).j
 const end = runtime.lastIndexOf("    if (document.readyState === 'loading') {");
 assert.ok(end > 0);
 runtime = runtime.slice(0, end) + `
-    window.__settingsTest = { state, SettingsStore, RuleManager, pages: TM_SETTINGS_V2_PAGES,
+    window.__settingsTest = { state, SettingsStore, RuleManager, render, pages: TM_SETTINGS_V2_PAGES,
         searchEntries: __tmGetSettingsSearchEntries, searchResults: __tmGetSettingsSearchResults, searchStaticText: __tmSettingsSearchStaticText,
         searchIndexReady: () => !__tmSettingsSearchIndexBuilding && !__tmSettingsSearchIndexBuildTimer,
         queue: __tmQueueSettingsSave, run: __tmRunSettingsSave, jobs: __tmSettingsSaveJobs,
@@ -420,10 +420,84 @@ const server = http.createServer((req, res) => {
         await page.reload();
         await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-priority'));
         assert.equal(await page.locator('[data-tm-call="tmSetPriorityBase"]').inputValue(), '77');
-        await page.evaluate(() => addNewRule());
-        await page.evaluate(() => updateEditingRuleName('自动保存规则'));
-        await page.waitForTimeout(250);
+        await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-rules'));
+        await page.evaluate(() => {
+            __settingsTest.render();
+            window.__ruleShellBeforeSave = __settingsTest.state.modal;
+        });
+        await page.locator('[data-tm-action="addNewRule"]').click();
+        await page.locator('input[placeholder="规则名称"]').fill('自动保存规则');
+        await page.waitForFunction(() => JSON.parse(localStorage.getItem('settings-test'))?.filterRules?.some(rule => rule.name === '自动保存规则'));
         assert.ok(await page.evaluate(() => __settingsTest.state.filterRules.some((rule) => rule.name === '自动保存规则')));
+        const autosaveRuleId = await page.evaluate(() => __settingsTest.state.editingRule.id);
+        for (const id of ['tmTopbarRuleSelect', 'tmMobileRuleSelect']) {
+            assert.equal(await page.locator(`#${id} [data-tm-option-value="${autosaveRuleId}"]`).getAttribute('data-tm-option-label'), '自动保存规则', 'new rules appear without rebuilding the task view');
+        }
+        assert.equal(await page.evaluate(() => __settingsTest.state.modal === __ruleShellBeforeSave), true);
+        await page.evaluate(() => tmToggleTopbarSelect('tmTopbarRuleSelect'));
+        await page.locator('input[placeholder="规则名称"]').evaluate(input => {
+            input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+            input.value = '中文输入法规则';
+            input.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true, inputType: 'insertCompositionText', data: '中文输入法规则' }));
+            input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '中文输入法规则' }));
+        });
+        await page.waitForFunction(() => JSON.parse(localStorage.getItem('settings-test')).filterRules.find(rule => rule.id === __settingsTest.state.editingRule.id)?.name === '中文输入法规则');
+        assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('settings-test')).filterRules.find(rule => rule.id === __settingsTest.state.editingRule.id)?.name), '中文输入法规则', 'IME confirmation autosaves the name while the input retains focus');
+        assert.equal(await page.locator('input[placeholder="规则名称"]').evaluate(input => input === document.activeElement), true);
+        assert.equal(await page.locator(`#tmTopbarFloatingMenu [data-tm-option-value="${autosaveRuleId}"]`).getAttribute('data-tm-option-label'), '中文输入法规则', 'an already-open dropdown also receives renamed options');
+        await page.evaluate(() => tmToggleTopbarSelect('tmTopbarRuleSelect'));
+        await page.evaluate(async id => { toggleRuleEnabled(id, false); await __settingsTest.flush(); }, autosaveRuleId);
+        assert.equal(await page.locator(`#tmTopbarRuleSelect [data-tm-option-value="${autosaveRuleId}"]`).count(), 0, 'disabled rules disappear from the dropdown');
+        await page.evaluate(async id => { toggleRuleEnabled(id, true); await __settingsTest.flush(); }, autosaveRuleId);
+        assert.equal(await page.locator(`#tmTopbarRuleSelect [data-tm-option-value="${autosaveRuleId}"]`).count(), 1, 'reenabled rules return immediately');
+        await page.locator('[data-tm-action="addCondition"]').click();
+        await page.locator('[data-tm-change="updateConditionField"][data-index="0"]').selectOption('completionTime');
+        await page.locator('[data-tm-change="updateConditionOperator"][data-index="0"]').selectOption('range_week');
+        await page.locator('[data-tm-action="addCondition"]').click();
+        const textOperator = page.locator('[data-tm-change="updateConditionOperator"][data-index="1"]');
+        assert.equal(await textOperator.isVisible(), true, 'text comparisons remain a visible native dropdown');
+        assert.deepEqual(await textOperator.locator('option').allTextContents().then(labels => labels.map(label => label.trim())), ['等于', '不等于', '在列表中', '不在列表中', '包含', '不包含', '为空', '不为空']);
+        await textOperator.selectOption('is_empty');
+        assert.equal(await page.locator('.tm-rule-condition-value-empty').count(), 2, 'empty and relative-date comparisons need no value');
+        await textOperator.selectOption('contains');
+        await page.locator('[data-tm-change="updateConditionValue"][data-index="1"]').fill('周报');
+        assert.deepEqual(await page.locator('[data-tm-change="updateConditionOperator"]').evaluateAll(selects => selects.map(select => ({ hidden: select.hidden, hasButtons: !!select.__tmChoiceGroup }))), [{ hidden: false, hasButtons: false }, { hidden: false, hasButtons: false }], 'rerendering never turns comparisons into button groups');
+        await page.locator('.tm-rule-group').filter({ has: page.locator('input[placeholder="规则名称"]') }).screenshot({ path: path.join(root, 'output/playwright/settings-rules-dropdown.png') });
+        await page.setViewportSize({ width: 390, height: 844 });
+        assert.equal(await textOperator.isVisible(), true, 'comparison dropdown remains available on mobile');
+        await page.locator('.tm-rule-group').filter({ has: page.locator('input[placeholder="规则名称"]') }).screenshot({ path: path.join(root, 'output/playwright/settings-rules-dropdown-mobile.png') });
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        await page.locator('input[placeholder="规则名称"]').fill('关闭前的规则名称');
+        await page.locator('.tm-settings-v2-close').click();
+        await page.waitForFunction(id => {
+            const saved = JSON.parse(localStorage.getItem('settings-test')).filterRules.find(rule => rule.id === id);
+            return saved?.name === '关闭前的规则名称' && saved.conditions[1]?.value === '周报';
+        }, autosaveRuleId);
+        await page.reload();
+        await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-rules'));
+        await page.locator(`[data-tm-action="editRule"][data-rule-id="${autosaveRuleId}"]`).click();
+        assert.equal(await page.locator('input[placeholder="规则名称"]').inputValue(), '关闭前的规则名称', 'closing immediately and reloading retains the name');
+        assert.equal(await textOperator.inputValue(), 'contains');
+        await page.evaluate(async id => { await applyFilterRule(id); }, autosaveRuleId);
+        await page.locator('input[placeholder="规则名称"]').fill('已有规则自动保存');
+        await page.locator('[data-settings-subpage="r-priority"]').click();
+        await page.waitForFunction(id => JSON.parse(localStorage.getItem('settings-test')).filterRules.find(rule => rule.id === id)?.name === '已有规则自动保存', autosaveRuleId);
+        assert.equal(await page.locator('#tmTopbarRuleSelect .bc-select-trigger__value').textContent(), '已有规则自动保存', 'renaming the applied rule updates its displayed selection');
+        assert.match(await page.locator('#tmMobileMenu .tm-topbar-menu__summary-text').textContent(), /规则 已有规则自动保存/);
+        await page.locator('[data-settings-subpage="r-rules"]').click();
+        await page.evaluate(() => {
+            __settingsTest.state.modal.querySelector('.tm-header-selectors').style.display = 'none';
+            tmToggleDesktopMenu();
+        });
+        assert.equal(await page.locator('#tmDesktopRuleSelect .bc-select-trigger__value').textContent(), '已有规则自动保存');
+        await page.locator('input[placeholder="规则名称"]').evaluate(input => {
+            input.value = '菜单同步名称';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        await page.waitForFunction(id => JSON.parse(localStorage.getItem('settings-test')).filterRules.find(rule => rule.id === id)?.name === '菜单同步名称', autosaveRuleId);
+        assert.equal(await page.locator('#tmDesktopRuleSelect .bc-select-trigger__value').textContent(), '菜单同步名称', 'the desktop menu receives the current name');
+        await page.evaluate(() => tmCloseDesktopMenu());
+        await page.locator('[data-settings-subpage="r-priority"]').click();
         await page.evaluate(() => { window.__failSave = true; tmSetPriorityBase('88'); });
         await page.waitForTimeout(250);
         assert.equal(await page.evaluate(() => __settingsTest.SettingsStore.data.priorityScoreConfig.base), 77);
@@ -467,6 +541,10 @@ const server = http.createServer((req, res) => {
         });
         await page.waitForTimeout(200);
         assert.equal(await page.evaluate(() => __settingsTest.state.filterRules.some(rule => rule.name === '待删除规则' || rule.name === '并发规则 B')), false);
+        page.once('dialog', dialog => dialog.accept());
+        await page.evaluate(async id => { await deleteRule(id); }, autosaveRuleId);
+        assert.equal(await page.locator(`#tmTopbarRuleSelect [data-tm-option-value="${autosaveRuleId}"]`).count(), 0, 'deleted rules disappear immediately');
+        assert.equal(await page.locator('#tmTopbarRuleSelect .bc-select-trigger__value').textContent(), '全部', 'deleting the applied rule restores the all-tasks selection');
         await page.evaluate(() => tmEditQuadrantRule(0));
         await page.locator('[data-quadrant-importance][value="low"]').check();
         await page.evaluate(() => __settingsTest.flush());

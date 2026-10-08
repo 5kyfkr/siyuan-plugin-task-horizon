@@ -257,6 +257,30 @@
         ];
     }
 
+    const __TM_RULE_TOPBAR_SELECT_IDS = new Set(['tmTopbarRuleSelect', 'tmMobileRuleSelect', 'tmDesktopRuleSelect']);
+    function __tmRefreshRuleTopbarSelectsInPlace() {
+        const options = __tmBuildRuleMenuOptions();
+        const label = (options.find((option) => option.selected) || options[0]).label;
+        __TM_RULE_TOPBAR_SELECT_IDS.forEach((id) => {
+            const root = document.getElementById(id);
+            if (!(root instanceof HTMLElement)) return;
+            const value = root.querySelector('.bc-select-trigger__value');
+            if (value) value.textContent = label;
+            const menu = root.querySelector('.bc-select-menu');
+            if (menu) menu.innerHTML = __tmRenderTopbarSelectMenuItems(options, id);
+            const summary = root.closest('.tm-topbar-menu__disclosure')?.querySelector('.tm-topbar-menu__summary-text');
+            const summaryRule = summary?.querySelector('b:last-of-type');
+            if (summaryRule) {
+                summaryRule.textContent = label;
+                summary.title = `分组 ${summary.querySelector('b')?.textContent || '不分组'} · 规则 ${label}`;
+            }
+            if (root.dataset.open === 'true') {
+                const floating = document.getElementById('tmTopbarFloatingMenu');
+                if (floating) floating.innerHTML = __tmRenderTopbarSelectMenuItems(options, id);
+            }
+        });
+    }
+
     function __tmBuildGroupModeMenuOptions() {
         const hasTaskModeOption = !!(SettingsStore.data.groupByTaskName || state.groupByTaskName);
         return [
@@ -1562,6 +1586,7 @@
         const open = String(root.dataset.open || '') === 'true';
         __tmCloseTopbarSelects();
         if (!open) {
+            if (__TM_RULE_TOPBAR_SELECT_IDS.has(root.id)) __tmRefreshRuleTopbarSelectsInPlace();
             try { root.dataset.open = 'true'; } catch (e) {}
             const trigger = root.querySelector('.bc-select-trigger');
             const sourceMenu = root.querySelector('.bc-select-menu');

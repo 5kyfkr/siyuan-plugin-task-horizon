@@ -8316,7 +8316,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         root.addEventListener('input', (e) => {
             if (e.isComposing) return;
-            const target = e.target?.closest?.('[data-tm-call],[data-tm-input]');
+            const target = e.target?.closest?.('[data-tm-call]');
             if (!target || !root.contains(target)) return;
 
             // Settings commit text and number fields after a short pause, via change.
@@ -8337,9 +8337,6 @@ return Number(state.contextInteractionQuietUntil || 0);
                 const val = (target.type === 'checkbox') ? !!target.checked : target.value;
                 return fn(...args, val);
             }
-
-            const inputType = String(target.dataset.tmInput || '');
-            if (inputType === 'updateEditingRuleName') return window.updateEditingRuleName?.(target.value);
         });
     }
 
@@ -8494,7 +8491,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             <div class="tm-rule-group">
                 <div class="tm-rule-group-header">
                     <input type="text" class="tm-rule-input" value="${esc(rule.name)}"
-                           placeholder="规则名称" data-tm-input="updateEditingRuleName">
+                           placeholder="规则名称" data-tm-call="updateEditingRuleName">
                 </div>
 
                 <div class="tm-rule-section">
@@ -10094,6 +10091,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         state.editingRule = null;
         try { await RuleManager.saveRules(state.filterRules); } catch (e) {}
+        __tmRefreshRuleTopbarSelectsInPlace();
         __tmRerenderRulesManagerUI();
         if (savedRuleId && String(state.currentRule || '').trim() === savedRuleId) {
             const nextRule = state.filterRules.find(r => r.id === savedRuleId);
@@ -10380,6 +10378,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         await Promise.all(Array.from(__tmSettingsSaveJobs.keys()).filter((id) => id.startsWith('rule:')).map(__tmRunSettingsSave));
         const index = state.filterRules.findIndex(r => r.id === ruleId);
         if (index >= 0) {
+            const wasCurrentRule = state.currentRule === ruleId;
             const remaining = state.filterRules.filter(r => r.id !== ruleId);
             try {
                 await RuleManager.saveRules(remaining);
@@ -10391,6 +10390,11 @@ return Number(state.contextInteractionQuietUntil || 0);
             } catch (e) { hint(`删除规则失败：${e?.message || e}`, 'error'); return; }
             __tmSettingsSaveJobs.delete(key);
             __tmSettingsSaveFeedback(key);
+            __tmRefreshRuleTopbarSelectsInPlace();
+            if (wasCurrentRule) {
+                state.__tmQueryDoneOnly = false;
+                __tmScheduleRender({ withFilters: true });
+            }
             __tmRerenderRulesManagerUI();
             hint('✅ 规则已删除', 'success');
         }
@@ -10447,6 +10451,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         // 同时保存当前选中的规则
         SettingsStore.data.currentRule = state.currentRule;
         await SettingsStore.save();
+        __tmRefreshRuleTopbarSelectsInPlace();
         hint('✅ 所有规则已保存', 'success');
         closeRulesManager();
     };

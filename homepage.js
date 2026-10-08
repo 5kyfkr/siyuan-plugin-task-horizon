@@ -18,6 +18,17 @@
         focusState: { status: "idle", key: "", stats: null, settings: null, unavailable: false },
         focusLoadSeq: 0,
         selectedFocusTaskId: "",
+        projectContextMenuHandler: null,
+        projectContextMenuOutsideHandler: null,
+        projectContextMenuKeyHandler: null,
+        projectPointerDownHandler: null,
+        projectPointerMoveHandler: null,
+        projectPointerUpHandler: null,
+        projectLongPressTimer: 0,
+        projectLongPressPointerId: null,
+        projectLongPressCard: null,
+        projectLongPressPoint: null,
+        projectLongPressSuppressClick: null,
         focusDateOffset: 0,
         focusTaskListMode: "day",
         focusRecentDays: 90,
@@ -85,7 +96,43 @@
             moduleOrder: normalizeHomepageModuleOrder(source.moduleOrder),
             moduleLayout: normalizeHomepageModuleLayout(source.moduleLayout),
             moduleCollapsed: normalizeHomepageModuleCollapsed(source.moduleCollapsed),
+            completedProjects: normalizeHomepageCompletedProjects(source.completedProjects),
         };
+    }
+
+    function normalizeHomepageCompletedProjects(value) {
+        const source = (value && typeof value === "object" && !Array.isArray(value)) ? value : {};
+        const out = {};
+        Object.keys(source).forEach((key) => {
+            const id = String(key || "").trim();
+            if (id && id.length <= 320 && source[key] === true) out[id] = true;
+        });
+        return out;
+    }
+
+    function getHomepageProjectStatusKey(kind, id) {
+        const projectKind = String(kind || "").trim();
+        const projectId = String(id || "").trim();
+        if (!projectId || !["doc", "heading"].includes(projectKind)) return "";
+        return `${projectKind}:${projectId}`;
+    }
+
+    function isHomepageProjectCompleted(kind, id) {
+        const key = getHomepageProjectStatusKey(kind, id);
+        return !!key && getHomepageSettingsData().completedProjects[key] === true;
+    }
+
+    function setHomepageProjectCompleted(kind, id, completed) {
+        const key = getHomepageProjectStatusKey(kind, id);
+        if (!key) return false;
+        const next = { ...getHomepageSettingsData().completedProjects };
+        if (completed === true) next[key] = true;
+        else delete next[key];
+        const saved = saveHomepageSettings({
+            ...getHomepageSettingsData(),
+            completedProjects: next,
+        });
+        return saved.completedProjects[key] === true;
     }
 
     function getHomepageSettingsData() {
@@ -144,7 +191,12 @@
     }
 
     function resetHomepageModuleOrder() {
-        return saveHomepageSettings(null).moduleOrder;
+        return saveHomepageSettings({
+            ...getHomepageSettingsData(),
+            moduleOrder: HOMEPAGE_DEFAULT_MODULE_ORDER,
+            moduleLayout: normalizeHomepageModuleLayout(null),
+            moduleCollapsed: {},
+        }).moduleOrder;
     }
 
     function moveHomepageModule(moduleId, delta) {
@@ -3307,6 +3359,41 @@
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--tm-doc-color, var(--tm-home-accent)) 22%, transparent);
 }
 
+.tm-home-project-card.is-completed::after {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    top: 50%;
+    right: -24px;
+    width: 92px;
+    height: 92px;
+    border: 8px solid color-mix(in srgb, var(--tm-home-success) 64%, transparent);
+    border-radius: 50%;
+    opacity: .24;
+    pointer-events: none;
+    transform: translateY(-50%) rotate(-20deg);
+}
+
+.tm-home-project-card.is-completed::before {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    top: 50%;
+    right: 10px;
+    width: 25px;
+    height: 48px;
+    border-right: 8px solid color-mix(in srgb, var(--tm-home-success) 72%, transparent);
+    border-bottom: 8px solid color-mix(in srgb, var(--tm-home-success) 72%, transparent);
+    opacity: .3;
+    pointer-events: none;
+    transform: translateY(-58%) rotate(35deg);
+}
+
+.tm-home-project-card.is-completed > * {
+    position: relative;
+    z-index: 1;
+}
+
 .tm-home-project-top {
     display: flex;
     align-items: center;
@@ -3360,6 +3447,16 @@
     background: var(--tm-home-danger-soft);
 }
 
+.tm-home-project-completed {
+    flex-shrink: 0;
+    padding: 1px 7px;
+    border-radius: 4px;
+    color: var(--tm-home-success);
+    background: var(--tm-home-success-soft);
+    font-size: 10px;
+    font-weight: 600;
+}
+
 .tm-home-project-cal {
     display: inline-flex;
     align-items: center;
@@ -3409,6 +3506,10 @@
 
 .tm-home-project-stats .n.is-done {
     color: var(--tm-home-success);
+}
+
+.tm-home-project-stats .n.is-overdue {
+    color: var(--tm-home-danger);
 }
 
 .tm-home-project-stats .range {
@@ -3477,6 +3578,45 @@
 
 .tm-home-project-progress-meta .delta.is-ahead {
     color: var(--tm-home-success);
+}
+
+.tm-home-project-top .days-remaining {
+    padding: 1px 7px;
+    border-radius: 4px;
+    color: var(--tm-home-accent);
+    background: var(--tm-home-accent-soft);
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.tm-home-project-context-menu {
+    position: fixed;
+    z-index: 10001;
+    min-width: 156px;
+    padding: 4px;
+    border: 1px solid var(--b3-border-color, var(--tm-border-color));
+    border-radius: 8px;
+    background: var(--b3-theme-surface, var(--card, var(--tm-card-bg)));
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .18);
+    color: var(--b3-theme-on-surface, var(--tm-text-color));
+}
+
+.tm-home-project-context-menu button {
+    display: block;
+    width: 100%;
+    padding: 7px 9px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.tm-home-project-context-menu button:hover {
+    background: var(--b3-theme-hover, var(--tm-hover-bg));
 }
 
 .tm-home-projects-noh2-hint {
@@ -5924,10 +6064,35 @@
         return Math.max(0, Math.min(100, Math.round(num)));
     }
 
-    function renderProjectProgressHtml(entity) {
+    function getProjectRemainingDays(entity, todayKey) {
+        const deadline = normalizeDateKey(entity?.deadline);
+        if (!deadline) return null;
+        const today = normalizeDateKey(todayKey) || formatDateKey(new Date());
+        if (!today) return null;
+        return dayDiff(today, deadline);
+    }
+
+    function isProjectCardCompleted(entity, manuallyCompleted = false) {
+        const progress = Math.max(0, Math.min(100, Math.round(toNumber(entity?.progress, 0))));
+        return manuallyCompleted === true || progress >= 100;
+    }
+
+    function renderProjectTimingStatusHtml(entity, todayKey, isCompleted = false) {
+        if (isProjectCardCompleted(entity, isCompleted)) {
+            return `<span class="tm-home-project-completed">已完成</span>`;
+        }
+        const remainingDays = getProjectRemainingDays(entity, todayKey);
+        if (remainingDays == null) return "";
+        if (remainingDays < 0) {
+            return `<span class="tm-home-project-risk">逾期${Math.abs(remainingDays)}天</span>`;
+        }
+        return `<span class="days-remaining">剩余${remainingDays}天</span>`;
+    }
+
+    function renderProjectProgressHtml(entity, isCompleted = false) {
         const progress = Math.max(0, Math.min(100, Math.round(toNumber(entity?.progress, 0))));
         const expected = normalizeProjectExpected(entity?.expected);
-        const delta = expected != null ? progress - expected : null;
+        const delta = isProjectCardCompleted(entity, isCompleted) || expected == null ? null : progress - expected;
         const deltaHtml = delta == null ? ""
             : delta >= 0
                 ? `<span class="delta is-ahead">超前 ${delta}%</span>`
@@ -5943,64 +6108,68 @@
             </div>`;
     }
 
-    function renderProjectStatsHtml(entity, overdueDays) {
+    function renderProjectStatsHtml(entity, overdueDays, overdueTasks = 0, isCompleted = false) {
         const range = formatProjectDateRange(entity);
         const doing = Math.max(0, Math.round(toNumber(entity?.doing, 0)));
+        const overdue = isProjectCardCompleted(entity, isCompleted) ? 0 : Math.max(0, Math.round(toNumber(overdueTasks, 0)));
         return `
             <div class="tm-home-project-stats">
                 <span><span class="n">${toNumber(entity?.total, 0)}</span> 任务</span>
                 <span><span class="n is-done">${toNumber(entity?.done, 0)}</span> 完成</span>
+                ${overdue > 0 ? `<span><span class="n is-overdue">${overdue}</span> 逾期</span>` : ""}
                 ${doing > 0 ? `<span><span class="n">${doing}</span> 进行中</span>` : ""}
                 ${range
-                    ? `<span class="range ${overdueDays > 0 ? "is-urgent" : ""}">${esc(range)}</span>`
+                    ? `<span class="range ${overdueDays > 0 && !isProjectCardCompleted(entity, isCompleted) ? "is-urgent" : ""}">${esc(range)}</span>`
                     : `<span class="range is-none">未设置时间</span>`}
             </div>`;
     }
 
-    function renderProjectDocCard(card) {
+    function renderProjectDocCard(card, todayKey) {
         if (!card || !card.id) return "";
         const overdueDays = Math.max(0, Math.round(toNumber(card.overdueDays, 0)));
-        const riskHtml = overdueDays > 0 ? `<span class="tm-home-project-risk">逾期 ${overdueDays} 天</span>` : "";
+        const isCompleted = isProjectCardCompleted(card, isHomepageProjectCompleted("doc", card.id));
         const range = formatProjectDateRange(card);
         const color = String(card.color || "").trim();
         return `
-        <div class="tm-home-project-card ${card.active ? "is-active" : ""}"
+        <div class="tm-home-project-card ${card.active ? "is-active" : ""} ${isCompleted ? "is-completed" : ""}"
              ${color ? `style="--tm-doc-color:${esc(color)}"` : ""}
              data-tm-home-project-doc="${esc(card.id)}"
+             data-tm-home-project-kind="doc"
+             data-tm-home-project-id="${esc(card.id)}"
              title="点击切换：查看「${esc(card.name)}」按二级标题的进度">
             <div class="tm-home-project-top">
                 <span class="tm-home-project-dot"></span>
                 <span class="tm-home-project-name">${esc(card.name)}</span>
-                ${riskHtml}
+                ${renderProjectTimingStatusHtml(card, todayKey, isCompleted)}
                 ${renderProjectCalButton("doc", card.id, card.name, !!range, range ? `设置文档日期（${range}）` : "设置文档开始/截止日期")}
             </div>
-            ${renderProjectStatsHtml(card, overdueDays)}
-            ${renderProjectProgressHtml(card)}
+            ${renderProjectStatsHtml(card, overdueDays, card.overdue, isCompleted)}
+            ${renderProjectProgressHtml(card, isCompleted)}
         </div>`;
     }
 
-    function renderProjectH2Card(h, doc) {
+    function renderProjectH2Card(h, doc, todayKey) {
         if (!h) return "";
         const titlePresentation = getTaskTitlePresentation(h.name, "(空标题)");
         const overdueDays = Math.max(0, Math.round(toNumber(h.overdueDays, 0)));
         const overdueTasks = Math.max(0, Math.round(toNumber(h.overdue, 0)));
-        const riskHtml = overdueTasks > 0
-            ? `<span class="tm-home-project-risk">逾期 ${overdueTasks}</span>`
-            : overdueDays > 0 ? `<span class="tm-home-project-risk">已逾期</span>` : "";
+        const projectId = String(h.h2Id || (h.key === "no-h2" && doc?.id ? `no-h2:${doc.id}` : "")).trim();
+        const isCompleted = isProjectCardCompleted(h, isHomepageProjectCompleted("heading", projectId));
         const range = formatProjectDateRange(h);
         const color = String(doc?.color || "").trim();
         return `
-        <div class="tm-home-project-card tm-home-project-card--h2"
+        <div class="tm-home-project-card tm-home-project-card--h2 ${isCompleted ? "is-completed" : ""}"
              ${color ? `style="--tm-doc-color:${esc(color)}"` : ""}
+             ${projectId ? `data-tm-home-project-kind="heading" data-tm-home-project-id="${esc(projectId)}"` : ""}
              title="「${esc(doc?.name || "")}」/ ${esc(titlePresentation.text)}">
             <div class="tm-home-project-top">
                 <span class="tm-home-project-h2-index">${toNumber(h.index, 0) + 1}</span>
                 <span class="tm-home-project-name">${titlePresentation.html}</span>
-                ${riskHtml}
+                ${renderProjectTimingStatusHtml(h, todayKey, isCompleted)}
                 ${renderProjectCalButton("heading", h.h2Id, titlePresentation.text, !!range, range ? `设置标题日期（${range}）` : "设置该二级标题的开始/截止日期")}
             </div>
-            ${renderProjectStatsHtml(h, overdueDays)}
-            ${renderProjectProgressHtml(h)}
+            ${renderProjectStatsHtml(h, overdueDays, overdueTasks, isCompleted)}
+            ${renderProjectProgressHtml(h, isCompleted)}
         </div>`;
     }
 
@@ -6021,20 +6190,24 @@
         </div>`;
     }
 
-    function renderProjectsSection(section) {
+    function renderProjectsSection(section, todayKey) {
         const cards = Array.isArray(section?.cards) ? section.cards : [];
         const agg = section?.agg && typeof section.agg === "object" ? section.agg : {};
-        const overdueDocs = Math.max(0, Math.round(toNumber(agg.overdueDocs, 0)));
+        const overdueDocs = cards.filter((card) => {
+            const id = String(card?.id || "").trim();
+            return Math.max(0, Math.round(toNumber(card?.overdueDays, 0))) > 0
+                && !isProjectCardCompleted(card, isHomepageProjectCompleted("doc", id));
+        }).length;
         const aggHtml = `${cards.length} 个文档 · ${toNumber(agg.total, 0)} 任务 / ${toNumber(agg.done, 0)} 完成`
             + (overdueDocs ? ` · <span class="is-overdue">${overdueDocs} 个逾期</span>` : "");
         return `
         <div class="tm-home-projects-section">
             ${renderProjectsSectionHead(section?.label || "未分组", section?.color, aggHtml, agg.pct, null)}
-            <div class="tm-home-projects-grid">${cards.map((card) => renderProjectDocCard(card)).join("")}</div>
+            <div class="tm-home-projects-grid">${cards.map((card) => renderProjectDocCard(card, todayKey)).join("")}</div>
         </div>`;
     }
 
-    function renderProjectsDocScope(projects) {
+    function renderProjectsDocScope(projects, todayKey) {
         const doc = projects.doc;
         const expected = normalizeProjectExpected(doc.expected);
         const delta = expected != null ? Math.round(toNumber(doc.progress, 0)) - expected : null;
@@ -6045,13 +6218,13 @@
         const h2Cards = Array.isArray(projects.h2Cards) ? projects.h2Cards : [];
         let inner;
         if (h2Cards.length) {
-            const cardsHtml = h2Cards.map((h) => renderProjectH2Card(h, doc)).join("")
-                + (projects.noH2Card ? renderProjectH2Card(projects.noH2Card, doc) : "");
+            const cardsHtml = h2Cards.map((h) => renderProjectH2Card(h, doc, todayKey)).join("")
+                + (projects.noH2Card ? renderProjectH2Card(projects.noH2Card, doc, todayKey) : "");
             inner = `<div class="tm-home-projects-grid">${cardsHtml}</div>`;
         } else {
             inner = `
             <div class="tm-home-projects-noh2-hint">该文档没有二级标题，显示文档整体进度</div>
-            <div class="tm-home-projects-grid">${renderProjectDocCard(doc)}</div>`;
+            <div class="tm-home-projects-grid">${renderProjectDocCard(doc, todayKey)}</div>`;
         }
         return `
         <div class="tm-home-projects-section">
@@ -6063,6 +6236,7 @@
     function renderProjectsModule(ctx) {
         const projects = ctx?.projects;
         if (!projects || typeof projects !== "object" || projects.scope === "unsupported") return "";
+        const todayKey = ctx?.todayKey;
         const descByScope = {
             all: "全部范围 · 按页签分组归组 · 刻度线为预期进度 · 点击卡片切换到对应文档",
             group: "当前分组 · 只显示该分组下的文档 · 点击卡片切换到对应文档",
@@ -6073,14 +6247,14 @@
         let totalTasks = 0;
         let doneTasks = 0;
         if (projects.scope === "doc" && projects.doc) {
-            body = renderProjectsDocScope(projects);
+            body = renderProjectsDocScope(projects, todayKey);
             totalTasks = toNumber(projects.doc.total, 0);
             doneTasks = toNumber(projects.doc.done, 0);
         } else {
             const sections = (Array.isArray(projects.sections) ? projects.sections : [])
                 .filter((section) => Array.isArray(section?.cards) && section.cards.length);
             body = sections.length
-                ? sections.map((section) => renderProjectsSection(section)).join("")
+                ? sections.map((section) => renderProjectsSection(section, todayKey)).join("")
                 : `<div class="tm-home-projects-empty">当前范围没有可展示的文档</div>`;
             sections.forEach((section) => {
                 totalTasks += toNumber(section?.agg?.total, 0);
@@ -6260,8 +6434,98 @@
         return true;
     }
 
+    function closeHomepageProjectContextMenu() {
+        try { document.getElementById("tm-home-project-context-menu")?.remove?.(); } catch (e) {}
+        if (runtime.projectContextMenuOutsideHandler) {
+            try { document.removeEventListener("pointerdown", runtime.projectContextMenuOutsideHandler, true); } catch (e) {}
+            runtime.projectContextMenuOutsideHandler = null;
+        }
+        if (runtime.projectContextMenuKeyHandler) {
+            try { document.removeEventListener("keydown", runtime.projectContextMenuKeyHandler, true); } catch (e) {}
+            runtime.projectContextMenuKeyHandler = null;
+        }
+    }
+
+    function clearHomepageProjectLongPress(clearSuppression = false) {
+        if (runtime.projectLongPressTimer) {
+            try { clearTimeout(runtime.projectLongPressTimer); } catch (e) {}
+            runtime.projectLongPressTimer = 0;
+        }
+        runtime.projectLongPressPointerId = null;
+        runtime.projectLongPressCard = null;
+        runtime.projectLongPressPoint = null;
+        if (clearSuppression) runtime.projectLongPressSuppressClick = null;
+    }
+
+    function openHomepageProjectContextMenu(event, kind, id) {
+        const projectKind = String(kind || "").trim();
+        const projectId = String(id || "").trim();
+        if (!getHomepageProjectStatusKey(projectKind, projectId)) return false;
+        closeHomepageProjectContextMenu();
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+
+        const isCompleted = isHomepageProjectCompleted(projectKind, projectId);
+        const menu = document.createElement("div");
+        menu.id = "tm-home-project-context-menu";
+        menu.className = "tm-home-project-context-menu";
+        menu.setAttribute("role", "menu");
+        const item = document.createElement("button");
+        item.type = "button";
+        item.setAttribute("role", "menuitem");
+        item.textContent = isCompleted ? "取消已完成标记" : "标记卡片已完成";
+        item.addEventListener("click", (clickEvent) => {
+            try { clickEvent.preventDefault(); clickEvent.stopPropagation(); } catch (e) {}
+            setHomepageProjectCompleted(projectKind, projectId, !isCompleted);
+            closeHomepageProjectContextMenu();
+            doRender();
+        });
+        menu.appendChild(item);
+        menu.style.left = `${Math.max(8, Number(event?.clientX) || 0)}px`;
+        menu.style.top = `${Math.max(8, Number(event?.clientY) || 0)}px`;
+        document.body.appendChild(menu);
+
+        try {
+            const rect = menu.getBoundingClientRect();
+            const viewportWidth = Math.max(0, window.innerWidth || document.documentElement?.clientWidth || 0);
+            const viewportHeight = Math.max(0, window.innerHeight || document.documentElement?.clientHeight || 0);
+            menu.style.left = `${Math.round(Math.max(8, Math.min(Number(event?.clientX) || 0, viewportWidth - rect.width - 8)))}px`;
+            menu.style.top = `${Math.round(Math.max(8, Math.min(Number(event?.clientY) || 0, viewportHeight - rect.height - 8)))}px`;
+        } catch (e) {}
+
+        runtime.projectContextMenuOutsideHandler = (outsideEvent) => {
+            const target = outsideEvent?.target instanceof Element ? outsideEvent.target : null;
+            if (target && menu.contains(target)) return;
+            closeHomepageProjectContextMenu();
+        };
+        runtime.projectContextMenuKeyHandler = (keyEvent) => {
+            if (keyEvent?.key !== "Escape") return;
+            closeHomepageProjectContextMenu();
+        };
+        document.addEventListener("pointerdown", runtime.projectContextMenuOutsideHandler, true);
+        document.addEventListener("keydown", runtime.projectContextMenuKeyHandler, true);
+        try { item.focus({ preventScroll: true }); } catch (e) {}
+        return true;
+    }
+
     function bindInteractions() {
         if (!(runtime.root instanceof HTMLElement)) return;
+        if (runtime.projectContextMenuHandler) {
+            try { runtime.root.removeEventListener("contextmenu", runtime.projectContextMenuHandler); } catch (e) {}
+        }
+        if (runtime.projectPointerDownHandler) {
+            try { runtime.root.removeEventListener("pointerdown", runtime.projectPointerDownHandler); } catch (e) {}
+        }
+        if (runtime.projectPointerMoveHandler) {
+            try { runtime.root.removeEventListener("pointermove", runtime.projectPointerMoveHandler); } catch (e) {}
+        }
+        if (runtime.projectPointerUpHandler) {
+            try { runtime.root.removeEventListener("pointerup", runtime.projectPointerUpHandler); } catch (e) {}
+            try { runtime.root.removeEventListener("pointercancel", runtime.projectPointerUpHandler); } catch (e) {}
+            try { runtime.root.removeEventListener("pointerleave", runtime.projectPointerUpHandler); } catch (e) {}
+        }
+        clearHomepageProjectLongPress(true);
+        closeHomepageProjectContextMenu();
         if (runtime.clickHandler) {
             try { runtime.root.removeEventListener("click", runtime.clickHandler); } catch (e) {}
         }
@@ -6270,6 +6534,19 @@
         }
         runtime.clickHandler = (event) => {
             const source = event?.target instanceof Element ? event.target : null;
+            const longPressSuppression = runtime.projectLongPressSuppressClick;
+            if (longPressSuppression) {
+                if (Date.now() > Number(longPressSuppression.expiresAt || 0)) {
+                    runtime.projectLongPressSuppressClick = null;
+                } else {
+                    const clickedProjectCard = source?.closest?.(".tm-home-project-card[data-tm-home-project-kind][data-tm-home-project-id]");
+                    if (clickedProjectCard && clickedProjectCard === longPressSuppression.card) {
+                        try { event.preventDefault?.(); event.stopPropagation?.(); } catch (e) {}
+                        runtime.projectLongPressSuppressClick = null;
+                        return;
+                    }
+                }
+            }
             if (source && runtime.focusTaskPopoverOpen === true && !source.closest(".tm-homepage-focus-task-popover,[data-tm-home-focus-calendar-date]")) {
                 runtime.focusTaskPopoverOpen = false;
                 updateFocusSlot();
@@ -6491,6 +6768,77 @@
             if (taskId && typeof runtime.ctx?.onOpenTask === "function") runtime.ctx.onOpenTask(taskId);
         };
         runtime.root.addEventListener("click", runtime.clickHandler);
+        runtime.projectContextMenuHandler = (event) => {
+            const source = event?.target instanceof Element ? event.target : null;
+            const card = source?.closest?.(".tm-home-project-card[data-tm-home-project-kind][data-tm-home-project-id]");
+            if (!(card instanceof Element)) return;
+            if (runtime.projectLongPressCard === card && runtime.projectLongPressPointerId !== null) {
+                const point = runtime.projectLongPressPoint || { x: event.clientX, y: event.clientY };
+                clearHomepageProjectLongPress(false);
+                runtime.projectLongPressSuppressClick = { card, expiresAt: Date.now() + 1200 };
+                openHomepageProjectContextMenu({
+                    clientX: point.x,
+                    clientY: point.y,
+                    preventDefault: () => event.preventDefault?.(),
+                    stopPropagation: () => event.stopPropagation?.(),
+                }, card.getAttribute("data-tm-home-project-kind"), card.getAttribute("data-tm-home-project-id"));
+                return;
+            }
+            if (runtime.projectLongPressSuppressClick?.card === card
+                && Date.now() <= Number(runtime.projectLongPressSuppressClick.expiresAt || 0)) {
+                try { event.preventDefault?.(); event.stopPropagation?.(); } catch (e) {}
+                return;
+            }
+            openHomepageProjectContextMenu(
+                event,
+                card.getAttribute("data-tm-home-project-kind"),
+                card.getAttribute("data-tm-home-project-id"),
+            );
+        };
+        runtime.root.addEventListener("contextmenu", runtime.projectContextMenuHandler);
+        runtime.projectPointerDownHandler = (event) => {
+            if (event?.pointerType !== "touch") {
+                clearHomepageProjectLongPress(true);
+                return;
+            }
+            if (event?.isPrimary === false) return;
+            const source = event.target instanceof Element ? event.target : null;
+            const card = source?.closest?.(".tm-home-project-card[data-tm-home-project-kind][data-tm-home-project-id]");
+            if (!(card instanceof Element)) return;
+            clearHomepageProjectLongPress(true);
+            const pointerId = event.pointerId;
+            runtime.projectLongPressPointerId = pointerId;
+            runtime.projectLongPressCard = card;
+            runtime.projectLongPressPoint = { x: Number(event.clientX) || 0, y: Number(event.clientY) || 0 };
+            runtime.projectLongPressTimer = setTimeout(() => {
+                if (runtime.projectLongPressPointerId !== pointerId || runtime.projectLongPressCard !== card) return;
+                runtime.projectLongPressTimer = 0;
+                const point = runtime.projectLongPressPoint || { x: 0, y: 0 };
+                runtime.projectLongPressSuppressClick = { card, expiresAt: Date.now() + 1200 };
+                openHomepageProjectContextMenu({ ...point, preventDefault() {}, stopPropagation() {} },
+                    card.getAttribute("data-tm-home-project-kind"), card.getAttribute("data-tm-home-project-id"));
+            }, 520);
+        };
+        runtime.projectPointerMoveHandler = (event) => {
+            if (runtime.projectLongPressTimer <= 0 || event?.pointerId !== runtime.projectLongPressPointerId) return;
+            const point = runtime.projectLongPressPoint || { x: 0, y: 0 };
+            const x = Number(event.clientX) || 0;
+            const y = Number(event.clientY) || 0;
+            if (Math.hypot(x - point.x, y - point.y) > 12) {
+                clearHomepageProjectLongPress(true);
+                return;
+            }
+            runtime.projectLongPressPoint = { x, y };
+        };
+        runtime.projectPointerUpHandler = (event) => {
+            if (runtime.projectLongPressPointerId === null || event?.pointerId !== runtime.projectLongPressPointerId) return;
+            clearHomepageProjectLongPress(false);
+        };
+        runtime.root.addEventListener("pointerdown", runtime.projectPointerDownHandler);
+        runtime.root.addEventListener("pointermove", runtime.projectPointerMoveHandler);
+        runtime.root.addEventListener("pointerup", runtime.projectPointerUpHandler);
+        runtime.root.addEventListener("pointercancel", runtime.projectPointerUpHandler);
+        runtime.root.addEventListener("pointerleave", runtime.projectPointerUpHandler);
         runtime.documentClickHandler = (event) => {
             if (!(runtime.root instanceof HTMLElement)) return;
             const source = event?.target instanceof Element ? event.target : null;
@@ -6550,6 +6898,8 @@
     }
 
     function unmount() {
+        closeHomepageProjectContextMenu();
+        clearHomepageProjectLongPress(true);
         if (runtime.resizeRaf) {
             try { cancelAnimationFrame(runtime.resizeRaf); } catch (e) {}
             runtime.resizeRaf = 0;
@@ -6587,7 +6937,25 @@
         if (runtime.root instanceof HTMLElement && runtime.clickHandler) {
             try { runtime.root.removeEventListener("click", runtime.clickHandler); } catch (e) {}
         }
+        if (runtime.root instanceof HTMLElement && runtime.projectContextMenuHandler) {
+            try { runtime.root.removeEventListener("contextmenu", runtime.projectContextMenuHandler); } catch (e) {}
+        }
+        if (runtime.root instanceof HTMLElement && runtime.projectPointerDownHandler) {
+            try { runtime.root.removeEventListener("pointerdown", runtime.projectPointerDownHandler); } catch (e) {}
+        }
+        if (runtime.root instanceof HTMLElement && runtime.projectPointerMoveHandler) {
+            try { runtime.root.removeEventListener("pointermove", runtime.projectPointerMoveHandler); } catch (e) {}
+        }
+        if (runtime.root instanceof HTMLElement && runtime.projectPointerUpHandler) {
+            try { runtime.root.removeEventListener("pointerup", runtime.projectPointerUpHandler); } catch (e) {}
+            try { runtime.root.removeEventListener("pointercancel", runtime.projectPointerUpHandler); } catch (e) {}
+            try { runtime.root.removeEventListener("pointerleave", runtime.projectPointerUpHandler); } catch (e) {}
+        }
         runtime.clickHandler = null;
+        runtime.projectContextMenuHandler = null;
+        runtime.projectPointerDownHandler = null;
+        runtime.projectPointerMoveHandler = null;
+        runtime.projectPointerUpHandler = null;
         if (runtime.documentClickHandler) {
             try { document.removeEventListener("click", runtime.documentClickHandler); } catch (e) {}
         }

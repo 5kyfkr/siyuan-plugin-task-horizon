@@ -367,7 +367,7 @@
         'updateChecklistCompactRightFontSize', 'updateDurationFormat', 'updateTomatoSpentAttrMode',
         'tmUpdateAiExperienceMode', 'tmUpdateAiProvider', 'tmUpdateAiDefaultContextMode',
         'tmAgentPolicySetDeadlinePriority', 'tmAgentPolicyUpdateOccupancy', 'tmSetPriorityDurationUnit',
-        'tmScheduledUpdateDraft', 'tmScheduledChangeScheduleKind', 'updateConditionOperator',
+        'tmScheduledUpdateDraft', 'tmScheduledChangeScheduleKind',
         'updateConditionJoin', 'updateConditionMatchMode', 'updateSortOrder',
     ]);
     const TM_SETTINGS_CALENDAR_CHOICES = new Set([
@@ -573,7 +573,7 @@
     function __tmBindSettingsInstantInputs(root) {
         if (root.__tmInstantInputsBound) return;
         root.__tmInstantInputsBound = true;
-        root.addEventListener('input', (event) => {
+        const queueInput = (event) => {
             const input = event.target;
             if (event.isComposing || !input.matches?.('input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),textarea')) return;
             if (!input.matches('[onchange],[data-tm-call],[data-tm-change]') || input.hasAttribute('oninput')) return;
@@ -584,7 +584,9 @@
                 if (!input.checkValidity()) { input.reportValidity(); return; }
                 input.dispatchEvent(new Event('change', { bubbles: true }));
             }, 450));
-        });
+        };
+        root.addEventListener('input', queueInput);
+        root.addEventListener('compositionend', queueInput);
         root.addEventListener('change', (event) => {
             clearTimeout(__tmSettingsInputTimers.get(event.target));
             __tmSettingsInputTimers.delete(event.target);
@@ -727,14 +729,18 @@
             if (fields.find((field) => field.value === condition.field)?.type === 'boolean' && (condition.value == null || condition.value === '')) condition.value = 'true';
         });
         const previous = state.filterRules;
+        const previousRule = previous.find((item) => item.id === rule.id);
         const rules = previous.map((item) => item.id === rule.id ? rule : item);
         if (!rules.some((item) => item.id === rule.id)) rules.push(rule);
         try { await RuleManager.saveRules(rules); }
         catch (error) { SettingsStore.data.filterRules = previous; throw error; }
         state.filterRules = rules;
+        __tmRefreshRuleTopbarSelectsInPlace();
         if (state.currentRule === rule.id) {
             state.__tmQueryDoneOnly = !!rule.conditions?.some((c) => c.field === 'done' && c.operator === '=' && (c.value === true || c.value === 'true'));
-            __tmScheduleRender({ withFilters: true });
+            if (!previousRule || ['conditions', 'sort', 'enabled'].some((key) => JSON.stringify(previousRule[key]) !== JSON.stringify(rule[key]))) {
+                __tmScheduleRender({ withFilters: true });
+            }
         }
     }
     async function __tmPersistScheduledSetting(draft) {

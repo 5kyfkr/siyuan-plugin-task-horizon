@@ -133,12 +133,98 @@ vm.runInContext(sliceBetween(
     'shared title presentation bridge',
 ), context);
 vm.runInContext(homepageSource.replace('    globalThis.__tmHomepage = {', `
-    globalThis.__homepageProjectTitleTest = { renderProjectH2Card, renderProjectsDocScope };
+    globalThis.__homepageProjectTitleTest = {
+        renderProjectH2Card,
+        renderProjectDocCard,
+        renderProjectsDocScope,
+        renderProjectTimingStatusHtml,
+        renderProjectProgressHtml,
+        renderProjectsSection,
+        isProjectCardCompleted,
+        setHomepageProjectCompleted,
+        isHomepageProjectCompleted,
+    };
     globalThis.__tmHomepage = {`), context);
-const { renderProjectH2Card, renderProjectsDocScope } = context.__homepageProjectTitleTest;
+const {
+    renderProjectH2Card,
+    renderProjectDocCard,
+    renderProjectsDocScope,
+    renderProjectTimingStatusHtml,
+    renderProjectProgressHtml,
+    renderProjectsSection,
+    isProjectCardCompleted,
+    setHomepageProjectCompleted,
+    isHomepageProjectCompleted,
+} = context.__homepageProjectTitleTest;
+const savedHomepageSettings = [];
+context.__tmHost = {
+    saveData(key, value) {
+        savedHomepageSettings.push({ key, value });
+        return Promise.resolve();
+    },
+};
 const projectDoc = { id: 'doc-id', name: '示例文档', total: 17, done: 16, progress: 94 };
 const projectHeading = { h2Id: 'heading-id', index: 13, total: 17, done: 16, progress: 94 };
 const blockRefId = '20260820102422-qeltiuw';
+assert.match(renderProjectTimingStatusHtml({ progress: 40, deadline: '2026-10-05' }, '2026-10-08'), /逾期3天/,
+    'project deadline status must show the number of overdue days');
+assert.match(renderProjectTimingStatusHtml({ progress: 40, deadline: '2026-10-10' }, '2026-10-08'), /剩余2天/,
+    'project deadline status must show the number of remaining days');
+assert.match(renderProjectTimingStatusHtml({ progress: 40, deadline: '2026-10-05' }, '2026-10-08', true), /已完成/,
+    'a manually completed project must replace deadline warnings');
+assert.equal(isProjectCardCompleted({ progress: 100 }), true,
+    'an unmarked project must become complete automatically when all tasks are complete');
+assert.match(renderProjectTimingStatusHtml({ progress: 100, deadline: '2026-10-05' }, '2026-10-08'), /已完成/,
+    'an automatically completed project must replace deadline warnings');
+assert.match(renderProjectProgressHtml({ progress: 40, expected: 70 }), /落后 30%/,
+    'active cards must keep showing their schedule delta');
+assert.doesNotMatch(renderProjectProgressHtml({ progress: 40, expected: 70 }, true), /落后|超前/,
+    'completed cards must hide ahead/behind percentages');
+setHomepageProjectCompleted('doc', 'doc-id', true);
+assert.equal(isHomepageProjectCompleted('doc', 'doc-id'), true);
+assert.equal(savedHomepageSettings.at(-1)?.key, 'homepage-settings.json');
+assert.equal(savedHomepageSettings.at(-1)?.value?.completedProjects?.['doc:doc-id'], true,
+    'manual project completion must persist with homepage settings');
+const completedDocCardHtml = renderProjectDocCard({ id: 'doc-id', name: '已完成文档', progress: 40 }, '2026-10-08');
+assert.match(completedDocCardHtml, /tm-home-project-card[^\"]*is-completed/,
+    'manually completed document cards must receive the stamp watermark state');
+const autoCompletedDocCardHtml = renderProjectDocCard({ id: 'auto-doc-id', name: '自动完成文档', progress: 100 }, '2026-10-08');
+assert.match(autoCompletedDocCardHtml, /tm-home-project-card[^\"]*is-completed/,
+    'document cards at 100 percent must receive the stamp watermark automatically');
+const sectionHtml = renderProjectsSection({
+    label: '项目组',
+    cards: [
+        { id: 'doc-id', name: '已完成文档', overdueDays: 5, progress: 40 },
+        { id: 'auto-doc-id', name: '自动完成文档', overdueDays: 4, progress: 100 },
+        { id: 'other-doc-id', name: '逾期文档', overdueDays: 3, progress: 50 },
+    ],
+    agg: { overdueDocs: 3, total: 10, done: 4, pct: 40 },
+});
+assert.ok(sectionHtml.includes('1 个逾期'),
+    'project groups must exclude manually completed documents from the overdue count');
+setHomepageProjectCompleted('doc', 'doc-id', false);
+assert.equal(isHomepageProjectCompleted('doc', 'doc-id'), false, 'the context action must allow clearing completion');
+assert.match(homepageSource, /\.tm-home-project-risk\s*\{[^}]*font-size:\s*10px/s);
+assert.match(homepageSource, /\.tm-home-project-top \.days-remaining\s*\{[^}]*font-size:\s*10px/s,
+    'remaining and overdue status badges must use the same font size');
+const completedStampCss = homepageSource.match(/\.tm-home-project-card\.is-completed::after\s*\{([^}]*)\}/s)?.[1] || '';
+assert.match(completedStampCss, /content:\s*""/);
+assert.doesNotMatch(completedStampCss, /已完成|\\A|✓/, 'the stamp must not contain a text label or glyph checkmark');
+assert.match(completedStampCss, /right:\s*-24px[\s\S]*width:\s*92px[\s\S]*height:\s*92px[\s\S]*border:\s*8px solid[\s\S]*transform:\s*translateY\(-50%\) rotate\(-20deg\)/,
+    'the stamp must have one thick solid outer ring and a subtle counterclockwise rotation');
+assert.doesNotMatch(completedStampCss, /box-shadow/,
+    'the stamp must not draw an inner ring');
+const completedStampTickCss = homepageSource.match(/\.tm-home-project-card\.is-completed::before\s*\{([^}]*)\}/s)?.[1] || '';
+assert.match(completedStampTickCss, /top:\s*50%[\s\S]*right:\s*10px[\s\S]*width:\s*25px[\s\S]*height:\s*48px[\s\S]*border-right:\s*8px solid[\s\S]*border-bottom:\s*8px solid[\s\S]*translateY\(-58%\) rotate\(35deg\)/,
+    'the thick straight-line checkmark must use a clockwise 35 degree rotation');
+assert.match(homepageSource, /runtime\.projectPointerDownHandler\s*=\s*\(event\)\s*=>\s*\{[\s\S]*event\?\.pointerType\s*!==\s*"touch"/,
+    'project cards must support a touch-only long-press gesture');
+assert.match(homepageSource, /Math\.hypot\(x - point\.x, y - point\.y\) > 12/,
+    'moving a finger to scroll must cancel the pending long-press');
+assert.match(homepageSource, /\}, 520\);/,
+    'holding a project card must open its context menu after a short delay');
+assert.match(homepageSource, /runtime\.projectLongPressSuppressClick\s*=\s*\{ card, expiresAt:/,
+    'the click following a long-press must not activate the underlying project card');
 for (const quote of ['"', "'"]) {
     const name = `((${blockRefId} ${quote}项目计划${quote}))`;
     const html = renderProjectsDocScope({ doc: projectDoc, h2Cards: [{ ...projectHeading, name }] });
