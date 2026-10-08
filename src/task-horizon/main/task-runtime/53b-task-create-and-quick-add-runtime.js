@@ -1018,21 +1018,15 @@
             const type = String(field?.type || '').trim();
             return field?.enabled !== false
                 && __tmIsCustomFieldApplicableToDoc(field, targetDocId)
-                && type !== 'text'
-                && Array.isArray(field?.options)
-                && field.options.some((option) => String(option?.id || '').trim());
+                && (type === 'text' || (Array.isArray(field?.options)
+                    && field.options.some((option) => String(option?.id || '').trim())));
         });
-        if (!defs.length) return [];
-        const order = Array.isArray(SettingsStore?.data?.columnOrder)
+        // Follow the existing column visibility and document/group scope settings.
+        const order = Array.isArray(SettingsStore.data.columnOrder)
             ? SettingsStore.data.columnOrder
             : __tmGetDefaultColumnOrder();
-        const visibleKeys = new Set(
-            (Array.isArray(order) ? order : [])
-                .map((key) => String(key || '').trim())
-                .filter(Boolean)
-        );
-        if (!visibleKeys.size) return [];
-        return defs.filter((field) => visibleKeys.has(__tmBuildCustomFieldColumnKey(field?.id)));
+        const visibleKeys = new Set(order.map(key => String(key || '').trim()));
+        return defs.filter(field => visibleKeys.has(__tmBuildCustomFieldColumnKey(field.id)));
     }
 
     async function __tmRefreshQuickAddCustomFieldScope(docId = '') {
@@ -1047,7 +1041,7 @@
     function __tmNormalizeQuickAddCustomFieldValues(input) {
         const fields = __tmGetQuickAddVisibleOptionCustomFieldDefs();
         if (typeof __tmNormalizeCreateTaskCustomFieldValues === 'function') {
-            return __tmNormalizeCreateTaskCustomFieldValues(input, { customFieldDefs: fields });
+            return __tmNormalizeCreateTaskCustomFieldValues(input, { customFieldDefs: fields, includeText: true });
         }
         return {};
     }
@@ -1077,7 +1071,7 @@
             ? __tmNormalizeTaskStatusMarker(requestedStatusOption.marker, __tmGuessStatusOptionDefaultMarker(requestedStatusOption))
             : ' ';
         const customFieldValues = typeof __tmNormalizeCreateTaskCustomFieldValues === 'function'
-            ? __tmNormalizeCreateTaskCustomFieldValues(payload.customFieldValues)
+            ? __tmNormalizeCreateTaskCustomFieldValues(payload.customFieldValues, { includeText: true })
             : {};
         let repeatPatch = null;
         if (payload.repeatRule && typeof payload.repeatRule === 'object' && typeof __tmBuildTaskRepeatRuleMetaPatch === 'function') {
@@ -1103,6 +1097,8 @@
             priority: priority || '',
             duration: '',
             remark: String(payload.remark || ''),
+            ...(Array.isArray(payload.attachments) && payload.attachments.length
+                ? { attachments: __tmNormalizeTaskAttachmentPaths(payload.attachments) } : {}),
             startDate: optimisticStartDate,
             start_date: optimisticStartDate,
             completionTime: optimisticCompletionTime,
@@ -2222,7 +2218,7 @@
         return rolledBack;
     }
 
-    async function __tmCreateTaskInDocKernel({ docId, content, remark, priority, startDate, completionTime, pinned, customStatus, customFieldValues, atTop, appendToBottom, insertParentId, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, requestedTaskId = '', requestedContainerId = '', initialAttrs = null, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null } = {}) {
+    async function __tmCreateTaskInDocKernel({ docId, content, remark, attachments, priority, startDate, completionTime, pinned, customStatus, customFieldValues, atTop, appendToBottom, insertParentId, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, requestedTaskId = '', requestedContainerId = '', initialAttrs = null, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null } = {}) {
         const parentDocId = String(docId || '').trim();
         let targetParentId = String(insertParentId || parentDocId).trim() || parentDocId;
         const text = String(content || '').trim();
@@ -2315,6 +2311,7 @@
         const pr = prMap.hasOwnProperty(pr0) ? prMap[pr0] : pr0;
         if (pr === 'high' || pr === 'medium' || pr === 'low') patch.priority = pr;
         if (remark !== undefined) patch.remark = String(remark || '');
+        if (Array.isArray(attachments) && attachments.length) patch.attachments = __tmNormalizeTaskAttachmentPaths(attachments);
         const sd = String(startDate || '').trim();
         if (sd) patch.startDate = sd;
         const ct = String(completionTime || '').trim();
@@ -2325,7 +2322,7 @@
             if (ok) patch.customStatus = st0;
         }
         const normalizedCustomFieldValues = typeof __tmNormalizeCreateTaskCustomFieldValues === 'function'
-            ? __tmNormalizeCreateTaskCustomFieldValues(customFieldValues)
+            ? __tmNormalizeCreateTaskCustomFieldValues(customFieldValues, { includeText: true })
             : {};
         if (Object.keys(normalizedCustomFieldValues).length) patch.customFieldValues = normalizedCustomFieldValues;
         const headingPatch = {
@@ -2358,6 +2355,7 @@
             priority: patch.priority || '',
             duration: '',
             remark: patch.remark || '',
+            ...(patch.attachments ? { attachments: patch.attachments.slice() } : {}),
             startDate: patch.startDate || '',
             start_date: patch.startDate || '',
             completionTime: patch.completionTime || '',
@@ -3481,6 +3479,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     };
 
     window.tmQuickAddClose = function() {
+        state.quickAddModal?.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
+        if (typeof __tmInlineEditorState !== 'undefined' && state.quickAddModal?.contains(__tmInlineEditorState?.anchorEl)) __tmCloseInlineEditor('quick-add-close');
+        state.__quickAddFieldsUnstack?.();
+        state.__quickAddFieldsUnstack = null;
         state.__quickAddViewportCleanup?.();
         state.__quickAddViewportCleanup = null;
         state.__quickAddDocPickerUnstack?.();
@@ -3496,7 +3498,257 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             state.quickAddDocPicker = null;
         }
         state.quickAdd = null;
+        state.quickAddSubmitting = false;
     };
+
+    // Files stay in memory with their draft until removed or successfully attached.
+    const __tmQuickAddImageDrafts = new Map();
+
+    function __tmGetQuickAddFieldEntries() {
+        const qa = state.quickAdd;
+        if (!qa) return [];
+        return [
+            ...(!qa.relation ? [{ id: 'doc', name: '文档', icon: 'file-text', target: '.tm-quick-add-doc' }] : []),
+            { id: 'date', name: '日期', icon: 'calendar-check', target: '.tm-quick-add-date-wrap' },
+            { id: 'priority', name: '重要性', icon: 'flag', target: '#tmQuickAddPriorityBtn' },
+            { id: 'status', name: '状态', icon: 'check-circle-2', target: '#tmQuickAddStatusBtn' },
+            ...__tmGetQuickAddVisibleOptionCustomFieldDefs().map(field => ({
+                id: `custom:${field.id}`, name: String(field.name || field.id), icon: 'tag', field,
+            })),
+        ];
+    }
+
+    function __tmGetQuickAddDisplayPlatform() {
+        return __tmIsMobileDevice() ? 'mobile' : 'desktop';
+    }
+
+    function __tmIsQuickAddFieldVisible(entry) {
+        const preferences = __tmGetQuickAddDisplayPlatform() === 'mobile'
+            ? SettingsStore.data.quickAddMobileFieldVisibility ?? SettingsStore.data.quickAddFieldVisibility
+            : SettingsStore.data.quickAddFieldVisibility;
+        const visibility = __tmNormalizeQuickAddFieldVisibility(preferences);
+        const key = entry.field ? 'customFields' : entry.id;
+        return visibility[key] !== false;
+    }
+
+    function __tmGetQuickAddFieldValueLabel(entry) {
+        const qa = state.quickAdd || {};
+        if (entry.id === 'doc') return qa.docMode === 'dailyNote' ? '今天日记' : __tmResolveQuickAddDocName(qa.docId);
+        if (entry.id === 'date') return document.getElementById('tmQuickAddDateLabel')?.parentElement?.title || '未设置';
+        if (entry.id === 'priority') return { high: '高', medium: '中', low: '低' }[qa.priority] || '无';
+        if (entry.id === 'status') return (SettingsStore.data.customStatusOptions || []).find(option => option.id === qa.customStatus)?.name || '待办';
+        const value = __tmNormalizeCustomFieldValue(entry.field, qa.customFieldValues?.[entry.field.id]);
+        if (entry.field.type === 'text') return value || '未设置';
+        const values = Array.isArray(value) ? value : value ? [value] : [];
+        return values.map(id => __tmFindCustomFieldOption(entry.field, id)?.name || id).join('、') || '未设置';
+    }
+
+    function __tmApplyQuickAddFieldVisibility() {
+        __tmGetQuickAddFieldEntries().forEach(entry => {
+            if (entry.target) {
+                const target = state.quickAddModal?.querySelector(entry.target);
+                if (target) target.hidden = !__tmIsQuickAddFieldVisible(entry);
+            }
+        });
+        if (document.getElementById('tmQuickAddMoreMenu')) __tmRenderQuickAddMoreMenu();
+    }
+
+    function __tmRenderQuickAddMoreMenu() {
+        const menu = document.getElementById('tmQuickAddMoreMenu');
+        if (!menu || !state.quickAdd) return;
+        const hiddenFields = __tmGetQuickAddFieldEntries().filter(entry => !__tmIsQuickAddFieldVisible(entry));
+        menu.innerHTML = `
+            <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-action="image">${__tmRenderLucideIcon('image')}<span>添加图片</span></button>
+            ${hiddenFields.length ? `<div class="tm-quick-add-menu-fields">${hiddenFields.map(entry => `
+                <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-field="${esc(entry.id)}" aria-label="设置${esc(entry.name)}：${esc(__tmGetQuickAddFieldValueLabel(entry))}">
+                    ${__tmRenderLucideIcon(entry.icon)}<span>${esc(entry.name)}</span><span class="tm-quick-add-menu-value">${esc(__tmGetQuickAddFieldValueLabel(entry))}</span>
+                </button>`).join('')}</div>` : ''}
+            <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-action="fields">${__tmRenderLucideIcon('settings')}<span>显示字段设置</span></button>`;
+    }
+
+    window.tmQuickAddOpenMoreMenu = function(event) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        const qa = state.quickAdd;
+        const anchor = document.getElementById('tmQuickAddMoreBtn');
+        if (!qa || qa.initializing || qa.uploadingImages || !anchor) return;
+        if (document.getElementById('tmQuickAddMoreMenu')) { __tmCloseInlineEditor('quick-add-more-toggle'); return; }
+        __tmOpenInlineEditor(anchor, ({ editor, close, onCleanup }) => {
+            editor.classList.add('tm-quick-add-more-menu');
+            editor.id = 'tmQuickAddMoreMenu';
+            editor.setAttribute('role', 'menu');
+            editor.setAttribute('aria-label', '新建任务更多操作');
+            anchor.setAttribute('aria-expanded', 'true');
+            onCleanup(() => anchor.setAttribute('aria-expanded', 'false'));
+            __tmRenderQuickAddMoreMenu();
+            editor.addEventListener('click', e => {
+                const button = e.target.closest('button');
+                if (!button) return;
+                const id = button.dataset.quickAddField;
+                close();
+                if (button.dataset.quickAddAction === 'image') document.getElementById('tmQuickAddImageInput')?.click();
+                else if (button.dataset.quickAddAction === 'fields') window.tmQuickAddOpenFieldSettings();
+                else if (id === 'doc') window.tmQuickAddOpenDocPicker();
+                else if (id === 'date') window.tmQuickAddOpenDatePicker(anchor);
+                else if (id === 'priority') window.tmQuickAddOpenPriorityPicker({ currentTarget: anchor });
+                else if (id === 'status') window.tmQuickAddOpenStatusPicker(anchor);
+                else if (id?.startsWith('custom:')) window.tmQuickAddOpenCustomFieldPicker(id.slice(7), { currentTarget: anchor });
+            });
+            editor.addEventListener('keydown', e => {
+                if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+                e.preventDefault();
+                const buttons = Array.from(editor.querySelectorAll('button'));
+                const index = buttons.indexOf(document.activeElement);
+                const next = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1
+                    : (index + (e.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
+                buttons[next]?.focus();
+            });
+            onCleanup(__tmBindCustomFieldPickerViewport(editor, anchor));
+        });
+    };
+
+    window.tmQuickAddCloseFieldSettings = function() {
+        const modal = state.quickAddModal;
+        if (!modal) return;
+        state.__quickAddFieldsUnstack?.();
+        state.__quickAddFieldsUnstack = null;
+        modal.querySelector('#tmQuickAddFieldSettings').hidden = true;
+        modal.querySelector('.tm-quick-add-compose-view').hidden = false;
+        modal.classList.remove('tm-quick-add-settings-open');
+        __tmRefreshQuickAddInputLayout(modal);
+        document.getElementById('tmQuickAddMoreBtn')?.focus({ preventScroll: true });
+    };
+
+    window.tmQuickAddOpenFieldSettings = function() {
+        const modal = state.quickAddModal;
+        if (!modal || !state.quickAdd) return;
+        const panel = modal.querySelector('#tmQuickAddFieldSettings');
+        const platform = __tmGetQuickAddDisplayPlatform();
+        const entries = __tmGetQuickAddFieldEntries().filter(entry => !entry.field);
+        const renderRows = rows => rows.map(entry => `<label class="tm-quick-add-field-setting">
+            ${__tmRenderLucideIcon(entry.icon)}<span>${esc(entry.name)}</span>
+            <input class="b3-switch" type="checkbox" data-quick-add-visibility="${esc(entry.id)}" aria-label="在工具栏显示${esc(entry.name)}" ${__tmIsQuickAddFieldVisible(entry) ? 'checked' : ''}>
+        </label>`).join('');
+        panel.innerHTML = `<div class="tm-quick-add-settings-head">
+            <button type="button" class="tm-quick-add-settings-back" onclick="tmQuickAddCloseFieldSettings()" aria-label="返回新建任务">${__tmRenderLucideIcon('arrow-left')}</button>
+            <strong>显示字段设置</strong><button type="button" class="tm-btn tm-btn-secondary" onclick="tmQuickAddCloseFieldSettings()">完成</button>
+        </div><p class="tm-quick-add-settings-description">仅设置${platform === 'mobile' ? '移动端' : '桌面端'}。关闭后收进更多菜单，已填写的值会保留。</p>
+        <div class="tm-quick-add-settings-list">${renderRows(entries)}
+            <div class="tm-quick-add-settings-group">具体列跟随文档分组的显示设置</div>
+            ${renderRows([{ id: 'customFields', name: '自定义列', icon: 'tag' }])}
+        </div>`;
+        panel.onchange = async event => {
+            const input = event.target;
+            const id = input.dataset.quickAddVisibility;
+            if (!id) return;
+            const key = platform === 'mobile' ? 'quickAddMobileFieldVisibility' : 'quickAddFieldVisibility';
+            SettingsStore.data[key] = { ...__tmNormalizeQuickAddFieldVisibility(SettingsStore.data[key]), [id]: input.checked };
+            __tmRenderQuickAddCustomFields();
+            __tmApplyQuickAddFieldVisibility();
+            try { await SettingsStore.save(); } catch (e) { hint('⚠ 字段显示设置保存失败，请重试', 'warning'); }
+        };
+        modal.querySelector('.tm-quick-add-compose-view').hidden = true;
+        panel.hidden = false;
+        modal.classList.add('tm-quick-add-settings-open');
+        state.__quickAddFieldsUnstack?.();
+        state.__quickAddFieldsUnstack = __tmModalStackBind(() => window.tmQuickAddCloseFieldSettings());
+        panel.querySelector('button')?.focus({ preventScroll: true });
+    };
+
+    function __tmRenderQuickAddImages() {
+        const qa = state.quickAdd;
+        const strip = document.getElementById('tmQuickAddImages');
+        if (!qa || !strip) return;
+        strip.hidden = !qa.images.length;
+        strip.innerHTML = qa.images.map(image => `<div class="tm-quick-add-image">
+            <button type="button" class="tm-quick-add-image-preview" data-quick-add-preview="${esc(image.id)}" aria-label="预览 ${esc(image.file.name)}"><img src="${esc(image.url)}" alt="${esc(image.file.name)}"></button>
+            <button type="button" class="tm-quick-add-image-remove" data-quick-add-remove="${esc(image.id)}" aria-label="移除 ${esc(image.file.name)}">${__tmRenderLucideIcon('x')}</button>
+        </div>`).join('');
+        __tmRefreshQuickAddInputLayout(state.quickAddModal);
+    }
+
+    function __tmAddQuickAddImages(files) {
+        const qa = state.quickAdd;
+        if (!qa || qa.uploadingImages) return;
+        const images = Array.from(files || []).filter(file => String(file.type || '').startsWith('image/'));
+        if (!images.length) return;
+        images.forEach(file => qa.images.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, file, url: URL.createObjectURL(file), path: '' }));
+        __tmQuickAddImageDrafts.set(qa.draftScope, qa.images);
+        __tmRenderQuickAddImages();
+    }
+
+    function __tmBindQuickAddImages(modal, qa) {
+        qa.images = __tmQuickAddImageDrafts.get(qa.draftScope) || [];
+        const input = modal.querySelector('#tmQuickAddImageInput');
+        input.onchange = () => { __tmAddQuickAddImages(input.files); input.value = ''; };
+        modal.addEventListener('paste', event => {
+            const files = Array.from(event.clipboardData?.files || []).filter(file => file.type.startsWith('image/'));
+            if (!files.length || qa.uploadingImages) return;
+            event.preventDefault();
+            __tmAddQuickAddImages(files);
+        });
+        modal.addEventListener('dragover', event => {
+            if (!Array.from(event.dataTransfer?.types || []).includes('Files')) return;
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+        });
+        modal.addEventListener('drop', event => {
+            if (!event.dataTransfer?.files?.length) return;
+            event.preventDefault();
+            __tmAddQuickAddImages(event.dataTransfer.files);
+        });
+        modal.querySelector('#tmQuickAddImages').onclick = event => {
+            const button = event.target.closest('button');
+            if (!button || qa.uploadingImages) return;
+            const id = button.dataset.quickAddRemove || button.dataset.quickAddPreview;
+            const image = qa.images.find(item => item.id === id);
+            if (!image) return;
+            if (button.dataset.quickAddRemove) {
+                qa.images.splice(qa.images.indexOf(image), 1);
+                URL.revokeObjectURL(image.url);
+                __tmRenderQuickAddImages();
+                return;
+            }
+            const preview = document.createElement('dialog');
+            preview.className = 'tm-quick-add-image-dialog';
+            const img = document.createElement('img');
+            img.src = image.url;
+            img.alt = image.file.name;
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.textContent = '关闭';
+            close.onclick = () => preview.close();
+            preview.append(img, close);
+            modal.appendChild(preview);
+            const unstack = __tmModalStackBind(() => preview.close());
+            preview.addEventListener('close', () => { unstack?.(); preview.remove(); button.focus(); }, { once: true });
+            preview.showModal();
+        };
+        __tmRenderQuickAddImages();
+    }
+
+    async function __tmUploadQuickAddImages(qa) {
+        for (const image of qa.images || []) {
+            if (image.path) continue;
+            const paths = await __tmUploadTaskAttachmentFiles([image.file], { assetsDirPath: '/assets/' });
+            if (paths.length !== 1) throw new Error(`图片上传失败：${image.file.name}`);
+            image.path = paths[0];
+        }
+        return (qa.images || []).map(image => image.path);
+    }
+
+    function __tmClearSubmittedQuickAddImages(scope, submittedImages) {
+        if (!submittedImages?.length) return;
+        const current = __tmQuickAddImageDrafts.get(scope) || [];
+        submittedImages.forEach(image => URL.revokeObjectURL(image.url));
+        const remaining = current.filter(image => !submittedImages.includes(image));
+        if (remaining.length) __tmQuickAddImageDrafts.set(scope, remaining);
+        else __tmQuickAddImageDrafts.delete(scope);
+        if (state.quickAdd?.draftScope === scope) {
+            state.quickAdd.images = remaining;
+            __tmRenderQuickAddImages();
+        }
+    }
 
     function __tmBuildQuickAddCustomFieldButtonHtml(field, value) {
         const fieldId = String(field?.id || '').trim();
@@ -3522,7 +3774,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const wrap = document.getElementById('tmQuickAddCustomFields');
         if (!wrap) return;
         const qa = state.quickAdd;
-        const fields = __tmGetQuickAddVisibleOptionCustomFieldDefs();
+        const fields = __tmGetQuickAddVisibleOptionCustomFieldDefs().filter(field => __tmIsQuickAddFieldVisible({ id: `custom:${field.id}`, field }));
         if (!qa || !fields.length) {
             wrap.innerHTML = '';
             wrap.style.display = 'none';
@@ -3552,6 +3804,28 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             ev?.stopPropagation?.();
         } catch (e) {}
         if (!qa || !field || !(btn instanceof HTMLElement)) return;
+        if (field.type === 'text') {
+            __tmOpenInlineEditor(btn, ({ editor, close, onCleanup }) => {
+                editor.classList.add('tm-quick-add-text-editor');
+                const input = document.createElement('textarea');
+                input.className = 'tm-prompt-input';
+                input.rows = 4;
+                input.value = String(qa.customFieldValues?.[fid] || '');
+                input.setAttribute('aria-label', String(field.name || fid));
+                input.oninput = () => {
+                    qa.customFieldValues[fid] = input.value;
+                    window.tmQuickAddRenderMeta?.();
+                };
+                const done = document.createElement('button');
+                done.type = 'button';
+                done.className = 'tm-btn tm-btn-primary';
+                done.textContent = '完成';
+                done.onclick = () => close();
+                editor.append(input, done);
+                onCleanup(__tmBindCustomFieldPickerViewport(editor, btn));
+            });
+            return;
+        }
         const isMulti = String(field?.type || '').trim() === 'multi';
         const current = __tmNormalizeCustomFieldValue(field, qa.customFieldValues?.[fid]);
         const draft = new Set(Array.isArray(current) ? current : (String(current || '').trim() ? [String(current || '').trim()] : []));
@@ -3657,12 +3931,15 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const submit = modal.querySelector('#tmQuickAddSubmitBtn');
         if (submit) {
             submit.textContent = count > 1 ? `添加 ${count} 个` : '添加';
-            submit.disabled = count === 0 || !!state.quickAdd?.initializing;
+            if (state.quickAdd?.uploadingImages) submit.textContent = '上传中…';
+            submit.disabled = count === 0 || !!state.quickAdd?.initializing || !!state.quickAdd?.uploadingImages;
         }
         const hint = modal.querySelector('#tmQuickAddBatchHint');
         if (hint) {
             hint.hidden = count < 2;
-            hint.textContent = `共 ${count} 个任务，备注仅用于第一个任务`;
+            hint.textContent = state.quickAdd?.images?.length
+                ? `共 ${count} 个任务，备注和图片仅用于第一个任务`
+                : `共 ${count} 个任务，备注仅用于第一个任务`;
         }
         if (remark) {
             remark.placeholder = '备注';
@@ -3718,6 +3995,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             const mobile = window.matchMedia?.('(max-width: 640px)')?.matches;
             const height = Number(viewport?.height) || window.innerHeight;
             modal.style.setProperty('--tm-quick-add-viewport-height', `${height}px`);
+            modal.style.setProperty('--tm-quick-add-viewport-top', `${viewport?.offsetTop || 0}px`);
+            modal.style.setProperty('--tm-quick-add-viewport-left', `${viewport?.offsetLeft || 0}px`);
+            modal.style.setProperty('--tm-quick-add-viewport-width', `${viewport?.width || window.innerWidth}px`);
             modal.classList.toggle('tm-quick-add-keyboard-open', !!mobile && window.innerHeight - height > 100);
             ['top', 'left', 'width', 'height'].forEach((key) => {
                 const value = { top: viewport?.offsetTop || 0, left: viewport?.offsetLeft || 0,
@@ -3746,6 +4026,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const sourceTaskId = relation ? String(options.sourceTaskId || '').trim() : '';
         const dialogTitle = relation === 'subtask' ? '新建子任务' : relation === 'sibling' ? '新建同级任务' : '新建任务';
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+        if (state.quickAddModal) window.tmQuickAddClose?.();
         state.__quickAddViewportCleanup?.();
         state.__quickAddViewportCleanup = null;
         if (state.quickAddModal) {
@@ -3794,9 +4075,11 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         modal.innerHTML = `
             <div class="tm-prompt-box tm-quick-add-box" role="dialog" aria-modal="true" aria-label="${dialogTitle}">
                 <button type="button" class="tm-quick-add-close" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" aria-label="关闭${dialogTitle}">${__tmRenderLucideIcon('x')}</button>
+                <div class="tm-quick-add-compose-view">
                 <div class="tm-quick-add-fields">
                     <textarea id="tmQuickAddInput" class="tm-prompt-input tm-quick-add-title-input" placeholder="准备做什么？" aria-label="任务内容，每行一个任务" enterkeyhint="enter" rows="1"></textarea>
                     <textarea id="tmQuickAddRemark" class="tm-prompt-input tm-quick-add-remark-input" placeholder="备注" aria-label="备注" enterkeyhint="enter" rows="1"></textarea>
+                    <div id="tmQuickAddImages" class="tm-quick-add-images" aria-label="任务图片" hidden></div>
                     <div id="tmQuickAddBatchHint" class="tm-quick-add-batch-hint" aria-live="polite" hidden></div>
                 </div>
                 <div class="tm-quick-add-toolbar">
@@ -3816,22 +4099,28 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                         <button type="button" id="tmQuickAddStatusBtn" class="tm-btn tm-btn-secondary tm-quick-add-tool" onclick="tmQuickAddOpenStatusPicker()" aria-label="设置状态" aria-haspopup="listbox">状态</button>
                         <div id="tmQuickAddCustomFields" class="tm-quick-add-custom-fields"></div>
                     </div>
+                    <button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-more" id="tmQuickAddMoreBtn" onclick="tmQuickAddOpenMoreMenu(event)" aria-label="更多" aria-haspopup="menu" aria-expanded="false" aria-controls="tmQuickAddMoreMenu" disabled>${__tmRenderLucideIcon('dots-three')}</button>
                     <button type="button" class="tm-btn tm-btn-primary tm-quick-add-submit" id="tmQuickAddSubmitBtn" onclick="tmQuickAddSubmit()" disabled>添加</button>
                 </div>
                 <div class="tm-quick-add-keyboard-hint">每行一个任务<span>Ctrl / ⌘ + Enter 添加</span></div>
+                </div>
+                <section id="tmQuickAddFieldSettings" class="tm-quick-add-field-settings" aria-label="显示字段设置" hidden></section>
+                <input type="file" id="tmQuickAddImageInput" accept="image/*" multiple hidden>
             </div>
         `;
         document.body.appendChild(modal);
         state.quickAddModal = modal;
         // 选择元数据后焦点可能停在按钮上；提交快捷键属于整个弹窗。
         modal.addEventListener('keydown', (e) => {
+            if (!modal.querySelector('#tmQuickAddFieldSettings').hidden) return;
             if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
             if (!e.ctrlKey && !e.metaKey) return;
             e.preventDefault();
             e.stopPropagation();
             if (!e.repeat) modal.querySelector('#tmQuickAddSubmitBtn')?.click();
         }, true);
-        __tmBindQuickAddPickerInputFocus(modal.querySelector('.tm-quick-add-tools'));
+        __tmBindQuickAddPickerInputFocus(modal.querySelector('.tm-quick-add-toolbar'));
+        __tmBindQuickAddImages(modal, qa);
         __tmBindQuickAddViewport(modal);
         __tmApplyPopupOpenAnimation(modal, modal.querySelector('.tm-prompt-box'), {
             mode: window.matchMedia?.('(max-width: 640px)')?.matches ? 'sheet' : 'center'
@@ -3935,6 +4224,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             const toolbar = modal.querySelector('.tm-quick-add-tools');
             toolbar.removeAttribute('inert');
             toolbar.removeAttribute('aria-busy');
+            modal.querySelector('#tmQuickAddMoreBtn').disabled = false;
             try { __tmApplyAppearanceThemeVars(); } catch (e) {}
             window.tmQuickAddRenderMeta?.();
             __tmRefreshQuickAddInputLayout(modal);
@@ -4062,6 +4352,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 } catch (e) {}
                 if (qa.reminderDraft) meta.push('提醒已设置');
                 dateLabel.textContent = ct;
+                dateLabel.hidden = !sd && !ctValue && __tmGetQuickAddDisplayPlatform() === 'mobile';
                 dateInput.value = qa.completionTime ? __tmNormalizeDateOnly(qa.completionTime) : '';
 
                 const btn = document.getElementById('tmQuickAddDateLabel')?.parentElement;
@@ -4080,6 +4371,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             }
 
             __tmRenderQuickAddCustomFields();
+            __tmApplyQuickAddFieldVisibility();
         } catch (e) {}
     };
 
@@ -4090,13 +4382,14 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         window.tmQuickAddRenderMeta?.();
     };
 
-    window.tmQuickAddOpenStatusPicker = function() {
+    window.tmQuickAddOpenStatusPicker = function(anchorEl) {
         const qa = state.quickAdd;
-        const btn = document.getElementById('tmQuickAddStatusBtn');
+        const btn = anchorEl instanceof HTMLElement ? anchorEl : document.getElementById('tmQuickAddStatusBtn');
         if (!qa || !btn) return;
         const options = SettingsStore.data.customStatusOptions || [];
         if (!Array.isArray(options) || options.length === 0) return;
-        __tmOpenInlineEditor(btn, ({ editor, close }) => {
+        __tmOpenInlineEditor(btn, ({ editor, close, onCleanup }) => {
+            editor.classList.add('tm-quick-add-status-picker');
             const maxLen = options.reduce((m, o) => Math.max(m, String(o?.name || o?.id || '').length), 0);
             const w = Math.min(220, Math.max(98, maxLen * 12 + 24));
             // 快速添加弹窗 z-index 为 100010，内联编辑器需要更高层级避免被遮挡
@@ -4127,6 +4420,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 wrap.appendChild(b);
             });
             editor.appendChild(wrap);
+            onCleanup(__tmBindCustomFieldPickerViewport(editor, btn));
         });
     };
 
@@ -4153,10 +4447,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     // 确保该函数在全局可见
     window.tmQuickAddDateChanged = window.tmQuickAddDateChanged;
 
-    window.tmQuickAddOpenDatePicker = async function() {
+    window.tmQuickAddOpenDatePicker = async function(anchorEl) {
         const qa = state.quickAdd;
         if (!qa) return;
-        const btn = document.getElementById('tmQuickAddDateLabel')?.parentElement;
+        const btn = anchorEl instanceof HTMLElement ? anchorEl : document.getElementById('tmQuickAddDateLabel')?.parentElement;
         if (btn instanceof HTMLElement && typeof window.tmOpenTaskTimeHub === 'function') {
             await window.tmOpenTaskTimeHub('__tm_quick_add_draft__', btn, {
                 draft: true,
@@ -4854,6 +5148,29 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const remark = String(document.getElementById('tmQuickAddRemark')?.value ?? qa.remark ?? '');
         __tmSaveQuickAddDraft(input.value, { scope: qa.draftScope, remark });
         const submittedDraft = __tmGetQuickAddDraft(qa.draftScope);
+        let attachments = [];
+        const submittedImages = Array.isArray(qa.images) ? qa.images.slice() : [];
+        if (submittedImages.length) {
+            state.quickAddSubmitting = true;
+            qa.uploadingImages = true;
+            const composeView = state.quickAddModal?.querySelector('.tm-quick-add-compose-view');
+            if (composeView) composeView.inert = true;
+            __tmRefreshQuickAddInputLayout(state.quickAddModal);
+            try {
+                attachments = await __tmUploadQuickAddImages(qa);
+                if (state.quickAdd !== qa) return;
+            } catch (e) {
+                if (state.quickAdd === qa) hint(`⚠ ${e?.message || '图片上传失败'}，草稿已保留，请重试`, 'warning');
+                return;
+            } finally {
+                qa.uploadingImages = false;
+                if (state.quickAdd === qa) {
+                    state.quickAddSubmitting = false;
+                    if (composeView) composeView.inert = false;
+                    __tmRefreshQuickAddInputLayout(state.quickAddModal);
+                }
+            }
+        }
         const hasReminderDraft = !!qa.reminderDraft && taskLines.length === 1;
         const reminderBridge = globalThis.__tomatoReminder;
         const canPersistReminder = hasReminderDraft
@@ -4888,6 +5205,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             reminderDraft: canPersistReminder ? { ...qa.reminderDraft } : null,
             contents: taskLines,
             remark,
+            attachments,
         };
         if (hasReminderDraft && !canPersistReminder) {
             hint('⚠ 番茄钟提醒桥接未就绪，任务将创建但提醒不会写入', 'warning');
@@ -4932,6 +5250,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                         docId: targetDocId,
                         content,
                         remark: index === firstContentIndex ? payload.remark : '',
+                        ...(index === firstContentIndex && payload.attachments.length ? { attachments: payload.attachments } : {}),
                         priority: payload.priority,
                         customStatus: payload.customStatus,
                         customFieldValues: payload.customFieldValues,
@@ -4976,6 +5295,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     return;
                 }
                 try { __tmClearQuickAddDraft?.(submittedDraft); } catch (e) {}
+                if (submittedImages.length) __tmClearSubmittedQuickAddImages(qa.draftScope, submittedImages);
                 hint(payload.contents.length > 1 ? `✅ 已创建 ${payload.contents.length} 个任务` : '✅ 任务已创建', 'success');
                 const createdTaskId = reminderTaskId || '';
                 if (payload.reminderDraft && createdTaskId) {

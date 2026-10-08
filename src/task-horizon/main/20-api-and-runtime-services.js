@@ -5363,6 +5363,7 @@
         const pr = Object.prototype.hasOwnProperty.call(prMap, pr0) ? prMap[pr0] : pr0;
         if (pr === 'high' || pr === 'medium' || pr === 'low') patch.priority = pr;
         if (data.remark !== undefined) patch.remark = String(data.remark || '');
+        if (Array.isArray(data.attachments) && data.attachments.length) patch.attachments = __tmNormalizeTaskAttachmentPaths(data.attachments);
         const sd = String(data.startDate || '').trim();
         if (sd) patch.startDate = sd;
         const ct = String(data.completionTime || '').trim();
@@ -5391,7 +5392,7 @@
                 if (ok) patch.customStatus = st0;
             } catch (e) {}
         }
-        const customFieldValues = __tmNormalizeCreateTaskCustomFieldValues(data.customFieldValues);
+        const customFieldValues = __tmNormalizeCreateTaskCustomFieldValues(data.customFieldValues, { includeText: true });
         if (Object.keys(customFieldValues).length) patch.customFieldValues = customFieldValues;
         return patch;
     }

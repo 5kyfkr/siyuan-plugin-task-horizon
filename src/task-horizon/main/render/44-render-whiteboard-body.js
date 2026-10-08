@@ -1,3 +1,66 @@
+    function __tmBuildWhiteboardStreamGroupCards(tasks, mode, isDark) {
+        const taskById = new Map();
+        (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+            const id = String(task?.id || '').trim();
+            if (id && !taskById.has(id)) taskById.set(id, task);
+        });
+        const childMap = new Map();
+        const orderById = new Map(Array.from(taskById.keys()).map((id, index) => [id, index]));
+        const roots = [];
+        taskById.forEach((task, id) => {
+            const parentId = String(task?.parentTaskId || '').trim();
+            if (!parentId || !taskById.has(parentId)) roots.push(task);
+            else {
+                if (!childMap.has(parentId)) childMap.set(parentId, []);
+                childMap.get(parentId).push(id);
+            }
+        });
+        const { getTimeGroup, getTimeGroupLabelColor, quadrantRules, quadrantOrder, quadrantColorMap, resolveQuadrantRule } = __tmCreateTaskCardGroupingContext(isDark);
+        const split = __tmSplitTasksByDoneState(roots);
+        const pinWithinGroups = SettingsStore.data.pinTasksWithinGroups === true;
+        const pinned = pinWithinGroups ? [] : split.active.filter(__tmIsTaskPinned);
+        const normal = pinWithinGroups ? split.active : split.active.filter((task) => !__tmIsTaskPinned(task));
+        const groups = new Map();
+        normal.concat(split.done).forEach((task) => {
+            let info;
+            if (mode === 'time') {
+                info = getTimeGroup(task);
+                info = { ...info, color: getTimeGroupLabelColor(info) };
+            } else if (mode === 'quadrant') {
+                const rule = resolveQuadrantRule(task);
+                info = {
+                    key: String(rule?.id || '__unmatched__'),
+                    label: String(rule?.name || (rule ? rule.id : '未匹配四象限')),
+                    color: quadrantColorMap[String(rule?.color || '')] || 'var(--tm-text-color)',
+                };
+            } else {
+                const label = String(task?.content || '').trim() || '(无内容)';
+                info = { key: label, label, color: 'var(--tm-primary-color)' };
+            }
+            if (!groups.has(info.key)) groups.set(info.key, { ...info, roots: [] });
+            groups.get(info.key).roots.push(task);
+        });
+        const cards = Array.from(groups.values());
+        if (mode === 'time') cards.sort((a, b) => a.sortValue - b.sortValue);
+        else if (mode === 'quadrant') {
+            const order = [...quadrantOrder, ...quadrantRules.map((rule) => String(rule?.id || '')).filter((id) => id && !quadrantOrder.includes(id)), '__unmatched__'];
+            cards.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+        } else cards.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+        if (pinned.length) cards.unshift({ key: '__pinned__', label: '置顶任务', color: 'var(--tm-primary-color)', roots: pinned, pinned: true });
+        // Group roots first, then bring their entire visible subtree into the same card.
+        return cards.map((card) => {
+            const ids = new Set();
+            const stack = card.roots.map((task) => String(task.id));
+            while (stack.length) {
+                const id = stack.pop();
+                if (ids.has(id)) continue;
+                ids.add(id);
+                (childMap.get(id) || []).forEach((childId) => stack.push(childId));
+            }
+            return { ...card, tasks: Array.from(ids).sort((a, b) => orderById.get(a) - orderById.get(b)).map((id) => taskById.get(id)) };
+        });
+    }
+
     function __tmBuildRenderSceneWhiteboardBodyHtml(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const bodyAnimClass = String(opts.bodyAnimClass || '');
@@ -279,7 +342,9 @@
 
             const allView = isAllTabsView;
             if (allView && allTabsLayoutMode === 'stream') {
-                const streamDocIds = (typeof __tmGetVisibleDocTabsForCurrentGroup === 'function'
+                const streamGroupMode = __tmGetCurrentGroupModeValue();
+                const useSemanticGroups = ['time', 'quadrant', 'task'].includes(streamGroupMode);
+                const streamDocIds = useSemanticGroups ? selectedDocIds.slice() : (typeof __tmGetVisibleDocTabsForCurrentGroup === 'function'
                     ? __tmGetVisibleDocTabsForCurrentGroup().map((doc) => String(doc?.id || '').trim()).filter(Boolean)
                     : selectedDocIds.slice());
                 const streamDocIdSet = new Set(streamDocIds);
@@ -307,6 +372,13 @@
                 if (!orderedVisibleDocIds.includes(String(state.whiteboardAllTabsDocDragId || '').trim())) {
                     state.whiteboardAllTabsDocDragId = '';
                 }
+                const streamCards = useSemanticGroups
+                    ? __tmBuildWhiteboardStreamGroupCards(
+                        filtered.filter((task) => streamDocIdSet.has(String(task?.root_id || task?.docId || '').trim())),
+                        streamGroupMode,
+                        isDark
+                    )
+                    : orderedVisibleDocIds.map((docId) => ({ docId, tasks: streamByDoc.get(docId) || [] }));
                 const streamGap = isMobile ? 10 : 16;
                 const streamMinCardWidth = Math.max(220, Math.min(520, Number(SettingsStore.data.whiteboardAllTabsCardMinWidth) || 320));
                 const mobileTwoCols = SettingsStore.data.whiteboardStreamMobileTwoColumns !== false;
@@ -317,7 +389,7 @@
                     1,
                     Math.min(
                         4,
-                        orderedVisibleDocIds.length || 1,
+                        streamCards.length || 1,
                         isMobile
                             ? (mobileTwoCols ? 2 : 1)
                             : Math.max(1, Math.floor((availableWidth + streamGap) / (streamMinCardWidth + streamGap)))
@@ -325,9 +397,14 @@
                 );
                 const showMobileStreamDocCount = !(isMobile && colCount >= 2);
                 const cols = Array.from({ length: colCount }, () => ({ score: 0, items: [] }));
-                orderedVisibleDocIds.forEach((docId, idx) => {
-                    const docTasks = (streamByDoc.get(docId) || []).slice();
-                    const alwaysVisibleDocHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks(docId);
+                streamCards.forEach((card, idx) => {
+                    const docId = String(card.docId || '');
+                    const groupKey = useSemanticGroups
+                        ? `wb_stream_${streamGroupMode}_${encodeURIComponent(currentGroupId)}_${card.pinned ? 'pinned' : `group_${encodeURIComponent(card.key)}`}`.replace(/'/g, '%27')
+                        : '';
+                    const groupCollapsed = useSemanticGroups && state.collapsedGroups?.has(groupKey);
+                    const docTasks = card.tasks.slice();
+                    const alwaysVisibleDocHeadingTasks = useSemanticGroups ? [] : __tmGetAlwaysVisibleTaskDocHeadingTasks(docId);
                     const headingOrderSource = docTasks.concat(alwaysVisibleDocHeadingTasks);
                     const taskById = new Map(docTasks.map((task) => [String(task?.id || '').trim(), task]).filter(([id]) => !!id));
                     const childMap = new Map();
@@ -347,6 +424,9 @@
                         return !parentId || !taskById.has(parentId);
                     });
                     const rootSplit = __tmSplitTasksByDoneState(rootTasks);
+                    if (useSemanticGroups && SettingsStore.data.pinTasksWithinGroups === true) {
+                        __tmSortPinnedTasksFirst(rootSplit.active, (a, b) => (orderById.get(String(a?.id)) ?? 999999) - (orderById.get(String(b?.id)) ?? 999999));
+                    }
                     const rootIds = rootSplit.active
                         .map((task) => String(task?.id || '').trim())
                         .filter(Boolean);
@@ -357,7 +437,7 @@
                     const completedRootIds = completedRootTasks
                         .map((task) => String(task?.id || '').trim())
                         .filter(Boolean);
-                    const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, headingOrderSource);
+                    const useDocH2Subgroup = !useSemanticGroups && enableDocH2Subgroup && __tmDocHasAnyHeading(docId, headingOrderSource);
                     const headingBuckets = useDocH2Subgroup ? __tmBuildDocHeadingBuckets(headingOrderSource, noHeadingLabel) : [];
                     const alwaysVisibleHeadingBucketKeys = new Set(alwaysVisibleDocHeadingTasks
                         .map((task) => String(__tmGetDocHeadingBucket(task, noHeadingLabel)?.key || '').trim())
@@ -406,12 +486,17 @@
                             todayKey,
                             inCompletedRootGroup: inCompletedRootGroup === true,
                         });
+                        const sourceDocId = String(task?.root_id || task?.docId || '').trim();
+                        const sourceDocHtml = useSemanticGroups && depth === 0 && sourceDocId
+                            ? `<button type="button" class="tm-whiteboard-stream-task-doc" title="${esc(docNameById.get(sourceDocId) || '打开文档')}" aria-label="${esc(`打开文档：${docNameById.get(sourceDocId) || '未知文档'}`)}" onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(sourceDocId)}');">${__tmRenderDocIcon(sourceDocId, { fallbackText: '📄', size: 12 })}</button>`
+                            : '';
                         return `
                             <div class="tm-whiteboard-stream-task-node" data-task-id="${esc(tid)}" data-id="${esc(tid)}">
                                 <div class="tm-whiteboard-stream-task">
                                     <div class="tm-whiteboard-stream-task-head${multiSelectCls}" data-task-id="${esc(tid)}" data-id="${esc(tid)}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(tid)}')" ondragend="tmDragTaskEnd(event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')" onclick="tmWhiteboardStreamTaskHeadClick('${escSq(tid)}', event)">
                                         ${__tmRenderTaskCheckboxWrap(tid, task, { checked: __tmIsTaskClosedForDisplay(task), stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)` })}
                                         <span class="tm-whiteboard-stream-task-title${parentTaskTitleCls}${__tmIsTaskClosedForDisplay(task) ? ' tm-task-done' : ''}" onpointerdown="tmWhiteboardStreamTaskTitlePointerDown(event)" onmousedown="tmWhiteboardStreamTaskTitleMouseDown(event)" onclick="tmWhiteboardStreamTaskTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, content)}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                                        ${sourceDocHtml}
                                         ${toggleHtml}
                                     </div>
                                 </div>
@@ -421,7 +506,7 @@
                     };
                     const renderCompletedRootGroup = () => {
                         if (!completedRootIds.length) return '';
-                        const doneGroupKey = __tmBuildCompletedRootGroupKey(`whiteboard-stream:${docId}`);
+                        const doneGroupKey = __tmBuildCompletedRootGroupKey(`whiteboard-stream:${useSemanticGroups ? groupKey : docId}`);
                         const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
                         return `
                             <div class="tm-whiteboard-stream-heading tm-whiteboard-stream-heading--done" onclick="tmToggleGroupCollapse('${escSq(doneGroupKey)}', event)">
@@ -454,16 +539,29 @@
                             `;
                         }).join('')
                         : rootIds.map((id) => renderTaskTree(id)).join('');
-                    const streamSectionsHtml = `${headingSectionsHtml}${renderCompletedRootGroup()}`;
-                    const docAccent = __tmGetDocColorHex(docId, isDark) || 'var(--tm-primary-color)';
+                    const streamSectionsHtml = groupCollapsed ? '' : `${headingSectionsHtml}${renderCompletedRootGroup()}`;
+                    const docAccent = useSemanticGroups ? card.color : (__tmGetDocColorHex(docId, isDark) || 'var(--tm-primary-color)');
                     const docHeadBg = (() => {
                         const rgba = __tmParseCssColorToRgba(String(docAccent || '').trim());
                         if (!rgba) return '';
                         const a = isDark ? 0.30 : 0.20;
                         return `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${a})`;
                     })();
+                    const semanticHeaderHtml = useSemanticGroups ? `
+                        <header class="tm-whiteboard-stream-doc-head">
+                            <button type="button" class="tm-whiteboard-stream-group-toggle tm-whiteboard-stream-doc-meta" aria-expanded="${!groupCollapsed}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)">
+                                <span class="tm-group-toggle${groupCollapsed ? ' tm-group-toggle--collapsed' : ''}">${__tmRenderToggleIcon(16, groupCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>
+                                ${card.pinned ? __tmRenderInlineIcon('pin') : ''}
+                                <span class="tm-whiteboard-stream-doc-title" title="${esc(card.label)}">${card.labelHtml || esc(card.label)}</span>
+                                ${showMobileStreamDocCount ? `<span class="tm-badge tm-badge--count">${rootIds.length + completedRootIds.length}</span>` : ''}
+                            </button>
+                        </header>` : '';
+                    const cardAttrs = useSemanticGroups
+                        ? `data-group-key="${esc(groupKey)}" data-group-mode="${esc(streamGroupMode)}"`
+                        : `data-doc-id="${esc(docId)}" data-doc-order="${idx}" ondragover="tmWhiteboardAllTabsDocDragOver(event, '${escSq(docId)}')" ondrop="tmWhiteboardAllTabsDocDrop(event, '${escSq(docId)}')"`;
                     const docHtml = `
-                        <section class="tm-whiteboard-stream-doc" data-doc-id="${esc(docId)}" data-doc-order="${idx}" style="--tm-whiteboard-stream-doc-accent:${docAccent};--tm-whiteboard-stream-doc-title-color:${docAccent};${docHeadBg ? `--tm-whiteboard-stream-doc-head-bg:${docHeadBg};` : ''}" ondragover="tmWhiteboardAllTabsDocDragOver(event, '${escSq(docId)}')" ondrop="tmWhiteboardAllTabsDocDrop(event, '${escSq(docId)}')">
+                        <section class="tm-whiteboard-stream-doc${useSemanticGroups ? ' tm-whiteboard-stream-doc--group' : ''}" ${cardAttrs} style="--tm-whiteboard-stream-doc-accent:${docAccent};--tm-whiteboard-stream-doc-title-color:${docAccent};${docHeadBg ? `--tm-whiteboard-stream-doc-head-bg:${docHeadBg};` : ''}">
+                            ${semanticHeaderHtml || `
                             <header class="tm-whiteboard-stream-doc-head">
                                 <div class="tm-whiteboard-stream-doc-meta">
                                     ${__tmRenderDocIcon(docId, { fallbackText: '📄', className: 'tm-whiteboard-stream-doc-icon', size: 14 })}
@@ -482,12 +580,13 @@
                                     <span class="tm-whiteboard-stream-doc-grip" draggable="true" ondragstart="tmWhiteboardAllTabsDocDragStart(event, '${escSq(docId)}')" ondragend="tmWhiteboardAllTabsDocDragEnd(event)" title="拖拽调整文档卡片顺序">⋮⋮</span>
                                 </div>
                             </header>
-                            <div class="tm-whiteboard-stream-doc-list">
-                                ${streamSectionsHtml || `<div class="tm-whiteboard-stream-empty">当前文档没有任务</div>`}
+                            `}
+                            <div class="tm-whiteboard-stream-doc-list"${groupCollapsed ? ' hidden' : ''}>
+                                ${streamSectionsHtml || (groupCollapsed ? '' : `<div class="tm-whiteboard-stream-empty">当前${useSemanticGroups ? '分组' : '文档'}没有任务</div>`)}
                             </div>
                         </section>
                     `;
-                    const estHeight = 86 + docTasks.length * 38 + (enableDocH2Subgroup ? headingBuckets.length * 26 : 0);
+                    const estHeight = groupCollapsed ? 48 : 86 + docTasks.length * 38 + (useDocH2Subgroup ? headingBuckets.length * 26 : 0);
                     let colIndex = 0;
                     for (let i = 1; i < cols.length; i++) {
                         if (cols[i].score < cols[colIndex].score) colIndex = i;
@@ -498,7 +597,7 @@
                 const streamColsHtml = cols.map((col) => `<div class="tm-whiteboard-stream-col">${col.items.join('') || ''}</div>`).join('');
                 return `
                     <div class="tm-body tm-body--whiteboard tm-body--whiteboard-stream${bodyAnimClass}" id="tmWhiteboardBody">
-                        ${orderedVisibleDocIds.length
+                        ${streamCards.length
                             ? `<div class="tm-whiteboard-stream" style="--tm-whiteboard-stream-gap:${streamGap}px;">${streamColsHtml}</div>`
                             : `<div class="tm-whiteboard-stream-empty">暂无任务可用于卡片流</div>`}
                     </div>

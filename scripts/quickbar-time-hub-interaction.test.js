@@ -99,7 +99,7 @@ async function openFromPointer(attrKey, target = editor) {
     assert.equal(opened.options.activeField, attrKey === 'custom-start-date' ? 'startDate' : 'completionTime');
     const handlers = new Map();
     const dismissalContext = vm.createContext({
-        Node: Element, Element, popover, trigger: opened.trigger, opts: opened.options, busy: false,
+        Node: Element, Element, popover, trigger: opened.trigger, opts: opened.options, busy: false, externalClose: null,
         window: {}, on: (target, type, handler) => handlers.set(type, handler),
         __tmCloseStandaloneTaskTimeHub: (reason) => closeReasons.push(reason),
     });

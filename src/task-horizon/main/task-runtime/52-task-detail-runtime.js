@@ -1717,17 +1717,33 @@
         };
         const quickAddInput = typeof __tmGetQuickAddInputForPicker === 'function'
             ? __tmGetQuickAddInputForPicker(trigger) : null;
-        if (quickAddInput) {
+        const mobileQuickAdd = draftMode && !!trigger.closest('.tm-quick-add-modal--composer')
+            && !!window.matchMedia?.('(max-width: 640px)')?.matches;
+        if (quickAddInput || mobileQuickAdd) {
             popover.classList.add('tm-task-time-hub-popover--quick-add');
             const cleanupFocus = __tmBindQuickAddPickerInputFocus(popover, trigger);
             abort.signal.addEventListener('abort', cleanupFocus, { once: true });
         }
+        const externalClose = mobileQuickAdd ? document.createElement('button') : null;
+        if (externalClose) {
+            externalClose.type = 'button';
+            externalClose.className = 'tm-task-time-hub__external-close';
+            externalClose.setAttribute('aria-label', '关闭日期设置');
+            externalClose.innerHTML = __tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 18);
+            const cleanupFocus = __tmBindQuickAddPickerInputFocus(externalClose, trigger);
+            abort.signal.addEventListener('abort', () => { cleanupFocus(); externalClose.remove(); }, { once: true });
+            on(externalClose, 'click', ev => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (!busy) __tmCloseStandaloneTaskTimeHub('close-button');
+            });
+        }
         const position = () => {
             if (!popover.isConnected || !(trigger instanceof HTMLElement)) return;
-            if (quickAddInput) {
+            if (quickAddInput || externalClose) {
                 const viewport = __tmGetTaskTimeHubViewport();
                 popover.style.setProperty('--tm-quick-add-picker-bottom', `${Math.max(0, window.innerHeight - viewport.bottom) + 8}px`);
-                popover.style.setProperty('--tm-quick-add-picker-height', `${Math.max(44, viewport.height - 16)}px`);
+                popover.style.setProperty('--tm-quick-add-picker-height', `${Math.max(44, viewport.height - 16 - (externalClose ? 32 : 0))}px`);
             }
             lastTriggerRect = __tmGetStableTaskTimeHubAnchorRect(trigger, lastTriggerRect);
             const triggerRect = lastTriggerRect;
@@ -1739,6 +1755,12 @@
                 margin: opts.margin,
                 gap: opts.gap,
             });
+            if (externalClose) {
+                const rect = popover.getBoundingClientRect();
+                const viewport = __tmGetTaskTimeHubViewport();
+                externalClose.style.left = `${Math.max(viewport.left + 8, Math.min(rect.right - 28, viewport.right - 36))}px`;
+                externalClose.style.top = `${Math.max(viewport.top + 8, rect.top - 32)}px`;
+            }
         };
         const positionEditorPanel = () => {
             const panel = popover.querySelector('[data-tm-time-hub-editor-panel]');
@@ -2271,6 +2293,7 @@
         };
 
         document.body.appendChild(popover);
+        if (externalClose) document.body.appendChild(externalClose);
         const unstack = typeof __tmModalStackBind === 'function'
             ? __tmModalStackBind(() => __tmCloseStandaloneTaskTimeHub('escape-stack'))
             : null;
@@ -2601,6 +2624,7 @@
         const isTimeHubInside = (ev) => {
             const path = typeof ev?.composedPath === 'function' ? ev.composedPath() : [];
             if (path.includes(popover) || path.includes(trigger)) return true;
+            if (externalClose && (path.includes(externalClose) || externalClose.contains(ev?.target))) return true;
             // Inline Quickbar chips can sit below the editor layer that receives the click.
             if (typeof opts.isAnchorInteraction === 'function' && opts.isAnchorInteraction(ev)) return true;
             const target = ev?.target;
@@ -2636,7 +2660,7 @@
             position();
             positionEditorPanel();
         }, { capture: true });
-        if (quickAddInput && window.visualViewport) {
+        if ((quickAddInput || externalClose) && window.visualViewport) {
             on(window.visualViewport, 'resize', position);
             on(window.visualViewport, 'scroll', position);
         }

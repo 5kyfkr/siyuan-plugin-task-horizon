@@ -116,6 +116,13 @@
     const WHITEBOARD_DATA_CACHE_KEY = 'tm_whiteboard_data_cache';
     const __TM_QUICK_ADD_RECENT_DOCS_KEY = 'tm_quick_add_recent_docs';
     const __TM_QUICK_ADD_LAST_LOCATION_KEY = 'tm_quick_add_last_location';
+    const __TM_QUICK_ADD_FIELD_VISIBILITY_KEY = 'tm_quick_add_field_visibility';
+    const __TM_QUICK_ADD_MOBILE_FIELD_VISIBILITY_KEY = 'tm_quick_add_mobile_field_visibility';
+    function __tmNormalizeQuickAddFieldVisibility(input) {
+        const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+        return Object.fromEntries(Object.entries(source).filter(([key, value]) =>
+            ['doc', 'date', 'priority', 'status', 'customFields'].includes(key) && typeof value === 'boolean'));
+    }
     const __TM_QUICK_ADD_RECENT_DOCS_LIMIT = 6;
     const __TM_BUILTIN_COLUMN_DEFAULT_ORDER = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'taskCompleteAt', 'remainingTime', 'tomatoSummary', 'remark', 'attachments'];
     const __TM_TIMELINE_DEFAULT_COLUMN_ORDER = Object.freeze(['content', 'startDate', 'completionTime']);
@@ -8687,6 +8694,8 @@
             deleteTaskRemovesWhiteboardCards: true,
             quickAddRecentDocs: [],
             quickAddLastLocation: null,
+            quickAddFieldVisibility: {},
+            quickAddMobileFieldVisibility: null,
             headingGroupCreateAtSectionEnd: false,
             enableTomatoIntegration: true,
             docTitleGroupFocusEnabled: true,
@@ -9395,6 +9404,8 @@
                                 if (typeof cloudData.newTaskDailyNoteAppendToBottom === 'boolean') this.data.newTaskDailyNoteAppendToBottom = cloudData.newTaskDailyNoteAppendToBottom;
                                 if (typeof cloudData.deleteTaskRemovesWhiteboardCards === 'boolean') this.data.deleteTaskRemovesWhiteboardCards = cloudData.deleteTaskRemovesWhiteboardCards;
                                 if (Array.isArray(cloudData.quickAddRecentDocs)) this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(cloudData.quickAddRecentDocs);
+                                if (cloudData.quickAddFieldVisibility) this.data.quickAddFieldVisibility = __tmNormalizeQuickAddFieldVisibility(cloudData.quickAddFieldVisibility);
+                                this.data.quickAddMobileFieldVisibility = __tmNormalizeQuickAddFieldVisibility(cloudData.quickAddMobileFieldVisibility ?? cloudData.quickAddFieldVisibility ?? this.data.quickAddMobileFieldVisibility);
                                 if (cloudData.quickAddLastLocation && typeof cloudData.quickAddLastLocation === 'object') this.data.quickAddLastLocation = __tmNormalizeQuickAddLastLocation(cloudData.quickAddLastLocation);
                                 if (typeof cloudData.headingGroupCreateAtSectionEnd === 'boolean') this.data.headingGroupCreateAtSectionEnd = cloudData.headingGroupCreateAtSectionEnd;
                                 if (typeof cloudData.enableTomatoIntegration === 'boolean') this.data.enableTomatoIntegration = cloudData.enableTomatoIntegration;
@@ -9928,6 +9939,8 @@
             this.data.newTaskDailyNoteNotebookId = String(Storage.get('tm_new_task_daily_note_notebook_id', this.data.newTaskDailyNoteNotebookId) || '').trim();
             this.data.newTaskDailyNoteTargetHeadingText = String(Storage.get('tm_new_task_daily_note_target_heading_text', this.data.newTaskDailyNoteTargetHeadingText) || '').trim();
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(Storage.get(__TM_QUICK_ADD_RECENT_DOCS_KEY, this.data.quickAddRecentDocs));
+            this.data.quickAddFieldVisibility = __tmNormalizeQuickAddFieldVisibility(Storage.get(__TM_QUICK_ADD_FIELD_VISIBILITY_KEY, this.data.quickAddFieldVisibility));
+            this.data.quickAddMobileFieldVisibility = __tmNormalizeQuickAddFieldVisibility(Storage.get(__TM_QUICK_ADD_MOBILE_FIELD_VISIBILITY_KEY, this.data.quickAddMobileFieldVisibility ?? this.data.quickAddFieldVisibility));
             this.data.quickAddLastLocation = __tmNormalizeQuickAddLastLocation(Storage.get(__TM_QUICK_ADD_LAST_LOCATION_KEY, this.data.quickAddLastLocation));
             this.data.docTabSortMode = String(Storage.get('tm_doc_tab_sort_mode', this.data.docTabSortMode) || this.data.docTabSortMode || 'created_desc').trim() || 'created_desc';
             this.data.docDisplayNameMode = String(Storage.get('tm_doc_display_name_mode', this.data.docDisplayNameMode) || this.data.docDisplayNameMode || 'name').trim() || 'name';
@@ -10509,6 +10522,8 @@
             Storage.set('tm_new_task_daily_note_append_to_bottom', !!this.data.newTaskDailyNoteAppendToBottom);
             Storage.set('tm_delete_task_removes_whiteboard_cards', this.data.deleteTaskRemovesWhiteboardCards !== false);
             Storage.set(__TM_QUICK_ADD_RECENT_DOCS_KEY, __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs));
+            Storage.set(__TM_QUICK_ADD_FIELD_VISIBILITY_KEY, __tmNormalizeQuickAddFieldVisibility(this.data.quickAddFieldVisibility));
+            Storage.set(__TM_QUICK_ADD_MOBILE_FIELD_VISIBILITY_KEY, __tmNormalizeQuickAddFieldVisibility(this.data.quickAddMobileFieldVisibility));
             Storage.set(__TM_QUICK_ADD_LAST_LOCATION_KEY, __tmNormalizeQuickAddLastLocation(this.data.quickAddLastLocation));
             Storage.set('tm_heading_group_create_at_section_end', !!this.data.headingGroupCreateAtSectionEnd);
             Storage.set('tm_doc_tab_sort_mode', String(this.data.docTabSortMode || 'created_desc').trim() || 'created_desc');
@@ -10890,6 +10905,8 @@
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(this.data.taskParentLookupDepth);
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields);
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs);
+            this.data.quickAddFieldVisibility = __tmNormalizeQuickAddFieldVisibility(this.data.quickAddFieldVisibility);
+            this.data.quickAddMobileFieldVisibility = __tmNormalizeQuickAddFieldVisibility(this.data.quickAddMobileFieldVisibility ?? this.data.quickAddFieldVisibility);
             this.data.newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(this.data.newTaskDefaultLocationMode);
             this.data.quickAddLastLocation = __tmNormalizeQuickAddLastLocation(this.data.quickAddLastLocation);
             this.data.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap(this.data.docDefaultTaskHeadingByDocId);

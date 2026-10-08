@@ -880,34 +880,7 @@
                 `
                 : '';
             const isDark = __tmIsDarkMode();
-            const timeBaseColor = isDark
-                ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
-                : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');
-            const timeOverdueColor = isDark
-                ? __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, '#ff6b6b')
-                : __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, '#d93025');
-            const timePriorityMemo = new Map();
-            const getTimePriorityInfo = (task) => __tmGetTaskTimePriorityInfo(task, { memo: timePriorityMemo });
-            const getTimeGroupLabelColor = (groupInfo) => {
-                const key = String(groupInfo?.key || '');
-                const sortValue = Number(groupInfo?.sortValue);
-                if (key === 'pending' || !Number.isFinite(sortValue)) return 'var(--tm-secondary-text)';
-                if (sortValue < 0) return timeOverdueColor || 'var(--tm-danger-color)';
-                const minA = isDark ? 0.52 : 0.42;
-                const step = isDark ? 0.085 : 0.11;
-                const alpha = __tmClamp(1 - sortValue * step, minA, 1);
-                return __tmWithAlpha(timeBaseColor || 'var(--tm-primary-color)', alpha);
-            };
-            const buildTimeGroupLabelHtml = (label, diffDays) => {
-                const safeLabel = esc(String(label || '').trim());
-                const days = Number(diffDays);
-                if (!Number.isFinite(days) || days < 0 || days > 15) return safeLabel;
-                const target = new Date();
-                target.setHours(12, 0, 0, 0);
-                target.setDate(target.getDate() + days);
-                const weekday = __tmGetTaskRepeatWeekdayLabel(target);
-                return `<span class="tm-time-group-label-wrap"><span class="tm-time-group-label-text">${safeLabel}</span><span class="tm-time-group-weekday-chip">${esc(weekday)}</span></span>`;
-            };
+            const { getTimeGroup, getTimeGroupLabelColor, quadrantRules, quadrantOrder, quadrantColorMap, resolveQuadrantRule } = __tmCreateTaskCardGroupingContext(isDark);
             const buildTimeBoardCreateDate = (groupInfo) => {
                 const days = Number(groupInfo?.sortValue);
                 if (!Number.isInteger(days) || days < 0 || days > 15) return '';
@@ -915,20 +888,6 @@
                 target.setHours(12, 0, 0, 0);
                 target.setDate(target.getDate() + days);
                 return __tmNormalizeDateOnly(target);
-            };
-            const getTimeGroup = (task) => {
-                const info = getTimePriorityInfo(task);
-                const diffDays = Number(info?.diffDays);
-                if (!Number.isFinite(diffDays)) {
-                    return { key: 'pending', label: '待定', labelHtml: '待定', sortValue: Infinity };
-                }
-                if (diffDays < 0) return { key: 'overdue', label: '已过期', labelHtml: '已过期', sortValue: diffDays };
-                if (diffDays === 0) return { key: 'today', label: '今天', labelHtml: buildTimeGroupLabelHtml('今天', diffDays), sortValue: 0 };
-                if (diffDays === 1) return { key: 'tomorrow', label: '明天', labelHtml: buildTimeGroupLabelHtml('明天', diffDays), sortValue: 1 };
-                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', labelHtml: buildTimeGroupLabelHtml('后天', diffDays), sortValue: 2 };
-                if (diffDays >= 16) return { key: 'farther', label: '更远', labelHtml: '更远', sortValue: 16 };
-                const label = `余${diffDays}天`;
-                return { key: `days_${diffDays}`, label, labelHtml: buildTimeGroupLabelHtml(label, diffDays), sortValue: diffDays };
             };
             const getTimeBoardGroup = (task) => getTimeGroup(getKanbanColumnTask(task));
             const buildTimeBoardCols = () => {
@@ -954,76 +913,6 @@
                     const bv = Number(b?.sortValue);
                     return (Number.isFinite(av) ? av : Infinity) - (Number.isFinite(bv) ? bv : Infinity);
                 });
-            };
-            const getImportanceLevel = (task) => {
-                const priority = String(task?.priority || '').toLowerCase();
-                if (priority === 'a' || priority === '高' || priority === 'high') return 'high';
-                if (priority === 'b' || priority === '中' || priority === 'medium') return 'medium';
-                if (priority === 'c' || priority === '低' || priority === 'low') return 'low';
-                return 'none';
-            };
-            const getTimeRange = (task) => {
-                const timeStr = __tmIsCheckinTask(task)
-                    ? __tmGetTaskCheckinCurrentDate(task)
-                    : String(task?.completionTime || '').trim();
-                if (!timeStr) return 'nodate';
-                const taskDate = new Date(timeStr);
-                if (isNaN(taskDate.getTime())) return 'nodate';
-                const now = new Date();
-                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
-                const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
-                if (diffDays < 0) return 'overdue';
-                if (diffDays <= 7) return 'within7days';
-                if (diffDays <= 15) return 'within15days';
-                if (diffDays <= 30) return 'within30days';
-                return 'beyond30days';
-            };
-            const getTaskDays = (task) => {
-                const timeStr = __tmIsCheckinTask(task)
-                    ? __tmGetTaskCheckinCurrentDate(task)
-                    : String(task?.completionTime || '').trim();
-                if (!timeStr) return Infinity;
-                const taskDate = new Date(timeStr);
-                if (isNaN(taskDate.getTime())) return Infinity;
-                const now = new Date();
-                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
-                return Math.ceil((target - today) / (1000 * 60 * 60 * 24));
-            };
-            const quadrantRules = (SettingsStore.data.quadrantConfig && Array.isArray(SettingsStore.data.quadrantConfig.rules))
-                ? SettingsStore.data.quadrantConfig.rules
-                : [];
-            const quadrantOrder = ['urgent-important', 'not-urgent-important', 'urgent-not-important', 'not-urgent-not-important'];
-            const quadrantColorMap = {
-                red: 'var(--tm-quadrant-red)',
-                yellow: 'var(--tm-quadrant-yellow)',
-                blue: 'var(--tm-quadrant-blue)',
-                green: 'var(--tm-quadrant-green)'
-            };
-            const resolveQuadrantRule = (task) => {
-                const importance = getImportanceLevel(task);
-                const timeRange = getTimeRange(task);
-                const taskDays = getTaskDays(task);
-                for (const rule of quadrantRules) {
-                    const imp = Array.isArray(rule?.importance) ? rule.importance : [];
-                    const trs = Array.isArray(rule?.timeRanges) ? rule.timeRanges : [];
-                    if (!imp.includes(importance)) continue;
-                    let ok = trs.includes(timeRange);
-                    if (!ok) {
-                        for (const range of trs) {
-                            const s = String(range || '');
-                            if (!s.startsWith('beyond') || s === 'beyond30days') continue;
-                            const days = parseInt(s.replace('beyond', '').replace('days', ''), 10);
-                            if (!isNaN(days) && taskDays > days) {
-                                ok = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (ok) return rule;
-                }
-                return null;
             };
             const docsInOrder = __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId).map(d => String(d?.id || '').trim()).filter(Boolean);
             const docRank = new Map(docsInOrder.map((id, idx) => [id, idx]));

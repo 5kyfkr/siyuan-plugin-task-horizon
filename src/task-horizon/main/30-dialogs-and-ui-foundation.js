@@ -723,10 +723,12 @@
         try { root.style.setProperty('--tm-warning-color', palette.warning); } catch (e) {}
         try { root.style.setProperty('--tm-info-color', palette.info); } catch (e) {}
         try { root.style.setProperty('--tm-danger-color', palette.destructive); } catch (e) {}
-        try { root.style.setProperty('--tm-quadrant-red', palette.destructive); } catch (e) {}
-        try { root.style.setProperty('--tm-quadrant-yellow', palette.warning); } catch (e) {}
-        try { root.style.setProperty('--tm-quadrant-blue', palette.primary); } catch (e) {}
-        try { root.style.setProperty('--tm-quadrant-green', palette.success); } catch (e) {}
+        // Quadrants keep their semantic colors from CSS, independent of the theme palette.
+        // Clear earlier inline overrides when the appearance is refreshed in an open window.
+        try { root.style.removeProperty('--tm-quadrant-red'); } catch (e) {}
+        try { root.style.removeProperty('--tm-quadrant-yellow'); } catch (e) {}
+        try { root.style.removeProperty('--tm-quadrant-blue'); } catch (e) {}
+        try { root.style.removeProperty('--tm-quadrant-green'); } catch (e) {}
         try { root.style.setProperty('--tm-info-bg', infoBg); } catch (e) {}
         try { root.style.setProperty('--tm-info-border', infoBorder); } catch (e) {}
         try { root.style.setProperty('--tm-section-bg', sectionBg); } catch (e) {}
@@ -18556,6 +18558,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 case 'triangle-alert': return '<path d="M12 4.5 20 18.5a1.75 1.75 0 0 1-1.52 2.63H5.52A1.75 1.75 0 0 1 4 18.5l8-14a1.75 1.75 0 0 1 3.04 0Z" /><path d="M12 9.5v4.5" /><path d="M12 17.25h.01" />';
                 case 'timer':
                 case 'clock-countdown': return '<path d="M9 3.5h6" /><path d="M12 7v1.5" /><circle cx="12" cy="14" r="6.5" /><path d="M12 14V11.25" /><path d="m12 14 3 1.75" />';
+                case 'image': return '<rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L6 21" />';
                 case 'tag': return '<path d="M4 8.5v-3A2.5 2.5 0 0 1 6.5 3h5.25A2.5 2.5 0 0 1 13.52 3.73l6.75 6.75a2 2 0 0 1 0 2.82l-6.97 6.97a2 2 0 0 1-2.82 0L3.73 13.52A2.5 2.5 0 0 1 3 11.75V8.5Z" /><path d="M8 7.75h.01" />';
                 case 'square-pen': return '<path d="M5.5 4h8.25" /><path d="M6 20h12.5A1.5 1.5 0 0 0 20 18.5V10" /><path d="M4 5.5v13A1.5 1.5 0 0 0 5.5 20H8" /><path d="m14.5 5.5 4-4a2.12 2.12 0 0 1 3 3l-8.75 8.75-3.5 1 1-3.5Z" />';
                 case 'panel-left': return '<rect x="3.5" y="4" width="17" height="16" rx="2.5" /><path d="M9 4v16" />';

@@ -23,7 +23,7 @@ renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, c
         + '" data-id="' + task.id + '" data-tm-placement-parent="' + (task.parentTaskId || '')
         + '"><span class="tm-task-content-clickable" style="color:rgb(70,70,70)">' + task.content + '</span><div class="tm-kanban-subtasks-list">' + children + '</div></article>';
 };\n`);
-const code = [read('32-runtime-state-and-events.js'), read('21-view-render-state.js'), renderer,
+const code = [read('32-runtime-state-and-events.js'), read('21-view-render-state.js'), read('render/40-render-list-context-helpers.js'), renderer,
     section(read('task-runtime/53b-task-create-and-quick-add-runtime.js'), 'function __tmRemoveTaskDomNodes(', 'function __tmApplyDeleteOptimisticLocal('),
     section(read('10-stores-rules-and-cache.js'), 'function __tmResolveKanbanRefreshTaskIds(', 'async function __tmRefreshAffectedDocsIncrementally('),
     section(runtime, 'function __tmPatchKanbanColumnBranches(', 'function __tmTryReconcileKanbanParentCards('),

@@ -50,6 +50,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
             priority: 'high', customStatus: 'doing', startDate: '2026-09-27', completionTime: '2026-09-30',
             customFieldValues: { tag: ['a'] }, repeatRule: { enabled: true, type: 'daily' },
             repeatState: {}, reminderDraft: reminder ? { repeatMode: 'standalone' } : null,
+            images: [{ path: 'assets/related.png', file: { name: 'related.png' } }],
         } },
         SettingsStore: { data: {
             customStatusOptions: [{ id: 'doing' }], pinNewTasksByDefault: true, enableTomatoIntegration: true,
@@ -63,6 +64,10 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         __tmNormalizeDateOnly: value => value,
         __tmNormalizeQuickAddCustomFieldValues: value => value,
         __tmNormalizeCreateTaskCustomFieldValues: value => value || {},
+        __tmNormalizeTaskAttachmentPaths: value => value,
+        __tmUploadQuickAddImages: async qa => qa.images.map(image => image.path),
+        __tmRefreshQuickAddInputLayout: () => {},
+        __tmClearSubmittedQuickAddImages: () => {},
         __tmGetStatusOptions: value => value,
         __tmBuildTaskRepeatRuleMetaPatch: (task, repeatRule) => ({ repeatRule, repeatState: {} }),
         __tmBuildAttrPayloadFromPatch: patch => Object.fromEntries(Object.entries(patch).map(([key, value]) => [`custom-${key}`, value])),
@@ -103,6 +108,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         assert.equal(patch.repeatRule.type, 'daily');
         assert.deepEqual(patch.customFieldValues, { tag: ['a'] });
         assert.equal(patch.remark, op.data.content === '首个任务' ? inputs.tmQuickAddRemark.value : '');
+        assert.deepEqual(patch.attachments, op.data.content === '首个任务' ? ['assets/related.png'] : undefined);
         if (relation === 'subtask') assert.equal(patch.duration, '25', 'non-composer inherited fields survive');
         const attrs = context.__tmBuildAtomicCreateAttrs(op.data.requestedTaskId, patch);
         assert.equal(attrs['custom-remark'], patch.remark);
@@ -159,6 +165,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         const patch = relation === 'subtask' ? op.data.inheritedPatch : op.data.initialPatch;
         const attrs = (relation === 'subtask' ? inserted.itemData : inserted.data).attrs;
         assert.equal(attrs['custom-remark'], patch.remark, 'note is part of the atomic insert');
+        assert.deepEqual(plain(attrs['custom-attachments'] || []), op.data.content === '首个任务' ? ['assets/related.png'] : [], 'images are part of the atomic related-task insert');
         assert.equal(attrs['custom-completionTime'], patch.completionTime, 'date is part of the atomic insert');
         assert.equal(attrs['custom-repeatRule'].type, 'daily', 'repeat rule reaches storage');
         assert.deepEqual(plain(attrs['custom-customFieldValues']), { tag: ['a'] });
