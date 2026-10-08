@@ -125,17 +125,28 @@ try {
         Remove-Item -LiteralPath $output -Force
     }
 
-    $zipped = $false
-    try {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
-        [System.IO.Compression.ZipFile]::CreateFromDirectory($tempDir, $output, [System.IO.Compression.CompressionLevel]::Optimal, $false)
-        $zipped = $true
-    } catch {
-        $zipped = $false
-    }
-    if (-not $zipped) {
-        Compress-Archive -Path (Join-Path $tempDir '*') -DestinationPath $output -Force -CompressionLevel Optimal
-    }
+    # Use Python's ZIP writer so every archive entry uses the ZIP-required `/`
+    # separator. Windows PowerShell/.NET Framework can emit `\` here.
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $python) { $python = Get-Command python3 -ErrorAction SilentlyContinue }
+    if (-not $python) { throw 'Python 3 is required to build package.zip with POSIX entry paths' }
+    $zipScript = @'
+import os
+import sys
+import zipfile
+
+source, output = sys.argv[1:]
+with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+    for root, directories, files in os.walk(source):
+        directories.sort()
+        files.sort()
+        for name in files:
+            path = os.path.join(root, name)
+            relative = os.path.relpath(path, source).replace(os.sep, '/')
+            archive.write(path, relative)
+'@
+    & $python.Source -c $zipScript $tempDir $output
+    if ($LASTEXITCODE -ne 0) { throw 'Python ZIP packaging failed' }
 
     Write-Host ("Pack success: {0}" -f $output)
 } finally {

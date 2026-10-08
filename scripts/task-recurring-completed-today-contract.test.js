@@ -162,7 +162,7 @@ assert.ok((viewContracts[2][1].match(/__tmRenderCompletedTodayBadge\(/g) || []).
     'timeline and kanban must each render the shared today badge');
 const kanbanSource = viewContracts[2][1];
 assert.match(kanbanSource,
-    /showDoneCol && key === '__done__' && !__tmShouldShowTaskInCompletedRootGroup\(task\)/,
+    /showDoneCol && key === '__done__'[\s\S]*?__tmShouldShowTaskInCompletedRootGroup\(task\)/,
     'the standalone kanban completed column must honor the completed-today-only filter');
 const renderDoneColumnStart = kanbanSource.indexOf('const renderDoneColumnList =');
 const renderDoneColumnEnd = kanbanSource.indexOf('\n                };', renderDoneColumnStart);

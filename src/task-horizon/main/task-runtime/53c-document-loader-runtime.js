@@ -697,6 +697,7 @@
                 viewMode: getCurrentViewMode(''),
                 currentRule: String(state.currentRule || '').trim(),
                 searchKeyword: String(state.searchKeyword || '').trim(),
+                projectVisibilityRevision: globalThis.__tmProjectVisibility?.getRevision() || 0,
                 showCompletedTasks: state.showCompletedTasks === true ? 1 : 0,
                 completedTasksTodayOnly: SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0,
                 completedTasksInlineInGroups: SettingsStore?.data?.completedTasksInlineInGroups === true ? 1 : 0,
@@ -726,6 +727,7 @@
             'view-mode-changed': true,
             'rule-changed': true,
             'search-changed': true,
+            'project-visibility-changed': true,
             'completed-toggle-changed': true,
             'completed-today-only-changed': true,
             'completed-inline-groups-changed': true,
@@ -744,6 +746,7 @@
                 if (getCurrentViewMode('') !== snapshotCacheVerifyBefore.viewMode) return 'view-mode-changed';
                 if (String(state.currentRule || '').trim() !== snapshotCacheVerifyBefore.currentRule) return 'rule-changed';
                 if (String(state.searchKeyword || '').trim() !== snapshotCacheVerifyBefore.searchKeyword) return 'search-changed';
+                if ((globalThis.__tmProjectVisibility?.getRevision() || 0) !== snapshotCacheVerifyBefore.projectVisibilityRevision) return 'project-visibility-changed';
                 if ((state.showCompletedTasks === true ? 1 : 0) !== snapshotCacheVerifyBefore.showCompletedTasks) return 'completed-toggle-changed';
                 if ((SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksTodayOnly) return 'completed-today-only-changed';
                 if ((SettingsStore?.data?.completedTasksInlineInGroups === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksInlineInGroups) return 'completed-inline-groups-changed';
@@ -1165,6 +1168,8 @@
                     taskCountMap: countMeta?.map
                 });
                 if (snapshotMeta && isTokenCurrent()) {
+                    await globalThis.__tmProjectVisibility?.prepareTaskHeadings(Object.values(state.flatTasks || {}));
+                    if (!isTokenCurrent()) return;
                     try { recalcStats(); } catch (e) {}
                     let viewSnapshotMeta = null;
                     try {
@@ -1318,6 +1323,8 @@
                     taskCountMap: countMeta?.map,
                 });
                 if (sessionMeta && isTokenCurrent()) {
+                    await globalThis.__tmProjectVisibility?.prepareTaskHeadings(Object.values(state.flatTasks || {}));
+                    if (!isTokenCurrent()) return;
                     try { recalcStats(); } catch (e) {}
                     prepareSwitchGroupFirstPaintWindow();
                     if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
@@ -1344,6 +1351,8 @@
                         taskCountMap: countMeta?.map,
                     });
                     if (docSessionMeta && isTokenCurrent()) {
+                        await globalThis.__tmProjectVisibility?.prepareTaskHeadings(Object.values(state.flatTasks || {}));
+                        if (!isTokenCurrent()) return;
                         try { recalcStats(); } catch (e) {}
                         prepareSwitchGroupFirstPaintWindow();
                         if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
@@ -1389,6 +1398,8 @@
                         : 0,
                 });
                 if (indexMeta && isTokenCurrent()) {
+                    await globalThis.__tmProjectVisibility?.prepareTaskHeadings(Object.values(state.flatTasks || {}));
+                    if (!isTokenCurrent()) return;
                     try { recalcStats(); } catch (e) {}
                     prepareSwitchGroupFirstPaintWindow();
                     if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
@@ -1760,7 +1771,8 @@
                 const taskIds0 = enhanceTargets0.taskIds;
                 const taskDocMap0 = enhanceTargets0.taskDocMap;
                 const deferEnhance = !!perfTuning.asyncEnhance && taskIds0.length >= Number(perfTuning.deferEnhanceThreshold || 180);
-                const h2StrictNeeded = !!ruleNeedsH2Sort || docHeadingSubgroupActive || kanbanHeadingGroupingActive;
+                const h2StrictNeeded = !!ruleNeedsH2Sort || docHeadingSubgroupActive || kanbanHeadingGroupingActive
+                    || globalThis.__tmProjectVisibility?.hasHeadingCompletions() === true;
                 const preferAsyncEnhance = !!loadBudget.enabled;
                 const deferH2Enhance = !!needH2 && !h2StrictNeeded && (deferEnhance || preferAsyncEnhance);
                 let h2ContextMap = new Map();
@@ -2240,6 +2252,7 @@
                         else if (getCurrentViewMode('') !== snapshotCacheVerifyBefore.viewMode) remapSkipReason = 'view-mode-changed';
                         else if (String(state.currentRule || '').trim() !== snapshotCacheVerifyBefore.currentRule) remapSkipReason = 'rule-changed';
                         else if (String(state.searchKeyword || '').trim() !== snapshotCacheVerifyBefore.searchKeyword) remapSkipReason = 'search-changed';
+                        else if ((globalThis.__tmProjectVisibility?.getRevision() || 0) !== snapshotCacheVerifyBefore.projectVisibilityRevision) remapSkipReason = 'project-visibility-changed';
                         else if ((state.showCompletedTasks === true ? 1 : 0) !== snapshotCacheVerifyBefore.showCompletedTasks) remapSkipReason = 'completed-toggle-changed';
                         else if ((SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksTodayOnly) remapSkipReason = 'completed-today-only-changed';
                         else if ((SettingsStore?.data?.completedTasksInlineInGroups === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksInlineInGroups) remapSkipReason = 'completed-inline-groups-changed';
@@ -2285,6 +2298,7 @@
                             'view-mode-changed': true,
                             'rule-changed': true,
                             'search-changed': true,
+                            'project-visibility-changed': true,
                             'completed-toggle-changed': true,
                             'archive-mode-changed': true,
                             'group-doc-changed': true,

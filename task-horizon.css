@@ -15941,7 +15941,9 @@ select.tm-btn-secondary {
 }
 
 .tm-body--timeline .tm-timeline-table-left {
-    border-collapse: collapse;
+    /* Collapsed borders leave an unpainted seam beside sticky headers. */
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
 .tm-body--timeline .tm-timeline-table-left thead th {
@@ -15955,7 +15957,8 @@ select.tm-btn-secondary {
     position: sticky;
     top: 0;
     z-index: 6;
-    background: var(--tm-table-header-bg);
+    /* Keep translucent theme colors over a solid surface while rows scroll underneath. */
+    background: linear-gradient(var(--tm-table-header-bg), var(--tm-table-header-bg)), var(--tm-bg-color);
     box-shadow: inset 0 -1px 0 var(--tm-border-color);
 }
 
@@ -17813,8 +17816,23 @@ select.tm-btn-secondary {
     table-layout: fixed;
 }
 
+.tm-body--list .tm-table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.tm-body--list .tm-table thead,
+.tm-body--timeline .tm-timeline-table-left thead {
+    /* A continuous solid backing also covers subpixel column seams. */
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: linear-gradient(var(--tm-table-header-bg), var(--tm-table-header-bg)), var(--tm-bg-color);
+}
+
 .tm-table th {
-    background: var(--tm-table-header-bg);
+    /* Match the timeline header color without letting body rows show through. */
+    background: linear-gradient(var(--tm-table-header-bg), var(--tm-table-header-bg)), var(--tm-bg-color);
     padding: 4px 4px;
     text-align: left;
     font-weight: 600;
@@ -17829,8 +17847,8 @@ select.tm-btn-secondary {
     position: sticky;
     top: 0;
     z-index: 10;
-    /* 确保背景不透明，防止滚动时透视 */
-    background-clip: padding-box;
+    /* Paint the solid header surface underneath the column boundary too. */
+    background-clip: border-box;
     /* 表头文本截断样式：缩窄列时直接截断文本 */
     white-space: nowrap !important;
     overflow: hidden !important;
@@ -17843,8 +17861,8 @@ select.tm-btn-secondary {
     position: sticky;
     top: 0;
     z-index: 20;
-    /* 最后一列不显示右侧边框 */
     border-right: 1px solid var(--tm-table-border-color);
+    border-right-color: rgb(from var(--tm-table-border-color) r g b / 1);
 }
 
 .tm-body:not(.tm-body--timeline) .tm-table thead th {
@@ -18115,6 +18133,7 @@ select.tm-btn-secondary {
     bottom: 0;
     width: 6px;
     cursor: col-resize;
+    /* Let the handle reveal the already-opaque header surface underneath. */
     background: transparent;
     transition: background 0.2s;
 }

@@ -701,7 +701,8 @@
                     const checker = globalThis.__tmTaskProjectionEngine?.isKanbanTaskVisibleByCompletion;
                     if (typeof checker === 'function') return checker(task, state.showCompletedTasks);
                 } catch (e) {}
-                return !!task && (state.showCompletedTasks === true || !isKanbanTaskCompleted(task));
+                return !!task && (state.showCompletedTasks === true
+                    || (!isKanbanTaskCompleted(task) && !__tmIsTaskCanceled(task)));
             };
             const filteredBase = filteredRaw.map((task) => resolveKanbanProjectedTask(task) || task).filter((task) => {
                 if (!task || typeof task !== 'object') return false;
@@ -1198,7 +1199,12 @@
                     if (did !== activeDocId) return;
                     key = __tmGetDocHeadingBucket(columnTask, noHeadingLabel).key;
                 }
-                if (showDoneCol && key === '__done__' && !__tmShouldShowTaskInCompletedRootGroup(task)) return;
+                const isSeparateCompletedStatusColumn = !completedTasksInlineInGroups
+                    && !headingMode
+                    && key !== '__done__'
+                    && __tmDoesStatusIdResolveToDone(key, statusOptions);
+                if ((showDoneCol && key === '__done__' || isSeparateCompletedStatusColumn)
+                    && !__tmShouldShowTaskInCompletedRootGroup(task)) return;
                 if (!tasksByStatus.has(key)) tasksByStatus.set(key, []);
                 tasksByStatus.get(key).push(task);
             });
@@ -1426,7 +1432,10 @@
                 let roots = list0.filter(t => {
                     return !getNearestMappedAncestorId(t);
                 });
-                const completedTailGroupEnabled = kanbanUseCompletedTailGroups && !isDoneCol;
+                // A configured status whose marker resolves to completed is already
+                // the standalone completed status column in status-board mode.
+                // Do not wrap its cards in the collapsed completed tail group again.
+                const completedTailGroupEnabled = kanbanUseCompletedTailGroups && !isCompletedStatusCol;
                 const doneRootSplit = completedTailGroupEnabled
                     ? __tmSplitTasksByDoneState(roots, { forceSeparateCompletedRootGroup: true })
                     : { active: roots, done: [] };
@@ -1994,7 +2003,7 @@
                     columnHasDeferredCards = false;
                     let html = '';
                     // 标题看板模式下，也支持按文档/时间/四象限/任务名分组
-                    if (isDoneCol) {
+                    if (isCompletedStatusCol) {
                         html = renderDoneColumnList();
                     } else if (timeBoardMode && state.quadrantEnabled) {
                         html = renderGroupedByQuadrant();

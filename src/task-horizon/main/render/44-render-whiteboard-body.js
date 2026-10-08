@@ -89,7 +89,7 @@
             const tomatoFocusTaskId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
             const tomatoFocusModeEnabled = tomatoFocusTaskId ? __tmIsTomatoFocusModeEnabled() : false;
             const showDoneTasks = !!state.showCompletedTasks;
-            const showCanceledTasks = showDoneTasks || __tmRuleIncludesCanceledStatus(__tmGetCurrentRule());
+            const showCanceledTasks = showDoneTasks;
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
             const statusOptions = __tmGetStatusOptions(statusOptionsRaw);
             const todoOpt = statusOptions.find(o => o.id === 'todo') || { id: 'todo', name: '待办', color: '#757575' };
@@ -244,6 +244,7 @@
             const byDoc = new Map();
             const pushDocTask = (taskLike) => {
                 if (!taskLike || typeof taskLike !== 'object') return;
+                if (globalThis.__tmProjectVisibility?.isTaskHidden(taskLike, globalWhiteboardTaskMap)) return;
                 const docId = String(taskLike?.root_id || taskLike?.docId || '').trim();
                 const id = String(taskLike?.id || '').trim();
                 if (!docId || !id || !docIdSet.has(docId)) return;
@@ -652,12 +653,13 @@
                         docId: String(snapMap[tid]?.docId || '').trim(),
                         parentTaskId: String(snapMap[tid]?.parentTaskId || '').trim(),
                         h2: String(snapMap[tid]?.h2 || '').trim(),
+                        h2Id: String(snapMap[tid]?.h2Id || '').trim(),
                         startDate: String(snapMap[tid]?.startDate || '').trim(),
                         completionTime: String(snapMap[tid]?.completionTime || '').trim(),
                         done: !!snapMap[tid]?.done,
                         __tmGhost: true,
                     } : null);
-                    if (!taskObj) return;
+                    if (!taskObj || globalThis.__tmProjectVisibility?.isTaskHidden(taskObj, globalWhiteboardTaskMap)) return;
                     const taskDocId = String(taskObj?.root_id || taskObj?.docId || posDocId).trim();
                     let effectivePosDocId = posDocId;
                     if (isGlobalCanvasDoc && taskDocId && pos && typeof pos === 'object' && taskDocId !== posDocId) {
@@ -1473,6 +1475,7 @@
                 };
                 const listMap = new Map();
                 const addToList = (task, locked = false) => {
+                    if (globalThis.__tmProjectVisibility?.isTaskHidden(task, sourceTaskMap)) return;
                     const id = String(task?.id || '').trim();
                     if (!id) return;
                     if (!showDoneTasks && !(__tmIsTaskActive(task) || (showCanceledTasks && __tmIsTaskCanceled(task)))) return;
@@ -1873,6 +1876,7 @@
                 const posDocId = String(posMap?.[id]?.docId || '').trim();
                 const live = (isGlobalBoardMode ? globalWhiteboardTaskMap.get(id) : null) || state.flatTasks?.[id];
                 if (!live || typeof live !== 'object') return;
+                if (globalThis.__tmProjectVisibility?.isTaskHidden(live, globalWhiteboardTaskMap)) return;
                 const docId = String(live?.root_id || live?.docId || posDocId).trim();
                 if (!docId) return;
                 if (!isGlobalBoardMode && !docIdSet.has(docId)) return;

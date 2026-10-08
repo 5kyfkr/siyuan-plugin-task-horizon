@@ -2986,6 +2986,7 @@
                 missingIds.push(id);
                 continue;
             }
+            if (globalThis.__tmProjectVisibility?.isTaskHidden(task)) continue;
             filtered.push(task);
         }
         if (missingIds.length > 0) {
@@ -5786,7 +5787,8 @@
             : !!SettingsStore?.data?.kanbanHeadingGroupMode;
         const compactMetaNeedsH2 = typeof __tmShouldLoadCompactChecklistHeadingContext === 'function'
             && __tmShouldLoadCompactChecklistHeadingContext();
-        const needH2 = colOrder.includes('h2')
+        const needH2 = globalThis.__tmProjectVisibility?.hasHeadingCompletions() === true
+            || colOrder.includes('h2')
             || normalizedRuleSorts.some((item) => String(item?.field || '').trim() === 'h2')
             || docHeadingSubgroupActive
             || kanbanHeadingGroupingActive

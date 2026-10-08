@@ -4916,7 +4916,8 @@ return false;
             if (id && !rankById.has(id)) rankById.set(id, index);
         });
         const taskRank = rankById.get(tid);
-        let visibleByCompletion = state.showCompletedTasks === true || !projectedTask.done;
+        let visibleByCompletion = state.showCompletedTasks === true
+            || (!projectedTask.done && !__tmIsTaskCanceled(projectedTask));
         try {
             const checker = globalThis.__tmTaskProjectionEngine?.isKanbanTaskVisibleByCompletion;
             if (typeof checker === 'function') visibleByCompletion = checker(projectedTask, state.showCompletedTasks);
@@ -11867,6 +11868,7 @@ return false;
 
     function __tmShouldKeepChildTaskVisible(parentTask, childTask, inheritedHideCompleted = false) {
         if (!childTask || typeof childTask !== 'object') return false;
+        if (globalThis.__tmProjectVisibility?.isTaskHidden(childTask)) return false;
         const hideCompleted = __tmResolveHideCompletedDescendantsFlag(parentTask, inheritedHideCompleted);
         if (hideCompleted && __tmIsTaskCompletedForProjection(childTask)) return false;
         return true;
@@ -11892,6 +11894,7 @@ return false;
             const sourceChildren = Array.isArray(item?.children)
                 ? item.children
                 : (Array.isArray(liveTask?.children) ? liveTask.children : []);
+            if (globalThis.__tmProjectVisibility?.isTaskHidden(baseTask)) return acc;
             if (!showCompletedSubtasks && __tmIsTaskCompletedForProjection(baseTask)) return acc;
             const nextChildren = __tmBuildTaskDetailSubtaskTree(sourceChildren, showCompletedSubtasks, seen);
             baseTask.children = nextChildren;

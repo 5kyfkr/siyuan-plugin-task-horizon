@@ -18,6 +18,7 @@
     "main/34-task-projection-engine.js",
     "main/35-task-projection-service.js",
     "main/36-focus-statistics-service.js",
+    "main/37-project-visibility-service.js",
     "main/render/40-render-list-context-helpers.js",
     "main/render/42-render-list-and-checklist-body.js",
     "main/render/43-render-timeline-kanban-calendar-body.js",

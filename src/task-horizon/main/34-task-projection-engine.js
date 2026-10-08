@@ -80,7 +80,12 @@
 
         const isKanbanTaskVisibleByCompletion = (task, showCompletedTasks = false) => {
             if (!(task && typeof task === 'object')) return false;
-            return showCompletedTasks === true || !isTaskCompleted(task);
+            if (globalThis.__tmProjectVisibility?.isTaskHidden(task)) return false;
+            if (showCompletedTasks === true) return true;
+            const canceled = typeof __tmIsTaskCanceled === 'function'
+                ? __tmIsTaskCanceled(task)
+                : String(task.taskMarker ?? task.task_marker ?? task.marker ?? '').trim() === '-';
+            return !canceled && !isTaskCompleted(task);
         };
 
         const analyzePatch = (patch = {}, contextInput = {}, explicitFields = []) => {

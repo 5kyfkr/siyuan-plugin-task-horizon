@@ -17530,6 +17530,7 @@ if (opts.refresh === false) return;
     let __tmFilterRulesEnsurePromise = null;
 
     async function __tmEnsureSettingsLoaded(force = false) {
+        await globalThis.__tmProjectVisibility?.load(force);
         if (!force && SettingsStore.loaded) return SettingsStore.data;
         if (!force && __tmSettingsEnsurePromise) return await __tmSettingsEnsurePromise;
         const task = Promise.resolve().then(async () => {
@@ -20800,6 +20801,7 @@ if (!state.homepageOpen) return;
         const did = String(docId || '').trim();
         return (Array.isArray(state.taskDocHeadingGroupTasks) ? state.taskDocHeadingGroupTasks : [])
             .filter((task) => {
+                if (globalThis.__tmProjectVisibility?.isTaskHidden(task)) return false;
                 if (!__tmTaskHasResolvedHeading(task)) return false;
                 if (!did) return true;
                 return String(task?.root_id || task?.docId || '').trim() === did;

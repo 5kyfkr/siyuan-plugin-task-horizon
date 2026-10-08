@@ -70,6 +70,17 @@ assert.equal(engine.isKanbanTaskVisibleByCompletion({ done: true }, true), true,
     'kanban must keep completed tasks when completed visibility is enabled');
 assert.equal(engine.isKanbanTaskVisibleByCompletion({ done: false, customStatus: 'finish' }, false), false,
     'authoritative kanban rendering must use the canonical completion resolver');
+for (const markerField of ['taskMarker', 'task_marker', 'marker']) {
+    const canceled = { done: false, [markerField]: '-' };
+    assert.equal(engine.isKanbanTaskVisibleByCompletion(canceled, false), false,
+        'closed-task visibility must hide canceled tasks even though done remains false');
+    assert.equal(engine.isKanbanTaskVisibleByCompletion(canceled, true), true);
+    assert.equal(engine.isTaskCompleted(canceled), false, 'canceled tasks must not become successful completions');
+}
+context.__tmIsTaskCanceled = (task) => task.customStatus === 'quit';
+assert.equal(engine.isKanbanTaskVisibleByCompletion({ done: false, customStatus: 'quit' }, false), false,
+    'visibility must use the canonical cancellation resolver for configured statuses');
+delete context.__tmIsTaskCanceled;
 assert.match(kanbanRenderSource, /__tmTaskProjectionEngine\?\.isKanbanTaskVisibleByCompletion/,
     'authoritative kanban rendering must use ProjectionEngine completion visibility');
 assert.match(kanbanRenderSource, /hideCompletedDescendants && isKanbanTaskCompleted\(child\)/,

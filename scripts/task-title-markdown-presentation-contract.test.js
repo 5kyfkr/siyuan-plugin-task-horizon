@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+async function main() {
 const root = path.resolve(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
 const apiSource = read('src', 'task-horizon', 'main', '20-api-and-runtime-services.js');
@@ -132,6 +133,7 @@ vm.runInContext(sliceBetween(
     '    const __TM_WRITER_GUARD_STORAGE_KEY',
     'shared title presentation bridge',
 ), context);
+vm.runInContext(read('src', 'task-horizon', 'main', '37-project-visibility-service.js'), context);
 vm.runInContext(homepageSource.replace('    globalThis.__tmHomepage = {', `
     globalThis.__homepageProjectTitleTest = {
         renderProjectH2Card,
@@ -158,6 +160,7 @@ const {
 } = context.__homepageProjectTitleTest;
 const savedHomepageSettings = [];
 context.__tmHost = {
+    async loadData() { return {}; },
     saveData(key, value) {
         savedHomepageSettings.push({ key, value });
         return Promise.resolve();
@@ -180,7 +183,7 @@ assert.match(renderProjectProgressHtml({ progress: 40, expected: 70 }), /落后 
     'active cards must keep showing their schedule delta');
 assert.doesNotMatch(renderProjectProgressHtml({ progress: 40, expected: 70 }, true), /落后|超前/,
     'completed cards must hide ahead/behind percentages');
-setHomepageProjectCompleted('doc', 'doc-id', true);
+await setHomepageProjectCompleted('doc', 'doc-id', true);
 assert.equal(isHomepageProjectCompleted('doc', 'doc-id'), true);
 assert.equal(savedHomepageSettings.at(-1)?.key, 'homepage-settings.json');
 assert.equal(savedHomepageSettings.at(-1)?.value?.completedProjects?.['doc:doc-id'], true,
@@ -202,7 +205,7 @@ const sectionHtml = renderProjectsSection({
 });
 assert.ok(sectionHtml.includes('1 个逾期'),
     'project groups must exclude manually completed documents from the overdue count');
-setHomepageProjectCompleted('doc', 'doc-id', false);
+await setHomepageProjectCompleted('doc', 'doc-id', false);
 assert.equal(isHomepageProjectCompleted('doc', 'doc-id'), false, 'the context action must allow clearing completion');
 assert.match(homepageSource, /\.tm-home-project-risk\s*\{[^}]*font-size:\s*10px/s);
 assert.match(homepageSource, /\.tm-home-project-top \.days-remaining\s*\{[^}]*font-size:\s*10px/s,
@@ -288,3 +291,6 @@ assert.match(detailSource, /<textarea[^>]*data-tm-detail="content"/,
     'the task detail editor must remain a raw markdown textarea');
 
 console.log('task title markdown presentation contract tests passed');
+
+}
+main().catch((error) => { console.error(error); process.exitCode = 1; });

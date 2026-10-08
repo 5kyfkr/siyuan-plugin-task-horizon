@@ -423,6 +423,7 @@
                 try { return calendar.getOption(name); } catch (e) { return undefined; }
             },
             addEvent(eventInput, source) {
+                if (isCalendarEventHiddenByProject(eventInput)) return null;
                 if (!calendar || !eventInput || typeof calendar.addEvent !== 'function') return null;
                 try { return calendar.addEvent(eventInput, source) || null; } catch (e) { return null; }
             },
@@ -4433,8 +4434,23 @@
         return eventInput;
     }
 
+    function isCalendarEventHiddenByProject(event) {
+        const service = globalThis.__tmProjectVisibility;
+        const props = event?.extendedProps || {};
+        if (!service || !['taskdate', 'schedule', 'reminder'].includes(props.__tmSource)) return false;
+        const taskId = String(props.__tmSourceTaskId || props.__tmTaskId || '').trim();
+        if (!taskId) return false;
+        const task = {
+            id: taskId,
+            root_id: props.__tmDocId,
+            h2Id: props.__tmTaskHeadingId,
+        };
+        return service.isTaskHidden(task);
+    }
+
     function normalizeCalendarEngineEventInputs(events) {
-        return Array.isArray(events) ? events.map((eventInput) => normalizeCalendarEngineEventInput(eventInput)) : [];
+        return Array.isArray(events) ? events.filter((event) => !isCalendarEventHiddenByProject(event))
+            .map((eventInput) => normalizeCalendarEngineEventInput(eventInput)) : [];
     }
 
     function setCalendarEventColor(eventApi, color) {
@@ -23581,6 +23597,7 @@
                     __tmSource: 'taskdate',
                     __tmTaskId: actionTaskId,
                     __tmTaskTitleMarkdown: titleMarkdown,
+                    __tmTaskHeadingId: String(it?.h2Id || ''),
                     __tmTaskDateEventTaskId: linkedTaskId || taskId,
                     __tmSourceTaskId: sourceTaskId,
                     __tmRank: 2,
@@ -34695,7 +34712,7 @@
                 });
                 const result = Array.from(byId.values())
                     .map((child) => getCalendarTaskSnapshotById(String(child.id || child.blockId || '').trim()) || child)
-                    .filter((child) => !protoListTaskCanceled(child));
+                    .filter((child) => !protoListTaskCanceled(child) && !globalThis.__tmProjectVisibility?.isTaskHidden(child));
                 return result;
             };
             const protoListTaskHasChildren = (task) => {

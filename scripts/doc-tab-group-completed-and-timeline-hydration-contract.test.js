@@ -53,6 +53,16 @@ assert.equal(manuallyArchivedPolicy(doneDoc, { archiveMode: true }), true, 'expl
 const manuallyUnarchivedPolicy = buildVisibilityPolicy({ data: { currentGroupId: 'group-a', docTabsManualArchiveOnly: false } }, (task) => task.done === true, () => false, () => true);
 assert.equal(manuallyUnarchivedPolicy(doneDoc, { archiveMode: false }), true, 'manually unarchived completed documents should return to active tabs');
 assert.equal(manuallyUnarchivedPolicy(doneDoc, { archiveMode: true }), false, 'manually unarchived completed documents should leave the archive tabs');
+const projectionSource = `globalThis.__tmTaskStore = __tmTaskStore; ${docTabVisibility}; return __tmGetDocTaskStateForTabs;`;
+const getProjectedState = new Function(
+    'SettingsStore', '__tmIsTaskDoneEffective', '__tmTaskStore', projectionSource
+)(
+    { data: { currentGroupId: 'group-a' } },
+    (task) => task.done === true,
+    { getFlatMap: () => ({ active: { id: 'active', root_id: 'doc-a', done: false } }) },
+);
+assert.equal(getProjectedState({ id: 'doc-a', tasks: [{ id: 'stale', done: true }] }).hasUndone, true,
+    'document archive state must prefer the current TaskStore projection over a stale document tree');
 assert.match(dialogRuntime, /canManuallyArchiveDocTab[\s\S]*docTabsManualArchiveOnly === true[\s\S]*docTabStateForMenu\.hasAny/, 'completed tabs must keep the manual archive menu action when automatic archiving is disabled');
 assert.match(dialogRuntime, /移出归档页签[\s\S]*__tmSetDocManualUnarchivedForGroup/, 'archive-tab context menus must expose a manual unarchive action for automatically archived documents');
 const unarchiveMenuIndex = dialogRuntime.indexOf("__tmRenderContextMenuLabel('tray-arrow-up', '移出归档页签')");

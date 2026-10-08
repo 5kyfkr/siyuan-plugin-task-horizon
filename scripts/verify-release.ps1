@@ -61,3 +61,18 @@ try {
 }
 
 Write-Host ("Release verification passed: {0} tests" -f $tests.Count)
+
+$packagePath = Join-Path $root 'package.zip'
+if (Test-Path -LiteralPath $packagePath -PathType Leaf) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($packagePath)
+    try {
+        $invalidEntries = @($archive.Entries | Where-Object { $_.FullName.Contains('\') })
+        if ($invalidEntries.Count) {
+            throw ("package.zip contains ZIP entries with backslash separators: {0}" -f (($invalidEntries | Select-Object -First 5 -ExpandProperty FullName) -join ', '))
+        }
+    } finally {
+        $archive.Dispose()
+    }
+    Write-Host 'package.zip path separator check passed'
+}

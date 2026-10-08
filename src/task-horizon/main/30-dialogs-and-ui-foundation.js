@@ -792,8 +792,15 @@
         const did = String(doc?.id || '').trim();
         const memo = cache instanceof Map ? cache : null;
         if (did && memo && memo.has(did)) return memo.get(did);
+        let taskList = Array.isArray(doc?.tasks) ? doc.tasks : [];
+        // The document tree can lag behind optimistic/authoritative TaskStore updates.
+        try {
+            const projectedTasks = Object.values(globalThis.__tmTaskStore?.getFlatMap?.() || {})
+                .filter((task) => String(task?.root_id || task?.docId || '').trim() === did);
+            if (projectedTasks.length > 0) taskList = projectedTasks;
+        } catch (e) {}
         const out = {
-            hasAny: !!(doc && Array.isArray(doc.tasks) && doc.tasks.length > 0),
+            hasAny: !!(doc && taskList.length > 0),
             hasUndone: false,
         };
         if (out.hasAny) {
@@ -813,7 +820,7 @@
                     if (out.hasUndone) return;
                 }
             };
-            walk(doc.tasks, false);
+            walk(taskList, false);
         }
         out.isArchived = !!(out.hasAny && !out.hasUndone);
         if (did && memo) memo.set(did, out);
@@ -852,6 +859,8 @@
         if (!id) return true;
         const groupId = String(options?.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         if (__tmIsDocManuallyUnarchivedInGroup(id, groupId)) return true;
+        // Automatic tab archiving must not remove tasks before view-specific
+        // completion handling (for example, the kanban completed status column).
         return !__tmIsDocManuallyArchivedInGroup(id, groupId);
     }
 
@@ -10703,6 +10712,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             && !currentRuleIncludesCompleted()
             && !currentRuleAllStatuses()
             && !otherBlocksShowDoneInAllRule;
+        const excludeCanceled = !state.showCompletedTasks && !archiveMode;
         const alwaysShowTaskDocHeadingGroups = SettingsStore.data.alwaysShowTaskDocHeadingGroups === true
             && SettingsStore.data.docH2SubgroupEnabled !== false
             && state.groupByDocName === true;
@@ -10723,18 +10733,18 @@ return Number(state.contextInteractionQuietUntil || 0);
         } else {
             state.taskDocHeadingGroupTasks = [];
         }
-        const includeCanceledStatus = __tmRuleIncludesCanceledStatus(rule);
         const isTaskHiddenByCompletion = (task) => {
             const taskDone = typeof __tmIsTaskCompletedForProjection === 'function'
                 ? __tmIsTaskCompletedForProjection(task)
                 : (typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(task) : task.done === true);
-            return taskDone || (!includeCanceledStatus && __tmIsTaskCanceled(task));
+            return (excludeCompleted && taskDone) || (excludeCanceled && __tmIsTaskCanceled(task));
         };
-        const isTaskVisibleByCompletion = (task) => !excludeCompleted
-            || (!isTaskHiddenByCompletion(task) && !hasHiddenCompletedAncestor(task));
+        const isTaskVisibleByCompletion = (task) => !globalThis.__tmProjectVisibility?.isTaskHidden(task)
+            && ((!excludeCompleted && !excludeCanceled)
+                || (!isTaskHiddenByCompletion(task) && !hasHiddenCompletedAncestor(task)));
         const filterVisibleTasks = (list) => {
-            const source = Array.isArray(list) ? list : [];
-            if (!excludeCompleted) return source;
+            const source = globalThis.__tmProjectVisibility?.filterTasks(list) || (Array.isArray(list) ? list : []);
+            if (!excludeCompleted && !excludeCanceled) return source;
             return source.filter(isTaskVisibleByCompletion);
         };
 
@@ -10827,7 +10837,8 @@ return Number(state.contextInteractionQuietUntil || 0);
                     ? stablePinnedFirst(visibleAllTasks)
                     : RuleManager.applyRuleSort(visibleAllTasks, rule, ruleRuntime));
 
-            const finalOrdered = __tmApplyWhiteboardSequenceFilter(sortedVisibleTasks);
+            const finalOrdered = __tmApplyWhiteboardSequenceFilter(sortedVisibleTasks)
+                .filter((task) => !globalThis.__tmProjectVisibility?.isTaskHidden(task));
             state.filteredTasks = finalOrdered;
             state.filteredDocIdsForTabs = Array.from(filteredDocIdsForTabs);
             __tmUpdateFilteredTaskRenderWindowState(finalOrdered);
@@ -10900,7 +10911,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             const orderedOtherBlocks = hasExplicitSortRule
                 ? RuleManager.applyRuleSort(matched, rule, ruleRuntime)
                 : matched.slice();
-            const finalOrdered = __tmApplyWhiteboardSequenceFilter(orderedOtherBlocks);
+            const finalOrdered = __tmApplyWhiteboardSequenceFilter(orderedOtherBlocks)
+                .filter((task) => !globalThis.__tmProjectVisibility?.isTaskHidden(task));
             state.filteredTasks = finalOrdered;
             state.filteredDocIdsForTabs = Array.from(filteredDocIdsForTabs);
             __tmUpdateFilteredTaskRenderWindowState(finalOrdered);
@@ -10937,7 +10949,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             });
         }
 
-        const finalOrdered = __tmApplyWhiteboardSequenceFilter(ordered);
+        const finalOrdered = __tmApplyWhiteboardSequenceFilter(ordered)
+            .filter((task) => !globalThis.__tmProjectVisibility?.isTaskHidden(task));
         state.filteredTasks = finalOrdered;
         state.filteredDocIdsForTabs = Array.from(filteredDocIdsForTabs);
         __tmUpdateFilteredTaskRenderWindowState(finalOrdered);

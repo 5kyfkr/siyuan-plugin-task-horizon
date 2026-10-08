@@ -13,7 +13,14 @@ function section(source, start, end) {
     return source.slice(from, to);
 }
 const runtime = read('20-api-and-runtime-services.js');
+const completionRuntime = read('task-runtime/51-whiteboard-and-link-runtime.js');
 const viewSwitch = read('render/47-render-side-panels-and-view-switching.js');
+const dialogRuntime = read('30-dialogs-and-ui-foundation.js');
+const filterCode = [
+    read('34-task-projection-engine.js'),
+    section(dialogRuntime, 'function __tmGetDocTaskStateForTabs(', 'function __tmGetArchiveModeFilterRule('),
+    section(dialogRuntime, 'function applyFilters()', 'function __tmIsTaskAndDescDone('),
+].join('\n');
 let renderer = section(read('render/43-render-timeline-kanban-calendar-body.js'),
     'function __tmBuildRenderSceneKanbanBodyHtml(', 'function __tmBuildRenderSceneCalendarBodyHtml(');
 const decoration = section(renderer, 'const renderCard = ', 'const kanbanBoardNavItems = ');
@@ -26,6 +33,9 @@ renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, c
 };\n`);
 const code = [read('32-runtime-state-and-events.js'), read('33-task-boundary-facades.js'), read('21-view-render-state.js'), read('render/40-render-list-context-helpers.js'),
     section(runtime, 'function __tmHashStringFNV1a(', 'function __tmSafeAttrName('), renderer,
+    section(completionRuntime, 'function __tmGetArchivedDocIdsForAllTabCompletedTailGroup(', 'function __tmGetTaskDoneSortTs('),
+    section(completionRuntime, 'function __tmShouldShowTaskInCompletedRootGroup(', 'function __tmBuildTaskRowModelCacheMeta('),
+    section(runtime, 'function __tmGetCompletedRootGroupScopeKey(', 'function __tmPersistExpandedCompletedGroups('),
     section(read('task-runtime/53b-task-create-and-quick-add-runtime.js'), 'function __tmRemoveTaskDomNodes(', 'function __tmApplyDeleteOptimisticLocal('),
     section(read('10-stores-rules-and-cache.js'), 'function __tmResolveKanbanRefreshTaskIds(', 'async function __tmRefreshAffectedDocsIncrementally('),
     section(runtime, 'function __tmPatchKanbanColumnBranches(', 'function __tmTryReconcileKanbanParentCards('),
@@ -78,8 +88,11 @@ async function setup(page) {
             __tmResolveTaskStatusId: (task) => task.customStatus || 'todo',
             __tmResolveTaskStatusDisplayOption: (task) => ({ id: task.customStatus || 'todo', name: 'status' }),
             __tmIsTaskDoneEffective: (task) => !!task.done,
+            __tmIsTaskCanceled: (task) => task?.taskMarker === '-',
             __tmIsTaskDoneForTailGroup: (task) => !!task.done,
             __tmDoesStatusIdResolveToDone: (id) => id === 'done',
+            __tmDocShouldShowInDocTabs: () => false,
+            __tmIsTaskCompletedToday: (task) => task.taskCompleteAt === '2026-09-26',
             __tmResolveHideCompletedDescendantsFlag: () => false,
             __tmShouldKeepChildTaskVisible: () => true,
             __tmIsDarkMode: () => false,
@@ -169,6 +182,178 @@ async function setup(page) {
         finally { await page.close(); }
     }
     try {
+        for (const inline of [false, true]) {
+            await run(`canceled tasks follow completion visibility after column and full refresh (${inline})`, async (page) => {
+                await page.addScriptTag({ content: read('34-task-projection-engine.js') });
+                const result = await page.evaluate((inline) => {
+                    SettingsStore.data.completedTasksInlineInGroups = inline;
+                    __tmIsTaskCanceled = (task) => task?.taskMarker === '-';
+                    __tmGetStatusOptions = () => ['todo', 'doing', 'done', 'quit'].map((id) => ({ id, name: id, color: '#777777' }));
+                    state.showCompletedTasks = false;
+                    setModel([{ id: 'active' }, { id: 'other' }]);
+                    mount();
+                    const visibleIds = () => Array.from(state.modal.querySelectorAll('.tm-kanban-card'))
+                        .filter((card) => !card.closest('[hidden]')).map((card) => card.dataset.id);
+                    const mutation = { type: 'taskPatch', opId: 'cancel-active', taskId: 'active',
+                        patch: { done: false, taskMarker: '-', customStatus: 'quit' } };
+                    __tmTaskStore.applyMutation({ ...mutation, phase: 'optimistic' });
+                    patch(['active']);
+                    const afterColumnRefresh = visibleIds();
+                    __tmTaskStore.applyMutation({ ...mutation, phase: 'commit' });
+                    commitView();
+                    const afterFullRefresh = visibleIds();
+                    state.showCompletedTasks = true;
+                    commitView();
+                    const canceledCard = state.modal.querySelector('[data-id="active"]');
+                    const shownCanceled = { visible: !canceledCard.closest('[hidden]'), done: canceledCard.dataset.done };
+                    state.showCompletedTasks = false;
+                    __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'resume-active',
+                        taskId: 'active', patch: { done: false, taskMarker: ' ', customStatus: 'todo' } });
+                    commitView();
+                    return { afterColumnRefresh, afterFullRefresh, shownCanceled, resumed: visibleIds() };
+                }, inline);
+                assert.deepEqual(result, { afterColumnRefresh: ['other'], afterFullRefresh: ['other'],
+                    shownCanceled: { visible: true, done: 'false' }, resumed: ['active', 'other'] });
+            });
+        }
+        for (const scope of ['all', 'group']) {
+            for (const inline of [false, true]) {
+                await run(`completion column survives task filtering (${scope}, inline ${inline})`, async (page) => {
+                    await page.evaluate(({ scope, inline }) => {
+                        SettingsStore.data.completedTasksInlineInGroups = inline;
+                        SettingsStore.data.currentGroupId = 'all';
+                        setModel([
+                            { id: 'active' },
+                            { id: 'auto-done', root_id: 'doc2', docId: 'doc2', done: true, customStatus: 'done' },
+                            { id: 'manual-done', root_id: 'doc3', docId: 'doc3', done: true, customStatus: 'done' },
+                        ]);
+                        state.activeDocId = scope;
+                        Object.assign(window, {
+                            __tmIsDocManuallyArchivedInGroup: (id) => id === 'doc3',
+                            __tmIsDocManuallyUnarchivedInGroup: () => false,
+                            __tmGetArchiveModeFilterRule: (rule) => rule,
+                            __tmRuleUsesCustomOrderSort: () => false,
+                            __tmParseDocTabCustomGroupActiveId: (id) => id === 'group' ? 'group' : '',
+                            __tmGetDocTabCustomGroupDocIdSet: () => new Set(['doc', 'doc2', 'doc3']),
+                            __tmFindDocTabCustomGroupById: () => ({}),
+                            __tmGetDocTabCustomGroupRegionState: () => ({ hasActive: true, hasArchived: true }),
+                            __tmShouldShowDocTabCustomGroupInRegion: () => true,
+                            __tmIsDocTabCustomGroupActiveId: (id) => id === 'group',
+                            __tmGetActiveDocTabCustomGroupDocIdSet: (id) => new Set(id === 'group' ? ['doc', 'doc2', 'doc3'] : []),
+                            __tmIsAllRuleLike: () => true,
+                            __tmHasActiveDocTabContentFilter: () => false,
+                            __tmRuleIncludesCanceledStatus: () => false,
+                            __tmIsTaskCanceled: () => false,
+                            __tmIsCollectedOtherBlockTask: () => false,
+                            __tmApplyWhiteboardSequenceFilter: (tasks) => tasks,
+                            __tmUpdateFilteredTaskRenderWindowState: () => {},
+                        });
+                    }, { scope, inline });
+                    await page.addScriptTag({ content: filterCode });
+                    const result = await page.evaluate(() => {
+                        applyFilters();
+                        mount();
+                        return {
+                            filtered: state.filteredTasks.map((task) => task.id),
+                            cards: Array.from(column('status:done').querySelectorAll('.tm-kanban-card'), (card) => card.dataset.id),
+                            activeTabs: state.filteredDocIdsForTabs,
+                        };
+                    });
+                    assert.deepEqual(result.filtered, ['active', 'auto-done']);
+                    assert.deepEqual(result.cards, ['auto-done']);
+                    assert.deepEqual(result.activeTabs, ['doc']);
+                    const toggled = await page.evaluate(() => {
+                        state.showCompletedTasks = false;
+                        applyFilters();
+                        mount();
+                        const hidden = Array.from(state.modal.querySelectorAll('.tm-kanban-card'), (card) => card.dataset.id);
+                        state.showCompletedTasks = true;
+                        applyFilters();
+                        mount();
+                        const restored = Array.from(column('status:done').querySelectorAll('.tm-kanban-card'), (card) => card.dataset.id);
+                        __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'complete-last-active',
+                            taskId: 'active', patch: { done: true, customStatus: 'done' } });
+                        applyFilters();
+                        mount();
+                        const completed = Array.from(column('status:done').querySelectorAll('.tm-kanban-card'), (card) => card.dataset.id);
+                        return { hidden, restored, completed };
+                    });
+                    assert.deepEqual(toggled.hidden, ['active']);
+                    assert.deepEqual(toggled.restored, ['auto-done']);
+                    assert.deepEqual(toggled.completed, ['active', 'auto-done']);
+                });
+            }
+        }
+        for (const inline of [false, true]) {
+            await run(`completed status cards remain visible with inline grouping ${inline}`, async (page) => {
+                const result = await page.evaluate((inline) => {
+                    SettingsStore.data.completedTasksInlineInGroups = inline;
+                    SettingsStore.data.kanbanShowDoneColumn = true;
+                    __tmGetStatusOptions = () => [
+                        { id: 'todo', name: '待办', marker: ' ', color: '#777777' },
+                        { id: 'finish-custom', name: '已完成1', marker: 'X', color: '#777777' },
+                    ];
+                    __tmDoesStatusIdResolveToDone = (id) => id === 'finish-custom';
+                    setModel([
+                        { id: 'active' },
+                        { id: 'completed-parent', done: true, customStatus: 'finish-custom' },
+                        { id: 'completed-child', done: true, customStatus: 'finish-custom', parentTaskId: 'completed-parent' },
+                        { id: 'completed-other-doc', root_id: 'doc2', done: true, customStatus: 'finish-custom' },
+                    ]);
+                    // A completed status column must use the filtered task scope,
+                    // including documents that are automatically archived in tabs.
+                    __tmDocShouldShowInDocTabs = (doc) => doc.id === 'doc2';
+                    mount();
+                    const doneCol = column('status:finish-custom');
+                    const cards = Array.from(doneCol.querySelectorAll('.tm-kanban-card'));
+                    const before = cards.map((card) => ({ id: card.dataset.id, visible: !card.closest('[hidden]') }));
+                    __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'complete-root',
+                        taskId: 'active', patch: { done: true, customStatus: 'finish-custom' } });
+                    const refreshed = patch(['active']);
+                    return { before, completedGroups: doneCol.querySelectorAll('[data-group-key^="completed_root_tasks"]').length,
+                        refreshed, moved: placement('active'), movedVisible: !state.modal.querySelector('[data-id="active"]').closest('[hidden]') };
+                }, inline);
+                assert.deepEqual(result.before, [
+                    { id: 'completed-parent', visible: true },
+                    { id: 'completed-child', visible: true },
+                    { id: 'completed-other-doc', visible: true },
+                ]);
+                assert.equal(result.completedGroups, 0);
+                assert.equal(result.refreshed, true);
+                assert.deepEqual(result.moved, [{ column: 'status:finish-custom', parent: '' }]);
+                assert.equal(result.movedVisible, true);
+            });
+        }
+        await run('completed status columns retain today-only and hide-completed filters', async (page) => {
+            const result = await page.evaluate(() => {
+                SettingsStore.data.completedTasksInlineInGroups = false;
+                SettingsStore.data.completedTasksTodayOnly = true;
+                setModel([
+                    { id: 'active' },
+                    { id: 'today', done: true, customStatus: 'done', taskCompleteAt: '2026-09-26' },
+                    { id: 'earlier', done: true, customStatus: 'done', taskCompleteAt: '2026-09-25' },
+                ]);
+                mount();
+                const ids = Array.from(column('status:done').querySelectorAll('.tm-kanban-card'), (card) => card.dataset.id);
+                state.showCompletedTasks = false;
+                __tmKanbanColsHtmlCache = null;
+                commitView();
+                return { ids, hiddenCount: column('status:done').querySelectorAll('.tm-kanban-card').length };
+            });
+            assert.deepEqual(result, { ids: ['today'], hiddenCount: 0 });
+        });
+        await run('unfinished status columns retain their collapsed completed tail group', async (page) => {
+            const result = await page.evaluate(() => {
+                SettingsStore.data.completedTasksInlineInGroups = false;
+                setModel([{ id: 'active' }, { id: 'closed-in-todo', done: true }]);
+                mount();
+                const task = state.modal.querySelector('[data-id="closed-in-todo"]');
+                return { column: task.closest('.tm-kanban-col').dataset.colKey,
+                    hiddenByGroup: !!task.closest('[data-tm-kanban-group-items][hidden]'),
+                    completedGroupCount: column('status:todo').querySelectorAll('[data-group-key^="completed_root_tasks"]').length };
+            });
+            assert.deepEqual(result, { column: 'status:todo', hiddenByGroup: true, completedGroupCount: 1 });
+        });
         await run('subtask status survives a later full render with the same filtered parent', async (page) => {
             const result = await page.evaluate(() => {
                 SettingsStore.data.kanbanPreventSubtaskSeparation = true;

@@ -92,9 +92,8 @@ const context = vm.createContext({
     },
     __tmTaskStateKernel: { getTask: () => task },
     __tmTaskStore: { getProjected: () => storedProjection },
-    __tmTaskProjectionEngine: {
-        isKanbanTaskVisibleByCompletion: (item, showCompleted) => showCompleted === true || !item?.done,
-    },
+    __tmTaskBoundary: { isTaskCompleted: (item) => item?.done === true },
+    __tmIsTaskCanceled: (item) => item?.taskMarker === '-',
     __tmSyncKanbanProjectionCounts: () => { countSyncs += 1; },
     __tmUpdateTaskDoneInDOM: (card, item) => {
         card.checkboxChecked = item?.done === true || item?.taskMarker === '-';
@@ -109,6 +108,7 @@ const context = vm.createContext({
     __tmKanbanColsHtmlCache: null,
 });
 context.globalThis = context;
+vm.runInContext(fs.readFileSync(path.join(root, 'src/task-horizon/main/34-task-projection-engine.js'), 'utf8'), context);
 vm.runInContext(source.slice(start, end), context, { filename: 'kanban-optimistic-projection.js' });
 
 assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', { done: true }, { filtersApplied: true }), true);
@@ -135,6 +135,16 @@ assert.ok(cards.every((card) => card.checkboxChecked === false),
     'restoring a hidden task must also reset every mounted checkbox from the projected after-state');
 assert.equal(completedBadgeSyncs - badgeSyncsBeforeRestore, cards.length,
     'an in-place kanban projection must synchronize the completed-today badge on every mounted card');
+
+assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', {
+    done: false, taskMarker: '-', customStatus: 'quit',
+}, { filtersApplied: true }), true);
+assert.ok(cards.every((card) => card.hidden && card.attrs.get('data-tm-hidden-by-completion') === 'true'),
+    'canceling a task must hide all mounted cards while completed visibility is off');
+assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', {
+    done: false, taskMarker: '/', customStatus: 'in_progress',
+}, { filtersApplied: true }), true);
+assert.ok(cards.every((card) => !card.hidden), 'resuming a canceled task must restore its cards');
 
 assert.match(css, /\.tm-body--kanban \.tm-kanban-card\[hidden\]\s*\{\s*display: none !important;/,
     'kanban card hiding must not depend on the host theme user-agent hidden rule');

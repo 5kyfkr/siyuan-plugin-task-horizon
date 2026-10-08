@@ -23,5 +23,6 @@ assert.doesNotThrow(() => new vm.Script(source, { filename: 'task-horizon.dev-ma
     'concatenated task runtime must be valid JavaScript');
 assert.match(releaseVerification, /git -C \$root ls-files -- \$repoRelativePath/);
 assert.match(releaseVerification, /Manifest script is not tracked by Git/);
+assert.match(releaseVerification, /package\.zip contains ZIP entries with backslash separators/);
 
 console.log(`task main manifest syntax contract tests passed (${manifest.scripts.length} files)`);

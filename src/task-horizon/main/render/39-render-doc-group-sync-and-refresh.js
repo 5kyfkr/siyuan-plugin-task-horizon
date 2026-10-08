@@ -969,6 +969,7 @@
         } else {
             await SettingsStore.load({ preferRemoteWhiteboardSameVersion: true });
         }
+        await globalThis.__tmProjectVisibility?.load(true);
         if (preserveSessionState) __tmRestoreManualRefreshSessionState(sessionSnapshot, { restoreCollapse: false });
         await runWithStorageWritesSuppressed(() => Promise.all([
             MetaStore.load({ suppressStorageWrites }),

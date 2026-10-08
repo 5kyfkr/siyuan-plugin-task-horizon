@@ -111,7 +111,7 @@
                 seen.add(id);
                 out.push(task);
             });
-            return out;
+            return globalThis.__tmProjectVisibility?.filterTasks(out) || out;
         };
 
         const filteredTasks = pickFrom(state.filteredTasks);
@@ -682,6 +682,7 @@
             if (storeScopeMatch) {
                 const storeTasks = __tmGetCalendarTaskStoreRowsSync();
                 if (storeTasks.length > 0) {
+                    await globalThis.__tmProjectVisibility?.prepareTaskHeadings(storeTasks);
                     const out = [];
                     storeTasks.forEach((task) => __tmAppendCalendarTaskAndRepeatHistory(out, task));
                     window.__tmCalendarAllTasksCache = {
@@ -713,6 +714,7 @@
                 throw new Error('任务数量超过读取上限');
             }
             const tasks = Array.isArray(res?.tasks) ? res.tasks : [];
+            await globalThis.__tmProjectVisibility?.prepareTaskHeadings(tasks);
             const out = __tmNormalizeCalendarTaskRows(tasks);
             window.__tmCalendarAllTasksCache = {
                 key,
@@ -1303,6 +1305,7 @@
                     docId,
                     taskDateColor,
                     color: taskDateColor,
+                    h2Id: String(t?.h2Id || ''),
                     sourceStart: s0 || '',
                     sourceCompletion: e0 || '',
                     milestone: isMilestone,

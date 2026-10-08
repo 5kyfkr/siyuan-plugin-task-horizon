@@ -49,7 +49,6 @@
     const FOCUS_CALENDAR_CACHE_LIMIT = 12;
     const FOCUS_CALENDAR_CACHE_BYTE_LIMIT = 4 * 1024 * 1024;
     const FOCUS_SCOPE_TASK_ID_LIMIT = 10000;
-    const HOMEPAGE_SETTINGS_DATA_KEY = "homepage-settings.json";
     const HOMEPAGE_MODULE_DEFS = Object.freeze([
         { id: "projects", label: "项目进度", desc: "按分组/文档/二级标题的进度卡片", wide: true, collapsible: true },
         { id: "overview", label: "任务概览", desc: "任务状态、完成摘要", wide: true },
@@ -96,18 +95,7 @@
             moduleOrder: normalizeHomepageModuleOrder(source.moduleOrder),
             moduleLayout: normalizeHomepageModuleLayout(source.moduleLayout),
             moduleCollapsed: normalizeHomepageModuleCollapsed(source.moduleCollapsed),
-            completedProjects: normalizeHomepageCompletedProjects(source.completedProjects),
         };
-    }
-
-    function normalizeHomepageCompletedProjects(value) {
-        const source = (value && typeof value === "object" && !Array.isArray(value)) ? value : {};
-        const out = {};
-        Object.keys(source).forEach((key) => {
-            const id = String(key || "").trim();
-            if (id && id.length <= 320 && source[key] === true) out[id] = true;
-        });
-        return out;
     }
 
     function getHomepageProjectStatusKey(kind, id) {
@@ -118,21 +106,13 @@
     }
 
     function isHomepageProjectCompleted(kind, id) {
-        const key = getHomepageProjectStatusKey(kind, id);
-        return !!key && getHomepageSettingsData().completedProjects[key] === true;
+        return globalThis.__tmProjectVisibility?.isCompleted(kind, id) === true;
     }
 
-    function setHomepageProjectCompleted(kind, id, completed) {
-        const key = getHomepageProjectStatusKey(kind, id);
-        if (!key) return false;
-        const next = { ...getHomepageSettingsData().completedProjects };
-        if (completed === true) next[key] = true;
-        else delete next[key];
-        const saved = saveHomepageSettings({
-            ...getHomepageSettingsData(),
-            completedProjects: next,
-        });
-        return saved.completedProjects[key] === true;
+    async function setHomepageProjectCompleted(kind, id, completed) {
+        const service = globalThis.__tmProjectVisibility;
+        if (!service) throw new Error("项目状态服务未加载");
+        return await service.setCompleted(kind, id, completed);
     }
 
     function getHomepageSettingsData() {
@@ -151,8 +131,8 @@
     }
 
     function persistHomepageSettings(data) {
-        const host = globalThis.__tmHost;
-        if (!host || typeof host.saveData !== "function") return false;
+        const service = globalThis.__tmProjectVisibility;
+        if (!service) return false;
         const saveSeq = (Number(runtime.homepageSettings?.saveSeq) || 0) + 1;
         runtime.homepageSettings = {
             ...(runtime.homepageSettings || {}),
@@ -160,7 +140,7 @@
             savingSeq: saveSeq,
         };
         try {
-            Promise.resolve(host.saveData(HOMEPAGE_SETTINGS_DATA_KEY, normalizeHomepageSettings(data))).then(() => {
+            Promise.resolve(service.saveSettings(normalizeHomepageSettings(data))).then(() => {
                 const current = runtime.homepageSettings || {};
                 if (Number(current.savingSeq) === saveSeq) {
                     runtime.homepageSettings = { ...current, savingSeq: 0 };
@@ -292,8 +272,8 @@
     function ensureHomepageSettingsLoaded(force = false) {
         const state = runtime.homepageSettings || {};
         if (!force && (state.status === "loading" || state.status === "loaded")) return false;
-        const host = globalThis.__tmHost;
-        if (!host || typeof host.loadData !== "function") {
+        const service = globalThis.__tmProjectVisibility;
+        if (!service) {
             runtime.homepageSettings = {
                 ...state,
                 status: "loaded",
@@ -310,7 +290,7 @@
             data: getHomepageSettingsData(),
         };
         try {
-            Promise.resolve(host.loadData(HOMEPAGE_SETTINGS_DATA_KEY, null)).then((data) => {
+            Promise.resolve(service.load(force)).then((data) => {
                 const current = runtime.homepageSettings || {};
                 if (Number(current.loadSeq) !== loadSeq) return;
                 if ((Number(current.saveSeq) || 0) !== saveSeq || Number(current.savingSeq) > 0) {
@@ -4955,8 +4935,8 @@
             trend,
             heatmap: buildHeatmap(tasks, todayKey, ctx, profile),
             distribution: buildDistribution(scopeTasks),
-            recentDone: buildRecentDone(tasks, todayKey),
-            riskList: buildRiskList(scopeTasks, todayKey, relationIndex),
+            recentDone: buildRecentDone(globalThis.__tmProjectVisibility?.filterTasks(tasks) || tasks, todayKey),
+            riskList: buildRiskList(globalThis.__tmProjectVisibility?.filterTasks(scopeTasks) || scopeTasks, todayKey, relationIndex),
             procrastination,
             title: `主页 - ${scopeLabel}`,
             subtitle: subtitleParts.length
@@ -6473,12 +6453,20 @@
         const item = document.createElement("button");
         item.type = "button";
         item.setAttribute("role", "menuitem");
-        item.textContent = isCompleted ? "取消已完成标记" : "标记卡片已完成";
-        item.addEventListener("click", (clickEvent) => {
-            try { clickEvent.preventDefault(); clickEvent.stopPropagation(); } catch (e) {}
-            setHomepageProjectCompleted(projectKind, projectId, !isCompleted);
-            closeHomepageProjectContextMenu();
-            doRender();
+        item.textContent = isCompleted ? "取消完成标记并恢复任务" : "标记已完成并隐藏任务";
+        item.addEventListener("click", async (clickEvent) => {
+            clickEvent.preventDefault();
+            clickEvent.stopPropagation();
+            item.disabled = true;
+            try {
+                await setHomepageProjectCompleted(projectKind, projectId, !isCompleted);
+                closeHomepageProjectContextMenu();
+                doRender();
+            } catch (error) {
+                item.disabled = false;
+                item.textContent = "保存失败，点击重试";
+                item.title = String(error?.message || error);
+            }
         });
         menu.appendChild(item);
         menu.style.left = `${Math.max(8, Number(event?.clientX) || 0)}px`;
