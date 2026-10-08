@@ -20,10 +20,12 @@ const decoration = section(renderer, 'const renderCard = ', 'const kanbanBoardNa
 renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, childRoot, title, children) => {
     renderedTaskIds.push(task.id);
     return '<article class="tm-kanban-card' + (sub ? ' tm-kanban-card--sub' : '')
-        + '" data-id="' + task.id + '" data-tm-placement-parent="' + (task.parentTaskId || '')
+        + '" data-id="' + task.id + '" data-done="' + !!task.done + '" data-status="' + task.customStatus
+        + '" data-tm-placement-parent="' + (task.parentTaskId || '')
         + '"><span class="tm-task-content-clickable" style="color:rgb(70,70,70)">' + task.content + '</span><div class="tm-kanban-subtasks-list">' + children + '</div></article>';
 };\n`);
-const code = [read('32-runtime-state-and-events.js'), read('21-view-render-state.js'), read('render/40-render-list-context-helpers.js'), renderer,
+const code = [read('32-runtime-state-and-events.js'), read('33-task-boundary-facades.js'), read('21-view-render-state.js'), read('render/40-render-list-context-helpers.js'),
+    section(runtime, 'function __tmHashStringFNV1a(', 'function __tmSafeAttrName('), renderer,
     section(read('task-runtime/53b-task-create-and-quick-add-runtime.js'), 'function __tmRemoveTaskDomNodes(', 'function __tmApplyDeleteOptimisticLocal('),
     section(read('10-stores-rules-and-cache.js'), 'function __tmResolveKanbanRefreshTaskIds(', 'async function __tmRefreshAffectedDocsIncrementally('),
     section(runtime, 'function __tmPatchKanbanColumnBranches(', 'function __tmTryReconcileKanbanParentCards('),
@@ -50,7 +52,6 @@ async function setup(page) {
             __tmGroupBgFromLabelColor: () => '',
             __tmKanbanColsHtmlCache: null,
             __tmProjectionService: { getAppliedGeneration: () => 0 },
-            __tmTaskBoundary: { getTask: (id) => __tmTaskStore.getProjected(id) },
             __tmGetKanbanBoardMode: () => window.boardMode || 'status',
             __tmGetKanbanColScrollKey: (column) => column.dataset.colKey,
             __tmGetTimelineGlobalScrollHost: (modal) => modal.querySelector('#tmTimelineLeftBody'),
@@ -66,6 +67,7 @@ async function setup(page) {
             __tmSetWhiteboardView: (value) => { window.boardViewport = { ...value }; },
             __tmFitWhiteboardToVisibleCards: () => { window.fitCalls = (window.fitCalls || 0) + 1; return true; },
             __tmGetTaskCardFieldList: () => [],
+            __tmGetTaskCardAlwaysShowFieldList: () => [],
             __tmTaskCardAlwaysShowFieldEnabled: () => false,
             __tmKanbanGetCollapsedColumnSet: () => new Set(),
             __tmKanbanGetCollapsedSet: () => new Set(),
@@ -96,7 +98,6 @@ async function setup(page) {
             __tmCompareCompletedTasksRecentFirst: (_, __, fallback) => 0,
             __tmIsTaskPinned: () => false,
             __tmSortPinnedTasksFirst: (tasks) => tasks,
-            __tmBuildKanbanColsCacheKey: () => String(__tmTaskStore.revision()),
             __tmParseCssColorToRgba: () => null,
             __tmClamp: (value, min, max) => Math.max(min, Math.min(value, max)),
             __tmWithAlpha: (color) => color,
@@ -168,6 +169,74 @@ async function setup(page) {
         finally { await page.close(); }
     }
     try {
+        await run('subtask status survives a later full render with the same filtered parent', async (page) => {
+            const result = await page.evaluate(() => {
+                SettingsStore.data.kanbanPreventSubtaskSeparation = true;
+                setModel([{ id: 'parent' }, { id: 'child', parentTaskId: 'parent' }]);
+                state.filteredTasks = [state.flatTasks.parent];
+                mount();
+                const filtered = state.filteredTasks;
+                const readChild = () => {
+                    const card = state.modal.querySelector('[data-id="child"]');
+                    return { done: card.dataset.done, status: card.dataset.status };
+                };
+                const initial = readChild();
+                const beforeKey = __tmBuildKanbanColsCacheKey();
+                __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'complete-child',
+                    taskId: 'child', patch: { done: true, customStatus: 'done' } });
+                const afterKey = __tmBuildKanbanColsCacheKey();
+                // Model the successful local DOM patch before a later redraw.
+                const liveCard = state.modal.querySelector('[data-id="child"]');
+                liveCard.dataset.done = 'true'; liveCard.dataset.status = 'done';
+                commitView();
+                const completed = readChild();
+                __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'commit', opId: 'complete-child',
+                    taskId: 'child', patch: { done: true, customStatus: 'done' } });
+                __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'restore-child',
+                    taskId: 'child', patch: { done: false, customStatus: 'todo' } });
+                commitView();
+                const restored = readChild();
+                return { initial, completed, restored, cacheInvalidated: beforeKey !== afterKey,
+                    sameFiltered: filtered === state.filteredTasks, childCount: state.flatTasks.parent.children.length };
+            });
+            assert.deepEqual(result, { initial: { done: 'false', status: 'todo' },
+                completed: { done: 'true', status: 'done' }, restored: { done: 'false', status: 'todo' },
+                cacheInvalidated: true, sameFiltered: true, childCount: 1 });
+        });
+        for (const initialDone of [false, true]) {
+            await run(`column refresh uses pending completion instead of the stale flat mirror (${initialDone})`, async (page) => {
+                const result = await page.evaluate((done) => {
+                    setModel([{ id: 'parent' }, { id: 'child', parentTaskId: 'parent', done,
+                        customStatus: done ? 'done' : 'todo', taskMarker: done ? 'X' : ' ' }]);
+                    mount();
+                    const newStatus = done ? 'todo' : 'done';
+                    const patchData = { done: !done, customStatus: newStatus, taskMarker: done ? ' ' : 'X' };
+                    const mutation = { type: 'taskPatch', opId: 'pending-completion', taskId: 'child', patch: patchData };
+                    __tmTaskStore.applyMutation({ ...mutation, phase: 'optimistic' }, { applyLocal: false });
+                    const flatDone = state.flatTasks.child.done;
+                    const pendingDone = __tmTaskStore.getProjected('child').done;
+                    const refreshed = patch(['child'], ['parent']);
+                    const card = state.modal.querySelector('[data-id="child"]');
+                    const rendered = { done: card.dataset.done, status: card.dataset.status };
+                    const indexDone = state.__tmKanbanRenderIndexCache.projectedById.get('child').done;
+                    __tmTaskStore.applyMutation({ ...mutation, phase: 'commit' }, { applyLocal: false });
+                    commitView();
+                    const afterCommit = state.modal.querySelector('[data-id="child"]');
+                    const committed = { done: afterCommit.dataset.done, status: afterCommit.dataset.status };
+                    // A later SQL/visibility refresh can retain an older flat receipt.
+                    state.flatTasks.child = { ...state.flatTasks.child, done,
+                        customStatus: done ? 'done' : 'todo', taskMarker: done ? 'X' : ' ' };
+                    state.filteredTasks = Object.values(state.flatTasks);
+                    commitView();
+                    const afterReadback = state.modal.querySelector('[data-id="child"]');
+                    return { flatDone, pendingDone, refreshed, rendered, indexDone,
+                        committed, afterReadback: { done: afterReadback.dataset.done, status: afterReadback.dataset.status } };
+                }, initialDone);
+                const expected = { done: String(!initialDone), status: initialDone ? 'todo' : 'done' };
+                assert.deepEqual(result, { flatDone: initialDone, pendingDone: !initialDone, refreshed: true,
+                    rendered: expected, indexDone: !initialDone, committed: expected, afterReadback: expected });
+            });
+        }
         for (const mobile of [false, true]) {
             await run(`outdent updates one column; later confirmation preserves placement (${mobile})`, async (page) => {
                 const result = await page.evaluate(() => {

@@ -545,7 +545,9 @@
                 if (kanbanProjectedTaskById.has(tid)) return kanbanProjectedTaskById.get(tid) || fallback;
                 let projected = null;
                 try {
-                    projected = globalThis.__tmTaskBoundary?.getTask?.(tid, {
+                    // Queue-owned optimistic edits may not update the flat mirror yet.
+                    projected = globalThis.__tmTaskStore?.getProjected?.(tid)
+                        || globalThis.__tmTaskBoundary?.getTask?.(tid, {
                         includePending: true,
                         preferPending: true,
                     }) || null;

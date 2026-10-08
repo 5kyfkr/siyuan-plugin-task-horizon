@@ -66,6 +66,7 @@ cards.forEach((card) => {
 const modal = new FakeElement();
 modal.querySelectorAll = () => cards;
 let task = { id: 'task-a', done: false };
+let storedProjection = null;
 let countSyncs = 0;
 let completedBadgeSyncs = 0;
 const context = vm.createContext({
@@ -90,6 +91,7 @@ const context = vm.createContext({
         quadrantEnabled: false,
     },
     __tmTaskStateKernel: { getTask: () => task },
+    __tmTaskStore: { getProjected: () => storedProjection },
     __tmTaskProjectionEngine: {
         isKanbanTaskVisibleByCompletion: (item, showCompleted) => showCompleted === true || !item?.done,
     },
@@ -133,6 +135,7 @@ assert.ok(cards.every((card) => card.checkboxChecked === false),
     'restoring a hidden task must also reset every mounted checkbox from the projected after-state');
 assert.equal(completedBadgeSyncs - badgeSyncsBeforeRestore, cards.length,
     'an in-place kanban projection must synchronize the completed-today badge on every mounted card');
+
 assert.match(css, /\.tm-body--kanban \.tm-kanban-card\[hidden\]\s*\{\s*display: none !important;/,
     'kanban card hiding must not depend on the host theme user-agent hidden rule');
 
@@ -169,5 +172,19 @@ assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', {
     done: false, taskMarker: '/', customStatus: 'in_progress',
 }, { filtersApplied: true }), true);
 assert.equal(rootCard.parentElement, container, 'resuming a canceled task must leave the completed column');
+
+storedProjection = { id: 'task-a', done: true, taskMarker: 'X', customStatus: 'finish' };
+task = { id: 'task-a', done: false, taskMarker: ' ', customStatus: 'todo' };
+context.state.filteredTasks = [task];
+context.state.showCompletedTasks = true;
+assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', {
+    done: false,
+    taskMarker: ' ',
+    customStatus: 'todo',
+}, { filtersApplied: true }), true);
+assert.equal(rootCard.checkboxChecked, true,
+    'a delayed refresh patch must not override the latest TaskStore completion projection');
+assert.equal(rootCard.taskDone, true,
+    'a delayed refresh must retain completion styling from the latest TaskStore projection');
 
 console.log('kanban completed visibility projection tests passed');

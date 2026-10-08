@@ -20912,6 +20912,8 @@ if (!state.homepageOpen) return;
         const kanbanCollapsedIds = state.__tmKanbanCollapsedIds instanceof Set ? Array.from(state.__tmKanbanCollapsedIds).sort() : [];
         const kanbanCollapsedColumnKeys = state.__tmKanbanCollapsedColumnKeys instanceof Set ? Array.from(state.__tmKanbanCollapsedColumnKeys).sort() : [];
         const quadrantRules = Array.isArray(SettingsStore.data?.quadrantConfig?.rules) ? SettingsStore.data.quadrantConfig.rules : [];
+        // Attached subtasks can change without changing the filtered parent list.
+        feed(globalThis.__tmTaskStore?.revision?.() || 0);
         feed(options.isAllTabsView ? 1 : 0);
         feed(options.isCompact ? 1 : 0);
         feed(options.kanbanColW);
