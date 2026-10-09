@@ -38,7 +38,7 @@ const calendarContext = vm.createContext({
         const pad = (n) => String(n).padStart(2, '0');
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     },
-    uuid: () => 'uuid-test',
+    uuid: (() => { let sequence = 0; return () => `uuid-test-${++sequence}`; })(),
     safeISO: (value) => value instanceof Date ? value.toISOString() : '',
     getScheduleLinkedBlockId: () => '',
     normalizeCalendarScheduleTitleText: (value, fallback) => String(value || '').trim() || fallback,
@@ -292,4 +292,159 @@ test('migration save followed by reminder reloads does not create a write loop',
         await calendarApi.queueScheduleCanonicalMigration(out, changed, 'test-source-signature');
     }
     assert.equal(saves, 1, 'WeChat/ICS reads after the first migration must not keep saving unchanged schedules');
+});
+
+const scheduleDate = (day, hour = 0) => new Date(2026, 6, day, hour);
+function weeklyMeeting(ending = {}) {
+    return {
+        id: 'meeting', title: '组会', taskId: 'shared-task',
+        start: scheduleDate(9, 18), end: scheduleDate(9, 19),
+        repeatRule: { enabled: true, type: 'weekly', every: 1, weekdays: [4],
+            anchorDate: '2026-07-09', until: '', maxOccurrences: 0, ...ending },
+        completedOccurrences: [String(scheduleDate(9, 18).getTime())],
+    };
+}
+function scheduleWire(list) {
+    return JSON.parse(JSON.stringify(Array.from(list, item => calendarApi.serializeScheduleForSave(item))));
+}
+function reloadSchedules(list) {
+    return calendarApi.normalizeScheduleList(scheduleWire(list)).out;
+}
+function meetingRows(list) {
+    return Array.from(list).flatMap(item => Array.from(calendarApi.collectScheduleOccurrencesInRange(
+        item, scheduleDate(9), scheduleDate(31), { limit: 30 },
+    ), occurrence => `${localDateKey(occurrence.start)} ${occurrence.start.getHours()}-${occurrence.end.getHours()}`)).sort();
+}
+function editMeeting(list, index, originalDay, nextDay, hour, rulePatch = {}) {
+    const previous = list[index];
+    return calendarApi.applyScheduleRecurringScopeMutation(list, index, {
+        ...previous, start: scheduleDate(nextDay, hour), end: scheduleDate(nextDay, hour + 2),
+        repeatRule: { ...previous.repeatRule, ...rulePatch },
+    }, 'future', { occurrenceStartMs: scheduleDate(originalDay, new Date(previous.start).getHours()).getTime() });
+}
+
+test('future time edits stop unlimited weekly schedules and preserve completed history after reload', () => {
+    const list = [weeklyMeeting()];
+    editMeeting(list, 0, 16, 16, 16);
+    assert.deepEqual(meetingRows(reloadSchedules(list)), [
+        '2026-07-09 18-19', '2026-07-16 16-18', '2026-07-23 16-18', '2026-07-30 16-18',
+    ]);
+    assert.deepEqual(Array.from(reloadSchedules(list)[0].completedOccurrences), [String(scheduleDate(9, 18).getTime())]);
+});
+
+test('repeated future time edits leave exactly one occurrence per week', () => {
+    let list = [weeklyMeeting()];
+    const firstEdit = editMeeting(list, 0, 16, 16, 16);
+    list = reloadSchedules(list);
+    const index = list.findIndex(item => item.id === firstEdit.item.id);
+    editMeeting(list, index, 23, 23, 14);
+    assert.deepEqual(meetingRows(reloadSchedules(list)), [
+        '2026-07-09 18-19', '2026-07-16 16-18', '2026-07-23 14-16', '2026-07-30 14-16',
+    ]);
+});
+
+test('future date and weekday edits begin at the edited date for every ending mode', () => {
+    for (const ending of [{}, { until: '2026-07-31' }, { maxOccurrences: 4 }]) {
+        for (const nextDay of [13, 20]) {
+            const list = [weeklyMeeting(ending)];
+            editMeeting(list, 0, 16, nextDay, 16, { weekdays: [1] });
+            const expected = nextDay === 13
+                ? ['2026-07-09 18-19', '2026-07-13 16-18', '2026-07-20 16-18', '2026-07-27 16-18']
+                : ['2026-07-09 18-19', '2026-07-20 16-18', '2026-07-27 16-18'];
+            assert.deepEqual(meetingRows(reloadSchedules(list)), expected);
+        }
+    }
+});
+
+test('future time edits at the first occurrence replace the unlimited series', () => {
+    const list = [weeklyMeeting()];
+    editMeeting(list, 0, 9, 9, 16);
+    assert.equal(list.length, 1);
+    assert.deepEqual(meetingRows(reloadSchedules(list)), [
+        '2026-07-09 16-18', '2026-07-16 16-18', '2026-07-23 16-18', '2026-07-30 16-18',
+    ]);
+});
+
+function legacyMeetingSplit(parent, id, boundaryDay, startDay = boundaryDay, hour = 16, rulePatch = {}) {
+    return {
+        ...parent, id, start: scheduleDate(startDay, hour), end: scheduleDate(startDay, hour + 2),
+        repeatRule: { ...parent.repeatRule, anchorDate: localDateKey(scheduleDate(boundaryDay)), ...rulePatch },
+        completedOccurrences: [], splitFromScheduleId: parent.id,
+        splitAtOccurrenceStartMs: String(scheduleDate(boundaryDay, new Date(parent.start).getHours()).getTime()),
+    };
+}
+
+test('legacy split chains repair old unlimited series regardless of file order', () => {
+    const parent = weeklyMeeting();
+    const middle = legacyMeetingSplit(parent, 'middle', 16);
+    const latest = legacyMeetingSplit(middle, 'latest', 23, 23, 14);
+    const unrelated = { ...parent, id: 'unrelated', start: scheduleDate(9, 10), end: scheduleDate(9, 11) };
+    for (const list of [[parent, middle, latest, unrelated], [latest, unrelated, middle, parent]]) {
+        const normalized = calendarApi.normalizeScheduleList(scheduleWire(list));
+        assert.equal(normalized.changed, true);
+        const repaired = normalized.out.filter(item => item.id !== 'unrelated');
+        assert.deepEqual(meetingRows(repaired), [
+            '2026-07-09 18-19', '2026-07-16 16-18', '2026-07-23 14-16', '2026-07-30 14-16',
+        ]);
+        assert.deepEqual(meetingRows(normalized.out.filter(item => item.id === 'unrelated')), [
+            '2026-07-09 10-11', '2026-07-16 10-11', '2026-07-23 10-11', '2026-07-30 10-11',
+        ], 'independent schedules with the same title and task must remain available');
+        assert.equal(calendarApi.normalizeScheduleList(scheduleWire(normalized.out)).changed, false);
+    }
+});
+
+test('legacy date edits repair the suffix anchor without removing historical completion data', () => {
+    const parent = weeklyMeeting();
+    const suffix = legacyMeetingSplit(parent, 'monday', 16, 13, 16, { weekdays: [1] });
+    const list = reloadSchedules([parent, suffix]);
+    assert.deepEqual(meetingRows(list), [
+        '2026-07-09 18-19', '2026-07-13 16-18', '2026-07-20 16-18', '2026-07-27 16-18',
+    ]);
+    assert.deepEqual(Array.from(list[0].completedOccurrences), parent.completedOccurrences);
+});
+
+test('invalid or missing legacy split links do not alter schedules', () => {
+    const parent = weeklyMeeting();
+    const missing = legacyMeetingSplit(parent, 'missing-parent', 16);
+    missing.splitFromScheduleId = 'not-in-file';
+    const invalid = legacyMeetingSplit(parent, 'invalid-boundary', 14);
+    const self = legacyMeetingSplit(parent, 'self-link', 16);
+    self.splitFromScheduleId = self.id;
+    const wire = scheduleWire(reloadSchedules([parent, missing, invalid, self]));
+    const normalized = calendarApi.normalizeScheduleList(wire);
+    assert.equal(normalized.changed, false);
+    assert.deepEqual(scheduleWire(normalized.out), wire);
+    assert.equal(normalized.out[0].repeatRule.until, '');
+});
+
+test('repaired legacy splits are not reapplied after intentional later series edits', () => {
+    const parent = weeklyMeeting();
+    const list = reloadSchedules([parent, legacyMeetingSplit(parent, 'suffix', 16)]);
+    list[0].repeatRule.until = '';
+    assert.equal(reloadSchedules(list)[0].repeatRule.until, '', 'a completed migration must not truncate later user edits again');
+});
+
+test('legacy split repairs persist once through the canonical migration save path', async () => {
+    const parent = weeklyMeeting();
+    let stored = scheduleWire([parent, legacyMeetingSplit(parent, 'suffix', 16, 13, 16, { weekdays: [1] })]);
+    const previousSave = calendarContext.saveScheduleAll;
+    let saves = 0;
+    calendarContext.saveScheduleAll = async (items, options) => {
+        saves += 1;
+        assert.deepEqual(Array.from(options.scheduleIds).sort(), ['meeting', 'suffix']);
+        stored = reorderObjectKeys(items);
+        return true;
+    };
+    try {
+        for (let read = 0; read < 4; read += 1) {
+            const { out, changed } = calendarApi.normalizeScheduleList(stored);
+            await calendarApi.queueScheduleCanonicalMigration(out, changed, 'test-source-signature');
+            assert.deepEqual(meetingRows(out), [
+                '2026-07-09 18-19', '2026-07-13 16-18', '2026-07-20 16-18', '2026-07-27 16-18',
+            ]);
+        }
+        assert.equal(saves, 1);
+    } finally {
+        calendarContext.saveScheduleAll = previousSave;
+    }
 });

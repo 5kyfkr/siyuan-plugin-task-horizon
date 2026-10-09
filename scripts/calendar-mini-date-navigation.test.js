@@ -76,6 +76,48 @@ vm.runInContext(`
     globalThis.listAction = performPrototypeListAction;
 `, context);
 
+// A fresh list must not inherit the engine's aligned week-start date.
+const originalAdapter = context.callCalendarAdapter;
+Object.assign(context, {
+    MAIN_CALENDAR_ALLOWED_VIEWS: new Set(['listMonth']),
+    getMainCalendarViewSwitchSourceDate: c => c.date,
+    resolveMainCalendarAnchorDate: date => date,
+    getSettings: () => ({}),
+    deferMainCalendarViewDataLoad() {}, seedMainCalendarCurrentTimeScrollTime() {},
+    wrap: {},
+});
+context.callCalendarAdapter = (c, action, type, date) => {
+    assert.equal(action, 'changeView');
+    c.type = type;
+    c.date = date;
+    return true;
+};
+const viewSwitch = extract("else if (action === 'view')", "else if (action === 'toggleDayPanel')");
+vm.runInContext(`this.switchToList = () => {
+    const activeCalendar = calendar;
+    const action = 'view';
+    const actionEl = { getAttribute: () => 'listMonth' };
+    ${viewSwitch.replace(/^else /, '')}
+};`, context);
+for (let reload = 0; reload < 2; reload += 1) {
+    calendar.type = 'timeGridWeek';
+    calendar.date = new Date(2026, 9, 5);
+    context.prototypeListState.focusDate = null;
+    context.prototypeListState.monthCursor = null;
+    context.switchToList();
+    const today = context.__tmCalendarDate.formatDateKey(new Date());
+    assert.equal(context.__tmCalendarDate.formatDateKey(calendar.date), today, 'first list open after reload navigates the engine to today');
+    assert.equal(context.__tmCalendarDate.formatDateKey(context.listFocus({})), today, 'first list open selects today rather than the week start');
+}
+context.prototypeListState.focusDate = new Date(2026, 8, 18);
+calendar.type = 'timeGridWeek';
+context.switchToList();
+assert.equal(context.__tmCalendarDate.formatDateKey(calendar.date), '2026-09-18', 'returning to the list preserves its selected date');
+context.callCalendarAdapter = originalAdapter;
+calendar.type = 'dayGridMonth';
+context.prototypeListState.focusDate = new Date(2026, 8, 1);
+context.prototypeListState.monthCursor = new Date(2026, 8, 1);
+
 const pick = date => context.state.navigateMiniCalendarDate(new Date(`${date}T12:00:00`));
 for (const date of ['2026-09-28', '2026-09-03', '2027-01-15']) {
     assert.equal(pick(date), true);

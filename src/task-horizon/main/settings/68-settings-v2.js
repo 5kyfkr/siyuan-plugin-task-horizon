@@ -46,6 +46,7 @@
         'v-table:columns': '表格列与自定义字段', 'v-table:layout': '清单布局', 'v-tl:layout': '时间轴、看板与白板',
         'l-density:display': '字号与阅读密度', 'l-density:layout': '紧凑字段字号',
         'l-icon:icons': '插件图标', 'l-icon:checkbox': '任务复选框', 'l-icon:colors': '重要性图标',
+        'l-icon:task-count-badge': '任务数量角标',
         'l-color:colors': '主题与配色', 'l-top:colors': '顶栏控件细节',
         'c-focus:layout': '时长与番茄属性', 'c-focus:topbar': '嵌入待办统计', 'c-focus:tomato': '番茄钟与打卡联动',
         'd-io:import': '任务数据导入', 'd-io:backup': '设置备份与迁移',

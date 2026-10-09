@@ -8810,6 +8810,7 @@
             windowTopbarIconDesktop: true,
             windowTopbarIconMobile: true,
             entryIconPreset: 'classic',
+            taskCountBadge: { enabled: false, topbar: true, dock: true, ruleId: 'default_today', unfinishedOnly: true, scope: 'all', groupId: '', hideZero: true },
             topbarButtonVisibility: { ...__TM_TOPBAR_BUTTON_VISIBILITY_DEFAULTS },
             semanticDateAutoPromptEnabled: true,
             semanticDateDefaultReminderTime: '08:00',
@@ -9796,6 +9797,7 @@
             this.data.docGroupSettingsUpdatedAt = Number(Storage.get('tm_doc_group_settings_updated_at', this.data.docGroupSettingsUpdatedAt)) || 0;
             this.data.collapseStateUpdatedAt = Number(Storage.get('tm_collapse_state_updated_at', this.data.collapseStateUpdatedAt)) || 0;
             this.data.selectedDocIds = Storage.get('tm_selected_doc_ids', []) || [];
+            this.data.taskCountBadge = Storage.get('tm_task_count_badge', this.data.taskCountBadge);
             this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
             this.data.recursiveDocLimit = Storage.get('tm_recursive_doc_limit', this.data.recursiveDocLimit);
             this.data.legacyWin7CompatMode = !!Storage.get('tm_legacy_win7_compat_mode', this.data.legacyWin7CompatMode);
@@ -10380,6 +10382,7 @@
             Storage.set('tm_doc_group_settings_updated_at', Number(this.data.docGroupSettingsUpdatedAt) || 0);
             Storage.set('tm_collapse_state_updated_at', Number(this.data.collapseStateUpdatedAt) || 0);
             Storage.set('tm_selected_doc_ids', this.data.selectedDocIds);
+            Storage.set('tm_task_count_badge', this.data.taskCountBadge);
             this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
             Storage.set('tm_recursive_doc_limit', this.data.recursiveDocLimit);
             Storage.set('tm_legacy_win7_compat_mode', !!this.data.legacyWin7CompatMode);
@@ -11170,6 +11173,7 @@
 
         async save(options = {}) {
             if (globalThis.__tmSuppressStorageWrites === true) return;
+            try { globalThis.__tmTaskCountBadge?.configure?.(); } catch (e) {}
             const opts = (options && typeof options === 'object') ? options : {};
             if (opts.suppressMobileCloseSyncDirty === true) this.suppressMobileCloseSyncDirty = true;
             this.saveDirty = true;

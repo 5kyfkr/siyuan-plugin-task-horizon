@@ -24823,3 +24823,45 @@ th[data-col] {
     .tm-settings-v3 .tm-settings-content :is(.tm-column-row,.tm-status-option-row) button { min-width: 32px; min-height: 36px; }
     .tm-settings-v3 .tm-settings-v2-section-head { overflow-wrap: anywhere; }
 }
+/* Native entry count badges share theme colors with the task workspace. */
+.tm-task-count-badge-host {
+    position: relative;
+    overflow: visible;
+}
+.tm-task-count-badge {
+    position: absolute;
+    top: -3px;
+    right: -4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    border-radius: 8px;
+    background: var(--b3-theme-error, var(--tm-danger-color));
+    color: var(--b3-theme-on-error, var(--b3-theme-on-primary));
+    font: 600 10px/1 var(--b3-font-family);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+}
+.tm-task-count-badge[hidden] { display: none; }
+.tm-task-count-preview {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+}
+.tm-task-count-preview-icon { width: 18px; height: 18px; fill: currentColor; }
+.tm-task-count-entry-title, .tm-task-count-entry-note, .tm-task-count-status-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.tm-task-count-entry-note { margin: 4px 0 12px; color: var(--tm-secondary-text); font-size: 12px; }
+.tm-task-count-status-row { flex-wrap: wrap; justify-content: space-between; padding: 12px 0; font-size: 13px; }
+.tm-task-count-settings .b3-select { width: 200px; max-width: 100%; min-width: 0; }

@@ -286,6 +286,7 @@ if (shouldMarkDirty) {
         }
         try { __tmBootstrapCalendarBackgroundRefresh(0); } catch (e) {}
         try { __tmArmMobileCloseSyncDirtyTracker(); } catch (e) {}
+        try { globalThis.__tmTaskCountBadge?.configure?.(); } catch (e) {}
     }
 
     async function __tmEnsureTabOpened(maxWaitMs = 1500) {
@@ -908,6 +909,7 @@ if (shouldMarkDirty) {
         try { __tmCleanupTaskTitleBlockRefJumpDelegation?.(); } catch (e) {}
         try { __tmCleanupChecklistSheetSuppressClick?.(); } catch (e) {}
         try { globalThis.__tmFocusStatisticsService?.dispose?.(); } catch (e) {}
+        try { globalThis.__tmTaskCountBadge?.dispose?.(); } catch (e) {}
         try { globalThis.__tmDisposeTaskDetailRuntime?.(); } catch (e) {}
         try { delete globalThis.__tmFocusStatisticsService; } catch (e) {}
         try { delete globalThis.__tmDisposeTaskDetailRoot; } catch (e) {}

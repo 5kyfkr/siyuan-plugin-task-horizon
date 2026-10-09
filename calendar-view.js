@@ -13537,7 +13537,50 @@
                 skippedOccurrences: skippedOccurrences0,
             };
         });
+        changed = repairLegacyScheduleFutureSplits(out) || changed;
         return { out, changed };
+    }
+
+    function repairLegacyScheduleFutureSplits(items) {
+        const core = globalThis.tmRepeatCore;
+        if (typeof core?.ordinal !== 'function') return false;
+        const byId = new Map(items.map((item) => [item.id, item]));
+        const repairs = [];
+        for (const item of items) {
+            if (Number(item.splitVersion) >= 2) continue;
+            const parentId = String(item.splitFromScheduleId || '').trim();
+            const parent = byId.get(parentId);
+            const boundaryMs = Number(normalizeScheduleSkippedOccurrenceKey(item.splitAtOccurrenceStartMs));
+            if (!parent || parent === item || !boundaryMs || boundaryMs <= toMs(parent.start)) continue;
+            const parentRule = parent.repeatRule;
+            const rule = item.repeatRule;
+            if (!parentRule.enabled || parentRule.type === 'none') continue;
+            const boundaryDate = formatDateKey(new Date(boundaryMs));
+            const startMs = toMs(item.start);
+            if (!boundaryDate || !Number.isFinite(startMs)) continue;
+            // Validate against the original pattern even if an earlier split
+            // already limited the parent's count or end date.
+            const originalRule = core.normalizeRule({ ...parentRule, until: '', maxOccurrences: 0 });
+            if (core.ordinal(originalRule, boundaryDate) <= 1) continue;
+            repairs.push({ item, parent, parentRule, rule, boundaryDate, boundaryMs, startMs });
+        }
+        for (const { item, parent, parentRule, rule, boundaryDate, boundaryMs, startMs } of repairs) {
+            if (!parentRule.until && !parentRule.maxOccurrences) {
+                const until = formatScheduleRepeatUntilBeforeOccurrence(boundaryMs);
+                if (!parent.repeatRule.until || parent.repeatRule.until > until) {
+                    parent.repeatRule = core.normalizeRule({ ...parent.repeatRule, until });
+                    parent.repeatUntil = until;
+                }
+            }
+            const anchorDate = formatDateKey(new Date(startMs));
+            if (rule.enabled && rule.anchorDate === boundaryDate && anchorDate !== boundaryDate) {
+                item.repeatRule = core.normalizeRule({ ...item.repeatRule, anchorDate });
+            }
+            // Repair each legacy relationship once, so subsequent intentional
+            // edits are not reinterpreted as remnants of the old split bug.
+            item.splitVersion = 2;
+        }
+        return repairs.length > 0;
     }
 
     const SCHEDULE_LEGACY_REPEAT_FIELDS = [
@@ -17807,16 +17850,19 @@
         const nextRuleDraft = getScheduleRepeatRule(draft);
         if (previousRule.maxOccurrences > 0 && ordinal <= 0) return null;
         const oldRule = { ...previousRule, trigger: 'due' };
-        const nextRule = { ...nextRuleDraft, anchorDate: boundaryDate, trigger: 'due' };
+        const nextAnchorDate = getScheduleStartDateKey(draft);
+        const nextRule = { ...nextRuleDraft, anchorDate: nextAnchorDate, trigger: 'due' };
         if (previousRule.maxOccurrences > 0) {
             oldRule.maxOccurrences = Math.max(0, ordinal - 1);
             oldRule.until = '';
             nextRule.maxOccurrences = Math.max(1, previousRule.maxOccurrences - ordinal + 1);
             nextRule.until = '';
-        } else if (previousRule.until) {
+        } else {
             oldRule.until = formatScheduleRepeatUntilBeforeOccurrence(boundaryMs);
-            nextRule.until = previousRule.until;
-            nextRule.maxOccurrences = 0;
+            if (previousRule.until) {
+                nextRule.until = previousRule.until;
+                nextRule.maxOccurrences = 0;
+            }
         }
         const oldItem = {
             ...prev,
@@ -17828,11 +17874,12 @@
         const nextItem = {
             ...draft,
             id: nextId,
-            repeatRule: getScheduleRepeatCore().normalizeRule(nextRule, { anchorDate: boundaryDate, trigger: 'due' }),
+            repeatRule: getScheduleRepeatCore().normalizeRule(nextRule, { anchorDate: nextAnchorDate, trigger: 'due' }),
             completedOccurrences: normalizeScheduleCompletedOccurrences(prev.completedOccurrences).filter((entry) => Number(entry) >= boundaryMs),
             skippedOccurrences: normalizeScheduleSkippedOccurrences(prev.skippedOccurrences).filter((entry) => Number(entry) >= boundaryMs),
             splitFromScheduleId: String(prev.id || '').trim(),
             splitAtOccurrenceStartMs: String(boundaryMs || ''),
+            splitVersion: 2,
         };
         return { oldItem, nextItem, ordinal };
     }
@@ -31309,7 +31356,9 @@
                                 const currentView = String(getCalendarView(activeCalendar)?.type || '').trim();
                                 if (currentView !== viewType) {
                                     const currentDate = getMainCalendarViewSwitchSourceDate(activeCalendar, currentView);
-                                    const targetDate = resolveMainCalendarAnchorDate(currentDate, viewType, getSettings()) || currentDate;
+                                    const targetDate = isCalendarListViewType(viewType)
+                                        ? protoListFocusDate(getCalendarView(activeCalendar) || {})
+                                        : resolveMainCalendarAnchorDate(currentDate, viewType, getSettings()) || currentDate;
                                     deferMainCalendarViewDataLoad(activeCalendar, viewType);
                                     let changeViewResult = null;
                                     try {
@@ -34549,7 +34598,10 @@
         const protoListFocusDate = (view) => {
             const existing = protoDayStart(prototypeListState.focusDate);
             if (existing) return existing;
-            const initial = protoDayStart(getCalendarDate(calendar) || view?.currentStart || new Date()) || new Date();
+            // A week view's engine date is the week start, not the selected
+            // list date. Start a fresh list at today; explicit navigation
+            // and restored session dates populate focusDate separately.
+            const initial = protoDayStart(new Date()) || new Date();
             prototypeListState.focusDate = initial;
             prototypeListState.monthCursor = new Date(initial.getFullYear(), initial.getMonth(), 1);
             return initial;
@@ -35211,12 +35263,28 @@
                     { includeTimedSchedules: true },
                 );
                 const spanEvents = visibleDayEvents.filter(protoIsSpanEvent);
-                const expiredEvents = isToday
+                // Occurrences have different event IDs, but the list renders
+                // task cards. Prefer today's card and retain only the latest
+                // missed occurrence for each task in the expired group.
+                const taskIdentity = (eventApi) => String(eventApi?.extendedProps?.__tmSourceTaskId || protoListTaskId(eventApi)).trim();
+                const visibleTaskIds = new Set(visibleDayEvents.filter(protoListIsTaskEvent).map(taskIdentity).filter(Boolean));
+                const expiredCandidates = isToday
                     ? mergeCalendarAllDayReminders(events.filter((eventApi) => eventApi?.allDay === true
                         && protoListIsTaskEvent(eventApi)
                         && !protoListEventDone(eventApi)
                         && protoListEventExpired(eventApi, today)))
                     : [];
+                const expiredByTask = new Map();
+                expiredCandidates.forEach((eventApi) => {
+                    const taskId = taskIdentity(eventApi);
+                    if (taskId && visibleTaskIds.has(taskId)) return;
+                    const identity = taskId || String(eventApi?.id || '');
+                    const previous = expiredByTask.get(identity);
+                    if (!previous || protoEventEnd(eventApi).getTime() > protoEventEnd(previous).getTime()) {
+                        expiredByTask.set(identity, eventApi);
+                    }
+                });
+                const expiredEvents = Array.from(expiredByTask.values());
                 const expiredIds = new Set(expiredEvents.map((eventApi) => String(eventApi?.id || '')));
                 const regularEvents = visibleDayEvents.filter((eventApi) => !protoIsSpanEvent(eventApi) && !expiredIds.has(String(eventApi?.id || '')));
                 const specialGroups = `${protoListGroup(key, 'expired', '已过期', expiredEvents)}${protoListGroup(key, 'span', '跨天任务', spanEvents)}`;
@@ -35426,6 +35494,7 @@
             const isMobileFullscreen = isNew && options?.fromDraftCard === true
                 && (isMobileDevice || isLikelyMobileRuntime());
             const isTaskDateEditor = options?.taskDateEditor === true;
+            const isRecurringScheduleEditor = !isNew && !isTaskDateEditor && isRecurringScheduleEventExt(ext);
             const scheduleId = (isNew || isTaskDateEditor) ? '' : String(ext.__tmScheduleId || eventApi?.id || '').trim();
             if ((!isNew && !isTaskDateEditor && !scheduleId) || !(anchorEl instanceof Element)) return false;
             const popoverEventId = String(eventApi?.id || scheduleId || '').trim();
@@ -35525,6 +35594,8 @@
             let suppressNextHubDateClick = false;
             let timeHubInitialValues = null;
             let timeHubAutoSavePending = false;
+            let recurringScheduleInitialTimes = null;
+            let recurringScheduleSavePending = false;
             // Closing the date/time hub commits its changed values through the
             // primary editor save handler. Keep that save distinct from an
             // explicit primary-card save so the first-level card remains open
@@ -35701,9 +35772,15 @@
                 const current = readTimeHubValues();
                 return current.start !== timeHubInitialValues.start || current.end !== timeHubInitialValues.end;
             };
+            const hasRecurringScheduleTimeChanges = () => {
+                if (!isRecurringScheduleEditor || !recurringScheduleInitialTimes) return false;
+                const current = readTimeHubValues();
+                return current.start !== recurringScheduleInitialTimes.start || current.end !== recurringScheduleInitialTimes.end;
+            };
             const closeTimeHub = () => {
                 const shouldAutoSave = timeHub instanceof HTMLElement
                     && !isNew
+                    && !isRecurringScheduleEditor
                     && hasTimeHubChanges();
                 timeHub?.remove?.();
                 timeHub = null;
@@ -36365,7 +36442,7 @@
                 syncInlineColorPresetState();
             };
             const bind = () => {
-                pop.querySelector('.tm-proto-event-popover-close')?.addEventListener('click', close);
+                pop.querySelector('.tm-proto-event-popover-close')?.addEventListener('click', dismiss);
                 if (isTaskDateEditor) {
                     pop.querySelector('[data-tm-proto-task-date-action="open-task"]')?.addEventListener('click', async (event) => {
                         event.preventDefault();
@@ -36506,6 +36583,7 @@
                     // leaking into a later manual save.
                     const keepPopoverOpen = timeHubAutoSaveRequest === true;
                     timeHubAutoSaveRequest = false;
+                    if (recurringScheduleSavePending) return;
                     if (isTaskDateEditor) {
                         const targetId = String(linkedTaskId || linkedBlockId || '').trim();
                         if (!targetId) {
@@ -36606,6 +36684,7 @@
                     const noteValue = readValue('note');
                     let createdCalendarTask = null;
                     let scheduleSaved = false;
+                    recurringScheduleSavePending = isRecurringScheduleEditor;
                     try {
                         const list = await loadScheduleAll();
                         const index = list.findIndex((entry) => String(entry?.id || '') === scheduleId);
@@ -36707,10 +36786,21 @@
                              } catch (rollbackError) {}
                          }
                          toast(`❌ 保存失败：${String(error?.message || error || '')}`, 'error');
+                     } finally {
+                         recurringScheduleSavePending = false;
                      }
                 });
             };
             const close = () => { closeTimeHub(); closePrototypeEventPopover(); };
+            const dismiss = () => {
+                if (recurringScheduleSavePending) return;
+                closeTimeHub();
+                if (hasRecurringScheduleTimeChanges()) {
+                    pop.querySelector('[data-tm-proto-edit-action="save"]')?.click();
+                    return;
+                }
+                closePrototypeEventPopover();
+            };
             const pop = document.createElement('div');
             pop.addEventListener('click', onInlineMonthDayClick);
             pop.addEventListener('change', async (event) => {
@@ -36732,6 +36822,7 @@
             } catch (e) {}
             document.body.appendChild(pop);
             render();
+            recurringScheduleInitialTimes = readTimeHubValues();
             // Some embedded WebViews route wheel events to the calendar surface
             // even though this editor is mounted on body. Keep the editor's
             // own scroll box responsive in that environment.
@@ -36796,7 +36887,7 @@
                 // tap and its trailing click. Ignore that re-targeted click once
                 // instead of treating it as a tap on the calendar behind.
                 if (isReTargetedInsideTap(event)) return;
-                close();
+                dismiss();
             };
             // Some embedded/webview surfaces suppress the follow-up click
             // when a date card or calendar canvas owns pointer capture. Close
@@ -36815,7 +36906,7 @@
                 }
                 if (isMobileFullscreen) { closeTimeHub(); return; }
                 if (isReTargetedInsideTap(event)) return;
-                close();
+                dismiss();
             };
             // Repositioning is driven by visualViewport changes, which is exactly
             // what a phone does while the soft keyboard closes. Holding the card
@@ -38102,6 +38193,10 @@
             today.setHours(0, 0, 0, 0);
             return resolveMainCalendarAnchorDate(today, preferredInitialView, s) || today;
         })();
+        if (isCalendarListViewType(preferredInitialView)) {
+            prototypeListState.focusDate = new Date(preferredInitialDate.getTime());
+            prototypeListState.monthCursor = new Date(preferredInitialDate.getFullYear(), preferredInitialDate.getMonth(), 1);
+        }
         if (shouldUseHostDefaultInitialView || !(normalizeDateOnly(state.mainCalendarNonMonthAnchorDate) instanceof Date)) {
             state.mainCalendarNonMonthAnchorDate = new Date(preferredInitialDate.getTime());
         }

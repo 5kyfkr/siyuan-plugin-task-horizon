@@ -125,6 +125,46 @@ const changedReminder = { ...taskReminder, extendedProps: { ...taskReminder.exte
 assert.match(context.renderList({}, [changedReminder, due], {}), />⏰ 20:15<\/span>/, 'Re-rendering shows the latest reminder time');
 assert.doesNotMatch(context.renderList({}, [due], {}), /tm-proto-reminder-time/, 'Removed or moved reminders must not leave stale labels');
 
+// Reproduce the logged case: two missed occurrences plus today's occurrence
+// share a task identity, but have different calendar event IDs.
+for (const sourceType of ['reminder', 'taskdate', 'schedule']) {
+    const occurrences = [-5, -1, 0].map((offset) => {
+        const start = addDays(day, offset);
+        const occurrence = event(`${sourceType}:repeat:${dateKey(start)}`, 'repeat-task', sourceType);
+        occurrence.start = start;
+        occurrence.end = addDays(start, 1);
+        if (sourceType === 'reminder') {
+            occurrence.extendedProps.__tmReminderDate = dateKey(start);
+            occurrence.extendedProps.__tmReminderRecord = { interval: 'weekly' };
+        }
+        else occurrence.extendedProps.__tmRepeatType = 'weekly';
+        return occurrence;
+    });
+    const [oldest, latest, current] = occurrences;
+    assert.deepEqual(renderIds(occurrences), [current.id], `${sourceType}: today's task must suppress both expired copies`);
+    assert.deepEqual(renderIds([latest, oldest]), [latest.id], `${sourceType}: yesterday's missed occurrence appears once when there is no task today`);
+    assert.deepEqual(renderIds([oldest, latest]), [latest.id], 'Expired selection must not depend on input order');
+    assert.match(context.renderList({}, [latest], {}), /tm-proto-list-row--expired/, 'Yesterday\'s missed recurring occurrence belongs to the expired group');
+    current.extendedProps.done = true;
+    assert.deepEqual(renderIds(occurrences), [current.id], 'Completing today must not bring historical copies back into the expired group');
+    assert.deepEqual(renderIds([...occurrences, yesterdayDue]), ['due-a', current.id], 'Other overdue tasks remain visible');
+    context.protoListVisibleDays = () => [oldest.start];
+    assert.deepEqual(renderIds(occurrences), [oldest.id], 'Browsing a past day preserves its occurrence');
+    context.protoListVisibleDays = () => [day];
+}
+const checkins = [-5, -2, 0].map((offset) => {
+    const start = addDays(day, offset);
+    return { ...event(`checkin:habit:${dateKey(start)}`, 'habit'), start, end: addDays(start, 1),
+        extendedProps: { __tmSource: 'taskdate', __tmTaskId: 'habit', __tmCheckin: true, __tmCheckinDate: dateKey(start) } };
+});
+assert.deepEqual(renderIds(checkins), [checkins[2].id], 'Check-in occurrences use the same task deduplication rule');
+assert.deepEqual(renderIds(checkins.slice(0, 2)), [checkins[1].id], 'The latest missed check-in appears once when there is no occurrence today');
+const followedReminder = { ...yesterdayReminder, extendedProps: { ...yesterdayReminder.extendedProps,
+    __tmReminderRecord: { repeatMode: 'followTaskRepeat', interval: 'once', taskRepeatRule: { enabled: true, type: 'weekly' } } } };
+assert.deepEqual(renderIds([followedReminder]), [followedReminder.id], 'A missed reminder following a recurring task appears in the expired group');
+assert.deepEqual(renderIds([yesterdayReminder]), [yesterdayReminder.id], 'A one-off overdue reminder remains visible');
+assert.deepEqual(renderIds([yesterdayDue, scheduled, secondSchedule]), ['scheduled-a', 'second-scheduled-a'], 'Distinct timed schedule slots stay visible while suppressing the overdue task');
+
 const taskSnapshots = new Map([
     ['task-a', { id: 'task-a', taskMarker: '-', done: false }],
     ['task-b', { id: 'task-b', taskMarker: '/', done: false }],

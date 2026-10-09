@@ -291,6 +291,7 @@
         try { if (!el.getAttribute('title')) el.setAttribute('title', '任务管理器'); } catch (e) {}
         try { __tmSetUseIcon(el, 'iconTaskHorizon'); } catch (e) {}
         try { globalThis.__taskHorizonApplyWindowTopBarIdentity?.(el); } catch (e) {}
+        try { globalThis.__tmTaskCountBadge?.render?.(); } catch (e) {}
         return el;
     }
 

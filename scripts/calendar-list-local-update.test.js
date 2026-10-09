@@ -144,7 +144,7 @@ context.isCompactDockLayout = () => true;
 assert.match(context.renderToolbar(view, 'listMonth', {}, '2026年9月'), /data-tm-proto-toolbar-month="1">10月2日<\/span>/);
 assert.doesNotMatch(styles, /\.tm-proto-list-week-nav:(?:first|last)-child/);
 assert.match(styles, /\.tm-proto-list-date-cell:not\(\.has-date-meta\) \.tm-proto-list-date-number > strong\{[^}]*grid-row: 1 \/ -1;[^}]*align-self: center;/);
-assert.match(source, /const expiredEvents = isToday[\s\S]*?eventApi\?\.allDay === true/);
+assert.match(source, /const expiredCandidates = isToday[\s\S]*?eventApi\?\.allDay === true/);
 assert.match(styles, /\.tm-proto-list-time\{[^}]*width:\s*40px;[^}]*white-space:\s*normal;/);
 assert.match(styles, /\.tm-proto-list-row\{[\s\S]*grid-template-columns:\s*40px minmax\(0, 1fr\);/);
 assert.match(styles, /\.tm-proto-list-time\{[^}]*width:\s*40px;[^}]*max-width:\s*40px;/);

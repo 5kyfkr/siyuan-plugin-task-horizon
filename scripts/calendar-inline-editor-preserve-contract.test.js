@@ -24,7 +24,7 @@ assert.match(
 );
 assert.match(
     source,
-    /const onDocumentPointerDown = \(event\) => \{[\s\S]*timeHub\.contains\(target\)[\s\S]*closeTimeHub\(\)[\s\S]*close\(\);[\s\S]*document\.addEventListener\('pointerdown', onDocumentPointerDown, true\)/,
+    /const onDocumentPointerDown = \(event\) => \{[\s\S]*timeHub\.contains\(target\)[\s\S]*closeTimeHub\(\)[\s\S]*dismiss\(\);[\s\S]*document\.addEventListener\('pointerdown', onDocumentPointerDown, true\)/,
     'date/time hub must close on an outside pointerdown when embedded surfaces suppress click',
 );
 assert.match(

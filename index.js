@@ -1142,6 +1142,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     }
 
     async onload() {
+        this._taskCountBadgeStartupReady = false;
         clearPluginResourceTextCache();
         try { delete globalThis.__taskHorizonExplicitWindowExportKeys; } catch (e) {}
         const mountToken = String(Date.now());
@@ -1275,6 +1276,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     <path d="M24.485 10.343l-2.828-2.828-5.657 5.657-5.657-5.657-2.828 2.828 5.657 5.657-5.657 5.657 2.828 2.828 5.657-5.657 5.657 5.657 2.828-2.828-5.657-5.657z"></path>
             </symbol>
         `);
+        this._taskCountBadgeStartupReady = true;
+        try { globalThis.__tmTaskCountBadge?.startAfterLoad?.(); } catch (e) {}
     }
 
     registerDocumentSyncReloadListener() {
@@ -1404,6 +1407,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     if (String(globalThis.__taskHorizonMountToken || "") === mountToken) {
                         try { this.syncWindowTopBar(); } catch (e) {}
                         try { this.syncCalendarSubscriptionTopBar(); } catch (e) {}
+                        try { globalThis.__tmTaskCountBadge?.configure?.(); } catch (e) {}
                     }
                 }
             } while (this._taskDataChangedQueued
@@ -2258,6 +2262,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { if (!element.getAttribute("aria-label")) element.setAttribute("aria-label", TAB_TITLE); } catch (e) {}
         try { if (!element.getAttribute("title")) element.setAttribute("title", TAB_TITLE); } catch (e) {}
         this.applyStableTopBarIdentity(element, WINDOW_TOPBAR_ELEMENT_ID);
+        try { globalThis.__tmTaskCountBadge?.render?.(); } catch (e) {}
         return element;
     }
 
@@ -2827,10 +2832,12 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 else host.setAttribute("aria-hidden", "true");
             } catch (e) {}
         });
+        try { globalThis.__tmTaskCountBadge?.render?.(); } catch (e) {}
     }
 
     syncMobileTaskDockVisibility() {
         if (!this.isRuntimeMobileClient()) return;
+        try { globalThis.__tmTaskCountBadge?.render?.(); } catch (e) {}
         const visible = readMobileSidebarEnabled();
         getMobileTaskDockNodes(this).forEach((node) => {
             if (!(node instanceof HTMLElement)) return;

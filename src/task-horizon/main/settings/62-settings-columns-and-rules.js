@@ -1048,12 +1048,52 @@
         `;
     }
 
+    function __tmBuildCustomFieldScopeDocumentData(documents, taskTree, displayNameMode) {
+        const docs = Array.isArray(documents) ? documents : [];
+        const metaById = new Map();
+        [Array.isArray(taskTree) ? taskTree : [], docs].forEach((items) => {
+            items.forEach((doc) => {
+                const id = String(doc?.id || '').trim();
+                if (id && !metaById.has(id)) metaById.set(id, doc);
+            });
+        });
+        const labeledDocs = docs.map((doc) => {
+            const id = String(doc?.id || '').trim();
+            const fallbackDoc = metaById.get(id);
+            const name = String(doc?.name || fallbackDoc?.name || '').trim()
+                || String(doc?.name || '未命名文档').trim() || '未命名文档';
+            const alias = __tmNormalizeDocAliasValue(doc?.alias || fallbackDoc?.alias);
+            return { doc, id, label: displayNameMode === 'alias' ? alias || name : name };
+        });
+        labeledDocs.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'));
+        return {
+            documents: labeledDocs.map((entry) => entry.doc),
+            labels: new Map(labeledDocs.filter((entry) => entry.id).map((entry) => [entry.id, entry.label])),
+        };
+    }
+
+    function __tmBuildCustomFieldOptionRenderMetrics(runtime) {
+        const siblingIndexById = new Map();
+        const subtreeHeightById = new Map();
+        runtime.childrenByParentId.forEach((children) => {
+            children.forEach((option, index) => siblingIndexById.set(String(option?.id || '').trim(), index));
+        });
+        for (let index = runtime.options.length - 1; index >= 0; index -= 1) {
+            const option = runtime.options[index];
+            const id = String(option?.id || '').trim();
+            const parentId = String(option?.parentId || '').trim();
+            const height = subtreeHeightById.get(id) || 0;
+            subtreeHeightById.set(id, height);
+            if (parentId) {
+                subtreeHeightById.set(parentId, Math.max(subtreeHeightById.get(parentId) || 0, height + 1));
+            }
+        }
+        return { siblingIndexById, subtreeHeightById };
+    }
+
     window.tmOpenCustomFieldDialog = async function(fieldId = '', options = {}) {
         __tmRemoveElementsById('tm-custom-field-dialog-backdrop');
         __tmEnsureCustomFieldScopeDialogStyles();
-        if ((!Array.isArray(state.allDocuments) || !state.allDocuments.length) && typeof __tmEnsureAllDocumentsLoaded === 'function') {
-            try { await __tmEnsureAllDocumentsLoaded(false); } catch (e) {}
-        }
         const opts = (options && typeof options === 'object') ? options : {};
         const defs = __tmGetCustomFieldDefs();
         const resolveDraft = (sourceField = null, type = '') => {
@@ -1088,6 +1128,11 @@
         let scopeDocSearch = '';
         let openScopePicker = '';
         let draggedOptionId = '';
+        let scopeDocumentData = null;
+        let scopeDocumentsLoading = false;
+        let scopeDocumentsFailed = false;
+        let scopeDocumentsLoadTimer = null;
+        let refreshScopeDocumentUi = null;
 
         const createDraftOptionId = () => {
             const existingIds = new Set((Array.isArray(draft.options) ? draft.options : [])
@@ -1112,7 +1157,30 @@
         backdrop.appendChild(dialog);
 
         const close = () => {
+            if (scopeDocumentsLoadTimer !== null) clearTimeout(scopeDocumentsLoadTimer);
             try { backdrop.remove(); } catch (e) {}
+        };
+
+        const loadScopeDocuments = () => {
+            if (scopeDocumentData || scopeDocumentsLoading || !backdrop.isConnected) return;
+            scopeDocumentsLoading = true;
+            scopeDocumentsFailed = false;
+            scopeDocumentsLoadTimer = setTimeout(async () => {
+                scopeDocumentsLoadTimer = null;
+                if (!backdrop.isConnected) return;
+                try {
+                    if ((!Array.isArray(state.allDocuments) || !state.allDocuments.length) && typeof __tmEnsureAllDocumentsLoaded === 'function') {
+                        await __tmEnsureAllDocumentsLoaded(false);
+                    }
+                    if (!backdrop.isConnected) return;
+                    scopeDocumentData = __tmBuildCustomFieldScopeDocumentData(state.allDocuments, state.taskTree, __tmGetDocDisplayNameMode());
+                } catch (e) {
+                    scopeDocumentsFailed = true;
+                } finally {
+                    scopeDocumentsLoading = false;
+                    if (backdrop.isConnected) refreshScopeDocumentUi?.();
+                }
+            }, 0);
         };
 
         const renderDialog = () => {
@@ -1165,12 +1233,10 @@
                 }).filter(Boolean);
                 return choices.join('') || `<div class="tm-custom-field-scope-empty">${esc(emptyLabel)}</div>`;
             };
-            const availableDocs = (Array.isArray(state?.allDocuments) ? state.allDocuments : [])
-                .slice()
-                .sort((a, b) => String(__tmGetDocDisplayName(a, a?.name || '')).localeCompare(String(__tmGetDocDisplayName(b, b?.name || '')), 'zh-Hans-CN'));
+            let availableDocs = scopeDocumentData?.documents || [];
             const availableDocGroups = Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [];
             const availableDocTabGroups = typeof __tmGetDocTabCustomGroups === 'function' ? __tmGetDocTabCustomGroups() : [];
-            const resolveDocScopeLabel = (doc) => __tmGetDocDisplayName(doc, doc?.name || '未命名文档');
+            const resolveDocScopeLabel = (doc) => scopeDocumentData?.labels.get(String(doc?.id || '').trim()) || doc?.name || '未命名文档';
             const resolveDocGroupScopeLabel = (group) => group?.name || '未命名文档分组';
             const resolveDocTabGroupScopeLabel = (group) => group?.name || '未命名页签组';
             const resolveDocScopeSearchResults = (queryInput) => {
@@ -1180,8 +1246,9 @@
                 return { matches, shown: matches.slice(0, 60) };
             };
             const initialDocSearchResults = resolveDocScopeSearchResults(scopeDocSearch);
+            const docScopePendingHtml = '<div class="tm-custom-field-scope-empty">正在加载文档…</div>';
             const docScopeChoices = scopeDocSearch
-                ? buildScopeChoices(initialDocSearchResults.shown, selectedScope.docIds, resolveDocScopeLabel, 'doc', '未找到匹配文档')
+                ? (scopeDocumentData ? buildScopeChoices(initialDocSearchResults.shown, selectedScope.docIds, resolveDocScopeLabel, 'doc', '未找到匹配文档') : docScopePendingHtml)
                 : '';
             const docGroupScopeChoices = buildScopeChoices(availableDocGroups, selectedScope.docGroupIds, resolveDocGroupScopeLabel, 'docGroup', '没有可选文档分组');
             const docTabGroupScopeChoices = buildScopeChoices(availableDocTabGroups, selectedScope.docTabGroupIds, resolveDocTabGroupScopeLabel, 'tabGroup', '没有可选页签组');
@@ -1191,11 +1258,11 @@
                     return id ? [id, String(resolveLabel(item) || id).trim() || id] : null;
                 })
                 .filter(Boolean));
-            const docScopeLabelMap = buildScopeLabelMap(availableDocs, resolveDocScopeLabel);
+            const docScopeLabelMap = scopeDocumentData?.labels || new Map();
             const docGroupScopeLabelMap = buildScopeLabelMap(availableDocGroups, resolveDocGroupScopeLabel);
             const docTabGroupScopeLabelMap = buildScopeLabelMap(availableDocTabGroups, resolveDocTabGroupScopeLabel);
             const selectedScopeItems = [
-                ...selectedScope.docIds.map((id) => ({ kind: 'doc', type: '文档', id, label: docScopeLabelMap.get(id) || `${id}（已失效）` })),
+                ...selectedScope.docIds.map((id) => ({ kind: 'doc', type: '文档', id, label: docScopeLabelMap.get(id) || (scopeDocumentData ? `${id}（已失效）` : id) })),
                 ...selectedScope.docGroupIds.map((id) => ({ kind: 'docGroup', type: '文档分组', id, label: docGroupScopeLabelMap.get(id) || `${id}（已失效）` })),
                 ...selectedScope.docTabGroupIds.map((id) => ({ kind: 'tabGroup', type: '页签组', id, label: docTabGroupScopeLabelMap.get(id) || `${id}（已失效）` })),
             ];
@@ -1225,6 +1292,7 @@
                 `;
             }).join('');
             const optionRuntime = __tmBuildCustomFieldOptionRuntime(draft);
+            const optionMetrics = __tmBuildCustomFieldOptionRenderMetrics(optionRuntime);
             draft.options = optionRuntime.options.map((option) => ({ ...option }));
             const supportsDesktopDrag = !__tmIsMobileDevice();
             const renderOptionAction = (optionId, action, icon, title, disabled = false) => `
@@ -1240,19 +1308,12 @@
                 const parentId = String(option?.parentId || '').trim();
                 const depth = Number(optionRuntime.depthById.get(optionId) || 0);
                 const siblings = optionRuntime.childrenByParentId.get(parentId) || [];
-                const siblingIndex = siblings.findIndex((item) => String(item?.id || '').trim() === optionId);
+                const siblingIndex = optionMetrics.siblingIndexById.get(optionId) ?? -1;
                 const previousSibling = siblingIndex > 0 ? siblings[siblingIndex - 1] : null;
                 const previousSiblingId = String(previousSibling?.id || '').trim();
-                const previousChildren = previousSiblingId ? (optionRuntime.childrenByParentId.get(previousSiblingId) || []) : [];
-                const canIndent = !!previousSiblingId && __tmMoveCustomFieldOptionSubtree(draft.options, {
-                    sourceId: optionId,
-                    targetParentId: previousSiblingId,
-                    targetSiblingIndex: previousChildren.length,
-                }).ok;
-                const parentOption = parentId ? optionRuntime.optionById.get(parentId) : null;
-                const parentParentId = String(parentOption?.parentId || '').trim();
-                const parentSiblings = optionRuntime.childrenByParentId.get(parentParentId) || [];
-                const parentSiblingIndex = parentSiblings.findIndex((item) => String(item?.id || '').trim() === parentId);
+                const canIndent = !!previousSiblingId
+                    && depth + 1 + (optionMetrics.subtreeHeightById.get(optionId) || 0) < __TM_CUSTOM_FIELD_OPTION_MAX_DEPTH;
+                const parentSiblingIndex = optionMetrics.siblingIndexById.get(parentId) ?? -1;
                 const children = optionRuntime.childrenByParentId.get(optionId) || [];
                 const directlyArchived = option?.archived === true;
                 const effectivelyArchived = optionRuntime.effectiveArchivedById.get(optionId) === true;
@@ -1346,6 +1407,7 @@
                                         <div class="tm-custom-field-scope-search-wrap">
                                             <input class="tm-custom-field-scope-search" type="search" data-tm-custom-field-scope-doc-search value="${esc(scopeDocSearch)}" placeholder="搜索并选择文档" autocomplete="off" aria-expanded="${openScopePicker === 'doc' ? 'true' : 'false'}">
                                         </div>
+                                        <div class="tm-custom-field-scope-help" data-tm-custom-field-scope-doc-status role="status" ${scopeDocumentData ? 'hidden' : ''}>正在加载文档…</div>
                                         <div class="tm-custom-field-scope-menu" data-tm-custom-field-scope-list="doc" data-tm-custom-field-scope-doc-list ${openScopePicker === 'doc' ? '' : 'hidden'}>${scopeDocSearch ? docScopeChoices : '<div class="tm-custom-field-scope-empty">输入文档名称开始搜索</div>'}</div>
                                     </div>
                                     <div class="tm-custom-field-scope-control" data-tm-custom-field-scope-control="docGroup">
@@ -1609,6 +1671,43 @@
                 });
             };
             const docSearchInput = dialog.querySelector('[data-tm-custom-field-scope-doc-search]');
+            const refreshDocSearchResults = () => {
+                const listEl = dialog.querySelector('[data-tm-custom-field-scope-doc-list]');
+                if (!listEl) return;
+                const searchResults = resolveDocScopeSearchResults(scopeDocSearch);
+                const selectedDocIds = __tmNormalizeCustomFieldScope(draft.scope)?.docIds || [];
+                listEl.innerHTML = scopeDocSearch
+                    ? (scopeDocumentData ? buildScopeChoices(searchResults.shown, selectedDocIds, resolveDocScopeLabel, 'doc', '未找到匹配文档')
+                        : (scopeDocumentsFailed ? '<div class="tm-custom-field-scope-empty">文档加载失败，请重试。</div>' : docScopePendingHtml))
+                    : '<div class="tm-custom-field-scope-empty">输入文档名称开始搜索</div>';
+                bindScopeCheckboxes(listEl);
+            };
+            refreshScopeDocumentUi = () => {
+                availableDocs = scopeDocumentData?.documents || [];
+                const statusEl = dialog.querySelector('[data-tm-custom-field-scope-doc-status]');
+                if (statusEl) {
+                    statusEl.hidden = !!scopeDocumentData;
+                    statusEl.textContent = scopeDocumentsFailed ? '文档加载失败，请重试。' : '正在加载文档…';
+                    if (scopeDocumentsFailed) {
+                        const retry = document.createElement('button');
+                        retry.type = 'button';
+                        retry.className = 'tm-btn tm-btn-secondary';
+                        retry.textContent = '重试';
+                        retry.addEventListener('click', () => { loadScopeDocuments(); refreshScopeDocumentUi(); });
+                        statusEl.appendChild(retry);
+                    }
+                }
+                if (scopeDocumentData) {
+                    dialog.querySelectorAll('[data-tm-custom-field-scope-remove="doc"]').forEach((button) => {
+                        const id = String(button.getAttribute('data-tm-scope-id') || '').trim();
+                        const label = scopeDocumentData.labels.get(id) || `${id}（已失效）`;
+                        const labelEl = button.querySelector('.tm-custom-field-scope-token__label');
+                        if (labelEl) labelEl.textContent = label;
+                        button.title = `移除文档：${label}`;
+                    });
+                }
+                refreshDocSearchResults();
+            };
             const openDocumentScopeMenu = () => {
                 openScopePicker = 'doc';
                 dialog.querySelectorAll('[data-tm-custom-field-scope-list]').forEach((menu) => {
@@ -1622,16 +1721,9 @@
             docSearchInput?.addEventListener('input', (event) => {
                 openDocumentScopeMenu();
                 scopeDocSearch = String(event?.target?.value || '').trim().toLocaleLowerCase();
-                const searchResults = resolveDocScopeSearchResults(scopeDocSearch);
                 const listEl = dialog.querySelector('[data-tm-custom-field-scope-doc-list]');
-                if (listEl) {
-                    const selectedDocIds = __tmNormalizeCustomFieldScope(draft.scope)?.docIds || [];
-                    listEl.innerHTML = scopeDocSearch
-                        ? buildScopeChoices(searchResults.shown, selectedDocIds, resolveDocScopeLabel, 'doc', '未找到匹配文档')
-                        : '<div class="tm-custom-field-scope-empty">输入文档名称开始搜索</div>';
-                    listEl.hidden = false;
-                    bindScopeCheckboxes(listEl);
-                }
+                refreshDocSearchResults();
+                if (listEl) listEl.hidden = false;
             });
             dialog.querySelectorAll('[data-tm-custom-field-scope-trigger]').forEach((trigger) => {
                 trigger.addEventListener('click', () => {
@@ -1801,6 +1893,10 @@
                 dialog.querySelectorAll('[data-tm-custom-field-scope-trigger]').forEach((trigger) => trigger.setAttribute('aria-expanded', 'false'));
                 dialog.querySelector('[data-tm-custom-field-scope-doc-search]')?.setAttribute('aria-expanded', 'false');
             };
+            if (scopeMode === 'selected') {
+                loadScopeDocuments();
+                if (scopeDocumentsFailed) refreshScopeDocumentUi();
+            }
         };
 
         backdrop.addEventListener('click', (event) => {

@@ -2293,6 +2293,7 @@
                             <div style="font-size:13px;color:var(--tm-secondary-text);line-height:1.6;margin-bottom:12px;">统一应用于思源窗口顶栏、文档栏、插件页签、Dock 侧栏和插件顶栏左上角。经典图标免费可用，其余预设属于全功能权益。</div>
                             ${renderEntryIconPresetSetting()}
                         </div>
+                        ${__tmRenderTaskCountBadgeSettings(renderSingleSwitchSetting, renderSingleFieldSetting)}
                         <div class="tm-settings-panel" data-tm-settings-section="tabs" ${__tmSettingsSearchAttrs('appearance', '页签栏', '手动控制归档 归档入口位置', { section: 'tabs' })}>
                             <div style="font-weight: 600; margin-bottom: 12px;">📑 页签栏</div>
                             ${renderSingleSwitchSetting(
