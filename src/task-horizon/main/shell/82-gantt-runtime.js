@@ -1077,7 +1077,7 @@
                 const durationSum = String(groupRow?.durationSum || '').trim();
                 const durationHtml = durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : '';
                 if (groupRow.kind === 'pinned') {
-                    return `<span class="tm-gantt-group-chip">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-warning-color);">${esc(groupRow?.label || '')}</span>${countHtml}</span>`;
+                    return `<span class="tm-gantt-group-chip">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-pinned-color);">${esc(groupRow?.label || '')}</span>${countHtml}</span>`;
                 }
                 if (groupEntity) {
                     const invalid = timelineState === 'invalid';
@@ -2366,7 +2366,7 @@
                         }
                         activateDrag();
                         updateBarDateHint();
-                    }, 500);
+                    }, 1000);
                 } else {
                     try { barEl.setPointerCapture?.(e.pointerId); } catch (e2) {}
                 }

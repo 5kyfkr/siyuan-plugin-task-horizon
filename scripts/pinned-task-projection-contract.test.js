@@ -111,8 +111,9 @@ const visibleWindowSignature = foundationSource.slice(
 );
 assert.match(visibleWindowSignature, /push\(task\.pinned\s*\?\s*'1'\s*:\s*'0'\)/,
     'visible render signatures must change when pinned state changes without changing task order');
-assert.doesNotMatch(servicesSource + listRuntimeSource, /__tmLogPinnedDirect|\[Task Horizon\]\[Pinned\]\[Direct\]/,
-    'temporary pinned diagnostics must not remain in production writes');
+assert.doesNotMatch(servicesSource + listRuntimeSource + stateSource + source + projectionEngineSource,
+    /__tmLogPinnedDirect|__tmLogTaskFieldDirect|\[Task Horizon\]\[(?:Pinned|Field)\]\[Direct\]/,
+    'temporary pinned and field diagnostics must not remain in production writes');
 const checklistGroupProjection = servicesSource.slice(
     servicesSource.indexOf('function __tmReconcileChecklistProjectionCard'),
     servicesSource.indexOf('function __tmRerenderChecklistInPlace'),

@@ -10,7 +10,7 @@ const source = fs.readFileSync(
     'utf8',
 );
 
-const start = source.indexOf('const compactMetaParts = [];');
+const start = source.indexOf('const compactMetaParts = ');
 const end = source.indexOf('compactCustomFieldDefs.forEach', start);
 assert.notEqual(start, -1, 'compact checklist metadata renderer must exist');
 assert.notEqual(end, -1, 'compact checklist metadata renderer boundary must exist');

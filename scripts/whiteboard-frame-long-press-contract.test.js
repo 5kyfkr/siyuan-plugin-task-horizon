@@ -15,8 +15,8 @@ assert.match(
 );
 assert.match(
     interactionSource,
-    /window\.tmWhiteboardFramePointerDown\s*=\s*function[\s\S]*?pointerType[\s\S]*?!==\s*'touch'[\s\S]*?setTimeout\([\s\S]*?__tmFromLongPress:\s*true[\s\S]*?tmWhiteboardFrameMouseDown\(startEvent,[\s\S]*?,\s*500\)/,
-    'touch frame drag must start only after the same 500 ms long press used by whiteboard cards',
+    /window\.tmWhiteboardFramePointerDown\s*=\s*function[\s\S]*?pointerType[\s\S]*?!==\s*'touch'[\s\S]*?setTimeout\([\s\S]*?__tmFromLongPress:\s*true[\s\S]*?tmWhiteboardFrameMouseDown\(startEvent,[\s\S]*?,\s*1000\)/,
+    'touch frame drag must start only after the same 1000 ms long press used by whiteboard cards',
 );
 assert.match(
     interactionSource,

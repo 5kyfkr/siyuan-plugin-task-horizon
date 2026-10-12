@@ -16805,7 +16805,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const pointerId = Number.isFinite(Number(ev?.pointerId)) ? Number(ev.pointerId) : NaN;
         const startX = Number(ev?.clientX) || 0;
         const startY = Number(ev?.clientY) || 0;
-        const longPressMs = 500;
+        const longPressMs = 1000;
         const longPressMoveTolerance = 14;
         const floatingMiniRevealDistance = 18;
         const floatingMiniRevealDelayMs = 120;
@@ -17350,6 +17350,33 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     window.tmChecklistTitleClick = function(taskId, ev) {
         return window.tmTaskTitleClick(taskId, ev, { surface: 'checklist' });
+    };
+
+    window.tmChecklistToggleRemark = function(taskId, ev) {
+        ev?.preventDefault?.();
+        ev?.stopPropagation?.();
+        const id = String(taskId || '').trim();
+        const remark = ev?.target?.closest?.('.tm-checklist-remark');
+        if (!id || !(remark instanceof HTMLElement)) return;
+        const expanded = !remark.classList.contains('tm-checklist-remark--expanded');
+        if (!(state.checklistExpandedRemarks instanceof Set)) state.checklistExpandedRemarks = new Set();
+        if (expanded) {
+            state.checklistExpandedRemarks.add(id);
+            if (state.checklistExpandedRemarks.size > 512) state.checklistExpandedRemarks.delete(state.checklistExpandedRemarks.values().next().value);
+        } else state.checklistExpandedRemarks.delete(id);
+        const pane = remark.closest('.tm-checklist-pane');
+        const remarks = pane?.querySelectorAll('.tm-checklist-item[data-id]') || [];
+        remarks.forEach((item) => {
+            if (item.getAttribute('data-id') !== id) return;
+            const node = item.querySelector('.tm-checklist-remark');
+            const toggle = node?.querySelector('.tm-checklist-remark-toggle');
+            node?.classList.toggle('tm-checklist-remark--expanded', expanded);
+            if (toggle) {
+                toggle.setAttribute('aria-expanded', String(expanded));
+                toggle.textContent = expanded ? '收起备注' : '展开备注';
+            }
+        });
+        try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(remark.closest('.tm-checklist-item')); } catch (e) {}
     };
 
     window.tmWhiteboardStreamTaskTitleClick = function(taskId, ev) {

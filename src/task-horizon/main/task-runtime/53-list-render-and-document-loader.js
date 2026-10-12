@@ -537,7 +537,7 @@
             const pinnedCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
             const pinnedToggle = `<span class="tm-group-toggle${pinnedCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${pinnedGroupKey}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
             const pinnedDurationSum = __tmCalcGroupDurationText(pinnedRoots);
-            allRows.push(`<tr class="tm-group-row" data-group-key="${pinnedGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${pinnedGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${pinnedToggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-warning-color);">置顶</span><span class="tm-badge tm-badge--count">${pinnedRoots.length}</span>${pinnedDurationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(pinnedDurationSum)}</span>` : ''}</div></td></tr>`);
+            allRows.push(`<tr class="tm-group-row" data-group-key="${pinnedGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${pinnedGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${pinnedToggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-pinned-color);">置顶</span><span class="tm-badge tm-badge--count">${pinnedRoots.length}</span>${pinnedDurationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(pinnedDurationSum)}</span>` : ''}</div></td></tr>`);
             if (!pinnedCollapsed) {
                 currentGroupBg = '';
                 pinnedRoots.forEach(task => {
@@ -761,8 +761,9 @@
                             const h2LabelColor = __tmGetHeadingSubgroupLabelColor(labelColor, isDark);
                             const h2Id = String(g.id || bucket.id || '').trim();
                             const h2Rank = Number((items?.[0] || g.sourceTask)?.h2Rank);
+                            const headingContextMenuAttrs = __tmBuildHeadingGroupContextMenuAttrs(docId, h2Id);
                             const h2GroupDropAttrs = `data-group-kind="h2" data-group-key="${esc(h2Key)}" data-tm-doc-heading-drop-kind="heading" data-tm-doc-heading-drop-doc="${esc(docId)}" data-tm-doc-heading-drop-heading="${esc(h2Id)}" data-tm-doc-heading-drop-label="${esc(__tmNormalizeHeadingText(g.label || bucket.label || ''))}" data-tm-doc-heading-drop-rank="${Number.isFinite(h2Rank) ? h2Rank : ''}" ondragenter="tmDocHeadingGroupDragOver(event)" ondragover="tmDocHeadingGroupDragOver(event)" ondragleave="tmDocHeadingGroupDragLeave(event)" ondrop="tmDocHeadingGroupDrop(event)"`;
-                            allRows.push(`<tr class="tm-group-row" ${h2GroupDropAttrs}><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${h2Key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggleH2}<span class="tm-group-label" style="color:${h2LabelColor};">${__tmRenderHeadingLevelIconLabel(g.label || '', SettingsStore.data.taskHeadingLevel || 'h2')}</span><span class="tm-badge tm-badge--count">${Array.isArray(items) ? items.length : 0}</span>${createBtnHtml}</div></td></tr>`);
+                            allRows.push(`<tr class="tm-group-row" ${h2GroupDropAttrs}${headingContextMenuAttrs}><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${h2Key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggleH2}<span class="tm-group-label" style="color:${h2LabelColor};">${__tmRenderHeadingLevelIconLabel(g.label || '', SettingsStore.data.taskHeadingLevel || 'h2')}</span><span class="tm-badge tm-badge--count">${Array.isArray(items) ? items.length : 0}</span>${createBtnHtml}</div></td></tr>`);
                             if (!h2Collapsed) {
                                 const renderItems = sortRenderGroupItems(items.slice());
                                 renderItems.forEach(task => {
@@ -1959,14 +1960,20 @@ return finish(false, 'noop');
             hint(`❌ 操作失败: ${error.message}`, 'error');
             return false;
         }
-        const scheduleCalendarRefresh = (nextPinned = val) => {
+        const scheduleCalendarRefresh = () => {
             const run = () => {
-                try { globalThis.__tmCalendar?.refreshTaskPinned?.(tid, nextPinned); } catch (e) {}
+                // A later toggle can land before any of these timers. Read its
+                // current projection instead of replaying this request's value.
+                const current = globalThis.__tmTaskStore?.getProjected?.(tid)
+                    || globalThis.__tmTaskBoundary?.getTask?.(tid);
+                if (!current) return;
+                try { globalThis.__tmCalendar?.refreshTaskPinned?.(tid, !!current.pinned); } catch (e) {}
             };
             [0, 80, 240, 500].forEach((delay) => {
                 try { setTimeout(run, delay); } catch (e) {}
             });
         };
+        let pendingPromise = null;
         const commitPromise = patchTask(tid, { pinned: val ? '1' : '' }, {
             source: 'toggle-pinned',
             label: val ? '置顶' : '取消置顶',
@@ -1974,17 +1981,18 @@ return finish(false, 'noop');
             wait: false,
             skipInteractionGate: true,
             showErrorHint: false,
+            onPending: (promise) => {
+                pendingPromise = promise;
+            },
         });
-        Promise.resolve(commitPromise).then((result) => {
-            if (result === false) {
-                scheduleCalendarRefresh(!val);
-            } else {
-                scheduleCalendarRefresh(val);
-            }
-            if (result === false && ev?.target) ev.target.checked = !val;
-            if (result === false) hint('❌ 操作失败', 'error');
+        // wait:false returns the operation ID immediately; onPending is the
+        // actual kernel settlement and must own success/failure handling.
+        Promise.resolve(pendingPromise || commitPromise).then((result) => {
+            scheduleCalendarRefresh();
+            if (result === false && ev?.target) ev.target.checked = !!globalThis.__tmTaskBoundary?.getTask?.(tid)?.pinned;
         }).catch((e) => {
-            if (ev?.target) ev.target.checked = !val;
+            scheduleCalendarRefresh();
+            if (ev?.target) ev.target.checked = !!globalThis.__tmTaskBoundary?.getTask?.(tid)?.pinned;
             hint(`❌ 操作失败: ${e.message}`, 'error');
         });
         return true;

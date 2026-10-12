@@ -547,16 +547,6 @@
     min-width: 220px;
     --tm-checklist-pane-pad-right: 6px;
     --tm-checklist-pane-pad-left: 6px;
-}.tm-calendar-task-page-list.tm-calendar-task-page-list--checklist .tm-checklist-pane--compact .tm-checklist-scroll{
-    padding-top: 7px;
-}.tm-calendar-task-page-list.tm-calendar-task-page-list--checklist .tm-checklist-pane--compact .tm-checklist-title-row:not(.tm-checklist-title-row--has-children) .tm-checklist-title-main{
-    flex: 1 1 auto;
-}.tm-calendar-task-page-list.tm-calendar-task-page-list--checklist .tm-checklist-pane--compact .tm-checklist-title-row:not(.tm-checklist-title-row--has-children):not(.tm-checklist-title-row--has-compact-meta){
-    gap: 8px;
-}.tm-calendar-task-page-list.tm-calendar-task-page-list--checklist .tm-checklist-pane--compact .tm-checklist-title-row:not(.tm-checklist-title-row--has-children) .tm-checklist-meta-compact{
-    margin-left: 0;
-}.tm-calendar-task-page-list.tm-calendar-task-page-list--checklist .tm-checklist-pane--compact .tm-checklist-title-row:not(.tm-checklist-title-row--has-children):not(.tm-checklist-title-row--has-compact-meta) .tm-status-tag{
-    margin-left: 0;
 }.tm-calendar-task-page-list.tm-calendar-task-page-list--checklist .tm-checklist-items{
     min-width: 0;
 }.tm-calendar-task-page-list.tm-calendar-task-page-list--checklist .tm-checklist-item.tm-cal-task--today{
@@ -741,10 +731,6 @@
 }.tm-cal-task-check{
     flex: none;
     margin-top: 2px;
-}.tm-calendar-task-page-list .tm-checklist-pane--compact .tm-checklist-leading input.tm-task-checkbox[type="checkbox"]:not(.tm-task-checkbox--delight){
-    position: absolute !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
 }.tm-cal-task-main{
     min-width: 0;
     flex: 1 1 auto;
@@ -7704,6 +7690,8 @@
     height: 20px !important;
     min-height: 20px !important;
     max-height: 20px !important;
+    /* Override legacy mobile dot padding so titles clear the leading stripe. */
+    padding: var(--tm-cal-event-card-padding, 1px 4px 1px 6px) !important;
     margin-inline: 0 !important;
     box-sizing: border-box !important;
 }

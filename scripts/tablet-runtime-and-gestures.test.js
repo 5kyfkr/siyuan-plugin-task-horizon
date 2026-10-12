@@ -156,8 +156,8 @@ function timelineGesture(pointerType) {
 for (const pointerType of ['touch', 'pen']) {
     const scrollGesture = timelineGesture(pointerType);
     assert.equal(scrollGesture.down.prevented, undefined, 'a desktop tablet press must allow scrolling');
-    scrollGesture.advance(499);
-    assert.equal(scrollGesture.context.dragActive, undefined, 'timeline must not activate before 500ms');
+    scrollGesture.advance(999);
+    assert.equal(scrollGesture.context.dragActive, undefined, 'timeline must not activate before 1000ms');
     const move = event(scrollGesture.bar, pointerType, 100, 120);
     scrollGesture.listeners.get('pointermove')(move);
     scrollGesture.advance(1);
@@ -166,6 +166,10 @@ for (const pointerType of ['touch', 'pen']) {
 
     const holdGesture = timelineGesture(pointerType);
     holdGesture.advance(500);
+    assert.equal(holdGesture.context.dragActive, undefined, 'timeline must still wait at the old 500ms threshold');
+    holdGesture.advance(499);
+    assert.equal(holdGesture.context.dragActive, undefined, 'timeline must wait until the full 1000ms hold');
+    holdGesture.advance(1);
     assert.equal(holdGesture.context.dragActive, true, 'desktop tablet timeline hold must activate drag');
     assert.equal(holdGesture.context.touchLocked, true, 'active tablet dragging must lock scrolling');
 }
@@ -202,8 +206,8 @@ function kanbanGesture(pointerType) {
 for (const pointerType of ['touch', 'pen']) {
     const scrollGesture = kanbanGesture(pointerType);
     assert.equal(scrollGesture.card.getAttribute('draggable'), 'false', 'wide tablet cards must suspend native drag before touchstart reaches SiYuan');
-    scrollGesture.advance(499);
-    assert.equal(scrollGesture.context.state.draggingTaskId, undefined, 'kanban must wait 500ms');
+    scrollGesture.advance(999);
+    assert.equal(scrollGesture.context.state.draggingTaskId, undefined, 'kanban must wait 1000ms');
     const move = event(scrollGesture.card, pointerType, 100, 120);
     scrollGesture.listeners.get('pointermove')(move);
     scrollGesture.advance(1);
@@ -212,6 +216,10 @@ for (const pointerType of ['touch', 'pen']) {
     assert.equal(scrollGesture.card.getAttribute('draggable'), 'true', 'scroll cancellation must restore mouse dragging');
     const holdGesture = kanbanGesture(pointerType);
     holdGesture.advance(500);
+    assert.equal(holdGesture.context.state.draggingTaskId, undefined, 'kanban must still wait at the old 500ms threshold');
+    holdGesture.advance(499);
+    assert.equal(holdGesture.context.state.draggingTaskId, undefined, 'kanban must wait until the full 1000ms hold');
+    holdGesture.advance(1);
     assert.equal(holdGesture.context.state.draggingTaskId, 'task-1', 'wide tablet kanban hold must activate custom drag');
     holdGesture.context.state.__tmKanbanCardGestureCleanup();
     assert.equal(holdGesture.card.getAttribute('draggable'), 'true', 'gesture cleanup must restore the native drag attribute');

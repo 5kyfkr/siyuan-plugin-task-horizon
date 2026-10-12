@@ -1224,7 +1224,7 @@
     const CALENDAR_EXTERNAL_DRAG_MOBILE_LONG_PRESS_DELAY = 340;
     // Keep touch cards responsive without making a simple tap feel like a drag.
     // The external task bridge has its own shorter threshold above.
-    const CALENDAR_MOBILE_LONG_PRESS_DELAY = 500;
+    const CALENDAR_MOBILE_LONG_PRESS_DELAY = 1000;
     const CALENDAR_EXTERNAL_DRAG_SOURCE_SELECTOR = [
         'tr[data-id]',
         '.tm-cal-task[data-task-id]',
@@ -1260,6 +1260,10 @@
         document.addEventListener('touchstart', ensureCalendarEngineExternalDragHostForEvent, { capture: true, passive: true, signal: __tmCalendarModuleLifecycleAbort.signal });
         document.addEventListener('pointerdown', ensureCalendarEngineExternalDragHostForEvent, { capture: true, signal: __tmCalendarModuleLifecycleAbort.signal });
         document.addEventListener('mousedown', ensureCalendarEngineExternalDragHostForEvent, { capture: true, signal: __tmCalendarModuleLifecycleAbort.signal });
+    } catch (e) {}
+
+    try {
+        window.addEventListener('tm:appearance-theme-updated', syncSideDayEventOpacity, { signal: __tmCalendarModuleLifecycleAbort.signal });
     } catch (e) {}
 
     function isVisibleCalendarExternalDragMirror(el, hostEl = null) {
@@ -3947,6 +3951,44 @@
             return roots.some((el) => String(el?.getAttribute?.('data-theme-mode') || '').trim().toLowerCase() === 'dark');
         } catch (e) {}
         return false;
+    }
+
+    const PROTOTYPE_OPACITY_MIN = 0.05;
+    const PROTOTYPE_OPACITY_MAX = 0.6;
+    const PROTOTYPE_OPACITY_DEFAULT = 0.25;
+    function normalizePrototypeOpacity(value, fallback = PROTOTYPE_OPACITY_DEFAULT) {
+        const parsed = Number(value);
+        return Number.isFinite(parsed)
+            ? Math.max(PROTOTYPE_OPACITY_MIN, Math.min(PROTOTYPE_OPACITY_MAX, parsed))
+            : fallback;
+    }
+    function getPrototypeOpacityStorageKey(theme) {
+        return theme === 'dark' ? 'tm_calendar_event_opacity_dark' : 'tm_calendar_event_opacity_light';
+    }
+    function getPrototypeOpacitySettingsKey(theme) {
+        return theme === 'dark' ? 'calendarEventOpacityDark' : 'calendarEventOpacityLight';
+    }
+    function readPrototypeOpacity(theme) {
+        const liveStore = state.settingsStore || state.sideDay?.settingsStore || null;
+        const settingsKey = getPrototypeOpacitySettingsKey(theme);
+        if (liveStore?.loaded && Object.prototype.hasOwnProperty.call(liveStore?.data || {}, settingsKey)) {
+            return normalizePrototypeOpacity(liveStore.data[settingsKey]);
+        }
+        try {
+            const stored = Number(localStorage.getItem(getPrototypeOpacityStorageKey(theme)));
+            return Number.isFinite(stored) ? normalizePrototypeOpacity(stored) : PROTOTYPE_OPACITY_DEFAULT;
+        } catch (e) {
+            return PROTOTYPE_OPACITY_DEFAULT;
+        }
+    }
+    function getPrototypeOpacityTheme() {
+        return isDarkThemeMode() ? 'dark' : 'light';
+    }
+    function syncSideDayEventOpacity() {
+        const rootEl = state.sideDay?.rootEl;
+        if (!(rootEl instanceof HTMLElement)) return;
+        const opacity = readPrototypeOpacity(getPrototypeOpacityTheme());
+        rootEl.style.setProperty('--tm-cal-event-opacity', `${Math.round(opacity * 100)}%`);
     }
 
     function getCalendarDoneTextColor() {
@@ -14947,6 +14989,18 @@
         return hasOfficialMobileRuntimeSignal();
     }
 
+    function shouldUseFullscreenScheduleEditor() {
+        // Dock hosts use mobile UI on desktop too. Fullscreen editing follows
+        // the device, including tablets running the desktop frontend.
+        if (isLikelyMobileRuntime() || isNativeMobileRuntime()) return true;
+        try {
+            const ua = String(navigator?.userAgent || '');
+            return /Android|iPhone|iPad|iPod|Tablet/i.test(ua)
+                || (navigator?.platform === 'MacIntel' && Number(navigator?.maxTouchPoints) > 1);
+        } catch (e) {}
+        return false;
+    }
+
     function hasDeviceNotificationBridge() {
         try {
             for (const candidate of getNotificationBridgeCandidates()) {
@@ -20637,6 +20691,7 @@
         }
         if (state.sideDay.calendar) {
             state.sideDay.rootEl = rootEl;
+            syncSideDayEventOpacity();
             try { callCalendarAdapter(state.sideDay.calendar, 'setOption', 'dayHeaders', false); } catch (e) {}
             if (String(inOpts.date || '').trim()) {
                 const nextDate = String(inOpts.date || '').trim();
@@ -20665,6 +20720,7 @@
         }
 
         state.sideDay.rootEl = rootEl;
+        syncSideDayEventOpacity();
         const settings = getSettings();
         applyCalendarEventFontSize(settings.eventFontSize);
         const slotLayout = getTimeGridSlotLayoutOptions(settings);
@@ -21604,6 +21660,7 @@
             if (surface?.__tmScheduleDraft?.deferRender(queueSidePrototypeRender)) return;
             const active = state.sideDay?.calendar || cal;
             if (!(surface instanceof HTMLElement) || !active) return;
+            syncSideDayEventOpacity();
             const liveSettings = getSettings();
             const hourHeight = getPrototypeHourHeight(liveSettings, state.isMobileDevice === true);
             const date = sidePrototypeDate();
@@ -29868,37 +29925,6 @@
             if (options?.resetRenderKey !== false) prototypeLastRenderKey = '';
         };
         state.invalidatePrototypeMonthMeasurement = invalidatePrototypeMonthMeasurement;
-        const PROTOTYPE_OPACITY_MIN = 0.05;
-        const PROTOTYPE_OPACITY_MAX = 0.6;
-        const PROTOTYPE_OPACITY_DEFAULT = 0.25;
-        const normalizePrototypeOpacity = (value, fallback = PROTOTYPE_OPACITY_DEFAULT) => {
-            const parsed = Number(value);
-            return Number.isFinite(parsed)
-                ? Math.max(PROTOTYPE_OPACITY_MIN, Math.min(PROTOTYPE_OPACITY_MAX, parsed))
-                : fallback;
-        };
-        const getPrototypeOpacityStorageKey = (theme) => theme === 'dark'
-            ? 'tm_calendar_event_opacity_dark'
-            : 'tm_calendar_event_opacity_light';
-        const getPrototypeOpacitySettingsKey = (theme) => theme === 'dark'
-            ? 'calendarEventOpacityDark'
-            : 'calendarEventOpacityLight';
-        const readPrototypeOpacity = (theme) => {
-            const liveStore = state.settingsStore || state.sideDay?.settingsStore || null;
-            const settingsKey = getPrototypeOpacitySettingsKey(theme);
-            if (liveStore?.loaded && Object.prototype.hasOwnProperty.call(liveStore?.data || {}, settingsKey)) {
-                return normalizePrototypeOpacity(liveStore.data[settingsKey]);
-            }
-            try {
-                const stored = Number(localStorage.getItem(getPrototypeOpacityStorageKey(theme)));
-                return Number.isFinite(stored)
-                    ? normalizePrototypeOpacity(stored)
-                    : PROTOTYPE_OPACITY_DEFAULT;
-            } catch (e) {
-                return PROTOTYPE_OPACITY_DEFAULT;
-            }
-        };
-        const getPrototypeOpacityTheme = () => isDarkThemeMode() ? 'dark' : 'light';
         const prototypeOpacityByTheme = {
             light: readPrototypeOpacity('light'),
             dark: readPrototypeOpacity('dark'),
@@ -29912,6 +29938,7 @@
             // The app owns an inline value so event descendants do not fall
             // back to a stale value when the slider is moved in place.
             try { prototypeSurface.querySelector('.tm-proto-app')?.style?.setProperty('--tm-cal-event-opacity', percentage); } catch (e) {}
+            try { syncSideDayEventOpacity(); } catch (e) {}
             return normalized;
         };
         const syncPrototypeOpacityTheme = () => {
@@ -35012,7 +35039,7 @@
                     ? protoListTaskPinned(eventApi, task)
                     : (task?.pinned === true || task?.pinned === 1 || task?.pinned === '1' || task?.pinned === 'true');
                 const pinnedClass = pinned ? ' tm-kanban-card--pinned' : '';
-                const pinnedStyle = pinned ? ';border-left:3px solid var(--tm-primary-color)' : '';
+                const pinnedStyle = pinned ? ';border-left:3px solid var(--tm-pinned-color)' : '';
                 const reminderTime = buildCalendarMergedReminderMarkup(eventProps);
                 const reminderTitle = eventProps.__tmMergedReminderLabel
                     ? ` title="${esc(`${task.content || eventApi.title || ''} · 提醒时间：${eventProps.__tmMergedReminderLabel}`)}"` : '';
@@ -35492,7 +35519,7 @@
             const ext = eventApi?.extendedProps || {};
             const isNew = options?.isNew === true;
             const isMobileFullscreen = isNew && options?.fromDraftCard === true
-                && (isMobileDevice || isLikelyMobileRuntime());
+                && shouldUseFullscreenScheduleEditor();
             const isTaskDateEditor = options?.taskDateEditor === true;
             const isRecurringScheduleEditor = !isNew && !isTaskDateEditor && isRecurringScheduleEventExt(ext);
             const scheduleId = (isNew || isTaskDateEditor) ? '' : String(ext.__tmScheduleId || eventApi?.id || '').trim();
@@ -42628,6 +42655,7 @@
                     applyCalendarEventFontSize(store.data.calendarEventFontSize);
                 } else if (key === 'calendarEventOpacityLight' || key === 'calendarEventOpacityDark') {
                     try { state.prototypeOpacitySync?.(); } catch (e2) {}
+                    try { syncSideDayEventOpacity(); } catch (e2) {}
                 } else if (key === 'calendarMonthMinVisibleEvents') {
                     const settings = getSettings();
                     // The committed capacity map belongs to the previous row
@@ -42766,6 +42794,7 @@
     function setSettingsStore(settingsStore) {
         state.settingsStore = settingsStore || state.settingsStore || null;
         try { state.prototypeOpacitySync?.(); } catch (e) {}
+        try { syncSideDayEventOpacity(); } catch (e) {}
         if (state.settingsStore?.data) {
             let shouldFlush = false;
             const calendarName = String(state.settingsStore.data.calendarIcsCalendarName || '').trim();

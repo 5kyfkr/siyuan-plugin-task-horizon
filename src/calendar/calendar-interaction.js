@@ -5,7 +5,7 @@
         if (typeof Element === 'undefined' || !(root instanceof Element) || root.__tmCalendarPointerInteractions) return () => {};
         const cleanup = new AbortController();
         const state = { pointerId: null, target: null, started: false, moved: false, startX: 0, startY: 0, timer: 0 };
-        const longPressMs = Math.max(0, Number(options.longPressMs ?? 500));
+        const longPressMs = Math.max(0, Number(options.longPressMs ?? 1000));
         const threshold = Math.max(2, Number(options.threshold ?? 6));
         const clear = () => {
             if (state.timer) clearTimeout(state.timer);

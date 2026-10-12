@@ -55,6 +55,8 @@ const context = vm.createContext({
     __tmIsCustomFieldApplicableToTask: (field, value) => !field.docId || field.docId === value.root_id,
     __tmBuildStatusChipStyle: () => '',
     __tmNormalizePriorityCustomFieldDelta: () => ({}),
+    __tmGetCustomFieldDefs: () => fields,
+    __tmNormalizeCompactChecklistMetaFields: (values) => Array.isArray(values) ? values : [],
     __tmBuildCustomFieldOptionRuntime: () => ({ pathById: new Map() }),
 });
 for (const name of [
@@ -70,6 +72,13 @@ for (const name of ['__tmNormalizeCustomFieldIdList', '__tmCollectCustomFieldLoa
     vm.runInContext(extract(store, name), context);
 }
 const normalize = context.__tmNormalizeTaskCardFieldList;
+context.SettingsStore.data.desktopChecklistCompactMetaFields = ['customField:team'];
+context.SettingsStore.data.dockChecklistCompactMetaFields = ['customField:tags'];
+for (const compact of [true, false]) {
+    context.SettingsStore.data.checklistCompactMode = compact;
+    assert.deepEqual(Array.from(context.__tmCollectCustomFieldLoadPlan({ viewMode: 'checklist', colOrder: [] }).bulkFieldIds).sort(), ['tags', 'team', 'text'],
+        'both checklist layouts must load configured tags and retain custom text needed by tasks');
+}
 assert.deepEqual(Array.from(normalize(null)), ['priority', 'status', 'date']);
 assert.deepEqual(Array.from(normalize([])), []);
 assert.deepEqual(Array.from(normalize(['status', 'cf:team', 'customField:team', 'unknown', 'customField:tags'])),

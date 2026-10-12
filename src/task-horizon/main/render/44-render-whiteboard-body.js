@@ -46,7 +46,7 @@
             const order = [...quadrantOrder, ...quadrantRules.map((rule) => String(rule?.id || '')).filter((id) => id && !quadrantOrder.includes(id)), '__unmatched__'];
             cards.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
         } else cards.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
-        if (pinned.length) cards.unshift({ key: '__pinned__', label: '置顶任务', color: 'var(--tm-primary-color)', roots: pinned, pinned: true });
+        if (pinned.length) cards.unshift({ key: '__pinned__', label: '置顶任务', color: 'var(--tm-pinned-color)', roots: pinned, pinned: true });
         // Group roots first, then bring their entire visible subtree into the same card.
         return cards.map((card) => {
             const ids = new Set();
@@ -1791,7 +1791,7 @@
                 const labelColor = String(section?.labelColor || '').trim();
                 if (section?.kind === 'pinned') {
                     return __tmRenderIconLabel('pin', label || '置顶', {
-                        style: labelColor ? `color:${labelColor};` : 'color:var(--tm-warning-color);',
+                        style: labelColor ? `color:${labelColor};` : 'color:var(--tm-pinned-color);',
                     });
                 }
                 if (section?.kind === 'task') {
@@ -2001,7 +2001,7 @@
                     kind: 'pinned',
                     key: 'pinned_root_tasks',
                     label: '置顶',
-                    labelColor: 'var(--tm-warning-color)',
+                    labelColor: 'var(--tm-pinned-color)',
                     rootEntries: pinnedPoolRootEntries,
                 }, { showDocBadge: poolDocDataList.length > 1 })
                 : '';

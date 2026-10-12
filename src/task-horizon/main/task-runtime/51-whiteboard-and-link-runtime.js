@@ -4423,7 +4423,7 @@ return false;
         const target = taskRows[targetIndex];
         const currentItems = modal.querySelector('.tm-checklist-items');
         if (!(currentItems instanceof HTMLElement)) return false;
-        const compactChecklist = !!SettingsStore?.data?.checklistCompactMode;
+        const compactChecklist = item.closest('.tm-checklist-pane--compact') instanceof Element;
         let targetContainer = null;
         if (target.groupKey) {
             const header = currentItems.querySelector(`.tm-checklist-group[data-group-key="${CSS.escape(target.groupKey)}"]`);
@@ -4596,6 +4596,15 @@ return false;
                 }
             } else {
                 node.style.width = `${stats.percent}%`;
+                if (progressKind === 'inline') {
+                    const progress = node.closest('.tm-checklist-subtask-progress');
+                    if (progress) {
+                        progress.setAttribute('aria-valuemax', String(stats.total));
+                        progress.setAttribute('aria-valuenow', String(stats.completed));
+                        progress.classList.toggle('tm-checklist-subtask-progress--complete', stats.total > 0 && stats.completed === stats.total);
+                        progress.hidden = stats.total <= 0;
+                    }
+                }
             }
             touched = true;
         });
@@ -4705,10 +4714,8 @@ return false;
         title.className = 'tm-kanban-group-title';
         title.setAttribute('data-group-key', groupKey);
         title.setAttribute('aria-expanded', 'true');
-        title.style.background = __tmIsDarkMode()
-            ? 'color-mix(in srgb, var(--tm-danger-color,#d32f2f) 18%, var(--tm-header-bg))'
-            : '#ffebee';
-        title.innerHTML = `<span style="display:inline-flex;align-items:center;min-width:0;"><span class="tm-group-toggle" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><span style="display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--tm-warning-color);"><span class="tm-checklist-group-pin-icon" style="transform:translateY(-1px);">${__tmRenderBadgeIcon('pin', 14)}</span><span>置顶</span></span></span><span class="tm-badge tm-badge--count">0</span>`;
+        title.style.background = 'var(--tm-pinned-bg)';
+        title.innerHTML = `<span style="display:inline-flex;align-items:center;min-width:0;"><span class="tm-group-toggle" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><span style="display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--tm-pinned-color);"><span class="tm-checklist-group-pin-icon" style="transform:translateY(-1px);">${__tmRenderBadgeIcon('pin', 14)}</span><span>置顶</span></span></span><span class="tm-badge tm-badge--count">0</span>`;
         title.addEventListener('click', (event) => {
             try { globalThis.tmToggleGroupCollapse?.(groupKey, event); } catch (e) {}
         });
@@ -4960,7 +4967,7 @@ return false;
             && !!(state.groupByDocName || state.groupByTaskName || state.groupByTime || state.quadrantEnabled);
         const pinned = __tmIsTaskPinned(task);
         card.classList.toggle('tm-kanban-card--pinned', pinned);
-        card.style.borderLeft = pinned ? '3px solid var(--tm-primary-color)' : '';
+        card.style.borderLeft = pinned ? '3px solid var(--tm-pinned-color)' : '';
 
         const sourceGroup = card.parentElement?.closest?.('.tm-kanban-group') || null;
         const sourceGroupKey = String(sourceGroup?.querySelector?.(':scope > .tm-kanban-group-title[data-group-key]')?.getAttribute?.('data-group-key') || '').trim();
@@ -5666,13 +5673,18 @@ return false;
         const root = container instanceof Element ? container : null;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
-        const statusOption = __tmResolveTaskStatusDisplayOption(taskLike, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), { fallbackColor: '#757575' });
+        const statusOptions = __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
+        const statusOption = __tmResolveTaskStatusDisplayOption(taskLike, statusOptions, { fallbackColor: '#757575' });
         const chipStyle = __tmBuildStatusChipStyle(statusOption.color);
         const chipText = String(statusOption.name || statusOption.id || '').trim();
         const tag = root.querySelector('.tm-status-tag[data-tm-field="status"], [data-tm-field="status"] .tm-status-tag');
         if (tag instanceof HTMLElement) {
             tag.setAttribute('style', chipStyle);
             tag.textContent = chipText;
+            if (root.classList.contains('tm-checklist-item')) {
+                tag.hidden = !__tmShouldRenderChecklistTaskStatus(taskLike, statusOption, statusOptions);
+                __tmSyncChecklistMetaContainerVisibility(root);
+            }
             return true;
         }
         const statusField = root.querySelector('[data-tm-field="status"]');
@@ -5745,7 +5757,7 @@ return false;
         let touched = false;
         const compactChecklistItem = root.classList.contains('tm-checklist-item')
             && root.closest('.tm-checklist-pane--compact') instanceof Element;
-        const compactRemarkHtml = compactChecklistItem ? __tmRenderTaskCardRemark(taskLike) : '';
+        const compactRemarkHtml = compactChecklistItem ? __tmRenderChecklistTaskRemark(taskLike) : '';
         let compactRemarkEl = compactChecklistItem
             ? root.querySelector(':scope > .tm-checklist-item-main > .tm-task-card-remark')
             : null;
@@ -5779,6 +5791,9 @@ return false;
         if (remarkIconSlot instanceof HTMLElement) {
             remarkIconSlot.innerHTML = compactRemarkHtml ? '' : __tmRenderRemarkIcon(taskLike.remark);
             touched = true;
+        }
+        if (compactChecklistItem) {
+            try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(root); } catch (e) {}
         }
         return touched || (!(remarkCell instanceof HTMLElement) && !(remarkIconSlot instanceof HTMLElement));
     }
@@ -7487,9 +7502,17 @@ return false;
         }
         const compactMeta = item.querySelector('.tm-checklist-title-row > .tm-checklist-meta-compact');
         if (compactMeta instanceof HTMLElement) {
+            const fieldOrder = new Map(__tmGetChecklistCompactMetaFieldOrder().map((key, index) => [key, index]));
+            const orderedChildren = Array.from(compactMeta.children).sort((a, b) =>
+                (fieldOrder.get(a.getAttribute('data-tm-checklist-compact-field')) ?? Number.MAX_SAFE_INTEGER)
+                - (fieldOrder.get(b.getAttribute('data-tm-checklist-compact-field')) ?? Number.MAX_SAFE_INTEGER));
+            orderedChildren.forEach((node, index) => {
+                if (compactMeta.children[index] !== node) compactMeta.insertBefore(node, compactMeta.children[index] || null);
+            });
             const hasVisibleChild = Array.from(compactMeta.children || []).some((child) => {
                 if (!(child instanceof HTMLElement)) return false;
-                return child.style.display !== 'none';
+                return !child.hidden && child.style.display !== 'none'
+                    && !!String(child.textContent || child.innerHTML || '').trim();
             });
             compactMeta.style.display = hasVisibleChild ? '' : 'none';
             const titleRow = compactMeta.parentElement;
@@ -7530,6 +7553,7 @@ return false;
         const node = document.createElement('span');
         node.className = className;
         node.setAttribute('data-tm-task-time-field', key);
+        if (key.endsWith('Compact')) node.setAttribute('data-tm-checklist-compact-field', key.slice(0, -7));
         node.style.display = 'none';
         container.appendChild(node);
         return node;
@@ -7606,25 +7630,7 @@ return false;
         let touched = false;
         const syncCompactWrapVisibility = (wrap) => {
             if (!(wrap instanceof HTMLElement)) return;
-            const hasVisibleChild = Array.from(wrap.children || []).some((child) => {
-                if (!(child instanceof HTMLElement)) return false;
-                if (child.style.display === 'none') return false;
-                return !!String(child.textContent || child.innerHTML || '').trim();
-            });
-            wrap.style.display = hasVisibleChild ? '' : 'none';
-            const titleRow = wrap.closest('.tm-checklist-title-row');
-            if (titleRow instanceof HTMLElement) {
-                titleRow.classList.toggle('tm-checklist-title-row--has-compact-meta', hasVisibleChild);
-            }
-        };
-        const syncNormalWrapVisibility = (wrap) => {
-            if (!(wrap instanceof HTMLElement)) return;
-            const hasVisibleChild = Array.from(wrap.children || []).some((child) => {
-                if (!(child instanceof HTMLElement)) return false;
-                if (child.style.display === 'none') return false;
-                return !!String(child.textContent || child.innerHTML || '').trim();
-            });
-            wrap.style.display = hasVisibleChild ? '' : 'none';
+            __tmSyncChecklistMetaContainerVisibility(wrap.closest('.tm-checklist-item'));
         };
         fieldIds.forEach((fieldId) => {
             const fid = String(fieldId || '').trim();
@@ -7665,45 +7671,9 @@ return false;
                     touched = true;
                     return;
                 }
-                if (node.classList.contains('tm-checklist-custom-field-chip')) {
-                    const html = __tmBuildCustomFieldDisplayHtml(field, value, {
-                        allowEmpty: false,
-                        maxTags: String(field?.type || '').trim() === 'multi' ? 2 : 1,
-                    });
-                    node.innerHTML = html;
-                    node.style.display = html ? '' : 'none';
-                    syncNormalWrapVisibility(node.closest('.tm-checklist-custom-field-tags'));
-                    touched = true;
-                }
             });
             if (nodes.length || !root.classList.contains('tm-checklist-item')) return;
             if (String(field?.type || '').trim() === 'text') return;
-            if (!SettingsStore?.data?.checklistCompactMode) {
-                const html = __tmBuildCustomFieldDisplayHtml(field, value, {
-                    allowEmpty: false,
-                    maxTags: String(field?.type || '').trim() === 'multi' ? 2 : 1,
-                });
-                if (!html) return;
-                const titleRow = root.querySelector('.tm-checklist-title-row');
-                if (!(titleRow instanceof HTMLElement)) return;
-                let normalWrap = titleRow.querySelector('.tm-checklist-custom-field-tags');
-                if (!(normalWrap instanceof HTMLElement)) {
-                    normalWrap = document.createElement('span');
-                    normalWrap.className = 'tm-checklist-custom-field-tags';
-                    const before = titleRow.querySelector('[data-tm-field="pinned"],.tm-checklist-mobile-toggle');
-                    if (before instanceof HTMLElement) titleRow.insertBefore(normalWrap, before);
-                    else titleRow.appendChild(normalWrap);
-                }
-                const node = document.createElement('span');
-                node.className = 'tm-checklist-custom-field-chip';
-                node.setAttribute('data-tm-custom-field-cell', fid);
-                node.setAttribute('title', String(field?.name || fid).trim() || fid);
-                node.innerHTML = html;
-                normalWrap.appendChild(node);
-                syncNormalWrapVisibility(normalWrap);
-                touched = true;
-                return;
-            }
             const compactFields = globalThis.__tmViewPolicy?.getCompactChecklistMetaFieldSetForCurrentHost?.() || new Set(__tmGetCompactChecklistMetaFieldsForCurrentHost());
             if (!(compactFields instanceof Set) || !compactFields.has(`customField:${fid}`)) return;
             const html = __tmBuildCustomFieldDisplayHtml(field, value, {
@@ -7724,6 +7694,7 @@ return false;
             }
             const node = document.createElement('span');
             node.className = 'tm-checklist-meta-compact-custom-field';
+            node.setAttribute('data-tm-checklist-compact-field', `customField:${fid}`);
             node.setAttribute('data-tm-custom-field-cell', fid);
             node.setAttribute('title', String(field?.name || fid).trim() || fid);
             node.innerHTML = html;
@@ -7829,6 +7800,9 @@ return false;
             if (el.classList.contains('tm-cal-task-event-title-text')) {
                 if (el.closest('.tm-cal-task-event--schedule')) return;
                 el.innerHTML = titlePresentation.html;
+            } else if (el.closest('.tm-checklist-pane--compact') && el.parentElement?.classList.contains('tm-checklist-title-button')) {
+                const badge = el.querySelector('.tm-task-completed-today-badge')?.outerHTML || '';
+                el.innerHTML = __tmBuildChecklistTitleContentHtml(taskLike, titlePresentation.html, badge);
             } else el.innerHTML = html;
             try {
                 if (typeof __tmApplyTooltipAttrsToElement === 'function') {
@@ -8315,7 +8289,7 @@ return false;
                         const pinned = __tmIsTaskPinned(task);
                         card.classList.toggle('tm-kanban-card--pinned', pinned);
                         card.style.borderLeft = pinned
-                            ? '3px solid var(--tm-primary-color)'
+                            ? '3px solid var(--tm-pinned-color)'
                             : '';
                         touched = true;
                     }

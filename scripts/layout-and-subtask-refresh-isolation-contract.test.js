@@ -73,7 +73,8 @@ assert.doesNotMatch(kanbanRenderer, /data-tm-kanban-(?:expanded-(?:width|min-wid
 assert.doesNotMatch(kanbanRenderer, /__tmKanbanGetCollapsedColumnSet\(\)\.has\(columnKey\)/, 'progressive loading must finish a mounted column even while it is hidden');
 assert.match(styles, /\[data-tm-kanban-column-expanded-content\]\[hidden\][\s\S]*display: none !important;/, 'mounted kanban alternatives must honor hidden even when component display rules are more specific');
 assert.equal((styles.match(/^\s*width: var\(--tm-kanban-collapsed-col-width\)/gm) || []).length, 1, 'collapsed column width must have a single CSS source of truth');
-assert.match(checklistRenderer, /const indent = checklistCompact \? depth \* 14 : depth \* 22;/, 'compact checklist hierarchy must keep its 14px indent reference');
+assert.match(checklistRenderer, /const itemIndentStyle = `--tm-checklist-compact-indent:calc\(\$\{depth\} \* var\(--tm-checklist-indent-step\)\);`;/, 'checklist hierarchy must use the shared CSS indent token');
+assert.match(styles, /--tm-checklist-indent-step:\s*22px;/, 'the shared checklist hierarchy distance must remain 22px');
 assert.match(styles, /\.tm-kanban\.tm-kanban--clean\s*\{\s*--tm-kanban-subtask-indent:\s*14px;/, 'kanban subtasks must use the compact checklist hierarchy distance without changing whiteboard spacing');
 assert.equal((styles.match(/padding:\s*[45]px 2px [45]px var\(--tm-kanban-subtask-indent\);/g) || []).length, 2, 'regular and compact kanban subtask rows must share the hierarchy indent token');
 assert.match(styles, /\.tm-kanban\.tm-kanban--clean \.tm-kanban-subtask-row-main,\s*\.tm-whiteboard\.tm-kanban--clean \.tm-kanban-subtask-row-main\s*\{\s*align-items:\s*center;/, 'kanban and whiteboard subtask contents must share the vertically centered single-line layout');

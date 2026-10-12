@@ -3649,7 +3649,7 @@
             };
             cleanup();
             try { window.tmWhiteboardFrameMouseDown(startEvent, id, docId); } catch (e) {}
-        }, 500);
+        }, 1000);
         try { document.addEventListener('pointermove', onMove, true); } catch (e) {}
         try { document.addEventListener('pointerup', onUp, true); } catch (e) {}
         try { document.addEventListener('pointercancel', onUp, true); } catch (e) {}
@@ -4200,7 +4200,7 @@
             };
             cleanup();
             try { window.tmWhiteboardCardMouseDown(startEvent, id, did); } catch (e) {}
-        }, 500);
+        }, 1000);
         try { document.addEventListener('pointermove', onMove, true); } catch (e) {}
         try { document.addEventListener('pointerup', onUp, true); } catch (e) {}
         try { document.addEventListener('pointercancel', onUp, true); } catch (e) {}

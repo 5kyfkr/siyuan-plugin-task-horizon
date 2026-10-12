@@ -209,9 +209,7 @@ return ok;
             tomatoEstimateCountCompact: 'tomatoEstimateCount',
             tomatoCountCompact: 'tomatoCount',
         };
-        const enabledCompactFields = (!!SettingsStore?.data?.checklistCompactMode)
-            ? (globalThis.__tmViewPolicy?.getCompactChecklistMetaFieldSetForCurrentHost?.() || new Set(__tmGetCompactChecklistMetaFieldsForCurrentHost()))
-            : null;
+        const enabledCompactFields = globalThis.__tmViewPolicy?.getCompactChecklistMetaFieldSetForCurrentHost?.() || new Set(__tmGetCompactChecklistMetaFieldsForCurrentHost());
         const taskStartDateValue = __tmGetTaskDateFieldDisplayValue(task, 'startDate');
         const taskCompletionTimeValue = __tmGetTaskDateFieldDisplayValue(task, 'completionTime');
         let touched = false;

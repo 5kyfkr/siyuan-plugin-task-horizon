@@ -1,3 +1,55 @@
+    window.tmRenameHeadingGroup = async function(docId, headingId) {
+        const did = String(docId || '').trim();
+        const hid = String(headingId || '').trim();
+        if (!__tmIsLikelyBlockId(did) || !__tmIsLikelyBlockId(hid)) return false;
+        try {
+            const current = await __tmReadHeadingGroupBlock(hid);
+            const input = await showPrompt('修改标题分组名称', '请输入新标题名称', current.text);
+            if (input === null) return false;
+            const name = String(input || '').trim();
+            if (!name || /[\r\n]/.test(name)) {
+                hint('⚠ 标题名称不能为空或包含换行', 'warning');
+                return false;
+            }
+            if (name === current.text) return false;
+            if (!await __tmWaitForGlobalUnlock(8000)) {
+                hint('⚠ 正在同步任务，请稍后重试', 'warning');
+                return false;
+            }
+            const latest = await __tmReadHeadingGroupBlock(hid);
+            if (latest.text !== current.text) throw new Error('标题已被修改，请重新打开菜单');
+            latest.content.textContent = name;
+            await __tmRunInTaskWriterContext('heading-group-rename', () =>
+                __tmBackendAdapter.updateBlock(hid, latest.block.outerHTML, 'dom'));
+            await __tmFlushSqlTransactionsSafe('heading-group-rename');
+            const saved = await __tmReadHeadingGroupBlock(hid);
+            if (saved.text !== name || saved.level !== latest.level) throw new Error('标题保存校验失败，请刷新后重试');
+            try {
+                await __tmWarmKanbanDocHeadings([did], { force: true });
+                const refreshed = await __tmRefreshAffectedDocsIncrementally({
+                    docIds: [did], forceDocRefresh: true, committed: true,
+                    withFilters: true, allowCalendar: true, preserveRenderWindow: true,
+                    deferIfDetailBusy: false, reason: 'heading-group-rename',
+                });
+                if (!refreshed && !await __tmRefreshCore({
+                    silent: true, skipSharedStateReload: true, deferIfDetailBusy: false,
+                    reason: 'heading-group-rename',
+                })) {
+                    hint('标题已保存，请手动刷新视图', 'warning');
+                    return true;
+                }
+            } catch (e) {
+                hint('标题已保存，视图刷新失败，请手动刷新', 'warning');
+                return true;
+            }
+            hint('✅ 标题名称已修改', 'success');
+            return true;
+        } catch (e) {
+            hint(`❌ 修改标题失败: ${e.message}`, 'error');
+            return false;
+        }
+    };
+
     async function __tmSaveDocTabCustomGroups(nextGroups, options = {}) {
         SettingsStore.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(nextGroups);
         let activeDocTabGroupReset = false;
@@ -2290,18 +2342,18 @@
         const customFieldId = __tmParseCustomFieldColumnKey(normalizedField);
         const compactFieldKey = customFieldId ? `customField:${customFieldId}` : normalizedField;
         if (!__TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.some((item) => item.key === compactFieldKey) && !customFieldId) return;
-        const settingsKey = scopeKey === 'dock'
-            ? 'dockChecklistCompactMetaFields'
-            : (scopeKey === 'desktop' ? 'desktopChecklistCompactMetaFields' : 'mobileChecklistCompactMetaFields');
+        const settingsKey = scopeKey === 'desktop'
+            ? 'desktopChecklistCompactMetaFields'
+            : 'dockChecklistCompactMetaFields';
         const current = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data[settingsKey]));
         if (enabled) current.add(compactFieldKey);
         else current.delete(compactFieldKey);
         SettingsStore.data[settingsKey] = __tmNormalizeCompactChecklistMetaFields(Array.from(current), []);
-        if (scopeKey === 'dock') {
+        if (scopeKey !== 'desktop') {
             SettingsStore.data.mobileChecklistCompactMetaFields = SettingsStore.data[settingsKey].slice();
         }
         await SettingsStore.save();
-        if (scopeKey === 'dock') {
+        if (scopeKey !== 'desktop') {
             __tmDispatchDockSettingsChanged('dock-checklist-compact-meta-fields');
         }
         if (state.settingsModal) { try { state.__tmSettingsChipLightRefresh?.(); } catch (e) {} }

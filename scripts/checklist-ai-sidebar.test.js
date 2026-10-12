@@ -58,6 +58,7 @@ const context = vm.createContext({
     __tmNormalizeDateOnly: () => '',
     __tmIsDarkMode: () => false,
     __tmGetChecklistCompactRightFontSize: () => 12,
+    __tmGetChecklistCompactMetaFieldOrder: () => [],
     __tmGetCustomFieldDefs: () => [],
     __tmGetWrapConfig: () => ({ enabled: false }),
     __tmChecklistUseSheetMode: () => useChecklistSheetMode,

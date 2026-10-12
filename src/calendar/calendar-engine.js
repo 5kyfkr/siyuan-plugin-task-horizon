@@ -404,7 +404,7 @@
                 || typeof options.pointerDragEnd === 'function';
             if (hasPointerLifecycle) {
                 pointerCleanup = global.__tmCalendarInteraction?.bindCalendarPointerInteractions?.(root, {
-                    longPressMs: optionState.longPressDelay || 500,
+                    longPressMs: optionState.longPressDelay || 1000,
                     onStart: options.pointerDragStart,
                     onMove: options.pointerDragMove,
                     onEnd: options.pointerDragEnd,

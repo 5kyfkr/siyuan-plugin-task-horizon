@@ -9,8 +9,8 @@ const styles = fs.readFileSync(path.join(root, 'task-horizon.css'), 'utf8');
 
 assert.match(
     renderer,
-    /const compactRemarkHtml = checklistCompact \? __tmRenderTaskCardRemark\(task\) : '';[\s\S]*?<div class="\$\{titleRowClass\}">[\s\S]*?<\/div>\s*\$\{compactRemarkHtml\}\s*\$\{meta\.length/,
-    'compact checklist remarks must render below the complete title and right-fields row',
+    /const compactRemarkHtml = __tmRenderChecklistTaskRemark\(task\);[\s\S]*?<div class="\$\{titleRowClass\}">[\s\S]*?<\/div>\s*\$\{compactRemarkHtml\}\s*\$\{remarkSearchSnippetHtml\}/,
+    'checklist remarks must render below the complete title and fields row in either layout',
 );
 assert.match(
     renderer,
@@ -29,23 +29,23 @@ assert.match(
 );
 assert.match(
     styles,
-    /\.tm-checklist-pane--compact \.tm-checklist-item-main > \.tm-task-card-remark\s*\{[\s\S]*?-webkit-line-clamp:\s*var\(--tm-task-remark-wrap-lines, 2\);/,
+    /\.tm-checklist-remark-text\s*\{[\s\S]*?-webkit-line-clamp:\s*var\(--tm-task-remark-wrap-lines, 2\);/,
     'compact checklist remarks must use the shared configurable remark line limit with a two-line fallback',
 );
 assert.match(
     styles,
-    /\.tm-checklist-pane--compact \.tm-checklist-item\.tm-checklist-item--has-remark\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\);[\s\S]*?grid-template-rows:\s*auto auto;[\s\S]*?padding-top:\s*5px;[\s\S]*?padding-bottom:\s*5px;/,
+    /\.tm-checklist-pane--compact \.tm-checklist-item\s*\{[\s\S]*?box-sizing:\s*border-box;[\s\S]*?padding:\s*var\(--tm-checklist-row-padding\) var\(--tm-checklist-pad-x\);/,
     'remark rows must keep balanced outer spacing while growing below the title row',
 );
 assert.match(
     styles,
-    /\.tm-checklist-pane--compact \.tm-checklist-item\.tm-checklist-item--has-remark > \.tm-checklist-leading\s*\{[\s\S]*?grid-row:\s*1;[\s\S]*?align-self:\s*stretch;[\s\S]*?min-height:\s*var\(--tm-checklist-compact-primary-row-height\);/,
+    /\.tm-checklist-pane--compact \.tm-checklist-leading\s*\{[^}]*min-height:\s*var\(--tm-checklist-title-line-height\);[^}]*align-self:\s*stretch;/,
     'the checkbox and tree control must stretch with the full single-line or multi-line title row',
 );
 assert.match(
     styles,
-    /\.tm-checklist-pane--compact \.tm-checklist-item\.tm-checklist-item--has-remark > \.tm-checklist-item-main\s*\{\s*display:\s*contents;[\s\S]*?\.tm-checklist-title-row\s*\{[\s\S]*?grid-row:\s*1;[\s\S]*?\.tm-checklist-item-main > \.tm-task-card-remark\s*\{[\s\S]*?grid-row:\s*2;/,
-    'the title and remark must occupy separate grid rows so only the title controls checkbox centering',
+    /\.tm-checklist-pane--compact \.tm-checklist-item-main > \.tm-task-card-remark\s*\{[^}]*display:\s*block;/,
+    'remarks remain below the title row in the same main container used by local patches',
 );
 
 console.log('checklist compact remark contract tests passed');

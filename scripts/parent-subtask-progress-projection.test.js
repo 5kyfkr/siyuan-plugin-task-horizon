@@ -215,7 +215,8 @@ assert.match(stateSource, /listProjectedDirectChildren,/,
     'TaskStore must expose one projected direct-child resolver');
 assert.match(runtimeSource, /if \(Array\.isArray\(projectedChildren\)\) \{[\s\S]*return projectedChildren;/,
     'the projected child resolver must treat an empty result as authoritative');
-assert.match(checklistSource, /data-tm-subtask-count-owner=/);
+assert.match(checklistSource, /__tmRenderChecklistSubtaskProgress\(/);
+assert.match(fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/50-task-model-and-repeat-utils.js'), 'utf8'), /data-tm-subtask-count-owner=/);
 assert.match(checklistSource, /data-tm-subtask-progress-owner=/);
 assert.match(kanbanSource, /data-tm-subtask-count-owner=/);
 assert.match(kanbanSource, /data-tm-subtask-progress-owner=/);

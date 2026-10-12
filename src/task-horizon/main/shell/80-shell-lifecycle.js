@@ -1648,6 +1648,7 @@ if (shouldMarkDirty) {
         try { __tmCloseInlineEditor(); } catch (e) {}
         try { __tmCloseCellEditor(false); } catch (e) {}
         try { globalThis.__tmCalendar?.cleanup?.(); } catch (e) {}
+        state.checklistExpandedRemarks?.clear();
         try { delete globalThis.__tmCalendar; } catch (e) {}
         try { __tmUnbindMobileViewportAutoRefresh(); } catch (e) {}
         try {

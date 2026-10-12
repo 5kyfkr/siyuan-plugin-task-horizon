@@ -10,6 +10,7 @@ const main = path.join(__dirname, '../src/task-horizon/main');
 const read = (file) => fs.readFileSync(path.join(main, file), 'utf8');
 const stateSource = read('32-runtime-state-and-events.js');
 const serviceSource = read('20-api-and-runtime-services.js');
+const storeSource = read('10-stores-rules-and-cache.js');
 const viewSource = read('task-runtime/51-whiteboard-and-link-runtime.js');
 const detailSource = read('task-runtime/52-task-detail-runtime.js');
 const renderSource = read('40-render-runtime.js');
@@ -52,9 +53,16 @@ function createHarness(initial) {
         __tmGetTaskAttachmentPaths: () => [], __tmGetTaskAttachmentMetaMap: () => new Map(),
         __tmHasTaskAttachmentAttrSnapshot: () => true,
         __tmGetTaskCustomFieldRawValues: () => ({}), __tmNormalizeTaskCustomFieldValues: () => ({}),
+        __tmResolveTaskMetaFieldByAttrKey: () => '', __tmParseCustomFieldColumnKey: () => '',
+        __tmApplyDoneOverrideToTaskIfPresent() {},
     });
+    vm.runInContext(read('09-task-field-schema.js'), context);
+    vm.runInContext('const __TM_LOCAL_TASK_PATCH_WATERMARK_TTL_MS = 20000; const __TM_LOCAL_TASK_PATCH_WATERMARK_MAX = 256; let __tmLocalTaskPatchWatermarkRevision = 0;', context);
     for (const name of ['__tmNormalizeQueueTaskValue', '__tmApplyQueuedTaskFieldPatchToTask']) {
         vm.runInContext(extract(serviceSource, name), context);
+    }
+    for (const name of ['__tmNormalizeLocalPatchFieldKey', '__tmGetPatchFieldKeysForTaskPatch', '__tmPruneLocalTaskPatchWatermarks', '__tmMarkLocalTaskPatchWatermark', '__tmClearLocalTaskPatchWatermarkFields', '__tmGetLocalTaskPatchWatermark', '__tmGetLocalTaskPatchWatermarkValue', '__tmBuildLocalTaskPatchWatermarkPatch', '__tmMergeLocalTaskPatchIntoTask']) {
+        vm.runInContext(extract(storeSource, name), context);
     }
     vm.runInContext(extract(renderSource, 'normalizeTaskFields'), context);
     vm.runInContext(stateSource, context);
@@ -111,7 +119,82 @@ for (const [field, alias, before, after] of cases) {
             }
         }
     });
+    test(`${field}: a delayed create receipt and stale snapshot cannot undo a committed edit`, () => {
+        const aliasValue = typeof before === 'boolean' ? (before ? '1' : '') : before;
+        const h = createHarness({ [field]: before, [alias]: aliasValue });
+        h.store.createPendingTask(h.store.getFlat('task-a'));
+        h.mutate('optimistic', { [field]: after });
+        h.context.__tmMarkLocalTaskPatchWatermark('task-a', { [field]: after });
+        h.mutate('commit', { [field]: after }, { task: { id: 'task-a', [field]: after } });
+        h.store.applyMutation({
+            type: 'createTaskInDoc', phase: 'commit', opId: 'delayed-create', taskId: 'task-a',
+            task: { id: 'task-a', [field]: before, [alias]: aliasValue },
+        }, { applyLocal: false });
+        for (const task of [...h.mirrors, h.store.getProjected('task-a'), h.store.getPending('task-a')]) {
+            assert.deepEqual(h.normalize(task)[field], after, 'late receipt must keep the newer edit and aliases');
+        }
+        h.context.__tmApplyQueuedTaskFieldPatchToTask(h.store.getFlat('task-a'), { [field]: before });
+        const stale = { id: 'task-a', [field]: before, [alias]: aliasValue };
+        h.context.__tmMergeLocalTaskPatchIntoTask(stale);
+        assert.deepEqual(h.normalize(stale)[field], after, 'snapshot must use stored intent rather than the stale flat mirror');
+    });
+    test(`${field}: a receipt canonical value overrides its older alias`, () => {
+        const aliasValue = typeof before === 'boolean' ? (before ? '1' : '') : before;
+        const h = createHarness({ [field]: before, [alias]: aliasValue });
+        h.mutate('commit', { [field]: after }, { task: { id: 'task-a', [field]: after, [alias]: aliasValue } });
+        assert.deepEqual(h.normalize(h.store.getProjected('task-a'))[field], after);
+    });
 }
+
+test('custom-field removal survives an unrelated receipt, stale mirrors and sparse custom-field receipts', () => {
+    const h = createHarness({ customFieldValues: { stage: 'old', labels: ['a'], notes: 'old' }, __customFieldRawValues: { stage: 'old', labels: 'a', notes: 'old' } });
+    const defs = new Map([['stage', { type: 'select' }], ['labels', { type: 'multi' }], ['notes', { type: 'text' }]]);
+    Object.assign(h.context, {
+        __tmGetCustomFieldDefMap: () => defs,
+        __tmNormalizeCustomFieldValue: (_field, value) => value,
+        __tmSerializeCustomFieldValue: (_field, value) => Array.isArray(value) ? value.join(',') : value,
+    });
+    const patch = { customFieldValues: { stage: '', labels: [], notes: 'new' } };
+    h.mutate('optimistic', patch);
+    h.context.__tmMarkLocalTaskPatchWatermark('task-a', patch);
+    h.mutate('commit', patch, { task: { id: 'task-a', customFieldValues: { notes: 'new' } } });
+    h.store.applyMutation({
+        type: 'taskPatch', phase: 'commit', opId: 'unrelated-priority', taskId: 'task-a', patch: { priority: 'high' },
+        task: { id: 'task-a', priority: 'high', customFieldValues: { stage: 'old', labels: ['a'], notes: 'old' } },
+    }, { applyLocal: false });
+    assert.deepEqual(clone(h.store.getProjected('task-a').customFieldValues), { notes: 'new' });
+    const stale = { id: 'task-a', customFieldValues: { stage: 'old', labels: ['a'], notes: 'old' }, __customFieldRawValues: { stage: 'old', labels: 'a', notes: 'old' } };
+    h.store.getFlat('task-a').customFieldValues = clone(stale.customFieldValues);
+    h.context.__tmMergeLocalTaskPatchIntoTask(stale);
+    assert.deepEqual(clone(stale.customFieldValues), { notes: 'new' });
+    assert.deepEqual(clone(stale.__customFieldRawValues), { notes: 'new' });
+    h.store.applyMutation({
+        type: 'taskPatch', phase: 'commit', opId: 'one-custom-field', taskId: 'task-a', patch: { customFieldValues: { notes: 'corrected' } },
+        task: { id: 'task-a', customFieldValues: { stage: 'old', labels: ['a'], notes: 'kernel-correction' } },
+    }, { applyLocal: false });
+    assert.deepEqual(clone(h.store.getProjected('task-a').customFieldValues), { notes: 'kernel-correction' }, 'own-field corrections must win while other custom-field clears stay protected');
+    h.context.__tmMarkLocalTaskPatchWatermark('task-a', { customFieldValues: { notes: 'next' } });
+    const protectedPatch = h.context.__tmBuildLocalTaskPatchWatermarkPatch('task-a');
+    assert.deepEqual(clone(protectedPatch.customFieldValues), { stage: '', labels: [], notes: 'next' }, 'successive custom edits must retain earlier clears until each is confirmed');
+    h.context.__tmClearLocalTaskPatchWatermarkFields('task-a', ['customField:stage']);
+    assert.deepEqual(clone(h.context.__tmBuildLocalTaskPatchWatermarkPatch('task-a').customFieldValues), { labels: [], notes: 'next' }, 'confirmed custom fields must be released independently');
+});
+
+test('existing raw metadata aliases advance and clear with canonical edits', () => {
+    const h = createHarness({
+        priority: 'high', customPriority: 'high', 'custom-priority': 'high',
+        pinned: true, customPinned: true, 'custom-pinned': '1',
+        startDate: '2026-10-10', custom_start_date: '2026-10-10', 'custom-start-date': '2026-10-10',
+        completionTime: '2026-10-11', custom_completion_time: '2026-10-11', 'custom-completion-time': '2026-10-11',
+        taskDateColor: 'red', 'custom-task-date-color': 'red',
+    });
+    h.mutate('optimistic', { priority: '', pinned: false, startDate: '', completionTime: '', taskDateColor: '' });
+    for (const task of h.mirrors) {
+        for (const key of ['customPriority', 'custom-priority', 'customPinned', 'custom-pinned', 'custom_start_date', 'custom-start-date', 'custom_completion_time', 'custom-completion-time', 'custom-task-date-color']) {
+            assert.equal(task[key], '', 'clear must update ' + key);
+        }
+    }
+});
 
 test('rollback restores changed field aliases while preserving unrelated structural values', () => {
     const h = createHarness({ milestone: false, custom_milestone: '', parentTaskId: 'parent-a', priorityScore: 42 });

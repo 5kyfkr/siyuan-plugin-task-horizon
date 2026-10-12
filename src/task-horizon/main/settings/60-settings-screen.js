@@ -1785,7 +1785,7 @@
                 case 'tomatoSummary': return `<span class="tm-checklist-meta-compact-duration">45 分钟</span>`;
                 case 'tomatoEstimateCount': return `<span class="tm-checklist-meta-compact-duration">预计 3</span>`;
                 case 'tomatoCount': return `<span class="tm-checklist-meta-compact-duration">实际 2</span>`;
-                case 'status': return '';
+                case 'status': return __tmFieldPreviewStatusTag('进行中', '#2f9e77');
                 default: {
                     const name = __tmFieldPreviewCustomFieldName(key);
                     return name ? `<span class="tm-checklist-meta-compact-custom-field" title="${esc(name)}">${esc(name)}·示例</span>` : '';
@@ -1793,20 +1793,20 @@
             }
         };
         const __tmFieldPreviewListRow = (keys, narrow) => {
-            const metaParts = (Array.isArray(keys) ? keys : []).map((key) => __tmFieldPreviewListMetaChip(key)).filter(Boolean);
-            const statusTag = (Array.isArray(keys) && keys.includes('status')) ? __tmFieldPreviewStatusTag('进行中', '#2f9e77') : '';
+            const selected = new Set(Array.isArray(keys) ? keys : []);
+            const metaParts = __tmGetChecklistCompactMetaFieldOrder().filter((key) => selected.has(key)).map((key) => __tmFieldPreviewListMetaChip(key)).filter(Boolean);
             const metaHtml = metaParts.length ? `<div class="tm-checklist-meta-compact">${metaParts.join('')}</div>` : '';
-            const emptyHint = (!metaHtml && !statusTag) ? '<span class="tm-field-preview__empty">右侧不显示字段</span>' : '';
+            const emptyHint = !metaHtml ? '<span class="tm-field-preview__empty">右侧不显示字段</span>' : '';
             return `
-                <div class="tm-checklist-pane tm-checklist-pane--compact tm-field-preview__list-host">
+                <div class="tm-checklist-pane tm-checklist-pane--compact${SettingsStore.data.checklistCompactMode ? '' : ' tm-checklist-pane--fields-below'} tm-field-preview__list-host">
                 <div class="tm-checklist-group-card tm-field-preview__group-card">
                 <div class="tm-checklist-group-card-items">
                 <div class="tm-checklist-item tm-field-preview__row${narrow ? ' tm-field-preview__row--narrow' : ''}" style="--tm-checklist-compact-indent:0px;">
                     <div class="tm-checklist-leading"><span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>${__tmFieldPreviewCheckbox()}</div>
                     <div class="tm-checklist-item-main">
-                        <div class="tm-checklist-title-row${metaHtml || statusTag ? ' tm-checklist-title-row--has-compact-meta' : ''}">
+                        <div class="tm-checklist-title-row${metaHtml ? ' tm-checklist-title-row--has-compact-meta' : ''}">
                             <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span>写周报</span></span></div></div>
-                            ${metaHtml}${statusTag}${emptyHint}
+                            ${metaHtml}${emptyHint}
                         </div>
                     </div>
                 </div>
@@ -2496,7 +2496,7 @@
                         )}
                         ${renderSingleFieldSetting(
                             '任务标题级别',
-                            '控制任务标题在详情和部分视图中的语义级别。',
+                            '选择 H1–H6 标题层级，用于任务所属标题分组；右击清单、表格或看板中的标题分组可修改名称。',
                             `<select class="b3-select" onchange="updateTaskHeadingLevel(this.value)" style="width:180px;">
                                 <option value="h1" ${SettingsStore.data.taskHeadingLevel === 'h1' ? 'selected' : ''}>H1 一级标题</option>
                                 <option value="h2" ${SettingsStore.data.taskHeadingLevel === 'h2' ? 'selected' : ''}>H2 二级标题</option>
@@ -2829,7 +2829,7 @@
                         <div style="margin-bottom:10px;">
                             ${renderSingleFieldSetting(
                                 'Dock 及移动端紧凑右侧字段',
-                                '控制 Dock 侧边栏、移动端清单紧凑视图，以及日历视图侧边栏任务清单里任务右侧显示哪些信息。默认显示截止日期和状态标签，二级标题仅在任务有所属标题时显示。',
+                                '控制 Dock 侧边栏、移动端清单紧凑视图，以及日历视图侧边栏任务清单里任务右侧显示哪些信息。默认显示截止日期和状态标签，文档名仅在全部页签下显示，二级标题仅在任务有所属标题时显示。',
                                 (() => {
                                     const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.dockChecklistCompactMetaFields));
                                     const customFieldOptions = __tmGetCustomFieldDefs()
@@ -2923,13 +2923,13 @@
                         )}
                         ${renderSingleSwitchSetting(
                             '清单紧凑模式',
-                            '单行任务，右侧显示文档和截止日期。',
+                            '开启时字段显示在任务右侧，窄屏下自动换行；关闭时字段始终显示在任务名称下方。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactMode ? 'checked' : ''} onchange="updateChecklistCompactMode(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
                             '清单紧凑层级线',
-                            '开启后在清单紧凑模式中显示子任务层级竖线。',
+                            '开启后在清单中显示子任务层级竖线。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactTreeGuides ? 'checked' : ''} onchange="updateChecklistCompactTreeGuides(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}

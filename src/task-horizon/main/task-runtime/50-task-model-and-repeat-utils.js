@@ -349,6 +349,31 @@
         return `<div class="tm-task-card-remark" title="${esc(text)}">${esc(text)}</div>`;
     }
 
+    function __tmRenderChecklistTaskRemark(task) {
+        const raw = task?.remark ?? task?.custom_remark ?? task?.customRemark ?? '';
+        const text = __tmNormalizeRemarkMarkdown(raw);
+        if (!text) return '';
+        const id = String(task?.id || task?.blockId || '');
+        const expanded = state.checklistExpandedRemarks?.has(id) === true;
+        const contentId = `tm-checklist-remark-${id}`;
+        return `<div class="tm-task-card-remark tm-checklist-remark${expanded ? ' tm-checklist-remark--expanded' : ''}"><div class="tm-checklist-remark-text" id="${esc(contentId)}" title="${esc(text)}">${esc(text)}</div><button type="button" class="tm-checklist-remark-toggle" aria-controls="${esc(contentId)}" aria-expanded="${expanded}" onclick="tmChecklistToggleRemark('${esc(id.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}', event)"${expanded ? '' : ' hidden'}>${expanded ? '收起备注' : '展开备注'}</button></div>`;
+    }
+
+    function __tmBuildChecklistTitleContentHtml(task, titleHtml, completedTodayBadgeHtml = '') {
+        return `<span class="tm-checklist-title-text">${titleHtml}</span>${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderPinnedTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
+    }
+
+    function __tmRenderChecklistSubtaskProgress(taskId, completed, total) {
+        if (total <= 0) return '';
+        const percent = Math.round(completed / total * 100);
+        return `<span class="tm-checklist-subtask-progress${completed === total ? ' tm-checklist-subtask-progress--complete' : ''}" role="progressbar" aria-label="子任务进度" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${completed}"><span class="tm-checklist-progress-track"><i data-tm-subtask-progress-owner="${esc(taskId)}" data-tm-subtask-progress-kind="inline" style="width:${percent}%"></i></span><span data-tm-subtask-count-owner="${esc(taskId)}" class="tm-checklist-progress-count">${completed}/${total}</span></span>`;
+    }
+
+    function __tmShouldRenderChecklistTaskStatus(task, statusOption, statusOptions = null) {
+        if (__tmIsTaskClosedForDisplay(task)) return true;
+        return String(statusOption?.id || '').trim() !== String(__tmGetDefaultUndoneStatusId(statusOptions) || '').trim();
+    }
+
     function __tmGetTableWidthLayout(columnOrder, widthMap, availableWidth = 0) {
         const defaultOrder = __tmGetDefaultColumnOrder();
         const defaultWidths = __tmGetColumnWidthDefaults();

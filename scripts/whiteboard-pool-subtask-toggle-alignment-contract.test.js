@@ -20,11 +20,10 @@ assert.match(
 assert.match(cssSource, /\.tm-whiteboard-pool-toggle\s*\{[\s\S]*?margin-left:\s*auto;/, 'pool subtask toggles must anchor to the row end');
 assert.doesNotMatch(cssSource, /\.tm-whiteboard-pool-toggle-spacer/, 'obsolete leading spacer styles must be removed');
 
-const checklistCompactIndent = checklistSource.match(/const indent = checklistCompact \? depth \* (\d+) : depth \* \d+;/);
-assert.ok(checklistCompactIndent, 'compact checklist indentation must remain explicit');
+assert.match(checklistSource, /--tm-checklist-compact-indent:calc\(\$\{depth\} \* var\(--tm-checklist-indent-step\)\)/, 'checklist indentation must use its shared CSS token');
 const poolIndentStep = renderSource.match(/const whiteboardPoolSubtaskIndent = (\d+);/);
 assert.ok(poolIndentStep, 'task pool must define one shared subtask indentation step');
-assert.equal(poolIndentStep[1], checklistCompactIndent[1], 'task pool indentation must match compact checklist indentation');
+assert.equal(poolIndentStep[1], '14', 'the task pool must retain its 14px indentation after the checklist layout refactor');
 const poolIndentBindings = renderSource.match(/const indent = depth > 0 \? whiteboardPoolSubtaskIndent : 0;/g) || [];
 assert.equal(poolIndentBindings.length, 2, 'both pool tree renderers must add exactly one indentation step per nested level');
 assert.doesNotMatch(renderSource, /Math\.max\(0, Math\.min\(10, Number\(depth\) \|\| 0\)\) \* 16/, 'nested pool nodes must not multiply absolute depth inside an already nested tree');

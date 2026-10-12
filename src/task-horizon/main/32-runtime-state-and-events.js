@@ -188,6 +188,27 @@
         if (options?.preserveStructure !== false && Array.isArray(base?.children)) {
             merged.children = base.children.slice();
         }
+        // Canonical receipt fields must update inherited metadata aliases too.
+        // Otherwise a later normalization or snapshot can revive an old value.
+        const receiptPatch = {};
+        (globalThis.__tmTaskFieldSchema?.getFields?.() || []).forEach((field) => {
+            if (!Object.prototype.hasOwnProperty.call(incoming, field)) return;
+            receiptPatch[field] = field === 'customFieldValues' ? merged.customFieldValues : incoming[field];
+        });
+        if (incoming.customFieldValues && committedPatch.customFieldValues) {
+            receiptPatch.customFieldValues = { ...receiptPatch.customFieldValues };
+            Object.keys(committedPatch.customFieldValues).forEach((fieldId) => {
+                receiptPatch.customFieldValues[fieldId] = incoming.customFieldValues[fieldId] ?? '';
+            });
+        }
+        applyOverlayPatch(merged, receiptPatch);
+        // A full create/unrelated-field receipt does not own newer local edits.
+        // Protect those fields while accepting corrections to this operation's
+        // own fields, including individual custom-field clears.
+        try {
+            const protectedPatch = __tmBuildLocalTaskPatchWatermarkPatch(merged.id, committedPatch);
+            applyOverlayPatch(merged, protectedPatch);
+        } catch (e) {}
         return cloneTaskRecord(merged);
     };
 

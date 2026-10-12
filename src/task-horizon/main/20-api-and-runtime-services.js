@@ -4925,6 +4925,7 @@
         collapsedTaskIds: new Set(),
         collapsedGroups: new Set(),
         expandedCompletedGroups: new Set(),
+        checklistExpandedRemarks: new Set(),
         __tmKanbanCollapsedColumnKeys: new Set(),
         timerFocusTaskId: '',
 
@@ -9046,6 +9047,17 @@
                 target.repeat_history = target.repeatHistory;
             }
         });
+        Object.keys(nextPatch).forEach((key) => {
+            if (key === 'customFieldValues' || key === 'attachments') return;
+            const value = ['pinned', 'milestone', 'allDayBottom'].includes(key)
+                ? (target[key] ? '1' : '')
+                : target[key];
+            (globalThis.__tmTaskFieldSchema?.getAliases?.(key) || []).forEach((alias) => {
+                // Keep existing legacy/raw aliases in step with canonical
+                // clears without adding redundant properties to every task.
+                if (Object.prototype.hasOwnProperty.call(target, alias)) target[alias] = value;
+            });
+        });
         return target;
     }
 
@@ -11066,10 +11078,22 @@
                     ? Array.from(pane.querySelectorAll('.tm-checklist-item[data-id]'))
                     : Array.from(root.querySelectorAll?.('.tm-checklist-item[data-id]') || [])));
             const updates = [];
+            const remarkUpdates = [];
             const wrapEnabled = pane.classList.contains('tm-checklist-pane--wrap');
             items.forEach((item) => {
                 if (!(item instanceof HTMLElement) || !pane.contains(item)) return;
-                const title = item.querySelector('.tm-checklist-title-button > span');
+                const remark = item.querySelector('.tm-checklist-remark');
+                const remarkText = remark?.querySelector('.tm-checklist-remark-text');
+                const toggle = remark?.querySelector('.tm-checklist-remark-toggle');
+                if (remarkText instanceof HTMLElement && toggle instanceof HTMLElement
+                    && remarkText.checkVisibility?.({ contentVisibilityAuto: true }) !== false
+                    && remarkText.clientHeight > 0) {
+                    const expanded = remark.classList.contains('tm-checklist-remark--expanded');
+                    const overflow = expanded || remarkText.scrollHeight > remarkText.clientHeight + 1
+                        || remarkText.scrollWidth > remarkText.clientWidth + 1;
+                    remarkUpdates.push([toggle, !overflow]);
+                }
+                const title = item.querySelector('.tm-checklist-title-text') || item.querySelector('.tm-checklist-title-button > span');
                 if (!wrapEnabled || !(title instanceof HTMLElement)) {
                     __tmRememberTaskTitleWrap('checklist', item, false);
                     if (item.classList.contains('tm-checklist-item--title-wrapped')) {
@@ -11112,6 +11136,7 @@
             // Read every title before writing classes to avoid one forced
             // layout per item, including on the synchronous first render.
             updates.forEach(([item, wrapped]) => item.classList.toggle('tm-checklist-item--title-wrapped', wrapped));
+            remarkUpdates.forEach(([toggle, hidden]) => { if (toggle.hidden !== hidden) toggle.hidden = hidden; });
             changed += updates.length;
             if (!pane.__tmChecklistTitleWrapResizeObserver && typeof ResizeObserver === 'function') {
                 try {
@@ -11132,7 +11157,10 @@
                         }
                         const dirty = new Set();
                         entries.forEach(({ target, contentRect }) => {
-                            if (target === pane) return;
+                            if (target === pane) {
+                                pane.querySelectorAll('.tm-checklist-item[data-id]').forEach((item) => dirty.add(item));
+                                return;
+                            }
                             if (!pane.contains(target)) {
                                 observer.unobserve(target);
                                 observedTitles.delete(target);
@@ -11163,11 +11191,14 @@
                     });
                     items.forEach((item) => {
                         if (!pane.contains(item)) return;
-                        const title = item.querySelector('.tm-checklist-title-button > span');
-                        if (title instanceof HTMLElement && !observedTitles?.has(title)) {
-                            observer.observe(title);
-                            observedTitles?.add(title);
-                        }
+                        const title = item.querySelector('.tm-checklist-title-text') || item.querySelector('.tm-checklist-title-button > span');
+                        const remark = item.querySelector(':scope > .tm-checklist-item-main > .tm-task-card-remark');
+                        [title, remark].forEach((target) => {
+                            if (target instanceof HTMLElement && !observedTitles?.has(target)) {
+                                observer.observe(target);
+                                observedTitles?.add(target);
+                            }
+                        });
                     });
                 }
             } catch (e) {}
@@ -22431,6 +22462,14 @@ if (!state.homepageOpen) return;
 
     const __TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS = Object.freeze(['completionTime', 'status']);
 
+    function __tmGetChecklistCompactMetaFieldOrder() {
+        return __TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.map((item) => item.key).concat(
+            __tmGetCustomFieldDefs()
+                .filter((field) => String(field?.id || '').trim() && field?.enabled !== false && String(field?.type || '').trim() !== 'text')
+                .map((field) => `customField:${String(field.id).trim()}`)
+        );
+    }
+
     const __tmNormalizeCompactChecklistMetaFields = (fields, defaults = __TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS) => {
         const allow = new Set(__TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.map((item) => item.key));
         const source = Array.isArray(fields) ? fields : defaults;
@@ -22481,20 +22520,12 @@ if (!state.homepageOpen) return;
     };
 
     const __tmGetCompactChecklistMetaFieldsForCurrentHost = () => {
-        const isDockHost = __tmIsDesktopDockHost();
-        const isMobileHost = __tmIsScopedMobileHost();
-        const isCalendarSidebarChecklist = state.__tmCalendarSidebarChecklistRender === true || __tmHasCalendarSidebarChecklist(state.modal);
-        if (isDockHost) {
-            return __tmNormalizeCompactChecklistMetaFields(SettingsStore?.data?.dockChecklistCompactMetaFields);
-        }
-        if (isMobileHost) {
+        if (__tmIsDesktopDockHost() || __tmIsScopedMobileHost()
+            || state.__tmCalendarSidebarChecklistRender === true || __tmHasCalendarSidebarChecklist(state.modal)) {
             return __tmNormalizeCompactChecklistMetaFields(
-                SettingsStore?.data?.mobileChecklistCompactMetaFields,
-                SettingsStore?.data?.dockChecklistCompactMetaFields
+                SettingsStore?.data?.dockChecklistCompactMetaFields,
+                SettingsStore?.data?.mobileChecklistCompactMetaFields
             );
-        }
-        if (isCalendarSidebarChecklist) {
-            return __tmNormalizeCompactChecklistMetaFields(SettingsStore?.data?.dockChecklistCompactMetaFields);
         }
         return __tmNormalizeCompactChecklistMetaFields(SettingsStore?.data?.desktopChecklistCompactMetaFields);
     };
@@ -22503,7 +22534,6 @@ if (!state.homepageOpen) return;
         const viewMode = String(state?.viewMode || '').trim();
         const isCalendarSidebarChecklist = state.__tmCalendarSidebarChecklistRender === true || __tmHasCalendarSidebarChecklist(state.modal);
         if (viewMode !== 'checklist' && !isCalendarSidebarChecklist) return false;
-        if (!SettingsStore?.data?.checklistCompactMode) return false;
         return __tmNormalizeCompactChecklistMetaFields(__tmGetCompactChecklistMetaFieldsForCurrentHost(), []).includes('h2');
     };
 
@@ -26731,7 +26761,7 @@ return true;
                 const isCollapsed = !!row?.collapsed;
                 const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;">${__tmRenderToggleIcon(16, isCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>`;
                 if (row.kind === 'pinned') {
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-warning-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-pinned-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
                 }
                 if (row.kind === 'doc') {
                     return __tmRenderTimelineRangeGroupRowHtml(row, timelineColumnCount);

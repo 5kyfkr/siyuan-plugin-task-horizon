@@ -106,29 +106,18 @@
             let renderedChecklistTaskCount = 0;
             const isDark = __tmIsDarkMode();
             const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
-            const checklistCompact = !!SettingsStore.data.checklistCompactMode;
-            const checklistCompactTreeGuides = checklistCompact && !!SettingsStore.data.checklistCompactTreeGuides;
+            const checklistFieldsBelow = !SettingsStore.data.checklistCompactMode;
+            const checklistCompactTreeGuides = !!SettingsStore.data.checklistCompactTreeGuides;
             const compactRightFontSize = __tmGetChecklistCompactRightFontSize();
-            const compactChecklistMetaFieldSet = checklistCompact
-                ? (globalThis.__tmViewPolicy?.getCompactChecklistMetaFieldSetForCurrentHost?.() || new Set(__tmGetCompactChecklistMetaFieldsForCurrentHost()))
-                : new Set(__TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS);
-            const compactCustomFieldDefs = checklistCompact
-                ? __tmGetCustomFieldDefs().filter((field) => {
-                    const id = String(field?.id || '').trim();
-                    return id
-                        && field?.enabled !== false
-                        && String(field?.type || '').trim() !== 'text'
-                        && compactChecklistMetaFieldSet.has(`customField:${id}`);
-                })
-                : [];
-            const normalChecklistCustomFieldDefs = checklistCompact
-                ? []
-                : __tmGetCustomFieldDefs().filter((field) => {
-                    const id = String(field?.id || '').trim();
-                    return id
-                        && field?.enabled !== false
-                        && String(field?.type || '').trim() !== 'text';
-                });
+            const compactChecklistMetaFieldSet = globalThis.__tmViewPolicy?.getCompactChecklistMetaFieldSetForCurrentHost?.() || new Set(__tmGetCompactChecklistMetaFieldsForCurrentHost());
+            const compactChecklistMetaFieldOrder = __tmGetChecklistCompactMetaFieldOrder();
+            const compactCustomFieldDefs = __tmGetCustomFieldDefs().filter((field) => {
+                const id = String(field?.id || '').trim();
+                return id
+                    && field?.enabled !== false
+                    && String(field?.type || '').trim() !== 'text'
+                    && compactChecklistMetaFieldSet.has(`customField:${id}`);
+            });
             const wrapCfg = __tmGetWrapConfig();
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const sheetMode = __tmChecklistUseSheetMode();
@@ -163,80 +152,15 @@
                 state.checklistDetailSheetOpen = false;
                 state.checklistDetailSheetFullscreen = false;
             }
-            let currentGroupBg = '';
             let currentGroupAccent = '';
             const compactTreeGuidesCache = new Map();
             const getCompactTreeGuidesHtml = (depth) => {
                 const depthLevel = Math.max(0, Number(depth) || 0);
                 if (!checklistCompactTreeGuides || depthLevel <= 0) return '';
                 if (compactTreeGuidesCache.has(depthLevel)) return compactTreeGuidesCache.get(depthLevel);
-                const html = `<span class="tm-checklist-tree-guides" aria-hidden="true">${Array.from({ length: depthLevel }, (_, i) => `<span class="tm-checklist-tree-guide-line" style="left:calc(var(--tm-checklist-tree-line-start) + ${i * 14}px)"></span>`).join('')}</span>`;
+                const html = `<span class="tm-checklist-tree-guides" aria-hidden="true">${Array.from({ length: depthLevel }, (_, i) => `<span class="tm-checklist-tree-guide-line" style="left:calc(var(--tm-checklist-tree-line-start) + ${i} * var(--tm-checklist-indent-step))"></span>`).join('')}</span>`;
                 compactTreeGuidesCache.set(depthLevel, html);
                 return html;
-            };
-
-            const resolvePinnedTaskGroupBg = (task) => {
-                if (!enableGroupBg || !task) return '';
-                if (state.groupByDocName || state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) {
-                    const taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
-                    return taskDocColor ? (__tmGroupBgFromLabelColor(taskDocColor, isDark) || '') : '';
-                }
-                if (state.groupByTime) {
-                    const diffDays = Number(__tmGetTaskTimePriorityInfo(task)?.diffDays);
-                    const groupInfo = !Number.isFinite(diffDays)
-                        ? { key: 'pending', sortValue: Number.POSITIVE_INFINITY }
-                        : (diffDays < 0
-                            ? { key: 'overdue', sortValue: diffDays }
-                            : (diffDays >= 16
-                                ? { key: 'farther', sortValue: 16 }
-                                : { key: `days_${diffDays}`, sortValue: diffDays }));
-                    const timeBaseColor = isDark
-                        ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
-                        : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');
-                    const timeOverdueColor = isDark
-                        ? __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, '#ff6b6b')
-                        : __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, '#d93025');
-                    const key = String(groupInfo?.key || '');
-                    const sortValue = Number(groupInfo?.sortValue);
-                    const labelColor = (key === 'pending' || !Number.isFinite(sortValue))
-                        ? 'var(--tm-secondary-text)'
-                        : (sortValue < 0
-                            ? (timeOverdueColor || 'var(--tm-danger-color)')
-                            : __tmWithAlpha(timeBaseColor || 'var(--tm-primary-color)', __tmClamp(1 - sortValue * (isDark ? 0.085 : 0.11), isDark ? 0.52 : 0.42, 1)));
-                    return __tmGroupBgFromLabelColor(labelColor, isDark) || '';
-                }
-                if (state.quadrantEnabled) {
-                    const quadrantRules = (SettingsStore.data.quadrantConfig && SettingsStore.data.quadrantConfig.rules) || [];
-                    const priority = String(task.priority || '').toLowerCase();
-                    const importance = (priority === 'a' || priority === '高' || priority === 'high')
-                        ? 'high'
-                        : ((priority === 'b' || priority === '中' || priority === 'medium')
-                            ? 'medium'
-                            : ((priority === 'c' || priority === '低' || priority === 'low') ? 'low' : 'none'));
-                    const diffDays = Number(__tmGetTaskTimePriorityInfo(task)?.diffDays);
-                    const timeRange = !Number.isFinite(diffDays)
-                        ? 'nodate'
-                        : (diffDays < 0 ? 'overdue' : (diffDays <= 7 ? 'within7days' : (diffDays <= 15 ? 'within15days' : (diffDays <= 30 ? 'within30days' : 'beyond30days'))));
-                    let ruleColor = '';
-                    for (const rule of quadrantRules) {
-                        const importanceMatch = Array.isArray(rule?.importance) && rule.importance.includes(importance);
-                        let timeRangeMatch = Array.isArray(rule?.timeRanges) && rule.timeRanges.includes(timeRange);
-                        if (!timeRangeMatch && Array.isArray(rule?.timeRanges)) {
-                            for (const range of rule.timeRanges) {
-                                if (!String(range || '').startsWith('beyond') || range === 'beyond30days') continue;
-                                const days = parseInt(String(range).replace('beyond', '').replace('days', ''), 10);
-                                if (!Number.isNaN(days) && diffDays > days) { timeRangeMatch = true; break; }
-                            }
-                        }
-                        if (importanceMatch && timeRangeMatch) {
-                            const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
-                            ruleColor = colorMap[String(rule?.color || '')] || 'var(--tm-text-color)';
-                            break;
-                        }
-                    }
-                    return ruleColor ? (__tmGroupBgFromLabelColor(ruleColor, isDark) || '') : '';
-                }
-                return '';
             };
 
             const resolvePinnedTaskGroupAccentColor = (task) => {
@@ -289,7 +213,7 @@
 
             const renderGroup = (row) => {
                 const isCollapsed = !!row?.collapsed;
-                const toggle = `<span class="tm-group-toggle" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);">${__tmRenderToggleIcon(16, isCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>`;
+                const toggle = `<span class="tm-group-toggle" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-checklist-parent-toggle-color);">${__tmRenderToggleIcon(16, isCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>`;
                 const countHtml = Number(row?.count) > 0 ? `<span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>` : '';
                 const durationHtml = String(row?.durationSum || '').trim()
                     ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(String(row.durationSum || '').trim())}</span>`
@@ -301,7 +225,7 @@
                 if (row.kind === 'doc') labelColor = String(row.labelColor || 'var(--tm-group-doc-label-color)');
                 else if (row.kind === 'task') labelColor = String(row.labelColor || 'var(--tm-primary-color)');
                 else if (row.kind === 'time') labelColor = String(row.labelColor || 'var(--tm-text-color)');
-                else if (row.kind === 'pinned') labelColor = 'var(--tm-warning-color)';
+                else if (row.kind === 'pinned') labelColor = 'var(--tm-pinned-color)';
                 else if (row.kind === 'done') labelColor = 'var(--tm-secondary-text)';
                 else if (row.kind === 'normal') labelColor = 'var(--tm-text-color)';
                 else if (row.kind === 'quadrant') {
@@ -311,18 +235,14 @@
                     labelColor = String(row.labelColor || __tmGetHeadingSubgroupLabelColor('var(--tm-group-doc-label-color)', isDark));
                 }
                 if (row.kind === 'task' && row.groupDocColor) {
-                    currentGroupBg = enableGroupBg ? (__tmGroupBgFromLabelColor(row.groupDocColor, isDark) || '') : '';
                     currentGroupAccent = String(row.groupDocColor || labelColor || '');
                 } else if (row.kind === 'pinned') {
-                    currentGroupBg = '';
-                    currentGroupAccent = 'var(--tm-danger-color)';
+                    currentGroupAccent = labelColor;
                 } else if (row.kind === 'normal') {
-                    currentGroupBg = '';
                     currentGroupAccent = 'transparent';
                 } else if (row.kind === 'h2' && state.groupByDocName) {
                     // 文档分组下的标题子分组沿用文档组背景，不要被标题标签颜色覆盖。
                 } else {
-                    currentGroupBg = enableGroupBg ? (__tmGroupBgFromLabelColor(labelColor, isDark) || '') : '';
                     currentGroupAccent = String(labelColor || '');
                 }
                 const createBtnHtml = (row.kind === 'doc' && state.groupByDocName)
@@ -333,9 +253,9 @@
                             ? __tmBuildTimeGroupQuickAddBtnHtml((typeof __tmIsDocTabCustomGroupActiveId === 'function' && __tmIsDocTabCustomGroupActiveId(state.activeDocId)) ? '' : state.activeDocId, row)
                             : ''));
                 const labelHtml = row.kind === 'doc'
-                    ? __tmRenderDocGroupLabel(row.docId || row.id, row.label || '')
+                    ? __tmRenderDocGroupLabel(row.docId || row.id, row.label || '', { size: 16 })
                     : (row.kind === 'h2'
-                        ? __tmRenderHeadingLevelIconLabel(row.label || '', row.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2')
+                        ? __tmRenderHeadingLevelIconLabel(row.label || '', row.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 16 })
                         : (row.kind === 'time'
                             ? (String(row.labelHtml || '').trim() || esc(String(row.label || '')))
                             : esc(String(row.label || ''))));
@@ -346,17 +266,19 @@
                     : '';
                 const docDropId = String(row.docId || row.id || '').trim();
                 const headingDropId = String(row.headingId || '').trim();
+                const headingContextMenuAttrs = groupKind === 'h2'
+                    ? __tmBuildHeadingGroupContextMenuAttrs(docDropId, headingDropId)
+                    : '';
                 const docHeadingGroupDropAttrs = state.groupByDocName && (groupKind === 'doc' || groupKind === 'h2') && docDropId
                     ? ` data-tm-doc-heading-drop-kind="${groupKind === 'h2' ? 'heading' : 'doc'}" data-tm-doc-heading-drop-doc="${esc(docDropId)}"${groupKind === 'h2' ? ` data-tm-doc-heading-drop-heading="${esc(headingDropId)}" data-tm-doc-heading-drop-label="${esc(__tmNormalizeHeadingText(row.label || ''))}" data-tm-doc-heading-drop-rank="${Number.isFinite(Number(row.h2Rank ?? row.headingRank)) ? Number(row.h2Rank ?? row.headingRank) : ''}"` : ''} ondragenter="tmDocHeadingGroupDragOver(event)" ondragover="tmDocHeadingGroupDragOver(event)" ondragleave="tmDocHeadingGroupDragLeave(event)" ondrop="tmDocHeadingGroupDrop(event)"`
                     : '';
                 return `
-                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-kind="${esc(groupKind)}" data-group-key="${esc(groupKey)}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)"${timeGroupDropAttrs}${docHeadingGroupDropAttrs}>
-                        ${toggle}
+                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-kind="${esc(groupKind)}" data-group-key="${esc(groupKey)}" style="--tm-checklist-group-accent:${esc(labelColor)};" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)"${timeGroupDropAttrs}${docHeadingGroupDropAttrs}${headingContextMenuAttrs}>
                         ${pinnedIconHtml}
                         <span class="tm-checklist-group-label" style="color:${labelColor};">${labelHtml}</span>
-                        ${createBtnHtml}
                         ${countHtml}
                         ${durationHtml}
+                        <span class="tm-checklist-group-controls">${createBtnHtml}${toggle}</span>
                     </div>
                 `;
             };
@@ -369,7 +291,6 @@
                 const isMultiSelected = __tmIsTaskMultiSelected(task.id);
                 if ((state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) && task.root_id) {
                     const taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
-                    currentGroupBg = (enableGroupBg && taskDocColor) ? (__tmGroupBgFromLabelColor(taskDocColor, isDark) || '') : '';
                     currentGroupAccent = taskDocColor || '';
                 }
                 const depth = Math.max(0, Number(row?.depth) || 0);
@@ -388,18 +309,12 @@
                     }
                 }).length;
                 const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
-                const resolvedGroupBg = currentGroupBg || resolvePinnedTaskGroupBg(task);
                 const resolvedGroupAccent = currentGroupAccent || resolvePinnedTaskGroupAccentColor(task);
-                const baseBg = checklistCompact
-                    ? ''
-                    : (resolvedGroupBg ? `background-color:${resolvedGroupBg};` : '');
-                const accentStyle = checklistCompact && resolvedGroupAccent
+                const accentStyle = resolvedGroupAccent
                     ? `--tm-checklist-accent-color:${resolvedGroupAccent};`
                     : '';
                 const progressBg = progressPercent > 0
-                    ? (checklistCompact
-                        ? `--tm-checklist-progress-color:${progressBarColor};--tm-checklist-progress-percent:${progressPercent}%;`
-                        : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`)
+                    ? `--tm-checklist-progress-color:${progressBarColor};--tm-checklist-progress-percent:${progressPercent}%;`
                     : '';
                 const tomatoFocusTaskId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
                 const tomatoFocusModeEnabled = __tmIsTomatoFocusModeEnabled();
@@ -420,25 +335,23 @@
                     todayKey: completedTodayKey,
                     inCompletedRootGroup: row?.inCompletedRootGroup === true,
                 });
-                const compactRemarkHtml = checklistCompact ? __tmRenderTaskCardRemark(task) : '';
+                const compactRemarkHtml = __tmRenderChecklistTaskRemark(task);
                 const remarkIconHtml = compactRemarkHtml ? '' : __tmRenderRemarkIcon(task.remark);
                 const attachmentIconHtml = __tmRenderTaskAttachmentIcon(task);
                 const statusOptions = __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
                 const statusOption = __tmResolveTaskStatusDisplayOption(task, statusOptions, { fallbackColor: '#757575' });
                 const statusChipStyle = __tmBuildStatusChipStyle(statusOption.color);
-                const indent = checklistCompact ? depth * 14 : depth * 22;
-                const showTaskDocName = globalThis.__tmViewPolicy?.shouldShowCompactChecklistDocName?.() ?? __tmShouldShowCompactChecklistDocName();
                 const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all')
                     || (typeof __tmIsDocTabCustomGroupActiveId === 'function' && __tmIsDocTabCustomGroupActiveId(state.activeDocId));
-                const showCompactDocName = checklistCompact && isAllTabsView && compactChecklistMetaFieldSet.has('docName') && !!task.docName;
-                const compactHeadingText = checklistCompact && compactChecklistMetaFieldSet.has('h2')
+                const showCompactDocName = isAllTabsView && compactChecklistMetaFieldSet.has('docName') && !!task.docName;
+                const compactHeadingText = compactChecklistMetaFieldSet.has('h2')
                     ? __tmNormalizeHeadingText(task.h2)
                     : '';
                 const displayStartDate = __tmGetTaskDateFieldDisplayValue(task, 'startDate');
                 const displayCompletionTime = __tmGetTaskDateFieldDisplayValue(task, 'completionTime');
-                const showCompactStartDate = checklistCompact && compactChecklistMetaFieldSet.has('startDate') && !!displayStartDate;
-                const showCompactCompletionTime = checklistCompact && compactChecklistMetaFieldSet.has('completionTime') && !!displayCompletionTime;
-                const compactRemainingTimeInfo = checklistCompact && compactChecklistMetaFieldSet.has('remainingTime')
+                const showCompactStartDate = compactChecklistMetaFieldSet.has('startDate') && !!displayStartDate;
+                const showCompactCompletionTime = compactChecklistMetaFieldSet.has('completionTime') && !!displayCompletionTime;
+                const compactRemainingTimeInfo = compactChecklistMetaFieldSet.has('remainingTime')
                     ? __tmGetTaskRemainingTimeInfo(task)
                     : null;
                 const compactRemainingTimeLabel = String(compactRemainingTimeInfo?.label || '').trim();
@@ -447,46 +360,43 @@
                     : '';
                 const showCompactRemainingTime = !!compactRemainingTimeLabel
                     && __tmShouldRenderTaskCardRemainingTime(task, showCompactStartDate || showCompactCompletionTime);
-                const compactDurationText = checklistCompact && compactChecklistMetaFieldSet.has('duration')
+                const compactDurationText = compactChecklistMetaFieldSet.has('duration')
                     ? __tmFormatDurationDisplayValue(task.duration || '')
                     : '';
                 const showCompactDuration = !!compactDurationText;
                 const focusSummaryText = __tmGetTaskTomatoSummaryText(task);
                 const focusSummaryHtml = __tmGetTaskTomatoSummaryHtml(task);
-                const compactFocusSummaryText = checklistCompact && compactChecklistMetaFieldSet.has('tomatoSummary')
+                const compactFocusSummaryText = compactChecklistMetaFieldSet.has('tomatoSummary')
                     ? focusSummaryText
                     : '';
-                const compactFocusSummaryHtml = checklistCompact && compactChecklistMetaFieldSet.has('tomatoSummary')
+                const compactFocusSummaryHtml = compactChecklistMetaFieldSet.has('tomatoSummary')
                     ? focusSummaryHtml
                     : '';
-                const compactTomatoEstimateText = checklistCompact && compactChecklistMetaFieldSet.has('tomatoEstimateCount')
+                const compactTomatoEstimateText = compactChecklistMetaFieldSet.has('tomatoEstimateCount')
                     ? __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task))
                     : '';
-                const compactTomatoCountText = checklistCompact && compactChecklistMetaFieldSet.has('tomatoCount')
+                const compactTomatoCountText = compactChecklistMetaFieldSet.has('tomatoCount')
                     ? __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task))
                     : '';
-                const compactTomatoCountHtml = checklistCompact && compactChecklistMetaFieldSet.has('tomatoCount')
+                const compactTomatoCountHtml = compactChecklistMetaFieldSet.has('tomatoCount')
                     ? __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task))
                     : '';
-                const showCompactStatusTag = !checklistCompact || compactChecklistMetaFieldSet.has('status');
-                const meta = [];
-                const priorityIcon = __tmRenderPriorityJira(task.priority, false);
-                if (showTaskDocName && task.docName) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderLucideIcon('file-text')} ${esc(String(task.docName || ''))}</span>`);
-                if (task.h2) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderHeadingLevelInlineIcon(task.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })} ${esc(__tmNormalizeHeadingText(task.h2))}</span>`);
-                if (String(task.priority || '').trim() && String(task.priority || '').trim() !== 'none') meta.push(`<span class="tm-checklist-meta-chip" data-tm-field="priority">${priorityIcon}</span>`);
-                if (displayCompletionTime) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="completionTime">${esc(__tmFormatTaskDateFieldDisplayValue(task, 'completionTime'))}</span>`);
-                if (focusSummaryText) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="tomatoSummary" onclick="tmEditFocusSummaryInline('${esc(task.id)}', this)">${__tmRenderLucideIcon('timer')} ${focusSummaryHtml}</span>`);
-                if (totalChildren > 0) meta.push(`<span class="tm-checklist-meta-chip" data-tm-subtask-count-owner="${esc(String(task.id || ''))}">子任务 ${completedChildren}/${totalChildren}</span>`);
-                const compactMetaParts = [];
-                if (showCompactDocName) compactMetaParts.push(`<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>`);
-                if (compactHeadingText) compactMetaParts.push(`<span class="tm-checklist-meta-compact-h2" title="${esc(compactHeadingText)}">${API.renderTaskContentHtml(compactHeadingText, compactHeadingText)}</span>`);
-                if (showCompactStartDate) compactMetaParts.push(`<span class="tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start" data-tm-task-time-field="startDateCompact">${esc(__tmFormatTaskDateFieldDisplayValue(task, 'startDate', true))}</span>`);
-                if (showCompactCompletionTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion${__tmIsTaskCardDateOverdue(task, completedTodayKey) ? ' tm-checklist-meta-compact-date--overdue' : ''}" data-tm-task-time-field="completionTimeCompact">${esc(__tmFormatTaskDateFieldDisplayValue(task, 'completionTime', true))}</span>`);
-                if (showCompactRemainingTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-remaining" data-tm-task-time-field="remainingTimeCompact" title="${esc(compactRemainingTimeLabel)}">${compactRemainingTimeHtml}</span>`);
-                if (showCompactDuration) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="durationCompact">${esc(compactDurationText)}</span>`);
-                if (compactFocusSummaryText) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="tomatoSummaryCompact" onclick="tmEditFocusSummaryInline('${esc(task.id)}', this)">${compactFocusSummaryHtml}</span>`);
-                if (compactTomatoEstimateText) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="tomatoEstimateCountCompact">${esc(compactTomatoEstimateText)}</span>`);
-                if (compactTomatoCountText) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="tomatoCountCompact">${compactTomatoCountHtml || esc(compactTomatoCountText)}</span>`);
+                const showCompactStatusTag = compactChecklistMetaFieldSet.has('status');
+                const statusTagVisible = __tmShouldRenderChecklistTaskStatus(task, statusOption, statusOptions);
+                const statusTagHtml = showCompactStatusTag
+                    ? `<span class="tm-status-tag" data-tm-field="status" data-tm-checklist-compact-field="status" style="${statusChipStyle}"${statusTagVisible ? '' : ' hidden'}>${esc(String(statusOption?.name || statusOption?.id || ''))}</span>`
+                    : '';
+                const compactMetaParts = new Map();
+                if (showCompactDocName) compactMetaParts.set('docName', `<span class="tm-checklist-meta-compact-doc" data-tm-checklist-compact-field="docName">${esc(String(task.docName || ''))}</span>`);
+                if (compactHeadingText) compactMetaParts.set('h2', `<span class="tm-checklist-meta-compact-h2" data-tm-checklist-compact-field="h2" title="${esc(compactHeadingText)}">${API.renderTaskContentHtml(compactHeadingText, compactHeadingText)}</span>`);
+                if (showCompactStartDate) compactMetaParts.set('startDate', `<span class="tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start" data-tm-checklist-compact-field="startDate" data-tm-task-time-field="startDateCompact">${esc(__tmFormatTaskDateFieldDisplayValue(task, 'startDate', true))}</span>`);
+                if (showCompactCompletionTime) compactMetaParts.set('completionTime', `<span class="tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion${__tmIsTaskCardDateOverdue(task, completedTodayKey) ? ' tm-checklist-meta-compact-date--overdue' : ''}" data-tm-checklist-compact-field="completionTime" data-tm-task-time-field="completionTimeCompact">${esc(__tmFormatTaskDateFieldDisplayValue(task, 'completionTime', true))}</span>`);
+                if (showCompactRemainingTime) compactMetaParts.set('remainingTime', `<span class="tm-checklist-meta-compact-remaining" data-tm-checklist-compact-field="remainingTime" data-tm-task-time-field="remainingTimeCompact" title="${esc(compactRemainingTimeLabel)}">${compactRemainingTimeHtml}</span>`);
+                if (showCompactDuration) compactMetaParts.set('duration', `<span class="tm-checklist-meta-compact-duration" data-tm-checklist-compact-field="duration" data-tm-task-time-field="durationCompact">${esc(compactDurationText)}</span>`);
+                if (compactFocusSummaryText) compactMetaParts.set('tomatoSummary', `<span class="tm-checklist-meta-compact-duration" data-tm-checklist-compact-field="tomatoSummary" data-tm-task-time-field="tomatoSummaryCompact" onclick="tmEditFocusSummaryInline('${esc(task.id)}', this)">${compactFocusSummaryHtml}</span>`);
+                if (compactTomatoEstimateText) compactMetaParts.set('tomatoEstimateCount', `<span class="tm-checklist-meta-compact-duration" data-tm-checklist-compact-field="tomatoEstimateCount" data-tm-task-time-field="tomatoEstimateCountCompact">${esc(compactTomatoEstimateText)}</span>`);
+                if (compactTomatoCountText) compactMetaParts.set('tomatoCount', `<span class="tm-checklist-meta-compact-duration" data-tm-checklist-compact-field="tomatoCount" data-tm-task-time-field="tomatoCountCompact">${compactTomatoCountHtml || esc(compactTomatoCountText)}</span>`);
+                if (statusTagHtml) compactMetaParts.set('status', statusTagHtml);
                 compactCustomFieldDefs.forEach((field) => {
                     const fieldId = String(field?.id || '').trim();
                     if (!fieldId || !__tmIsCustomFieldApplicableToTask(field, task)) return;
@@ -495,29 +405,15 @@
                         maxTags: String(field?.type || '').trim() === 'multi' ? 2 : 1,
                     });
                     if (!fieldHtml) return;
-                    compactMetaParts.push(`<span class="tm-checklist-meta-compact-custom-field" data-tm-custom-field-cell="${esc(fieldId)}" title="${esc(String(field?.name || fieldId).trim() || fieldId)}">${fieldHtml}</span>`);
+                    compactMetaParts.set(`customField:${fieldId}`, `<span class="tm-checklist-meta-compact-custom-field" data-tm-checklist-compact-field="customField:${esc(fieldId)}" data-tm-custom-field-cell="${esc(fieldId)}" title="${esc(String(field?.name || fieldId).trim() || fieldId)}">${fieldHtml}</span>`);
                 });
-                const normalCustomFieldTags = normalChecklistCustomFieldDefs.map((field) => {
-                    const fieldId = String(field?.id || '').trim();
-                    if (!fieldId || !__tmIsCustomFieldApplicableToTask(field, task)) return '';
-                    const fieldHtml = __tmBuildCustomFieldDisplayHtml(field, __tmGetTaskCustomFieldValue(task, fieldId), {
-                        allowEmpty: false,
-                        maxTags: String(field?.type || '').trim() === 'multi' ? 2 : 1,
-                    });
-                    if (!fieldHtml) return '';
-                    return `<span class="tm-checklist-custom-field-chip" data-tm-custom-field-cell="${esc(fieldId)}" title="${esc(String(field?.name || fieldId).trim() || fieldId)}">${fieldHtml}</span>`;
-                }).filter(Boolean).join('');
-                const normalCustomFieldTagsHtml = normalCustomFieldTags
-                    ? `<span class="tm-checklist-custom-field-tags">${normalCustomFieldTags}</span>`
-                    : '';
-                const hasCompactMeta = compactMetaParts.length > 0;
-                const compactMeta = hasCompactMeta
-                    ? `<div class="tm-checklist-meta-compact">${compactMetaParts.join('')}</div>`
+                const hasCompactMeta = compactMetaParts.size > (compactMetaParts.has('status') ? 1 : 0)
+                    || (compactMetaParts.has('status') && statusTagVisible);
+                const compactMeta = compactMetaParts.size > 0
+                    ? `<div class="tm-checklist-meta-compact"${hasCompactMeta ? '' : ' style="display:none;"'}>${compactChecklistMetaFieldOrder.map((key) => compactMetaParts.get(key) || '').join('')}</div>`
                     : '';
                 const titleRowClass = `tm-checklist-title-row${hasChildren ? ' tm-checklist-title-row--has-children' : ''}${hasCompactMeta ? ' tm-checklist-title-row--has-compact-meta' : ''}`;
-                const itemIndentStyle = checklistCompact
-                    ? `--tm-checklist-compact-indent:${indent}px;`
-                    : `margin-left:${indent}px;`;
+                const itemIndentStyle = `--tm-checklist-compact-indent:calc(${depth} * var(--tm-checklist-indent-step));`;
                 const useDesktopTaskDragLogic = __tmShouldUseDesktopTaskDragLogic();
                 const useCustomTouchTaskDrag = __tmShouldUseCustomTouchTaskDrag();
                 const useDockPointerTaskDrag = (globalThis.__tmViewPolicy?.shouldUseDockPointerTaskDrag?.()
@@ -542,12 +438,12 @@
                     : '';
                 renderedChecklistTaskCount += 1;
                 const taskTitleHtml = API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || '(无内容)');
-                const titleInnerHtml = `${taskTitleHtml}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderPinnedTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
+                const titleInnerHtml = __tmBuildChecklistTitleContentHtml(task, taskTitleHtml, completedTodayBadgeHtml);
                 const titleWrap = typeof __tmGetTaskTitleWrapPresentation === 'function'
                     ? __tmGetTaskTitleWrapPresentation('checklist', task.id, taskTitleHtml)
                     : { key: '', className: '' };
                 return `
-                    <div data-tm-title-wrap-key="${titleWrap.key}" class="tm-checklist-item${checklistCompact ? titleWrap.className : ''}${compactRemarkHtml ? ' tm-checklist-item--has-remark' : ''}${activeCls}${doneCls}${branchLeadingCls}${timerCls}${multiSelectCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" data-tm-placement-doc="${esc(String(task.docId || task.root_id || '').trim())}" data-tm-placement-parent="${esc(String(task.parentTaskId || task.parent_task_id || '').trim())}" data-tm-subtask-progress-owner="${esc(String(task.id || ''))}" ${itemDragAttrs} ondragenter="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragover="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragleave="tmTaskRowDragLeave(event, '${escSq(String(task.id || ''))}')" ondrop="tmTaskRowDrop(event, '${escSq(String(task.id || ''))}')" ${touchDragAttr} style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ${itemContextMenuAttr}>
+                    <div data-tm-title-wrap-key="${titleWrap.key}" class="tm-checklist-item${titleWrap.className}${compactRemarkHtml ? ' tm-checklist-item--has-remark' : ''}${activeCls}${doneCls}${branchLeadingCls}${timerCls}${multiSelectCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" data-tm-placement-doc="${esc(String(task.docId || task.root_id || '').trim())}" data-tm-placement-parent="${esc(String(task.parentTaskId || task.parent_task_id || '').trim())}" data-tm-subtask-progress-owner="${esc(String(task.id || ''))}" ${itemDragAttrs} ondragenter="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragover="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragleave="tmTaskRowDragLeave(event, '${escSq(String(task.id || ''))}')" ondrop="tmTaskRowDrop(event, '${escSq(String(task.id || ''))}')" ${touchDragAttr} style="${itemIndentStyle}${accentStyle}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ${itemContextMenuAttr}>
                         ${treeGuides}
                         <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
                             ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-checklist-parent-toggle-color);">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
@@ -556,14 +452,11 @@
                         </div>
                         <div class="tm-checklist-item-main">
                             <div class="${titleRowClass}">
-                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span ${titleDragAttrs} onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, String(task.content || '').trim() || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${titleInnerHtml}</span></span>${reminderHtml}<span data-tm-field="remarkIcon">${remarkIconHtml}</span><span data-tm-field="attachmentIcon">${attachmentIconHtml}</span></div></div>
+                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span ${titleDragAttrs} onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, String(task.content || '').trim() || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${titleInnerHtml}</span></span>${reminderHtml}<span data-tm-field="remarkIcon">${remarkIconHtml}</span><span data-tm-field="attachmentIcon">${attachmentIconHtml}</span>${__tmRenderChecklistSubtaskProgress(String(task.id || ''), completedChildren, totalChildren)}</div></div>
                                 ${compactMeta}
-                                ${showCompactStatusTag ? `<span class="tm-status-tag" data-tm-field="status" style="${statusChipStyle}">${esc(String(statusOption?.name || statusOption?.id || ''))}</span>` : ''}
-                                ${normalCustomFieldTagsHtml}
                                 ${hasChildren ? `<span class="tm-checklist-mobile-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : ''}
                             </div>
                             ${compactRemarkHtml}
-                            ${meta.length ? `<div class="tm-checklist-meta">${meta.join('')}</div>` : ''}
                             ${remarkSearchSnippetHtml}
                         </div>
                     </div>
@@ -580,7 +473,6 @@
 
             const items = [];
             let compactGroupCard = null;
-            const pendingFragmentGroups = [];
             const flushCompactGroupCard = () => {
                 if (!compactGroupCard) return;
                 if (renderWindowFragment && !compactGroupCard.hasFragmentTask && !compactGroupCard.hasFragmentGroup) {
@@ -604,7 +496,7 @@
                 if (row?.type === 'group') {
                     if (renderedChecklistTaskCount >= checklistTaskLimit && hasMoreChecklistTaskRows) break;
                     const groupHtml = renderGroup(row);
-                    if (checklistCompact && row.kind !== 'h2') {
+                    if (row.kind !== 'h2') {
                         flushCompactGroupCard();
                         compactGroupCard = {
                             kind: String(row.kind || 'default'),
@@ -616,12 +508,8 @@
                         };
                         continue;
                     }
-                    if (checklistCompact && row.kind === 'h2' && compactGroupCard) {
+                    if (row.kind === 'h2' && compactGroupCard) {
                         compactGroupCard.children.push(groupHtml);
-                        continue;
-                    }
-                    if (renderWindowFragment) {
-                        pendingFragmentGroups.push(groupHtml);
                         continue;
                     }
                     flushCompactGroupCard();
@@ -632,7 +520,7 @@
                     if (renderWindowFragment && renderedChecklistTaskCount < fragmentStartTaskCount) continue;
                     const gapHtml = renderDropGap(row);
                     if (!gapHtml) continue;
-                    if (checklistCompact && compactGroupCard) compactGroupCard.children.push(gapHtml);
+                    if (compactGroupCard) compactGroupCard.children.push(gapHtml);
                     else items.push(gapHtml);
                     continue;
                 }
@@ -641,12 +529,9 @@
                     renderedChecklistTaskCount += 1;
                     continue;
                 }
-                if (renderWindowFragment && !checklistCompact && pendingFragmentGroups.length) {
-                    items.push(...pendingFragmentGroups.splice(0));
-                }
                 const html = renderTask(row);
                 if (!html) continue;
-                if (checklistCompact && compactGroupCard) {
+                if (compactGroupCard) {
                     compactGroupCard.hasFragmentTask = compactGroupCard.hasFragmentTask || renderWindowFragment;
                     compactGroupCard.children.push(html);
                 }
@@ -655,7 +540,6 @@
             flushCompactGroupCard();
             if (renderWindowFragment) {
                 const fragmentComplete = !hasMoreChecklistTaskRows;
-                if (fragmentComplete && !checklistCompact) items.push(...pendingFragmentGroups);
                 return `<div class="tm-checklist-items" data-tm-checklist-window-fragment="1" data-tm-checklist-window-fragment-complete="${fragmentComplete ? '1' : '0'}">${items.join('')}</div>`;
             }
             const itemsHtml = items.join('');
@@ -677,7 +561,7 @@
             return `
                 <div class="tm-body${bodyAnimClass} tm-body--checklist">
                     <div class="tm-checklist-layout">
-                        <div class="tm-checklist-pane${checklistCompact ? ` tm-checklist-pane--compact tm-checklist-pane--right-font-${compactRightFontSize}${checklistCompactTreeGuides ? ' tm-checklist-pane--tree-guides' : ''}` : ''}${wrapCfg.enabled ? ' tm-checklist-pane--wrap' : ''}${state.groupByDocName ? ' tm-checklist-pane--group-doc' : ''}">
+                        <div class="tm-checklist-pane tm-checklist-pane--compact tm-checklist-pane--right-font-${compactRightFontSize}${checklistFieldsBelow ? ' tm-checklist-pane--fields-below' : ''}${checklistCompactTreeGuides ? ' tm-checklist-pane--tree-guides' : ''}${wrapCfg.enabled ? ' tm-checklist-pane--wrap' : ''}${state.groupByDocName ? ' tm-checklist-pane--group-doc' : ''}">
                             <div class="tm-checklist-scroll">
                                 <div class="tm-checklist-items">${itemsHtml || `<div class="tm-checklist-empty-detail">暂无任务</div>`}${checklistLoadMoreHtml}</div>
                             </div>

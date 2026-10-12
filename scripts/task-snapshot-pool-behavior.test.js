@@ -62,6 +62,22 @@ async function main() {
         assert.deepEqual(clone(fieldRoundTrip[field]), value, 'snapshot round-trip must preserve ' + field);
     }
     assert.deepEqual(fieldTask, fieldTaskBefore, 'snapshot packing must not mutate live fields');
+    for (const [field, alias, cleared, old] of [
+        ['priority', 'custom_priority', '', 'high'], ['priority', 'customPriority', '', 'high'],
+        ['duration', 'custom_duration', '', '45'], ['remark', 'custom_remark', '', 'old'],
+        ['startDate', 'custom_start_date', '', '2026-09-11'], ['completionTime', 'custom_completion_time', '', '2026-09-12'],
+        ['taskDateColor', 'custom_task_date_color', '', '#ff0000'], ['taskCompleteAt', 'task_complete_at', '', '2026-09-11 10:00'],
+        ['customTime', 'custom_time', '', '2026-09-13'], ['customStatus', 'custom_status', '', 'doing'],
+        ['pinned', 'customPinned', false, true], ['milestone', 'customMilestone', false, true],
+        ['allDayBottom', 'customAllDayBottom', false, true],
+    ]) {
+        const packedClear = context.__tmCompactTaskSnapshotTaskForStore({ id: fieldTask.id, [field]: cleared, [alias]: old });
+        const restoredClear = context.__tmHydrateTaskSnapshotTaskForRuntime(packedClear);
+        assert.equal(restoredClear[field], cleared, 'snapshot must retain explicit clearing of ' + field);
+        assert.equal(restoredClear[alias], undefined, 'snapshot must discard the stale alias ' + alias);
+        const legacyAlias = context.__tmHydrateTaskSnapshotTaskForRuntime(context.__tmCompactTaskSnapshotTaskForStore({ id: fieldTask.id, [alias]: old }));
+        assert.equal(legacyAlias[field], old, 'alias-only legacy records must still restore ' + field);
+    }
     const now = Date.now();
     const document = {
         id: '20260905000000-0000001', name: '任务文档', tasks: [{

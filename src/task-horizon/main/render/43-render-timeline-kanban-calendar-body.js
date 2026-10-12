@@ -247,7 +247,7 @@
                 const isCollapsed = !!row?.collapsed;
                 const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;">${__tmRenderToggleIcon(16, isCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>`;
                 if (row.kind === 'pinned') {
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-warning-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-pinned-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
                 }
                 if (row.kind === 'doc') {
                     return __tmRenderTimelineRangeGroupRowHtml(row, timelineColumnCount);
@@ -1296,7 +1296,7 @@
                     ? __tmIsTaskPinned(task)
                     : (task?.pinned === true || task?.pinned === 1 || task?.pinned === 'true' || task?.pinned === '1');
                 const cardClass = `tm-kanban-card${isSub ? ' tm-kanban-card--sub tm-kanban-subtask-row' : ''}${isChildRoot ? ' tm-kanban-card--childroot' : ''}${isParent ? ' tm-kanban-card--parent' : ''}${taskClosed ? ' tm-kanban-card--done' : ''}${isTaskOverdue ? ' tm-kanban-card--overdue' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${isPinnedCard ? ' tm-kanban-card--pinned' : ''}${multiSelectCls}${tomatoFocusCls}`;
-                const pinnedCardStyle = isPinnedCard ? ' style="border-left:3px solid var(--tm-primary-color);"' : '';
+                const pinnedCardStyle = isPinnedCard ? ' style="border-left:3px solid var(--tm-pinned-color);"' : '';
                 const completedChildren = Number(directChildStats.completed) || 0;
                 const childProgressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
                 const isChildrenCollapsed = !!(totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant);
@@ -1386,9 +1386,7 @@
                 const isDoneCol = String(c?.id || '').trim() === '__done__';
                 const isCompletedStatusCol = isDoneCol || (!headingMode && __tmDoesStatusIdResolveToDone(String(c?.id || '').trim(), statusOptions));
                 const map = new Map();
-                const pinnedGroupBg = __tmIsDarkMode()
-                    ? 'color-mix(in srgb, var(--tm-danger-color,#d32f2f) 18%, var(--tm-header-bg))'
-                    : '#ffebee';
+                const pinnedGroupBg = 'var(--tm-pinned-bg)';
                 list0.forEach(t => {
                     const id = String(t?.id || '').trim();
                     if (id) map.set(id, t);
@@ -1578,6 +1576,7 @@
                     const dropDocId = String(opt?.dropDocId || '').trim();
                     const dropHeadingId = String(opt?.dropHeadingId || '').trim();
                     const actionHtml = String(opt?.actionHtml || '').trim();
+                    const contextMenuAttrs = String(opt?.contextMenuAttrs || '');
                     const dropAttrs = dropKind
                         ? ` data-tm-kb-drop-kind="${esc(dropKind)}"${dropDocId ? ` data-tm-kb-drop-doc="${esc(dropDocId)}"` : ''}${dropHeadingId ? ` data-tm-kb-drop-heading="${esc(dropHeadingId)}"` : ''}`
                         : '';
@@ -1585,7 +1584,7 @@
                         ? ` ondragover="tmKanbanGroupDragOver(event)" ondragleave="tmKanbanGroupDragLeave(event)" ondrop="tmKanbanGroupDrop(event)"`
                         : '';
                     return `
-                        <div class="tm-kanban-group-title${dropKind ? ' tm-kanban-group-title--droppable' : ''}" data-group-key="${esc(groupKey)}" aria-expanded="${isCollapsed ? 'false' : 'true'}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="${titleColor ? `color:${titleColor};` : ''}${groupBg ? `background:${groupBg};` : ''}"${dropAttrs}${dropHandlers}>
+                        <div class="tm-kanban-group-title${dropKind ? ' tm-kanban-group-title--droppable' : ''}" data-group-key="${esc(groupKey)}" aria-expanded="${isCollapsed ? 'false' : 'true'}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="${titleColor ? `color:${titleColor};` : ''}${groupBg ? `background:${groupBg};` : ''}"${dropAttrs}${dropHandlers}${contextMenuAttrs}>
                             <span style="display:inline-flex;align-items:center;min-width:0;padding-left:${leftIndent};">
                                 <span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                                 <span>${titleHtml}</span>
@@ -1596,7 +1595,7 @@
                     `;
                 };
 
-                const pinnedGroupLabelHtml = `<span style="display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--tm-warning-color);"><span class="tm-checklist-group-pin-icon" style="transform:translateY(-1px);">${__tmRenderBadgeIcon('pin', 14)}</span><span>置顶</span></span>`;
+                const pinnedGroupLabelHtml = `<span style="display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--tm-pinned-color);"><span class="tm-checklist-group-pin-icon" style="transform:translateY(-1px);">${__tmRenderBadgeIcon('pin', 14)}</span><span>置顶</span></span>`;
                 const renderPinnedGroupTitle = (groupKey, count) => {
                     const isCollapsed = state.collapsedGroups?.has(groupKey);
                     return `
@@ -1719,7 +1718,8 @@
                                 const actionHtml = o.showHeadingCreate
                                     ? renderHeadingGroupCreateAction(docId, String(bucket?.id || '').trim())
                                     : '';
-                                return `<div class="tm-kanban-group">${renderGroupTitle(h2Key, h2Title, bucketItems.length, '', { indentCh: headingIndent, actionHtml })}${h2Body}</div>`;
+                                const contextMenuAttrs = __tmBuildHeadingGroupContextMenuAttrs(docId, bucket.id);
+                                return `<div class="tm-kanban-group">${renderGroupTitle(h2Key, h2Title, bucketItems.length, '', { indentCh: headingIndent, contextMenuAttrs, actionHtml })}${h2Body}</div>`;
                             }).join('');
                             body = renderKanbanGroupItems(h2Html, isCollapsed);
                         }
@@ -2171,6 +2171,9 @@
                 const canOpenDocFromTitle = headingMode && !isDoneCol && kind === 'doc' && docIdForTitle && docIdForTitle !== '__unknown__';
                 const canQuickAddToDoc = headingMode && isAllTabsView && !isDoneCol && kind === 'doc' && docIdForTitle && docIdForTitle !== '__unknown__';
                 const canCreateInHeading = headingMode && !isAllTabsView && !isDoneCol && kind === 'heading' && !!headingDocId;
+                const headingContextMenuAttrs = headingMode && !isDoneCol && kind === 'heading'
+                    ? __tmBuildHeadingGroupContextMenuAttrs(headingDocId, headingIdForCreate)
+                    : '';
                 const canQuickAddToStatus = !headingMode && !timeBoardMode && !isDoneCol && !!statusIdForCreate;
                 const canQuickAddToTimeDate = timeBoardMode && !isDoneCol && !!timeDateForCreate;
                 const titleContentHtml = timeBoardMode && !isDoneCol
@@ -2265,11 +2268,11 @@
                     : '';
                 return `
                     <div class="tm-kanban-col${isColumnCollapsed ? ' tm-kanban-col--collapsed' : ''}" ${dataAttrs} data-col-key="${esc(columnKey)}" style="${colStyle}" ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
-                        <div class="tm-kanban-col-header" data-tm-kanban-column-expanded-content${isColumnCollapsed ? ' hidden' : ''}>
+                        <div class="tm-kanban-col-header" data-tm-kanban-column-expanded-content${isColumnCollapsed ? ' hidden' : ''}${headingContextMenuAttrs}>
                             ${titleHtml}
                         </div>
                         <div class="tm-kanban-col-header tm-kanban-col-header--collapsed"
-                             data-tm-kanban-column-collapsed-content${isColumnCollapsed ? '' : ' hidden'}
+                             data-tm-kanban-column-collapsed-content${isColumnCollapsed ? '' : ' hidden'}${headingContextMenuAttrs}
                              style="color:${esc(colTitleColor)};"
                              title="展开看板列：${esc(collapsedTitle)}"
                              role="button"

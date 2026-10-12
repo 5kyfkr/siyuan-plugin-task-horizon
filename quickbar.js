@@ -10595,11 +10595,13 @@
                 return;
             }
 
-            // 阻止事件冒泡，避免触发其他处理
-            if (typeof e.stopImmediatePropagation === 'function') {
-                e.stopImmediatePropagation();
+            // 移动端点击需继续传给思源，以唤起输入法。
+            if (!isMobileDevice()) {
+                if (typeof e.stopImmediatePropagation === 'function') {
+                    e.stopImmediatePropagation();
+                }
+                e.stopPropagation();
             }
-            e.stopPropagation();
 
             showFloatBar(blockEl);
         }
@@ -10784,7 +10786,6 @@
             document.addEventListener('mouseup', mouseUpHandler, true);
             // ========== 新增结束 ==========
 
-            document.addEventListener('pointerup', handleTrigger, true);
             document.addEventListener('click', handleTrigger, true);
             document.addEventListener('scroll', updatePosition, true);
             window.addEventListener('resize', updatePosition, true);
@@ -10845,7 +10846,6 @@
         function stopQuickbar() {
             if (!quickbarStarted) return;
             quickbarStarted = false;
-            try { document.removeEventListener('pointerup', handleTrigger, true); } catch (e) {}
             try { document.removeEventListener('click', handleTrigger, true); } catch (e) {}
             try { document.removeEventListener('scroll', updatePosition, true); } catch (e) {}
             try { window.removeEventListener('resize', updatePosition, true); } catch (e) {}

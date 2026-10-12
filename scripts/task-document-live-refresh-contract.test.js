@@ -274,8 +274,14 @@ const mergeWatermarkRuntime = new Function(`
     };
     const __tmNormalizeLocalPatchFieldKey = (key) => String(key || '').trim();
     const __tmApplyDoneOverrideToTaskIfPresent = () => {};
-    const __tmGetLocalTaskPatchWatermark = () => ({ fields: ['content', 'markdown', 'priority'] });
+    const watermark = { fields: ['content', 'markdown', 'priority'], values: { content: 'old title', markdown: '* old title', priority: 'high' } };
+    const __tmGetLocalTaskPatchWatermark = () => watermark;
+    const __tmGetLocalTaskPatchWatermarkValue = (_id, key) => ({ has: watermark.fields.includes(key), value: watermark.values[key] });
+    const __tmGetPatchFieldKeysForTaskPatch = (patch) => Object.keys(patch);
+    const __tmNormalizeQueueTaskValue = (_key, value) => value;
     const __tmIsTaskMarkerDone = () => false;
+    ${segment(stores, 'function __tmBuildLocalTaskPatchWatermarkPatch', 'function __tmConfirmLocalTaskPatchWatermarkFromTask')}
+    ${segment(services, 'function __tmApplyQueuedTaskFieldPatchToTask', 'function __tmApplyTaskFieldPatchToLocalMirrors')}
     ${mergeWatermarkSource}
     return __tmMergeLocalTaskPatchIntoTask;
 `)();

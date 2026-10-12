@@ -234,13 +234,13 @@ assert.match(icons, /__tmPhosphorBoldPaths\['calendar-range'\] = __tmPhosphorBol
 assert.match(icons, /function __tmOpenTimelineGroupRangeEditorFromTrigger[\s\S]*\.tm-gantt-bar__menu-btn\[data-tm-group-range-trigger\][\s\S]*function __tmBindTimelineGroupRangeTouchOpen[\s\S]*addEventListener\('touchend', onTouchEnd, \{ capture: true, passive: false \}\)/, 'mobile timeline group date controls must open from touchend before card gesture handlers can consume the tap');
 const touchTaskDrag = segment(icons, 'function __tmResolveTouchTaskDragSource', 'window.tmTaskTouchDragStart');
 assert.match(touchTaskDrag, /#tmTimelineLeftTable tbody tr\[data-id\]/, 'mobile timeline sidebar rows must use the shared touch drag source adapter');
-assert.match(touchTaskDrag, /const longPressMs = 500/, 'mobile table drags must use a 500ms long press');
+assert.match(touchTaskDrag, /const longPressMs = 1000/, 'mobile table drags must use a 1000ms long press');
 assert.match(touchTaskDrag, /const requestedTaskId = String\(taskId \|\| ''\)\.trim\(\);[\s\S]*__tmIsMultiSelectActive\(\) && !__tmIsTaskMultiSelected\(requestedTaskId\)/, 'mobile multi-select drags must be gated to selected task rows instead of disabling the gesture');
 assert.match(touchTaskDrag, /state\.draggingTaskIds = __tmBuildTaskDragSelectionIds\(id\)/, 'mobile multi-select drags must preserve the complete selected task set');
-assert.match(calendarView, /CALENDAR_EXTERNAL_DRAG_CUSTOM_TOUCH_SOURCE_SELECTOR[^;]*#tmTimelineLeftTable tbody tr\[data-id\]/, 'mobile timeline sidebar rows must bypass FullCalendar and use the shared 500ms touch drag');
+assert.match(calendarView, /CALENDAR_EXTERNAL_DRAG_CUSTOM_TOUCH_SOURCE_SELECTOR[^;]*#tmTimelineLeftTable tbody tr\[data-id\]/, 'mobile timeline sidebar rows must bypass FullCalendar and use the shared 1000ms touch drag');
 const calendarMobileDragSelector = segment(calendarView, 'const CALENDAR_EXTERNAL_DRAG_MOBILE_ITEM_SELECTOR', 'const CALENDAR_EXTERNAL_DRAG_MIRROR_SOURCE_CLASS');
-assert.doesNotMatch(calendarMobileDragSelector, /#tmTimelineLeftTable/, 'FullCalendar mobile dragging must not capture timeline sidebar rows before native panning or the 500ms hold');
-assert.match(render, /window\.tmKanbanCardPointerDown[\s\S]*const longPressMs = 500/, 'kanban cards and table rows must share the 500ms touch hold');
+assert.doesNotMatch(calendarMobileDragSelector, /#tmTimelineLeftTable/, 'FullCalendar mobile dragging must not capture timeline sidebar rows before native panning or the 1000ms hold');
+assert.match(render, /window\.tmKanbanCardPointerDown[\s\S]*const longPressMs = 1000/, 'kanban cards and table rows must share the 1000ms touch hold');
 assert.doesNotMatch(touchTaskDrag.slice(0, touchTaskDrag.indexOf('const id = source.taskId')), /preventDefault\(\)/, 'pending table presses must not prevent native scrolling');
 assert.match(touchTaskDrag, /rememberTouchDragStyle\(sourceEl\)[\s\S]*rememberTouchDragStyle\(activeEl\)/, 'touch-action must be disabled only after the long press activates dragging');
 assert.match(taskDetailLoader, /const rowDragAttrs = useDesktopTaskDragLogic[\s\S]*draggable="false"/, 'mobile table rows must disable native HTML5 dragging');
@@ -300,7 +300,7 @@ assert.doesNotMatch(mobileTimelineTouchLockStyles, /touch-action:|-ms-touch-acti
 const pointerDrag = segment(gantt, 'const onPointerDown = (e) =>', 'const onPanPointerDown = (e) =>');
 assert.match(pointerDrag, /useMobileLongPressMove = !!\(!handleEl && \(pointerType === 'touch' \|\| pointerType === 'pen'\)\)[\s\S]*isMobileTimelineGlobal && !handleEl && !useMobileLongPressMove/, 'touch and pen task, document and heading cards must use long press regardless of host layout');
 assert.match(pointerDrag, /isMobileTimelineGlobal && handleEl[\s\S]*tm-gantt-row--selected[\s\S]*tm-gantt-row--dot-open[\s\S]*return;/, 'mobile resize handles must reject interaction until the task card is selected');
-assert.match(pointerDrag, /longPressTimer = setTimeout\(\(\) => \{[\s\S]*longPressReady = true;[\s\S]*activateDrag\(\);[\s\S]*\}, 500\);/, 'mobile timeline cards must enter move mode after a 500ms hold');
+assert.match(pointerDrag, /longPressTimer = setTimeout\(\(\) => \{[\s\S]*longPressReady = true;[\s\S]*activateDrag\(\);[\s\S]*\}, 1000\);/, 'mobile timeline cards must enter move mode after a 1000ms hold');
 assert.match(pointerDrag, /if \(!longPressReady\)[\s\S]*pendingHorizontalScroll[\s\S]*pendingScrollHost\.scrollLeft = initialPendingScrollLeft - pendingDx[\s\S]*pendingDx \* pendingDx \+ pendingDy \* pendingDy\) > 16[\s\S]*Math\.abs\(pendingDx\) > Math\.abs\(pendingDy\)[\s\S]*pendingHorizontalScroll = true[\s\S]*unbindWindowDragEvents\(\);/, 'moving before the hold threshold must route horizontal gestures to timeline scrolling and vertical gestures to native scrolling');
 assert.match(pointerDrag, /if \(!useMobileLongPressMove\) \{[\s\S]*e\.preventDefault\(\)[\s\S]*e\.stopPropagation\(\)/, 'pending mobile long press must not block the native scroll gesture');
 assert.match(pointerDrag, /if \(!dragActive\) \{[\s\S]*pendingHorizontalScroll[\s\S]*tmSuppressClickUntil/, 'a pre-hold horizontal pan must not emit a synthetic card click');

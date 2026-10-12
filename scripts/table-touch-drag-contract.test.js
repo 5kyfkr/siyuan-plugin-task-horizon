@@ -30,6 +30,6 @@ assert.match(checklistPointer, /if \(pType === 'mouse'\) return false;/, 'mouse 
 
 assert.match(listBody, /const touchDragAttr = __tmShouldUseCustomTouchTaskDrag\(\)[\s\S]*tmTaskTouchDragStart/);
 assert.match(listRuntime, /const touchDragAttr = useCustomTouchTaskDrag[\s\S]*tmTaskTouchDragStart/);
-assert.match(dialogs, /const longPressMs = 500;/, 'checklist touch drag must keep the 500ms hold threshold');
+assert.match(dialogs, /const longPressMs = 1000;/, 'checklist touch drag must keep the 1000ms hold threshold');
 
 console.log('table touch drag contract tests passed');

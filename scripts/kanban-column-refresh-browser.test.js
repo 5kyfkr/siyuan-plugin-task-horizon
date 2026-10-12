@@ -32,6 +32,8 @@ renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, c
         + '"><span class="tm-task-content-clickable" style="color:rgb(70,70,70)">' + task.content + '</span><div class="tm-kanban-subtasks-list">' + children + '</div></article>';
 };\n`);
 const code = [read('32-runtime-state-and-events.js'), read('33-task-boundary-facades.js'), read('21-view-render-state.js'), read('render/40-render-list-context-helpers.js'),
+    section(read('40-render-runtime.js'), 'function __tmBuildHeadingGroupContextMenuAttrs(', 'async function __tmReadHeadingGroupBlock('),
+    section(read('10-stores-rules-and-cache.js'), 'function __tmIsLikelyBlockId(', 'function __tmExtractDocIdsFromTx('),
     section(runtime, 'function __tmHashStringFNV1a(', 'function __tmSafeAttrName('), renderer,
     section(completionRuntime, 'function __tmGetArchivedDocIdsForAllTabCompletedTailGroup(', 'function __tmGetTaskDoneSortTs('),
     section(completionRuntime, 'function __tmShouldShowTaskInCompletedRootGroup(', 'function __tmBuildTaskRowModelCacheMeta('),

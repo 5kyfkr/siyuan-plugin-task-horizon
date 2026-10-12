@@ -1543,7 +1543,10 @@
         Object.entries(patch || {}).forEach(([rawKey, rawValue]) => {
             const key = __tmNormalizeLocalPatchFieldKey(rawKey);
             if (!key) return;
-            values[key] = __tmNormalizeQueueTaskValue(key, rawValue);
+            const normalized = __tmNormalizeQueueTaskValue(key, rawValue);
+            values[key] = key === 'customFieldValues'
+                ? { ...(values.customFieldValues || {}), ...normalized }
+                : normalized;
         });
         map.set(tid, {
             t: now,
@@ -1569,6 +1572,13 @@
         const fields = entry.fields.filter((key) => !remove.has(key));
         const values = { ...((entry.values && typeof entry.values === 'object' && !Array.isArray(entry.values)) ? entry.values : {}) };
         remove.forEach((key) => { try { delete values[key]; } catch (e) {} });
+        if (values.customFieldValues && typeof values.customFieldValues === 'object') {
+            const customFieldValues = { ...values.customFieldValues };
+            remove.forEach((key) => {
+                if (key.startsWith('customField:')) delete customFieldValues[key.slice('customField:'.length)];
+            });
+            values.customFieldValues = customFieldValues;
+        }
         if (fields.length) map.set(tid, { ...entry, fields, values });
         else map.delete(tid);
         return true;
@@ -1633,12 +1643,49 @@
         if (values && Object.prototype.hasOwnProperty.call(values, key)) {
             return { has: true, value: values[key] };
         }
+        if (key.startsWith('customField:')) {
+            const fieldId = key.slice('customField:'.length);
+            if (values?.customFieldValues && Object.prototype.hasOwnProperty.call(values.customFieldValues, fieldId)) {
+                return { has: true, value: values.customFieldValues[fieldId] };
+            }
+        }
         const tid = String(taskId || '').trim();
         const live = state?.flatTasks?.[tid] || state?.pendingInsertedTasks?.[tid] || null;
+        if (key.startsWith('customField:') && live?.customFieldValues) {
+            const fieldId = key.slice('customField:'.length);
+            if (Object.prototype.hasOwnProperty.call(live.customFieldValues, fieldId)) {
+                return { has: true, value: live.customFieldValues[fieldId] };
+            }
+        }
         if (live && typeof live === 'object' && Object.prototype.hasOwnProperty.call(live, key)) {
             return { has: true, value: live[key] };
         }
         return { has: true, value: undefined };
+    }
+
+    function __tmBuildLocalTaskPatchWatermarkPatch(taskId, excludedPatch = {}) {
+        const entry = __tmGetLocalTaskPatchWatermark(taskId);
+        const patch = {};
+        if (!entry || !Array.isArray(entry.fields)) return patch;
+        const excludedFields = new Set(__tmGetPatchFieldKeysForTaskPatch(excludedPatch));
+        const customFieldValues = {};
+        entry.fields.forEach((field) => {
+            const key = __tmNormalizeLocalPatchFieldKey(field);
+            if (!key || (key !== 'customFieldValues' && excludedFields.has(key))) return;
+            const value = __tmGetLocalTaskPatchWatermarkValue(taskId, key);
+            if (!value?.has) return;
+            if (key === 'customFieldValues') {
+                Object.entries(value.value || {}).forEach(([fieldId, fieldValue]) => {
+                    if (!excludedFields.has(`customField:${fieldId}`)) customFieldValues[fieldId] = fieldValue;
+                });
+            } else if (key.startsWith('customField:')) {
+                customFieldValues[key.slice('customField:'.length)] = value.value;
+            } else {
+                patch[key] = value.value;
+            }
+        });
+        if (Object.keys(customFieldValues).length) patch.customFieldValues = customFieldValues;
+        return patch;
     }
 
     function __tmConfirmLocalTaskPatchWatermarkFromTask(taskId, task, options = {}) {
@@ -1706,85 +1753,34 @@
         } catch (e) {}
         __tmApplyDoneOverrideToTaskIfPresent(target);
         const tid = String(target.id || '').trim();
-        const entry = tid ? __tmGetLocalTaskPatchWatermark(tid) : null;
-        if (!entry) return target;
+        const patch = __tmBuildLocalTaskPatchWatermarkPatch(tid);
+        if (!Object.keys(patch).length) return target;
         const live = state?.flatTasks?.[tid] || state?.pendingInsertedTasks?.[tid] || null;
-        if (!live || typeof live !== 'object' || live === target) return target;
-        const fields = new Set(Array.isArray(entry.fields) ? entry.fields : []);
-        fields.forEach((field) => {
-            const key = __tmNormalizeLocalPatchFieldKey(field);
-            if (!key) return;
-            if (key.startsWith('customField:')) {
-                const fieldId = key.slice('customField:'.length);
-                if (!fieldId) return;
-                const liveValues = (live.customFieldValues && typeof live.customFieldValues === 'object' && !Array.isArray(live.customFieldValues))
-                    ? live.customFieldValues
-                    : {};
-                if (!Object.prototype.hasOwnProperty.call(liveValues, fieldId)) return;
-                const nextValues = (target.customFieldValues && typeof target.customFieldValues === 'object' && !Array.isArray(target.customFieldValues))
-                    ? { ...target.customFieldValues }
-                    : {};
-                nextValues[fieldId] = liveValues[fieldId];
-                target.customFieldValues = nextValues;
-                return;
-            }
-            if (key === 'customFieldValues') {
-                if (live.customFieldValues && typeof live.customFieldValues === 'object' && !Array.isArray(live.customFieldValues)) {
-                    target.customFieldValues = { ...((target.customFieldValues && typeof target.customFieldValues === 'object' && !Array.isArray(target.customFieldValues)) ? target.customFieldValues : {}), ...live.customFieldValues };
-                }
-                return;
-            }
-            if (key === 'attachments') {
-                __tmApplyTaskAttachmentPathsToTask(target, __tmGetTaskAttachmentPaths(live), {
-                    meta: __tmGetTaskAttachmentMetaMap(live),
-                    attrsLoaded: true,
-                });
-                return;
-            }
-            if (!Object.prototype.hasOwnProperty.call(live, key)) return;
-            target[key] = live[key];
-            if (key === 'done') {
-                target.done = live[key] === true;
-                const liveMarker = String(live.taskMarker || live.task_marker || '').trim();
-                const targetMarker = String(target.taskMarker || target.task_marker || '').trim();
-                target.taskMarker = target.done
-                    ? (liveMarker || 'x')
-                    : ((__tmIsTaskMarkerDone(liveMarker) || __tmIsTaskMarkerDone(targetMarker)) ? ' ' : (liveMarker || targetMarker || ' '));
-                target.task_marker = target.taskMarker;
-                if (Object.prototype.hasOwnProperty.call(live, 'markdown')) {
-                    target.markdown = target.done
-                        ? live.markdown
-                        : (typeof __tmBuildTaskMarkdownWithMarker === 'function'
-                            ? __tmBuildTaskMarkdownWithMarker(live, ' ')
-                            : String(live.markdown || '').replace(/(\[[xX]\])/, '[ ]'));
-                }
-            }
-            else if (key === 'content') {
-                target.content = live[key];
-                target.raw_content = String(live.raw_content ?? live.rawContent ?? live[key] ?? '').trim();
-                target.rawContent = String(live.rawContent ?? live.raw_content ?? live[key] ?? '').trim();
-                if (Object.prototype.hasOwnProperty.call(live, 'markdown')) target.markdown = live.markdown;
-            }
-            else if (key === 'markdown') target.markdown = live[key];
-            if (key === 'priority') target.custom_priority = live[key];
-            else if (key === 'duration') target.custom_duration = live[key];
-            else if (key === 'remark') target.custom_remark = live[key];
-            else if (key === 'startDate') target.start_date = live[key];
-            else if (key === 'completionTime') target.completion_time = live[key];
-            else if (key === 'taskDateColor') {
-                target.task_date_color = live[key];
-                target.custom_task_date_color = live[key];
-            }
-            else if (key === 'taskCompleteAt') target.task_complete_at = live[key];
-            else if (key === 'customTime') target.custom_time = live[key];
-            else if (key === 'customStatus') target.custom_status = live[key];
-            else if (key === 'pinned') target.custom_pinned = live[key] ? '1' : '';
-            else if (key === 'allDayBottom') target.custom_all_day_bottom = live[key] ? '1' : '';
-            else if (key === 'tomatoEstimateCount') target.tomato_estimate_count = live[key];
-            else if (key === 'repeatRule') target.repeat_rule = live[key];
-            else if (key === 'repeatState') target.repeat_state = live[key];
-            else if (key === 'repeatHistory') target.repeat_history = live[key];
+        // The stored intent is authoritative during reconciliation. A mounted
+        // mirror can already have been overwritten by an older receipt.
+        Object.entries(patch).forEach(([key, value]) => {
+            if (key !== 'customFieldValues' && key !== 'attachments') target[key] = value;
         });
+        __tmApplyQueuedTaskFieldPatchToTask(target, patch);
+        if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
+            const liveMarker = String(patch.taskMarker ?? live?.taskMarker ?? live?.task_marker ?? '').trim();
+            const targetMarker = String(target.taskMarker || target.task_marker || '').trim();
+            target.taskMarker = target.done
+                ? (liveMarker || 'x')
+                : ((__tmIsTaskMarkerDone(liveMarker) || __tmIsTaskMarkerDone(targetMarker)) ? ' ' : (liveMarker || targetMarker || ' '));
+            target.task_marker = target.taskMarker;
+            if (!Object.prototype.hasOwnProperty.call(patch, 'markdown') && live && Object.prototype.hasOwnProperty.call(live, 'markdown')) {
+                target.markdown = target.done
+                    ? live.markdown
+                    : (typeof __tmBuildTaskMarkdownWithMarker === 'function'
+                        ? __tmBuildTaskMarkdownWithMarker(live, ' ')
+                        : String(live.markdown || '').replace(/(\[[xX]\])/, '[ ]'));
+            }
+        } else if (Object.prototype.hasOwnProperty.call(patch, 'content')
+            && !Object.prototype.hasOwnProperty.call(patch, 'markdown')
+            && live && Object.prototype.hasOwnProperty.call(live, 'markdown')) {
+            target.markdown = live.markdown;
+        }
         return target;
     }
 
@@ -1866,7 +1862,8 @@
             const key = String(key0 || '').trim();
             if (!key || !Object.prototype.hasOwnProperty.call(row, key)) continue;
             const value = row[key];
-            if (__tmIsTaskSnapshotMeaningfulValue(value)) return value;
+            // An explicit canonical clear must beat an older nonempty alias.
+            if (value !== undefined && value !== null && value !== 'null') return value;
         }
         return undefined;
     }
@@ -1877,7 +1874,8 @@
             const key = String(key0 || '').trim();
             if (!key || !Object.prototype.hasOwnProperty.call(row, key)) continue;
             const value = row[key];
-            if (value === true || value === 1 || String(value || '').trim() === '1' || String(value || '').trim().toLowerCase() === 'true') return true;
+            if (value === undefined || value === null || value === 'null') continue;
+            return value === true || value === 1 || String(value || '').trim() === '1' || String(value || '').trim().toLowerCase() === 'true';
         }
         return false;
     }
@@ -1945,18 +1943,24 @@
         const out = {};
         const dropKeys = new Set([
             'custom_priority',
+            'customPriority',
             'custom_duration',
             'custom_remark',
             'start_date',
+            'custom_start_date',
             'completion_time',
+            'custom_completion_time',
             'task_date_color',
             'custom_task_date_color',
             'task_complete_at',
             'custom_milestone',
+            'customMilestone',
             'custom_time',
             'custom_status',
             'custom_pinned',
+            'customPinned',
             'custom_all_day_bottom',
+            'customAllDayBottom',
             'repeatRule',
             'repeatState',
             'repeatHistory',
@@ -5707,22 +5711,13 @@
             bulkFieldIdsSet.add(fieldId);
         });
         if (viewMode === 'checklist') {
-            const checklistCompact = !!SettingsStore?.data?.checklistCompactMode;
-            if (checklistCompact) {
-                [
-                    SettingsStore?.data?.desktopChecklistCompactMetaFields,
-                    SettingsStore?.data?.dockChecklistCompactMetaFields,
-                    SettingsStore?.data?.mobileChecklistCompactMetaFields,
-                ].forEach((fields) => {
-                    __tmNormalizeCompactChecklistMetaFields(fields, []).forEach((fieldKey) => pushField(bulkFieldIdsSet, fieldKey));
-                });
-            } else {
-                __tmGetCustomFieldDefs().forEach((field) => {
-                    const fieldId = String(field?.id || '').trim();
-                    if (!fieldId || field?.enabled === false || String(field?.type || '').trim() === 'text') return;
-                    bulkFieldIdsSet.add(fieldId);
-                });
-            }
+            [
+                SettingsStore?.data?.desktopChecklistCompactMetaFields,
+                SettingsStore?.data?.dockChecklistCompactMetaFields,
+                SettingsStore?.data?.mobileChecklistCompactMetaFields,
+            ].forEach((fields) => {
+                __tmNormalizeCompactChecklistMetaFields(fields, []).forEach((fieldKey) => pushField(bulkFieldIdsSet, fieldKey));
+            });
             __tmGetCustomFieldDefs().forEach((field) => {
                 const fieldId = String(field?.id || '').trim();
                 if (!fieldId || field?.enabled === false || String(field?.type || '').trim() !== 'text') return;

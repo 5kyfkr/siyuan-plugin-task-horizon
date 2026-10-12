@@ -3558,6 +3558,67 @@
         return /^h[1-6]$/.test(s) ? s : 'h2';
     }
 
+    function __tmBuildHeadingGroupContextMenuAttrs(docId, headingId) {
+        const did = String(docId || '').trim();
+        const hid = String(headingId || '').trim();
+        if (!__tmIsLikelyBlockId(did) || !__tmIsLikelyBlockId(hid)) return '';
+        return ` oncontextmenu="return tmShowHeadingGroupContextMenu(event, '${did}', '${hid}')"`;
+    }
+
+    async function __tmReadHeadingGroupBlock(headingId) {
+        const container = document.createElement('div');
+        container.innerHTML = await API.getBlockDOM(headingId);
+        const block = container.querySelector(`[data-node-id="${headingId}"]`);
+        const level = String(block?.getAttribute('data-subtype') || '').toLowerCase();
+        const content = block?.querySelector('[contenteditable="true"]');
+        if (block?.getAttribute('data-type') !== 'NodeHeading' || !/^h[1-6]$/.test(level) || !content) {
+            throw new Error('标题块不存在或已变为其他类型');
+        }
+        return { block, content, level, text: String(content.textContent || '').trim() };
+    }
+
+    window.tmShowHeadingGroupContextMenu = function(event, docId, headingId) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        if (!__tmBuildHeadingGroupContextMenuAttrs(docId, headingId)) return false;
+        document.getElementById('tm-task-context-menu')?.remove();
+        if (state.taskContextMenuCloseHandler) __tmClearOutsideCloseHandler(state.taskContextMenuCloseHandler);
+        const menu = document.createElement('div');
+        menu.id = 'tm-task-context-menu';
+        menu.className = 'tm-task-context-menu';
+        menu.setAttribute('role', 'menu');
+        menu.setAttribute('aria-label', '标题分组');
+        menu.style.cssText = 'position:fixed;display:flex;flex-direction:column;background:var(--b3-theme-background);border:1px solid var(--b3-theme-surface-light);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.2);padding:4px 0;z-index:200020;box-sizing:border-box;';
+        const close = (ev) => {
+            if (ev?.type === 'keydown' && ev.key !== 'Escape') return;
+            if (ev?.type !== 'keydown' && menu.contains(ev?.target)) return;
+            menu.remove();
+            __tmClearOutsideCloseHandler(close);
+            if (state.taskContextMenuCloseHandler === close) state.taskContextMenuCloseHandler = null;
+        };
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.setAttribute('role', 'menuitem');
+        item.innerHTML = __tmRenderContextMenuLabel('square-pen', '修改名称');
+        item.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;border:0;background:transparent;color:var(--b3-theme-on-background);font:inherit;font-size:13px;text-align:left;cursor:pointer;';
+        item.onmouseenter = () => item.style.backgroundColor = 'var(--b3-theme-surface-light)';
+        item.onmouseleave = () => item.style.backgroundColor = 'transparent';
+        item.onclick = (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            close();
+            window.tmRenameHeadingGroup(docId, headingId);
+        };
+        menu.appendChild(item);
+        document.body.appendChild(menu);
+        __tmClampFloatingMenuToViewport(menu, event?.clientX, event?.clientY);
+        state.taskContextMenuCloseHandler = close;
+        __tmScheduleBindOutsideCloseHandler(close);
+        menu.addEventListener('keydown', close);
+        item.focus();
+        return false;
+    };
+
     function __tmParseHeadingBlocksFromKramdown(kramdown) {
         const lines = String(kramdown || '').split(/\r?\n/);
         const headings = [];
@@ -5303,7 +5364,7 @@
         const scrollThreshold = 4;
         const longPressIntentThreshold = 4;
         const axisLockRatio = 0.75;
-        const longPressMs = 500;
+        const longPressMs = 1000;
         const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
         const isMouseLikePointer = pointerType === 'mouse' || (!pointerType && !__tmIsRuntimeMobileClient());
         const longPressMoveTolerance = isMouseLikePointer
