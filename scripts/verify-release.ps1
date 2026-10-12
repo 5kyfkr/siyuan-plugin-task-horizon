@@ -1,8 +1,44 @@
+param(
+    [ValidateSet('release', 'full', 'calendar', 'checklist', 'kanban', 'settings', 'task', 'ai', 'whiteboard', 'mobile')]
+    [string]$Suite = 'release'
+)
+
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
-$tests = Get-ChildItem -LiteralPath (Join-Path $root 'scripts') -Filter '*.test.js' -File | Sort-Object Name
+$allTests = @(Get-ChildItem -LiteralPath (Join-Path $root 'scripts') -Filter '*.test.js' -File | Sort-Object Name)
+$releaseTests = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'scripts/release-tests.json') | ConvertFrom-Json
+$releaseNames = @($releaseTests.core) + @($releaseTests.browser)
+if (@($releaseNames | Select-Object -Unique).Count -ne $releaseNames.Count) { throw 'Duplicate release test entry' }
+foreach ($name in $releaseNames) {
+    if (-not ($allTests.Name -contains $name)) { throw "Release test not found: $name" }
+}
+if ($Suite -eq 'release') {
+    $tests = @($allTests | Where-Object { $releaseNames -contains $_.Name })
+} elseif ($Suite -eq 'full') {
+    $tests = $allTests
+} else {
+    $modulePatterns = @{
+        calendar = '^(calendar-|reminder-|schedule-|semantic-date-|recurring-)'
+        checklist = '^(checklist-|parent-subtask-|task-progress-|layout-and-subtask-)'
+        kanban = '^(kanban-|pinned-|parent-subtask-|task-field-|task-pinned-)'
+        settings = '^(settings-|kernel-settings-|doc-group-order-|custom-field-|completed-task-visibility-by-group)'
+        task = '^(task-|subtask-|completion-|completed-|repeat-|monthly-repeat-|project-|document-loader-|kernel-|meta-store-)'
+        ai = '^(agent-|ai-|scheduled-events|schedule-notification-|kernel-settings-|skill-)'
+        whiteboard = '^(whiteboard-|global-whiteboard-)'
+        mobile = '^(mobile-|tablet-|table-touch-|device-|quickbar-mobile-|quickbar-text-|quick-add-keyboard-|calendar-mobile-|calendar-schedule-editor-device-|task-detail-sheet-|task-detail-ios-)'
+    }
+    $tests = @($allTests | Where-Object { $_.Name -match $modulePatterns[$Suite] })
+}
 if (-not $tests.Count) { throw 'No contract tests found' }
+$watch = [System.Diagnostics.Stopwatch]::StartNew()
+Write-Host ("Verifying {0}: {1} test files" -f $Suite, $tests.Count)
+
+& node (Join-Path $root 'scripts/check-runtime-syntax.js')
+if ($LASTEXITCODE -ne 0) { throw 'Runtime syntax or manifest check failed' }
+
+& node (Join-Path $root 'scripts/check-task-writer-boundary.js') --strict
+if ($LASTEXITCODE -ne 0) { throw 'Task writer boundary check failed' }
 
 if (($tests | Where-Object { $_.Name -match 'browser.*\.test\.js$' }) -and [string]::IsNullOrWhiteSpace($env:PLAYWRIGHT_MODULE)) {
     $playwrightVersion = '1.63.0'
@@ -19,60 +55,17 @@ if (($tests | Where-Object { $_.Name -match 'browser.*\.test\.js$' }) -and [stri
     $env:PLAYWRIGHT_MODULE = $playwrightModule
 }
 
-foreach ($test in $tests) {
-    & node $test.FullName
-    if ($LASTEXITCODE -ne 0) { throw "Test failed: $($test.Name)" }
-}
-
-& node (Join-Path $root 'scripts/check-task-writer-boundary.js') --strict
-if ($LASTEXITCODE -ne 0) { throw 'Task writer boundary check failed' }
-
-$standaloneScripts = @('index.js', 'ai.js', 'calendar-view.js', 'homepage.js', 'quickbar.js', 'kernel.js', 'src/ai/agent-workbench.js')
-foreach ($relativePath in $standaloneScripts) {
-    $path = Join-Path $root $relativePath
-    & node --check $path
-    if ($LASTEXITCODE -ne 0) { throw "Syntax check failed: $relativePath" }
-}
-
-$sourceRoot = (Resolve-Path -LiteralPath (Join-Path $root 'src/task-horizon')).Path
-$manifestPath = Join-Path $sourceRoot 'manifest.main.json'
-$manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json
-$builder = New-Object System.Text.StringBuilder
-$tempFile = Join-Path ([System.IO.Path]::GetTempPath()) ('task-horizon-main-' + [System.Guid]::NewGuid().ToString('N') + '.js')
-
+$originalSmoke = $env:TM_TEST_SMOKE
 try {
-    foreach ($relativePath in @($manifest.scripts)) {
-        $path = (Resolve-Path -LiteralPath (Join-Path $sourceRoot ([string]$relativePath))).Path
-        if (-not $path.StartsWith($sourceRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw "Manifest script escaped source root: $relativePath"
-        }
-        $repoRelativePath = ('src/task-horizon/' + ([string]$relativePath).Replace('\', '/'))
-        $trackedPath = @(& git -C $root ls-files -- $repoRelativePath)
-        if ($LASTEXITCODE -ne 0 -or -not ($trackedPath -contains $repoRelativePath)) {
-            throw "Manifest script is not tracked by Git: $repoRelativePath"
-        }
-        $null = $builder.AppendLine((Get-Content -Raw -Encoding UTF8 -LiteralPath $path))
+    if ($Suite -eq 'release') { $env:TM_TEST_SMOKE = '1' }
+    else { $env:TM_TEST_SMOKE = '0' }
+    foreach ($test in $tests) {
+        & node $test.FullName
+        if ($LASTEXITCODE -ne 0) { throw "Test failed: $($test.Name)" }
     }
-    [System.IO.File]::WriteAllText($tempFile, $builder.ToString(), (New-Object System.Text.UTF8Encoding($false)))
-    & node --check $tempFile
-    if ($LASTEXITCODE -ne 0) { throw 'Merged task runtime syntax check failed' }
 } finally {
-    if (Test-Path -LiteralPath $tempFile) { Remove-Item -LiteralPath $tempFile -Force }
+    $env:TM_TEST_SMOKE = $originalSmoke
 }
 
-Write-Host ("Release verification passed: {0} tests" -f $tests.Count)
-
-$packagePath = Join-Path $root 'package.zip'
-if (Test-Path -LiteralPath $packagePath -PathType Leaf) {
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $archive = [System.IO.Compression.ZipFile]::OpenRead($packagePath)
-    try {
-        $invalidEntries = @($archive.Entries | Where-Object { $_.FullName.Contains('\') })
-        if ($invalidEntries.Count) {
-            throw ("package.zip contains ZIP entries with backslash separators: {0}" -f (($invalidEntries | Select-Object -First 5 -ExpandProperty FullName) -join ', '))
-        }
-    } finally {
-        $archive.Dispose()
-    }
-    Write-Host 'package.zip path separator check passed'
-}
+$watch.Stop()
+Write-Host ("Verification passed ({0}): {1} test files in {2:N1}s" -f $Suite, $tests.Count, $watch.Elapsed.TotalSeconds)

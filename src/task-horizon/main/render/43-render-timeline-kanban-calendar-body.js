@@ -783,19 +783,43 @@
                 const id = String(task?.id || '').trim();
                 if (id) filteredTaskById.set(id, task);
             });
+            const columnPatchTaskIds = columnPatch ? new Set(columnPatch.taskIds) : null;
+            if (columnPatchTaskIds) {
+                // Closing or reopening a root can move descendants between several columns.
+                const frontier = Array.from(columnPatchTaskIds);
+                for (let i = 0; i < frontier.length; i++) {
+                    getKanbanChildTasksByParentId(frontier[i]).forEach((child) => {
+                        const id = String(child?.id || '').trim();
+                        if (!id || columnPatchTaskIds.has(id)) return;
+                        columnPatchTaskIds.add(id);
+                        frontier.push(id);
+                    });
+                }
+            }
+            const ownsCompletedKanbanTree = (task) => __tmIsTaskDoneForTailGroup(task)
+                && (showDoneCol || kanbanUseCompletedTailGroups
+                    || (!headingMode && !timeBoardMode
+                        && __tmDoesStatusIdResolveToDone(__tmResolveTaskStatusId(task, statusOptions), statusOptions)));
+            const kanbanColumnTaskById = new Map();
             const getKanbanColumnTask = (task) => {
-                if (!kanbanKeepSubtasksAttached || !task) return task;
+                if (!task) return task;
+                const id = String(task.id || '').trim();
+                if (id && kanbanColumnTaskById.has(id)) return kanbanColumnTaskById.get(id);
                 let current = task;
-                const seen = new Set([String(task?.id || '').trim()].filter(Boolean));
+                let columnTask = task;
+                const seen = new Set([id].filter(Boolean));
                 while (current) {
                     const pid = getKanbanParentTaskId(current);
                     if (!pid || seen.has(pid)) break;
                     const parent = filteredTaskById.get(pid);
                     if (!parent) break;
+                    // Completed roots own their visible subtree, as in the list's completed group.
+                    if (kanbanKeepSubtasksAttached || ownsCompletedKanbanTree(parent)) columnTask = parent;
                     current = parent;
                     seen.add(pid);
                 }
-                return current || task;
+                if (id) kanbanColumnTaskById.set(id, columnTask);
+                return columnTask;
             };
             const colsStatus = (() => {
                 const out = [];
@@ -1204,7 +1228,7 @@
                     && key !== '__done__'
                     && __tmDoesStatusIdResolveToDone(key, statusOptions);
                 if ((showDoneCol && key === '__done__' || isSeparateCompletedStatusColumn)
-                    && !__tmShouldShowTaskInCompletedRootGroup(task)) return;
+                    && !__tmShouldShowTaskInCompletedRootGroup(columnTask)) return;
                 if (!tasksByStatus.has(key)) tasksByStatus.set(key, []);
                 tasksByStatus.get(key).push(task);
             });
@@ -1902,32 +1926,7 @@
                     return p === true || p === 'true' || p === '1';
                 };
                 const renderDoneColumnList = () => {
-                    const items = list0.slice().sort(completedRecentCompare);
-                    return items.map((task) => {
-                        if (!takeColumnCardRenderSlot()) return '';
-                        const id = String(task?.id || '').trim();
-                        if (!id) return '';
-                        const pid = getKanbanParentTaskId(task);
-                        const parent = pid
-                            ? (
-                                getRawKanbanTaskById(pid)
-                                || globalThis.__tmTaskBoundary?.getTask?.(pid)
-                                || null
-                            )
-                            : null;
-                        const parentTxt = parent ? String(parent?.content || '').trim() : '';
-                        return renderCard(
-                            task,
-                            0,
-                            false,
-                            !!pid,
-                            parentTxt,
-                            '',
-                            '',
-                            false,
-                            true
-                        );
-                    }).join('');
+                    return roots.map(task => renderTree(task, 0, false, true)).join('');
                 };
                 // 辅助函数：渲染不分组模式下的看板内容（带置顶分组）
                 const renderUngroupedWithPinned = () => {
@@ -1972,13 +1971,15 @@
                 // Use the renderer's own membership rules for the destination;
                 // the caller supplies source columns from the mounted cards.
                 const changedTasks = columnPatch
-                    ? list0.filter((task) => columnPatch.taskIds.has(String(task?.id || '').trim())
+                    ? list0.filter((task) => columnPatchTaskIds.has(String(task?.id || '').trim())
                         || columnPatch.docIds?.has(String(task?.root_id || task?.docId || '').trim()))
                     : [];
                 changedTasks.forEach((task) => columnPatch.matchedTaskIds.add(String(task.id).trim()));
                 const renderThisColumn = !columnPatch
                     || columnPatch.columnKeys.has(columnKey)
-                    || changedTasks.length > 0;
+                    || changedTasks.length > 0
+                    || Array.from(columnPatch.mountedIdsByColumn?.get(columnKey) || [])
+                        .some((id) => columnPatchTaskIds.has(id));
                 let columnOrderPrepared = false;
                 const prepareColumnOrder = () => {
                     if (columnOrderPrepared) return;

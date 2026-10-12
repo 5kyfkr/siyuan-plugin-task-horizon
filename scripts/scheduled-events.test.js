@@ -4,8 +4,41 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.resolve(__dirname, '..');
+const timerHarnesses = [];
+
+function createTestTimers() {
+    const pending = new Set();
+    const timers = {
+        setTimeout(handler, delay, ...args) {
+            const timer = { handler: () => handler(...args), delay: Number(delay) || 0 };
+            pending.add(timer);
+            // Long background work is advanced explicitly; short async work
+            // retains its normal scheduling so existing race checks still run.
+            if (timer.delay < 5000) timer.native = setTimeout(() => {
+                pending.delete(timer);
+                timer.handler();
+            }, timer.delay);
+            return timer;
+        },
+        clearTimeout(timer) {
+            if (timer?.native) clearTimeout(timer.native);
+            pending.delete(timer);
+        },
+        delays() { return Array.from(pending, timer => timer.delay); },
+        async advance(delay) {
+            for (const timer of Array.from(pending).filter(timer => timer.delay === delay)) {
+                timers.clearTimeout(timer);
+                await timer.handler();
+            }
+        },
+        dispose() { for (const timer of pending) timers.clearTimeout(timer); },
+    };
+    timerHarnesses.push(timers);
+    return timers;
+}
 
 function loadScheduledCore() {
+    const timers = createTestTimers();
     const source = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/65-scheduled-events-runtime.js'), 'utf8');
     const hints = [];
     const context = {
@@ -16,8 +49,8 @@ function loadScheduledCore() {
         Set,
         Map,
         JSON,
-        setTimeout,
-        clearTimeout,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout,
         hint: (...args) => hints.push(args),
         window: {
             siyuan: { config: { system: { kernelVersion: '3.7.3' } } },
@@ -37,6 +70,7 @@ function loadScheduledCore() {
 }
 
 function loadAutomationSafety() {
+    const timers = createTestTimers();
     const source = fs.readFileSync(path.join(root, 'src/ai/agent-workbench.js'), 'utf8');
     const context = {
         console,
@@ -48,8 +82,8 @@ function loadAutomationSafety() {
         JSON,
         AbortController,
         TextDecoder,
-        setTimeout,
-        clearTimeout,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout,
         window: {},
     };
     context.interactionResponse = { ok: true, status: 200, text: async () => '' };
@@ -57,7 +91,7 @@ function loadAutomationSafety() {
     context.globalThis = context;
     vm.createContext(context);
     vm.runInContext(source, context, { filename: 'agent-workbench.js' });
-    return { ...context.__tmAIAutomationTest, context };
+    return { ...context.__tmAIAutomationTest, context, timers };
 }
 
 function event(overrides = {}) {
@@ -766,7 +800,7 @@ async function run() {
                     body: { getReader: () => ({ read: async () => reads++ === 0 ? { done: false, value: encoded } : { done: true } }) },
                 };
             }
-            if (route === '/confirm' || route === '/question' || route === '/browserCapabilityResult') {
+            if (route === '/confirm' || route === '/question' || route === '/browserCapabilityResult' || route === '/removeSession') {
                 return jsonResponse({ code: 0, data: null });
             }
             throw new Error(`unexpected request: ${route}`);
@@ -794,6 +828,13 @@ async function run() {
             assert.equal(browser.body.callID, 'call-1', 'scheduled runs must answer browser capability calls');
             assert.equal(browser.body.result, 'Opened document');
             assert.equal(browser.body.isError, false);
+            assert.deepEqual(automation.timers.delays().filter(delay => delay >= 5000), [5000, 15000, 45000],
+                'transient sessions must schedule all three cleanup attempts');
+            for (const delay of [5000, 15000, 45000]) await automation.timers.advance(delay);
+            const removals = requests.filter(item => item.route === '/removeSession');
+            assert.equal(removals.length, 3, 'advancing timers must execute every cleanup request');
+            assert.ok(removals.every(item => item.body.id === removals[0].body.id && item.body.id),
+                'cleanup attempts must target the same transient session');
         }
     }
     {
@@ -1010,4 +1051,6 @@ async function run() {
 run().catch((error) => {
     console.error(error);
     process.exitCode = 1;
+}).finally(() => {
+    timerHarnesses.forEach(timers => timers.dispose());
 });

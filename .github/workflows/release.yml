@@ -18,10 +18,19 @@ jobs:
       (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v'))
     steps:
       - uses: actions/checkout@v4
+      - name: Cache test dependencies and Chromium
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/task-horizon-release-tests-1.63.0
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-task-horizon-playwright-1.63.0
       - name: Verify
         run: pwsh -ExecutionPolicy Bypass -File ./scripts/verify-release.ps1
       - name: Package
         run: pwsh -ExecutionPolicy Bypass -File ./build.ps1
+      - name: Verify packaged artifact
+        run: pwsh -ExecutionPolicy Bypass -File ./scripts/verify-package.ps1
       - name: Release
         uses: softprops/action-gh-release@v2
         with:

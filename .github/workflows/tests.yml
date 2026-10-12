@@ -1,0 +1,30 @@
+name: tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Test suite (full includes all browser matrices and stress tests)
+        type: choice
+        default: full
+        options: [full, release, calendar, checklist, kanban, settings, task, ai, whiteboard, mobile]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache test dependencies and Chromium
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/task-horizon-release-tests-1.63.0
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-task-horizon-playwright-1.63.0
+      - name: Verify selected suite
+        env:
+          TEST_SUITE: ${{ inputs.suite }}
+        run: pwsh -ExecutionPolicy Bypass -File ./scripts/verify-release.ps1 -Suite "$TEST_SUITE"

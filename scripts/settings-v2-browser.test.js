@@ -108,6 +108,24 @@ const server = http.createServer((req, res) => {
         await page.waitForTimeout(300);
         if (errors.length) throw new Error(errors.join('\n'));
         await page.locator('.tm-settings-v2').waitFor();
+        if (process.env.TM_TEST_SMOKE === '1') {
+            await page.evaluate(() => tmOpenSettingsV2Page('general'));
+            const choices = page.locator('[onchange="updateDefaultViewMode(this.value)"] + .tm-settings-choice-group');
+            await choices.getByRole('radio', { name: '看板视图', exact: true }).click();
+            await page.waitForFunction(() => JSON.parse(localStorage.getItem('settings-test')).defaultViewMode === 'kanban');
+            await page.reload();
+            await page.locator('.tm-settings-v2').waitFor();
+            await page.evaluate(() => tmOpenSettingsV2Page('general'));
+            assert.equal(await choices.locator('[aria-checked="true"]').getAttribute('data-choice-value'), 'kanban', 'saved setting survives a fresh runtime');
+            assert.equal(await page.evaluate(() => __settingsTest.SettingsStore.data.defaultViewMode), 'kanban');
+            await page.locator('.tm-settings-v2-close').click();
+            await page.waitForFunction(() => !document.querySelector('.tm-settings-v2'));
+            await page.evaluate(() => showSettings());
+            await page.locator('.tm-settings-v2').waitFor();
+            assert.deepEqual(errors, []);
+            console.log('Settings release smoke passed: open, change, persist, reload, close and reopen');
+            return;
+        }
         await page.evaluate(() => {
             __settingsTest.SettingsStore.data.customDurationOptions = ['0.5', '1', '2', '3'];
             tmOpenSettingsV2Page('view', 'v-tl');

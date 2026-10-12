@@ -148,6 +148,73 @@ window.__tmRerenderCurrentViewInPlace = () => {mount(currentHost,currentWidth);r
         await page.setContent('<main id="mount"></main>');
         await page.addStyleTag({content:read('task-horizon.css')+'\n'+read('calendar-view.css')+'\n'+frameCss});
         await page.addScriptTag({content:setup+helpers+wrapCode+renderer+patchCode+toggleCode+hostFieldsCode+fieldOptionsCode+fieldSettingsCode+fieldPreviewCode+layoutSettingsCode+headingPolicyCode});
+        // Shared behavior coverage replaces the old remark markup contracts.
+        for (const [host, width] of [['desktop', 1000], ['mobile', 390]]) {
+            await page.evaluate(({host,width}) => mount(host,width), {host,width});
+            const row = page.locator('[data-id="parent"]');
+            const remark = row.locator('.tm-checklist-remark');
+            const geometry = await row.evaluate(node => {
+                const title = node.querySelector('.tm-checklist-title-text').getBoundingClientRect();
+                const checkbox = node.querySelector('.tm-task-checkbox').getBoundingClientRect();
+                const titleRow = node.querySelector('.tm-checklist-title-row').getBoundingClientRect();
+                const remark = node.querySelector('.tm-checklist-remark').getBoundingClientRect();
+                const lineHeight = parseFloat(getComputedStyle(node.querySelector('.tm-checklist-title')).lineHeight);
+                return { overflow: node.scrollWidth - node.clientWidth, remarkBelow: remark.top >= titleRow.bottom - 1,
+                    checkboxOffset: Math.abs(checkbox.top + checkbox.height / 2 - title.top - lineHeight / 2),
+                    duplicateRemarkIcon: !!node.querySelector('[data-tm-field="remarkIcon"]')?.textContent.trim() };
+            });
+            assert.ok(geometry.overflow <= 1, host + ': task row must fit its host');
+            assert.ok(geometry.remarkBelow, host + ': remark must remain below title and fields');
+            assert.ok(geometry.checkboxOffset <= 2, host + ': checkbox must align with the first title line');
+            assert.equal(geometry.duplicateRemarkIcon, false);
+            await page.waitForFunction(() => !document.querySelector('[data-id="parent"] .tm-checklist-remark-toggle').hidden);
+            const collapsedHeight = await row.evaluate(node => node.offsetHeight);
+            await remark.locator('button').click();
+            assert.equal(await remark.locator('button').getAttribute('aria-expanded'), 'true');
+            assert.ok(await row.evaluate(node => node.offsetHeight) > collapsedHeight);
+            await page.evaluate(() => {
+                window.smokeRow = document.querySelector('[data-id="parent"]');
+                const task = state.filteredTasks[0];
+                task.content = 'Updated task title';
+                __tmUpdateTaskContentInDOM(smokeRow, task);
+                task.remark += ' Updated remark';
+                __tmUpdateTaskRemarkInDOM(smokeRow, task);
+                task.children.forEach(child => { child.done = true; });
+                __tmSyncTaskSubtaskSummaryInPlace('parent');
+            });
+            assert.equal(await row.locator('.tm-checklist-title-text').textContent(), 'Updated task title');
+            assert.equal(await remark.locator('button').getAttribute('aria-expanded'), 'true', 'local updates keep expanded remarks');
+            assert.equal(await row.locator('.tm-checklist-progress-count').textContent(), '2/2');
+            assert.equal(await row.locator('[role="progressbar"]').getAttribute('aria-valuenow'), '2');
+            await remark.locator('button').click();
+            assert.equal(await remark.locator('button').getAttribute('aria-expanded'), 'false');
+            await page.evaluate(() => {
+                const task = state.filteredTasks[0]; task.remark = '';
+                __tmUpdateTaskRemarkInDOM(smokeRow, task);
+            });
+            assert.equal(await remark.count(), 0);
+            await page.evaluate(() => {
+                const task = state.filteredTasks[0]; task.remark = 'Restored remark';
+                __tmUpdateTaskRemarkInDOM(smokeRow, task);
+            });
+            assert.equal(await remark.locator('.tm-checklist-remark-text').textContent(), 'Restored remark');
+            assert.equal(await page.evaluate(() => smokeRow === document.querySelector('[data-id="parent"]')), true, 'remark changes retain the mounted task row');
+            await row.locator('.tm-task-checkbox').click();
+            await row.locator(host === 'mobile' ? '.tm-checklist-mobile-toggle' : '.tm-tree-toggle').click();
+            await page.evaluate(() => {
+                const task = state.filteredTasks[0];
+                task.content = '整理本周产品反馈，提炼三个共性问题';
+                task.remark = '把客服、社区和访谈里的反馈合并到同一份文档，先写结论，再补证据。'.repeat(5);
+                task.children[1].done = false;
+                state.checklistExpandedRemarks.clear();
+            });
+        }
+        if (process.env.TM_TEST_SMOKE === '1') {
+            assert.deepEqual(errors, []);
+            console.log('Checklist release smoke passed: two hosts, alignment, remark changes, progress, checkbox and collapse');
+            return;
+        }
+        await page.evaluate(() => Object.keys(calls).forEach(key => { calls[key] = 0; }));
         const results=[];
         const alignmentChecks=[];
         const typographyChecks=[];

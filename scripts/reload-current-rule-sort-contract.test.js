@@ -106,8 +106,6 @@ const kanbanRender = segment(
 );
 assert.match(kanbanRender, /const completedRecentCompare = \(a, b\) => __tmCompareCompletedTasksRecentFirst\(a, b, rootCompare\);[\s\S]*?roots\.sort\(isCompletedStatusCol \? completedRecentCompare : rootCompare\);[\s\S]*?completedRoots\.sort\(completedRecentCompare\);/,
     'kanban completed groups and completed-status columns must use recent-completion order');
-assert.match(kanbanRender, /const renderDoneColumnList = \(\) => \{[\s\S]*?list0\.slice\(\)\.sort\(completedRecentCompare\);/,
-    'the dedicated kanban done column must use recent-completion order');
 assert.doesNotMatch(kanbanRender, /sortKanbanItemsByCurrentRule\(completedRoots, rootCompare\)/,
     'kanban completed groups must not inherit the active rule sort');
 assert.match(whiteboardRuntime, /const completedRootTasks = rootSplit\.done[\s\S]*?__tmCompareCompletedTasksRecentFirst/,

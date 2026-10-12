@@ -35101,7 +35101,7 @@
                     };
                     return { eventApi, task, index };
                 });
-                if (taskEntries.length <= 1 || typeof globalThis.__tmApplyCalendarRuleSort !== 'function') return pinnedFirst(allDay).concat(pinnedFirst(timed));
+                if (taskEntries.length <= 1 || typeof globalThis.__tmApplyCalendarRuleSort !== 'function') return pinnedFirst(allDay).concat(timed);
                 const sortedTasks = globalThis.__tmApplyCalendarRuleSort(taskEntries.map((entry) => entry.task));
                 const byId = new Map(taskEntries.map((entry) => [String(entry.task?.id || '').trim(), entry.eventApi]));
                 const used = new Set();
@@ -35122,7 +35122,7 @@
                     if (!protoListIsTaskEvent(eventApi)) return eventApi;
                     return sortedTaskEvents[taskIndex++] || eventApi;
                 });
-                return pinnedFirst(sortedAllDay).concat(pinnedFirst(timed));
+                return pinnedFirst(sortedAllDay).concat(timed);
             };
         const protoListGroup = (key, kind, label, eventApis) => {
             if (!eventApis.length) return '';

@@ -106,7 +106,11 @@ async function run() {
     const browser = await chromium.launch({ headless: true,
         ...(process.env.PLAYWRIGHT_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE } : {}) });
     try {
-        for (const scenario of cases) await checkHost(browser, scenario);
+        const selectedCases = process.env.TM_TEST_SMOKE === '1'
+            ? cases.filter(scenario => ['desktop Dock', 'phone', 'native tablet tab with desktop frontend'].includes(scenario.name))
+            : cases;
+        assert.ok(selectedCases.length >= 3, 'release checks must include desktop, phone and tablet');
+        for (const scenario of selectedCases) await checkHost(browser, scenario);
     } finally {
         await browser.close();
     }

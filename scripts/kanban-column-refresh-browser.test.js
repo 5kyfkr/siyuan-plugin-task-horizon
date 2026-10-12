@@ -24,12 +24,14 @@ const filterCode = [
 let renderer = section(read('render/43-render-timeline-kanban-calendar-body.js'),
     'function __tmBuildRenderSceneKanbanBodyHtml(', 'function __tmBuildRenderSceneCalendarBodyHtml(');
 const decoration = section(renderer, 'const renderCard = ', 'const kanbanBoardNavItems = ');
-renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, childRoot, title, children) => {
+renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, childRoot, title, children, toggle) => {
     renderedTaskIds.push(task.id);
     return '<article class="tm-kanban-card' + (sub ? ' tm-kanban-card--sub' : '')
         + '" data-id="' + task.id + '" data-done="' + !!task.done + '" data-status="' + task.customStatus
         + '" data-tm-placement-parent="' + (task.parentTaskId || '')
-        + '"><span class="tm-task-content-clickable" style="color:rgb(70,70,70)">' + task.content + '</span><div class="tm-kanban-subtasks-list">' + children + '</div></article>';
+        + '"><span class="tm-task-content-clickable" style="color:rgb(70,70,70)">' + task.content + '</span>' + (toggle || '')
+        + '<div class="tm-kanban-subtasks-list" data-tm-kanban-subtasks-list'
+        + (__tmKanbanGetCollapsedSet().has(task.id) ? ' hidden' : '') + '>' + children + '</div></article>';
 };\n`);
 const code = [read('32-runtime-state-and-events.js'), read('33-task-boundary-facades.js'), read('21-view-render-state.js'), read('render/40-render-list-context-helpers.js'),
     section(read('40-render-runtime.js'), 'function __tmBuildHeadingGroupContextMenuAttrs(', 'async function __tmReadHeadingGroupBlock('),
@@ -175,7 +177,16 @@ async function setup(page) {
     const browser = await chromium.launch({ headless: true });
     let passed = 0;
     const failures = [];
+    const smoke = process.env.TM_TEST_SMOKE === '1';
+    const smokeCases = new Set([
+        'subtask status survives a later full render with the same filtered parent',
+        'outdent updates one column; later confirmation preserves placement (false)',
+        'cross-column nesting updates both columns, retains third column',
+        'fresh title styles are retained while reused descendants clear stale today marks',
+        'optimistic top-level removal retains its source column for counts and keyed refresh',
+    ]);
     async function run(name, check, mobile = false) {
+        if (smoke && !smokeCases.has(name)) return;
         const page = await browser.newPage(mobile ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } : {});
         const errors = [];
         page.on('pageerror', (error) => errors.push(error.message));
@@ -312,7 +323,8 @@ async function setup(page) {
                     __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'complete-root',
                         taskId: 'active', patch: { done: true, customStatus: 'finish-custom' } });
                     const refreshed = patch(['active']);
-                    return { before, completedGroups: doneCol.querySelectorAll('[data-group-key^="completed_root_tasks"]').length,
+                    return { before, child: placement('completed-child'),
+                        completedGroups: doneCol.querySelectorAll('[data-group-key^="completed_root_tasks"]').length,
                         refreshed, moved: placement('active'), movedVisible: !state.modal.querySelector('[data-id="active"]').closest('[hidden]') };
                 }, inline);
                 assert.deepEqual(result.before, [
@@ -321,9 +333,165 @@ async function setup(page) {
                     { id: 'completed-other-doc', visible: true },
                 ]);
                 assert.equal(result.completedGroups, 0);
+                assert.deepEqual(result.child, [{ column: 'status:finish-custom', parent: 'completed-parent' }]);
                 assert.equal(result.refreshed, true);
                 assert.deepEqual(result.moved, [{ column: 'status:finish-custom', parent: '' }]);
                 assert.equal(result.movedVisible, true);
+            });
+        }
+        for (const mode of ['status', 'heading', 'time']) {
+            await run(`completed column preserves task hierarchy and recent root order (${mode})`, async (page) => {
+                await page.evaluate((mode) => {
+                    window.boardMode = mode;
+                    SettingsStore.data.completedTasksInlineInGroups = false;
+                    SettingsStore.data.kanbanShowDoneColumn = true;
+                    const collapsed = state.__tmKanbanCollapsedIds = new Set();
+                    __tmKanbanGetCollapsedSet = () => collapsed;
+                    __tmResolveTaskCompletedAtRaw = (task) => task.taskCompleteAt;
+                    __tmParseTimeToTs = (value) => Date.parse(value);
+                    setModel([
+                        { id: 'active' },
+                        { id: 'child-second', parentTaskId: 'parent', done: true, customStatus: 'done', taskCompleteAt: '2026-09-28' },
+                        { id: 'grandchild', parentTaskId: 'child-first', done: true, customStatus: 'done', taskCompleteAt: '2026-09-29' },
+                        { id: 'old-root', done: true, customStatus: 'done', taskCompleteAt: '2026-09-24' },
+                        { id: 'child-first', parentTaskId: 'parent', done: true, customStatus: 'done', taskCompleteAt: '2026-09-27' },
+                        { id: 'parent', done: true, customStatus: 'done', taskCompleteAt: '2026-09-26', pinned: true },
+                        { id: 'orphan', parentTaskId: 'active', done: true, customStatus: 'done', taskCompleteAt: '2026-09-25' },
+                    ]);
+                    const key = mode === 'status' ? 'status:done' : 'done:' + mode;
+                    window.completedSnapshot = () => {
+                        const col = column(key);
+                        const cards = Array.from(col.querySelectorAll('.tm-kanban-card'));
+                        return {
+                            cards: cards.map((card) => ({ id: card.dataset.id,
+                                parent: card.parentElement.closest('.tm-kanban-card')?.dataset.id || '' })),
+                            roots: cards.filter((card) => !card.parentElement.closest('.tm-kanban-card')).map((card) => card.dataset.id),
+                            count: Number(col.querySelector('.tm-kanban-col-header .tm-badge--count').textContent),
+                        };
+                    };
+                }, mode);
+                await page.addScriptTag({ content: section(completionRuntime,
+                    'function __tmGetTaskDoneSortTs(', 'function __tmShouldShowTaskInCompletedRootGroup(') });
+                const initial = await page.evaluate(() => { mount(); return completedSnapshot(); });
+                assert.deepEqual(initial, {
+                    cards: [
+                        { id: 'parent', parent: '' },
+                        { id: 'child-second', parent: 'parent' },
+                        { id: 'child-first', parent: 'parent' },
+                        { id: 'grandchild', parent: 'child-first' },
+                        { id: 'orphan', parent: '' },
+                        { id: 'old-root', parent: '' },
+                    ],
+                    roots: ['parent', 'orphan', 'old-root'], count: 3,
+                });
+                const collapsed = await page.evaluate(() => {
+                    __tmKanbanGetCollapsedSet().add('parent');
+                    commitView();
+                    const parent = state.modal.querySelector('[data-id="parent"]');
+                    const hidden = ['child-second', 'child-first', 'grandchild'].map((id) =>
+                        !!state.modal.querySelector('[data-id="' + id + '"]').closest('[hidden]'));
+                    return { expanded: parent.querySelector('[data-tm-kanban-collapse-owner]').getAttribute('aria-expanded'), hidden };
+                });
+                assert.deepEqual(collapsed, { expanded: 'false', hidden: [true, true, true] });
+                const moved = await page.evaluate(() => {
+                    __tmKanbanGetCollapsedSet().delete('parent');
+                    __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'restore-completed-child',
+                        taskId: 'child-first', patch: { done: false, customStatus: 'todo' } });
+                    const refreshed = patch(['child-first'], ['parent']);
+                    const afterRestore = completedSnapshot();
+                    __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'recomplete-child',
+                        taskId: 'child-first', patch: { done: true, customStatus: 'done', taskCompleteAt: '2026-09-30' } });
+                    const completed = patch(['child-first'], ['parent']);
+                    const afterComplete = completedSnapshot();
+                    commitView();
+                    return { refreshed, completed, afterRestore, afterComplete, afterFullRender: completedSnapshot() };
+                });
+                assert.equal(moved.refreshed, true);
+                assert.equal(moved.completed, true);
+                assert.deepEqual(moved.afterRestore, initial,
+                    'reopening a child must preserve its position within the completed parent tree');
+                assert.deepEqual(moved.afterComplete, initial);
+                assert.deepEqual(moved.afterFullRender, initial);
+                const attached = await page.evaluate(() => {
+                    SettingsStore.data.kanbanPreventSubtaskSeparation = true;
+                    commitView();
+                    return completedSnapshot();
+                });
+                assert.deepEqual(attached, { cards: initial.cards.filter((card) => card.id !== 'orphan'),
+                    roots: ['parent', 'old-root'], count: 2 });
+            });
+        }
+        for (const mode of ['status', 'heading', 'time']) {
+            await run(`completed column filters roots and keeps their full visible subtree (${mode})`, async (page) => {
+                const result = await page.evaluate((mode) => {
+                    window.boardMode = mode;
+                    SettingsStore.data.completedTasksInlineInGroups = false;
+                    SettingsStore.data.kanbanShowDoneColumn = true;
+                    SettingsStore.data.completedTasksTodayOnly = true;
+                    __tmGetStatusOptions = () => ['todo', 'doing', 'done', 'done-other'].map((id) => ({ id, name: id, color: '#777777' }));
+                    __tmDoesStatusIdResolveToDone = (id) => id === 'done' || id === 'done-other';
+                    setModel([
+                        { id: 'active' },
+                        { id: 'old-root', done: true, customStatus: 'done', taskCompleteAt: '2026-09-25' },
+                        { id: 'old-child-today', parentTaskId: 'old-root', done: true, customStatus: 'done', taskCompleteAt: '2026-09-26' },
+                        { id: 'today-root', done: true, customStatus: 'done', taskCompleteAt: '2026-09-26' },
+                        { id: 'earlier-child', parentTaskId: 'today-root', done: true, customStatus: 'done-other', taskCompleteAt: '2026-09-25' },
+                        { id: 'unfinished-child', parentTaskId: 'today-root', customStatus: 'doing' },
+                        { id: 'nested-leaf', parentTaskId: 'unfinished-child', done: true, customStatus: 'done', taskCompleteAt: '2026-09-25' },
+                        { id: 'standalone', parentTaskId: 'active', done: true, customStatus: 'done', taskCompleteAt: '2026-09-26' },
+                    ]);
+                    const key = mode === 'status' ? 'status:done' : 'done:' + mode;
+                    const snapshot = () => ({
+                        cards: Array.from(column(key).querySelectorAll('.tm-kanban-card'), (card) => ({ id: card.dataset.id,
+                            parent: card.parentElement.closest('.tm-kanban-card')?.dataset.id || '' })),
+                        count: Number(column(key).querySelector('.tm-kanban-col-header .tm-badge--count').textContent),
+                        oldCards: placement('old-root').length + placement('old-child-today').length,
+                    });
+                    mount();
+                    const before = snapshot();
+                    __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'edit-completed-subtree',
+                        taskId: 'unfinished-child', patch: { content: 'updated child' } });
+                    const refreshed = patch(['unfinished-child'], ['today-root']);
+                    const afterPatch = snapshot();
+                    const title = state.modal.querySelector('[data-id="unfinished-child"] > span')?.textContent;
+                    commitView();
+                    const afterFullRender = snapshot();
+                    SettingsStore.data.completedTasksTodayOnly = false;
+                    commitView();
+                    const placements = () => Object.fromEntries(state.filteredTasks.map((task) => [task.id, placement(task.id)]));
+                    __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'reopen-completed-root',
+                        taskId: 'today-root', patch: { done: false, customStatus: 'todo' } });
+                    const rootRestored = patch(['today-root']);
+                    const afterRootRestore = placements();
+                    commitView();
+                    const afterRootRestoreFullRender = placements();
+                    __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'complete-root-again',
+                        taskId: 'today-root', patch: { done: true, customStatus: 'done' } });
+                    const rootCompleted = patch(['today-root']);
+                    const afterRootComplete = placements();
+                    commitView();
+                    return { before, refreshed, afterPatch, title, afterFullRender, rootRestored,
+                        afterRootRestore, afterRootRestoreFullRender, rootCompleted,
+                        afterRootComplete, afterRootCompleteFullRender: placements() };
+                }, mode);
+                const expected = { cards: [
+                    { id: 'today-root', parent: '' },
+                    { id: 'earlier-child', parent: 'today-root' },
+                    { id: 'unfinished-child', parent: 'today-root' },
+                    { id: 'nested-leaf', parent: 'unfinished-child' },
+                    { id: 'standalone', parent: '' },
+                ], count: 2, oldCards: 0 };
+                assert.deepEqual(result.before, expected);
+                assert.equal(result.refreshed, true);
+                assert.deepEqual(result.afterPatch, expected);
+                assert.equal(result.title, 'updated child');
+                assert.deepEqual(result.afterFullRender, expected);
+                assert.equal(result.rootRestored, true);
+                assert.deepEqual(result.afterRootRestore, result.afterRootRestoreFullRender,
+                    'reopening a completed root must refresh all descendant destination columns');
+                assert.equal(result.rootCompleted, true);
+                assert.deepEqual(result.afterRootComplete, result.afterRootCompleteFullRender,
+                    'completing a root must remove separated descendants from their previous columns');
             });
         }
         await run('completed status columns retain today-only and hide-completed filters', async (page) => {
@@ -802,5 +970,6 @@ async function setup(page) {
         }, true);
     } finally { await browser.close(); }
     if (failures.length) { console.error(JSON.stringify(failures, null, 2)); process.exitCode = 1; }
+    if (smoke) assert.equal(passed + failures.length, smokeCases.size, 'every release smoke case must run');
     console.log(`kanban column browser regressions: ${passed} passed, ${failures.length} failed`);
 })().catch((error) => { console.error(error); process.exitCode = 1; });
