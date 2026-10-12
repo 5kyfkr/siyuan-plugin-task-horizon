@@ -298,8 +298,9 @@ runtime = runtime.slice(0, startup) + `
         await assertDirectTransitions();
         await second.locator('.tm-kanban-col-collapse--expand').click();
         await settle();
-        await page.evaluate(()=>{kanbanTest.state.modal.classList.add('tm-modal--dock');kanbanTest.mount();});
         await page.setViewportSize({width:390,height:844});
+        // Mount after resizing so initial snap metrics use the Dock viewport.
+        await page.evaluate(()=>{kanbanTest.state.modal.classList.add('tm-modal--dock');kanbanTest.mount();});
         await settle();
         await page.getByRole('tab', {name:'需求规划',exact:true}).click();
         await page.waitForFunction(()=>!document.querySelector('.tm-body--kanban').__tmKanbanSnapAnimRaf);
@@ -307,12 +308,22 @@ runtime = runtime.slice(0, startup) + `
         assert.equal(await first.evaluate(el=>el.getBoundingClientRect().height), collapsedHeight.height, 'dock collapsed lane also uses its actual content height');
         await first.locator('.tm-kanban-col-collapse--expand').click();
         await settle();
-        await page.waitForFunction(()=>{
-            const body=document.querySelector('.tm-body--kanban');
-            const col=body.querySelector('[data-col-key="doc:20261012000000-aaaaaaa"]');
-            const a=body.getBoundingClientRect(),b=col.getBoundingClientRect();
-            return b.left>=a.left-1 && b.right<=a.right+1;
-        });
+        try {
+            await page.waitForFunction(()=>{
+                const body=document.querySelector('.tm-body--kanban');
+                const col=body.querySelector('[data-col-key="doc:20261012000000-aaaaaaa"]');
+                const a=body.getBoundingClientRect(),b=col.getBoundingClientRect();
+                return b.left>=a.left-1 && b.right<=a.right+1;
+            });
+        } catch (error) {
+            console.error('Dock column alignment', await first.evaluate(col=>{
+                const body=col.closest('.tm-body--kanban');
+                const bounds=el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width};};
+                return {body:bounds(body),column:bounds(col),scrollLeft:body.scrollLeft,
+                    clientWidth:body.clientWidth,snapWidth:body.style.getPropertyValue('--tm-kanban-snap-col-width')};
+            }));
+            throw error;
+        }
         assert.ok(!(await first.getAttribute('class')).includes('tm-kanban-col--collapsed'));
         assert.equal(await first.locator('.tm-kanban-col-body').evaluate(el=>getComputedStyle(el).paddingRight),'10px','dock retains 10px inset');
         await page.screenshot({path:path.join(root,'output/playwright/kanban-lanes-plugin-mobile.png')});
