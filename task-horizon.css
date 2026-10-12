@@ -8949,6 +8949,129 @@ select.tm-btn-secondary {
     --tm-kanban-subtask-indent: 14px;
 }
 
+/* Both appearances share column/card markup and all task interactions. */
+.tm-body.tm-body--kanban[data-kanban-appearance="lanes"] {
+    padding: 0 !important;
+}
+
+.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban {
+    position: relative;
+    isolation: isolate;
+    align-items: stretch;
+    gap: 0 !important;
+    overflow: visible;
+}
+
+.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban-col {
+    position: relative;
+    z-index: 1;
+    align-self: stretch;
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban-col:hover {
+    box-shadow: none;
+}
+
+.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban-col.tm-kanban-col--collapsed {
+    align-self: flex-start;
+    height: auto;
+}
+
+.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban-col-header {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 4px 12px;
+    border-radius: 0;
+    background: transparent;
+}
+
+.tm-body.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban-col-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding-inline: 10px;
+}
+
+.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban-col-header--collapsed {
+    height: auto;
+    min-height: 0;
+    padding: 16px 4px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban-col-header--collapsed:hover,
+.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban-col-header--collapsed:focus-visible {
+    background: transparent;
+    outline-offset: -3px;
+}
+
+.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban-col--dragover {
+    outline: 2px dashed var(--tm-primary-color);
+    outline-offset: -3px;
+    background: color-mix(in srgb, var(--tm-primary-color) 7%, transparent);
+    box-shadow: none;
+}
+
+.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban-col--drop-forbidden {
+    outline: 2px dashed var(--b3-theme-error);
+    outline-offset: -3px;
+}
+
+.tm-kanban-lane-background {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    pointer-events: none;
+    overflow: clip;
+}
+
+.tm-kanban-lane-background > canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.tm-kanban-lane-color-probe {
+    position: absolute;
+    width: 0;
+    height: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.tm-body--kanban[data-kanban-appearance="lanes"] .tm-kanban-col-progress {
+    flex: 0 0 4px;
+    height: 4px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--tm-kanban-lane-color) 24%, var(--tm-bg-color));
+}
+
+.tm-kanban-col-progress > span {
+    display: block;
+    width: calc(var(--tm-kanban-completion) * 100%);
+    height: 100%;
+    border-radius: inherit;
+    background: var(--tm-kanban-lane-color);
+}
+
+.tm-kanban-col-completion {
+    font-size: 11px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--tm-secondary-text);
+    white-space: nowrap;
+}
+
 .tm-kanban--clean .tm-kanban-col {
     align-self: flex-start;
     height: auto;

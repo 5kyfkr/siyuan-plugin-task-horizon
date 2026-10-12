@@ -52,6 +52,12 @@
         }
     };
 
+    function __tmNormalizeKanbanLaneColorStrength(input) {
+        if (input == null || String(input).trim() === '') return 15;
+        const value = Number(input);
+        return Number.isFinite(value) ? Math.max(6, Math.min(30, Math.round(value))) : 15;
+    }
+
     function __tmNormalizeCalendarCustomHolidayOverrides(input) {
         const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
         const output = {};
@@ -5301,7 +5307,8 @@
                 || (Array.isArray(board.drawings) && board.drawings.length > 0)
                 || (Array.isArray(board.frames) && board.frames.length > 0)
                 || (Array.isArray(board.links) && board.links.length > 0);
-            if (hasContent || gid === 'all') out[gid] = board;
+            const hasView = raw[k]?.view && typeof raw[k].view === 'object';
+            if (hasContent || hasView || gid === 'all') out[gid] = board;
         });
         return out;
     }
@@ -6782,6 +6789,7 @@
     }
 
     function __tmNormalizeTimelineDependencyScope(input) {
+        if (String(input || '').trim().toLowerCase() === 'tabgroup') return 'tabGroup';
         return String(input || '').trim().toLowerCase() === 'local' ? 'local' : 'global';
     }
 
@@ -8597,6 +8605,8 @@
             checklistCompactRightFontSize: 'large',
             enabledViews: ['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard'],
             kanbanCompactMode: false,
+            kanbanAppearance: 'lanes',
+            kanbanLaneColorStrength: 15,
             checklistCompactMode: true,
             checklistCompactTreeGuides: false,
             checklistCompactTreeGuidesUpdatedAt: 0,
@@ -9301,6 +9311,8 @@
                                 if (typeof cloudData.checklistCompactRightFontSize === 'string') this.data.checklistCompactRightFontSize = __tmNormalizeChecklistCompactRightFontSize(cloudData.checklistCompactRightFontSize);
                                 if (Array.isArray(cloudData.enabledViews)) this.data.enabledViews = __tmNormalizeEnabledViews(cloudData.enabledViews);
                                 if (typeof cloudData.kanbanCompactMode === 'boolean') this.data.kanbanCompactMode = cloudData.kanbanCompactMode;
+                                if (typeof cloudData.kanbanAppearance === 'string') this.data.kanbanAppearance = cloudData.kanbanAppearance === 'classic' ? 'classic' : 'lanes';
+                                if (typeof cloudData.kanbanLaneColorStrength === 'number') this.data.kanbanLaneColorStrength = __tmNormalizeKanbanLaneColorStrength(cloudData.kanbanLaneColorStrength);
                                 if (typeof cloudData.checklistCompactMode === 'boolean') this.data.checklistCompactMode = cloudData.checklistCompactMode;
                                 if (typeof cloudData.checklistCompactTreeGuides === 'boolean') this.data.checklistCompactTreeGuides = cloudData.checklistCompactTreeGuides;
                                 if (typeof cloudData.checklistCompactTreeGuides === 'boolean') {
@@ -9815,6 +9827,8 @@
             this.data.checklistCompactRightFontSize = __tmNormalizeChecklistCompactRightFontSize(Storage.get('tm_checklist_compact_right_font_size', this.data.checklistCompactRightFontSize));
             this.data.enabledViews = __tmNormalizeEnabledViews(Storage.get('tm_enabled_views', this.data.enabledViews));
             this.data.kanbanCompactMode = !!Storage.get('tm_kanban_compact_mode', this.data.kanbanCompactMode);
+            this.data.kanbanAppearance = Storage.get('tm_kanban_appearance', this.data.kanbanAppearance) === 'classic' ? 'classic' : 'lanes';
+            this.data.kanbanLaneColorStrength = __tmNormalizeKanbanLaneColorStrength(Storage.get('tm_kanban_lane_color_strength', this.data.kanbanLaneColorStrength));
             this.data.checklistCompactMode = !!Storage.get('tm_checklist_compact_mode', this.data.checklistCompactMode);
             this.data.checklistCompactTreeGuides = !!Storage.get('tm_checklist_compact_tree_guides', this.data.checklistCompactTreeGuides);
             this.data.checklistCompactTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(Storage.get('tm_checklist_compact_tree_guides_updated_at', this.data.checklistCompactTreeGuidesUpdatedAt));
@@ -10418,6 +10432,8 @@
             Storage.set('tm_checklist_compact_right_font_size', this.data.checklistCompactRightFontSize);
             Storage.set('tm_enabled_views', this.data.enabledViews);
             Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
+            Storage.set('tm_kanban_appearance', this.data.kanbanAppearance === 'classic' ? 'classic' : 'lanes');
+            Storage.set('tm_kanban_lane_color_strength', __tmNormalizeKanbanLaneColorStrength(this.data.kanbanLaneColorStrength));
             Storage.set('tm_checklist_compact_mode', !!this.data.checklistCompactMode);
             Storage.set('tm_checklist_compact_tree_guides', !!this.data.checklistCompactTreeGuides);
             Storage.set('tm_checklist_compact_tree_guides_updated_at', __tmParseUpdatedAtNumber(this.data.checklistCompactTreeGuidesUpdatedAt));
@@ -10915,6 +10931,8 @@
             this.data.taskCompletionArchiveMode = __tmNormalizeTaskCompletionArchiveMode(this.data.taskCompletionArchiveMode);
             this.data.taskCompletionArchiveDocId = String(this.data.taskCompletionArchiveDocId || '').trim();
             const kw = Number(this.data.kanbanColumnWidth);
+            this.data.kanbanAppearance = this.data.kanbanAppearance === 'classic' ? 'classic' : 'lanes';
+            this.data.kanbanLaneColorStrength = __tmNormalizeKanbanLaneColorStrength(this.data.kanbanLaneColorStrength);
             this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
             const wbStreamMinW = Number(this.data.whiteboardAllTabsCardMinWidth);
             this.data.whiteboardAllTabsCardMinWidth = Number.isFinite(wbStreamMinW) ? Math.max(220, Math.min(520, Math.round(wbStreamMinW))) : 320;
@@ -11460,27 +11478,21 @@
             const removedIds = Array.from(prevIds).filter((id) => id && id !== 'all' && !nextIds.has(id));
             this.data.docGroups = nextGroups;
             if (removedIds.length) {
+                const removedTabGroupKeys = __tmNormalizeDocTabCustomGroups(this.data.docTabCustomGroups)
+                    .filter((group) => removedIds.includes(__tmGetDocTabCustomGroupScopeId(group)))
+                    .map((group) => __tmBuildDocTabCustomGroupActiveId(group.id));
+                __tmRemoveWhiteboardScopes(removedIds.concat(removedTabGroupKeys));
                 const cleanMap = (value) => {
                     const map = (value && typeof value === 'object' && !Array.isArray(value)) ? { ...value } : {};
                     removedIds.forEach((id) => { delete map[id]; });
                     return map;
                 };
-                this.data.whiteboardGlobalBoardsByGroup = cleanMap(this.data.whiteboardGlobalBoardsByGroup);
-                this.data.whiteboardAllTabsDocOrderByGroup = cleanMap(this.data.whiteboardAllTabsDocOrderByGroup);
                 this.data.docTabsManualArchivedByGroup = cleanMap(this.data.docTabsManualArchivedByGroup);
                 this.data.docTabsManualUnarchivedByGroup = cleanMap(this.data.docTabsManualUnarchivedByGroup);
                 this.data.showCompletedTasksByGroup = cleanMap(this.data.showCompletedTasksByGroup);
-                try { globalThis.__tmGlobalWhiteboardTaskSource?.forgetGroups?.(removedIds); } catch (e) {}
                 const removedIdSet = new Set(removedIds);
                 this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(this.data.docTabCustomGroups)
                     .filter((group) => !removedIdSet.has(__tmGetDocTabCustomGroupScopeId(group)));
-                if (WhiteboardStore?.loaded) {
-                    try {
-                        WhiteboardStore.data.globalBoardsByGroup = cleanMap(WhiteboardStore.data?.globalBoardsByGroup);
-                        WhiteboardStore.data.allTabsDocOrderByGroup = cleanMap(WhiteboardStore.data?.allTabsDocOrderByGroup);
-                        WhiteboardStore.scheduleSave();
-                    } catch (e) {}
-                }
             }
             await this.save();
             try { window.__tmInvalidateDocScopeCache?.(); } catch (e) {}

@@ -11099,12 +11099,14 @@ return Number(state.contextInteractionQuietUntil || 0);
         const list = Array.isArray(candidateTasks) ? candidateTasks : [];
         if (!list.length) return null;
         const sequenceScope = __tmNormalizeWhiteboardSequenceScope(SettingsStore.data.whiteboardSequenceScope);
-        const useGlobalSequence = sequenceScope === 'global';
+        const whiteboardScope = __tmResolveWhiteboardScope({ source: sequenceScope });
+        const useGlobalSequence = !!whiteboardScope.boardKey;
         const sequenceTasks = useGlobalSequence
             ? (() => {
                 const out = list.slice();
                 const seen = new Set(out.map((task) => String(task?.id || '').trim()).filter(Boolean));
                 Object.values(state.flatTasks || {}).forEach((task) => {
+                    if (whiteboardScope.kind === 'tabGroup' && !__tmIsTaskInWhiteboardScope(task, whiteboardScope)) return;
                     const id = String(task?.id || '').trim();
                     if (!id || seen.has(id)) return;
                     seen.add(id);
@@ -11117,10 +11119,10 @@ return Number(state.contextInteractionQuietUntil || 0);
         const taskIds = Array.from(orderMap.keys()).filter(Boolean);
         if (!taskIds.length) return null;
 
-        const globalBoard = useGlobalSequence ? __tmGetWhiteboardGlobalBoardState() : null;
+        const globalBoard = useGlobalSequence ? __tmGetWhiteboardGlobalBoardState(whiteboardScope.boardKey) : null;
         const globalPlacedTaskIds = (globalBoard?.placedTaskIds && typeof globalBoard.placedTaskIds === 'object') ? globalBoard.placedTaskIds : {};
         const globalDetachedChildren = (globalBoard?.detachedChildren && typeof globalBoard.detachedChildren === 'object') ? globalBoard.detachedChildren : {};
-        const globalLinks = useGlobalSequence ? __tmGetWhiteboardGlobalTaskLinks() : [];
+        const globalLinks = useGlobalSequence ? __tmGetWhiteboardScopeLinks(whiteboardScope) : [];
         const byDoc = new Map();
         if (useGlobalSequence) {
             byDoc.set('__global__', new Set(taskIds));

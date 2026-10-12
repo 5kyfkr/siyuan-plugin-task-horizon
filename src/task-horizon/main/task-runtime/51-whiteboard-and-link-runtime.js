@@ -648,7 +648,7 @@
         const docId = String(location.docId || '').trim();
         if (!docId) return null;
         const outlineScope = String(location.scope || opts.scope || '').trim() || 'board';
-        const isGlobalOutline = outlineScope === 'global';
+        const isGlobalOutline = outlineScope === 'global' || __tmIsDocTabCustomGroupActiveId(outlineScope);
         const requestedMaxNodes = Number(opts.maxNodes);
         const maxNodes = Number.isFinite(requestedMaxNodes) && requestedMaxNodes > 0
             ? Math.max(4, Math.round(requestedMaxNodes))
@@ -656,6 +656,7 @@
         const allLinks = isGlobalOutline && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
             ? __tmGetWhiteboardGlobalTaskLinks(String(location.groupId || '').trim())
             : __tmGetAllTaskLinks({ docId, includeAuto: false });
+        const globalOutlineTaskMap = isGlobalOutline ? __tmProjectGlobalWhiteboard(location.groupId).taskMap : null;
 
         const taskById = new Map();
         const resolveTaskDocId = (taskLike, tid, fallbackDocId = '') => {
@@ -667,7 +668,8 @@
             if (!key) return null;
             if (taskById.has(key)) return taskById.get(key);
             const hint = isGlobalOutline ? String(docIdHint || '').trim() : docId;
-            let taskLike = __tmGetWhiteboardOutlineTaskLike(key, hint);
+            let taskLike = globalOutlineTaskMap?.get(key) || __tmGetWhiteboardOutlineTaskLike(key, hint);
+            if (taskLike?.__tmGlobalFrozen || taskLike?.__tmGlobalRetained) taskLike = { ...taskLike, __tmWhiteboardSnapshot: true };
             if (!taskLike && isGlobalOutline) taskLike = __tmGetWhiteboardOutlineTaskLike(key, '');
             if (taskLike) taskById.set(key, taskLike);
             return taskLike;
@@ -1104,11 +1106,100 @@
         return __tmNormalizeWhiteboardAllTabsLayoutMode(SettingsStore.data.whiteboardAllTabsLayoutMode);
     }
 
+    function __tmIsWhiteboardAggregateTab(activeDocId = state.activeDocId) {
+        const id = String(activeDocId || 'all').trim() || 'all';
+        return id === 'all' || __tmIsDocTabCustomGroupActiveId(id);
+    }
+
+    function __tmGetWhiteboardSingleDocId(activeDocId = state.activeDocId) {
+        const id = String(activeDocId || '').trim();
+        return id && !__tmIsWhiteboardAggregateTab(id) && !__tmIsOtherBlockTabId(id) ? id : '';
+    }
+
+    function __tmResolveWhiteboardScope(options = {}) {
+        const activeDocId = String(options.activeDocId ?? state.activeDocId ?? 'all').trim() || 'all';
+        const docGroupId = String(options.currentGroupId || SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const tabGroupId = __tmParseDocTabCustomGroupActiveId(activeDocId);
+        const source = String(options.source || '__context');
+        const tabGroupActive = !!tabGroupId && !!__tmFindDocTabCustomGroupById(tabGroupId, { currentGroupId: docGroupId });
+        const useTabGroup = tabGroupActive && (source === 'tabGroup' || source === '__context');
+        const docId = (source === 'document' || source === 'local' || source === '__context')
+            ? __tmGetWhiteboardSingleDocId(activeDocId) : '';
+        const documentSource = source === 'document' || source === 'local'
+            || (source === '__context' && !__tmIsWhiteboardAggregateTab(activeDocId));
+        const memberDocIds = options.resolveDocIds === false ? new Set() : (tabGroupActive && (useTabGroup || documentSource)
+            ? __tmGetDocTabCustomGroupDocIdSet(tabGroupId, {
+                currentGroupId: docGroupId,
+                docs: options.docs || state.taskTree || [],
+            })
+            : __tmGetGlobalWhiteboardLoadedDocIdSet());
+        return {
+            kind: documentSource ? 'document' : (useTabGroup ? 'tabGroup' : 'docGroup'),
+            docGroupId,
+            tabGroupId: useTabGroup ? tabGroupId : '',
+            docId,
+            docIds: docId ? new Set([docId]) : (documentSource && __tmIsOtherBlockTabId(activeDocId) ? new Set() : memberDocIds),
+            boardKey: documentSource ? '' : (useTabGroup ? __tmBuildDocTabCustomGroupActiveId(tabGroupId) : docGroupId),
+        };
+    }
+
+    function __tmGetWhiteboardActiveBoardKey() {
+        return __tmResolveWhiteboardScope({ resolveDocIds: false }).boardKey || __tmGetWhiteboardGlobalBoardGroupId();
+    }
+
+    function __tmGetWhiteboardScopeLinks(scope, options = {}) {
+        if (scope.boardKey) return __tmGetWhiteboardGlobalTaskLinks(scope.boardKey);
+        return __tmGetAllTaskLinks({ includeAuto: options.includeAuto !== false, ...(scope.docId ? { docId: scope.docId } : {}) })
+            .filter((link) => scope.docIds.has(String(link.docId || __tmGetTaskDocIdById(link.from) || '').trim()));
+    }
+
+    function __tmIsTaskInWhiteboardScope(task, scope) {
+        const docId = String(task?.root_id || task?.docId || '').trim();
+        return !!docId && (scope.docIds.has(docId) || (scope.boardKey && docId === __tmGetGlobalWhiteboardCollectionDocId()));
+    }
+
+    function __tmSetWhiteboardScopeLinks(scope, links, options = {}) {
+        if (scope.boardKey) {
+            if (scope.kind === 'tabGroup') {
+                const existing = new Set(__tmGetWhiteboardScopeLinks(scope).map((link) => `${link.from}->${link.to}`));
+                const invalid = links.some((link) => !existing.has(`${link.from}->${link.to}`) && (
+                    !__tmIsTaskInWhiteboardScope(globalThis.__tmTaskBoundary?.getTask?.(link.from), scope)
+                    || !__tmIsTaskInWhiteboardScope(globalThis.__tmTaskBoundary?.getTask?.(link.to), scope)
+                ));
+                if (invalid) throw new Error('连线任务不在当前页签组白板范围内');
+            }
+            __tmSetWhiteboardGlobalTaskLinks(links, scope.boardKey, options);
+            return;
+        }
+        __tmSetManualTaskLinks(links);
+    }
+
+    function __tmGetWhiteboardLinkSourceOptions(documentValue = 'document') {
+        return [
+            { value: documentValue, label: '各文档白板' },
+            { value: 'global', label: '文档分组全局白板' },
+            { value: 'tabGroup', label: '页签组白板' },
+        ];
+    }
+
     function __tmIsWhiteboardAllTabsStreamMode() {
-        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
         return state.viewMode === 'whiteboard'
-            && activeDocId === 'all'
+            && __tmIsWhiteboardAggregateTab()
             && __tmGetWhiteboardAllTabsLayoutMode() === 'stream';
+    }
+
+    function __tmRemoveWhiteboardScopes(keys) {
+        if (!keys.length) return;
+        const fields = [['whiteboardGlobalBoardsByGroup', 'globalBoardsByGroup'], ['whiteboardAllTabsDocOrderByGroup', 'allTabsDocOrderByGroup']];
+        fields.forEach(([settingsKey, storeKey]) => {
+            const map = { ...(SettingsStore.data[settingsKey] || {}) };
+            keys.forEach((key) => { delete map[key]; });
+            SettingsStore.data[settingsKey] = map;
+            if (WhiteboardStore.loaded) WhiteboardStore.data[storeKey] = { ...map };
+        });
+        try { globalThis.__tmGlobalWhiteboardTaskSource?.forgetGroups?.(keys); } catch (e) {}
+        if (WhiteboardStore.loaded) WhiteboardStore.scheduleSave();
+        try { SettingsStore.syncLocalFields?.(fields.map(([key]) => key)); } catch (e) {}
     }
 
     function __tmGetWhiteboardAllTabsDocOrderByGroupMap() {
@@ -1349,8 +1440,15 @@
     function __tmGetGlobalWhiteboardTaskSource(groupId = '') {
         const gid = __tmGetWhiteboardGlobalBoardGroupId(groupId);
         const collectionDocId = __tmGetGlobalWhiteboardCollectionDocId();
-        const loadedDocIdSet = __tmGetGlobalWhiteboardLoadedDocIdSet();
-        const loadedDocIds = Array.from(loadedDocIdSet).sort();
+        const tabGroupId = __tmParseDocTabCustomGroupActiveId(gid);
+        const tabGroup = tabGroupId ? __tmFindDocTabCustomGroupById(tabGroupId, { allScopes: true }) : null;
+        const docGroupId = tabGroup ? __tmGetDocTabCustomGroupScopeId(tabGroup) : gid;
+        const loadedDocIds = Array.from(__tmGetGlobalWhiteboardLoadedDocIdSet()).sort();
+        const scope = __tmResolveWhiteboardScope({
+            activeDocId: tabGroupId ? gid : 'all', currentGroupId: docGroupId,
+            source: tabGroupId ? 'tabGroup' : 'global',
+        });
+        const loadedDocIdSet = new Set(loadedDocIds.filter((id) => !tabGroupId || (tabGroup && scope.docIds.has(id))));
         const authoritativeScope = (state.__tmGlobalWhiteboardAuthoritativeScope && typeof state.__tmGlobalWhiteboardAuthoritativeScope === 'object')
             ? state.__tmGlobalWhiteboardAuthoritativeScope
             : null;
@@ -1358,7 +1456,7 @@
             ? authoritativeScope.docIds.map((id) => String(id || '').trim()).filter(Boolean).sort()
             : [];
         const groupScopeAuthoritative = authoritativeScope?.complete === true
-            && String(authoritativeScope?.groupId || '').trim() === gid
+            && String(authoritativeScope?.groupId || '').trim() === docGroupId
             && authoritativeDocIds.length === loadedDocIds.length
             && authoritativeDocIds.every((id, index) => id === loadedDocIds[index]);
         const taskMap = new Map();
@@ -1388,7 +1486,7 @@
         return {
             groupId: gid,
             collectionDocId,
-            loadedDocIds,
+            loadedDocIds: Array.from(loadedDocIdSet),
             tasks: Array.from(taskMap.values()),
             taskMap,
             authoritative: groupScopeAuthoritative
@@ -1564,6 +1662,14 @@
 
     async function __tmResolveGlobalWhiteboardGroupDocIdSet(groupId = '') {
         const gid = __tmGetWhiteboardGlobalBoardGroupId(groupId);
+        const tabGroupId = __tmParseDocTabCustomGroupActiveId(gid);
+        if (tabGroupId) {
+            const group = __tmFindDocTabCustomGroupById(tabGroupId, { allScopes: true });
+            if (!group) return new Set();
+            const parentGroupId = __tmGetDocTabCustomGroupScopeId(group);
+            const parentDocIds = await __tmResolveGlobalWhiteboardGroupDocIdSet(parentGroupId);
+            return __tmGetDocTabCustomGroupDocIdSet(tabGroupId, { currentGroupId: parentGroupId, docs: Array.from(parentDocIds) });
+        }
         const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         if (gid === currentGroupId) return __tmGetGlobalWhiteboardLoadedDocIdSet();
         try {
@@ -1691,8 +1797,9 @@
         if (collectionDocId && !loadedDocIds.has(collectionDocId)) {
             await __tmEnsureGlobalWhiteboardCollectionTasks({ forceFresh: opts.forceFresh === true, render: false });
         }
-        const source = __tmGetGlobalWhiteboardTaskSource();
-        const result = __tmReconcileGlobalWhiteboard('', { source, authoritative: true });
+        const groupId = __tmGetWhiteboardActiveBoardKey();
+        const source = __tmGetGlobalWhiteboardTaskSource(groupId);
+        const result = __tmReconcileGlobalWhiteboard(groupId, { source, authoritative: true });
         if (result.changed) {
             try { SettingsStore.save().catch(() => null); } catch (e) {}
         }
@@ -1871,7 +1978,7 @@
     function __tmGetWhiteboardFrameArray(opts = {}) {
         const o = (opts && typeof opts === 'object') ? opts : {};
         if (o.global === true || __tmIsWhiteboardGlobalCanvasActive()) {
-            return __tmNormalizeWhiteboardFrameArray(__tmGetWhiteboardGlobalBoardState(o.groupId || '').frames);
+            return __tmNormalizeWhiteboardFrameArray(__tmGetWhiteboardGlobalBoardState(o.groupId || __tmGetWhiteboardActiveBoardKey()).frames);
         }
         return __tmNormalizeWhiteboardFrameArray(SettingsStore?.data?.whiteboardFrames);
     }
@@ -1880,7 +1987,7 @@
         const o = (opts && typeof opts === 'object') ? opts : {};
         const normalized = __tmNormalizeWhiteboardFrameArray(frames);
         if (o.global === true || __tmIsWhiteboardGlobalCanvasActive()) {
-            __tmPatchWhiteboardGlobalBoardState(o.groupId || '', { frames: normalized }, { keepEmpty: true, persist: o.persist });
+            __tmPatchWhiteboardGlobalBoardState(o.groupId || __tmGetWhiteboardActiveBoardKey(), { frames: normalized }, { keepEmpty: true, persist: o.persist });
             return normalized;
         }
         SettingsStore.data.whiteboardFrames = normalized;
@@ -1912,15 +2019,14 @@
     }
 
     function __tmIsWhiteboardGlobalCanvasActive() {
-        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
         return state.viewMode === 'whiteboard'
-            && activeDocId === 'all'
+            && __tmIsWhiteboardAggregateTab()
             && __tmGetWhiteboardAllTabsLayoutMode() === 'global';
     }
 
     function __tmGetWhiteboardView() {
         const rawGlobal = __tmIsWhiteboardGlobalCanvasActive()
-            ? __tmGetWhiteboardGlobalBoardState().view
+            ? __tmGetWhiteboardGlobalBoardState(__tmGetWhiteboardActiveBoardKey()).view
             : null;
         const raw = (rawGlobal && typeof rawGlobal === 'object')
             ? rawGlobal
@@ -1946,7 +2052,7 @@
         const zoom0 = Number.isFinite(Number(p.zoom)) ? Number(p.zoom) : prev.zoom;
         const zoom = Math.max(0.35, Math.min(2.5, zoom0));
         if (__tmIsWhiteboardGlobalCanvasActive()) {
-            __tmPatchWhiteboardGlobalBoardState('', { view: { x, y, zoom } }, {
+            __tmPatchWhiteboardGlobalBoardState(__tmGetWhiteboardActiveBoardKey(), { view: { x, y, zoom } }, {
                 keepEmpty: true,
                 persist: o.persist,
                 syncLocal: o.syncLocal,
@@ -2074,6 +2180,7 @@
         if (!id) return null;
         const opts = (options && typeof options === 'object') ? options : {};
         const requestedScope = String(opts.scope || '').trim();
+        const requestedTabGroupId = __tmParseDocTabCustomGroupActiveId(requestedScope);
         const task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
         const snapshot = __tmGetWhiteboardCardSnapshot(id);
         if (!task && !snapshot) return null;
@@ -2083,7 +2190,9 @@
         const getGlobalLocation = () => {
             if (globalLocation !== undefined) return globalLocation;
             globalLocation = null;
-            const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+            const groupId = String(opts.groupId || (requestedTabGroupId ? requestedScope : (requestedScope === 'global'
+                ? __tmGetWhiteboardGlobalBoardGroupId() : __tmGetWhiteboardActiveBoardKey())));
+            const globalScope = __tmIsDocTabCustomGroupActiveId(groupId) ? groupId : 'global';
             const board = __tmGetWhiteboardGlobalBoardState(groupId);
             const placedMap0 = (board?.placedTaskIds && typeof board.placedTaskIds === 'object') ? board.placedTaskIds : {};
             const detachedMap0 = (board?.detachedChildren && typeof board.detachedChildren === 'object') ? board.detachedChildren : {};
@@ -2137,7 +2246,7 @@
             if (!rootPlacedId0) return globalLocation;
             const collapsed0 = __tmKanbanGetCollapsedSet();
             if (rootPlacedId0 === id) {
-                globalLocation = { taskId: id, docId, targetTaskId: id, scope: 'global', groupId };
+                globalLocation = { taskId: id, docId, targetTaskId: id, scope: globalScope, groupId };
                 return globalLocation;
             }
             const renderPath0 = path0.slice(0, rootPlacedIndex0 + 1).reverse();
@@ -2148,13 +2257,13 @@
                 const childId0 = String(renderPath0[i] || '').trim();
                 if (!parentId0 || !childId0) break;
                 if (collapsed0.has(parentId0)) {
-                    globalLocation = { taskId: id, docId, targetTaskId: parentId0, scope: 'global', groupId };
+                    globalLocation = { taskId: id, docId, targetTaskId: parentId0, scope: globalScope, groupId };
                     return globalLocation;
                 }
                 const parentTask0 = getTaskLike0(parentId0);
                 const childTask0 = getTaskLike0(childId0);
                 if (!parentTask0 || !childTask0 || (!showDoneTasks0 && !!childTask0?.done)) {
-                    globalLocation = { taskId: id, docId, targetTaskId: visibleTargetId0, scope: 'global', groupId };
+                    globalLocation = { taskId: id, docId, targetTaskId: visibleTargetId0, scope: globalScope, groupId };
                     return globalLocation;
                 }
                 let keepChild0 = true;
@@ -2164,7 +2273,7 @@
                     keepChild0 = !(inheritedHideCompleted0 || state.showCompletedTasks !== true) || !childTask0?.done;
                 }
                 if (!keepChild0) {
-                    globalLocation = { taskId: id, docId, targetTaskId: visibleTargetId0, scope: 'global', groupId };
+                    globalLocation = { taskId: id, docId, targetTaskId: visibleTargetId0, scope: globalScope, groupId };
                     return globalLocation;
                 }
                 visibleTargetId0 = childId0;
@@ -2174,10 +2283,10 @@
                     inheritedHideCompleted0 = inheritedHideCompleted0 || state.showCompletedTasks !== true;
                 }
             }
-            globalLocation = { taskId: id, docId, targetTaskId: id, scope: 'global', groupId };
+            globalLocation = { taskId: id, docId, targetTaskId: id, scope: globalScope, groupId };
             return globalLocation;
         };
-        if (requestedScope === 'global') return getGlobalLocation();
+        if (requestedScope === 'global' || requestedTabGroupId) return getGlobalLocation();
         const preferGlobal = requestedScope !== 'board'
             && typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
             && __tmIsWhiteboardGlobalCanvasActive();
@@ -2240,7 +2349,16 @@
             const key = String(tid || '').trim();
             if (placedMap[key] && isWhiteboardTaskVisible(key)) rootPlacedIndex = index;
         });
-        if (rootPlacedIndex < 0) return requestedScope === 'board' ? null : getGlobalLocation();
+        if (rootPlacedIndex < 0) {
+            if (requestedScope === 'board') return null;
+            const global = getGlobalLocation();
+            if (global) return global;
+            for (const group of __tmGetDocTabCustomGroupsForDocGroup()) {
+                const location = __tmResolveWhiteboardTaskLocation(id, { scope: __tmBuildDocTabCustomGroupActiveId(group.id) });
+                if (location) return location;
+            }
+            return null;
+        }
         const rootPlacedId = String(path[rootPlacedIndex] || '').trim();
         if (rootPlacedId === id) return { taskId: id, docId, targetTaskId: id };
         const collapsed = __tmKanbanGetCollapsedSet();
@@ -8059,7 +8177,7 @@ return false;
         let touched = false;
         entriesByGroup.forEach((entries, groupKey) => {
             const links = globalCanvas
-                ? (typeof __tmGetWhiteboardGlobalTaskLinks === 'function' ? __tmGetWhiteboardGlobalTaskLinks() : [])
+                ? (typeof __tmGetWhiteboardGlobalTaskLinks === 'function' ? __tmGetWhiteboardGlobalTaskLinks(__tmGetWhiteboardActiveBoardKey()) : [])
                 : (typeof __tmGetAllTaskLinks === 'function' ? __tmGetAllTaskLinks({ docId: groupKey, includeAuto: true }) : []);
             const affected = __tmBuildWhiteboardDependencyAffectedTaskIdSet(
                 entries.map((entry) => entry.task),

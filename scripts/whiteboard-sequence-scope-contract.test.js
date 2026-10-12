@@ -17,7 +17,7 @@ const actionsSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/set
 assert.match(apiSource, /function __tmNormalizeWhiteboardSequenceScope[\s\S]*?'global'[\s\S]*?'document'/, 'sequence scope must normalize to global or document');
 assert.match(storeSource, /whiteboardSequenceScope:\s*'document'/, 'existing users must keep document whiteboards as the default sequence source');
 assert.match(storeSource, /tm_whiteboard_sequence_scope/, 'sequence scope must persist locally');
-assert.match(settingsSource, /白板顺序依据[\s\S]*?value="document"[\s\S]*?单文档白板[\s\S]*?value="global"[\s\S]*?全局白板/, 'settings must expose both sequence sources');
+assert.match(settingsSource, /白板顺序依据[\s\S]*?__tmGetWhiteboardLinkSourceOptions\(\)/, 'sequence settings must use the shared source choices');
 assert.doesNotMatch(renderSource, /白板顺序模式（/, 'mobile menu must not append the sequence source to the mode label');
 assert.doesNotMatch(desktopMenuSource, /白板顺序模式（/, 'desktop menu must not append the sequence source to the mode label');
 assert.match(actionsSource, /updateWhiteboardSequenceScope[\s\S]*?__tmRecomputeTaskProjection\(/, 'changing the sequence source must immediately reapply filters');
@@ -31,19 +31,15 @@ const tasks = {
     b: { id: 'b', docId: 'doc-b', root_id: 'doc-b', parentTaskId: '', done: false, children: [] },
     c: { id: 'c', docId: 'doc-b', root_id: 'doc-b', parentTaskId: '', done: false, children: [] },
 };
-const context = {
-    SettingsStore: { data: { whiteboardSequenceMode: true, whiteboardSequenceScope: 'document' } },
-    state: { viewMode: 'list', flatTasks: tasks },
-    console,
-};
-context.globalThis = context;
+const context = require('./whiteboard-tab-group-scope.test.js').createHarness();
+context.SettingsStore.data.whiteboardSequenceMode = true;
+context.SettingsStore.data.whiteboardSequenceScope = 'document';
+context.state.viewMode = 'list';
+context.state.flatTasks = tasks;
 context.__tmRuntimeState = { getFlatTaskById: (id) => tasks[id] || null };
 context.__tmTaskBoundary = { getTask: (id) => tasks[id] || null };
 
-vm.runInNewContext(`
-    function __tmNormalizeWhiteboardSequenceScope(scope) {
-        return String(scope || '').trim().toLowerCase() === 'global' ? 'global' : 'document';
-    }
+vm.runInContext(`
     function __tmGetTaskDocIdById(id) { return state.flatTasks[id]?.docId || ''; }
     function __tmGetWhiteboardGlobalBoardState() {
         return { placedTaskIds: { a: true, b: true }, detachedChildren: {} };
@@ -56,6 +52,7 @@ vm.runInNewContext(`
     ${filterSource.slice(sequenceStart, sequenceEnd)}
     globalThis.__testBuildWhiteboardSequenceVisibleTaskSet = __tmBuildWhiteboardSequenceVisibleTaskSet;
 `, context, { filename: 'whiteboard-sequence-scope-runtime.js' });
+assert.deepEqual(Array.from(context.__tmGetWhiteboardLinkSourceOptions(), option => option.value), ['document', 'global', 'tabGroup']);
 
 const candidates = Object.values(tasks);
 context.SettingsStore.data.whiteboardSequenceScope = 'document';
@@ -84,4 +81,13 @@ assert.deepEqual(
     'global scope must advance to the next linked task after the current task completes',
 );
 
+tasks.a.done = false;
+context.state.activeDocId = context.__tmBuildDocTabCustomGroupActiveId('tabs-a');
+context.SettingsStore.data.whiteboardSequenceScope = 'tabGroup';
+context.__tmGetWhiteboardGlobalTaskLinks = key => key === context.state.activeDocId ? [{from:'b',to:'a'}] : [{from:'a',to:'b'}];
+assert.deepEqual(Array.from(context.__testBuildWhiteboardSequenceVisibleTaskSet(candidates)).sort(), ['b'],
+    'tab-group sequence must follow its own graph rather than the parent graph');
+context.SettingsStore.data.whiteboardSequenceScope = 'global';
+assert.deepEqual(Array.from(context.__testBuildWhiteboardSequenceVisibleTaskSet(candidates)).sort(), ['a'],
+    'the legacy global choice must retain its parent-board meaning inside a tab group');
 console.log('whiteboard sequence scope contract tests passed');

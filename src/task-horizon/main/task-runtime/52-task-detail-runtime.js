@@ -6222,11 +6222,15 @@
                 const model = __tmBuildWhiteboardTaskOutlineModel(id, { scope, maxNodes: 4 });
                 if (model) out.push({ value: scope, label });
             };
-            add('global', '全局白板');
-            add('board', '文档框白板');
+            add('global', '文档分组全局白板');
+            add('board', '单文档总览');
+            __tmGetDocTabCustomGroupsForDocGroup().forEach((group) => {
+                add(__tmBuildDocTabCustomGroupActiveId(group.id), `页签组白板 · ${group.name}`);
+            });
             const current = String(activeScope || '').trim();
             if (current && !out.some((item) => item.value === current)) {
-                out.unshift({ value: current, label: current === 'global' ? '全局白板' : '文档框白板' });
+                out.unshift({ value: current, label: __tmIsDocTabCustomGroupActiveId(current)
+                    ? '页签组白板' : (current === 'global' ? '文档分组全局白板' : '单文档总览') });
             }
             return out;
         };

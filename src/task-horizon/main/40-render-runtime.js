@@ -45,6 +45,7 @@
         try { __tmEnsureTopbarManagerIconTouchDelegation(); } catch (e) {}
         try { __tmEnsureDocTabsAutoHideTouchDelegation(); } catch (e) {}
         try { state.dockTaskPointerGestureCleanup?.(); } catch (e) {}
+        try { __tmCleanupKanbanLaneAppearance({ preserveBackground: true }); } catch (e) {}
         try { state.multiSelectPointerGestureCleanup?.(); } catch (e) {}
         try { state.mobileBottomViewbarSwipeCleanup?.(); } catch (e) {}
         try { __tmCloseMultiSelectMoreMenu(); } catch (e) {}
@@ -3295,7 +3296,13 @@
         try { __tmSyncKanbanSnapMetrics(body, { force: true }); } catch (e) {}
         const targetLeft = __tmGetKanbanColumnSnapLeftByKey(body, key);
         if (Number.isFinite(targetLeft)) {
-            try { body.scrollLeft = targetLeft; } catch (e) {}
+            try {
+                // A tab jump may still be animating toward the old column
+                // width. Apply the new position through the shared cancel path.
+                __tmSetKanbanScrollLeftRaf(body, targetLeft);
+                __tmFlushKanbanScrollLeftRaf(body);
+                body.__tmKanbanBoardNavLockUntil = 0;
+            } catch (e) { try { body.scrollLeft = targetLeft; } catch (e2) {} }
             if (__tmIsKanbanColumnSnapMode(body)) {
                 try { __tmSnapKanbanToNearestColumn(body, { behavior: 'auto', targetLeft }); } catch (e) {}
             }
@@ -5915,10 +5922,216 @@
         return true;
     }
 
+    function __tmCleanupKanbanLaneAppearance(options = {}) {
+        const session = state.__tmKanbanLaneAppearance;
+        if (!session) return;
+        session.resize?.disconnect();
+        session.mutations?.disconnect();
+        session.unsubscribe?.();
+        if (session.frame) cancelAnimationFrame(session.frame);
+        if (session.progressFrame) cancelAnimationFrame(session.progressFrame);
+        if (!options.preserveBackground) session.layer.remove();
+        state.__tmKanbanLaneAppearance = null;
+    }
+
+    function __tmPaintKanbanLaneBackground(session, measurements) {
+        const { layer, canvas, colorProbe, body } = session;
+        const width = Math.max(1, Math.ceil(layer.clientWidth));
+        const height = Math.max(1, Math.ceil(layer.clientHeight));
+        // Backgrounds need no device-pixel scaling. Bound the backing store
+        // for boards containing many horizontally off-screen columns.
+        canvas.width = Math.min(width, 8192);
+        canvas.height = height;
+        const scale = canvas.width / width;
+        const context = canvas.getContext('2d');
+        if (!context) return;
+        const resolveColor = value => {
+            colorProbe.style.color = value;
+            return getComputedStyle(colorProbe).color;
+        };
+        const background = resolveColor('var(--tm-bg-color)');
+        const strength = (parseFloat(getComputedStyle(body).getPropertyValue('--tm-kanban-lane-strength')) || 15) / 100;
+        context.setTransform(scale, 0, 0, 1, 0, 0);
+        context.fillStyle = background;
+        context.fillRect(0, 0, width, height);
+        const columns = measurements.slice();
+        const last = columns[columns.length - 1];
+        if (last && last.left + last.width < width) {
+            columns.push({ left: last.left + last.width, top: 0, width: width - last.left - last.width, height, color: background, folded: false, outerEdge: true });
+        }
+        const strips = columns.map(item => {
+            const strip = document.createElement('canvas');
+            strip.width = 1;
+            strip.height = height;
+            const paint = strip.getContext('2d');
+            paint.fillStyle = resolveColor(item.color);
+            paint.fillRect(0, item.top, 1, item.height);
+            const fadeHeight = Math.max(1, item.height);
+            const fade = paint.createLinearGradient(0, item.top, 0, item.top + fadeHeight);
+            [[0, 2 / 3], [Math.min(.38, 10 / fadeHeight), 1], [.38, 5 / 9], [.74, 2 / 9], [1, 0]]
+                .forEach(([position, alpha]) => fade.addColorStop(position, `rgba(255,255,255,${strength * alpha})`));
+            paint.globalCompositeOperation = 'destination-in';
+            paint.fillStyle = fade;
+            paint.fillRect(0, 0, 1, height);
+            paint.globalCompositeOperation = 'destination-over';
+            paint.fillStyle = background;
+            paint.fillRect(0, 0, 1, height);
+            context.drawImage(strip, 0, 0, 1, height, item.left, 0, item.width, height);
+            return strip;
+        });
+        columns.slice(0, -1).forEach((left, index) => {
+            const right = columns[index + 1];
+            const folded = left.folded || right.folded;
+            const halfWidth = Math.min(right.outerEdge ? (folded ? 8 : 14) : (folded ? 12 : 28), left.width / 2, right.width / 2);
+            const seamLeft = right.left - halfWidth;
+            const seamWidth = halfWidth * 2;
+            // Below a short rail its strip contains only the theme background.
+            // Continue the seam there, blending the adjacent tall column into
+            // that space without extending the rail's own tint or geometry.
+            context.drawImage(strips[index + 1], 0, 0, 1, height, seamLeft, 0, seamWidth, height);
+            const pixelWidth = 1 / scale;
+            for (let offset = 0; offset < seamWidth; offset += pixelWidth) {
+                context.globalAlpha = Math.max(0, 1 - (offset + pixelWidth / 2) / seamWidth);
+                context.drawImage(strips[index], 0, 0, 1, height, seamLeft + offset, 0, Math.min(pixelWidth, seamWidth - offset), height);
+            }
+            context.globalAlpha = 1;
+        });
+    }
+
+    function __tmBindKanbanLaneAppearance(body) {
+        const board = body?.querySelector('.tm-kanban');
+        const previous = state.__tmKanbanLaneAppearance;
+        if (previous?.board === board && body?.dataset.kanbanAppearance === 'lanes') {
+            previous.schedule();
+            return;
+        }
+        __tmCleanupKanbanLaneAppearance();
+        if (!(board instanceof HTMLElement) || body.dataset.kanbanAppearance !== 'lanes') return;
+        const layer = document.createElement('div');
+        layer.className = 'tm-kanban-lane-background';
+        layer.setAttribute('aria-hidden', 'true');
+        const canvas = document.createElement('canvas');
+        const colorProbe = document.createElement('span');
+        colorProbe.className = 'tm-kanban-lane-color-probe';
+        layer.append(canvas, colorProbe);
+        board.prepend(layer);
+        const session = { board, body, layer, canvas, colorProbe, frame: 0, progressFrame: 0, progressIds: new Set(), observed: new Set(), progressRequested: new Set() };
+        const sync = () => {
+            session.frame = 0;
+            if (!board.isConnected || body.dataset.kanbanAppearance !== 'lanes') {
+                if (state.__tmKanbanLaneAppearance === session) __tmCleanupKanbanLaneAppearance();
+                return;
+            }
+            const columns = Array.from(board.children).filter(node => node.matches('.tm-kanban-col'));
+            const boardRect = board.getBoundingClientRect();
+            const measurements = columns.map(column => {
+                const rect = column.getBoundingClientRect();
+                const header = column.querySelector('.tm-kanban-col-header:not(.tm-kanban-col-header--collapsed)');
+                const list = column.querySelector('.tm-kanban-col-body');
+                const folded = column.classList.contains('tm-kanban-col--collapsed');
+                let contentHeight = 0;
+                if (!folded && list) {
+                    const children = Array.from(list.children).filter(node => !node.hidden && node.getClientRects().length);
+                    const first = children[0]?.getBoundingClientRect();
+                    const last = children[children.length - 1]?.getBoundingClientRect();
+                    contentHeight = first && last ? last.bottom - first.top : 0;
+                }
+                const color = getComputedStyle(column).getPropertyValue('--tm-kanban-lane-color').trim() || 'var(--tm-primary-color)';
+                return { column, color, left: rect.left - boardRect.left, top: rect.top - boardRect.top,
+                    width: rect.width, height: folded ? rect.height : Math.min(rect.height, (header?.offsetHeight || 44) + contentHeight + 100), folded };
+            });
+            const observed = new Set([board]);
+            columns.forEach(column => {
+                observed.add(column);
+                column.querySelectorAll('.tm-kanban-col-header, .tm-kanban-col-body > *').forEach(node => observed.add(node));
+            });
+            session.observed.forEach(node => { if (!observed.has(node)) session.resize?.unobserve(node); });
+            observed.forEach(node => { if (!session.observed.has(node)) session.resize?.observe(node); });
+            session.observed = observed;
+            layer.style.width = `${Math.ceil(Math.max(board.clientWidth, ...measurements.map(item => item.left + item.width)))}px`;
+            __tmPaintKanbanLaneBackground(session, measurements);
+            __tmWarmKanbanLaneProjectProgress(session);
+        };
+        session.schedule = () => {
+            if (!session.frame) session.frame = requestAnimationFrame(sync);
+        };
+        if (typeof ResizeObserver === 'function') session.resize = new ResizeObserver(session.schedule);
+        session.mutations = new MutationObserver(records => {
+            if (records.some(record => !layer.contains(record.target))) session.schedule();
+        });
+        session.mutations.observe(board, { childList: true, subtree: true, characterData: true,
+            attributes: true, attributeFilter: ['hidden', 'class', 'style'] });
+        state.__tmKanbanLaneAppearance = session;
+        if (__tmGetKanbanBoardMode() === 'heading') session.unsubscribe = globalThis.__tmTaskStore?.subscribe?.(mutation => {
+            // A task outside the progressive DOM window still changes the
+            // column's completion ratio. Do not wait for its card to mount.
+            if (!mutation.taskId) return;
+            if (['taskPatch', 'contentPatch'].includes(mutation.type)
+                && !Object.keys({ ...mutation.patch, ...mutation.inversePatch }).some(field =>
+                    /^(done|customStatus|custom_status|taskMarker|task_marker|marker|root_id|docId|h[1-6](Id)?|heading|parentTaskId|parent_task_id)$/.test(field))) return;
+            const task = globalThis.__tmTaskStore?.getProjected?.(mutation.taskId) || state.flatTasks?.[mutation.taskId];
+            const docId = String(task?.root_id || task?.docId || '').trim();
+            if (docId) {
+                __tmInvalidateDocProgressCache(docId);
+                if (mutation.phase !== 'optimistic') session.progressRequested.delete(docId);
+            }
+            __tmScheduleKanbanLaneProgress(mutation.taskId);
+        });
+        session.schedule();
+    }
+
+    function __tmWarmKanbanLaneProjectProgress(session) {
+        const bars = Array.from(session.board.querySelectorAll('.tm-kanban-col-progress[data-progress-doc]'));
+        const applyCached = () => bars.forEach(bar => {
+            const percent = __tmGetFreshDocProgress(bar.dataset.progressDoc);
+            if (percent === null || Number(bar.getAttribute('aria-valuenow')) === percent) return;
+            const label = `项目进度 ${percent}%`;
+            bar.style.setProperty('--tm-kanban-completion', percent / 100);
+            bar.setAttribute('aria-valuenow', percent);
+            bar.setAttribute('aria-valuetext', label);
+            bar.title = label;
+            bar.closest('.tm-kanban-col').querySelectorAll('.tm-kanban-col-completion').forEach(text => {
+                text.textContent = `${percent}%`;
+                text.title = label;
+            });
+        });
+        applyCached();
+        const ids = Array.from(new Set(bars.map(bar => bar.dataset.progressDoc).filter(Boolean)))
+            .filter(id => __tmGetFreshDocProgress(id) === null && !session.progressRequested.has(id));
+        if (!ids.length) return;
+        ids.forEach(id => session.progressRequested.add(id));
+        const revision = globalThis.__tmTaskStore?.revision?.();
+        __tmLoadDocProgressBatch(ids).then(() => {
+            if (state.__tmKanbanLaneAppearance !== session || !session.board.isConnected
+                || globalThis.__tmTaskStore?.revision?.() !== revision) return;
+            // Columns can be patched while a shared batch request is active.
+            // Resolve the current progress nodes in the next scheduled pass.
+            session.schedule();
+        }).catch(() => null);
+    }
+
+    function __tmScheduleKanbanLaneProgress(taskId) {
+        const session = state.__tmKanbanLaneAppearance;
+        if (!session || __tmGetKanbanBoardMode() !== 'heading' || !taskId) return;
+        session.progressIds.add(String(taskId));
+        if (session.progressFrame) return;
+        session.progressFrame = requestAnimationFrame(() => {
+            session.progressFrame = 0;
+            if (state.__tmKanbanLaneAppearance !== session || !session.board.isConnected) return;
+            const ids = Array.from(session.progressIds);
+            session.progressIds.clear();
+            __tmRecomputeTaskProjection({ reason: 'kanban-lane-progress' });
+            if (!__tmTryRefreshKanbanColumns(state.modal, ids, { reason: 'kanban-lane-progress' })) {
+                __tmRerenderKanbanInPlace(state.modal);
+            }
+        });
+    }
+
     function __tmBindKanbanPan(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!modal) return;
         const bodyEl = modal.querySelector('.tm-body.tm-body--kanban');
+        __tmBindKanbanLaneAppearance(bodyEl);
         if (!bodyEl) return;
         try { __tmStartKanbanBootWindow(bodyEl); } catch (e) {}
         try { __tmSyncKanbanSnapMetrics(bodyEl); } catch (e) {}

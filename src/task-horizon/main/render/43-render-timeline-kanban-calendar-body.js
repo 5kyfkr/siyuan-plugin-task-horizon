@@ -496,6 +496,10 @@
             const baseKanbanW = Number.isFinite(baseKanbanW0) ? Math.max(220, Math.min(520, Math.round(baseKanbanW0))) : 320;
             const kanbanColW = isCompact ? Math.max(220, baseKanbanW - 40) : baseKanbanW;
             const kanbanFillColumns = !!SettingsStore.data.kanbanFillColumns;
+            const kanbanAppearance = SettingsStore.data.kanbanAppearance === 'classic' ? 'classic' : 'lanes';
+            const laneStrength = Number(SettingsStore.data.kanbanLaneColorStrength);
+            const laneStrengthStyle = kanbanAppearance === 'lanes'
+                ? ` style="--tm-kanban-lane-strength:${Number.isFinite(laneStrength) ? Math.max(6, Math.min(30, laneStrength)) : 15}%;"` : '';
             const kanbanCardFields = new Set(__tmGetTaskCardFieldList('kanban'));
             const keepCompletedStatusChip = __tmTaskCardAlwaysShowFieldEnabled('status');
             const kanbanCollapsedColumnKeys = __tmKanbanGetCollapsedColumnSet();
@@ -503,6 +507,7 @@
             const boardMode = __tmGetKanbanBoardMode();
             const headingMode = boardMode === 'heading';
             const timeBoardMode = boardMode === 'time';
+            const showColumnProgress = kanbanAppearance === 'lanes' && headingMode;
             const completedTasksInlineInGroups = SettingsStore.data.completedTasksInlineInGroups === true;
             const kanbanShowDoneColumn = SettingsStore.data.kanbanShowDoneColumn === true;
             const showDoneCol = (headingMode || timeBoardMode) && !!state.showCompletedTasks && !completedTasksInlineInGroups && kanbanShowDoneColumn;
@@ -917,6 +922,12 @@
                 return __tmNormalizeDateOnly(target);
             };
             const getTimeBoardGroup = (task) => getTimeGroup(getKanbanColumnTask(task));
+            const progressTaskById = showColumnProgress ? new Map(
+                __tmCollectHomepageTasks()
+                    .map(task => resolveKanbanProjectedTask(task) || task)
+                    .filter(Boolean)
+                    .map(task => [String(task.id || '').trim(), task]).filter(([id]) => id)
+            ) : new Map();
             const buildTimeBoardCols = () => {
                 const groups = new Map();
                 filtered.forEach((task) => {
@@ -1032,7 +1043,7 @@
             if (!columnPatch && !progressiveKanbanRender && __tmKanbanColsHtmlCache && __tmKanbanColsHtmlCache.key === kanbanColsCacheKey) {
                 const cachedNavHtml = String(__tmKanbanColsHtmlCache.navHtml || '');
                 return `
-                    <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}${cachedNavHtml ? ' tm-body--kanban-has-board-nav' : ''}" ondragover="tmKanbanAutoScroll(event)">
+                    <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}${cachedNavHtml ? ' tm-body--kanban-has-board-nav' : ''}" data-kanban-appearance="${kanbanAppearance}"${laneStrengthStyle} ondragover="tmKanbanAutoScroll(event)">
                         ${cachedNavHtml}
                         <div class="tm-kanban tm-kanban--clean${isCompact ? ' tm-kanban--compact' : ''}${kanbanFillColumns ? ' tm-kanban--fill' : ''}">
                             ${__tmKanbanColsHtmlCache.html}
@@ -1204,25 +1215,36 @@
             })();
 
             const tasksByStatus = new Map(cols.map(c => [String(c?.id || '').trim(), []]));
-            filtered.forEach(task => {
+            const getColumnMembershipKey = (task) => {
                 const columnTask = getKanbanColumnTask(task);
                 const columnTaskDone = __tmIsTaskDoneForTailGroup(columnTask);
-                let key = '';
-                if (timeBoardMode) {
-                    key = (showDoneCol && columnTaskDone)
-                        ? '__done__'
-                        : (String(getTimeBoardGroup(task)?.key || 'pending').trim() || 'pending');
-                } else if (!headingMode) {
-                    key = (showDoneCol && columnTaskDone) ? '__done__' : __tmResolveTaskStatusId(columnTask, statusOptions);
-                } else if (showDoneCol && columnTaskDone) {
-                    key = '__done__';
-                } else if (isAllTabsView) {
-                    key = String(columnTask?.root_id || '').trim() || '__unknown__';
-                } else {
-                    const did = String(columnTask?.root_id || '').trim();
-                    if (did !== activeDocId) return;
-                    key = __tmGetDocHeadingBucket(columnTask, noHeadingLabel).key;
-                }
+                if (showDoneCol && columnTaskDone) return '__done__';
+                if (timeBoardMode) return String(getTimeBoardGroup(task)?.key || 'pending').trim() || 'pending';
+                if (!headingMode) return __tmResolveTaskStatusId(columnTask, statusOptions);
+                if (isAllTabsView) return String(columnTask?.root_id || '').trim() || '__unknown__';
+                if (String(columnTask?.root_id || '').trim() !== activeDocId) return '';
+                return __tmGetDocHeadingBucket(columnTask, noHeadingLabel).key;
+            };
+            const progressByColumn = new Map();
+            if (showColumnProgress) {
+                progressTaskById.forEach(task => {
+                    const key = isAllTabsView ? String(task.root_id || task.docId || '').trim()
+                        : __tmGetDocHeadingBucket(task, noHeadingLabel).key;
+                    if (!key) return;
+                    const progress = progressByColumn.get(key) || __tmCreateProjectTaskStats();
+                    __tmAddProjectTaskToStats(progress, task);
+                    progressByColumn.set(key, progress);
+                    if (showDoneCol && isKanbanTaskCompleted(task)) {
+                        const doneProgress = progressByColumn.get('__done__') || __tmCreateProjectTaskStats();
+                        __tmAddProjectTaskToStats(doneProgress, task);
+                        progressByColumn.set('__done__', doneProgress);
+                    }
+                });
+            }
+            filtered.forEach(task => {
+                const columnTask = getKanbanColumnTask(task);
+                const key = getColumnMembershipKey(task);
+                if (!key) return;
                 const isSeparateCompletedStatusColumn = !completedTasksInlineInGroups
                     && !headingMode
                     && key !== '__done__'
@@ -2157,7 +2179,13 @@
                 const colStyleBase = kanbanFillColumns
                     ? `flex:1 0 ${kanbanColW}px;min-width:${kanbanColW}px;max-width:none;`
                     : `width:${kanbanColW}px;min-width:${kanbanColW}px;max-width:${kanbanColW}px;`;
-                const colStyle = `${colStyleBase}--tm-kanban-create-color:${colTitleColor};${colTintBg ? `--tm-kanban-col-tint:${colTintBg};` : ''}`;
+                const colStyle = `${colStyleBase}--tm-kanban-create-color:${colTitleColor};${kanbanAppearance === 'lanes' ? `--tm-kanban-lane-color:${String(c?.color || '').trim() || 'var(--tm-primary-color)'};` : ''}${colTintBg ? `--tm-kanban-col-tint:${colTintBg};` : ''}`;
+                const columnProgress = progressByColumn.get(String(c.id)) || { total: 0, done: 0 };
+                const progressDocId = showColumnProgress && kind === 'doc' ? String(c.id) : '';
+                const progressPercent = showColumnProgress ? __tmGetProjectProgressPercent(columnProgress, progressDocId) : 0;
+                const progressLabel = columnProgress.total ? `项目进度 ${progressPercent}%` : '暂无任务';
+                const progressTextHtml = showColumnProgress ? `<span class="tm-kanban-col-completion" title="${esc(progressLabel)}">${progressPercent}%</span>` : '';
+                const progressBarHtml = showColumnProgress ? `<div class="tm-kanban-col-progress" data-progress-doc="${esc(progressDocId)}" role="progressbar" aria-label="${esc(c.name)}完成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" aria-valuetext="${esc(progressLabel)}" title="${esc(progressLabel)}" style="--tm-kanban-completion:${progressPercent / 100}"><span></span></div>` : '';
                 const docIdForTitle = String(c?.docId || c?.id || '').trim();
                 const headingDocId = String(c?.docId || '').trim();
                 const headingIdForCreate = String(c?.headingId || '__none__').trim() || '__none__';
@@ -2197,6 +2225,7 @@
                 });
                 const headerActionsHtml = `
                     <div class="tm-kanban-col-header-actions" onclick="event.stopPropagation()">
+                        ${progressTextHtml}
                         ${canQuickAddToDoc
                             ? `<button class="tm-group-create-btn tm-kanban-create-btn tm-kanban-col-add"
                                        type="button"
@@ -2269,6 +2298,7 @@
                     : '';
                 return `
                     <div class="tm-kanban-col${isColumnCollapsed ? ' tm-kanban-col--collapsed' : ''}" ${dataAttrs} data-col-key="${esc(columnKey)}" style="${colStyle}" ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
+                        ${progressBarHtml}
                         <div class="tm-kanban-col-header" data-tm-kanban-column-expanded-content${isColumnCollapsed ? ' hidden' : ''}${headingContextMenuAttrs}>
                             ${titleHtml}
                         </div>
@@ -2285,6 +2315,7 @@
                                 ${collapsedIconHtml}
                                 <span class="tm-kanban-col-collapsed-title">${esc(collapsedTitle)}</span>
                                 <span class="tm-badge tm-badge--count">${count}</span>
+                                ${progressTextHtml}
                             </div>
                             <button class="tm-kanban-col-collapse tm-kanban-col-collapse--expand"
                                     type="button"
@@ -2310,7 +2341,7 @@
             }
 
             return `
-                <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}${kanbanBoardNavHtml ? ' tm-body--kanban-has-board-nav' : ''}" ondragover="tmKanbanAutoScroll(event)">
+                <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}${kanbanBoardNavHtml ? ' tm-body--kanban-has-board-nav' : ''}" data-kanban-appearance="${kanbanAppearance}"${laneStrengthStyle} ondragover="tmKanbanAutoScroll(event)">
                     ${kanbanBoardNavHtml}
                     <div class="tm-kanban tm-kanban--clean${isCompact ? ' tm-kanban--compact' : ''}${kanbanFillColumns ? ' tm-kanban--fill' : ''}">
                         ${colsHtml}

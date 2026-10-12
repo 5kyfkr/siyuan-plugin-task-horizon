@@ -12,6 +12,7 @@ const storeSource = read('10-stores-rules-and-cache.js');
 const syncSource = read('render/39-render-doc-group-sync-and-refresh.js');
 const controlsSource = read('render/45-render-shell-controls-and-resize.js');
 const dialogSource = read('30-dialogs-and-ui-foundation.js');
+const whiteboardSource = read('task-runtime/51-whiteboard-and-link-runtime.js');
 const exportSource = read('settings/64-export-runtime.js');
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
@@ -64,6 +65,8 @@ function harness(overrides = {}) {
         WhiteboardStore: { loaded: false },
     });
     context.window = context;
+    vm.runInContext(between(dialogSource, '    const __TM_DOC_TAB_CUSTOM_GROUP_ACTIVE_PREFIX =', '    function __tmFindDocTabCustomGroupById('), context);
+    vm.runInContext(between(whiteboardSource, '    function __tmRemoveWhiteboardScopes(', '    function __tmGetWhiteboardAllTabsDocOrderByGroupMap('), context);
     vm.runInContext(helpers, context);
     vm.runInContext(between(syncSource, '    function __tmBuildDocGroupSyncSnapshot(', '    function __tmBuildDocScopeFingerprint('), context);
     vm.runInContext(between(syncSource, '    function __tmApplyDocGroupSyncSnapshot(', '    function __tmEnsureActiveDocValidAfterDocGroupSync('), context);
@@ -197,6 +200,22 @@ test('deleting a group removes only its visibility preference', async () => {
     const update = vm.runInContext(`({ ${method} }).updateDocGroups`, context);
     await update.call(context.SettingsStore, [{ id: 'B' }]);
     assert.deepEqual(plain(data.showCompletedTasksByGroup), { B: true, all: false });
+});
+
+test('deleting a document group also removes its tab-group boards and order without touching another group', async () => {
+    const {context,data} = harness({docTabCustomGroups:[{id:'tabs-a',docGroupId:'A'},{id:'tabs-b',docGroupId:'B'}]});
+    const keyA = context.__tmBuildDocTabCustomGroupActiveId('tabs-a');
+    const keyB = context.__tmBuildDocTabCustomGroupActiveId('tabs-b');
+    data.whiteboardGlobalBoardsByGroup = {A:{notes:[{id:'a'}]},B:{notes:[{id:'b'}]},[keyA]:{notes:[{id:'ta'}]},[keyB]:{notes:[{id:'tb'}]}};
+    data.whiteboardAllTabsDocOrderByGroup = {A:['a'],B:['b'],[keyA]:['a'],[keyB]:['b']};
+    context.WhiteboardStore.loaded = true;
+    context.WhiteboardStore.data = {};
+    context.WhiteboardStore.scheduleSave = () => {};
+    const method = between(storeSource, '        async updateDocGroups(groups) {', '        // 便捷方法：更新当前分组ID');
+    await vm.runInContext(`({ ${method} }).updateDocGroups`,context).call(context.SettingsStore,[{id:'B'}]);
+    assert.deepEqual(Object.keys(data.whiteboardGlobalBoardsByGroup).sort(),['B',keyB].sort());
+    assert.deepEqual(plain(data.whiteboardAllTabsDocOrderByGroup),{B:['b'],[keyB]:['b']});
+    assert.deepEqual(Object.keys(context.WhiteboardStore.data.globalBoardsByGroup).sort(),['B',keyB].sort());
 });
 
 test('document-group import merges preferences without clearing unrelated groups', () => {

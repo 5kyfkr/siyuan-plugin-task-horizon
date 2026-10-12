@@ -886,6 +886,7 @@ if (shouldMarkDirty) {
 
     // 插件卸载清理
     function __tmCleanup() {
+        try { __tmCleanupKanbanLaneAppearance(); } catch (e) {}
         try {
             if (state.__tmCalendarTopbarSyncTimer) clearTimeout(state.__tmCalendarTopbarSyncTimer);
             state.__tmCalendarTopbarSyncTimer = null;

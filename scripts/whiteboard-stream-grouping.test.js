@@ -96,6 +96,7 @@ function renderStream(options = {}) {
     const filtered = state.filteredTasks, alwaysVisibleHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks();
     const isMobile = !!options.isMobile, isDark = !!options.isDark, bodyAnimClass = '';
     const currentGroupId = SettingsStore.data.currentGroupId;
+    const whiteboardScope = { boardKey: currentGroupId };
     const docsInOrder0 = state.taskTree.map((doc) => doc.id);
     const selectedDocIds = fixture.selectedDocIds || __tmGetVisibleDocTabsForCurrentGroup().map((doc) => doc.id);
     const docNameById = new Map(state.taskTree.map((doc) => [doc.id, doc.name]));

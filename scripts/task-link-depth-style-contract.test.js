@@ -29,7 +29,7 @@ assert.match(
 );
 assert.match(
     whiteboardBody,
-    /const manualNodeLinks = isGlobalCanvasDoc[\s\S]*?__tmGetWhiteboardGlobalTaskLinks\(\)[\s\S]*?__tmGetAllTaskLinks\(\{ docId, includeAuto: false \}\);[\s\S]*?const linkedTaskIdSet = new Set\(\);/,
+    /const manualNodeLinks = isGlobalCanvasDoc[\s\S]*?__tmGetWhiteboardGlobalTaskLinks\(globalWhiteboardGroupId\)[\s\S]*?__tmGetAllTaskLinks\(\{ docId, includeAuto: false \}\);[\s\S]*?const linkedTaskIdSet = new Set\(\);/,
     'whiteboard linked state must include global-board and document links',
 );
 assert.match(

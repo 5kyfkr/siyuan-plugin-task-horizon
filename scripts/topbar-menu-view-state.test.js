@@ -9,6 +9,8 @@ const { test } = require('node:test');
 const root = path.resolve(__dirname, '..');
 const controls = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/45-render-shell-controls-and-resize.js'), 'utf8');
 const switching = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/47-render-side-panels-and-view-switching.js'), 'utf8');
+const foundation = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8');
+const whiteboard = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/51-whiteboard-and-link-runtime.js'), 'utf8');
 const slice = (source, start, end) => {
     const from = source.indexOf(start);
     const to = source.indexOf(end, from + start.length);
@@ -63,6 +65,8 @@ function fixture({ mobile = false, dock = false } = {}) {
     for (const name of ['__tmCaptureBodyOnlyViewScroll', '__tmHideFloatingTooltip', '__tmClearKanbanDetailFloatingHandlers', '__tmCommitPersistentSideDockTransfers', '__tmReleaseDetachedViewStage', '__tmSyncBodyOnlyViewSwitcherButtons', '__tmSyncPersistentSideDocksAfterViewSwitch', '__tmRestoreBodyOnlyViewScroll']) context[name] = () => {};
     vm.createContext(context);
     vm.runInContext([
+        slice(foundation, '    const __TM_DOC_TAB_CUSTOM_GROUP_ACTIVE_PREFIX =', '    function __tmFindDocTabCustomGroupById('),
+        slice(whiteboard, '    function __tmIsWhiteboardAggregateTab(', '    function __tmGetWhiteboardSingleDocId('),
         slice(controls, '    function __tmBuildKanbanModeMenuOptions', '    let __desktopMenuUnstack'),
         slice(switching, '    function __tmAiUsesOverlayPanel', '    async function __tmMountAiSidebarHost'),
         slice(switching, '    function __tmRenderBodyOnlyViewToolbarExtra', '    function __tmSyncCalendarTopbarActionForView'),

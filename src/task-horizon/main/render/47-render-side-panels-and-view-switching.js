@@ -1050,6 +1050,7 @@
             }
             if (prevMode === 'kanban') {
                 try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
+                try { __tmCleanupKanbanLaneAppearance(); } catch (e) {}
             }
             state.listDomRenderSignature = '';
             toolbarExtra.innerHTML = __tmRenderBodyOnlyViewToolbarExtra(nextMode, scene);

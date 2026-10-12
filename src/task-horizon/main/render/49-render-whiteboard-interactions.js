@@ -56,7 +56,7 @@
     function __tmGetWhiteboardNoteStorage(noteId = '') {
         const id = String(noteId || '').trim();
         if (typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive()) {
-            const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+            const groupId = __tmGetWhiteboardActiveBoardKey();
             const board = __tmGetWhiteboardGlobalBoardState(groupId);
             const notes = Array.isArray(board?.notes) ? [...board.notes] : [];
             if (!id || notes.some((n) => String(n?.id || '').trim() === id)) {
@@ -114,7 +114,7 @@
     function __tmGetWhiteboardFrameStorage(frameId = '') {
         const id = String(frameId || '').trim();
         if (typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive()) {
-            const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+            const groupId = __tmGetWhiteboardActiveBoardKey();
             const board = __tmGetWhiteboardGlobalBoardState(groupId);
             const frames = __tmNormalizeWhiteboardFrameArrayLocal(board?.frames);
             if (!id || frames.some((frame) => String(frame?.id || '').trim() === id)) {
@@ -428,20 +428,7 @@
 
     function __tmIsWhiteboardDrawingEnabled() {
         if (state.viewMode !== 'whiteboard') return false;
-        const activeDocId = String(state.activeDocId || '').trim();
-        if (activeDocId && activeDocId !== 'all') {
-            try {
-                const customGroupDocIds = typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function'
-                    ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
-                        currentGroupId: String(SettingsStore.data.currentGroupId || 'all').trim() || 'all',
-                        docs: state.taskTree || [],
-                    })
-                    : null;
-                if (customGroupDocIds instanceof Set && customGroupDocIds.size > 0) return false;
-            } catch (e) {}
-            return true;
-        }
-        return typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive();
+        return !!__tmGetWhiteboardSingleDocId() || __tmIsWhiteboardGlobalCanvasActive();
     }
 
     function __tmGetWhiteboardDrawingConfig() {
@@ -478,7 +465,7 @@
     function __tmGetWhiteboardDrawingStorage() {
         const globalActive = typeof __tmIsWhiteboardGlobalCanvasActive === 'function' && __tmIsWhiteboardGlobalCanvasActive();
         if (globalActive && typeof __tmGetWhiteboardGlobalBoardState === 'function') {
-            const groupId = typeof __tmGetWhiteboardGlobalBoardGroupId === 'function' ? __tmGetWhiteboardGlobalBoardGroupId() : '';
+            const groupId = typeof __tmGetWhiteboardGlobalBoardGroupId === 'function' ? __tmGetWhiteboardActiveBoardKey() : '';
             const board = __tmGetWhiteboardGlobalBoardState(groupId);
             return {
                 scope: 'global',
@@ -864,7 +851,7 @@
     function __tmCommitGlobalWhiteboardPlacements(changes, opts = {}) {
         const list = Array.isArray(changes) ? changes : [changes];
         const o = (opts && typeof opts === 'object') ? opts : {};
-        const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+        const groupId = __tmGetWhiteboardActiveBoardKey();
         const board = __tmGetWhiteboardGlobalBoardState(groupId);
         const nodePos = (board?.nodePos && typeof board.nodePos === 'object') ? { ...board.nodePos } : {};
         const placedTaskIds = (board?.placedTaskIds && typeof board.placedTaskIds === 'object') ? { ...board.placedTaskIds } : {};
@@ -899,7 +886,7 @@
         const id = String(taskId || '').trim();
         if (!id) return;
         const o = (opts && typeof opts === 'object') ? opts : {};
-        const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+        const groupId = __tmGetWhiteboardActiveBoardKey();
         const board = __tmGetWhiteboardGlobalBoardState(groupId);
         const detachedChildren = (board?.detachedChildren && typeof board.detachedChildren === 'object') ? { ...board.detachedChildren } : {};
         if (detached) {
@@ -1039,7 +1026,7 @@
         let contentBounds = null;
         let fullBounds = null;
         const itemRects = [];
-        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        const allView = __tmIsWhiteboardAggregateTab();
         if (allView) {
             try {
                 viewport.querySelectorAll('.tm-whiteboard-doc[data-doc-id]').forEach((el) => {
@@ -1348,7 +1335,7 @@
 
     function __tmNormalizeWhiteboardAllViewFrames() {
         if (state.viewMode !== 'whiteboard') return;
-        if (state.activeDocId && state.activeDocId !== 'all') return;
+        if (!__tmIsWhiteboardAggregateTab()) return;
         const body = state.modal?.querySelector?.('#tmWhiteboardBody');
         if (!(body instanceof Element)) return;
         const docBodies = body.querySelectorAll('.tm-whiteboard-doc-body[data-doc-id]');
@@ -1401,7 +1388,7 @@
             const card = body.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`);
             if (card instanceof HTMLElement) {
                 card.classList.add('tm-whiteboard-card--selected');
-                const allView = !(state.activeDocId && state.activeDocId !== 'all');
+                const allView = __tmIsWhiteboardAggregateTab();
                 if (!allView) {
                     const tid = String(card.getAttribute('data-task-id') || '').trim();
                     const did = String(card.getAttribute('data-doc-id') || '').trim();
@@ -1502,21 +1489,27 @@
         const docId = String(location.docId || '').trim();
         const targetTaskId = String(location.targetTaskId || location.taskId || id).trim();
         const scope = String(location.scope || '').trim();
+        const aggregateScope = scope === 'global' || __tmIsDocTabCustomGroupActiveId(scope);
+        const aggregateTabId = scope === 'global' ? 'all' : scope;
         if (!docId || !targetTaskId) return false;
         try {
-            if (String(state.viewMode || '').trim() !== 'whiteboard') {
-                window.tmSwitchViewMode?.('whiteboard');
-            }
-            if (scope === 'global') {
+            if (aggregateScope) {
                 if (typeof window.tmSetWhiteboardAllTabsLayoutMode === 'function'
                     && __tmGetWhiteboardAllTabsLayoutMode() !== 'global') {
                     await window.tmSetWhiteboardAllTabsLayoutMode('global', null, { silent: true });
                 }
-                if (String(state.activeDocId || 'all').trim() !== 'all') {
-                    await window.tmSwitchDoc?.('all');
+                if (String(state.activeDocId || 'all').trim() !== aggregateTabId) {
+                    if (__tmIsDocTabCustomGroupActiveId(aggregateTabId)) {
+                        await window.tmSwitchDocTabCustomGroup?.(__tmParseDocTabCustomGroupActiveId(aggregateTabId));
+                    } else {
+                        await window.tmSwitchDoc?.(aggregateTabId);
+                    }
                 }
             } else if (String(state.activeDocId || 'all').trim() !== docId) {
                 await window.tmSwitchDoc?.(docId);
+            }
+            if (String(state.viewMode || '').trim() !== 'whiteboard') {
+                window.tmSwitchViewMode?.('whiteboard');
             }
         } catch (e) {}
 
@@ -1526,8 +1519,8 @@
             const maxWaitMs = 4500;
             const isWhiteboardReady = () => {
                 if (String(state.viewMode || '').trim() !== 'whiteboard') return false;
-                if (scope === 'global') {
-                    if (String(state.activeDocId || 'all').trim() !== 'all') return false;
+                if (aggregateScope) {
+                    if (String(state.activeDocId || 'all').trim() !== aggregateTabId) return false;
                     if (__tmGetWhiteboardAllTabsLayoutMode() !== 'global') return false;
                 } else if (String(state.activeDocId || 'all').trim() !== docId) return false;
                 const modal = state.modal instanceof Element ? state.modal : null;
@@ -1535,7 +1528,7 @@
                 const body = modal?.querySelector?.('#tmWhiteboardBody');
                 if (!(viewport instanceof HTMLElement) || !(body instanceof HTMLElement)) return false;
                 try {
-                    const docBody = scope === 'global'
+                    const docBody = aggregateScope
                         ? body.querySelector('.tm-whiteboard-doc-body[data-tm-whiteboard-scope="global"]')
                         : body.querySelector(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(docId)}"]`);
                     return docBody instanceof HTMLElement;
@@ -1860,7 +1853,7 @@
 
     function __tmResolveWhiteboardCreatePointerInfo(ev, docIdHint = '') {
         const hint = String(docIdHint || '').trim();
-        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        const allView = __tmIsWhiteboardAggregateTab();
         const globalActive = allView
             && typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
             && __tmIsWhiteboardGlobalCanvasActive();
@@ -2926,7 +2919,7 @@
         if (target && target.closest && target.closest('.tm-whiteboard-frame,.tm-whiteboard-frame-tools,.tm-btn,input,button,select,textarea,label,a')) return false;
         if (!__tmRequireWhiteboardFrameFeature()) return false;
         const activeDocId = String(state.activeDocId || '').trim();
-        const singleDocCanvas = !!activeDocId && activeDocId !== 'all';
+        const singleDocCanvas = !!__tmGetWhiteboardSingleDocId(activeDocId);
         const start = __tmResolveWhiteboardCreatePointerInfo(ev, singleDocCanvas ? activeDocId : '');
         if (!start) return false;
         let docBody = start.body;
@@ -3993,7 +3986,7 @@
                 }
             }
             if (d && Array.isArray(d.group) && d.group.length > 1) {
-                const allView = !(state.activeDocId && state.activeDocId !== 'all');
+                const allView = __tmIsWhiteboardAggregateTab();
                 const now = String(Date.now());
                 const globalStorage = (d.group || []).some((g) => g?.kind === 'note' && g.global)
                     ? __tmGetWhiteboardNoteStorage()
@@ -4259,7 +4252,7 @@
         const ids = __tmWhiteboardCollectTaskTreeIds(id, { includeRoot: true, includeDetached: false, includeSnapshotTree: true });
         __tmPushWhiteboardHistorySnapshot('delete-card');
         if (isGlobalCard) {
-            const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+            const groupId = __tmGetWhiteboardActiveBoardKey();
             const board = __tmGetWhiteboardGlobalBoardState(groupId);
             const nodePos = (board?.nodePos && typeof board.nodePos === 'object') ? { ...board.nodePos } : {};
             const placedTaskIds = (board?.placedTaskIds && typeof board.placedTaskIds === 'object') ? { ...board.placedTaskIds } : {};
@@ -4478,7 +4471,7 @@
         });
         __tmPushWhiteboardHistorySnapshot('delete-multi');
         if (isGlobalSelection) {
-            const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+            const groupId = __tmGetWhiteboardActiveBoardKey();
             const board = __tmGetWhiteboardGlobalBoardState(groupId);
             const nodePos = (board?.nodePos && typeof board.nodePos === 'object') ? { ...board.nodePos } : {};
             const placedTaskIds = (board?.placedTaskIds && typeof board.placedTaskIds === 'object') ? { ...board.placedTaskIds } : {};
@@ -4515,11 +4508,11 @@
                 : '__tm_global_whiteboard__';
             const hasGlobalSelectedLinks = linkKeys.some((key) => String(key || '').startsWith(`${globalCanvasDocId}::`));
             if (hasGlobalSelectedLinks && typeof __tmGetWhiteboardGlobalTaskLinks === 'function' && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
-                const globalLinks = __tmGetWhiteboardGlobalTaskLinks().filter((x) => {
+                const globalLinks = __tmGetWhiteboardGlobalTaskLinks(__tmGetWhiteboardActiveBoardKey()).filter((x) => {
                     const key = `${globalCanvasDocId}::${String(x?.id || '').trim()}`;
                     return !selectedSet.has(key);
                 });
-                __tmSetWhiteboardGlobalTaskLinks(globalLinks, '', { keepEmpty: true });
+                __tmSetWhiteboardGlobalTaskLinks(globalLinks, __tmGetWhiteboardActiveBoardKey(), { keepEmpty: true });
             }
             const links = __tmGetManualTaskLinks().filter((x) => {
                 const key = `${String(x?.docId || '').trim()}::${String(x?.id || '').trim()}`;
@@ -4627,7 +4620,7 @@
             && typeof __tmSetWhiteboardGlobalTaskLinks === 'function';
         if (isGlobalAutoConnect) {
             const ordered = buildRowsOrder(items);
-            const manual = __tmGetWhiteboardGlobalTaskLinks();
+            const manual = __tmGetWhiteboardGlobalTaskLinks(__tmGetWhiteboardActiveBoardKey());
             let added = 0;
             let skipped = 0;
             for (let i = 1; i < ordered.length; i++) {
@@ -4656,7 +4649,7 @@
                 return;
             }
             __tmPushWhiteboardHistorySnapshot('auto-connect-links');
-            __tmSetWhiteboardGlobalTaskLinks(manual, '', { keepEmpty: true });
+            __tmSetWhiteboardGlobalTaskLinks(manual, __tmGetWhiteboardActiveBoardKey(), { keepEmpty: true });
             try { await SettingsStore.save(); } catch (e) {}
             try { hint(`✅ 已新增 ${added} 条连线${skipped ? `（跳过 ${skipped} 条）` : ''}`, 'success'); } catch (e) {}
             __tmScheduleWhiteboardEdgeRedraw();
@@ -4742,7 +4735,7 @@
         state.whiteboardSelectedLinkId = '';
         state.whiteboardSelectedLinkDocId = '';
         __tmScheduleWhiteboardEdgeRedraw();
-        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        const allView = __tmIsWhiteboardAggregateTab();
         const isGlobalNote = __tmIsWhiteboardGlobalElement(docBody);
         const offX = (allView && !isGlobalNote) ? (Number(docBody.dataset?.frameOffsetX) || 0) : 0;
         const offY = (allView && !isGlobalNote) ? (Number(docBody.dataset?.frameOffsetY) || 0) : 0;
@@ -4925,7 +4918,7 @@
                 });
                 if (docPlacements.length) __tmCommitWhiteboardPlacements(docPlacements, { persist: false });
                 if (globalPlacements.length) __tmCommitGlobalWhiteboardPlacements(globalPlacements, { persist: false });
-                const allView = !(state.activeDocId && state.activeDocId !== 'all');
+                const allView = __tmIsWhiteboardAggregateTab();
                 const now = String(Date.now());
                 const globalStorage = (d.group || []).some((g) => g?.kind === 'note' && g.global)
                     ? __tmGetWhiteboardNoteStorage()
@@ -4963,7 +4956,7 @@
             }
             const nx = Number(d.noteEl.style.left.replace('px', '')) || d.x0;
             const ny = Number(d.noteEl.style.top.replace('px', '')) || d.y0;
-            const allView = !(state.activeDocId && state.activeDocId !== 'all');
+            const allView = __tmIsWhiteboardAggregateTab();
             const isGlobalNote = __tmIsWhiteboardGlobalElement(d.noteEl);
             const storage = isGlobalNote
                 ? __tmGetWhiteboardNoteStorage(d.id)
@@ -5120,7 +5113,7 @@
         if (!o.save) return;
         if (!did || !Number.isFinite(x) || !Number.isFinite(y)) return;
         if (!title && !text) return;
-        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        const allView = __tmIsWhiteboardAggregateTab();
         const isGlobalNote = !!st?.globalBoard;
         const sx = Math.round(x - ((allView && !isGlobalNote) ? ox : 0));
         const sy = Math.round(y - ((allView && !isGlobalNote) ? oy : 0));
@@ -5193,7 +5186,7 @@
         try { el?.remove?.(); } catch (e) {}
         if (!o.save) return;
         if (!did || !Number.isFinite(x) || !Number.isFinite(y)) return;
-        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        const allView = __tmIsWhiteboardAggregateTab();
         const isGlobalNote = !!st?.globalBoard;
         const sx = Math.round(x - ((allView && !isGlobalNote) ? ox : 0));
         const sy = Math.round(y - ((allView && !isGlobalNote) ? oy : 0));
@@ -5432,7 +5425,7 @@
     }
 
     window.tmWhiteboardDocClick = async function(ev, docId) {
-        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        const allView = __tmIsWhiteboardAggregateTab();
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         if (tool !== 'text' && tool !== 'sticky') return;
         const target = ev?.target;
@@ -5516,7 +5509,7 @@
             if (docId) return window.tmWhiteboardDocClick(ev, docId);
         }
         const globalActive = isNoteCreateTool
-            && !(state.activeDocId && state.activeDocId !== 'all')
+            && __tmIsWhiteboardAggregateTab()
             && typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
             && __tmIsWhiteboardGlobalCanvasActive();
         if (globalActive) {
@@ -5524,14 +5517,14 @@
             const globalDocId = String(globalBody?.getAttribute?.('data-doc-id') || '').trim();
             if (globalDocId) return window.tmWhiteboardDocClick(ev, globalDocId);
         }
-        const selectedDoc = (state.activeDocId && state.activeDocId !== 'all') ? String(state.activeDocId) : '';
+        const selectedDoc = __tmGetWhiteboardSingleDocId();
         const firstDoc = selectedDoc || String((SettingsStore.data.selectedDocIds || [])[0] || '').trim();
         if (!firstDoc) return;
         return window.tmWhiteboardDocClick(ev, firstDoc);
     };
 
     window.tmWhiteboardBoardDblClick = async function(ev) {
-        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        const allView = __tmIsWhiteboardAggregateTab();
         const isGlobalCanvas = allView
             && typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
             && __tmIsWhiteboardGlobalCanvasActive();
@@ -6048,7 +6041,7 @@
                 try { ev.dataTransfer.setDragImage(dragGhost, 12, 12); } catch (e) {}
             }
         } catch (e) {}
-        __tmStartWhiteboardPoolGlobalTracking(String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
+        __tmStartWhiteboardPoolGlobalTracking(__tmGetWhiteboardSingleDocId());
     };
 
     window.tmWhiteboardPoolDragStart = function(ev, taskId, docId) {
@@ -6110,7 +6103,7 @@
                 try { ev.dataTransfer.setDragImage(dragGhost, 12, 12); } catch (e) {}
             }
         } catch (e) {}
-        __tmStartWhiteboardPoolGlobalTracking(String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
+        __tmStartWhiteboardPoolGlobalTracking(__tmGetWhiteboardSingleDocId());
     };
 
     window.tmWhiteboardPoolDrag = function(ev, docIdHint) {
@@ -6130,8 +6123,8 @@
     window.tmWhiteboardBoardDragOver = function(ev) {
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
-        const info = __tmResolveWhiteboardPointerInfo(ev, String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''))
-            || __tmTrackWhiteboardPointerFromClient(ev?.clientX, ev?.clientY, String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
+        const info = __tmResolveWhiteboardPointerInfo(ev, __tmGetWhiteboardSingleDocId())
+            || __tmTrackWhiteboardPointerFromClient(ev?.clientX, ev?.clientY, __tmGetWhiteboardSingleDocId());
         const docId = String(info?.docId || state.whiteboardLinkFromDocId || '').trim();
         if (info && 'clientX' in info) {
             state.whiteboardLastBoardPointer = {
@@ -6273,7 +6266,7 @@
             }
         }
         if (!docId) {
-            docId = String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : '').trim();
+            docId = __tmGetWhiteboardSingleDocId().trim();
         }
         if (!docId) {
             const globalBody = __tmGetWhiteboardGlobalCanvasBody();
@@ -6283,16 +6276,7 @@
             return;
         }
         const activeDocIdForDrop = String(state.activeDocId || '').trim();
-        let isAllTabsDrop = !(activeDocIdForDrop && activeDocIdForDrop !== 'all');
-        try {
-            const customGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
-                ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocIdForDrop, {
-                    currentGroupId: SettingsStore?.data?.currentGroupId,
-                    docs: state.taskTree || []
-                })
-                : null;
-            if (customGroupDocIds instanceof Set && customGroupDocIds.size > 0) isAllTabsDrop = true;
-        } catch (e) {}
+        const isAllTabsDrop = __tmIsWhiteboardAggregateTab(activeDocIdForDrop);
         const globalCollectDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
         let dropDocBody = state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(docId)}"]`);
@@ -6305,7 +6289,7 @@
             return;
         }
         const isGlobalDrop = String(dropDocBody.getAttribute('data-tm-whiteboard-scope') || '').trim() === 'global';
-        const globalBoardGroupId = isGlobalDrop ? __tmGetWhiteboardGlobalBoardGroupId() : '';
+        const globalBoardGroupId = isGlobalDrop ? __tmGetWhiteboardActiveBoardKey() : '';
         const globalBoardState = isGlobalDrop ? __tmGetWhiteboardGlobalBoardState(globalBoardGroupId) : null;
         const globalNodePos = isGlobalDrop
             ? { ...((globalBoardState?.nodePos && typeof globalBoardState.nodePos === 'object') ? globalBoardState.nodePos : {}) }
@@ -6484,7 +6468,7 @@
 
     window.tmWhiteboardDocResizeMouseDown = function(ev, docId, dir) {
         if (state.viewMode !== 'whiteboard') return;
-        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        const allView = __tmIsWhiteboardAggregateTab();
         if (allView) return;
         if (Number(ev?.button) !== 0) return;
         const did = String(docId || '').trim();
@@ -6605,7 +6589,7 @@
                 return !!proxyTaskId && visibleTaskIds.has(proxyTaskId);
             };
             const links = isGlobalBody && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
-                ? __tmGetWhiteboardGlobalTaskLinks().filter((link) => {
+                ? __tmGetWhiteboardGlobalTaskLinks(__tmGetWhiteboardActiveBoardKey()).filter((link) => {
                     const from = String(link?.from || '').trim();
                     const to = String(link?.to || '').trim();
                     return !!from && !!to
@@ -7808,9 +7792,8 @@
             } catch (e) {}
         }
         const isTimelineDrop = String(state.viewMode || '').trim() === 'timeline';
-        const timelineDependencyScope = typeof __tmGetEffectiveTimelineDependencyScope === 'function'
-            ? __tmGetEffectiveTimelineDependencyScope()
-            : 'local';
+        const timelineDependencyScope = isTimelineDrop ? __tmResolveTimelineDependencyScope() : null;
+        const whiteboardBoardKey = __tmGetWhiteboardActiveBoardKey();
         if (isTimelineDrop) {
             __tmResetLinkDragState();
             __tmScheduleWhiteboardEdgeRedraw();
@@ -7828,11 +7811,8 @@
             if (!isTimelineDrop) render();
         };
         const commitDrop = async () => {
-            if (isTimelineDrop && timelineDependencyScope === 'global'
-                && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
-                && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
-                const groupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
-                const manual = __tmGetWhiteboardGlobalTaskLinks(groupId);
+            if (isTimelineDrop && timelineDependencyScope.boardKey) {
+                const manual = __tmGetWhiteboardScopeLinks(timelineDependencyScope);
                 const exists = manual.some((x) => String(x?.from || '') === fromId && String(x?.to || '') === toId);
                 if (exists) {
                     hint('ℹ 该连线已存在', 'info');
@@ -7850,7 +7830,7 @@
                     toDocId,
                     createdAt: String(Date.now()),
                 });
-                __tmSetWhiteboardGlobalTaskLinks(manual, groupId, { keepEmpty: true });
+                __tmSetWhiteboardScopeLinks(timelineDependencyScope, manual, { keepEmpty: true });
                 try { await SettingsStore.save(); } catch (e) {}
                 renderAfterDrop();
                 return;
@@ -7869,7 +7849,7 @@
                     toDocIdForGlobal = String(toNode?.getAttribute?.('data-doc-id') || toDocIdForGlobal || '').trim();
                 } catch (e) {}
                 if (hasFromNode && hasToNode) {
-                    const manual = __tmGetWhiteboardGlobalTaskLinks();
+                    const manual = __tmGetWhiteboardGlobalTaskLinks(whiteboardBoardKey);
                     const exists = manual.some(x => String(x?.from || '') === fromId && String(x?.to || '') === toId);
                     if (exists) {
                         hint('ℹ 该连线已存在', 'info');
@@ -7887,7 +7867,7 @@
                         toDocId: toDocIdForGlobal,
                         createdAt: String(Date.now()),
                     });
-                    __tmSetWhiteboardGlobalTaskLinks(manual, '', { keepEmpty: true });
+                    __tmSetWhiteboardGlobalTaskLinks(manual, whiteboardBoardKey, { keepEmpty: true });
                     try { await SettingsStore.save(); } catch (e) {}
                     renderAfterDrop();
                     return;
@@ -7940,11 +7920,11 @@
         if (String(state.whiteboardSelectedLinkDocId || '').trim() === globalCanvasDocId
             && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
             && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
-            const beforeLinks = __tmGetWhiteboardGlobalTaskLinks();
+            const beforeLinks = __tmGetWhiteboardGlobalTaskLinks(__tmGetWhiteboardActiveBoardKey());
             if (!beforeLinks.some(x => String(x?.id || '').trim() === id)) return;
             __tmPushWhiteboardHistorySnapshot('delete-link');
             const links = beforeLinks.filter(x => String(x?.id || '').trim() !== id);
-            __tmSetWhiteboardGlobalTaskLinks(links, '', { keepEmpty: true });
+            __tmSetWhiteboardGlobalTaskLinks(links, __tmGetWhiteboardActiveBoardKey(), { keepEmpty: true });
         } else {
             const beforeLinks = __tmGetManualTaskLinks();
             if (!beforeLinks.some(x => String(x?.id || '').trim() === id)) return;
@@ -7996,18 +7976,11 @@
         try { ev?.stopPropagation?.(); } catch (e) {}
         const id = String(linkId || '').trim();
         if (!id) return;
+        const scope = __tmResolveTimelineDependencyScope();
         return await __tmEnqueueTimelineMutation(async () => {
-            const scope = typeof __tmGetEffectiveTimelineDependencyScope === 'function'
-                ? __tmGetEffectiveTimelineDependencyScope()
-                : 'local';
-            if (scope === 'global' && typeof __tmGetWhiteboardGlobalTaskLinks === 'function' && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
-                const groupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
-                const globalLinks = __tmGetWhiteboardGlobalTaskLinks(groupId).filter((x) => String(x?.id || '').trim() !== id);
-                __tmSetWhiteboardGlobalTaskLinks(globalLinks, groupId, { keepEmpty: true });
-            } else {
-                const manual = __tmGetManualTaskLinks().filter((x) => String(x?.id || '').trim() !== id);
-                __tmSetManualTaskLinks(manual);
-            }
+            const links = (scope.boardKey ? __tmGetWhiteboardScopeLinks(scope) : __tmGetManualTaskLinks())
+                .filter((x) => String(x?.id || '').trim() !== id);
+            __tmSetWhiteboardScopeLinks(scope, links, { keepEmpty: true });
             if (String(state.timelineSelectedLinkId || '').trim() === id) state.timelineSelectedLinkId = '';
             try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
             try { await SettingsStore.save(); } catch (e) {}
@@ -8255,7 +8228,7 @@
             : state.modal?.querySelector?.(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`);
         __tmPushWhiteboardHistorySnapshot('move-back-to-parent');
         if (__tmIsWhiteboardGlobalElement(cardEl)) {
-            const groupId = __tmGetWhiteboardGlobalBoardGroupId();
+            const groupId = __tmGetWhiteboardActiveBoardKey();
             const board = __tmGetWhiteboardGlobalBoardState(groupId);
             const nodePos = (board?.nodePos && typeof board.nodePos === 'object') ? { ...board.nodePos } : {};
             const placedTaskIds = (board?.placedTaskIds && typeof board.placedTaskIds === 'object') ? { ...board.placedTaskIds } : {};
@@ -8340,12 +8313,12 @@
         if (typeof __tmIsWhiteboardGlobalCanvasActive === 'function'
             && __tmIsWhiteboardGlobalCanvasActive()
             && typeof __tmSetWhiteboardGlobalTaskLinks === 'function') {
-            if (!__tmGetWhiteboardGlobalTaskLinks().length) {
+            if (!__tmGetWhiteboardGlobalTaskLinks(__tmGetWhiteboardActiveBoardKey()).length) {
                 render();
                 return;
             }
             __tmPushWhiteboardHistorySnapshot('clear-links');
-            __tmSetWhiteboardGlobalTaskLinks([], '', { keepEmpty: true });
+            __tmSetWhiteboardGlobalTaskLinks([], __tmGetWhiteboardActiveBoardKey(), { keepEmpty: true });
         } else {
             if (!__tmGetManualTaskLinks().length) {
                 render();

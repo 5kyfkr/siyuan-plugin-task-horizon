@@ -123,7 +123,7 @@
         const topbarPadding = useCompactTopbar ? '5px 10px' : '10px 10px';
         const topbarHeightStyle = useCompactTopbar ? 'min-height:42px;max-height:42px;height:42px;' : '';
         const whiteboardActiveDocId = String(state.activeDocId || 'all').trim() || 'all';
-        const showWhiteboardAllTabsModeToggle = renderMode === 'whiteboard' && whiteboardActiveDocId === 'all';
+        const showWhiteboardAllTabsModeToggle = renderMode === 'whiteboard' && __tmIsWhiteboardAggregateTab(whiteboardActiveDocId);
         const whiteboardAllTabsLayoutMode = __tmGetWhiteboardAllTabsLayoutMode();
         const showInlineDocGroupQuickSelect = isMobile || isDockHost;
         const showAdaptiveTabDocGroupQuickSelect = !!(__tmMountEl && !isMobile && !isDockHost);

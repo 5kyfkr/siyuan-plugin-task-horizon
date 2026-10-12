@@ -14,6 +14,8 @@ function between(source, start, end) {
     return source.slice(from, to);
 }
 const helpers = between(runtime, '    function __tmClearKeepaliveSnapshots(', '    // ===== 全局清理句柄');
+const laneCleanup = between(render, '    function __tmCleanupKanbanLaneAppearance(', '    function __tmPaintKanbanLaneBackground(');
+const renderPreparation = between(render, '    function __tmRenderNow() {', "        const kind0 = String(state.uiAnimKind").replace('    function __tmRenderNow() {', '');
 const cleanupStart = render.lastIndexOf('        if (prevModalSnapshot) {', render.indexOf('globalThis.__tmCleanupTitleWrapObservers'));
 assert.ok(cleanupStart >= 0);
 const handoff = render.slice(cleanupStart, render.indexOf('        // 应用字体大小', cleanupStart));
@@ -25,8 +27,10 @@ async function run() {
         const page = await browser.newPage();
         await page.route('**/*', route => route.abort());
         await page.setContent('<main id="old"></main><main id="active"></main>');
-        await page.addScriptTag({ content: helpers + `
+        await page.addScriptTag({ content: helpers + laneCleanup + `
+            window.__tmIsTomatoFocusModeEnabled = () => true;
             window.handoff = function(kind, softSwap) {
+                ${renderPreparation}
                 const prevMountRoot = document.querySelector('#old');
                 const nextMountRoot = document.querySelector('#active');
                 const prevModalSnapshot = prevMountRoot.firstElementChild;
@@ -94,6 +98,52 @@ async function run() {
             }
         }
         console.log('calendar host snapshots: all 7 views retain layout, scroll and click-to-restore in both hosts');
+        for (const kind of ['tab', 'dock']) {
+            for (const softSwap of [false, true]) {
+                const result = await page.evaluate(({kind, softSwap}) => {
+                    const old = document.querySelector('#old'), active = document.querySelector('#active');
+                    old.innerHTML = `<div class="tm-modal"><div class="tm-box"><div class="tm-body tm-body--kanban" data-kanban-appearance="lanes" style="width:560px;height:280px;overflow:auto">
+                        <div class="tm-kanban" style="position:relative;width:900px;height:700px">
+                            <div class="tm-kanban-lane-background" style="position:absolute;inset:0;pointer-events:none"><canvas id="live-lane-background" width="900" height="700"></canvas></div>
+                            <button style="position:relative" onclick="window.inlineClicks++">演示任务</button>
+                        </div></div></div></div>`;
+                    const source = old.firstElementChild;
+                    const layer = source.querySelector('.tm-kanban-lane-background');
+                    const canvas = layer.querySelector('canvas');
+                    const paint = canvas.getContext('2d');
+                    const gradient = paint.createLinearGradient(0, 0, 900, 0);
+                    gradient.addColorStop(0, '#dbefdf'); gradient.addColorStop(.5, '#e5dcef'); gradient.addColorStop(1, '#f0e6db');
+                    paint.fillStyle = gradient; paint.fillRect(0, 0, 900, 700);
+                    const sourcePixels = canvas.toDataURL();
+                    const scroller = source.querySelector('.tm-body');
+                    scroller.scrollLeft = 180; scroller.scrollTop = 75;
+                    window.disconnections = 0; window.inlineClicks = 0; window.mounts = 0;
+                    window.state = {modal:source,viewMode:'kanban',__tmPreserveShellDuringViewSwitchRender:softSwap,
+                        __tmKanbanLaneAppearance:{layer,frame:0,progressFrame:0,
+                            resize:{disconnect(){window.disconnections++;}},mutations:{disconnect(){window.disconnections++;}},
+                            unsubscribe(){window.disconnections++;}}};
+                    window.__tmPrepareCalendarSideDockFullRenderTransfer = () => null;
+                    window.__taskHorizonMount = root => {if(root===old)window.mounts++;};
+                    handoff(kind, softSwap);
+                    const snapshot = old.querySelector('[data-task-horizon-dock-snapshot]');
+                    const copiedCanvas = snapshot?.querySelector('.tm-kanban-lane-background canvas');
+                    const initialPixels = copiedCanvas?.toDataURL();
+                    active.innerHTML = '<div>实时 Dock 看板</div>';
+                    paint.clearRect(0, 0, canvas.width, canvas.height);
+                    const output = {samePixels:initialPixels===sourcePixels,independent:copiedCanvas!==canvas,
+                        stable:copiedCanvas?.toDataURL()===initialPixels,top:snapshot.querySelector('.tm-body').scrollTop,
+                        left:snapshot.querySelector('.tm-body').scrollLeft,disconnections:window.disconnections,
+                        sessionCleared:state.__tmKanbanLaneAppearance===null,sourceRemoved:!source.isConnected,
+                        duplicateIds:snapshot.querySelectorAll('[id]').length};
+                    snapshot.querySelector('button').click();
+                    return {...output,mounts:window.mounts,inlineClicks:window.inlineClicks,removed:!snapshot.isConnected};
+                }, {kind, softSwap});
+                assert.deepEqual(result, {samePixels:true,independent:true,stable:true,top:75,left:180,
+                    disconnections:3,sessionCleared:true,sourceRemoved:true,duplicateIds:0,mounts:1,inlineClicks:0,removed:true},
+                    `kanban background survives frozen ${kind}, softSwap=${softSwap}`);
+            }
+        }
+        console.log('kanban host snapshots: canvas pixels, scroll, cleanup and click-to-restore retained in both hosts');
     } finally { await browser.close(); }
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

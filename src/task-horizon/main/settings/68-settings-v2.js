@@ -43,7 +43,8 @@
         'v-start:layout': '启动与默认视图', 'v-start:topbar': '思源入口', 'v-start:appearance-topbar': '插件顶栏入口',
         'v-float:layout': '任务点击行为', 'v-float:quickbar': '任务悬浮条',
         'v-fields:layout': '紧凑字段', 'v-fields:search': '任务分组与排序',
-        'v-table:columns': '表格列与自定义字段', 'v-table:layout': '清单布局', 'v-tl:layout': '时间轴、看板与白板',
+        'v-table:columns': '表格列设置', 'v-table:layout': '清单布局',
+        'v-tl:timeline': '时间轴', 'v-tl:kanban': '看板', 'v-tl:whiteboard': '白板', 'v-tl:cards': '卡片通用',
         'l-density:display': '字号与阅读密度', 'l-density:layout': '紧凑字段字号',
         'l-icon:icons': '插件图标', 'l-icon:checkbox': '任务复选框', 'l-icon:colors': '重要性图标',
         'l-icon:task-count-badge': '任务数量角标',
@@ -128,7 +129,15 @@
         const groups = new Map();
         function appendGroup(node, source, section, route, preservePanel = false) {
             if (route.page !== page) return;
-            const groupKey = `${route.sub}:${source === 'appearance' && section === 'topbar' ? 'appearance-topbar' : section}`;
+            let groupSection = source === 'appearance' && section === 'topbar' ? 'appearance-topbar' : section;
+            if (route.sub === 'v-tl') {
+                const handlers = __tmSettingsV3Handlers(node);
+                if (/Timeline/.test(handlers)) groupSection = 'timeline';
+                else if (/Kanban|updateTaskCardFieldVisibility\('kanban'/.test(handlers)) groupSection = 'kanban';
+                else if (/Whiteboard|updateTaskCardFieldVisibility\('whiteboard'/.test(handlers)) groupSection = 'whiteboard';
+                else groupSection = 'cards';
+            }
+            const groupKey = `${route.sub}:${groupSection}`;
             if (preservePanel) {
                 node.dataset.tmSettingsPage = page;
                 node.dataset.tmSettingsSubpage = route.sub;
@@ -145,7 +154,7 @@
                 panel.className = 'tm-settings-panel';
                 panel.dataset.tmSettingsPage = page;
                 panel.dataset.tmSettingsSubpage = route.sub;
-                panel.dataset.tmSettingsSection = `${source}-${section}-${page}-${route.sub}`;
+                panel.dataset.tmSettingsSection = `${source}-${groupSection}-${page}-${route.sub}`;
                 panel.dataset.tmSettingsLegacySection = section;
                 const title = (source === 'docs' ? __tmSettingsV2Title(node) : '') || __tmSettingsV3GroupNames[groupKey] || TM_SETTINGS_V3_SUBPAGES[page].find(x => x[0] === route.sub)?.[1] || '设置';
                 panel.innerHTML = `<div class="tm-settings-section-title">${esc(title)}</div>`;
@@ -363,7 +372,7 @@
         'updateTaskCompletionArchiveMode', 'updateDefaultViewMode', 'updateDefaultViewModeMobile',
         'updateDockDefaultViewMode', 'updateTaskTitleClickAction', 'updateDockTaskTitleClickAction',
         'updateMobileTaskTitleClickAction', 'updateDocTabsArchiveButtonPosition',
-        'tmUpdateTimelineDependencyScope', 'updateWhiteboardSequenceScope', 'tmSelectAppearanceTheme',
+        'tmUpdateTimelineDependencyScope', 'updateKanbanAppearance', 'updateWhiteboardSequenceScope', 'tmSelectAppearanceTheme',
         'tmUpdatePriorityIconStyle', 'updateRowHeightMode', 'updateDocDisplayNameMode',
         'updateChecklistCompactRightFontSize', 'updateDurationFormat', 'updateTomatoSpentAttrMode',
         'tmUpdateAiExperienceMode', 'tmUpdateAiProvider', 'tmUpdateAiDefaultContextMode',

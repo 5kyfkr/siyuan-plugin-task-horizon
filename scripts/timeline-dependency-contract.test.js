@@ -30,19 +30,11 @@ assert.match(gantt, /__tmGetTimelineDependencyLinks\(/, 'timeline dependency ren
 assert.match(gantt, /cascadeRequestedAtStart[\s\S]*__tmCommitTimelineDependencyShift/, 'shift-drag must call the dependency cascade commit');
 assert.match(undo, /record\.type === 'taskPatchBatch'/, 'undo must support one-step task patch batches');
 
-const context = {
-    console,
-    Date,
-    Map,
-    Set,
-    SettingsStore: { data: { currentGroupId: 'group-1', timelineDependencyScope: 'global' } },
-    state: { activeDocId: 'all' },
-    __tmNormalizeTimelineDependencyScope: (value) => String(value || '').trim().toLowerCase() === 'local' ? 'local' : 'global',
-    __tmGetWhiteboardGlobalTaskLinks: () => [{ from: 'A', to: 'G', id: 'global-1' }],
-    __tmGetAllTaskLinks: () => [{ from: 'A', to: 'L', id: 'local-1' }],
-};
-vm.createContext(context);
-vm.runInContext(`${dependencySource}\nglobalThis.getScope = __tmGetEffectiveTimelineDependencyScope;\nglobalThis.getLinks = __tmGetTimelineDependencyLinks;\nglobalThis.buildPatches = __tmBuildTimelineDependencyCascadePatches;\nglobalThis.commitShift = __tmCommitTimelineDependencyShift;`, context);
+const context = require('./whiteboard-tab-group-scope.test.js').createHarness();
+context.SettingsStore.data.currentGroupId = 'group-1';
+context.__tmGetWhiteboardGlobalTaskLinks = () => [{ from: 'A', to: 'G', id: 'global-1' }];
+context.__tmGetAllTaskLinks = () => [{ from: 'A', to: 'L', id: 'local-1', docId: 'doc-1' }];
+vm.runInContext('globalThis.getScope = __tmGetEffectiveTimelineDependencyScope; globalThis.getLinks = __tmGetTimelineDependencyLinks; globalThis.buildPatches = __tmBuildTimelineDependencyCascadePatches; globalThis.commitShift = __tmCommitTimelineDependencyShift;', context);
 
 assert.equal(context.getScope({ activeDocId: 'all' }), 'global');
 assert.equal(context.getScope({ activeDocId: 'doc-1' }), 'local', 'single-document timelines must always use local links');

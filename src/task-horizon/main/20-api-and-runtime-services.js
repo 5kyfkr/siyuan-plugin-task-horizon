@@ -17383,6 +17383,11 @@ if (opts.refresh === false) return;
             const snapshotNodes = [snapshot, ...snapshot.querySelectorAll('*')];
             snapshot.__tmKeepaliveScrollPositions = [];
             sourceNodes.forEach((node, index) => {
+                // Canvas cloning retains dimensions, but not its bitmap.
+                // Copy the painted background before the live host is removed.
+                if (node instanceof HTMLCanvasElement && node.matches('.tm-kanban-lane-background > canvas')) {
+                    try { snapshotNodes[index]?.getContext('2d')?.drawImage(node, 0, 0); } catch (e) {}
+                }
                 const top = Number(node.scrollTop) || 0;
                 const left = Number(node.scrollLeft) || 0;
                 if ((top || left) && snapshotNodes[index] instanceof HTMLElement) {
@@ -17674,6 +17679,26 @@ if (opts.refresh === false) return;
     let __tmHomepageProjectsWarmupKey = '';
     let __tmHomepageProjectsWarmupIds = new Set();
 
+    function __tmCreateProjectTaskStats() {
+        return { total: 0, done: 0, doing: 0, overdue: 0 };
+    }
+
+    function __tmAddProjectTaskToStats(stats, task, today = '') {
+        if (!stats || !task || typeof task !== 'object') return;
+        stats.total++;
+        const marker = String(task.taskMarker ?? task.task_marker ?? task.marker ?? '').trim();
+        if (task.done === true || marker === '-') { stats.done++; return; }
+        if (marker === '/') stats.doing++;
+        const due = __tmNormalizeDateOnly(String(task.completionTime ?? task.completion_time ?? task['custom-completion-time'] ?? '').trim());
+        if (due && today && due < today) stats.overdue++;
+    }
+
+    function __tmGetProjectProgressPercent(stats, docId = '') {
+        const cached = docId ? __tmGetFreshDocProgress(docId) : null;
+        return cached !== null ? cached
+            : (stats?.total ? Math.min(100, Math.max(0, Math.round(stats.done / stats.total * 100))) : 0);
+    }
+
     function __tmBuildHomepageProjects(homepageTasks, todayKey) {
         const empty = { scope: 'all', sections: [], doc: null, h2Cards: [], noH2Card: null, includedDocIds: [] };
         try {
@@ -17690,22 +17715,8 @@ if (opts.refresh === false) return;
             const noteMissingProgress = (id) => { if (id && !missingProgressIds.includes(id)) missingProgressIds.push(id); };
             const noteMissingMeta = (id) => { if (id && !missingMetaIds.includes(id)) missingMetaIds.push(id); };
 
-            const createAgg = () => ({ total: 0, done: 0, doing: 0, overdue: 0 });
-            const addTaskToAgg = (agg, task) => {
-                if (!agg || !task || typeof task !== 'object') return;
-                agg.total += 1;
-                const marker = String(task?.taskMarker ?? task?.task_marker ?? task?.marker ?? '').trim();
-                const cancelled = marker === '-';
-                if (task.done === true || cancelled) {
-                    agg.done += 1;
-                    return;
-                }
-                if (marker === '/') agg.doing += 1;
-                const dueKey = __tmNormalizeDateOnly(String(
-                    task?.completionTime ?? task?.completion_time ?? task?.['custom-completion-time'] ?? ''
-                ).trim());
-                if (dueKey && today && dueKey < today) agg.overdue += 1;
-            };
+            const createAgg = __tmCreateProjectTaskStats;
+            const addTaskToAgg = (agg, task) => __tmAddProjectTaskToStats(agg, task, today);
 
             const docAgg = new Map();
             const h2Agg = new Map();
@@ -17745,9 +17756,7 @@ if (opts.refresh === false) return;
                 const agg = docAgg.get(id) || createAgg();
                 const cachedProgress = __tmGetFreshDocProgress(id);
                 if (cachedProgress === null) noteMissingProgress(id);
-                const progress = cachedProgress !== null
-                    ? cachedProgress
-                    : (agg.total ? Math.min(100, Math.max(0, Math.round((agg.done / agg.total) * 100))) : 0);
+                const progress = __tmGetProjectProgressPercent(agg, id);
                 const meta = __tmGetCachedDocExpectedMeta(id);
                 if (!meta) noteMissingMeta(id);
                 const expected = __tmComputeDocExpectedProgressPercent(meta);
@@ -17779,7 +17788,7 @@ if (opts.refresh === false) return;
                 const deadline = String(meta?.deadline || '').trim();
                 const total = Number(entry?.total) || 0;
                 const done = Number(entry?.done) || 0;
-                const progress = total ? Math.min(100, Math.max(0, Math.round((done / total) * 100))) : 0;
+                const progress = __tmGetProjectProgressPercent(entry);
                 return {
                     key: String(entry?.key || '').trim(),
                     h2Id,
@@ -17851,7 +17860,7 @@ if (opts.refresh === false) return;
                     done: noH2.done,
                     doing: noH2.doing,
                     overdue: noH2.overdue,
-                    progress: noH2.total ? Math.min(100, Math.max(0, Math.round((noH2.done / noH2.total) * 100))) : 0,
+                    progress: __tmGetProjectProgressPercent(noH2),
                     expected: null,
                     startDate: '',
                     deadline: '',
@@ -20691,6 +20700,7 @@ if (!state.homepageOpen) return;
     }
 
     function __tmNormalizeWhiteboardSequenceScope(scope) {
+        if (String(scope || '').trim().toLowerCase() === 'tabgroup') return 'tabGroup';
         return String(scope || '').trim().toLowerCase() === 'global' ? 'global' : 'document';
     }
 
@@ -20951,6 +20961,7 @@ if (!state.homepageOpen) return;
         feed(options.isCompact ? 1 : 0);
         feed(options.kanbanColW);
         feed(options.kanbanFillColumns ? 1 : 0);
+        feed(SettingsStore.data.kanbanAppearance === 'classic' ? 'classic' : 'lanes');
         feed(options.showCompletedTasks ? 1 : 0);
         feed(options.showDoneCol ? 1 : 0);
         feed(options.kanbanUseCompletedTailGroups ? 1 : 0);

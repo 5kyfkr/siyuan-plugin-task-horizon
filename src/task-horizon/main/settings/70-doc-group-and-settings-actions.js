@@ -51,7 +51,10 @@
     };
 
     async function __tmSaveDocTabCustomGroups(nextGroups, options = {}) {
+        const previousGroupIds = __tmGetDocTabCustomGroups().map((group) => group.id);
         SettingsStore.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(nextGroups);
+        const nextIds = new Set(SettingsStore.data.docTabCustomGroups.map((group) => group.id));
+        __tmRemoveWhiteboardScopes(previousGroupIds.filter((id) => !nextIds.has(id)).map(__tmBuildDocTabCustomGroupActiveId));
         let activeDocTabGroupReset = false;
         let activeDocTabGroupAffected = false;
         try {
@@ -2421,6 +2424,43 @@
         }
     };
 
+    window.updateKanbanAppearance = async function(value) {
+        SettingsStore.data.kanbanAppearance = value === 'classic' ? 'classic' : 'lanes';
+        await SettingsStore.save();
+        try { __tmKanbanColsHtmlCache = null; } catch (e) {}
+        if (state.settingsModal) showSettings();
+        if (String(state.viewMode || '') !== 'kanban' || !(state.modal instanceof Element)) return;
+        const body = state.modal.querySelector('.tm-body--kanban');
+        const index = body ? __tmGetKanbanBoardNavIndex(body) : -1;
+        const key = index >= 0 ? body.querySelectorAll('.tm-kanban-col')[index]?.getAttribute('data-col-key') : '';
+        __tmCleanupKanbanLaneAppearance();
+        __tmRecomputeTaskProjection({ reason: 'kanban-appearance' });
+        if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+        const nextBody = state.modal?.querySelector('.tm-body--kanban');
+        if (nextBody && key) {
+            const restoreColumn = () => {
+                if (!nextBody.isConnected) return;
+                const left = __tmGetKanbanColumnSnapLeftByKey(nextBody, key);
+                if (Number.isFinite(left)) nextBody.scrollLeft = left;
+                __tmSyncKanbanBoardNav(nextBody, { force: true });
+            };
+            restoreColumn();
+            // The existing rerender also restores raw offsets on the next
+            // frame. Restore this column after that to account for the gap.
+            requestAnimationFrame(() => requestAnimationFrame(restoreColumn));
+        }
+    };
+
+    window.updateKanbanLaneColorStrength = async function(value, persist = true) {
+        const strength = __tmNormalizeKanbanLaneColorStrength(value);
+        SettingsStore.data.kanbanLaneColorStrength = strength;
+        state.modal?.querySelectorAll('.tm-body--kanban[data-kanban-appearance="lanes"]').forEach(body => {
+            body.style.setProperty('--tm-kanban-lane-strength', `${strength}%`);
+        });
+        state.__tmKanbanLaneAppearance?.schedule();
+        if (persist) await SettingsStore.save();
+    };
+
     window.updateChecklistCompactMode = async function(enabled) {
         SettingsStore.data.checklistCompactMode = !!enabled;
         await SettingsStore.save();
@@ -3129,7 +3169,7 @@
         try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
         render();
-        const labelMap = { global: '全局白板', board: '文档框白板', stream: '卡片流' };
+        const labelMap = { global: '全局白板', board: '单文档总览', stream: '卡片流' };
         if (opts.silent !== true) {
             try { hint(`✅ 已切换到${labelMap[next] || '白板'}`, 'success'); } catch (e) {}
         }
@@ -3142,7 +3182,7 @@
         const next = __tmNormalizeWhiteboardAllTabsLayoutMode(mode);
         const prev = __tmGetWhiteboardAllTabsLayoutMode();
         const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-        const needSwitchAllTabs = activeDocId !== 'all';
+        const needSwitchAllTabs = !__tmIsWhiteboardAggregateTab(activeDocId);
         if (!needSwitchAllTabs && next === prev) {
             try { window.tmHideMobileMenu?.(); } catch (e) {}
             return;
@@ -3150,7 +3190,7 @@
         if (needSwitchAllTabs) {
             await window.tmSwitchDoc('all');
             if (next === prev) {
-                const labelMap = { global: '全局白板', board: '文档框白板', stream: '卡片流' };
+                const labelMap = { global: '全局白板', board: '单文档总览', stream: '卡片流' };
                 try { hint(`✅ 已切换到${labelMap[next] || '白板'}`, 'success'); } catch (e) {}
                 try { window.tmHideMobileMenu?.(); } catch (e) {}
                 return;
@@ -3227,7 +3267,7 @@
         const targetIndex = nextVisible.indexOf(targetId);
         const insertIndex = targetIndex < 0 ? nextVisible.length : Math.max(0, Math.min(nextVisible.length, targetIndex + (insertAfter ? 1 : 0)));
         nextVisible.splice(insertIndex, 0, sourceId);
-        const groupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const groupId = __tmGetWhiteboardActiveBoardKey();
         const storedIds = Array.isArray(__tmGetWhiteboardAllTabsDocOrderByGroupMap()[groupId])
             ? __tmGetWhiteboardAllTabsDocOrderByGroupMap()[groupId]
             : [];

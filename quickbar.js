@@ -10530,6 +10530,7 @@
                 if (floatBar.style.display !== 'none') hideFloatBar();
                 return;
             }
+            if (target?.closest?.('input[type="checkbox"],.protyle-action__task,.protyle-action--task,.protyle-task--checkbox,.b3-checkbox')) return;
             const now = Date.now();
             if (now - lastTriggerTime < 80) return;  // 防抖
             lastTriggerTime = now;

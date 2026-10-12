@@ -1,31 +1,28 @@
-    const __TM_TIMELINE_DEPENDENCY_SCOPES = new Set(['local', 'global']);
+    const __TM_TIMELINE_DEPENDENCY_SCOPES = new Set(['local', 'global', 'tabGroup']);
 
     function __tmGetEffectiveTimelineDependencyScope(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const activeDocId = String(Object.prototype.hasOwnProperty.call(opts, 'activeDocId')
             ? opts.activeDocId
             : state?.activeDocId || 'all').trim() || 'all';
-        if (activeDocId !== 'all') return 'local';
+        if (!__tmIsWhiteboardAggregateTab(activeDocId)) return 'local';
         const configured = __tmNormalizeTimelineDependencyScope(opts.scope ?? SettingsStore?.data?.timelineDependencyScope);
         return __TM_TIMELINE_DEPENDENCY_SCOPES.has(configured) ? configured : 'global';
     }
 
+    function __tmResolveTimelineDependencyScope(options = {}) {
+        return __tmResolveWhiteboardScope({
+            activeDocId: options.activeDocId,
+            currentGroupId: options.groupId,
+            source: __tmGetEffectiveTimelineDependencyScope(options),
+        });
+    }
+
     function __tmGetTimelineDependencyLinks(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        const scope = __tmGetEffectiveTimelineDependencyScope(opts);
-        const activeDocId = String(Object.prototype.hasOwnProperty.call(opts, 'activeDocId')
-            ? opts.activeDocId
-            : state?.activeDocId || 'all').trim() || 'all';
-        const source = scope === 'global'
-            ? (typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
-                ? __tmGetWhiteboardGlobalTaskLinks(String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all')
-                : [])
-            : (typeof __tmGetAllTaskLinks === 'function'
-                ? __tmGetAllTaskLinks({
-                    includeAuto: true,
-                    ...(activeDocId !== 'all' ? { docId: activeDocId } : {}),
-                })
-                : []);
+        const resolvedScope = opts.resolvedScope || __tmResolveTimelineDependencyScope(opts);
+        const scope = resolvedScope.kind === 'document' ? 'local' : (resolvedScope.kind === 'tabGroup' ? 'tabGroup' : 'global');
+        const source = __tmGetWhiteboardScopeLinks(resolvedScope);
         const seen = new Set();
         return (Array.isArray(source) ? source : []).filter((link) => {
             const from = String(link?.from || '').trim();
@@ -148,11 +145,18 @@
         if (sourceStart && Object.prototype.hasOwnProperty.call(sourcePatch, 'startDate')) sourceDatePatch.startDate = sourcePatch.startDate;
         if (sourceEnd && Object.prototype.hasOwnProperty.call(sourcePatch, 'completionTime')) sourceDatePatch.completionTime = sourcePatch.completionTime;
         if (!Object.keys(sourceDatePatch).length) return { changed: false, cascadeCount: 0, skippedCount: 0 };
-        const links = __tmGetTimelineDependencyLinks({
+        const resolvedScope = __tmResolveTimelineDependencyScope({
             scope: opts.scope,
-            activeDocId: opts.activeDocId,
+            activeDocId: opts.activeDocId ?? state.activeDocId,
             groupId: opts.groupId,
         });
+        const isMutableInScope = (task) => !!task && !task.__tmGlobalFrozen && !task.__tmGlobalRetained && !task.__tmGhost
+            && (resolvedScope.kind !== 'tabGroup' || __tmIsTaskInWhiteboardScope(task, resolvedScope));
+        if (!isMutableInScope(sourceTask)) throw new Error('任务不在当前白板的可编辑范围内');
+        const links = __tmGetTimelineDependencyLinks({ resolvedScope }).filter((link) => resolvedScope.kind !== 'tabGroup' || (
+            isMutableInScope(__tmGetTimelineDependencyTask(link.from, opts.getTaskById))
+            && isMutableInScope(__tmGetTimelineDependencyTask(link.to, opts.getTaskById))
+        ));
         const cascade = __tmBuildTimelineDependencyCascadePatches({
             sourceTaskId,
             deltaDays,

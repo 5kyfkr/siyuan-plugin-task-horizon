@@ -61,7 +61,7 @@ async function setup(page) {
             state: { modal: document.querySelector('#manager'), viewMode: 'kanban', activeDocId: 'all',
                 flatTasks: {}, taskTree: [], filteredTasks: [], otherBlocks: [], pendingInsertedTasks: {},
                 pendingDeletedTasks: {}, showCompletedTasks: true, rule: {}, searchKeyword: '' },
-            SettingsStore: { data: { completedTasksInlineInGroups: true } },
+            SettingsStore: { data: { completedTasksInlineInGroups: true, kanbanAppearance: 'classic' } },
             GlobalLock: { isLocked: () => false },
             __tmGroupBgFromLabelColor: () => '',
             __tmKanbanColsHtmlCache: null,

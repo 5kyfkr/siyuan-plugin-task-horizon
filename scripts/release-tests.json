@@ -53,12 +53,15 @@
     "foreground-refresh-behavior.test.js",
     "whiteboard-batch-persistence-contract.test.js",
     "whiteboard-stream-grouping.test.js",
+    "whiteboard-tab-group-scope.test.js",
     "custom-field-hierarchy-contract.test.js",
     "settings-runtime-wiring-contract.test.js"
   ],
   "browser": [
+    "calendar-host-snapshot-browser.test.js",
     "checklist-style-integration-browser.test.js",
     "kanban-column-refresh-browser.test.js",
+    "kanban-appearance-browser.test.js",
     "settings-v2-browser.test.js",
     "task-move-placement-browser.test.js",
     "quick-add-keyboard-browser.test.js",

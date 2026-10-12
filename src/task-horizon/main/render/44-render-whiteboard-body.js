@@ -164,23 +164,14 @@
                 }
             };
 
-            const activeDocId = String(state.activeDocId || '').trim();
-            const activeDocTabCustomGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
-                ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
-                    currentGroupId,
-                    docs: state.taskTree || []
-                })
-                : null;
-            const isDocTabCustomGroupActive = activeDocTabCustomGroupDocIds instanceof Set && activeDocTabCustomGroupDocIds.size > 0;
-            const selectedDocIds = isDocTabCustomGroupActive
-                ? docsInOrder.filter((id) => activeDocTabCustomGroupDocIds.has(String(id || '').trim()) && visibleDocIdSet.has(String(id || '').trim()))
-                : ((state.activeDocId && state.activeDocId !== 'all')
-                    ? [String(state.activeDocId)]
-                    : visibleDocIds);
-            const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all') || isDocTabCustomGroupActive;
+            const whiteboardScope = __tmResolveWhiteboardScope();
+            const selectedDocIds = whiteboardScope.docId
+                ? [whiteboardScope.docId]
+                : docsInOrder.filter((id) => whiteboardScope.docIds.has(id) && visibleDocIdSet.has(id));
+            const isAllTabsView = __tmIsWhiteboardAggregateTab();
             const allTabsLayoutMode = __tmGetWhiteboardAllTabsLayoutMode();
             const isGlobalBoardMode = isAllTabsView && allTabsLayoutMode === 'global';
-            const globalWhiteboardGroupId = __tmGetWhiteboardGlobalBoardGroupId(currentGroupId);
+            const globalWhiteboardGroupId = whiteboardScope.boardKey || currentGroupId;
             const globalWhiteboardProjection = isGlobalBoardMode && typeof __tmProjectGlobalWhiteboard === 'function'
                 ? __tmProjectGlobalWhiteboard(globalWhiteboardGroupId)
                 : null;
@@ -248,6 +239,7 @@
                 const docId = String(taskLike?.root_id || taskLike?.docId || '').trim();
                 const id = String(taskLike?.id || '').trim();
                 if (!docId || !id || !docIdSet.has(docId)) return;
+                if (isGlobalBoardMode && !globalWhiteboardTaskMap.has(id)) return;
                 if (!showDoneTasks && !(__tmIsTaskActive(taskLike) || (showCanceledTasks && __tmIsTaskCanceled(taskLike)))) return;
                 if (!byDoc.has(docId)) byDoc.set(docId, []);
                 const list = byDoc.get(docId);
@@ -345,9 +337,7 @@
             if (allView && allTabsLayoutMode === 'stream') {
                 const streamGroupMode = __tmGetCurrentGroupModeValue();
                 const useSemanticGroups = ['time', 'quadrant', 'task'].includes(streamGroupMode);
-                const streamDocIds = useSemanticGroups ? selectedDocIds.slice() : (typeof __tmGetVisibleDocTabsForCurrentGroup === 'function'
-                    ? __tmGetVisibleDocTabsForCurrentGroup().map((doc) => String(doc?.id || '').trim()).filter(Boolean)
-                    : selectedDocIds.slice());
+                const streamDocIds = selectedDocIds.slice();
                 const streamDocIdSet = new Set(streamDocIds);
                 const streamByDoc = new Map();
                 filtered.forEach((task) => {
@@ -367,9 +357,9 @@
                     const did = String(docId || '').trim();
                     return (streamByDoc.get(did) || []).length > 0 || alwaysVisibleHeadingDocIds.has(did);
                 });
-                const orderedVisibleDocIds = __tmGetWhiteboardAllTabsOrderedDocIds(currentGroupId, visibleDocIds0);
+                const orderedVisibleDocIds = __tmGetWhiteboardAllTabsOrderedDocIds(whiteboardScope.boardKey, visibleDocIds0);
                 state.whiteboardAllTabsVisibleDocIds = orderedVisibleDocIds.slice();
-                state.whiteboardAllTabsBaseDocIds = docsInOrder0.slice();
+                state.whiteboardAllTabsBaseDocIds = selectedDocIds.slice();
                 if (!orderedVisibleDocIds.includes(String(state.whiteboardAllTabsDocDragId || '').trim())) {
                     state.whiteboardAllTabsDocDragId = '';
                 }
@@ -401,7 +391,7 @@
                 streamCards.forEach((card, idx) => {
                     const docId = String(card.docId || '');
                     const groupKey = useSemanticGroups
-                        ? `wb_stream_${streamGroupMode}_${encodeURIComponent(currentGroupId)}_${card.pinned ? 'pinned' : `group_${encodeURIComponent(card.key)}`}`.replace(/'/g, '%27')
+                        ? `wb_stream_${streamGroupMode}_${encodeURIComponent(whiteboardScope.boardKey)}_${card.pinned ? 'pinned' : `group_${encodeURIComponent(card.key)}`}`.replace(/'/g, '%27')
                         : '';
                     const groupCollapsed = useSemanticGroups && state.collapsedGroups?.has(groupKey);
                     const docTasks = card.tasks.slice();
@@ -646,7 +636,7 @@
                     if (!tid || !placedMap[tid]) return;
                     const pos = posMap?.[tid];
                     const posDocId = String(pos?.docId || '').trim();
-                    const taskObj = (isGlobalCanvasDoc ? globalWhiteboardTaskMap.get(tid) : null) || state.flatTasks?.[tid] || (snapMap?.[tid] ? {
+                    const taskObj = isGlobalCanvasDoc ? globalWhiteboardTaskMap.get(tid) : (state.flatTasks?.[tid] || (snapMap?.[tid] ? {
                         id: tid,
                         content: String(snapMap[tid]?.content || '').trim() || '(无内容)',
                         root_id: String(snapMap[tid]?.docId || '').trim(),
@@ -658,7 +648,7 @@
                         completionTime: String(snapMap[tid]?.completionTime || '').trim(),
                         done: !!snapMap[tid]?.done,
                         __tmGhost: true,
-                    } : null);
+                    } : null));
                     if (!taskObj || globalThis.__tmProjectVisibility?.isTaskHidden(taskObj, globalWhiteboardTaskMap)) return;
                     const taskDocId = String(taskObj?.root_id || taskObj?.docId || posDocId).trim();
                     let effectivePosDocId = posDocId;
@@ -700,7 +690,7 @@
                 const rootSet = new Set(rootIds);
                 const links = isGlobalCanvasDoc ? [] : __tmGetAllTaskLinks({ docId, includeAuto: true });
                 const manualNodeLinks = isGlobalCanvasDoc && typeof __tmGetWhiteboardGlobalTaskLinks === 'function'
-                    ? __tmGetWhiteboardGlobalTaskLinks()
+                    ? __tmGetWhiteboardGlobalTaskLinks(globalWhiteboardGroupId)
                     : __tmGetAllTaskLinks({ docId, includeAuto: false });
                 const dependencyAffectedTaskIds = typeof __tmBuildWhiteboardDependencyAffectedTaskIdSet === 'function'
                     ? __tmBuildWhiteboardDependencyAffectedTaskIdSet(docTasks, manualNodeLinks, todayKey)

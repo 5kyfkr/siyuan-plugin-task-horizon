@@ -162,14 +162,14 @@ assert.ok((viewContracts[2][1].match(/__tmRenderCompletedTodayBadge\(/g) || []).
     'timeline and kanban must each render the shared today badge');
 const kanbanSource = viewContracts[2][1];
 assert.match(kanbanSource,
-    /showDoneCol && key === '__done__'[\s\S]*?__tmShouldShowTaskInCompletedRootGroup\(task\)/,
+    /showDoneCol && key === '__done__'[\s\S]*?__tmShouldShowTaskInCompletedRootGroup\(columnTask\)/,
     'the standalone kanban completed column must honor the completed-today-only filter');
 const renderDoneColumnStart = kanbanSource.indexOf('const renderDoneColumnList =');
 const renderDoneColumnEnd = kanbanSource.indexOf('\n                };', renderDoneColumnStart);
 assert.ok(renderDoneColumnStart >= 0 && renderDoneColumnEnd > renderDoneColumnStart,
     'the standalone kanban completed column renderer must remain extractable');
 const renderDoneColumn = kanbanSource.slice(renderDoneColumnStart, renderDoneColumnEnd);
-assert.match(renderDoneColumn, /renderCard\([\s\S]*false,\s*true\s*\)/,
+assert.match(renderDoneColumn, /renderTree\([\s\S]*false,\s*true\s*\)/,
     'standalone completed-column cards must render ordinary completed-today badges');
 
 console.log('task recurring completed-today contract tests passed');

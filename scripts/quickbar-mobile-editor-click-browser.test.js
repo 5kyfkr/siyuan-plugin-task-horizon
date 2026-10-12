@@ -28,8 +28,17 @@ async function checkClicks(browser, platform) {
     try {
         const page = await context.newPage();
         await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1">
-            <style>[contenteditable]{padding:24px;margin:12px;border:1px solid #ccc}button{padding:12px}</style>
-            <div class="task" data-node-id="task-1" contenteditable="true">Task text</div>
+            <style>[contenteditable="true"]{padding:24px;margin:12px;border:1px solid #ccc}button{padding:12px}
+                .protyle-action--task{display:inline-block;width:24px;height:24px;margin:12px}
+                .protyle-action--task svg{width:24px;height:24px}</style>
+            <svg style="display:none"><symbol id="iconUncheck" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20"/></symbol></svg>
+            <div class="protyle-wysiwyg">
+                <div class="task li" data-node-id="task-1" data-type="NodeListItem" data-subtype="t" data-task=" ">
+                    <div class="protyle-action protyle-action--task" contenteditable="false"><svg><use href="#iconUncheck"/></svg></div>
+                    <div class="task-text" contenteditable="true">Task text</div>
+                    <input type="checkbox" aria-label="Task checkbox">
+                </div>
+            </div>
             <div class="ordinary" contenteditable="true">Ordinary text</div>
             <div class="floatbar" style="display:none"><button>Quickbar control</button></div>
             <div class="select-menu"></div><div class="input-editor"></div>`);
@@ -38,6 +47,7 @@ async function checkClicks(browser, platform) {
             window.siyuan = { config: { system: { container: platform } } };
             window.quickbarOpens = 0;
             window.keyboardRequests = 0;
+            window.checkboxToggles = 0;
             const showKeyboard = () => { window.keyboardRequests += 1; };
             if (platform === 'android') window.JSAndroid = { showKeyboard };
             if (platform === 'harmony') window.JSHarmony = { showKeyboard };
@@ -60,6 +70,17 @@ async function checkClicks(browser, platform) {
             `);
             document.addEventListener('click', factory(), true);
 
+            // SiYuan toggles native task markers from the editor's click listener.
+            document.querySelector('.protyle-wysiwyg').addEventListener('click', event => {
+                const action = event.target.closest('.protyle-action--task');
+                if (!action) return;
+                const task = action.closest('.task');
+                task.dataset.task = task.dataset.task === ' ' ? 'x' : ' ';
+                window.checkboxToggles += 1;
+                event.preventDefault();
+                event.stopPropagation();
+            });
+
             // SiYuan mobile requests the keyboard from its window click listener.
             window.addEventListener('click', event => {
                 if (!event.target.closest('[contenteditable="true"]')) return;
@@ -69,12 +90,35 @@ async function checkClicks(browser, platform) {
             });
         }, { platform, deviceRuntime, triggerRuntime });
 
-        if (mobile) await page.locator('.task').tap();
-        else await page.locator('.task').click();
+        const taskAction = page.locator('.protyle-action--task use');
+        for (const marker of ['x', ' ']) {
+            if (mobile) await taskAction.tap();
+            else await taskAction.click();
+            assert.equal(await page.locator('.task').getAttribute('data-task'), marker,
+                `${platform}: native task checkbox toggles to ${JSON.stringify(marker)}`);
+            assert.equal(await page.evaluate(() => window.quickbarOpens), 0,
+                `${platform}: task checkbox does not open quickbar`);
+            assert.equal(await page.evaluate(() => window.keyboardRequests), 0,
+                `${platform}: task checkbox does not request the document keyboard`);
+        }
+        assert.equal(await page.evaluate(() => window.checkboxToggles), 2, `${platform}: native task toggles exactly once per click`);
+
+        const inputCheckbox = page.getByRole('checkbox', { name: 'Task checkbox' });
+        for (const checked of [true, false]) {
+            if (mobile) await inputCheckbox.tap();
+            else await inputCheckbox.click();
+            assert.equal(await inputCheckbox.isChecked(), checked, `${platform}: HTML checkbox toggles normally`);
+            assert.equal(await page.evaluate(() => window.quickbarOpens), 0,
+                `${platform}: HTML checkbox does not open quickbar`);
+        }
+
+        await page.waitForTimeout(90);
+        if (mobile) await page.locator('.task-text').tap();
+        else await page.locator('.task-text').click();
         assert.equal(await page.evaluate(() => window.quickbarOpens), 1, `${platform}: task click opens quickbar`);
         assert.equal(await page.evaluate(() => window.keyboardRequests), mobile ? 1 : 0,
             `${platform}: mobile task click reaches the host keyboard listener`);
-        assert.equal(await page.evaluate(() => document.activeElement.matches('.task')), true,
+        assert.equal(await page.evaluate(() => document.activeElement.matches('.task-text')), true,
             `${platform}: task editor retains focus`);
 
         await page.waitForTimeout(90);

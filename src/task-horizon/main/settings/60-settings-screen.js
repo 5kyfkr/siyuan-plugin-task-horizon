@@ -2278,8 +2278,8 @@
                         <div class="tm-settings-content">
                     ${activeTab === 'appearance' ? `
                         ${renderSettingsSubtabs()}
-                        <div class="tm-settings-panel tm-width-settings" data-tm-settings-section="columns" ${__tmSettingsSearchAttrs('appearance', '列设置', '显示、排序、宽度和自定义列')}>
-                            <div style="font-weight: 600; margin-bottom: 12px;">📏 列设置 (显示/排序/宽度)</div>
+                        <div class="tm-settings-panel tm-width-settings" data-tm-settings-section="columns" ${__tmSettingsSearchAttrs('appearance', '表格列设置', '显示、排序、宽度和自定义列')}>
+                            <div style="font-weight: 600; margin-bottom: 12px;">📏 表格列设置 (显示/排序/宽度)</div>
                             ${renderColumnWidthSettings()}
                             ${renderSingleFieldSetting(
                                 '高级：内置字段属性名与迁移',
@@ -2889,10 +2889,9 @@
                         )}
                         ${renderSingleFieldSetting(
                             '全部页签时间轴依赖线',
-                            '仅影响全部页签时间轴；单文档时间轴始终使用各文档连线。全局模式读取当前分组的全局白板连线。',
+                            '单文档时间轴固定使用本文件连线。页签组白板读取活动页签组的画布；没有活动页签组时使用文档分组全局白板。',
                             `<select class="b3-select" onchange="tmUpdateTimelineDependencyScope(this.value)" style="width:220px;max-width:100%;">
-                                <option value="global" ${SettingsStore.data.timelineDependencyScope === 'global' ? 'selected' : ''}>全局白板连线</option>
-                                <option value="local" ${SettingsStore.data.timelineDependencyScope === 'local' ? 'selected' : ''}>各文档连线</option>
+                                ${__tmGetWhiteboardLinkSourceOptions('local').map((option) => `<option value="${option.value}" ${__tmNormalizeTimelineDependencyScope(SettingsStore.data.timelineDependencyScope) === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -2921,6 +2920,22 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanCompactMode ? 'checked' : ''} onchange="updateKanbanCompactMode(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
+                        ${renderSingleFieldSetting(
+                            '看板外观',
+                            '卡片样式保留圆角分组；竖向分区使用柔和底色，标题看板显示项目进度。',
+                            `<select class="b3-select" aria-label="看板外观" onchange="updateKanbanAppearance(this.value)">
+                                <option value="lanes" ${SettingsStore.data.kanbanAppearance !== 'classic' ? 'selected' : ''}>竖向分区</option>
+                                <option value="classic" ${SettingsStore.data.kanbanAppearance === 'classic' ? 'selected' : ''}>卡片样式</option>
+                            </select>`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${SettingsStore.data.kanbanAppearance !== 'classic' ? renderSingleFieldSetting(
+                            '分区颜色浓度',
+                            '调整竖向分区底色的深浅。',
+                            `<input type="range" aria-label="分区颜色浓度" min="6" max="30" step="1" value="${__tmNormalizeKanbanLaneColorStrength(SettingsStore.data.kanbanLaneColorStrength)}" oninput="updateKanbanLaneColorStrength(this.value,false);this.nextElementSibling.textContent=this.value+'%';" onchange="updateKanbanLaneColorStrength(this.value)" style="max-width:180px;">
+                             <span class="tm-setting-field-unit" style="min-width:42px;text-align:right;">${__tmNormalizeKanbanLaneColorStrength(SettingsStore.data.kanbanLaneColorStrength)}%</span>`,
+                            { style: 'margin-bottom:10px;' }
+                        ) : ''}
                         ${renderSingleSwitchSetting(
                             '清单紧凑模式',
                             '开启时字段显示在任务右侧，窄屏下自动换行；关闭时字段始终显示在任务名称下方。',
@@ -2982,10 +2997,9 @@
                         )}
                         ${renderSingleFieldSetting(
                             '白板顺序依据',
-                            '启用白板顺序模式后，选择按当前文档分组的全局白板，或按每个文档自己的白板连线计算当前顺序。',
+                            '选择用于计算任务顺序的白板。页签组白板读取活动页签组的画布；没有活动页签组时使用文档分组全局白板。',
                             `<select class="b3-select" onchange="updateWhiteboardSequenceScope(this.value)" style="width:180px;">
-                                <option value="document" ${__tmNormalizeWhiteboardSequenceScope(SettingsStore.data.whiteboardSequenceScope) === 'document' ? 'selected' : ''}>单文档白板</option>
-                                <option value="global" ${__tmNormalizeWhiteboardSequenceScope(SettingsStore.data.whiteboardSequenceScope) === 'global' ? 'selected' : ''}>全局白板</option>
+                                ${__tmGetWhiteboardLinkSourceOptions().map((option) => `<option value="${option.value}" ${__tmNormalizeWhiteboardSequenceScope(SettingsStore.data.whiteboardSequenceScope) === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}

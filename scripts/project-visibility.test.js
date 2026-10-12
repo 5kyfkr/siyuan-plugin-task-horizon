@@ -111,6 +111,7 @@ async function main() {
     // exclusion without deleting the saved placement or snapshot.
     const whiteboard = read('src/task-horizon/main/render/44-render-whiteboard-body.js');
     h.context.globalWhiteboardTaskMap = new Map();
+    h.context.isGlobalBoardMode = false;
     h.context.docIdSet = new Set(['open']);
     h.context.showDoneTasks = true;
     h.context.byDoc = new Map();

@@ -327,7 +327,7 @@
     function __tmBuildWhiteboardLayoutMenuOptions(modeValue, fromMobileMenu = false) {
         const mode = __tmNormalizeWhiteboardAllTabsLayoutMode(modeValue);
         const action = fromMobileMenu ? 'tmSetWhiteboardLayoutModeFromMobileMenu' : 'tmSetWhiteboardAllTabsLayoutMode';
-        return [['global', '全局白板'], ['board', '文档框'], ['stream', '卡片流']].map(([value, label]) => ({
+        return [['global', '全局白板'], ['board', '单文档总览'], ['stream', '卡片流']].map(([value, label]) => ({
             value, label, selected: mode === value, action: `${action}('${value}')`,
         }));
     }
@@ -370,7 +370,7 @@
             </label>`;
         const keyword = String(state.searchKeyword || '').trim();
         const aiWorkbenchOpen = __tmAiUsesOverlayPanel() ? !!state.aiMobilePanelOpen : !!state.aiSidebarOpen;
-        const whiteboardMenuLayoutMode = String(state.activeDocId || 'all').trim() === 'all'
+        const whiteboardMenuLayoutMode = __tmIsWhiteboardAggregateTab()
             ? __tmGetWhiteboardAllTabsLayoutMode()
             : 'board';
         return `
@@ -1632,6 +1632,7 @@
     }
 
     window.tmClose = function(event) {
+        try { __tmCleanupKanbanLaneAppearance(); } catch (e) {}
         if (event) {
             event.stopPropagation();
             event.preventDefault();
