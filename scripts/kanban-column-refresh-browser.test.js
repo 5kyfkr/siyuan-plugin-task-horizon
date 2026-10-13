@@ -34,6 +34,9 @@ renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, c
         + (__tmKanbanGetCollapsedSet().has(task.id) ? ' hidden' : '') + '>' + children + '</div></article>';
 };\n`);
 const code = [read('32-runtime-state-and-events.js'), read('33-task-boundary-facades.js'), read('21-view-render-state.js'), read('render/40-render-list-context-helpers.js'),
+    section(read('10-stores-rules-and-cache.js'), 'function __tmNormalizeCompletedTasksGroupBy(', 'function __tmGetTaskSnapshotRuleForView('),
+    section(runtime, 'function __tmGetDocHeadingBucket(', 'function __tmTaskHasResolvedHeading('),
+    section(runtime, 'function __tmBuildDocHeadingBuckets(', 'let __tmKanbanColsHtmlCache'),
     section(read('40-render-runtime.js'), 'function __tmBuildHeadingGroupContextMenuAttrs(', 'async function __tmReadHeadingGroupBlock('),
     section(read('10-stores-rules-and-cache.js'), 'function __tmIsLikelyBlockId(', 'function __tmExtractDocIdsFromTx('),
     section(runtime, 'function __tmHashStringFNV1a(', 'function __tmSafeAttrName('), renderer,
@@ -61,6 +64,7 @@ async function setup(page) {
             state: { modal: document.querySelector('#manager'), viewMode: 'kanban', activeDocId: 'all',
                 flatTasks: {}, taskTree: [], filteredTasks: [], otherBlocks: [], pendingInsertedTasks: {},
                 pendingDeletedTasks: {}, showCompletedTasks: true, rule: {}, searchKeyword: '' },
+            __TM_OTHER_BLOCK_TAB_ID: '__other__',
             SettingsStore: { data: { completedTasksInlineInGroups: true, kanbanAppearance: 'classic' } },
             GlobalLock: { isLocked: () => false },
             __tmGroupBgFromLabelColor: () => '',
@@ -105,7 +109,9 @@ async function setup(page) {
             __tmRuleHasExplicitSort: () => false,
             __tmNormalizeHexColor: (_, fallback) => fallback,
             __tmNormalizeHeadingLevel: () => 'h2',
+            __tmNormalizeHeadingText: (value) => String(value || '').trim(),
             __tmNormalizeDateOnly: () => '2026-09-26',
+            __tmGetTaskCompletedAtDateKey: (task) => String(task.taskCompleteAt || '').slice(0, 10),
             __tmGetTaskRepeatWeekdayLabel: () => '',
             __tmGetTaskTimePriorityInfo: (task) => ({ diffDays: task.days }),
             __tmSortDocEntriesForTabs: (docs) => docs,
@@ -113,6 +119,7 @@ async function setup(page) {
             __tmGetDocColorHex: () => '#777777',
             __tmCompareTasksByDocFlow: () => 0,
             __tmCompareCompletedTasksRecentFirst: (_, __, fallback) => 0,
+            __tmRenderDocGroupLabel: (id, label) => label,
             __tmIsTaskPinned: () => false,
             __tmSortPinnedTasksFirst: (tasks) => tasks,
             __tmParseCssColorToRgba: () => null,
@@ -184,6 +191,7 @@ async function setup(page) {
         'cross-column nesting updates both columns, retains third column',
         'fresh title styles are retained while reused descendants clear stale today marks',
         'optimistic top-level removal retains its source column for counts and keyed refresh',
+        'completed grouping stays independent of main grouping and preserves document headings',
     ]);
     async function run(name, check, mobile = false) {
         if (smoke && !smokeCases.has(name)) return;
@@ -195,6 +203,51 @@ async function setup(page) {
         finally { await page.close(); }
     }
     try {
+        await run('completed grouping stays independent of main grouping and preserves document headings', async (page) => {
+            const results = await page.evaluate(() => {
+                SettingsStore.data.completedTasksInlineInGroups = false;
+                SettingsStore.data.kanbanShowDoneColumn = true;
+                boardMode = 'heading';
+                __tmRenderHeadingLevelIconLabel = (label) => label;
+                __tmCompareCompletedTasksRecentFirst = (a, b) => (Date.parse(b.taskCompleteAt) || 0) - (Date.parse(a.taskCompleteAt) || 0);
+                __tmCompareTasksByDocFlow = (a, b) => (a.h2Rank ?? 999) - (b.h2Rank ?? 999);
+                setModel([
+                    { id: 'old', done: true, h2Id: 'head-a', h2: '开发', h2Rank: 0, taskCompleteAt: '2026-09-25 09:00' },
+                    { id: 'new', done: true, h2Id: 'head-a', h2: '开发', h2Rank: 0, taskCompleteAt: '2026-09-25 18:00' },
+                    { id: 'other', root_id: 'doc2', docId: 'doc2', done: true, h2Id: 'head-b', h2: '开发', h2Rank: 0, taskCompleteAt: '2026-09-26 10:00' },
+                    { id: 'child', parentTaskId: 'new', h2: '开发' },
+                ]);
+                const completedMarkup = () => column('done:heading').querySelector('.tm-kanban-col-body').innerHTML;
+                const snapshots = [];
+                for (const mode of ['date', 'title']) {
+                    SettingsStore.data.completedTasksGroupBy = mode;
+                    let baseline;
+                    for (const mainMode of ['none', 'doc', 'time', 'task', 'quadrant']) {
+                        state.groupByDocName = mainMode === 'doc'; state.groupByTime = mainMode === 'time';
+                        state.groupByTaskName = mainMode === 'task'; state.quadrantEnabled = mainMode === 'quadrant';
+                        mount();
+                        const html = completedMarkup();
+                        if (baseline === undefined) baseline = html;
+                        if (html !== baseline) throw new Error(mode + ': completed markup changed with ' + mainMode);
+                    }
+                    const body = column('done:heading').querySelector('.tm-kanban-col-body');
+                    const groups = [...body.querySelectorAll('.tm-kanban-group-title')].map((el) => el.textContent.trim());
+                    const cards = [...body.querySelectorAll('.tm-kanban-card')].map((el) => el.dataset.id);
+                    snapshots.push({ mode, groups, cards, childParent: placement('child')[0]?.parent });
+                }
+                state.activeDocId = 'doc'; state.groupByDocName = false; state.groupByTime = true;
+                setModel([{ id: 'single', done: true, h2Id: 'head-a', h2: '开发', taskCompleteAt: '2026-09-26 10:00' }]);
+                mount();
+                snapshots.push({ single: [...column('done:heading').querySelectorAll('.tm-kanban-group-title')].map((el) => el.textContent.trim()) });
+                return snapshots;
+            });
+            assert.deepEqual(results[0].cards, ['other', 'new', 'child', 'old']);
+            assert.equal(results[0].groups.length, 2, 'date mode has no document or heading wrapper');
+            assert.deepEqual(results[1].cards, ['new', 'child', 'old', 'other']);
+            assert.deepEqual(results[1].groups.map((value) => value.replace(/\s*\d+$/, '').trim()), ['doc', '开发', 'doc2', '开发']);
+            assert.equal(results[1].childParent, 'new', 'unfinished descendants stay attached to their completed parent');
+            assert.equal(results[2].single.length, 1, 'a single document shows only heading groups');
+        });
         for (const inline of [false, true]) {
             await run(`canceled tasks follow completion visibility after column and full refresh (${inline})`, async (page) => {
                 await page.addScriptTag({ content: read('34-task-projection-engine.js') });
@@ -652,13 +705,15 @@ async function setup(page) {
                 const ok = patch(['parent', 'new']);
                 const color = (id) => state.modal.querySelector('[data-id="' + id + '"] > .tm-task-content-clickable').style.color;
                 return { ok, updatedTitles, sameChild: child === state.modal.querySelector('[data-id="child"]'),
-                    parentColor: color('parent'), childColor: color('child'), newColor: color('new') };
+                    parentColor: color('parent'), childColor: color('child'), newColor: color('new'),
+                    newTodayMarked: state.modal.querySelector('[data-id="new"] > .tm-task-content-clickable').classList.contains('tm-task-scheduled-today') };
             });
             assert.equal(result.ok, true); assert.equal(result.sameChild, true);
             assert.deepEqual(result.updatedTitles, ['child']);
             assert.equal(result.parentColor, 'rgb(70, 70, 70)');
             assert.equal(result.childColor, 'rgb(11, 22, 33)');
-            assert.equal(result.newColor, 'var(--tm-primary-color)');
+            assert.equal(result.newColor, 'rgb(70, 70, 70)');
+            assert.equal(result.newTodayMarked, true);
         });
         await run('document boards use real source and destination membership', async (page) => {
             const result = await page.evaluate(() => {

@@ -15,7 +15,7 @@
             { field: 'attachments', aliases: ['__attachmentPaths'], groups: ['structured'] },
             { field: 'attachmentMeta', aliases: ['__attachmentMeta', 'attachment_meta'], groups: ['structured'] },
             { field: 'milestone', aliases: ['custom_milestone', 'customMilestone', 'custom-milestone-event'] },
-            { field: 'pinned', aliases: ['custom_pinned', 'customPinned', 'custom-pinned'] },
+            { field: 'pinned', aliases: ['custom_pinned', 'customPinned', 'custom-pinned'], groups: ['scoreSource'] },
             { field: 'allDayBottom', aliases: ['all_day_bottom', 'custom_all_day_bottom', 'customAllDayBottom', 'custom-all-day-bottom'], groups: ['calendar'] },
             { field: 'tomatoMinutes', aliases: ['tomato_minutes'] },
             { field: 'tomatoHours', aliases: ['tomato_hours'] },

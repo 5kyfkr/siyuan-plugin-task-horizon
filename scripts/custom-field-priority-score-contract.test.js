@@ -121,6 +121,11 @@ vm.runInContext(sliceSource(
     '    function __tmNormalizeCustomFieldIdList',
 ), context);
 vm.runInContext(sliceSource(
+    dialogsSource,
+    'function __tmIsTaskPinned',
+    '    function __tmSortPinnedTasksFirst',
+), context);
+vm.runInContext(sliceSource(
     scoreSource,
     'function __tmComputePriorityScore',
     '    function __tmEnsureTaskPriorityScore',
@@ -149,6 +154,43 @@ assert.equal(compute({ tags: ['urgent', 'blocked'] }), 104, 'multi-select option
 assert.equal(compute({ stage: 'now', tags: ['urgent', 'blocked'] }), 116, 'different custom fields should accumulate');
 assert.equal(compute({ stage: 'missing', tags: [] }), 100, 'unknown and empty values should not affect the score');
 assert.equal(compute({ stage: 'now' }, { ...priorityScoreConfig, customFieldDelta: undefined }), 100, 'legacy configs should keep their previous score');
+
+const computePinned = (pinned, pinnedDelta, weights = priorityScoreConfig.weights) => {
+    context.SettingsStore.data.priorityScoreConfig = { ...priorityScoreConfig, pinnedDelta, weights };
+    context.task = { pinned, priority: 'none', customFieldValues: { stage: 'now' } };
+    return vm.runInContext('__tmComputePriorityScore(task, { nowTs: 0 })', context);
+};
+assert.equal(computePinned(true, 25), 137, 'pinned delta should accumulate with other score sources');
+assert.equal(computePinned(false, 25), 112, 'unpinning removes only the pinned contribution');
+assert.equal(computePinned(true, undefined), 112, 'legacy pinned tasks keep their score until a delta is configured');
+assert.equal(computePinned(true, 0), 112, 'zero disables the pinned contribution');
+assert.equal(computePinned(true, -20), 92, 'pinned delta may subtract points');
+assert.equal(computePinned(true, 2.5), 114.5, 'fractional pinned deltas are preserved');
+assert.equal(computePinned(true, 25, { ...priorityScoreConfig.weights, pinned: 2 }), 162, 'pinned weight scales the configured delta');
+assert.equal(computePinned(true, 25, { ...priorityScoreConfig.weights, pinned: 0 }), 112, 'zero pinned weight disables the contribution');
+assert.equal(computePinned(true, 'invalid'), 112, 'invalid pinned deltas do not discard other score contributions');
+for (const pinned of [true, 1, '1', 'true', 'yes']) assert.equal(computePinned(pinned, 25), 137);
+for (const pinned of [false, 0, '0', 'false', '', undefined]) assert.equal(computePinned(pinned, 25), 112);
+assert.equal(vm.runInContext('__tmDoesPatchAffectPriorityScore({ pinned: false })', context), true, 'pin changes must invalidate derived scores');
+
+context.SettingsStore.data.priorityScoreConfig = { ...priorityScoreConfig, pinnedDelta: 25 };
+Object.assign(context.state, {
+    flatTasks: {}, pendingInsertedTasks: {}, pendingDeletedTasks: {}, doneOverrides: {},
+    taskTree: [], filteredTasks: [], otherBlocks: [], collapsedTaskIds: new Set(),
+});
+Object.assign(context, { setTimeout, clearTimeout, queueMicrotask, MetaStore: { set() {}, remapId() {} } });
+vm.runInContext(fs.readFileSync(path.join(root, 'src/task-horizon/main/32-runtime-state-and-events.js'), 'utf8'), context);
+const store = context.__tmTaskStore;
+const pinTask = { id: 'pin-score-task', pinned: false, priority: 'none', customFieldValues: { stage: 'now' }, priorityScore: 112, children: [] };
+store.replaceFlat({ [pinTask.id]: pinTask }, { authoritative: true, mergeOtherBlocks: false });
+store.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'pin', taskId: pinTask.id, patch: { pinned: true } }, { applyLocal: false });
+assert.equal(store.getProjected(pinTask.id).priorityScore, 137, 'optimistic pinning recomputes the cached score');
+store.applyMutation({ type: 'taskPatch', phase: 'commit', opId: 'pin', taskId: pinTask.id, patch: { pinned: true }, task: { ...pinTask, pinned: true } }, { applyLocal: false });
+assert.equal(store.getProjected(pinTask.id).priorityScore, 137, 'committed pinning retains its score contribution');
+store.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'unpin', taskId: pinTask.id, patch: { pinned: false } }, { applyLocal: false });
+assert.equal(store.getProjected(pinTask.id).priorityScore, 112, 'optimistic unpinning immediately removes the contribution');
+store.applyMutation({ type: 'taskPatch', phase: 'rollback', opId: 'unpin', taskId: pinTask.id, patch: { pinned: false } }, { applyLocal: false });
+assert.equal(store.getProjected(pinTask.id).priorityScore, 137, 'a failed unpin restores the pinned score');
 
 context.SettingsStore.data.priorityScoreConfig = priorityScoreConfig;
 const loadPlan = vm.runInContext(`__tmCollectCustomFieldLoadPlan({

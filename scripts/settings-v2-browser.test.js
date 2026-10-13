@@ -108,6 +108,21 @@ const server = http.createServer((req, res) => {
         await page.waitForTimeout(300);
         if (errors.length) throw new Error(errors.join('\n'));
         await page.locator('.tm-settings-v2').waitFor();
+        await page.evaluate(() => tmOpenSettingsV2Page('docs', 't-done'));
+        const completedChoices = page.locator('[onchange="updateCompletedTasksGroupBy(this.value)"] + .tm-settings-choice-group');
+        assert.equal(await completedChoices.getByRole('radio').count(), 2, 'completed grouping uses exactly two segmented choices');
+        assert.equal(await completedChoices.locator('[aria-checked="true"]').getAttribute('data-choice-value'), 'date', 'completed grouping defaults to date');
+        assert.ok(await page.locator('[onchange="updateCompletedTasksGroupBy(this.value)"]').isHidden(), 'completed grouping does not display a dropdown');
+        await completedChoices.getByRole('radio', { name: '按文档与标题', exact: true }).click();
+        await page.waitForFunction(() => JSON.parse(localStorage.getItem('settings-test')).completedTasksGroupBy === 'title');
+        await page.reload();
+        await page.locator('.tm-settings-v2').waitFor();
+        await page.evaluate(() => tmOpenSettingsV2Page('docs', 't-done'));
+        assert.equal(await completedChoices.locator('[aria-checked="true"]').getAttribute('data-choice-value'), 'title', 'completed grouping survives reload');
+        await completedChoices.getByRole('radio', { name: '按文档与标题', exact: true }).focus();
+        await page.keyboard.press('Home');
+        await page.waitForFunction(() => JSON.parse(localStorage.getItem('settings-test')).completedTasksGroupBy === 'date');
+        await completedChoices.locator('..').locator('..').screenshot({ path: path.join(root, 'output/playwright/completed-grouping-setting.png') });
         await page.evaluate(() => tmOpenSettingsV2Page('view', 'v-tl'));
         const appearanceChoices = page.locator('[onchange="updateKanbanAppearance(this.value)"] + .tm-settings-choice-group');
         const dependencyChoices = page.locator('[onchange="tmUpdateTimelineDependencyScope(this.value)"] + .tm-settings-choice-group');
@@ -180,7 +195,7 @@ const server = http.createServer((req, res) => {
         });
         assert.deepEqual(relevance.arrowEntries, [], 'reorder/delete controls are not independent settings');
         assert.ok(relevance.kanban.includes('看板卡片字段'), 'real kanban settings remain searchable');
-        assert.ok(!relevance.kanban.some(title => /时长预设|白板文字默认字号|全部页签时间轴依赖线/.test(title)), 'a category breadcrumb alone never matches a setting');
+        assert.ok(!relevance.kanban.some(title => /时长预设|白板文字默认字号|汇总时间轴连线来源/.test(title)), 'a category breadcrumb alone never matches a setting');
         assert.deepEqual(relevance.durations, ['时长预设'], 'preset values and actions resolve to one meaningful settings group');
         assert.deepEqual(relevance.durationRoute, { page: 'calendar', sub: 'c-focus' }, 'duration presets belong to time and focus settings');
         assert.deepEqual(relevance.weekly, ['每周可安排时间'], 'repeated time ranges resolve to their actual setting');
@@ -470,11 +485,18 @@ const server = http.createServer((req, res) => {
         });
         await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-priority'));
         await page.locator('[data-tm-call="tmSetPriorityBase"]').fill('77');
+        await page.getByRole('spinbutton', { name: '置顶加减分', exact: true }).fill('25');
         await page.waitForTimeout(750);
         assert.equal(await page.evaluate(() => __settingsTest.SettingsStore.data.priorityScoreConfig.base), 77);
+        assert.equal(await page.evaluate(() => __settingsTest.SettingsStore.data.priorityScoreConfig.pinnedDelta), 25, 'pinned score automatically saves');
+        await page.locator('.tm-priority-modules').screenshot({ path: path.join(root, 'output/playwright/priority-pinned-score-setting.png') });
         await page.reload();
         await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-priority'));
         assert.equal(await page.locator('[data-tm-call="tmSetPriorityBase"]').inputValue(), '77');
+        assert.equal(await page.getByRole('spinbutton', { name: '置顶加减分', exact: true }).inputValue(), '25', 'pinned score survives reload');
+        await page.getByRole('spinbutton', { name: '置顶加减分', exact: true }).fill('0');
+        await page.waitForFunction(() => JSON.parse(localStorage.getItem('settings-test'))?.priorityScoreConfig?.pinnedDelta === 0);
+        assert.equal(await page.evaluate(() => __settingsTest.SettingsStore.data.priorityScoreConfig.pinnedDelta), 0, 'zero pinned score saves without reverting to the previous value');
         await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-rules'));
         await page.evaluate(() => {
             __settingsTest.render();
@@ -608,9 +630,11 @@ const server = http.createServer((req, res) => {
         // External priority entry keeps the same immediate semantics.
         await page.evaluate(() => showPriorityScoreSettings());
         await page.locator('.tm-modal [data-tm-call="tmSetPriorityBase"]').fill('95');
+        await page.locator('.tm-modal [data-tm-call="tmSetPriorityPinned"]').fill('-15');
         await page.evaluate(() => closePriorityScoreSettings());
         await page.evaluate(() => __settingsTest.flush());
         assert.equal(await page.evaluate(() => __settingsTest.SettingsStore.data.priorityScoreConfig.base), 95);
+        assert.equal(await page.evaluate(() => __settingsTest.SettingsStore.data.priorityScoreConfig.pinnedDelta), -15, 'external priority settings save negative pinned deltas');
         // Serial policy requests retain edits made during a slow request; stale revisions are reloaded.
         await page.evaluate(() => { tmOpenSettingsV2Page('ai'); __settingsService.delay = 150; tmAgentPolicySetDurationFallback('30'); });
         await page.waitForTimeout(180);

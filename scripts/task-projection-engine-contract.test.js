@@ -98,6 +98,8 @@ const scoreRule = {
     conditions: [{ field: 'priorityScore', operator: '>=', value: 10 }],
     sort: [{ field: 'priorityScore', direction: 'desc' }],
 };
+assert.equal(engine.analyzePatch({ pinned: false }, { ...baseContext, rule: scoreRule }).filter, true,
+    'unpinning must re-evaluate priority-score filter membership');
 for (const field of ['priority', 'startDate', 'completionTime', 'customTime', 'taskCompleteAt', 'duration', 'customFieldValues', 'docId', 'root_id', 'done', 'customStatus']) {
     assert.equal(engine.analyzePatch({ [field]: 'changed' }, { ...baseContext, rule: scoreRule }).projection, true,
         `priorityScore must depend on ${field}`);

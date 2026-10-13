@@ -169,7 +169,11 @@ const renderDoneColumnEnd = kanbanSource.indexOf('\n                };', renderD
 assert.ok(renderDoneColumnStart >= 0 && renderDoneColumnEnd > renderDoneColumnStart,
     'the standalone kanban completed column renderer must remain extractable');
 const renderDoneColumn = kanbanSource.slice(renderDoneColumnStart, renderDoneColumnEnd);
-assert.match(renderDoneColumn, /renderTree\([\s\S]*false,\s*true\s*\)/,
-    'standalone completed-column cards must render ordinary completed-today badges');
+assert.match(renderDoneColumn, /renderCompletedTaskGroups\(roots, doneColumnKey\)/,
+    'standalone completed-column cards must use the shared completed group renderer');
+const completedGroupStart = kanbanSource.indexOf('const renderCompletedSubgroups =');
+const completedGroupEnd = kanbanSource.indexOf('const renderCompletedRootGroup =', completedGroupStart);
+assert.match(kanbanSource.slice(completedGroupStart, completedGroupEnd), /renderTree\([\s\S]*false,\s*true\s*\)/,
+    'shared completed-column and tail-group cards must render ordinary completed-today badges');
 
 console.log('task recurring completed-today contract tests passed');

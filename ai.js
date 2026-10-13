@@ -1868,7 +1868,7 @@
                         const done = idx < currentStep;
                         const mark = done ? '已完成' : (active ? '进行中' : '等待中');
                         const opacity = done ? '1' : (active ? '1' : '.62');
-                        return `<div class="tm-ai-item" style="opacity:${opacity};"><div style="font-weight:600;">${done ? '✓' : (active ? '…' : '○')} ${esc(step)}</div><div class="tm-ai-hint" style="margin-top:4px;">${mark}</div></div>`;
+                        return `<div class="tm-ai-item" style="opacity:${opacity};"><div style="font-weight:600;">${done ? '<span class="tm-selection-check" aria-hidden="true"></span>' : (active ? '…' : '○')} ${esc(step)}</div><div class="tm-ai-hint" style="margin-top:4px;">${mark}</div></div>`;
                     }).join('')}
                 </div>
             </div>

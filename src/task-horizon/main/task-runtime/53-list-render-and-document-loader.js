@@ -513,6 +513,20 @@
         const logicalTaskTotal = getVisibleTaskTotal();
 
         const allRows = [];
+        const appendCompletedSubgroups = (groups) => {
+            groups.forEach((group) => {
+                if (!hasTaskRowBudget()) return;
+                const collapsed = state.collapsedGroups?.has(group.key) === true;
+                const label = group.kind === 'done-doc'
+                    ? __tmRenderDocGroupLabel(group.docId, group.label)
+                    : (group.kind === 'done-h2' ? __tmRenderHeadingLevelIconLabel(group.label, group.headingLevel) : esc(group.label));
+                const toggle = `<span class="tm-group-toggle${collapsed ? ' tm-group-toggle--collapsed' : ''}"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+                allRows.push(`<tr class="tm-group-row tm-group-row--completed-subgroup" data-group-key="${esc(group.key)}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${escSq(group.key)}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-secondary-text);"><div class="tm-group-sticky" style="padding-left:${group.depth}ch;">${toggle}<span class="tm-group-label">${label}</span><span class="tm-badge tm-badge--count">${group.count}</span></div></td></tr>`);
+                if (collapsed) return;
+                if (group.groups) appendCompletedSubgroups(group.groups);
+                else group.items.forEach((task) => { if (hasTaskRowBudget()) allRows.push(...renderTaskTree(task, 0, false, true)); });
+            });
+        };
         const appendCompletedRootGroup = () => {
             if (!completedRoots.length) return;
             if (!hasTaskRowBudget()) return;
@@ -524,10 +538,10 @@
             allRows.push(`<tr class="tm-group-row" data-group-key="${doneGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${doneGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${doneToggle}<span class="tm-group-label" style="color:var(--tm-secondary-text);">已完成任务</span><span class="tm-badge tm-badge--count">${completedRoots.length}</span>${doneDurationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(doneDurationSum)}</span>` : ''}</div></td></tr>`);
             if (!doneCollapsed) {
                 currentGroupBg = '';
-                completedRoots.forEach(task => {
-                    if (!hasTaskRowBudget()) return;
-                    allRows.push(...renderTaskTree(task, 0, false, true));
-                });
+                appendCompletedSubgroups(__tmBuildCompletedTaskGroups(completedRoots, {
+                    parentKey: doneGroupKey,
+                    fallbackCompare: (a, b) => getTaskOrder(a.id) - getTaskOrder(b.id),
+                }));
             }
         };
 
@@ -5661,7 +5675,8 @@ if (ev) {
                 border-radius: 4px;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.2);
                 padding: 4px 0;
-                min-width: 180px;
+                width: max-content;
+                min-width: 0;
                 box-sizing: border-box;
                 z-index: 200021;
             `;
@@ -6179,6 +6194,41 @@ if (ev) {
             appendSectionSeparator();
         }
 
+        if (task) {
+            const statusOptions = __tmGetStatusOptions();
+            const currentStatus = __tmResolveTaskStatusId(task, statusOptions);
+            menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('circle-dot', '状态'), () => statusOptions.map((opt) => {
+                const active = opt.id === currentStatus;
+                const item = createItem('', () => {
+                    const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
+                    if (typeof patchTask !== 'function') {
+                        hint('❌ 更新失败: 任务写入队列未就绪: patchTask', 'error');
+                        return;
+                    }
+                    void patchTask(taskId, { customStatus: opt.id }, {
+                        source: 'context-menu-status',
+                        label: '状态',
+                    }).catch((error) => {
+                        hint(`❌ 更新失败: ${error.message}`, 'error');
+                    });
+                });
+                item.style.columnGap = '20px';
+                item.setAttribute('role', 'menuitemradio');
+                item.setAttribute('aria-checked', active ? 'true' : 'false');
+                const chip = document.createElement('span');
+                chip.className = 'tm-status-tag';
+                chip.style.cssText = __tmBuildStatusChipStyle(opt.color);
+                chip.textContent = String(opt.name || opt.id || '');
+                item.appendChild(chip);
+                const check = document.createElement('span');
+                check.className = 'tm-selection-check';
+                check.style.marginLeft = 'auto';
+                check.style.visibility = active ? 'visible' : 'hidden';
+                check.setAttribute('aria-hidden', 'true');
+                item.appendChild(check);
+                return item;
+            })));
+        }
         menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task?.pinned ? '取消置顶' : '置顶'), () => tmSetPinned(taskId, !task?.pinned, { task })));
         if (tomatoEnabled) {
             menu.appendChild(createItem(__tmRenderContextMenuLabel('alarm-clock', '提醒'), () => tmReminder(taskId)));

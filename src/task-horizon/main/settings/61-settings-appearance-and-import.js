@@ -675,6 +675,16 @@
         render();
     };
 
+    window.updateCompletedTasksGroupBy = async function(value) {
+        SettingsStore.data.completedTasksGroupBy = __tmNormalizeCompletedTasksGroupBy(value);
+        await SettingsStore.save();
+        state.listRenderSignature = '';
+        state.listDomRenderSignature = '';
+        try { __tmRecomputeTaskProjection({ reason: 'completed-tasks-group-by' }); } catch (e) {}
+        if (state.settingsModal) showSettings();
+        render();
+    };
+
     window.updateCollapseAllIncludesGroups = async function(enabled) {
         SettingsStore.data.collapseAllIncludesGroups = !!enabled;
         await SettingsStore.save();

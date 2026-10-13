@@ -50,6 +50,7 @@ assert.deepEqual(
     ['content', 'remark'],
     'search projection dependencies must match the title-and-remark search matcher',
 );
+assert.ok(schema.getGroup('scoreSource').includes('pinned'), 'priority-score filters and sorts must depend on pin changes');
 
 assert.match(storeSource, /function __tmGetTaskMetaAttrReadKeys[\s\S]*__tmGetTaskMetaAttrKey[\s\S]*__tmGetTaskMetaAttrAliases[\s\S]*def\.defaultKey/,
     'persistent attribute reads must retain current key, historical aliases, and the default key');

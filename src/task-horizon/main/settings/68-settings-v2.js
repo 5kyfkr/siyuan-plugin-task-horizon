@@ -369,7 +369,7 @@
     // native select as the source of truth so all existing change handlers still run.
     const TM_SETTINGS_CHOICE_HANDLERS = new Set([
         'updateTaskHeadingLevel', 'updateNewTaskLocationMode', 'updateTaskDeleteMode',
-        'updateTaskCompletionArchiveMode', 'updateDefaultViewMode', 'updateDefaultViewModeMobile',
+        'updateTaskCompletionArchiveMode', 'updateCompletedTasksGroupBy', 'updateDefaultViewMode', 'updateDefaultViewModeMobile',
         'updateDockDefaultViewMode', 'updateTaskTitleClickAction', 'updateDockTaskTitleClickAction',
         'updateMobileTaskTitleClickAction', 'updateDocTabsArchiveButtonPosition',
         'tmUpdateTimelineDependencyScope', 'updateKanbanAppearance', 'updateWhiteboardSequenceScope', 'tmSelectAppearanceTheme',

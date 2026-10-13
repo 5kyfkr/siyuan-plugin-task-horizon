@@ -1441,6 +1441,32 @@
     gap: 8px;
 }
 
+/* Match the task checkbox mark for menu and picker selection indicators. */
+.tm-selection-check {
+    display: inline-block;
+    position: relative;
+    flex: 0 0 14px;
+    width: 14px;
+    height: 14px;
+    color: var(--tm-primary-color);
+    vertical-align: middle;
+    pointer-events: none;
+}
+
+.tm-selection-check::after,
+.tm-settings-chip.is-selected .tm-settings-chip__check::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 3px;
+    height: 7px;
+    box-sizing: content-box;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: translate(-50%, -60%) rotate(42deg);
+}
+
 .tm-status-tag {
     display: inline-flex;
     align-items: center;
@@ -14093,6 +14119,39 @@ select.tm-btn-secondary {
     flex: 0 0 auto;
 }
 
+.tm-task-scheduled-today::after {
+    content: "今";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    /* Match the pin icon's box and synthesized inline baseline. */
+    height: 13px;
+    contain: layout;
+    overflow: hidden;
+    margin-left: 6px;
+    padding: 0 5px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--tm-primary-color) 12%, var(--tm-card-bg) 88%);
+    color: var(--tm-primary-color);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 0;
+    white-space: nowrap;
+    vertical-align: baseline;
+    text-decoration: none;
+}
+
+.tm-body--kanban .tm-task-scheduled-today::after {
+    height: auto;
+    min-height: 18px;
+    contain: none;
+    overflow: visible;
+    line-height: 1;
+    vertical-align: middle;
+    transform: translateY(-1px);
+}
+
 /* Task detail folding: preserve existing layout and add only the fold affordance. */
 .tm-task-detail-section-toggle {
     appearance: none;
@@ -15191,6 +15250,10 @@ select.tm-btn-secondary {
     min-height: 18px;
     height: 18px;
     margin-block: calc((var(--tm-checklist-title-line-height) - 18px) / 2);
+}
+.tm-checklist-pane--compact .tm-task-scheduled-today::after {
+    margin-left: 2px;
+    margin-block: calc((var(--tm-checklist-title-line-height) - 13px) / 2);
 }
 .tm-checklist-pane--compact .tm-checklist-title-button:hover { text-decoration: none; }
 .tm-checklist-pane--compact .tm-checklist-title-button:hover .tm-checklist-title-text { text-decoration: underline; }
@@ -21697,15 +21760,7 @@ th[data-col] {
 .tm-settings-chip.is-selected .tm-settings-chip__check {
     border-color: var(--tm-primary-color);
     background: color-mix(in srgb, var(--tm-primary-color) 14%, var(--tm-bg-color));
-}
-
-.tm-settings-chip.is-selected .tm-settings-chip__check::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: var(--tm-primary-color);
-    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3.6 7.1L5.9 9.5L10.6 4.5' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 15px 15px no-repeat;
-    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3.6 7.1L5.9 9.5L10.6 4.5' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 15px 15px no-repeat;
+    color: var(--tm-primary-color);
 }
 
 .tm-settings-chip__label {

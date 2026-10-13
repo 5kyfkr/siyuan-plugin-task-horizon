@@ -2675,6 +2675,7 @@
         const showCompleted = __tmGetShowCompletedTasksFromSettings(SettingsStore?.data, opts.groupId) ? 1 : 0;
         const completedTodayOnly = SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0;
         const completedInlineInGroups = SettingsStore?.data?.completedTasksInlineInGroups === true ? 1 : 0;
+        const completedTasksGroupBy = __tmNormalizeCompletedTasksGroupBy(SettingsStore?.data?.completedTasksGroupBy);
         const resolvedColumnOrder = viewMode === 'timeline'
             ? __tmGetTimelineColumnOrder()
             : (Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder : []);
@@ -2691,6 +2692,7 @@
             showCompleted,
             completedTodayOnly,
             completedInlineInGroups,
+            completedTasksGroupBy,
             colOrder,
             customFields,
             docKey,
@@ -2803,6 +2805,10 @@
         return mode === 'document' || mode === 'heading' ? mode : 'none';
     }
 
+    function __tmNormalizeCompletedTasksGroupBy(value) {
+        return String(value || '').trim() === 'title' ? 'title' : 'date';
+    }
+
     function __tmGetTaskSnapshotRuleForView() {
         try {
             const ruleId = String(state?.currentRule ?? SettingsStore?.data?.currentRule ?? '').trim();
@@ -2856,6 +2862,7 @@
             showCompleted: __tmGetShowCompletedTasksFromSettings(data, opts.groupId) ? 1 : 0,
             completedTodayOnly: data.completedTasksTodayOnly ? 1 : 0,
             completedInlineInGroups: data.completedTasksInlineInGroups ? 1 : 0,
+            completedTasksGroupBy: __tmNormalizeCompletedTasksGroupBy(data.completedTasksGroupBy),
             taskStructure: __tmBuildTaskSnapshotViewStructureSignature(opts),
             docTabSortMode: String(data.docTabSortMode || '').trim(),
             docTabsManualArchiveOnly: data.docTabsManualArchiveOnly ? 1 : 0,
@@ -7066,6 +7073,7 @@
                 String(state?.quadrantEnabled ? 1 : 0),
                 String(state?.docTabsArchiveMode ? 1 : 0),
                 String(SettingsStore?.data?.completedTasksInlineInGroups ? 1 : 0),
+                __tmNormalizeCompletedTasksGroupBy(SettingsStore?.data?.completedTasksGroupBy),
                 String(state?.docTabsHidden ? 1 : 0),
                 String(state?.multiSelectModeEnabled ? 1 : 0),
                 String(Array.isArray(state?.multiSelectedTaskIds) ? state.multiSelectedTaskIds.length : 0),
@@ -8882,6 +8890,7 @@
             showCompletedTasksByGroup: {},
             completedTasksTodayOnly: false,
             completedTasksInlineInGroups: false,
+            completedTasksGroupBy: 'date',
             // 开始日期（新增列）
             startDate: 90,
             // 时间轴模式左侧宽度
@@ -9002,7 +9011,8 @@
             quickbarSubtaskCountUnfinishedOnly: false,
             priorityScoreConfig: {
                 base: 100,
-                weights: { importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
+                weights: { pinned: 1, importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
+                pinnedDelta: 0,
                 importanceDelta: { high: 20, medium: 10, low: -5, none: 0 },
                 statusDelta: { todo: 0, in_progress: 15, done: -80, blocked: -10, review: 5 },
                 customFieldDelta: {},
@@ -9339,6 +9349,7 @@
                                 if (typeof cloudData.pinTasksWithinGroups === 'boolean') this.data.pinTasksWithinGroups = cloudData.pinTasksWithinGroups;
                                 if (typeof cloudData.completedTasksTodayOnly === 'boolean') this.data.completedTasksTodayOnly = cloudData.completedTasksTodayOnly;
                                 if (typeof cloudData.completedTasksInlineInGroups === 'boolean') this.data.completedTasksInlineInGroups = cloudData.completedTasksInlineInGroups;
+                                if (typeof cloudData.completedTasksGroupBy === 'string') this.data.completedTasksGroupBy = __tmNormalizeCompletedTasksGroupBy(cloudData.completedTasksGroupBy);
                                 if (__tmShouldPreferRemoteCollapsedSessionState(localCollapseUpdatedAt, cloudCollapseUpdatedAt)) {
                                     if (Array.isArray(cloudData.collapsedTaskIds)) this.data.collapsedTaskIds = cloudData.collapsedTaskIds;
                                     if (Array.isArray(cloudData.kanbanCollapsedTaskIds)) this.data.kanbanCollapsedTaskIds = cloudData.kanbanCollapsedTaskIds;
@@ -9644,6 +9655,7 @@
                                 if (typeof cloudData.pinTasksWithinGroups === 'boolean') this.data.pinTasksWithinGroups = cloudData.pinTasksWithinGroups;
                                 if (typeof cloudData.completedTasksTodayOnly === 'boolean') this.data.completedTasksTodayOnly = cloudData.completedTasksTodayOnly;
                                 if (typeof cloudData.completedTasksInlineInGroups === 'boolean') this.data.completedTasksInlineInGroups = cloudData.completedTasksInlineInGroups;
+                                if (typeof cloudData.completedTasksGroupBy === 'string') this.data.completedTasksGroupBy = __tmNormalizeCompletedTasksGroupBy(cloudData.completedTasksGroupBy);
                                 if (typeof cloudData.recurringTaskKeepNativeDoneUntilNextOccurrence === 'boolean') this.data.recurringTaskKeepNativeDoneUntilNextOccurrence = cloudData.recurringTaskKeepNativeDoneUntilNextOccurrence;
                                 if (typeof cloudData.collapseAllIncludesGroups === 'boolean') this.data.collapseAllIncludesGroups = cloudData.collapseAllIncludesGroups;
                                 if (typeof cloudData.enableGroupTaskBgByGroupColor === 'boolean') this.data.enableGroupTaskBgByGroupColor = cloudData.enableGroupTaskBgByGroupColor;
@@ -10165,6 +10177,7 @@
             this.data.pinTasksWithinGroups = !!Storage.get('tm_pin_tasks_within_groups', this.data.pinTasksWithinGroups);
             this.data.completedTasksTodayOnly = !!Storage.get('tm_completed_tasks_today_only', this.data.completedTasksTodayOnly);
             this.data.completedTasksInlineInGroups = !!Storage.get('tm_completed_tasks_inline_in_groups', this.data.completedTasksInlineInGroups);
+            this.data.completedTasksGroupBy = __tmNormalizeCompletedTasksGroupBy(Storage.get('tm_completed_tasks_group_by', this.data.completedTasksGroupBy));
             this.data.whiteboardLinks = Storage.get('tm_whiteboard_links', this.data.whiteboardLinks) || [];
             this.data.whiteboardAutoConnectByCreated = Storage.get('tm_whiteboard_auto_connect_by_created', this.data.whiteboardAutoConnectByCreated);
             this.data.whiteboardDetachedChildren = Storage.get('tm_whiteboard_detached_children', this.data.whiteboardDetachedChildren) || {};
@@ -10731,6 +10744,7 @@
             Storage.set('tm_pin_tasks_within_groups', !!this.data.pinTasksWithinGroups);
             Storage.set('tm_completed_tasks_today_only', !!this.data.completedTasksTodayOnly);
             Storage.set('tm_completed_tasks_inline_in_groups', !!this.data.completedTasksInlineInGroups);
+            Storage.set('tm_completed_tasks_group_by', __tmNormalizeCompletedTasksGroupBy(this.data.completedTasksGroupBy));
             Storage.set('tm_whiteboard_links', this.data.whiteboardLinks || []);
             Storage.set('tm_whiteboard_auto_connect_by_created', !!this.data.whiteboardAutoConnectByCreated);
             Storage.set('tm_whiteboard_detached_children', this.data.whiteboardDetachedChildren || {});
@@ -11110,6 +11124,7 @@
             this.data.pinTasksWithinGroups = !!this.data.pinTasksWithinGroups;
             this.data.completedTasksTodayOnly = !!this.data.completedTasksTodayOnly;
             this.data.completedTasksInlineInGroups = !!this.data.completedTasksInlineInGroups;
+            this.data.completedTasksGroupBy = __tmNormalizeCompletedTasksGroupBy(this.data.completedTasksGroupBy);
             this.data.recurringTaskKeepNativeDoneUntilNextOccurrence = !!this.data.recurringTaskKeepNativeDoneUntilNextOccurrence;
             this.data.whiteboardLinks = Array.isArray(this.data.whiteboardLinks) ? this.data.whiteboardLinks : [];
             this.data.whiteboardAutoConnectByCreated = false;

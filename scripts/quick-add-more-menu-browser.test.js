@@ -71,6 +71,8 @@ const production = [
     section(picker, '    function __tmGetDefaultExpandedCustomFieldOptionIds(', '    window.tmOpenCustomFieldSelect ='),
     section(runtime, '    function __tmGetQuickAddVisibleOptionCustomFieldDefs(', '    function __tmApplyOptimisticDocTask('),
     section(runtime, '    window.tmQuickAddClose =', '    window.tmQuickAddOpenForDoc ='),
+    section(runtime, '    function __tmBuildHeadingGroupCreateBtnHtml(', '    async function __tmAppendBlockOnce('),
+    section(runtime, '    window.tmQuickAddOpenForDoc =', '    window.tmQuickAddOpenForPreset ='),
     section(runtime, '    window.tmQuickAddRenderMeta =', '    window.tmQuickAddOpenDocPicker ='),
     section(runtime, '    window.tmQuickAddSubmit =', '    window.tmAdd ='),
 ].join('\n');
@@ -184,6 +186,38 @@ async function screenshot(page, name) {
     page.on('pageerror', error => errors.push(error.message));
     try {
         await setup(page);
+        for (const width of [1100, 390]) {
+            await page.setViewportSize({ width, height: 760 });
+            await page.evaluate(() => {
+                tmQuickAddClose();
+                window.__tmResolveQuickAddInitialLocation = async () => { throw new Error('没有默认文档'); };
+                document.querySelector('main').innerHTML = `<div class="tm-checklist-group">目标标题${__tmBuildHeadingGroupCreateBtnHtml('doc-a', 'heading-a', '在该标题下新建任务')}</div>`;
+            });
+            await page.locator('.tm-checklist-group').hover();
+            await page.getByRole('button', { name: '在该标题下新建任务', exact: true }).click();
+            await page.waitForFunction(() => state.quickAdd?.initializing === false);
+            assert.equal(await page.getByRole('dialog', { name: '新建任务', exact: true }).isVisible(), true);
+            assert.deepEqual(await page.evaluate(() => [state.quickAdd.docId, state.quickAdd.headingId]), ['doc-a', 'heading-a']);
+            assert.equal(await page.locator('#tmQuickAddRemark').isVisible(), true, 'heading capture has the shared remark field');
+            assert.equal(await page.getByRole('button', { name: '更多', exact: true }).isVisible(), true, 'heading capture has the shared toolbar');
+            await screenshot(page, `heading-${width}`);
+        }
+        await page.setViewportSize({ width: 1100, height: 760 });
+        await page.evaluate(() => {
+            tmQuickAddClose();
+            document.querySelector('main').innerHTML = `<div class="tm-checklist-group">文档名称${__tmBuildDocGroupQuickAddBtnHtml('doc-a')}</div>`;
+        });
+        await page.locator('.tm-checklist-group').hover();
+        await page.getByRole('button', { name: '新建任务', exact: true }).click();
+        await page.waitForFunction(() => state.quickAdd?.initializing === false);
+        assert.deepEqual(await page.evaluate(() => [state.quickAdd.docId, state.quickAdd.headingId]), ['doc-a', '']);
+        await page.evaluate(() => {
+            window.__tmResolveQuickAddInitialLocation = async () => ({ mode: 'doc', docId: 'doc-a' });
+            document.querySelector('main').innerHTML = '';
+            return tmQuickAddOpen();
+        });
+        assert.deepEqual(await page.evaluate(() => notices), [], 'heading capture works without a configured default document');
+        console.log('PASS desktop/mobile heading actions open the shared composer with the target document and heading');
         assert.deepEqual(await page.evaluate(() => __tmNormalizeQuickAddFieldVisibility({ date: false, customFields: false, 'custom:dev': false, unknown: true })),
             { date: false, customFields: false }, 'only supported field preferences are stored');
         assert.equal(await page.locator('#tmQuickAddDateLabel').innerText(), '日期', 'desktop retains the empty date label');

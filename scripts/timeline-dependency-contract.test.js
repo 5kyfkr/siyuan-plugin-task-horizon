@@ -19,10 +19,10 @@ assert.equal(manifest.scripts.includes('main/task-runtime/55-timeline-dependency
 assert.match(stores, /timelineDependencyScope:\s*'global'/, 'global whiteboard dependency scope must be the default');
 assert.match(stores, /tm_timeline_dependency_scope/, 'dependency scope must round-trip through local storage');
 assert.match(stores, /cloudData\.timelineDependencyScope/, 'dependency scope must load from cloud settings');
-assert.match(settings, /全部页签时间轴依赖线[\s\S]*tmUpdateTimelineDependencyScope\(this\.value\)/, 'settings page must expose the dependency scope selector');
+assert.match(settings, /汇总时间轴连线来源[\s\S]*tmUpdateTimelineDependencyScope\(this\.value\)/, 'settings page must expose the dependency scope selector');
 assert.match(
     settings,
-    /activeTab === 'main'[\s\S]*settingsSearchCurrentSection = 'layout'[\s\S]*全部页签时间轴依赖线[\s\S]*settingsSearchCurrentSection = 'search'/,
+    /activeTab === 'main'[\s\S]*settingsSearchCurrentSection = 'layout'[\s\S]*汇总时间轴连线来源[\s\S]*settingsSearchCurrentSection = 'search'/,
     'dependency scope selector must live under General settings > View layout',
 );
 assert.match(actions, /window\.tmUpdateTimelineDependencyScope[\s\S]*__tmNormalizeTimelineDependencyScope/, 'dependency scope must have a normalized settings action');

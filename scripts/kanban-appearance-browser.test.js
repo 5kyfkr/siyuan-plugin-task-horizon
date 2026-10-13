@@ -25,7 +25,15 @@ runtime = runtime.slice(0, startup) + `
         },
         loadNext(key) { return state.__tmProgressiveViewRender?.columns?.find(column => column.key === key)?.loadNextBatch(state.modal); },
         patch: ids => __tmTryRefreshKanbanColumns(state.modal, ids),
+        mutateAndRefresh(mutation) {
+            __tmTaskStore.applyMutation(mutation);
+            __tmRecomputeTaskProjection({ reason: 'kanban-background-regression' });
+            if (__tmTryRefreshKanbanColumns(state.modal, [mutation.taskId])) return 'columns';
+            return __tmRerenderKanbanInPlace(state.modal) ? 'body' : 'failed';
+        },
         cleanup: __tmCleanupKanbanLaneAppearance,
+        render,
+        setMount: __tmSetMount,
         session: () => state.__tmKanbanLaneAppearance,
         restore: __tmRestoreBodyOnlyViewScroll,
         projectStats(tasks) {
@@ -142,6 +150,43 @@ runtime = runtime.slice(0, startup) + `
         assert.equal(await page.evaluate(()=>kanbanTest.projectProgress({total:75,done:45},'20261012000000-bbbbbbb')),80,'homepage and board reuse the authoritative document cache when local task data is incomplete');
         await page.evaluate(()=>{window.__sqlProjectCounts=null;kanbanTest.invalidateProgress();kanbanTest.mount();});
         await page.waitForFunction(()=>document.querySelector('[data-col-key="doc:20261012000000-bbbbbbb"] .tm-kanban-col-progress')?.getAttribute('aria-valuenow')==='60');
+        const mutationFrames = await page.evaluate(async () => {
+            const sample = () => {
+                const board = document.querySelector('.tm-kanban');
+                const canvas = board.querySelector('.tm-kanban-lane-background canvas');
+                if (!canvas) return null;
+                const column = board.querySelector('[data-col-key="doc:20261012000000-aaaaaaa"]');
+                const rect = column.getBoundingClientRect();
+                const x = (rect.left - board.getBoundingClientRect().left + rect.width / 2) * canvas.width / canvas.clientWidth;
+                return Array.from(canvas.getContext('2d').getImageData(Math.floor(x), 16, 1, 1).data);
+            };
+            const initial = sample();
+            const operations = [
+                {type:'taskPatch',opId:'background-status',taskId:'task-9',patch:{done:true},inversePatch:{done:false}},
+                {type:'createTaskInDoc',opId:'background-create',taskId:'background-new',docId:'20261012000000-ddddddd',
+                    task:{id:'background-new',root_id:'20261012000000-ddddddd',content:'检查演示背景连续性',done:false,children:[]}},
+            ];
+            const results = [];
+            for (const operation of operations) {
+                await new Promise(resolve => requestAnimationFrame(resolve));
+                const path = kanbanTest.mutateAndRefresh({...operation,phase:'optimistic'});
+                const frames = [sample()];
+                for (let i = 0; i < 4; i++) {
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                    frames.push(sample());
+                }
+                results.push({path,frames});
+                kanbanTest.mutateAndRefresh({...operation,phase:'rollback'});
+                frames.push(sample());
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                frames.push(sample());
+            }
+            return {initial,results};
+        });
+        assert.deepEqual(mutationFrames.results.map(result=>result.path),['columns','body'],'status edits patch columns; a task in the empty inbox triggers a full body refresh');
+        for (const result of mutationFrames.results) {
+            result.frames.forEach(pixel=>assert.deepEqual(pixel,mutationFrames.initial,'task changes keep the unaffected column tint visible, including the refresh frame'));
+        }
         await page.evaluate(()=>kanbanTest.mount(true));
         await settle();
         const largeColumn = page.locator('.tm-kanban-col[data-col-key="doc:20261012000000-bbbbbbb"]');
@@ -352,6 +397,54 @@ runtime = runtime.slice(0, startup) + `
         assert.equal(await page.evaluate(()=>kanbanTest.SettingsStore.data.kanbanAppearance),'classic','explicit card-style preference survives local loading');
         await page.evaluate(()=>{localStorage.removeItem('tm_kanban_appearance');delete kanbanTest.SettingsStore.data.kanbanAppearance;kanbanTest.SettingsStore.loadFromLocal();});
         assert.equal(await page.evaluate(()=>kanbanTest.SettingsStore.data.kanbanAppearance),'lanes','old settings without an appearance use lanes');
+        await page.evaluate(() => {
+            kanbanTest.cleanup();
+            kanbanTest.state.modal.remove();
+            kanbanTest.state.modal = null;
+            kanbanTest.state.viewMode = 'kanban';
+            kanbanTest.SettingsStore.data.kanbanBoardMode = 'heading';
+            kanbanTest.applyFilters();
+            const host = document.createElement('main');
+            host.id = 'manager';
+            host.style.cssText = 'width:100vw;height:100vh;position:relative;';
+            document.body.append(host);
+            kanbanTest.setMount(host);
+        });
+        for (const hostMode of ['tab','dock']) {
+            for (const attempt of ['initial','rerender']) {
+                const fullRender = await page.evaluate(async ({hostMode,attempt}) => {
+                    const host = document.querySelector('#manager');
+                    host.dataset.tmHostMode = hostMode;
+                    if (attempt === 'initial') {
+                        kanbanTest.cleanup();
+                        kanbanTest.state.modal?.remove();
+                        kanbanTest.state.modal = null;
+                    }
+                    kanbanTest.render();
+                    const sample = () => {
+                        const session = kanbanTest.session();
+                        if (!session) return null;
+                        const column = session.board.querySelector('.tm-kanban-col');
+                        const rect = column.getBoundingClientRect();
+                        const x = (rect.left - session.board.getBoundingClientRect().left + rect.width / 2) * session.canvas.width / session.canvas.clientWidth;
+                        const pixel = Array.from(session.canvas.getContext('2d').getImageData(Math.floor(x),16,1,1).data);
+                        const savedColor = session.colorProbe.style.color;
+                        session.colorProbe.style.color = 'var(--tm-bg-color)';
+                        const base = getComputedStyle(session.colorProbe).color;
+                        session.colorProbe.style.color = savedColor;
+                        return {connected:session.board.isConnected,pixel,base};
+                    };
+                    const initial = sample();
+                    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                    return {initial,settled:sample()};
+                },{hostMode,attempt});
+                for (const sample of [fullRender.initial,fullRender.settled]) {
+                    assert.ok(sample?.connected,`${hostMode} ${attempt}: the full shell renderer retains a live background session`);
+                    assert.equal(sample.pixel[3],255,`${hostMode} ${attempt}: background is painted on mount`);
+                    assert.notEqual(`rgb(${sample.pixel.slice(0,3).join(', ')})`,sample.base,`${hostMode} ${attempt}: mounted columns retain their tint`);
+                }
+            }
+        }
         assert.deepEqual(errors,[]);
         console.log('kanban appearance browser tests passed');
     } finally {

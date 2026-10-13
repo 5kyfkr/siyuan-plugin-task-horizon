@@ -87,10 +87,9 @@ assert.match(docTabDrop, /await moveTask\([\s\S]*wait: true/);
 assert.match(docTabDrop, /wait: true,[\s\S]*showErrorHint: false/);
 assertAwaitedBeforeSuccess(docTabDrop, 'await moveTask(', "hint('✅ 任务已移动'", 'document-tab move');
 
-assert.doesNotMatch(headingCreate, /wait: false/);
-assertAwaitedBeforeSuccess(headingCreate, 'await Promise.allSettled(', 'hint(taskLines.length', 'heading-group create');
-assert.match(headingCreate, /showErrorHint: false/);
-assert.match(headingCreate, /createFailures\.length > 0[\s\S]*已创建 \$\{createdTaskIds\.length\} 个任务，\$\{createFailures\.length\} 个失败/);
+assert.match(headingCreate, /await window\.tmQuickAddOpenForDoc\(did, hid \|\| '__none__'\)/);
+assert.doesNotMatch(headingCreate, /✅|['"]success['"]/,
+    'opening a heading-task composer must not announce creation success');
 assert.match(subtaskCreate, /await window\.tmQuickAddOpen\(\{[\s\S]*relation: 'subtask',[\s\S]*sourceTaskId: pid/);
 assert.match(siblingCreate, /await window\.tmQuickAddOpen\(\{[\s\S]*relation: 'sibling',[\s\S]*sourceTaskId: tid/);
 assert.doesNotMatch(subtaskCreate + siblingCreate, /✅|['"]success['"]/,

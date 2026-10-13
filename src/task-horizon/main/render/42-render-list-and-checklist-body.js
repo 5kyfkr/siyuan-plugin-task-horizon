@@ -227,6 +227,9 @@
                 else if (row.kind === 'time') labelColor = String(row.labelColor || 'var(--tm-text-color)');
                 else if (row.kind === 'pinned') labelColor = 'var(--tm-pinned-color)';
                 else if (row.kind === 'done') labelColor = 'var(--tm-secondary-text)';
+                else if (row.kind === 'done-doc') labelColor = String(row.labelColor || 'var(--tm-group-doc-label-color)');
+                else if (row.kind === 'done-h2') labelColor = String(row.labelColor || __tmGetHeadingSubgroupLabelColor('var(--tm-group-doc-label-color)', isDark));
+                else if (row.kind === 'done-date') labelColor = 'var(--tm-secondary-text)';
                 else if (row.kind === 'normal') labelColor = 'var(--tm-text-color)';
                 else if (row.kind === 'quadrant') {
                     const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
@@ -252,9 +255,9 @@
                         : (row.kind === 'time'
                             ? __tmBuildTimeGroupQuickAddBtnHtml((typeof __tmIsDocTabCustomGroupActiveId === 'function' && __tmIsDocTabCustomGroupActiveId(state.activeDocId)) ? '' : state.activeDocId, row)
                             : ''));
-                const labelHtml = row.kind === 'doc'
+                const labelHtml = row.kind === 'doc' || row.kind === 'done-doc'
                     ? __tmRenderDocGroupLabel(row.docId || row.id, row.label || '', { size: 16 })
-                    : (row.kind === 'h2'
+                    : (row.kind === 'h2' || row.kind === 'done-h2'
                         ? __tmRenderHeadingLevelIconLabel(row.label || '', row.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 16 })
                         : (row.kind === 'time'
                             ? (String(row.labelHtml || '').trim() || esc(String(row.label || '')))
@@ -272,8 +275,10 @@
                 const docHeadingGroupDropAttrs = state.groupByDocName && (groupKind === 'doc' || groupKind === 'h2') && docDropId
                     ? ` data-tm-doc-heading-drop-kind="${groupKind === 'h2' ? 'heading' : 'doc'}" data-tm-doc-heading-drop-doc="${esc(docDropId)}"${groupKind === 'h2' ? ` data-tm-doc-heading-drop-heading="${esc(headingDropId)}" data-tm-doc-heading-drop-label="${esc(__tmNormalizeHeadingText(row.label || ''))}" data-tm-doc-heading-drop-rank="${Number.isFinite(Number(row.h2Rank ?? row.headingRank)) ? Number(row.h2Rank ?? row.headingRank) : ''}"` : ''} ondragenter="tmDocHeadingGroupDragOver(event)" ondragover="tmDocHeadingGroupDragOver(event)" ondragleave="tmDocHeadingGroupDragLeave(event)" ondrop="tmDocHeadingGroupDrop(event)"`
                     : '';
+                const completedSubgroup = groupKind.startsWith('done-');
+                const completedSubgroupStyle = completedSubgroup ? `padding-left:${Math.max(1, Number(row.groupDepth) || 1)}ch;` : '';
                 return `
-                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-kind="${esc(groupKind)}" data-group-key="${esc(groupKey)}" style="--tm-checklist-group-accent:${esc(labelColor)};" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)"${timeGroupDropAttrs}${docHeadingGroupDropAttrs}${headingContextMenuAttrs}>
+                    <div class="tm-checklist-group ${row.kind === 'doc' || row.kind === 'done-doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' || row.kind === 'done-title' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' || row.kind === 'done-h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${completedSubgroup ? 'tm-checklist-group--completed-subgroup' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-kind="${esc(groupKind)}" data-group-key="${esc(groupKey)}" style="--tm-checklist-group-accent:${esc(labelColor)};${completedSubgroupStyle}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)"${timeGroupDropAttrs}${docHeadingGroupDropAttrs}${headingContextMenuAttrs}>
                         ${pinnedIconHtml}
                         <span class="tm-checklist-group-label" style="color:${labelColor};">${labelHtml}</span>
                         ${countHtml}
@@ -496,6 +501,11 @@
                 if (row?.type === 'group') {
                     if (renderedChecklistTaskCount >= checklistTaskLimit && hasMoreChecklistTaskRows) break;
                     const groupHtml = renderGroup(row);
+                    const isCompletedSubgroup = String(row.kind || '').startsWith('done-');
+                    if (isCompletedSubgroup && compactGroupCard?.kind === 'done') {
+                        compactGroupCard.children.push(groupHtml);
+                        continue;
+                    }
                     if (row.kind !== 'h2') {
                         flushCompactGroupCard();
                         compactGroupCard = {

@@ -499,6 +499,18 @@
                         if (!completedRootIds.length) return '';
                         const doneGroupKey = __tmBuildCompletedRootGroupKey(`whiteboard-stream:${useSemanticGroups ? groupKey : docId}`);
                         const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
+                        const renderCompletedGroups = (groups) => groups.map((group) => {
+                            const collapsed = state.collapsedGroups?.has(group.key) === true;
+                            const label = group.kind === 'done-doc' ? __tmRenderDocGroupLabel(group.docId, group.label)
+                                : (group.kind === 'done-h2' ? __tmRenderHeadingLevelIconLabel(group.label, group.headingLevel) : esc(group.label));
+                            const body = group.groups ? renderCompletedGroups(group.groups)
+                                : group.items.map((task) => renderTaskTree(task.id, false, 0, true)).join('');
+                            return `<div class="tm-whiteboard-stream-heading" data-group-key="${esc(group.key)}" onclick="tmToggleGroupCollapse('${escSq(group.key)}', event)"><div class="tm-whiteboard-stream-heading-main"><span class="tm-group-toggle${collapsed ? ' tm-group-toggle--collapsed' : ''}">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-group-toggle-icon')}</span><span class="tm-whiteboard-stream-heading-label">${label}</span></div><span class="tm-badge tm-badge--count">${group.count}</span></div>${collapsed ? '' : body}`;
+                        }).join('');
+                        const completedGroups = __tmBuildCompletedTaskGroups(completedRootTasks, {
+                            parentKey: doneGroupKey, aggregate: useSemanticGroups,
+                            fallbackCompare: (a, b) => getTaskDocOrder(a) - getTaskDocOrder(b),
+                        });
                         return `
                             <div class="tm-whiteboard-stream-heading tm-whiteboard-stream-heading--done" onclick="tmToggleGroupCollapse('${escSq(doneGroupKey)}', event)">
                                 <div class="tm-whiteboard-stream-heading-main">
@@ -507,7 +519,7 @@
                                 </div>
                                 <span class="tm-badge tm-badge--count">${completedRootIds.length}</span>
                             </div>
-                            ${doneCollapsed ? '' : completedRootIds.map((id) => renderTaskTree(id, false, 0, true)).join('')}
+                            ${doneCollapsed ? '' : renderCompletedGroups(completedGroups)}
                         `;
                     };
                     const headingSectionsHtml = useDocH2Subgroup
@@ -1838,11 +1850,24 @@
                     label,
                 });
                 const collapsed = sectionHead.collapsed;
+                const renderCompletedGroups = (groups) => groups.map((group) => {
+                    const titleHtml = group.kind === 'done-doc' ? __tmRenderDocGroupLabel(group.docId, group.label)
+                        : (group.kind === 'done-h2' ? __tmRenderHeadingLevelIconLabel(group.label, group.headingLevel) : esc(group.label));
+                    const head = renderWhiteboardPoolSectionHead({ sectionKey: group.key, titleHtml, count: group.count, label: group.label });
+                    const body = group.groups ? renderCompletedGroups(group.groups) : group.items.map((task) => {
+                        const entry = entryByTaskId.get(String(task.id));
+                        return entry?.docData.renderPoolTaskNode(entry.rootId, 0, { showDocBadge }) || '';
+                    }).join('');
+                    return `${head.html}<div class="tm-whiteboard-pool-list"${head.collapsed ? ' hidden' : ''}>${body}</div>`;
+                }).join('');
+                const bodyHtml = section.kind === 'completed'
+                    ? renderCompletedGroups(__tmBuildCompletedTaskGroups(sortedTasks, { parentKey: __tmBuildCompletedRootGroupKey('whiteboard-pool'), fallbackCompare: (a, b) => getOrder(a.id) - getOrder(b.id) }))
+                    : rootEntries.map((entry) => entry.docData.renderPoolTaskNode(entry.rootId, 0, { showDocBadge })).join('');
                 return `
                     <section class="tm-whiteboard-pool-doc${collapsed ? ' tm-whiteboard-pool-doc--collapsed' : ''}" data-pool-section-key="${esc(sectionKey)}">
                         ${sectionHead.html}
                         <div class="tm-whiteboard-pool-list"${collapsed ? ' hidden' : ''}>
-                            ${rootEntries.map((entry) => entry.docData.renderPoolTaskNode(entry.rootId, 0, { showDocBadge })).join('')}
+                            ${bodyHtml}
                         </div>
                     </section>
                 `;

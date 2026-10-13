@@ -445,7 +445,7 @@
         const selectedSet = selected instanceof Set ? selected : new Set(moduleIds);
         const labels = TM_SETTINGS_EXPORT_MODULES
             .filter((mod) => moduleIds.includes(mod.id))
-            .map((mod) => `${selectedSet.has(mod.id) ? '✓' : '○'} ${mod.label}`)
+            .map((mod) => `${selectedSet.has(mod.id) ? '<span class="tm-selection-check" aria-hidden="true"></span>' : '○'} ${esc(mod.label)}`)
             .join(' · ');
         const holidayStatuses = Array.isArray(summary.holidayStatuses) ? summary.holidayStatuses : [];
         const holidayText = holidayStatuses.length
@@ -455,7 +455,7 @@
             <div style="padding:10px 12px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-card-bg);font-size:12px;line-height:1.8;color:var(--tm-secondary-text);">
                 <div style="color:var(--tm-text-color);font-weight:600;margin-bottom:4px;">设置包摘要</div>
                 <div>导出时间：${esc(String(payload?.exportedAt || '未知'))}</div>
-                <div>模块：${esc(labels || '无')}</div>
+                <div>模块：${labels || '无'}</div>
                 <div>文档分组：${Number(summary.docGroups || 0)} 个 · AI 模式：${esc(summary.aiMode === 'agent' ? '思源智能体' : (summary.aiMode === 'legacy' ? '旧版 AI' : '未包含'))}</div>
                 <div>智能体预设：${Number(summary.agentCustomPresets || 0)} 个 · 安排规则：${summary.agentPolicyIncluded ? '已包含' : '未包含'} · 旧会话：${Number(summary.aiConversations || 0)} 个 · 旧提示词：${Number(summary.aiPromptTemplates || 0)} 个</div>
                 <div>定时事件：${Number(summary.scheduledEvents || 0)} 条 · 日程：${Number(summary.schedules || 0)} 条 · 节假日年份：${Number(summary.holidayYears || 0)} 个（${esc(holidayText)}）</div>

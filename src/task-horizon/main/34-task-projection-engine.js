@@ -110,6 +110,8 @@
             else if (groupMode === 'task' && changedFields.has('content')) group = true;
             else if (groupMode === 'doc' && has(DOCUMENT_FIELDS)) group = true;
             else if (groupMode === 'quadrant' && (has(TIME_FIELDS) || has(['priority', 'priorityScore']))) group = true;
+            if (context.completedTasksGroupBy === 'date' && changedFields.has('taskCompleteAt')) group = true;
+            if (context.completedTasksGroupBy === 'title' && has(DOCUMENT_FIELDS)) group = true;
             if (viewMode === 'kanban') {
                 if (has(['root_id', 'docId'])) group = true;
                 if (kanbanMode === 'time' && has(TIME_FIELDS)) group = true;

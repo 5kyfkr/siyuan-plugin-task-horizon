@@ -2804,7 +2804,7 @@
                     const label = String(item?.label || value).trim();
                     if (!value) return '';
                     const selected = value === current;
-                    return `<button class="bc-select-option tm-task-detail-whiteboard-outline-scope-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-detail-whiteboard-outline-scope-option data-value="${esc(value)}" data-label="${esc(label)}"><span>${esc(label)}</span><span class="bc-select-option__check" aria-hidden="true">✓</span></button>`;
+                    return `<button class="bc-select-option tm-task-detail-whiteboard-outline-scope-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-detail-whiteboard-outline-scope-option data-value="${esc(value)}" data-label="${esc(label)}"><span>${esc(label)}</span><span class="bc-select-option__check tm-selection-check" aria-hidden="true"></span></button>`;
                 }).join('')}
                 </div>
             </div>
@@ -3335,7 +3335,7 @@
                         <div class="bc-select-menu tm-task-detail-status-menu" data-tm-detail-status-menu role="listbox" aria-label="状态" hidden>
                             ${statusOptions.map((o) => {
                                 const selected = o.id === curStatusOption.id;
-                                return `<button class="bc-select-option tm-task-detail-status-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-detail-status-option data-value="${esc(o.id)}" data-label="${esc(o.name || o.id)}" data-color="${esc(o.color)}"><span class="tm-status-tag" style="${__tmBuildStatusChipStyle(o.color)}">${esc(o.name || o.id)}</span><span class="bc-select-option__check" aria-hidden="true">✓</span></button>`;
+                                return `<button class="bc-select-option tm-task-detail-status-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-detail-status-option data-value="${esc(o.id)}" data-label="${esc(o.name || o.id)}" data-color="${esc(o.color)}"><span class="tm-status-tag" style="${__tmBuildStatusChipStyle(o.color)}">${esc(o.name || o.id)}</span><span class="bc-select-option__check tm-selection-check" aria-hidden="true"></span></button>`;
                             }).join('')}
                         </div>
                     </div>
@@ -6225,12 +6225,12 @@
             add('global', '文档分组全局白板');
             add('board', '单文档总览');
             __tmGetDocTabCustomGroupsForDocGroup().forEach((group) => {
-                add(__tmBuildDocTabCustomGroupActiveId(group.id), `页签组白板 · ${group.name}`);
+                add(__tmBuildDocTabCustomGroupActiveId(group.id), `页签组全局白板 · ${group.name}`);
             });
             const current = String(activeScope || '').trim();
             if (current && !out.some((item) => item.value === current)) {
                 out.unshift({ value: current, label: __tmIsDocTabCustomGroupActiveId(current)
-                    ? '页签组白板' : (current === 'global' ? '文档分组全局白板' : '单文档总览') });
+                    ? '页签组全局白板' : (current === 'global' ? '文档分组全局白板' : '单文档总览') });
             }
             return out;
         };

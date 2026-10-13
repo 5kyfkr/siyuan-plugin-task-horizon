@@ -1166,7 +1166,7 @@
                     !__tmIsTaskInWhiteboardScope(globalThis.__tmTaskBoundary?.getTask?.(link.from), scope)
                     || !__tmIsTaskInWhiteboardScope(globalThis.__tmTaskBoundary?.getTask?.(link.to), scope)
                 ));
-                if (invalid) throw new Error('连线任务不在当前页签组白板范围内');
+                if (invalid) throw new Error('连线任务不在当前页签组全局白板范围内');
             }
             __tmSetWhiteboardGlobalTaskLinks(links, scope.boardKey, options);
             return;
@@ -1178,7 +1178,7 @@
         return [
             { value: documentValue, label: '各文档白板' },
             { value: 'global', label: '文档分组全局白板' },
-            { value: 'tabGroup', label: '页签组白板' },
+            { value: 'tabGroup', label: '页签组全局白板' },
         ];
     }
 
@@ -2876,6 +2876,9 @@
 
         let score = base;
 
+        const pinnedDelta = Number(cfg.pinnedDelta ?? 0);
+        if (__tmIsTaskPinned(task) && Number.isFinite(pinnedDelta)) score += w('pinned') * pinnedDelta;
+
         const impDeltaMap = (cfg.importanceDelta && typeof cfg.importanceDelta === 'object') ? cfg.importanceDelta : {};
         const imp = String(task?.priority || 'none').trim() || 'none';
         const impDelta = Number(impDeltaMap[imp] ?? impDeltaMap.none ?? 0);
@@ -4197,7 +4200,12 @@ __tmScheduleViewRefresh(pending);
                 requiresClosure: changedFields.length > 0,
             };
         }
-        return engine.analyzePatch(patch, __tmBuildTaskProjectionContext(options));
+        const context = __tmBuildTaskProjectionContext(options);
+        const task = globalThis.__tmTaskStore?.getProjected?.(taskId) || globalThis.__tmTaskBoundary?.getTask?.(taskId);
+        if (SettingsStore.data.completedTasksInlineInGroups !== true && __tmIsTaskDoneForTailGroup(task)) {
+            context.completedTasksGroupBy = __tmNormalizeCompletedTasksGroupBy(SettingsStore.data.completedTasksGroupBy);
+        }
+        return engine.analyzePatch(patch, context);
     }
 
     function __tmDoesPatchAffectCurrentGroupOrOrder(taskId, patch = {}, options = {}) {
@@ -4950,7 +4958,8 @@ return false;
             ?.querySelector?.(':scope > .tm-kanban-group-title[data-group-key]');
         const groupKey = String(groupTitle?.getAttribute?.('data-group-key') || '').trim();
         const inCompletedContext = String(column?.getAttribute?.('data-status') || '').trim() === '__done__'
-            || __tmIsCompletedRootGroupKey(groupKey);
+            || __tmIsCompletedRootGroupKey(groupKey)
+            || groupKey.startsWith('completed_tasks_subgroup::');
         const badgeHtml = __tmRenderCompletedTodayBadge(taskLike, {
             inCompletedRootGroup: inCompletedContext,
         });
@@ -5009,6 +5018,8 @@ return false;
         const sourceColumn = card.closest('.tm-kanban-col');
         if (!(sourceColumn instanceof HTMLElement)) return false;
         if (options?.filtersApplied !== true) return __tmScheduleOptimisticProjectionFrame('kanban', tid, patch);
+        // Completed subgroup membership and ordering come from the grouped renderer.
+        if (card.closest('.tm-kanban-group--completed-subgroup')) return false;
         // This fast path reorders existing cards, but cannot turn a root card
         // into a subtask row or move a subtree between parent containers.
         if (options?.structural === true && cards.some((node) => !__tmTaskPlacementMatchesDom(node, task))) return false;
@@ -11237,6 +11248,69 @@ return false;
         }
     }
 
+    function __tmBuildCompletedTaskGroups(tasks, options = {}) {
+        const mode = __tmNormalizeCompletedTasksGroupBy(SettingsStore?.data?.completedTasksGroupBy);
+        const parentKey = String(options.parentKey || __tmBuildCompletedRootGroupKey());
+        const compare = (a, b) => __tmCompareCompletedTasksRecentFirst(a, b, options.fallbackCompare);
+        const source = (Array.isArray(tasks) ? tasks : []).slice().sort(compare);
+        const makeGroup = (kind, identity, label, items, depth, extra = {}) => ({
+            kind, label, depth, items, count: items.length,
+            key: `completed_tasks_subgroup::${parentKey}::${identity}`,
+            ...extra,
+        });
+        if (mode === 'date') {
+            const byDate = new Map();
+            source.forEach((task) => {
+                const date = __tmGetTaskCompletedAtDateKey(task) || '';
+                if (!byDate.has(date)) byDate.set(date, []);
+                byDate.get(date).push(task);
+            });
+            const today = __tmNormalizeDateOnly(new Date());
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayKey = __tmNormalizeDateOnly(yesterday);
+            return Array.from(byDate.keys()).sort((a, b) => {
+                if (!a || !b) return a === b ? 0 : (a ? -1 : 1);
+                return b.localeCompare(a);
+            }).map((date) => makeGroup('done-date', `date:${date || 'unknown'}`,
+                !date ? '无完成日期' : (date === today ? '今天' : (date === yesterdayKey ? '昨天' : date)), byDate.get(date), 1));
+        }
+        const activeDocId = String(state.activeDocId || 'all').trim();
+        const aggregate = options.aggregate ?? (activeDocId === 'all'
+            || (typeof __tmIsDocTabCustomGroupActiveId === 'function' && __tmIsDocTabCustomGroupActiveId(activeDocId)));
+        const byDoc = new Map();
+        source.forEach((task) => {
+            const docId = String(task?.root_id || task?.docId || '').trim() || '__unknown__';
+            if (!byDoc.has(docId)) byDoc.set(docId, []);
+            byDoc.get(docId).push(task);
+        });
+        const docs = options.docs || (typeof __tmSortDocEntriesForTabs === 'function'
+            ? __tmSortDocEntriesForTabs(state.taskTree || [], SettingsStore.data.currentGroupId || 'all')
+            : state.taskTree || []);
+        const docOrder = new Map(docs.map((doc, index) => [String(doc.id), index]));
+        const docNames = new Map([...(state.allDocuments || []), ...docs].map((doc) => [String(doc.id), doc.name]));
+        const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
+        const headingLabels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+        const noHeadingLabel = `无${headingLabels[headingLevel] || '标题'}`;
+        return Array.from(byDoc.keys()).sort((a, b) => (docOrder.get(a) ?? Infinity) - (docOrder.get(b) ?? Infinity)
+            || a.localeCompare(b)).flatMap((docId) => {
+            const docItems = byDoc.get(docId);
+            const byHeading = new Map();
+            docItems.forEach((task) => {
+                const bucket = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                if (!byHeading.has(bucket.key)) byHeading.set(bucket.key, []);
+                byHeading.get(bucket.key).push(task);
+            });
+            const groups = __tmBuildDocHeadingBuckets(docItems, noHeadingLabel).map((bucket) =>
+                makeGroup('done-h2', `title:${encodeURIComponent(docId)}:${encodeURIComponent(bucket.key)}`,
+                    bucket.label, byHeading.get(bucket.key) || [], aggregate ? 2 : 1,
+                    { docId, headingId: bucket.id, headingLevel }));
+            if (!aggregate) return groups;
+            const label = docNames.get(docId) || docItems[0]?.docName || '未知文档';
+            return [makeGroup('done-doc', `title:${encodeURIComponent(docId)}`, label, docItems, 1, { docId, groups })];
+        });
+    }
+
     function __tmBuildTaskRowModelCacheMeta() {
         const settings = SettingsStore?.data || {};
         const setSignature = (value) => value instanceof Set
@@ -11288,6 +11362,7 @@ return false;
             settingsSignature: [
                 settings.completedTasksInlineInGroups === true ? 1 : 0,
                 settings.completedTasksTodayOnly === true ? 1 : 0,
+                __tmNormalizeCompletedTasksGroupBy(settings.completedTasksGroupBy),
                 settings.docH2SubgroupEnabled !== false ? 1 : 0,
                 settings.groupSortByBestSubtaskTimeInTimeQuadrant === true ? 1 : 0,
                 settings.pinTasksWithinGroups === true ? 1 : 0,
@@ -11577,6 +11652,19 @@ return false;
             }
         };
 
+        const appendCompletedSubgroups = (groups) => {
+            groups.forEach((group) => {
+                if (!hasTaskBudget()) return;
+                const collapsed = state.collapsedGroups?.has(group.key) === true;
+                rows.push({
+                    type: 'group', ...group, items: undefined, groups: undefined,
+                    groupDepth: group.depth, collapsed, inCompletedRootGroup: true,
+                });
+                if (collapsed) return;
+                if (group.groups) appendCompletedSubgroups(group.groups);
+                else walkTaskList(group.items, 0, false, true);
+            });
+        };
         const appendCompletedRootGroup = () => {
             if (!completedRoots.length) return;
             completedRoots.sort((a, b) => __tmCompareCompletedTasksRecentFirst(a, b, (x, y) => getTaskOrder(x.id) - getTaskOrder(y.id)));
@@ -11591,9 +11679,11 @@ return false;
                 durationSum: __tmCalcGroupDurationText(completedRoots),
                 collapsed: !!doneCollapsed,
             });
-            if (!doneCollapsed) {
-                walkTaskList(completedRoots, 0, false, true);
-            }
+            if (doneCollapsed) return;
+            appendCompletedSubgroups(__tmBuildCompletedTaskGroups(completedRoots, {
+                parentKey: doneGroupKey,
+                fallbackCompare: (a, b) => getTaskOrder(a.id) - getTaskOrder(b.id),
+            }));
         };
 
         if (pinnedRoots.length > 0) {

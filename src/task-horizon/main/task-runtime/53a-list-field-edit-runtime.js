@@ -555,8 +555,9 @@
             chip.textContent = (searching ? runtime.pathById.get(optionId) : '') || String(option?.name || optionId || '').trim() || optionId;
             button.title = runtime.pathById.get(optionId) || chip.textContent;
             const check = document.createElement('span');
-            check.style.cssText = 'flex:none;color:var(--tm-primary-color);font-size:12px;';
-            check.textContent = selected.has(optionId) ? '✓' : '';
+            check.className = 'tm-selection-check';
+            check.style.visibility = selected.has(optionId) ? 'visible' : 'hidden';
+            check.setAttribute('aria-hidden', 'true');
             button.append(chip, check);
             button.onclick = () => opts.onToggle?.(optionId, { historical: false });
             row.append(button, expand);

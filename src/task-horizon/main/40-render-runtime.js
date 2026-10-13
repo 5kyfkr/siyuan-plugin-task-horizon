@@ -1973,7 +1973,6 @@
         try { if (renderMode === 'kanban' && typeof __tmNormalizeKanbanDetailFloatHost === 'function') __tmNormalizeKanbanDetailFloatHost(state.modal); } catch (e) {}
         try { __tmBindPluginHostGestureIsolation(state.modal); } catch (e) {}
         try { __tmBindChecklistSheetTouchFallback(state.modal); } catch (e) {}
-        try { if (renderMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         try { if (renderMode === 'whiteboard') __tmBindWhiteboardViewportInput(state.modal); } catch (e) {}
         const finalMountRoot = (renderMode === 'whiteboard' && state.whiteboardPluginFullscreen && !isDockHost)
             ? document.body
@@ -1985,6 +1984,9 @@
             __tmPruneMountedManagerShells(finalMountRoot, keepMountedShell);
         } catch (e) {}
         finalMountRoot.appendChild(state.modal);
+        // Lane backgrounds paint synchronously and need a connected, sized
+        // board. Initial/reload renders build the shell off-document above.
+        try { if (renderMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         try { if (renderMode === 'checklist') globalThis.__tmSyncChecklistWrappedTitleClasses?.(state.modal); } catch (e) {}
         try {
             if (renderMode === 'kanban' || renderMode === 'whiteboard') {
@@ -5940,8 +5942,9 @@
         const height = Math.max(1, Math.ceil(layer.clientHeight));
         // Backgrounds need no device-pixel scaling. Bound the backing store
         // for boards containing many horizontally off-screen columns.
-        canvas.width = Math.min(width, 8192);
-        canvas.height = height;
+        const backingWidth = Math.min(width, 8192);
+        if (canvas.width !== backingWidth) canvas.width = backingWidth;
+        if (canvas.height !== height) canvas.height = height;
         const scale = canvas.width / width;
         const context = canvas.getContext('2d');
         if (!context) return;
@@ -6077,7 +6080,9 @@
             }
             __tmScheduleKanbanLaneProgress(mutation.taskId);
         });
-        session.schedule();
+        // Body replacements may run inside an animation frame. Paint before
+        // returning so that frame never presents a transparent new canvas.
+        sync();
     }
 
     function __tmWarmKanbanLaneProjectProgress(session) {

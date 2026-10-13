@@ -2888,12 +2888,12 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '全部页签时间轴依赖线',
-                            '单文档时间轴固定使用本文件连线。页签组白板读取活动页签组的画布；没有活动页签组时使用文档分组全局白板。',
+                            '汇总时间轴连线来源',
+                            '文档分组和页签组的汇总时间轴共用此设置，单文档使用本文件连线。未进入页签组时，“页签组全局白板”使用文档分组全局白板。',
                             `<select class="b3-select" onchange="tmUpdateTimelineDependencyScope(this.value)" style="width:220px;max-width:100%;">
                                 ${__tmGetWhiteboardLinkSourceOptions('local').map((option) => `<option value="${option.value}" ${__tmNormalizeTimelineDependencyScope(SettingsStore.data.timelineDependencyScope) === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
                             </select>`,
-                            { style: 'margin-bottom:10px;' }
+                            { style: 'margin-bottom:10px;', controlMode: 'stack' }
                         )}
                         <div style="margin-bottom:10px;" ${__tmSettingsSearchAttrs('main', '显示视图', '选择启用表格、清单、时间轴、看板、日历和白板视图，至少保留一个。', { section: 'layout', key: 'main-enabled-views' })}>
                             ${renderSettingsChipSetting('', '', [
@@ -2997,11 +2997,11 @@
                         )}
                         ${renderSingleFieldSetting(
                             '白板顺序依据',
-                            '选择用于计算任务顺序的白板。页签组白板读取活动页签组的画布；没有活动页签组时使用文档分组全局白板。',
+                            '开启“白板顺序模式”后，按所选白板的连线显示当前步骤的任务。未进入页签组时，“页签组全局白板”使用文档分组全局白板。',
                             `<select class="b3-select" onchange="updateWhiteboardSequenceScope(this.value)" style="width:180px;">
                                 ${__tmGetWhiteboardLinkSourceOptions().map((option) => `<option value="${option.value}" ${__tmNormalizeWhiteboardSequenceScope(SettingsStore.data.whiteboardSequenceScope) === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
                             </select>`,
-                            { style: 'margin-bottom:10px;' }
+                            { style: 'margin-bottom:10px;', controlMode: 'stack' }
                         )}
                         ${renderSingleFieldSetting(
                             '白板文字默认字号',
@@ -3131,6 +3131,15 @@
                             '已完成任务不单独分组',
                             '开启后，已完成任务跟随当前文档、时间、四象限或任务名分组显示；看板中也不再显示单独已完成列或列底部已完成分组。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.completedTasksInlineInGroups ? 'checked' : ''} onchange="updateCompletedTasksInlineInGroups(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleFieldSetting(
+                            '已完成任务分组',
+                            '用于已完成任务分组和看板独立已完成列，与顶栏主分组及排序规则独立。默认按实际完成日期分组；按文档与标题时，全部页签先按文档分组，再按文档中的标题分组。组内任务仍按现有完成时间排序。',
+                            `<select class="b3-select" onchange="updateCompletedTasksGroupBy(this.value)">
+                                <option value="date" ${__tmNormalizeCompletedTasksGroupBy(SettingsStore.data.completedTasksGroupBy) === 'date' ? 'selected' : ''}>按日期</option>
+                                <option value="title" ${__tmNormalizeCompletedTasksGroupBy(SettingsStore.data.completedTasksGroupBy) === 'title' ? 'selected' : ''}>按文档与标题</option>
+                            </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(

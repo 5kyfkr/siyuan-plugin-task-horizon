@@ -4097,7 +4097,7 @@
                     <span class="tm-duration-preset-option__main">
                         <span class="tm-duration-preset-option__title">${esc(value)}</span>
                     </span>
-                    <span class="tm-duration-preset-option__check" aria-hidden="true">✓</span>
+                    <span class="tm-duration-preset-option__check tm-selection-check" aria-hidden="true"></span>
                 </button>
             `;
         }).join('');
@@ -5529,6 +5529,7 @@
             'done',
             'customStatus',
             'priority',
+            'pinned',
             'priorityScore',
             'completionTime',
             'taskCompleteAt',
@@ -10685,6 +10686,12 @@
     }
 
     async function __tmLoadTodayScheduledTaskIds(force = false) {
+        if (typeof globalThis.__tmCalendar?.listTaskSchedulesByDay !== 'function') {
+            const ensureCalendarAssets = globalThis.__taskHorizonEnsureCalendarAssets;
+            if (typeof ensureCalendarAssets === 'function') {
+                try { await ensureCalendarAssets(); } catch (e) {}
+            }
+        }
         const dayKey = __tmGetTodayDateKey();
         const api = globalThis.__tmCalendar?.listTaskSchedulesByDay;
         const sourceReady = typeof api === 'function';
@@ -10745,20 +10752,18 @@
             const owner = el.closest('tr[data-id], .tm-kanban-card[data-id], .tm-checklist-item[data-id]');
             const tid = String(owner?.getAttribute?.('data-id') || '').trim();
             if (!tid) return;
-            if (__tmHasTaskScheduledToday(tid)) el.style.color = 'var(--tm-primary-color)';
-            else {
-                // Fresh markup already includes its priority title style. A
-                // scoped set excludes reused branches that still need updates.
-                if (options.preserveRenderedTitleStyle === true
-                    || options.preserveRenderedTitleStyle instanceof Set && options.preserveRenderedTitleStyle.has(el)) return;
-                const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
-                const target = el.matches?.('.tm-checklist-title')
-                    ? (el.querySelector?.('.tm-checklist-title-button > span') || el)
-                    : el;
-                if (target !== el) el.style.removeProperty('color');
-                if (task && target instanceof HTMLElement) __tmApplyTaskTitleOpacityToElement(target, task);
-                else el.style.removeProperty('color');
-            }
+            const target = el.matches?.('.tm-checklist-title')
+                ? (el.querySelector?.('.tm-checklist-title-button > span') || el)
+                : el;
+            target.classList.toggle('tm-task-scheduled-today', __tmHasTaskScheduledToday(tid));
+            // Fresh markup already includes its priority title style. A
+            // scoped set excludes reused branches that still need updates.
+            if (options.preserveRenderedTitleStyle === true
+                || options.preserveRenderedTitleStyle instanceof Set && options.preserveRenderedTitleStyle.has(el)) return;
+            const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
+            if (target !== el) el.style.removeProperty('color');
+            if (task && target instanceof HTMLElement) __tmApplyTaskTitleOpacityToElement(target, task);
+            else target.style.removeProperty('color');
         });
     }
 
@@ -20988,6 +20993,7 @@ if (!state.homepageOpen) return;
         feed(SettingsStore.data.pinTasksWithinGroups ? 1 : 0);
         feed(SettingsStore.data.completedTasksTodayOnly ? 1 : 0);
         feed(SettingsStore.data.completedTasksInlineInGroups ? 1 : 0);
+        feed(__tmNormalizeCompletedTasksGroupBy(SettingsStore.data.completedTasksGroupBy));
         feed(__tmGetTaskCardAlwaysShowFieldList().join('|'));
         feed(SettingsStore.data.kanbanDragSyncSubtasks ? 1 : 0);
         feed(SettingsStore.data.kanbanPreventSubtaskSeparation ? 1 : 0);
@@ -23639,7 +23645,7 @@ if (!state.homepageOpen) return;
                         const itemLabel = String(item?.label || itemValue);
                         const action = String(item?.action || '').trim();
                         const selected = item?.selected === true;
-                        return `<button class="bc-select-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-option-value="${__tmEscAttr(itemValue)}" data-tm-option-label="${__tmEscAttr(itemLabel)}" data-tm-option-action="${__tmEscAttr(action)}" onclick="return tmHandleTopbarSelectOption('${escSq(id)}', '${escSq(itemValue)}', event);"><span>${esc(itemLabel)}</span><span class="bc-select-option__check" aria-hidden="true">✓</span></button>`;
+                        return `<button class="bc-select-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-option-value="${__tmEscAttr(itemValue)}" data-tm-option-label="${__tmEscAttr(itemLabel)}" data-tm-option-action="${__tmEscAttr(action)}" onclick="return tmHandleTopbarSelectOption('${escSq(id)}', '${escSq(itemValue)}', event);"><span>${esc(itemLabel)}</span><span class="bc-select-option__check tm-selection-check" aria-hidden="true"></span></button>`;
                     }).join('')}
                 </div>
             </div>

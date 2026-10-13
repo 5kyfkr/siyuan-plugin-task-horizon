@@ -94,7 +94,7 @@
             const itemLabel = String(item?.label || itemValue);
             const action = String(item?.action || '').trim();
             const selected = item?.selected === true;
-            return `<button class="bc-select-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-option-value="${__tmEscAttr(itemValue)}" data-tm-option-label="${__tmEscAttr(itemLabel)}" data-tm-option-action="${__tmEscAttr(action)}" onclick="return tmHandleTopbarSelectOption('${escSq(selectId)}', '${escSq(itemValue)}', event);"><span>${esc(itemLabel)}</span><span class="bc-select-option__check" aria-hidden="true">✓</span></button>`;
+            return `<button class="bc-select-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-option-value="${__tmEscAttr(itemValue)}" data-tm-option-label="${__tmEscAttr(itemLabel)}" data-tm-option-action="${__tmEscAttr(action)}" onclick="return tmHandleTopbarSelectOption('${escSq(selectId)}', '${escSq(itemValue)}', event);"><span>${esc(itemLabel)}</span><span class="bc-select-option__check tm-selection-check" aria-hidden="true"></span></button>`;
         }).join('');
     }
 

@@ -124,7 +124,14 @@ for (const wholeScopeDirty of [false, true]) {
 }
 
 class Element {
-    constructor(id = '') { this.id = id; this.style = { color: 'priority-color', removeProperty() {} }; this.isConnected = true; }
+    constructor(id = '') {
+        this.id = id; this.style = { color: 'priority-color', removeProperty() {} }; this.isConnected = true;
+        const classes = new Set();
+        this.classList = {
+            toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name),
+            contains: (name) => classes.has(name),
+        };
+    }
     matches() { return false; }
     closest() { return { getAttribute: () => this.id }; }
 }
@@ -141,12 +148,15 @@ test('fresh titles keep rendered priority colors; ordinary refresh still restore
     });
     loadFunction(context, '20-api-and-runtime-services.js', '__tmApplyTodayScheduledTaskNameMarks');
     context.__tmApplyTodayScheduledTaskNameMarks(modal, { preserveRenderedTitleStyle: true });
-    assert.equal(today.style.color, 'var(--tm-primary-color)');
+    assert.equal(today.style.color, 'priority-color');
+    assert.equal(today.classList.contains('tm-task-scheduled-today'), true);
+    assert.equal(normal.classList.contains('tm-task-scheduled-today'), false);
     assert.equal(normal.style.color, 'priority-color');
     assert.equal(lookups, 0); assert.equal(titleUpdates, 0);
     hasToday = false;
     context.__tmApplyTodayScheduledTaskNameMarks(modal);
     assert.equal(today.style.color, 'priority-color');
+    assert.equal(today.classList.contains('tm-task-scheduled-today'), false);
     assert.equal(titleUpdates, 2);
 });
 
@@ -166,6 +176,42 @@ test('scheduled marks skip unchanged painted data, but still apply changes and d
     await refresh(); assert.equal(marks, 0);
     changed = true; await refresh(); assert.equal(marks, 1);
     changed = false; day = 'day-two'; await refresh(); assert.equal(marks, 2);
+});
+
+test('cold-start schedule marks appear when calendar assets finish loading without a view switch', async () => {
+    const today = new Element('today'); const normal = new Element('normal'); const modal = new Element();
+    modal.querySelectorAll = () => [today, normal];
+    let finishCalendarLoad; let scheduleReads = 0;
+    const calendarReady = new Promise((resolve) => { finishCalendarLoad = resolve; });
+    const context = vm.createContext({
+        Element, HTMLElement: Element, Set,
+        state: { modal, todayScheduledSourceReady: false, todayScheduledTaskIds: new Set(), todayScheduledTaskIdsDay: '' },
+        __tmGetTodayDateKey: () => '2026-10-13',
+        __taskHorizonEnsureCalendarAssets: () => calendarReady,
+        __tmTaskBoundary: { getTask: (id) => ({ id }) },
+        __tmApplyTaskTitleOpacityToElement: (el) => { el.style.color = 'priority-color'; },
+    });
+    for (const name of ['__tmHasTaskScheduledToday', '__tmLoadTodayScheduledTaskIds', '__tmApplyTodayScheduledTaskNameMarks', '__tmScheduleTodayScheduledTaskNameMarksRefresh']) {
+        loadFunction(context, '20-api-and-runtime-services.js', name);
+    }
+    context.__tmApplyTodayScheduledTaskNameMarks(modal);
+    context.__tmScheduleTodayScheduledTaskNameMarksRefresh(modal);
+    context.__tmScheduleTodayScheduledTaskNameMarksRefresh(modal);
+    await new Promise(setImmediate);
+    assert.equal(today.classList.contains('tm-task-scheduled-today'), false);
+    context.__tmCalendar = {
+        listTaskSchedulesByDay: async (day) => {
+            assert.equal(day, '2026-10-13'); scheduleReads++;
+            return [{ taskId: 'today' }];
+        },
+    };
+    finishCalendarLoad(true);
+    await new Promise(setImmediate);
+    assert.equal(today.classList.contains('tm-task-scheduled-today'), true);
+    assert.equal(normal.classList.contains('tm-task-scheduled-today'), false);
+    assert.equal(today.style.color, 'priority-color');
+    assert.equal(scheduleReads, 1, 'concurrent initial refreshes share the schedule read');
+    assert.equal(context.state.todayScheduledSourceReady, true);
 });
 
 test('view refresh batching preserves document scopes through normalization and merging', () => {

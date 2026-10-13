@@ -6391,7 +6391,7 @@
                                 title="${historical ? '移除此历史值：' : ''}${esc(displayLabel)}"
                                 ${historical ? 'data-historical="1"' : ''}>
                             <span class="sy-custom-props-floatbar__option-label sy-custom-props-floatbar__option-label--status" style="${buildStatusChipStyle(opt?.color || '#9ca3af')}">${esc(displayLabel)}</span>
-                            <span class="sy-custom-props-floatbar__option-check" aria-hidden="true">${historical ? '×' : (selectedCustomValues.has(value) ? '✓' : '')}</span>
+                            <span class="sy-custom-props-floatbar__option-check${!historical && selectedCustomValues.has(value) ? ' tm-selection-check' : ''}" aria-hidden="true">${historical ? '×' : ''}</span>
                         </button>
                     `.trim();
                 }
@@ -6997,7 +6997,7 @@
                             <span class="sy-custom-props-floatbar__input-extra-main">
                                 <span class="sy-custom-props-floatbar__input-extra-text"><span class="sy-custom-props-floatbar__input-extra-title">${esc(value)}</span></span>
                             </span>
-                            <span class="sy-custom-props-floatbar__input-extra-tail">${renderPhosphorBoldIcon('check', 12)}</span>
+                            <span class="sy-custom-props-floatbar__input-extra-tail"><span class="tm-selection-check" aria-hidden="true"></span></span>
                         </button>
                     `).join('')
                     : '';
@@ -7230,7 +7230,7 @@
                                         <span class="sy-custom-props-floatbar__input-extra-title">${esc(value)}</span>
                                     </span>
                                 </span>
-                                <span class="sy-custom-props-floatbar__input-extra-tail">${renderPhosphorBoldIcon('check', 12)}</span>
+                                <span class="sy-custom-props-floatbar__input-extra-tail"><span class="tm-selection-check" aria-hidden="true"></span></span>
                             </button>
                         `).join('')}
                     `.trim();

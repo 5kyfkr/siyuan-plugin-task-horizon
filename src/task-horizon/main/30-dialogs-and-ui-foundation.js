@@ -793,34 +793,58 @@
         const memo = cache instanceof Map ? cache : null;
         if (did && memo && memo.has(did)) return memo.get(did);
         let taskList = Array.isArray(doc?.tasks) ? doc.tasks : [];
-        // The document tree can lag behind optimistic/authoritative TaskStore updates.
+        const treeParents = new Map();
+        const treeTasks = new Map();
+        const indexTree = (tasks, parentId = '') => {
+            (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+                const id = String(task?.id || '').trim();
+                if (id && treeTasks.has(id)) return;
+                if (id) {
+                    treeTasks.set(id, task);
+                    if (parentId) treeParents.set(id, parentId);
+                }
+                indexTree(task?.children, id);
+            });
+        };
+        indexTree(taskList);
+        // Use current completion/placement, retaining tree ancestry when old mirrors omit parent IDs.
         try {
             const projectedTasks = Object.values(globalThis.__tmTaskStore?.getFlatMap?.() || {})
                 .filter((task) => String(task?.root_id || task?.docId || '').trim() === did);
             if (projectedTasks.length > 0) taskList = projectedTasks;
-        } catch (e) {}
-        const out = {
-            hasAny: !!(doc && taskList.length > 0),
-            hasUndone: false,
+            else if (treeTasks.size > 0) taskList = Array.from(treeTasks.values());
+        } catch (e) {
+            if (treeTasks.size > 0) taskList = Array.from(treeTasks.values());
+        }
+        const taskById = new Map(taskList.map((task) => [String(task?.id || '').trim(), task]).filter(([id]) => id));
+        taskList.forEach((task) => {
+            (Array.isArray(task?.children) ? task.children : []).forEach((child) => {
+                const childId = String(child?.id || '').trim();
+                if (childId) treeParents.set(childId, String(task?.id || '').trim());
+            });
+        });
+        const isDone = (task) => typeof __tmIsTaskDoneEffective === 'function'
+            ? __tmIsTaskDoneEffective(task) : !!task?.done;
+        const getParentId = (task) => {
+            for (const key of ['parentTaskId', 'parent_task_id', 'parentId']) {
+                if (Object.prototype.hasOwnProperty.call(task || {}, key)) return String(task[key] || '').trim();
+            }
+            return treeParents.get(String(task?.id || '').trim()) || '';
         };
-        if (out.hasAny) {
-            const walk = (list, ancestorDone = false) => {
-                for (const t of (Array.isArray(list) ? list : [])) {
-                    const selfDone = typeof __tmIsTaskDoneEffective === 'function'
-                        ? __tmIsTaskDoneEffective(t)
-                        : !!t?.done;
-                    const blocked = ancestorDone || selfDone;
-                    if (!blocked) {
-                        out.hasUndone = true;
-                        return;
-                    }
-                    if (Array.isArray(t?.children) && t.children.length > 0) {
-                        walk(t.children, blocked);
-                    }
-                    if (out.hasUndone) return;
-                }
-            };
-            walk(taskList, false);
+        const out = { hasAny: !!(doc && taskList.length > 0), hasUndone: false };
+        for (const task of taskList) {
+            if (isDone(task)) continue;
+            let parentId = getParentId(task);
+            let ancestorDone = false;
+            const seen = new Set([String(task?.id || '').trim()]);
+            while (parentId && !seen.has(parentId)) {
+                seen.add(parentId);
+                const parent = taskById.get(parentId);
+                if (!parent) break;
+                if (isDone(parent)) { ancestorDone = true; break; }
+                parentId = getParentId(parent);
+            }
+            if (!ancestorDone) { out.hasUndone = true; break; }
         }
         out.isArchived = !!(out.hasAny && !out.hasUndone);
         if (did && memo) memo.set(did, out);
@@ -8803,7 +8827,8 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmGetDefaultPriorityScoreConfig() {
         return {
             base: 100,
-            weights: { importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
+            weights: { pinned: 1, importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
+            pinnedDelta: 0,
             importanceDelta: { high: 20, medium: 10, low: -5, none: 0 },
             statusDelta: { todo: 0, in_progress: 15, done: -80, blocked: -10, review: 5 },
             customFieldDelta: {},
@@ -8905,6 +8930,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 && field.options.length > 0;
         });
         const weightRows = [
+            ['pinned', '置顶'],
             ['importance', '重要性'],
             ['status', '状态'],
             ['due', '截止日期'],
@@ -9110,10 +9136,22 @@ return Number(state.contextInteractionQuietUntil || 0);
                         <div class="tm-priority-module__head">
                             <div class="tm-priority-module__copy">
                                 <div class="tm-priority-module__title">权重（微调）</div>
-                                <div class="tm-priority-module__desc">调整重要性、状态、截止日期、时长和文档的相对权重，默认均为 1。</div>
+                                <div class="tm-priority-module__desc">调整置顶、重要性、状态、截止日期、时长和文档的相对权重，默认均为 1。</div>
                             </div>
                         </div>
                         <div class="tm-priority-field-grid">${weightRows}</div>
+                    </div>
+
+                    <div class="tm-priority-module">
+                        <div class="tm-priority-module__head">
+                            <div class="tm-priority-module__copy">
+                                <div class="tm-priority-module__title">置顶加减分</div>
+                                <div class="tm-priority-module__desc">任务置顶时按此分值加减分，取消置顶后移除。设为 0 时不影响分值。</div>
+                            </div>
+                            <div class="tm-priority-module__actions">
+                                <input class="b3-text-field tm-priority-number-input" type="number" aria-label="置顶加减分" value="${Number(cfg.pinnedDelta) || 0}" data-tm-call="tmSetPriorityPinned">
+                            </div>
+                        </div>
                     </div>
 
                     <div class="tm-priority-module">
@@ -9217,6 +9255,12 @@ return Number(state.contextInteractionQuietUntil || 0);
                     <div style="margin-bottom: 14px;">
                         <div style="font-weight: 700; margin-bottom: 8px;">权重（微调）</div>
                         <div class="tm-priority-field-grid">${weightRows}</div>
+                    </div>
+
+                    <div style="margin-bottom: 14px;">
+                        <div style="font-weight: 700; margin-bottom: 8px;">置顶加减分</div>
+                        <div style="color: var(--tm-secondary-text); font-size: 12px; margin-bottom: 8px;">任务置顶时按此分值加减分，取消置顶后移除。设为 0 时不影响分值。</div>
+                        <input class="b3-text-field tm-priority-number-input" type="number" aria-label="置顶加减分" value="${Number(cfg.pinnedDelta) || 0}" data-tm-call="tmSetPriorityPinned">
                     </div>
 
                     <div style="margin-bottom: 14px;">
@@ -9569,6 +9613,11 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!state.priorityScoreDraft) return;
         state.priorityScoreDraft.base = Number(value) || 0;
     };
+    window.tmSetPriorityPinned = function(value) {
+        if (!state.priorityScoreDraft) return;
+        const delta = Number(value);
+        state.priorityScoreDraft.pinnedDelta = Number.isFinite(delta) ? delta : 0;
+    };
     window.tmSetPriorityWeight = function(key, value) {
         if (!state.priorityScoreDraft) return;
         if (!state.priorityScoreDraft.weights) state.priorityScoreDraft.weights = {};
@@ -9887,7 +9936,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     const row = document.createElement('div');
                     const checked = id === selected;
                     row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:pointer;';
-                    row.innerHTML = `<div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(resolveDocName(id))}</div><div style="margin-left:10px;">${checked ? '✅' : '◻️'}</div>`;
+                    row.innerHTML = `<div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(resolveDocName(id))}</div><div style="margin-left:10px;">${checked ? '<span class="tm-selection-check" aria-hidden="true"></span>' : '◻️'}</div>`;
                     row.onclick = () => window.tmPriorityDocDeltaSelectDoc?.(id);
                     body.appendChild(row);
                 });
@@ -10002,7 +10051,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(__tmResolveDocGroupName(group))}</div>
                     <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:2px;">${entryCount > 0 ? `来源项 ${entryCount} 个` : '空分组'}</div>
                 </div>
-                <div style="margin-left:10px;">${checked ? '✅' : '◻️'}</div>
+                <div style="margin-left:10px;">${checked ? '<span class="tm-selection-check" aria-hidden="true"></span>' : '◻️'}</div>
             `;
             row.onclick = () => window.tmPriorityGroupDeltaSelectGroup?.(gid);
             listEl.appendChild(row);

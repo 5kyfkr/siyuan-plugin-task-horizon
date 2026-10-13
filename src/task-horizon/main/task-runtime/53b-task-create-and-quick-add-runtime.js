@@ -2461,94 +2461,7 @@
             hint('❌ 未找到文档', 'error');
             return;
         }
-        const text = await showPrompt('新建任务', '每行一个任务；回车换行，Ctrl + 回车提交', '', {
-            multiline: true,
-            rows: 4,
-            minHeight: 96,
-        });
-        if (text == null) return;
-        const taskLines = __tmSplitTaskInputLines(text);
-        if (taskLines.length === 0) {
-            hint('⚠ 请输入任务内容', 'warning');
-            return;
-        }
-        try {
-            const useSectionEnd = !!SettingsStore.data.headingGroupCreateAtSectionEnd;
-            const createdTaskIds = [];
-            let createSettled = [];
-            const createTaskInDoc = globalThis.__tmRequireTaskMutation?.('createTaskInDoc');
-            if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪: createTaskInDoc');
-            if (hid && hid !== '__none__') {
-                const placement = await __tmResolveHeadingGroupInsertPlacement(did, hid, SettingsStore.data.taskHeadingLevel || 'h2');
-                if (placement.matched) {
-                    const headingPatch = __tmBuildHeadingPatchFromPlacement(placement);
-                    const insertBeforeId = useSectionEnd ? String(placement.nextID || '').trim() : '';
-                    const insertAfterId = useSectionEnd ? '' : String(placement.insertAfterID || hid || '').trim();
-                    const appendToBottom = useSectionEnd && placement.appendToBottom === true;
-                    const orderedLines = insertAfterId ? taskLines.slice().reverse() : taskLines;
-                    createSettled = await Promise.allSettled(orderedLines.map((line) => createTaskInDoc({
-                            docId: did,
-                            content: line,
-                            insertParentId: String(placement.parentID || did).trim(),
-                            insertBeforeId,
-                            insertAfterId,
-                            appendToBottom,
-                            targetHeadingId: headingPatch?.h2Id || '',
-                            targetHeading: headingPatch?.h2 || '',
-                            targetHeadingRank: Number(headingPatch?.h2Rank),
-                            wait: true,
-                            showErrorHint: false,
-                        }).then((taskId) => {
-                            createdTaskIds.push(taskId);
-                            try {
-                                if (headingPatch) __tmApplyHeadingPatchToTaskLocal(taskId, headingPatch, 'heading-create-task-local');
-                            } catch (e) {}
-                            return taskId;
-                        })));
-                }
-            }
-            if (createSettled.length === 0) {
-                createSettled = await Promise.allSettled(taskLines.slice().reverse().map((line) => createTaskInDoc({
-                        docId: did,
-                        content: line,
-                        atTop: true,
-                        wait: true,
-                        showErrorHint: false,
-                    }).then((taskId) => {
-                        createdTaskIds.push(taskId);
-                        try {
-                            if (!hid || hid === '__none__') {
-                                const task = state.pendingInsertedTasks?.[String(taskId || '').trim()];
-                                if (task) {
-                                    task.h2 = '';
-                                    task.h2Id = '';
-                                    globalThis.__tmTaskStore?.patchPending?.(taskId, { h2: '', h2Id: '' }, { source: 'heading-create-clear-pending-heading' });
-                                }
-                            }
-                        } catch (e) {}
-                        return taskId;
-                    })));
-            }
-            createdTaskIds.forEach((taskId) => {
-                try {
-                    const pendingTask = state.pendingInsertedTasks?.[String(taskId || '').trim()];
-                    if (pendingTask) __tmUpsertLocalTask(pendingTask);
-                } catch (e) {}
-            });
-            const createFailures = createSettled.filter((item) => item.status === 'rejected');
-            if (createFailures.length > 0) {
-                const firstError = createFailures[0]?.reason;
-                if (createdTaskIds.length === 0) {
-                    throw firstError instanceof Error ? firstError : new Error(String(firstError || '任务创建失败'));
-                }
-                const message = String(firstError?.message || firstError || '').trim();
-                hint(`⚠ 已创建 ${createdTaskIds.length} 个任务，${createFailures.length} 个失败${message ? `: ${message}` : ''}`, 'warning');
-                return;
-            }
-            hint(taskLines.length > 1 ? `✅ 已创建 ${taskLines.length} 个任务` : '✅ 任务已创建', 'success');
-        } catch (e) {
-            hint(`❌ 新建任务失败: ${e.message}`, 'error');
-        }
+        return await window.tmQuickAddOpenForDoc(did, hid || '__none__');
     };
 
     async function __tmAppendBlockOnce(parentId, data, options = {}) {
@@ -4054,6 +3967,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             draftScope: relation ? `${relation}:${sourceTaskId}` : '',
             docId: '',
             docMode: 'doc',
+            headingId: String(options.headingId || '').trim(),
             customStatus: defaultStatusId,
             priority: 'none',
             startDate: '',
@@ -4203,7 +4117,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         try {
             await __tmEnsureSettingsLoaded();
             if (state.quickAdd !== qa || !modal.isConnected) return;
-            const initialLocation = relation
+            const initialLocation = relation || String(options.docId || '').trim()
                 ? { mode: 'doc', docId: options.docId }
                 : await __tmResolveQuickAddInitialLocation();
             if (state.quickAdd !== qa || !modal.isConnected) return;
@@ -4236,16 +4150,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         }
     };
 
-    window.tmQuickAddOpenForDoc = async function(docId) {
+    window.tmQuickAddOpenForDoc = async function(docId, headingId = '') {
         const id = String(docId || '').trim();
-        const qa = await window.tmQuickAddOpen?.();
-        if (!id) return;
-        if (!qa || state.quickAdd !== qa) return;
-        qa.docMode = 'doc';
-        qa.docId = id;
-        await __tmRefreshQuickAddCustomFieldScope(id);
-        if (state.quickAdd !== qa) return;
-        try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
+        return await window.tmQuickAddOpen?.({ docId: id, headingId });
     };
 
     window.tmQuickAddOpenForPreset = async function(docId, statusId, completionTime) {
@@ -4626,7 +4533,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                                         <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>
                                         ${path ? `<div style="margin-top:2px;font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(path)}</div>` : ''}
                                     </div>
-                                    <div style="margin-left:10px;">${checked ? '✅' : '◻️'}</div>
+                                    <div style="margin-left:10px;">${checked ? '<span class="tm-selection-check" aria-hidden="true"></span>' : '◻️'}</div>
                                 </div>
                             `;
                         }).join('')}
@@ -4648,11 +4555,11 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     <div style="padding:6px 10px;">
                         <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:pointer;" onclick="tmQuickAddUseTodayDiary();tmQuickAddCloseDocPicker();">
                             <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">今天日记</div>
-                            <div style="margin-left:10px;">${qa.docMode === 'dailyNote' ? '✅' : '◻️'}</div>
+                            <div style="margin-left:10px;">${qa.docMode === 'dailyNote' ? '<span class="tm-selection-check" aria-hidden="true"></span>' : '◻️'}</div>
                         </div>
                         <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:${defaultDocReady ? 'pointer' : 'not-allowed'};opacity:${defaultDocReady ? 1 : 0.6};" onclick="${defaultDocReady ? `tmQuickAddUseDefaultDoc();tmQuickAddCloseDocPicker();` : ''}">
                             <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(defaultLocationLabel)}</div>
-                            <div style="margin-left:10px;">${defaultDocIsDailyNote ? (qa.docMode === 'dailyNote' ? '✅' : '◻️') : (qa.docMode !== 'dailyNote' && qa.docId === defaultDocId ? '✅' : '◻️')}</div>
+                            <div style="margin-left:10px;">${defaultDocIsDailyNote ? (qa.docMode === 'dailyNote' ? '<span class="tm-selection-check" aria-hidden="true"></span>' : '◻️') : (qa.docMode !== 'dailyNote' && qa.docId === defaultDocId ? '<span class="tm-selection-check" aria-hidden="true"></span>' : '◻️')}</div>
                         </div>
                     </div>
                 </div>
@@ -4695,7 +4602,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     const row = document.createElement('div');
                     const checked = id === qa.docId;
                     row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:pointer;';
-                    row.innerHTML = `<div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(resolveDocName(id))}</div><div style="margin-left:10px;">${checked ? '✅' : '◻️'}</div>`;
+                    row.innerHTML = `<div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(resolveDocName(id))}</div><div style="margin-left:10px;">${checked ? '<span class="tm-selection-check" aria-hidden="true"></span>' : '◻️'}</div>`;
                     row.onclick = () => window.tmQuickAddSelectDoc?.(id);
                     body.appendChild(row);
                 });
@@ -4844,6 +4751,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         // 仅更新本地状态，不修改全局设置
         qa.docId = id;
         qa.docMode = 'doc';
+        qa.headingId = '';
         __tmRememberQuickAddLocation('doc', id);
         // 仅记录最近选择，避免修改全局默认新建文档设置
         window.tmQuickAddCloseDocPicker?.();
@@ -4855,6 +4763,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const qa = state.quickAdd;
         if (!qa) return;
         qa.docMode = 'dailyNote';
+        qa.headingId = '';
         __tmRememberQuickAddLocation('dailyNote');
         try { window.tmQuickAddCloseDocPicker?.(); } catch (e) {}
         window.tmQuickAddRenderMeta?.();
@@ -4866,6 +4775,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const location = await __tmResolveQuickAddInitialLocation();
         if (location?.mode === 'dailyNote') {
             qa.docMode = 'dailyNote';
+            qa.headingId = '';
             __tmRememberQuickAddLocation('dailyNote');
             await __tmRefreshQuickAddCustomFieldScope(qa.docId);
             window.tmQuickAddRenderMeta?.();
@@ -4878,6 +4788,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         }
         qa.docId = id;
         qa.docMode = 'doc';
+        qa.headingId = '';
         __tmRememberQuickAddLocation('doc', id);
         await __tmRefreshQuickAddCustomFieldScope(id);
         window.tmQuickAddRenderMeta?.();
@@ -5003,7 +4914,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         let topAnchorResolved = false;
         let headingAppendToBottom = false;
         let staleConfiguredHeading = false;
-        const configuredHeading = mode === 'doc' && typeof __tmGetDocDefaultTaskHeadingConfig === 'function'
+        const headingId = mode === 'doc' ? String(opts.headingId || '').trim() : '';
+        const configuredHeading = headingId && headingId !== '__none__'
+            ? { headingId, headingLevel: SettingsStore.data.taskHeadingLevel || 'h2' }
+            : !headingId && mode === 'doc' && typeof __tmGetDocDefaultTaskHeadingConfig === 'function'
             ? __tmGetDocDefaultTaskHeadingConfig(did)
             : null;
         if (!appendToBottom && configuredHeading?.headingId && typeof __tmResolveHeadingGroupInsertPlacement === 'function') {
@@ -5022,10 +4936,13 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     } else {
                         result.insertAfterId = String(placement.insertAfterID || configuredHeading.headingId || '').trim();
                     }
+                } else if (headingId) {
+                    throw new Error(placement?.checked === true ? '目标标题已不存在，请重新选择新建位置' : '无法定位目标标题，请重试');
                 } else if (placement?.checked === true) {
                     staleConfiguredHeading = true;
                 }
             } catch (e) {
+                if (headingId) throw e;
                 result.headingPatch = null;
                 result.insertParentId = '';
                 result.insertBeforeId = '';
@@ -5056,6 +4973,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         }
         const appendEmptyBatchToKeepOrder = !appendToBottom && topAnchorResolved && !result.insertBeforeId && contentCount > 1;
         result.appendToBottom = appendToBottom || headingAppendToBottom || appendEmptyBatchToKeepOrder;
+        result.atTop = headingId === '__none__' && !result.insertBeforeId && !result.appendToBottom;
         result.targetHeadingId = result.headingPatch?.h2Id || '';
         result.targetHeading = result.headingPatch?.h2 || '';
         result.targetHeadingRank = Number(result.headingPatch?.h2Rank);
@@ -5195,6 +5113,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             sourceTaskId: qa.sourceTaskId,
             docId: qa.docId,
             docMode: qa.docMode,
+            headingId: qa.headingId,
             priority: qa.priority,
             customStatus: qa.customStatus,
             customFieldValues,
@@ -5233,9 +5152,13 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 const createTask = globalThis.__tmRequireTaskMutation?.(mutationName);
                 if (typeof createTask !== 'function') throw new Error(`任务写入队列未就绪: ${mutationName}`);
                 const insertOptionsTimeoutMs = 1800;
-                const insertOptions = payload.relation ? null : await Promise.race([
+                const resolveInsertOptions = () => __tmResolveDefaultNewTaskInsertOptions(targetDocId, payload.docMode, {
+                    contentCount: payload.contents.length,
+                    headingId: payload.headingId,
+                });
+                const insertOptions = payload.relation ? null : payload.headingId ? await resolveInsertOptions() : await Promise.race([
                     Promise.resolve()
-                        .then(() => __tmResolveDefaultNewTaskInsertOptions(targetDocId, payload.docMode, { contentCount: payload.contents.length }))
+                        .then(resolveInsertOptions)
                         .catch(() => null),
                     new Promise((resolve) => setTimeout(() => resolve(null), insertOptionsTimeoutMs)),
                 ]);

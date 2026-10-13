@@ -9,6 +9,7 @@ const foundation = read('30-dialogs-and-ui-foundation.js');
 const runtime = read('20-api-and-runtime-services.js');
 const tasks = read('task-runtime/50-task-model-and-repeat-utils.js');
 const projection = read('task-runtime/51-whiteboard-and-link-runtime.js');
+const stores = read('10-stores-rules-and-cache.js');
 const settings = read('settings/70-doc-group-and-settings-actions.js');
 const whiteboard = read('render/44-render-whiteboard-body.js');
 function section(source, start, end) {
@@ -30,6 +31,10 @@ const __tmNormalizeDateOnly = (value) => {
     return !value || isNaN(date.getTime()) ? '' : date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
 };
 const __tmNormalizeHexColor = (color, fallback) => color || fallback;
+const __tmNormalizeHeadingLevel = (value) => value;
+const __tmGetTaskCompletedAtDateKey = (task) => __tmNormalizeDateOnly(task.completedAt);
+const __tmRenderDocGroupLabel = (_id, label) => label;
+const __tmRenderHeadingLevelIconLabel = (label) => label;
 const __tmClamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const __tmWithAlpha = (color, alpha) => 'color-mix(in srgb, ' + color + ' ' + alpha * 100 + '%, transparent)';
 const __tmGetTaskRepeatWeekdayLabel = (date) => ['周日','周一','周二','周三','周四','周五','周六'][date.getDay()];
@@ -79,6 +84,7 @@ const __tmScheduleCollapseRerender = () => __tmRefreshMainViewInPlace();
 ${read('render/40-render-list-context-helpers.js')}
 ${read('09-task-field-schema.js')}
 ${read('34-task-projection-engine.js')}
+${section(stores, 'function __tmNormalizeCompletedTasksGroupBy(', 'function __tmGetTaskSnapshotRuleForView(')}
 ${section(projection, 'function __tmGetCurrentProjectionRule()', 'function __tmDoesPatchAffectCurrentFilter(')}
 ${section(foundation, 'function __tmGetCurrentGroupModeValue()', 'function __tmFindRuleById(')}
 ${section(foundation, 'function __tmIsTaskPinned(', 'function __tmGetVisibleDocTabsForCurrentGroup(')}

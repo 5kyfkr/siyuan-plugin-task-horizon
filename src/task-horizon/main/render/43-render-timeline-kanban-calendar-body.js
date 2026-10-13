@@ -246,6 +246,11 @@
             const renderGroupRow = (row) => {
                 const isCollapsed = !!row?.collapsed;
                 const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;">${__tmRenderToggleIcon(16, isCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>`;
+                if (String(row.kind || '').startsWith('done-')) {
+                    const label = row.kind === 'done-doc' ? __tmRenderDocGroupLabel(row.docId, row.label)
+                        : (row.kind === 'done-h2' ? __tmRenderHeadingLevelIconLabel(row.label, row.headingLevel) : esc(row.label));
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-secondary-text);"><div class="tm-group-sticky" style="padding-left:${row.groupDepth || 1}ch;">${toggle}<span class="tm-group-label">${label}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                }
                 if (row.kind === 'pinned') {
                     return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-pinned-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
                 }
@@ -1655,12 +1660,24 @@
                     `;
                 };
 
+                const renderCompletedSubgroups = (groups) => groups.map((group) => {
+                    const collapsed = state.collapsedGroups?.has(group.key) === true;
+                    const title = group.kind === 'done-doc'
+                        ? __tmRenderDocGroupLabel(group.docId, group.label)
+                        : (group.kind === 'done-h2' ? __tmRenderHeadingLevelIconLabel(group.label, group.headingLevel) : esc(group.label));
+                    const body = group.groups ? renderCompletedSubgroups(group.groups)
+                        : group.items.map((task) => renderTree(task, 0, false, true)).join('');
+                    return `<div class="tm-kanban-group tm-kanban-group--completed-subgroup">${renderGroupTitle(group.key, title, group.count, 'var(--tm-secondary-text)', { collapsed, indentCh: Math.max(0, group.depth - 1) * 2 })}${renderKanbanGroupItems(body, collapsed)}</div>`;
+                }).join('');
+                const renderCompletedTaskGroups = (items, parentKey) => renderCompletedSubgroups(__tmBuildCompletedTaskGroups(items, {
+                    parentKey, aggregate: isAllTabsView, fallbackCompare: rootCompare,
+                }));
                 const renderCompletedRootGroup = () => {
                     if (!completedTailGroupEnabled || completedRoots.length === 0) return '';
                     const doneGroupKey = __tmBuildCompletedRootGroupKey(`kanban:${String(c.id || '').trim() || 'col'}`);
                     const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
                     const doneTitle = `<span style="color:var(--tm-secondary-text);">已完成任务</span>`;
-                    const doneBody = renderKanbanGroupItems(completedRoots.map(t => renderTree(t, 0, false, true)).join(''), doneCollapsed);
+                    const doneBody = renderKanbanGroupItems(renderCompletedTaskGroups(completedRoots, doneGroupKey), doneCollapsed);
                     return `<div class="tm-kanban-group">${renderGroupTitle(doneGroupKey, doneTitle, completedRoots.length, 'var(--tm-secondary-text)', { collapsed: doneCollapsed })}${doneBody}</div>`;
                 };
                 const pinWithinKanbanGroups = !!SettingsStore.data.pinTasksWithinGroups
@@ -1948,7 +1965,8 @@
                     return p === true || p === 'true' || p === '1';
                 };
                 const renderDoneColumnList = () => {
-                    return roots.map(task => renderTree(task, 0, false, true)).join('');
+                    const doneColumnKey = __tmBuildCompletedRootGroupKey(`kanban:${String(c.id || '').trim() || 'done-column'}`);
+                    return renderCompletedTaskGroups(roots, doneColumnKey);
                 };
                 // 辅助函数：渲染不分组模式下的看板内容（带置顶分组）
                 const renderUngroupedWithPinned = () => {
