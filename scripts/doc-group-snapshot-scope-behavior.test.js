@@ -18,6 +18,9 @@ const start = dialog.indexOf('    window.tmSwitchDocGroup =');
 const end = dialog.indexOf('\n    };', start);
 assert.ok(start >= 0 && end > start, 'missing group switch handler');
 const switchSource = dialog.slice(start, end + 7);
+const snapshotStart = dialog.indexOf('    async function __tmLoadValidatedDocGroupSnapshot(');
+const snapshotSource = dialog.slice(snapshotStart, dialog.indexOf('\n    }', snapshotStart) + 6);
+assert.ok(snapshotStart >= 0, 'missing shared snapshot scope loader');
 const docA = '20260901000000-aaaaaaa';
 const docB = '20260901000000-bbbbbbb';
 const sharedDoc = '20260901000000-ccccccc';
@@ -71,13 +74,13 @@ function createRuntime(snapshot, expectedDocIds = [docB], resolveScope) {
         __tmRenderPreservingCalendarSideDock: noop,
         __tmScheduleTaskIndexPrewarmForDocIds: noop, __tmScheduleTaskIndexPrewarm: noop,
         __tmScheduleDocGroupSwitchVerifyAfterFirstPaint: noop, __tmSchedulePersistTaskSnapshot: noop,
-        setTimeout: () => 1,
+        setTimeout: () => 1, clearTimeout: noop,
         hint: message => events.push({stage: 'hint', message}),
     });
     vm.runInContext([
         '__tmNormalizeTaskSnapshotDocIds', '__tmBuildTaskSnapshotScopeKey',
         '__tmIsPreservedTaskSnapshot', '__tmIsUsableTaskSnapshot', '__tmValidateTaskSnapshotForScope',
-    ].map(extract).join('\n') + '\n' + switchSource, context);
+    ].map(extract).join('\n') + '\n' + snapshotSource + '\n' + switchSource, context);
     return {context, state, events, restores, loads};
 }
 

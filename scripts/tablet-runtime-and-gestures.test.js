@@ -78,6 +78,12 @@ class FakeElement {
     getAttribute(key) { return this.attrs.get(key) ?? null; }
     setAttribute(key, value) { this.attrs.set(key, value); }
     removeAttribute(key) { this.attrs.delete(key); }
+    contains(element) {
+        for (let current = element; current; current = current.parentElement) {
+            if (current === this) return true;
+        }
+        return false;
+    }
     querySelector() { return null; }
     closest() { return null; }
     setPointerCapture() { this.captured = true; }
@@ -177,11 +183,17 @@ const mouseTimeline = timelineGesture('mouse');
 assert.equal(mouseTimeline.down.prevented, true, 'desktop mouse must retain its immediate drag entry');
 assert.equal(mouseTimeline.timers.size, 0, 'mouse must not acquire a long-press timer');
 
-function kanbanGesture(pointerType) {
+function kanbanGesture(pointerType, { nested = false } = {}) {
     const harness = gestureContext();
     const { context } = harness;
     const card = new FakeElement();
     const body = new FakeElement();
+    const column = new FakeElement();
+    const parentCard = new FakeElement();
+    column.parentElement = body;
+    parentCard.parentElement = column;
+    parentCard.setAttribute('draggable', 'true');
+    card.parentElement = nested ? parentCard : column;
     card.setAttribute('draggable', 'true');
     card.setAttribute('data-id', 'task-1');
     card.closest = (selector) => selector === '.tm-body.tm-body--kanban' ? body : null;
@@ -201,7 +213,7 @@ function kanbanGesture(pointerType) {
     vm.runInContext(section(kanban, 'function __tmIsKanbanTouchPointer', 'function __tmResolveKanbanPointTarget'), context);
     vm.runInContext(section(kanban, 'window.tmKanbanCardPointerDown = function', 'function __tmGetKanbanBottomNavAvoidanceState'), context);
     context.tmKanbanCardPointerDown(event(card, pointerType), 'task-1');
-    return { ...harness, card };
+    return { ...harness, card, body, column, parentCard };
 }
 for (const pointerType of ['touch', 'pen']) {
     const scrollGesture = kanbanGesture(pointerType);
@@ -213,7 +225,9 @@ for (const pointerType of ['touch', 'pen']) {
     scrollGesture.advance(1);
     assert.ok(!scrollGesture.context.state.draggingTaskId, 'scrolling must cancel pending kanban drag');
     assert.equal(move.prevented, undefined, 'kanban vertical scrolling must remain native');
-    assert.equal(scrollGesture.card.getAttribute('draggable'), 'true', 'scroll cancellation must restore mouse dragging');
+    assert.equal(scrollGesture.card.getAttribute('draggable'), 'false', 'scrolling must keep native dragging suspended until release');
+    scrollGesture.listeners.get('pointerup')(event(scrollGesture.card, pointerType));
+    assert.equal(scrollGesture.card.getAttribute('draggable'), 'true', 'release after scrolling must restore mouse dragging');
     const holdGesture = kanbanGesture(pointerType);
     holdGesture.advance(500);
     assert.equal(holdGesture.context.state.draggingTaskId, undefined, 'kanban must still wait at the old 500ms threshold');
@@ -227,6 +241,102 @@ for (const pointerType of ['touch', 'pen']) {
 const mouseKanban = kanbanGesture('mouse');
 assert.equal(mouseKanban.card.getAttribute('draggable'), 'true', 'external mouse must keep native kanban drag');
 assert.equal(mouseKanban.timers.size, 0, 'external mouse must not acquire a touch gesture');
+
+const nestedKanban = kanbanGesture('touch', { nested: true });
+assert.equal(nestedKanban.parentCard.getAttribute('draggable'), 'false', 'a child-card touch must also suspend draggable ancestors before the host bridge sees touchstart');
+const nativeDrag = event(nestedKanban.parentCard, '');
+nestedKanban.listeners.get('dragstart')(nativeDrag);
+assert.equal(nativeDrag.prevented, true, 'a host-generated native drag must not bypass the 1000ms custom gate');
+nestedKanban.context.state.__tmKanbanCardGestureCleanup();
+assert.equal(nestedKanban.parentCard.getAttribute('draggable'), 'true', 'ancestor drag attributes must be restored exactly on cleanup');
+
+const touchEvent = (target, type, x = 100, y = 100) => ({
+    ...event(target, 'touch', x, y), type,
+    touches: type === 'touchend' || type === 'touchcancel' ? [] : [{ identifier: 7, clientX: x, clientY: y }],
+    changedTouches: [{ identifier: 7, clientX: x, clientY: y }],
+});
+const touchOnlyScroll = kanbanGesture('touch');
+touchOnlyScroll.listeners.get('touchstart')(touchEvent(touchOnlyScroll.card, 'touchstart'));
+touchOnlyScroll.advance(600);
+const touchMove = touchEvent(touchOnlyScroll.card, 'touchmove', 100, 120);
+touchOnlyScroll.listeners.get('touchmove')(touchMove);
+touchOnlyScroll.advance(1000);
+assert.ok(!touchOnlyScroll.context.state.draggingTaskId, 'touch-only scroll updates must cancel the timer even without pointermove');
+assert.equal(touchMove.prevented, undefined, 'pending Touch events must preserve native vertical scrolling');
+assert.equal(touchOnlyScroll.card.getAttribute('draggable'), 'false', 'touch-only scrolling must retain native drag isolation');
+touchOnlyScroll.listeners.get('pointercancel')({ ...event(touchOnlyScroll.card, 'touch'), type: 'pointercancel' });
+assert.equal(touchOnlyScroll.card.getAttribute('draggable'), 'false', 'native scrolling pointercancel must retain isolation until touchend');
+touchOnlyScroll.listeners.get('touchend')(touchEvent(touchOnlyScroll.card, 'touchend', 100, 120));
+assert.equal(touchOnlyScroll.card.getAttribute('draggable'), 'true', 'touchend must restore dragging after the Pointer stream was canceled');
+assert.equal(touchOnlyScroll.listeners.size, 0, 'touch completion must remove every gesture listener');
+
+const scrolledColumn = kanbanGesture('touch');
+scrolledColumn.listeners.get('scroll')({ target: scrolledColumn.column });
+scrolledColumn.advance(1200);
+assert.ok(!scrolledColumn.context.state.draggingTaskId, 'actual column scrolling must cancel a hold even if pointer coordinates are stale');
+scrolledColumn.context.state.__tmKanbanCardGestureCleanup();
+
+const unrelatedScroll = kanbanGesture('touch');
+unrelatedScroll.listeners.get('scroll')({ target: new FakeElement() });
+unrelatedScroll.advance(1000);
+assert.equal(unrelatedScroll.context.state.draggingTaskId, 'task-1', 'scrolling outside the kanban must not cancel an intentional hold');
+unrelatedScroll.context.state.__tmKanbanCardGestureCleanup();
+
+for (const cancelType of ['pointercancel', 'touchcancel', 'blur']) {
+    const canceledDrag = kanbanGesture('touch');
+    let dropCalls = 0;
+    canceledDrag.context.__tmCalendar = {
+        finalizeFloatingMiniCalendarTouchDrop() { dropCalls += 1; return true; },
+    };
+    canceledDrag.advance(1000);
+    canceledDrag.listeners.get(cancelType)({ ...event(canceledDrag.card, 'touch'), type: cancelType });
+    assert.equal(dropCalls, 0, `${cancelType} must abort the drag without committing a drop`);
+    assert.ok(!canceledDrag.context.state.draggingTaskId, `${cancelType} must clear the active drag immediately`);
+    assert.equal(canceledDrag.listeners.size, 0, `${cancelType} must remove gesture listeners`);
+}
+
+const releasedTouch = kanbanGesture('touch');
+releasedTouch.listeners.get('touchend')(touchEvent(releasedTouch.card, 'touchend'));
+releasedTouch.advance(1000);
+assert.ok(!releasedTouch.context.state.draggingTaskId, 'touchend without pointerup must not leave a timer that starts dragging after release');
+
+const tinyJitter = kanbanGesture('touch');
+tinyJitter.listeners.get('pointermove')(event(tinyJitter.card, 'touch', 102, 101));
+tinyJitter.advance(1000);
+assert.equal(tinyJitter.context.state.draggingTaskId, 'task-1', 'small finger jitter must still allow an intentional 1000ms hold');
+tinyJitter.context.state.__tmKanbanCardGestureCleanup();
+
+const edgeScroll = kanbanGesture('touch');
+edgeScroll.listeners.get('pointermove')(event(edgeScroll.card, 'touch', 100, 0));
+edgeScroll.advance(1000);
+assert.ok(!edgeScroll.context.state.draggingTaskId, 'zero-valued coordinates at the screen edge must cancel the hold');
+edgeScroll.context.state.__tmKanbanCardGestureCleanup();
+
+const multiTouch = kanbanGesture('touch');
+multiTouch.listeners.get('touchstart')(touchEvent(multiTouch.card, 'touchstart'));
+const secondTouch = touchEvent(new FakeElement(), 'touchstart');
+secondTouch.touches.push({ identifier: 8, clientX: 300, clientY: 300 });
+multiTouch.listeners.get('touchstart')(secondTouch);
+multiTouch.advance(1000);
+assert.ok(!multiTouch.context.state.draggingTaskId, 'a second finger must cancel the task hold instead of starting a drag');
+
+async function checkKanbanSingleDrop() {
+    const gesture = kanbanGesture('touch');
+    let drops = 0;
+    gesture.context.__tmCalendar = {
+        async finalizeFloatingMiniCalendarTouchDrop() { drops += 1; return true; },
+    };
+    gesture.advance(1000);
+    const onUp = gesture.listeners.get('pointerup');
+    const onTouchEnd = gesture.listeners.get('touchend');
+    await Promise.all([
+        onUp(event(gesture.card, 'touch')),
+        onTouchEnd(touchEvent(gesture.card, 'touchend')),
+    ]);
+    assert.equal(drops, 1, 'pointerup and touchend for the same release must commit exactly one drop');
+    assert.ok(!gesture.context.state.draggingTaskId, 'a completed touch drop must clear drag state');
+    assert.equal(gesture.listeners.size, 0, 'a completed touch drop must remove all gesture listeners');
+}
 
 async function checkNotificationReservation() {
     let sends = 0;
@@ -252,7 +362,7 @@ async function checkNotificationReservation() {
     assert.equal(registry['schedule-1'].entries[0].id, 42, 'native reservation must be retained');
     assert.equal(cancels, 0, 'desktop UI must not clear a native tablet reservation');
 }
-checkNotificationReservation().then(() => console.log('tablet runtime and gesture tests passed')).catch((error) => {
+Promise.all([checkNotificationReservation(), checkKanbanSingleDrop()]).then(() => console.log('tablet runtime and gesture tests passed')).catch((error) => {
     console.error(error);
     process.exitCode = 1;
 });

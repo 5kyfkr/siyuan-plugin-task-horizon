@@ -2653,7 +2653,7 @@
             : null;
 
         state.currentRule = nextRuleId;
-        SettingsStore.data.currentRule = nextRuleId;
+        if (opts.runtimeOnly !== true) SettingsStore.data.currentRule = nextRuleId;
         SettingsStore.data.groupMode = groupMode;
         SettingsStore.data.groupByDocName = groupMode === 'doc';
         SettingsStore.data.groupByTime = groupMode === 'time';
@@ -2698,6 +2698,11 @@
         const activeDocId = docTabGroupId ? 'all' : rawActiveDocId;
         const currentGroupId = String(groupId || 'all').trim() || 'all';
         const store = __tmGetViewProfilesStore();
+        const shortcut = typeof __tmShortcuts !== 'undefined' ? __tmShortcuts.context() : null;
+        if (shortcut && rawActiveDocId === shortcut.activeDocId && currentGroupId === shortcut.groupId) {
+            return { source: 'shortcut', docId: rawActiveDocId, groupId: currentGroupId,
+                profile: { ...__tmNormalizeViewProfile(store.global, store.global), groupMode: __tmGetCurrentGroupModeValue(), ruleId: shortcut.ruleId || null, defaultViewMode: shortcut.viewId === 'home' ? null : shortcut.viewId } };
+        }
         const viewDefaults = __tmResolveContextViewDefaults(rawActiveDocId, currentGroupId, store);
         if (docTabGroupId) {
             const docTabGroupAllTabsProfile = store.docTabGroupAllTabs?.[docTabGroupId];
@@ -2803,11 +2808,12 @@
             state.activeDocId,
             SettingsStore?.data?.currentGroupId
         );
+        const shortcut = typeof __tmShortcuts !== 'undefined' ? __tmShortcuts.context() : null;
         const applied = __tmApplyViewProfileToRuntime({
             ...resolved.profile,
-            defaultViewMode: contextViewDefaults.defaultViewMode,
-            defaultKanbanBoardMode: contextViewDefaults.defaultKanbanBoardMode
-        }, opts);
+            defaultViewMode: shortcut ? (shortcut.viewId === 'home' ? null : shortcut.viewId) : contextViewDefaults.defaultViewMode,
+            defaultKanbanBoardMode: shortcut ? null : contextViewDefaults.defaultKanbanBoardMode
+        }, shortcut ? { ...opts, runtimeOnly: true } : opts);
         const nextCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
         const customFieldReloadNeeded = __tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan);
         if (!customFieldReloadNeeded) {
@@ -2817,7 +2823,7 @@
                 });
             } catch (e) {}
         }
-        if (opts.skipLocalSync !== true) {
+        if (opts.skipLocalSync !== true && !shortcut) {
             const syncLocal = () => {
                 try { SettingsStore.syncToLocal(); } catch (e) {}
             };
@@ -8299,6 +8305,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
             if (action === 'editRule') return window.editRule?.(ruleId);
             if (action === 'deleteRule') return window.deleteRule?.(ruleId);
+            if (action === 'moveRule') return window.moveRule?.(ruleId, delta);
             if (action === 'applyRuleNow') return window.applyRuleNow?.(ruleId);
             if (action === 'removeCondition') return window.removeCondition?.(index);
             if (action === 'moveSortRule') return window.moveSortRule?.(index, delta);
@@ -8395,7 +8402,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const isEditing = state.editingRule?.id === rule.id;
 
         if (isEditing) {
-            return renderRuleEditor(rule);
+            return renderRuleEditor(state.editingRule);
         }
 
         const conditionText = rule.conditions.length > 0
@@ -8432,6 +8439,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     if (c.value === true || c.value === 'true') valueDisplay = 'true';
                     else if (c.value === false || c.value === 'false') valueDisplay = 'false';
                     else valueDisplay = 'true';
+                    valueDisplay = field.optionLabels?.[valueDisplay] || valueDisplay;
                 } else if (field?.type === 'datetime' && String(c.operator || '').trim() === 'range_recent_days') {
                     const days = Number(c.value);
                     valueDisplay = Number.isFinite(days) && days >= 0 ? `${Math.floor(days)}天前` : '0天前';
@@ -8490,6 +8498,8 @@ return Number(state.contextInteractionQuietUntil || 0);
                         ${state.currentRule === rule.id ? '<span style="color: var(--tm-success-color); margin-left: 8px;">(当前应用)</span>' : ''}
                     </div>
                     <div class="tm-rule-group-controls">
+                        <button class="tm-rule-btn tm-rule-btn-secondary tm-rule-sort-move-btn" data-tm-action="moveRule" data-rule-id="${esc(String(rule.id))}" data-delta="-1" title="上移规则" aria-label="${esc(`上移规则：${rule.name}`)}" ${index === 0 ? 'disabled' : ''}><span aria-hidden="true">↑</span></button>
+                        <button class="tm-rule-btn tm-rule-btn-secondary tm-rule-sort-move-btn" data-tm-action="moveRule" data-rule-id="${esc(String(rule.id))}" data-delta="1" title="下移规则" aria-label="${esc(`下移规则：${rule.name}`)}" ${index === state.filterRules.length - 1 ? 'disabled' : ''}><span aria-hidden="true">↓</span></button>
                         <button class="tm-rule-btn tm-rule-btn-outline" data-tm-action="editRule" data-rule-id="${esc(String(rule.id))}">
                             编辑
                         </button>
@@ -8652,9 +8662,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (fieldType === 'boolean') {
             return `
                 <select class="tm-rule-condition-value" data-tm-change="updateConditionValue" data-index="${index}">
-                    <option value="__all__" ${String(condition.value) === '__all__' ? 'selected' : ''}>所有状态(忽略显示已完成开关)</option>
-                    <option value="true" ${condition.value === true || condition.value === 'true' ? 'selected' : ''}>是</option>
-                    <option value="false" ${condition.value === false || condition.value === 'false' ? 'selected' : ''}>否</option>
+                    ${fieldInfo?.value === 'done' ? `<option value="__all__" ${String(condition.value) === '__all__' ? 'selected' : ''}>所有状态(忽略显示已完成开关)</option>` : ''}
+                    <option value="true" ${condition.value === true || condition.value === 'true' ? 'selected' : ''}>${esc(fieldInfo?.optionLabels?.true || '是')}</option>
+                    <option value="false" ${condition.value === false || condition.value === 'false' ? 'selected' : ''}>${esc(fieldInfo?.optionLabels?.false || '否')}</option>
                 </select>
             `;
         }
@@ -10413,6 +10423,16 @@ return Number(state.contextInteractionQuietUntil || 0);
         __tmRerenderRulesManagerUI('sort');
     };
 
+    let __tmRuleMoveSequence = 0;
+    window.moveRule = async function(ruleId, delta) {
+        if (delta !== -1 && delta !== 1) return;
+        __tmFlushSettingsInputs();
+        const key = `rule:move:${++__tmRuleMoveSequence}`;
+        __tmQueueSettingsSave(key, { ruleId, delta }, __tmPersistRuleMove, 0);
+        await __tmRunSettingsSave(key);
+        if (!__tmSettingsSaveJobs.get(key)?.failed) __tmSettingsSaveJobs.delete(key);
+    };
+
     window.toggleRuleEnabled = function(ruleId, enabled) {
         const rule = state.filterRules.find(r => r.id === ruleId);
         if (rule) {
@@ -10463,7 +10483,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (rule) {
             const prevCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
             state.currentRule = ruleId;
-            SettingsStore.data.currentRule = ruleId;
+            if (!(typeof __tmShortcuts !== 'undefined' && __tmShortcuts.updateContext({ ruleId }))) SettingsStore.data.currentRule = ruleId;
             __tmPersistGlobalViewProfileFromCurrentState();
             const nextDoneOnly = __tmRuleNeedsDoneOnly(rule);
             state.__tmQueryDoneOnly = nextDoneOnly;
@@ -10507,7 +10527,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.filterRules = __tmNormalizeRuleListSortConfigForCustomOrder(state.filterRules);
         await RuleManager.saveRules(state.filterRules);
         // 同时保存当前选中的规则
-        SettingsStore.data.currentRule = state.currentRule;
+        if (!(typeof __tmShortcuts !== 'undefined' && __tmShortcuts.context())) SettingsStore.data.currentRule = state.currentRule;
         await SettingsStore.save();
         __tmRefreshRuleTopbarSelectsInPlace();
         hint('✅ 所有规则已保存', 'success');
@@ -10635,9 +10655,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                     docStateCache: docTaskStateCache
                 })
                 : null;
-            if (!activeGroupDocIds.size
+            if ((!activeGroupDocIds.size
                 || !activeGroup
-                || !__tmShouldShowDocTabCustomGroupInRegion(activeGroup, activeGroupRegionState, archiveMode)) {
+                || !__tmShouldShowDocTabCustomGroupInRegion(activeGroup, activeGroupRegionState, archiveMode))
+                && !(typeof __tmShortcuts !== 'undefined' && __tmShortcuts.context())) {
                 state.activeDocId = 'all';
             }
         } else if (activeDocIdBeforeFilter !== 'all' && !__tmIsOtherBlockTabId(activeDocIdBeforeFilter)) {
@@ -10645,7 +10666,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 .find((doc) => String(doc?.id || '').trim() === activeDocIdBeforeFilter);
             const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
             const allowSpecialNewTaskDoc = !archiveMode && activeDocIdBeforeFilter === globalNewTaskDocId;
-            if (!allowSpecialNewTaskDoc && !activeDoc) {
+            if (!allowSpecialNewTaskDoc && !activeDoc && !(typeof __tmShortcuts !== 'undefined' && __tmShortcuts.context())) {
                 state.activeDocId = 'all';
             }
         }
@@ -11433,6 +11454,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     }
 
     window.tmSwitchDoc = async function(docId, options = {}) {
+        if (typeof __tmShortcuts !== 'undefined') __tmShortcuts.clearContext();
         if (Number(state.suppressDocTabClickUntil || 0) > Date.now()) return false;
         const resolvedDocId = __tmResolveDocTabSwitchTarget(docId, options);
         if (!resolvedDocId) return false;
@@ -11490,6 +11512,7 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     window.tmSwitchDocTabCustomGroup = async function(groupId) {
+        if (typeof __tmShortcuts !== 'undefined') __tmShortcuts.clearContext();
         if (Number(state.suppressDocTabClickUntil || 0) > Date.now()) return;
         const gid = String(groupId || '').trim();
         if (!gid) return;
@@ -14469,7 +14492,41 @@ return Number(state.contextInteractionQuietUntil || 0);
         __tmScheduleRender({ withFilters: true });
     };
 
+    async function __tmLoadValidatedDocGroupSnapshot({ groupId, isCurrent, runtimeMobileFastPath = false }) {
+        const snapshotService = globalThis.__tmTaskSnapshotService;
+        if (!snapshotService?.loadLatestForGroup) return null;
+        let timeout;
+        try {
+            const snapshot = await Promise.race([
+                snapshotService.loadLatestForGroup(groupId, { cachedOnly: false, checkRemote: false }),
+                new Promise(resolve => { timeout = setTimeout(() => resolve(null), runtimeMobileFastPath ? 260 : 220); }),
+            ]);
+            if (!isCurrent()) return null;
+            if (snapshot) {
+                const docIds = __tmNormalizeTaskSnapshotDocIds(await resolveDocIdsFromGroups({
+                    groupId, skipPersistedScope: true, verifyCachedScope: false,
+                }));
+                if (!isCurrent()) return null;
+                const expectedDocs = new Set(docIds);
+                const snapshotGroupId = String(snapshot.groupId || String(snapshot.scopeKey || '').split('|')[0] || 'all').trim();
+                const scopeMatches = snapshotGroupId === groupId
+                    && __tmValidateTaskSnapshotForScope(snapshot, { groupId, docIds })
+                    && __tmNormalizeTaskSnapshotDocIds(snapshot.docIds).join(',') === docIds.join(',')
+                    && (Array.isArray(snapshot.taskTree) ? snapshot.taskTree : [])
+                        .every(doc => expectedDocs.has(String(doc?.id || '').trim()));
+                if (scopeMatches) return { snapshot, docIds };
+            }
+        } catch (e) {
+            // Unavailable or stale snapshots fall back to the existing document loader.
+        } finally {
+            clearTimeout(timeout);
+        }
+        try { if (isCurrent()) snapshotService.warm?.(); } catch (e) {}
+        return null;
+    }
+
     window.tmSwitchDocGroup = async function(groupId) {
+        if (typeof __tmShortcuts !== 'undefined') __tmShortcuts.clearContext();
         const nextGroupId = String(groupId || 'all').trim() || 'all';
         const prevGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         const prepareSwitchGroupSnapshotWindow = () => {
@@ -14523,42 +14580,14 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         try {
             const snapshotService = globalThis.__tmTaskSnapshotService || null;
-            let snapshot = null;
-            let switchDocIds = null;
-            try {
-                const snapshotRaceTimeoutMs = runtimeMobileFastPath ? 260 : 220;
-                snapshot = await Promise.race([
-                    snapshotService?.loadLatestForGroup?.(nextGroupId, { cachedOnly: false, checkRemote: false }),
-                    new Promise((resolve) => setTimeout(() => resolve(null), snapshotRaceTimeoutMs)),
-                ]);
-            } catch (e) {
-                snapshot = null;
-            }
+            const cached = await __tmLoadValidatedDocGroupSnapshot({
+                groupId: nextGroupId, isCurrent: isSwitchCurrent, runtimeMobileFastPath,
+            });
             if (!isSwitchCurrent()) {
                 return;
             }
-            if (snapshot) {
-                try {
-                    switchDocIds = __tmNormalizeTaskSnapshotDocIds(await resolveDocIdsFromGroups({
-                        groupId: nextGroupId,
-                        skipPersistedScope: true,
-                        verifyCachedScope: false,
-                    }));
-                } catch (e) {}
-                if (!isSwitchCurrent()) {
-                    return;
-                }
-                const expectedDocSet = new Set(switchDocIds || []);
-                const unexpectedTreeDocIds = (Array.isArray(snapshot.taskTree) ? snapshot.taskTree : [])
-                    .map((doc) => String(doc?.id || '').trim())
-                    .filter((id) => !expectedDocSet.has(id));
-                const scopeMatches = Array.isArray(switchDocIds)
-                    && __tmValidateTaskSnapshotForScope(snapshot, { groupId: nextGroupId, docIds: switchDocIds })
-                    && __tmNormalizeTaskSnapshotDocIds(snapshot.docIds).join(',') === switchDocIds.join(',')
-                    && unexpectedTreeDocIds.length === 0;
-                if (!scopeMatches) snapshot = null;
-            }
-            try { if (!snapshot) snapshotService?.warm?.(); } catch (e) {}
+            const snapshot = cached?.snapshot || null;
+            const switchDocIds = cached?.docIds || null;
             let snapshotRendered = false;
             if (isSwitchCurrent()) {
                 state.otherBlocks = [];

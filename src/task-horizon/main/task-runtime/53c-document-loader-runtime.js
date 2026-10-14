@@ -1030,7 +1030,8 @@
         state.collapsedTaskIds = new Set(SettingsStore.data.collapsedTaskIds || []);
         state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []);
         state.expandedCompletedGroups = new Set(SettingsStore.data.expandedCompletedGroups || []);
-        state.currentRule = SettingsStore.data.currentRule;
+        const shortcutContext = typeof __tmShortcuts !== 'undefined' ? __tmShortcuts.context() : null;
+        state.currentRule = shortcutContext ? shortcutContext.ruleId || null : SettingsStore.data.currentRule;
         state.columnWidths = SettingsStore.data.columnWidths;
         try { __tmNormalizeCompletedVisibilitySettings(SettingsStore.data); } catch (e) {}
         __tmApplyCompletedVisibilityToRuntime();
@@ -2183,7 +2184,7 @@
                         const validDocIds = new Set((Array.isArray(state.taskTree) ? state.taskTree : [])
                             .map((doc) => String(doc?.id || '').trim())
                             .filter(Boolean));
-                        if (!validDocIds.has(activeDocId)) state.activeDocId = 'all';
+                        if (!validDocIds.has(activeDocId) && !__tmShortcuts.context()) state.activeDocId = 'all';
                     }
                 } catch (e) {}
                 try { recalcStats(); } catch (e) {}

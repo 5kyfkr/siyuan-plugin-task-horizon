@@ -214,6 +214,73 @@ test('cold-start schedule marks appear when calendar assets finish loading witho
     assert.equal(context.state.todayScheduledSourceReady, true);
 });
 
+test('failed schedule reads preserve existing today marks and allow the next refresh to retry', async () => {
+    let reads = 0;
+    const context = vm.createContext({
+        Set,
+        state: { todayScheduledSourceReady: true, todayScheduledTaskIdsDay: '2026-10-14', todayScheduledTaskIds: new Set(['existing']) },
+        __tmGetTodayDateKey: () => '2026-10-14',
+        __tmCalendar: { listTaskSchedulesByDay: async () => {
+            if (++reads === 1) throw new Error('temporary schedule read failure');
+            return [{ taskId: 'existing' }, { taskId: 'new' }];
+        } },
+    });
+    loadFunction(context, '20-api-and-runtime-services.js', '__tmLoadTodayScheduledTaskIds');
+    await context.__tmLoadTodayScheduledTaskIds(true);
+    assert.equal(context.state.todayScheduledTaskIds.has('existing'), true, 'a read failure must not erase painted marks');
+    await context.__tmLoadTodayScheduledTaskIds();
+    assert.equal(reads, 2, 'a failed read must not memoize an empty result for the entire day');
+    assert.equal(context.state.todayScheduledTaskIds.has('new'), true);
+});
+
+test('an older schedule read cannot overwrite a newer forced refresh', async () => {
+    const pending = [];
+    const context = vm.createContext({
+        Set,
+        state: { todayScheduledSourceReady: false, todayScheduledTaskIds: new Set() },
+        __tmGetTodayDateKey: () => '2026-10-14',
+        __tmCalendar: { listTaskSchedulesByDay: () => new Promise(resolve => pending.push(resolve)) },
+    });
+    loadFunction(context, '20-api-and-runtime-services.js', '__tmLoadTodayScheduledTaskIds');
+    const older = context.__tmLoadTodayScheduledTaskIds(true);
+    const newer = context.__tmLoadTodayScheduledTaskIds(true);
+    pending[1]([{ taskId: 'current' }]);
+    await newer;
+    pending[0]([]);
+    await older;
+    assert.deepEqual(Array.from(context.state.todayScheduledTaskIds), ['current']);
+});
+
+test('calendar cache hydration restores missing today marks without a manual view refresh', async () => {
+    const today = new Element('today'); const modal = new Element();
+    modal.querySelectorAll = () => [today];
+    const listeners = new Map();
+    let runRefresh;
+    const context = vm.createContext({
+        Element, HTMLElement: Element, Set,
+        state: { modal, todayScheduledSourceReady: true, todayScheduledTaskIdsDay: '2026-10-14', todayScheduledTaskIds: new Set() },
+        __tmCalendarScheduleUpdatedHandler: null, __tmTodayScheduleRefreshTimer: null,
+        __tmGetTodayDateKey: () => '2026-10-14',
+        __tmCalendar: { listTaskSchedulesByDay: async () => [{ taskId: 'today' }] },
+        __tmRuntimeEvents: { on: (_target, name, handler) => listeners.set(name, handler) },
+        window: {}, setTimeout: callback => { runRefresh = callback; return 1; }, clearTimeout() {},
+        __tmRefreshVisibleTaskScheduleTimes() {},
+        __tmTaskBoundary: { getTask: id => ({ id }) }, __tmApplyTaskTitleOpacityToElement() {},
+    });
+    for (const name of ['__tmHasTaskScheduledToday', '__tmLoadTodayScheduledTaskIds', '__tmApplyTodayScheduledTaskNameMarks',
+        '__tmScheduleTodayScheduledTaskNameMarksRefresh', '__tmBindCalendarScheduleUpdated']) {
+        loadFunction(context, '20-api-and-runtime-services.js', name);
+    }
+    context.__tmBindCalendarScheduleUpdated();
+    context.__tmApplyTodayScheduledTaskNameMarks(modal);
+    assert.equal(today.classList.contains('tm-task-scheduled-today'), false);
+    const hydrate = listeners.get('tm:calendar-schedule-cache-updated');
+    assert.equal(typeof hydrate, 'function');
+    hydrate(); runRefresh();
+    await new Promise(setImmediate);
+    assert.equal(today.classList.contains('tm-task-scheduled-today'), true);
+});
+
 test('view refresh batching preserves document scopes through normalization and merging', () => {
     const context = vm.createContext({});
     for (const name of ['__tmNormalizeViewRefreshDetail', '__tmViewRefreshPriority', '__tmMergeViewRefreshDetail']) {

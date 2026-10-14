@@ -8607,9 +8607,10 @@
             taskTitleClickAction: 'jump',
             dockTaskTitleClickAction: 'inherit',
             mobileTaskTitleClickAction: 'inherit',
-            desktopChecklistCompactMetaFields: ['completionTime', 'status'],
-            dockChecklistCompactMetaFields: ['completionTime', 'status'],
-            mobileChecklistCompactMetaFields: ['completionTime', 'status'],
+            scheduleTimeFieldDefaultsVersion: 0,
+            desktopChecklistCompactMetaFields: ['completionTime', 'scheduleTime', 'status'],
+            dockChecklistCompactMetaFields: ['completionTime', 'scheduleTime', 'status'],
+            mobileChecklistCompactMetaFields: ['completionTime', 'scheduleTime', 'status'],
             checklistCompactRightFontSize: 'large',
             enabledViews: ['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard'],
             kanbanCompactMode: false,
@@ -8623,7 +8624,7 @@
             kanbanShowDoneColumn: false,
             kanbanDragSyncSubtasks: true,
             kanbanPreventSubtaskSeparation: true,
-            kanbanCardFields: ['priority', 'status', 'date'],
+            kanbanCardFields: ['priority', 'status', 'date', 'scheduleTime'],
             taskCardAlwaysShowFields: ['priority', 'status', 'date'],
             taskCardDateOnlyWithValue: false,
             kanbanBoardMode: '',
@@ -8649,6 +8650,7 @@
                 docs: {}
             },
             filterRules: [],
+            shortcutItems: [],
             fontSize: 14,
             fontSizeMobile: 14,
             rowHeightMode: 'normal',
@@ -8926,7 +8928,7 @@
             whiteboardSidebarWidth: 300,
             whiteboardShowDone: false,
             whiteboardNavigatorHidden: false,
-            whiteboardCardFields: ['priority', 'status', 'date'],
+            whiteboardCardFields: ['priority', 'status', 'date', 'scheduleTime'],
             whiteboardView: { x: 64, y: 40, zoom: 1 },
             whiteboardNodePos: {},
             whiteboardAutoLayout: false,
@@ -9221,6 +9223,8 @@
                             if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
                                 migratedLegacyTaskTitleClickSettings = __tmMigrateLegacyTaskTitleClickSettings(cloudData, cloudData)
                                     || migratedLegacyTaskTitleClickSettings;
+                                migratedLegacyTaskTitleClickSettings = __tmMigrateScheduleTimeFieldDefaults(cloudData)
+                                    || migratedLegacyTaskTitleClickSettings;
                                 const localSettingsBeforeCloud = __tmCloneJsonSafe(this.data, { ...(this.data || {}) });
                                 const localSettingsUpdatedAt = Number(this.data.settingsUpdatedAt) || 0;
                                 const cloudSettingsUpdatedAt = Number(cloudData.settingsUpdatedAt) || 0;
@@ -9316,6 +9320,7 @@
                                 if (typeof cloudData.dockTaskTitleClickAction === 'string') this.data.dockTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(cloudData.dockTaskTitleClickAction);
                                 if (typeof cloudData.mobileTaskTitleClickAction === 'string') this.data.mobileTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(cloudData.mobileTaskTitleClickAction);
                                 if (Array.isArray(cloudData.desktopChecklistCompactMetaFields)) this.data.desktopChecklistCompactMetaFields = cloudData.desktopChecklistCompactMetaFields;
+                                this.data.scheduleTimeFieldDefaultsVersion = cloudData.scheduleTimeFieldDefaultsVersion;
                                 if (Array.isArray(cloudData.dockChecklistCompactMetaFields)) this.data.dockChecklistCompactMetaFields = cloudData.dockChecklistCompactMetaFields;
                                 if (Array.isArray(cloudData.mobileChecklistCompactMetaFields)) this.data.mobileChecklistCompactMetaFields = cloudData.mobileChecklistCompactMetaFields;
                                 if (typeof cloudData.checklistCompactRightFontSize === 'string') this.data.checklistCompactRightFontSize = __tmNormalizeChecklistCompactRightFontSize(cloudData.checklistCompactRightFontSize);
@@ -9360,6 +9365,7 @@
                                 }
                                 if (cloudData.currentRule !== undefined) this.data.currentRule = cloudData.currentRule;
                                 if (cloudData.viewProfiles !== undefined) this.data.viewProfiles = cloudData.viewProfiles;
+                                if (Array.isArray(cloudData.shortcutItems)) this.data.shortcutItems = __tmShortcuts.normalize(cloudData.shortcutItems);
                                 if (Array.isArray(cloudData.filterRules)) this.data.filterRules = cloudData.filterRules;
                                 if (typeof cloudData.fontSize === 'number') this.data.fontSize = cloudData.fontSize;
                                 if (typeof cloudData.fontSizeMobile === 'number') this.data.fontSizeMobile = cloudData.fontSizeMobile;
@@ -9876,6 +9882,7 @@
             this.data.currentRule = Storage.get('tm_current_rule', null);
             this.data.viewProfiles = Storage.get('tm_view_profiles', this.data.viewProfiles) || this.data.viewProfiles;
             this.data.filterRules = Storage.get('tm_filter_rules', []);
+            this.data.shortcutItems = __tmShortcuts.normalize(Storage.get('tm_shortcut_items', []));
             this.data.fontSize = Storage.get('tm_font_size', 14);
             this.data.fontSizeMobile = Storage.get('tm_font_size_mobile', this.data.fontSize);
             this.data.rowHeightMode = Storage.get('tm_row_height_mode', this.data.rowHeightMode);
@@ -10262,6 +10269,8 @@
             this.data.newTaskDailyNoteAppendToBottom = !!Storage.get('tm_new_task_daily_note_append_to_bottom', this.data.newTaskDailyNoteAppendToBottom);
             this.data.deleteTaskRemovesWhiteboardCards = Storage.get('tm_delete_task_removes_whiteboard_cards', this.data.deleteTaskRemovesWhiteboardCards) !== false;
             this.data.headingGroupCreateAtSectionEnd = !!Storage.get('tm_heading_group_create_at_section_end', this.data.headingGroupCreateAtSectionEnd);
+            this.data.scheduleTimeFieldDefaultsVersion = Number(Storage.get('tm_schedule_time_field_defaults_version', this.data.scheduleTimeFieldDefaultsVersion)) || 0;
+            const migratedScheduleTimeFields = __tmMigrateScheduleTimeFieldDefaults(this.data);
             this.data.desktopChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.desktopChecklistCompactMetaFields);
             this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.dockChecklistCompactMetaFields);
             this.data.mobileChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.mobileChecklistCompactMetaFields, this.data.dockChecklistCompactMetaFields);
@@ -10368,7 +10377,7 @@
             }
             this.normalizeColumns();
             try { __tmApplyTaskCheckboxPriorityColorStyle(this.data.taskCheckboxPriorityColorEnabled !== false); } catch (e) {}
-            return migratedLegacyTaskTitleClickSettings || migratedCalendarOpacity;
+            return migratedLegacyTaskTitleClickSettings || migratedCalendarOpacity || migratedScheduleTimeFields;
         },
 
         // 同步到本地缓存
@@ -10442,6 +10451,7 @@
             Storage.set('tm_desktop_checklist_compact_meta_fields', this.data.desktopChecklistCompactMetaFields);
             Storage.set('tm_dock_checklist_compact_meta_fields', this.data.dockChecklistCompactMetaFields);
             Storage.set('tm_mobile_checklist_compact_meta_fields', this.data.mobileChecklistCompactMetaFields);
+            Storage.set('tm_schedule_time_field_defaults_version', Number(this.data.scheduleTimeFieldDefaultsVersion) || 0);
             Storage.set('tm_checklist_compact_right_font_size', this.data.checklistCompactRightFontSize);
             Storage.set('tm_enabled_views', this.data.enabledViews);
             Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
@@ -10478,6 +10488,7 @@
                 groupMode: this.data.groupMode
             }));
             Storage.set('tm_filter_rules', this.data.filterRules);
+            Storage.set('tm_shortcut_items', this.data.shortcutItems || []);
             Storage.set('tm_font_size', this.data.fontSize);
             Storage.set('tm_font_size_mobile', this.data.fontSizeMobile);
             Storage.set('tm_row_height_mode', String(this.data.rowHeightMode || 'auto').trim() || 'auto');
@@ -10824,6 +10835,7 @@
         },
 
         normalizeColumns() {
+            if (typeof __tmShortcuts !== 'undefined') this.data.shortcutItems = __tmShortcuts.normalize(this.data.shortcutItems);
             this.data.mobileAutoOpenOnStartup = this.data.mobileAutoOpenOnStartup === true;
             this.data.mobileSidebarEnabled = this.data.mobileSidebarEnabled === true;
             this.data.customFieldDefs = __tmNormalizeCustomFieldDefs(this.data.customFieldDefs);
@@ -12075,6 +12087,12 @@
                 { value: 'content', label: '任务内容', type: 'text' },
                 { value: 'done', label: '完成状态', type: 'boolean' },
                 {
+                    value: 'pinned',
+                    label: '置顶任务',
+                    type: 'boolean',
+                    optionLabels: { true: '已置顶', false: '未置顶' },
+                },
+                {
                     value: 'priority',
                     label: '优先级',
                     type: 'select',
@@ -12161,6 +12179,10 @@
             let result;
             if (customFieldId) result = __tmGetTaskCustomFieldValue(task, customFieldId);
             else if (key === 'customStatus') result = __tmResolveTaskStatusId(task, fieldInfo?.statusOptions || null);
+            else if (key === 'pinned') {
+                const raw = task?.pinned ?? task?.custom_pinned;
+                result = raw === true || raw === 1 || raw === '1' || raw === 'true';
+            }
             else if (key === 'priorityScore') result = __tmEnsureTaskPriorityScore(task);
             else if (key === 'tomatoEstimateCount') result = Number(__tmGetTaskTomatoEstimateCount(task) || 0);
             else if (key === 'tomatoCount') result = Number(__tmGetTaskTomatoCount(task) || 0);
@@ -12540,6 +12562,10 @@
                     : task.done === true;
                 if (operator === '=') return targetValue ? taskDone : (!taskDone && !__tmIsTaskCanceled(task));
                 if (operator === '!=') return targetValue ? (!taskDone && !__tmIsTaskCanceled(task)) : taskDone;
+            }
+            if (field === 'pinned') {
+                if (operator === '=') return taskValue === runtime.doneTargetValue;
+                if (operator === '!=') return taskValue !== runtime.doneTargetValue;
             }
 
             if (operator === 'is_empty' || operator === 'is_not_empty') {

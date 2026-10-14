@@ -123,6 +123,7 @@
         { key: 'priority', label: '重要性' },
         { key: 'status', label: '状态' },
         { key: 'date', label: '截止日期' },
+        { key: 'scheduleTime', label: '日程时间' },
         { key: 'remainingTime', label: '剩余时间' },
         { key: 'tomatoSummary', label: '专注' },
         { key: 'tomatoEstimateCount', label: '预计番茄' },
@@ -136,7 +137,7 @@
         { key: 'date', label: '截止日期' },
     ];
 
-    function __tmNormalizeTaskCardFieldList(input, fallback = ['priority', 'status', 'date']) {
+    function __tmNormalizeTaskCardFieldList(input, fallback = ['priority', 'status', 'date', 'scheduleTime']) {
         const allow = new Set(__TM_TASK_CARD_FIELD_OPTIONS.map((item) => item.key));
         const source = Array.isArray(input) ? input : fallback;
         const seen = new Set();
@@ -188,11 +189,55 @@
 
     function __tmGetTaskCardFieldList(view) {
         const key = String(view || '').trim() === 'whiteboard' ? 'whiteboardCardFields' : 'kanbanCardFields';
-        return __tmNormalizeTaskCardFieldList(SettingsStore.data?.[key], ['priority', 'status', 'date']);
+        return __tmNormalizeTaskCardFieldList(SettingsStore.data?.[key]);
     }
 
     function __tmTaskCardFieldEnabled(view, field) {
         return __tmGetTaskCardFieldList(view).includes(String(field || '').trim());
+    }
+
+    let __tmTaskScheduleTimeSource = null;
+    const __tmTaskSchedulesByTaskId = new Map();
+
+    function __tmGetTaskScheduleTimeInfo(task, nowMs = Date.now()) {
+        const taskId = String(task?.id || task?.blockId || '').trim();
+        if (!taskId) return null;
+        const schedules = globalThis.__tmCalendar?.getCachedTaskSchedules?.();
+        if (!Array.isArray(schedules)) return null;
+        if (schedules !== __tmTaskScheduleTimeSource) {
+            __tmTaskScheduleTimeSource = schedules;
+            __tmTaskSchedulesByTaskId.clear();
+            schedules.forEach((item) => {
+                const id = String(item?.taskId || item?.task_id || item?.linkedTaskId || item?.linked_task_id || '').trim();
+                if (!id || item.allDay === true) return;
+                const startMs = new Date(item.start).getTime();
+                const endMs = new Date(item.end).getTime();
+                if (!Number.isFinite(startMs)) return;
+                if (!__tmTaskSchedulesByTaskId.has(id)) __tmTaskSchedulesByTaskId.set(id, []);
+                __tmTaskSchedulesByTaskId.get(id).push({ startMs, endMs: Number.isFinite(endMs) ? endMs : startMs });
+            });
+            __tmTaskSchedulesByTaskId.forEach((items) => items.sort((a, b) => a.startMs - b.startMs));
+        }
+        const nearest = (__tmTaskSchedulesByTaskId.get(taskId) || []).find((item) => item.endMs >= nowMs);
+        if (!nearest) return null;
+        const date = new Date(nearest.startMs);
+        return {
+            text: `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`,
+            isToday: date.toDateString() === new Date(nowMs).toDateString(),
+        };
+    }
+
+    function __tmGetTaskScheduleTime(task, nowMs = Date.now()) {
+        return __tmGetTaskScheduleTimeInfo(task, nowMs)?.text || '';
+    }
+
+    function __tmRenderTaskScheduleTimeHtml(task, options = {}) {
+        const info = __tmGetTaskScheduleTimeInfo(task);
+        if (!info) return '';
+        const compact = options.compact === true;
+        const className = (compact ? 'tm-checklist-meta-compact-time' : `tm-kanban-chip${info.isToday ? '' : ' tm-kanban-chip--muted'}`)
+            + (info.isToday ? ' tm-task-schedule-time--today' : '');
+        return `<span class="${className}"${compact ? ' data-tm-checklist-compact-field="scheduleTime"' : ''} data-tm-task-time-field="${compact ? 'scheduleTimeCompact' : 'scheduleTime'}" title="日程开始时间">${esc(info.text)}</span>`;
     }
 
     function __tmGetTaskCardAlwaysShowFieldList() {

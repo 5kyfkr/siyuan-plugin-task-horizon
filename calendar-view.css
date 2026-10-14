@@ -7642,6 +7642,18 @@
     left: 20% !important;
 }
 
+/* Touch cards become resizable after a completed selection tap. Hidden
+   handles must not claim scrolling; mouse input keeps the desktop hit area. */
+.tm-proto-surface--touch-input .tm-proto-time-col > .tm-proto-event--block,
+#tmCalendarSideDockTimeline .tm-proto-surface--touch-input .tm-proto-time-col > .tm-proto-event--block{
+    touch-action: pan-y !important;
+}
+.tm-proto-surface--touch-input .tm-proto-time-col > .tm-proto-event--block:not(.tm-proto-event--resize-selected) > .tm-proto-resize-handle,
+#tmCalendarSideDockTimeline .tm-proto-surface--touch-input .tm-proto-time-col > .tm-proto-event--block:not(.tm-proto-event--resize-selected) > .tm-proto-resize-handle{
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
 /* Mobile and DOCK month cells share one compact horizontal track geometry so
    cross-day bars use the same boundary calculation on both hosts. */
 .tm-proto-surface--compact-month .tm-proto-month-cell,
@@ -8129,15 +8141,19 @@
 .tm-calendar-holiday-editor__day.has-custom small{color:var(--tm-cal-primary,var(--b3-theme-primary,#3b82f6))}
 .tm-calendar-holiday-editor__day.is-work.has-custom small{color:#d64b4b}
 .tm-calendar-holiday-editor__modified{margin-top:16px;border-top:1px solid var(--b3-theme-surface-lighter,rgba(0,0,0,.12));padding-top:12px}
-.tm-calendar-holiday-editor__section-title{font-size:13px;font-weight:700;margin-bottom:6px}
+.tm-calendar-holiday-editor--records{z-index:100041}
+.tm-calendar-holiday-editor--records .tm-calendar-holiday-editor__panel{width:min(560px,100%)}
+.tm-calendar-holiday-editor__records-button{margin-right:auto}
 .tm-calendar-holiday-editor__modified-row{padding:5px 0;font-size:12px}
-.tm-calendar-holiday-editor__modified-row button{min-width:auto;min-height:32px;padding:0 8px;background:transparent;font-size:12px}
+.tm-calendar-holiday-editor__modified-row span{min-width:0;overflow-wrap:anywhere}
+.tm-calendar-holiday-editor__modified-row button{flex-shrink:0;min-width:auto;min-height:32px;padding:0 8px;background:transparent;font-size:12px}
 .tm-calendar-holiday-editor__footer{justify-content:flex-end;margin-top:16px;padding-top:12px;border-top:1px solid var(--b3-theme-surface-lighter,rgba(0,0,0,.12))}
 @media (max-width:640px){
     .tm-calendar-holiday-editor{padding:0;align-items:stretch}
     .tm-calendar-holiday-editor__panel{width:100%;max-height:none;border:0;border-radius:0;padding:14px 12px}
     .tm-calendar-holiday-editor__day{min-height:54px}
     .tm-calendar-holiday-editor__toolbar button{min-width:44px}
+    .tm-calendar-holiday-editor--records .tm-calendar-holiday-editor__panel{width:100%}
 }
 
 /* Compact list-month agenda. The list view owns one date picker and one

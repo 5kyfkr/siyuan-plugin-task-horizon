@@ -10695,8 +10695,8 @@
         const dayKey = __tmGetTodayDateKey();
         const api = globalThis.__tmCalendar?.listTaskSchedulesByDay;
         const sourceReady = typeof api === 'function';
-        state.todayScheduledSourceReady = !!sourceReady;
         if (!sourceReady) {
+            state.todayScheduledSourceReady = false;
             return {
                 changed: false,
                 set: (state.todayScheduledTaskIds instanceof Set) ? state.todayScheduledTaskIds : new Set(),
@@ -10706,15 +10706,22 @@
             return { changed: false, set: state.todayScheduledTaskIds };
         }
         if (!force && state.todayScheduledTaskIdsLoading) return state.todayScheduledTaskIdsLoading;
+        const loadVersion = (Number(state.todayScheduledTaskIdsLoadVersion) || 0) + 1;
+        state.todayScheduledTaskIdsLoadVersion = loadVersion;
         const runner = (async () => {
             const next = new Set();
+            let list;
             try {
-                const list = await api(dayKey);
-                (Array.isArray(list) ? list : []).forEach((it) => {
-                    const tid = String(it?.taskId || it?.task_id || it?.linkedTaskId || it?.linked_task_id || '').trim();
-                    if (tid) next.add(tid);
-                });
-            } catch (e) {}
+                list = await api(dayKey);
+            } catch (e) {
+                if (state.todayScheduledTaskIdsLoadVersion === loadVersion) state.todayScheduledSourceReady = false;
+                return { changed: false, set: state.todayScheduledTaskIds };
+            }
+            if (state.todayScheduledTaskIdsLoadVersion !== loadVersion) return { changed: false, set: state.todayScheduledTaskIds };
+            (Array.isArray(list) ? list : []).forEach((it) => {
+                const tid = String(it?.taskId || it?.task_id || it?.linkedTaskId || it?.linked_task_id || '').trim();
+                if (tid) next.add(tid);
+            });
             const prev = (state.todayScheduledTaskIds instanceof Set) ? state.todayScheduledTaskIds : new Set();
             let changed = prev.size !== next.size;
             if (!changed) {
@@ -13505,6 +13512,7 @@
     function __tmBindCalendarScheduleUpdated() {
         if (__tmCalendarScheduleUpdatedHandler) return;
         __tmCalendarScheduleUpdatedHandler = () => {
+            state.todayScheduledSourceReady = false;
             try {
                 if (__tmTodayScheduleRefreshTimer) {
                     clearTimeout(__tmTodayScheduleRefreshTimer);
@@ -13513,6 +13521,7 @@
             } catch (e) {}
             __tmTodayScheduleRefreshTimer = setTimeout(() => {
                 __tmTodayScheduleRefreshTimer = null;
+                try { __tmRefreshVisibleTaskScheduleTimes(); } catch (e) {}
                 const modal = state.modal;
                 if (modal && modal.isConnected) {
                     __tmScheduleTodayScheduledTaskNameMarksRefresh(modal, true);
@@ -13522,6 +13531,7 @@
             }, 60);
         };
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tm:calendar-schedule-updated', __tmCalendarScheduleUpdatedHandler); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(window, 'tm:calendar-schedule-cache-updated', __tmCalendarScheduleUpdatedHandler); } catch (e) {}
     }
 
     function __tmBootstrapCalendarBackgroundRefresh(tryCount = 0) {
@@ -17663,14 +17673,14 @@ if (opts.refresh === false) return;
         };
         if (__tmIsOtherBlockTabId(activeDocId)) {
             (Array.isArray(state.otherBlocks) ? state.otherBlocks : []).forEach(pushTask);
-            return out;
+            return typeof __tmShortcuts !== 'undefined' ? __tmShortcuts.filterHomepageTasks(out) : out;
         }
         const flatTasks = (state.flatTasks && typeof state.flatTasks === 'object')
             ? Object.values(state.flatTasks)
             : [];
         if (flatTasks.length) {
             flatTasks.forEach(pushTask);
-            return out;
+            return typeof __tmShortcuts !== 'undefined' ? __tmShortcuts.filterHomepageTasks(out) : out;
         }
         (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
             const docId = String(doc?.id || '').trim();
@@ -17678,7 +17688,7 @@ if (opts.refresh === false) return;
             if (!isDocTabCustomGroupActive && activeDocId !== 'all' && docId !== activeDocId) return;
             appendWalk(doc?.tasks || []);
         });
-        return out;
+        return typeof __tmShortcuts !== 'undefined' ? __tmShortcuts.filterHomepageTasks(out) : out;
     }
 
     let __tmHomepageProjectsWarmupKey = '';
@@ -22469,6 +22479,7 @@ if (!state.homepageOpen) return;
         { key: 'h2', label: '二级标题' },
         { key: 'startDate', label: '开始时间' },
         { key: 'completionTime', label: '截止日期' },
+        { key: 'scheduleTime', label: '日程时间' },
         { key: 'remainingTime', label: '剩余时间' },
         { key: 'duration', label: '时长' },
         { key: 'tomatoSummary', label: '专注/耗时' },
@@ -22477,7 +22488,27 @@ if (!state.homepageOpen) return;
         { key: 'status', label: '状态标签' },
     ]);
 
-    const __TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS = Object.freeze(['completionTime', 'status']);
+    const __TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS = Object.freeze(['completionTime', 'scheduleTime', 'status']);
+
+    function __tmMigrateScheduleTimeFieldDefaults(data) {
+        if (!data || Number(data.scheduleTimeFieldDefaultsVersion) >= 1) return false;
+        [
+            ['desktopChecklistCompactMetaFields', 'completionTime', __TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS],
+            ['dockChecklistCompactMetaFields', 'completionTime', __TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS],
+            ['mobileChecklistCompactMetaFields', 'completionTime', __TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS],
+            ['kanbanCardFields', 'date', ['priority', 'status', 'date', 'scheduleTime']],
+            ['whiteboardCardFields', 'date', ['priority', 'status', 'date', 'scheduleTime']],
+        ].forEach(([key, dateKey, defaults]) => {
+            const fields = Array.isArray(data[key]) ? [...data[key]] : [...defaults];
+            if (!fields.includes('scheduleTime')) {
+                const dateIndex = fields.indexOf(dateKey);
+                fields.splice(dateIndex < 0 ? fields.length : dateIndex + 1, 0, 'scheduleTime');
+            }
+            data[key] = fields;
+        });
+        data.scheduleTimeFieldDefaultsVersion = 1;
+        return true;
+    }
 
     function __tmGetChecklistCompactMetaFieldOrder() {
         return __TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.map((item) => item.key).concat(
@@ -28751,6 +28782,7 @@ return true;
         try { __tmKanbanColsHtmlCache = null; } catch (e) {}
         if (changed) {
             try { __tmScheduleKanbanBottomNavAvoidance(modal); } catch (e) {}
+            try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal, false, body, { alreadyApplied: true }); } catch (e) {}
         }
         try { __tmScheduleProgressiveViewRender('kanban', refreshJob); } catch (e) {}
         return true;

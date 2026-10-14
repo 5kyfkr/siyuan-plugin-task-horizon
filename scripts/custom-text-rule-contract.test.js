@@ -77,6 +77,7 @@ const context = vm.createContext({
     __tmParseDurationMinutes: (value) => Number(value) || 0,
     __tmParseTimeToTs: (value) => Date.parse(value) || 0,
     __tmIsTaskDoneEffective: (task) => task?.done === true,
+    __tmIsTaskCanceled: (task) => task?.taskMarker === '-',
     __tmCompareTasksByDocFlow: (a, b) => Number(a?.resolvedFlowRank) - Number(b?.resolvedFlowRank),
 });
 
@@ -95,6 +96,43 @@ assert.equal(fieldMap.get('customField:notes')?.customFieldId, 'notes');
 assert.equal(fieldMap.get('customField:stage')?.type, 'select');
 assert.equal(fieldMap.get('customField:tags')?.type, 'select');
 assert.equal(fieldMap.get('customField:tags')?.multi, true);
+assert.equal(fieldMap.get('pinned')?.type, 'boolean');
+
+const pinTasks = [
+    { id: 'pinned', pinned: true, done: false },
+    { id: 'done-pinned', pinned: true, done: true },
+    { id: 'attr-pinned', custom_pinned: '1', done: false },
+    { id: 'string-pinned', pinned: '1', done: false },
+    { id: 'numeric-pinned', pinned: 1, done: false },
+    { id: 'normal', pinned: false, done: false },
+    { id: 'cleared', pinned: '', custom_pinned: '1', done: false },
+    { id: 'string-false', pinned: 'false', done: false },
+    { id: 'unset', done: false },
+];
+const pinRule = { conditions: [{ field: 'pinned', operator: '=', value: 'true' }] };
+const pinnedIds = ['pinned', 'done-pinned', 'attr-pinned', 'string-pinned', 'numeric-pinned'];
+const unpinnedIds = ['normal', 'cleared', 'string-false', 'unset'];
+const applyIds = (rule) => Array.from(RuleManager.applyRuleFilter(pinTasks, rule), task => task.id);
+for (const value of [true, 'true', '']) {
+    assert.deepEqual(applyIds({ conditions: [{ field: 'pinned', operator: '=', value }] }), pinnedIds);
+    assert.deepEqual(applyIds({ conditions: [{ field: 'pinned', operator: '!=', value }] }), unpinnedIds);
+}
+for (const value of [false, 'false']) {
+    assert.deepEqual(applyIds({ conditions: [{ field: 'pinned', operator: '=', value }] }), unpinnedIds);
+    assert.deepEqual(applyIds({ conditions: [{ field: 'pinned', operator: '!=', value }] }), pinnedIds);
+}
+assert.deepEqual(applyIds({ conditions: [
+    ...pinRule.conditions,
+    { field: 'done', operator: '=', value: false, join: 'and' },
+] }), pinnedIds.filter(id => id !== 'done-pinned'), 'pin filters must compose with completion conditions');
+assert.deepEqual(applyIds({ conditions: [
+    ...pinRule.conditions,
+    { field: 'done', operator: '=', value: true, join: 'or' },
+] }), pinnedIds, 'pin filters must support OR conditions');
+pinTasks[0].pinned = false;
+assert.deepEqual(applyIds(pinRule), pinnedIds.slice(1), 'unpinning must remove tasks from the filter');
+pinTasks[5].pinned = true;
+assert.deepEqual(applyIds(pinRule), [...pinnedIds.slice(1), 'normal'], 'pinning must add tasks to the filter');
 
 const sortFieldIds = new Set(Array.from(RuleManager.getSortFields(), (field) => field.value));
 assert.equal(sortFieldIds.has('customField:notes'), true);

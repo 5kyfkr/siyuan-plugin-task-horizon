@@ -428,8 +428,6 @@
                     <span style="font-size:12px;color:var(--tm-secondary-text);">预览(夜间):</span>
                     <div id="tmAppearancePreviewDark" style="width:180px;height:22px;border-radius:8px;background:${previewDark};border:1px solid rgba(0,0,0,0.06);"></div>
                 </div>
-                <div style="flex:1;"></div>
-                <button class="tm-btn tm-btn-gray" onclick="tmResetAppearanceColors()" style="padding: 4px 10px; font-size: 12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>恢复默认</button>
             </div>
             <div style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
@@ -701,25 +699,6 @@
         SettingsStore.data.serverSyncSessionStateOnManualRefresh = !!enabled;
         await SettingsStore.save();
         if (state.settingsModal) showSettings();
-    };
-
-    window.tmResetAppearanceColors = async function() {
-        if (__tmIsSiyuanThemeColorsEnabled()) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
-            showSettings();
-            return;
-        }
-        SettingsStore.data.themeConfig = __tmGetDefaultThemeConfig();
-        SettingsStore.data.topbarControlRadiusPx = 10;
-        SettingsStore.data.topbarControlBorderWidthPx = 1;
-        SettingsStore.data.topbarControlShadowYOffsetPx = 0;
-        SettingsStore.data.topbarControlShadowBlurPx = 0;
-        SettingsStore.data.topbarControlShadowStrengthPct = 100;
-        __tmApplyThemeConfigToAppearanceFields(SettingsStore.data.themeConfig);
-        await SettingsStore.save();
-        try { __tmApplyAppearanceThemeVars(); } catch (e) {}
-        if (state.settingsModal) showSettings();
-        render();
     };
 
     window.tmSelectAppearanceTheme = async function(value) {

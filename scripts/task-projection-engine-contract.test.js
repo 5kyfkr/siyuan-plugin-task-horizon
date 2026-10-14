@@ -48,6 +48,12 @@ assert.equal(engine.analyzePatch({ remark: 'x' }, baseContext).projection, false
     'a display-only field must not rebuild projection');
 assert.equal(engine.analyzePatch({ pinned: true }, baseContext).projection, true,
     'pinned always changes ordering');
+for (const pinned of [true, false]) {
+    assert.equal(engine.analyzePatch({ pinned }, {
+        ...baseContext,
+        rule: { conditions: [{ field: 'pinned', operator: '=', value: 'true' }] },
+    }).filter, true, 'pin changes must refresh active pin filter membership');
+}
 assert.equal(engine.analyzePatch({ content: 'x' }, { ...baseContext, searchActive: true }).filter, true,
     'searchable content must update active search projection');
 assert.equal(engine.analyzePatch({ remark: 'x' }, { ...baseContext, searchActive: true }).filter, true,

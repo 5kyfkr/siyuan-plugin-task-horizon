@@ -15,8 +15,8 @@ const cardRuntimeSource = read('src/task-horizon/main/task-runtime/51-whiteboard
 
 assert.match(
     taskModelSource,
-    /\{ key: 'date', label: '截止日期' \},\s*\{ key: 'remainingTime', label: '剩余时间' \},\s*\{ key: 'tomatoSummary', label: '专注' \}/,
-    'remaining time must be offered immediately after the due-date card field',
+    /\{ key: 'date', label: '截止日期' \},\s*\{ key: 'scheduleTime', label: '日程时间' \},\s*\{ key: 'remainingTime', label: '剩余时间' \},\s*\{ key: 'tomatoSummary', label: '专注' \}/,
+    'schedule time and remaining time must be offered after the due-date card field',
 );
 assert.match(
     taskModelSource,
@@ -40,7 +40,7 @@ assert.match(
 );
 assert.match(
     cardRuntimeSource,
-    /field === 'date'\s*\|\| field === 'remainingTime'/,
+    /field === 'date'\s*\|\| field === 'scheduleTime'\s*\|\| field === 'remainingTime'/,
     'live card metadata replacement must manage remaining-time chips',
 );
 assert.match(

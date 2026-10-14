@@ -7039,8 +7039,60 @@
         return true;
     }
 
+    function lockPrototypeTouchDragScroll(drag) {
+        if (!drag || drag.touchScrollAbort) return;
+        const abort = new AbortController();
+        drag.touchScrollAbort = abort;
+        const release = () => abort.abort();
+        const preventMove = (event) => {
+            if (drag.started) event.preventDefault();
+        };
+        // Preview rendering can detach the original Touch target before its
+        // touchmove arrives. Keep that target's own scroll lock alive as well.
+        for (const target of [window, drag.eventEl]) {
+            target.addEventListener('touchmove', preventMove, { capture: true, passive: false, signal: abort.signal });
+            target.addEventListener('touchend', release, { capture: true, passive: true, signal: abort.signal });
+            target.addEventListener('touchcancel', release, { capture: true, passive: true, signal: abort.signal });
+        }
+        window.addEventListener('blur', release, { capture: true, passive: true, signal: abort.signal });
+    }
+
+    function isPrototypeEventTextHit(target, event) {
+        const text = target?.closest?.('.tm-proto-event-title, .tm-proto-event-time, .tm-proto-event-meta, .tm-proto-span-title');
+        if (!text) return false;
+        const range = document.createRange();
+        range.selectNodeContents(text);
+        return Array.from(range.getClientRects()).some((rect) => event.clientX >= rect.left && event.clientX <= rect.right
+            && event.clientY >= rect.top && event.clientY <= rect.bottom);
+    }
+
+    function suppressPrototypeOpeningPointerClick(openingEvent) {
+        if (openingEvent?.pointerType !== 'touch' && openingEvent?.pointerType !== 'pen') return;
+        const abort = new AbortController();
+        const release = () => abort.abort();
+        document.addEventListener('pointerdown', release, { capture: true, passive: true, signal: abort.signal });
+        document.addEventListener('click', (event) => {
+            if (event.detail === 0) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            release();
+        }, { capture: true, signal: abort.signal });
+        setTimeout(release, 700);
+    }
+
     function bindPrototypeSurfacePointerHandler(surface, type, handler, capture = true) {
         if (!surface.__tmPrototypePointerHandlers) surface.__tmPrototypePointerHandlers = Object.create(null);
+        if (type === 'pointerdown' && !surface.__tmPrototypePointerInputBound) {
+            surface.__tmPrototypePointerInputBound = true;
+            surface.classList.toggle('tm-proto-surface--touch-input', Number(globalThis.navigator?.maxTouchPoints) > 0
+                || globalThis.matchMedia?.('(any-pointer: coarse)')?.matches === true);
+            const syncPointerInput = (event) => {
+                if (!event.pointerType) return;
+                surface.classList.toggle('tm-proto-surface--touch-input', event.pointerType === 'touch' || event.pointerType === 'pen');
+            };
+            surface.addEventListener('pointerover', syncPointerInput, true);
+            surface.addEventListener('pointerdown', syncPointerInput, true);
+        }
         surface.__tmPrototypePointerHandlers[type] = handler;
         surface.addEventListener(type, handler, capture);
     }
@@ -14094,6 +14146,17 @@
         if (typeof sourceSignature !== 'undefined') {
             state.scheduleCache.sourceSignature = String(sourceSignature || '');
         }
+        Promise.resolve().then(() => {
+            try { window.dispatchEvent(new CustomEvent('tm:calendar-schedule-cache-updated')); } catch (e) {}
+        });
+    }
+
+    function getCachedTaskSchedules() {
+        const cache = state.scheduleCache;
+        if (!Array.isArray(cache.list) && !cache.inflight) {
+            void loadScheduleAll().catch(() => null);
+        }
+        return cache.list;
     }
 
     function persistScheduleLocalShadow(items) {
@@ -21221,6 +21284,7 @@
                 });
                 const restoreSidePrototypeDragPreview = (drag) => {
                     if (!drag) return;
+                    drag.touchScrollAbort?.abort();
                     const visualEl = drag.visualEl instanceof HTMLElement ? drag.visualEl : drag.eventEl;
                     if (!(visualEl instanceof HTMLElement)) return;
                     try {
@@ -21249,11 +21313,16 @@
                         if (!eventApi || eventApi.editable === false) {
                             return;
                         }
-                        beginSidePrototypeDragScrollSnapshot(surface, activeCalendar, event.pointerId);
-                        sidePrototypeSelectedEventId = id;
-                        applySidePrototypeSelectedEventState();
                         const resizeHandle = target?.closest?.('[data-tm-proto-resize]');
                         const edge = String(resizeHandle?.getAttribute?.('data-tm-proto-resize') || '').trim();
+                        const isTouchPointer = event.pointerType === 'touch' || event.pointerType === 'pen';
+                        const isTouchResize = isTouchPointer && (edge === 'start' || edge === 'end');
+                        if (isTouchResize && sidePrototypeSelectedEventId !== id) return;
+                        if (!isTouchPointer) {
+                            sidePrototypeSelectedEventId = id;
+                            applySidePrototypeSelectedEventState();
+                        }
+                        if (!isTouchPointer || isTouchResize) beginSidePrototypeDragScrollSnapshot(surface, activeCalendar, event.pointerId);
                         // Match the main day view: transform/resize the event
                         // card itself, not its percentage-positioned wrapper.
                         // The wrapper owns the time-grid slot; styling it
@@ -21275,16 +21344,14 @@
                         const timePointerMinute = prototypeTimelineMinutesAtPoint(timeCanvas, event.clientY, liveSettings);
                         const originRect = visualEl?.getBoundingClientRect?.() || null;
                         const timeDayKey = String(timeCol?.getAttribute?.('data-tm-proto-day') || '').trim();
-                        const isTouchResize = event.pointerType === 'touch'
-                            && (edge === 'start' || edge === 'end');
                         sidePrototypeEventDrag = {
                             id, eventEl, visualEl, pointerId: event.pointerId,
+                            tapOpensPopover: !isTouchPointer || sidePrototypeSelectedEventId === id || isPrototypeEventTextHit(target, event),
                             fromMorePopover: !!eventEl.closest('.tm-proto-more-popover'),
                             startX: Number(event.clientX) || 0,
                             startY: Number(event.clientY) || 0,
-                            // Keep taps available for the detail popover, but
-                            // enter an edge resize immediately on touch.
-                            started: event.pointerType !== 'touch' || isTouchResize, moved: false,
+                            // Only a previously selected card exposes immediate touch resizing.
+                            started: !isTouchPointer || isTouchResize, moved: false,
                             edge: edge === 'start' || edge === 'end' ? edge : '', timer: 0,
                             originTransform: visualEl instanceof HTMLElement ? (visualEl.style.transform || '') : '',
                             originTop: visualEl instanceof HTMLElement ? (visualEl.style.top || '') : '',
@@ -21306,11 +21373,15 @@
                             previewMode: '', previewStart: null, previewEnd: null, previewKey: '',
                         };
                         try { visualEl?.classList?.add?.('tm-proto-event--dragging'); } catch (e) {}
-                        if (event.pointerType === 'touch' && !isTouchResize) {
+                        if (isTouchPointer && !isTouchResize) {
                             sidePrototypeEventDrag.timer = setTimeout(() => {
-                                if (sidePrototypeEventDrag?.pointerId === event.pointerId) sidePrototypeEventDrag.started = true;
+                                if (sidePrototypeEventDrag?.pointerId === event.pointerId) {
+                                    beginSidePrototypeDragScrollSnapshot(surface, activeCalendar, event.pointerId);
+                                    sidePrototypeEventDrag.started = true;
+                                }
                             }, getCalendarLongPressDelay(activeCalendar, 'eventLongPressDelay'));
                         }
+                        if (event.pointerType === 'touch') lockPrototypeTouchDragScroll(sidePrototypeEventDrag);
                         if (isTouchResize) {
                             try { event.preventDefault?.(); } catch (e) {}
                         }
@@ -21490,8 +21561,14 @@
                     if (sidePrototypeEventDrag && sidePrototypeEventDrag.pointerId === event.pointerId) {
                         const drag = sidePrototypeEventDrag;
                         clearTimeout(drag.timer);
+                        drag.touchScrollAbort?.abort();
                         sidePrototypeEventDrag = null;
                         if (!drag.started || !drag.moved) {
+                            if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+                                sidePrototypeSelectedEventId = drag.id;
+                                applySidePrototypeSelectedEventState();
+                                suppressPrototypeOpeningPointerClick(event);
+                            }
                             restoreSidePrototypeDragPreview(drag);
                             finishSidePrototypeDragScroll(surface);
                             const activeCalendar = state.sideDay?.calendar || cal;
@@ -21499,7 +21576,7 @@
                             if (eventApi && !drag.edge) {
                                 sidePrototypeSuppressClickUntil = Date.now() + 650;
                                 sidePrototypeSuppressClickEventId = drag.id;
-                                if (typeof state.__tmShowPrototypeEventPopover === 'function') {
+                                if (drag.tapOpensPopover && typeof state.__tmShowPrototypeEventPopover === 'function') {
                                     try {
                                         state.__tmShowPrototypeEventPopover(eventApi, drag.eventEl);
                                     } catch (e) {
@@ -21638,6 +21715,7 @@
                 }, true);
                 bindPrototypeSurfacePointerHandler(surface, 'pointercancel', (event) => {
                     if (sidePrototypeEventDrag?.pointerId === event.pointerId) {
+                        sidePrototypeEventDrag.touchScrollAbort?.abort();
                         restoreSidePrototypeDragPreview(sidePrototypeEventDrag);
                         clearTimeout(sidePrototypeEventDrag.timer);
                         sidePrototypeEventDrag = null;
@@ -31821,6 +31899,7 @@
                 return Number.isNaN(start.getTime()) ? null : { start, allDay: false, timeCol };
             };
             const restorePrototypeDragPreview = (drag) => {
+                drag?.touchScrollAbort?.abort();
                 const el = drag?.eventEl;
                 if (!(el instanceof HTMLElement)) return;
                 try {
@@ -31990,23 +32069,26 @@
                 const activeCalendar = state.calendar || calendar;
                 const eventApi = getCalendarEventById(activeCalendar, eventId);
                 if (!eventApi || eventApi.editable === false) return;
-                prototypeSelectedEventId = eventId;
-                applyPrototypeSelectedEventState();
                 const resizeHandle = target?.closest?.('[data-tm-proto-resize]');
                 const resizeEdge = String(resizeHandle?.getAttribute?.('data-tm-proto-resize') || '').trim();
-                const isTouchResize = event.pointerType === 'touch'
-                    && (resizeEdge === 'start' || resizeEdge === 'end');
+                const isTouchPointer = event.pointerType === 'touch' || event.pointerType === 'pen';
+                const isTouchResize = isTouchPointer && (resizeEdge === 'start' || resizeEdge === 'end');
+                if (isTouchResize && prototypeSelectedEventId !== eventId) return;
+                if (!isTouchPointer) {
+                    prototypeSelectedEventId = eventId;
+                    applyPrototypeSelectedEventState();
+                }
                 prototypeEventDrag = {
                     id: eventId,
                     eventEl,
+                    tapOpensPopover: !isTouchPointer || prototypeSelectedEventId === eventId || isPrototypeEventTextHit(target, event),
                     fromMorePopover: !!eventEl.closest('.tm-proto-more-popover'),
                     pointerId: event.pointerId,
                     startX: Number(event.clientX) || 0,
                     startY: Number(event.clientY) || 0,
-                    // A normal card requires a long press on touch so a tap
-                    // still opens its popover. Edge handles are a dedicated
-                    // resize affordance and should engage immediately.
-                    started: event.pointerType !== 'touch' || isTouchResize,
+                    // A normal card still waits for a long press. Touch edges
+                    // engage immediately only after a separate selection tap.
+                    started: !isTouchPointer || isTouchResize,
                     moved: false,
                     resizeEdge: resizeEdge === 'start' || resizeEdge === 'end' ? resizeEdge : '',
                     timer: 0,
@@ -32064,11 +32146,14 @@
                         : 0;
                     prototypeEventDrag.originHeightPx = prototypeEventDrag.originRect?.height || 28;
                 }
-                if (event.pointerType === 'touch' && !isTouchResize) {
+                if (isTouchPointer && !isTouchResize) {
                     prototypeEventDrag.timer = setTimeout(() => {
-                        if (prototypeEventDrag?.pointerId === event.pointerId) prototypeEventDrag.started = true;
+                        if (prototypeEventDrag?.pointerId === event.pointerId) {
+                            prototypeEventDrag.started = true;
+                        }
                     }, getCalendarLongPressDelay(activeCalendar, 'eventLongPressDelay'));
                 }
+                if (event.pointerType === 'touch') lockPrototypeTouchDragScroll(prototypeEventDrag);
                 if (isTouchResize) {
                     try { event.preventDefault?.(); } catch (e) {}
                 }
@@ -32484,6 +32569,7 @@
             bindPrototypeSurfacePointerHandler(prototypeSurface, 'pointerup', (event) => {
                 if (typeof event.button === 'number' && event.button !== 0) {
                     if (prototypeEventDrag && prototypeEventDrag.pointerId === event.pointerId) {
+                        prototypeEventDrag.touchScrollAbort?.abort();
                         restorePrototypeDragPreview(prototypeEventDrag);
                         clearTimeout(prototypeEventDrag.timer);
                     }
@@ -32493,6 +32579,7 @@
                 if (prototypeEventDrag && prototypeEventDrag.pointerId === event.pointerId) {
                     const drag = prototypeEventDrag;
                     clearTimeout(drag.timer);
+                    drag.touchScrollAbort?.abort();
                     // Let the native click event handle a simple press. If
                     // pointer capture retargets that click to the surface,
                     // open the same popover from the original event element.
@@ -32500,6 +32587,13 @@
                     const eventApi = getCalendarEventById(activeCalendar, drag.id);
                     prototypeEventDrag = null;
                     if (!drag.started || !drag.moved) {
+                        if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+                            prototypeSelectedEventId = drag.id;
+                            applyPrototypeSelectedEventState();
+                            prototypeSuppressClickUntil = Date.now() + 650;
+                            prototypeSuppressClickEventId = drag.id;
+                            suppressPrototypeOpeningPointerClick(event);
+                        }
                         restorePrototypeDragPreview(drag);
                         const viewType = String(getCalendarView(activeCalendar)?.type || '').trim();
                         const compactMonthEvent = viewType === 'dayGridMonth'
@@ -32522,10 +32616,12 @@
                             if (listTaskCard && openPrototypeListTaskDetail(event, eventApi, listTaskCard)) {
                                 prototypeSuppressClickUntil = Date.now() + 650;
                                 prototypeSuppressClickEventId = drag.id;
-                            } else {
+                            } else if (drag.tapOpensPopover) {
                                 prototypeSuppressClickUntil = Date.now() + 650;
                                 prototypeSuppressClickEventId = drag.id;
-                                try { showPrototypeEventPopover(eventApi, drag.eventEl); } catch (e) {}
+                                try {
+                                    showPrototypeEventPopover(eventApi, drag.eventEl);
+                                } catch (e) {}
                             }
                         } else if (!drag.resizeEdge
                             && event.pointerType !== 'mouse'
@@ -32679,6 +32775,7 @@
             }, true);
             bindPrototypeSurfacePointerHandler(prototypeSurface, 'pointercancel', (event) => {
                 if (prototypeEventDrag && prototypeEventDrag.pointerId === event.pointerId) {
+                    prototypeEventDrag.touchScrollAbort?.abort();
                     restorePrototypeDragPreview(prototypeEventDrag);
                     clearTimeout(prototypeEventDrag.timer);
                     prototypeEventDrag = null;
@@ -41795,14 +41892,17 @@
         let name = '';
         let official = new Map();
         let saving = false;
+        let recordsOpen = false;
         const overlay = document.createElement('div');
         overlay.className = 'tm-calendar-holiday-editor';
         overlay.setAttribute('role', 'dialog');
         overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-label', '管理个人节假日');
         const close = (force = false) => {
             if (!force && saving) return false;
             const dirty = JSON.stringify(Object.entries(draft).sort()) !== JSON.stringify(Object.entries(initial).sort());
             if (!force && dirty && !window.confirm('有未保存的个人节假日修改，确定关闭吗？')) return false;
+            window.removeEventListener('keydown', onKeydown, true);
             try { overlay.remove(); } catch (e) {}
             return true;
         };
@@ -41820,7 +41920,7 @@
             const days = getMonthDays();
             const modified = Object.entries(draft).sort(([a], [b]) => a.localeCompare(b));
             overlay.innerHTML = `
-                <div class="tm-calendar-holiday-editor__panel">
+                <div class="tm-calendar-holiday-editor__panel" ${recordsOpen ? 'inert aria-hidden="true"' : ''}>
                     <div class="tm-calendar-holiday-editor__header">
                         <div><strong>管理个人节假日</strong><div class="tm-calendar-holiday-editor__sub">${year} 年已修改 ${countCalendarCustomHolidayOverrides(year, draft)} 天</div></div>
                         <button type="button" class="tm-calendar-holiday-editor__close" data-tm-holiday-editor-action="close" aria-label="关闭">×</button>
@@ -41859,12 +41959,26 @@
                             return `<button type="button" class="${classes}" data-tm-holiday-editor-date="${key}" title="${esc(officialTitle + customTitle)}" ${current ? '' : 'disabled'}><span>${date.getDate()}</span><small>${esc(stateText)}</small></button>`;
                         }).join('')}
                     </div>
-                    <div class="tm-calendar-holiday-editor__modified">
-                        <div class="tm-calendar-holiday-editor__section-title">已修改日期</div>
-                        ${modified.length ? modified.map(([date, value]) => `<div class="tm-calendar-holiday-editor__modified-row"><span>${date} · ${esc(value.name || getCalendarCustomHolidayFallbackName(value.type))}（${value.type === 'work' ? '班' : '休'}）</span><button type="button" data-tm-holiday-editor-restore="${date}">恢复官方</button></div>`).join('') : '<div class="tm-calendar-holiday-editor__empty">暂无个人覆盖</div>'}
+                    <div class="tm-calendar-holiday-editor__footer"><button type="button" class="tm-btn tm-btn-secondary tm-calendar-holiday-editor__records-button" data-tm-holiday-editor-action="records" aria-haspopup="dialog" ${saving ? 'disabled' : ''}>已修改记录（${modified.length}）</button><button type="button" class="tm-btn tm-btn-secondary" data-tm-holiday-editor-action="close">取消</button><button type="button" class="tm-btn" data-tm-holiday-editor-action="save" ${saving ? 'disabled' : ''}>${saving ? '保存中…' : '保存'}</button></div>
+                </div>
+                ${recordsOpen ? `<div class="tm-calendar-holiday-editor tm-calendar-holiday-editor--records" role="dialog" aria-modal="true" aria-label="已修改记录">
+                    <div class="tm-calendar-holiday-editor__panel">
+                        <div class="tm-calendar-holiday-editor__header">
+                            <div><strong>已修改记录</strong><div class="tm-calendar-holiday-editor__sub">共 ${modified.length} 天，恢复官方后请在管理页保存。</div></div>
+                            <button type="button" class="tm-calendar-holiday-editor__close" data-tm-holiday-editor-action="close-records" aria-label="关闭记录">×</button>
+                        </div>
+                        <div class="tm-calendar-holiday-editor__modified">
+                            ${modified.length ? modified.map(([date, value]) => `<div class="tm-calendar-holiday-editor__modified-row"><span>${date} · ${esc(value.name || getCalendarCustomHolidayFallbackName(value.type))}（${value.type === 'work' ? '班' : '休'}）</span><button type="button" data-tm-holiday-editor-restore="${date}">恢复官方</button></div>`).join('') : '<div class="tm-calendar-holiday-editor__empty">暂无个人覆盖</div>'}
+                        </div>
+                        <div class="tm-calendar-holiday-editor__footer"><button type="button" class="tm-btn tm-btn-secondary" data-tm-holiday-editor-action="close-records">返回管理</button></div>
                     </div>
-                    <div class="tm-calendar-holiday-editor__footer"><button type="button" class="tm-btn tm-btn-secondary" data-tm-holiday-editor-action="close">取消</button><button type="button" class="tm-btn" data-tm-holiday-editor-action="save" ${saving ? 'disabled' : ''}>${saving ? '保存中…' : '保存'}</button></div>
-                </div>`;
+                </div>` : ''}`;
+            if (recordsOpen) overlay.querySelector('[data-tm-holiday-editor-action="close-records"]')?.focus();
+        };
+        const closeRecords = () => {
+            recordsOpen = false;
+            render();
+            overlay.querySelector('[data-tm-holiday-editor-action="records"]')?.focus();
         };
         const loadOfficial = async () => {
             const requestedYear = year;
@@ -41891,6 +42005,8 @@
             if (restoreEl) { delete draft[String(restoreEl.getAttribute('data-tm-holiday-editor-restore') || '').trim()]; render(); return; }
             if (!actionEl) return;
             const action = String(actionEl.getAttribute('data-tm-holiday-editor-action') || '').trim();
+            if (action === 'records') { recordsOpen = true; render(); return; }
+            if (action === 'close-records') { closeRecords(); return; }
             if (action === 'close') { close(); return; }
             if (action === 'prev-year') { year = Math.max(1900, year - 1); official = new Map(); render(); loadOfficial(); return; }
             if (action === 'next-year') { year = Math.min(2100, year + 1); official = new Map(); render(); loadOfficial(); return; }
@@ -41929,10 +42045,20 @@
             if (saving) return;
             if (event.target?.matches?.('[data-tm-holiday-editor-name]')) name = String(event.target.value || '').slice(0, 80);
         });
-        overlay.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); });
-        overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+        const onKeydown = (event) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (recordsOpen) closeRecords(); else close();
+        };
+        overlay.addEventListener('click', (event) => {
+            if (event.target?.matches?.('.tm-calendar-holiday-editor--records')) closeRecords();
+            else if (event.target === overlay) close();
+        });
         document.body.appendChild(overlay);
+        window.addEventListener('keydown', onKeydown, true);
         render();
+        overlay.querySelector('[data-tm-holiday-editor-name]')?.focus();
         loadOfficial();
         return true;
     }
@@ -42168,6 +42294,13 @@
                     <div class="tm-settings-section-desc">控制日程创建、任务日期联动，以及日历中各类内容和颜色的显示。</div>
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">
+                            个人节假日
+                            <div class="tm-calendar-settings-label-desc">${new Date().getFullYear()} 年已设置 ${countCalendarCustomHolidayOverrides(new Date().getFullYear(), s.customHolidayOverrides)} 天，可覆盖官方休息日或添加任意日期。</div>
+                        </div>
+                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-cal-setting-action="manageCustomHolidays">管理个人节假日</button>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
                             任务日期跟随日程
                             <div class="tm-calendar-settings-label-desc">关联日程变动后同步任务日期：单日只改截止，多日按最早和最晚时间更新。</div>
                         </div>
@@ -42239,13 +42372,6 @@
                             <div class="tm-calendar-settings-label-desc">在日期标题旁显示农历、节气和传统节日信息。</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowLunar" ${s.showLunar ? 'checked' : ''}>
-                    </div>
-                    <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            个人节假日
-                            <div class="tm-calendar-settings-label-desc">${new Date().getFullYear()} 年已设置 ${countCalendarCustomHolidayOverrides(new Date().getFullYear(), s.customHolidayOverrides)} 天，可覆盖官方休息日或添加任意日期。</div>
-                        </div>
-                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-cal-setting-action="manageCustomHolidays">管理个人节假日</button>
                     </div>
                     ${tomatoRows}
                     <div class="tm-calendar-settings-row">
@@ -43553,6 +43679,7 @@
         buildPredictedCnHolidayDays,
         listTaskSchedulesByDay,
         listTaskSchedulesByTaskId,
+        getCachedTaskSchedules,
         deleteTaskSchedulesByTaskIds,
         removeTaskDateEventsByTaskIds,
         openScheduleEditor,

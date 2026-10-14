@@ -402,6 +402,7 @@
     };
 
     window.tmOpenHomepage = async function() {
+        if (typeof __tmShortcuts !== 'undefined') __tmShortcuts.updateContext({ viewId: 'home' });
         state.attachmentLibraryOpen = false;
         state.homepageOpen = true;
         try { Storage.set('tm_homepage_open', true); } catch (e) {}
@@ -415,6 +416,7 @@
     };
 
     window.tmCloseHomepage = function() {
+        if (typeof __tmShortcuts !== 'undefined') __tmShortcuts.updateContext({ viewId: state.viewMode });
         state.homepageOpen = false;
         try { __tmInvalidateHomepageMount(); } catch (e) {}
         try { Storage.set('tm_homepage_open', false); } catch (e) {}
@@ -1085,6 +1087,7 @@
 
     window.tmSwitchViewMode = function(mode) {
         const next = __tmGetSafeViewMode(mode);
+        if (typeof __tmShortcuts !== 'undefined') __tmShortcuts.updateContext({ viewId: next });
         const prev = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
         let forceFullRender = false;
         state.viewModeInitialized = true;
@@ -1160,6 +1163,7 @@
                 if (state.modal !== pendingModal) __tmClearViewSwitchPendingShell(state.modal);
             }
             try { __tmScheduleProgressiveViewRender(next, progressiveJob); } catch (e) {}
+            try { __tmShortcutSidebar.refresh(); } catch (e) {}
             if (next === 'timeline') {
                 try { __tmScheduleTimelineDateHydrationAfterViewSwitch(generation); } catch (e) {}
             }

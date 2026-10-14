@@ -1,4 +1,4 @@
-const { Plugin, Protyle, openTab, openMobileFileById, platformUtils, getFrontend } = require("siyuan");
+const { Plugin, Protyle, openTab, openMobileFileById, platformUtils, getFrontend, Dialog, openEmoji } = require("siyuan");
 
 const PLUGIN_ID = "siyuan-plugin-task-horizon";
 const TASK_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/task.js`;
@@ -626,6 +626,8 @@ const createTaskHorizonHostBridge = (pluginInstance) => ({
     eventBus: pluginInstance?.eventBus || null,
     platformUtils: platformUtils || null,
     getFrontend: () => getOfficialFrontend(),
+    Dialog: typeof Dialog === "function" ? Dialog : null,
+    openEmoji: typeof openEmoji === "function" ? openEmoji : null,
     Protyle: typeof Protyle === "function" ? Protyle : null,
     openTab: typeof openTab === "function" ? openTab : null,
     openMobileFileById: typeof openMobileFileById === "function" ? openMobileFileById : null,

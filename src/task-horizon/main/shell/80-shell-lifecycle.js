@@ -901,6 +901,7 @@ if (shouldMarkDirty) {
                 });
             }
         } catch (e) {}
+        try { __tmShortcutSidebar.dispose();__tmShortcuts.clearContext(); } catch (e) {}
         try { __tmMarkRuntimeCleanupRequested?.(); } catch (e) {}
         try { __tmCleanupAgentMcpStartupSync?.(); } catch (e) {}
         try { __tmDisposeDocTabsRuntime?.(state.modal, { clearHoverTimer: true }); } catch (e) {}
@@ -1158,8 +1159,10 @@ if (shouldMarkDirty) {
             __tmVisibleResumeLastRunAt = 0;
         } catch (e) {}
         try {
+            globalThis.__tmRuntimeEvents?.off?.(window, 'tm:calendar-schedule-cache-updated', __tmRefreshVisibleTaskScheduleTimes);
             if (__tmCalendarScheduleUpdatedHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'tm:calendar-schedule-updated', __tmCalendarScheduleUpdatedHandler);
+                globalThis.__tmRuntimeEvents?.off?.(window, 'tm:calendar-schedule-cache-updated', __tmCalendarScheduleUpdatedHandler);
                 __tmCalendarScheduleUpdatedHandler = null;
             }
             if (__tmCalendarTxRefreshTimer) {

@@ -7663,6 +7663,7 @@ return false;
             tomatoSummary: 'tm-checklist-meta-chip',
             startDateCompact: 'tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start',
             completionTimeCompact: 'tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion',
+            scheduleTimeCompact: 'tm-checklist-meta-compact-time',
             remainingTimeCompact: 'tm-checklist-meta-compact-remaining',
             durationCompact: 'tm-checklist-meta-compact-duration',
             tomatoSummaryCompact: 'tm-checklist-meta-compact-duration',
@@ -7684,7 +7685,15 @@ return false;
         node.setAttribute('data-tm-task-time-field', key);
         if (key.endsWith('Compact')) node.setAttribute('data-tm-checklist-compact-field', key.slice(0, -7));
         node.style.display = 'none';
-        container.appendChild(node);
+        if (key === 'scheduleTimeCompact') {
+            const completionNode = container.querySelector('[data-tm-checklist-compact-field="completionTime"]');
+            if (completionNode) completionNode.after(node);
+            else {
+                const order = __tmGetChecklistCompactMetaFieldOrder();
+                const next = Array.from(container.children).find((child) => order.indexOf(child.getAttribute('data-tm-checklist-compact-field')) > order.indexOf('scheduleTime'));
+                container.insertBefore(node, next || null);
+            }
+        } else container.appendChild(node);
         return node;
     }
 
@@ -8040,6 +8049,7 @@ return false;
         if (node.classList.contains('tm-task-card-custom-field')) return true;
         const field = String(node.getAttribute('data-tm-task-time-field') || '').trim();
         return field === 'date'
+            || field === 'scheduleTime'
             || field === 'remainingTime'
             || field === 'tomatoSummary'
             || field === 'tomatoEstimateCount'
@@ -8095,6 +8105,10 @@ return false;
             }
         }
 
+        if (__tmTaskCardFieldEnabled(viewKey, 'scheduleTime')) {
+            const scheduleTime = __tmRenderTaskScheduleTimeHtml(taskLike);
+            if (scheduleTime) metaParts.push(scheduleTime);
+        }
         if (__tmTaskCardFieldEnabled(viewKey, 'remainingTime') && __tmShouldRenderTaskCardRemainingTime(taskLike, __tmTaskCardFieldEnabled(viewKey, 'date'))) {
             const remainingInfo = __tmGetTaskRemainingTimeInfo(taskLike);
             const remainingLabel = String(remainingInfo?.label || '').trim();

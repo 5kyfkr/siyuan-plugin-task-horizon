@@ -26,7 +26,7 @@
         appearance: [['l-density', '字号与密度'], ['l-icon', '图标与复选框'], ['l-color', '配色'], ['l-top', '顶栏控件']],
         ai: [['a-mode', '工作方式'], ['a-agent', '智能体'], ['a-legacy', '旧版接入'], ['a-policy', '安排规则']],
         algo: [['r-rules', '筛选与排序'], ['r-priority', '优先级数值'], ['r-quadrant', '四象限']],
-        about: [['d-io', '导入导出'], ['d-sync', '同步与设备'], ['d-about', '版本与帮助'], ['d-reset', '重置']],
+        about: [['d-io', '导入导出'], ['d-sync', '同步与设备'], ['d-about', '版本与帮助']],
         benefits: [],
     };
     const __tmSettingsV2Sources = {
@@ -52,7 +52,6 @@
         'c-focus:layout': '时长与番茄属性', 'c-focus:topbar': '嵌入待办统计', 'c-focus:tomato': '番茄钟与打卡联动',
         'd-io:import': '任务数据导入', 'd-io:backup': '设置备份与迁移',
         'd-sync:device': '设备识别与诊断', 'd-sync:search': '兼容与同步', 'd-about:version': '版本与帮助',
-        'd-reset:colors': '恢复外观默认设置',
     };
     function __tmSettingsV3Handlers(node) {
         if (!node) return '';
@@ -82,7 +81,6 @@
         } else if (tab === 'appearance') {
             if (/tmUpdateAppearanceMetric/.test(handlers)) sub = 'l-top';
             else if (/tmUpdatePriorityIconStyle/.test(handlers)) sub = 'l-icon';
-            else if (/tmResetAppearanceColors/.test(handlers) && !/tmSelectAppearanceTheme/.test(handlers)) sub = 'd-reset';
             else sub = ({ columns: 'v-table', tabs: 't-src', topbar: 'v-start', icons: 'l-icon', checkbox: 'l-icon', colors: 'l-color' })[section] || 'l-density';
         } else if (tab === 'docs') sub = section === 'import' ? 'd-io' : 't-src';
         else if (tab === 'calendar') sub = ({ 'calendar-content': 'c-content', 'calendar-reminders': 'c-remind', 'calendar-subscription': 'c-ics' })[section] || 'c-cal';
@@ -730,6 +728,19 @@
             await loadSelectedDocuments({ showInlineLoading: false, source: 'priority-custom-field-score' });
         }
         __tmScheduleRender({ withFilters: true });
+    }
+    async function __tmPersistRuleMove({ ruleId, delta }) {
+        const previous = state.filterRules;
+        const index = previous.findIndex((rule) => rule.id === ruleId);
+        const nextIndex = index + delta;
+        if (index < 0 || nextIndex < 0 || nextIndex >= previous.length) return;
+        const rules = previous.slice();
+        [rules[index], rules[nextIndex]] = [rules[nextIndex], rules[index]];
+        try { await RuleManager.saveRules(rules); }
+        catch (error) { SettingsStore.data.filterRules = previous; throw error; }
+        state.filterRules = rules;
+        __tmRefreshRuleTopbarSelectsInPlace();
+        __tmRerenderRulesManagerUI();
     }
     async function __tmPersistEditingRule(rule) {
         if (!String(rule.name || '').trim()) throw new Error('规则名称不能为空');

@@ -1,5 +1,6 @@
 {
   "core": [
+    "shortcut-navigation.test.js",
     "kernel-contract.test.js",
     "kernel-settings-persistence.test.js",
     "task-lifecycle-contract.test.js",
@@ -10,6 +11,7 @@
     "task-set-done-latest-intent-contract.test.js",
     "task-date-completion-race-contract.test.js",
     "task-field-live-update-behavior.test.js",
+    "task-schedule-time-field.test.js",
     "task-custom-field-live-update-behavior.test.js",
     "task-pinned-refresh-behavior.test.js",
     "custom-field-priority-score-contract.test.js",
@@ -53,6 +55,7 @@
     "agent-scheduled-actions.test.js",
     "agent-sse-events-contract.test.js",
     "mobile-close-sync-runtime.test.js",
+    "tablet-runtime-and-gestures.test.js",
     "foreground-refresh-behavior.test.js",
     "whiteboard-batch-persistence-contract.test.js",
     "whiteboard-stream-grouping.test.js",

@@ -25,6 +25,7 @@ class FakeElement {
             add: (name) => classes.add(name),
             remove: (name) => classes.delete(name),
             contains: (name) => classes.has(name),
+            toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name),
         };
     }
 

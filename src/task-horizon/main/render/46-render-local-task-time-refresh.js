@@ -203,6 +203,7 @@ return ok;
         const compactFieldMap = {
             startDateCompact: 'startDate',
             completionTimeCompact: 'completionTime',
+            scheduleTimeCompact: 'scheduleTime',
             remainingTimeCompact: 'remainingTime',
             durationCompact: 'duration',
             tomatoSummaryCompact: 'tomatoSummary',
@@ -279,6 +280,12 @@ return ok;
         if (!syncNode('tomatoCount', tomatoCountHtml, { html: true, shouldExist: !!tomatoCountText })) valid = false;
         if (!syncNode('startDateCompact', compactStartText, { shouldExist: !!compactStartText })) valid = false;
         if (!syncNode('completionTimeCompact', compactCompletionText, { shouldExist: !!compactCompletionText })) valid = false;
+        const scheduleTimeInfo = enabledCompactFields?.has('scheduleTime') ? __tmGetTaskScheduleTimeInfo(task) : null;
+        const compactScheduleTime = scheduleTimeInfo?.text || '';
+        if (!syncNode('scheduleTimeCompact', compactScheduleTime, { title: '日程开始时间', shouldExist: !!compactScheduleTime })) valid = false;
+        item.querySelectorAll('[data-tm-task-time-field="scheduleTimeCompact"]').forEach((node) => {
+            node.classList.toggle('tm-task-schedule-time--today', scheduleTimeInfo?.isToday === true);
+        });
         syncCompactDateClass('startDateCompact', 'tm-checklist-meta-compact-date--start');
         syncCompactDateClass('completionTimeCompact', 'tm-checklist-meta-compact-date--completion', !!taskCompletionTimeValue && __tmIsTaskCardDateOverdue(task));
         const compactDateVisible = (enabledCompactFields?.has('startDate') && !!taskStartDateValue)
@@ -620,3 +627,19 @@ if ((syncResult.needsMainRefresh && isCalendarView) || syncResult.needsSideRefre
     }
 
     __tmBindTaskDateFollowUpdatedRefresh();
+
+    function __tmRefreshVisibleTaskScheduleTimes() {
+        document.querySelectorAll('.tm-checklist-item[data-id], .tm-kanban-card[data-id], .tm-whiteboard-node[data-task-id]').forEach((node) => {
+            const id = String(node.getAttribute('data-task-id') || node.getAttribute('data-id') || '').trim();
+            const task = globalThis.__tmTaskBoundary?.getTask?.(id);
+            if (!task || !(node instanceof HTMLElement)) return;
+            if (node.classList.contains('tm-checklist-item')) {
+                __tmUpdateChecklistTaskTimeInDOM(id, node, task);
+            } else if (!node.matches('.tm-whiteboard-card--ghost, .tm-whiteboard-card--frozen')) {
+                const view = node.classList.contains('tm-whiteboard-node') ? 'whiteboard' : 'kanban';
+                __tmSyncTaskCardMetaChipsInDOM(node, task, view);
+            }
+        });
+    }
+
+    globalThis.__tmRuntimeEvents?.on?.(window, 'tm:calendar-schedule-cache-updated', __tmRefreshVisibleTaskScheduleTimes);

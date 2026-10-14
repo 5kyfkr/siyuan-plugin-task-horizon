@@ -1984,6 +1984,7 @@
             __tmPruneMountedManagerShells(finalMountRoot, keepMountedShell);
         } catch (e) {}
         finalMountRoot.appendChild(state.modal);
+        __tmShortcutSidebar.mount(state.modal);
         // Lane backgrounds paint synchronously and need a connected, sized
         // board. Initial/reload renders build the shell off-document above.
         try { if (renderMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
@@ -2651,10 +2652,10 @@
         const prevCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
         if (ruleId) {
             state.currentRule = ruleId;
-            SettingsStore.data.currentRule = ruleId;
+            if (!(typeof __tmShortcuts !== 'undefined' && __tmShortcuts.updateContext({ ruleId }))) SettingsStore.data.currentRule = ruleId;
         } else {
             state.currentRule = null;
-            SettingsStore.data.currentRule = null;
+            if (!(typeof __tmShortcuts !== 'undefined' && __tmShortcuts.updateContext({ ruleId: '' }))) SettingsStore.data.currentRule = null;
         }
         __tmPersistGlobalViewProfileFromCurrentState();
         await SettingsStore.save();
@@ -2678,6 +2679,7 @@
             });
         } catch (e) {}
         __tmRefreshSettingsProjectionView('rule-switch');
+        __tmShortcutSidebar.refresh();
 
         if (ruleId) {
             const rule = state.filterRules.find(r => r.id === ruleId);
@@ -2690,7 +2692,7 @@
     window.clearFilterRule = async function() {
         const prevCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
         state.currentRule = null;
-        SettingsStore.data.currentRule = null;
+        if (!(typeof __tmShortcuts !== 'undefined' && __tmShortcuts.updateContext({ ruleId: '' }))) SettingsStore.data.currentRule = null;
         __tmPersistGlobalViewProfileFromCurrentState();
         await SettingsStore.save();
         state.__tmQueryDoneOnly = false;
@@ -2706,6 +2708,7 @@
             });
         } catch (e) {}
         __tmRefreshSettingsProjectionView('rule-clear');
+        __tmShortcutSidebar.refresh();
         hint('✅ 已清除筛选规则', 'success');
     };
 
@@ -5329,6 +5332,7 @@
         if (state.viewMode !== 'kanban') return;
         if (!__tmIsKanbanTouchPointer(ev)) return;
         if (ev && typeof ev.button === 'number' && ev.button !== 0) return;
+        if (ev?.isPrimary === false) return;
         const pointerTarget = ev?.target;
         const interactiveOrigin = pointerTarget instanceof Element
             && pointerTarget.closest('button,input,select,textarea,a,[contenteditable="true"],[role="button"]');
@@ -5390,6 +5394,9 @@
         let lastY = startY;
         let mode = 'pending';
         let ended = false;
+        let completing = false;
+        let touchActive = false;
+        let touchIdentifier = null;
         let captured = false;
         let longPressTimer = null;
         let ghostMeta = null;
@@ -5404,11 +5411,27 @@
         let floatingMiniVisible = false;
         let floatingMiniRevealTimer = null;
         let preventTouchGestureScrollBound = false;
-        const prevCardDraggableAttr = cardEl.getAttribute('draggable');
-        const cardDraggableTouched = prevCardDraggableAttr !== 'false';
-        if (cardDraggableTouched) {
-            try { cardEl.setAttribute('draggable', 'false'); } catch (e2) {}
+        // SiYuan walks past draggable="false" children to draggable ancestors.
+        // Suspend the whole source path until this contact ends, including scrolls.
+        const restoreDraggableTargets = [];
+        for (let el = pointerTarget instanceof Element ? pointerTarget : cardEl;
+            el && el !== bodyEl; el = el.parentElement) {
+            if (!(el instanceof HTMLElement) || el.getAttribute('draggable') !== 'true') continue;
+            restoreDraggableTargets.push({ el, value: el.getAttribute('draggable') });
+            try { el.setAttribute('draggable', 'false'); } catch (e2) {}
         }
+        const isGestureTarget = (target) => target instanceof Element
+            && (cardEl.contains(target) || restoreDraggableTargets.some(({ el }) => el === target));
+        const onNativeDragStart = (e2) => {
+            if (ended || !isGestureTarget(e2?.target)) return;
+            try { e2.preventDefault(); } catch (e3) {}
+            try { e2.stopImmediatePropagation(); } catch (e3) {}
+        };
+        const onContextMenu = (e2) => {
+            if (ended || !isGestureTarget(e2?.target)) return;
+            try { e2.preventDefault(); } catch (e3) {}
+            try { e2.stopPropagation(); } catch (e3) {}
+        };
         const preventTouchGestureScroll = (e2) => {
             if (ended || (mode !== 'drag' && mode !== 'pan')) return;
             try { e2?.preventDefault?.(); } catch (e3) {}
@@ -5633,10 +5656,17 @@
             __tmSetKanbanSnapPanActive(bodyEl, false);
             try { document.removeEventListener('pointermove', onMove, true); } catch (e2) {}
             try { document.removeEventListener('pointerup', onUp, true); } catch (e2) {}
-            try { document.removeEventListener('pointercancel', onUp, true); } catch (e2) {}
+            try { document.removeEventListener('pointercancel', onCancel, true); } catch (e2) {}
+            try { document.removeEventListener('touchstart', onTouchStart, true); } catch (e2) {}
+            try { document.removeEventListener('touchmove', onTouchMove, true); } catch (e2) {}
+            try { document.removeEventListener('touchend', onTouchEnd, true); } catch (e2) {}
+            try { document.removeEventListener('touchcancel', onCancel, true); } catch (e2) {}
+            try { document.removeEventListener('scroll', onScroll, true); } catch (e2) {}
+            try { document.removeEventListener('dragstart', onNativeDragStart, true); } catch (e2) {}
+            try { document.removeEventListener('contextmenu', onContextMenu, true); } catch (e2) {}
             try { window.removeEventListener('touchmove', preventTouchGestureScroll, true); } catch (e2) {}
             try { window.removeEventListener('pointermove', preventTouchGestureScroll, true); } catch (e2) {}
-            try { window.removeEventListener('blur', onUp, true); } catch (e2) {}
+            try { window.removeEventListener('blur', onCancel, true); } catch (e2) {}
             if (captured && Number.isFinite(pointerId) && typeof cardEl.releasePointerCapture === 'function') {
                 try { cardEl.releasePointerCapture(pointerId); } catch (e2) {}
             }
@@ -5661,12 +5691,11 @@
             if (mode === 'drag-ready') {
                 state.__tmKanbanPanSuppressClickUntil = Date.now() + suppressClickMs;
             }
-            if (cardDraggableTouched) {
+            restoreDraggableTargets.forEach(({ el, value }) => {
                 try {
-                    if (prevCardDraggableAttr == null) cardEl.removeAttribute('draggable');
-                    else cardEl.setAttribute('draggable', prevCardDraggableAttr);
+                    el.setAttribute('draggable', value);
                 } catch (e2) {}
-            }
+            });
             if (bodyGestureStylesTouched) {
                 try { bodyEl.style.cursor = ''; } catch (e2) {}
                 try { bodyEl.style.userSelect = ''; } catch (e2) {}
@@ -5677,10 +5706,17 @@
             if (state.__tmKanbanCardGestureCleanup === cleanup) state.__tmKanbanCardGestureCleanup = null;
         };
 
+        const yieldToScroll = () => {
+            if (ended || (mode !== 'pending' && mode !== 'drag-ready')) return;
+            mode = 'scroll';
+            cancelLongPress();
+            cardEl.classList.remove('tm-task-touch-press');
+        };
+
         const onMove = (e2) => {
-            if (ended || !samePointer(e2)) return;
-            lastX = Number(e2?.clientX) || lastX;
-            lastY = Number(e2?.clientY) || lastY;
+            if (ended || completing || mode === 'scroll' || !samePointer(e2)) return;
+            if (Number.isFinite(Number(e2?.clientX))) lastX = Number(e2.clientX);
+            if (Number.isFinite(Number(e2?.clientY))) lastY = Number(e2.clientY);
             const dx = lastX - startX;
             const dy = lastY - startY;
             if (mode === 'drag') {
@@ -5732,8 +5768,7 @@
                 return;
             }
             if (verticalIntent) {
-                cancelLongPress();
-                cleanup();
+                yieldToScroll();
                 return;
             }
             if ((dx * dx + dy * dy) >= (longPressMoveTolerance * longPressMoveTolerance)) {
@@ -5742,13 +5777,66 @@
         };
 
         const onUp = async (e2) => {
-            if (!samePointer(e2)) return;
+            if (ended || completing || !samePointer(e2)) return;
+            completing = true;
+            if (Number.isFinite(Number(e2?.clientX))) lastX = Number(e2.clientX);
+            if (Number.isFinite(Number(e2?.clientY))) lastY = Number(e2.clientY);
             const finalMode = mode;
             const finalPanVelocity = panVelocity;
-            if (mode === 'drag') await finishDrag();
-            cleanup();
+            try {
+                if (mode === 'drag') await finishDrag();
+            } finally {
+                cleanup();
+            }
             try { __tmMarkHighPriorityInteraction('kanban-card-touch-end', 160); } catch (e3) {}
             if (finalMode === 'pan') __tmStartKanbanMomentum(bodyEl, finalPanVelocity, { startLeft: baseScrollLeft });
+        };
+
+        const onCancel = (e2) => {
+            if (ended || completing || !samePointer(e2)) return;
+            // Native scrolling cancels Pointer events while Touch events continue.
+            if (e2?.type === 'pointercancel' && touchActive
+                && (mode === 'pending' || mode === 'drag-ready' || mode === 'scroll')) {
+                yieldToScroll();
+                return;
+            }
+            cleanup();
+        };
+        const getTouchPoint = (e2, ending = false) => {
+            if (touchIdentifier == null && !isGestureTarget(e2?.target)) return null;
+            const touches = ending ? e2?.changedTouches : e2?.touches;
+            return Array.from(touches || []).find((touch) => touchIdentifier == null || touch.identifier === touchIdentifier);
+        };
+        const onTouchStart = (e2) => {
+            if (ended || completing) return;
+            if (touchActive && e2?.touches?.length > 1) {
+                onCancel(e2);
+                return;
+            }
+            if (!isGestureTarget(e2?.target)) return;
+            if (e2?.touches?.length !== 1) {
+                onCancel(e2);
+                return;
+            }
+            touchActive = true;
+            touchIdentifier = e2.touches[0].identifier;
+        };
+        const onTouchMove = (e2) => {
+            const touch = getTouchPoint(e2);
+            if (!touch || (touch.clientX === lastX && touch.clientY === lastY)) return;
+            // Passive observation keeps pending scrolls native. Active pan/drag
+            // installs its own non-passive window scroll lock above.
+            onMove({ clientX: touch.clientX, clientY: touch.clientY, pointerId, timeStamp: e2.timeStamp, preventDefault() {} });
+        };
+        const onTouchEnd = (e2) => {
+            const touch = getTouchPoint(e2, true);
+            if (!touch) return;
+            touchActive = false;
+            return onUp({ clientX: touch.clientX, clientY: touch.clientY, pointerId });
+        };
+        const onScroll = (e2) => {
+            const target = e2?.target;
+            if (target instanceof Element && (bodyEl.contains(target) || target.contains(cardEl))) yieldToScroll();
         };
 
         if (gestureAllowsDrag) {
@@ -5761,8 +5849,15 @@
         state.__tmKanbanCardGestureCleanup = cleanup;
         try { document.addEventListener('pointermove', onMove, true); } catch (e2) {}
         try { document.addEventListener('pointerup', onUp, true); } catch (e2) {}
-        try { document.addEventListener('pointercancel', onUp, true); } catch (e2) {}
-        try { window.addEventListener('blur', onUp, true); } catch (e2) {}
+        try { document.addEventListener('pointercancel', onCancel, true); } catch (e2) {}
+        try { document.addEventListener('touchstart', onTouchStart, { capture: true, passive: true }); } catch (e2) {}
+        try { document.addEventListener('touchmove', onTouchMove, { capture: true, passive: true }); } catch (e2) {}
+        try { document.addEventListener('touchend', onTouchEnd, { capture: true, passive: true }); } catch (e2) {}
+        try { document.addEventListener('touchcancel', onCancel, { capture: true, passive: true }); } catch (e2) {}
+        try { document.addEventListener('scroll', onScroll, { capture: true, passive: true }); } catch (e2) {}
+        try { document.addEventListener('dragstart', onNativeDragStart, true); } catch (e2) {}
+        try { document.addEventListener('contextmenu', onContextMenu, true); } catch (e2) {}
+        try { window.addEventListener('blur', onCancel, true); } catch (e2) {}
     };
 
     function __tmGetKanbanBottomNavAvoidanceState(modalEl) {

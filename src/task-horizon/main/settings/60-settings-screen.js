@@ -1780,6 +1780,7 @@
                 case 'h2': return `<span class="tm-checklist-meta-compact-h2" title="本周">本周</span>`;
                 case 'startDate': return `<span class="tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start">9月20日 09:00</span>`;
                 case 'completionTime': return `<span class="tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion">9月25日</span>`;
+                case 'scheduleTime': return `<span class="tm-checklist-meta-compact-time tm-task-schedule-time--today" title="今日日程开始时间">8:00</span>`;
                 case 'remainingTime': return `<span class="tm-checklist-meta-compact-remaining" title="还剩 2 天">还剩 2 天</span>`;
                 case 'duration': return `<span class="tm-checklist-meta-compact-duration">1.5h</span>`;
                 case 'tomatoSummary': return `<span class="tm-checklist-meta-compact-duration">45 分钟</span>`;
@@ -1819,6 +1820,7 @@
                 case 'priority': return __tmFieldPreviewPriorityChip();
                 case 'status': return __tmFieldPreviewStatusTag('进行中', '#2f9e77');
                 case 'date': return `<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date tm-kanban-chip--date-has-value">9月25日</span>`;
+                case 'scheduleTime': return `<span class="tm-kanban-chip tm-task-schedule-time--today" title="今日日程开始时间">8:00</span>`;
                 case 'remainingTime': return `<span class="tm-kanban-chip tm-kanban-chip--muted" title="还剩 2 天">还剩 2 天</span>`;
                 case 'tomatoSummary': return `<span class="tm-kanban-chip tm-kanban-chip--muted">45 分钟</span>`;
                 case 'tomatoEstimateCount': return `<span class="tm-kanban-chip tm-kanban-chip--muted">预计 3</span>`;
@@ -2829,7 +2831,7 @@
                         <div style="margin-bottom:10px;">
                             ${renderSingleFieldSetting(
                                 'Dock 及移动端紧凑右侧字段',
-                                '控制 Dock 侧边栏、移动端清单紧凑视图，以及日历视图侧边栏任务清单里任务右侧显示哪些信息。默认显示截止日期和状态标签，文档名仅在全部页签下显示，二级标题仅在任务有所属标题时显示。',
+                                '控制 Dock 侧边栏、移动端清单紧凑视图，以及日历视图侧边栏任务清单里任务右侧显示哪些信息。默认显示截止日期、日程时间和状态标签，文档名仅在全部页签下显示，二级标题仅在任务有所属标题时显示。',
                                 (() => {
                                     const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.dockChecklistCompactMetaFields));
                                     const customFieldOptions = __tmGetCustomFieldDefs()
@@ -2848,7 +2850,7 @@
                         </div>
                         ${renderSingleFieldSetting(
                             '桌面端紧凑右侧字段',
-                            '控制桌面端清单紧凑视图里任务右侧显示哪些信息。默认显示截止日期和状态标签，文档名仅在全部页签下显示，二级标题仅在任务有所属标题时显示。',
+                            '控制桌面端清单紧凑视图里任务右侧显示哪些信息。默认显示截止日期、日程时间和状态标签，文档名仅在全部页签下显示，二级标题仅在任务有所属标题时显示。',
                             (() => {
                                 const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.desktopChecklistCompactMetaFields));
                                     const customFieldOptions = __tmGetCustomFieldDefs()

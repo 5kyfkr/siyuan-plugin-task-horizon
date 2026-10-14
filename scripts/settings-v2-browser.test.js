@@ -296,7 +296,7 @@ const server = http.createServer((req, res) => {
         }
         await page.waitForFunction(() => __settingsTest.searchIndexReady());
         const expected = await page.evaluate(() => __settingsTest.state.settingsSearchGeneratedEntries.filter((entry) => entry.rendered).map((entry) => [entry.key, entry.title]));
-        assert.equal(subpageCount, 30, 'v3 exposes all thirty secondary pages');
+        assert.equal(subpageCount, 29, 'v3 exposes twenty-nine secondary pages after removing reset');
         const missing = expected.filter(([key]) => !rows.has(key));
         console.log('COVERAGE', rows.size, 'rows;', missing.length, 'missing', JSON.stringify(missing));
         assert.deepEqual(missing, [], 'every indexed production setting must remain reachable');
@@ -539,6 +539,16 @@ const server = http.createServer((req, res) => {
         await textOperator.selectOption('contains');
         await page.locator('[data-tm-change="updateConditionValue"][data-index="1"]').fill('周报');
         assert.deepEqual(await page.locator('[data-tm-change="updateConditionOperator"]').evaluateAll(selects => selects.map(select => ({ hidden: select.hidden, hasButtons: !!select.__tmChoiceGroup }))), [{ hidden: false, hasButtons: false }, { hidden: false, hasButtons: false }], 'rerendering never turns comparisons into button groups');
+        await page.locator('[data-tm-action="addCondition"]').click();
+        const pinField = page.locator('[data-tm-change="updateConditionField"][data-index="2"]');
+        const pinValue = page.locator('[data-tm-change="updateConditionValue"][data-index="2"]');
+        await pinField.selectOption('done');
+        assert.equal(await pinValue.locator('option[value="__all__"]').count(), 1, 'completion filters retain the all-statuses option');
+        await pinField.selectOption('pinned');
+        assert.equal(await pinValue.inputValue(), 'true', 'pin filters default to pinned tasks');
+        assert.deepEqual(await pinValue.locator('option').allTextContents(), ['已置顶', '未置顶'], 'pin filters must only offer pin states');
+        await pinValue.selectOption('false');
+        await page.locator('[data-tm-change="updateConditionOperator"][data-index="2"]').selectOption('!=');
         await page.locator('.tm-rule-group').filter({ has: page.locator('input[placeholder="规则名称"]') }).screenshot({ path: path.join(root, 'output/playwright/settings-rules-dropdown.png') });
         await page.setViewportSize({ width: 390, height: 844 });
         assert.equal(await textOperator.isVisible(), true, 'comparison dropdown remains available on mobile');
@@ -548,13 +558,17 @@ const server = http.createServer((req, res) => {
         await page.locator('.tm-settings-v2-close').click();
         await page.waitForFunction(id => {
             const saved = JSON.parse(localStorage.getItem('settings-test')).filterRules.find(rule => rule.id === id);
-            return saved?.name === '关闭前的规则名称' && saved.conditions[1]?.value === '周报';
+            return saved?.name === '关闭前的规则名称' && saved.conditions[1]?.value === '周报'
+                && saved.conditions[2]?.field === 'pinned' && saved.conditions[2]?.value === 'false';
         }, autosaveRuleId);
         await page.reload();
         await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-rules'));
         await page.locator(`[data-tm-action="editRule"][data-rule-id="${autosaveRuleId}"]`).click();
         assert.equal(await page.locator('input[placeholder="规则名称"]').inputValue(), '关闭前的规则名称', 'closing immediately and reloading retains the name');
         assert.equal(await textOperator.inputValue(), 'contains');
+        assert.equal(await pinField.inputValue(), 'pinned', 'pin filter fields survive closing and reloading');
+        assert.equal(await pinValue.inputValue(), 'false', 'pin filter values survive closing and reloading');
+        assert.equal(await page.locator('[data-tm-change="updateConditionOperator"][data-index="2"]').inputValue(), '!=');
         await page.evaluate(async id => { await applyFilterRule(id); }, autosaveRuleId);
         await page.locator('input[placeholder="规则名称"]').fill('已有规则自动保存');
         await page.locator('[data-settings-subpage="r-priority"]').click();
@@ -622,6 +636,64 @@ const server = http.createServer((req, res) => {
         await page.evaluate(async id => { await deleteRule(id); }, autosaveRuleId);
         assert.equal(await page.locator(`#tmTopbarRuleSelect [data-tm-option-value="${autosaveRuleId}"]`).count(), 0, 'deleted rules disappear immediately');
         assert.equal(await page.locator('#tmTopbarRuleSelect .bc-select-trigger__value').textContent(), '全部', 'deleting the applied rule restores the all-tasks selection');
+        // Rule order shares the rule writer, including pending edits and rapid clicks.
+        await page.evaluate(async () => {
+            cancelEditRule();
+            const rules = ['a', 'b', 'c'].map(id => ({
+                id: `order-${id}`, name: `顺序规则 ${id.toUpperCase()}`, enabled: true,
+                conditions: [{ field: 'pinned', operator: '=', value: 'true' }], sort: [],
+            }));
+            await __settingsTest.RuleManager.saveRules(rules);
+            __settingsTest.state.filterRules = rules;
+            __settingsTest.render();
+            showSettings(); tmOpenSettingsV2Page('algo', 'r-rules');
+        });
+        const ruleOrder = () => page.locator('#tm-rules-list [data-tm-action="editRule"]').evaluateAll(buttons => buttons.map(button => button.dataset.ruleId));
+        const moveButton = (id, delta) => page.locator(`#tm-rules-list [data-tm-action="moveRule"][data-rule-id="order-${id}"][data-delta="${delta}"]`);
+        const waitForRuleOrder = ids => page.waitForFunction(ids => JSON.stringify(__settingsTest.state.filterRules.map(rule => rule.id)) === JSON.stringify(ids), ids);
+        const topbarRuleOrder = () => page.locator('#tmTopbarRuleSelect [data-tm-option-value^="order-"]').evaluateAll(options => options.map(option => option.dataset.tmOptionValue));
+        assert.equal(await moveButton('a', -1).isDisabled(), true);
+        assert.equal(await moveButton('c', 1).isDisabled(), true);
+        assert.match(await page.locator('#tm-rules-list').textContent(), /已置顶/, 'pin conditions use readable summary labels');
+        await moveButton('c', -1).click();
+        await waitForRuleOrder(['order-a', 'order-c', 'order-b']);
+        assert.deepEqual(await ruleOrder(), ['order-a', 'order-c', 'order-b']);
+        assert.deepEqual(await topbarRuleOrder(), ['order-a', 'order-c', 'order-b'], 'rule menus follow the list order');
+        await moveButton('c', 1).click();
+        await waitForRuleOrder(['order-a', 'order-b', 'order-c']);
+        await page.evaluate(async () => {
+            window.__saveDelay = 60;
+            await Promise.all([moveRule('order-c', -1), moveRule('order-c', -1)]);
+            window.__saveDelay = 0;
+        });
+        assert.deepEqual(await ruleOrder(), ['order-c', 'order-a', 'order-b'], 'both rapid moves are saved');
+        await page.reload();
+        await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-rules'));
+        assert.deepEqual(await ruleOrder(), ['order-c', 'order-a', 'order-b'], 'rule order survives reloading');
+        await page.locator('[data-tm-action="editRule"][data-rule-id="order-a"]').click();
+        await page.locator('input[placeholder="规则名称"]').fill('调整排序时保存规则');
+        await moveButton('b', -1).click();
+        await waitForRuleOrder(['order-c', 'order-b', 'order-a']);
+        await page.waitForFunction(() => JSON.parse(localStorage.getItem('settings-test')).filterRules.find(rule => rule.id === 'order-a')?.name === '调整排序时保存规则');
+        assert.equal(await page.locator('input[placeholder="规则名称"]').inputValue(), '调整排序时保存规则', 'moving another rule preserves the editing draft');
+        await page.evaluate(() => cancelEditRule());
+        await page.evaluate(() => { window.__failSave = true; });
+        await moveButton('a', -1).click();
+        await page.waitForFunction(() => document.querySelector('.tm-settings-v2-error')?.textContent.includes('Simulated disk error'));
+        assert.deepEqual(await ruleOrder(), ['order-c', 'order-b', 'order-a'], 'failed moves preserve the last saved order');
+        await page.evaluate(() => { window.__failSave = false; });
+        await page.locator('.tm-settings-v2-error button').click();
+        await waitForRuleOrder(['order-c', 'order-a', 'order-b']);
+        await page.setViewportSize({ width: 390, height: 844 });
+        await moveButton('c', 1).click();
+        await waitForRuleOrder(['order-a', 'order-c', 'order-b']);
+        await page.locator('#tm-rules-list').screenshot({ path: path.join(root, 'output/playwright/settings-rule-order-mobile.png') });
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        await page.locator('#tm-rules-list').screenshot({ path: path.join(root, 'output/playwright/settings-rule-order.png') });
+        await page.evaluate(() => { closeSettings(); showRulesManager(); });
+        await moveButton('c', -1).click();
+        await waitForRuleOrder(['order-c', 'order-a', 'order-b']);
+        await page.evaluate(() => { closeSettings(); showSettings(); });
         await page.evaluate(() => tmEditQuadrantRule(0));
         await page.locator('[data-quadrant-importance][value="low"]').check();
         await page.evaluate(() => __settingsTest.flush());
