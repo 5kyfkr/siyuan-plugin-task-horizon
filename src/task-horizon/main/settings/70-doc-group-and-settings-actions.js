@@ -2285,6 +2285,14 @@
         if (state.settingsModal) showSettings();
     };
 
+    window.updateShortcutSidebarEnabled = async function(enabled) {
+        SettingsStore.data.shortcutSidebarEnabled = enabled === true;
+        await SettingsStore.save();
+        __tmShortcutSidebar.syncEnabled();
+        __tmDispatchDockSettingsChanged('shortcut-sidebar-enabled');
+        if (state.settingsModal) showSettings();
+    };
+
     window.updateMobileSidebarEnabled = async function(enabled) {
         SettingsStore.data.mobileSidebarEnabled = enabled === true;
         await SettingsStore.save();
@@ -3107,6 +3115,14 @@
 
     window.tmSwitchGroupMode = async function(mode) {
         const m = String(mode || '').trim();
+        if (typeof __tmShortcuts !== 'undefined' && __tmShortcuts.context()) {
+            const groupMode = __tmNormalizeGroupModeValue(m);
+            __tmShortcuts.updateContext({ groupMode });
+            __tmApplyGroupModeToRuntime(groupMode);
+            __tmRefreshSettingsProjectionView('shortcut-group-mode');
+            __tmShortcutSidebar.refresh();
+            return;
+        }
         if (m === 'doc') return toggleGroupByDocName(true);
         if (m === 'time') return toggleGroupByTime(true);
         if (m === 'task') return toggleGroupByTaskName(true);
@@ -3141,13 +3157,16 @@
         const next = __tmNormalizeKanbanBoardMode(mode) || 'status';
         if (next === prev) return;
         __tmSetKanbanBoardModeState(next);
-        try { SettingsStore.syncToLocal(); } catch (e) {}
-        await SettingsStore.save();
+        if (!(typeof __tmShortcuts !== 'undefined' && __tmShortcuts.context())) {
+            try { SettingsStore.syncToLocal(); } catch (e) {}
+            await SettingsStore.save();
+        }
         if (next === 'heading') {
             try { await __tmCleanupPlaceholderTasks(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
             try { await __tmWarmKanbanDocHeadings(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
         }
         __tmRefreshSettingsProjectionView('settings-kanban-board-mode');
+        if (typeof __tmShortcutSidebar !== 'undefined') __tmShortcutSidebar.refresh();
         const labelMap = { status: '状态看板', heading: '标题看板', time: '时间看板' };
         try { hint(`✅ 已切换到${labelMap[next] || '状态看板'}`, 'success'); } catch (e) {}
     };

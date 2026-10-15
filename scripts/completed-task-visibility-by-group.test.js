@@ -252,6 +252,7 @@ test('a failed legacy group switch restores the previous group preference', asyn
 test('session cache keys resolve the requested group even when another group is active', () => {
     const { context, data } = harness({ showCompletedTasksByGroup: { A: false, B: true } });
     context.__tmNormalizeTaskSnapshotDocIds = (ids) => ids;
+    context.__tmGetEffectiveGroupModeValue = () => data.groupMode || 'none';
     vm.runInContext(between(storeSource, '    function __tmNormalizeCompletedTasksGroupBy(', '    function __tmGetTaskSnapshotRuleForView('), context);
     vm.runInContext(between(storeSource, '    function __tmBuildGroupSessionTaskCacheKey(', '    function __tmRememberGroupSessionTaskState('), context);
     const key = () => context.__tmBuildGroupSessionTaskCacheKey({ groupId: 'B', docIds: ['doc'], viewMode: 'list' });

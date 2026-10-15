@@ -5077,14 +5077,15 @@
             __tmScheduleKanbanSnapSettle(bodyEl, 72);
         };
         const onWheel = (ev) => {
-            if (!__tmIsKanbanColumnSnapMode(bodyEl)) {
-                __tmScheduleKanbanSnapSettle(bodyEl, 72);
-                return;
-            }
+            if (ev?.ctrlKey) return;
+            const snapMode = __tmIsKanbanColumnSnapMode(bodyEl);
             const dx = Number(ev?.deltaX) || 0;
             const dy = Number(ev?.deltaY) || 0;
             const horizontalIntent = !!ev?.shiftKey || Math.abs(dx) > Math.abs(dy);
-            if (!horizontalIntent) return;
+            if (!horizontalIntent) {
+                if (!snapMode) __tmScheduleKanbanSnapSettle(bodyEl, 72);
+                return;
+            }
             let delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
             if (Number(ev?.deltaMode) === 1) delta *= 16;
             else if (Number(ev?.deltaMode) === 2) delta *= Math.max(1, Number(bodyEl.clientWidth || 1));
@@ -5092,6 +5093,11 @@
             try { __tmMarkHighPriorityInteraction('kanban-wheel', 380); } catch (e) {}
             try { ev.preventDefault?.(); } catch (e) {}
             try { ev.stopPropagation?.(); } catch (e) {}
+            if (!snapMode) {
+                __tmStopKanbanMomentum();
+                bodyEl.scrollLeft = Math.max(0, Math.min(__tmGetKanbanMaxPanScrollLeft(bodyEl), Number(bodyEl.scrollLeft || 0) + delta));
+                return;
+            }
             const now = getNow();
             const lastTs = Number(bodyEl.__tmKanbanWheelTs) || 0;
             if (!lastTs || now - lastTs > 260) bodyEl.__tmKanbanWheelAccum = 0;
@@ -5125,7 +5131,7 @@
         try { bodyEl.addEventListener('touchend', onInputEnd, { capture: true, passive: true }); } catch (e) {}
         try { bodyEl.addEventListener('touchcancel', onInputEnd, { capture: true, passive: true }); } catch (e) {}
         try { bodyEl.addEventListener('scroll', onScroll, { passive: true }); } catch (e) {}
-        try { bodyEl.addEventListener('wheel', onWheel, { passive: false }); } catch (e) {}
+        try { bodyEl.addEventListener('wheel', onWheel, { capture: true, passive: false }); } catch (e) {}
         try { bodyEl.addEventListener('scrollend', () => {
             __tmScheduleKanbanSnapSettle(bodyEl, 0);
         }, { passive: true }); } catch (e) {}

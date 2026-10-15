@@ -3205,6 +3205,16 @@
                         )}
                     </div>
 
+                    ${(settingsSearchCurrentSection = 'shortcuts', '')}
+                    <div class="tm-settings-panel" data-tm-settings-section="shortcuts">
+                        <div class="tm-settings-section-title">快捷方式侧边栏</div>
+                        ${renderSingleSwitchSetting(
+                            '快捷方式侧边栏',
+                            '显示快捷项侧栏和侧边展开按钮。关闭后保留已有快捷项配置。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.shortcutSidebarEnabled !== false ? 'checked' : ''} onchange="updateShortcutSidebarEnabled(this.checked)">`
+                        )}
+                    </div>
+
                         ${(settingsSearchCurrentSection = 'topbar', '')}
                     <div class="tm-settings-panel" data-tm-settings-section="topbar">
                         <div class="tm-settings-section-title">🔘 顶栏入口</div>

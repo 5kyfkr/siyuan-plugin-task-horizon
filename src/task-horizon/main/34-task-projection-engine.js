@@ -42,6 +42,12 @@
             if (!field) return;
             set.add(field);
             if (field === 'priorityScore') SCORE_SOURCE_FIELDS.forEach((item) => set.add(item));
+            if (field === 'taskDate') {
+                ['startDate', 'completionTime', 'repeatRule', 'repeatState', 'repeatHistory'].forEach((item) => set.add(item));
+            }
+            if (field === 'tomatoCount') {
+                ['tomatoMinutes', 'tomatoHours', 'repeatRule', 'repeatState', 'repeatHistory'].forEach((item) => set.add(item));
+            }
         };
 
         const compileRuleDependencies = (rule = null) => {
@@ -50,6 +56,10 @@
             if (rule && typeof rule === 'object') {
                 (Array.isArray(rule.conditions) ? rule.conditions : []).forEach((condition) => {
                     addRuleDependency(filterFields, condition?.field);
+                    if (condition?.operator === 'range_overlap_today') {
+                        filterFields.add('startDate');
+                        filterFields.add('completionTime');
+                    }
                 });
                 (Array.isArray(rule.sort) ? rule.sort : []).forEach((sortRule) => {
                     addRuleDependency(sortFields, sortRule?.field);
@@ -59,6 +69,8 @@
         };
 
         const fieldsIntersect = (changedFields, dependencies) => {
+            // TaskStore advances updated whenever it applies a local field patch.
+            if (changedFields.size > 0 && dependencies.has('updated')) return true;
             for (const field of changedFields) {
                 if (dependencies.has(field)) return true;
             }

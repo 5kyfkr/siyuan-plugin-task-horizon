@@ -187,6 +187,7 @@ async function setup(page) {
     const smoke = process.env.TM_TEST_SMOKE === '1';
     const smokeCases = new Set([
         'subtask status survives a later full render with the same filtered parent',
+        'all rule fields preserve attached subtasks through local edits',
         'outdent updates one column; later confirmation preserves placement (false)',
         'cross-column nesting updates both columns, retains third column',
         'fresh title styles are retained while reused descendants clear stale today marks',
@@ -576,6 +577,98 @@ async function setup(page) {
                     completedGroupCount: column('status:todo').querySelectorAll('[data-group-key^="completed_root_tasks"]').length };
             });
             assert.deepEqual(result, { column: 'status:todo', hiddenByGroup: true, completedGroupCount: 1 });
+        });
+        await run('all rule fields preserve attached subtasks through local edits', async (page) => {
+            await page.evaluate(() => {
+                SettingsStore.data.kanbanPreventSubtaskSeparation = true;
+                SettingsStore.data.customStatusOptions = [{ id: 'todo', name: '待办' }, { id: 'doing', name: '进行中' }];
+                Object.assign(window, {
+                    __tmGetCurrentRule: () => state.rule,
+                    __tmParseVersionNumber: (value) => Number(value) || 0,
+                    __tmGetCustomFieldDefs: () => ['text', 'single', 'multi'].map((type) => ({ id: type, name: type, type,
+                        options: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }] })),
+                    __tmBuildCustomFieldColumnKey: (id) => 'customField:' + id,
+                    __tmParseCustomFieldColumnKey: (key) => key.startsWith('customField:') ? key.slice(12) : '',
+                    __tmGetTaskCustomFieldValue: (task, id) => task.customFieldValues?.[id] ?? '',
+                    __tmEnsureTaskPriorityScore: (task) => Number(task.priorityScore || 0),
+                    __tmGetTaskTomatoEstimateCount: (task) => Number(task.tomatoEstimateCount || 0),
+                    __tmGetTaskTomatoCount: (task) => Number(task.tomatoCount || 0),
+                    __tmParseTimeToTs: (value) => Date.parse(value) || 0,
+                    __tmRuleUsesCustomOrderSort: () => false,
+                    __tmGetArchiveModeFilterRule: (rule) => rule,
+                    __tmParseDocTabCustomGroupActiveId: () => '',
+                    __tmGetActiveDocTabCustomGroupDocIdSet: () => new Set(),
+                    __tmIsAllRuleLike: () => false,
+                    __tmHasActiveDocTabContentFilter: () => true,
+                    __tmIsCollectedOtherBlockTask: () => false,
+                    __tmApplyWhiteboardSequenceFilter: (tasks) => tasks,
+                    __tmUpdateFilteredTaskRenderWindowState: () => {},
+                    __tmGetKanbanExpectedProjectionGroupKeys: () => [],
+                    __tmUpdateTaskDoneInDOM: () => true,
+                    __tmSyncTaskCardMetaChipsInDOM: () => true,
+                    __tmSyncKanbanCompletedTodayBadgeInDOM: () => {},
+                    __tmScheduleViewRefresh: (options) => {
+                        if (!patch(options.taskIds, ['parent'])) throw new Error('automatic column refresh failed');
+                    },
+                });
+            });
+            await page.addScriptTag({ content: section(read('10-stores-rules-and-cache.js'),
+                'const RuleManager = {', '    const __tmTasksQueryCache') });
+            await page.addScriptTag({ content: filterCode + '\n' + read('35-task-projection-service.js') + '\n'
+                + section(completionRuntime, 'const __tmOptimisticProjectionFramePending =', 'function __tmCollectChecklistProjectionDomBlock(')
+                + section(completionRuntime, 'function __tmSyncKanbanProjectionCounts(', 'function __tmGetKanbanTaskProjectionGroupSignature(')
+                + section(completionRuntime, 'function __tmTryApplyKanbanOptimisticProjectionInPlace(', 'function __tmRefreshKanbanProjectionPatchNow(') });
+            const results = await page.evaluate(async () => {
+                __tmDocShouldShowInDocTabs = () => true;
+                __tmShouldIncludeDocInActiveAggregateTaskScope = () => true;
+                const visible = () => Array.from(state.modal.querySelectorAll('.tm-kanban-card'))
+                    .filter((card) => !card.closest('[hidden]')).map((card) => card.dataset.id);
+                const snapshots = [];
+                for (const field of RuleManager.getAvailableFields()) {
+                    let match = 'match', miss = 'miss', operator = '=';
+                    if (field.type === 'boolean') { match = field.value !== 'done'; miss = !match; }
+                    else if (field.type === 'number') { match = 10; miss = 1; }
+                    else if (field.type === 'datetime') { match = '2026-10-15'; miss = '2026-11-20'; operator = 'before'; }
+                    else if (field.type === 'select') { match = field.options[0]; miss = field.options[1]; }
+                    const fieldPatch = (value) => field.customFieldId
+                        ? { customFieldValues: { [field.customFieldId]: field.multi ? [value] : value } }
+                        : { [field.value === 'taskDate' ? 'completionTime' : field.value]: value };
+                    setModel([
+                        { id: 'parent', ...fieldPatch(match) },
+                        { id: 'child', parentTaskId: 'parent', ...fieldPatch(miss) },
+                        { id: 'grandchild', parentTaskId: 'child', ...fieldPatch(miss) },
+                        { id: 'unrelated', ...fieldPatch(miss) },
+                    ]);
+                    state.rule = { id: 'field-' + field.value, conditions: [{ field: field.value, operator,
+                        value: field.type === 'datetime' ? '2026-10-20' : match }] };
+                    applyFilters();
+                    if (state.filteredTasks.map((task) => task.id).join() !== 'parent') throw new Error(field.value + ': fixture must match only the parent');
+                    mount();
+                    const initial = visible();
+                    for (const taskId of ['child', 'grandchild']) {
+                        const edit = fieldPatch(miss);
+                        for (const phase of ['optimistic', 'commit']) {
+                            __tmTaskStore.applyMutation({ type: 'taskPatch', phase, opId: field.value + '-' + taskId, taskId, patch: edit });
+                            __tmScheduleOptimisticProjectionFrame('kanban', taskId, edit);
+                            await new Promise((resolve) => requestAnimationFrame(resolve));
+                            if (visible().join() !== initial.join()) throw new Error(field.value + ': ' + taskId + ' disappeared after ' + phase);
+                        }
+                    }
+                    commitView();
+                    snapshots.push({ field: field.value, initial, afterFullRender: visible() });
+                }
+                state.searchKeyword = state.flatTasks.parent.content;
+                __tmTaskMatchesSearch = (task, keyword) => task.content.includes(keyword);
+                __tmScheduleOptimisticProjectionFrame('kanban', 'child', { remark: 'search edit' });
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                return { snapshots, searched: visible() };
+            });
+            assert.equal(results.snapshots.length, 21, 'cover every built-in and custom field');
+            for (const snapshot of results.snapshots) {
+                assert.deepEqual(snapshot.initial, ['parent', 'child', 'grandchild'], snapshot.field);
+                assert.deepEqual(snapshot.afterFullRender, snapshot.initial, snapshot.field + ': local and full rendering must agree');
+            }
+            assert.deepEqual(results.searched, ['parent'], 'search must not inject nonmatching descendants');
         });
         await run('subtask status survives a later full render with the same filtered parent', async (page) => {
             const result = await page.evaluate(() => {

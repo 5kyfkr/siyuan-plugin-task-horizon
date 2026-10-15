@@ -7,20 +7,32 @@ const main = path.join(__dirname, '../src/task-horizon/main');
 const source = fs.readFileSync(path.join(main, '38-shortcut-core.js'), 'utf8');
 const dialog = fs.readFileSync(path.join(main, '30-dialogs-and-ui-foundation.js'), 'utf8');
 const storeSource = fs.readFileSync(path.join(main, '10-stores-rules-and-cache.js'), 'utf8');
+const apiSource = fs.readFileSync(path.join(main, '20-api-and-runtime-services.js'), 'utf8');
 const extract = (content, declaration) => {
     const start = content.indexOf(declaration), end = content.indexOf('\n    }', start);
     assert.ok(start >= 0 && end > start, `missing ${declaration}`);
     return content.slice(start, end + 6);
 };
 const snapshotSource = extract(dialog, '    async function __tmLoadValidatedDocGroupSnapshot(');
+const groupRuntime = ['__tmNormalizeGroupModeValue', '__tmGetCurrentGroupModeValue', '__tmGetEffectiveGroupModeValue',
+    '__tmApplyGroupModeToRuntime', '__tmApplyViewProfileToRuntime', '__tmGetEffectiveViewProfileForContext', '__tmGetGroupModeLabel', '__tmGetKanbanBoardModeLongLabel']
+    .map(name => extract(dialog, `    function ${name}(`)).join('\n')
+    + '\n' + extract(dialog, '    async function __tmApplyCurrentContextViewProfile(');
+const settingsSource = fs.readFileSync(path.join(main, 'settings/70-doc-group-and-settings-actions.js'), 'utf8');
+const switchStart = settingsSource.indexOf('    window.tmSwitchGroupMode =');
+const switchSource = settingsSource.slice(switchStart, settingsSource.indexOf('\n    };', switchStart) + 7);
+const boardSwitchStart = settingsSource.indexOf('    window.tmSetKanbanBoardMode =');
+const boardRuntime = ['__tmNormalizeKanbanBoardMode', '__tmGetStoredKanbanBoardMode', '__tmGetKanbanBoardMode', '__tmSetKanbanBoardModeState']
+    .map(name => extract(apiSource, `    function ${name}(`)).join('\n')
+    + '\n' + settingsSource.slice(boardSwitchStart, settingsSource.indexOf('\n    };', boardSwitchStart) + 7);
 const snapshotValidation = ['__tmNormalizeTaskSnapshotDocIds', '__tmBuildTaskSnapshotScopeKey',
     '__tmIsPreservedTaskSnapshot', '__tmIsUsableTaskSnapshot', '__tmValidateTaskSnapshotForScope']
     .map(name => extract(storeSource, `    function ${name}(`)).join('\n');
 const noOp = () => {};
 function fixture() {
-    const state = {activeDocId:'all',viewMode:'checklist',currentRule:null,openToken:0,taskTree:[{id:'doc-a'}],filterRules:[{id:'today',enabled:true},{id:'off',enabled:false}]};
-    const profiles = {global:{ruleId:'global-rule'},groups:{work:{ruleId:'group-rule'}}};
-    const store = {data:{currentGroupId:'all',currentRule:'global-rule',docGroups:[{id:'work',name:'工作'}],docTabCustomGroups:[],viewProfiles:profiles,shortcutItems:[]},save:async()=>{}};
+    const state = {activeDocId:'all',viewMode:'checklist',currentRule:null,groupByDocName:true,openToken:0,taskTree:[{id:'doc-a'}],filterRules:[{id:'today',enabled:true},{id:'off',enabled:false}]};
+    const profiles = {global:{ruleId:'global-rule',groupMode:'doc'},groups:{work:{ruleId:'group-rule',groupMode:'doc'}},allTabs:{},docTabGroups:{},docTabGroupAllTabs:{},docs:{}};
+    const store = {data:{currentGroupId:'all',currentRule:'global-rule',groupMode:'doc',groupByDocName:true,groupByTime:false,groupByTaskName:false,quadrantConfig:{enabled:false},kanbanBoardMode:'status',kanbanHeadingGroupMode:false,docGroups:[{id:'work',name:'工作'}],docTabCustomGroups:[],viewProfiles:profiles,shortcutItems:[]},save:async()=>{}};
     const events = [], invalid = [], loads = [];
     const ctx = vm.createContext({state,SettingsStore:store,console,Map,Set,Date,Math,Promise,setTimeout,clearTimeout,
         __TM_TASK_SNAPSHOT_VERSION:4,__TM_TASK_SNAPSHOT_MAX_AGE_MS:3*86400000,
@@ -28,8 +40,8 @@ function fixture() {
         __tmIsRuntimeMobileClient:()=>false,
         __tmResolveDocGroupName:group=>group.name,
         __tmGetTodayDateKey:()=> '2026-10-15',
-        __TM_ALL_VIEWS:['checklist','calendar','whiteboard'].map(id=>({id,label:id})),
-        __tmIsViewEnabled:id=>['checklist','calendar','whiteboard'].includes(id),
+        __TM_ALL_VIEWS:['checklist','calendar','whiteboard','kanban'].map(id=>({id,label:id})),
+        __tmIsViewEnabled:id=>['checklist','calendar','whiteboard','kanban'].includes(id),
         __tmGetDocTabCustomGroupScopeId:group=>group.docGroupId,
         __tmGetDocTabCustomGroupDocIdSet:()=>new Set(),
         __tmBuildDocTabCustomGroupActiveId:id=>'tab:'+id,
@@ -37,7 +49,17 @@ function fixture() {
         resolveDocIdsFromGroups:async({groupId})=>groupId==='work'?['doc-a','doc-b']:['doc-a'],
         API:{call:async()=>({code:0,data:[]})},
         __tmApplyCompletedVisibilityToRuntime:noOp,
-        __tmApplyCurrentContextViewProfile:async()=>{state.currentRule=state.shortcutContext.ruleId||null;return {customFieldReloadNeeded:false};},
+        __tmNormalizeViewProfile:(profile,fallback={})=>({...fallback,...profile}),
+        __tmGetViewProfilesStore:()=>store.data.viewProfiles,
+        __tmParseDocTabCustomGroupActiveId:id=>id.startsWith('tab:')?id.slice(4):'',
+        __tmFindDocTabCustomGroupForProfileDoc:()=>null,
+        __tmResolveContextViewDefaults:()=>({defaultViewMode:null,defaultKanbanBoardMode:null}),
+        __tmFindRuleById:id=>id?{id}:null,__tmRuleNeedsDoneOnly:()=>false,
+        __tmNormalizeViewProfileDefaultViewMode:value=>value||null,
+        __tmNormalizeViewProfileKanbanBoardMode:value=>value||null,__tmGetSafeViewMode:value=>value,
+        __tmBuildRuntimeCustomFieldLoadPlan:()=>({}),__tmDoesCustomFieldPlanNeedReload:()=>false,
+        __tmCommitCustomFieldLoadPlan:async()=>{},__tmRefreshSettingsProjectionView:noOp,
+        __tmCleanupPlaceholderTasks:async()=>{},__tmWarmKanbanDocHeadings:async()=>{},
         __tmRecomputeTaskProjection:noOp,render:()=>events.push('render'),recalcStats:noOp,
         __tmScheduleDocGroupSwitchVerifyAfterFirstPaint:noOp,
         hint:message=>events.push(message),
@@ -46,7 +68,8 @@ function fixture() {
         __tmShortcutSidebar:{refresh:noOp,closeDrawer:noOp,showInvalid:(item,issues)=>invalid.push({item,issues})},
         loadSelectedDocuments:async()=>{loads.push(state.openToken);},
     });
-    vm.runInContext(snapshotValidation+'\n'+snapshotSource+'\n'+source+'\nglobalThis.core=__tmShortcuts;',ctx);
+    ctx.window=ctx;
+    vm.runInContext(snapshotValidation+'\n'+snapshotSource+'\n'+groupRuntime+'\n'+boardRuntime+'\n'+source+'\n'+switchSource+'\nglobalThis.core=__tmShortcuts;',ctx);
     const shortcut = (id, patch={}) => ({id,name:id,icon:{type:'phosphor',name:'sun'},groupId:'all',tabGroupId:'',docId:'all',viewId:'checklist',ruleId:'today',...patch});
     return {ctx,core:ctx.core,state,store,events,invalid,loads,shortcut,profiles};
 }
@@ -93,12 +116,106 @@ function fixture() {
         assert.equal(loading.state.currentRule,ruleId||null,'the real loader initialization preserves the first click override');
         assert.equal(loading.store.data.currentRule,'global-rule');
     }
+    const grouping=fixture(), groupModes=['none','doc','time','quadrant','task'];
+    grouping.store.data.shortcutItems=groupModes.map(groupMode=>grouping.shortcut(groupMode,{groupMode}));
+    grouping.store.data.shortcutItems.push(grouping.shortcut('legacy'),grouping.shortcut('invalid-mode',{groupMode:'unknown'}));
+    const groupDefaults=JSON.stringify(grouping.store.data);
+    await grouping.core.save(grouping.core.items());
+    assert.equal(grouping.core.items().find(item=>item.id==='invalid-mode').groupMode,'','unknown modes preserve the current grouping');
+    for(const groupMode of groupModes){
+        await grouping.core.open('task');
+        assert.equal(await grouping.core.open(groupMode),true);
+        assert.equal(grouping.ctx.__tmGetCurrentGroupModeValue(),groupMode);
+        assert.equal(grouping.core.activeId(),groupMode);
+        assert.equal(['groupByDocName','groupByTime','groupByTaskName','quadrantEnabled'].filter(key=>grouping.state[key]).length,groupMode==='none'?0:1,'all grouping flags remain mutually exclusive');
+        vm.runInContext('{'+loader.slice(start,end)+'}',grouping.ctx);
+        await grouping.ctx.__tmApplyCurrentContextViewProfile();
+        assert.equal(grouping.ctx.__tmGetCurrentGroupModeValue(),groupMode,'reload and profile reapplication preserve shortcut grouping');
+    }
+    grouping.state.filteredTasks=[{},{}];
+    assert.equal(grouping.core.counts().get('task'),2);
+    assert.equal(grouping.core.counts().has('doc'),false,'a different grouping cannot overwrite another shortcut count');
+    const normalizedDefaults=JSON.parse(groupDefaults);
+    for(const key of ['groupMode','groupByDocName','groupByTime','groupByTaskName','quadrantConfig','viewProfiles','currentRule']){
+        assert.equal(JSON.stringify(grouping.store.data[key]),JSON.stringify(normalizedDefaults[key]),`${key} stays unchanged during shortcut navigation and reload`);
+    }
+    await grouping.ctx.tmSwitchGroupMode('time');
+    assert.equal(grouping.ctx.__tmGetCurrentGroupModeValue(),'time');
+    assert.equal(grouping.core.context().groupMode,'time');
+    assert.equal(grouping.core.activeId(),'','manual grouping changes clear the saved shortcut highlight');
+    assert.equal(grouping.core.items().find(item=>item.id==='task').groupMode,'task');
+    for(const key of ['groupMode','groupByDocName','groupByTime','groupByTaskName','quadrantConfig','viewProfiles','currentRule']){
+        assert.equal(JSON.stringify(grouping.store.data[key]),JSON.stringify(normalizedDefaults[key]),`manual grouping also preserves ${key}`);
+    }
+    vm.runInContext('{'+loader.slice(start,end)+'}',grouping.ctx);
+    assert.equal(grouping.ctx.__tmGetCurrentGroupModeValue(),'time','manual grouping survives a loader refresh');
+    assert.equal(await grouping.core.open('legacy'),true);
+    assert.equal(grouping.ctx.__tmGetCurrentGroupModeValue(),'time','old shortcuts preserve the grouping used before opening');
+    assert.equal(await grouping.core.open('task'),true,'reopening restores the saved grouping');
+    assert.equal(grouping.ctx.__tmGetCurrentGroupModeValue(),'task');
+    const savedKey=grouping.core.countKey(grouping.core.items()[0]);
+    assert.notEqual(grouping.core.countKey({...grouping.core.items()[0],groupMode:'doc'}),savedKey,'grouping participates in count cache identity');
+    grouping.core.clearContext();
+    await grouping.ctx.__tmApplyCurrentContextViewProfile();
+    assert.equal(grouping.ctx.__tmGetCurrentGroupModeValue(),'doc','leaving shortcuts restores the normal profile');
+    await grouping.core.open('time');
+    const previousContext=grouping.core.context();
+    grouping.store.data.shortcutItems.push(grouping.shortcut('failed',{groupId:'work',groupMode:'quadrant'}));
+    grouping.ctx.loadSelectedDocuments=async()=>{throw new Error('load failed');};
+    assert.equal(await grouping.core.open('failed'),false);
+    assert.equal(grouping.core.context(),previousContext);
+    assert.equal(grouping.ctx.__tmGetCurrentGroupModeValue(),'time','failed opening restores the previous grouping');
+    assert.equal(grouping.core.activeId(),'time');
+    const boards=fixture(), boardModes=['heading','time','status'];
+    boards.store.data.shortcutItems=boardModes.map(kanbanBoardMode=>boards.shortcut(kanbanBoardMode,{viewId:'kanban',kanbanBoardMode}));
+    boards.store.data.shortcutItems.push(boards.shortcut('legacy-board',{viewId:'kanban'}));
+    const boardDefaults=JSON.stringify(boards.store.data);
+    await boards.core.save(boards.core.items());
+    assert.equal(boards.core.normalize([boards.shortcut('unknown',{kanbanBoardMode:'unknown'})])[0].kanbanBoardMode,'');
+    assert.equal(boards.core.normalize([boards.shortcut('uppercase',{kanbanBoardMode:'TIME'})])[0].kanbanBoardMode,'time');
+    for(const mode of boardModes){
+        assert.equal(await boards.core.open(mode),true);
+        assert.equal(boards.ctx.__tmGetKanbanBoardMode(),mode);
+        assert.equal(boards.core.activeId(),mode);
+        vm.runInContext('{'+loader.slice(start,end)+'}',boards.ctx);
+        await boards.ctx.__tmApplyCurrentContextViewProfile();
+        assert.equal(boards.ctx.__tmGetKanbanBoardMode(),mode,'board mode survives reload and profile reapplication');
+        assert.equal(boards.ctx.__tmGetStoredKanbanBoardMode(),'status','runtime board mode does not change the persistent default');
+    }
+    boards.state.filteredTasks=[{},{}];
+    assert.equal(boards.core.counts().get('status'),2);
+    assert.equal(boards.core.counts().has('heading'),false,'counts distinguish different board modes');
+    await boards.ctx.tmSetKanbanBoardMode('heading');
+    assert.equal(boards.ctx.__tmGetKanbanBoardMode(),'heading');
+    assert.equal(boards.core.activeId(),'','manual board changes clear the saved shortcut highlight');
+    assert.equal(boards.core.items().find(item=>item.id==='status').kanbanBoardMode,'status');
+    await boards.ctx.__tmApplyCurrentContextViewProfile();
+    assert.equal(boards.ctx.__tmGetKanbanBoardMode(),'heading','manual board changes survive profile reapplication');
+    for(const key of ['kanbanBoardMode','kanbanHeadingGroupMode','viewProfiles']){
+        assert.equal(JSON.stringify(boards.store.data[key]),JSON.stringify(JSON.parse(boardDefaults)[key]),`board switching preserves ${key}`);
+    }
+    assert.equal(await boards.core.open('legacy-board'),true);
+    assert.equal(boards.ctx.__tmGetKanbanBoardMode(),'heading','old board shortcuts preserve the current board mode');
+    boards.store.data.shortcutItems.push(boards.shortcut('hidden-board-mode',{kanbanBoardMode:'time'}));
+    assert.equal(await boards.core.open('hidden-board-mode'),true);
+    assert.equal(boards.ctx.__tmGetKanbanBoardMode(),'heading','board settings do not apply to a non-board shortcut');
+    await boards.core.open('heading');
+    const previousBoardContext=boards.core.context();
+    boards.store.data.shortcutItems.push(boards.shortcut('failed-board',{groupId:'work',viewId:'kanban',kanbanBoardMode:'time'}));
+    boards.ctx.loadSelectedDocuments=async()=>{throw new Error('board load failed');};
+    assert.equal(await boards.core.open('failed-board'),false);
+    assert.equal(boards.core.context(),previousBoardContext);
+    assert.equal(boards.ctx.__tmGetKanbanBoardMode(),'heading','failed opening restores the previous board mode');
+    const headingItem=boards.core.items().find(item=>item.id==='heading');
+    assert.notEqual(boards.core.countKey(headingItem),boards.core.countKey({...headingItem,kanbanBoardMode:'time'}));
+    boards.core.clearContext();
+    assert.equal(boards.ctx.__tmGetKanbanBoardMode(),'status','leaving shortcuts restores the persistent board mode');
     const docA='20261015000000-aaaaaaa',docB='20261015000000-bbbbbbb';
     const snapshot={version:4,groupId:'work',createdAt:Date.now(),scopeKey:'work|'+[docA,docB].join(','),docIds:[docA,docB],
         taskTree:[{id:docA,tasks:[{id:'now',today:true},{id:'later',today:false}]},{id:docB,tasks:[]}]};
     const cachedFixture=()=>{
         const value=fixture(),restores=[],paints=[],verifies=[];
-        value.store.data.shortcutItems=[value.shortcut('cached',{groupId:'work'})];
+        value.store.data.shortcutItems=[value.shortcut('cached',{groupId:'work',groupMode:'quadrant'})];
         value.ctx.resolveDocIdsFromGroups=async()=>[docA,docB];
         value.ctx.__tmTaskSnapshotService={loadLatestForGroup:async()=>snapshot,
             restore:(entry,options)=>{restores.push(options);value.state.taskTree=entry.taskTree;return {taskCount:2};},
@@ -115,6 +232,15 @@ function fixture() {
     assert.deepEqual(fast.paints,[['now']],'the first cached paint already uses the shortcut rule');
     assert.equal(fast.verifies[0].source,'shortcut:snapshot-verify','reuse existing deferred freshness verification');
     assert.equal(fast.state.currentRule,'today');assert.equal(fast.store.data.currentRule,'global-rule');
+    assert.equal(fast.ctx.__tmGetCurrentGroupModeValue(),'quadrant','the cached first paint uses shortcut grouping');
+    const boardFast=cachedFixture();
+    Object.assign(boardFast.store.data.shortcutItems[0],{viewId:'kanban',kanbanBoardMode:'heading'});
+    let paintedBoardMode='';
+    boardFast.ctx.render=()=>{paintedBoardMode=boardFast.ctx.__tmGetKanbanBoardMode();};
+    assert.equal(await boardFast.core.open('cached'),true);
+    assert.equal(boardFast.loads.length,0);
+    assert.equal(paintedBoardMode,'heading','the cached first paint already uses the shortcut board mode');
+    assert.equal(boardFast.ctx.__tmGetStoredKanbanBoardMode(),'status');
     for(const [label,patch] of [
         ['foreign group',{groupId:'all'}],['changed document scope',{docIds:[docA],scopeKey:'work|'+docA}],
         ['unexpected tree document',{taskTree:[{id:'20261015000000-ccccccc',tasks:[]}]}],
@@ -129,7 +255,9 @@ function fixture() {
     assert.equal(await timeout.core.open('cached'),true);assert.equal(timeout.loads.length,1,'a stalled snapshot cannot block fallback loading');
     const customFields=cachedFixture();customFields.ctx.__tmApplyCurrentContextViewProfile=async()=>{customFields.state.currentRule='today';return {customFieldReloadNeeded:true};};
     assert.equal(await customFields.core.open('cached'),true);assert.equal(customFields.restores.length,0);assert.equal(customFields.loads.length,1,'new required custom fields still reload before filtering');
-    const interrupted=cachedFixture();interrupted.store.data.shortcutItems.push(interrupted.shortcut('latest',{groupId:'all',ruleId:''}));
+    const interrupted=cachedFixture();
+    Object.assign(interrupted.store.data.shortcutItems[0],{viewId:'kanban',kanbanBoardMode:'heading'});
+    interrupted.store.data.shortcutItems.push(interrupted.shortcut('latest',{groupId:'all',viewId:'kanban',kanbanBoardMode:'time',ruleId:'',groupMode:'time'}));
     let releaseSnapshot,startedSnapshot;
     const pending=new Promise(resolve=>{releaseSnapshot=resolve;}),started=new Promise(resolve=>{startedSnapshot=resolve;});
     interrupted.ctx.__tmTaskSnapshotService.loadLatestForGroup=groupId=>{if(groupId==='work'){startedSnapshot();return pending;}return null;};
@@ -137,5 +265,39 @@ function fixture() {
     assert.equal(await interrupted.core.open('latest'),true);releaseSnapshot(snapshot);assert.equal(await pendingOpen,false);
     assert.equal(interrupted.restores.length,0,'a superseded snapshot cannot replace the newest target');
     assert.equal(interrupted.store.data.currentGroupId,'all');assert.equal(interrupted.state.currentRule,null);
-    console.log('Shortcut navigation: independent defaults, invalid preservation, first-click rules, authoritative counts, validated snapshot first paint and latest-click behavior passed.');
+    assert.equal(interrupted.ctx.__tmGetCurrentGroupModeValue(),'time','an older cached opening cannot override the latest grouping');
+    assert.equal(interrupted.ctx.__tmGetKanbanBoardMode(),'time','an older cached opening cannot override the latest board mode');
+    const sidebarSource=fs.readFileSync(path.join(main,'38-shortcut-sidebar.js'),'utf8');
+    const exportMarker='return { mount, refresh, closeDrawer, showInvalid, edit, dispose, syncEnabled, iconHtml };';
+    assert.ok(sidebarSource.includes(exportMarker));
+    const testSidebar=sidebarSource.replace(exportMarker,'return { preferences, restorePreferences, persistPreferences };');
+    const restartSidebar=(file={},cache={},mobile=false)=>{
+        let savedFile=JSON.parse(JSON.stringify(file));
+        const sessionStore={loaded:false,data:{shortcutSidebarPreferences:{}},save:async()=>{savedFile=JSON.parse(JSON.stringify(sessionStore.data.shortcutSidebarPreferences));}};
+        const context=vm.createContext({SettingsStore:sessionStore,
+            Storage:{get:(key,fallback)=>cache[key]??fallback,set:(key,value)=>{cache[key]=JSON.parse(JSON.stringify(value));}},
+            __tmIsRuntimeMobileClient:()=>mobile,hint:noOp});
+        vm.runInContext(testSidebar+'\nglobalThis.sidebar=__tmShortcutSidebar;',context);
+        context.sidebar.restorePreferences();
+        sessionStore.data.shortcutSidebarPreferences=JSON.parse(JSON.stringify(file));sessionStore.loaded=true;
+        context.sidebar.restorePreferences();
+        return {sidebar:context.sidebar,store:sessionStore,file:()=>savedFile};
+    };
+    for(const mode of ['full','rail','hidden']){
+        const session=restartSidebar();Object.assign(session.sidebar.preferences,{mode,width:280,edgePosition:.27});
+        session.sidebar.persistPreferences();await Promise.resolve();
+        const restarted=restartSidebar(session.file(),{});
+        assert.equal(restarted.sidebar.preferences.mode,mode,'desktop mode restores after all local caches are lost');
+        assert.equal(restarted.sidebar.preferences.width,280,'sidebar width restores from the settings file');
+        assert.equal(restarted.sidebar.preferences.edgePosition,.27,'floating button position restores from the settings file');
+    }
+    const persistedDesktop={desktop:{mode:'rail',width:260,edgePosition:.3}};
+    const mobileSession=restartSidebar(persistedDesktop,{},true);
+    Object.assign(mobileSession.sidebar.preferences,{mode:'hidden',edgePosition:.7});mobileSession.sidebar.persistPreferences();await Promise.resolve();
+    assert.deepEqual(mobileSession.file().desktop,persistedDesktop.desktop,'mobile state saves cannot overwrite desktop state');
+    assert.equal(restartSidebar(mobileSession.file()).sidebar.preferences.mode,'rail');
+    assert.equal(restartSidebar(mobileSession.file(),{},true).sidebar.preferences.edgePosition,.7);
+    const migrated=restartSidebar({}, {'tm_shortcut_sidebar_preferences':{mode:'hidden',width:220,edgePosition:.8}});
+    assert.equal(migrated.sidebar.preferences.mode,'hidden','existing local sidebar preferences remain usable');
+    console.log('Shortcut navigation: independent defaults, session grouping and board modes, reload, rollback, authoritative counts, validated snapshot first paint and latest-click behavior passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

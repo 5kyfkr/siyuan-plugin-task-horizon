@@ -10712,6 +10712,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
     let __tmKanbanDetailSyntheticClickSuppressCleanup = null;
     let __tmKanbanDetailRepositionHandler = null;
     let __tmKanbanDetailRepositionModal = null;
+    let __tmKanbanDetailResizeObserver = null;
 
     function __tmClearKanbanDetailFloatingHandlers() {
         try { if (typeof __tmKanbanDetailSyntheticClickSuppressCleanup === 'function') __tmKanbanDetailSyntheticClickSuppressCleanup(); } catch (e) {}
@@ -10739,6 +10740,8 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         } catch (e) {}
         __tmKanbanDetailRepositionHandler = null;
         __tmKanbanDetailRepositionModal = null;
+        try { __tmKanbanDetailResizeObserver?.disconnect(); } catch (e) {}
+        __tmKanbanDetailResizeObserver = null;
     }
 
     function __tmNormalizeKanbanDetailFloatHost(modalEl) {
@@ -10896,6 +10899,12 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         __tmKanbanDetailRepositionModal = modal;
         try { globalThis.__tmRuntimeEvents?.on?.(modal, 'scroll', __tmKanbanDetailRepositionHandler, true); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'resize', __tmKanbanDetailRepositionHandler, true); } catch (e) {}
+        if (typeof ResizeObserver === 'function') {
+            try {
+                __tmKanbanDetailResizeObserver = new ResizeObserver(__tmKanbanDetailRepositionHandler);
+                __tmKanbanDetailResizeObserver.observe(modal);
+            } catch (e) {}
+        }
         return true;
     }
 
@@ -10972,6 +10981,17 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         const cardRect = card.getBoundingClientRect();
         if (card.hidden || cardRect.width <= 0 || cardRect.height <= 0) return false;
 
+        const modalRect = modal.getBoundingClientRect();
+        const viewportW = Number(window.innerWidth || document.documentElement.clientWidth || 0) || 0;
+        const viewportH = Number(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+        const boundsLeft = Math.max(0, modalRect.left);
+        const boundsTop = Math.max(0, modalRect.top);
+        const boundsRight = Math.min(viewportW, modalRect.right);
+        const boundsBottom = Math.min(viewportH, modalRect.bottom);
+        if (boundsRight <= boundsLeft || boundsBottom <= boundsTop) return false;
+        const gap = 12;
+        const margin = 12;
+
         const prevVisibility = panel.style.visibility;
         const prevPointerEvents = panel.style.pointerEvents;
         const prevTransform = panel.style.transform;
@@ -10980,28 +11000,28 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         panel.style.transform = 'none';
         panel.style.left = '24px';
         panel.style.top = '24px';
-        panel.style.maxHeight = 'calc(100vh - 48px)';
+        panel.style.maxWidth = `${Math.max(0, boundsRight - boundsLeft - margin * 2)}px`;
+        panel.style.maxHeight = `${Math.max(0, boundsBottom - boundsTop - margin * 2)}px`;
 
         const panelRect = panel.getBoundingClientRect();
         const fixedOriginLeft = Math.round(panelRect.left - 24);
         const fixedOriginTop = Math.round(panelRect.top - 24);
-        const viewportW = Number(window.innerWidth || document.documentElement.clientWidth || 0) || 0;
-        const viewportH = Number(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
-        const gap = 12;
-        const margin = 12;
-        const panelW = Math.max(280, Math.min(420, Math.round(panelRect.width || 380)));
-        const preferRight = (viewportW - cardRect.right - margin) >= Math.max(260, panelW * 0.72);
+        const panelW = Math.round(panelRect.width || 380);
+        const rightSpace = boundsRight - cardRect.right - gap - margin;
+        const leftSpace = cardRect.left - boundsLeft - gap - margin;
+        const preferRight = rightSpace >= panelW || (leftSpace < panelW && rightSpace >= leftSpace);
         let left = preferRight
             ? (cardRect.right + gap)
             : (cardRect.left - panelW - gap);
-        left = Math.max(margin, Math.min(left, Math.max(margin, viewportW - panelW - margin)));
+        const minLeft = boundsLeft + margin;
+        left = Math.max(minLeft, Math.min(left, Math.max(minLeft, boundsRight - panelW - margin)));
 
         let top = Math.round(cardRect.top);
-        const minTop = 12;
-        const panelH = Math.max(260, Math.round(panelRect.height || 480));
-        const maxTop = Math.max(minTop, viewportH - Math.min(panelH, viewportH - 24) - margin);
+        const minTop = boundsTop + margin;
+        const panelH = Math.round(panelRect.height || 480);
+        const maxTop = Math.max(minTop, boundsBottom - panelH - margin);
         top = Math.max(minTop, Math.min(top, maxTop));
-        const maxHeight = Math.max(240, viewportH - top - margin);
+        const maxHeight = Math.max(0, boundsBottom - top - margin);
 
         panel.style.left = `${Math.round(left - fixedOriginLeft)}px`;
         panel.style.top = `${Math.round(top - fixedOriginTop)}px`;

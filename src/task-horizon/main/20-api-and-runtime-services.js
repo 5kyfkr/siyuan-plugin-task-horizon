@@ -19866,14 +19866,20 @@ if (!state.homepageOpen) return;
         return (m === 'status' || m === 'heading' || m === 'time') ? m : '';
     }
 
-    function __tmGetKanbanBoardMode() {
+    function __tmGetStoredKanbanBoardMode() {
         const direct = __tmNormalizeKanbanBoardMode(SettingsStore?.data?.kanbanBoardMode);
         if (direct) return direct;
         return SettingsStore?.data?.kanbanHeadingGroupMode === true ? 'heading' : 'status';
     }
 
+    function __tmGetKanbanBoardMode() {
+        const shortcut = typeof __tmShortcuts !== 'undefined' ? __tmShortcuts.context() : null;
+        return __tmNormalizeKanbanBoardMode(shortcut?.kanbanBoardMode) || __tmGetStoredKanbanBoardMode();
+    }
+
     function __tmSetKanbanBoardModeState(mode) {
         const next = __tmNormalizeKanbanBoardMode(mode) || 'status';
+        if (typeof __tmShortcuts !== 'undefined' && __tmShortcuts.updateContext({ kanbanBoardMode: next })) return next;
         SettingsStore.data.kanbanBoardMode = next;
         SettingsStore.data.kanbanHeadingGroupMode = next === 'heading';
         return next;

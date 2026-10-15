@@ -2669,7 +2669,7 @@
         const docKey = __tmNormalizeTaskSnapshotDocIds(opts.docIds || []).join(',');
         if (!docKey) return '';
         const currentRuleId = String(opts.ruleId ?? state?.currentRule ?? SettingsStore?.data?.currentRule ?? '').trim();
-        const groupMode = String(opts.groupMode ?? SettingsStore?.data?.groupMode ?? '').trim();
+        const groupMode = String(opts.groupMode ?? __tmGetEffectiveGroupModeValue()).trim();
         const viewMode = String(opts.viewMode ?? state?.viewMode ?? '').trim();
         const activeDocId = String(opts.activeDocId ?? state?.activeDocId ?? 'all').trim() || 'all';
         const showCompleted = __tmGetShowCompletedTasksFromSettings(SettingsStore?.data, opts.groupId) ? 1 : 0;
@@ -2688,6 +2688,7 @@
             activeDocId,
             viewMode,
             groupMode,
+            viewMode === 'kanban' ? __tmGetKanbanBoardMode() : '',
             currentRuleId,
             showCompleted,
             completedTodayOnly,
@@ -2825,6 +2826,7 @@
     function __tmBuildTaskSnapshotViewSignature(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const data = SettingsStore?.data || {};
+        const groupMode = __tmGetEffectiveGroupModeValue();
         const rule = Object.prototype.hasOwnProperty.call(opts, 'rule')
             ? opts.rule
             : __tmGetTaskSnapshotRuleForView();
@@ -2853,11 +2855,12 @@
             }) : null,
             searchKeyword: String(state?.searchKeyword || '').trim(),
             archiveMode: state?.docTabsArchiveMode === true ? 1 : 0,
-            groupMode: String(data.groupMode || '').trim(),
-            groupByDocName: data.groupByDocName ? 1 : 0,
-            groupByTaskName: data.groupByTaskName ? 1 : 0,
-            groupByTime: data.groupByTime ? 1 : 0,
-            quadrantEnabled: data.quadrantConfig?.enabled ? 1 : 0,
+            groupMode,
+            kanbanBoardMode: String(opts.viewMode || state?.viewMode || '') === 'kanban' ? __tmGetKanbanBoardMode() : '',
+            groupByDocName: groupMode === 'doc' ? 1 : 0,
+            groupByTaskName: groupMode === 'task' ? 1 : 0,
+            groupByTime: groupMode === 'time' ? 1 : 0,
+            quadrantEnabled: groupMode === 'quadrant' ? 1 : 0,
             pinTasksWithinGroups: data.pinTasksWithinGroups ? 1 : 0,
             showCompleted: __tmGetShowCompletedTasksFromSettings(data, opts.groupId) ? 1 : 0,
             completedTodayOnly: data.completedTasksTodayOnly ? 1 : 0,
@@ -8651,6 +8654,8 @@
             },
             filterRules: [],
             shortcutItems: [],
+            shortcutSidebarEnabled: true,
+            shortcutSidebarPreferences: {},
             fontSize: 14,
             fontSizeMobile: 14,
             rowHeightMode: 'normal',
@@ -9173,8 +9178,8 @@
                 payload = { ...(this.data || {}) };
             }
             try {
-                const mode = typeof __tmGetKanbanBoardMode === 'function'
-                    ? __tmGetKanbanBoardMode()
+                const mode = typeof __tmGetStoredKanbanBoardMode === 'function'
+                    ? __tmGetStoredKanbanBoardMode()
                     : (payload.kanbanHeadingGroupMode === true ? 'heading' : (String(payload.kanbanBoardMode || '').trim() || 'status'));
                 payload.kanbanBoardMode = mode;
                 payload.kanbanHeadingGroupMode = mode === 'heading';
@@ -9366,6 +9371,8 @@
                                 if (cloudData.currentRule !== undefined) this.data.currentRule = cloudData.currentRule;
                                 if (cloudData.viewProfiles !== undefined) this.data.viewProfiles = cloudData.viewProfiles;
                                 if (Array.isArray(cloudData.shortcutItems)) this.data.shortcutItems = __tmShortcuts.normalize(cloudData.shortcutItems);
+                                if (typeof cloudData.shortcutSidebarEnabled === 'boolean') this.data.shortcutSidebarEnabled = cloudData.shortcutSidebarEnabled;
+                                if (cloudData.shortcutSidebarPreferences && typeof cloudData.shortcutSidebarPreferences === 'object' && !Array.isArray(cloudData.shortcutSidebarPreferences)) this.data.shortcutSidebarPreferences = cloudData.shortcutSidebarPreferences;
                                 if (Array.isArray(cloudData.filterRules)) this.data.filterRules = cloudData.filterRules;
                                 if (typeof cloudData.fontSize === 'number') this.data.fontSize = cloudData.fontSize;
                                 if (typeof cloudData.fontSizeMobile === 'number') this.data.fontSizeMobile = cloudData.fontSizeMobile;
@@ -9883,6 +9890,8 @@
             this.data.viewProfiles = Storage.get('tm_view_profiles', this.data.viewProfiles) || this.data.viewProfiles;
             this.data.filterRules = Storage.get('tm_filter_rules', []);
             this.data.shortcutItems = __tmShortcuts.normalize(Storage.get('tm_shortcut_items', []));
+            this.data.shortcutSidebarEnabled = Storage.get('tm_shortcut_sidebar_enabled', this.data.shortcutSidebarEnabled) !== false;
+            this.data.shortcutSidebarPreferences = Storage.get('tm_shortcut_sidebar_saved_preferences', this.data.shortcutSidebarPreferences) || {};
             this.data.fontSize = Storage.get('tm_font_size', 14);
             this.data.fontSizeMobile = Storage.get('tm_font_size_mobile', this.data.fontSize);
             this.data.rowHeightMode = Storage.get('tm_row_height_mode', this.data.rowHeightMode);
@@ -10469,7 +10478,7 @@
             const taskCardAlwaysShowFields = __tmNormalizeTaskCardAlwaysShowFields(this.data.taskCardAlwaysShowFields, ['priority', 'status', 'date']);
             Storage.set('tm_task_card_always_show_fields', taskCardAlwaysShowFields);
             Storage.set('tm_task_card_date_only_with_value', !taskCardAlwaysShowFields.includes('date'));
-            Storage.set('tm_kanban_board_mode', typeof __tmGetKanbanBoardMode === 'function' ? __tmGetKanbanBoardMode() : (String(this.data.kanbanBoardMode || '').trim() || (this.data.kanbanHeadingGroupMode ? 'heading' : 'status')));
+            Storage.set('tm_kanban_board_mode', typeof __tmGetStoredKanbanBoardMode === 'function' ? __tmGetStoredKanbanBoardMode() : (String(this.data.kanbanBoardMode || '').trim() || (this.data.kanbanHeadingGroupMode ? 'heading' : 'status')));
             Storage.set('tm_kanban_heading_group_mode', !!this.data.kanbanHeadingGroupMode);
             Storage.set('tm_whiteboard_all_tabs_card_min_width', Number(this.data.whiteboardAllTabsCardMinWidth) || 320);
             Storage.set('tm_whiteboard_stream_mobile_two_columns', !!this.data.whiteboardStreamMobileTwoColumns);
@@ -10489,6 +10498,8 @@
             }));
             Storage.set('tm_filter_rules', this.data.filterRules);
             Storage.set('tm_shortcut_items', this.data.shortcutItems || []);
+            Storage.set('tm_shortcut_sidebar_enabled', this.data.shortcutSidebarEnabled !== false);
+            Storage.set('tm_shortcut_sidebar_saved_preferences', this.data.shortcutSidebarPreferences || {});
             Storage.set('tm_font_size', this.data.fontSize);
             Storage.set('tm_font_size_mobile', this.data.fontSizeMobile);
             Storage.set('tm_row_height_mode', String(this.data.rowHeightMode || 'auto').trim() || 'auto');
@@ -12611,16 +12622,16 @@
                 });
                 const nonEmptyValues = values.filter((item) => !runtime.emptyTokens.has(String(item ?? '').trim()));
 
-                const taskValueStr = String(taskValue || '').trim();
+                const taskValueStr = String(taskValue ?? '').trim();
                 const taskMatch = isSelectField
                     ? taskSelectValues.some((item) => nonEmptyValues.includes(item))
-                    : nonEmptyValues.includes(taskValueStr);
+                    : nonEmptyValues.some((item) => String(item ?? '').trim() === taskValueStr);
                 const hasEmptyMatch = isSelectField
                     ? taskSelectValues.length === 0 && hasEmpty
                     : (!taskValueStr || taskValueStr === '') && hasEmpty;
 
                 if (isSelectField && fieldInfo?.multi) {
-                    const matchMode = this.normalizeConditionMatchMode(condition, fieldInfo);
+                    const matchMode = this.normalizeConditionMatchMode(runtime.condition || condition, fieldInfo);
                     const taskHasValue = taskSelectValues.length > 0;
                     const hasAnySelectedValue = nonEmptyValues.length > 0;
                     const anySelectedMatch = hasAnySelectedValue && taskSelectValues.some((item) => nonEmptyValues.includes(item));
@@ -12660,6 +12671,36 @@
                     case 'not_contains':
                         return isEmptyTarget ? taskSelectValues.length > 0 : !taskSelectValues.includes(targetValue);
                 }
+            }
+
+            if (fieldInfo?.type === 'number') {
+                const asNumber = (raw) => this.isEmptyFieldValue(raw) ? Number.NaN : Number(raw);
+                const taskNumber = asNumber(taskValue);
+                const targetNumber = asNumber(value);
+                const comparable = Number.isFinite(taskNumber) && Number.isFinite(targetNumber);
+                switch (operator) {
+                    case '=': return comparable && taskNumber === targetNumber;
+                    case '!=': return !comparable || taskNumber !== targetNumber;
+                    case '>': return comparable && taskNumber > targetNumber;
+                    case '<': return comparable && taskNumber < targetNumber;
+                    case '>=': return comparable && taskNumber >= targetNumber;
+                    case '<=': return comparable && taskNumber <= targetNumber;
+                    case 'between': {
+                        const range = value && typeof value === 'object'
+                            ? [value.from, value.to]
+                            : String(value ?? '').split(',');
+                        const from = asNumber(range[0]);
+                        const to = asNumber(range[1]);
+                        return Number.isFinite(taskNumber) && Number.isFinite(from) && Number.isFinite(to)
+                            && taskNumber >= from && taskNumber <= to;
+                    }
+                    case 'contains': return String(taskValue ?? '').toLowerCase().includes(runtime.valueLower);
+                    case 'not_contains': return !String(taskValue ?? '').toLowerCase().includes(runtime.valueLower);
+                }
+            }
+
+            if (runtime.isTimeField && (operator === '=' || operator === '!=')) {
+                return this.evaluateTimeCondition(task, runtime, opts);
             }
 
             // 处理文本字段

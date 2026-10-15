@@ -2323,7 +2323,7 @@
 
     function __tmNormalizeGroupModeValue(mode, fallback = 'none') {
         const value = String(mode || '').trim();
-        return ['none', 'doc', 'time', 'quadrant', 'task'].includes(value) ? value : String(fallback || 'none').trim() || 'none';
+        return ['none', 'doc', 'time', 'quadrant', 'task'].includes(value) ? value : String(fallback ?? 'none').trim();
     }
 
     function __tmNormalizeRuleIdValue(ruleId) {
@@ -2497,6 +2497,22 @@
         return 'none';
     }
 
+    function __tmGetEffectiveGroupModeValue() {
+        const shortcut = typeof __tmShortcuts !== 'undefined' ? __tmShortcuts.context() : null;
+        const data = SettingsStore.data;
+        const fallback = data.quadrantConfig?.enabled ? 'quadrant'
+            : data.groupByTime ? 'time' : data.groupByDocName ? 'doc' : data.groupByTaskName ? 'task' : 'none';
+        return __tmNormalizeGroupModeValue(shortcut?.groupMode || data.groupMode, fallback);
+    }
+
+    function __tmApplyGroupModeToRuntime(mode) {
+        const value = __tmNormalizeGroupModeValue(mode);
+        state.groupByDocName = value === 'doc';
+        state.groupByTaskName = value === 'task';
+        state.groupByTime = value === 'time';
+        state.quadrantEnabled = value === 'quadrant';
+    }
+
     function __tmFindRuleById(ruleId) {
         const id = String(ruleId || '').trim();
         if (!id) return null;
@@ -2653,18 +2669,16 @@
             : null;
 
         state.currentRule = nextRuleId;
-        if (opts.runtimeOnly !== true) SettingsStore.data.currentRule = nextRuleId;
-        SettingsStore.data.groupMode = groupMode;
-        SettingsStore.data.groupByDocName = groupMode === 'doc';
-        SettingsStore.data.groupByTime = groupMode === 'time';
-        if (groupMode === 'task') SettingsStore.data.groupByTaskName = true;
-        SettingsStore.data.quadrantConfig = SettingsStore.data.quadrantConfig || {};
-        SettingsStore.data.quadrantConfig.enabled = groupMode === 'quadrant';
-
-        state.groupByDocName = groupMode === 'doc';
-        state.groupByTaskName = groupMode === 'task';
-        state.groupByTime = groupMode === 'time';
-        state.quadrantEnabled = groupMode === 'quadrant';
+        if (opts.runtimeOnly !== true) {
+            SettingsStore.data.currentRule = nextRuleId;
+            SettingsStore.data.groupMode = groupMode;
+            SettingsStore.data.groupByDocName = groupMode === 'doc';
+            SettingsStore.data.groupByTime = groupMode === 'time';
+            if (groupMode === 'task') SettingsStore.data.groupByTaskName = true;
+            SettingsStore.data.quadrantConfig = SettingsStore.data.quadrantConfig || {};
+            SettingsStore.data.quadrantConfig.enabled = groupMode === 'quadrant';
+        }
+        __tmApplyGroupModeToRuntime(groupMode);
 
         const nextDoneOnly = __tmRuleNeedsDoneOnly(rule);
         state.__tmQueryDoneOnly = nextDoneOnly;
@@ -2675,7 +2689,7 @@
         if (opts.applyDefaultViewMode !== false && profileDefaultViewMode === 'kanban' && profileKanbanBoardMode) {
             if (typeof __tmSetKanbanBoardModeState === 'function') {
                 __tmSetKanbanBoardModeState(profileKanbanBoardMode);
-            } else {
+            } else if (opts.runtimeOnly !== true) {
                 SettingsStore.data.kanbanBoardMode = profileKanbanBoardMode;
                 SettingsStore.data.kanbanHeadingGroupMode = profileKanbanBoardMode === 'heading';
             }
@@ -2701,7 +2715,7 @@
         const shortcut = typeof __tmShortcuts !== 'undefined' ? __tmShortcuts.context() : null;
         if (shortcut && rawActiveDocId === shortcut.activeDocId && currentGroupId === shortcut.groupId) {
             return { source: 'shortcut', docId: rawActiveDocId, groupId: currentGroupId,
-                profile: { ...__tmNormalizeViewProfile(store.global, store.global), groupMode: __tmGetCurrentGroupModeValue(), ruleId: shortcut.ruleId || null, defaultViewMode: shortcut.viewId === 'home' ? null : shortcut.viewId } };
+                profile: { ...__tmNormalizeViewProfile(store.global, store.global), groupMode: __tmGetEffectiveGroupModeValue(), ruleId: shortcut.ruleId || null, defaultViewMode: shortcut.viewId === 'home' ? null : shortcut.viewId } };
         }
         const viewDefaults = __tmResolveContextViewDefaults(rawActiveDocId, currentGroupId, store);
         if (docTabGroupId) {
@@ -2812,7 +2826,7 @@
         const applied = __tmApplyViewProfileToRuntime({
             ...resolved.profile,
             defaultViewMode: shortcut ? (shortcut.viewId === 'home' ? null : shortcut.viewId) : contextViewDefaults.defaultViewMode,
-            defaultKanbanBoardMode: shortcut ? null : contextViewDefaults.defaultKanbanBoardMode
+            defaultKanbanBoardMode: shortcut ? shortcut.kanbanBoardMode || null : contextViewDefaults.defaultKanbanBoardMode
         }, shortcut ? { ...opts, runtimeOnly: true } : opts);
         const nextCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
         const customFieldReloadNeeded = __tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan);

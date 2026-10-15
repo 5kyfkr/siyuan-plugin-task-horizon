@@ -21,7 +21,9 @@
                     : { type: 'phosphor', name: /^[a-z0-9-]+$/.test(source.icon?.name || '') ? source.icon.name : 'star' };
                 return [{ id, name, icon, groupId: text(source.groupId) || 'all', tabGroupId: text(source.tabGroupId),
                     docId: text(source.docId) || 'all', viewId: text(source.viewId) || 'checklist',
-                    ruleId: text(source.ruleId), targetNames: { ...(source.targetNames || {}) } }];
+                    ruleId: text(source.ruleId), groupMode: __tmNormalizeGroupModeValue(source.groupMode, ''),
+                    kanbanBoardMode: __tmNormalizeKanbanBoardMode(source.kanbanBoardMode),
+                    targetNames: { ...(source.targetNames || {}) } }];
             });
         }
         const items = () => normalize(SettingsStore.data.shortcutItems);
@@ -31,6 +33,8 @@
                 tabGroup: tabGroups(item.groupId).find(group => group.id === item.tabGroupId)?.name || item.targetNames?.tabGroup || item.tabGroupId,
                 doc: item.docId === 'all' ? '全部页签' : documentName(item.docId) || item.targetNames?.doc || item.docId,
                 view: item.viewId === 'home' ? '首页' : __TM_ALL_VIEWS.find(view => view.id === item.viewId)?.label || item.viewId,
+                groupMode: item.groupMode ? __tmGetGroupModeLabel(item.groupMode) : '保持当前分组',
+                kanbanBoardMode: item.kanbanBoardMode ? __tmGetKanbanBoardModeLongLabel(item.kanbanBoardMode) : '保持当前看板模式',
                 rule: !item.ruleId ? '不应用规则' : rules().find(rule => rule.id === item.ruleId)?.name || item.targetNames?.rule || item.ruleId,
             };
         }
@@ -80,6 +84,8 @@
             const item = value && items().find(entry => entry.id === value.shortcutId);
             const view = state.homepageOpen ? 'home' : state.viewMode;
             return item && item.viewId === view && item.ruleId === text(state.currentRule)
+                && (!item.groupMode || item.groupMode === __tmGetCurrentGroupModeValue())
+                && (view !== 'kanban' || !item.kanbanBoardMode || item.kanbanBoardMode === __tmGetKanbanBoardMode())
                 ? value.shortcutId : '';
         }
         function updateContext(patch) {
@@ -114,12 +120,16 @@
             if (invalid.length) { __tmShortcutSidebar.refresh();__tmShortcutSidebar.showInvalid(item, invalid); return false; }
             const previous = { groupId: SettingsStore.data.currentGroupId, activeDocId: state.activeDocId,
                 viewMode: state.viewMode, currentRule: state.currentRule, homepageOpen: state.homepageOpen,
-                shortcutContext: state.shortcutContext, searchKeyword: state.searchKeyword };
+                shortcutContext: state.shortcutContext, searchKeyword: state.searchKeyword,
+                groupMode: __tmGetCurrentGroupModeValue(), kanbanBoardMode: __tmGetKanbanBoardMode(),
+                queryDoneOnly: state.__tmQueryDoneOnly };
             const groupChanged = previous.groupId !== item.groupId;
             SettingsStore.data.currentGroupId = item.groupId;
             state.activeDocId = item.docId !== 'all' ? item.docId
                 : item.tabGroupId ? __tmBuildDocTabCustomGroupActiveId(item.tabGroupId) : 'all';
-            state.shortcutContext = { ...item, shortcutId: item.id, activeDocId: state.activeDocId };
+            state.shortcutContext = { ...item, groupMode: item.groupMode || previous.groupMode,
+                kanbanBoardMode: item.viewId === 'kanban' && item.kanbanBoardMode || previous.kanbanBoardMode,
+                shortcutId: item.id, activeDocId: state.activeDocId };
             openingGeneration = request;
             state.openToken = (Number(state.openToken) || 0) + 1;
             const token = state.openToken;
@@ -169,7 +179,10 @@
                 SettingsStore.data.currentGroupId = previous.groupId;
                 Object.assign(state, { activeDocId: previous.activeDocId, viewMode: previous.viewMode,
                     currentRule: previous.currentRule, homepageOpen: previous.homepageOpen,
-                    shortcutContext: previous.shortcutContext, searchKeyword: previous.searchKeyword });
+                    shortcutContext: previous.shortcutContext, searchKeyword: previous.searchKeyword,
+                    __tmQueryDoneOnly: previous.queryDoneOnly });
+                __tmApplyGroupModeToRuntime(previous.groupMode);
+                __tmShortcutSidebar.refresh();
                 hint(`打开快捷项失败：${error?.message || error}`, 'error');
                 return false;
             } finally {
@@ -186,7 +199,8 @@
                 ? [SettingsStore.data.docGroups, SettingsStore.data.selectedDocIds, SettingsStore.data.allDocsExcludedDocIds]
                 : SettingsStore.data.docGroups?.find(entry => entry.id === item.groupId);
             const tabGroup = item.tabGroupId ? tabGroups(item.groupId).find(entry => entry.id === item.tabGroupId) : null;
-            return JSON.stringify([item.groupId, item.tabGroupId, item.docId, item.viewId, item.ruleId,
+            return JSON.stringify([item.groupId, item.tabGroupId, item.docId, item.viewId, item.ruleId, item.groupMode,
+                item.viewId === 'kanban' ? item.kanbanBoardMode : '',
                 rule?.enabled, rule?.conditions, group, tabGroup, __tmGetTodayDateKey(),
                 SettingsStore.data.excludeCompleted, SettingsStore.data.showCompletedTasksByGroup?.[item.groupId],
                 SettingsStore.data.completedTasksTodayOnly, SettingsStore.data.completedTasksInlineInGroups]);
@@ -203,6 +217,8 @@
                 if (item.groupId === (SettingsStore.data.currentGroupId || 'all')
                     && activeDocId === (state.activeDocId || 'all')
                     && item.viewId === viewId && item.ruleId === String(state.currentRule || '')
+                    && (!item.groupMode || item.groupMode === __tmGetCurrentGroupModeValue())
+                    && (viewId !== 'kanban' || !item.kanbanBoardMode || item.kanbanBoardMode === __tmGetKanbanBoardMode())
                     && !issues(item, false).length) result.set(item.id, state.filteredTasks.length);
             }
             return result;

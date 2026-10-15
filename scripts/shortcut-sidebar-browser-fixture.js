@@ -22,6 +22,7 @@ runtime = runtime.slice(0, startup) + `
     ];
     const scope = {all:[docA,docB,docC],work:[docA,docB],empty:[docC]};
     state.allDocuments=[{id:docA,name:'产品迭代'},{id:docB,name:'项目交付'},{id:docC,name:'空白文档'}];
+    state.notebooks=[{id:'fixture-notebook',name:'Fixture'}];state.notebooksFetchedAt=Date.now();
     SettingsStore.data.docGroups=[{id:'work',name:'工作项目',entries:[]},{id:'empty',name:'空白项目',entries:[]}];
     SettingsStore.data.docTabCustomGroups=[{id:'iteration',name:'当前迭代',docGroupId:'work',entries:[{id:docA,type:'doc',includeChildDocs:false},{id:docB,type:'doc',includeChildDocs:false}]}];
     SettingsStore.data.filterRules=[{id:'today-rule',name:'今日',enabled:true,conditions:[{field:'completionTime',operator:'range_today',value:''}],sort:[]},{id:'disabled-rule',name:'停用规则',enabled:false,conditions:[]}];
@@ -30,9 +31,11 @@ runtime = runtime.slice(0, startup) + `
     SettingsStore.data.viewProfiles={global:{ruleId:null,groupMode:'doc'},groups:{work:{ruleId:null,groupMode:'doc',defaultViewMode:'kanban'}},allTabs:{},docTabGroups:{},docTabGroupAllTabs:{},docs:{}};
     SettingsStore.loaded=true;WhiteboardStore.loaded=true;MetaStore.loaded=true;
     SettingsStore.data.shortcutItems=__tmShortcuts.normalize(Storage.get('tm_shortcut_items', []));
+    SettingsStore.data.shortcutSidebarEnabled=Storage.get('tm_shortcut_sidebar_enabled',true)!==false;
+    SettingsStore.data.shortcutSidebarPreferences=JSON.parse(localStorage.getItem('fixture-shortcut-settings-file')||'null')||Storage.get('tm_shortcut_sidebar_saved_preferences',{});
     state.filterRules=SettingsStore.data.filterRules;
     state.viewMode='checklist';state.activeDocId='all';state.openToken=1;
-    SettingsStore.save=async()=>{if(window.shortcutTest.failSave)throw new Error('Simulated write failure');SettingsStore.syncToLocal();};
+    SettingsStore.save=async()=>{if(window.shortcutTest.failSave)throw new Error('Simulated write failure');SettingsStore.syncToLocal();localStorage.setItem('fixture-shortcut-settings-file',JSON.stringify(SettingsStore.data.shortcutSidebarPreferences));};
     WhiteboardStore.scheduleSave=()=>{};
     resolveDocIdsFromGroups=async({groupId='all'})=>{if(window.shortcutTest.delay)await new Promise(resolve=>setTimeout(resolve,window.shortcutTest.delay));return scope[groupId]||[];};
     __tmEnsureFilterRulesLoaded=async()=>state.filterRules;
@@ -50,6 +53,10 @@ runtime = runtime.slice(0, startup) + `
         load();${loaderRuleInitialization}\napplyFilters();render();
     };
     window.shortcutTest={state,SettingsStore,shortcuts:__tmShortcuts,sidebar:__tmShortcutSidebar,render,applyFilters,
+        groupMode:__tmGetCurrentGroupModeValue,reload:loadSelectedDocuments,
+        kanbanMode:__tmGetKanbanBoardMode,
+        savedKanbanMode:()=>Storage.get('tm_kanban_board_mode'),
+        cacheKey:__tmBuildGroupSessionTaskCacheKey,viewSignature:__tmBuildTaskSnapshotViewSignature,
         applyProfile:__tmApplyCurrentContextViewProfile,homepageTasks:__tmCollectHomepageTasks,
         restoreSnapshot:__tmRestoreTaskSnapshotIntoState,
         snapshot:groupId=>({version:__TM_TASK_SNAPSHOT_VERSION,groupId,createdAt:Date.now(),

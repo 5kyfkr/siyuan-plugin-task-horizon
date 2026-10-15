@@ -111,6 +111,19 @@ context.globalThis = context;
 vm.runInContext(fs.readFileSync(path.join(root, 'src/task-horizon/main/34-task-projection-engine.js'), 'utf8'), context);
 vm.runInContext(source.slice(start, end), context, { filename: 'kanban-optimistic-projection.js' });
 
+task = { id: 'task-a', parentTaskId: 'parent', pinned: false, done: false };
+context.state.filteredTasks = [{ id: 'parent', pinned: true, done: false, children: [task] }];
+for (const patch of [{ startDate: '2026-10-16' }, { completionTime: '2026-10-17' }, { priority: 'high' }]) {
+    assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', patch, { filtersApplied: true }), false,
+        'subtasks absent from direct filter results must defer to the renderer that resolves attached subtree visibility');
+    assert.ok(cards.every((card) => !card.hidden && !card.attrs.has('aria-hidden')),
+        'field edits must not hide an attached subtask before the grouped renderer reconciles it');
+}
+assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', { done: true }, { filtersApplied: true }), true);
+assert.ok(cards.every((card) => card.hidden), 'completion must still hide attached subtasks absent from direct filter results');
+context.state.filteredTasks = [task];
+countSyncs = 0;
+
 assert.equal(context.__tmTryApplyKanbanOptimisticProjectionInPlace('task-a', { done: true }, { filtersApplied: true }), true);
 assert.ok(cards.every((card) => card.hidden && card.attrs.get('aria-hidden') === 'true'),
     'the operation after-state must hide every mounted completed subtask immediately');

@@ -14,6 +14,8 @@
     "task-schedule-time-field.test.js",
     "task-custom-field-live-update-behavior.test.js",
     "task-pinned-refresh-behavior.test.js",
+    "task-rule-filter-dependencies.test.js",
+    "custom-text-rule-contract.test.js",
     "custom-field-priority-score-contract.test.js",
     "task-snapshot-pool-behavior.test.js",
     "task-snapshot-write-consistency-contract.test.js",

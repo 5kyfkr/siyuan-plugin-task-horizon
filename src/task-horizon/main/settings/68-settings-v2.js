@@ -41,6 +41,7 @@
         't-done:display': '完成反馈', 't-done:search': '已完成任务显示',
         't-review:status': '间隔复习', 't-review:search': '语义日期', 't-review:display': '工作日计算',
         'v-start:layout': '启动与默认视图', 'v-start:topbar': '思源入口', 'v-start:appearance-topbar': '插件顶栏入口',
+        'v-start:shortcuts': '快捷方式侧边栏',
         'v-float:layout': '任务点击行为', 'v-float:quickbar': '任务悬浮条',
         'v-fields:layout': '紧凑字段', 'v-fields:search': '任务分组与排序',
         'v-table:columns': '表格列设置', 'v-table:layout': '清单布局',

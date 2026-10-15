@@ -991,46 +991,11 @@
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
         state.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
         state.recursiveDocLimit = SettingsStore.data.recursiveDocLimit;
-        const gm0 = String(SettingsStore.data.groupMode || '').trim();
-        const validModes = new Set(['none', 'doc', 'time', 'quadrant', 'task']);
-        if (!validModes.has(gm0)) {
-            // groupMode 无效时，根据标志位推导模式
-            state.groupByDocName = SettingsStore.data.groupByDocName;
-            state.groupByTaskName = SettingsStore.data.groupByTaskName;
-            state.groupByTime = SettingsStore.data.groupByTime;
-            state.quadrantEnabled = SettingsStore.data.quadrantConfig?.enabled || false;
-        }
-        // 根据 groupMode 设置标志位，但 groupByTaskName 只在 groupMode === 'task' 时才设置为 true
-        if (gm0 === 'doc') {
-            state.groupByDocName = true;
-            state.groupByTime = false;
-            state.quadrantEnabled = false;
-        } else if (gm0 === 'time') {
-            state.groupByDocName = false;
-            state.groupByTime = true;
-            state.quadrantEnabled = false;
-        } else if (gm0 === 'task') {
-            state.groupByDocName = false;
-            state.groupByTaskName = true;
-            state.groupByTime = false;
-            state.quadrantEnabled = false;
-        } else if (gm0 === 'quadrant') {
-            state.groupByDocName = false;
-            state.groupByTime = false;
-            state.quadrantEnabled = true;
-        } else {
-            // 当 groupMode 为 'none' 时（用户选择了"不分组"），将 state.groupByTaskName 设置为 false
-            // 这样可以正确显示"不分组"选项为选中状态
-            // 注意：这里不检查 SettingsStore.data.groupByTaskName，因为它只控制开关显示，不影响当前分组模式
-            state.groupByDocName = false;
-            state.groupByTaskName = false;
-            state.groupByTime = false;
-            state.quadrantEnabled = false;
-        }
         state.collapsedTaskIds = new Set(SettingsStore.data.collapsedTaskIds || []);
         state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []);
         state.expandedCompletedGroups = new Set(SettingsStore.data.expandedCompletedGroups || []);
         const shortcutContext = typeof __tmShortcuts !== 'undefined' ? __tmShortcuts.context() : null;
+        __tmApplyGroupModeToRuntime(__tmGetEffectiveGroupModeValue());
         state.currentRule = shortcutContext ? shortcutContext.ruleId || null : SettingsStore.data.currentRule;
         state.columnWidths = SettingsStore.data.columnWidths;
         try { __tmNormalizeCompletedVisibilitySettings(SettingsStore.data); } catch (e) {}

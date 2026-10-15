@@ -5062,6 +5062,10 @@ return false;
             || Object.prototype.hasOwnProperty.call(patch || {}, 'customStatus');
         const hiddenByCompletion = cards.some((node) => node.getAttribute('data-tm-hidden-by-completion') === 'true');
         const preserveCompletionHidden = visibleByCompletion && hiddenByCompletion && !completionPatch;
+        // Attached subtasks may be injected by the grouped renderer without a
+        // direct filter match. Let that renderer reconcile their visibility.
+        if (visibleByCompletion && !Number.isFinite(taskRank)
+            && cards.some((node) => node.classList.contains('tm-kanban-card--sub'))) return false;
         if (!visibleByCompletion || !Number.isFinite(taskRank)) {
             const affectedColumns = new Set();
             cards.forEach((node) => {
