@@ -1,8 +1,9 @@
-    // Shortcut definitions are shared settings; the active override is session state.
+    // Shortcut definitions and navigation use plugin settings; entries keep separate host states.
     const __tmShortcuts = (() => {
         const views = ['home', 'timeline', 'calendar', 'kanban', 'list', 'checklist', 'whiteboard'];
         let generation = 0, openingGeneration = 0;
         const documentNames = new Map(), documentScopes = new Map();
+        const restoredSessions = new Set();
         const text = value => String(value ?? '').trim();
         const groups = () => [{ id: 'all', name: '全部文档' }, ...(SettingsStore.data.docGroups || []).map(group => ({ ...group, name: __tmResolveDocGroupName(group) }))];
         const rules = () => Array.isArray(state.filterRules) ? state.filterRules : [];
@@ -74,10 +75,79 @@
             return value && value.groupId === (SettingsStore.data.currentGroupId || 'all')
                 && value.activeDocId === (state.activeDocId || 'all') ? value : null;
         }
-        function clearContext() {
+        const sessionKey = () => `${__tmIsRuntimeMobileClient() ? 'mobile' : 'desktop'}_${__tmIsDockHost() ? 'dock' : 'main'}`;
+        async function persistSession() {
+            if (openingGeneration) return false;
+            const key = sessionKey(), value = context();
+            restoredSessions.add(key);
+            const stored = SettingsStore.data.shortcutNavigationSessions;
+            const sessions = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+            let saved = null;
+            if (value && items().some(item => item.id === value.shortcutId)) {
+                const { shortcutId, groupId, tabGroupId, docId, viewId, ruleId, groupMode, kanbanBoardMode } = value;
+                saved = { shortcutId, groupId, tabGroupId, docId, viewId, ruleId, groupMode, kanbanBoardMode };
+            }
+            if (!saved && !sessions[key]) return true;
+            SettingsStore.data.shortcutNavigationSessions = { ...sessions, [key]: saved };
+            try {
+                await SettingsStore.save({ suppressMobileCloseSyncDirty: true });
+                return true;
+            } catch (error) {
+                hint('快捷方式状态保存失败，请稍后重试', 'warning');
+                return false;
+            }
+        }
+        async function restoreSession({ isCurrent = () => true } = {}) {
+            const key = sessionKey(), request = generation;
+            if (restoredSessions.has(key) || context()) return false;
+            const saved = SettingsStore.data.shortcutNavigationSessions?.[key];
+            if (!saved || typeof saved !== 'object' || Array.isArray(saved)) {
+                restoredSessions.add(key);
+                return false;
+            }
+            try { await __tmEnsureFilterRulesLoaded(); } catch (e) { return false; }
+            if (request !== generation || key !== sessionKey() || !isCurrent()) return false;
+            const item = items().find(entry => entry.id === saved.shortcutId);
+            const value = item && { ...item, viewId: text(saved.viewId), ruleId: text(saved.ruleId),
+                groupMode: __tmNormalizeGroupModeValue(saved.groupMode, '') || item.groupMode || __tmGetCurrentGroupModeValue(),
+                kanbanBoardMode: __tmNormalizeKanbanBoardMode(saved.kanbanBoardMode) || item.kanbanBoardMode || __tmGetKanbanBoardMode() };
+            if (!value || value.groupId !== saved.groupId || value.tabGroupId !== saved.tabGroupId
+                || value.docId !== saved.docId || issues(value, false).length) {
+                restoredSessions.add(key);
+                await persistSession();
+                return false;
+            }
+            if (value.docId !== 'all') {
+                let docs;
+                try { docs = await documents(value.groupId, value.tabGroupId); } catch (e) { return false; }
+                if (request !== generation || key !== sessionKey() || !isCurrent()) return false;
+                if (!docs.some(doc => doc.id === value.docId)) {
+                    restoredSessions.add(key);
+                    await persistSession();
+                    return false;
+                }
+            }
+            restoredSessions.add(key);
+            SettingsStore.data.currentGroupId = value.groupId;
+            state.activeDocId = value.docId !== 'all' ? value.docId
+                : value.tabGroupId ? __tmBuildDocTabCustomGroupActiveId(value.tabGroupId) : 'all';
+            state.shortcutContext = { ...value, shortcutId: item.id, activeDocId: state.activeDocId };
+            state.homepageOpen = value.viewId === 'home';
+            state.attachmentLibraryOpen = false;
+            if (value.viewId !== 'home') state.viewMode = value.viewId;
+            state.viewModeInitialized = true;
+            state.currentRule = value.ruleId || null;
+            __tmApplyCompletedVisibilityToRuntime();
+            __tmApplyGroupModeToRuntime(value.groupMode);
+            return true;
+        }
+        function clearContext({ preserveSession = false } = {}) {
             generation++;
             openingGeneration = 0;
             state.shortcutContext = null;
+            if (!preserveSession) {
+                void persistSession();
+            }
         }
         function activeId() {
             const value = context();
@@ -92,6 +162,7 @@
             const value = context();
             if (!value) return false;
             Object.assign(value, patch);
+            void persistSession();
             return true;
         }
         async function save(nextItems) {
@@ -99,6 +170,7 @@
             SettingsStore.data.shortcutItems = normalize(nextItems);
             try { await SettingsStore.save(); }
             catch (error) { SettingsStore.data.shortcutItems = before; throw error; }
+            await persistSession();
             __tmShortcutSidebar.refresh();
         }
         async function open(id) {
@@ -121,6 +193,9 @@
             const previous = { groupId: SettingsStore.data.currentGroupId, activeDocId: state.activeDocId,
                 viewMode: state.viewMode, currentRule: state.currentRule, homepageOpen: state.homepageOpen,
                 shortcutContext: state.shortcutContext, searchKeyword: state.searchKeyword,
+                attachmentLibraryOpen: state.attachmentLibraryOpen, docTabsArchiveMode: state.docTabsArchiveMode,
+                whiteboardSelectedTaskId: state.whiteboardSelectedTaskId,
+                whiteboardMultiSelectedTaskIds: state.whiteboardMultiSelectedTaskIds,
                 groupMode: __tmGetCurrentGroupModeValue(), kanbanBoardMode: __tmGetKanbanBoardMode(),
                 queryDoneOnly: state.__tmQueryDoneOnly };
             const groupChanged = previous.groupId !== item.groupId;
@@ -158,9 +233,10 @@
                     });
                 }
                 if (!snapshotRestored && (groupChanged || applied.customFieldReloadNeeded || !(state.taskTree || []).length)) {
-                    await loadSelectedDocuments({ source: 'shortcut', showInlineLoading: true,
+                    const loaded = await loadSelectedDocuments({ source: 'shortcut', showInlineLoading: true,
                         skipSnapshotFirstPaint: true, skipSessionRestoreFirstPaint: true,
                         skipDocSessionRestoreFirstPaint: true, waitWhiteboardInline: item.viewId === 'whiteboard' });
+                    if (loaded === false) throw new Error('任务加载失败，请稍后重试');
                 } else {
                     if (snapshotRestored) recalcStats();
                     __tmRecomputeTaskProjection({ reason: 'shortcut' });
@@ -171,6 +247,8 @@
                 }
                 if (!isCurrent()) return false;
                 openingGeneration = 0;
+                await persistSession();
+                if (!isCurrent()) return false;
                 __tmShortcutSidebar.closeDrawer();
                 __tmShortcutSidebar.refresh();
                 return true;
@@ -180,8 +258,14 @@
                 Object.assign(state, { activeDocId: previous.activeDocId, viewMode: previous.viewMode,
                     currentRule: previous.currentRule, homepageOpen: previous.homepageOpen,
                     shortcutContext: previous.shortcutContext, searchKeyword: previous.searchKeyword,
+                    attachmentLibraryOpen: previous.attachmentLibraryOpen, docTabsArchiveMode: previous.docTabsArchiveMode,
+                    whiteboardSelectedTaskId: previous.whiteboardSelectedTaskId,
+                    whiteboardMultiSelectedTaskIds: previous.whiteboardMultiSelectedTaskIds,
                     __tmQueryDoneOnly: previous.queryDoneOnly });
+                __tmApplyCompletedVisibilityToRuntime();
                 __tmApplyGroupModeToRuntime(previous.groupMode);
+                __tmRecomputeTaskProjection({ reason: 'shortcut-rollback' });
+                render();
                 __tmShortcutSidebar.refresh();
                 hint(`打开快捷项失败：${error?.message || error}`, 'error');
                 return false;
@@ -224,5 +308,5 @@
             return result;
         }
         return { normalize, items, groups, rules, tabGroups, names, issues, documents, context,
-            clearContext, updateContext, activeId, save, open, views, filterHomepageTasks, counts, countKey };
+            clearContext, updateContext, restoreSession, activeId, save, open, views, filterHomepageTasks, counts, countKey };
     })();

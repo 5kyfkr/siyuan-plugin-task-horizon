@@ -4536,14 +4536,14 @@ return false;
                 groupKind,
             });
         });
+        // Moving the last row can remove both a subgroup and its parent header.
+        // Let the grouped renderer reconcile those shells before moving nodes.
+        if (Array.from(modal.querySelectorAll('.tm-checklist-group[data-group-key]'))
+            .some((header) => !groupCounts.has(String(header.getAttribute('data-group-key') || '').trim()))) return false;
         const visibleTaskIds = new Set(taskRows.map((row) => row.id).filter(Boolean));
         const block = __tmCollectChecklistProjectionDomBlock(item);
         const targetIndex = taskRows.findIndex((row) => row.id === tid);
-        if (targetIndex < 0) {
-            __tmSetChecklistProjectionDomBlockVisibility(block, visibleTaskIds, true);
-
-            return true;
-        }
+        if (targetIndex < 0) return false;
         __tmSetChecklistProjectionDomBlockVisibility(block, visibleTaskIds, false);
 
         const target = taskRows[targetIndex];
@@ -5017,6 +5017,7 @@ return false;
         if (!(card instanceof HTMLElement) || !task) return false;
         const sourceColumn = card.closest('.tm-kanban-col');
         if (!(sourceColumn instanceof HTMLElement)) return false;
+        const sourceColumnKind = String(sourceColumn.getAttribute('data-kind') || '').trim();
         if (options?.filtersApplied !== true) return __tmScheduleOptimisticProjectionFrame('kanban', tid, patch);
         // Completed subgroup membership and ordering come from the grouped renderer.
         if (card.closest('.tm-kanban-group--completed-subgroup')) return false;
@@ -5067,6 +5068,9 @@ return false;
         if (visibleByCompletion && !Number.isFinite(taskRank)
             && cards.some((node) => node.classList.contains('tm-kanban-card--sub'))) return false;
         if (!visibleByCompletion || !Number.isFinite(taskRank)) {
+            // Hiding cards alone cannot remove dynamic columns or grouped shells.
+            if (['time', 'doc', 'heading'].includes(sourceColumnKind)
+                || cards.some((node) => node.closest('.tm-kanban-group'))) return false;
             const affectedColumns = new Set();
             cards.forEach((node) => {
                 node.hidden = true;
@@ -5106,6 +5110,8 @@ return false;
         const sourceGroupKey = String(sourceGroup?.querySelector?.(':scope > .tm-kanban-group-title[data-group-key]')?.getAttribute?.('data-group-key') || '').trim();
         const expectedGroupKeys = __tmGetKanbanExpectedProjectionGroupKeys(task, targetColumn);
         const groupContainerChanged = expectedGroupKeys.length > 0 && !expectedGroupKeys.includes(sourceGroupKey);
+        if (!isSubtaskCard && (targetColumn !== sourceColumn || groupContainerChanged)
+            && (sourceGroup instanceof HTMLElement || ['time', 'doc', 'heading'].includes(sourceColumnKind))) return false;
         let targetContainer = card.parentElement;
         if (!isSubtaskCard && pinned && !pinWithinGroups) {
             targetContainer = __tmEnsureKanbanPinnedProjectionContainer(targetColumn);

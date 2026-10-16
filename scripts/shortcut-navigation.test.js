@@ -29,15 +29,18 @@ const snapshotValidation = ['__tmNormalizeTaskSnapshotDocIds', '__tmBuildTaskSna
     '__tmIsPreservedTaskSnapshot', '__tmIsUsableTaskSnapshot', '__tmValidateTaskSnapshotForScope']
     .map(name => extract(storeSource, `    function ${name}(`)).join('\n');
 const noOp = () => {};
-function fixture() {
+function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
     const state = {activeDocId:'all',viewMode:'checklist',currentRule:null,groupByDocName:true,openToken:0,taskTree:[{id:'doc-a'}],filterRules:[{id:'today',enabled:true},{id:'off',enabled:false}]};
     const profiles = {global:{ruleId:'global-rule',groupMode:'doc'},groups:{work:{ruleId:'group-rule',groupMode:'doc'}},allTabs:{},docTabGroups:{},docTabGroupAllTabs:{},docs:{}};
-    const store = {data:{currentGroupId:'all',currentRule:'global-rule',groupMode:'doc',groupByDocName:true,groupByTime:false,groupByTaskName:false,quadrantConfig:{enabled:false},kanbanBoardMode:'status',kanbanHeadingGroupMode:false,docGroups:[{id:'work',name:'工作'}],docTabCustomGroups:[],viewProfiles:profiles,shortcutItems:[]},save:async()=>{}};
+    const store = {loaded:true,data:{currentGroupId:'all',currentRule:'global-rule',groupMode:'doc',groupByDocName:true,groupByTime:false,groupByTaskName:false,quadrantConfig:{enabled:false},kanbanBoardMode:'status',kanbanHeadingGroupMode:false,docGroups:[{id:'work',name:'工作'}],docTabCustomGroups:[],viewProfiles:profiles,shortcutItems:[],shortcutNavigationSessions:JSON.parse(storage.get('settings-file')||'{}').shortcutNavigationSessions||{}},save:async()=>{storage.set('settings-file',JSON.stringify({shortcutNavigationSessions:store.data.shortcutNavigationSessions}));}};
     const events = [], invalid = [], loads = [];
     const ctx = vm.createContext({state,SettingsStore:store,console,Map,Set,Date,Math,Promise,setTimeout,clearTimeout,
         __TM_TASK_SNAPSHOT_VERSION:4,__TM_TASK_SNAPSHOT_MAX_AGE_MS:3*86400000,
         __tmIsLikelyBlockId:value=>/^\d{14}-[a-z0-9]{7}$/.test(value),
-        __tmIsRuntimeMobileClient:()=>false,
+        __tmIsRuntimeMobileClient:()=>host.mobile,
+        __tmIsDockHost:()=>host.dock,
+        Storage:{get:(key,fallback)=>storage.has(key)?JSON.parse(storage.get(key)):fallback,
+            set:(key,value)=>storage.set(key,JSON.stringify(value)),remove:key=>storage.delete(key)},
         __tmResolveDocGroupName:group=>group.name,
         __tmGetTodayDateKey:()=> '2026-10-15',
         __TM_ALL_VIEWS:['checklist','calendar','whiteboard','kanban'].map(id=>({id,label:id})),
@@ -166,6 +169,158 @@ function fixture() {
     assert.equal(grouping.core.context(),previousContext);
     assert.equal(grouping.ctx.__tmGetCurrentGroupModeValue(),'time','failed opening restores the previous grouping');
     assert.equal(grouping.core.activeId(),'time');
+    for(const failure of ['returned-false','thrown']){
+        const failed=fixture();
+        failed.store.data.shortcutItems=[failed.shortcut('original',{groupMode:'time'}),failed.shortcut('failed',{groupId:'work',viewId:'kanban',kanbanBoardMode:'heading',groupMode:'quadrant',ruleId:''})];
+        await failed.core.open('original');
+        failed.state.searchKeyword='previous search';
+        failed.state.docTabsArchiveMode=true;
+        const previous=failed.core.context();
+        let drawerClosed=0;
+        failed.ctx.__tmShortcutSidebar.closeDrawer=()=>drawerClosed++;
+        failed.ctx.loadSelectedDocuments=async()=>{
+            failed.state.currentRule=null;
+            if(failure==='thrown')throw new Error('load failed');
+            return false;
+        };
+        const paints=failed.events.filter(event=>event==='render').length;
+        assert.equal(await failed.core.open('failed'),false,failure+' cannot report successful navigation');
+        assert.equal(failed.store.data.currentGroupId,'all');
+        assert.equal(failed.state.viewMode,'checklist');
+        assert.equal(failed.core.context(),previous);
+        assert.equal(failed.core.activeId(),'original');
+        assert.equal(failed.ctx.__tmGetCurrentGroupModeValue(),'time');
+        assert.equal(failed.state.searchKeyword,'previous search');
+        assert.equal(failed.state.docTabsArchiveMode,true);
+        assert.equal(drawerClosed,0,'failure leaves the drawer available for retry');
+        assert.ok(failed.events.filter(event=>event==='render').length>paints,'failure repaints the restored navigation');
+        assert.ok(failed.events.some(event=>String(event).includes('打开快捷项失败')));
+        failed.ctx.loadSelectedDocuments=async()=>{};
+        assert.equal(await failed.core.open('failed'),true,'a subsequent attempt can succeed');
+        assert.equal(drawerClosed,1);
+    }
+    const staleFailure=fixture();
+    staleFailure.store.data.shortcutItems=[staleFailure.shortcut('slow',{groupId:'work',viewId:'kanban'}),staleFailure.shortcut('latest',{groupId:'all',viewId:'whiteboard',ruleId:''})];
+    let failOldLoad,loadStarted;
+    const oldLoad=new Promise(resolve=>{failOldLoad=resolve;}),didStartLoad=new Promise(resolve=>{loadStarted=resolve;});
+    staleFailure.ctx.loadSelectedDocuments=()=>{loadStarted();return oldLoad;};
+    const oldOpen=staleFailure.core.open('slow');await didStartLoad;
+    staleFailure.ctx.loadSelectedDocuments=async()=>{};
+    assert.equal(await staleFailure.core.open('latest'),true);
+    failOldLoad(false);assert.equal(await oldOpen,false);
+    assert.equal(staleFailure.store.data.currentGroupId,'all');
+    assert.equal(staleFailure.state.viewMode,'whiteboard','an older failure cannot roll back a later click');
+    assert.equal(staleFailure.core.activeId(),'latest');
+    assert.equal(staleFailure.events.filter(event=>String(event).includes('打开快捷项失败')).length,0);
+    const rememberedStorage=new Map();
+    const remembered=fixture(rememberedStorage);
+    remembered.store.data.shortcutItems=[remembered.shortcut('remembered',{groupId:'work',viewId:'kanban',ruleId:'today',groupMode:'quadrant',kanbanBoardMode:'heading'})];
+    assert.equal(await remembered.core.open('remembered'),true);
+    const rememberedItems=JSON.parse(JSON.stringify(remembered.store.data.shortcutItems));
+    const coldStorage=new Map([...rememberedStorage].filter(([key])=>key==='settings-file'));
+    const coldRestarted=fixture(coldStorage);coldRestarted.store.data.shortcutItems=rememberedItems;
+    assert.equal(await coldRestarted.core.restoreSession(),true,'a cold start restores from plugin settings without the old browser origin storage');
+    assert.equal(coldRestarted.core.activeId(),'remembered');
+    remembered.core.clearContext({preserveSession:true});
+    const restarted=fixture(rememberedStorage);restarted.store.data.shortcutItems=rememberedItems;
+    const restartedDefaults=JSON.stringify(restarted.store.data);
+    assert.equal(await restarted.core.restoreSession(),true,'a new plugin runtime restores the last shortcut');
+    assert.equal(restarted.store.data.currentGroupId,'work');
+    assert.equal(restarted.state.viewMode,'kanban');assert.equal(restarted.state.currentRule,'today');
+    assert.equal(restarted.ctx.__tmGetCurrentGroupModeValue(),'quadrant');
+    assert.equal(restarted.ctx.__tmGetKanbanBoardMode(),'heading');
+    assert.equal(restarted.core.activeId(),'remembered');
+    assert.equal(restarted.loads.length,0,'restoration leaves task loading to the normal startup loader');
+    assert.equal(restarted.store.data.currentRule,'global-rule');
+    assert.equal(JSON.stringify(restarted.store.data.viewProfiles),JSON.stringify(JSON.parse(restartedDefaults).viewProfiles));
+    assert.equal(restarted.ctx.__tmGetStoredKanbanBoardMode(),'status');
+    const lifecycle=fs.readFileSync(path.join(main,'shell/80-shell-lifecycle.js'),'utf8');
+    const cold=fixture(new Map(rememberedStorage));cold.store.data.shortcutItems=rememberedItems;
+    class HostElement {}
+    const firstPaints=[],firstLoads=[];
+    Object.assign(cold.ctx,{
+        Element:HostElement,HTMLElement:HostElement,document:{body:{contains:()=>false}},__tmMountEl:{},
+        __tmMarkContextInteractionQuiet:noOp,__tmListenPinnedChanged:noOp,__tmEnsureMount:noOp,
+        __tmEnsureSettingsLoaded:async()=>{},__tmIsMobileDevice:()=>false,__tmGetConfiguredDefaultViewMode:()=> 'checklist',
+        __tmReadManagerModalRenderMode:()=>'',__tmGetExpectedManagerRenderMode:()=>cold.state.viewMode,
+        __tmHasQuickbarModificationsSync:()=>false,__tmRefreshNotebookCache:async()=>{},checkAnyGroupHasDocs:async()=>true,
+        setTimeout:()=>1,requestAnimationFrame:callback=>callback(),
+        render:()=>{cold.state.modal=new HostElement();firstPaints.push([cold.state.viewMode,cold.state.currentRule,cold.ctx.__tmGetKanbanBoardMode()]);},
+        loadSelectedDocuments:async()=>{firstLoads.push([cold.state.viewMode,cold.state.currentRule,cold.core.activeId()]);},
+    });
+    vm.runInContext(extract(lifecycle,'    async function openManager('),cold.ctx);
+    await cold.ctx.openManager({skipEnsureTabOpened:true,awaitInitialLoad:true});
+    assert.deepEqual(firstPaints,[['kanban','today','heading']],'the first startup paint already uses the saved shortcut instead of the configured default view');
+    assert.deepEqual(firstLoads,[['kanban','today','remembered']],'startup issues one normal task load using the restored rule');
+    const initStart=lifecycle.indexOf('            // 初始化状态'),initEnd=lifecycle.indexOf('            state.columnWidths =',initStart);
+    assert.ok(initStart>=0&&initEnd>initStart);
+    cold.ctx.__TM_TASK_INDEX_QUERY_LIMIT=500;
+    vm.runInContext('{'+lifecycle.slice(initStart,initEnd)+'}',cold.ctx);
+    assert.equal(cold.state.currentRule,'today','late shell initialization cannot reset the restored shortcut rule');
+    assert.equal(cold.ctx.__tmGetCurrentGroupModeValue(),'quadrant');
+    restarted.state.viewMode='calendar';
+    assert.equal(await restarted.core.restoreSession(),false,'a later manager open does not overwrite current navigation');
+    assert.equal(restarted.state.viewMode,'calendar');
+    restarted.core.updateContext({viewId:'calendar',ruleId:'',groupMode:'time',kanbanBoardMode:'time'});
+    const modified=fixture(rememberedStorage);modified.store.data.shortcutItems=rememberedItems;
+    assert.equal(await modified.core.restoreSession(),true);
+    assert.equal(modified.state.viewMode,'calendar');assert.equal(modified.state.currentRule,null);
+    assert.equal(modified.ctx.__tmGetCurrentGroupModeValue(),'time','manual shortcut overrides also survive reload');
+    assert.equal(modified.core.activeId(),'','modified navigation does not highlight the unchanged shortcut definition');
+    modified.core.clearContext();
+    const exited=fixture(rememberedStorage);exited.store.data.shortcutItems=rememberedItems;
+    assert.equal(await exited.core.restoreSession(),false,'leaving shortcuts clears the saved navigation');
+    assert.equal(exited.store.data.currentGroupId,'all');
+    for(const invalidSession of ['deleted-shortcut','deleted-group','disabled-view','deleted-rule']){
+        const cache=new Map(),saved=fixture(cache);saved.store.data.shortcutItems=rememberedItems;
+        await saved.core.open('remembered');
+        const invalid=fixture(cache);invalid.store.data.shortcutItems=JSON.parse(JSON.stringify(rememberedItems));
+        if(invalidSession==='deleted-shortcut')invalid.store.data.shortcutItems=[];
+        if(invalidSession==='deleted-group')invalid.store.data.docGroups=[];
+        if(invalidSession==='disabled-view')invalid.ctx.__tmIsViewEnabled=()=>false;
+        if(invalidSession==='deleted-rule')invalid.state.filterRules=[];
+        assert.equal(await invalid.core.restoreSession(),false,invalidSession+' falls back to normal startup');
+        assert.equal(invalid.state.shortcutContext,undefined);
+        assert.ok(Object.values(invalid.store.data.shortcutNavigationSessions).every(value=>value===null),'invalid saved navigation is cleared in plugin settings');
+    }
+    const isolatedStorage=new Map(),desktopHost={mobile:false,dock:false};
+    const desktop=fixture(isolatedStorage,desktopHost);desktop.store.data.shortcutItems=rememberedItems;await desktop.core.open('remembered');
+    for(const host of [{mobile:false,dock:true},{mobile:true,dock:false}]){
+        const other=fixture(isolatedStorage,host);other.store.data.shortcutItems=rememberedItems;
+        assert.equal(await other.core.restoreSession(),false,'another device or entry does not adopt the saved tab shortcut');
+    }
+    const failedRestore=fixture(new Map(isolatedStorage));failedRestore.store.data.shortcutItems=rememberedItems;
+    failedRestore.ctx.__tmEnsureFilterRulesLoaded=async()=>{throw new Error('rules unavailable');};
+    assert.equal(await failedRestore.core.restoreSession(),false);
+    failedRestore.ctx.__tmEnsureFilterRulesLoaded=async()=>{};
+    assert.equal(await failedRestore.core.restoreSession(),true,'a temporary rules read failure does not discard saved navigation');
+    const docStorage=new Map(),docNavigation=fixture(docStorage);
+    docNavigation.store.data.shortcutItems=[docNavigation.shortcut('document',{groupId:'work',docId:'doc-a',viewId:'kanban'})];
+    await docNavigation.core.open('document');
+    const missingDocument=fixture(new Map(docStorage));missingDocument.store.data.shortcutItems=docNavigation.store.data.shortcutItems;
+    missingDocument.ctx.resolveDocIdsFromGroups=async()=>[];
+    assert.equal(await missingDocument.core.restoreSession(),false,'a document removed from its scope cannot restore an empty shortcut view');
+    const unavailableDocument=fixture(new Map(docStorage));unavailableDocument.store.data.shortcutItems=docNavigation.store.data.shortcutItems;
+    unavailableDocument.ctx.resolveDocIdsFromGroups=async()=>{throw new Error('scope unavailable');};
+    assert.equal(await unavailableDocument.core.restoreSession(),false);
+    unavailableDocument.ctx.resolveDocIdsFromGroups=async()=>['doc-a'];
+    assert.equal(await unavailableDocument.core.restoreSession(),true,'a transient scope failure retains the saved navigation for a later retry');
+    assert.equal(unavailableDocument.state.activeDocId,'doc-a');
+    const cancelledRestore=fixture(new Map(docStorage));cancelledRestore.store.data.shortcutItems=[...docNavigation.store.data.shortcutItems,cancelledRestore.shortcut('newer')];
+    let resolveRestoredScope,restoredScopeStarted;
+    const restoringScope=new Promise(resolve=>{resolveRestoredScope=resolve;}),restoringScopeDidStart=new Promise(resolve=>{restoredScopeStarted=resolve;});
+    cancelledRestore.ctx.resolveDocIdsFromGroups=()=>{restoredScopeStarted();return restoringScope;};
+    const restoring=cancelledRestore.core.restoreSession();await restoringScopeDidStart;
+    await cancelledRestore.core.open('newer');resolveRestoredScope(['doc-a']);
+    assert.equal(await restoring,false,'an old restore cannot replace newer user navigation');
+    assert.equal(cancelledRestore.core.activeId(),'newer');
+    const inFlightCache=new Map(),inFlight=fixture(inFlightCache);inFlight.store.data.shortcutItems=rememberedItems;
+    await inFlight.core.open('remembered');
+    const committedNavigation=JSON.stringify([...inFlightCache]);
+    inFlight.store.data.shortcutItems.push(inFlight.shortcut('failed-persist',{groupId:'all',viewId:'whiteboard',ruleId:''}));
+    inFlight.ctx.loadSelectedDocuments=async()=>false;
+    assert.equal(await inFlight.core.open('failed-persist'),false);
+    assert.equal(JSON.stringify([...inFlightCache]),committedNavigation,'failed navigation cannot overwrite the last successful session');
     const boards=fixture(), boardModes=['heading','time','status'];
     boards.store.data.shortcutItems=boardModes.map(kanbanBoardMode=>boards.shortcut(kanbanBoardMode,{viewId:'kanban',kanbanBoardMode}));
     boards.store.data.shortcutItems.push(boards.shortcut('legacy-board',{viewId:'kanban'}));

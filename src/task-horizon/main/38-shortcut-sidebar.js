@@ -233,7 +233,14 @@ SOFTWARE.
             if (!content) return;
             hideName();clearDrawerHoverTimer();
             observer?.disconnect();
+            const parent = content.parentElement;
+            const initialNarrow = parent.clientWidth < 768 || __tmIsRuntimeMobileClient() || __tmHostUsesMobileUI();
+            if (narrow !== initialNarrow) { narrow = initialNarrow;closeDrawer(false); }
             layout = document.createElement('div');layout.className = 'tm-shortcut-layout';
+            // Set visibility before insertion: measuring the connected layout would
+            // otherwise start a transition from the default expanded sidebar.
+            layout.dataset.shortcutMode = drawer ? 'drawer' : narrow ? 'hidden' : preferences.mode;
+            layout.dataset.shortcutNarrow = String(narrow);
             layout.addEventListener('pointermove', updateDrawerHoverZone);
             layout.addEventListener('pointerleave', leaveDrawerZone);
             if (!sidebar) {
@@ -274,7 +281,7 @@ SOFTWARE.
                 resize.onpointerup = resize.onpointercancel = () => { resizing = null;persistPreferences(); };
                 resize.onkeydown = event => { if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;event.preventDefault();preferences.width = Math.max(200, Math.min(320, preferences.width + (event.key === 'ArrowRight' ? 8 : -8)));persistPreferences();applyMode(); };
             }
-            content.parentElement.insertBefore(layout, content);
+            parent.insertBefore(layout, content);
             layout.append(sidebar, content);
             const scrim = document.createElement('button');scrim.className = 'tm-shortcut-scrim';scrim.setAttribute('aria-label', '关闭快捷导航');scrim.onclick = () => closeDrawer();layout.append(scrim);
             const edge = document.createElement('button');edge.className = 'tm-shortcut-edge';edge.setAttribute('aria-label', '打开快捷导航');edge.title = '打开快捷导航，上下拖动调整位置';edge.innerHTML = glyph('caret-right');layout.append(edge);

@@ -193,6 +193,7 @@ async function setup(page) {
         'fresh title styles are retained while reused descendants clear stale today marks',
         'optimistic top-level removal retains its source column for counts and keyed refresh',
         'completed grouping stays independent of main grouping and preserves document headings',
+        'last task leaving a dynamic column or group removes its shell without manual refresh',
     ]);
     async function run(name, check, mobile = false) {
         if (smoke && !smokeCases.has(name)) return;
@@ -669,6 +670,73 @@ async function setup(page) {
                 assert.deepEqual(snapshot.afterFullRender, snapshot.initial, snapshot.field + ': local and full rendering must agree');
             }
             assert.deepEqual(results.searched, ['parent'], 'search must not inject nonmatching descendants');
+        });
+        await run('last task leaving a dynamic column or group removes its shell without manual refresh', async (page) => {
+            await page.addScriptTag({ content:
+                section(completionRuntime, 'const __tmOptimisticProjectionFramePending =', 'function __tmCollectChecklistProjectionDomBlock(')
+                + section(completionRuntime, 'function __tmGetKanbanProjectionColumnId(', 'function __tmSyncKanbanCompletedTodayBadgeInDOM(')
+                + section(completionRuntime, 'function __tmFindKanbanNormalProjectionContainer(', 'function __tmRefreshKanbanProjectionPatchNow(') });
+            const results = await page.evaluate(async () => {
+                Object.assign(window, {
+                    __tmTaskStateKernel: { getTask: (id) => __tmTaskStore.getProjected(id) },
+                    __tmRecomputeTaskProjection: () => {},
+                    __tmUpdateTaskDoneInDOM: () => {},
+                    __tmSyncTaskCardMetaChipsInDOM: () => {},
+                    __tmSyncKanbanCompletedTodayBadgeInDOM: () => {},
+                    __tmScheduleViewRefresh: ({ taskIds }) => { if (!patch(taskIds)) mount(); },
+                });
+                const results = [];
+                for (const mode of ['time', 'heading', 'status']) {
+                    for (const action of ['filter', 'move', 'regroup', 'delete']) {
+                        for (const grouped of [false, true]) {
+                            if (action === 'regroup' && !grouped) continue;
+                            boardMode = mode;
+                            state.groupByTaskName = grouped;
+                            const last = { id: 'last', content: 'source', days: 0, root_id: 'doc', docId: 'doc' };
+                            const kept = { id: 'kept', content: 'destination', days: 1, customStatus: 'doing', root_id: 'doc2', docId: 'doc2' };
+                            if (action === 'regroup') Object.assign(kept, { days: 0, customStatus: 'todo', root_id: 'doc', docId: 'doc' });
+                            setModel([last, kept]); mount();
+                            const source = state.modal.querySelector('[data-id="last"]').closest('.tm-kanban-col');
+                            const sourceKey = source.dataset.colKey;
+                            const sourceGroupKey = state.modal.querySelector('[data-id="last"]').closest('.tm-kanban-group')?.querySelector('[data-group-key]')?.dataset.groupKey;
+                            const destinationKey = state.modal.querySelector('[data-id="kept"]').closest('.tm-kanban-col').dataset.colKey;
+                            const destinationCard = state.modal.querySelector('[data-id="kept"]');
+                            const edit = action === 'filter' ? { priority: 'low' } : action === 'regroup' ? { content: 'destination' }
+                                : { content: 'destination', days: 1, customStatus: 'doing', root_id: 'doc2', docId: 'doc2' };
+                            if (action === 'delete') __tmRemoveTaskDomNodes('last');
+                            setModel(action === 'delete' ? [kept] : [{ ...last, ...edit }, kept]);
+                            if (action === 'filter') state.filteredTasks = state.filteredTasks.filter((task) => task.id !== 'last');
+                            __tmScheduleOptimisticProjectionFrame('kanban', 'last', edit);
+                            await new Promise((resolve) => requestAnimationFrame(resolve));
+                            const after = {
+                                columns: Array.from(state.modal.querySelectorAll('.tm-kanban-col'), (col) => col.dataset.colKey),
+                                groups: Array.from(state.modal.querySelectorAll('[data-group-key]'), (group) => group.dataset.groupKey),
+                                cards: Array.from(state.modal.querySelectorAll('.tm-kanban-card')).filter((card) => !card.closest('[hidden]')).map((card) => card.dataset.id),
+                            };
+                            const destinationRetained = destinationCard === state.modal.querySelector('[data-id="kept"]');
+                            mount();
+                            const expected = {
+                                columns: Array.from(state.modal.querySelectorAll('.tm-kanban-col'), (col) => col.dataset.colKey),
+                                groups: Array.from(state.modal.querySelectorAll('[data-group-key]'), (group) => group.dataset.groupKey),
+                                cards: Array.from(state.modal.querySelectorAll('.tm-kanban-card')).filter((card) => !card.closest('[hidden]')).map((card) => card.dataset.id),
+                            };
+                            results.push({ mode, action, grouped, sourceKey, sourceGroupKey, destinationKey, destinationRetained, after, expected });
+                        }
+                    }
+                }
+                return results;
+            });
+            for (const result of results) {
+                assert.deepEqual(result.after, result.expected, JSON.stringify(result));
+                assert.ok(result.after.columns.includes(result.destinationKey));
+                if (result.mode === 'status') {
+                    assert.ok(result.after.columns.includes(result.sourceKey), 'configured status columns stay available');
+                    assert.equal(result.destinationRetained, true, 'unaffected cards retain their DOM nodes');
+                } else if (result.action !== 'regroup') {
+                    assert.ok(!result.after.columns.includes(result.sourceKey), 'empty dynamic columns disappear');
+                }
+                if (result.grouped) assert.ok(!result.after.groups.includes(result.sourceGroupKey), 'empty inner groups disappear');
+            }
         });
         await run('subtask status survives a later full render with the same filtered parent', async (page) => {
             const result = await page.evaluate(() => {

@@ -8656,6 +8656,7 @@
             shortcutItems: [],
             shortcutSidebarEnabled: true,
             shortcutSidebarPreferences: {},
+            shortcutNavigationSessions: {},
             fontSize: 14,
             fontSizeMobile: 14,
             rowHeightMode: 'normal',
@@ -9373,6 +9374,7 @@
                                 if (Array.isArray(cloudData.shortcutItems)) this.data.shortcutItems = __tmShortcuts.normalize(cloudData.shortcutItems);
                                 if (typeof cloudData.shortcutSidebarEnabled === 'boolean') this.data.shortcutSidebarEnabled = cloudData.shortcutSidebarEnabled;
                                 if (cloudData.shortcutSidebarPreferences && typeof cloudData.shortcutSidebarPreferences === 'object' && !Array.isArray(cloudData.shortcutSidebarPreferences)) this.data.shortcutSidebarPreferences = cloudData.shortcutSidebarPreferences;
+                                if (cloudData.shortcutNavigationSessions && typeof cloudData.shortcutNavigationSessions === 'object' && !Array.isArray(cloudData.shortcutNavigationSessions)) this.data.shortcutNavigationSessions = cloudData.shortcutNavigationSessions;
                                 if (Array.isArray(cloudData.filterRules)) this.data.filterRules = cloudData.filterRules;
                                 if (typeof cloudData.fontSize === 'number') this.data.fontSize = cloudData.fontSize;
                                 if (typeof cloudData.fontSizeMobile === 'number') this.data.fontSizeMobile = cloudData.fontSizeMobile;

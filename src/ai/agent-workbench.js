@@ -289,8 +289,14 @@
     }
 
     function newID() {
-        try { return globalThis.Lute?.NewNodeID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`; }
-        catch (error) { return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`; }
+        try {
+            const id = globalThis.Lute?.NewNodeID?.();
+            if (id) return id;
+        } catch (error) {}
+        const now = new Date();
+        const timestamp = [now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours(), now.getMinutes(), now.getSeconds()]
+            .map((part, index) => String(part).padStart(index === 0 ? 4 : 2, '0')).join('');
+        return `${timestamp}-${Math.floor(Math.random() * 36 ** 7).toString(36).padStart(7, '0')}`;
     }
 
     let markdownRenderer = null;
@@ -673,7 +679,7 @@
     }
 
     function isMissingAgentSessionError(error) {
-        return /(?:not\s+found|not\s+exist|does\s+not\s+exist|cannot\s+find\s+the\s+(?:path|file)|不存在|未找到|找不到)/i.test(text(error?.message || error));
+        return /(?:not\s+found|not\s+exist|does\s+not\s+exist|cannot\s+find\s+the\s+(?:path|file)|no\s+such\s+(?:file|directory)|ENOENT|不存在|未找到|找不到)/i.test(text(error?.message || error));
     }
 
     function isAgentSessionRevisionConflict(error) {
@@ -723,13 +729,18 @@
     }
 
     async function prepareConversationTurn(sessionID, prompt, title, options = {}) {
-        let id = text(sessionID) || newID();
+        const id = text(sessionID) || newID();
         let session = null;
         try {
             session = await post('/getSession', { id });
         } catch (error) {
             if (!isMissingAgentSessionError(error)) throw error;
-            if (options.replaceMissingSession === true) id = newID();
+        }
+        if (!session && options.requireExistingSession === true) {
+            throw new Error('已绑定的智能体会话在当前设备上不可用，请完成思源数据同步后重试');
+        }
+        if (Number(options.expectedUpdatedAt) > (Number(session?.updatedAt) || 0)) {
+            throw new Error('当前设备的智能体会话尚未同步到最后保存的版本，请完成思源数据同步后重试');
         }
         if (session?.agentRunning === true) throw new Error('智能体会话正在其他实例中执行');
         if (text(session?.recoveryTurnID)) {
@@ -745,6 +756,10 @@
         }
         const userEntryID = newID();
         for (let attempt = 0; attempt < 2; attempt += 1) {
+            if (session?.agentRunning === true) throw new Error('智能体会话正在其他实例中执行');
+            if (Number(options.expectedUpdatedAt) > (Number(session?.updatedAt) || 0)) {
+                throw new Error('当前设备的智能体会话尚未同步到最后保存的版本，请完成思源数据同步后重试');
+            }
             const now = Date.now();
             const entries = Array.isArray(session?.entries) ? clone(session.entries) : [];
             if (!entries.some((entry) => text(entry?.id) === userEntryID)) {
@@ -761,11 +776,11 @@
             const next = {
                 ...(session && typeof session === 'object' ? clone(session) : {}),
                 id,
-                title: text(session?.title || title) || SIYUAN_DEFAULT_SESSION_TITLE,
+                title: text(title || session?.title) || SIYUAN_DEFAULT_SESSION_TITLE,
                 titled: typeof options.titled === 'boolean' ? options.titled : session?.titled === true,
                 entries,
                 createdAt: Number(session?.createdAt) || now,
-                updatedAt: now,
+                updatedAt: Math.max(now, (Number(session?.updatedAt) || 0) + 1),
                 expectedRevision: Number(session?.revision) || 0,
             };
             delete next.messages;
@@ -812,26 +827,22 @@
         if (!id) return;
         await ensureStoreLoaded();
         rememberSession(id);
-        try {
-            const session = await post('/getSession', { id });
-            if (session) {
-                const desiredTitle = text(title);
-                const currentTitle = text(session.title);
-                if (desiredTitle && (session.titled !== true || !currentTitle || currentTitle === 'AI Agent' || currentTitle === DEFAULT_SESSION_TITLE || currentTitle.startsWith('定时：'))) {
-                    session.title = desiredTitle;
-                    session.titled = true;
-                    session.updatedAt = Date.now();
-                }
-                const baseEntries = Array.isArray(run.baseEntries) ? clone(run.baseEntries) : [];
-                const markdown = text(run.markdown);
-                if (markdown) baseEntries.push({ id: newID(), type: 'assistant', content: markdown, timestamp: Date.now() });
-                if (markdown) session.entries = baseEntries;
-                session.updatedAt = Date.now();
-                await persistSessionCheckpoint(session, run.turnID);
-            }
-        } catch (error) {}
+        const session = await post('/getSession', { id });
+        if (!session) throw new Error('智能体会话读取失败');
+        const desiredTitle = text(title);
+        if (desiredTitle) {
+            session.title = desiredTitle;
+            session.titled = true;
+        }
+        const baseEntries = Array.isArray(session.entries) ? clone(session.entries) : (Array.isArray(run.baseEntries) ? clone(run.baseEntries) : []);
+        const markdown = text(run.markdown);
+        if (markdown) baseEntries.push({ id: newID(), type: 'assistant', content: markdown, timestamp: Date.now() });
+        if (markdown) session.entries = baseEntries;
+        session.updatedAt = Math.max(Date.now(), (Number(session.updatedAt) || 0) + 1);
+        const saved = await persistSessionCheckpoint(session, run.turnID);
         await listSessions();
         if (runtime.mounted) render();
+        return saved;
     }
 
     function getDraft() {
@@ -1138,13 +1149,16 @@
         return runtime.sessions;
     }
 
-    async function loadSession(id) {
+    async function loadSession(id, options = {}) {
         if (sessionSwitchBlocked()) return runtime.session;
         const sessionID = text(id);
         if (!sessionID) return createSession();
         try {
             const session = await post('/getSession', { id: sessionID });
-            if (!session) return createSession();
+            if (!session) throw new Error('智能体会话读取失败');
+            if (Number(options.sessionUpdatedAt) > (Number(session.updatedAt) || 0)) {
+                throw new Error('会话尚未同步到最后保存的版本，请完成思源数据同步后重试');
+            }
             runtime.activeSessionID = sessionID;
             if (typeof session.titled !== 'boolean') {
                 const savedTitle = text(session.title);
@@ -1159,7 +1173,11 @@
             render();
             return session;
         } catch (error) {
-            return createSession();
+            runtime.statusText = isMissingAgentSessionError(error)
+                ? '会话在当前设备上不可用，请完成思源数据同步后重试'
+                : `会话读取失败：${text(error?.message || error)}`;
+            showSessionNotice(runtime.statusText, 'warning');
+            return null;
         }
     }
 
@@ -3129,6 +3147,7 @@
         const preset = getPreset(runtime.presetID);
         const userText = raw || text(preset?.starter);
         if (!userText) return;
+        if (runtime.activeSessionID && !runtime.session && !await loadSession(runtime.activeSessionID)) return;
         if (!await ensureTaskToolsReadyForSend()) return;
         await syncDocumentGroupSnapshot();
         if (!runtime.activeSessionID) createSession();
@@ -3447,7 +3466,7 @@
         runtime.contextPickerSearchSeq += 1;
         await resolveOpenContext(payload || {});
         const requestedSessionID = text(payload?.sessionID || payload?.conversationID);
-        if (requestedSessionID) await loadSession(requestedSessionID);
+        if (requestedSessionID && !await loadSession(requestedSessionID, payload)) return false;
         const presetID = presetFromPayload(payload);
         if (presetID) applyPreset(presetID, payload?.draft || payload?.prompt);
         else if (payload?.draft != null || payload?.prompt != null) {
@@ -3983,18 +4002,33 @@
         let baseEntries = [];
         let userEntryID = '';
         let contentRevision;
+        let savedSession = null;
+        const conversationState = () => ({
+            sessionID,
+            sessionUpdatedAt: Number(savedSession?.updatedAt) || 0,
+            sessionTitle: text(savedSession?.title),
+        });
+        const checkpointConversation = async (session) => {
+            savedSession = session;
+            if (typeof request.onSessionSaved === 'function') await request.onSessionSaved(conversationState());
+        };
         if (persistent) {
             try {
                 const prepared = await prepareConversationTurn(sessionID, agentPrompt, request.sessionTitle, {
-                    replaceMissingSession: Boolean(requestedSessionID),
+                    requireExistingSession: Boolean(requestedSessionID),
+                    expectedUpdatedAt: Number(request.sessionUpdatedAt) || 0,
+                    titled: text(request.sessionTitle) ? true : undefined,
                     displayPrompt: prompt,
                 });
                 sessionID = prepared.sessionID;
                 baseEntries = prepared.entries;
                 userEntryID = prepared.userEntryID;
                 contentRevision = prepared.revision;
+                await checkpointConversation(prepared.session);
             } catch (error) {
-                throw new Error(`智能体会话初始化失败：${text(error?.message || error) || '未知错误'}`);
+                const failure = new Error(`智能体会话初始化失败：${text(error?.message || error) || '未知错误'}`);
+                if (savedSession) Object.assign(failure, conversationState());
+                throw failure;
             }
         }
         const controller = new AbortController();
@@ -4044,21 +4078,25 @@
             }, controller.signal);
             const output = sanitizeAutomationOutput(markdown);
             if (!output) throw new Error('智能体未返回内容');
-            if (persistent) await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: output, turnID });
+            if (persistent) await checkpointConversation(await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: output, turnID }));
             return {
                 title: automationTitle(output, request.title),
                 markdown: output,
                 toolCalls,
-                sessionID,
+                ...conversationState(),
             };
         } catch (error) {
             const reportedError = text(error?.message || error) === '网络异常，请稍后再试'
                 ? Object.assign(new Error('智能体请求失败：网络异常，请稍后再试'), { code: error?.code })
                 : error;
-            try { if (persistent && sessionID) reportedError.sessionID = sessionID; } catch (assignError) {}
             if (persistent) {
                 const failure = sanitizeAutomationOutput(markdown) || `执行失败：${text(reportedError?.message || reportedError) || '未知错误'}`;
-                await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: failure, turnID });
+                try {
+                    await checkpointConversation(await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: failure, turnID }));
+                } catch (saveError) {
+                    console.warn('[task-horizon] scheduled conversation checkpoint failed', saveError);
+                }
+                try { Object.assign(reportedError, conversationState()); } catch (assignError) {}
             }
             throw reportedError;
         } finally {
@@ -4193,7 +4231,7 @@
         testConnection,
         runAutomation,
         ensureAutomationConversation,
-        openConversation: async (sessionID) => openWorkbench({ sessionID }),
+        openConversation: async (sessionID, options = {}) => openWorkbench({ ...options, sessionID }),
         createConversation: async () => createSession(),
         listConversations: listSessions,
         deleteConversation: removeSession,
@@ -4209,6 +4247,8 @@
         postAgentInteraction,
         persistSessionCheckpoint,
         prepareConversationTurn,
+        loadSession,
+        sendMessage,
         chat: (request, onEvent, signal) => client.chat(request, onEvent, signal),
         runAutomation,
         isScheduledEventCreateIntent,

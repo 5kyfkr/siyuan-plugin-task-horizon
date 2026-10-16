@@ -3017,43 +3017,39 @@
             pushId(cid);
         };
         if (kind === 'notebook') {
-            try {
-                const docs = await API.getNotebookDocuments(id, entryCalendarOptimization.enabled ? { limit: 0 } : null);
-                let notebookDocIds = (Array.isArray(docs) ? docs : []).map((doc) => String(doc?.id || '').trim()).filter(Boolean);
-                if (entryCalendarOptimization.enabled && notebookDocIds.length > 0) {
-                    const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(notebookDocIds, {
-                        id: `__tm-notebook-${id}`,
-                        calendarSearchOptimization: entryCalendarOptimization,
-                    });
-                    notebookDocIds = Array.isArray(optimized) ? optimized : notebookDocIds;
-                }
-                if (excludedDocIdSet.size) {
-                    notebookDocIds = notebookDocIds.filter((docId) => !excludedDocIdSet.has(String(docId || '').trim()));
-                }
-                if (notebookDocIds.length > recursiveDocLimit) notebookDocIds = notebookDocIds.slice(0, recursiveDocLimit);
-                notebookDocIds.forEach((docId) => pushLocal(docId));
-            } catch (e) {}
+            const docs = await API.getNotebookDocuments(id, entryCalendarOptimization.enabled ? { limit: 0 } : null);
+            let notebookDocIds = (Array.isArray(docs) ? docs : []).map((doc) => String(doc?.id || '').trim()).filter(Boolean);
+            if (entryCalendarOptimization.enabled && notebookDocIds.length > 0) {
+                const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(notebookDocIds, {
+                    id: `__tm-notebook-${id}`,
+                    calendarSearchOptimization: entryCalendarOptimization,
+                });
+                notebookDocIds = Array.isArray(optimized) ? optimized : notebookDocIds;
+            }
+            if (excludedDocIdSet.size) {
+                notebookDocIds = notebookDocIds.filter((docId) => !excludedDocIdSet.has(String(docId || '').trim()));
+            }
+            if (notebookDocIds.length > recursiveDocLimit) notebookDocIds = notebookDocIds.slice(0, recursiveDocLimit);
+            notebookDocIds.forEach((docId) => pushLocal(docId));
             __tmRememberTimedCache(__tmDocExpandCache, cacheKey, { t: Date.now(), ids: nextIds }, 128, cacheTtlMs);
             return;
         }
         if (!excludedDocIdSet.has(id)) pushLocal(id);
         if (entry.recursive && API && typeof API.getSubDocIds === 'function') {
-            try {
-                let subIds = await API.getSubDocIds(id, entryCalendarOptimization.enabled ? { limit: 0 } : null);
-                subIds = Array.isArray(subIds) ? subIds.map((sid) => String(sid || '').trim()).filter(Boolean) : [];
-                if (entryCalendarOptimization.enabled && subIds.length > 0) {
-                    const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(subIds, {
-                        id: `__tm-doc-${id}`,
-                        calendarSearchOptimization: entryCalendarOptimization,
-                    });
-                    subIds = Array.isArray(optimized) ? optimized : subIds;
-                }
-                if (excludedDocIdSet.size) {
-                    subIds = subIds.filter((sid) => !excludedDocIdSet.has(String(sid || '').trim()));
-                }
-                if (subIds.length > recursiveDocLimit) subIds = subIds.slice(0, recursiveDocLimit);
-                subIds.forEach((sid) => pushLocal(sid));
-            } catch (e) {}
+            let subIds = await API.getSubDocIds(id, entryCalendarOptimization.enabled ? { limit: 0 } : null);
+            subIds = Array.isArray(subIds) ? subIds.map((sid) => String(sid || '').trim()).filter(Boolean) : [];
+            if (entryCalendarOptimization.enabled && subIds.length > 0) {
+                const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(subIds, {
+                    id: `__tm-doc-${id}`,
+                    calendarSearchOptimization: entryCalendarOptimization,
+                });
+                subIds = Array.isArray(optimized) ? optimized : subIds;
+            }
+            if (excludedDocIdSet.size) {
+                subIds = subIds.filter((sid) => !excludedDocIdSet.has(String(sid || '').trim()));
+            }
+            if (subIds.length > recursiveDocLimit) subIds = subIds.slice(0, recursiveDocLimit);
+            subIds.forEach((sid) => pushLocal(sid));
         }
         __tmRememberTimedCache(__tmDocExpandCache, cacheKey, { t: Date.now(), ids: nextIds }, 128, cacheTtlMs);
     }
@@ -7805,7 +7801,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         wrap.className = 'tm-task-detail-more-menu__timer-section';
         const title = document.createElement('div');
         title.className = 'tm-task-detail-more-menu__timer-title';
-        title.textContent = '🍅 计时';
+        title.innerHTML = __tmRenderTimerMenuLabel('tomato', '计时');
         wrap.appendChild(title);
         const row = document.createElement('div');
         row.className = 'tm-task-detail-more-menu__timer-row';
@@ -7903,7 +7899,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             btn.type = 'button';
             btn.className = 'tm-task-detail-more-menu__timer-btn';
             btn.innerHTML = item.icon
-                ? `${__tmRenderLucideIcon(item.icon)}<span>${esc(item.label)}</span>`
+                ? __tmRenderTimerMenuLabel(item.icon, item.label)
                 : `<span>${esc(item.label)}</span>`;
             btn.onclick = async (ev) => {
                 try { ev.preventDefault(); } catch (e) {}
@@ -18815,6 +18811,14 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmRenderContextMenuLabel(iconName, text, options = {}) {
         const iconHtml = options.iconHtml || __tmRenderLucideIcon(iconName, '', { size: options.size || 14 });
         return `<span style="display:inline-flex;align-items:center;gap:8px;min-width:0;"><span style="display:inline-flex;align-items:center;justify-content:center;line-height:0;flex:0 0 auto;">${iconHtml}</span><span>${esc(String(text || ''))}</span></span>`;
+    }
+
+    function __tmRenderTimerMenuLabel(iconName, text) {
+        // Same hand-drawn tomato as DockTomato's approved Icons8 iOS reference.
+        const iconHtml = iconName === 'tomato'
+            ? '<svg class="tm-timer-menu-icon tm-timer-menu-icon--tomato" width="16" height="16" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="var(--tm-timer-menu-red,#ef705e)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path fill="none" stroke-width="1.9" d="M7.1 7.1C3.8 7.7 2.5 10.1 2.5 13.15c0 4.42 4.2 7.65 9.5 7.65s9.5-3.23 9.5-7.65c0-2.98-1.5-5.44-4.7-6.05"/><path fill="none" stroke="var(--tm-timer-menu-leaf,#8acb77)" transform="translate(-1.2 .15) scale(1.1)" d="M10.7 5.5C9.6 4.4 8.4 4.7 7.5 4c.1 1.3.7 2 1.9 2.4-.8.4-1.4 1.1-2 2 1.6.5 2.8.3 3.8-.6-.2 1.5.5 2.4 1.6 3 .9-1.2 1-2.2.6-3.4 1.2.9 2.4 1 3.7.5-.6-.9-1.4-1.4-2.3-1.7 1.2-.5 1.7-1.1 1.8-1.9-1.5-.1-2.3.5-3.1 1 .1-1 .5-1.8 1.1-2.4-1.5-.2-2.6.7-2.7 2.3-.4 0-.8.1-1.2.3Z"/></svg>'
+            : __tmPhosphorBoldSvg('timer', { size: 14, className: 'tm-timer-menu-icon tm-timer-menu-icon--stopwatch' });
+        return __tmRenderContextMenuLabel(iconName, text, { iconHtml });
     }
 
     function __tmRenderTaskHorizonTopbarIcon(size = 18) {

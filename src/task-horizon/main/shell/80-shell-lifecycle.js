@@ -181,7 +181,9 @@ if (shouldMarkDirty) {
             state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []);
             state.expandedCompletedGroups = new Set(SettingsStore.data.expandedCompletedGroups || []);
             state.__tmKanbanCollapsedColumnKeys = new Set(SettingsStore.data.kanbanCollapsedColumnKeys || []);
-            state.currentRule = SettingsStore.data.currentRule;
+            const shortcutContext = typeof __tmShortcuts !== 'undefined' ? __tmShortcuts.context() : null;
+            if (shortcutContext) __tmApplyGroupModeToRuntime(shortcutContext.groupMode);
+            state.currentRule = shortcutContext ? shortcutContext.ruleId || null : SettingsStore.data.currentRule;
             state.columnWidths = SettingsStore.data.columnWidths;
             state.docTabsHidden = !!Storage.get('tm_doc_tabs_hidden', false);
             state.docTabsCollapsed = Storage.get('tm_doc_tabs_collapsed', true) !== false;
@@ -556,11 +558,15 @@ if (shouldMarkDirty) {
             } catch (e) {}
         }
         await __tmEnsureSettingsLoaded();
+        const restoredShortcut = typeof __tmShortcuts !== 'undefined'
+            ? await __tmShortcuts.restoreSession({ isCurrent: () => token === (Number(state.openToken) || 0) })
+            : false;
+        const existingModalBeforeOpen = state.modal instanceof HTMLElement ? state.modal : null;
         let forceRenderForHostHandoff = false;
         try {
             const allow = new Set(['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard']);
             const isMobileDevice = __tmIsMobileDevice();
-            const preserve = !!(options && options.preserveViewMode);
+            const preserve = restoredShortcut || !!(options && options.preserveViewMode);
             const current = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
             const preserveByHostHandoff = state.__tmPreserveViewModeOnNextOpen === true;
             forceRenderForHostHandoff = preserveByHostHandoff;
@@ -590,6 +596,8 @@ if (shouldMarkDirty) {
             try { globalThis.__taskHorizonTabElement = null; } catch (e2) {}
         }
         // 仅在必要时重渲染，避免页签切换返回时闪烁和滚动位置丢失
+        let profileRequiresTaskReload = false;
+        let fullscreenCloseProjectionReady = false;
         try {
             if (!forceRenderForHostHandoff) {
                 try { __tmTryReattachExistingModalToMount(__tmMountEl || document.body); } catch (e) {}
@@ -611,11 +619,20 @@ if (shouldMarkDirty) {
             if (!reusedExistingModal) {
                 try {
                     state.activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-                    await __tmApplyCurrentContextViewProfile({
+                    const appliedProfile = await __tmApplyCurrentContextViewProfile({
                         applyDefaultViewMode: !forceRenderForHostHandoff,
                     });
-                } catch (e) {}
-                try { render(); } catch (e) {
+                    profileRequiresTaskReload = appliedProfile?.customFieldReloadNeeded === true;
+                } catch (e) { profileRequiresTaskReload = true; }
+                try {
+                    // Closing removes the mobile shell but retains task data.
+                    // Apply the restored context before its first visible render.
+                    if (runtimeMobile && !__tmIsDockHost() && !existingModalBeforeOpen && !profileRequiresTaskReload) {
+                        __tmRecomputeTaskProjection({ reason: 'fullscreen-close-reuse' });
+                        fullscreenCloseProjectionReady = true;
+                    }
+                    render();
+                } catch (e) {
                     console.error('[OpenManager] Render failed:', e);
                 }
             }
@@ -743,6 +760,19 @@ if (shouldMarkDirty) {
             && !quickbarDirty
             && !hasPendingLocalTaskWrites
             && !forceShellRenderOnOpen;
+        const canReuseMobileFullscreenData = runtimeMobile
+            && !__tmIsDockHost()
+            && (reusedExistingModal || fullscreenCloseProjectionReady)
+            && hasDataReadyForSoftReuse
+            && !hardenMobileStartupLoad
+            && !shouldForceFreshOpenLoad
+            && !profileRequiresTaskReload
+            && !hasPendingLocalTaskWrites
+            && !forceShellRenderOnOpen;
+        if (canReuseMobileFullscreenData) {
+            settleOpenGate(true);
+            return awaitInitialLoad ? true : undefined;
+        }
         const runtimeMobileFastPath = globalThis.__tmRuntimeHost?.getInfo?.()?.runtimeMobileClient ?? __tmIsRuntimeMobileClient();
         const warmDelayMs = runtimeMobileFastPath ? 1500 : 240;
         try { globalThis.__tmTaskSnapshotService?.warm?.(warmDelayMs); } catch (e) {}
@@ -820,6 +850,7 @@ if (shouldMarkDirty) {
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
         }
         const forceFreshOpenLoad = hardenMobileStartupLoad || shouldForceFreshOpenLoad;
+        const retryInitialDocScope = hardenMobileStartupLoad || !hasDataReadyForSoftReuse;
         const initialLoadPromise = loadSelectedDocuments({
             skipRender: canSkipRenderOnReuse,
             preferFastFirstPaint: !canSkipRenderOnReuse && !forceFreshOpenLoad,
@@ -838,7 +869,7 @@ if (shouldMarkDirty) {
             loadingDelayMs: canSkipRenderOnReuse ? undefined : 900,
             waitNotebookCache: hardenMobileStartupLoad,
             waitForDocScopeResolve: hardenMobileStartupLoad,
-            retryEmptyDocScope: hardenMobileStartupLoad,
+            retryEmptyDocScope: retryInitialDocScope,
             emptyDocScopeRetryCount: 3,
             source: mobileStartupOpen ? 'mobile-startup-auto-open' : 'openManager',
         }).then((loadResult) => {
@@ -901,7 +932,7 @@ if (shouldMarkDirty) {
                 });
             }
         } catch (e) {}
-        try { __tmShortcutSidebar.dispose();__tmShortcuts.clearContext(); } catch (e) {}
+        try { __tmShortcutSidebar.dispose();__tmShortcuts.clearContext({ preserveSession: true }); } catch (e) {}
         try { __tmMarkRuntimeCleanupRequested?.(); } catch (e) {}
         try { __tmCleanupAgentMcpStartupSync?.(); } catch (e) {}
         try { __tmDisposeDocTabsRuntime?.(state.modal, { clearHoverTimer: true }); } catch (e) {}

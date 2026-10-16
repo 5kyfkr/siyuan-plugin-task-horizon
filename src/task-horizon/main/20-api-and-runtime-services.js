@@ -240,50 +240,53 @@
         },
 
         async getSubDocIds(docId, options = null) {
-            try {
-                const did = String(docId || '').trim();
-                if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return [];
-                const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit)) ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit)))) : 2000;
-                const limitRaw = Number(options?.limit);
-                const totalLimit = Number.isFinite(limitRaw)
-                    ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
-                    : recursiveDocLimit;
-                // 使用物理路径判断普通子文档；笔记本文档是虚拟根节点，需要按 box 展开。
-                const escapedDid = did.replace(/'/g, "''");
-                const pathSql = `SELECT path, box FROM blocks WHERE id = '${escapedDid}' AND type = 'd' LIMIT 1`;
-                const pathRes = await this.call('/api/query/sql', { stmt: pathSql });
-                if (pathRes.code !== 0 || !pathRes.data || pathRes.data.length === 0) return [];
-
-                const docPath = String(pathRes.data[0]?.path || '').trim();
-                const box = String(pathRes.data[0]?.box || '').trim();
-                if (!docPath || !box) return [];
-
-                // 查询子文档
-                const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
-                const escapedBox = box.replace(/'/g, "''");
-                let scopeSql;
-                if (did === box) {
-                    scopeSql = `box = '${escapedBox}' AND id != '${escapedDid}'`;
-                } else {
-                    const pathPrefix = docPath.replace(/\.sy$/i, '').replace(/'/g, "''");
-                    if (!pathPrefix || pathPrefix === '/') return [];
-                    scopeSql = `box = '${escapedBox}' AND path LIKE '${pathPrefix}/%'`;
-                }
-                const sql = `SELECT id FROM blocks WHERE ${scopeSql} AND type = 'd' ORDER BY created DESC, hpath DESC${limitSql}`;
-                const res = await this.call('/api/query/sql', { stmt: sql });
-                if (res.code === 0 && res.data) {
-                    return res.data.map(d => d.id);
-                }
-            } catch (e) {
+            const did = String(docId || '').trim();
+            if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return [];
+            const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit)) ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit)))) : 2000;
+            const limitRaw = Number(options?.limit);
+            const totalLimit = Number.isFinite(limitRaw)
+                ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
+                : recursiveDocLimit;
+            // 使用物理路径判断普通子文档；笔记本文档是虚拟根节点，需要按 box 展开。
+            const escapedDid = did.replace(/'/g, "''");
+            const pathSql = `SELECT path, box FROM blocks WHERE id = '${escapedDid}' AND type = 'd' LIMIT 1`;
+            const pathRes = await this.call('/api/query/sql', { stmt: pathSql });
+            if (pathRes.code !== 0 || !Array.isArray(pathRes.data)) {
+                throw Object.assign(new Error(pathRes.msg || '获取文档路径失败'), { readFailure: true });
             }
-            return [];
+            if (pathRes.data.length === 0) return [];
+
+            const docPath = String(pathRes.data[0]?.path || '').trim();
+            const box = String(pathRes.data[0]?.box || '').trim();
+            if (!docPath || !box) return [];
+
+            // 查询子文档
+            const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
+            const escapedBox = box.replace(/'/g, "''");
+            let scopeSql;
+            if (did === box) {
+                scopeSql = `box = '${escapedBox}' AND id != '${escapedDid}'`;
+            } else {
+                const pathPrefix = docPath.replace(/\.sy$/i, '').replace(/'/g, "''");
+                if (!pathPrefix || pathPrefix === '/') return [];
+                scopeSql = `box = '${escapedBox}' AND path LIKE '${pathPrefix}/%'`;
+            }
+            const sql = `SELECT id FROM blocks WHERE ${scopeSql} AND type = 'd' ORDER BY created DESC, hpath DESC${limitSql}`;
+            const res = await this.call('/api/query/sql', { stmt: sql });
+            if (res.code === 0 && Array.isArray(res.data)) {
+                return res.data.map(d => d.id);
+            }
+            throw Object.assign(new Error(res.msg || '获取子文档失败'), { readFailure: true });
         },
 
         async readDir(path) {
             const p = String(path || '').trim();
             if (!p) return [];
             const res = await this.call('/api/file/readDir', { path: p });
-            return res.code === 0 && Array.isArray(res.data) ? res.data : [];
+            if (res.code !== 0 || !Array.isArray(res.data)) {
+                throw Object.assign(new Error(res.msg || '读取文档目录失败'), { readFailure: true });
+            }
+            return res.data;
         },
 
         async getHPathByID(id) {
@@ -337,8 +340,7 @@
                 if (!dirPath || seenDirs.has(dirPath)) continue;
                 seenDirs.add(dirPath);
                 dirCount += 1;
-                let entries = [];
-                try { entries = await this.readDir(dirPath); } catch (e) { entries = []; }
+                const entries = await this.readDir(dirPath);
                 for (const item of entries) {
                     const name = String(item?.name || '').trim();
                     if (!name) continue;
@@ -432,6 +434,8 @@
         async getNotebookDocuments(notebookId, options = null) {
             const box = String(notebookId || '').trim();
             if (!box) return [];
+            let scopeReadSucceeded = false;
+            let readError = null;
             const queryByBox = async () => {
                 const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit)) ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit)))) : 2000;
                 const limitRaw = Number(options?.limit);
@@ -442,12 +446,14 @@
                 const sql = `SELECT id, content, hpath FROM blocks WHERE box = '${box.replace(/'/g, "''")}' AND type = 'd' ORDER BY created DESC, hpath DESC${limitSql}`;
                 const res = await this.call('/api/query/sql', { stmt: sql });
                 if (res.code === 0 && Array.isArray(res.data)) {
+                    scopeReadSucceeded = true;
                     return res.data.map((row) => ({
                         id: String(row?.id || '').trim(),
                         name: String(row?.content || '').trim() || '未命名文档',
                         path: String(row?.hpath || '').trim()
                     })).filter((row) => row.id);
                 }
+                readError = Object.assign(new Error(res.msg || '查询笔记本文档失败'), { readFailure: true });
                 return null;
             };
             try {
@@ -456,17 +462,19 @@
                 try { await this.call('/api/notebook/openNotebook', { notebook: box }); } catch (e) {}
                 const openedDocs = await queryByBox();
                 if (Array.isArray(openedDocs) && openedDocs.length > 0) return openedDocs;
-            } catch (e) {}
+            } catch (e) { readError = e; }
             try {
                 const fileTreeDocs = await this.getNotebookDocumentsFromFileTree(box, options);
+                if (Array.isArray(fileTreeDocs)) scopeReadSucceeded = true;
                 if (Array.isArray(fileTreeDocs) && fileTreeDocs.length > 0) return fileTreeDocs;
-            } catch (e) {}
+            } catch (e) { readError = e; }
             try {
                 if (SettingsStore.data?.legacyWin7CompatMode === true) {
                     const taskDocs = await this.getNotebookTaskDocumentsBySql(box, options);
                     if (Array.isArray(taskDocs) && taskDocs.length > 0) return taskDocs;
                 }
             } catch (e) {}
+            if (!scopeReadSucceeded && readError) throw readError;
             return [];
         },
 

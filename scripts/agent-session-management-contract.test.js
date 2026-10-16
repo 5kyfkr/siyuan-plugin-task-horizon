@@ -16,7 +16,7 @@ assert.match(workbench, /if \(sessionID === runtime\.activeSessionID\) runtime\.
 assert.match(workbench, /async function removeSession\(id\)[\s\S]*runtime\.busy[\s\S]*runtime\.sessions\.find\([\s\S]*await loadSession\(next\.id\)[\s\S]*else createSession\(\)[\s\S]*post\('\/removeSession'/, 'deleting the active session must reject busy sessions and switch before removing it');
 assert.match(workbench, /function sessionSwitchBlocked\(\)[\s\S]*if \(!runtime\.busy\) return false;[\s\S]*停止后再切换会话/, 'session changes must share one busy-state guard');
 assert.match(workbench, /function createSession\(\) \{\s*if \(sessionSwitchBlocked\(\)\) return runtime\.session;/, 'new sessions must not replace live streaming state');
-assert.match(workbench, /async function loadSession\(id\) \{\s*if \(sessionSwitchBlocked\(\)\) return runtime\.session;/, 'history sessions must not replace live streaming state');
+assert.match(workbench, /async function loadSession\(id, options = \{\}\) \{\s*if \(sessionSwitchBlocked\(\)\) return runtime\.session;/, 'history sessions must not replace live streaming state');
 assert.match(workbench, /const reloadData = async \(\) => \{\s*if \(sessionSwitchBlocked\(\)\) return false;/, 'external reloads must not replace live streaming state');
 assert.match(workbench, /data-agent-action="new-session"[^>]*\$\{runtime\.busy \? 'disabled' : ''\}/, 'the new-session control must be disabled while streaming');
 assert.match(workbench, /data-agent-action="select-session"[^>]*\$\{runtime\.busy \? 'disabled' : ''\}/, 'history session controls must be disabled while streaming');

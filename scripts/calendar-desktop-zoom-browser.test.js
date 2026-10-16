@@ -19,6 +19,8 @@ async function mount(page, side, settings = {}, dock = false) {
     await page.addStyleTag({content: '.fixture{height:auto!important;--fixture-height:600px}.tm-proto-timeline{height:auto!important}.tm-proto-time-scroll{height:var(--fixture-height)!important;flex:none!important}.fixture-tools{height:30px}'});
     await page.addScriptTag({content: [
         readFunction('getPrototypeTimelineVisibleEventSegments'),
+        readFunction('isScheduleAllDayBottom'),
+        readFunction('compareSharedPrototypeEvents'),
         readFunction('buildSharedPrototypeTimelineMarkup'),
         readFunction('buildSharedPrototypeDayPanelMarkup'),
         'const normalizeCalendarWeekAllDayVisibleRows = () => 3;',

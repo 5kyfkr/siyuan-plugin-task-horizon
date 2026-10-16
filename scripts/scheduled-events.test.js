@@ -82,6 +82,7 @@ function loadAutomationSafety() {
         JSON,
         AbortController,
         TextDecoder,
+        HTMLElement: class {},
         setTimeout: timers.setTimeout,
         clearTimeout: timers.clearTimeout,
         window: {},
@@ -92,6 +93,37 @@ function loadAutomationSafety() {
     vm.createContext(context);
     vm.runInContext(source, context, { filename: 'agent-workbench.js' });
     return { ...context.__tmAIAutomationTest, context, timers };
+}
+
+function loadAutomationSessions(initial = []) {
+    const automation = loadAutomationSafety();
+    const sessions = new Map(initial.map(session => [session.id, JSON.parse(JSON.stringify(session))]));
+    const requests = [];
+    const harness = { ...automation, sessions, requests, failFinalSave: false };
+    const jsonResponse = payload => ({ ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => JSON.parse(JSON.stringify(payload)) });
+    automation.context.fetch = async (url, options = {}) => {
+        const route = String(url).replace('/api/ai/agent', '');
+        const body = options.body ? JSON.parse(options.body) : {};
+        requests.push({ route, body });
+        if (route === '/getSession') return jsonResponse(sessions.has(body.id)
+            ? { code: 0, data: sessions.get(body.id) }
+            : { code: -1, msg: `open /data/storage/ai/agent/sessions/${body.id}/session.json: no such file or directory` });
+        if (route === '/saveSession') {
+            if (body.commitTurnID && harness.failFinalSave) return jsonResponse({ code: -1, msg: 'disk write failed' });
+            const session = { ...body, revision: Number(sessions.get(body.id)?.revision || 0) + 1 };
+            delete session.expectedRevision;
+            sessions.set(body.id, session);
+            return jsonResponse({ code: 0, data: { revision: session.revision, session } });
+        }
+        if (route === '/chat') {
+            const encoded = new TextEncoder().encode('event: turn\ndata: {"turnID":"test-turn"}\n\nevent: content\ndata: {"token":"Done"}\n\nevent: done\ndata: {"turnID":"test-turn"}\n\n');
+            let reads = 0;
+            return { ok: true, status: 200, headers: { get: () => 'text/event-stream' }, body: { getReader: () => ({ read: async () => reads++ === 0 ? { done: false, value: encoded } : { done: true } }) } };
+        }
+        if (route === '/lsSessions') return jsonResponse({ code: 0, data: { sessions: [...sessions.values()], total: sessions.size } });
+        throw new Error(`unexpected request: ${route}`);
+    };
+    return harness;
 }
 
 function event(overrides = {}) {
@@ -145,7 +177,7 @@ async function run() {
     assert.equal(scheduledRuntimeSource.includes('custom-tomato-applied-records'), true, 'scheduled summaries must identify the internal Tomato deduplication attribute');
     assert.match(kernelSource, /action === 'insertBlock' \|\| action === 'appendBlock' \|\| action === 'prependBlock'/, 'the Kernel block gateway must support native prepend writes');
     assert.match(kernelSource, /\['notification', 'document', 'daily_note'\]/, 'the Kernel schedule schema must expose diary output');
-    assert.match(scheduledRuntimeSource, /resolvedConversationId[\s\S]*result\?\.sessionID[\s\S]*resolvedConversationId !== event\.conversationId/, 'a replacement Agent session must update the scheduled-event binding');
+    assert.match(scheduledRuntimeSource, /onSessionSaved: \(session\) => __tmScheduledRecordConversation\(event, session\)/, 'a saved session must be bound before the model runs');
     assert.match(scheduledRuntimeSource, /error\?\.sessionID[\s\S]*scheduled conversation binding update failed/, 'a replacement session must remain bound even when the Agent run later fails');
     assert.doesNotMatch(scheduledRuntimeSource, /Math\.random\(\).*420/, 'scheduled-event deduplication must not rely on randomized frontend timing');
     assert.match(exportRuntimeSource, /scheduledEvents\?\.importDefinitions/, 'settings import must persist scheduled definitions through the scheduled-event domain API');
@@ -312,7 +344,13 @@ async function run() {
         completion.context.SettingsStore = { data: { scheduledEvents: [stored], aiExperienceMode: 'agent' }, syncToLocal() {} };
         completion.context.__tmAI = {
             async ensureAutomationConversation() { return 'session-1'; },
-            async runAutomation() { return { title: 'Result', markdown: 'Done', sessionID: 'session-2' }; },
+            async runAutomation(request) {
+                assert.equal(request.sessionID, 'session-1');
+                const session = { sessionID: 'session-1', sessionUpdatedAt: 200, sessionTitle: '定时：Test' };
+                await request.onSessionSaved(session);
+                assert.equal(stored.conversationUpdatedAt, 200, 'confirmed conversation metadata must persist before the model runs');
+                return { title: 'Result', markdown: 'Done', ...session, sessionUpdatedAt: 300 };
+            },
         };
         completion.context.__tmCalendar = { async showSystemNotification() { notifications += 1; return { ok: true }; } };
         completion.context.__tmCallTaskHorizonKernelRpc = async (name, input) => {
@@ -337,7 +375,80 @@ async function run() {
         assert.equal(result.status, 'succeeded');
         assert.equal(notifications, 1, 'a completion retry must not deliver the result twice');
         assert.equal(finishCalls, 2, 'the completion state should retry after a transient failure');
-        assert.equal(api.list().find((item) => item.id === stored.id)?.conversationId, 'session-2', 'the resolved Agent session must replace a stale scheduled-event binding');
+        assert.equal(api.list().find((item) => item.id === stored.id)?.conversationId, 'session-1', 'each run must retain the same scheduled-event conversation');
+        assert.equal(stored.conversationUpdatedAt, 300);
+        assert.equal(stored.conversationTitle, '定时：Test');
+        api.dispose();
+    }
+
+    {
+        const scheduled = loadScheduledCore();
+        const automation = loadAutomationSessions();
+        let stored = event({ id: 'evt-binding-retry', includeInternalPrompt: false });
+        let failedBindingWrites = 0;
+        let expectedWatermark = 0;
+        scheduled.context.SettingsStore = { data: { scheduledEvents: [stored], aiExperienceMode: 'agent' }, syncToLocal() {} };
+        scheduled.context.__tmAI = { runAutomation(request) {
+            assert.ok(request.sessionUpdatedAt >= expectedWatermark, 'claim responses must not erase a newer in-memory conversation watermark');
+            return automation.runAutomation(request);
+        } };
+        scheduled.context.__tmCalendar = { async showSystemNotification() { return { ok: true }; } };
+        scheduled.context.__tmCallTaskHorizonKernelRpc = async (name, input) => {
+            if (name === 'taskHorizonClaimAgentScheduleOccurrence') return { available: true, data: { claimed: true, ownerID: 'manual', event: JSON.parse(JSON.stringify(stored)) } };
+            if (name === 'taskHorizonReplaceAgentSchedules') {
+                if (failedBindingWrites++ === 0) throw new Error('transient binding write failure');
+                stored = JSON.parse(JSON.stringify(input.events[0]));
+                return { available: true, data: [stored] };
+            }
+            if (name === 'taskHorizonFinishAgentScheduleOccurrence') {
+                stored.lastRun = { ...stored.lastRun, ...input.patch, status: input.status };
+                return { available: true, data: stored };
+            }
+            throw new Error(`unexpected RPC: ${name}`);
+        };
+        const api = scheduled.context['siyuan-plugin-task-horizon'].scheduledEvents;
+        const failed = await api.runNow(stored.id);
+        assert.equal(failed.status, 'failed');
+        assert.equal(automation.requests.some(item => item.route === '/chat'), false);
+        const boundID = stored.conversationId;
+        assert.ok(boundID, 'a transient binding failure must still checkpoint the already created conversation for retry');
+        assert.ok(stored.conversationUpdatedAt > 0);
+        expectedWatermark = stored.conversationUpdatedAt;
+        stored = { ...stored, conversationUpdatedAt: expectedWatermark - 1 };
+        const succeeded = await api.runNow(stored.id);
+        assert.equal(succeeded.status, 'succeeded');
+        assert.equal(succeeded.conversationId, boundID);
+        assert.equal(automation.sessions.size, 1, 'retrying a failed first execution must reuse its prepared conversation');
+        assert.equal(stored.conversationTitle, `定时：${stored.name}`);
+        assert.equal(stored.conversationUpdatedAt, automation.sessions.get(boundID).updatedAt);
+        api.dispose();
+    }
+
+    {
+        const scheduled = loadScheduledCore();
+        const automation = loadAutomationSessions();
+        let stored = event({ id: 'evt-sync-during-binding', includeInternalPrompt: false });
+        scheduled.context.console = { ...console, warn() {} };
+        scheduled.context.SettingsStore = { data: { scheduledEvents: [stored], aiExperienceMode: 'agent' }, syncToLocal() {} };
+        scheduled.context.__tmAI = { runAutomation: automation.runAutomation };
+        scheduled.context.__tmCallTaskHorizonKernelRpc = async (name, input) => {
+            if (name === 'taskHorizonClaimAgentScheduleOccurrence') return { available: true, data: { claimed: true, ownerID: 'manual', event: stored } };
+            if (name === 'taskHorizonReplaceAgentSchedules') {
+                stored = { ...input.events[0], conversationUpdatedAt: input.events[0].conversationUpdatedAt + 1000 };
+                return { available: true, data: [stored] };
+            }
+            if (name === 'taskHorizonFinishAgentScheduleOccurrence') {
+                stored.lastRun = { ...stored.lastRun, ...input.patch, status: input.status };
+                return { available: true, data: stored };
+            }
+            throw new Error(`unexpected RPC: ${name}`);
+        };
+        const api = scheduled.context['siyuan-plugin-task-horizon'].scheduledEvents;
+        const result = await api.runNow(stored.id);
+        assert.equal(result.status, 'failed');
+        assert.match(result.error, /更新的同步版本/);
+        assert.equal(automation.requests.some(item => item.route === '/chat'), false, 'a newer sync version discovered during binding must stop the model request');
+        assert.equal(automation.sessions.size, 1);
         api.dispose();
     }
 
@@ -345,6 +456,8 @@ async function run() {
         const saved = [];
         const existing = event({
             conversationId: '20260715100000-abc1234',
+            conversationUpdatedAt: 300,
+            conversationTitle: '定时：Test',
             lastOccurrence: { occurrenceKey: 'evt-1:old', status: 'succeeded', attempts: 1 },
             lastRun: { occurrenceKey: 'evt-1:old', status: 'succeeded', markdown: '保留结果' },
         });
@@ -367,6 +480,8 @@ async function run() {
         assert.equal(imported.length, 2);
         assert.equal(imported[0].name, 'Imported definition');
         assert.equal(imported[0].conversationId, '20260715100000-abc1234', 'import must preserve the existing conversation binding');
+        assert.equal(imported[0].conversationUpdatedAt, 300, 'import must retain the confirmed session watermark');
+        assert.equal(imported[0].conversationTitle, '定时：Test');
         assert.equal(imported[0].lastRun.markdown, '保留结果', 'import must preserve execution state');
         assert.equal(saved.length, 1, 'import must persist the merged definitions in one atomic Kernel write');
         assert.equal(saved[0].length, 2);
@@ -559,8 +674,10 @@ async function run() {
     }
 
     {
-        const definitions = core.normalizeEvents([event({ conversationId: '20260715100000-abc1234', lastRun: { markdown: 'secret result' }, lastOccurrence: { occurrenceKey: 'x', status: 'succeeded' } })], { stripRuntime: true });
+        const definitions = core.normalizeEvents([event({ conversationId: '20260715100000-abc1234', conversationUpdatedAt: 300, conversationTitle: 'Private conversation', lastRun: { markdown: 'secret result' }, lastOccurrence: { occurrenceKey: 'x', status: 'succeeded' } })], { stripRuntime: true });
         assert.equal(Object.prototype.hasOwnProperty.call(definitions[0], 'conversationId'), false);
+        assert.equal(Object.prototype.hasOwnProperty.call(definitions[0], 'conversationUpdatedAt'), false);
+        assert.equal(Object.prototype.hasOwnProperty.call(definitions[0], 'conversationTitle'), false);
         assert.equal(Object.prototype.hasOwnProperty.call(definitions[0], 'lastRun'), false);
         assert.equal(Object.prototype.hasOwnProperty.call(definitions[0], 'lastOccurrence'), false);
     }
@@ -582,6 +699,13 @@ async function run() {
         assert.equal(merged.find((item) => item.id === 'shared').name, 'Local newer', 'newer in-flight runtime state must survive a stale remote copy');
         assert.deepEqual(core.mergeEventSnapshots([localOnly], []), [], 'an authoritative empty kernel snapshot must clear stale local events');
         assert.equal(core.mergeEventSnapshots([localOnly], null)[0].id, 'deleted-remotely', 'a failed remote read must not clear local events');
+        const oldEditor = event({ id: 'shared', updatedAt: 400, conversationId: 'same-session', conversationUpdatedAt: 100, conversationTitle: 'Old title' });
+        const synced = event({ id: 'shared', updatedAt: 100, conversationId: 'same-session', conversationUpdatedAt: 300, conversationTitle: 'Confirmed title' });
+        for (const [local, remote] of [[oldEditor, synced], [synced, oldEditor]]) {
+            const [merged] = core.mergeEventSnapshots([local], [remote]);
+            assert.equal(merged.conversationUpdatedAt, 300, 'definition changes must not roll the conversation watermark backwards');
+            assert.equal(merged.conversationTitle, 'Confirmed title');
+        }
     }
 
     {
@@ -647,7 +771,7 @@ async function run() {
     const agentSource = fs.readFileSync(path.join(root, 'src/ai/agent-workbench.js'), 'utf8');
     assert.equal(agentSource.includes('const persistent = request.persistSession === true;'), true, 'automation must support persistent conversations');
     assert.equal(agentSource.includes('if (!persistent) scheduleAutomationSessionCleanup(sessionID);'), true, 'persistent conversations must not be deleted');
-    assert.equal(agentSource.includes('openConversation: async (sessionID)'), true, 'scheduled conversations must be openable from settings');
+    assert.equal(agentSource.includes('openConversation: async (sessionID, options = {})'), true, 'scheduled conversations must be openable from settings with their last confirmed timestamp');
     assert.equal(agentSource.includes('session.entries = baseEntries;'), true, 'each automation run must append visible conversation entries');
     assert.match(agentSource, /async function ensureAutomationTaskToolsReady\(options = \{\}\)[\s\S]*ensureTaskToolsReadyForSend\(\)[\s\S]*syncBuiltinSkills\(\)[\s\S]*async function runAutomation[\s\S]*await ensureAutomationTaskToolsReady\(\{ focusTools: includeInternalPrompt && request\.requireFocusTools === true \}\)/, 'scheduled automation must restore task capabilities and current built-in skills before starting a model round');
     assert.match(scheduledRuntimeSource, /requireFocusTools: includeInternalPrompt/, 'scheduled summaries must require the focus MCP capability when internal prompt is enabled');
@@ -695,6 +819,7 @@ async function run() {
         const automation = loadAutomationSafety();
         const requests = [];
         let storedSession = null;
+        const checkpoints = [];
         automation.context.fetch = async (url, options = {}) => {
             const route = String(url).replace('/api/ai/agent', '');
             const body = options.body ? JSON.parse(options.body) : {};
@@ -716,6 +841,8 @@ async function run() {
                 return jsonResponse({ code: 0, data: { revision: storedSession.revision } });
             }
             if (route === '/chat') {
+                assert.equal(checkpoints.length, 1, 'the first saved session must be bound before the model starts');
+                assert.equal(checkpoints[0].sessionID, body.sessionID);
                 const encoded = new TextEncoder().encode('event: turn\ndata: {"turnID":"turn-new"}\n\nevent: content\ndata: {"token":"Done"}\n\nevent: done\ndata: {"turnID":"turn-new"}\n\n');
                 let reads = 0;
                 return {
@@ -728,11 +855,16 @@ async function run() {
             if (route === '/lsSessions') return jsonResponse({ code: 0, data: { sessions: [], total: 0 } });
             throw new Error(`unexpected request: ${route}`);
         };
-        const result = await automation.runAutomation({ prompt: 'Summarize', sessionID: '20260722120000-abcdefg', sessionTitle: '定时：Test', persistSession: true });
+        const result = await automation.runAutomation({ prompt: 'Summarize', sessionTitle: '定时：Test', persistSession: true, onSessionSaved: async (session) => checkpoints.push(session) });
         assert.equal(result.markdown, 'Done');
-        assert.notEqual(result.sessionID, '20260722120000-abcdefg', 'a genuinely missing historical session must receive a fresh ID');
+        assert.ok(result.sessionID, 'an unbound schedule must create its first conversation');
+        assert.match(result.sessionID, /^\d{14}-[a-z0-9]{7}$/, 'fallback IDs must satisfy native SiYuan validation when Lute is unavailable');
+        assert.equal(result.sessionUpdatedAt, storedSession.updatedAt, 'the watermark must come from the successfully saved session');
+        assert.equal(result.sessionTitle, '定时：Test');
+        assert.equal(checkpoints.length, 2, 'both the prepared prompt and final result must publish their confirmed metadata');
+        assert.ok(checkpoints[1].sessionUpdatedAt > checkpoints[0].sessionUpdatedAt);
         assert.deepEqual(requests.slice(0, 3).map((item) => item.route), ['/getSession', '/saveSession', '/chat'],
-            'a Windows missing-path response must initialize the new conversation before chat starts');
+            'a first-run missing-path response must initialize the conversation before chat starts');
         const preSave = requests.find((item) => item.route === '/saveSession').body;
         const chat = requests.find((item) => item.route === '/chat').body;
         assert.equal(preSave.entries.length, 1);
@@ -836,6 +968,75 @@ async function run() {
             assert.ok(removals.every(item => item.body.id === removals[0].body.id && item.body.id),
                 'cleanup attempts must target the same transient session');
         }
+    }
+    {
+        const sessionID = '20260716115238-n9v9of6';
+        const automation = loadAutomationSessions();
+        let allocatedIDs = 0;
+        automation.context.Lute = { NewNodeID() { allocatedIDs += 1; return '20261016120000-abc1234'; } };
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            await assert.rejects(() => automation.runAutomation({ prompt: 'Summarize', sessionID, persistSession: true }), /已绑定.*数据同步/);
+        }
+        assert.deepEqual(automation.requests.map(item => item.route), ['/getSession', '/getSession']);
+        assert.equal(allocatedIDs, 0, 'missing bound sessions must not allocate a replacement conversation');
+        assert.equal(await automation.loadSession(sessionID), null, 'opening a missing conversation must keep the current conversation');
+        assert.equal(allocatedIDs, 0, 'the open-conversation failure path must not create an empty conversation');
+    }
+    {
+        const automation = loadAutomationSessions();
+        const sessionID = '20260716115238-n9v9of6';
+        automation.context.__taskHorizonHostBridge = { loadData: async () => ({ activeSessionID: sessionID }) };
+        assert.equal(await automation.context.__tmAI.openSidebar({ sessionID }), false);
+        await automation.sendMessage('Continue after a failed restore');
+        assert.equal(automation.sessions.size, 0, 'sending after a failed restore must not recreate missing history under the same ID');
+        assert.deepEqual(automation.requests.map(item => item.route), ['/getSession', '/getSession']);
+    }
+    {
+        const original = { id: '20260716115238-n9v9of6', title: 'Different local title', titled: true, revision: 3, entries: [{ id: 'history', type: 'assistant', content: 'Earlier result', timestamp: 1 }], createdAt: 1, updatedAt: 5000 };
+        const automation = loadAutomationSessions([original]);
+        await assert.rejects(() => automation.runAutomation({ prompt: 'Summarize', sessionID: original.id, sessionUpdatedAt: 6000, persistSession: true }), /尚未同步.*数据同步/);
+        assert.deepEqual(automation.requests.map(item => item.route), ['/getSession'], 'stale history must be rejected before any write or model request');
+        assert.equal(await automation.loadSession(original.id, { sessionUpdatedAt: 6000 }), null, 'stale conversations must also be rejected when opened');
+        automation.sessions.get(original.id).updatedAt = 6000;
+        let watermark = 6000;
+        for (const title of ['定时：Test', '定时：Renamed']) {
+            const result = await automation.runAutomation({ prompt: 'Summarize', sessionID: original.id, sessionUpdatedAt: watermark, sessionTitle: title, persistSession: true });
+            assert.equal(result.sessionID, original.id, 'synced runs must continue in the original conversation');
+            assert.equal(result.sessionTitle, title, 'the scheduled name must be used consistently even after a task rename');
+            assert.ok(result.sessionUpdatedAt > watermark);
+            watermark = result.sessionUpdatedAt;
+        }
+        assert.equal(automation.sessions.size, 1);
+        assert.equal(automation.sessions.get(original.id).entries[0].content, 'Earlier result', 'successive runs must retain prior conversation history');
+        assert.equal(automation.sessions.get(original.id).entries.filter(entry => entry.type === 'user').length, 2);
+        const otherDevice = loadAutomationSessions([original]);
+        await assert.rejects(() => otherDevice.runAutomation({ prompt: 'Continue', sessionID: original.id, sessionUpdatedAt: watermark, sessionTitle: '定时：Renamed', persistSession: true }), /尚未同步/);
+        otherDevice.sessions.set(original.id, JSON.parse(JSON.stringify(automation.sessions.get(original.id))));
+        const continued = await otherDevice.runAutomation({ prompt: 'Continue', sessionID: original.id, sessionUpdatedAt: watermark, sessionTitle: '定时：Renamed', persistSession: true });
+        assert.equal(continued.sessionID, original.id, 'a second device must continue in the same conversation after the session file is synchronized');
+        assert.equal(continued.sessionTitle, '定时：Renamed');
+        assert.equal(otherDevice.sessions.size, 1);
+        assert.equal(otherDevice.sessions.get(original.id).entries.filter(entry => entry.type === 'user').length, 3);
+    }
+    {
+        const automation = loadAutomationSessions();
+        await assert.rejects(() => automation.runAutomation({ prompt: 'Summarize', persistSession: true, onSessionSaved: async () => { throw new Error('binding write failed'); } }), error => {
+            assert.ok(error.sessionID, 'a prepared conversation must remain recoverable when binding persistence fails');
+            assert.equal(error.sessionUpdatedAt, automation.sessions.get(error.sessionID).updatedAt);
+            return /binding write failed/.test(error.message);
+        });
+        assert.equal(automation.requests.some(item => item.route === '/chat'), false, 'the model must not start before binding persistence succeeds');
+    }
+    {
+        const automation = loadAutomationSessions();
+        automation.failFinalSave = true;
+        automation.context.console = { ...console, warn() {} };
+        let prepared;
+        await assert.rejects(() => automation.runAutomation({ prompt: 'Summarize', persistSession: true, onSessionSaved: async session => { prepared = session; } }), error => {
+            assert.equal(error.sessionID, prepared.sessionID);
+            assert.equal(error.sessionUpdatedAt, prepared.sessionUpdatedAt, 'a failed final save must not advance the confirmed watermark');
+            return /disk write failed/.test(error.message);
+        });
     }
     {
         const automation = loadAutomationSafety();

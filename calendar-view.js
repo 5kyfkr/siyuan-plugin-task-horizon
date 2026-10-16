@@ -7219,11 +7219,7 @@
                 && start < new Date(date.getTime() + 86400000)
                 && end > date
                 && !shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { viewType });
-        })).sort((a, b) => {
-            const aStart = Number(toMs(a?.start)) || 0;
-            const bStart = Number(toMs(b?.start)) || 0;
-            return aStart - bStart || String(a?.id || '').localeCompare(String(b?.id || ''));
-        });
+        })).sort(compareSharedPrototypeEvents);
         closeTrackedPrototypeMorePopover();
         const pop = document.createElement('div');
         pop.className = 'tm-proto-more-popover';
@@ -7355,6 +7351,34 @@
             + `${canResizeRange && visualEnd && (!segment || segmentEndIndex >= (Number(segment.eventEndIndex) || segmentEndIndex)) ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>' : ''}</div>`;
     }
 
+    function compareSharedPrototypeEvents(a, b) {
+        const eventGroup = (eventApi) => {
+            const ext = eventApi?.extendedProps || {};
+            const source = String(ext.__tmSource || '').trim();
+            const allDay = eventApi?.allDay === true;
+            // Keep explicitly bottom-placed schedules after reminders.
+            if (allDay && (ext.__tmAllDayBottom === true || isScheduleAllDayBottom(ext))) return 4;
+            if (allDay && source === 'schedule') return 0;
+            if (source === 'taskdate') return 1;
+            if (source === 'schedule') return 2;
+            if (source === 'reminder') return 3;
+            if (allDay) return 0;
+            return 5;
+        };
+        const groupDelta = eventGroup(a) - eventGroup(b);
+        if (groupDelta) return groupDelta;
+        const aStart = Number(toMs(a?.start)) || 0;
+        const bStart = Number(toMs(b?.start)) || 0;
+        if (aStart !== bStart) return aStart - bStart;
+        const aRank = Number(a?.extendedProps?.__tmRank) || 0;
+        const bRank = Number(b?.extendedProps?.__tmRank) || 0;
+        if (aRank !== bRank) return aRank - bRank;
+        const eventTitle = (eventApi) => String(eventApi?.title || eventApi?.extendedProps?.__tmTaskTitleMarkdown || '').trim() || '未命名事件';
+        const titleDelta = eventTitle(a).localeCompare(eventTitle(b), 'zh-CN');
+        if (titleDelta) return titleDelta;
+        return String(a?.id || '').localeCompare(String(b?.id || ''));
+    }
+
     function buildSharedPrototypeTimelineMarkup(options = {}) {
         const settings = options.settings || getSettings();
         const allDayCapacity = normalizeCalendarWeekAllDayVisibleRows(
@@ -7404,12 +7428,7 @@
             const finish = dayStart(eventEnd(eventApi));
             return !!(start && finish && finish > start && Math.round((finish - start) / 86400000) > 1);
         };
-        const compareEvents = typeof options.compareEvents === 'function' ? options.compareEvents : (a, b) => {
-            const aStart = Number(toMs(a?.start)) || 0;
-            const bStart = Number(toMs(b?.start)) || 0;
-            if (aStart !== bStart) return aStart - bStart;
-            return String(a?.id || '').localeCompare(String(b?.id || ''));
-        };
+        const compareEvents = typeof options.compareEvents === 'function' ? options.compareEvents : compareSharedPrototypeEvents;
         const timedLaneHints = options.timedLaneHints instanceof Map ? options.timedLaneHints : new Map();
         const eventMarkup = typeof options.eventMarkup === 'function'
             ? options.eventMarkup
@@ -32889,42 +32908,7 @@
             if (ext.__tmTaskDateMilestone === true) meta.push('里程碑');
             return meta.join(' · ');
         };
-        const protoEventIsAllDayBottom = (eventApi) => {
-            if (eventApi?.allDay !== true) return false;
-            const ext = eventApi?.extendedProps || {};
-            return ext.__tmAllDayBottom === true || isScheduleAllDayBottom(ext);
-        };
-        const protoMonthEventGroup = (eventApi) => {
-            const source = protoEventSource(eventApi);
-            const allDay = eventApi?.allDay === true;
-            const bottom = protoEventIsAllDayBottom(eventApi);
-            // Month rows use one deterministic stack: normal all-day
-            // schedules, task-date events, calendar schedules, reminders.
-            // A context-menu "置底全天日程" schedule is always the final
-            // group, after tomato reminders as requested.
-            if (bottom) return 4;
-            if (allDay && source === 'schedule' && !bottom) return 0;
-            if (source === 'taskdate') return 1;
-            if (source === 'schedule') return 2;
-            if (source === 'reminder') return 3;
-            if (allDay) return 0;
-            return 5;
-        };
-        const protoCompareMonthEvents = (a, b) => {
-            const groupDelta = protoMonthEventGroup(a) - protoMonthEventGroup(b);
-            if (groupDelta) return groupDelta;
-            const bottomDelta = Number(protoEventIsAllDayBottom(a)) - Number(protoEventIsAllDayBottom(b));
-            if (bottomDelta) return bottomDelta;
-            const aStart = Number(toMs(a?.start)) || 0;
-            const bStart = Number(toMs(b?.start)) || 0;
-            if (aStart !== bStart) return aStart - bStart;
-            const aRank = Number(a?.extendedProps?.__tmRank) || 0;
-            const bRank = Number(b?.extendedProps?.__tmRank) || 0;
-            if (aRank !== bRank) return aRank - bRank;
-            const titleDelta = protoEventTitle(a).localeCompare(protoEventTitle(b), 'zh-CN');
-            if (titleDelta) return titleDelta;
-            return String(a?.id || '').localeCompare(String(b?.id || ''));
-        };
+        const protoCompareMonthEvents = compareSharedPrototypeEvents;
         const protoLunarText = (key, settings) => {
             return buildSharedPrototypeLunarText(key, settings, state.cnHolidayMap);
         };

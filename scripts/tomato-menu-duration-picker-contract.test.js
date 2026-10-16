@@ -44,8 +44,8 @@ for (const [label, source] of [['task context menu', list], ['block context menu
 }
 
 assert.match(detail, /label: '正计时'/, 'task detail menu must keep the short stopwatch label');
-assert.match(list, /sw\.textContent = '⏱️ 正计时'/, 'task context menu must keep the short stopwatch label');
-assert.match(render, /sw\.textContent = '⏱️ 正计时'/, 'block context menu must keep the short stopwatch label');
+assert.match(list, /sw\.innerHTML = __tmRenderTimerMenuLabel\('timer', '正计时'\)/, 'task context menu must keep the short stopwatch label');
+assert.match(render, /sw\.innerHTML = __tmRenderTimerMenuLabel\('timer', '正计时'\)/, 'block context menu must keep the short stopwatch label');
 assert.match(styles, /\.tm-task-context-timer__slider-row[\s\S]*\.tm-task-detail-more-menu__timer-slider-row/, 'both timer menu variants must have picker layout styles');
 assert.match(styles, /slider::-webkit-slider-thumb[\s\S]*background-image: url\("data:image\/svg\+xml,[\s\S]*M8 5v14l11-7z/, 'the slider thumb must carry the play icon');
 assert.match(styles, /slider\.is-pressed[\s\S]*transform: scale\(0\.82\)/, 'the slider must retain the pressed affordance');

@@ -184,6 +184,8 @@
             prompt,
             includeInternalPrompt: value.includeInternalPrompt !== false,
             conversationId: String(value.conversationId || '').trim(),
+            conversationUpdatedAt: Math.max(0, Number(value.conversationUpdatedAt) || 0),
+            conversationTitle: String(value.conversationTitle || '').trim().slice(0, 160),
             condition: String(value.condition || '') === 'today_has_completed_tasks' ? 'today_has_completed_tasks' : 'always',
             schedule: {
                 kind,
@@ -206,6 +208,8 @@
         };
         if (options.stripRuntime === true) {
             delete event.conversationId;
+            delete event.conversationUpdatedAt;
+            delete event.conversationTitle;
             delete event.lastOccurrence;
             delete event.lastRun;
         }
@@ -652,6 +656,19 @@
         }
     }
 
+    function __tmScheduledMergeConversationState(event, previous) {
+        if (!previous?.conversationId) return event;
+        if (!event.conversationId || (event.conversationId === previous.conversationId
+            && previous.conversationUpdatedAt > event.conversationUpdatedAt)) {
+            event.conversationId = previous.conversationId;
+            event.conversationUpdatedAt = previous.conversationUpdatedAt;
+            event.conversationTitle = previous.conversationTitle;
+        } else if (event.conversationId === previous.conversationId && !event.conversationTitle) {
+            event.conversationTitle = previous.conversationTitle;
+        }
+        return event;
+    }
+
     function __tmScheduledMergeEventSnapshots(localEvents, remoteEvents) {
         const local = __tmNormalizeScheduledEvents(localEvents);
         if (!Array.isArray(remoteEvents)) return local;
@@ -662,7 +679,9 @@
             if (!remoteEvent) return;
             const localTs = Math.max(Number(current.updatedAt) || 0, Number(current.lastOccurrence?.startedAt) || 0, Number(current.lastRun?.finishedAt) || 0);
             const remoteTs = Math.max(Number(remoteEvent.updatedAt) || 0, Number(remoteEvent.lastOccurrence?.startedAt) || 0, Number(remoteEvent.lastRun?.finishedAt) || 0);
-            if (localTs >= remoteTs) map.set(current.id, current);
+            map.set(current.id, localTs >= remoteTs
+                ? __tmScheduledMergeConversationState(current, remoteEvent)
+                : __tmScheduledMergeConversationState(remoteEvent, current));
         });
         return Array.from(map.values());
     }
@@ -678,7 +697,9 @@
             }
             const localTs = Math.max(Number(event.updatedAt) || 0, Number(event.lastOccurrence?.startedAt) || 0, Number(event.lastRun?.finishedAt) || 0);
             const kernelTs = Math.max(Number(current.updatedAt) || 0, Number(current.lastOccurrence?.startedAt) || 0, Number(current.lastRun?.finishedAt) || 0);
-            if (localTs >= kernelTs) map.set(event.id, event);
+            map.set(event.id, localTs >= kernelTs
+                ? __tmScheduledMergeConversationState(event, current)
+                : __tmScheduledMergeConversationState(current, event));
         });
         return Array.from(map.values());
     }
@@ -694,7 +715,7 @@
         const event = __tmNormalizeScheduledEvent(value);
         const events = __tmNormalizeScheduledEvents(SettingsStore.data.scheduledEvents);
         const index = events.findIndex((item) => item.id === event.id);
-        if (index >= 0) events[index] = event;
+        if (index >= 0) events[index] = __tmScheduledMergeConversationState(event, events[index]);
         else events.push(event);
         SettingsStore.data.scheduledEvents = events;
         SettingsStore.syncToLocal?.();
@@ -870,6 +891,33 @@
         }
     }
 
+    async function __tmScheduledRecordConversation(event, session) {
+        const id = String(session?.sessionID || '').trim();
+        if (!id) return;
+        const current = __tmScheduledEventById(event.id);
+        if (!current) throw new Error('定时事件已被删除');
+        if ([event.conversationId, current.conversationId].some((bound) => bound && bound !== id)) {
+            throw new Error('定时事件的会话绑定与当前设备不一致，请完成思源数据同步后重试');
+        }
+        const knownUpdatedAt = Math.max(event.conversationUpdatedAt || 0, current.conversationUpdatedAt || 0);
+        if (Number(session.sessionUpdatedAt) > 0 && Number(session.sessionUpdatedAt) < knownUpdatedAt) {
+            throw new Error('会话保存版本落后于已记录版本，请完成思源数据同步后重试');
+        }
+        const updatedAt = Math.max(knownUpdatedAt, Number(session.sessionUpdatedAt) || 0);
+        const title = String(session.sessionTitle || current.conversationTitle || event.conversationTitle || '').trim();
+        const binding = { conversationId: id, conversationUpdatedAt: updatedAt, conversationTitle: title };
+        Object.assign(event, binding);
+        Object.assign(current, binding);
+        await __tmScheduledPersist();
+        const persisted = __tmScheduledEventById(event.id);
+        if (persisted?.conversationId !== id) {
+            throw new Error('定时事件的会话绑定已变化，请完成思源数据同步后重试');
+        }
+        if (Number(session.sessionUpdatedAt) > 0 && persisted.conversationUpdatedAt > Number(session.sessionUpdatedAt)) {
+            throw new Error('会话保存期间发现更新的同步版本，请完成思源数据同步后重试');
+        }
+    }
+
     async function __tmScheduledRun(eventId, options = {}) {
         const manual = options.manual === true;
         if (!manual && !__tmScheduledIsDesktopRuntime()) {
@@ -921,18 +969,14 @@
                 eventId: event.id,
                 occurrenceKey,
                 sessionID: conversationId,
+                sessionUpdatedAt: event.conversationUpdatedAt,
                 sessionTitle: `定时：${event.name}`,
+                onSessionSaved: (session) => __tmScheduledRecordConversation(event, session),
                 persistSession: true,
                 includeInternalPrompt,
                 requireFocusTools: includeInternalPrompt,
             });
-            const resolvedConversationId = String(result?.sessionID || '').trim();
-            if (resolvedConversationId && resolvedConversationId !== event.conversationId) {
-                event.conversationId = resolvedConversationId;
-                const current = __tmScheduledEventById(event.id);
-                if (current) current.conversationId = event.conversationId;
-                await __tmScheduledPersist();
-            }
+            await __tmScheduledRecordConversation(event, result);
             const markdown = __tmScheduledSanitizeOutput(result?.markdown).slice(0, __TM_SCHEDULED_EVENT_MAX_RESULT);
             if (!markdown) throw new Error('智能体未返回内容');
             const cached = {
@@ -953,12 +997,8 @@
             if (heartbeat.lost || ['CONFLICT', 'NOT_FOUND'].includes(String(error?.code || ''))) {
                 return { status: 'deduplicated', error: '定时事件执行权已转移，本次结果未投递' };
             }
-            const resolvedConversationId = String(error?.sessionID || '').trim();
-            if (resolvedConversationId && resolvedConversationId !== event.conversationId) {
-                event.conversationId = resolvedConversationId;
-                const current = __tmScheduledEventById(event.id);
-                if (current) current.conversationId = resolvedConversationId;
-                try { await __tmScheduledPersist(); }
+            if (error?.sessionID) {
+                try { await __tmScheduledRecordConversation(event, error); }
                 catch (persistError) { console.warn('[task-horizon] scheduled conversation binding update failed', persistError); }
             }
             const status = __tmScheduledStatusFromError(error);
@@ -1083,6 +1123,8 @@
                 events.set(definition.id, __tmNormalizeScheduledEvent({
                     ...definition,
                     conversationId: previous?.conversationId || '',
+                    conversationUpdatedAt: previous?.conversationUpdatedAt || 0,
+                    conversationTitle: previous?.conversationTitle || '',
                     lastOccurrence: previous?.lastOccurrence,
                     lastRun: previous?.lastRun,
                 }));
@@ -1106,6 +1148,7 @@
             if (index >= 0) {
                 event.createdAt = events[index].createdAt;
                 event.conversationId = event.conversationId || events[index].conversationId;
+                __tmScheduledMergeConversationState(event, events[index]);
                 event.lastOccurrence = events[index].lastOccurrence;
                 event.lastRun = events[index].lastRun;
                 events[index] = event;

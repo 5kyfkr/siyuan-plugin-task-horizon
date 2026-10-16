@@ -53,6 +53,7 @@ for (const name of [
     'resolveSharedPrototypeEventStart', 'resolveSharedPrototypeEventEnd', 'countSharedPrototypeAllDayEvents',
     'isCalendarForegroundEvent', 'mergeCalendarAllDayReminders', 'buildCalendarMergedReminderMarkup',
     'buildSharedPrototypeAllDayToggleMarkup', 'buildSharedPrototypeEventMarkup', 'buildSharedPrototypeSpanMarkup',
+    'isScheduleAllDayBottom', 'compareSharedPrototypeEvents',
     'buildSharedPrototypeTimelineMarkup', 'buildSharedPrototypeDayPanelMarkup',
     'closeTrackedPrototypeMorePopover', 'showSharedPrototypeMorePopover',
 ]) vm.runInContext(readFunction(name), context);
@@ -82,6 +83,58 @@ assert.doesNotMatch(render({ settings: { ...settings, weekAllDayVisibleRows: 2 }
 const side = context.buildSharedPrototypeDayPanelMarkup({ date: day, events: store.getEvents(), settings, viewType: 'timeGridDay' });
 assert.equal((side.match(/data-tm-proto-event=/g) || []).length, 2);
 assert.ok(side.includes('⏰ 16:00') && side.includes('⏰ 09:00'));
+const segment = (startMarker, endMarker) => {
+    const start = source.indexOf(startMarker);
+    const end = source.indexOf(endMarker, start);
+    assert.ok(start >= 0 && end > start, startMarker);
+    return source.slice(start, end);
+};
+vm.runInContext([
+    segment('        const protoCompareMonthEvents =', '        const protoLunarText ='),
+    'globalThis.mainCompareEvents = protoCompareMonthEvents;',
+].join('\n'), context);
+const screenshotEvents = [
+    task('05', '泵物料给总装，还缺2个ZP'),
+    task('04', '工时登记'),
+    task('01', '周报更新'),
+    task('02', 'ECVR-FM 单向阀 泵测试'),
+    task('06', 'ECVR-FM控制板 电流和霍尔测试'),
+    task('span', '中石油在线监测资料补充', { start: new Date(2026, 8, 19), end: new Date(2026, 8, 22) }),
+    reminder('04', ['16:00']), reminder('01', ['09:00']),
+];
+const orderedIds = (markup) => Array.from(markup.matchAll(/data-tm-proto-event="([^"]+)"/g), (match) => match[1]);
+const orderSettings = { ...settings, weekAllDayVisibleRows: 15 };
+const mainOrder = orderedIds(context.buildSharedPrototypeTimelineMarkup({
+    days: [day], events: screenshotEvents, settings: orderSettings,
+    compareEvents: context.mainCompareEvents,
+}));
+assert.deepEqual(mainOrder, ['taskdate:span', 'taskdate:05', 'taskdate:04', 'taskdate:01', 'taskdate:02', 'taskdate:06']);
+const normalSchedule = task('schedule', '普通全天日程', { extendedProps: { __tmSource: 'schedule', __tmRank: 2 } });
+const bottomSchedule = task('00-bottom', '置底全天日程', { extendedProps: { __tmSource: 'schedule', __tmAllDayBottom: true } });
+const legacyBottomSchedule = task('00-legacy-bottom', '旧版置底日程', { extendedProps: { __tmSource: 'schedule', allDayPlacement: 'bottom' } });
+const rankedTask = task('00-rank', '排在后面的任务', { extendedProps: { __tmSource: 'taskdate', __tmRank: 9 } });
+const standaloneReminder = reminder('00-reminder');
+const groupedEvents = [bottomSchedule, standaloneReminder, rankedTask, normalSchedule, screenshotEvents[1], legacyBottomSchedule];
+const spanEvents = ['周报更新', '泵物料给总装'].map((title, index) => task(`span-${index}`, title, {
+    start: new Date(2026, 8, 19), end: new Date(2026, 8, 22),
+}));
+for (const [input, expected] of [
+    [screenshotEvents, mainOrder],
+    [groupedEvents, ['taskdate:schedule', 'taskdate:04', 'taskdate:00-rank', 'reminder:00-reminder:2026-09-20', 'taskdate:00-legacy-bottom', 'taskdate:00-bottom']],
+    [spanEvents, ['taskdate:span-1', 'taskdate:span-0']],
+]) {
+    for (const events of [input, input.slice().reverse()]) {
+        const main = context.buildSharedPrototypeTimelineMarkup({ days: [day], events, settings: orderSettings, compareEvents: context.mainCompareEvents });
+        const dock = context.buildSharedPrototypeDayPanelMarkup({ date: day, events, settings: orderSettings });
+        assert.deepEqual(orderedIds(main), expected);
+        assert.deepEqual(orderedIds(dock), expected, 'The dock must match the main day view regardless of source order');
+        context.showSharedPrototypeMorePopover(new Element(), '2026-09-20', { getEvents: () => events });
+        const popoverIds = Array.from(context.state.__tmPrototypeMorePopover.el.innerHTML.matchAll(/class="tm-proto-more-popover-event" data-tm-proto-event="([^"]+)"/g), (match) => match[1]);
+        assert.deepEqual(popoverIds, expected,
+            'The dock overflow popover must retain the same order, including bottom-placed schedules');
+    }
+}
+assert.equal(screenshotEvents[0].extendedProps.__tmMergedReminderLabel, undefined);
 Object.assign(context, {
     protoSafeDate: (value) => new Date(value), protoDayStart: (value) => new Date(value),
     protoAddDays: (value, amount) => new Date(value.getFullYear(), value.getMonth(), value.getDate() + amount),

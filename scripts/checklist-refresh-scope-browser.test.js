@@ -7,6 +7,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = path.join(__dirname, '../src/task-horizon/main');
 const runtime = fs.readFileSync(path.join(root, '20-api-and-runtime-services.js'), 'utf8');
 const removal = fs.readFileSync(path.join(root, 'task-runtime/53b-task-create-and-quick-add-runtime.js'), 'utf8');
+const projection = fs.readFileSync(path.join(root, 'task-runtime/51-whiteboard-and-link-runtime.js'), 'utf8');
 function extract(source, name) {
     const start = source.indexOf('    function ' + name + '(');
     const end = source.indexOf('\n    }', start) + '\n    }'.length;
@@ -22,8 +23,12 @@ const helperNames = [
     '__tmReconcileChecklistProjectionSegment', '__tmTryRefreshChecklistProjectionSegments',
     '__tmReconcileChecklistProjectionCard', '__tmTryRefreshChecklistProjectionGroups',
     '__tmCollectChecklistDocumentRefreshTaskIds',
+    '__tmGetListRowStableKey', '__tmReconcileKeyedViewRows', '__tmCaptureViewScrollAnchor', '__tmRerenderListInPlace',
 ];
-const code = helperNames.map((name) => extract(runtime, name)).join('\n') + '\n' + extract(removal, '__tmRemoveTaskDomNodes');
+const code = helperNames.map((name) => extract(runtime, name)).join('\n') + '\n' + extract(removal, '__tmRemoveTaskDomNodes')
+    + '\n' + ['__tmCollectChecklistProjectionDomBlock', '__tmSetChecklistProjectionDomBlockVisibility',
+        '__tmTryApplyChecklistOptimisticProjectionInPlace', '__tmTryApplyListProjectionBatchInPlace']
+        .map((name) => extract(projection, name)).join('\n');
 
 (async () => {
     const browser = await chromium.launch({ headless: true });
@@ -77,7 +82,63 @@ const code = helperNames.map((name) => extract(runtime, name)).join('\n') + '\n'
                 if (!documentOnly) assert.equal(result.siblingKept, true);
             }
         }
+        for (const compact of [false, true]) {
+            for (const action of ['filter', 'move', 'delete']) {
+                const result = await page.evaluate(({ compact, action }) => {
+                    const row = (id) => `<div class="tm-checklist-item" data-id="${id}" data-depth="0">${id}</div>`;
+                    const group = (key, ids) => {
+                        const header = `<div class="tm-checklist-group" data-group-key="${key}">${key}<span class="tm-badge--count">${ids.length}</span></div>`;
+                        return compact ? `<section class="tm-checklist-group-card">${header}<div class="tm-checklist-group-card-items">${ids.map(row).join('')}</div></section>`
+                            : header + ids.map(row).join('');
+                    };
+                    const bodyHtml = (fresh) => `<div class="tm-body tm-body--checklist"><div class="tm-checklist-pane${compact ? ' tm-checklist-pane--compact' : ''}"><div class="tm-checklist-items">${
+                        (fresh ? '' : group('source', ['last'])) + group('destination', fresh && action === 'move' ? ['last', 'kept'] : ['kept'])}</div></div></div>`;
+                    state.modal.innerHTML = bodyHtml(false);
+                    state.viewMode = 'checklist';
+                    const body = state.modal.firstElementChild;
+                    const kept = body.querySelector('[data-id="kept"]');
+                    const header = body.querySelector('[data-group-key="destination"]');
+                    const rows = [{ type: 'group', key: 'destination', kind: 'task', count: action === 'move' ? 2 : 1 },
+                        ...(action === 'move' ? [{ type: 'task', id: 'last', depth: 0 }] : []), { type: 'task', id: 'kept', depth: 0 }];
+                    window.__tmBuildTaskRowModel = () => rows;
+                    if (action === 'delete') __tmRemoveTaskDomNodes('last');
+                    const fast = __tmTryApplyChecklistOptimisticProjectionInPlace('last', {}, { filtersApplied: true });
+                    let ok = fast;
+                    if (!fast) {
+                        const template = document.createElement('template'); template.innerHTML = bodyHtml(true);
+                        ok = __tmTryRefreshChecklistProjectionGroups(state.modal, body, template.content.firstElementChild, ['last']);
+                    }
+                    return { ok, sourceGone: !body.querySelector('[data-group-key="source"]'),
+                        kept: kept === body.querySelector('[data-id="kept"]'), header: header === body.querySelector('[data-group-key="destination"]'),
+                        count: body.querySelector('[data-group-key="destination"] .tm-badge--count').textContent,
+                        ids: Array.from(body.querySelectorAll('.tm-checklist-item')).filter((node) => !node.hidden).map((node) => node.dataset.id) };
+                }, { compact, action });
+                assert.equal(result.ok, true, JSON.stringify({ compact, action, result }));
+                assert.equal(result.sourceGone, true, 'the last task must not leave an empty group header or compact card');
+                assert.equal(result.kept, true);
+                if (action === 'filter') assert.equal(result.header, true);
+                assert.equal(result.count, action === 'move' ? '2' : '1');
+                assert.deepEqual(result.ids, action === 'move' ? ['last', 'kept'] : ['kept']);
+            }
+        }
+        const table = await page.evaluate(() => {
+            state.viewMode = 'list';
+            state.modal.innerHTML = '<table id="tmTaskTable"><tbody><tr data-group-key="source"></tr><tr data-id="last"></tr><tr data-group-key="destination"></tr><tr data-id="kept"></tr></tbody></table>';
+            window.SettingsStore = { data: {} };
+            const before = state.modal.innerHTML;
+            const kept = state.modal.querySelector('[data-id="kept"]');
+            const destination = state.modal.querySelector('[data-group-key="destination"]');
+            window.__tmBuildTaskRowModel = () => [{ type: 'group', key: 'destination', count: 1 }, { type: 'task', id: 'kept' }];
+            const fast = __tmTryApplyListProjectionBatchInPlace(['last']);
+            const unchanged = before === state.modal.innerHTML;
+            window.renderTaskList = () => '<tr data-group-key="destination"></tr><tr data-id="kept"></tr>';
+            const ok = __tmRerenderListInPlace(state.modal, { taskIds: ['last'] });
+            return { fast, unchanged, ok, sourceGone: !state.modal.querySelector('[data-group-key="source"]'),
+                kept: kept === state.modal.querySelector('[data-id="kept"]'), destination: destination === state.modal.querySelector('[data-group-key="destination"]') };
+        });
+        assert.deepEqual(table, { fast: false, unchanged: true, ok: true, sourceGone: true, kept: true, destination: true },
+            'table rows already defer disappearing tasks and groups to their renderer');
         assert.deepEqual(errors, []);
-        console.log('checklist refresh scope browser regressions: 4 passed, 0 failed');
+        console.log('checklist refresh scope browser regressions: 11 passed, 0 failed');
     } finally { await browser.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

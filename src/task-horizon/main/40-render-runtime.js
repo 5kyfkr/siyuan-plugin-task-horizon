@@ -8693,7 +8693,7 @@
             timerWrap.className = 'tm-task-context-timer';
             const title = document.createElement('div');
             title.className = 'tm-task-context-timer__title';
-            title.textContent = '🍅 计时';
+            title.innerHTML = __tmRenderTimerMenuLabel('tomato', '计时');
             timerWrap.appendChild(title);
             const btnRow = document.createElement('div');
             btnRow.className = 'tm-task-context-timer__grid';
@@ -8778,7 +8778,7 @@
             const sw = document.createElement('button');
             sw.type = 'button';
             sw.className = 'tm-btn tm-btn-secondary tm-task-context-timer__btn tm-task-context-timer__btn--stopwatch';
-            sw.textContent = '⏱️ 正计时';
+            sw.innerHTML = __tmRenderTimerMenuLabel('timer', '正计时');
             sw.onclick = async (e) => {
                 e.stopPropagation();
                 await runTaskTimer(0, 'stopwatch');

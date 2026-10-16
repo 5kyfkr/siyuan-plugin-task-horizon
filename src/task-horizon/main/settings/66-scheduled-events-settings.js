@@ -29,6 +29,8 @@
             prompt: source.prompt || '',
             includeInternalPrompt: source.includeInternalPrompt !== false,
             conversationId: source.conversationId || '',
+            conversationUpdatedAt: source.conversationUpdatedAt || 0,
+            conversationTitle: source.conversationTitle || '',
             condition: source.condition || 'always',
             schedule: source.schedule || { kind: 'daily', date: __tmScheduledLocalDateKey(new Date()), weekday: 1, time: '19:00' },
             output: source.output || { mode: 'notification', documentId: '', documentMode: 'target', insertPosition: 'bottom' },
@@ -407,7 +409,7 @@
             return;
         }
         try { window.closeSettings?.(); } catch (e) {}
-        await globalThis.__tmAI.openConversation(conversationId);
+        await globalThis.__tmAI.openConversation(conversationId, { sessionUpdatedAt: event.conversationUpdatedAt });
     };
 
     window.tmScheduledViewResult = function (id) {

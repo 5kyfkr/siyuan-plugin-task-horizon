@@ -247,12 +247,10 @@
         }
         const expandedByEntry = await Promise.all((Array.isArray(ctx.entries) ? ctx.entries : []).map(async (entry) => {
             const entryIds = [];
-            try {
-                await __tmExpandSourceEntryDocIds(entry, (id) => {
-                    const docId = String(id || '').trim();
-                    if (docId) entryIds.push(docId);
-                });
-            } catch (e) {}
+            await __tmExpandSourceEntryDocIds(entry, (id) => {
+                const docId = String(id || '').trim();
+                if (docId) entryIds.push(docId);
+            });
             return entryIds;
         }));
         expandedByEntry.forEach((entryIds) => {
@@ -1025,8 +1023,14 @@
             preferFastScope: !isSwitchDocGroupLoad && !!preferFastFirstPaint && !forceFreshTasks && !state.isRefreshing,
         };
         let allDocIds = [];
-        allDocIds = await resolveDocIdsFromGroups(resolveScopeOptions);
-        // During a native mobile cold start, SiYuan can expose the plugin after
+        let scopeReadError = null;
+        try {
+            allDocIds = await resolveDocIdsFromGroups(resolveScopeOptions);
+        } catch (error) {
+            if (!retryEmptyDocScope && !waitForDocScopeResolve) throw error;
+            scopeReadError = error;
+        }
+        // During startup or plugin reload, SiYuan can expose the plugin after
         // settings are ready but before notebook/file-tree queries are usable.
         // An empty result is otherwise cached as a valid empty group and the
         // first render stays blank until the user manually refreshes.
@@ -1061,12 +1065,14 @@
                             skipResolvedDocIdsCache: true,
                             verifyCachedScope: false,
                         });
+                        scopeReadError = null;
                     } catch (e) {
-                        allDocIds = [];
+                        scopeReadError = e;
                     }
                 }
             }
         }
+        if (scopeReadError) throw scopeReadError;
         const editorOrderSnapshots = forceSyncFlowRank
             ? __tmCaptureEditorDocumentTaskOrder(allDocIds, { maxTasks: 80 })
             : [];

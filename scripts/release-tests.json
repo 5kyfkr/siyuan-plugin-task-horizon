@@ -1,6 +1,7 @@
 {
   "core": [
     "shortcut-navigation.test.js",
+    "doc-group-scope-read-failure-behavior.test.js",
     "kernel-contract.test.js",
     "kernel-settings-persistence.test.js",
     "task-lifecycle-contract.test.js",
@@ -66,8 +67,12 @@
     "settings-runtime-wiring-contract.test.js"
   ],
   "browser": [
+    "mobile-fullscreen-reopen-browser.test.js",
+    "shortcut-session-reload-browser.test.js",
+    "shortcut-sidebar-first-paint-browser.test.js",
     "calendar-host-snapshot-browser.test.js",
     "checklist-style-integration-browser.test.js",
+    "checklist-refresh-scope-browser.test.js",
     "kanban-column-refresh-browser.test.js",
     "kanban-appearance-browser.test.js",
     "settings-v2-browser.test.js",

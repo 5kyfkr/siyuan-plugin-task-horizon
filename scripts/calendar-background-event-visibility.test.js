@@ -56,6 +56,7 @@ for (const name of [
     'isCalendarForegroundEvent',
     'mergeCalendarAllDayReminders', 'buildCalendarMergedReminderMarkup',
     'buildSharedPrototypeAllDayToggleMarkup', 'buildSharedPrototypeEventMarkup', 'buildSharedPrototypeSpanMarkup',
+    'isScheduleAllDayBottom', 'compareSharedPrototypeEvents',
     'buildSharedPrototypeTimelineMarkup', 'buildSharedPrototypeDayPanelMarkup',
     'closeTrackedPrototypeMorePopover', 'showSharedPrototypeMorePopover',
 ]) vm.runInContext(readFunction(name), context);

@@ -2017,6 +2017,15 @@ async function run() {
     ]);
     assert.equal(concurrentClaims.filter((result) => result.ok && result.data.claimed).length, 1, 'the kernel must grant one runner per occurrence');
     const winningClaim = concurrentClaims.find((result) => result.ok && result.data.claimed).data;
+    const boundSchedule = {
+        ...winningClaim.event,
+        conversationId: '20260721120000-abc1234',
+        conversationUpdatedAt: 300,
+        conversationTitle: '定时：每日任务复盘',
+    };
+    const boundSchedules = await harness.call('taskHorizonReplaceAgentSchedules', { events: [boundSchedule] });
+    assert.equal(boundSchedules.ok, true);
+    assert.equal(boundSchedules.data[0].conversationUpdatedAt, 300);
     const staleScheduleSave = await harness.call('taskHorizonSaveAgentSchedule', {
         ...createdAgentSchedule.data,
         name: '每日任务复盘（已编辑）',
@@ -2025,6 +2034,22 @@ async function run() {
     });
     assert.equal(staleScheduleSave.ok, true);
     assert.equal(staleScheduleSave.data.lastOccurrence.ownerId, winningClaim.ownerID, 'definition edits must not overwrite an active Kernel lease');
+    assert.equal(staleScheduleSave.data.conversationId, boundSchedule.conversationId, 'stale editors must retain the bound conversation');
+    assert.equal(staleScheduleSave.data.conversationUpdatedAt, 300);
+    assert.equal(staleScheduleSave.data.conversationTitle, boundSchedule.conversationTitle);
+    const staleBindings = await harness.call('taskHorizonReplaceAgentSchedules', {
+        events: [{ ...staleScheduleSave.data, conversationUpdatedAt: 100, conversationTitle: 'Old title' }],
+    });
+    assert.equal(staleBindings.ok, true);
+    assert.equal(staleBindings.data[0].conversationUpdatedAt, 300, 'snapshot replacement must not move the confirmed watermark backwards');
+    assert.equal(staleBindings.data[0].conversationTitle, boundSchedule.conversationTitle);
+    const differentBinding = await harness.call('taskHorizonReplaceAgentSchedules', {
+        events: [{ ...staleScheduleSave.data, conversationId: '20260721130000-def5678', conversationUpdatedAt: 900, conversationTitle: 'Unrelated conversation' }],
+    });
+    assert.equal(differentBinding.ok, true);
+    assert.equal(differentBinding.data[0].conversationId, boundSchedule.conversationId, 'a stale snapshot must never replace an established conversation');
+    assert.equal(differentBinding.data[0].conversationUpdatedAt, 300);
+    assert.equal(differentBinding.data[0].conversationTitle, boundSchedule.conversationTitle);
     const rejectedRenewal = await harness.call('taskHorizonRenewAgentScheduleOccurrence', {
         scheduleID: agentScheduleID,
         occurrenceKey,

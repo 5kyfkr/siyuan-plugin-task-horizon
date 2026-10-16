@@ -43,6 +43,7 @@ for (const name of [
     'mergeCalendarAllDayReminders',
     'countSharedPrototypeAllDayEvents',
     'buildSharedPrototypeAllDayToggleMarkup',
+    'compareSharedPrototypeEvents',
     'buildSharedPrototypeTimelineMarkup',
 ]) {
     const body = extract(`    function ${name}(`, '\n    function ');
@@ -52,7 +53,7 @@ vm.runInNewContext([
     extract('    function resolveSharedPrototypeEventEnd(', '    function resolveSharedPrototypeEventStart('),
     extract('        const protoSafeDate =', '        const protoTimeMinutes ='),
     extract('        const protoEventSource =', '        const protoEventTime ='),
-    extract('        const protoEventIsAllDayBottom =', '        const protoLunarText ='),
+    extract('        const protoCompareMonthEvents =', '        const protoLunarText ='),
     extract('        const protoRangeEvents =', '        const protoSpanMarkup ='),
     extract('            const protoMonthSpanLayout =', '        const protoBuildMonthCompactedLayout ='),
     'globalThis.spanLayout = protoMonthSpanLayout;',

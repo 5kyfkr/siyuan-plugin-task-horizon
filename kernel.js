@@ -2311,6 +2311,8 @@
                 ? previous.includeInternalPrompt !== false
                 : source.includeInternalPrompt !== false,
             conversationId: text(source.conversationId || previous.conversationId),
+            conversationUpdatedAt: Math.max(0, Number(source.conversationUpdatedAt) || 0),
+            conversationTitle: text(source.conversationTitle).slice(0, 160),
             condition: text(source.condition || previous.condition) === 'today_has_completed_tasks' ? 'today_has_completed_tasks' : 'always',
             schedule: {
                 kind,
@@ -2443,7 +2445,16 @@
             event.lastOccurrence = cloneAgentSchedule(current.lastOccurrence || {});
             event.lastRun = cloneAgentSchedule(current.lastRun || {});
         }
-        if (!text(event.conversationId)) event.conversationId = text(current.conversationId);
+        if (text(current.conversationId)) {
+            const differentConversation = event.conversationId !== current.conversationId;
+            event.conversationId = current.conversationId;
+            if (differentConversation || current.conversationUpdatedAt > event.conversationUpdatedAt) {
+                event.conversationUpdatedAt = current.conversationUpdatedAt;
+                event.conversationTitle = current.conversationTitle;
+            } else if (!event.conversationTitle) {
+                event.conversationTitle = current.conversationTitle;
+            }
+        }
         return event;
     }
 

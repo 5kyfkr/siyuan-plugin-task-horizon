@@ -1324,6 +1324,14 @@
         return !!node?.closest?.('.list-mindmap, [data-protyle-lite-render], [data-type="NodeList"][custom-sy-list-mindmap="1"], [data-type="NodeList"][data-list-mindmap-rendered="true"]');
     }
 
+    function isQuickbarNativeInteractionTarget(target) {
+        const node = target instanceof Element ? target : target?.parentElement;
+        if (node?.closest?.('.sy-custom-props-inline-host,.sy-custom-props-floatbar,.sy-custom-props-floatbar__select,.sy-custom-props-floatbar__input-editor')) return false;
+        // SiYuan combines inline marks (for example, "strong block-ref"). Native
+        // links, references and controls must reach its editor click handlers.
+        return !!node?.closest?.('a,[data-href],[data-type~="a"],[data-type~="block-ref"],[data-type~="virtual-block-ref"],[data-type~="file-annotation-ref"],[data-type~="tag"],[data-type~="inline-memo"],[data-type~="inline-math"],[data-action="openFloat"],.protyle-action,.protyle-icon,.protyle-attr,.img,button,input,textarea,select,summary,audio,video,iframe,protyle-html');
+    }
+
     function shouldPreserveQuickbarNativeEditorDOM(target) {
         if (!isQuickbarNativeEditorSurface(target)) return false;
         const node = target instanceof Element ? target : target?.parentElement;
@@ -2323,7 +2331,7 @@
 
     const __tmQBResolveInlineMetaPointerTarget = (e) => {
         const rawTarget = e.target;
-        if (isQuickbarNativeEditorSurface(rawTarget)) return null;
+        if (isQuickbarNativeEditorSurface(rawTarget) || isQuickbarNativeInteractionTarget(rawTarget)) return null;
         const targetEl = rawTarget instanceof Element ? rawTarget : rawTarget?.parentElement;
         let chip = targetEl?.closest?.('.sy-custom-props-inline-chip');
         let host = chip?.closest?.('.sy-custom-props-inline-host');
@@ -10526,7 +10534,7 @@
                 if (floatBar.style.display !== 'none') hideFloatBar();
                 return;
             }
-            if (target?.closest?.('[data-type="block-ref"][data-id]')) {
+            if (isQuickbarNativeInteractionTarget(target)) {
                 if (floatBar.style.display !== 'none') hideFloatBar();
                 return;
             }

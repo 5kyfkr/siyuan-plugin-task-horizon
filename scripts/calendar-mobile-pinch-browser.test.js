@@ -12,6 +12,8 @@ async function mount(page, mobile = true, side = false, settings = {}, expanded 
     await setup(page,mobile,side);
     await page.addScriptTag({content:[
         readFunction('getPrototypeTimelineVisibleEventSegments'),
+        readFunction('isScheduleAllDayBottom'),
+        readFunction('compareSharedPrototypeEvents'),
         readFunction('buildSharedPrototypeTimelineMarkup'),
         'const normalizeCalendarWeekAllDayVisibleRows = () => 3;',
         'const isCalendarForegroundEvent = () => true;',

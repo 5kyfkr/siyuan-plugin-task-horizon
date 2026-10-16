@@ -37,7 +37,7 @@ vm.runInNewContext([
     extract('    function buildSharedPrototypeSpanMarkup(', '    function buildSharedPrototypeTimelineMarkup('),
     extract('        const protoSafeDate =', '        const protoTimeMinutes ='),
     extract('        const protoEventSource =', '        const protoEventTime ='),
-    extract('        const protoEventIsAllDayBottom =', '        const protoLunarText ='),
+    extract('        const protoCompareMonthEvents =', '        const protoLunarText ='),
     extract('        const protoRangeEvents =', '        const protoSpanMarkup ='),
     extract('        const protoSpanMarkup =', '        const protoEventMarkup ='),
     extract('            const protoMonthSpanLayout =', '        const protoRenderMonthSection ='),

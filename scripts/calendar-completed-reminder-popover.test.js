@@ -85,6 +85,7 @@ vm.runInContext([
     'mergeCalendarAllDayReminders',
     'countSharedPrototypeAllDayEvents', 'isRecurringTaskDateReadOnlyOccurrence', 'resolveCalendarEventDoneState',
     'shouldHideCompletedAllDayCalendarEvent', 'closeTrackedPrototypeMorePopover',
+    'isScheduleAllDayBottom', 'compareSharedPrototypeEvents',
     'showSharedPrototypeMorePopover',
 ].map(readFunction).join('\n'), context);
 context.protoEventEnd = context.resolveSharedPrototypeEventEnd;

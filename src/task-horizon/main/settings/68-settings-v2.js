@@ -773,7 +773,7 @@
         if (typeof api?.save !== 'function') throw new Error('定时事件服务尚未就绪，请稍后重试');
         // Execution records belong to the scheduler, never overwrite them with an editor snapshot.
         const current = api.list().find((item) => item.id === draft.id);
-        if (current) ['lastRun', 'lastOccurrence', 'conversationId'].forEach((key) => { draft[key] = current[key]; });
+        if (current) ['lastRun', 'lastOccurrence', 'conversationId', 'conversationUpdatedAt', 'conversationTitle'].forEach((key) => { draft[key] = current[key]; });
         await api.save(draft);
         if (state.scheduledEventDraft?.id === draft.id) state.scheduledEventEditingId = draft.id;
         __tmScheduledRerenderSettings();
