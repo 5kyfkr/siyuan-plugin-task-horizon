@@ -29,6 +29,93 @@ async function withPage(run) {
     } finally { await page.close(); }
 }
 
+for (const mode of ['list', 'timeline']) {
+    for (const grouping of ['date', 'title']) {
+        for (const archive of [false, true]) {
+            test(`${mode} ${grouping} completed groups expand and collapse immediately (${archive ? 'archive' : 'active'})`, () => withPage(async (page) => {
+                const actions = read('settings/70-doc-group-and-settings-actions.js');
+                const list = read('task-runtime/53-list-render-and-document-loader.js');
+                const timeline = read('render/43-render-timeline-kanban-calendar-body.js');
+                const fn = name => {
+                    const begin = runtime.indexOf(`    function ${name}(`), end = runtime.indexOf('\n    }', begin);
+                    assert.ok(begin >= 0 && end > begin, name);
+                    return runtime.slice(begin, end + 6);
+                };
+                const groupRenderer = source => {
+                    const begin = source.indexOf('            const renderGroupRow = (row) =>');
+                    const end = source.indexOf('        const renderTaskRow =', begin);
+                    assert.ok(begin >= 0 && end > begin);
+                    return `${source.slice(begin, end)}\nreturn renderGroupRow(row);`;
+                };
+                await page.evaluate(({ mode, archive }) => {
+                    Object.assign(window, {
+                        state: { modal: document.querySelector('#root'), viewMode: mode, activeDocId: 'all',
+                            docTabsArchiveMode: archive, collapsedTaskIds: new Set(), collapsedGroups: new Set(), expandedCompletedGroups: new Set() },
+                        SettingsStore: { data: { currentGroupId: 'all' }, save: async () => {} }, Storage: { set() {} },
+                        esc: value => String(value || ''), escSq: value => String(value || ''), colCount: 1, timelineColumnCount: 1,
+                        hasTaskRowBudget: () => true, __tmRenderToggleIcon: () => '<svg class="tm-group-toggle-icon"></svg>',
+                        __tmRenderDocGroupLabel: (_id, label) => label, __tmRenderHeadingLevelIconLabel: label => label,
+                        renderTaskTree: task => [`<tr data-id="${task.id}" data-depth="0"><td>${task.id}</td></tr>`],
+                        __tmHasCalendarSidebarChecklist: () => false, __tmGetCollapseAnimMode: () => 'none',
+                        __tmResetFlipState() {}, __tmMarkHighPriorityInteraction() {}, __tmMarkCollapseStateChanged() {},
+                        __tmSyncCurrentViewDomRenderSignature() {},
+                    });
+                }, { mode, archive });
+                const listBegin = list.indexOf('        const appendCompletedSubgroups = (groups) =>');
+                const listEnd = list.indexOf('        const appendCompletedRootGroup =', listBegin);
+                await page.addScriptTag({ content: section('    function __tmGetCompletedRootGroupScopeKey(', '    function __tmResetArchiveCompletedRootGroupCollapse(')
+                    + ['__tmGetActiveTbody', '__tmApplyVisibilityFromState', '__tmUpdateToggleGlyphInDom'].map(fn).join('\n')
+                    + actions.slice(actions.indexOf('    window.tmToggleGroupCollapse ='), actions.indexOf('    window.tmToggleCollapse ='))
+                    + `\nwindow.renderListCompleted = groups => { const allRows = []; ${list.slice(listBegin, listEnd)} appendCompletedSubgroups(groups); return allRows.join(''); };`
+                    + `\nwindow.renderTimelineInitial = row => { ${groupRenderer(timeline)} };`
+                    + `\nwindow.renderTimelineCollapse = row => { ${groupRenderer(runtime)} };` });
+                await page.evaluate(({ grouping, archive }) => {
+                    window.completedKey = __tmBuildCompletedRootGroupKey();
+                    const group = (key, depth, kind, items, groups) => ({ key, depth, groupDepth: depth, kind, label: key, count: 1, items, groups });
+                    window.completedGroups = grouping === 'date'
+                        ? [group('date-group', 1, 'done-date', [{ id: 'done' }])]
+                        : [group('doc-group', 1, 'done-doc', [], [group('heading-group', 2, 'done-h2', [{ id: 'done' }])])];
+                    if (archive) state.collapsedGroups.add(completedKey);
+                    window.draw = (initial = false) => {
+                        const renderGroups = groups => groups.map(item =>
+                            (initial ? renderTimelineInitial : renderTimelineCollapse)({ ...item, collapsed: state.collapsedGroups.has(item.key) })
+                            + (state.collapsedGroups.has(item.key) ? '' : (item.groups ? renderGroups(item.groups) : item.items.flatMap(renderTaskTree).join('')))).join('');
+                        const rows = `<tr data-id="active"><td>Active</td></tr><tr data-group-key="${completedKey}"><td onclick="tmToggleGroupCollapse('${completedKey}', event)"><span class="tm-group-toggle">已完成</span></td></tr>`
+                            + (__tmIsCompletedRootGroupCollapsed(completedKey) ? '' : (state.viewMode === 'list' ? renderListCompleted(completedGroups) : renderGroups(completedGroups)));
+                        state.modal.innerHTML = `<table id="${state.viewMode === 'list' ? 'tmTaskTable' : 'tmTimelineLeftTable'}"><tbody>${rows}</tbody></table><div id="tmGanttBody"></div>`;
+                        if (state.viewMode === 'timeline') state.modal.querySelector('#tmGanttBody').innerHTML = [...state.modal.querySelectorAll('tr')].map(row => `<div class="tm-gantt-row" data-id="${row.dataset.id || row.dataset.groupKey}">Gantt row</div>`).join('');
+                    };
+                    window.__tmScheduleCollapseRerender = () => draw();
+                    draw(true);
+                }, { grouping, archive });
+                const completedHeader = page.locator('tr[data-group-key^="completed_root_tasks"] td');
+                for (let cycle = 0; cycle < 3; cycle++) {
+                    await completedHeader.click();
+                    assert.equal(await page.locator('tr[data-id="done"]').isVisible(), true);
+                    const result = await page.evaluate(async () => {
+                        const task = state.modal.querySelector('tr[data-id="done"]');
+                        const groups = [...state.modal.querySelectorAll('tr[data-group-level]')];
+                        await tmToggleGroupCollapse(completedKey);
+                        return { collapsed: __tmIsCompletedRootGroupCollapsed(completedKey),
+                            retained: task === state.modal.querySelector('tr[data-id="done"]'),
+                            hidden: task.style.display === 'none' && groups.every(row => row.style.display === 'none'),
+                            activeVisible: state.modal.querySelector('tr[data-id="active"]').style.display !== 'none',
+                            aligned: state.viewMode !== 'timeline' || [...state.modal.querySelectorAll('tbody tr')].every((row, index) => row.style.display === state.modal.querySelectorAll('.tm-gantt-row')[index].style.display) };
+                    });
+                    assert.deepEqual(result, { collapsed: true, retained: true, hidden: true, activeVisible: true, aligned: true });
+                }
+                await completedHeader.click();
+                const subgroupKey = grouping === 'date' ? 'date-group' : 'doc-group';
+                await page.evaluate(key => tmToggleGroupCollapse(key), subgroupKey);
+                assert.equal(await page.locator('tr[data-id="done"]').isVisible(), false);
+                await completedHeader.click();
+                await completedHeader.click();
+                assert.equal(await page.locator('tr[data-id="done"]').count(), 0, 'reopening the root preserves the nested subgroup collapse');
+            }));
+        }
+    }
+}
+
 test('table rows reorder by identity and replace only changed depth/content', () => withPage(async (page) => {
     const result = await page.evaluate(() => {
         const root = document.querySelector('#root');

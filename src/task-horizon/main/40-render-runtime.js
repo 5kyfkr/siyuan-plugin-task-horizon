@@ -1,12 +1,35 @@
+    function __tmFinishRenderSoftSwap(swap) {
+        if (!swap) return;
+        const { previousModal, previousStyle, nextModal } = swap;
+        if (nextModal?.isConnected && state.modal === nextModal) {
+            nextModal.style.pointerEvents = '';
+            nextModal.style.opacity = '1';
+            setTimeout(() => {
+                // A later failed render may have restored this shell.
+                if (state.modal !== previousModal) {
+                    try { previousModal.remove(); } catch (e) {}
+                }
+            }, 340);
+        } else if (previousModal.isConnected
+            && (state.modal === previousModal || state.modal === nextModal)) {
+            if (previousStyle === null) previousModal.removeAttribute('style');
+            else previousModal.setAttribute('style', previousStyle);
+            state.modal = previousModal;
+        }
+    }
+
     function render() {
         if (state.__tmRenderInFlight === true) {
             state.__tmRenderQueued = true;
             return;
         }
         state.__tmRenderInFlight = true;
+        const renderCleanup = { softSwap: null };
         try {
-            return __tmRenderNow();
+            return __tmRenderNow(renderCleanup);
         } finally {
+            // Input must recover even when mounting or scroll restoration fails.
+            try { __tmFinishRenderSoftSwap(renderCleanup.softSwap); } catch (e) {}
             state.__tmRenderInFlight = false;
             if (state.__tmRenderQueued === true) {
                 state.__tmRenderQueued = false;
@@ -19,7 +42,7 @@
         }
     }
 
-    function __tmRenderNow() {
+    function __tmRenderNow(renderCleanup = {}) {
         try {
             const dismissingModal = state.modal;
             if ((state.mobileBottomViewbarDismissDragging === true
@@ -310,6 +333,11 @@
                 }
                 prevModalEl = null;
             } else {
+                renderCleanup.softSwap = {
+                    previousModal: prevModalSnapshot,
+                    previousStyle: prevModalSnapshot.getAttribute('style'),
+                    nextModal: null,
+                };
                 try { prevModalSnapshot.style.pointerEvents = 'none'; } catch (e) {}
                 if (useOverlaySoftSwap) {
                     try {
@@ -334,7 +362,7 @@
 
         const { totalTasks, doneTasks, queryTime } = state.stats;
         const todoTasks = totalTasks - doneTasks;
-        const filteredCount = state.filteredTasks.length;
+        const filteredCount = __tmGetFilteredTaskDerivedState().rootTasks.length;
 
         const currentRule = state.currentRule ?
             state.filterRules.find(r => r.id === state.currentRule) : null;
@@ -449,6 +477,7 @@
         })() : 0;
         state.tableAvailableWidth = tableAvailableWidth;
         state.modal = document.createElement('div');
+        if (renderCleanup.softSwap) renderCleanup.softSwap.nextModal = state.modal;
         state.modal.className = 'tm-modal'
             + (__tmMountEl ? ' tm-modal--tab' : '')
             + (isMobile ? ' tm-modal--mobile' : '')
@@ -2240,15 +2269,6 @@
                 if (desiredTop > 0 || desiredLeft > 0) {
                     requestAnimationFrame(() => requestAnimationFrame(apply));
                 }
-                requestAnimationFrame(() => requestAnimationFrame(() => {
-                    if (useSoftSwap) {
-                        try { state.modal.style.opacity = '1'; } catch (e) {}
-                        try { state.modal.style.pointerEvents = ''; } catch (e) {}
-                        if (prevModalEl) {
-                            setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
-                        }
-                    }
-                }));
             } else if (isTimeline) {
                 const leftBody = state.modal.querySelector('#tmTimelineLeftBody');
                 const ganttBody = state.modal.querySelector('#tmGanttBody');
@@ -2396,14 +2416,6 @@
                         try { syncHeaderX(); } catch (e) {}
                     }
                     runFlipAnimationAfterRender();
-
-                    if (useSoftSwap) {
-                         try { state.modal.style.opacity = '1'; } catch (e) {}
-                         try { state.modal.style.pointerEvents = ''; } catch (e) {}
-                         if (prevModalEl) {
-                             setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
-                         }
-                    }
                 }));
 
                 requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -2442,13 +2454,6 @@
                     setTimeout(apply, 0);
                     requestAnimationFrame(() => requestAnimationFrame(() => {
                         runFlipAnimationAfterRender();
-                        if (useSoftSwap) {
-                            try { state.modal.style.opacity = '1'; } catch (e) {}
-                            try { state.modal.style.pointerEvents = ''; } catch (e) {}
-                            if (prevModalEl) {
-                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
-                            }
-                        }
                     }));
                 } else if (isKanban) {
                     const kbBody = state.modal.querySelector('.tm-body.tm-body--kanban');
@@ -2485,13 +2490,6 @@
                     };
                     const finishKanbanRender = () => {
                         runFlipAnimationAfterRender();
-                        if (useSoftSwap) {
-                            try { state.modal.style.opacity = '1'; } catch (e) {}
-                            try { state.modal.style.pointerEvents = ''; } catch (e) {}
-                            if (prevModalEl) {
-                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
-                            }
-                        }
                     };
                     if (isKanbanSnapHost) {
                         applyHorizontal({ snap: Math.abs(Number(kanbanLeft) || 0) > 0.5 });
@@ -2544,13 +2542,6 @@
                     requestAnimationFrame(() => requestAnimationFrame(() => {
                         runFlipAnimationAfterRender();
                         try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
-                        if (useSoftSwap) {
-                            try { state.modal.style.opacity = '1'; } catch (e) {}
-                            try { state.modal.style.pointerEvents = ''; } catch (e) {}
-                            if (prevModalEl) {
-                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
-                            }
-                        }
                     }));
                 } else if (isChecklist) {
                     const pane = state.modal.querySelector('.tm-checklist-scroll');
@@ -2570,13 +2561,6 @@
                     requestAnimationFrame(() => requestAnimationFrame(() => {
                         try { __tmRestoreChecklistDetailScrollSnapshot(savedChecklistDetailScrollSnapshot, state.modal); } catch (e) {}
                         runFlipAnimationAfterRender();
-                        if (useSoftSwap) {
-                            try { state.modal.style.opacity = '1'; } catch (e) {}
-                            try { state.modal.style.pointerEvents = ''; } catch (e) {}
-                            if (prevModalEl) {
-                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
-                            }
-                        }
                     }));
                 } else {
                     // 列表模式
@@ -2627,14 +2611,6 @@
                          runFlipAnimationAfterRender();
                          if (state.viewMode === 'whiteboard') {
                              try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
-                         }
-
-                         if (useSoftSwap) {
-                             try { state.modal.style.opacity = '1'; } catch (e) {}
-                             try { state.modal.style.pointerEvents = ''; } catch (e) {}
-                             if (prevModalEl) {
-                                 setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
-                             }
                          }
                     }));
                 }
@@ -6119,7 +6095,7 @@
         colorProbe.className = 'tm-kanban-lane-color-probe';
         layer.append(canvas, colorProbe);
         board.prepend(layer);
-        const session = { board, body, layer, canvas, colorProbe, frame: 0, progressFrame: 0, progressIds: new Set(), observed: new Set(), progressRequested: new Set() };
+        const session = { board, body, layer, canvas, colorProbe, frame: 0, progressFrame: 0, observed: new Set(), progressRequested: new Set() };
         const sync = () => {
             session.frame = 0;
             if (!board.isConnected || body.dataset.kanbanAppearance !== 'lanes') {
@@ -6174,11 +6150,12 @@
                 && !Object.keys({ ...mutation.patch, ...mutation.inversePatch }).some(field =>
                     /^(done|customStatus|custom_status|taskMarker|task_marker|marker|root_id|docId|h[1-6](Id)?|heading|parentTaskId|parent_task_id)$/.test(field))) return;
             const task = globalThis.__tmTaskStore?.getProjected?.(mutation.taskId) || state.flatTasks?.[mutation.taskId];
-            const docId = String(task?.root_id || task?.docId || '').trim();
-            if (docId) {
+            const docIds = new Set([task?.root_id || task?.docId, mutation.docId, mutation.previousDocId, mutation.nextDocId,
+                mutation.data?.snapshot?.docId, ...(mutation.affected?.docIds || [])].map(id => String(id || '').trim()).filter(Boolean));
+            docIds.forEach(docId => {
                 __tmInvalidateDocProgressCache(docId);
                 if (mutation.phase !== 'optimistic') session.progressRequested.delete(docId);
-            }
+            });
             __tmScheduleKanbanLaneProgress(mutation.taskId);
         });
         // Body replacements may run inside an animation frame. Paint before
@@ -6186,12 +6163,38 @@
         sync();
     }
 
-    function __tmWarmKanbanLaneProjectProgress(session) {
+    function __tmWarmKanbanLaneProjectProgress(session, refreshLocal = false) {
         const bars = Array.from(session.board.querySelectorAll('.tm-kanban-col-progress[data-progress-doc]'));
+        if (!bars.length) return;
+        const documentColumns = bars.some(bar => !!bar.dataset.progressDoc);
+        const statsByKey = new Map();
+        const seen = new Set();
+        const addStats = (key, task) => {
+            const stats = statsByKey.get(key) || __tmCreateProjectTaskStats();
+            __tmAddProjectTaskToStats(stats, task);
+            statsByKey.set(key, stats);
+        };
+        // Use the same scope and grouping as the renderer, including tasks
+        // outside its lazy DOM window. Updating progress must not render cards.
+        if (refreshLocal) __tmCollectHomepageTasks().forEach(base => {
+            const id = String(base?.id || '').trim();
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            const task = globalThis.__tmTaskStore?.getProjected?.(id) || base;
+            const key = documentColumns ? String(task.root_id || task.docId || '').trim()
+                : __tmGetDocHeadingBucket(task, bars[0].dataset.progressNoneLabel).key;
+            addStats(key, task);
+            if (globalThis.__tmTaskProjectionEngine?.isTaskCompleted?.(task) === true) addStats('__done__', task);
+        });
         const applyCached = () => bars.forEach(bar => {
-            const percent = __tmGetFreshDocProgress(bar.dataset.progressDoc);
-            if (percent === null || Number(bar.getAttribute('aria-valuenow')) === percent) return;
-            const label = `项目进度 ${percent}%`;
+            const stats = refreshLocal ? (statsByKey.get(bar.dataset.progressKey) || __tmCreateProjectTaskStats()) : null;
+            const cachedPercent = __tmGetFreshDocProgress(bar.dataset.progressDoc);
+            // Geometry/background paints only apply ready cache values. They
+            // must not traverse every task again on each animation frame.
+            if (!stats && cachedPercent === null) return;
+            const percent = cachedPercent !== null ? cachedPercent : __tmGetProjectProgressPercent(stats);
+            const label = !stats || stats.total ? `项目进度 ${percent}%` : '暂无任务';
+            if (Number(bar.getAttribute('aria-valuenow')) === percent && bar.getAttribute('aria-valuetext') === label) return;
             bar.style.setProperty('--tm-kanban-completion', percent / 100);
             bar.setAttribute('aria-valuenow', percent);
             bar.setAttribute('aria-valuetext', label);
@@ -6219,17 +6222,11 @@
     function __tmScheduleKanbanLaneProgress(taskId) {
         const session = state.__tmKanbanLaneAppearance;
         if (!session || __tmGetKanbanBoardMode() !== 'heading' || !taskId) return;
-        session.progressIds.add(String(taskId));
         if (session.progressFrame) return;
         session.progressFrame = requestAnimationFrame(() => {
             session.progressFrame = 0;
             if (state.__tmKanbanLaneAppearance !== session || !session.board.isConnected) return;
-            const ids = Array.from(session.progressIds);
-            session.progressIds.clear();
-            __tmRecomputeTaskProjection({ reason: 'kanban-lane-progress' });
-            if (!__tmTryRefreshKanbanColumns(state.modal, ids, { reason: 'kanban-lane-progress' })) {
-                __tmRerenderKanbanInPlace(state.modal);
-            }
+            __tmWarmKanbanLaneProjectProgress(session, true);
         });
     }
 

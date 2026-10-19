@@ -108,6 +108,7 @@
                 if (!task || typeof task !== 'object') return;
                 const id = String(task?.id || '').trim();
                 if (!id || seen.has(id) || __tmIsCalendarTaskPendingDeletedSync(id)) return;
+                if (__tmIsInboxHiddenFromAllTab(task.root_id || task.docId)) return;
                 seen.add(id);
                 out.push(task);
             });
@@ -1308,6 +1309,7 @@
                     h2Id: String(t?.h2Id || ''),
                     sourceStart: s0 || '',
                     sourceCompletion: e0 || '',
+                    dateMode: globalThis.__tmIsTaskDateRollup?.(t) ? 'rollup' : 'manual',
                     milestone: isMilestone,
                     sourceTaskId: String(t?.sourceTaskId || '').trim(),
                     recurringSourceTaskId: String(t?.recurringSourceTaskId || '').trim(),
@@ -1320,6 +1322,18 @@
             }
             return out;
         };
+        if (Array.isArray(opts.docIds)) {
+            // Publication owns this scope; never replace the shared view cache with a subset.
+            if (!opts.docIds.length) return markTaskDateQueryResult([], true, 'scoped');
+            try { await MetaStore.load?.(); } catch (e) {}
+            const result = await API.getTasksByDocuments(opts.docIds, __TM_TASK_INDEX_QUERY_LIMIT, {
+                doneOnly: false, forceFresh: true, customFieldIds: [], disableChunkedQuery: true,
+            });
+            if (result?.limitReached) throw new Error('任务数量超过读取上限');
+            if (!Array.isArray(result?.tasks)) throw new Error('任务日期读取失败');
+            await globalThis.__tmProjectVisibility?.prepareTaskHeadings(result.tasks);
+            return markTaskDateQueryResult(buildTaskDateEventsFromTasks(__tmNormalizeCalendarTaskRows(result.tasks)), true, 'scoped');
+        }
         if (!__tmShouldAllowCalendarTaskCacheFullLoad(opts)) {
             try {
                 const cache = window.__tmCalendarAllTasksCache;
@@ -1774,6 +1788,9 @@
         const persistId = String(task?.id || resolvedId || requestedId).trim();
         if (!persistId) {
             throw new Error('未找到任务');
+        }
+        if ((hasStartDate || hasCompletionTime) && globalThis.__tmIsTaskDateRollup?.(task)) {
+            throw new Error('日期由子任务汇总，请先在日期中心切换为手动设置');
         }
         if ((hasStartDate || hasCompletionTime) && typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
             throw new Error('打卡日期由循环计划决定，请在循环设置中调整');

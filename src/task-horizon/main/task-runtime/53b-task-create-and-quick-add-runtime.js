@@ -1101,6 +1101,7 @@
                 ? { attachments: __tmNormalizeTaskAttachmentPaths(payload.attachments) } : {}),
             startDate: optimisticStartDate,
             start_date: optimisticStartDate,
+            dateMode: payload.dateMode === 'rollup' ? 'rollup' : 'manual',
             completionTime: optimisticCompletionTime,
             completion_time: optimisticCompletionTime,
             customTime: '',
@@ -2642,7 +2643,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 childListId || requestedListId,
                 listData,
                 itemData,
-                { previousTaskID: String(opts.insertAfterTaskId || '').trim() },
+                { previousTaskID: String(opts.insertAfterTaskId || '').trim(), inheritedDateFields: opts.inheritedDateFields || [] },
             );
             childListId = String(result?.listID || childListId || requestedListId).trim();
             insertedId = stableTaskId;
@@ -2876,6 +2877,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         } catch (e) {}
         const docId = String(parentTask?.docId || parentTask?.root_id || '').trim();
         const inheritedPatch = { ...__tmBuildSubtaskInheritedPatch(parentTask), ...hooks.initialPatch };
+        const inheritedDateFields = hooks.inheritedDateFields || ['startDate', 'completionTime'].filter(field =>
+            Object.prototype.hasOwnProperty.call(inheritedPatch, field) && !Object.prototype.hasOwnProperty.call(hooks.initialPatch || {}, field));
         const shouldWait = hooks.wait !== false;
         let pendingPromise = null;
         const opPromise = __tmEnqueueQueuedOp({
@@ -2892,6 +2895,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 content: text,
                 docId,
                 inheritedPatch,
+                inheritedDateFields,
                 skipInteractionGate: hooks.skipInteractionGate !== false,
                 suppressHint: true,
             },
@@ -3972,6 +3976,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             priority: 'none',
             startDate: '',
             completionTime: __tmResolveQuickAddDefaultCompletionTime(),
+            dateMode: 'manual',
             repeatRule: __tmNormalizeTaskRepeatRule(''),
             repeatState: __tmNormalizeTaskRepeatState(null),
             reminderDraft: null,
@@ -3979,6 +3984,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             customFieldValues: {},
             remark: '',
             ...inheritedPatch,
+            inheritedDateFields: ['startDate', 'completionTime'].filter(field => Object.prototype.hasOwnProperty.call(inheritedPatch, field)),
         };
         const qa = state.quickAdd;
 
@@ -4251,7 +4257,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 const ctValue = String(qa.completionTime || '').trim();
                 const ct = ctValue
                     ? (sd && sd !== ctValue ? `${__tmFormatTaskTimeCompact(sd)}-${__tmFormatTaskTimeCompact(ctValue)}` : __tmFormatTaskTime(ctValue))
-                    : (sd ? `开始 ${__tmFormatTaskTimeCompact(sd)}` : '日期');
+                    : (sd ? `开始 ${__tmFormatTaskTimeCompact(sd)}` : (qa.dateMode === 'rollup' ? '子任务汇总' : '日期'));
                 const meta = [ct];
                 try {
                     const rule = __tmGetTaskRepeatRule({ repeatRule: qa.repeatRule, repeatState: qa.repeatState, startDate: sd, completionTime: ctValue });
@@ -4259,7 +4265,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 } catch (e) {}
                 if (qa.reminderDraft) meta.push('提醒已设置');
                 dateLabel.textContent = ct;
-                dateLabel.hidden = !sd && !ctValue && __tmGetQuickAddDisplayPlatform() === 'mobile';
+                dateLabel.hidden = !sd && !ctValue && qa.dateMode !== 'rollup' && __tmGetQuickAddDisplayPlatform() === 'mobile';
                 dateInput.value = qa.completionTime ? __tmNormalizeDateOnly(qa.completionTime) : '';
 
                 const btn = document.getElementById('tmQuickAddDateLabel')?.parentElement;
@@ -4349,6 +4355,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         if (!qa) return;
         const normalized = String(val || '').trim();
         qa.completionTime = normalized ? __tmNormalizeDateOnly(normalized) : '';
+        qa.inheritedDateFields = (qa.inheritedDateFields || []).filter(field => field !== 'completionTime');
         window.tmQuickAddRenderMeta?.();
     };
     // 确保该函数在全局可见
@@ -4361,6 +4368,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         if (btn instanceof HTMLElement && typeof window.tmOpenTaskTimeHub === 'function') {
             await window.tmOpenTaskTimeHub('__tm_quick_add_draft__', btn, {
                 draft: true,
+                allowDateMode: true,
                 activeField: 'completionTime',
                 hideSchedule: true,
                 task: {
@@ -4370,16 +4378,22 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     start_date: String(qa.startDate || '').trim(),
                     completionTime: String(qa.completionTime || '').trim(),
                     completion_time: String(qa.completionTime || '').trim(),
+                    dateMode: qa.dateMode === 'rollup' ? 'rollup' : 'manual',
                     repeatRule: qa.repeatRule,
                     repeatState: qa.repeatState,
                 },
                 onChange: async (payload = {}) => {
                     const patch = (payload?.patch && typeof payload.patch === 'object') ? payload.patch : {};
+                    if (Object.prototype.hasOwnProperty.call(patch, 'dateMode')) {
+                        qa.dateMode = patch.dateMode === 'rollup' ? 'rollup' : 'manual';
+                    }
                     if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
                         qa.startDate = String(patch.startDate || '').trim();
+                        qa.inheritedDateFields = (qa.inheritedDateFields || []).filter(field => field !== 'startDate');
                     }
                     if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
                         qa.completionTime = String(patch.completionTime || '').trim();
+                        qa.inheritedDateFields = (qa.inheritedDateFields || []).filter(field => field !== 'completionTime');
                     }
                     if (Object.prototype.hasOwnProperty.call(patch, 'repeatRule')) {
                         qa.repeatRule = __tmNormalizeTaskRepeatRule(patch.repeatRule, {
@@ -4490,6 +4504,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const v = await showPrompt('截止日期', '输入日期，如 2026-02-07（留空清除）', String(qa.completionTime || ''));
         if (v === null) return;
         qa.completionTime = String(v || '').trim();
+        qa.inheritedDateFields = (qa.inheritedDateFields || []).filter(field => field !== 'completionTime');
         window.tmQuickAddRenderMeta?.();
     };
 
@@ -5119,6 +5134,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             customFieldValues,
             startDate,
             completionTime,
+            dateMode: qa.dateMode === 'rollup' ? 'rollup' : 'manual',
             repeatRule: qa.repeatRule,
             repeatState: qa.repeatState,
             reminderDraft: canPersistReminder ? { ...qa.reminderDraft } : null,
@@ -5179,6 +5195,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                         customFieldValues: payload.customFieldValues,
                         startDate: payload.startDate,
                         completionTime: payload.completionTime,
+                        dateMode: payload.dateMode,
                         repeatRule: payload.repeatRule,
                         repeatState: payload.repeatState,
                         ...createInsertOptions,
@@ -5191,6 +5208,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                                 priority: '', customStatus: '', startDate: '', completionTime: '', customFieldValues: {},
                                 ...__tmBuildCreateTaskInDocAttrPatchFromPayload(taskPayload),
                             },
+                            inheritedDateFields: qa.inheritedDateFields || [],
                             silent: true,
                             wait: true,
                             skipInteractionGate: true,

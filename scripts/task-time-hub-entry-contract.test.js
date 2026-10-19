@@ -35,7 +35,7 @@ assert.match(standaloneSource, /onReminderDraftToggle/, 'draft reminder cards mu
 assert.match(recurringSource, /const draftTask = options\?\.draft === true[\s\S]*if \(draftTask\) return nextRule/, 'custom repeat editing must support draft tasks without writing before create');
 assert.match(detailSource, /function __tmGetTaskTimeHubRepeatDates[\s\S]*__tmCollectTaskRepeatPreviewDates\(task, \{ limit, until, fromDateKey: fromDate \}\)/, 'calendar repeat preview must reuse the authoritative recurring preview resolver through the visible grid range');
 assert.equal((detailSource.match(/nextRepeatValues\.includes\(key\) && key !== activeValue \? 'is-next-repeat'/g) || []).length, 2, 'both time hub calendars must mark every visible recurring date without overriding the active date');
-assert.equal((detailSource.match(/currentChoice === 'custom' \? 'is-selected'/g) || []).length, 2, 'both repeat menus must select the custom choice for custom rule shapes');
+assert.equal((detailSource.match(/return __tmRenderTaskTimeHubRepeatEditorHtml\(rule\)/g) || []).length, 2, 'both repeat menus must share grouped choices and saved-rule selection');
 assert.equal((detailSource.match(/listTaskSchedulesByTaskId\([^\n]+\{ futureOnly: false \}\)/g) || []).length, 2, 'both time hub schedule lists must keep historical schedules available');
 assert.equal((detailSource.match(/__tmGetTaskTimeHubUnexpiredSchedule\(/g) || []).length, 4, 'all task-detail schedule summaries must exclude expired schedules');
 assert.match(detailCss, /\.tm-task-time-hub__day\.is-next-repeat::after[\s\S]*color-mix\(in srgb, var\(--tm-primary-color\) 11%, var\(--tm-card-bg\) 89%\)/, 'next recurring date must use a subtle theme-aware highlight');

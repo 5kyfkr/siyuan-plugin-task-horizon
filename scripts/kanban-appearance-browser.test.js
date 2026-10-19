@@ -43,6 +43,8 @@ runtime = runtime.slice(0, startup) + `
         },
         projectProgress: __tmGetProjectProgressPercent,
         invalidateProgress: __tmInvalidateDocProgressCache,
+        nativePatch: __tmApplyNativeDocCheckboxTaskStorePatch,
+        taskMarkdown: __tmBuildTaskMarkdownWithMarker,
     };
     SettingsStore.loaded = true;
     SettingsStore.save = async () => SettingsStore.syncToLocal();
@@ -150,6 +152,46 @@ runtime = runtime.slice(0, startup) + `
         assert.equal(await page.evaluate(()=>kanbanTest.projectProgress({total:75,done:45},'20261012000000-bbbbbbb')),80,'homepage and board reuse the authoritative document cache when local task data is incomplete');
         await page.evaluate(()=>{window.__sqlProjectCounts=null;kanbanTest.invalidateProgress();kanbanTest.mount();});
         await page.waitForFunction(()=>document.querySelector('[data-col-key="doc:20261012000000-bbbbbbb"] .tm-kanban-col-progress')?.getAttribute('aria-valuenow')==='60');
+        await page.setViewportSize({width:390,height:844});
+        const nativeSweep = await page.evaluate(async () => {
+            globalThis.__taskHorizonRuntimeClientKind='harmony-app';
+            kanbanTest.state.modal.classList.add('tm-modal--mobile','tm-modal--runtime-mobile');
+            const body = document.querySelector('.tm-body--kanban');
+            const card = body.querySelector('.tm-kanban-card');
+            const nativeTasks = Object.values(kanbanTest.state.flatTasks).filter(task=>task.id.startsWith('done-')).slice(0, 9);
+            let bodyReplacements = 0;
+            const observer = new MutationObserver(records=>records.forEach(record=>record.removedNodes.forEach(node=>{
+                if(node instanceof Element && node.matches('.tm-body--kanban')) bodyReplacements++;
+            })));
+            observer.observe(kanbanTest.state.modal, {childList:true,subtree:true});
+            for (let pass=0;pass<4;pass++) for (const base of nativeTasks) {
+                const task=__tmTaskStore.getProjected(base.id);
+                kanbanTest.nativePatch(task.id,{done:true,taskMarker:'X',task_marker:'X',markdown:kanbanTest.taskMarkdown(task,'X')},task);
+                await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+            }
+            observer.disconnect();
+            const result={bodyReplacements,bodyKept:body===document.querySelector('.tm-body--kanban'),cardKept:card===document.querySelector('.tm-kanban-card')};
+            delete globalThis.__taskHorizonRuntimeClientKind;
+            kanbanTest.state.modal.classList.remove('tm-modal--mobile','tm-modal--runtime-mobile');
+            return result;
+        });
+        assert.deepEqual(nativeSweep,{bodyReplacements:0,bodyKept:true,cardKept:true},'repeated native synchronization of hidden completed tasks must not rebuild the mobile board');
+        await page.setViewportSize({width:1200,height:800});
+        const headingProgress = await page.evaluate(async () => {
+            kanbanTest.state.activeDocId='20261012000000-aaaaaaa'; kanbanTest.applyFilters(); kanbanTest.mount();
+            const body=document.querySelector('.tm-body--kanban');
+            const bar=body.querySelector('.tm-kanban-col-progress');
+            const card=body.querySelector('.tm-kanban-card');
+            __tmTaskStore.applyMutation({type:'taskPatch',opId:'heading-progress-only',taskId:'complete',phase:'optimistic',patch:{done:false},data:{deferProjection:true,deferSnapshot:true}});
+            await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+            const percent=bar.getAttribute('aria-valuenow');
+            __tmTaskStore.applyMutation({type:'taskPatch',opId:'heading-progress-only',taskId:'complete',phase:'rollback',patch:{done:false},inversePatch:{done:true},data:{deferProjection:true,deferSnapshot:true}});
+            await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+            const result={percent,restored:bar.getAttribute('aria-valuenow'),bodyKept:body===document.querySelector('.tm-body--kanban'),barKept:bar===document.querySelector('.tm-kanban-col-progress'),cardKept:card===document.querySelector('.tm-kanban-card')};
+            kanbanTest.state.activeDocId='all'; kanbanTest.applyFilters(); kanbanTest.mount();
+            return result;
+        });
+        assert.deepEqual(headingProgress,{percent:'50',restored:'75',bodyKept:true,barKept:true,cardKept:true},'single-document heading progress must update and roll back without card rendering');
         const mutationFrames = await page.evaluate(async () => {
             const sample = () => {
                 const board = document.querySelector('.tm-kanban');

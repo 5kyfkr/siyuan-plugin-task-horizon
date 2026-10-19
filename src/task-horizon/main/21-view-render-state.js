@@ -924,7 +924,7 @@
             modal.querySelectorAll('.tm-body--kanban .tm-kanban-col[data-col-key]').forEach((column) => {
                 let count = 0;
                 column.querySelectorAll('.tm-kanban-card[data-id]').forEach((card) => {
-                    if (!card.closest('[hidden]')) count++;
+                    if (!card.hidden && !card.closest('[data-tm-kanban-subtasks-list][hidden]')) count++;
                 });
                 saved.columnLimits.set(column.getAttribute('data-col-key'), count);
             });

@@ -877,7 +877,15 @@
         return !!(!automaticallyArchived);
     }
 
+    function __tmIsInboxHiddenFromAllTab(docId) {
+        if (SettingsStore?.data?.hideInboxFromAllTab !== true) return false;
+        if (String(state.activeDocId || 'all').trim() !== 'all') return false;
+        const inboxDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+        return !!inboxDocId && String(docId || '').trim() === inboxDocId;
+    }
+
     function __tmShouldIncludeDocInActiveAggregateTaskScope(docId, options = {}) {
+        if (SettingsStore?.data?.hideInboxFromAllTab === true && __tmIsInboxHiddenFromAllTab(docId)) return false;
         if (options?.aggregate !== true || options?.archiveMode === true) return true;
         const id = String(docId || '').trim();
         if (!id) return true;
@@ -2990,22 +2998,23 @@
         ].join('|');
     }
 
-    async function __tmExpandSourceEntryDocIds(entry, pushId) {
+    async function __tmExpandSourceEntryDocIds(entry, pushId, options = {}) {
         if (!entry || typeof pushId !== 'function') return;
         const kind = String(entry.kind || 'doc').trim();
         const id = String(entry.id || '').trim();
         if (!id) return;
-        const entryCalendarOptimization = __tmNormalizeCalendarSearchOptimization(entry?.calendarOptimization);
+        const completeScope = options.completeScope === true;
+        const entryCalendarOptimization = __tmNormalizeCalendarSearchOptimization(completeScope ? null : entry?.calendarOptimization);
         const excludedDocIds = __tmNormalizeDocGroupExcludedDocIds(entry?.excludedDocIds);
         const excludedDocIdSet = new Set(excludedDocIds);
         const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit))
             ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit))))
             : 2000;
-        const cacheKey = `${kind}:${id}:${entry.recursive ? 1 : 0}:${recursiveDocLimit}:${entryCalendarOptimization.enabled ? 1 : 0}:${Number(entryCalendarOptimization.days) || 0}:${excludedDocIds.join(',')}`;
+        const cacheKey = `${kind}:${id}:${entry.recursive ? 1 : 0}:${recursiveDocLimit}:${entryCalendarOptimization.enabled ? 1 : 0}:${Number(entryCalendarOptimization.days) || 0}:${excludedDocIds.join(',')}${completeScope ? ':complete' : ''}`;
         const now = Date.now();
         const cacheTtlMs = Number(__TM_DOC_EXPAND_CACHE_TTL_MS) || (10 * 60 * 1000);
         const cacheEnt = __tmDocExpandCache.get(cacheKey);
-        if (cacheEnt && (now - Number(cacheEnt.t || 0)) < cacheTtlMs && Array.isArray(cacheEnt.ids)) {
+        if (!completeScope && cacheEnt && (now - Number(cacheEnt.t || 0)) < cacheTtlMs && Array.isArray(cacheEnt.ids)) {
             cacheEnt.ids.forEach((cid) => pushId(cid));
             return;
         }
@@ -3017,7 +3026,7 @@
             pushId(cid);
         };
         if (kind === 'notebook') {
-            const docs = await API.getNotebookDocuments(id, entryCalendarOptimization.enabled ? { limit: 0 } : null);
+            const docs = await API.getNotebookDocuments(id, completeScope || entryCalendarOptimization.enabled ? { limit: 0 } : null);
             let notebookDocIds = (Array.isArray(docs) ? docs : []).map((doc) => String(doc?.id || '').trim()).filter(Boolean);
             if (entryCalendarOptimization.enabled && notebookDocIds.length > 0) {
                 const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(notebookDocIds, {
@@ -3029,14 +3038,14 @@
             if (excludedDocIdSet.size) {
                 notebookDocIds = notebookDocIds.filter((docId) => !excludedDocIdSet.has(String(docId || '').trim()));
             }
-            if (notebookDocIds.length > recursiveDocLimit) notebookDocIds = notebookDocIds.slice(0, recursiveDocLimit);
+            if (!completeScope && notebookDocIds.length > recursiveDocLimit) notebookDocIds = notebookDocIds.slice(0, recursiveDocLimit);
             notebookDocIds.forEach((docId) => pushLocal(docId));
             __tmRememberTimedCache(__tmDocExpandCache, cacheKey, { t: Date.now(), ids: nextIds }, 128, cacheTtlMs);
             return;
         }
         if (!excludedDocIdSet.has(id)) pushLocal(id);
         if (entry.recursive && API && typeof API.getSubDocIds === 'function') {
-            let subIds = await API.getSubDocIds(id, entryCalendarOptimization.enabled ? { limit: 0 } : null);
+            let subIds = await API.getSubDocIds(id, completeScope || entryCalendarOptimization.enabled ? { limit: 0 } : null);
             subIds = Array.isArray(subIds) ? subIds.map((sid) => String(sid || '').trim()).filter(Boolean) : [];
             if (entryCalendarOptimization.enabled && subIds.length > 0) {
                 const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(subIds, {
@@ -3048,7 +3057,7 @@
             if (excludedDocIdSet.size) {
                 subIds = subIds.filter((sid) => !excludedDocIdSet.has(String(sid || '').trim()));
             }
-            if (subIds.length > recursiveDocLimit) subIds = subIds.slice(0, recursiveDocLimit);
+            if (!completeScope && subIds.length > recursiveDocLimit) subIds = subIds.slice(0, recursiveDocLimit);
             subIds.forEach((sid) => pushLocal(sid));
         }
         __tmRememberTimedCache(__tmDocExpandCache, cacheKey, { t: Date.now(), ids: nextIds }, 128, cacheTtlMs);
@@ -5343,9 +5352,12 @@ return Number(state.contextInteractionQuietUntil || 0);
                 startDate: task?.startDate,
                 completionTime: task?.completionTime,
             });
-            const currentTriggerType = currentRule.enabled && currentRule.type !== 'none'
+            const customOnly = opts.customOnly === true;
+            const initialTrigger = ['due', 'complete', 'checkin'].includes(opts.initialTrigger) ? opts.initialTrigger : '';
+            const savedTriggerType = currentRule.enabled && currentRule.type !== 'none'
                 ? (currentRule.type === 'fsrs' ? 'fsrs' : currentRule.trigger)
                 : 'due';
+            const currentTriggerType = initialTrigger || (customOnly && savedTriggerType === 'fsrs' ? 'due' : savedTriggerType);
             const currentRepeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
             const currentEndMode = currentRule.maxOccurrences > 0 ? 'count' : (currentRule.until ? 'date' : 'never');
             let anchorDate = __tmNormalizeDateOnly(currentRule.anchorDate || task?.completionTime || task?.startDate || new Date());
@@ -5356,13 +5368,14 @@ return Number(state.contextInteractionQuietUntil || 0);
                     <div class="tm-repeat-title">${esc(String(opts.title || '循环设置').trim() || '循环设置')}</div>
                     <div class="tm-repeat-stack">
                         <div class="tm-repeat-field">
-                            <div class="tm-repeat-label">重复方式</div>
-                            <select class="tm-repeat-select" data-tm-repeat-field="triggerType">
-                                <option value="due"${currentTriggerType === 'due' ? ' selected' : ''}>到期重复</option>
-                                <option value="complete"${currentTriggerType === 'complete' ? ' selected' : ''}>完成重复</option>
-                                <option value="checkin"${currentTriggerType === 'checkin' ? ' selected' : ''}>打卡循环</option>
+                            <label class="tm-repeat-label" for="tm-repeat-trigger-type">循环方式</label>
+                            <select id="tm-repeat-trigger-type" class="tm-repeat-select" data-tm-repeat-field="triggerType">
+                                <option value="due"${currentTriggerType === 'due' ? ' selected' : ''}>到期后重复</option>
+                                <option value="complete"${currentTriggerType === 'complete' ? ' selected' : ''}>完成后重复</option>
+                                <option value="checkin"${currentTriggerType === 'checkin' ? ' selected' : ''}>按计划打卡</option>
+                                ${customOnly ? '' : `
                                 <option value="fsrs"${currentTriggerType === 'fsrs' ? ' selected' : ''}>FSRS 间隔重复</option>
-                                <option value="none"${currentTriggerType === 'none' ? ' selected' : ''}>不循环</option>
+                                <option value="none"${currentTriggerType === 'none' ? ' selected' : ''}>不循环</option>`}
                             </select>
                         </div>
                         <div class="tm-repeat-field" data-tm-repeat-frequency-wrap>
@@ -5576,6 +5589,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                         : '当前任务不会自动循环。';
                     if (draft.enabled && draft.trigger === 'complete' && draft.type !== 'fsrs') {
                         summaryEl.textContent += ' 从实际完成日期计算下一期；未完成前不预排后续日期。';
+                    }
+                    if (draft.enabled && draft.trigger === 'due' && draft.type !== 'fsrs') {
+                        summaryEl.textContent += ' 完成本期后，按原计划日期计算下一期。';
                     }
                     if (draft.enabled && draft.trigger === 'checkin') {
                         summaryEl.textContent += ' 按计划日期独立打卡；笔记勾选表示今日已打卡，当天保持勾选。此模式没有永久完成状态，需切换循环方式或关闭循环后才能完成任务。';
@@ -12277,7 +12293,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (at !== bt) return mode === 'created_asc' ? at - bt : bt - at;
             return an.localeCompare(bn, 'zh-Hans-CN');
         });
-        return [...pinnedPart, ...normalPart];
+        return __tmMoveGlobalNewTaskDocFirst([...pinnedPart, ...normalPart]);
     }
 
     function __tmMoveGlobalNewTaskDocFirst(docIds) {
@@ -12285,7 +12301,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (list.length <= 1) return list;
         const globalDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         if (!globalDocId || globalDocId === '__dailyNote__') return list;
-        const idx = list.findIndex(id => String(id || '').trim() === globalDocId);
+        const getDocId = item => String(item && typeof item === 'object' ? item.id || '' : item || '').trim();
+        const idx = list.findIndex(item => getDocId(item) === globalDocId);
         if (idx <= 0) return list;
         const [target] = list.splice(idx, 1);
         list.unshift(target);

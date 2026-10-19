@@ -807,7 +807,7 @@ function testNativeDocCheckboxUsesTaskStoreProjection() {
         state: { doneOverrides: {} },
         __tmTaskBoundary: { getTask: () => task },
         __tmTaskStore: {
-            applyMutation(mutation) { mutations.push(mutation); },
+            applyMutation(mutation) { mutations.push(mutation); Object.assign(task, mutation.patch); },
         },
         __tmBuildTaskMarkdownWithMarker: (_task, marker) => `- [${marker}] Task`,
         __tmMarkLocalTaskPatchWatermark: () => true,
@@ -819,6 +819,8 @@ function testNativeDocCheckboxUsesTaskStoreProjection() {
     vm.runInContext(extractFunction(nativeDocHooksSource, '__tmApplyNativeDocCheckboxDomProjection'), context);
 
     assert.equal(context.__tmApplyNativeDocCheckboxDomProjection('task-1', true), true);
+    assert.equal(context.__tmApplyNativeDocCheckboxDomProjection('task-1', true), true);
+    assert.equal(mutations.length, 1, 'an unchanged native checkbox must not publish another completion projection');
     assert.equal(context.__tmApplyNativeDocCheckboxDomProjection('task-1', false), true);
     assert.deepEqual(mutations.map((mutation) => mutation.patch.done), [true, false],
         'native document checkbox transitions must enter TaskStore in DOM order');
@@ -827,8 +829,16 @@ function testNativeDocCheckboxUsesTaskStoreProjection() {
         context.__tmReadNativeDocTaskMarkerFromDom = () => marker;
         context.__tmApplyNativeDocCheckboxDomProjection('task-1', true);
         assert.equal(mutations.at(-1).patch.taskMarker, marker);
-        assert.equal(mutations.at(-1).patch.done, false, 'native checked CSS must not complete / or -');
+        assert.equal(task.done, false, 'native checked CSS must not complete / or -');
     }
+    const beforeContentPatch = mutations.length;
+    context.__tmApplyNativeDocCheckboxTaskStorePatch('task-1', { done: false, markdown: '- [-] Edited task' }, { ...task });
+    assert.equal(mutations.length, beforeContentPatch + 1, 'changed markdown must still reach the task store');
+    assert.deepEqual(Object.keys(mutations.at(-1).patch), ['markdown'], 'unchanged done must not force completion projection for a content-only patch');
+    const withoutAlias = { ...task }; delete withoutAlias.task_marker;
+    const beforeAliasPatch = mutations.length;
+    context.__tmApplyNativeDocCheckboxTaskStorePatch('task-1', { task_marker: task.taskMarker }, withoutAlias);
+    assert.equal(mutations.length, beforeAliasPatch, 'equivalent marker aliases must not create another completion event');
     assert.ok(mutations.every((mutation) => mutation.phase === 'local'),
         'native document checkbox transitions must be local authoritative projections');
     assert.equal(Object.prototype.hasOwnProperty.call(context.state.doneOverrides, 'task-1'), false,

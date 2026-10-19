@@ -1525,6 +1525,24 @@
     align-items: stretch;
     flex-direction: column;
     gap: 7px;
+}.tm-calendar-ics-groups{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+    gap: 4px 16px;
+    max-height: 240px;
+    overflow-y: auto;
+}.tm-calendar-ics-groups label{
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 2px;
+    min-width: 0;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}.tm-calendar-ics-groups input{
+    flex-shrink: 0;
+    margin-top: 3px;
+    accent-color: var(--tm-primary-color);
 }.tm-calendar-settings-row--actions{
     padding-bottom: 0;
 }.tm-calendar-settings-input{

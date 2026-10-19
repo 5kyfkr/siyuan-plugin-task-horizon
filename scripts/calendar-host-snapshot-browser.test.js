@@ -15,7 +15,7 @@ function between(source, start, end) {
 }
 const helpers = between(runtime, '    function __tmClearKeepaliveSnapshots(', '    // ===== 全局清理句柄');
 const laneCleanup = between(render, '    function __tmCleanupKanbanLaneAppearance(', '    function __tmPaintKanbanLaneBackground(');
-const renderPreparation = between(render, '    function __tmRenderNow() {', "        const kind0 = String(state.uiAnimKind").replace('    function __tmRenderNow() {', '');
+const renderPreparation = between(render, '    function __tmRenderNow(renderCleanup = {}) {', "        const kind0 = String(state.uiAnimKind").replace('    function __tmRenderNow(renderCleanup = {}) {', '');
 const cleanupStart = render.lastIndexOf('        if (prevModalSnapshot) {', render.indexOf('globalThis.__tmCleanupTitleWrapObservers'));
 assert.ok(cleanupStart >= 0);
 const handoff = render.slice(cleanupStart, render.indexOf('        // 应用字体大小', cleanupStart));

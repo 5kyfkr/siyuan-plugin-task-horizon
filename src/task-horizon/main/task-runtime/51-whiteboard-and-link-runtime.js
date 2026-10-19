@@ -8937,6 +8937,7 @@ return false;
                 taskId: tid,
                 patch: { ...plan.normalizedPatch },
                 projectionPatch: { ...plan.projectionPatch },
+                inheritedDateFields: opts.inheritedDateFields || [],
                 statusBefore: plan.statusBefore && typeof plan.statusBefore === 'object'
                     ? { ...plan.statusBefore }
                     : null,

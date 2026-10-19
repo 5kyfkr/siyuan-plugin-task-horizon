@@ -1,8 +1,12 @@
 {
   "core": [
+    "inbox-all-tab-visibility.test.js",
+    "table-responsive-resize-behavior.test.js",
+    "theme-appearance-refresh-behavior.test.js",
     "shortcut-navigation.test.js",
     "doc-group-scope-read-failure-behavior.test.js",
     "kernel-contract.test.js",
+    "parent-task-date-rollup.test.js",
     "kernel-settings-persistence.test.js",
     "task-lifecycle-contract.test.js",
     "task-create-heading-group.test.js",
@@ -67,6 +71,8 @@
     "settings-runtime-wiring-contract.test.js"
   ],
   "browser": [
+    "agent-composer-controls-browser.test.js",
+    "parent-task-date-rollup-browser.test.js",
     "mobile-fullscreen-reopen-browser.test.js",
     "shortcut-session-reload-browser.test.js",
     "shortcut-sidebar-first-paint-browser.test.js",

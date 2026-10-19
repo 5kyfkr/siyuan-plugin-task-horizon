@@ -116,6 +116,7 @@
         const legacyCompat = SettingsStore?.data?.legacyWin7CompatMode === true ? 1 : 0;
         const scopeKey = [
             'doc-group-scope-v3',
+            ...(opts.completeScope ? ['complete'] : []),
             groupId,
             `compat${legacyCompat}`,
             includeQuickAddDoc ? quickAddDocId : '',
@@ -194,7 +195,10 @@
         const refs = Array.isArray(ctx.otherBlockRefs) ? ctx.otherBlockRefs : [];
         if (!refs.length) return [];
         let rows = [];
-        try { rows = await API.getOtherBlocksByIds(refs.map((item) => item.id)); } catch (e) { rows = []; }
+        try { rows = await API.getOtherBlocksByIds(refs.map((item) => item.id)); } catch (e) {
+            if (ctx.opts?.completeScope) throw e;
+            rows = [];
+        }
         const rowsById = new Map();
         (Array.isArray(rows) ? rows : []).forEach((row) => {
             const id = String(row?.id || '').trim();
@@ -250,14 +254,14 @@
             await __tmExpandSourceEntryDocIds(entry, (id) => {
                 const docId = String(id || '').trim();
                 if (docId) entryIds.push(docId);
-            });
+            }, ctx.opts);
             return entryIds;
         }));
         expandedByEntry.forEach((entryIds) => {
             (Array.isArray(entryIds) ? entryIds : []).forEach(pushCollectedId);
         });
         let out = collectedIds.slice();
-        if (ctx.groupId !== 'all' && ctx.group) {
+        if (ctx.groupId !== 'all' && ctx.group && !ctx.opts?.completeScope) {
             try {
                 const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(out, ctx.group);
                 out = Array.isArray(optimized) ? optimized.slice() : out;
@@ -356,6 +360,40 @@
             }
         }
     }
+
+    // Resolve publication scope independently of the current view and its date window.
+    window.tmResolveCalendarSubscriptionScope = async function(groupIds, blockIds = []) {
+        const selected = new Set(Array.isArray(groupIds) ? groupIds : []);
+        const groups = (Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [])
+            .filter(group => selected.has(String(group?.id || '').trim()));
+        if (!groups.length) return { groupIds: [], docIds: [], blockDocIds: {} };
+        const docIds = new Set();
+        for (const group of groups) {
+            const ids = await resolveDocIdsFromGroups({
+                groupId: group.id,
+                includeQuickAddDoc: false,
+                completeScope: true,
+                skipPersistedScope: true,
+                skipResolvedDocIdsCache: true,
+                verifyCachedScope: false,
+            });
+            ids.forEach(id => docIds.add(id));
+        }
+        const blockDocIds = {};
+        const canonicalId = id => String(id || '').replace(/^repeatinst:([0-9]{14}-[A-Za-z0-9]+):.*$/, '$1');
+        const ids = Array.from(new Set(blockIds.map(canonicalId).filter(Boolean)));
+        for (let offset = 0; offset < ids.length; offset += 200) {
+            const chunk = ids.slice(offset, offset + 200);
+            const quoted = chunk.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
+            const result = await API.call('/api/query/sql', {
+                stmt: `SELECT id, root_id FROM blocks WHERE id IN (${quoted}) LIMIT ${chunk.length}`,
+            });
+            if (result?.code !== 0 || !Array.isArray(result.data)) throw new Error('日程关联文档读取失败');
+            result.data.forEach(row => { blockDocIds[row.id] = String(row.root_id || row.id || '').trim(); });
+        }
+        blockIds.forEach(id => { blockDocIds[id] = blockDocIds[canonicalId(id)] || ''; });
+        return { groupIds: groups.map(group => group.id), docIds: Array.from(docIds), blockDocIds };
+    };
 
     function __tmScheduleResolvedDocIdsPrewarm(options = {}) {
         try {

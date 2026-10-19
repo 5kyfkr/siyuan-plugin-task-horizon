@@ -8,12 +8,15 @@ const source = fs.readFileSync(path.join(main, '38-shortcut-core.js'), 'utf8');
 const dialog = fs.readFileSync(path.join(main, '30-dialogs-and-ui-foundation.js'), 'utf8');
 const storeSource = fs.readFileSync(path.join(main, '10-stores-rules-and-cache.js'), 'utf8');
 const apiSource = fs.readFileSync(path.join(main, '20-api-and-runtime-services.js'), 'utf8');
+const projectionSource = fs.readFileSync(path.join(main, 'task-runtime/51-whiteboard-and-link-runtime.js'), 'utf8');
 const extract = (content, declaration) => {
     const start = content.indexOf(declaration), end = content.indexOf('\n    }', start);
     assert.ok(start >= 0 && end > start, `missing ${declaration}`);
     return content.slice(start, end + 6);
 };
 const snapshotSource = extract(dialog, '    async function __tmLoadValidatedDocGroupSnapshot(');
+const derivedSource = ['__tmBuildFilteredTaskDerivedState', '__tmGetFilteredTaskDerivedState']
+    .map(name => extract(projectionSource, `    function ${name}(`)).join('\n');
 const groupRuntime = ['__tmNormalizeGroupModeValue', '__tmGetCurrentGroupModeValue', '__tmGetEffectiveGroupModeValue',
     '__tmApplyGroupModeToRuntime', '__tmApplyViewProfileToRuntime', '__tmGetEffectiveViewProfileForContext', '__tmGetGroupModeLabel', '__tmGetKanbanBoardModeLongLabel']
     .map(name => extract(dialog, `    function ${name}(`)).join('\n')
@@ -43,6 +46,8 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
             set:(key,value)=>storage.set(key,JSON.stringify(value)),remove:key=>storage.delete(key)},
         __tmResolveDocGroupName:group=>group.name,
         __tmGetTodayDateKey:()=> '2026-10-15',
+        __tmSortDocEntriesForTabs:docs=>docs,__tmGetDocTabSortMode:()=> 'manual',
+        __tmGetDocPinnedIdsForGroup:()=>[],__tmResolveOptimisticTaskId:id=>id==='temp-parent'?'parent':id,
         __TM_ALL_VIEWS:['checklist','calendar','whiteboard','kanban'].map(id=>({id,label:id})),
         __tmIsViewEnabled:id=>['checklist','calendar','whiteboard','kanban'].includes(id),
         __tmGetDocTabCustomGroupScopeId:group=>group.docGroupId,
@@ -72,7 +77,7 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
         loadSelectedDocuments:async()=>{loads.push(state.openToken);},
     });
     ctx.window=ctx;
-    vm.runInContext(snapshotValidation+'\n'+snapshotSource+'\n'+groupRuntime+'\n'+boardRuntime+'\n'+source+'\n'+switchSource+'\nglobalThis.core=__tmShortcuts;',ctx);
+    vm.runInContext(snapshotValidation+'\n'+snapshotSource+'\n'+groupRuntime+'\n'+boardRuntime+'\n'+derivedSource+'\n'+source+'\n'+switchSource+'\nglobalThis.core=__tmShortcuts;',ctx);
     const shortcut = (id, patch={}) => ({id,name:id,icon:{type:'phosphor',name:'sun'},groupId:'all',tabGroupId:'',docId:'all',viewId:'checklist',ruleId:'today',...patch});
     return {ctx,core:ctx.core,state,store,events,invalid,loads,shortcut,profiles};
 }
@@ -98,6 +103,25 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
     const first=racing.core.open('slow');await Promise.resolve();await Promise.resolve();
     assert.equal(await racing.core.open('latest'),true);finishScope(['doc-a']);assert.equal(await first,false);
     assert.equal(racing.state.viewMode,'whiteboard');assert.equal(racing.store.data.currentGroupId,'work');
+    for(const stage of ['rules','documents','tasks','save']){
+        const closing=fixture();
+        closing.store.data.shortcutItems=[closing.shortcut('pending',{groupId:'work',docId:'doc-a'})];
+        let drawerClosed=0,release,started;
+        const pending=new Promise(resolve=>{release=resolve;}),entered=new Promise(resolve=>{started=resolve;});
+        const wait=()=>{started();return pending;};
+        closing.ctx.__tmShortcutSidebar.closeDrawer=()=>drawerClosed++;
+        if(stage==='rules')closing.ctx.__tmEnsureFilterRulesLoaded=wait;
+        if(stage==='documents')closing.ctx.resolveDocIdsFromGroups=wait;
+        if(stage==='tasks')closing.ctx.loadSelectedDocuments=wait;
+        if(stage==='save')closing.store.save=wait;
+        const opening=closing.core.open('pending');
+        assert.equal(drawerClosed,1,stage+': clicking closes the drawer synchronously');
+        await entered;
+        assert.equal(drawerClosed,1,stage+': the drawer is closed while navigation is pending');
+        release(stage==='documents'?['doc-a','doc-b']:undefined);
+        assert.equal(await opening,true,stage+': navigation completes after closing the drawer');
+        assert.equal(drawerClosed,1,stage+': completing an old navigation must not close the drawer again');
+    }
     const counting=fixture();counting.store.data.shortcutItems=[counting.shortcut('today'),counting.shortcut('work',{groupId:'work',ruleId:''})];
     counting.state.currentRule='today';
     counting.state.filteredTasks=Array.from({length:6},(_,index)=>({id:String(index)}));
@@ -105,7 +129,34 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
     counting.ctx.resolveDocIdsFromGroups=()=>{throw new Error('Counting must not load another task scope');};
     assert.equal(counting.core.counts().get('today'),6,'shortcut count is the same final projection as the topbar, not ten raw matches');
     assert.equal(counting.core.counts().has('work'),false,'an unopened scope cannot overwrite a cached count');
+    const parent={id:'parent',pinned:true},child={id:'child',parentTaskId:'parent'};
+    const roots=[parent,...Array.from({length:4},(_,index)=>({id:`root-${index}`,pinned:index<3}))];
+    counting.state.filteredTasks=[...roots,child];
+    assert.equal(counting.core.counts().get('today'),5,'four pinned roots and one normal root count as five even with a matching child');
+    counting.state.filteredTasks=[...roots,child,{id:'grandchild',parent_task_id:'child'}];
+    assert.equal(counting.core.counts().get('today'),5,'nested descendants must not inflate shortcut counts');
+    counting.state.filteredTasks=[child];
+    assert.equal(counting.core.counts().get('today'),1,'a child whose parent is filtered out counts as an independent result');
+    counting.state.filteredTasks=[parent,{...child,parentTaskId:'temp-parent'}];
+    assert.equal(counting.core.counts().get('today'),1,'optimistic parent aliases must use the same hierarchy as the topbar');
+    counting.state.filteredTasks=[];
+    assert.equal(counting.core.counts().get('today'),0,'empty shortcuts must show zero');
+    counting.state.filteredTasks=[...roots,child];
     const key=counting.core.countKey(counting.core.items()[0]);
+    const legacyKey=JSON.stringify(['all','','all','checklist','today','', '',true,undefined,
+        [counting.store.data.docGroups,undefined,undefined],null,'2026-10-15',undefined,undefined,undefined,undefined]);
+    counting.ctx.Storage.set('tm_shortcut_counts',{today:{key:legacyKey,count:6}});
+    const countSidebarSource=fs.readFileSync(path.join(main,'38-shortcut-sidebar.js'),'utf8');
+    const cacheStart=countSidebarSource.indexOf('        const lastCounts = new Map(');
+    const cacheEnd=countSidebarSource.indexOf('        let hoverId =',cacheStart);
+    assert.ok(cacheStart>=0&&cacheEnd>cacheStart);
+    vm.runInContext(countSidebarSource.slice(cacheStart,cacheEnd),counting.ctx);
+    counting.store.data.currentGroupId='work';counting.state.currentRule=null;counting.state.filteredTasks=[{id:'work-1'}];
+    assert.equal(vm.runInContext('cachedCount(__tmShortcuts.items()[0])',counting.ctx),null,'unopened shortcuts must reject cached counts from the old all-task policy');
+    counting.store.data.currentGroupId='all';counting.state.currentRule='today';counting.state.filteredTasks=[...roots,child];
+    vm.runInContext('rememberCounts()',counting.ctx);
+    assert.equal(vm.runInContext('cachedCount(__tmShortcuts.items()[0])',counting.ctx),5,'reopening stores the corrected root count');
+    assert.equal(counting.ctx.Storage.get('tm_shortcut_counts').today.count,5,'the corrected count must survive a sidebar reload');
     counting.store.data.currentGroupId='work';counting.state.currentRule=null;counting.state.filteredTasks=[{},{}];
     assert.equal(counting.core.counts().get('work'),2);
     assert.equal(counting.core.countKey(counting.core.items()[0]),key,'navigation does not invalidate another shortcut count');
@@ -192,12 +243,12 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
         assert.equal(failed.ctx.__tmGetCurrentGroupModeValue(),'time');
         assert.equal(failed.state.searchKeyword,'previous search');
         assert.equal(failed.state.docTabsArchiveMode,true);
-        assert.equal(drawerClosed,0,'failure leaves the drawer available for retry');
+        assert.equal(drawerClosed,1,'the drawer closes on click even when loading fails');
         assert.ok(failed.events.filter(event=>event==='render').length>paints,'failure repaints the restored navigation');
         assert.ok(failed.events.some(event=>String(event).includes('打开快捷项失败')));
         failed.ctx.loadSelectedDocuments=async()=>{};
         assert.equal(await failed.core.open('failed'),true,'a subsequent attempt can succeed');
-        assert.equal(drawerClosed,1);
+        assert.equal(drawerClosed,2,'retrying closes the drawer immediately again');
     }
     const staleFailure=fixture();
     staleFailure.store.data.shortcutItems=[staleFailure.shortcut('slow',{groupId:'work',viewId:'kanban'}),staleFailure.shortcut('latest',{groupId:'all',viewId:'whiteboard',ruleId:''})];

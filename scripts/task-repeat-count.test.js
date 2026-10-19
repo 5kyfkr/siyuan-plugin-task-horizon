@@ -172,7 +172,7 @@ assert.doesNotMatch(
 );
 assert.match(modelSource, /循环记录\$\{progressText\}/, 'recurring record badges must show their occurrence number');
 assert.match(dialogSource, /data-tm-repeat-field="maxOccurrences"[^>]*max="200"/, 'repeat dialog must cap the count input at 200');
-assert.match(dialogSource, /const currentTriggerType = currentRule\.enabled && currentRule\.type !== 'none'[\s\S]*?: 'due';/, 'an unset repeat rule must default to due-triggered recurrence');
+assert.match(dialogSource, /const savedTriggerType = currentRule\.enabled && currentRule\.type !== 'none'[\s\S]*?: 'due';/, 'an unset repeat rule must default to due-triggered recurrence');
 assert.match(dialogSource, /<option value="due"[\s\S]*?<option value="complete"[\s\S]*?<option value="none"/, 'the non-recurring option must remain last');
 assert.match(dialogSource, /\[\[1, '一'\], \[2, '二'\], \[3, '三'\], \[4, '四'\], \[5, '五'\], \[6, '六'\], \[0, '日'\]\]/, 'repeat dialog must render Monday-first weekday controls');
 assert.doesNotMatch(dialogSource, /weekdays\.length <= 1/, 'repeat dialog must allow clearing every weekday');

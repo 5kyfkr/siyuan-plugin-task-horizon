@@ -7,12 +7,27 @@
 - Release mode: [build.ps1](/abs/path/d:/AI/trae/siyuan-plugin-task-horizon/build.ps1:1) concatenates those scripts into the root `task.js` inside the temporary packaging directory.
 - Root `task.js` remains the published/fallback entry and should not be treated as the long-term source of truth.
 
+## Calendar subscription scope
+
+- `calendarIcsScope` defaults to `all`; `selected` uses the union of `calendarIcsDocGroupIds`. An empty or deleted selection stays empty.
+- `tmResolveCalendarSubscriptionScope` resolves selected groups with `completeScope`, honoring recursive sources and exclusions without quick-add documents, view date windows, or view document limits. Linked schedules use current block ownership; independent schedules use their `group:` calendar.
+- Scoped task-date reads use the existing query and projection without replacing the shared view cache. Dock Tomato advertises `documentScope` and filters before reminder expansion and limits; older bridges stop scoped publication.
+- Publishing refreshes shared group settings through the existing group snapshot merge, so remote membership is not treated as a local group edit. Group saves and task moves invalidate the existing publisher.
+
 ## Recurring task lifecycle
 
 - Both `due` and `complete` task rules require a committed completion before advancing. Keep the configured rule and existing next-date calculation unchanged.
 - Loading, refreshing, switching groups, or crossing a date boundary must not advance an incomplete occurrence or consume its remaining occurrence count.
 - Each completion advances one occurrence. If the next occurrence is already overdue, it remains incomplete until separately completed.
 - Native checkbox hold/reset and recovery of a previously committed completion remain supported; resetting the held checkbox must not advance dates again. Calendar date previews remain read-only.
+
+## Performance and lifecycle boundaries
+
+- Calendar list renders use `TaskStore.createDirectChildrenReader()` through the existing card helper bridge. The reader indexes candidates once for one synchronous render; projection, aliases and pending deletion remain owned by TaskStore. Discard it after rendering so moves, inserts and scope changes cannot reuse stale relations.
+- Recurrence range reads seek daily, workday and weekly cursors inside the shared repeat core, retaining the original occurrence ordinal and ending rules. Monthly, yearly and lunar rules retain their existing paths; range reads never advance persisted task state.
+- Reminder refreshes, shared-file polling, points checks and scheduled-event queues reject stale lifecycle generations after asynchronous waits. A stopped generation cannot re-arm timers or release a new generation's running flag. Closing a calendar view does not dispose background reminders.
+- Whiteboard root ordering uses a stable priority queue, retaining enqueue order for equal priorities and the original cycle fallback.
+- Regression checks: `task-children-index-behavior.test.js`, `runtime-timer-disposal-behavior.test.js`, `whiteboard-root-order-behavior.test.js`, and `repeat-seek-behavior.test.js` under `scripts/`.
 
 ## Native task statuses (SiYuan 3.8.4)
 
@@ -74,6 +89,8 @@ Task runtime:
 
 - `main/task-runtime/50-task-model-and-repeat-utils.js`
   Responsibility: task time/priority/repeat normalization, task-detail session and refresh primitives.
+- `main/task-runtime/50b-parent-date-rollup-runtime.js`
+  Responsibility: project kernel-calculated parent dates, coalesce document reconciliation, and switch date mode through the existing mutation queue.
 - `main/task-runtime/51-whiteboard-and-link-runtime.js`
   Responsibility: whiteboard state snapshots, manual-link data helpers, and whiteboard card state helpers.
 - `main/task-runtime/52-task-detail-runtime.js`
@@ -133,6 +150,15 @@ New feature rule:
 - 本地任务镜像走 `globalThis.__tmTaskStore`。
 - 后端任务写入走 `globalThis.__tmTaskMutations`。
 - 快照加载、恢复和保存走 `globalThis.__tmTaskSnapshotService`。
+
+Parent date rollup:
+
+- 普通任务的 `dateMode` 默认 `manual`；日期中心显式切换为 `rollup` 后，开始日期取直属普通子任务的最早开始，截止日期取最晚截止。端点分别计算，没有候选值时清空；包含已完成、折叠和被视图过滤的子任务。循环与打卡任务不参与。
+- 日期仍持久化在原有 `startDate/completionTime`，只增加 `custom-task-date-mode`，不另存手工日期副本。切回手动保留当前值；清空手动日期不会切换模式。模式切换与被替换的日期作为一次撤销，派生更新不产生撤销项。
+- 内核统一从完整文档按层级由下往上计算；手动中间层是汇总边界。子任务写入、创建、删除、移动和撤销经过同一命令入口重算，原生/同步修改在权威文档刷新后合并重算；没有轮询或第二套任务镜像。无汇总父任务的文档只做模式索引查询，不读取整棵日期树。
+- 汇总期间父任务的日期选择、清除和日历拖动禁用，内核同时拦截直接写入。新子任务停止继承开始/截止，其他字段沿用继承设置，显式填写的日期保留；已存在的子任务日期不做追溯清理。
+- 两端独立汇总可能得到开始晚于截止，保留原始结果并在日期中心提示检查子任务；不擅自修改子任务或日期范围。
+- 回归入口：`node scripts/parent-task-date-rollup.test.js`、`node scripts/parent-task-date-rollup-browser.test.js`。
 
 Derived cache persistence:
 

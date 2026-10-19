@@ -93,6 +93,21 @@ async function run() {
                 await page.mouse.click(device.width - 12, 200);
                 await page.waitForFunction(() => document.querySelector('.tm-shortcut-layout').dataset.shortcutMode === 'hidden'
                     && Number(getComputedStyle(document.querySelector('.tm-shortcut-sidebar')).opacity) === 0);
+                await page.evaluate(() => shortcutTest.seed());
+                await page.locator('.tm-shortcut-edge').click();
+                await page.evaluate(() => Promise.all(document.querySelector('.tm-shortcut-sidebar').getAnimations().map(animation => animation.finished)));
+                const closing = await page.evaluate(async () => {
+                    const sidebar = document.querySelector('.tm-shortcut-sidebar');
+                    const navigation = shortcutTest.shortcuts.open('today');
+                    const mode = sidebar.parentElement.dataset.shortcutMode;
+                    const slide = sidebar.getAnimations().find(animation => animation.transitionProperty === 'transform');
+                    const outcome = slide?.finished.then(() => 'finished', () => 'cancelled');
+                    const opened = await navigation;
+                    return { mode, opened, animation: await outcome };
+                });
+                assert.equal(closing.mode, 'hidden', device.name + ': shortcut clicks close the drawer immediately');
+                assert.equal(closing.opened, true, device.name + ': shortcut navigation succeeds');
+                assert.equal(closing.animation, 'finished', device.name + ': rendering must not cancel the closing slide');
             }
             assert.deepEqual(errors, [], device.name);
             await page.close();

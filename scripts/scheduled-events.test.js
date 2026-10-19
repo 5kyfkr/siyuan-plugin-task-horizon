@@ -162,7 +162,7 @@ async function run() {
     assert.match(scheduledRuntimeSource, /taskHorizonRenewAgentScheduleOccurrence/, 'long-running scheduled events must renew their Kernel lease');
     assert.match(scheduledRuntimeSource, /taskHorizonFinishAgentScheduleOccurrence/, 'scheduled-event execution must finish an occurrence through the kernel');
     assert.match(scheduledRuntimeSource, /TM_SCHEDULED_KERNEL_RPC_TIMEOUT_MS/, 'scheduled Kernel calls must not hang the minute runner indefinitely');
-    assert.match(scheduledRuntimeSource, /finally\s*\{\s*__tmScheduledArmTimer\(\);\s*\}/, 'the minute timer must re-arm after both successful and failed checks');
+    assert.match(scheduledRuntimeSource, /finally\s*\{\s*__tmScheduledArmTimer\(generation\);\s*\}/, 'the minute timer must re-arm after both successful and failed checks within its lifecycle');
     assert.match(scheduledRuntimeSource, /delivery_commit_pending/, 'successful delivery must be checkpointed separately from its final Kernel commit');
     assert.match(scheduledRuntimeSource, /__tmScheduledFinishWithRetry/, 'completion commits must retry without re-delivering content');
     assert.match(scheduledRuntimeSource, /__tmScheduledIsDesktopRuntime/, 'scheduled events must have a single desktop-only runtime guard');

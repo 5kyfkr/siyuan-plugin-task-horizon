@@ -272,6 +272,7 @@
         { id: 'customStatus', label: '状态', type: 'string', attr: 'custom-status', writable: true },
         { id: 'startDate', label: '开始日期', type: 'date', attr: 'custom-start-date', writable: true, mirror: true },
         { id: 'completionTime', label: '截止日期', type: 'date', attr: 'custom-completion-time', writable: true, mirror: true },
+        { id: 'dateMode', label: '日期模式', type: 'string', attr: 'custom-task-date-mode', writable: true },
         { id: 'taskCompleteAt', label: '完成时间', type: 'datetime', attr: 'custom-task-complete-at', writable: false, system: true },
         { id: 'duration', label: '预估时长', type: 'duration', attr: 'custom-duration', writable: true },
         { id: 'remark', label: '备注', type: 'string', attr: 'custom-remark', writable: true },
@@ -697,6 +698,9 @@
             } else if (field.type === 'date' || field.type === 'datetime') out[field.id] = normalizeDateValue(value, field.id);
             else out[field.id] = text(value);
         }
+        if (own(out, 'dateMode') && !['manual', 'rollup'].includes(out.dateMode)) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, '日期模式必须为 manual 或 rollup');
+        }
         if (own(source, 'customFieldValues')) {
             const values = source.customFieldValues;
             if (!values || typeof values !== 'object' || Array.isArray(values)) {
@@ -736,6 +740,11 @@
             if (!field || !field.attr) return;
             const value = patch[fieldID];
             attrs[field.attr] = field.type === 'boolean' ? (value ? '1' : '') : String(value == null ? '' : value);
+            // These fields have one effective value. A legacy alias must not
+            // revive an old date after rollup clears an endpoint or changes mode.
+            if (['dateMode', 'startDate', 'completionTime'].includes(fieldID)) {
+                (field.aliases || []).forEach(key => { attrs[key] = ''; });
+            }
         });
         const custom = patch && patch.customFieldValues;
         if (custom && typeof custom === 'object') {
@@ -1137,6 +1146,7 @@
             else fields[field.id] = value;
         });
         fields.customFieldValues = customFieldValues;
+        fields.dateMode = fields.dateMode === 'rollup' ? 'rollup' : 'manual';
         const readOwnedValue = (key) => {
             if (own(primaryAttrs, key)) return String(primaryAttrs[key] == null ? '' : primaryAttrs[key]);
             if (secondaryAttrs && own(secondaryAttrs, key)) return String(secondaryAttrs[key] == null ? '' : secondaryAttrs[key]);
@@ -1778,6 +1788,7 @@
             const registry = await getFieldRegistry();
             const row = await ensureTaskListMutationTarget(id, registry);
             const context = buildAttrContext(row);
+            await guardTaskDateAttrWrite(id, attrs);
             const canonicalAttrs = await buildCanonicalTaskAttrs({ taskID: id, ...context }, attrs, registry);
             if (!Object.keys(canonicalAttrs).length) {
                 return { taskID: id, attrHostID: context.primaryHostID, mirrorHostIDs: context.mirrorHostIDs, written: 0 };
@@ -2050,6 +2061,9 @@
             completionCleared = true;
         }
 
+        if (completionChanged && taskState.task.dateMode === 'rollup') {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, '日期由子任务汇总，请先切换为手动设置');
+        }
         const deadlineAttrs = completionChanged
             ? buildAttrPayload({ completionTime }, registry, binding.taskID)
             : {};
@@ -2253,12 +2267,20 @@
     }
 
     async function configureTaskReminder(args) {
+        let result;
         if (!text(args && args.phase)) {
             requireAction(args, 'apply');
-            return applyTaskReminder(args);
+            result = await applyTaskReminder(args);
+        } else {
+            requirePhaseAction(args, 'apply');
+            if (args.phase === 'preview') return previewTaskReminder(args);
+            result = await executeTaskReminder(args);
         }
-        requirePhaseAction(args, 'apply');
-        return args.phase === 'preview' ? previewTaskReminder(args) : executeTaskReminder(args);
+        if (result.completionChanged) {
+            try { result.dateRollupUpdates = await reconcileTaskDateRollups(result.refresh?.documentIDs || []); }
+            catch (error) { result.dateRollupError = text(error.message) || '父任务日期汇总失败'; }
+        }
+        return result;
     }
 
     const AGENT_SCHEDULE_KINDS = Object.freeze(['once', 'daily', 'weekdays', 'weekly']);
@@ -2660,6 +2682,7 @@
         if (action === 'setAttrs') {
             const id = requireID(source.id, '块 ID');
             const attrs = normalizeExplicitAttrs(source.attrs);
+            await guardTaskDateAttrWrite(id, attrs);
             await setAttrs(id, attrs);
             return { id, written: Object.keys(attrs).length };
         }
@@ -2669,6 +2692,7 @@
                 id: requireID(entry && entry.id, '块 ID'),
                 attrs: normalizeExplicitAttrs(entry && entry.attrs),
             })).filter((entry) => Object.keys(entry.attrs).length > 0);
+            for (const entry of blockAttrs) await guardTaskDateAttrWrite(entry.id, entry.attrs);
             if (blockAttrs.length > 0) {
                 await api('/api/attr/batchSetBlockAttrs', { blockAttrs });
             }
@@ -2709,8 +2733,23 @@
             const parentTaskID = requireID(source.parentTaskID || source.parentTaskId, '父任务 ID');
             const taskID = requireID(source.taskID || source.taskId, '子任务 ID');
             const listID = requireID(source.listID || source.listId, '子列表 ID');
-            const listData = String(source.listData == null ? '' : source.listData).trim();
-            const itemData = String(source.itemData == null ? '' : source.itemData).trim();
+            let listData = String(source.listData == null ? '' : source.listData).trim();
+            let itemData = String(source.itemData == null ? '' : source.itemData).trim();
+            if ((source.inheritedDateFields || []).length) {
+                const parent = await taskDTO(parentTaskID);
+                if (parent.dateMode === 'rollup') {
+                    const registry = await getFieldRegistry();
+                    for (const fieldID of source.inheritedDateFields) {
+                        if (!['startDate', 'completionTime'].includes(fieldID)) continue;
+                        const field = registry.byId.get(fieldID);
+                        for (const key of [field.attr, ...field.aliases]) {
+                            const pattern = new RegExp(`\\s${key}="[^"]*"`, 'g');
+                            listData = listData.replace(pattern, '');
+                            itemData = itemData.replace(pattern, '');
+                        }
+                    }
+                }
+            }
             const requestedPreviousID = text(source.previousTaskID || source.previousTaskId);
             if (requestedPreviousID) requireID(requestedPreviousID, '前一子任务 ID');
             if (!listData || !itemData) throw new DomainError(ERROR.INVALID_ARGUMENT, '子任务 DOM 不能为空');
@@ -2912,6 +2951,145 @@
         };
     }
 
+    function taskSupportsDateRollup(task) {
+        const rule = task?.repeatRule;
+        return !(rule && rule.enabled !== false && text(rule.type) && rule.type !== 'none');
+    }
+
+    async function guardTaskDateAttrWrite(taskID, attrs) {
+        const registry = await getFieldRegistry();
+        const fields = ['dateMode', 'startDate', 'completionTime'].map(id => registry.byId.get(id));
+        if (!fields.some(field => [field.attr, ...field.aliases].some(key => own(attrs, key)))) return;
+        let task;
+        try { task = await taskDTO(taskID, null, registry); }
+        catch (error) { if (error.code === ERROR.NOT_FOUND) return; throw error; }
+        const modeKey = [fields[0].attr, ...fields[0].aliases].find(key => own(attrs, key));
+        const requestedMode = modeKey ? attrs[modeKey] : undefined;
+        if (requestedMode && requestedMode !== 'manual') throw new DomainError(ERROR.INVALID_ARGUMENT, '请通过日期模式命令启用子任务汇总');
+        if (task.dateMode === 'rollup' && requestedMode !== 'manual'
+            && fields.slice(1).some(field => [field.attr, ...field.aliases].some(key => own(attrs, key)))) {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, '日期由子任务汇总，请先切换为手动设置');
+        }
+    }
+
+    async function readTaskDateTree(documentIDs, registry) {
+        const ids = uniqueStrings(documentIDs);
+        if (!ids.length) return [];
+        const statement = `SELECT task.id, task.root_id AS documentID,
+            CASE WHEN parent.type = 'i' AND parent.subtype = 't' THEN parent.id ELSE '' END AS parentTaskID,
+            ${taskFieldAttrExpression(registry, 'dateMode', 'task')} AS dateMode,
+            ${taskFieldAttrExpression(registry, 'startDate', 'task')} AS startDate,
+            ${taskFieldAttrExpression(registry, 'completionTime', 'task')} AS completionTime,
+            ${completionAttrExpression(['custom-task-repeat-rule'], 'task')} AS repeatRule
+            FROM blocks task
+            LEFT JOIN blocks list ON list.id = task.parent_id
+            LEFT JOIN blocks parent ON parent.id = list.parent_id
+            WHERE task.type = 'i' AND task.subtype = 't'
+                AND task.root_id IN (${ids.map(id => `'${escapeSql(id)}'`).join(',')})`;
+        const tasks = [];
+        const pageSize = 500;
+        // SiYuan otherwise applies search.limit, even when scalar subqueries
+        // contain LIMIT 1. Always page the outer SELECT in a stable order.
+        for (let offset = 0; ; offset += pageSize) {
+            const page = await sql(`${statement} ORDER BY task.id LIMIT ${pageSize} OFFSET ${offset}`);
+            tasks.push(...page);
+            if (page.length < pageSize) return tasks;
+        }
+    }
+
+    // The persisted task dates are the effective dates in both modes. Compute
+    // bottom-up from the complete document, never from a view's filtered tree.
+    function calculateTaskDateRollups(rows) {
+        const byID = new Map(rows.map(row => {
+            let repeatRule = row.repeatRule;
+            if (typeof repeatRule === 'string') { try { repeatRule = JSON.parse(repeatRule); } catch (e) {} }
+            return [row.id, { ...row, repeatRule }];
+        }));
+        const children = new Map();
+        byID.forEach(task => {
+            if (!children.has(task.parentTaskID)) children.set(task.parentTaskID, []);
+            children.get(task.parentTaskID).push(task);
+        });
+        const visited = new Set();
+        const visiting = new Set();
+        const ordered = [];
+        const dateKey = value => isStrictDateKey(text(value).slice(0, 10)) ? text(value).slice(0, 10) : '';
+        const visit = task => {
+            if (visited.has(task.id)) return task;
+            if (visiting.has(task.id)) throw new DomainError(ERROR.CONFLICT, '任务层级存在循环，无法汇总日期');
+            visiting.add(task.id);
+            if (task.dateMode === 'rollup' && taskSupportsDateRollup(task)) {
+                const starts = [], ends = [];
+                (children.get(task.id) || []).forEach(child => {
+                    if (!taskSupportsDateRollup(child)) return;
+                    visit(child);
+                    const start = dateKey(child.startDate), end = dateKey(child.completionTime);
+                    if (start) starts.push(start);
+                    if (end) ends.push(end);
+                });
+                task.startDate = starts.length ? starts.reduce((a, b) => a < b ? a : b) : '';
+                task.completionTime = ends.length ? ends.reduce((a, b) => a > b ? a : b) : '';
+                ordered.push(task);
+            }
+            visiting.delete(task.id);
+            visited.add(task.id);
+            return task;
+        };
+        byID.forEach(visit);
+        return ordered;
+    }
+
+    async function reconcileTaskDateRollups(documentIDs) {
+        const ids = uniqueStrings(documentIDs);
+        if (!ids.length) return [];
+        return runTaskLanes(ids.map(id => `date-rollup:${id}`), async () => {
+            const registry = await getFieldRegistry();
+            await api('/api/sqlite/flushTransaction', {});
+            const mode = registry.byId.get('dateMode');
+            const modeKeys = [mode.attr, ...mode.aliases].map(key => `'${escapeSql(key)}'`).join(',');
+            const candidates = await sql(`SELECT DISTINCT task.root_id FROM attributes modeAttr
+                JOIN blocks task ON task.id = modeAttr.block_id
+                WHERE task.type = 'i' AND task.subtype = 't'
+                AND modeAttr.name IN (${modeKeys}) AND modeAttr.value = 'rollup'
+                AND task.root_id IN (${ids.map(id => `'${escapeSql(id)}'`).join(',')})
+                AND ${taskFieldAttrExpression(registry, 'dateMode', 'task')} = 'rollup'
+                ORDER BY task.root_id LIMIT ${ids.length}`);
+            if (!candidates.length) return [];
+            const rows = await readTaskDateTree(candidates.map(row => row.root_id), registry);
+            const updates = [];
+            for (const derived of calculateTaskDateRollups(rows)) {
+                await runTaskLane(derived.id, async () => {
+                    let current;
+                    try { current = await taskDTO(derived.id, null, registry); }
+                    catch (error) { if (error.code === ERROR.NOT_FOUND) return; throw error; }
+                    // A queued manual-mode switch or deletion wins over this snapshot.
+                    if (current.dateMode !== 'rollup' || !taskSupportsDateRollup(current)) return;
+                    const patch = { startDate: derived.startDate, completionTime: derived.completionTime };
+                    if (Object.keys(patch).every(key => text(current[key]) === patch[key])) return;
+                    const attrs = await buildCanonicalTaskAttrs({ taskID: derived.id }, buildAttrPayload(patch, registry, derived.id), registry);
+                    await pushTaskTransaction(await buildTaskAttrWriteOperations({ taskID: derived.id }, attrs));
+                    await verifyTaskDirect(derived.id, { attrs });
+                    updates.push({ taskID: derived.id, documentID: derived.documentID, patch: { ...patch, dateMode: 'rollup' } });
+                });
+            }
+            return updates;
+        });
+    }
+
+    async function taskDateMutationDocuments(source) {
+        const action = text(source.action || source.kind || source.type);
+        if (action === 'patch' && !['dateMode', 'startDate', 'completionTime', 'repeatRule'].some(key => own(source.patch || {}, key))) return [];
+        if (!['patch', 'attrs', 'create', 'move', 'batchMove', 'delete', 'blockOperation'].includes(action)) return [];
+        const op = source.operation || {};
+        const blockIDs = uniqueStrings([source.taskID, source.taskId, ...(source.taskIDs || source.taskIds || []),
+            source.parentTaskID, source.parentTaskId, source.targetTaskID, source.targetTaskId,
+            source.previousID, source.nextID, op.id, op.parentID, op.parentId, op.parentTaskID, op.taskID,
+            op.previousID, op.nextID, ...(op.entries || []).map(entry => entry.id)]);
+        const rows = blockIDs.length ? await sql(`SELECT DISTINCT root_id FROM blocks WHERE id IN (${blockIDs.map(id => `'${escapeSql(id)}'`).join(',')}) LIMIT ${blockIDs.length}`) : [];
+        return uniqueStrings([...(source.documentIDs || []), source.documentID, source.documentId,
+            source.targetDocumentID, source.targetDocumentId, ...rows.map(row => row.root_id)]);
+    }
+
     function taskCommandChangeSet(action, value, input) {
         const source = input && typeof input === 'object' ? input : {};
         const result = value && typeof value === 'object' ? value : {};
@@ -3025,6 +3203,7 @@
         const commandID = text(source.commandID || source.commandId) || token('taskcmd');
         const laneID = text(source.laneID || source.laneId || source.taskID || source.taskId || source.parentTaskID || source.parentTaskId || commandID);
         const run = async () => {
+            const dateDocuments = await taskDateMutationDocuments(source);
             let value;
             if (action === 'patch') {
                 const taskID = requireID(source.taskID || source.taskId, '任务 ID');
@@ -3038,6 +3217,8 @@
                 value = await persistUiTaskAttrs(taskID, source.attrs || {}, { laneID });
             } else if (action === 'reconcileAttrs') {
                 value = await reconcileTaskAttrHosts(source.taskIDs || source.taskIds || []);
+            } else if (action === 'reconcileDates') {
+                value = { dateRollupUpdates: await reconcileTaskDateRollups(source.documentIDs || []) };
             } else if (action === 'create') {
                 value = await createTask({ ...source, laneID });
             } else if (action === 'move') {
@@ -3051,6 +3232,18 @@
             } else {
                 throw new DomainError(ERROR.INVALID_ARGUMENT, `不支持的任务命令: ${action || '(empty)'}`);
             }
+            const dateRollupUpdates = action === 'reconcileDates' ? value.dateRollupUpdates : [];
+            if (dateDocuments.length) {
+                const docs = uniqueStrings([...dateDocuments, ...(value?.refresh?.documentIDs || [])]);
+                try { dateRollupUpdates.push(...await reconcileTaskDateRollups(docs)); }
+                catch (error) {
+                    // The user's command is already committed. Report the derived
+                    // write separately; a later authoritative refresh reconciles it.
+                    value.dateRollupError = text(error.message) || '父任务日期汇总失败';
+                }
+            }
+            const ownUpdate = dateRollupUpdates.find(update => update.taskID === (value?.task?.id || source.taskID));
+            if (ownUpdate && value?.task) Object.assign(value.task, ownUpdate.patch);
             const task = value?.task && typeof value.task === 'object'
                 ? value.task
                 : ((value && value.id && value.title) ? value : null);
@@ -3060,6 +3253,8 @@
                 outcome: 'committed',
                 task,
                 value,
+                dateRollupUpdates,
+                dateRollupError: value?.dateRollupError || '',
                 changeSet: taskCommandChangeSet(action, value, source),
             };
         };
@@ -3102,6 +3297,30 @@
             row = await ensureTaskListMutationTarget(id, normalized.registry, row);
             const context = buildAttrContext(row);
             const before = await taskDTO(row);
+            if ((options?.inheritedDateFields || []).length && before.parentTaskID) {
+                const parent = await taskDTO(before.parentTaskID);
+                if (parent.dateMode === 'rollup') {
+                    for (const field of options.inheritedDateFields) {
+                        if (field === 'startDate' || field === 'completionTime') delete patch[field];
+                    }
+                }
+            }
+            const dateMode = patch.dateMode || before.dateMode;
+            if (dateMode === 'rollup') {
+                if (!taskSupportsDateRollup({ ...before, ...patch })) throw new DomainError(ERROR.INVALID_ARGUMENT, '循环和打卡任务不支持子任务日期汇总');
+                if (own(patch, 'dateMode')) {
+                    await api('/api/sqlite/flushTransaction', {});
+                    const rows = await readTaskDateTree([before.documentID], normalized.registry);
+                    const parent = rows.find(item => item.id === id);
+                    if (parent) parent.dateMode = 'rollup';
+                    const derived = calculateTaskDateRollups(rows).find(item => item.id === id);
+                    if (!derived) throw new DomainError(ERROR.CONFLICT, '无法读取完整子任务日期');
+                    patch.startDate = derived.startDate;
+                    patch.completionTime = derived.completionTime;
+                } else if (own(patch, 'startDate') || own(patch, 'completionTime')) {
+                    throw new DomainError(ERROR.INVALID_ARGUMENT, '日期由子任务汇总，请先在日期中心切换为手动设置');
+                }
+            }
             let taskMarker = null;
             if (own(patch, 'customStatus') && patch.customStatus) {
                 const statusOption = normalized.registry.statusById.get(patch.customStatus);
@@ -3185,7 +3404,7 @@
                             ));
                         });
                     },
-                    execute: () => applyTaskPatch(id, inverse, { allowSystem: true, recordUndo: false }),
+                    execute: () => executeTaskCommandValue({ action: 'patch', taskID: id, patch: inverse, options: { allowSystem: true }, recordUndo: false }),
                 };
                 rememberUndo(state.lastUndo);
                 undoID = state.lastUndo.id;
@@ -4617,8 +4836,10 @@
                         await api('/api/block/moveBlock', restorePlan.payload);
                         const restoredPlacement = await confirmMovePlanPlacement(taskID, restorePlan);
                         const restoredTask = applyPlacementToTaskDTO(await taskDTO(taskID), restoredPlacement);
+                        const dateRollupUpdates = await reconcileTaskDateRollups([task.documentID, restoredTask.documentID]);
                         return {
                             task: restoredTask,
+                            dateRollupUpdates,
                             refresh: taskMutationRefresh('move', [taskID], [task.documentID, restoredTask.documentID]),
                         };
                     },
@@ -4946,7 +5167,7 @@
             throw new DomainError(ERROR.CONFLICT, '任务在预览后已发生变化，请重新预览');
         }
         state.deleteTokens.delete(text(previewToken));
-        return deleteTaskNow(id);
+        return executeTaskCommandValue({ action: 'delete', taskID: id });
     }
 
     function normalizeTaskQueryDateRange(value) {
@@ -5755,10 +5976,7 @@
                 kind = operationKind('tasks', operation, index);
                 state.lastUndo = null;
                 let value;
-                if (kind === 'create') value = await createTask(operation);
-                else if (kind === 'update') value = await applyTaskPatch(operation.taskID || operation.taskId, operation.patch || {});
-                else if (kind === 'move') value = await moveTask(operation);
-                else if (kind === 'delete') value = await deleteTaskNow(operation.taskID || operation.taskId);
+                value = await executeTaskCommandValue({ ...operation, action: kind === 'update' ? 'patch' : kind });
                 const task = value && (value.task || value);
                 if (kind !== 'delete' && state.lastUndo) undoSteps.push(state.lastUndo);
                 rows.push({ kind: `task:${kind}`, targetID: text(task && task.id) || text(operation.taskID || operation.taskId), targetLabel: text(task && task.title), ok: true, changes: value, error: null, reversible: kind !== 'delete' });
@@ -7770,8 +7988,8 @@
             ['list_task_scopes', '列出任务范围', objectSchema({ action: listAction }, ['action']), async () => listTaskScopes()],
             ['get_task', '读取完整任务字段；返回 customFieldValues 时同时返回含父级、路径和归档状态的 customFieldDefinitions；循环虚拟任务只读且必须提供 scopeToken', objectSchema({ action: readAction, taskID: stringSchema('任务、子块或循环虚拟任务 ID'), scopeToken: stringSchema('读取当前视图或循环虚拟任务的范围令牌'), fields: taskFields }, ['action', 'taskID']), async (args) => getTaskDTOByReference(args.taskID, args.fields, args.scopeToken)],
             ['query_tasks', '在任务范围内按完成、日期、逾期、优先级和状态分页查询；省略 fields 返回全部字段；返回 customFieldValues 时同时返回含父级、路径和归档状态的 customFieldDefinitions', objectSchema({ action: queryAction, filters: taskQueryFilters, fields: taskFields, limit: { type: 'integer', minimum: 1, maximum: 200 }, cursor: { type: 'string' } }, ['action']), queryTaskRows],
-            ['create_task', '直接在文档或父任务下创建单个任务，无需预览；未指定位置时使用对话提供的插件默认新建位置', objectSchema({ action: stringSchema('直接创建', ['create']), title: stringSchema('任务标题'), documentID: stringSchema('目标文档块 ID'), parentTaskID: stringSchema('可选父任务 ID，提供时优先于 documentID'), patch: anyObject }, ['action', 'title']), async (args) => { requireAction(args, 'create'); return createTask(args); }],
-            ['update_task', '更新任务字段', objectSchema({ action: stringSchema('写操作', ['update']), taskID: { type: 'string' }, patch: anyObject }, ['action', 'taskID', 'patch']), async (args) => { requireAction(args, 'update'); return applyTaskPatch(args.taskID, args.patch); }],
+            ['create_task', '直接在文档或父任务下创建单个任务，无需预览；未指定位置时使用对话提供的插件默认新建位置', objectSchema({ action: stringSchema('直接创建', ['create']), title: stringSchema('任务标题'), documentID: stringSchema('目标文档块 ID'), parentTaskID: stringSchema('可选父任务 ID，提供时优先于 documentID'), patch: anyObject }, ['action', 'title']), async (args) => { requireAction(args, 'create'); return executeTaskCommandValue({ ...args, action: 'create' }); }],
+            ['update_task', '更新任务字段', objectSchema({ action: stringSchema('写操作', ['update']), taskID: { type: 'string' }, patch: anyObject }, ['action', 'taskID', 'patch']), async (args) => { requireAction(args, 'update'); return executeTaskCommandValue({ ...args, action: 'patch' }); }],
             ['configure_task_reminder', '单次直接配置跟随任务或独立提醒；应先用 query_tasks 检索已有任务并在明确匹配时传入 taskID；没有绑定任务时使用 taskTitle 在全部任务中先精确、再按可见标题模糊匹配，允许少量错字并优先绑定未完成项，找不到才使用插件默认新建位置 documentID 自动创建任务并立即设置提醒，不要先调用 create_task；跟随任务提醒同时设置截止日期并默认同步完成任务；提醒类型未明确时必须先用 question 选择类型', objectSchema({
                 action: stringSchema('直接写入', ['apply']),
                 operation: stringSchema('提醒操作', ['set', 'clear']),
@@ -7788,7 +8006,7 @@
                 event: agentScheduleConfig,
                 patch: agentScheduleConfig,
             }, ['action']), manageAgentSchedules],
-            ['move_task', '移动任务并验证目标块类型', objectSchema({ action: stringSchema('写操作', ['move']), taskID: stringSchema('真实任务 ID'), parentID: stringSchema('目标文档、列表或父任务 ID'), documentID: stringSchema('目标文档块 ID'), previousID: stringSchema('移动到该块之后'), nextID: stringSchema('移动到该任务之前') }, ['action', 'taskID']), async (args) => { requireAction(args, 'move'); return moveTask(args); }],
+            ['move_task', '移动任务并验证目标块类型', objectSchema({ action: stringSchema('写操作', ['move']), taskID: stringSchema('真实任务 ID'), parentID: stringSchema('目标文档、列表或父任务 ID'), documentID: stringSchema('目标文档块 ID'), previousID: stringSchema('移动到该块之后'), nextID: stringSchema('移动到该任务之前') }, ['action', 'taskID']), async (args) => { requireAction(args, 'move'); return executeTaskCommandValue({ ...args, action: 'move' }); }],
             ['delete_task', '预览或删除任务', objectSchema({ action: stringSchema('预览只读，执行为删除', ['get', 'delete']), phase: stringSchema('阶段', ['preview', 'execute']), taskID: { type: 'string' }, previewToken: { type: 'string' } }, ['action', 'phase', 'taskID']), async (args) => {
                 requirePhaseAction(args, 'delete');
                 return args.phase === 'preview' ? previewTaskDelete(args.taskID) : executeTaskDelete(args.taskID, args.previewToken);

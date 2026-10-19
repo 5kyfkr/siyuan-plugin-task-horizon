@@ -952,7 +952,7 @@
         mainTimeGridAutoCenterKey: '',
         mainTimeGridAutoCenterPendingKey: '',
         mainTimeGridAutoCenterToken: 0,
-        allDayCollapsed: false,
+        allDayCollapsed: readAllDayCollapsed('main'),
         cnHolidaySignature: '',
         calendarMutationVersion: 0,
         scheduleWriteTail: Promise.resolve(),
@@ -1014,6 +1014,8 @@
         calendarInitialReminderWarmupAttempts: 0,
         scheduleReminder: {
             enabled: false,
+            disposed: false,
+            refreshGeneration: 0,
             refreshTimer: null,
             refreshRunning: false,
             refreshQueued: false,
@@ -1033,6 +1035,7 @@
             backgroundLastRefreshAt: 0,
             sharedFileWatchTimer: null,
             sharedFileWatchRunning: false,
+            sharedFileWatchGeneration: 0,
             wechatTimer: null,
             wechatPeriodicTimer: null,
             wechatRunning: false,
@@ -1049,7 +1052,7 @@
             calendar: null,
             adapter: null,
             dateKey: '',
-            allDayCollapsed: false,
+            allDayCollapsed: readAllDayCollapsed('sideDay'),
             resizeBox: null,
             settingsStore: null,
             resolveTask: null,
@@ -2696,6 +2699,11 @@
         return isSideDayTimelineRoot(rootEl) ? 'sideDay' : 'main';
     }
 
+    function readAllDayCollapsed(scope) {
+        try { return localStorage.getItem(`tm_calendar_all_day_collapsed_${scope}`) === 'true'; } catch (e) {}
+        return false;
+    }
+
     function getAllDayCollapsed(rootEl) {
         return getAllDayCollapseScope(rootEl) === 'sideDay'
             ? state.sideDay.allDayCollapsed === true
@@ -2704,8 +2712,10 @@
 
     function setAllDayCollapsed(rootEl, next) {
         const value = next === true;
-        if (getAllDayCollapseScope(rootEl) === 'sideDay') state.sideDay.allDayCollapsed = value;
+        const scope = getAllDayCollapseScope(rootEl);
+        if (scope === 'sideDay') state.sideDay.allDayCollapsed = value;
         else state.allDayCollapsed = value;
+        try { localStorage.setItem(`tm_calendar_all_day_collapsed_${scope}`, String(value)); } catch (e) {}
         return value;
     }
 
@@ -6800,7 +6810,7 @@
         if (!['taskdate', 'schedule', 'reminder'].includes(source)) return true;
         // Independent schedules and completed recurrence history retain their
         // own lifecycle when the source task is abandoned.
-        if (source === 'taskdate' && ext.__tmTaskDateReadOnly === true) return true;
+        if (source === 'taskdate' && (ext.__tmTaskDateReadOnly === true || ext.__tmTaskDateRollup === true)) return true;
         if (source === 'schedule' && (ext.__tmScheduleCompletionIndependent === true
             || ext.__tmVirtualTaskSchedule === true)) return true;
         const taskId = String(ext.__tmTaskId || ext.__tmTaskDateEventTaskId || ext.__tmSourceTaskId
@@ -7307,7 +7317,7 @@
         const continuesAfter = segment
             ? (segment.continuesAfter === true || segmentEndIndex < (Number(segment.eventEndIndex) || segmentEndIndex))
             : !visualEnd;
-        const canResizeRange = ext.__tmTaskDateScheduleSplit !== true && !continuesBefore && !continuesAfter;
+        const canResizeRange = ext.__tmTaskDateScheduleSplit !== true && !continuesBefore && !continuesAfter && !ext.__tmTaskDateRollup;
         const showCheck = (!segment || renderIndex === segmentStartIndex) && shouldShowCalendarEventCheckbox(ext, {
             viewType: String(viewType || '').trim(),
             compactMonth: compactMonth === true,
@@ -9473,6 +9483,8 @@
             icsEnabled: !!s.calendarIcsEnabled,
             icsProvider: String(s.calendarIcsProvider || 'chain').trim() === 'chain' ? 'chain' : 'webdav',
             icsPublishMode: String(s.calendarIcsPublishMode || '').trim() === 'manual' ? 'manual' : 'auto',
+            icsScope: s.calendarIcsScope === 'selected' ? 'selected' : 'all',
+            icsDocGroupIds: Array.isArray(s.calendarIcsDocGroupIds) ? Array.from(new Set(s.calendarIcsDocGroupIds.map(id => String(id || '').trim()).filter(Boolean))) : [],
             icsCalendarName: (() => {
                 const value = String(s.calendarIcsCalendarName || '').trim();
                 return !value || value === 'Task Horizon' ? '任务管理器' : value;
@@ -16047,15 +16059,15 @@
             sr.wechatRegistryLoaded = false;
             sr.wechatRegistrySnapshotFound = false;
             const settings = getSettings();
-            const registry = await loadWechatReminderRegistry();
-            if (lifecycleToken !== (Number(sr.wechatLifecycleToken) || 0)) return;
-            if (shouldDeferWechatReconcileUntilRegistryLoaded(reason, sr.wechatRegistrySnapshotFound === true)) return;
             const enabled = !!settings?.scheduleReminderEnabled && !!settings?.scheduleReminderWechatEnabled;
             const reasonText = String(reason || '').trim();
             const cleanupCurrentTargets = !enabled && reasonText.includes('disable');
             // A view can bind before settings or the first schedule snapshot is ready.
             // Only an explicit disable is allowed to clear durable cloud reminders.
             if (!enabled && !cleanupCurrentTargets) return;
+            const registry = await loadWechatReminderRegistry();
+            if (lifecycleToken !== (Number(sr.wechatLifecycleToken) || 0)) return;
+            if (shouldDeferWechatReconcileUntilRegistryLoaded(reason, sr.wechatRegistrySnapshotFound === true)) return;
             const eligibility = await getWechatReminderEligibility();
             if (!eligibility.ok) {
                 if (reasonText.includes('settings')) toast(eligibility.reason, 'warning');
@@ -16150,6 +16162,8 @@
 
     function scheduleWechatReminderReconcile(reason = 'refresh') {
         const sr = state.scheduleReminder;
+        if (sr.disposed) return;
+        const lifecycleToken = Number(sr.wechatLifecycleToken) || 0;
         sr.wechatPendingReason = String(reason || '').trim() || sr.wechatPendingReason || 'refresh';
         if (sr.wechatRunning) {
             sr.wechatQueued = true;
@@ -16157,6 +16171,7 @@
         }
         if (sr.wechatTimer) return;
         sr.wechatTimer = setTimeout(() => {
+            if (sr.disposed || lifecycleToken !== (Number(sr.wechatLifecycleToken) || 0)) return;
             sr.wechatTimer = null;
             const nextReason = sr.wechatPendingReason || 'refresh';
             sr.wechatPendingReason = '';
@@ -16335,6 +16350,7 @@
 
     async function syncScheduleMobileNotifications(reason) {
         const sr = state.scheduleReminder;
+        if (sr.disposed) return false;
         if (sr.mobileSyncRunning) {
             sr.mobileSyncPending = true;
             return false;
@@ -16406,8 +16422,11 @@
 
     function scheduleScheduleMobileSync(reason) {
         const sr = state.scheduleReminder;
+        if (sr.disposed) return;
+        const lifecycleToken = Number(sr.wechatLifecycleToken) || 0;
         if (sr.mobileSyncTimer) return;
         sr.mobileSyncTimer = setTimeout(() => {
+            if (sr.disposed || lifecycleToken !== (Number(sr.wechatLifecycleToken) || 0)) return;
             sr.mobileSyncTimer = null;
             syncScheduleMobileNotifications(reason).catch(() => null);
         }, 180);
@@ -16634,6 +16653,7 @@
 
     function clearScheduleReminderTimers() {
         const sr = state.scheduleReminder;
+        sr.refreshGeneration = (Number(sr.refreshGeneration) || 0) + 1;
         try {
             if (sr.refreshTimer) {
                 clearTimeout(sr.refreshTimer);
@@ -16667,12 +16687,15 @@
 
     async function refreshScheduleReminderTimers(reason) {
         const sr = state.scheduleReminder;
+        if (sr.disposed) return;
         if (sr.refreshRunning) {
             sr.refreshQueued = true;
             sr.pendingReason = String(reason || '').trim() || sr.pendingReason || 'refresh';
             return;
         }
         sr.refreshRunning = true;
+        const generation = Number(sr.refreshGeneration) || 0;
+        const isCurrent = () => !sr.disposed && generation === (Number(sr.refreshGeneration) || 0);
         try {
         try { scheduleWechatReminderReconcile(reason || 'refresh'); } catch (e) {}
         const hasStore = !!(state.settingsStore && state.settingsStore.data) || !!(state.sideDay?.settingsStore && state.sideDay.settingsStore.data);
@@ -16688,6 +16711,7 @@
         }
         sr.enabled = true;
         try { await reconcileScheduleNotificationRecordLedger(); } catch (e) {}
+        if (!isCurrent()) return;
 
         // 无原生预约能力时使用实时提醒，并清理旧预约。
         const useDeviceNotifications = shouldPreferDeviceNotificationBackend();
@@ -16706,6 +16730,7 @@
                 if (entriesToCancel.length > 0) {
                     for (const entry of entriesToCancel) {
                         try { await cancelDeviceNotificationCompat(entry.id); } catch (e) {}
+                        if (!isCurrent()) return;
                     }
                     // 清空本地注册表
                     saveScheduleMobileRegistry({});
@@ -16721,6 +16746,7 @@
         const todayKey = formatDateKey(new Date(now));
         const windowEnd = now + 36 * 60 * 60000;
         const list = await loadScheduleAll();
+        if (!isCurrent()) return;
         const desired = new Map();
         const allDayTime = parseReminderTime(settings.allDayReminderTime) || { hh: 9, mm: 0, key: '09:00' };
         const defaultMode = String(settings.scheduleReminderDefaultMode || '0').trim() || '0';
@@ -16855,6 +16881,7 @@
             if (settings.linkDockTomato) {
                 try {
                     const blocks = await loadReminderBlocks().catch(() => []);
+                    if (!isCurrent()) return;
                     const dayKeys = [];
                     for (let dayMs = today0.getTime(); dayMs < queryEnd.getTime(); dayMs += 86400000) {
                         const dt = new Date(dayMs);
@@ -16890,6 +16917,7 @@
                 try {
                     const years = Array.from(new Set([today0.getFullYear(), queryEnd.getFullYear()])).filter((x) => Number.isFinite(Number(x)));
                     const officialHolidayDays = await Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat()).catch(() => []);
+                    if (!isCurrent()) return;
                     const cnHolidayDays = applyCalendarCustomHolidayOverrides(officialHolidayDays, settings.customHolidayOverrides);
                     const evs = buildCnHolidayEvents(cnHolidayDays, today0, queryEnd, 'dayGridMonth', settings);
                     for (const ev of Array.isArray(evs) ? evs : []) {
@@ -16945,6 +16973,7 @@
             if (!Number.isFinite(atMs0)) return;
             const delayMs = Math.max(0, atMs0 - Date.now());
             const t = setTimeout(async () => {
+                if (!isCurrent()) return;
                 try {
                     const dt = new Date(atMs0);
                     const timeText = `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`;
@@ -17006,7 +17035,9 @@
                         showScheduleSystemNotification(meta.title, bodyInApp);
                     }
                 } catch (e) {} finally {
-                    try { scheduleScheduleReminderRefresh('fire'); } catch (e2) {}
+                    if (isCurrent()) {
+                        try { scheduleScheduleReminderRefresh('fire'); } catch (e2) {}
+                    }
                 }
             }, Math.min(delayMs, 2147483000));
             active.set(timerKey, t);
@@ -17019,21 +17050,26 @@
         }
         const periodicDelayMs = shouldPreferDeviceNotificationBackend() ? 60 * 1000 : 10 * 60 * 1000;
         sr.periodicTimer = setTimeout(() => {
+            if (!isCurrent()) return;
             try { scheduleScheduleReminderRefresh(shouldPreferDeviceNotificationBackend() ? 'mobile-periodic' : 'periodic'); } catch (e) {}
         }, periodicDelayMs);
         } finally {
-            sr.refreshRunning = false;
-            if (sr.refreshQueued || sr.pendingReason) {
-                const nextReason = sr.pendingReason || String(reason || '').trim() || 'refresh';
-                sr.refreshQueued = false;
-                sr.pendingReason = '';
-                try { scheduleScheduleReminderRefresh(nextReason); } catch (e) {}
+            if (isCurrent()) {
+                sr.refreshRunning = false;
+                if (sr.refreshQueued || sr.pendingReason) {
+                    const nextReason = sr.pendingReason || String(reason || '').trim() || 'refresh';
+                    sr.refreshQueued = false;
+                    sr.pendingReason = '';
+                    try { scheduleScheduleReminderRefresh(nextReason); } catch (e) {}
+                }
             }
         }
     }
 
     function scheduleScheduleReminderRefresh(reason) {
         const sr = state.scheduleReminder;
+        if (sr.disposed) return;
+        const generation = Number(sr.refreshGeneration) || 0;
         const nextReason = String(reason || '').trim() || 'refresh';
         sr.pendingReason = nextReason;
         if (sr.refreshRunning) {
@@ -17042,6 +17078,7 @@
         }
         if (sr.refreshTimer) return;
         sr.refreshTimer = setTimeout(() => {
+            if (sr.disposed || generation !== (Number(sr.refreshGeneration) || 0)) return;
             sr.refreshTimer = null;
             const runReason = sr.pendingReason || nextReason;
             sr.pendingReason = '';
@@ -17051,12 +17088,15 @@
 
     async function pollSharedScheduleFileAndSync(reason) {
         const sr = state.scheduleReminder;
+        if (sr.disposed) return false;
+        const generation = Number(sr.sharedFileWatchGeneration) || 0;
         if (!shouldPreferDeviceNotificationBackend()) return false;
         if (document.visibilityState === 'hidden') return false;
         if (sr.sharedFileWatchRunning) return false;
         sr.sharedFileWatchRunning = true;
         try {
             const refreshed = await refreshScheduleCacheFromSharedFile();
+            if (sr.disposed || generation !== (Number(sr.sharedFileWatchGeneration) || 0)) return false;
             if (!refreshed?.changed) return false;
             try {
                 scheduleCalendarRefresh({
@@ -17069,12 +17109,13 @@
             try { scheduleScheduleReminderRefresh(`shared-file:${String(reason || '').trim()}`); } catch (e) {}
             return true;
         } finally {
-            sr.sharedFileWatchRunning = false;
+            if (generation === (Number(sr.sharedFileWatchGeneration) || 0)) sr.sharedFileWatchRunning = false;
         }
     }
 
     function stopSharedScheduleFileWatch() {
         const sr = state.scheduleReminder;
+        sr.sharedFileWatchGeneration = (Number(sr.sharedFileWatchGeneration) || 0) + 1;
         if (sr.sharedFileWatchTimer) {
             try { clearTimeout(sr.sharedFileWatchTimer); } catch (e) {}
             sr.sharedFileWatchTimer = null;
@@ -17084,17 +17125,27 @@
 
     function ensureSharedScheduleFileWatch() {
         const sr = state.scheduleReminder;
+        if (sr.disposed) return;
         if (!shouldPreferDeviceNotificationBackend()) {
             stopSharedScheduleFileWatch();
             return;
         }
         if (sr.sharedFileWatchTimer) return;
+        const generation = Number(sr.sharedFileWatchGeneration) || 0;
         const loop = () => {
+            if (sr.disposed) return;
+            // 不可见时完全不读共享日程文件；可见性恢复时由 backgroundVisibilityHandler 重新拉起
+            if (document.visibilityState === 'hidden') {
+                sr.sharedFileWatchTimer = null;
+                return;
+            }
             sr.sharedFileWatchTimer = setTimeout(async () => {
+                if (sr.disposed || generation !== (Number(sr.sharedFileWatchGeneration) || 0)) return;
                 sr.sharedFileWatchTimer = null;
                 try { await pollSharedScheduleFileAndSync('watch'); } catch (e) {}
+                if (sr.disposed || generation !== (Number(sr.sharedFileWatchGeneration) || 0)) return;
                 ensureSharedScheduleFileWatch();
-            }, 2500);
+            }, 5000);
         };
         loop();
     }
@@ -17110,7 +17161,10 @@
             try { pollSharedScheduleFileAndSync(reason); } catch (e) {}
         };
         sr.backgroundVisibilityHandler = () => {
-            if (document.visibilityState === 'visible') trigger('app-visibility');
+            if (document.visibilityState === 'visible') {
+                trigger('app-visibility');
+                try { ensureSharedScheduleFileWatch(); } catch (e) {}
+            }
         };
         sr.backgroundFocusHandler = () => {
             trigger('app-focus');
@@ -17146,6 +17200,7 @@
     function bindScheduleReminderEngine() {
         const sr = state.scheduleReminder;
         if (sr.scheduleUpdatedListener) return;
+        sr.disposed = false;
         sr.scheduleUpdatedListener = (event) => {
             const reason = String(event?.detail?.reason || 'schedule-updated').trim() || 'schedule-updated';
             scheduleScheduleReminderRefresh(`schedule-save:${reason}`);
@@ -17173,6 +17228,7 @@
 
     function unbindScheduleReminderEngine() {
         const sr = state.scheduleReminder;
+        sr.disposed = true;
         sr.wechatLifecycleToken = (Number(sr.wechatLifecycleToken) || 0) + 1;
         sr.wechatQueued = false;
         sr.wechatPendingReason = '';
@@ -21166,7 +21222,7 @@
                                 today.setHours(0, 0, 0, 0);
                                 setSideDayDate(formatDateKey(today));
                             } else if (sideAction === 'toggleAllDay') {
-                                state.sideDay.allDayCollapsed = state.sideDay.allDayCollapsed !== true;
+                                setAllDayCollapsed(rootEl, !getAllDayCollapsed(rootEl));
                             } else if (sideAction === 'toggleTimeRange') {
                                 sidePrototypeTimeRangeExpanded = !sidePrototypeTimeRangeExpanded;
                             } else if (sideAction === 'close') {
@@ -23076,6 +23132,7 @@
             '__tmBlockId',
             '__tmVirtualTaskSchedule',
             '__tmTaskDateReadOnly',
+            '__tmTaskDateRollup',
             '__tmTaskDone',
             '__tmSourceTaskId',
             '__tmPriorityScore',
@@ -23735,6 +23792,7 @@
             // Filter display only: future dates still feed schedule previews and reminders.
             if (isFutureCheckin) return null;
             const isReadOnlyInstance = !isCheckin && (it?.isRecurringInstanceReadOnly === true || it?.isRecurringInstance === true);
+            const isDateRollup = it?.dateMode === 'rollup';
             const calendarId = String(it?.calendarId || 'default').trim() || 'default';
             const docId = String(it?.docId || it?.rootId || it?.root_id || '').trim();
             const allDayBottom = isScheduleAllDayBottom(it);
@@ -23791,9 +23849,9 @@
                 textColor: '#fff',
                 __tmRank: 2,
                 __tmAllDayBottom: allDayBottom,
-                editable: !isReadOnlyInstance && !isScheduleSplit && !isCheckin,
-                startEditable: !isReadOnlyInstance && !isScheduleSplit && !isCheckin,
-                durationEditable: !isReadOnlyInstance && !isScheduleSplit && !isCheckin,
+                editable: !isReadOnlyInstance && !isScheduleSplit && !isCheckin && !isDateRollup,
+                startEditable: !isReadOnlyInstance && !isScheduleSplit && !isCheckin && !isDateRollup,
+                durationEditable: !isReadOnlyInstance && !isScheduleSplit && !isCheckin && !isDateRollup,
                 extendedProps: {
                     __tmSource: 'taskdate',
                     __tmTaskId: actionTaskId,
@@ -23810,6 +23868,7 @@
                     __tmTaskDateColor: itemColor,
                     __tmTaskDateMilestone: isMilestone,
                     __tmTaskDateReadOnly: isReadOnlyInstance,
+                    __tmTaskDateRollup: isDateRollup,
                     __tmCheckin: isCheckin,
                     __tmCheckinDate: checkinDate,
                     __tmCheckinFuture: isFutureCheckin,
@@ -24158,6 +24217,7 @@
             '__tmTaskPinned',
             '__tmTaskDateMilestone',
             '__tmTaskDateReadOnly',
+            '__tmTaskDateRollup',
             '__tmCheckin',
             '__tmCheckinDate',
             '__tmCheckinFuture',
@@ -31526,7 +31586,7 @@
                                 ? protoDateKey(prototypePanelDate)
                                 : '';
                         } else if (action === 'toggleAllDay') {
-                            state.allDayCollapsed = !getAllDayCollapsed(state.calendarEl || state.wrapEl);
+                            setAllDayCollapsed(state.calendarEl || state.wrapEl, !getAllDayCollapsed(state.calendarEl || state.wrapEl));
                         } else if (action === 'toggleTimeRange') {
                             prototypeTimeRangeExpanded = !prototypeTimeRangeExpanded;
                         } else if (action === 'dayPanelPrev' || action === 'dayPanelNext' || action === 'dayPanelToday' || action === 'closeDayPanel') {
@@ -33007,7 +33067,7 @@
                 segment.continuesAfter
                 || Number(segment.segmentEndIndex) < Number(segment.eventEndIndex)
             )) : !isVisualEnd;
-            const canResizeRange = !isScheduleSplit && !continuesBefore && !continuesAfter;
+            const canResizeRange = !isScheduleSplit && !continuesBefore && !continuesAfter && !ext.__tmTaskDateRollup;
             const isWrappedSegmentEnd = continuesAfter;
             const isRowEnd = !!(segment
                 && Number(segment.segmentEndIndex) > 0
@@ -34826,44 +34886,43 @@
                     return '';
                 }
             };
+            let protoListChildContext = null;
+            const protoListGetChildContext = () => {
+                if (protoListChildContext) return protoListChildContext;
+                const cachedByParent = new Map();
+                const runtimeByParent = new Map();
+                const indexTasks = (tasks, index) => {
+                    (Array.isArray(tasks) ? tasks : []).forEach((candidate) => {
+                        const parentId = protoListTaskParentId(candidate);
+                        if (!parentId) return;
+                        if (!index.has(parentId)) index.set(parentId, []);
+                        index.get(parentId).push(candidate);
+                    });
+                };
+                try { indexTasks(window.__tmCalendarAllTasksCache?.tasks, cachedByParent); } catch (e) {}
+                try { indexTasks(Object.values(globalThis.__tmRuntimeState?.getFlatTasks?.() || {}), runtimeByParent); } catch (e) {}
+                try { indexTasks(Object.values(state.flatTasks || {}), runtimeByParent); } catch (e) {}
+                let readProjected = null;
+                try { readProjected = globalThis.__tmCalendarKanbanCardHelpers?.createChildrenReader?.(); } catch (e) {}
+                if (typeof readProjected !== 'function') {
+                    readProjected = (parentId) => globalThis.__tmCalendarKanbanCardHelpers?.getChildren?.(parentId) || [];
+                }
+                protoListChildContext = { cachedByParent, runtimeByParent, readProjected };
+                return protoListChildContext;
+            };
             const protoListTaskChildren = (task) => {
                 const parentId = String(task?.id || '').trim();
                 if (!parentId) return [];
                 const children = Array.isArray(task?.children) ? [...task.children] : [];
-                let projectedCount = 0;
-                let cacheRelationCount = 0;
-                let runtimeRelationCount = 0;
+                const context = protoListGetChildContext();
                 try {
-                    const projected = globalThis.__tmCalendarKanbanCardHelpers?.getChildren?.(parentId);
+                    const projected = context.readProjected(parentId);
                     if (Array.isArray(projected)) {
-                        projectedCount = projected.length;
                         children.push(...projected);
                     }
                 } catch (e) {}
-                try {
-                    const cached = window.__tmCalendarAllTasksCache?.tasks;
-                    if (Array.isArray(cached)) cached.forEach((candidate) => {
-                        if (protoListTaskParentId(candidate) === parentId) {
-                            cacheRelationCount += 1;
-                            children.push(candidate);
-                        }
-                    });
-                } catch (e) {}
-                try {
-                    const runtimeTasks = globalThis.__tmRuntimeState?.getFlatTasks?.();
-                    if (runtimeTasks && typeof runtimeTasks === 'object') Object.values(runtimeTasks).forEach((candidate) => {
-                        if (protoListTaskParentId(candidate) === parentId) {
-                            runtimeRelationCount += 1;
-                            children.push(candidate);
-                        }
-                    });
-                    if (state.flatTasks && typeof state.flatTasks === 'object') Object.values(state.flatTasks).forEach((candidate) => {
-                        if (protoListTaskParentId(candidate) === parentId) {
-                            runtimeRelationCount += 1;
-                            children.push(candidate);
-                        }
-                    });
-                } catch (e) {}
+                children.push(...(context.cachedByParent.get(parentId) || []));
+                children.push(...(context.runtimeByParent.get(parentId) || []));
                 const byId = new Map();
                 children.forEach((child) => {
                     if (!child || typeof child !== 'object') return;
@@ -34880,15 +34939,12 @@
                 if (Array.isArray(task.children) && task.children.length > 0) return true;
                 const taskId = String(task.id || task.blockId || '').trim();
                 if (!taskId) return false;
+                const context = protoListGetChildContext();
                 try {
-                    const projected = globalThis.__tmCalendarKanbanCardHelpers?.getChildren?.(taskId);
+                    const projected = context.readProjected(taskId);
                     if (Array.isArray(projected) && projected.length > 0) return true;
                 } catch (e) {}
-                try {
-                    const cached = window.__tmCalendarAllTasksCache?.tasks;
-                    if (Array.isArray(cached) && cached.some((candidate) => protoListTaskParentId(candidate) === taskId)) return true;
-                } catch (e) {}
-                return false;
+                return (context.cachedByParent.get(taskId)?.length || 0) > 0;
             };
             const protoListTaskFieldEnabled = (field) => {
                 try {
@@ -35318,6 +35374,7 @@
             return true;
         };
         const protoRenderList = (view, events, settings) => {
+            protoListChildContext = null;
             events = events.filter((eventApi) => !protoListIsTaskEvent(eventApi)
                 || !protoListTaskCanceled(protoListTaskSnapshot(eventApi)));
             if (window.__tmCalendarAllTasksCache?.complete !== true && typeof window.tmWarmCalendarTaskCacheIfStale === 'function') {
@@ -35403,6 +35460,7 @@
                 const content = groups || rows ? `${groups}${rows}` : '<div class="tm-proto-list-empty">暂无安排</div>';
                 return `<section class="tm-proto-list-day${isToday ? ' is-today' : ''}" data-tm-proto-list-day="${esc(key)}"><header><div><b>${esc(protoListDateLabel(date))}</b><span>周${protoWeekLabels[date.getDay()]}</span>${isToday ? '<em>今天</em>' : ''}</div><small>${visibleDayEvents.length ? `${visibleDayEvents.length} 项安排` : '暂无安排'}</small></header>${content}</section>`;
             }).join('');
+            protoListChildContext = null;
             const weekCells = weekDates.map((date) => protoListDateCell(date, focusDate, visibleKeys, events, settings)).join('');
             const weekdayCells = protoListWeekdayLabels(settings).map((label) => `<span class="weekday">${label}</span>`).join('');
             const monthCells = monthDates.map((date) => {
@@ -35756,21 +35814,10 @@
                     syncHubCards();
                     return;
                 }
-                const originalStart = new Date(readValue('start'));
-                const originalEnd = new Date(readValue('end'));
-                const originalDuration = originalEnd.getTime() - originalStart.getTime();
-                setHubDateInput('start', dateKey, '09:00');
-                setHubDateInput('end', dateKey, '10:00');
-                if (eventApi.allDay !== true) {
-                    const start = new Date(readValue('start'));
-                    const end = new Date(readValue('end'));
-                    if (Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && end.getTime() <= start.getTime()) {
-                        const fallbackDuration = 30 * 60000;
-                        const duration = Number.isFinite(originalDuration) && originalDuration > 0 ? originalDuration : fallbackDuration;
-                        const nextEnd = new Date(start.getTime() + duration);
-                        setHubDateInput('end', formatDateKey(nextEnd), hubTimeText(readValue('end'), '10:00'));
-                    }
-                }
+                // Date selection follows the active endpoint. Changing the
+                // start date must preserve the end date, and vice versa, so
+                // users can edit each side of a schedule independently.
+                setHubDateInput(timeHubEndpoint, dateKey, timeHubEndpoint === 'start' ? '09:00' : '10:00');
                 timeHubMonth = hubMonthKey(dateKey);
                 syncHubCards();
             };
@@ -40522,6 +40569,7 @@
         startupPending: false,
         dailyTimer: null,
         scheduleUpdatedListener: null,
+        docGroupsUpdatedListener: null,
         tomatoUpdatedListener: null,
         taskAttrUpdatedListener: null,
         taskProjectionUpdatedListener: null,
@@ -40899,10 +40947,16 @@
         if (store.saveDirty || store.saving || store.data.settingsUpdatedAt !== settingsUpdatedAt) {
             throw new CalendarSubscriptionStaleError('上传设置正在保存');
         }
+        if ((shared.calendarIcsScope || store.data.calendarIcsScope) === 'selected'
+            && (!Array.isArray(shared.docGroups) || !Array.isArray(shared.calendarIcsDocGroupIds))) {
+            throw new Error('文档分组同步范围配置不完整，已停止本次发布');
+        }
         const fields = {
             calendarIcsEnabled: 'boolean',
             calendarIcsProvider: 'string',
             calendarIcsPublishMode: 'string',
+            calendarIcsScope: 'string',
+            calendarIcsDocGroupIds: 'object',
             calendarIcsCalendarName: 'string',
             calendarIcsWebdavUrl: 'string',
             calendarIcsWebdavUsername: 'string',
@@ -40917,19 +40971,32 @@
             calendarCustomHolidayOverrides: 'object',
         };
         let changed = false;
+        if ((shared.calendarIcsScope || store.data.calendarIcsScope) === 'selected') {
+            if (typeof store.applySharedDocGroupSettings !== 'function') throw new Error('文档分组同步接口尚未就绪');
+            changed = store.applySharedDocGroupSettings(shared);
+        }
         for (const [key, type] of Object.entries(fields)) {
             if (typeof shared[key] !== type) continue;
             let sharedValue = shared[key];
+            if (key === 'calendarIcsDocGroupIds' && !Array.isArray(sharedValue)) {
+                throw new Error('文档分组同步范围配置无效，已停止本次发布');
+            }
             if (key === 'calendarIcsCalendarName' && (!String(sharedValue || '').trim() || String(sharedValue).trim() === 'Task Horizon')) {
                 sharedValue = '任务管理器';
             } else if (key === 'calendarIcsPublishMode') {
                 sharedValue = String(sharedValue || '').trim() === 'manual' ? 'manual' : 'auto';
+            } else if (key === 'calendarIcsScope') {
+                sharedValue = sharedValue === 'selected' ? 'selected' : 'all';
+            } else if (key === 'calendarIcsDocGroupIds') {
+                sharedValue = Array.from(new Set(sharedValue.map(id => String(id || '').trim()).filter(Boolean)));
             } else if (key === 'calendarCustomHolidayOverrides') {
                 sharedValue = normalizeCalendarCustomHolidayOverrides(sharedValue);
             }
             const sameValue = key === 'calendarCustomHolidayOverrides'
                 ? getCalendarCustomHolidaySignature(store.data[key]) === getCalendarCustomHolidaySignature(sharedValue)
-                : store.data[key] === sharedValue;
+                : typeof sharedValue === 'object'
+                    ? JSON.stringify(store.data[key]) === JSON.stringify(sharedValue)
+                    : store.data[key] === sharedValue;
             if (sameValue) continue;
             store.data[key] = sharedValue;
             changed = true;
@@ -40944,6 +41011,7 @@
     async function buildCalendarSubscriptionEvents(options = {}, run) {
         const settings = getSettings();
         const range = buildCalendarSubscriptionRange();
+        const todayKey = formatDateKey(new Date());
         const source = String(options?.source || '').trim();
         if (state.scheduleCache.inflight) {
             try { await run.wait('等待日程读取', () => state.scheduleCache.inflight); } catch (e) { run.check(); }
@@ -40952,6 +41020,22 @@
         // shadow that can still contain the snapshot from before sync-end.
         const schedules = await run.wait('读取日程', () => loadScheduleAll({ force: true }));
         if (state.scheduleCache.lastLoadError) throw new Error('日程数据读取失败，已保留上次成功文件');
+        let scope = null;
+        if (settings.icsScope === 'selected') {
+            if (typeof window.tmResolveCalendarSubscriptionScope !== 'function') throw new Error('文档分组范围接口尚未就绪');
+            const linkedIds = (Array.isArray(schedules) ? schedules : [])
+                .flatMap(item => [getScheduleLinkedTaskId(item), getScheduleLinkedBlockId(item)]).filter(Boolean);
+            const resolved = await run.wait('读取同步文档分组', () => window.tmResolveCalendarSubscriptionScope(settings.icsDocGroupIds, linkedIds));
+            scope = { groups: new Set(resolved.groupIds), docs: new Set(resolved.docIds), blockDocIds: resolved.blockDocIds };
+        }
+        const scopedSchedules = (Array.isArray(schedules) ? schedules : []).filter(item => {
+            if (!scope) return true;
+            const taskId = getScheduleLinkedTaskId(item);
+            const blockId = getScheduleLinkedBlockId(item);
+            if (taskId || blockId) return scope.docs.has(scope.blockDocIds[taskId] || scope.blockDocIds[blockId]);
+            const calendarId = String(item?.calendarId || 'default');
+            return calendarId.startsWith('group:') && scope.groups.has(calendarId.slice(6));
+        });
         const events = [];
         const includeTaskNotes = settings.icsIncludeTaskNotes === true;
         const taskRemarkById = new Map();
@@ -40999,12 +41083,12 @@
             return cachedRemark;
         };
         if (includeTaskNotes) {
-            const scheduleTaskIds = (Array.isArray(schedules) ? schedules : [])
+            const scheduleTaskIds = scopedSchedules
                 .flatMap((item) => [getScheduleLinkedTaskId(item), getScheduleLinkedBlockId(item)])
                 .filter(Boolean);
             await ensureTaskRemarks(scheduleTaskIds);
         }
-        for (const item of (Array.isArray(schedules) ? schedules : [])) {
+        for (const item of scopedSchedules) {
             const scheduleId = String(item?.id || '').trim();
             if (!scheduleId) throw new Error('日程数据缺少稳定 ID');
             const baseStartMs = toMs(item?.start);
@@ -41077,6 +41161,7 @@
                     failOnTruncation: true,
                     requireCompleteCache: true,
                     excludeCompleted: true,
+                    ...(scope ? { docIds: Array.from(scope.docs) } : {}),
                     source: 'calendar-ics-task-dates',
                 }));
             } catch (error) {
@@ -41086,6 +41171,7 @@
             if (!Array.isArray(taskDateItems)) throw new Error('任务全天日程接口返回无效');
             if (includeTaskNotes) await ensureTaskRemarks(taskDateItems.map((item) => item?.id));
             for (const item of taskDateItems) {
+                if (scope && !scope.docs.has(getCalendarTaskDocumentId(item))) continue;
                 const taskId = String(item?.id || '').trim();
                 const startDate = String(item?.start || '').trim();
                 const endDate = String(item?.endExclusive || item?.end || '').trim();
@@ -41095,10 +41181,14 @@
                     || !(end instanceof Date) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
                     throw new Error(`任务全天日程数据无效：${String(item?.title || taskId || '未知任务')}`);
                 }
+                // Match the calendar's date visibility, using today's date rather
+                // than a future flag saved in an earlier task-cache projection.
+                const isCheckin = item?.checkin === true || !!String(item?.checkinDate || '').trim();
+                if (isCheckin && formatDateKey(start) > todayKey) continue;
                 events.push({
                     uidSeed: `task-date:${taskId}`,
                     source: 'task',
-                    title: String(item?.title || '').trim() || '任务',
+                    title: `${String(item?.title || '').trim() || '任务'}${isCheckin && item?.done === true ? '（已打卡）' : ''}`,
                     completed: item?.done === true,
                     allDay: true,
                     startDate: formatDateKey(start),
@@ -41116,21 +41206,26 @@
         const tomatoLoaded = isDockTomatoPluginLoaded();
         const includeTomatoReminders = settings.icsIncludeTomatoReminders === true;
         let sourceMode = settings.icsIncludeTaskDates ? 'schedules-and-task-dates' : 'schedules-only';
-        if (tomatoLoaded && includeTomatoReminders) {
+        if (tomatoLoaded && includeTomatoReminders && (!scope || scope.docs.size > 0)) {
             sourceMode = settings.icsIncludeTaskDates
                 ? 'schedules-task-dates-and-reminders'
                 : 'schedules-and-reminders';
             const bridge = await run.wait('等待番茄提醒接口', () => waitForDockTomatoSubscriptionBridge());
+            if (scope && bridge.capabilities?.documentScope !== true) {
+                throw new Error('请更新底栏番茄钟以支持按文档分组同步提醒，已保留上次成功文件');
+            }
             const remaining = Math.max(1, CALENDAR_SUBSCRIPTION_EVENT_LIMIT - events.length);
             const result = await run.wait('读取番茄提醒', () => bridge.listOccurrences({
                 startAt: range.startAt,
                 endAt: range.endAt,
                 limit: remaining,
+                ...(scope ? { docIds: Array.from(scope.docs) } : {}),
             }));
             if (!result || !Array.isArray(result.occurrences)) throw new Error('Dock Tomato 提醒接口返回无效');
             if (result.truncated === true) throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
             if (includeTaskNotes) await ensureTaskRemarks(result.occurrences.map((item) => item?.blockId));
             for (const occurrence of result.occurrences) {
+                if (scope && !scope.docs.has(getCalendarTaskDocumentId(occurrence))) continue;
                 const startAt = Number(occurrence?.startAt);
                 const blockId = String(occurrence?.blockId || '').trim();
                 const occurrenceKey = String(occurrence?.occurrenceKey || '').trim();
@@ -41141,7 +41236,8 @@
                 events.push({
                     uidSeed: `tomato:${blockId}:${stableIdentity || occurrenceKey}`,
                     source: 'tomato',
-                    title: String(occurrence?.title || '').trim() || '任务提醒',
+                    title: `${String(occurrence?.title || '').trim() || '任务提醒'}${occurrence?.checkin === true && occurrence?.completed === true ? '（已打卡）' : ''}`,
+                    completed: occurrence?.completed === true,
                     startAt,
                     alarm: { trigger: 'PT0M' },
                     ...(includeTaskNotes ? { description: resolveTaskRemark(blockId) } : {}),
@@ -41668,6 +41764,9 @@
         calendarSubscriptionPublisher.startupPending = true;
         calendarSubscriptionPublisher.lifecycleToken += 1;
         calendarSubscriptionPublisher.scheduleUpdatedListener = () => markCalendarSubscriptionDirty('schedule-updated');
+        calendarSubscriptionPublisher.docGroupsUpdatedListener = () => {
+            if (getSettings().icsScope === 'selected') markCalendarSubscriptionDirty('settings:doc-groups');
+        };
         calendarSubscriptionPublisher.tomatoUpdatedListener = () => {
             if (!getSettings().icsIncludeTomatoReminders) return;
             markCalendarSubscriptionDirty('tomato-reminder-updated');
@@ -41703,17 +41802,19 @@
         if (typeof mutationBus?.subscribe === 'function') {
             calendarSubscriptionPublisher.taskMutationUnsubscribe = mutationBus.subscribe((mutation = {}) => {
                 const settings = getSettings();
-                if (!settings.icsIncludeTaskDates && !settings.icsIncludeTaskNotes) return;
+                if (!settings.icsIncludeTaskDates && !settings.icsIncludeTaskNotes && settings.icsScope !== 'selected') return;
                 if (mutation.phase && !['optimistic', 'local', 'commit', 'rollback'].includes(mutation.phase)) return;
                 const type = String(mutation.type || '');
                 const keys = Object.keys(mutation.patch || {});
                 const relevant = /^(?:createTaskInDoc|createSubtask|createSibling|commitTaskId|deleteTask|moveTask|taskLifecycle|setDone|contentPatch)$/.test(type)
+                    || (settings.icsScope === 'selected' && keys.some(key => ['docId', 'root_id', 'rootId'].includes(key)))
                     || keys.some((key) => ['startDate', 'completionTime', 'done', 'customStatus', 'taskMarker', 'content', 'title', 'markdown', 'repeatRule', 'repeatState', 'repeatHistory'].includes(key))
                     || (settings.icsIncludeTaskNotes && keys.some((key) => ['remark', 'custom_remark', 'customRemark'].includes(key)));
                 if (relevant) markCalendarSubscriptionDirty('task-list-updated');
             });
         }
         window.addEventListener('tm:calendar-schedule-updated', calendarSubscriptionPublisher.scheduleUpdatedListener);
+        window.addEventListener('tm:doc-groups-updated', calendarSubscriptionPublisher.docGroupsUpdatedListener);
         window.addEventListener('tomato-reminder-updated', calendarSubscriptionPublisher.tomatoUpdatedListener);
         window.addEventListener('tm-task-attr-updated', calendarSubscriptionPublisher.taskAttrUpdatedListener);
         window.addEventListener('tm:filtered-tasks-updated', calendarSubscriptionPublisher.taskProjectionUpdatedListener);
@@ -41758,6 +41859,10 @@
         if (calendarSubscriptionPublisher.tomatoUpdatedListener) {
             window.removeEventListener('tomato-reminder-updated', calendarSubscriptionPublisher.tomatoUpdatedListener);
             calendarSubscriptionPublisher.tomatoUpdatedListener = null;
+        }
+        if (calendarSubscriptionPublisher.docGroupsUpdatedListener) {
+            window.removeEventListener('tm:doc-groups-updated', calendarSubscriptionPublisher.docGroupsUpdatedListener);
+            calendarSubscriptionPublisher.docGroupsUpdatedListener = null;
         }
         if (calendarSubscriptionPublisher.taskAttrUpdatedListener) {
             window.removeEventListener('tm-task-attr-updated', calendarSubscriptionPublisher.taskAttrUpdatedListener);
@@ -42057,6 +42162,7 @@
         const visibleEndOptions = buildCalendarVisibleTimeOptions(visibleRange.end, true);
         if (!indexOnly) calendarSubscriptionPublisher.settingsContainer = containerEl;
         const icsStatus = loadCalendarSubscriptionRuntimeStatus();
+        const icsDocGroups = getCalendarDefs(s).filter(group => group.id.startsWith('group:'));
         const showJianguoyunSubscriptionHint = isJianguoyunCalendarSubscriptionUrl(s.icsWebdavUrl);
         const icsProviderRows = s.icsProvider === 'chain' ? `
                 <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
@@ -42510,6 +42616,26 @@
                     </div>
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">
+                            同步范围
+                            <div class="tm-calendar-settings-label-desc">应用于日程、任务全天日程和番茄钟提醒；个人节假日由下方开关控制。</div>
+                        </div>
+                        <select class="tm-calendar-settings-select" aria-label="同步范围" data-tm-cal-setting="calendarIcsScope">
+                            <option value="all" ${s.icsScope === 'all' ? 'selected' : ''}>全部</option>
+                            <option value="selected" ${s.icsScope === 'selected' ? 'selected' : ''}>指定文档分组</option>
+                        </select>
+                    </div>
+                    ${s.icsScope === 'selected' ? `<div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
+                        <div class="tm-calendar-settings-label">文档分组 <span class="tm-calendar-settings-label-desc">可多选，重叠内容只同步一次</span></div>
+                        <div class="tm-calendar-ics-groups" role="group" aria-label="同步文档分组">${icsDocGroups.map(group => {
+                            const id = group.id.slice(6);
+                            return `<label><input type="checkbox" data-tm-cal-setting="calendarIcsDocGroupIds" value="${esc(id)}" ${s.icsDocGroupIds.includes(id) ? 'checked' : ''}><span>${esc(group.name)}</span></label>`;
+                        }).join('') || '<div class="tm-calendar-settings-label-desc">暂无文档分组，请先在任务管理器中创建。</div>'}</div>
+                        <div class="tm-calendar-settings-label-desc">${icsDocGroups.some(group => s.icsDocGroupIds.includes(group.id.slice(6)))
+                            ? '关联日程和提醒按来源文档筛选，独立日程按归属日历筛选；未分组的独立日程不包含在内。'
+                            : '未选择有效分组，日程、任务全天日程和番茄钟提醒将不再同步。'}</div>
+                    </div>` : ''}
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">
                             不同步已完成日程
                             <div class="tm-calendar-settings-label-desc">开启后不再同步已完成日程；重复日程仅排除已完成的实例。</div>
                         </div>
@@ -42685,6 +42811,13 @@
                 store.data[key] = String(el.value || '').trim() === 'chain' ? 'chain' : 'webdav';
             } else if (key === 'calendarIcsPublishMode') {
                 store.data[key] = String(el.value || '').trim() === 'manual' ? 'manual' : 'auto';
+            } else if (key === 'calendarIcsScope') {
+                store.data[key] = el.value === 'selected' ? 'selected' : 'all';
+            } else if (key === 'calendarIcsDocGroupIds') {
+                const ids = new Set(Array.isArray(store.data[key]) ? store.data[key] : []);
+                if (el.checked) ids.add(String(el.value));
+                else ids.delete(String(el.value));
+                store.data[key] = Array.from(ids);
             } else if (key === 'calendarIcsCalendarName') {
                 store.data[key] = String(el.value || '').trim() || '任务管理器';
             } else if (el.type === 'checkbox') {
@@ -42719,6 +42852,10 @@
                         markCalendarSubscriptionDirty(`settings:${key}`);
                     }
                     try { renderSettings(containerEl, store); } catch (e2) {}
+                    if (key === 'calendarIcsDocGroupIds' || key === 'calendarIcsScope') {
+                        Array.from(containerEl.querySelectorAll('[data-tm-cal-setting]'))
+                            .find(input => input.getAttribute('data-tm-cal-setting') === key && input.value === el.value)?.focus();
+                    }
                 } else if (key === 'calendarLinkDockTomato') {
                     try { renderSettings(containerEl, store); } catch (e2) {}
                     try {

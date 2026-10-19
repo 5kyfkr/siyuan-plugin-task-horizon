@@ -18,7 +18,7 @@ const buildStart = calendar.indexOf('async function buildCalendarSubscriptionEve
 const buildEnd = calendar.indexOf('\n    async function readKernelJsonResponse', buildStart);
 assert.ok(buildStart >= 0 && buildEnd > buildStart, 'publisher event projection must remain extractable');
 const buildBlock = calendar.slice(buildStart, buildEnd);
-assert.match(buildBlock, /const tomatoLoaded = isDockTomatoPluginLoaded\(\);[\s\S]*const includeTomatoReminders = settings\.icsIncludeTomatoReminders === true;[\s\S]*if \(tomatoLoaded && includeTomatoReminders\) \{[\s\S]*waitForDockTomatoSubscriptionBridge\(\)/, 'Tomato bridge may only be read when reminder synchronization is enabled and the plugin is loaded');
+assert.match(buildBlock, /const tomatoLoaded = isDockTomatoPluginLoaded\(\);[\s\S]*const includeTomatoReminders = settings\.icsIncludeTomatoReminders === true;[\s\S]*if \(tomatoLoaded && includeTomatoReminders && \(!scope \|\| scope\.docs\.size > 0\)\) \{[\s\S]*waitForDockTomatoSubscriptionBridge\(\)/, 'Tomato bridge may only be read when reminder synchronization is enabled, the plugin is loaded, and the document scope is nonempty');
 assert.doesNotMatch(buildBlock, /\/api\/query\/sql|DOCK_TOMATO_FILE|loadReminderBlocks/, 'publisher must not query Tomato SQL or petal fallbacks');
 assert.match(buildBlock, /state\.scheduleCache\.lastLoadError[\s\S]*throw new Error/, 'schedule reads must fail closed');
 assert.match(buildBlock, /result\.truncated === true[\s\S]*throw new Error/, 'truncated Tomato projections must fail publication');
@@ -157,6 +157,8 @@ for (const key of [
     'calendarIcsEnabled',
     'calendarIcsProvider',
     'calendarIcsPublishMode',
+    'calendarIcsScope',
+    'calendarIcsDocGroupIds',
     'calendarIcsCalendarName',
     'calendarIcsWebdavUrl',
     'calendarIcsWebdavUsername',

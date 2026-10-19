@@ -3863,6 +3863,7 @@
             }
             throw error;
         }
+        globalThis.__tmApplyDateRollupReceipt?.(receipt);
         return receipt;
     }
 
@@ -5216,7 +5217,7 @@
             });
             return out;
         }
-        if (key === 'priority' || key === 'customStatus' || key === 'duration' || key === 'startDate' || key === 'completionTime' || key === 'taskDateColor' || key === 'customTime' || key === 'taskCompleteAt') {
+        if (key === 'priority' || key === 'customStatus' || key === 'duration' || key === 'startDate' || key === 'completionTime' || key === 'dateMode' || key === 'taskDateColor' || key === 'customTime' || key === 'taskCompleteAt') {
             return String(value ?? '').trim();
         }
         return value;
@@ -5377,6 +5378,11 @@
         if (sd) patch.startDate = sd;
         const ct = String(data.completionTime || '').trim();
         if (ct) patch.completionTime = ct;
+        if (data.dateMode === 'rollup') {
+            patch.dateMode = 'rollup';
+            patch.startDate = '';
+            patch.completionTime = '';
+        }
         const repeatRuleInput = data.repeatRule;
         if (repeatRuleInput && typeof repeatRuleInput === 'object' && typeof __tmBuildTaskRepeatRuleMetaPatch === 'function') {
             try {
@@ -5935,7 +5941,7 @@
                     commandID: String(op?.id || '').trim(),
                     taskID: taskId,
                     patch: normalizedPatch,
-                    options: { allowSystem: true },
+                    options: { allowSystem: true, inheritedDateFields: op?.data?.inheritedDateFields || [] },
                     recordUndo: op?.data?.recordUndo !== false,
                     laneID: __tmGetActiveTaskMutationLaneId(taskId),
                 }, '任务字段写入');
@@ -5986,14 +5992,18 @@
             const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
             const requestedTaskId = String(payload.requestedTaskId || '').trim();
             if (!requestedTaskId) throw new Error('新建子任务缺少稳定块 ID');
-            const inheritedPatch = (payload.inheritedPatch && typeof payload.inheritedPatch === 'object')
+            let inheritedPatch = (payload.inheritedPatch && typeof payload.inheritedPatch === 'object')
                 ? payload.inheritedPatch
                 : {};
+            const parent = await API.getTaskById(payload.parentTaskId);
+            inheritedPatch = __tmFilterSubtaskInheritedDates(parent, inheritedPatch, payload.inheritedDateFields);
+            payload.inheritedPatch = inheritedPatch;
             const realId = await __tmCreateSubtaskForTaskKernel(payload.parentTaskId, payload.content, {
                 requestedTaskId,
                 requestedContainerId: String(payload.requestedContainerId || '').trim(),
                 insertAfterTaskId: String(payload.insertAfterTaskId || '').trim(),
                 inheritedPatch,
+                inheritedDateFields: payload.inheritedDateFields,
                 initialAttrs: __tmBuildAtomicCreateAttrs(requestedTaskId, inheritedPatch),
                 deferInheritedAttrs: true,
                 scheduleSnapshotRefresh: false,
@@ -8972,6 +8982,11 @@
             if (key === 'completionTime') {
                 target.completionTime = String(value ?? '').trim();
                 target.completion_time = target.completionTime;
+                return;
+            }
+            if (key === 'dateMode') {
+                target.dateMode = value === 'rollup' ? 'rollup' : 'manual';
+                target.date_mode = target.dateMode;
                 return;
             }
             if (key === 'taskDateColor') {
@@ -14488,6 +14503,9 @@
     let __tmPointsPenaltyLedgerSyncPromise = null;
     let __tmPointsPenaltyLedgerSavePromise = null;
     let __tmPointsPenaltyCheckTimer = null;
+    let __tmPointsPenaltyDisposed = false;
+    let __tmPointsPenaltyLifecycleGeneration = 0;
+    let __tmPointsPenaltyRefreshGeneration = 0;
     let __tmPointsPenaltyLastTickKey = '';
     let __tmPointsPenaltyCheckRunning = false;
     let __tmPointsPenaltyStartupChecked = false;
@@ -16191,6 +16209,9 @@
 
     async function __tmRunPointsPenaltyCheck(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        if (__tmPointsPenaltyDisposed) return { checked: false, count: 0 };
+        const generation = __tmPointsPenaltyLifecycleGeneration;
+        const isCurrent = () => !__tmPointsPenaltyDisposed && generation === __tmPointsPenaltyLifecycleGeneration;
         const settings = __tmGetPointsPenaltyRuntimeSettings();
         if (!settings.integrationEnabled) return { checked: false, count: 0 };
         if (!settings.scheduleEnabled && !settings.deadlineEnabled) return { checked: false, count: 0 };
@@ -16198,10 +16219,12 @@
         __tmPointsPenaltyCheckRunning = true;
         try {
             await __tmSyncPointsPenaltyLedger();
+            if (!isCurrent()) return { checked: false, count: 0 };
             const candidates = await __tmCollectPointsPenaltyCandidates(
                 opts.now instanceof Date ? opts.now : new Date(),
                 { dayKeys: Array.isArray(opts.dayKeys) ? opts.dayKeys : [] }
             );
+            if (!isCurrent()) return { checked: false, count: 0 };
             if (!candidates.length) return { checked: true, count: 0 };
             if (settings.confirmModalEnabled) {
                 __tmShowPointsPenaltyConfirmModal(candidates);
@@ -16209,15 +16232,16 @@
             }
             let doneCount = 0;
             for (const item of candidates) {
+                if (!isCurrent()) break;
                 try {
                     const ok = await __tmApplyPointsPenaltyCandidate(item, { silent: true, waitForRecord: true });
                     if (ok) doneCount += 1;
                 } catch (e) {}
             }
-            if (doneCount > 0) hint(`⚠ 已自动扣分 ${doneCount} 项`, 'warning');
+            if (isCurrent() && doneCount > 0) hint(`⚠ 已自动扣分 ${doneCount} 项`, 'warning');
             return { checked: true, count: doneCount };
         } finally {
-            __tmPointsPenaltyCheckRunning = false;
+            if (generation === __tmPointsPenaltyLifecycleGeneration) __tmPointsPenaltyCheckRunning = false;
         }
     }
 
@@ -16257,11 +16281,15 @@
 
     async function __tmRefreshPointsPenaltyRuntime(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        if (__tmPointsPenaltyDisposed) return false;
+        const generation = ++__tmPointsPenaltyRefreshGeneration;
         try { await __tmEnsureSettingsLoaded(false); } catch (e) {}
+        if (__tmPointsPenaltyDisposed || generation !== __tmPointsPenaltyRefreshGeneration) return false;
         const settings = __tmGetPointsPenaltyRuntimeSettings();
         __tmClearPointsPenaltyCheckTimer();
         if (!settings.integrationEnabled || (!settings.scheduleEnabled && !settings.deadlineEnabled)) return false;
         __tmPointsPenaltyCheckTimer = setInterval(() => {
+            if (__tmPointsPenaltyDisposed || generation !== __tmPointsPenaltyRefreshGeneration) return;
             const now = new Date();
             const tickPlan = __tmResolvePointsPenaltyTickPlan(now, settings.checkTimes);
             if (!tickPlan) return;
@@ -16276,10 +16304,14 @@
     }
 
     function __tmInitPointsPenaltyRuntime() {
+        __tmPointsPenaltyDisposed = false;
         void __tmRefreshPointsPenaltyRuntime({ reason: 'init' });
     }
 
     function __tmDisposePointsPenaltyRuntime() {
+        __tmPointsPenaltyDisposed = true;
+        __tmPointsPenaltyLifecycleGeneration += 1;
+        __tmPointsPenaltyRefreshGeneration += 1;
         __tmClearPointsPenaltyCheckTimer();
         __tmPointsPenaltyLastTickKey = '';
         __tmPointsPenaltyCheckRunning = false;
@@ -23403,6 +23435,10 @@ if (!state.homepageOpen) return;
         } catch (e) {}
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
+        // Home/attachments retain the previous workspace viewMode. Their own
+        // layout must not trigger a table resize that replaces the entire shell.
+        if (state.homepageOpen || state.attachmentLibraryOpen) return;
+        const viewMode = state.viewMode;
         const isStreamWhiteboard = state.viewMode === 'whiteboard' && __tmIsWhiteboardAllTabsStreamMode();
         if (state.viewMode !== 'list' && state.viewMode !== 'calendar' && !isStreamWhiteboard) return;
         if (!isStreamWhiteboard && SettingsStore.data.kanbanFillColumns !== true) return;
@@ -23416,7 +23452,13 @@ if (!state.homepageOpen) return;
         state.tableResponsiveLastWidth = lastWidth;
         if (typeof ResizeObserver !== 'function') return;
         try {
+            const isCurrentTable = () => state.tableResponsiveResizeObserver === ro
+                && state.modal === modal && document.body.contains(modal) && body.isConnected
+                && !state.homepageOpen && !state.attachmentLibraryOpen
+                && state.viewMode === viewMode
+                && (viewMode !== 'whiteboard' || __tmIsWhiteboardAllTabsStreamMode());
             const ro = new ResizeObserver(() => {
+                if (!isCurrentTable()) return;
                 const nextWidth = Math.round(Number(body.clientWidth) || 0);
                 if (!Number.isFinite(nextWidth) || nextWidth <= 0) return;
                 if (Math.abs(nextWidth - lastWidth) < 2) return;
@@ -23426,9 +23468,8 @@ if (!state.homepageOpen) return;
                     if (state.tableResponsiveResizeRaf) cancelAnimationFrame(state.tableResponsiveResizeRaf);
                 } catch (e) {}
                 state.tableResponsiveResizeRaf = requestAnimationFrame(() => {
+                    if (!isCurrentTable()) return;
                     state.tableResponsiveResizeRaf = 0;
-                    if (!state.modal || !document.body.contains(state.modal)) return;
-                    if (state.viewMode !== 'list' && state.viewMode !== 'calendar' && !(state.viewMode === 'whiteboard' && __tmIsWhiteboardAllTabsStreamMode())) return;
                     try { render(); } catch (e) {}
                 });
             });
@@ -24854,7 +24895,7 @@ if (!state.homepageOpen) return;
     }
     window.__tmLoadDocProgressBatch = __tmLoadDocProgressBatch;
 
-    window.__tmUpdateDocTabProgress = async (docId, elId, expectedElId) => {
+    async function __tmUpdateDocTabProgress(docId, elId, expectedElId) {
         const did = String(docId || '').trim();
         const el = elId ? document.getElementById(elId) : null;
         const expectedEl = expectedElId ? document.getElementById(expectedElId) : null;
@@ -24885,7 +24926,8 @@ if (!state.homepageOpen) return;
         if (expectedEl) {
             __tmApplyDocExpectedProgress(expectedEl, expectedMeta || {});
         }
-    };
+    }
+    window.__tmUpdateDocTabProgress = __tmUpdateDocTabProgress;
 
     function __tmGetDocColorHex(docId, isDark) {
         const id = String(docId || '').trim();
@@ -26017,8 +26059,10 @@ if (!state.homepageOpen) return;
         if (!tbody) return false;
         const collapsedTaskIds = state.collapsedTaskIds instanceof Set ? state.collapsedTaskIds : new Set();
         const collapsedGroups = state.collapsedGroups instanceof Set ? state.collapsedGroups : new Set();
-        const getGroupLevel = (groupKey) => {
-            const k = String(groupKey || '').trim();
+        const getGroupLevel = (row) => {
+            const explicitLevel = Number(row.getAttribute('data-group-level'));
+            if (row.hasAttribute('data-group-level') && Number.isFinite(explicitLevel)) return explicitLevel;
+            const k = String(row.getAttribute('data-group-key') || '').trim();
             if (!k) return 0;
             if (k.includes('__h2_')) return 1;
             return 0;
@@ -26032,7 +26076,7 @@ if (!state.homepageOpen) return;
             if (!(row instanceof Element)) return;
             if (row.matches('tr[data-group-key]')) {
                 const gk = String(row.getAttribute('data-group-key') || '').trim();
-                const level = getGroupLevel(gk);
+                const level = getGroupLevel(row);
                 while (groupStack.length > 0 && groupStack[groupStack.length - 1].level >= level) {
                     groupStack.pop();
                 }
@@ -26847,7 +26891,7 @@ return true;
                 const color = colorMap[String(row.color || '')] || 'var(--tm-text-color)';
                 return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:${color};"><div class="tm-group-sticky">${toggle}${esc(row.label || '')}<span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
             }
-            return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}${esc(row.label || '')}</div></td></tr>`;
+            return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}" data-group-level="${Number(row.groupDepth) || 0}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}${esc(row.label || '')}</div></td></tr>`;
         };
 
         const renderTaskRow = (row) => {
@@ -28238,6 +28282,14 @@ return true;
         const currentItems = body?.querySelector?.('.tm-checklist-items');
         const nextItems = nextBody?.querySelector?.('.tm-checklist-items');
         if (!(currentItems instanceof HTMLElement) || !(nextItems instanceof HTMLElement)) return false;
+        // An excluded task can have no old/new group. Identical list markup is
+        // already reconciled; falling through would replace every visible row.
+        if (currentItems.isEqualNode(nextItems)) {
+            if (context?.renderSignature) state.listDomRenderSignature = String(context.renderSignature);
+            state.pendingChecklistRenderRestore = null;
+            __tmClearChecklistProjectionGroupRefresh();
+            return true;
+        }
         const currentCards = Array.from(currentItems.children || []).filter((child) => child instanceof HTMLElement && child.classList.contains('tm-checklist-group-card'));
         const nextCards = Array.from(nextItems.children || []).filter((child) => child instanceof HTMLElement && child.classList.contains('tm-checklist-group-card'));
         if (!currentCards.length && !nextCards.length) {
@@ -28693,7 +28745,7 @@ return true;
             while (task) {
                 const parentId = String(task.parentTaskId || task.parent_task_id || '').trim();
                 if (!parentId || visited.has(parentId)) break;
-                visited.add(parentId); dirtyIds.add(parentId);
+                visited.add(parentId); ids.add(parentId); dirtyIds.add(parentId);
                 task = globalThis.__tmTaskBoundary?.getTask?.(parentId);
             }
         });
@@ -28705,7 +28757,9 @@ return true;
                 parents.forEach((parentId) => dirtyIds.add(parentId));
             });
             const cards = Array.from(column.querySelectorAll('.tm-kanban-card[data-id]'));
-            mountedLimits.set(currentKeys[index], cards.filter((card) => !card.closest('[hidden]')).length);
+            // Collapsed groups still consume renderer slots. Only descendants
+            // of collapsed tasks are rendered outside the progressive budget.
+            mountedLimits.set(currentKeys[index], cards.filter((card) => !card.hidden && !card.closest('[data-tm-kanban-subtasks-list][hidden]')).length);
             mountedIdsByColumn.set(currentKeys[index], new Set(cards.map((card) => card.getAttribute('data-id'))));
             cards.forEach((card) => {
                 const id = String(card.getAttribute('data-id') || '').trim();
@@ -28713,7 +28767,7 @@ return true;
                 const inDocumentScope = docIds.size > 0 && (!task || docIds.has(String(task.root_id || task.docId || '').trim()));
                 reuseCards.set(id, { node: card, columnKey: currentKeys[index],
                     sub: card.classList.contains('tm-kanban-card--sub'),
-                    count: 1 + Array.from(card.querySelectorAll('.tm-kanban-card[data-id]')).filter((node) => !node.closest('[hidden]')).length });
+                    count: 1 + Array.from(card.querySelectorAll('.tm-kanban-card[data-id]')).filter((node) => !node.hidden && !node.closest('[data-tm-kanban-subtasks-list][hidden]')).length });
                 if (!ids.has(id) && !inDocumentScope) return;
                 if (inDocumentScope) dirtyIds.add(id);
                 sourceKeys.add(currentKeys[index]);
@@ -28749,14 +28803,21 @@ return true;
             }
             const missingTaskIds = Array.from(ids).filter((id) => !matchedIds.has(id) && !columnPatch.matchedTaskIds.has(id)
                 && globalThis.__tmRuntimeState?.isPendingDeletedTaskId?.(id) !== true);
-            if (missingTaskIds.length) return false;
+            // Completion-hidden tasks need no DOM placement. Keep fallback for
+            // unknown IDs and unresolved visible/created tasks, which can still
+            // require new columns or a structural reconciliation.
+            const unknownTaskIds = missingTaskIds.filter((id) => {
+                const task = globalThis.__tmTaskBoundary?.getTask?.(id);
+                return !task || globalThis.__tmTaskProjectionEngine?.isKanbanTaskVisibleByCompletion?.(task, state.showCompletedTasks) !== false;
+            });
+            if (unknownTaskIds.length) return false;
             staged = __tmBuildElementFromHtml(`<div>${html}</div>`);
         } catch (e) { return false; }
         if (!(staged instanceof HTMLElement)) return false;
         const replacements = Array.from(staged.children).map((next) => ({
             next, current: columns[currentKeys.indexOf(next.getAttribute('data-col-key'))],
         }));
-        if (!replacements.length && docIds.size && !ids.size) {
+        if (!replacements.length && ((docIds.size && !ids.size) || (!matchedIds.size && !columnPatch.matchedTaskIds.size))) {
             try { __tmScheduleProgressiveViewRender('kanban', refreshJob); } catch (e) {}
             return true;
         }
@@ -28979,7 +29040,7 @@ return true;
                 if (!(colBody instanceof HTMLElement)) return;
                 colScrollMap.set(colKey, Number(colBody.scrollTop || 0));
                 const mountedCount = Array.from(colBody.querySelectorAll('.tm-kanban-card[data-id]'))
-                    .filter((card) => !card.closest('[hidden]')).length;
+                    .filter((card) => !card.hidden && !card.closest('[data-tm-kanban-subtasks-list][hidden]')).length;
                 // Retain the loaded window, with room for a newly outdented
                 // child. Do not expand every offscreen column after a move.
                 const renderKey = String(col.getAttribute('data-col-key') || colKey).trim();

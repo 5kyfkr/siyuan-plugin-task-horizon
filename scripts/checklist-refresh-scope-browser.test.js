@@ -121,6 +121,22 @@ const code = helperNames.map((name) => extract(runtime, name)).join('\n') + '\n'
                 assert.deepEqual(result.ids, action === 'move' ? ['last', 'kept'] : ['kept']);
             }
         }
+        for (const compact of [false, true]) {
+            const result = await page.evaluate((compact) => {
+                state.viewMode = 'checklist';
+                const rows = '<div class="tm-checklist-group" data-group-key="visible">Group</div><div class="tm-checklist-item" data-id="kept">Kept</div>';
+                state.modal.innerHTML = '<div class="tm-body tm-body--checklist"><div class="tm-checklist-items">'
+                    + (compact ? '<section class="tm-checklist-group-card">' + rows + '</section>' : rows) + '</div></div>';
+                const body = state.modal.firstElementChild;
+                const kept = body.querySelector('[data-id="kept"]');
+                const next = body.cloneNode(true);
+                const ok = __tmTryRefreshChecklistProjectionGroups(state.modal, body, next, ['hidden-completed'], { renderSignature: 'same-rows' });
+                next.querySelector('[data-id="kept"]').textContent = 'Changed';
+                const changed = __tmTryRefreshChecklistProjectionGroups(state.modal, body, next, ['hidden-completed']);
+                return { ok, changed, kept: kept === body.querySelector('[data-id="kept"]'), text: kept.textContent };
+            }, compact);
+            assert.deepEqual(result, { ok: true, changed: false, kept: true, text: 'Kept' }, 'excluded-task refresh must retain identical checklist items while real changes still reconcile');
+        }
         const table = await page.evaluate(() => {
             state.viewMode = 'list';
             state.modal.innerHTML = '<table id="tmTaskTable"><tbody><tr data-group-key="source"></tr><tr data-id="last"></tr><tr data-group-key="destination"></tr><tr data-id="kept"></tr></tbody></table>';
@@ -139,6 +155,6 @@ const code = helperNames.map((name) => extract(runtime, name)).join('\n') + '\n'
         assert.deepEqual(table, { fast: false, unchanged: true, ok: true, sourceGone: true, kept: true, destination: true },
             'table rows already defer disappearing tasks and groups to their renderer');
         assert.deepEqual(errors, []);
-        console.log('checklist refresh scope browser regressions: 11 passed, 0 failed');
+        console.log('checklist refresh scope browser regressions: 13 passed, 0 failed');
     } finally { await browser.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -2462,6 +2462,13 @@
         const nextPatch = (patch && typeof patch === 'object' && !Array.isArray(patch)) ? patch : {};
         if (!tid || !Object.keys(nextPatch).length) return false;
         const task = taskLike || globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
+        const aliases = { taskMarker: 'task_marker', task_marker: 'taskMarker', customStatus: 'custom_status', custom_status: 'customStatus', taskCompleteAt: 'task_complete_at', task_complete_at: 'taskCompleteAt' };
+        const changedPatch = Object.fromEntries(Object.entries(nextPatch).filter(([field, value]) => (
+            !Object.is(value, task?.[field] ?? task?.[aliases[field]])
+        )));
+        // Editor subtree rebuilds can synchronize many already-correct checkboxes.
+        // Only changed fields should enter the completion/projection pipeline.
+        if (!Object.keys(changedPatch).length) return true;
         const docId = String(task?.root_id || task?.docId || '').trim();
         try {
             globalThis.__tmTaskStore?.applyMutation?.({
@@ -2470,7 +2477,7 @@
                 taskId: tid,
                 docId,
                 source: String(source || 'native-doc-checkbox-sync').trim() || 'native-doc-checkbox-sync',
-                patch: { ...nextPatch },
+                patch: changedPatch,
             });
             return true;
         } catch (e) {

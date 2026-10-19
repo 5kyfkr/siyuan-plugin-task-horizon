@@ -23,7 +23,7 @@ function createHarness(initial = {}) {
     const flatTasks = {};
     const writes = [];
     const context = vm.createContext({
-        Map, Set, state: { flatTasks },
+        Map, Set, state: { flatTasks }, SettingsStore: { data: {} },
         __tmTaskStore: { getProjected: (id) => flatTasks[id] },
         __tmHost: {
             async loadData(key) { assert.equal(key, 'homepage-settings.json'); reads++; return structuredClone(disk); },
@@ -38,6 +38,7 @@ function createHarness(initial = {}) {
         __tmRecomputeTaskProjection() { refreshes++; },
     });
     context.window = context;
+    vm.runInContext(boundary(read('src/task-horizon/main/30-dialogs-and-ui-foundation.js'), '    function __tmIsInboxHiddenFromAllTab(', '    function __tmShouldIncludeDocInActiveAggregateTaskScope('), context);
     vm.runInContext(source, context);
     return {
         service: context.__tmProjectVisibility, context, flatTasks, writes,

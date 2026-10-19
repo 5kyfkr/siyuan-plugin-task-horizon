@@ -234,7 +234,8 @@ function createHarness(options = {}) {
     }
 
     function query(statement) {
-        if (statement.includes('WHERE task.type = \'i\' AND task.subtype = \'t\'')) {
+        if (statement.includes('WHERE task.type = \'i\' AND task.subtype = \'t\'')
+            || statement.includes('SELECT DISTINCT root_id FROM blocks WHERE id IN')) {
             const db = new DatabaseSync(':memory:');
             try {
                 const columns = ['id', 'parent_id', 'root_id', 'type', 'subtype', 'markdown', 'content', 'box', 'path', 'hpath', 'sort', 'created', 'updated'];
@@ -455,7 +456,14 @@ function createHarness(options = {}) {
 
     async function api(pathname, body) {
         apiCalls.push({ pathname, body: JSON.parse(JSON.stringify(body || {})) });
-        if (pathname === '/api/query/sql') return query(String(body.stmt || ''));
+        if (pathname === '/api/query/sql') {
+            const statement = String(body.stmt || '');
+            const rows = query(statement);
+            // SiYuan applies search.limit unless the outer SELECT has a LIMIT.
+            const defaultLimit = Number(options.sqlDefaultLimit) || 0;
+            const hasOuterLimit = /\bLIMIT\s+\d+(?:\s+OFFSET\s+\d+)?\s*;?\s*$/i.test(statement);
+            return defaultLimit > 0 && !hasOuterLimit ? rows.slice(0, defaultLimit) : rows;
+        }
         if (pathname === '/api/attr/getBlockAttrs') return { ...(attrs.get(body.id) || {}) };
         if (pathname === '/api/block/getBlockDOM') return { dom: taskBlockDOM(body.id) };
         if (pathname === '/api/block/getBlockBreadcrumb') {
@@ -2270,7 +2278,7 @@ async function run() {
     const batchAttrsApiCalls = harness.apiCalls.slice(batchAttrsCallStart);
     assert.equal(batchAttrsApiCalls.filter((call) => call.pathname === '/api/attr/batchSetBlockAttrs').length, 1);
     assert.equal(batchAttrsApiCalls.filter((call) => call.pathname === '/api/attr/setBlockAttrs').length, 0);
-    assert.deepEqual(batchAttrsApiCalls[0], {
+    assert.deepEqual(batchAttrsApiCalls.find(call => call.pathname === '/api/attr/batchSetBlockAttrs'), {
         pathname: '/api/attr/batchSetBlockAttrs',
         body: {
             blockAttrs: [

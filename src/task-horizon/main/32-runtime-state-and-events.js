@@ -1046,11 +1046,39 @@
             (Array.isArray(structuralParent?.children) ? structuralParent.children : []).forEach((child) => addChild(child, true));
         }
         if (opts.scanFlat !== false) {
-            [state?.flatTasks, state?.pendingInsertedTasks].forEach((taskMap) => {
-                Object.values((taskMap && typeof taskMap === 'object') ? taskMap : {}).forEach((child) => addChild(child, false));
-            });
+            if (opts.childrenByParent instanceof Map) {
+                const candidates = new Set();
+                parentAliases.forEach((alias) => {
+                    (opts.childrenByParent.get(alias) || []).forEach((entry) => candidates.add(entry));
+                });
+                Array.from(candidates).sort((a, b) => a.order - b.order)
+                    .forEach(({ child }) => addChild(child, false));
+            } else {
+                [state?.flatTasks, state?.pendingInsertedTasks].forEach((taskMap) => {
+                    Object.values((taskMap && typeof taskMap === 'object') ? taskMap : {}).forEach((child) => addChild(child, false));
+                });
+            }
         }
         return Array.from(children.values());
+    };
+
+    // A synchronous render owns this reader. Keep projection/deletion handling
+    // in listProjectedDirectChildren, and never retain the index across renders.
+    const createDirectChildrenReader = () => {
+        const childrenByParent = new Map();
+        let order = 0;
+        [state?.flatTasks, state?.pendingInsertedTasks].forEach((taskMap) => {
+            Object.values((taskMap && typeof taskMap === 'object') ? taskMap : {}).forEach((child) => {
+                const parentId = normalizeId(child?.parentTaskId || child?.parent_task_id);
+                if (!parentId) return;
+                const entry = { child, order: order++ };
+                getTaskIdAliases(parentId).forEach((alias) => {
+                    if (!childrenByParent.has(alias)) childrenByParent.set(alias, []);
+                    childrenByParent.get(alias).push(entry);
+                });
+            });
+        });
+        return (parentId) => listProjectedDirectChildren(parentId, { childrenByParent });
     };
 
     const ensureFlatTaskMap = () => {
@@ -1143,6 +1171,9 @@
         if (opts.mergeOtherBlocks !== false) nextMap = mergeOtherBlocksIntoTaskStoreFlatMap(nextMap);
         try { state.flatTasks = nextMap; } catch (e) {}
         markTaskStoreDirty();
+        if (opts.authoritative === true) globalThis.__tmScheduleDateRollupReconcile?.(Array.from(new Set([
+            ...(opts.docIds || []), ...Object.values(nextMap).map(task => task?.root_id || task?.docId),
+        ].filter(Boolean))));
         return state.flatTasks || nextMap;
     };
 
@@ -1266,6 +1297,7 @@
             if (confirmed) confirmedTaskBase.set(taskId, confirmed);
         });
         bumpTaskStoreRevision(docIds);
+        globalThis.__tmScheduleDateRollupReconcile?.(docIds);
         return list.length;
     };
 
@@ -2633,6 +2665,7 @@
         getConfirmed: (taskId) => cloneTaskRecord(confirmedTaskBase.get(normalizeId(taskId))),
         getProjected: (taskId) => projectTaskFromBase(taskId, getTaskById(taskId, { includePending: true, preferPending: true })),
         listProjectedDirectChildren,
+        createDirectChildrenReader,
         projectRead: projectTaskRead,
         listPendingOverlays: () => Array.from(pendingTaskOverlays.values()).map((entry) => ({
             ...entry,

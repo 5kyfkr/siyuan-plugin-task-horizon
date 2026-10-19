@@ -68,6 +68,11 @@ function harness(overrides = {}) {
         });
     }
     const state = { scheduleCache: {}, settingsStore: { data, loaded: true, saveDirty: false } };
+    state.settingsStore.applySharedDocGroupSettings = shared => {
+        const changed = JSON.stringify(data.docGroups) !== JSON.stringify(shared.docGroups);
+        data.docGroups = shared.docGroups;
+        return changed;
+    };
     class ClockDate extends Date {
         constructor(...args) { super(...(args.length ? args : [now])); }
         static now() { return now; }
@@ -369,6 +374,77 @@ test('unchanged filter refreshes do not invalidate any publication attempt', asy
     assert.equal(h.timers.size, 0);
 });
 
+test('ICS labels checked dates, hides future check-ins and retains ordinary future tasks', async () => {
+    const h = harness({ settings: { icsIncludeTaskDates: true } });
+    const rows = [
+        { id: 'checkin:habit:2026-09-26', title: 'Past habit', start: '2026-09-26', endExclusive: '2026-09-27', checkin: true },
+        { id: 'checkin:habit:2026-09-27', title: 'Today habit', start: '2026-09-27', endExclusive: '2026-09-28', checkin: true },
+        { id: 'checkin:habit:2026-09-28', title: 'Future habit', start: '2026-09-28', endExclusive: '2026-09-29', checkin: true, checkinFuture: true },
+        { id: 'checkin:checked:2026-09-27', title: 'Checked habit', start: '2026-09-27', endExclusive: '2026-09-28', checkin: true, done: true },
+        { id: 'ordinary', title: 'Future ordinary task', start: '2026-09-28', endExclusive: '2026-09-29' },
+    ];
+    h.context.tmQueryCalendarTaskDateEvents = async (start, end, options) => {
+        h.taskReads.push(options);
+        return rows;
+    };
+    const result = await h.api.publishNow({ force: true });
+    assert.equal(result.skipped, false);
+    assert.equal(result.eventCount, 4);
+    const uploaded = () => {
+        const put = h.requests.filter(request => request.url === '/api/network/forwardProxy' && JSON.parse(request.init.body).method === 'PUT').at(-1);
+        return Buffer.from(JSON.parse(put.init.body).payload, 'base64').toString('utf8');
+    };
+    assert.match(uploaded(), /SUMMARY:Today habit/);
+    assert.match(uploaded(), /SUMMARY:Past habit/);
+    assert.match(uploaded(), /SUMMARY:Future ordinary task/);
+    assert.doesNotMatch(uploaded(), /SUMMARY:Future habit/);
+    assert.match(uploaded(), /SUMMARY:Checked habit（已打卡）/);
+    const ordinaryUid = uploaded().split('BEGIN:VEVENT').find(event => event.includes('SUMMARY:Future ordinary task')).match(/UID:([^\r\n]+)/)[1];
+    const todayUid = uploaded().split('BEGIN:VEVENT').find(event => event.includes('SUMMARY:Today habit')).match(/UID:([^\r\n]+)/)[1];
+
+    // A cached future flag must not hide a date after midnight.
+    await h.advance(12 * 60 * 60 * 1000 + 1);
+    rows[1].done = true;
+    const next = await h.api.publishNow({ force: true, source: 'day-boundary' });
+    assert.equal(next.skipped, false);
+    assert.equal(next.eventCount, 5);
+    assert.match(uploaded(), /SUMMARY:Future habit/);
+    assert.match(uploaded(), /SUMMARY:Today habit（已打卡）/);
+    assert.match(uploaded(), /SUMMARY:Checked habit（已打卡）/);
+    assert.ok(uploaded().split('BEGIN:VEVENT').find(event => event.includes('SUMMARY:Today habit')).includes(`UID:${todayUid}`), 'checking a day updates the existing event');
+    assert.ok(uploaded().includes(`UID:${ordinaryUid}`), 'ordinary event identity stays stable');
+    assert.equal(h.taskReads.at(-1).forceFresh, true);
+    rows[1].done = false;
+    await h.api.publishNow({ force: true });
+    assert.match(uploaded(), /SUMMARY:Today habit\r\n/);
+    assert.doesNotMatch(uploaded(), /SUMMARY:Today habit（已打卡）/);
+    assert.ok(uploaded().split('BEGIN:VEVENT').find(event => event.includes('SUMMARY:Today habit')).includes(`UID:${todayUid}`), 'undo keeps the date and event identity');
+});
+
+test('checked reminder occurrences keep their event without an alarm and undo restores the normal title', async () => {
+    const h = harness({ settings: { icsIncludeTomatoReminders: true } });
+    let checked = true;
+    h.context.siyuan.plugins = [{ name: 'siyuan-plugin-docktomato' }];
+    h.context.__tomatoReminder = { version: 2, listOccurrences: async () => ({ occurrences: [{
+        blockId: 'habit', occurrenceKey: '2026-09-27:18:00', startAt: Date.parse('2026-09-27T18:00:00Z'),
+        title: 'Habit reminder', checkin: true, completed: checked,
+    }] }) };
+    const uploaded = () => {
+        const put = h.requests.filter(request => request.url === '/api/network/forwardProxy' && JSON.parse(request.init.body).method === 'PUT').at(-1);
+        return Buffer.from(JSON.parse(put.init.body).payload, 'base64').toString('utf8');
+    };
+    assert.equal((await h.api.publishNow({ force: true })).eventCount, 1);
+    assert.match(uploaded(), /SUMMARY:Habit reminder（已打卡）/);
+    assert.doesNotMatch(uploaded(), /BEGIN:VALARM/);
+    const uid = uploaded().match(/UID:([^\r\n]+)/)[1];
+    checked = false;
+    assert.equal((await h.api.publishNow({ force: true })).eventCount, 1);
+    assert.match(uploaded(), /SUMMARY:Habit reminder\r\n/);
+    assert.doesNotMatch(uploaded(), /已打卡/);
+    assert.match(uploaded(), /BEGIN:VALARM/);
+    assert.ok(uploaded().includes(`UID:${uid}`));
+});
+
 function enableAllSubscriptionSources(h) {
     Object.assign(h.settings, {
         icsExcludeCompletedSchedules: true,
@@ -588,6 +664,44 @@ test('publication waits for an existing settings save before reading the file', 
     h.state.settingsStore.saving = false;
     saved.resolve();
     assert.equal((await job).skipped, false);
+});
+
+test('publication refreshes synchronized group selection and membership before resolving its scope', async () => {
+    const shared = { calendarIcsEnabled: true, calendarIcsScope: 'selected', calendarIcsDocGroupIds: ['new-group'],
+        docGroups: [{ id: 'new-group', docs: [{ id: 'new-document' }] }] };
+    const h = harness({ settings: { icsScope: 'selected', icsDocGroupIds: ['old-group'] },
+        fetch: (url, init, next) => url === '/api/file/getFile'
+            ? { ...response(), text: async () => JSON.stringify(shared) } : next(url, init) });
+    h.state.settingsStore.data.docGroups = [{ id: 'old-group', docs: [] }];
+    h.context.tmResolveCalendarSubscriptionScope = async ids => {
+        assert.deepEqual(Array.from(ids), ['new-group']);
+        assert.equal(h.state.settingsStore.data.docGroups[0].docs[0].id, 'new-document');
+        return { groupIds: ['new-group'], docIds: [], blockDocIds: {} };
+    };
+    assert.equal((await h.api.publishNow({ force: true })).skipped, false);
+});
+
+test('incomplete synchronized scope settings never produce an unrestricted upload', async () => {
+    const h = harness({ settings: { icsScope: 'selected', icsDocGroupIds: ['work'] },
+        fetch: (url, init, next) => url === '/api/file/getFile'
+            ? { ...response(), text: async () => JSON.stringify({ calendarIcsEnabled: true, calendarIcsScope: 'selected' }) } : next(url, init) });
+    const result = await h.api.publishNow({ force: true });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /配置不完整/);
+    assert.equal(h.requests.length, 1);
+});
+
+test('group membership and task moves invalidate scoped publication even without task date synchronization', () => {
+    const h = harness({ settings: { icsScope: 'selected' } });
+    h.bind();
+    const seq = h.publisher.dirtySeq;
+    h.dispatch('tm:doc-groups-updated');
+    assert.equal(h.publisher.dirtySeq, seq + 1);
+    h.mutate({ type: 'moveTask', phase: 'commit' });
+    assert.equal(h.publisher.dirtySeq, seq + 2);
+    h.context.unbindCalendarSubscriptionPublisher();
+    h.dispatch('tm:doc-groups-updated');
+    assert.equal(h.publisher.dirtySeq, seq + 2);
 });
 
 for (const provider of ['webdav', 'chain']) {

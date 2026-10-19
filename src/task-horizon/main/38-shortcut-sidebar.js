@@ -106,7 +106,7 @@ SOFTWARE.
                 const issues = __tmShortcuts.issues(item), labels = __tmShortcuts.names(item);
                 const path = [labels.group, ...(item.tabGroupId ? [labels.tabGroup] : []), labels.doc, labels.view,
                     ...(item.viewId === 'kanban' ? [labels.kanbanBoardMode] : []), labels.groupMode, labels.rule].join(' → ');
-                return `<div class="tm-shortcut-row ${issues.length ? 'is-invalid' : ''}"><button type="button" class="tm-shortcut-go" data-shortcut-id="${esc(item.id)}" title="${esc(item.name + (issues.length ? ' · 已失效' : '') + '\n' + path)}" aria-label="${esc(item.name + (issues.length ? '，已失效' : ''))}" ${activeId === item.id ? 'aria-current="page"' : ''}>${iconHtml(item.icon)}<span class="tm-shortcut-name">${esc(item.name)}</span>${issues.length ? '<span class="tm-shortcut-invalid">失效</span>' : `<span class="tm-shortcut-count" data-shortcut-count="${esc(item.id)}">${cachedCount(item) ?? '—'}</span>`}</button>${button('edit', `编辑${esc(item.name)}`, 'dots-three').replace('data-shortcut-action="edit"', `data-shortcut-edit="${esc(item.id)}"`)}</div>`;
+                return `<div class="tm-shortcut-row ${issues.length ? 'is-invalid' : ''}"><button type="button" class="tm-shortcut-go" data-shortcut-id="${esc(item.id)}" title="${esc(item.name + (issues.length ? ' · 已失效' : '') + '\n' + path)}" aria-label="${esc(item.name + (issues.length ? '，已失效' : ''))}" ${activeId === item.id ? 'aria-current="page"' : ''}>${iconHtml(item.icon)}<span class="tm-shortcut-name">${esc(item.name)}</span>${issues.length ? '<span class="tm-shortcut-invalid">失效</span>' : `<span class="tm-shortcut-count" data-shortcut-count="${esc(item.id)}">${cachedCount(item) ?? ''}</span>`}</button>${button('edit', `编辑${esc(item.name)}`, 'dots-three').replace('data-shortcut-action="edit"', `data-shortcut-edit="${esc(item.id)}"`)}</div>`;
             }).join('') || '<div class="tm-shortcut-empty">把常用的文档范围、视图和规则存到这里。</div>';
             viewport.scrollTop = top;
             applyMode();scrollThumb();scheduleCounts();
@@ -123,7 +123,7 @@ SOFTWARE.
                     if (!item) continue;
                     const count = counts.get(id);
                     const display = count ?? cachedCount(item);
-                    node.textContent = display == null ? '—' : String(display);
+                    node.textContent = display == null ? '' : String(display);
                     node.title = count == null ? '打开快捷项后更新任务数' : `${count} 项任务匹配此快捷项`;
                 }
                 const labelCount = q('.tm-shortcut-extension-count', layout);
@@ -195,6 +195,7 @@ SOFTWARE.
             clearDrawerHoverTimer();drawerHover = false;
             drawer = false;drawerUnstack?.();drawerUnstack = null;applyMode();
             if (restoreFocus && layout?.dataset.shortcutMode === 'hidden') q('.tm-shortcut-edge', layout)?.focus({ preventScroll: true });
+            return Promise.all((sidebar?.getAnimations?.() || []).map(animation => animation.finished.catch(() => {})));
         }
         function openDrawer(fromHover = false) {
             clearDrawerHoverTimer();drawerHover = fromHover;

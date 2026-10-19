@@ -16,7 +16,9 @@ function section(source, start, end) {
     return source.slice(a, b);
 }
 const draftSource = section(helper, '    const __TM_QUICK_ADD_DRAFT_STORAGE_KEY', '    function __tmCaptureTaskDetailSubtaskDraftSnapshot');
-const source = draftSource
+const source = read('09-task-field-schema.js')
+    + section(read('10-stores-rules-and-cache.js'), '    function __tmFilterSubtaskInheritedDates(', '    const __TM_CALENDAR_INITIAL_VIEW_VALUES')
+    + draftSource
     + section(dialogs, '    function __tmNormalizeTaskInputLine', '    function showConfirm')
     + section(services, '    function __tmBuildCreateTaskInDocAttrPatchFromPayload', '    function __tmMutationTempTaskExistsForOptimisticApply')
     + section(runtime, '    function __tmQueueCreateSubtask', '    function __tmApplyOptimisticSubtask')
@@ -25,7 +27,7 @@ const source = draftSource
     + section(runtime, '    window.tmQuickAddSubmit =', '    window.tmAdd =');
 const plain = value => JSON.parse(JSON.stringify(value));
 
-async function runCase(relation, { fail = false, partial = false, newDraft = false, reminder = false } = {}) {
+async function runCase(relation, { fail = false, partial = false, newDraft = false, reminder = false, rollup = false } = {}) {
     const scope = `${relation}:source`;
     const storage = new Map();
     const ops = [], notices = [], reminders = [];
@@ -48,7 +50,8 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
             relation, sourceTaskId: 'source', draftScope: scope,
             docId: 'related-doc', docMode: 'doc',
             priority: 'high', customStatus: 'doing', startDate: '2026-09-27', completionTime: '2026-09-30',
-            customFieldValues: { tag: ['a'] }, repeatRule: { enabled: true, type: 'daily' },
+            dateMode: rollup ? 'rollup' : 'manual',
+            customFieldValues: { tag: ['a'] }, repeatRule: { enabled: !rollup, type: rollup ? 'none' : 'daily' },
             repeatState: {}, reminderDraft: reminder ? { repeatMode: 'standalone' } : null,
             images: [{ path: 'assets/related.png', file: { name: 'related.png' } }],
         } },
@@ -102,17 +105,19 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         const patch = relation === 'subtask' ? op.data.inheritedPatch : op.data.initialPatch;
         assert.equal(patch.priority, 'high');
         assert.equal(patch.customStatus, 'doing');
-        assert.equal(patch.startDate, '2026-09-27');
-        assert.equal(patch.completionTime, '2026-09-30');
+        assert.equal(patch.startDate, rollup ? '' : '2026-09-27');
+        assert.equal(patch.completionTime, rollup ? '' : '2026-09-30');
+        if (rollup) assert.equal(patch.dateMode, 'rollup', 'draft mode reaches the create queue');
         assert.equal(patch.pinned, true);
-        assert.equal(patch.repeatRule.type, 'daily');
+        if (!rollup) assert.equal(patch.repeatRule.type, 'daily');
         assert.deepEqual(patch.customFieldValues, { tag: ['a'] });
         assert.equal(patch.remark, op.data.content === '首个任务' ? inputs.tmQuickAddRemark.value : '');
         assert.deepEqual(patch.attachments, op.data.content === '首个任务' ? ['assets/related.png'] : undefined);
         if (relation === 'subtask') assert.equal(patch.duration, '25', 'non-composer inherited fields survive');
         const attrs = context.__tmBuildAtomicCreateAttrs(op.data.requestedTaskId, patch);
         assert.equal(attrs['custom-remark'], patch.remark);
-        assert.equal(attrs['custom-completionTime'], '2026-09-30');
+        assert.equal(attrs['custom-completionTime'], rollup ? '' : '2026-09-30');
+        if (rollup) assert.equal(attrs['custom-dateMode'], 'rollup');
     }
     const draft = context.__tmGetQuickAddDraft(scope);
     assert.equal(context.__tmGetQuickAddDraft().value, '顶栏草稿');
@@ -133,6 +138,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
     // Execute the production queue and kernel adapters, capturing the actual insert boundary.
     const inserts = [];
     context.API = {
+        getTaskById: async () => task,
         getBlocksByIds: async () => [task],
         getChildBlocks: async () => [],
         getChildListIdOfTask: async () => '',
@@ -167,7 +173,8 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         assert.equal(attrs['custom-remark'], patch.remark, 'note is part of the atomic insert');
         assert.deepEqual(plain(attrs['custom-attachments'] || []), op.data.content === '首个任务' ? ['assets/related.png'] : [], 'images are part of the atomic related-task insert');
         assert.equal(attrs['custom-completionTime'], patch.completionTime, 'date is part of the atomic insert');
-        assert.equal(attrs['custom-repeatRule'].type, 'daily', 'repeat rule reaches storage');
+        if (!rollup) assert.equal(attrs['custom-repeatRule'].type, 'daily', 'repeat rule reaches storage');
+        if (rollup) assert.equal(attrs['custom-dateMode'], 'rollup', 'mode is part of the atomic related-task insert');
         assert.deepEqual(plain(attrs['custom-customFieldValues']), { tag: ['a'] });
         if (relation === 'subtask') {
             assert.equal(inserted.parentId, 'source');
@@ -186,6 +193,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         await runCase(relation, { partial: true });
         await runCase(relation, { newDraft: true });
         await runCase(relation, { reminder: true });
+        await runCase(relation, { rollup: true });
     }
-    console.log('related task composer behavior tests passed (10 cases)');
+    console.log('related task composer behavior tests passed (12 cases)');
 })().catch(error => { console.error(error); process.exitCode = 1; });

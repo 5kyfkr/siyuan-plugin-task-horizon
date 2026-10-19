@@ -1100,6 +1100,8 @@
         }
         const nextRule = await showTaskRepeatRuleDialog(task, {
             title: String(options?.title || '循环设置').trim() || '循环设置',
+            customOnly: options?.customOnly === true,
+            initialTrigger: options?.initialTrigger,
         });
         if (nextRule === null) return null;
         if (draftTask) return nextRule;

@@ -249,7 +249,7 @@
                 if (String(row.kind || '').startsWith('done-')) {
                     const label = row.kind === 'done-doc' ? __tmRenderDocGroupLabel(row.docId, row.label)
                         : (row.kind === 'done-h2' ? __tmRenderHeadingLevelIconLabel(row.label, row.headingLevel) : esc(row.label));
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-secondary-text);"><div class="tm-group-sticky" style="padding-left:${row.groupDepth || 1}ch;">${toggle}<span class="tm-group-label">${label}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}" data-group-level="${Number(row.groupDepth) || 1}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-secondary-text);"><div class="tm-group-sticky" style="padding-left:${row.groupDepth || 1}ch;">${toggle}<span class="tm-group-label">${label}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
                 }
                 if (row.kind === 'pinned') {
                     return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="${timelineColumnCount}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-pinned-color);">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
@@ -1064,7 +1064,8 @@
                 }
                 if (!headingMode) return colsStatus;
                 if (isAllTabsView) {
-                    const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+                    const globalNewTaskDocId = SettingsStore.data.hideInboxFromAllTab === true && __tmIsInboxHiddenFromAllTab(SettingsStore.data.newTaskDocId)
+                        ? '' : String(SettingsStore.data.newTaskDocId || '').trim();
                     const headingTasks = showDoneCol ? filtered.filter((task) => !__tmIsTaskDoneForTailGroup(getKanbanColumnTask(task))) : filtered;
                     const docIdSet = new Set(headingTasks.map(t => String(t?.root_id || '').trim()).filter(Boolean));
                     const ordered = __tmMoveGlobalNewTaskDocFirst(
@@ -2207,7 +2208,7 @@
                 const progressPercent = showColumnProgress ? __tmGetProjectProgressPercent(columnProgress, progressDocId) : 0;
                 const progressLabel = columnProgress.total ? `项目进度 ${progressPercent}%` : '暂无任务';
                 const progressTextHtml = showColumnProgress ? `<span class="tm-kanban-col-completion" title="${esc(progressLabel)}">${progressPercent}%</span>` : '';
-                const progressBarHtml = showColumnProgress ? `<div class="tm-kanban-col-progress" data-progress-doc="${esc(progressDocId)}" role="progressbar" aria-label="${esc(c.name)}完成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" aria-valuetext="${esc(progressLabel)}" title="${esc(progressLabel)}" style="--tm-kanban-completion:${progressPercent / 100}"><span></span></div>` : '';
+                const progressBarHtml = showColumnProgress ? `<div class="tm-kanban-col-progress" data-progress-doc="${esc(progressDocId)}" data-progress-key="${esc(c.id)}" data-progress-none-label="${esc(noHeadingLabel)}" role="progressbar" aria-label="${esc(c.name)}完成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" aria-valuetext="${esc(progressLabel)}" title="${esc(progressLabel)}" style="--tm-kanban-completion:${progressPercent / 100}"><span></span></div>` : '';
                 const docIdForTitle = String(c?.docId || c?.id || '').trim();
                 const headingDocId = String(c?.docId || '').trim();
                 const headingIdForCreate = String(c?.headingId || '__none__').trim() || '__none__';

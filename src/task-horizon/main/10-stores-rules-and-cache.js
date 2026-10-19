@@ -189,6 +189,7 @@
         { field: 'customStatus', label: '状态', defaultKey: 'custom-status', sqlAlias: 'custom_status' },
         { field: 'startDate', label: '开始日期', defaultKey: 'custom-start-date', sqlAlias: 'start_date', visibleDate: true, mirror: true },
         { field: 'completionTime', label: '截止日期', defaultKey: 'custom-completion-time', sqlAlias: 'completion_time', visibleDate: true, mirror: true },
+        { field: 'dateMode', label: '日期模式', defaultKey: 'custom-task-date-mode', sqlAlias: 'date_mode' },
         { field: 'taskCompleteAt', label: '完成时间', defaultKey: 'custom-task-complete-at', sqlAlias: 'task_complete_at' },
         { field: 'duration', label: '时长', defaultKey: 'custom-duration', sqlAlias: 'duration' },
         { field: 'remark', label: '备注', defaultKey: 'custom-remark', sqlAlias: 'remark' },
@@ -404,6 +405,10 @@
                 if (!shouldApplyVisibleDate(target.completionTime, target.completion_time)) return false;
                 target.completionTime = text;
                 target.completion_time = text;
+                return true;
+            case 'dateMode':
+                target.dateMode = text === 'rollup' ? 'rollup' : 'manual';
+                target.date_mode = target.dateMode;
                 return true;
             case 'taskDateColor':
                 if (!shouldApply(target.taskDateColor, target.task_date_color, target.custom_task_date_color)) return false;
@@ -2715,7 +2720,7 @@
             taskCount: Object.keys(flatTasks).length,
             source: String(opts.source || '').trim(),
         };
-        __tmRememberSmallCache(__tmGroupSessionTaskCache, key, payload, 5);
+        __tmRememberSmallCache(__tmGroupSessionTaskCache, key, payload, 3);
         return true;
     }
 
@@ -3766,6 +3771,7 @@
             milestone: source.milestone === true || source.custom_milestone === true || String(source.custom_milestone || '').trim() === '1',
             completionTime: String(source.completionTime || source.completion_time || '').trim(),
             startDate: String(source.startDate || source.start_date || '').trim(),
+            dateMode: globalThis.__tmIsTaskDateRollup?.(source) ? 'rollup' : 'manual',
             customTime: String(source.customTime || source.custom_time || '').trim(),
             customStatus: String(source.customStatus || source.custom_status || '').trim(),
             duration: String(source.duration || source.custom_duration || '').trim(),
@@ -8473,11 +8479,11 @@
             const status = __tmNormalizeInheritedTaskStatus(task.customStatus || task.custom_status || '');
             if (status) patch.customStatus = status;
         }
-        if (selectedFields.includes('startDate')) {
+        if (selectedFields.includes('startDate') && !globalThis.__tmIsTaskDateRollup?.(task)) {
             const value = String(task.startDate || task.start_date || '').trim();
             if (value) patch.startDate = value;
         }
-        if (selectedFields.includes('completionTime')) {
+        if (selectedFields.includes('completionTime') && !globalThis.__tmIsTaskDateRollup?.(task)) {
             const value = String(task.completionTime || task.completion_time || '').trim();
             if (value) patch.completionTime = value;
         }
@@ -8506,6 +8512,16 @@
             if (Object.keys(values).length) patch.customFieldValues = values;
         }
         return __tmNormalizeSubtaskInheritedPatch(patch);
+    }
+
+    function __tmFilterSubtaskInheritedDates(parentTask, patch, inheritedDateFields) {
+        const filtered = { ...(patch || {}) };
+        if (globalThis.__tmIsTaskDateRollup?.(parentTask)) {
+            for (const field of inheritedDateFields || []) {
+                if (field === 'startDate' || field === 'completionTime') delete filtered[field];
+            }
+        }
+        return filtered;
     }
 
     const __TM_CALENDAR_INITIAL_VIEW_VALUES = new Set([
@@ -8710,6 +8726,7 @@
             taskDetailCompletedSubtasksVisibilityByTask: {},
             subtaskInheritedFields: __TM_SUBTASK_INHERIT_DEFAULT_FIELDS.slice(),
             newTaskDocId: '',
+            hideInboxFromAllTab: false,
             newTaskDefaultLocationMode: 'configured',
             newTaskDailyNoteNotebookId: '',
             newTaskDailyNoteTargetHeadingText: '',
@@ -8745,6 +8762,8 @@
             calendarIcsEnabled: false,
             calendarIcsProvider: 'chain',
             calendarIcsPublishMode: 'auto',
+            calendarIcsScope: 'all',
+            calendarIcsDocGroupIds: [],
             calendarIcsCalendarName: '任务管理器',
             calendarIcsWebdavUrl: '',
             calendarIcsWebdavUsername: '',
@@ -9117,6 +9136,13 @@
             this.loadedDocGroupFingerprint = __tmBuildDocGroupSyncFingerprint(this.data);
         },
 
+        applySharedDocGroupSettings(source) {
+            const previous = __tmBuildDocGroupSyncFingerprint(this.data);
+            __tmApplyDocGroupSyncSnapshot(source, { targetData: this.data, syncOverallUpdatedAt: false });
+            this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
+            return previous !== this.loadedDocGroupFingerprint;
+        },
+
         refreshCustomFieldSyncState() {
             this.data.customFieldDefsVersion = __tmParseVersionNumber(this.data.customFieldDefsVersion);
             try { __tmInvalidateCustomFieldDefsRuntimeCache(); } catch (e) {}
@@ -9433,6 +9459,7 @@
                                         cloudNewTaskLocationMode = 'dailyNote';
                                     }
                                 }
+                                if (typeof cloudData.hideInboxFromAllTab === 'boolean') this.data.hideInboxFromAllTab = cloudData.hideInboxFromAllTab;
                                 if (!cloudDocIdForcedDailyNote && typeof cloudData.newTaskDefaultLocationMode === 'string') cloudNewTaskLocationMode = __tmNormalizeNewTaskDefaultLocationMode(cloudData.newTaskDefaultLocationMode);
                                 if (cloudNewTaskLocationMode) this.data.newTaskDefaultLocationMode = cloudNewTaskLocationMode;
                                 if (typeof cloudData.newTaskDailyNoteNotebookId === 'string') this.data.newTaskDailyNoteNotebookId = cloudData.newTaskDailyNoteNotebookId;
@@ -9468,6 +9495,8 @@
                                 if (typeof cloudData.calendarLinkDockTomato === 'boolean') this.data.calendarLinkDockTomato = cloudData.calendarLinkDockTomato;
                                 if (typeof cloudData.calendarIcsEnabled === 'boolean') this.data.calendarIcsEnabled = cloudData.calendarIcsEnabled;
                                 if (typeof cloudData.calendarIcsProvider === 'string') this.data.calendarIcsProvider = cloudData.calendarIcsProvider;
+                                if (typeof cloudData.calendarIcsScope === 'string') this.data.calendarIcsScope = cloudData.calendarIcsScope === 'selected' ? 'selected' : 'all';
+                                if (Array.isArray(cloudData.calendarIcsDocGroupIds)) this.data.calendarIcsDocGroupIds = Array.from(new Set(cloudData.calendarIcsDocGroupIds.map(id => String(id || '').trim()).filter(Boolean)));
                                 if (typeof cloudData.calendarIcsPublishMode === 'string') this.data.calendarIcsPublishMode = String(cloudData.calendarIcsPublishMode).trim() === 'manual' ? 'manual' : 'auto';
                                 if (typeof cloudData.calendarIcsCalendarName === 'string') {
                                     const calendarName = String(cloudData.calendarIcsCalendarName || '').trim();
@@ -9977,6 +10006,7 @@
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(Storage.get('tm_subtask_inherited_fields', this.data.subtaskInheritedFields));
             const storedNewTaskDocId = String(Storage.get('tm_new_task_doc_id', '') || '').trim();
             this.data.newTaskDocId = storedNewTaskDocId === '__dailyNote__' || storedNewTaskDocId === '__lastSelected__' ? '' : storedNewTaskDocId;
+            this.data.hideInboxFromAllTab = !!Storage.get('tm_hide_inbox_from_all_tab', this.data.hideInboxFromAllTab);
             const storedNewTaskLocationMode = __tmNormalizeNewTaskDefaultLocationMode(Storage.get('tm_new_task_default_location_mode', this.data.newTaskDefaultLocationMode));
             this.data.newTaskDefaultLocationMode = storedNewTaskDocId === '__dailyNote__' ? 'dailyNote' : storedNewTaskLocationMode;
             this.data.newTaskDailyNoteNotebookId = String(Storage.get('tm_new_task_daily_note_notebook_id', this.data.newTaskDailyNoteNotebookId) || '').trim();
@@ -10021,6 +10051,9 @@
             this.data.calendarEnabled = Storage.get('tm_calendar_enabled', this.data.calendarEnabled);
             this.data.calendarLinkDockTomato = Storage.get('tm_calendar_link_docktomato', this.data.calendarLinkDockTomato);
             this.data.calendarIcsEnabled = !!Storage.get('tm_calendar_ics_enabled', this.data.calendarIcsEnabled);
+            this.data.calendarIcsScope = Storage.get('tm_calendar_ics_scope', this.data.calendarIcsScope) === 'selected' ? 'selected' : 'all';
+            const icsDocGroupIds = Storage.get('tm_calendar_ics_doc_group_ids', this.data.calendarIcsDocGroupIds);
+            this.data.calendarIcsDocGroupIds = Array.isArray(icsDocGroupIds) ? Array.from(new Set(icsDocGroupIds.map(id => String(id || '').trim()).filter(Boolean))) : [];
             this.data.calendarIcsProvider = String(Storage.get('tm_calendar_ics_provider', this.data.calendarIcsProvider) || 'chain');
             this.data.calendarIcsPublishMode = String(Storage.get('tm_calendar_ics_publish_mode', this.data.calendarIcsPublishMode) || '').trim() === 'manual' ? 'manual' : 'auto';
             {
@@ -10569,6 +10602,7 @@
             Storage.set(__TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_LEGACY_KEY, {});
             Storage.set('tm_subtask_inherited_fields', __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields, []));
             Storage.set('tm_new_task_doc_id', String(this.data.newTaskDocId || '').trim());
+            Storage.set('tm_hide_inbox_from_all_tab', !!this.data.hideInboxFromAllTab);
             Storage.set('tm_new_task_default_location_mode', __tmNormalizeNewTaskDefaultLocationMode(this.data.newTaskDefaultLocationMode));
             Storage.set('tm_new_task_daily_note_notebook_id', String(this.data.newTaskDailyNoteNotebookId || '').trim());
             Storage.set('tm_new_task_daily_note_target_heading_text', String(this.data.newTaskDailyNoteTargetHeadingText || '').trim());
@@ -10617,6 +10651,8 @@
             Storage.set('tm_calendar_enabled', !!this.data.calendarEnabled);
             Storage.set('tm_calendar_link_docktomato', !!this.data.calendarLinkDockTomato);
             Storage.set('tm_calendar_ics_enabled', !!this.data.calendarIcsEnabled);
+            Storage.set('tm_calendar_ics_scope', this.data.calendarIcsScope === 'selected' ? 'selected' : 'all');
+            Storage.set('tm_calendar_ics_doc_group_ids', this.data.calendarIcsDocGroupIds);
             Storage.set('tm_calendar_ics_provider', String(this.data.calendarIcsProvider || 'chain'));
             Storage.set('tm_calendar_ics_publish_mode', String(this.data.calendarIcsPublishMode || '').trim() === 'manual' ? 'manual' : 'auto');
             Storage.set('tm_calendar_ics_calendar_name', String(this.data.calendarIcsCalendarName || '任务管理器'));
@@ -10926,6 +10962,9 @@
             this.data.allDocsExcludedDocIds = __tmNormalizeDocGroupExcludedDocIds(this.data.allDocsExcludedDocIds);
             const rawDocGroups = Array.isArray(this.data.docGroups) ? this.data.docGroups : [];
             this.data.docGroups = rawDocGroups.map((group) => __tmNormalizeDocGroupConfig(group, this.data.docDefaultColorScheme)).filter(Boolean);
+            this.data.calendarIcsScope = this.data.calendarIcsScope === 'selected' ? 'selected' : 'all';
+            this.data.calendarIcsDocGroupIds = Array.from(new Set((Array.isArray(this.data.calendarIcsDocGroupIds) ? this.data.calendarIcsDocGroupIds : [])
+                .map(id => String(id || '').trim()).filter(Boolean)));
             const validDocTabGroupScopeIds = new Set(['all', ...this.data.docGroups
                 .map((group) => String(group?.id || '').trim())
                 .filter(Boolean)]);
@@ -11432,6 +11471,9 @@
                 );
                 if (settingsPutOk && localSettingsChangedForMobileCloseSync && !suppressMobileCloseSyncDirty) {
                     try { __tmMarkMobileCloseSyncDirty('settings-save'); } catch (e) {}
+                }
+                if (settingsPutOk && __tmBuildDocGroupSyncFingerprint(this.data) !== prevDocGroupFingerprint) {
+                    try { window.dispatchEvent(new CustomEvent('tm:doc-groups-updated')); } catch (e) {}
                 }
                 if (shouldTouchWhiteboardDataFile && settingsPutOk) {
                     try {
@@ -13555,7 +13597,15 @@
         };
         const collectFromNode = (node) => {
             if (!node || typeof node !== 'object') return;
-            const data = (node.data && typeof node.data === 'object' && !Array.isArray(node.data)) ? node.data : null;
+            let data = (node.data && typeof node.data === 'object' && !Array.isArray(node.data)) ? node.data : null;
+            // Kernel transactions serialize setAttrs.data as JSON. Parse only
+            // attribute operations so DOM update payloads stay untouched.
+            if (!data && typeof node.data === 'string' && /attr/i.test(String(node.action || node.operation || ''))) {
+                try {
+                    const parsed = JSON.parse(node.data);
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) data = parsed;
+                } catch (e) {}
+            }
             const action = String(node.action || node.cmd || node.operation || data?.action || '').trim().toLowerCase();
             const blockId = [
                 data?.id,
@@ -13949,6 +13999,7 @@
 
     function __tmShouldSuppressLocalTimeTx(payload) {
         try {
+            if (!__tmHasOnlyAttrOperationsInTx(payload)) return false;
             const calendarView = String(state.viewMode || '').trim() === 'calendar';
             const until = Number(__tmLocalTimeTxSuppressUntil || 0);
             if (!until || Date.now() > until) {
@@ -17287,6 +17338,7 @@
             ['pinned', ['pinned']],
             ['startDate', ['startDate', 'start_date']],
             ['completionTime', ['completionTime', 'completion_time']],
+            ['dateMode', ['dateMode', 'date_mode']],
             ['taskCompleteAt', ['taskCompleteAt', 'task_complete_at']],
             ['duration', ['duration']],
             ['tomatoEstimateCount', ['tomatoEstimateCount', 'tomato_estimate_count']],
@@ -17663,6 +17715,7 @@
                 patchTask(taskId, patch, {
                     docId: String(item.docId || item?.task?.root_id || item?.task?.docId || opts.docId || '').trim(),
                     source: String(opts.source || 'quickbar-subtask-inherit-attrs').trim() || 'quickbar-subtask-inherit-attrs',
+                    inheritedDateFields: ['startDate', 'completionTime'].filter(field => Object.prototype.hasOwnProperty.call(patch, field)),
                     attrTargetId,
                     background: true,
                     skipInteractionGate: true,
@@ -19379,6 +19432,10 @@
                             const task = globalThis.__tmTaskStore?.getProjected?.(update?.taskId) || state.flatTasks?.[update?.taskId];
                             return String(task?.root_id || '').trim();
                         });
+                        if (txAttrUpdates.some(update => ['startDate', 'completionTime', 'dateMode']
+                            .includes(__tmResolveTaskMetaFieldByAttrKey(update?.key)) || update?.key === __TM_TASK_REPEAT_RULE_ATTR)) {
+                            globalThis.__tmScheduleDateRollupReconcile?.(changedDocIds.filter(__tmIsLikelyBlockId));
+                        }
                         __tmSchedulePersistTaskSnapshot({
                             docIds: state.__tmLoadedDocIdsForTasks,
                             changedDocIds: changedDocIds.length && changedDocIds.every(__tmIsLikelyBlockId) ? changedDocIds : null,

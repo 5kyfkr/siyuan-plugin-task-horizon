@@ -33,7 +33,7 @@ renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, c
         + '<div class="tm-kanban-subtasks-list" data-tm-kanban-subtasks-list'
         + (__tmKanbanGetCollapsedSet().has(task.id) ? ' hidden' : '') + '>' + children + '</div></article>';
 };\n`);
-const code = [read('32-runtime-state-and-events.js'), read('33-task-boundary-facades.js'), read('21-view-render-state.js'), read('render/40-render-list-context-helpers.js'),
+const code = [read('32-runtime-state-and-events.js'), read('33-task-boundary-facades.js'), read('34-task-projection-engine.js'), read('21-view-render-state.js'), read('render/40-render-list-context-helpers.js'),
     section(read('10-stores-rules-and-cache.js'), 'function __tmNormalizeCompletedTasksGroupBy(', 'function __tmGetTaskSnapshotRuleForView('),
     section(runtime, 'function __tmGetDocHeadingBucket(', 'function __tmTaskHasResolvedHeading('),
     section(runtime, 'function __tmBuildDocHeadingBuckets(', 'let __tmKanbanColsHtmlCache'),
@@ -913,6 +913,55 @@ async function setup(page) {
             assert.equal(result.placeholders, 0); assert.equal(result.scroll, 130);
             assert.deepEqual(result.child, [{ column: 'status:todo', parent: '' }]);
         });
+        await run('hidden completed task confirmations preserve the mobile board and lazy cards', async (page) => {
+            const result = await page.evaluate(() => {
+                boardMode = 'heading'; state.showCompletedTasks = false;
+                setModel([{ id: 'hidden', done: true }, ...Array.from({ length: 35 }, (_, i) => ({ id: 'visible-' + i }))]); mount();
+                __tmStartProgressiveViewRender('kanban'); state.modal.innerHTML = state.renderKanbanBodyHtml();
+                const body = state.modal.querySelector('.tm-body--kanban');
+                const first = state.modal.querySelector('[data-id="visible-0"]');
+                const ok = patch(['hidden']);
+                const entry = state.__tmProgressiveViewRender.columns.find((item) => item.key === 'doc:doc');
+                const before = column('doc:doc').querySelectorAll('.tm-kanban-card').length;
+                const load = entry.loadNextBatch(state.modal);
+                return { ok, sameBody: body === state.modal.querySelector('.tm-body--kanban'), sameCard: first === state.modal.querySelector('[data-id="visible-0"]'),
+                    hidden: placement('hidden').length, before, after: column('doc:doc').querySelectorAll('.tm-kanban-card').length, retry: load?.retry === true };
+            });
+            assert.deepEqual(result, { ok: true, sameBody: true, sameCard: true, hidden: 0, before: 10, after: 20, retry: false });
+        }, true);
+        await run('mixed visible and excluded task updates patch only mounted branches', async (page) => {
+            const result = await page.evaluate(() => {
+                state.showCompletedTasks = false;
+                const rows = [{ id: 'visible' }, { id: 'hidden', done: true }, { id: 'other', customStatus: 'doing' }];
+                setModel(rows); mount();
+                const other = state.modal.querySelector('[data-id="other"]');
+                const body = state.modal.querySelector('.tm-body--kanban');
+                setModel(rows.map((task) => task.id === 'visible' ? { ...task, content: 'fresh' } : task));
+                return { ok: patch(['visible', 'hidden']), title: state.modal.querySelector('[data-id="visible"] > span').textContent,
+                    sameBody: body === state.modal.querySelector('.tm-body--kanban'), otherKept: other === state.modal.querySelector('[data-id="other"]') };
+            });
+            assert.deepEqual(result, { ok: true, title: 'fresh', sameBody: true, otherKept: true });
+        });
+        await run('a hidden completed task becoming visible still enters its destination', async (page) => {
+            const result = await page.evaluate(() => {
+                state.showCompletedTasks = false;
+                setModel([{ id: 'visible' }, { id: 'hidden', done: true }]); mount();
+                setModel([{ id: 'visible' }, { id: 'hidden', done: false }]);
+                return { ok: patch(['hidden']), destination: placement('hidden') };
+            });
+            assert.deepEqual(result, { ok: true, destination: [{ column: 'status:todo', parent: '' }] });
+        });
+        await run('a hidden child completion still refreshes its visible parent summary', async (page) => {
+            const result = await page.evaluate(() => {
+                state.showCompletedTasks = false;
+                setModel([{ id: 'parent' }, { id: 'child', parentTaskId: 'parent' }, { id: 'other', customStatus: 'doing' }]); mount();
+                const other = state.modal.querySelector('[data-id="other"]');
+                setModel([{ id: 'parent' }, { id: 'child', done: true, parentTaskId: 'parent' }, { id: 'other', customStatus: 'doing' }]);
+                const ok = patch(['child']);
+                return { ok, renderedParent: renderedTaskIds.includes('parent'), otherKept: other === state.modal.querySelector('[data-id="other"]') };
+            });
+            assert.deepEqual(result, { ok: true, renderedParent: true, otherKept: true });
+        });
         await run('changed document-column layout declines before mutating DOM', async (page) => {
             const result = await page.evaluate(() => {
                 boardMode = 'heading'; setModel([{ id: 'child' }, { id: 'b', root_id: 'doc2', docId: 'doc2' }]); mount();
@@ -1063,6 +1112,30 @@ async function setup(page) {
             assert.deepEqual(result, { first: true, second: true, flushed: true, pagerRan: false,
                 one: [{ column: 'status:todo', parent: '' }], two: [{ column: 'status:todo', parent: '' }], retained: true });
         });
+        await run('collapsed time groups retain their loaded cards after an unrelated move', async (page) => {
+            const result = await page.evaluate(() => {
+                boardMode = 'heading'; state.groupByTime = true;
+                const rows = [{ id: 'parent' }, { id: 'child', parentTaskId: 'parent' },
+                    ...Array.from({ length: 35 }, (_, i) => ({ id: 'folded-' + i, root_id: 'doc2', docId: 'doc2', days: 1 }))];
+                setModel(rows); mount();
+                const titles = Array.from(column('doc:doc2').querySelectorAll('.tm-kanban-group-title[data-group-key]'));
+                state.collapsedGroups = new Set(titles.map((title) => title.dataset.groupKey)); mount();
+                const untouched = column('doc:doc2');
+                const first = untouched.querySelector('.tm-kanban-card');
+                const before = untouched.querySelectorAll('.tm-kanban-card').length;
+                state.modal.setAttribute('data-tm-render-mode', 'kanban');
+                __tmRememberViewSwitchWindow('kanban');
+                const saved = state.__tmViewSwitchWindows.get('kanban').columnLimits.get('doc:doc2');
+                setModel(rows.map((task) => task.id === 'child' ? { ...task, parentTaskId: '' } : task));
+                const ok = patch(['child'], ['parent']);
+                const entry = state.__tmProgressiveViewRender.columns.find((item) => item.key === 'doc:doc2');
+                const load = entry?.loadNextBatch(state.modal);
+                return { ok, groups: titles.length, before, saved, after: untouched.querySelectorAll('.tm-kanban-card').length,
+                    firstKept: first === untouched.querySelector('.tm-kanban-card'), done: load?.done === true };
+            });
+            assert.ok(result.groups > 0);
+            assert.deepEqual({ ...result, groups: 1 }, { ok: true, groups: 1, before: 35, saved: 35, after: 35, firstKept: true, done: true });
+        }, true);
         await run('untouched lazy column can still load after a structural change', async (page) => {
             const result = await page.evaluate(() => {
                 const others = Array.from({ length: 35 }, (_, i) => ({ id: 'other-' + i, customStatus: 'doing' }));

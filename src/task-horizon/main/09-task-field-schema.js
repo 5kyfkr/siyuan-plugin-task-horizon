@@ -7,6 +7,7 @@
             { field: 'priority', aliases: ['custom_priority', 'customPriority', 'custom-priority'], groups: ['scoreSource'] },
             { field: 'startDate', aliases: ['start_date', 'custom_start_date', 'custom-start-date'], groups: ['time', 'scoreSource', 'calendar'] },
             { field: 'completionTime', aliases: ['completion_time', 'custom_completion_time', 'custom-completion-time'], groups: ['time', 'scoreSource', 'calendar'] },
+            { field: 'dateMode', aliases: ['date_mode', 'custom-task-date-mode'], groups: ['time', 'calendar'] },
             { field: 'taskDateColor', aliases: ['task_date_color', 'custom_task_date_color', 'custom-task-date-color'], groups: ['calendar'] },
             { field: 'customTime', aliases: ['custom_time', 'custom-time'], groups: ['time', 'scoreSource', 'calendar'] },
             { field: 'taskCompleteAt', aliases: ['task_complete_at', 'task-complete-at', 'custom-task-complete-at'], groups: ['completion', 'scoreSource', 'calendar'] },
@@ -83,4 +84,5 @@
                 return Array.from(groups.get(String(groupName || '').trim()) || []);
             },
         });
+        globalThis.__tmIsTaskDateRollup = task => String(task?.dateMode || task?.date_mode || task?.['custom-task-date-mode'] || '').trim() === 'rollup';
     })();

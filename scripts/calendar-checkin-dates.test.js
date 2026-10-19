@@ -39,7 +39,7 @@ function createContext(today = '2026-10-10') {
         __tmResolveCalendarTaskDisplayTitle: task => task.content,
         __tmReadTaskMetaAttrValue: () => '',
         __tmGetCalendarDocsToGroupMapSync: () => new Map(),
-        startKey: '2026-09-28', endKey: '2026-10-10', nextDay: key => shiftDateKey(key, 1),
+        startKey: '2026-09-28', endKey: '2026-10-10', nextDay: key => shiftDateKey(key, 1), opts: {},
         getCalendarDefs: () => [], getCalendarTaskSnapshotById: () => null,
         isScheduleAllDayBottom: () => false, isCalendarEnabled: () => true,
         isCalendarDocVisibleForEvent: () => true, readCalendarConfiguredTaskMetaAttrValue: () => '',
@@ -92,6 +92,17 @@ test('weekly check-in expands every selected weekday without task start/due date
     assert.deepEqual(Array.from(events, item => item.id), plannedDays.map(day => `checkin:${task.id}:${day}`));
     assert.equal(events[1].extendedProps.__tmTaskDone, true);
     assert.equal(events[1].extendedProps.__tmTaskId, task.id);
+});
+
+test('task date queries retain checked dates of an active check-in task', () => {
+    const context = createContext('2026-09-30');
+    context.opts.excludeCompleted = true;
+    const dates = context.projectTaskDates([task]);
+    assert.deepEqual(Array.from(dates, item => item.start), plannedDays);
+    assert.equal(dates.find(item => item.start === '2026-09-30').done, true, 'checking one date does not complete the recurring task');
+    assert.ok(dates.some(item => item.checkinFuture === true), 'future plans remain available to preview and reminder callers');
+    context.opts.excludeCompleted = false;
+    assert.equal(context.projectTaskDates([task]).length, plannedDays.length, 'calendar history retains completed check-ins');
 });
 
 test('calendar hides future check-ins, keeps history and reveals each date when it arrives', () => {

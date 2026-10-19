@@ -1606,6 +1606,61 @@
         return { dateKey: nextDateKey, ordinal };
     }
 
+    function __tmSeekTaskRepeatCursor(rule, current, fromDateKey) {
+        if (fromDateKey <= current.dateKey) return current;
+        const base = __tmBuildLocalNoonDateFromKey(current.dateKey);
+        const from = __tmBuildLocalNoonDateFromKey(fromDateKey);
+        const baseDay = __tmGetTaskRepeatLocalDayOrdinal(base);
+        const fromDay = __tmGetTaskRepeatLocalDayOrdinal(from);
+        if (!Number.isFinite(baseDay) || !Number.isFinite(fromDay)) return current;
+        let steps = 0;
+        let date = new Date(base.getTime());
+        if (rule.type === 'daily') {
+            steps = Math.ceil((fromDay - baseDay) / rule.every);
+            date.setDate(date.getDate() + steps * rule.every);
+        } else if (rule.type === 'workday') {
+            // Count weekdays strictly between the seed and the requested day.
+            // A due-trigger seed may itself be a weekend; check-in seeds have
+            // already been moved to Monday by the iterator.
+            const daysBefore = fromDay - baseDay - 1;
+            let workdaysBefore = Math.floor(daysBefore / 7) * 5;
+            for (let day = 1; day <= daysBefore % 7; day += 1) {
+                const weekday = (base.getDay() + day) % 7;
+                if (weekday !== 0 && weekday !== 6) workdaysBefore += 1;
+            }
+            steps = Math.floor(workdaysBefore / rule.every) + 1;
+            let remaining = steps * rule.every;
+            if (date.getDay() === 0 || date.getDay() === 6) {
+                date.setDate(date.getDate() + (date.getDay() === 6 ? 2 : 1));
+                remaining -= 1;
+            }
+            date.setDate(date.getDate() + Math.floor(remaining / 5) * 7);
+            remaining %= 5;
+            while (remaining > 0) {
+                date.setDate(date.getDate() + 1);
+                if (date.getDay() !== 0 && date.getDay() !== 6) remaining -= 1;
+            }
+        } else if (rule.type === 'weekly') {
+            const before = new Date(from.getTime());
+            before.setDate(before.getDate() - 1);
+            date = __tmFindTaskRepeatNextWeeklyDate(before, rule);
+            if (!date) return current;
+            const candidateDay = __tmGetTaskRepeatLocalDayOrdinal(date);
+            const anchorWeek = __tmGetTaskRepeatLocalDayOrdinal(__tmGetTaskRepeatMondayStart(__tmBuildLocalNoonDateFromKey(rule.anchorDate)));
+            const period = rule.every * 7;
+            rule.weekdays.forEach((weekday) => {
+                const firstDay = anchorWeek + (weekday + 6) % 7;
+                const firstPeriod = Math.max(0, Math.floor((baseDay - firstDay) / period) + 1);
+                const lastPeriod = Math.floor((candidateDay - firstDay) / period);
+                steps += Math.max(0, lastPeriod - firstPeriod + 1);
+            });
+        } else {
+            return current;
+        }
+        const dateKey = __tmFormatDateKeyFromDate(date);
+        return dateKey ? { dateKey, ordinal: current.ordinal + steps } : current;
+    }
+
     function __tmRepeatCoreIterate(ruleInput, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const rule = __tmNormalizeTaskRepeatRule(ruleInput, {
@@ -1634,6 +1689,7 @@
             }
             if (!current.dateKey) return [];
         }
+        current = __tmSeekTaskRepeatCursor(rule, current, fromDateKey);
         const out = [];
         const guardLimit = rule.trigger === 'checkin' ? 200000 : Math.max(2400, Math.min(200000, limit * 16));
         for (let guard = 0; guard < guardLimit && out.length < limit; guard += 1) {
@@ -2527,6 +2583,7 @@
         renderCheckboxWrap: (taskId, task, options = {}) => __tmRenderTaskCheckboxWrap(taskId, task, options),
         updateCheckboxPriority: (container, task) => __tmUpdateTaskCheckboxPriorityInDOM(container, task),
         getChildren: (taskId) => globalThis.__tmRuntimeState?.listProjectedDirectChildren?.(taskId, { scanFlat: true }) || [],
+        createChildrenReader: () => globalThis.__tmTaskStore?.createDirectChildrenReader?.(),
         renderPriority: (value, withLabel = false) => __tmRenderPriorityJira(value, withLabel),
         buildPriorityStyle: (value) => __tmBuildPriorityChipStyle(value),
         resolveStatus: (task, options = {}) => __tmResolveTaskStatusDisplayOption(task, SettingsStore.data?.customStatusOptions || [], options),

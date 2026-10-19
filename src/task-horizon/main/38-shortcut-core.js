@@ -177,7 +177,7 @@
             const request = ++generation;
             const item = items().find(entry => entry.id === id);
             if (!item) return false;
-            await __tmEnsureFilterRulesLoaded();
+            await Promise.all([__tmShortcutSidebar.closeDrawer(), __tmEnsureFilterRulesLoaded()]);
             let invalid = issues(item, false);
             if (!invalid.length && item.docId !== 'all') {
                 try {
@@ -249,7 +249,6 @@
                 openingGeneration = 0;
                 await persistSession();
                 if (!isCurrent()) return false;
-                __tmShortcutSidebar.closeDrawer();
                 __tmShortcutSidebar.refresh();
                 return true;
             } catch (error) {
@@ -287,9 +286,9 @@
                 item.viewId === 'kanban' ? item.kanbanBoardMode : '',
                 rule?.enabled, rule?.conditions, group, tabGroup, __tmGetTodayDateKey(),
                 SettingsStore.data.excludeCompleted, SettingsStore.data.showCompletedTasksByGroup?.[item.groupId],
-                SettingsStore.data.completedTasksTodayOnly, SettingsStore.data.completedTasksInlineInGroups]);
+                SettingsStore.data.completedTasksTodayOnly, SettingsStore.data.completedTasksInlineInGroups, 'root-tasks-v1']);
         }
-        // The topbar counts the final projection, including completion and hierarchy policies.
+        // Count the same projected roots as the topbar and task groups.
         // Remember that exact result; do not run a parallel filtering engine for shortcuts.
         function counts() {
             const result = new Map();
@@ -303,7 +302,7 @@
                     && item.viewId === viewId && item.ruleId === String(state.currentRule || '')
                     && (!item.groupMode || item.groupMode === __tmGetCurrentGroupModeValue())
                     && (viewId !== 'kanban' || !item.kanbanBoardMode || item.kanbanBoardMode === __tmGetKanbanBoardMode())
-                    && !issues(item, false).length) result.set(item.id, state.filteredTasks.length);
+                    && !issues(item, false).length) result.set(item.id, __tmGetFilteredTaskDerivedState().rootTasks.length);
             }
             return result;
         }

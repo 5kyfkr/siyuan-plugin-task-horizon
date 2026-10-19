@@ -1,3 +1,69 @@
+    function __tmOrderWhiteboardRoots(rootIds, links, getOrder) {
+        const rootSet = new Set(rootIds);
+        const indeg = new Map(rootIds.map(id => [id, 0]));
+        const adj = new Map(rootIds.map(id => [id, []]));
+        const seenEdge = new Set();
+        links.forEach((link) => {
+            const from = String(link?.from || '').trim();
+            const to = String(link?.to || '').trim();
+            if (!rootSet.has(from) || !rootSet.has(to) || from === to) return;
+            const key = `${from}->${to}`;
+            if (seenEdge.has(key)) return;
+            seenEdge.add(key);
+            adj.get(from).push(to);
+            indeg.set(to, indeg.get(to) + 1);
+        });
+        // Stable priority queue: equal-order roots retain their enqueue order,
+        // including roots released by an edge after traversal has begun.
+        const queue = [];
+        let sequence = 0;
+        const compare = (a, b) => (a.order - b.order) || (a.sequence - b.sequence);
+        const enqueue = (id) => {
+            const entry = { id, order: getOrder(id), sequence: sequence++ };
+            let index = queue.length;
+            queue.push(entry);
+            while (index > 0) {
+                const parent = (index - 1) >> 1;
+                if (compare(queue[parent], entry) <= 0) break;
+                queue[index] = queue[parent];
+                index = parent;
+            }
+            queue[index] = entry;
+        };
+        const dequeue = () => {
+            const first = queue[0];
+            const last = queue.pop();
+            if (queue.length) {
+                let index = 0;
+                while (index * 2 + 1 < queue.length) {
+                    let child = index * 2 + 1;
+                    if (child + 1 < queue.length && compare(queue[child + 1], queue[child]) < 0) child += 1;
+                    if (compare(last, queue[child]) <= 0) break;
+                    queue[index] = queue[child];
+                    index = child;
+                }
+                queue[index] = last;
+            }
+            return first.id;
+        };
+        rootIds.filter(id => indeg.get(id) === 0).forEach(enqueue);
+        const ordered = [];
+        const seen = new Set();
+        while (queue.length) {
+            const id = dequeue();
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            ordered.push(id);
+            adj.get(id).forEach((to) => {
+                indeg.set(to, indeg.get(to) - 1);
+                if (indeg.get(to) === 0) enqueue(to);
+            });
+        }
+        rootIds.filter(id => !seen.has(id)).sort((a, b) => getOrder(a) - getOrder(b))
+            .forEach(id => ordered.push(id));
+        return ordered;
+    }
+
     function __tmBuildWhiteboardStreamGroupCards(tasks, mode, isDark) {
         const taskById = new Map();
         (Array.isArray(tasks) ? tasks : []).forEach((task) => {
@@ -167,7 +233,8 @@
             const whiteboardScope = __tmResolveWhiteboardScope();
             const selectedDocIds = whiteboardScope.docId
                 ? [whiteboardScope.docId]
-                : docsInOrder.filter((id) => whiteboardScope.docIds.has(id) && visibleDocIdSet.has(id));
+                : docsInOrder.filter((id) => whiteboardScope.docIds.has(id) && visibleDocIdSet.has(id)
+                    && !__tmIsInboxHiddenFromAllTab(id));
             const isAllTabsView = __tmIsWhiteboardAggregateTab();
             const allTabsLayoutMode = __tmGetWhiteboardAllTabsLayoutMode();
             const isGlobalBoardMode = isAllTabsView && allTabsLayoutMode === 'global';
@@ -188,7 +255,7 @@
                 .filter(Boolean);
             const globalCanvasSourceDocIds = Array.from(new Set(selectedDocIds
                 .concat(globalCollectionDocId ? [globalCollectionDocId] : [])
-                .concat(globalHistoricalDocIds)));
+                .concat(globalHistoricalDocIds))).filter((id) => !__tmIsInboxHiddenFromAllTab(id));
             if (globalCollectionDocId && !docNameById.has(globalCollectionDocId)) {
                 const collectionDoc = (Array.isArray(state.allDocuments) ? state.allDocuments : [])
                     .find((doc) => String(doc?.id || '').trim() === globalCollectionDocId);
@@ -663,6 +730,7 @@
                     } : null));
                     if (!taskObj || globalThis.__tmProjectVisibility?.isTaskHidden(taskObj, globalWhiteboardTaskMap)) return;
                     const taskDocId = String(taskObj?.root_id || taskObj?.docId || posDocId).trim();
+                    if (__tmIsInboxHiddenFromAllTab(taskDocId)) return;
                     let effectivePosDocId = posDocId;
                     if (isGlobalCanvasDoc && taskDocId && pos && typeof pos === 'object' && taskDocId !== posDocId) {
                         posMap[tid] = {
@@ -741,39 +809,7 @@
                     markLinkedDescendantParents(link?.from, linkedDescendantParentOutIdSet);
                     markLinkedDescendantParents(link?.to, linkedDescendantParentInIdSet);
                 });
-                const indeg = new Map(rootIds.map(id => [id, 0]));
-                const adj = new Map(rootIds.map(id => [id, []]));
-                const seenEdge = new Set();
-                links.forEach((ln) => {
-                    const from = String(ln?.from || '').trim();
-                    const to = String(ln?.to || '').trim();
-                    if (!rootSet.has(from) || !rootSet.has(to) || from === to) return;
-                    const key = `${from}->${to}`;
-                    if (seenEdge.has(key)) return;
-                    seenEdge.add(key);
-                    adj.get(from).push(to);
-                    indeg.set(to, (indeg.get(to) || 0) + 1);
-                });
-                const queue = rootIds.filter(id => (indeg.get(id) || 0) === 0).sort((a, b) => getOrder(a) - getOrder(b));
-                const orderedRoots = [];
-                while (queue.length) {
-                    const id = queue.shift();
-                    if (!id) continue;
-                    if (orderedRoots.includes(id)) continue;
-                    orderedRoots.push(id);
-                    (adj.get(id) || []).forEach((to) => {
-                        const n = (indeg.get(to) || 0) - 1;
-                        indeg.set(to, n);
-                        if (n === 0) {
-                            queue.push(to);
-                            queue.sort((a, b) => getOrder(a) - getOrder(b));
-                        }
-                    });
-                }
-                rootIds
-                    .filter(id => !orderedRoots.includes(id))
-                    .sort((a, b) => getOrder(a) - getOrder(b))
-                    .forEach(id => orderedRoots.push(id));
+                const orderedRoots = __tmOrderWhiteboardRoots(rootIds, links, getOrder);
 
                 orderedRoots.forEach((id, idx) => {
                     const t = taskById.get(id);
@@ -1898,6 +1934,7 @@
                 if (globalThis.__tmProjectVisibility?.isTaskHidden(live, globalWhiteboardTaskMap)) return;
                 const docId = String(live?.root_id || live?.docId || posDocId).trim();
                 if (!docId) return;
+                if (__tmIsInboxHiddenFromAllTab(docId)) return;
                 if (!isGlobalBoardMode && !docIdSet.has(docId)) return;
                 const task = live;
                 if (!task || (!showDoneTasks && !(__tmIsTaskActive(task) || (showCanceledTasks && __tmIsTaskCanceled(task))))) return;

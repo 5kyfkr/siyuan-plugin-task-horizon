@@ -2540,6 +2540,11 @@
                             </div>`,
                             { style: 'margin-bottom:10px;' }
                         )}
+                        ${renderSingleSwitchSetting(
+                            '收集箱仅在独立页签显示',
+                            '开启后，文档分组的“全部”页签不显示收集箱文档中的任务；点击页签栏中的收集箱文档查看。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.hideInboxFromAllTab === true ? 'checked' : ''} onchange="updateHideInboxFromAllTab(this.checked)">`
+                        )}
                         ${renderSingleFieldSetting(
                             '新建位置',
                             '控制快速新建任务实际使用的位置；选择“上次选择”后会随每次手动选择变化，但不会改动上面的收集箱文档 ID。',

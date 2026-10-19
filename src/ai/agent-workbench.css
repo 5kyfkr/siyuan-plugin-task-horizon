@@ -20,6 +20,7 @@
     min-height: 0;
     overflow: hidden;
     box-sizing: border-box;
+    padding-bottom: var(--tm-agent-bottom-inset, 0px);
     color: var(--b3-theme-on-background);
     background: var(--b3-theme-background);
     font-size: 14px;
@@ -1650,7 +1651,8 @@
 
 .tm-agent-suggestions {
     grid-area: suggestions;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 6px;
     box-sizing: border-box;
@@ -1659,7 +1661,33 @@
     max-width: 100%;
     margin: 0 auto;
     padding: 0 0 8px;
+}
+
+.tm-agent-suggestions__items {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 6px;
     overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.tm-agent-composer-tools {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.tm-agent-suggestions__compact {
+    display: none;
+    align-items: center;
+    justify-self: start;
+    gap: 6px;
+}
+
+.tm-agent-suggestions__compact svg {
+    width: 12px;
+    height: 12px;
 }
 
 .tm-agent-suggestions button {
@@ -1681,7 +1709,8 @@
     background: color-mix(in srgb, var(--b3-theme-primary) 7%, var(--b3-theme-background));
 }
 
-.tm-agent-suggestions .tm-agent-suggestions__settings {
+.tm-agent-suggestions .tm-agent-suggestions__settings,
+.tm-agent-suggestions .tm-agent-setting {
     display: inline-grid;
     place-items: center;
     flex: 0 0 30px;
@@ -1692,9 +1721,38 @@
     color: var(--tm-agent-muted);
 }
 
-.tm-agent-suggestions__settings svg {
+.tm-agent-suggestions__settings svg,
+.tm-agent-setting svg {
     width: 15px;
     height: 15px;
+}
+
+.tm-agent-setting.is-active,
+.tm-agent-setting[aria-expanded="true"] {
+    color: var(--b3-theme-primary);
+    border-color: color-mix(in srgb, var(--b3-theme-primary) 45%, var(--tm-agent-border));
+    background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background));
+}
+
+.tm-agent-composer-tools button:focus-visible,
+.tm-agent-suggestions__compact:focus-visible {
+    outline: 2px solid var(--b3-theme-primary);
+    outline-offset: -2px;
+}
+
+.tm-agent-composer-tools button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+@container (max-width: 560px) {
+    .tm-agent-suggestions__items {
+        display: none;
+    }
+
+    .tm-agent-suggestions__compact {
+        display: inline-flex;
+    }
 }
 
 .tm-agent-composer {

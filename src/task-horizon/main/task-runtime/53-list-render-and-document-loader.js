@@ -521,7 +521,7 @@
                     ? __tmRenderDocGroupLabel(group.docId, group.label)
                     : (group.kind === 'done-h2' ? __tmRenderHeadingLevelIconLabel(group.label, group.headingLevel) : esc(group.label));
                 const toggle = `<span class="tm-group-toggle${collapsed ? ' tm-group-toggle--collapsed' : ''}"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
-                allRows.push(`<tr class="tm-group-row tm-group-row--completed-subgroup" data-group-key="${esc(group.key)}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${escSq(group.key)}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-secondary-text);"><div class="tm-group-sticky" style="padding-left:${group.depth}ch;">${toggle}<span class="tm-group-label">${label}</span><span class="tm-badge tm-badge--count">${group.count}</span></div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row tm-group-row--completed-subgroup" data-group-key="${esc(group.key)}" data-group-level="${group.depth}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${escSq(group.key)}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-secondary-text);"><div class="tm-group-sticky" style="padding-left:${group.depth}ch;">${toggle}<span class="tm-group-label">${label}</span><span class="tm-badge tm-badge--count">${group.count}</span></div></td></tr>`);
                 if (collapsed) return;
                 if (group.groups) appendCompletedSubgroups(group.groups);
                 else group.items.forEach((task) => { if (hasTaskRowBudget()) allRows.push(...renderTaskTree(task, 0, false, true)); });
@@ -1693,6 +1693,7 @@ return finish(false, 'noop');
             tomato_count: tomatoCountValue,
             remark: remarkValue,
             startDate: startDateValue,
+            dateMode: __tmReadTaskMetaAttrValue(attrs, 'dateMode') === 'rollup' ? 'rollup' : 'manual',
             start_date: startDateValue,
             completionTime: completionTimeValue,
             completion_time: completionTimeValue,
@@ -3842,6 +3843,7 @@ if (ev) {
                 resolved_flow_rank: Number.isFinite(resolvedFlowRank) ? resolvedFlowRank : undefined,
                 __tmResolvedFlowRank: Number.isFinite(resolvedFlowRank) ? resolvedFlowRank : undefined,
                 children: [],
+                dateMode: String(t.date_mode || t.dateMode || '') === 'rollup' ? 'rollup' : 'manual',
                 priority: (() => {
                     const dbv = String(t.priority ?? '');
                     const mv = Object.prototype.hasOwnProperty.call(meta, 'priority') ? String(meta.priority ?? '') : '';

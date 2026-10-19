@@ -13187,6 +13187,17 @@ select.tm-btn-secondary {
     min-height: min(390px, calc(100vh - 128px));
 }
 
+.tm-task-time-hub__date-fields {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+.tm-task-time-hub__date-fields:disabled .tm-task-time-hub__date-clear { display: none; }
+.tm-task-time-hub__date-fields:disabled .tm-task-time-hub__quick-dates { display: none; }
+.tm-task-time-hub__date-fields:disabled .tm-task-time-hub__date-card { pointer-events: none; }
+.tm-task-time-hub__date-fields:disabled button { cursor: default; }
+
 .tm-task-time-hub__date-cards {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -13629,6 +13640,22 @@ select.tm-btn-secondary {
     grid-column: 1 / -1;
 }
 
+.tm-task-time-hub__settings.has-date-mode > [data-tm-time-hub-card="reminder"] {
+    grid-column: 1;
+}
+
+.tm-task-time-hub__date-mode {
+    grid-column: 2;
+}
+
+.tm-task-time-hub__date-mode.is-rollup .tm-task-time-hub__setting-text strong {
+    color: var(--tm-primary-color);
+}
+
+.tm-task-time-hub__date-mode.is-warning .tm-task-time-hub__setting-icon {
+    color: var(--tm-warning-color, var(--tm-primary-color));
+}
+
 .tm-task-time-hub__setting:hover,
 .tm-task-time-hub__setting:focus-visible,
 .tm-task-time-hub__setting.is-active {
@@ -13763,6 +13790,35 @@ select.tm-btn-secondary {
     font-size: 12px;
     font-weight: 800;
     color: var(--tm-secondary-text);
+}
+
+.tm-task-time-hub__subpanel--repeat {
+    max-height: min(360px, calc(100vh - 32px));
+}
+
+.tm-task-time-hub__repeat-group {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--tm-border-color);
+}
+
+.tm-task-time-hub__repeat-group-title {
+    padding: 0 4px 2px;
+    color: var(--tm-secondary-text);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.tm-task-time-hub__subpanel--repeat .tm-task-time-hub__choice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.tm-task-time-hub__choice-mark {
+    flex: 0 0 12px;
+    text-align: center;
 }
 
 .tm-task-time-hub__subpanel--month {
@@ -14053,6 +14109,10 @@ select.tm-btn-secondary {
     .tm-task-time-hub__subpanel--month {
         bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
         max-height: min(58vh, 392px);
+    }
+
+    .tm-task-time-hub__subpanel--repeat .tm-task-time-hub__choice {
+        min-height: 44px;
     }
 
     .tm-task-time-hub__month-grid {
@@ -20530,6 +20590,7 @@ th[data-col] {
 .tm-repeat-select,
 .tm-repeat-input {
     width: 100%;
+    min-width: 0;
     min-height: 46px;
     padding: 10px 14px;
     border: 1px solid var(--tm-input-border);
@@ -20674,6 +20735,14 @@ th[data-col] {
 
     .tm-repeat-inline {
         grid-template-columns: 1fr;
+    }
+
+    [data-tm-repeat-frequency-wrap] .tm-repeat-inline {
+        grid-template-columns: auto minmax(0, 1fr) minmax(64px, 1fr);
+    }
+
+    .tm-repeat-weekdays {
+        grid-template-columns: repeat(7, minmax(0, 1fr));
     }
 }
 
@@ -23682,10 +23751,6 @@ th[data-col] {
     .tm-doc-group-manager__add-button {
         flex: 0 0 auto;
         width: 100%;
-    }
-
-    .tm-doc-group-manager__source-list {
-        max-height: min(48vh, 360px);
     }
 
     .tm-doc-group-manager__source-row {

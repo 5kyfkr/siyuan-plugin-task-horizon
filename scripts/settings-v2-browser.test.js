@@ -108,6 +108,17 @@ const server = http.createServer((req, res) => {
         await page.waitForTimeout(300);
         if (errors.length) throw new Error(errors.join('\n'));
         await page.locator('.tm-settings-v2').waitFor();
+        await page.evaluate(() => tmOpenSettingsV2Page('docs', 't-new'));
+        const inboxVisibility = page.locator('[onchange="updateHideInboxFromAllTab(this.checked)"]');
+        assert.equal(await inboxVisibility.isChecked(), false, 'inbox remains visible in All by default');
+        await inboxVisibility.check();
+        await page.waitForFunction(() => JSON.parse(localStorage.getItem('settings-test')).hideInboxFromAllTab === true);
+        await page.reload();
+        await page.locator('.tm-settings-v2').waitFor();
+        await page.evaluate(() => tmOpenSettingsV2Page('docs', 't-new'));
+        assert.equal(await inboxVisibility.isChecked(), true, 'inbox visibility survives settings reload');
+        await inboxVisibility.uncheck();
+        await page.waitForFunction(() => JSON.parse(localStorage.getItem('settings-test')).hideInboxFromAllTab === false);
         await page.evaluate(() => tmOpenSettingsV2Page('docs', 't-done'));
         const completedChoices = page.locator('[onchange="updateCompletedTasksGroupBy(this.value)"] + .tm-settings-choice-group');
         assert.equal(await completedChoices.getByRole('radio').count(), 2, 'completed grouping uses exactly two segmented choices');
@@ -178,7 +189,38 @@ const server = http.createServer((req, res) => {
             console.log('Settings release smoke passed: open, change, persist, reload, close and reopen');
             return;
         }
+        // Long source lists must stay in normal flow in compact settings containers.
         await page.evaluate(() => {
+            const { state, SettingsStore } = __settingsTest;
+            window.__sourceListBackup = { documents: state.allDocuments, selected: SettingsStore.data.selectedDocIds };
+            state.allDocuments = Array.from({ length: 18 }, (_, index) => ({
+                id: '20261017000000-doc' + String(index).padStart(4, '0'),
+                name: '移动端长文档名称与来源布局回归检查 ' + (index + 1), notebook: 'notebook-test', path: '/主题/来源.sy',
+            }));
+            SettingsStore.data.selectedDocIds = state.allDocuments.map(doc => doc.id);
+            tmOpenSettingsV2Page('docs', 't-src');
+        });
+        for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1440, height: 1000 }]) {
+            await page.setViewportSize(viewport);
+            const bounds = await page.locator('.tm-doc-group-manager__source-list').first().evaluate(list => ({
+                rows: list.children.length, bottom: list.getBoundingClientRect().bottom,
+                lastBottom: list.lastElementChild.getBoundingClientRect().bottom,
+                panelBottom: list.closest('.tm-settings-panel').getBoundingClientRect().bottom,
+            }));
+            assert.equal(bounds.rows, 18);
+            assert.ok(bounds.lastBottom <= bounds.bottom + 1, `${viewport.width}px: source rows must not overflow the list: ${JSON.stringify(bounds)}`);
+            assert.ok(bounds.lastBottom <= bounds.panelBottom + 1, `${viewport.width}px: source rows must not cover following settings`);
+            const remove = page.locator('.tm-doc-group-manager__source-list').first().getByRole('button', { name: '移除', exact: true }).last();
+            await remove.scrollIntoViewIfNeeded();
+            assert.ok(await remove.evaluate(button => {
+                const rect = button.getBoundingClientRect();
+                return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+            }), `${viewport.width}px: the last source action remains reachable by scrolling`);
+        }
+        await page.evaluate(() => {
+            __settingsTest.state.allDocuments = __sourceListBackup.documents;
+            __settingsTest.SettingsStore.data.selectedDocIds = __sourceListBackup.selected;
+            delete window.__sourceListBackup;
             __settingsTest.SettingsStore.data.customDurationOptions = ['0.5', '1', '2', '3'];
             tmOpenSettingsV2Page('view', 'v-tl');
         });

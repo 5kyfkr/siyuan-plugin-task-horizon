@@ -130,10 +130,11 @@ if (shouldMarkDirty) {
                 }
             } catch (e) {}
             try {
-                const initWarmDelayMs = __tmIsRuntimeMobileClient() ? 2200 : 180;
+                const runtimeMobile = __tmIsRuntimeMobileClient();
+                const initWarmDelayMs = runtimeMobile ? 2200 : 1800;
                 globalThis.__tmTaskSnapshotService?.warm?.(initWarmDelayMs);
-                __tmScheduleWarmTaskIndexStore(__tmIsRuntimeMobileClient() ? 2400 : 0);
-                __tmScheduleWarmDocScopeCache(__tmIsRuntimeMobileClient() ? 2600 : 0);
+                __tmScheduleWarmTaskIndexStore(runtimeMobile ? 2400 : 1200);
+                __tmScheduleWarmDocScopeCache(runtimeMobile ? 2600 : 1600);
             } catch (e) {}
             try { __tmScheduleIdleTask(() => WhiteboardStore.load(), 200); } catch (e) {}
 
@@ -210,13 +211,35 @@ if (shouldMarkDirty) {
                 try { document.removeEventListener('load', __tmThemeStylesheetLoadHandler, true); } catch (e) {}
                 __tmThemeStylesheetLoadHandler = null;
             }
+            const readThemeAppearanceState = () => {
+                const root = document.documentElement;
+                return ['data-theme-mode', 'data-light-theme', 'data-dark-theme', 'data-mode', 'class']
+                    .map(name => {
+                        const value = String(root.getAttribute(name) || '');
+                        return name === 'class' ? value.split(/\s+/).filter(Boolean).sort().join(' ') : value;
+                    });
+            };
+            let appliedThemeState = readThemeAppearanceState();
+            let forceThemeStylesheetRefresh = false;
             const refreshThemeAppearance = () => {
                 __tmThemeModeRefreshRaf = null;
+                const nextThemeState = readThemeAppearanceState();
+                const forced = forceThemeStylesheetRefresh;
+                forceThemeStylesheetRefresh = false;
+                if (!forced && JSON.stringify(nextThemeState) === JSON.stringify(appliedThemeState)) return;
+                // Commit before applying CSS: a theme may rewrite the same root classes in response.
+                appliedThemeState = nextThemeState;
                 try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
                 try { __tmApplyAppearanceThemeVars(); } catch (e) {}
                 try { if (state.modal) render(); } catch (e) {}
             };
-            const scheduleThemeAppearanceRefresh = () => {
+            const scheduleThemeAppearanceRefresh = (force = false) => {
+                forceThemeStylesheetRefresh ||= force;
+                // MutationObserver also reports setAttribute/classList calls that leave the value unchanged.
+                if (!forceThemeStylesheetRefresh
+                    && JSON.stringify(readThemeAppearanceState()) === JSON.stringify(appliedThemeState)) {
+                    return;
+                }
                 if (__tmThemeModeRefreshRaf) return;
                 try {
                     __tmThemeModeRefreshRaf = requestAnimationFrame(refreshThemeAppearance);
@@ -232,14 +255,14 @@ if (shouldMarkDirty) {
                     || id === 'themeStyle'
                     || /\/appearance\/themes\/[^/]+\/theme\.css(?:[?#]|$)/i.test(href);
             };
-            __tmThemeModeObserver = new MutationObserver(scheduleThemeAppearanceRefresh);
+            __tmThemeModeObserver = new MutationObserver(() => scheduleThemeAppearanceRefresh());
             __tmThemeModeObserver.observe(document.documentElement, {
                 attributes: true,
                 attributeFilter: ['data-theme-mode', 'data-light-theme', 'data-dark-theme', 'data-mode', 'class']
             });
             __tmThemeStylesheetLoadHandler = (event) => {
                 const target = event?.target;
-                if (isThemeStylesheet(target)) scheduleThemeAppearanceRefresh();
+                if (isThemeStylesheet(target)) scheduleThemeAppearanceRefresh(true);
             };
             document.addEventListener('load', __tmThemeStylesheetLoadHandler, true);
         } catch (e) {}

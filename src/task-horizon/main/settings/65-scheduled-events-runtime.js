@@ -1035,6 +1035,7 @@
         queue: Promise.resolve(),
         initialized: false,
         disposed: false,
+        generation: 0,
         focusHandler: null,
         visibilityHandler: null,
         kernelBackoffUntil: 0,
@@ -1042,24 +1043,28 @@
     };
 
     function __tmScheduledEnqueue(task) {
-        const run = __tmScheduledRuntime.queue.then(task, task);
+        const generation = __tmScheduledRuntime.generation;
+        const runCurrent = () => __tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation
+            ? { status: 'cancelled' } : task();
+        const run = __tmScheduledRuntime.queue.then(runCurrent, runCurrent);
         __tmScheduledRuntime.queue = run.catch(() => {});
         return run;
     }
 
-    function __tmScheduledArmTimer() {
-        if (__tmScheduledRuntime.disposed || !__tmScheduledIsDesktopRuntime()) return;
+    function __tmScheduledArmTimer(generation = __tmScheduledRuntime.generation) {
+        if (__tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation || !__tmScheduledIsDesktopRuntime()) return;
         if (__tmScheduledRuntime.timer) clearTimeout(__tmScheduledRuntime.timer);
         const now = Date.now();
         const delay = Math.max(1000, 60000 - (now % 60000) + 40);
         __tmScheduledRuntime.timer = setTimeout(async () => {
+            if (__tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation) return;
             __tmScheduledRuntime.timer = null;
             try {
                 await __tmScheduledCheckDue();
             } catch (error) {
                 console.warn('[task-horizon] scheduled minute check failed', error);
             } finally {
-                __tmScheduledArmTimer();
+                __tmScheduledArmTimer(generation);
             }
         }, delay);
     }
@@ -1071,12 +1076,16 @@
             || Date.now() < __tmScheduledRuntime.kernelBackoffUntil
             || !__tmScheduledCoreSupported()) return;
         __tmScheduledRuntime.running = true;
+        const generation = __tmScheduledRuntime.generation;
         try {
-            __tmScheduledMergeRemoteEvents(await __tmScheduledReadRemoteEvents());
+            const remoteEvents = await __tmScheduledReadRemoteEvents();
+            if (__tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation) return;
+            __tmScheduledMergeRemoteEvents(remoteEvents);
             if (Date.now() < __tmScheduledRuntime.kernelBackoffUntil) return;
             const now = new Date();
             const events = __tmNormalizeScheduledEvents(SettingsStore.data.scheduledEvents);
             for (const snapshot of events) {
+                if (__tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation) return;
                 try {
                     const event = __tmScheduledEventById(snapshot.id);
                     if (!event) continue;
@@ -1102,7 +1111,7 @@
                 }
             }
         } finally {
-            __tmScheduledRuntime.running = false;
+            if (generation === __tmScheduledRuntime.generation) __tmScheduledRuntime.running = false;
         }
     }
 
@@ -1178,25 +1187,28 @@
             __tmScheduledArmTimer();
         },
         async runNow(id) {
+            const generation = __tmScheduledRuntime.generation;
             if (!__tmScheduledCoreSupported()) return { status: 'config_error', error: '定时事件需要思源 3.7.3 或更高版本' };
             try {
                 return await __tmScheduledEnqueue(() => __tmScheduledRun(id, { manual: true, occurrence: new Date() }));
             } finally {
-                __tmScheduledArmTimer();
+                __tmScheduledArmTimer(generation);
             }
         },
         async refresh() {
+            const generation = __tmScheduledRuntime.generation;
             try {
                 await __tmScheduledCheckDue();
                 return this.list();
             } finally {
-                __tmScheduledArmTimer();
+                __tmScheduledArmTimer(generation);
             }
         },
         init() {
             if (__tmScheduledRuntime.initialized && !__tmScheduledRuntime.disposed) return;
             __tmScheduledRuntime.initialized = true;
             __tmScheduledRuntime.disposed = false;
+            const generation = ++__tmScheduledRuntime.generation;
             __tmScheduledRuntime.kernelBackoffUntil = 0;
             const sourceEvents = Array.isArray(SettingsStore.data.scheduledEvents) ? SettingsStore.data.scheduledEvents : [];
             const sourcePrompts = sourceEvents.map((event) => String(event?.prompt || '').trim());
@@ -1214,6 +1226,7 @@
             document.addEventListener('visibilitychange', __tmScheduledRuntime.visibilityHandler);
             const refresh = async () => {
                 const kernelSnapshot = await __tmScheduledReadKernelSnapshot();
+                if (__tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation) return;
                 const kernelEvents = kernelSnapshot.status === 'valid' ? kernelSnapshot.events : null;
                 const canRestoreKernel = kernelSnapshot.status === 'missing' || kernelSnapshot.status === 'corrupt';
                 let persisted = false;
@@ -1231,22 +1244,27 @@
                     await __tmScheduledPersist({ persistSettings: true });
                     persisted = true;
                 }
+                if (__tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation) return;
                 if (promptMigrationNeeded && !persisted && (Array.isArray(kernelEvents) || canRestoreKernel)) {
                     await __tmScheduledPersist({ persistSettings: true });
                     persisted = true;
                 }
+                if (__tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation) return;
                 if (!persisted
                     && Array.isArray(kernelEvents)
                     && __tmScheduledDefinitionFingerprint(sourceEvents) !== __tmScheduledDefinitionFingerprint(kernelEvents)) {
                     try { await SettingsStore.save?.({ suppressMobileCloseSyncDirty: true }); }
                     catch (error) { console.warn('[task-horizon] scheduled event recovery mirror refresh failed', error); }
                 }
+                if (__tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation) return;
                 await this.refresh();
             };
             refresh().catch(() => {});
         },
         dispose() {
             __tmScheduledRuntime.disposed = true;
+            __tmScheduledRuntime.generation += 1;
+            __tmScheduledRuntime.running = false;
             if (__tmScheduledRuntime.timer) clearTimeout(__tmScheduledRuntime.timer);
             __tmScheduledRuntime.timer = null;
             if (__tmScheduledRuntime.focusHandler) window.removeEventListener('focus', __tmScheduledRuntime.focusHandler);

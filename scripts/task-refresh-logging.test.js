@@ -169,6 +169,7 @@ verifyDocumentReadGuard().then(() => {
             if (entry.isDirectory()) inspect(file);
             else if (entry.name.endsWith('.js')) {
                 assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /__tm(?:LogTaskRefresh|CreateTaskRefreshTrace|TaskRefreshNow)|\[task-horizon:refresh\]/, file);
+                assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /__tmKanbanDiagnostics|__tmKanbanDiagnosticScrollAt|kanban-flicker-v1/, 'temporary file diagnostics must be removed: ' + file);
             }
         }
     };

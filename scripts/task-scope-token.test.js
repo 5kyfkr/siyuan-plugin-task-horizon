@@ -87,6 +87,8 @@ async function run() {
     }
     const query = (statement) => {
         lastSQL = statement;
+        if (/SELECT DISTINCT root_id FROM blocks WHERE id IN/.test(statement)) return [{ root_id: documentID }];
+        if (/FROM attributes modeAttr/.test(statement)) return [];
         if (/1 = 0/.test(statement)) return [];
         const taskTreeMatch = statement.match(/WITH RECURSIVE task_tree\(id, depth\)[\s\S]*SELECT id, 0 FROM blocks WHERE id = '([^']+)'/);
         if (taskTreeMatch) return taskIDs.includes(taskTreeMatch[1]) ? [{ id: taskTreeMatch[1] }] : [];

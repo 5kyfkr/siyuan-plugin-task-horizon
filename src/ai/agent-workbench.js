@@ -12,6 +12,26 @@
     const WORKBENCH_BINDING_TOKEN = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const MAX_RECENT_SESSIONS = 60;
     const MAX_DIRECT_TASK_REFERENCES = 20;
+    const REASONING_EFFORT_KEY = 'siyuan-agent-reasoning-effort';
+    // 与思源提供商预设保持相同的名称和地址匹配规则，内部 ID 仅用于关联配置。
+    const PROVIDER_TITLES = Object.freeze([
+        ['OpenAI', 'https://api.openai.com/v1'], ['Anthropic', 'https://api.anthropic.com/v1'],
+        ['DeepSeek', 'https://api.deepseek.com', 'https://api.deepseek.com/anthropic'],
+        ['Moonshot AI', 'https://api.moonshot.cn/v1', 'https://api.moonshot.cn/anthropic'],
+        ['MiniMax', 'https://api.minimax.io/v1', 'https://api.minimax.io/anthropic', 'https://api.minimax.cn/v1', 'https://api.minimax.cn/anthropic'],
+        ['Alibaba Model Studio', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'https://dashscope.aliyuncs.com/apps/anthropic', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', 'https://dashscope-intl.aliyuncs.com/apps/anthropic'],
+        ['Volcengine Ark', 'https://ark.cn-beijing.volces.com/api/v3'], ['Zhipu AI', 'https://open.bigmodel.cn/api/paas/v4'],
+        ['Gemini', 'https://generativelanguage.googleapis.com/v1beta/openai'], ['Mistral AI', 'https://api.mistral.ai/v1'],
+        ['Xiaomi MiMo', 'https://api.xiaomimimo.com/v1', 'https://api.xiaomimimo.com/anthropic'],
+        ['SiliconFlow', 'https://api.siliconflow.cn/v1'], ['OpenRouter', 'https://openrouter.ai/api/v1'],
+        ['Groq', 'https://api.groq.com/openai/v1'], ['Ollama', 'http://localhost:11434/v1'], ['LM Studio', 'http://localhost:1234/v1'],
+    ]);
+    const REASONING_EFFORT_OPTIONS = Object.freeze([
+        { value: '', label: '默认' }, { value: 'none', label: '无' },
+        { value: 'low', label: '低' }, { value: 'medium', label: '中' },
+        { value: 'high', label: '高' }, { value: 'xhigh', label: '超高' },
+        { value: 'max', label: '最大' },
+    ]);
     const CAPABILITY_RETRY_INTERVAL_MS = 1000;
     const CAPABILITY_RETRY_LIMIT = 5;
     const KERNEL_PLUGIN_PACKAGE_NAME = 'siyuan-plugin-task-horizon';
@@ -144,6 +164,11 @@
         hostListenerController: null,
         automationControllers: new Set(),
         sessionSaveQueues: new Map(),
+        settingsBusy: false,
+        settingsMenu: null,
+        bottomInset: 0,
+        layoutFrame: 0,
+        layoutCleanup: null,
         store: {
             schemaVersion: 2,
             activeSessionID: '',
@@ -299,6 +324,302 @@
         return `${timestamp}-${Math.floor(Math.random() * 36 ** 7).toString(36).padStart(7, '0')}`;
     }
 
+    function agentProviderTitle(provider) {
+        if (text(provider.displayName)) return text(provider.displayName);
+        if (provider.authType === 'chatgpt') return 'ChatGPT';
+        const normalize = (value) => text(value).toLowerCase().replace(/\/+$/, '').replace(/\/v1$/, '');
+        const baseURL = text(provider.baseURL);
+        const preset = PROVIDER_TITLES.find((item) => item.slice(1).some((url) => normalize(url) === normalize(baseURL)));
+        return preset?.[0] || baseURL || '自定义提供商';
+    }
+
+    function agentModelOptions() {
+        const options = [];
+        for (const provider of window.siyuan?.config?.ai?.providers || []) {
+            if (!provider.enabled) continue;
+            for (const model of provider.models || []) {
+                const name = text(model.displayName || model.name);
+                if (!model.enabled || !name) continue;
+                options.push({ id: text(model.id || model.name), name, providerID: text(provider.id), provider: agentProviderTitle(provider) });
+            }
+        }
+        return options;
+    }
+
+    function selectedAgentModel(notify = false) {
+        const options = agentModelOptions();
+        const currentID = text(runtime.session?.model);
+        const current = options.find((item) => item.id === currentID);
+        const selected = current || options.find((item) => item.id === text(window.siyuan?.config?.ai?.agent?.modelId)) || options[0];
+        if (runtime.session && !current && !runtime.busy && (!currentID || notify)) {
+            runtime.session.model = selected?.id || '';
+            if (notify && currentID) showSessionNotice(selected ? `原模型已不可用，已切换为 ${selected.name}` : '当前没有可用模型，请先在思源设置中配置', 'warning');
+        }
+        return selected || null;
+    }
+
+    function selectedReasoningEffort() {
+        const value = window.siyuan?.storage?.[REASONING_EFFORT_KEY];
+        return REASONING_EFFORT_OPTIONS.find((item) => item.value === value) || REASONING_EFFORT_OPTIONS[0];
+    }
+
+    function sessionPermissionMode() {
+        return runtime.session?.permissionMode === 'allowSession' || runtime.session?.alwaysAllow === true ? 'allowSession' : 'confirm';
+    }
+
+    function closeSettingsMenu(restoreFocus = false) {
+        const opened = runtime.settingsMenu;
+        runtime.settingsMenu = null;
+        opened?.menu?.close?.();
+        if (restoreFocus && opened) runtime.host?.querySelector?.(opened.kind === 'presets' ? '[data-agent-preset-menu]' : `[data-agent-setting="${opened.kind}"]`)?.focus?.();
+    }
+
+    function syncComposerControls() {
+        const model = selectedAgentModel();
+        const effort = selectedReasoningEffort();
+        const permission = sessionPermissionMode();
+        const labels = {
+            model: model ? `切换模型：${model.provider} / ${model.name}` : '切换模型：未配置，点击前往思源设置',
+            reasoning: `思考强度：${effort.label}`,
+            permission: `批准：${agentPermissionLabel(permission)}`,
+        };
+        runtime.host?.querySelectorAll?.('[data-agent-setting]').forEach((button) => {
+            const kind = button.dataset.agentSetting;
+            button.setAttribute('aria-label', labels[kind]);
+            button.setAttribute('title', labels[kind]);
+            button.setAttribute('aria-expanded', runtime.settingsMenu?.kind === kind ? 'true' : 'false');
+            button.disabled = runtime.settingsBusy || ((kind === 'model' || kind === 'reasoning') && runtime.busy);
+            button.classList.toggle('is-active', kind === 'permission' ? permission === 'allowSession' : kind === 'reasoning' && !!effort.value);
+        });
+        const send = runtime.host?.querySelector?.('[data-agent-action="send"]');
+        if (send) send.disabled = runtime.settingsBusy || !model;
+        const presets = runtime.host?.querySelector?.('[data-agent-preset-menu]');
+        if (presets) {
+            presets.disabled = runtime.settingsBusy;
+            presets.setAttribute('aria-expanded', runtime.settingsMenu?.kind === 'presets' ? 'true' : 'false');
+            presets.setAttribute('title', getPreset(runtime.presetID)?.label || '选择对话预设');
+        }
+    }
+
+    async function changeAgentModel(modelID) {
+        if (runtime.busy || runtime.settingsBusy || !runtime.session) return;
+        const model = agentModelOptions().find((item) => item.id === modelID);
+        const previousID = selectedAgentModel()?.id || '';
+        if (!model || modelID === previousID) return;
+        const sessionID = runtime.activeSessionID;
+        runtime.settingsBusy = true;
+        syncComposerControls();
+        try {
+            const hasSpecificContext = sessionEntries().some((entry) =>
+                (entry.type === 'assistant' && (text(entry.reasoningContent) || entry.toolCalls?.length))
+                || (entry.type === 'thinking' && entry.steps?.some((step) => text(step.reasoningContent))));
+            if (hasSpecificContext) {
+                const message = agentLanguage('agentModelSwitchWarning', '当前会话包含推理或工具调用上下文。切换模型后，回答质量、工具调用连续性和缓存命中率可能下降。是否继续切换？');
+                const accepted = bridge().confirm
+                    ? await new Promise((resolve) => bridge().confirm('切换模型', message, () => resolve(true), () => resolve(false)))
+                    : window.confirm(message);
+                if (!accepted) return;
+            }
+            if (runtime.activeSessionID !== sessionID || !agentModelOptions().some((item) => item.id === modelID)) return;
+            runtime.session.model = modelID;
+            await saveSession();
+        } catch (error) {
+            if (runtime.activeSessionID === sessionID) runtime.session.model = previousID;
+            showSessionNotice(`模型切换失败：${text(error?.message || error)}`, 'error');
+        } finally {
+            runtime.settingsBusy = false;
+            render();
+        }
+    }
+
+    async function changeReasoningEffort(value) {
+        if (runtime.busy || runtime.settingsBusy || !REASONING_EFFORT_OPTIONS.some((item) => item.value === value)) return;
+        if (selectedReasoningEffort().value === value) return;
+        runtime.settingsBusy = true;
+        syncComposerControls();
+        try {
+            await post('/api/storage/setLocalStorageVal', { key: REASONING_EFFORT_KEY, val: value, app: kernelRecoveryAppID() });
+            if (window.siyuan) {
+                window.siyuan.storage ||= {};
+                window.siyuan.storage[REASONING_EFFORT_KEY] = value;
+            }
+        } catch (error) {
+            showSessionNotice(`思考强度保存失败：${text(error?.message || error)}`, 'error');
+        } finally {
+            runtime.settingsBusy = false;
+            render();
+        }
+    }
+
+    async function changeSessionPermission(mode) {
+        if (runtime.settingsBusy || !runtime.session || !['confirm', 'allowSession'].includes(mode)) return;
+        if (sessionPermissionMode() === mode) return;
+        const sessionID = runtime.activeSessionID;
+        runtime.settingsBusy = true;
+        syncComposerControls();
+        try {
+            const pending = runtime.sessionSaveQueues.get(sessionID);
+            if (pending) await pending;
+            const persisted = sessionEntries().length
+                ? await post('/setPermission', { sessionID, permissionMode: mode })
+                : { permissionMode: mode };
+            if (runtime.activeSessionID === sessionID) {
+                runtime.session.permissionMode = persisted?.permissionMode || mode;
+                runtime.session.alwaysAllow = false;
+                if (runtime.live) runtime.live.permissionMode = runtime.session.permissionMode;
+            }
+        } catch (error) {
+            showSessionNotice(`批准设置更新失败：${text(error?.message || error)}`, 'error');
+        } finally {
+            runtime.settingsBusy = false;
+            render();
+        }
+    }
+
+    function openAgentAiSettings() {
+        if (!bridge().openSetting) {
+            showSessionNotice('请打开思源设置 - 人工智能，配置并启用模型', 'info');
+            return;
+        }
+        const dialog = bridge().openSetting(bridge().app);
+        requestAnimationFrame(() => {
+            const root = dialog?.element || document;
+            root.querySelector('.config__tab-scroll [data-name="ai"], [data-type="setting-tab"][data-name="ai"], [data-name="ai"]')?.click?.();
+        });
+    }
+
+    function openSettingsMenu(kind, trigger) {
+        if (trigger.disabled || runtime.settingsBusy) return;
+        const sameMenu = runtime.settingsMenu?.kind === kind;
+        closeSettingsMenu();
+        if (sameMenu) { syncComposerControls(); return; }
+        selectedAgentModel(true);
+        syncComposerControls();
+        const Menu = bridge().Menu;
+        if (!Menu) { showSessionNotice('当前客户端无法打开设置菜单，请重新加载插件', 'warning'); return; }
+        const sessionID = runtime.activeSessionID;
+        const menu = new Menu(`task-horizon-agent-${kind}`, () => {
+            if (runtime.settingsMenu?.menu === menu) runtime.settingsMenu = null;
+            syncComposerControls();
+        });
+        const apply = (callback) => () => {
+            if (runtime.activeSessionID === sessionID && !runtime.settingsBusy) void callback();
+        };
+        if (kind === 'presets') {
+            suggestions().slice(0, 3).forEach((item, index) => menu.addItem({
+                iconHTML: '', label: esc(item.label), current: item.preset ? runtime.presetID === item.preset : !!item.clearPreset && !runtime.presetID,
+                click: apply(() => applySuggestion(index)),
+            }));
+        } else if (kind === 'model') {
+            const options = agentModelOptions();
+            let provider = null;
+            options.forEach((item) => {
+                if (provider !== item.providerID) {
+                    if (provider !== null) menu.addSeparator();
+                    provider = item.providerID;
+                    menu.addItem({ type: 'readonly', iconHTML: '', label: esc(item.provider) });
+                }
+                menu.addItem({ iconHTML: '', label: esc(item.name), current: item.id === selectedAgentModel()?.id, click: apply(() => changeAgentModel(item.id)) });
+            });
+            if (options.length) menu.addSeparator();
+            menu.addItem({ icon: 'iconSettings', label: options.length ? '思源模型设置' : '配置思源模型', click: openAgentAiSettings });
+        } else if (kind === 'reasoning') {
+            REASONING_EFFORT_OPTIONS.forEach((item) => menu.addItem({
+                iconHTML: '', label: item.label, current: item.value === selectedReasoningEffort().value,
+                click: apply(() => changeReasoningEffort(item.value)),
+            }));
+        } else if (kind === 'permission') {
+            ['confirm', 'allowSession'].forEach((mode) => menu.addItem({
+                iconHTML: '', label: agentPermissionLabel(mode), current: mode === sessionPermissionMode(),
+                click: apply(() => changeSessionPermission(mode)),
+            }));
+        }
+        runtime.settingsMenu = { kind, menu, sessionID };
+        trigger.setAttribute('aria-expanded', 'true');
+        const rect = trigger.getBoundingClientRect();
+        menu.open({ x: rect.right, y: rect.top, isLeft: true });
+        if (menu.element && !menu.element.matches('.b3-menu--sheet, .b3-menu--fullscreen')) {
+            const viewport = window.visualViewport;
+            const top = (viewport?.offsetTop || 0) + 8;
+            const left = (viewport?.offsetLeft || 0) + 8;
+            const width = viewport?.width || window.innerWidth;
+            menu.element.style.maxWidth = `${Math.max(0, width - 16)}px`;
+            const items = menu.element.lastElementChild;
+            if (items) items.style.maxHeight = `${Math.max(40, rect.top - top - 12)}px`;
+            const bounds = menu.element.getBoundingClientRect();
+            menu.element.style.top = `${Math.max(top, rect.top - bounds.height - 6)}px`;
+            menu.element.style.left = `${Math.max(left, Math.min(rect.right - bounds.width, left + width - bounds.width - 16))}px`;
+        }
+    }
+
+    function syncWorkbenchBottomInset() {
+        runtime.layoutFrame = 0;
+        const host = runtime.host;
+        const workbench = host?.querySelector?.('.tm-agent-workbench');
+        if (!host?.isConnected || !workbench) return;
+        const bounds = host.getBoundingClientRect();
+        const composer = workbench.querySelector('.tm-agent-composer');
+        const bottomMargin = composer ? parseFloat(getComputedStyle(composer).marginBottom) || 0 : 0;
+        let inset = 0;
+        document.querySelectorAll('#status, #siyuan-tomato-float-bar, #tomato-timeline-bar, .tm-mobile-bottom-viewbar').forEach((overlay) => {
+            if (host.contains(overlay)) return;
+            const style = getComputedStyle(overlay);
+            if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
+            const visibleBar = overlay.querySelector('.tm-mobile-bottom-viewbar__inner') || overlay;
+            const rect = visibleBar.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0 && rect.left < bounds.right && rect.right > bounds.left
+                && rect.top < bounds.bottom && rect.bottom > bounds.top) {
+                inset = Math.max(inset, Math.ceil(bounds.bottom - rect.top + 4 - bottomMargin));
+            }
+        });
+        if (runtime.bottomInset !== inset) closeSettingsMenu();
+        runtime.bottomInset = inset;
+        workbench.style.setProperty('--tm-agent-bottom-inset', `${inset}px`);
+    }
+
+    function scheduleWorkbenchLayout() {
+        if (!runtime.layoutFrame) runtime.layoutFrame = requestAnimationFrame(syncWorkbenchBottomInset);
+    }
+
+    function watchWorkbenchLayout(host) {
+        runtime.layoutCleanup?.();
+        const controller = new AbortController();
+        const observed = new Set();
+        const resize = typeof ResizeObserver === 'function' ? new ResizeObserver((entries) => {
+            if (entries.some((entry) => entry.target === host)) closeSettingsMenu();
+            scheduleWorkbenchLayout();
+        }) : null;
+        resize?.observe(host);
+        const attributes = new MutationObserver(scheduleWorkbenchLayout);
+        const refresh = () => {
+            document.querySelectorAll('#status, #siyuan-tomato-float-bar, #tomato-timeline-bar, .tm-mobile-bottom-viewbar').forEach((overlay) => {
+                if (observed.has(overlay)) return;
+                observed.add(overlay);
+                resize?.observe(overlay);
+                const inner = overlay.querySelector('.tm-mobile-bottom-viewbar__inner');
+                if (inner) resize?.observe(inner);
+                attributes.observe(overlay, { attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
+                overlay.addEventListener('transitionend', scheduleWorkbenchLayout, { signal: controller.signal });
+                overlay.addEventListener('animationend', scheduleWorkbenchLayout, { signal: controller.signal });
+            });
+            scheduleWorkbenchLayout();
+        };
+        const children = new MutationObserver(refresh);
+        children.observe(document.body, { childList: true });
+        attributes.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
+        attributes.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] });
+        window.addEventListener('resize', () => { closeSettingsMenu(); refresh(); }, { signal: controller.signal });
+        window.addEventListener('focus', () => { syncComposerControls(); refresh(); }, { signal: controller.signal });
+        window.visualViewport?.addEventListener('resize', refresh, { signal: controller.signal });
+        window.visualViewport?.addEventListener('scroll', scheduleWorkbenchLayout, { signal: controller.signal });
+        refresh();
+        runtime.layoutCleanup = () => {
+            controller.abort(); resize?.disconnect(); attributes.disconnect(); children.disconnect();
+            if (runtime.layoutFrame) cancelAnimationFrame(runtime.layoutFrame);
+            runtime.layoutFrame = 0;
+        };
+    }
+
     let markdownRenderer = null;
     function getMarkdownRenderer() {
         if (markdownRenderer) return markdownRenderer;
@@ -441,7 +762,7 @@
     }
 
     async function post(path, body, options = {}) {
-        const response = await fetch(`${API_ROOT}${path}`, {
+        const response = await fetch(path.startsWith('/api/') ? path : `${API_ROOT}${path}`, {
             method: 'POST',
             headers: agentHeaders(options),
             body: JSON.stringify(body || {}),
@@ -778,6 +1099,8 @@
                 id,
                 title: text(title || session?.title) || SIYUAN_DEFAULT_SESSION_TITLE,
                 titled: typeof options.titled === 'boolean' ? options.titled : session?.titled === true,
+                ...(typeof options.model === 'string' ? { model: options.model } : {}),
+                ...(typeof options.permissionMode === 'string' ? { permissionMode: options.permissionMode, alwaysAllow: false } : {}),
                 entries,
                 createdAt: Number(session?.createdAt) || now,
                 updatedAt: Math.max(now, (Number(session?.updatedAt) || 0) + 1),
@@ -1105,6 +1428,10 @@
     }
 
     function sessionSwitchBlocked() {
+        if (runtime.settingsBusy) {
+            showSessionNotice('正在保存会话设置，请稍后再切换会话', 'info');
+            return true;
+        }
         if (!runtime.busy) return false;
         showSessionNotice('当前会话正在处理，请停止后再切换会话', 'warning');
         return true;
@@ -1115,6 +1442,8 @@
         const id = newID();
         runtime.activeSessionID = id;
         runtime.session = { id, title: DEFAULT_SESSION_TITLE, titled: false, entries: [], createdAt: Date.now(), updatedAt: Date.now() };
+        runtime.session.model = selectedAgentModel()?.id || '';
+        runtime.session.permissionMode = 'confirm';
         runtime.live = null;
         runtime.conversationFollowBottom = true;
         runtime.historyOpen = false;
@@ -1280,7 +1609,7 @@
         }
     }
 
-    function tryGenerateSessionTitle() {
+    function tryGenerateSessionTitle(modelID) {
         if (!runtime.session || runtime.session.titled !== false) return;
         const firstUserEntry = sessionEntries().find((entry) => entry?.type === 'user' && userEntryText(entry));
         const message = userEntryText(firstUserEntry).slice(0, 500);
@@ -1289,7 +1618,7 @@
         runtime.session.titled = true;
         void post('/title', {
             message,
-            model: '',
+            model: text(modelID || runtime.session.model),
             language: window.siyuan?.config?.appearance?.lang || 'zh_CN',
         }).then(async (generatedTitle) => {
             const title = text(generatedTitle);
@@ -1842,7 +2171,7 @@
     }
 
     function agentPermissionLabel(mode) {
-        return text(mode) === 'allowSession' ? '本会话允许' : '逐项确认';
+        return text(mode) === 'allowSession' ? '本会话自动批准' : '按批准设置';
     }
 
     function renderAgentUsage(usage) {
@@ -2742,6 +3071,8 @@
     function render(options = {}) {
         const host = runtime.host;
         if (!(host instanceof HTMLElement)) return;
+        if (runtime.settingsMenu && (runtime.settingsMenu.sessionID !== runtime.activeSessionID
+            || (runtime.busy && ['model', 'reasoning'].includes(runtime.settingsMenu.kind)))) closeSettingsMenu();
         const previousMessages = host.querySelector('.tm-agent-messages');
         const scrollSnapshot = captureConversationScroll(previousMessages);
         const followConversation = typeof options.followConversation === 'boolean'
@@ -2782,19 +3113,22 @@
                 </main>
                 <button type="button" class="tm-agent-scroll-bottom" data-agent-action="scroll-to-bottom" aria-label="回到底部" title="回到底部" hidden>${phosphorBoldContextIcon('caretDown')}</button>
             </div>
-            <div class="tm-agent-suggestions">${suggestions().slice(0, 3).map((item, index) => `<button type="button" data-agent-action="suggestion" data-index="${index}">${esc(item.label)}</button>`).join('')}<button type="button" class="block__icon block__icon--show ariaLabel tm-agent-suggestions__settings" data-position="north" data-agent-action="open-presets" aria-label="对话预设设置"><svg><use xlink:href="#iconSettings"></use></svg></button></div>
+            <div class="tm-agent-suggestions"><div class="tm-agent-suggestions__items">${suggestions().slice(0, 3).map((item, index) => `<button type="button" data-agent-action="suggestion" data-index="${index}">${esc(item.label)}</button>`).join('')}</div><button type="button" class="tm-agent-suggestions__compact" data-agent-action="open-quick-presets" data-agent-preset-menu aria-label="选择对话预设" aria-haspopup="menu" aria-expanded="false"><span>预设</span>${phosphorBoldContextIcon('caretDown')}</button><div class="tm-agent-composer-tools" role="group" aria-label="对话设置"><button type="button" class="block__icon block__icon--show ariaLabel tm-agent-suggestions__settings" data-position="north" data-agent-action="open-presets" aria-label="对话预设设置"><svg><use xlink:href="#iconSettings"></use></svg></button>${[['model', 'iconAtom'], ['reasoning', 'iconBrain'], ['permission', 'iconShieldCheck']].map(([kind, icon]) => `<button type="button" class="block__icon block__icon--show ariaLabel tm-agent-setting" data-position="north" data-agent-action="open-setting" data-agent-setting="${kind}" aria-haspopup="menu" aria-expanded="false"><svg><use xlink:href="#${icon}"></use></svg></button>`).join('')}</div></div>
             <footer class="tm-agent-composer">
                 ${runtime.undoAvailable ? `<div class="tm-agent-undo-bar"><span>${runtime.undoCount > 1 ? '本轮写入可整体撤销' : '最近一次写入可撤销'}</span><div class="tm-agent-undo-bar__actions"><button type="button" class="b3-button b3-button--cancel" data-agent-action="undo-last-mutation"><svg aria-hidden="true"><use xlink:href="#iconUndo"></use></svg><span>撤销</span></button><button type="button" class="block__icon block__icon--show ariaLabel tm-agent-undo-bar__close" data-position="north" data-agent-action="dismiss-undo" aria-label="关闭撤销提示"><svg aria-hidden="true"><use xlink:href="#iconClose"></use></svg></button></div></div>` : ''}
                 <div class="tm-agent-composer__selections">${preset ? `<div class="tm-agent-preset"><span>${esc(preset.label)}</span><button type="button" data-agent-action="clear-preset" aria-label="清除预设"><svg><use xlink:href="#iconClose"></use></svg></button></div>` : ''}</div>
                 <div class="tm-agent-composer__row"><textarea class="b3-text-field" data-agent-draft placeholder="输入问题或任务要求" rows="2" ${runtime.busy ? 'disabled' : ''}>${esc(getDraft())}</textarea>
                 ${runtime.busy ? '<button type="button" class="b3-button b3-button--cancel tm-agent-send" data-agent-action="stop" aria-label="停止"><svg><use xlink:href="#iconSquareStop"></use></svg></button>' : '<button type="button" class="b3-button b3-button--text tm-agent-send" data-agent-action="send" aria-label="发送"><svg><use xlink:href="#iconForward"></use></svg></button>'}</div>
-                <div class="tm-agent-composer__status" role="status">${esc(runtime.statusText || taskToolStatusText(caps))}</div>
+                ${runtime.statusText ? `<div class="tm-agent-composer__status" role="status">${esc(runtime.statusText)}</div>` : ''}
             </footer>
             <div class="tm-agent-task-drop-hint" aria-hidden="true"><span>${phosphorBoldContextIcon('plus')}添加到智能体上下文</span></div>
             ${renderContextPicker()}
             ${renderHistory()}
             ${renderPresetPanel()}
         </div>`;
+        syncComposerControls();
+        host.querySelector('.tm-agent-workbench')?.style.setProperty('--tm-agent-bottom-inset', `${runtime.bottomInset}px`);
+        scheduleWorkbenchLayout();
         const messages = host.querySelector('.tm-agent-messages');
         if (messages instanceof HTMLElement) requestAnimationFrame(() => restoreConversationScroll(messages, scrollSnapshot, followConversation));
         requestAnimationFrame(() => syncContextScrollbar());
@@ -2817,6 +3151,11 @@
         try {
             await postAgentInteraction('/confirm', { confirmID, approved: approved === true, ...(always ? { always: true } : {}) });
             if (entry) entry.status = always ? 'always' : (approved ? 'approved' : 'rejected');
+            if (always && runtime.session) {
+                runtime.session.permissionMode = 'allowSession';
+                runtime.session.alwaysAllow = false;
+                if (runtime.live) runtime.live.permissionMode = 'allowSession';
+            }
             runtime.statusText = '';
             render();
             saveSession().catch(() => null);
@@ -3142,12 +3481,16 @@
     }
 
     async function sendMessage(textOverride) {
-        if (runtime.busy) return;
+        if (runtime.busy || runtime.settingsBusy) return;
         const raw = text(textOverride != null ? textOverride : getDraft());
         const preset = getPreset(runtime.presetID);
         const userText = raw || text(preset?.starter);
         if (!userText) return;
         if (runtime.activeSessionID && !runtime.session && !await loadSession(runtime.activeSessionID)) return;
+        if (!selectedAgentModel(true)) {
+            showSessionNotice('请先在思源设置 - 人工智能中配置并启用模型', 'warning');
+            return;
+        }
         if (!await ensureTaskToolsReadyForSend()) return;
         await syncDocumentGroupSnapshot();
         if (!runtime.activeSessionID) createSession();
@@ -3227,6 +3570,10 @@
             focusedBlockID: directTaskIDs[0] || undefined,
             selectedBlockIDs: Array.from(new Set([...directTaskIDs, ...documentIDs])),
         };
+        const modelID = selectedAgentModel(true)?.id;
+        if (!modelID || runtime.settingsBusy) return;
+        const reasoningEffort = selectedReasoningEffort().value;
+        const permissionMode = sessionPermissionMode();
         setDraft('');
         runtime.busy = true;
         runtime.roundUndoIDs = [];
@@ -3235,6 +3582,7 @@
         runtime.live = { content: '', status: '正在连接', toolCalls: [], permissionMode: '', usage: null, retry: null };
         runtime.abortController = new AbortController();
         rememberSession(runtime.activeSessionID);
+        render();
         let turnID = '';
         try {
             const prepared = await prepareConversationTurn(runtime.activeSessionID, prompt, runtime.session?.title, {
@@ -3242,12 +3590,16 @@
                 references: refs,
                 editorContext,
                 titled: runtime.session?.titled === true,
+                model: modelID,
+                permissionMode,
             });
             runtime.activeSessionID = prepared.sessionID;
             runtime.session = prepared.session;
             render();
             const request = {
                 message: prompt,
+                model: modelID,
+                reasoningEffort,
                 language: window.siyuan?.config?.appearance?.lang || 'zh_CN',
                 references: refs,
                 sessionID: runtime.activeSessionID,
@@ -3396,7 +3748,7 @@
             runtime.live = null;
             runtime.statusText = undoGroupError;
             render();
-            if (runtime.session?.titled === false) tryGenerateSessionTitle();
+            if (runtime.session?.titled === false) tryGenerateSessionTitle(modelID);
         }
     }
 
@@ -3412,6 +3764,15 @@
         scheduleSave();
         render();
         runtime.host?.querySelector?.('[data-agent-draft]')?.focus?.();
+    }
+
+    async function applySuggestion(index) {
+        const item = suggestions()[Number(index) || 0];
+        if (!item) return;
+        if (item.action === 'history') { runtime.historyOpen = true; await listSessions(); render(); }
+        else if (item.preset) applyPreset(item.preset);
+        else if (item.clearPreset) applyPreset('', item.text || '');
+        else { setDraft(item.text || ''); render(); }
     }
 
     async function resolveOpenContext(payload) {
@@ -3500,6 +3861,7 @@
         }
         runtime.host = host;
         runtime.mobile = options?.mobile === true;
+        watchWorkbenchLayout(host);
         if (!runtime.mounted) {
             runtime.mounted = true;
             await ensureStoreLoaded();
@@ -3622,7 +3984,15 @@
                 addDraggedTasksToContext(payload);
             });
             listen('keydown', (event) => {
+                const setting = event.target?.closest?.('[data-agent-setting], [data-agent-preset-menu]');
+                if (setting && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openSettingsMenu(setting.dataset.agentSetting || 'presets', setting);
+                    return;
+                }
                 if (event.key === 'Escape') {
+                    if (runtime.settingsMenu) { event.preventDefault(); event.stopPropagation(); closeSettingsMenu(true); return; }
                     const renameForm = event.target?.closest?.('[data-agent-session-rename]');
                     const openMenu = host.querySelector('.tm-agent-history__row.is-menu-open');
                     if (renameForm || openMenu) {
@@ -3682,7 +4052,10 @@
                 if (!target) return;
                 const action = text(target.dataset.agentAction);
                 const id = text(target.dataset.id);
-                if (action === 'send') await sendMessage();
+                if (target.disabled) return;
+                if (action === 'open-quick-presets') { event.stopPropagation(); openSettingsMenu('presets', target); }
+                else if (action === 'open-setting') { event.stopPropagation(); openSettingsMenu(text(target.dataset.agentSetting), target); }
+                else if (action === 'send') await sendMessage();
                 else if (action === 'stop') stop();
                 else if (action === 'scroll-to-bottom') scrollConversationToBottom();
                 else if (action === 'new-session') createSession();
@@ -3865,14 +4238,8 @@
                     const kind = text(target.dataset.kind);
                     removeContextItem(kind, id);
                     render();
-                } else if (action === 'suggestion') {
-                    const item = suggestions()[Number(target.dataset.index) || 0];
-                    if (!item) return;
-                    if (item.action === 'history') { runtime.historyOpen = true; await listSessions(); render(); }
-                    else if (item.preset) applyPreset(item.preset);
-                    else if (item.clearPreset) applyPreset('', item.text || '');
-                    else { setDraft(item.text || ''); render(); }
-                } else if (action === 'approve-confirm' || action === 'reject-confirm' || action === 'always-confirm') {
+                } else if (action === 'suggestion') await applySuggestion(target.dataset.index);
+                else if (action === 'approve-confirm' || action === 'reject-confirm' || action === 'always-confirm') {
                     target.disabled = true;
                     const submitted = await postConfirm(id, action !== 'reject-confirm', action === 'always-confirm');
                     if (!submitted && target.isConnected) target.disabled = false;
@@ -4154,6 +4521,9 @@
     }
 
     function cleanup() {
+        closeSettingsMenu();
+        runtime.layoutCleanup?.();
+        runtime.layoutCleanup = null;
         if (saveTimer) {
             clearTimeout(saveTimer);
             saveTimer = 0;

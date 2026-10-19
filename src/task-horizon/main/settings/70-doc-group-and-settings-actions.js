@@ -2809,6 +2809,16 @@
         }
     };
 
+    window.updateHideInboxFromAllTab = async function(enabled) {
+        SettingsStore.data.hideInboxFromAllTab = !!enabled;
+        await SettingsStore.save();
+        __tmRecomputeTaskProjection({ reason: 'inbox-all-tab-visibility' });
+        if (state.settingsModal) showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+        }
+    };
+
     window.updateNewTaskLocationMode = async function(value) {
         SettingsStore.data.newTaskDefaultLocationMode = __tmNormalizeNewTaskDefaultLocationMode(value);
         await SettingsStore.save();
