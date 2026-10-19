@@ -558,6 +558,8 @@
         const workbench = host?.querySelector?.('.tm-agent-workbench');
         if (!host?.isConnected || !workbench) return;
         const bounds = host.getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const visibleBottom = Math.min(bounds.bottom, (viewport?.offsetTop || 0) + (viewport?.height || window.innerHeight));
         const composer = workbench.querySelector('.tm-agent-composer');
         const bottomMargin = composer ? parseFloat(getComputedStyle(composer).marginBottom) || 0 : 0;
         let inset = 0;
@@ -567,6 +569,8 @@
             if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
             const visibleBar = overlay.querySelector('.tm-mobile-bottom-viewbar__inner') || overlay;
             const rect = visibleBar.getBoundingClientRect();
+            // 移动番茄钟可以拖到屏幕任意位置，只有靠近底边时才参与底栏避让。
+            if (overlay.id === 'siyuan-tomato-float-bar' && visibleBottom - rect.bottom > Math.max(16, rect.height)) return;
             if (rect.width > 0 && rect.height > 0 && rect.left < bounds.right && rect.right > bounds.left
                 && rect.top < bounds.bottom && rect.bottom > bounds.top) {
                 inset = Math.max(inset, Math.ceil(bounds.bottom - rect.top + 4 - bottomMargin));

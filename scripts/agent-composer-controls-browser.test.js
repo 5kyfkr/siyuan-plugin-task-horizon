@@ -297,6 +297,19 @@ function installHost() {
         assert.equal(await page.locator('[data-agent-preset-menu]').evaluate(el => el.getBoundingClientRect().height), 30, 'mobile preset button must use the desktop tab height');
         assert.ok(await page.locator('.tm-agent-composer-tools').evaluate(el => Math.abs(el.getBoundingClientRect().top - document.querySelector('[data-agent-preset-menu]').getBoundingClientRect().top) < 2));
         assert.equal(await page.locator('body').evaluate(el => el.scrollWidth <= window.innerWidth), true);
+        const mobileInset = await inset();
+        await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<div id="siyuan-tomato-float-bar" style="position:fixed;right:16px;top:200px;width:52px;height:52px;background:var(--b3-theme-surface);z-index:100">00:02</div>'));
+        await page.waitForTimeout(100);
+        assert.equal(await inset(), mobileInset, 'a draggable mobile timer in the conversation area must not lift the input into the upper half of the screen');
+        assert.ok(await page.locator('.tm-agent-composer').evaluate(el => el.getBoundingClientRect().top > window.innerHeight / 2), 'idle mobile input must stay in the lower half with a floating timer');
+        await page.screenshot({ path: path.join(output, 'mobile-floating-timer.png') });
+        await page.evaluate(() => { document.getElementById('siyuan-tomato-float-bar').style.cssText += ';top:auto;bottom:12px'; });
+        await page.waitForFunction(() => {
+            const bar = document.getElementById('siyuan-tomato-float-bar').getBoundingClientRect();
+            return document.querySelector('.tm-agent-composer').getBoundingClientRect().bottom <= bar.top - 4;
+        });
+        await page.evaluate(() => document.getElementById('siyuan-tomato-float-bar').remove());
+        await page.waitForFunction(expected => parseFloat(document.querySelector('.tm-agent-workbench').style.getPropertyValue('--tm-agent-bottom-inset')) === expected, mobileInset);
         await page.screenshot({ path: path.join(output, 'mobile.png') });
         await control('reasoning').focus();
         await page.keyboard.press('Enter');
