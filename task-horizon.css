@@ -21481,6 +21481,7 @@ th[data-col] {
 
 /* 字段设置实时预览：复用真实视图类名，仅做静态化与尺寸约束 */
 .tm-field-preview {
+    min-width: 0;
     margin-top: 12px;
 }
 
@@ -21493,6 +21494,7 @@ th[data-col] {
 }
 
 .tm-field-preview__stage {
+    min-width: 0;
     pointer-events: none;
     user-select: none;
 }
@@ -21580,6 +21582,11 @@ th[data-col] {
     width: max-content;
     max-width: 100%;
     z-index: auto;
+}
+
+.tm-field-preview .sy-custom-props-floatbar__row {
+    flex-wrap: wrap;
+    overflow: visible;
 }
 
 .tm-field-preview__chip--empty {
@@ -21753,7 +21760,9 @@ th[data-col] {
 }
 
 .tm-settings-chip-setting {
+    min-width: 0;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
 }
 
@@ -21776,7 +21785,9 @@ th[data-col] {
 }
 
 .tm-settings-chip-stack {
+    min-width: 0;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
 }
 

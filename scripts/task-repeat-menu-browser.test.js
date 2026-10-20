@@ -57,19 +57,23 @@ async function setup(page, entry, theme = 'light') {
         window.refreshTask = async () => {};
         window.notifyChange = async () => {};
         window.syncMetaChipFaces = window.syncSerializedSnapshot = () => {};
-        window.applyDraftRepeatRule = async value => { drafts.push(value); task.repeatRule = value; render(); };
+        window.applyDraftRepeatRule = async value => { drafts.push(value); task.repeatRule = value; hubState.editor = ''; render(); };
     }, { rule: baseRule, isDraft: entry === 2 });
     await page.addScriptTag({ content: production });
     await page.addScriptTag({ content: `
         const popover = document.querySelector('#hub'), root = popover, taskId = task.id;
         ${positioners[entry === 1 ? 1 : 0]}
         window.render = () => {
-            popover.innerHTML = '<button class="tm-task-time-hub__setting" data-tm-time-hub-card="repeat"><span class="tm-task-time-hub__setting-icon">↻</span><span class="tm-task-time-hub__setting-text"><span>循环</span><strong>自定义规则</strong></span></button>' + __tmRenderTaskTimeHubRepeatEditorHtml(task.repeatRule);
+            popover.innerHTML = '<button class="tm-task-time-hub__setting" data-tm-time-hub-card="repeat"><span class="tm-task-time-hub__setting-icon">↻</span><span class="tm-task-time-hub__setting-text"><span>循环</span><strong>自定义规则</strong></span></button>' + (hubState.editor === 'repeat' ? __tmRenderTaskTimeHubRepeatEditorHtml(task.repeatRule) : '');
             positionEditorPanel();
         };
         popover.addEventListener('click', async ev => {
             const target = ev.target;
             ${customHandlers[entry === 1 ? 1 : 0]}
+            if (target.closest('[data-tm-time-hub-card="repeat"]')) {
+                hubState.editor = hubState.editor === 'repeat' ? '' : 'repeat';
+                render();
+            }
         });
         window.addEventListener('resize', positionEditorPanel);
         render();
@@ -103,17 +107,25 @@ async function run() {
                 if (mode === 'checkin') await page.locator('.tm-repeat-modal').click({ position: { x: 2, y: 2 } });
                 assert.equal(await page.locator('.tm-repeat-modal').count(), 0);
                 assert.equal(await page.evaluate(() => JSON.stringify(task.repeatRule)), before, 'all cancellation paths preserve the rule');
+                assert.equal(await panel.count(), 1, 'cancelling leaves the repeat choices open');
             }
             assert.equal(await page.evaluate(() => writes.length + drafts.length), 0);
-            await panel.locator('[data-tm-time-hub-repeat-custom="complete"]').click();
-            await page.locator('[data-tm-repeat-field="every"]').fill('3');
-            await page.getByRole('button', { name: '确定', exact: true }).click();
-            await page.waitForFunction(() => task.repeatRule.trigger === 'complete');
-            assert.equal(await page.evaluate(() => task.repeatRule.every), 3);
-            assert.equal(await page.evaluate(() => writes.length), entry === 2 ? 0 : 1);
-            assert.equal(await page.evaluate(() => drafts.length), entry === 2 ? 1 : 0);
-            assert.equal(await panel.locator('[data-tm-time-hub-repeat-custom="complete"]').getAttribute('aria-pressed'), 'true');
-            console.log(`PASS ${['standalone', 'detail', 'draft'][entry]} preselection, cancellation, save and selection`);
+            for (const [index, mode] of ['due', 'complete', 'checkin'].entries()) {
+                await panel.locator(`[data-tm-time-hub-repeat-custom="${mode}"]`).click();
+                await page.locator('[data-tm-repeat-field="every"]').fill('3');
+                await page.getByRole('button', { name: '确定', exact: true }).click();
+                await page.waitForFunction(() => hubState.editor === '');
+                assert.equal(await page.locator('.tm-repeat-modal').count(), 0, 'saving closes the custom dialog');
+                assert.equal(await panel.count(), 0, 'saving also closes the repeat choices');
+                assert.equal(await page.locator('#hub').isVisible(), true, 'the date hub remains open');
+                assert.equal(await page.evaluate(() => task.repeatRule.trigger), mode);
+                assert.equal(await page.evaluate(() => task.repeatRule.every), 3);
+                assert.equal(await page.evaluate(() => writes.length), entry === 2 ? 0 : index + 1);
+                assert.equal(await page.evaluate(() => drafts.length), entry === 2 ? index + 1 : 0);
+                await page.locator('[data-tm-time-hub-card="repeat"]').click();
+                assert.equal(await panel.locator(`[data-tm-time-hub-repeat-custom="${mode}"]`).getAttribute('aria-pressed'), 'true');
+            }
+            console.log(`PASS ${['standalone', 'detail', 'draft'][entry]} preselection, cancellation and all three custom modes closing after save`);
         }
         await page.evaluate(() => { task.repeatRule = { enabled: true, type: 'fsrs', trigger: 'complete', anchorDate: '2026-10-19' }; window.compatResult = tmEditTaskRepeatRule(task.id); });
         assert.equal(await page.locator('#tm-repeat-trigger-type').inputValue(), 'fsrs');

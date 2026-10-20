@@ -3125,6 +3125,10 @@
 
     window.tmSwitchGroupMode = async function(mode) {
         const m = String(mode || '').trim();
+        if (m === 'quadrant' && state.viewMode === 'kanban' && __tmGetKanbanBoardMode() === 'quadrant') {
+            try { hint('四象限看板已固定按四象限展示，无需再设置分组', 'info'); } catch (e) {}
+            return;
+        }
         if (typeof __tmShortcuts !== 'undefined' && __tmShortcuts.context()) {
             const groupMode = __tmNormalizeGroupModeValue(m);
             __tmShortcuts.updateContext({ groupMode });
@@ -3177,7 +3181,7 @@
         }
         __tmRefreshSettingsProjectionView('settings-kanban-board-mode');
         if (typeof __tmShortcutSidebar !== 'undefined') __tmShortcutSidebar.refresh();
-        const labelMap = { status: '状态看板', heading: '标题看板', time: '时间看板' };
+        const labelMap = { status: '状态看板', heading: '标题看板', time: '时间看板', quadrant: '四象限看板' };
         try { hint(`✅ 已切换到${labelMap[next] || '状态看板'}`, 'success'); } catch (e) {}
     };
 
@@ -3432,6 +3436,7 @@
         SettingsStore.data.collapsedTaskIds = [...state.collapsedTaskIds];
         __tmMarkCollapseStateChanged();
         try { Storage.set('tm_collapsed_task_ids', SettingsStore.data.collapsedTaskIds); } catch (e) {}
+        try { globalThis.__tmCalendar?.refreshTaskListState?.(); } catch (e) {}
         const persistCollapsedTasks = () => {
             try {
                 const p = SettingsStore.save();

@@ -2580,6 +2580,24 @@
         isFieldEnabled: (field) => __tmTaskCardFieldEnabled('kanban', field),
         isDone: (task) => __tmIsTaskDoneEffective(task),
         isCanceled: (task) => __tmIsTaskCanceled(task),
+        showCompletedTasks: () => __tmGetShowCompletedTasksFromSettings(),
+        getCollapsedTaskIds: () => state.collapsedTaskIds,
+        setTaskCollapsed: (taskId, collapsed) => {
+            const id = String(taskId || '').trim();
+            if (!id) return;
+            if (collapsed) state.collapsedTaskIds.add(id);
+            else state.collapsedTaskIds.delete(id);
+            SettingsStore.data.collapsedTaskIds = Array.from(state.collapsedTaskIds);
+            __tmMarkCollapseStateChanged();
+            try { Storage.set('tm_collapsed_task_ids', SettingsStore.data.collapsedTaskIds); } catch (e) {}
+            try {
+                const pending = SettingsStore.save();
+                if (pending && typeof pending.catch === 'function') pending.catch(() => null);
+            } catch (e) {}
+            if (__tmHasCalendarSidebarChecklist(state.modal)) {
+                __tmRefreshCalendarSidebarChecklistPreserveScroll();
+            }
+        },
         renderCheckboxWrap: (taskId, task, options = {}) => __tmRenderTaskCheckboxWrap(taskId, task, options),
         updateCheckboxPriority: (container, task) => __tmUpdateTaskCheckboxPriorityInDOM(container, task),
         getChildren: (taskId) => globalThis.__tmRuntimeState?.listProjectedDirectChildren?.(taskId, { scanFlat: true }) || [],

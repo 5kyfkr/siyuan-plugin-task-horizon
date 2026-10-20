@@ -399,11 +399,11 @@ SOFTWARE.
                 <label>文档页签<select class="b3-select" data-field="docId"></select></label>
                 <label>视图<select class="b3-select" data-field="viewId">${optionHtml([{ id: 'home', name: '首页' }, ...__TM_ALL_VIEWS.filter(view => __tmIsViewEnabled(view.id)).map(view => ({ id: view.id, name: view.label }))], draft.viewId, labels.view)}</select></label>
                 <label data-kanban-field hidden>看板模式<select class="b3-select" data-field="kanbanBoardMode">${optionHtml([
-                    { id: '', name: '保持当前看板模式' }, { id: 'heading', name: '标题' }, { id: 'time', name: '时间' }, { id: 'status', name: '状态' }
+                    { id: '', name: '保持当前看板模式' }, { id: 'heading', name: '标题' }, { id: 'time', name: '时间' }, { id: 'status', name: '状态' }, { id: 'quadrant', name: '四象限' }
                 ], draft.kanbanBoardMode || '')}</select></label>
                 <label>任务分组<select class="b3-select" data-field="groupMode">${optionHtml([
                     { id: '', name: '保持当前分组' }, ...['none', 'doc', 'time', 'quadrant', 'task']
-                        .map(id => ({ id, name: __tmGetGroupModeLabel(id) }))
+                        .map(id => ({ id, name: id === 'quadrant' && draft.viewId === 'kanban' && draft.kanbanBoardMode === 'quadrant' ? '四象限（看板已固定）' : __tmGetGroupModeLabel(id), disabled: id === 'quadrant' && draft.viewId === 'kanban' && draft.kanbanBoardMode === 'quadrant' }))
                 ], draft.groupMode || '')}</select></label>
                 <p class="tm-shortcut-hint" data-group-hint hidden>当前视图不使用任务分组。</p>
                 <label>筛选规则<select class="b3-select" data-field="ruleId">${optionHtml([{ id: '', name: '不应用规则' }, ...__tmShortcuts.rules().filter(rule => rule.enabled !== false)], draft.ruleId, labels.rule)}</select></label>
@@ -413,6 +413,14 @@ SOFTWARE.
             const field = name => q(`[data-field="${name}"]`, root);
             const sync = () => {
                 for (const key of ['name', 'groupId', 'tabGroupId', 'docId', 'viewId', 'kanbanBoardMode', 'groupMode', 'ruleId']) draft[key] = field(key).value.trim();
+                if (draft.viewId === 'kanban' && draft.kanbanBoardMode === 'quadrant' && draft.groupMode === 'quadrant') draft.groupMode = 'none';
+                const groupModeSelect = field('groupMode');
+                if (groupModeSelect) {
+                    groupModeSelect.innerHTML = optionHtml([
+                        { id: '', name: '保持当前分组' }, ...['none', 'doc', 'time', 'quadrant', 'task']
+                            .map(id => ({ id, name: id === 'quadrant' && draft.viewId === 'kanban' && draft.kanbanBoardMode === 'quadrant' ? '四象限（看板已固定）' : __tmGetGroupModeLabel(id), disabled: id === 'quadrant' && draft.viewId === 'kanban' && draft.kanbanBoardMode === 'quadrant' }))
+                    ], draft.groupMode || '');
+                }
                 q('[data-kanban-field]', root).hidden = draft.viewId !== 'kanban';
                 const usesGrouping = draft.viewId !== 'home';
                 field('groupMode').disabled = !usesGrouping;

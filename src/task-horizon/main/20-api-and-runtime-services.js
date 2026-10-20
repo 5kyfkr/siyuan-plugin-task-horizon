@@ -5395,7 +5395,10 @@
                 if (repeatPatch?.repeatRule?.enabled && repeatPatch.repeatRule.type !== 'none') {
                     patch.repeatRule = repeatPatch.repeatRule;
                     patch.repeatState = repeatPatch.repeatState;
-                    if (repeatPatch.completionTime && !patch.completionTime) patch.completionTime = repeatPatch.completionTime;
+                    if (repeatPatch.repeatRule.trigger === 'checkin') {
+                        patch.startDate = '';
+                        patch.completionTime = '';
+                    } else if (repeatPatch.completionTime && !patch.completionTime) patch.completionTime = repeatPatch.completionTime;
                 }
             } catch (e) {}
         }
@@ -19903,7 +19906,7 @@ if (!state.homepageOpen) return;
 
     function __tmNormalizeKanbanBoardMode(value) {
         const m = String(value || '').trim().toLowerCase();
-        return (m === 'status' || m === 'heading' || m === 'time') ? m : '';
+        return (m === 'status' || m === 'heading' || m === 'time' || m === 'quadrant') ? m : '';
     }
 
     function __tmGetStoredKanbanBoardMode() {
@@ -28621,6 +28624,8 @@ return true;
         const kind = String(colEl.getAttribute('data-kind') || '').trim();
         const time = String(colEl.getAttribute('data-time') || '').trim();
         if (kind === 'time' || time) return `time:${time || kind}`;
+        const quadrant = String(colEl.getAttribute('data-quadrant') || '').trim();
+        if (kind === 'quadrant' || quadrant) return `quadrant:${quadrant || kind}`;
         const doc = String(colEl.getAttribute('data-doc') || '').trim();
         const heading = String(colEl.getAttribute('data-heading') || '').trim();
         if (kind || doc || heading) return `kind:${kind}|doc:${doc}|heading:${heading}`;

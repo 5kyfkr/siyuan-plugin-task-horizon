@@ -34,6 +34,7 @@ renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, c
         + (__tmKanbanGetCollapsedSet().has(task.id) ? ' hidden' : '') + '>' + children + '</div></article>';
 };\n`);
 const code = [read('32-runtime-state-and-events.js'), read('33-task-boundary-facades.js'), read('34-task-projection-engine.js'), read('21-view-render-state.js'), read('render/40-render-list-context-helpers.js'),
+    section(read('render/45-render-shell-controls-and-resize.js'), 'function __tmBuildGroupModeMenuOptions()', 'function __tmBuildKanbanModeMenuOptions()'),
     section(read('10-stores-rules-and-cache.js'), 'function __tmNormalizeCompletedTasksGroupBy(', 'function __tmGetTaskSnapshotRuleForView('),
     section(runtime, 'function __tmGetDocHeadingBucket(', 'function __tmTaskHasResolvedHeading('),
     section(runtime, 'function __tmBuildDocHeadingBuckets(', 'let __tmKanbanColsHtmlCache'),
@@ -65,7 +66,12 @@ async function setup(page) {
                 flatTasks: {}, taskTree: [], filteredTasks: [], otherBlocks: [], pendingInsertedTasks: {},
                 pendingDeletedTasks: {}, showCompletedTasks: true, rule: {}, searchKeyword: '' },
             __TM_OTHER_BLOCK_TAB_ID: '__other__',
-            SettingsStore: { data: { completedTasksInlineInGroups: true, kanbanAppearance: 'classic' } },
+            SettingsStore: { data: { completedTasksInlineInGroups: true, kanbanAppearance: 'classic', quadrantConfig: { rules: [
+                { id: 'urgent-important', name: '重要紧急', color: 'red', importance: ['high'], timeRanges: ['within7days'] },
+                { id: 'not-urgent-important', name: '重要不紧急', color: 'yellow', importance: ['high'], timeRanges: ['beyond7days'] },
+                { id: 'urgent-not-important', name: '不重要紧急', color: 'blue', importance: ['low'], timeRanges: ['within7days'] },
+                { id: 'not-urgent-not-important', name: '不重要不紧急', color: 'green', importance: ['low'], timeRanges: ['beyond7days'] },
+            ] } } },
             GlobalLock: { isLocked: () => false },
             __tmGroupBgFromLabelColor: () => '',
             __tmKanbanColsHtmlCache: null,
@@ -114,6 +120,8 @@ async function setup(page) {
             __tmGetTaskCompletedAtDateKey: (task) => String(task.taskCompleteAt || '').slice(0, 10),
             __tmGetTaskRepeatWeekdayLabel: () => '',
             __tmGetTaskTimePriorityInfo: (task) => ({ diffDays: task.days }),
+            __tmIsCheckinTask: () => false,
+            __tmGetTaskCheckinCurrentDate: () => '',
             __tmSortDocEntriesForTabs: (docs) => docs,
             __tmMoveGlobalNewTaskDocFirst: (docs) => docs,
             __tmGetDocColorHex: () => '#777777',
@@ -205,6 +213,66 @@ async function setup(page) {
         finally { await page.close(); }
     }
     try {
+        await run('quadrant board keeps four columns and supports inner document grouping', async (page) => {
+            const result = await page.evaluate(() => {
+                window.boardMode = 'quadrant';
+                state.quadrantEnabled = false;
+                SettingsStore.data.groupByTaskName = true;
+                const dateAfter = (days) => {
+                    const date = new Date();
+                    date.setHours(12, 0, 0, 0);
+                    date.setDate(date.getDate() + days);
+                    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} 12:00`;
+                };
+                setModel([
+                    { id: 'urgent-important', root_id: 'doc-a', docId: 'doc-a', priority: 'high', content: 'Alpha', completionTime: dateAfter(2) },
+                    { id: 'not-urgent-important', root_id: 'doc-b', docId: 'doc-b', priority: 'high', content: 'Beta', completionTime: dateAfter(10) },
+                    { id: 'urgent-not-important', root_id: 'doc-a', docId: 'doc-a', priority: 'low', content: 'Alpha', completionTime: dateAfter(2) },
+                    { id: 'not-urgent-not-important', root_id: 'doc-b', docId: 'doc-b', priority: 'low', content: 'Beta', completionTime: dateAfter(10) },
+                ]);
+                const modes = ['doc', 'time', 'task'];
+                const groupCounts = {};
+                for (const mode of modes) {
+                    state.groupByDocName = mode === 'doc';
+                    state.groupByTime = mode === 'time';
+                    state.groupByTaskName = mode === 'task';
+                    mount();
+                    groupCounts[mode] = state.modal.querySelectorAll('.tm-kanban-col[data-quadrant] .tm-kanban-group-title').length;
+                }
+                state.groupByDocName = true;
+                state.groupByTime = false;
+                state.groupByTaskName = false;
+                mount();
+                return {
+                    columns: Array.from(state.modal.querySelectorAll('.tm-kanban-col'), (col) => col.dataset.colKey),
+                    cards: Array.from(state.modal.querySelectorAll('.tm-kanban-card[data-id]'), (card) => ({
+                        id: card.dataset.id,
+                        column: card.closest('.tm-kanban-col')?.dataset.colKey,
+                    })),
+                    groupCounts,
+                    groupMenuValues: __tmBuildGroupModeMenuOptions().map((option) => option.value),
+                };
+            });
+            assert.deepEqual(result.columns, [
+                'quadrant:urgent-important', 'quadrant:not-urgent-important',
+                'quadrant:urgent-not-important', 'quadrant:not-urgent-not-important',
+            ]);
+            assert.deepEqual(result.cards, [
+                { id: 'urgent-important', column: 'quadrant:urgent-important' },
+                { id: 'not-urgent-important', column: 'quadrant:not-urgent-important' },
+                { id: 'urgent-not-important', column: 'quadrant:urgent-not-important' },
+                { id: 'not-urgent-not-important', column: 'quadrant:not-urgent-not-important' },
+            ]);
+            assert.deepEqual(result.groupCounts, { doc: 4, time: 4, task: 4 }, 'quadrant columns retain non-quadrant grouping modes');
+            assert.deepEqual(result.groupMenuValues, ['none', 'doc', 'time', 'task'], 'only redundant quadrant grouping is excluded');
+            const updated = await page.evaluate(() => {
+                __tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic', opId: 'quadrant-priority-change',
+                    taskId: 'urgent-important', patch: { priority: 'low' } });
+                const refreshed = patch(['urgent-important']);
+                return { refreshed, moved: placement('urgent-important'), columns: state.modal.querySelectorAll('.tm-kanban-col').length };
+            });
+            assert.deepEqual(updated, { refreshed: true, moved: [{ column: 'quadrant:urgent-not-important', parent: '' }], columns: 4 });
+        });
         await run('completed grouping stays independent of main grouping and preserves document headings', async (page) => {
             const results = await page.evaluate(() => {
                 SettingsStore.data.completedTasksInlineInGroups = false;

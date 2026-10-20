@@ -1269,6 +1269,12 @@
         window.addEventListener('tm:appearance-theme-updated', syncSideDayEventOpacity, { signal: __tmCalendarModuleLifecycleAbort.signal });
     } catch (e) {}
 
+    try {
+        document.addEventListener('visibilitychange', refreshCalendarNowIndicators, { signal: __tmCalendarModuleLifecycleAbort.signal });
+        window.addEventListener('focus', refreshCalendarNowIndicators, { signal: __tmCalendarModuleLifecycleAbort.signal });
+        window.addEventListener('tm:task-horizon-host-lifecycle', refreshCalendarNowIndicators, { signal: __tmCalendarModuleLifecycleAbort.signal });
+    } catch (e) {}
+
     function isVisibleCalendarExternalDragMirror(el, hostEl = null) {
         if (!(el instanceof HTMLElement)) return false;
         const host = hostEl instanceof Element ? hostEl : null;
@@ -19948,6 +19954,18 @@
         state.sideDay.autoCenterSuppressed = false;
     }
 
+    function refreshCalendarNowIndicators() {
+        if (document.hidden) return;
+        if (state.calendar && state.rootEl?.isConnected && !state.mainCalendarSuspended
+            && isTimeGridViewType(String(getCalendarView(state.calendar)?.type || state._lastViewType || '').trim())) {
+            try { state.queuePrototypeSurfaceRender?.({ nowIndicatorChanged: true }); } catch (e) {}
+        }
+        if (state.sideDay?.rootEl?.isConnected) {
+            try { state.sideDay.prototypeRender?.(); } catch (e) {}
+            try { scheduleSideDayNowIndicatorRefreshFallback(); } catch (e) {}
+        }
+    }
+
     function scheduleSideDayNowIndicatorRefreshFallback() {
         const side = state.sideDay;
         if (!side || typeof side.prototypeRender !== 'function') return;
@@ -20000,7 +20018,7 @@
             main.nowIndicatorTimer = setTimeout(() => {
                 main.nowIndicatorTimer = null;
                 main.nowIndicatorTimerTarget = 0;
-                try { main.queuePrototypeSurfaceRender(); } catch (e) {}
+                try { main.queuePrototypeSurfaceRender({ nowIndicatorChanged: true }); } catch (e) {}
                 scheduleMainNowIndicatorRefresh();
             }, delay);
         } catch (e) {
@@ -29549,7 +29567,7 @@
                         state.mainCalendarNeedsRefresh = false;
                         callCalendarAdapter(state.calendar, 'refetchEvents');
                     }
-                    state.queuePrototypeSurfaceRender?.();
+                    state.queuePrototypeSurfaceRender?.({ nowIndicatorChanged: true });
                 }
                 return true;
             } catch (e) {
@@ -29793,7 +29811,6 @@
             monthCursor: null,
             calendarExpanded: false,
             collapsedGroups: new Set(),
-            collapsedSubtasks: new Set(),
             listScrollRestore: null,
             calendarTransition: '',
             selectionTransition: '',
@@ -29819,13 +29836,6 @@
                             .filter(Boolean)
                         : [],
                 );
-                prototypeListState.collapsedSubtasks = new Set(
-                    Array.isArray(saved.collapsedSubtasks)
-                        ? saved.collapsedSubtasks
-                            .map((value) => String(value || '').trim())
-                            .filter(Boolean)
-                        : [],
-                );
             } catch (e) {}
         };
         const persistPrototypeListState = () => {
@@ -29834,7 +29844,6 @@
                 localStorage.setItem(prototypeListStateStorageKey, JSON.stringify({
                     calendarExpanded: prototypeListState.calendarExpanded === true,
                     collapsedGroups: Array.from(prototypeListState.collapsedGroups).slice(-200),
-                    collapsedSubtasks: Array.from(prototypeListState.collapsedSubtasks).slice(-200),
                 }));
             } catch (e) {}
         };
@@ -30152,6 +30161,12 @@
         const queuePrototypeSurfaceRender = (options = {}) => {
             if (!(prototypeSurface instanceof HTMLElement)) return;
             if (options.taskDoneChanged === true) prototypeLastRenderKey = '';
+            if (options.nowIndicatorChanged === true) {
+                // Clock changes must refresh the label and axis, even when
+                // event/settings snapshots still match the previous minute.
+                prototypeLastRenderKey = '';
+                prototypeLastEventSnapshot = null;
+            }
             if (state.mainCalendarSuspended) return;
             try { scheduleMainNowIndicatorRefresh(); } catch (e) {}
             if (prototypeRenderRaf) return;
@@ -31247,10 +31262,10 @@
                 } else if (listAction === 'toggle-subtasks') {
                     const taskId = String(listActionEl.getAttribute('data-tm-proto-list-task-id') || '').trim();
                     if (!taskId) return true;
-                    const collapsed = !prototypeListState.collapsedSubtasks.has(taskId);
-                    if (collapsed) prototypeListState.collapsedSubtasks.add(taskId);
-                    else prototypeListState.collapsedSubtasks.delete(taskId);
-                    persistPrototypeListState();
+                    const bridge = globalThis.__tmCalendarKanbanCardHelpers;
+                    if (typeof bridge?.setTaskCollapsed !== 'function') return true;
+                    const collapsed = !protoListCollapsedTaskIds().has(taskId);
+                    bridge.setTaskCollapsed(taskId, collapsed);
                     let updated = false;
                     prototypeSurface.querySelectorAll('[data-tm-proto-list-subtasks-owner]').forEach((section) => {
                         if (section.getAttribute('data-tm-proto-list-subtasks-owner') !== taskId) return;
@@ -34847,6 +34862,18 @@
                 return ['1', 'true', 'yes'].includes(String(raw || '').trim().toLowerCase());
             };
             const protoListTaskParentId = (task) => String(task?.parentTaskId || task?.parent_task_id || task?.parentId || task?.parent_id || '').trim();
+            const protoListShowCompletedTasks = () => {
+                const bridge = globalThis.__tmCalendarKanbanCardHelpers;
+                if (typeof bridge?.showCompletedTasks === 'function') return bridge.showCompletedTasks() !== false;
+                const data = (state.settingsStore || state.sideDay?.settingsStore)?.data;
+                const groupId = String(data?.currentGroupId || 'all').trim() || 'all';
+                const groupValue = data?.showCompletedTasksByGroup?.[groupId];
+                if (typeof groupValue === 'boolean') return groupValue;
+                if (typeof data?.showCompletedTasks === 'boolean') return data.showCompletedTasks;
+                return data?.excludeCompletedTasks !== true;
+            };
+            const protoListCollapsedTaskIds = () => globalThis.__tmCalendarKanbanCardHelpers?.getCollapsedTaskIds?.()
+                || new Set((state.settingsStore || state.sideDay?.settingsStore)?.data?.collapsedTaskIds || []);
             const protoListTaskDone = (task) => {
                 if (!task || typeof task !== 'object') return false;
                 try {
@@ -35116,7 +35143,8 @@
                     : typeof __tmRenderTaskCheckboxWrap === 'function'
                         ? __tmRenderTaskCheckboxWrap(checkboxTaskId, checkboxTask, { checked: done, stopMouseDown: true, stopPointerDown: true, stopClick: true })
                     : `<input class="tm-task-checkbox" type="checkbox" data-task-id="${esc(checkboxTaskId)}" ${done ? 'checked' : ''} onchange="tmSetDone('${esc(checkboxTaskId)}', this.checked, event)" onclick="event.stopPropagation()">`;
-                const childRows = children.map((child) => {
+                const showCompletedTasks = protoListShowCompletedTasks();
+                const childRows = children.filter((child) => showCompletedTasks || !protoListTaskDone(child)).map((child) => {
                     const childId = String(child?.id || child?.blockId || '').trim();
                     if (!childId) return '';
                     const childDone = protoListTaskDone(child);
@@ -35162,7 +35190,7 @@
                 }).join('');
                 const subtaskHtml = children.length
                     ? (() => {
-                        const collapsed = prototypeListState.collapsedSubtasks.has(id);
+                        const collapsed = protoListCollapsedTaskIds().has(id);
                         const completed = children.filter(protoListTaskDone).length;
                         const progress = children.length ? Math.round((completed / children.length) * 100) : 0;
                         const subtaskIcon = typeof bridge.renderBadgeIcon === 'function'
@@ -35375,8 +35403,11 @@
         };
         const protoRenderList = (view, events, settings) => {
             protoListChildContext = null;
+            const showCompletedTasks = protoListShowCompletedTasks();
             events = events.filter((eventApi) => !protoListIsTaskEvent(eventApi)
                 || !protoListTaskCanceled(protoListTaskSnapshot(eventApi)));
+            const isVisibleByCompletion = (eventApi) => showCompletedTasks
+                || !protoListIsTaskEvent(eventApi) || !protoListEventDone(eventApi);
             if (window.__tmCalendarAllTasksCache?.complete !== true && typeof window.tmWarmCalendarTaskCacheIfStale === 'function') {
                 try {
                     const warmStarted = window.tmWarmCalendarTaskCacheIfStale({
@@ -35426,13 +35457,13 @@
                 const visibleDayEvents = mergeCalendarAllDayReminders(
                     dayEvents.filter((eventApi) => !isDuplicateTaskDate(eventApi)),
                     { includeTimedSchedules: true },
-                );
+                ).filter(isVisibleByCompletion);
                 const spanEvents = visibleDayEvents.filter(protoIsSpanEvent);
                 // Occurrences have different event IDs, but the list renders
                 // task cards. Prefer today's card and retain only the latest
                 // missed occurrence for each task in the expired group.
                 const taskIdentity = (eventApi) => String(eventApi?.extendedProps?.__tmSourceTaskId || protoListTaskId(eventApi)).trim();
-                const visibleTaskIds = new Set(visibleDayEvents.filter(protoListIsTaskEvent).map(taskIdentity).filter(Boolean));
+                const visibleTaskIds = new Set(dayEvents.filter(protoListIsTaskEvent).map(taskIdentity).filter(Boolean));
                 const expiredCandidates = isToday
                     ? mergeCalendarAllDayReminders(events.filter((eventApi) => eventApi?.allDay === true
                         && protoListIsTaskEvent(eventApi)
@@ -35461,10 +35492,11 @@
                 return `<section class="tm-proto-list-day${isToday ? ' is-today' : ''}" data-tm-proto-list-day="${esc(key)}"><header><div><b>${esc(protoListDateLabel(date))}</b><span>周${protoWeekLabels[date.getDay()]}</span>${isToday ? '<em>今天</em>' : ''}</div><small>${visibleDayEvents.length ? `${visibleDayEvents.length} 项安排` : '暂无安排'}</small></header>${content}</section>`;
             }).join('');
             protoListChildContext = null;
-            const weekCells = weekDates.map((date) => protoListDateCell(date, focusDate, visibleKeys, events, settings)).join('');
+            const visibleEvents = events.filter(isVisibleByCompletion);
+            const weekCells = weekDates.map((date) => protoListDateCell(date, focusDate, visibleKeys, visibleEvents, settings)).join('');
             const weekdayCells = protoListWeekdayLabels(settings).map((label) => `<span class="weekday">${label}</span>`).join('');
             const monthCells = monthDates.map((date) => {
-                const cell = protoListDateCell(date, focusDate, visibleKeys, events, settings);
+                const cell = protoListDateCell(date, focusDate, visibleKeys, visibleEvents, settings);
                 return cell.replace('tm-proto-list-date-cell', `tm-proto-list-date-cell tm-proto-list-month-cell${date.getMonth() === monthCursor.getMonth() ? '' : ' is-outside'}`);
             }).join('');
             const calendarClasses = ['tm-proto-view', 'tm-proto-list', `is-day-count-${visibleDays.length}`, prototypeListState.calendarExpanded ? 'is-calendar-expanded' : '', prototypeListState.calendarTransition ? `is-calendar-transition-${prototypeListState.calendarTransition}` : ''].filter(Boolean).join(' ');
@@ -38025,7 +38057,8 @@
                         protoDateKey(prototypeListState.monthCursor),
                         prototypeListState.calendarExpanded ? 'list-calendar-expanded' : 'list-calendar-collapsed',
                          Array.from(prototypeListState.collapsedGroups).sort().join(','),
-                         Array.from(prototypeListState.collapsedSubtasks).sort().join(','),
+                         Array.from(protoListCollapsedTaskIds()).sort().join(','),
+                        protoListShowCompletedTasks() ? 1 : 0,
                          prototypeListState.selectionTransition,
                         prototypeListState.selectionTransitionFrom,
                         prototypeListState.selectionTransitionPhase,
@@ -43815,6 +43848,11 @@
         getViewType: () => String(getCalendarView(state.calendar)?.type || state._lastViewType || '').trim(),
         getDate: () => getCalendarDate(state.calendar),
         requestRefresh: scheduleCalendarRefresh,
+        refreshTaskListState: () => {
+            if (!isCalendarListViewType(String(getCalendarView(state.calendar)?.type || ''))) return false;
+            state.queuePrototypeSurfaceRender?.();
+            return true;
+        },
         refreshTaskPage: refreshTaskPageInPlace,
         refreshTaskDateSources: (options = {}) => {
             const opts = (options && typeof options === 'object') ? options : {};

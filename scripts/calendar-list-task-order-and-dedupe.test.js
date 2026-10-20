@@ -23,7 +23,7 @@ const dateKey = (date) => [date.getFullYear(), String(date.getMonth() + 1).padSt
 const context = vm.createContext({
     Date,
     window: {}, state: {},
-    prototypeListState: { focusDate: day, collapsedGroups: new Set(), collapsedSubtasks: new Set() },
+    prototypeListState: { focusDate: day, collapsedGroups: new Set() },
     esc: (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;'),
     protoDayStart: (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()),
     protoAddDays: addDays, protoDateKey: dateKey, protoSafeDate: (date) => date,
@@ -169,6 +169,9 @@ for (const sourceType of ['reminder', 'taskdate', 'schedule']) {
     assert.match(context.renderList({}, [latest], {}), /tm-proto-list-row--expired/, 'Yesterday\'s missed recurring occurrence belongs to the expired group');
     current.extendedProps.done = true;
     assert.deepEqual(renderIds(occurrences), [current.id], 'Completing today must not bring historical copies back into the expired group');
+    context.state.settingsStore = { data: { showCompletedTasks: false } };
+    assert.deepEqual(renderIds(occurrences), [], 'Hiding today’s completed occurrence must not resurrect missed historical copies');
+    delete context.state.settingsStore;
     assert.deepEqual(renderIds([...occurrences, yesterdayDue]), ['due-a', current.id], 'Other overdue tasks remain visible');
     context.protoListVisibleDays = () => [oldest.start];
     assert.deepEqual(renderIds(occurrences), [oldest.id], 'Browsing a past day preserves its occurrence');
@@ -205,4 +208,16 @@ taskSnapshots.set('task-a', { id: 'task-a', taskMarker: ' ', done: false });
 assert.deepEqual(renderIds([due]), ['due-a'], 'Reopened tasks must reappear');
 taskSnapshots.set('task-a', { id: 'task-a', taskMarker: 'X', done: true });
 assert.deepEqual(renderIds([due]), ['due-a'], 'Successful completion is not cancellation');
+context.state.settingsStore = { data: { showCompletedTasks: false } };
+const completedDue = { ...due, extendedProps: { ...due.extendedProps, done: true } };
+const completedSchedule = { ...scheduled, extendedProps: { ...scheduled.extendedProps, done: true } };
+assert.deepEqual(renderIds([completedDue, completedSchedule, otherDue, early]), ['due-b', 'early'], 'The list hides completed all-day and timed tasks when the task setting is off');
+assert.doesNotMatch(context.renderList({}, [completedDue], {}), /1 项安排/, 'Hidden tasks must not contribute to list counts');
+assert.deepEqual(renderIds([completedDue, ...independentSchedules]), independentSchedules.map(item => item.id), 'Independent schedules retain their separate lifecycle');
+context.state.settingsStore.data.showCompletedTasksByGroup = { all: true, hidden: false };
+assert.deepEqual(renderIds([completedDue]), ['due-a'], 'Current group visibility overrides the global setting');
+context.state.settingsStore.data.currentGroupId = 'hidden';
+assert.deepEqual(renderIds([completedDue]), [], 'Switching groups must immediately apply that group’s setting');
+context.__tmCalendarKanbanCardHelpers.showCompletedTasks = () => true;
+assert.deepEqual(renderIds([completedDue]), ['due-a'], 'The shared task helper is authoritative when available');
 console.log('calendar list task order and dedupe tests passed');

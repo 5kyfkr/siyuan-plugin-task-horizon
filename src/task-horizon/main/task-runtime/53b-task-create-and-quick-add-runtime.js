@@ -1084,8 +1084,8 @@
                 }, payload.repeatRule);
             } catch (e) {}
         }
-        const optimisticStartDate = String(repeatPatch?.startDate || payload.startDate || '').trim();
-        const optimisticCompletionTime = String(repeatPatch?.completionTime || payload.completionTime || '').trim();
+        const optimisticStartDate = String(repeatPatch?.startDate ?? payload.startDate ?? '').trim();
+        const optimisticCompletionTime = String(repeatPatch?.completionTime ?? payload.completionTime ?? '').trim();
         const nextTask = {
             id: tempId,
             clientId,

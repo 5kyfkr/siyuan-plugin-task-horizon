@@ -56,9 +56,11 @@ for (const field of ['startDate', 'completionTime', 'repeatRule', 'repeatState',
     for (const rule of [
         { conditions: [{ field: 'taskDate', operator: 'range_today' }] },
         { sort: [{ field: 'taskDate' }] },
+        { conditions: [{ field: 'completionTime', operator: 'range_today' }] },
+        { sort: [{ field: 'completionTime' }] },
     ]) {
         assert.equal(engine.analyzePatch({ [field]: 'changed' }, { ...base, rule }).projection, true,
-            `taskDate must depend on ${field} for both filtering and sorting`);
+            `planned task dates must depend on ${field} for both filtering and sorting`);
     }
 }
 

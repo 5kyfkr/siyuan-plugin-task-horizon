@@ -42,7 +42,7 @@ const calendar = {
 const state = {
     mounted: true, rootEl: oldRoot, wrapEl: wrap, calendar,
     mainCalendarHostSignature: oldRoot.signature,
-    queuePrototypeSurfaceRender() { counts.render++; },
+    queuePrototypeSurfaceRender(options) { counts.render++; counts.renderOptions = options; },
     taskMutationUnsubscribe() { counts.unsubscribe++; },
 };
 const context = vm.createContext({
@@ -98,6 +98,7 @@ for (const viewType of allMainCalendarViews) {
     assert.equal(placeholder.replacement, oldRoot, 'resume must reuse the root captured by handlers');
     assert.equal(oldRoot.child, wrap, 'the card DOM must survive the switch');
     assert.equal(state.mainCalendarSuspended, false);
+    assert.equal(counts.renderOptions?.nowIndicatorChanged, true, 'resume must invalidate the cached current-time label');
     assert.equal(calendar.date, '2026-09-28');
     assert.equal(counts.refetch, 0, 'unchanged task-view switches must not reload sources');
 }

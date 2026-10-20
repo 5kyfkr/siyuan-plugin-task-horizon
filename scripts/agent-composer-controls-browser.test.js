@@ -22,7 +22,7 @@ function installHost() {
             ] },
             { id: 'off', displayName: '已停用', enabled: false, models: [{ id: 'off', name: 'off-model', enabled: true }] },
         ] }, appearance: { lang: 'zh_CN' } },
-        storage: { 'siyuan-agent-reasoning-effort': 'medium' }, languages: {},
+        storage: { 'siyuan-agent-reasoning-effort': 'medium' }, languages: {}, zIndex: 10,
     };
     window.__hostState = { confirmAccepted: true, confirms: [], notices: [], settingsOpened: 0 };
     let savedStore = { toolsOnboardingDismissed: true };
@@ -50,12 +50,24 @@ function installHost() {
         open({ x, y }) {
             this.element.style.cssText = `position:fixed;left:${x}px;top:${y}px`;
             if (__hostState.nativeMenuSheet) {
+                document.activeElement?.blur();
+                this.scrim = document.createElement('div');
+                this.scrim.id = 'commonMenuScrim';
+                this.scrim.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:${++siyuan.zIndex}`;
+                this.scrim.addEventListener('click', () => this.close());
+                document.body.append(this.scrim);
                 this.element.classList.add('b3-menu--fullscreen', 'b3-menu--sheet');
                 this.element.style.cssText = 'position:fixed;bottom:0;left:0;width:100%';
+                this.element.style.transform = 'translateY(100%)';
+                this.openFrame = requestAnimationFrame(() => {
+                    if (__hostState.nativeMenuResize) window.dispatchEvent(new Event('resize'));
+                    this.element.style.transform = 'translateY(0px)';
+                });
             }
+            this.element.style.zIndex = String(++siyuan.zIndex);
             document.body.append(this.element);
         }
-        close() { this.element.remove(); this.closeCB?.(); }
+        close() { cancelAnimationFrame(this.openFrame); this.element.remove(); this.scrim?.remove(); this.closeCB?.(); }
     }
     window.__taskHorizonHostBridge = {
         app: { appId: 'agent-controls-test' }, Menu,
@@ -121,7 +133,7 @@ function installHost() {
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, hasTouch: true });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     const control = kind => page.locator(`[data-agent-setting="${kind}"]`);
@@ -326,10 +338,63 @@ function installHost() {
             style.setProperty('--b3-border-color', '#4c5664');
         });
         await page.screenshot({ path: path.join(output, 'mobile-dark.png') });
+        const shellSource = read('src/task-horizon/main/40-render-runtime.js');
+        const shellStyles = ['.tm-ai-mobile-shell', '.tm-ai-mobile-panel'].map(selector => {
+            const start = shellSource.indexOf(selector + ' {');
+            return shellSource.slice(start, shellSource.indexOf('}', start) + 1);
+        }).join('\n');
+        const hostStyles = ['.tm-modal', '.tm-modal.tm-modal--mobile', '.tm-modal.tm-modal--dock', '.tm-main-stage', '.tm-main-stage:has(> .tm-ai-mobile-shell)'].map(selector => {
+            const source = read('task-horizon.css');
+            const start = source.indexOf(selector + ' {');
+            return source.slice(start, source.indexOf('}', start) + 1);
+        }).join('\n');
+        await page.addStyleTag({ content: hostStyles + shellStyles + '\n.tm-box { display:flex;flex-direction:column;width:100%;height:100%;background:var(--b3-theme-background); }' });
+        await page.evaluate(() => {
+            document.getElementById('status').style.display = 'none';
+            const shell = document.createElement('div');
+            shell.className = 'tm-modal tm-modal--mobile';
+            shell.innerHTML = '<div class="tm-box"><div class="tm-main-stage"><div class="tm-ai-mobile-shell"><div class="tm-ai-mobile-panel"></div></div></div></div>';
+            document.body.append(shell);
+            shell.querySelector('.tm-ai-mobile-panel').append(document.getElementById('host'));
+        });
+        await page.waitForTimeout(50);
         await page.evaluate(() => { __hostState.nativeMenuSheet = true; });
-        await control('model').click();
-        assert.equal(await page.locator('.b3-menu').evaluate(el => el.style.top), '', 'native mobile sheets must retain their host positioning');
-        await page.keyboard.press('Escape');
+        const sheetHitTarget = () => page.locator('.b3-menu button').first().evaluate(el => {
+            const rect = el.getBoundingClientRect();
+            return el.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+        });
+        for (const kind of ['model', 'reasoning', 'permission']) {
+            await control(kind).tap();
+            await page.waitForTimeout(50);
+            assert.equal(await page.locator('.b3-menu').evaluate(el => el.style.top), '', 'native mobile sheets must retain their host positioning');
+            assert.equal(await sheetHitTarget(), true, `${kind} sheet must receive taps above the full-screen AI workspace`);
+            await page.locator('.b3-menu button').first().tap();
+        }
+        await page.evaluate(() => { __hostState.nativeMenuResize = true; });
+        await page.locator('[data-agent-draft]').focus();
+        await control('reasoning').tap();
+        await page.waitForTimeout(100);
+        assert.equal(await page.locator('.b3-menu').count(), 1, 'native sheet must survive keyboard and viewport resize while opening');
+        await page.evaluate(() => { document.getElementById('host').style.height = '580px'; });
+        await page.waitForTimeout(50);
+        assert.equal(await page.locator('.b3-menu').count(), 1, 'native sheet must also survive its workspace host being resized');
+        assert.equal(await sheetHitTarget(), true);
+        await page.screenshot({ path: path.join(output, 'mobile-native-menu.png') });
+        await page.locator('.b3-menu button').filter({ hasText: '低' }).click();
+        await waitLabel('reasoning', '低');
+        await control('permission').click();
+        await page.waitForTimeout(50);
+        await page.locator('#commonMenuScrim').click({ position: { x: 8, y: 8 } });
+        assert.equal(await page.locator('.b3-menu').count(), 0);
+        await page.evaluate(() => {
+            const shell = document.querySelector('.tm-modal');
+            shell.classList.add('tm-modal--dock');
+            shell.style.height = '100vh';
+        });
+        await control('model').tap();
+        await page.waitForTimeout(50);
+        assert.equal(await sheetHitTarget(), true, 'native mobile menu must also be tappable in Dock');
+        await page.locator('.b3-menu button').first().click();
         await page.evaluate(() => __tmAI.cleanup());
         assert.deepEqual(errors, [], 'controls must not emit browser errors');
         console.log('Agent composer controls browser tests passed: model, reasoning, permission, request consistency, failure rollback, responsive layout and floating-bar avoidance');

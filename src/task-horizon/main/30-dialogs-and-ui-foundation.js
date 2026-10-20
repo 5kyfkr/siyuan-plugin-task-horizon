@@ -2356,7 +2356,7 @@
             return __tmNormalizeKanbanBoardMode(mode) || null;
         }
         const value = String(mode || '').trim().toLowerCase();
-        return ['time', 'heading', 'status'].includes(value) ? value : null;
+        return ['time', 'heading', 'status', 'quadrant'].includes(value) ? value : null;
     }
 
     function __tmGetExplicitViewProfileDefaultViewMode(profile) {
@@ -2669,12 +2669,12 @@
         const rule = __tmFindRuleById(normalized.ruleId);
         const nextRuleId = rule ? String(rule.id || '').trim() : null;
         const prevDoneOnly = !!state.__tmQueryDoneOnly;
-        const groupMode = __tmNormalizeGroupModeValue(normalized.groupMode, 'none');
         const prevViewMode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
         const profileDefaultViewMode = __tmNormalizeViewProfileDefaultViewMode(normalized.defaultViewMode);
         const profileKanbanBoardMode = profileDefaultViewMode === 'kanban'
             ? __tmNormalizeViewProfileKanbanBoardMode(normalized.defaultKanbanBoardMode)
             : null;
+        const groupMode = __tmNormalizeGroupModeValue(normalized.groupMode, 'none');
 
         state.currentRule = nextRuleId;
         if (opts.runtimeOnly !== true) {
@@ -2894,6 +2894,7 @@
         if (value === 'time') return '时间看板';
         if (value === 'heading') return '标题看板';
         if (value === 'status') return '状态看板';
+        if (value === 'quadrant') return '四象限看板';
         return '';
     }
 
@@ -11899,8 +11900,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         const kanbanOptionsHtml = [
             { id: 'time', label: '时间看板' },
             { id: 'heading', label: '标题看板' },
-            { id: 'status', label: '状态看板' }
+            { id: 'status', label: '状态看板' },
+            { id: 'quadrant', label: '四象限看板' }
         ].map((item) => `<option value="${item.id}" ${kanbanBoardMode === item.id ? 'selected' : ''}>${item.label}</option>`).join('');
+        const quadrantGroupOptionHtml = viewMode === 'kanban' && kanbanBoardMode === 'quadrant'
+            ? `<option value="quadrant" ${mode === 'quadrant' ? 'selected' : ''} disabled>四象限（看板已固定）</option>`
+            : `<option value="quadrant" ${mode === 'quadrant' ? 'selected' : ''}>四象限</option>`;
         const isMobileProfileModal = __tmIsViewProfileMobileContext();
         const boxStyle = isMobileProfileModal
             ? 'width:100vw; height:100dvh; max-height:100dvh; border-radius:0; position:relative; display:flex; flex-direction:column; overflow:hidden;'
@@ -11934,7 +11939,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                             <option value="none" ${mode === 'none' ? 'selected' : ''}>不分组</option>
                             <option value="doc" ${mode === 'doc' ? 'selected' : ''}>按文档</option>
                             <option value="time" ${mode === 'time' ? 'selected' : ''}>按时间</option>
-                            <option value="quadrant" ${mode === 'quadrant' ? 'selected' : ''}>四象限</option>
+                            ${quadrantGroupOptionHtml}
                             ${hasTaskModeOption ? `<option value="task" ${mode === 'task' ? 'selected' : ''}>按任务名</option>` : ''}
                         </select>
                     </label>
@@ -11997,19 +12002,29 @@ return Number(state.contextInteractionQuietUntil || 0);
         modal.onclick = (ev) => {
             if (ev.target === modal) close();
         };
-        if (viewSelect && kanbanRow instanceof HTMLElement) {
-            viewSelect.onchange = () => {
-                kanbanRow.style.display = __tmNormalizeViewProfileDefaultViewMode(viewSelect.value) === 'kanban' ? 'flex' : 'none';
-            };
-        }
+        const syncKanbanGroupingOptions = () => {
+            const kanbanView = __tmNormalizeViewProfileDefaultViewMode(viewSelect?.value) === 'kanban';
+            const quadrantBoard = kanbanView && kanbanSelect?.value === 'quadrant';
+            if (kanbanRow instanceof HTMLElement) kanbanRow.style.display = kanbanView ? 'flex' : 'none';
+            const quadrantOption = modeSelect?.querySelector('option[value="quadrant"]');
+            if (quadrantOption) {
+                quadrantOption.disabled = quadrantBoard;
+                quadrantOption.textContent = quadrantBoard ? '四象限（看板已固定）' : '四象限';
+            }
+            if (quadrantBoard && modeSelect?.value === 'quadrant') modeSelect.value = 'none';
+        };
+        if (viewSelect) viewSelect.onchange = syncKanbanGroupingOptions;
+        if (kanbanSelect) kanbanSelect.onchange = syncKanbanGroupingOptions;
+        syncKanbanGroupingOptions();
         if (saveBtn) {
             saveBtn.onclick = async () => {
                 const nextRuleId = String(ruleSelect?.value || '').trim() || null;
-                const nextMode = __tmNormalizeGroupModeValue(modeSelect?.value, 'none');
+                let nextMode = __tmNormalizeGroupModeValue(modeSelect?.value, 'none');
                 const nextViewMode = __tmNormalizeViewProfileDefaultViewMode(viewSelect?.value);
                 const nextKanbanBoardMode = nextViewMode === 'kanban'
                     ? (__tmNormalizeViewProfileKanbanBoardMode(kanbanSelect?.value) || 'status')
                     : null;
+                if (nextViewMode === 'kanban' && nextKanbanBoardMode === 'quadrant' && nextMode === 'quadrant') nextMode = 'none';
                 const nextMobileViewDisabled = !!nextViewMode && !!mobileViewDisabledInput?.checked;
                 await __tmSaveViewProfileConfig(kind, targetId, {
                     ruleId: nextRuleId,

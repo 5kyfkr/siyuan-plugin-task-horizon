@@ -137,6 +137,14 @@
             repeatRule: nextRule,
             repeatState: nextState,
         };
+        // Check-in schedules own their dates through anchorDate. Clear legacy
+        // task dates so they cannot conflict with the check-in plan or filters.
+        if (nextRule.enabled && nextRule.trigger === 'checkin') {
+            patch.startDate = '';
+            patch.completionTime = '';
+            nextState.lastInstanceStart = '';
+            nextState.lastInstanceDue = '';
+        }
         if (scheduleChanged && nextRule.trigger !== 'checkin' && __tmMonthRepeatCore?.isExplicit(nextRule)) {
             const currentKey = __tmNormalizeDateOnly(task.completionTime || task.startDate || nextRule.anchorDate);
             const firstKey = __tmMonthRepeatCore.nextDateKey(nextRule, currentKey, true);

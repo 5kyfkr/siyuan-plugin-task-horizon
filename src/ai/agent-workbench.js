@@ -374,6 +374,11 @@
         if (restoreFocus && opened) runtime.host?.querySelector?.(opened.kind === 'presets' ? '[data-agent-preset-menu]' : `[data-agent-setting="${opened.kind}"]`)?.focus?.();
     }
 
+    function closeAnchoredSettingsMenu() {
+        // 原生移动菜单会等待键盘收起，期间的视口变化不能取消正在展开的底部菜单。
+        if (!runtime.settingsMenu?.menu?.element?.matches('.b3-menu--sheet, .b3-menu--fullscreen')) closeSettingsMenu();
+    }
+
     function syncComposerControls() {
         const model = selectedAgentModel();
         const effort = selectedReasoningEffort();
@@ -497,6 +502,14 @@
         syncComposerControls();
         const Menu = bridge().Menu;
         if (!Menu) { showSessionNotice('当前客户端无法打开设置菜单，请重新加载插件', 'warning'); return; }
+        // 原生菜单使用思源的层级计数器，需先跨过工作区及其外层弹窗的显示层级。
+        if (window.siyuan) {
+            let layer = Number(window.siyuan.zIndex) || 0;
+            for (let element = trigger; element; element = element.parentElement) {
+                layer = Math.max(layer, Number.parseInt(getComputedStyle(element).zIndex, 10) || 0);
+            }
+            window.siyuan.zIndex = layer;
+        }
         const sessionID = runtime.activeSessionID;
         const menu = new Menu(`task-horizon-agent-${kind}`, () => {
             if (runtime.settingsMenu?.menu === menu) runtime.settingsMenu = null;
@@ -576,7 +589,7 @@
                 inset = Math.max(inset, Math.ceil(bounds.bottom - rect.top + 4 - bottomMargin));
             }
         });
-        if (runtime.bottomInset !== inset) closeSettingsMenu();
+        if (runtime.bottomInset !== inset) closeAnchoredSettingsMenu();
         runtime.bottomInset = inset;
         workbench.style.setProperty('--tm-agent-bottom-inset', `${inset}px`);
     }
@@ -590,7 +603,7 @@
         const controller = new AbortController();
         const observed = new Set();
         const resize = typeof ResizeObserver === 'function' ? new ResizeObserver((entries) => {
-            if (entries.some((entry) => entry.target === host)) closeSettingsMenu();
+            if (entries.some((entry) => entry.target === host)) closeAnchoredSettingsMenu();
             scheduleWorkbenchLayout();
         }) : null;
         resize?.observe(host);
@@ -612,7 +625,7 @@
         children.observe(document.body, { childList: true });
         attributes.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
         attributes.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] });
-        window.addEventListener('resize', () => { closeSettingsMenu(); refresh(); }, { signal: controller.signal });
+        window.addEventListener('resize', () => { closeAnchoredSettingsMenu(); refresh(); }, { signal: controller.signal });
         window.addEventListener('focus', () => { syncComposerControls(); refresh(); }, { signal: controller.signal });
         window.visualViewport?.addEventListener('resize', refresh, { signal: controller.signal });
         window.visualViewport?.addEventListener('scroll', scheduleWorkbenchLayout, { signal: controller.signal });
@@ -951,6 +964,7 @@
             runtime.store = normalizeStore(null);
         }
         runtime.activeSessionID = runtime.store.activeSessionID;
+        if (runtime.session?.id !== runtime.activeSessionID) runtime.session = null;
         runtime.context = clone(runtime.store.context);
         runtime.presetID = getPreset(runtime.store.presetID) ? runtime.store.presetID : '';
         runtime.store.pinnedPresetIDs = runtime.store.pinnedPresetIDs.filter((id) => !!getPreset(id));
@@ -1443,16 +1457,16 @@
 
     function createSession() {
         if (sessionSwitchBlocked()) return runtime.session;
-        const id = newID();
-        runtime.activeSessionID = id;
-        runtime.session = { id, title: DEFAULT_SESSION_TITLE, titled: false, entries: [], createdAt: Date.now(), updatedAt: Date.now() };
+        // 空白会话只保存草稿；首条消息落盘后才记录会话 ID。
+        if (runtime.session) delete runtime.store.drafts.new;
+        runtime.activeSessionID = '';
+        runtime.session = { id: '', title: DEFAULT_SESSION_TITLE, titled: false, entries: [], createdAt: Date.now(), updatedAt: Date.now() };
         runtime.session.model = selectedAgentModel()?.id || '';
         runtime.session.permissionMode = 'confirm';
         runtime.live = null;
         runtime.conversationFollowBottom = true;
         runtime.historyOpen = false;
-        rememberSession(id);
-        runtime.store.activeSessionID = id;
+        runtime.store.activeSessionID = '';
         scheduleSave();
         render();
         return runtime.session;
@@ -1506,6 +1520,18 @@
             render();
             return session;
         } catch (error) {
+            // 兼容旧版本残留或已被删除的会话 ID；显式打开的会话仍需等待同步。
+            if (options.recoverMissing === true && isMissingAgentSessionError(error)
+                && sessionID === runtime.activeSessionID && sessionID === runtime.store.activeSessionID
+                && !(Number(options.sessionUpdatedAt) > 0) && !runtime.busy && !runtime.settingsBusy) {
+                const draft = getDraft();
+                const session = createSession();
+                setDraft(draft);
+                showSessionNotice('原会话在当前设备上不可用，已新建会话', 'info');
+                runtime.statusText = '';
+                render();
+                return session;
+            }
             runtime.statusText = isMissingAgentSessionError(error)
                 ? '会话在当前设备上不可用，请完成思源数据同步后重试'
                 : `会话读取失败：${text(error?.message || error)}`;
@@ -3490,14 +3516,17 @@
         const preset = getPreset(runtime.presetID);
         const userText = raw || text(preset?.starter);
         if (!userText) return;
-        if (runtime.activeSessionID && !runtime.session && !await loadSession(runtime.activeSessionID)) return;
+        if (!runtime.session) {
+            if (runtime.activeSessionID) {
+                if (!await loadSession(runtime.activeSessionID, { recoverMissing: true })) return;
+            } else createSession();
+        }
         if (!selectedAgentModel(true)) {
             showSessionNotice('请先在思源设置 - 人工智能中配置并启用模型', 'warning');
             return;
         }
         if (!await ensureTaskToolsReadyForSend()) return;
         await syncDocumentGroupSnapshot();
-        if (!runtime.activeSessionID) createSession();
         const currentViewSnapshot = await syncCurrentViewContext();
         if (runtime.context.scope && !text(currentViewSnapshot?.scopeToken)) {
             runtime.statusText = runtime.statusText || '无法注册完整任务范围，请稍后重试';
@@ -3872,8 +3901,8 @@
             await Promise.all([getCapabilities(), listSessions()]);
             if (runtime.capabilities?.mcpEnabled) await syncBuiltinSkills();
             else startCapabilityRetry();
-            if (runtime.activeSessionID) await loadSession(runtime.activeSessionID);
-            else createSession();
+            if (runtime.activeSessionID) await loadSession(runtime.activeSessionID, { recoverMissing: true });
+            else if (!runtime.session) createSession();
         }
         if (!host.isConnected || runtime.host !== host) return false;
         if (!runtime.viewContextListener) {

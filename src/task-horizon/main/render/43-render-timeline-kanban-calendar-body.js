@@ -512,6 +512,7 @@
             const boardMode = __tmGetKanbanBoardMode();
             const headingMode = boardMode === 'heading';
             const timeBoardMode = boardMode === 'time';
+            const quadrantBoardMode = boardMode === 'quadrant';
             const showColumnProgress = kanbanAppearance === 'lanes' && headingMode;
             const completedTasksInlineInGroups = SettingsStore.data.completedTasksInlineInGroups === true;
             const kanbanShowDoneColumn = SettingsStore.data.kanbanShowDoneColumn === true;
@@ -808,7 +809,7 @@
             }
             const ownsCompletedKanbanTree = (task) => __tmIsTaskDoneForTailGroup(task)
                 && (showDoneCol || kanbanUseCompletedTailGroups
-                    || (!headingMode && !timeBoardMode
+                    || (!headingMode && !timeBoardMode && !quadrantBoardMode
                         && __tmDoesStatusIdResolveToDone(__tmResolveTaskStatusId(task, statusOptions), statusOptions)));
             const kanbanColumnTaskById = new Map();
             const getKanbanColumnTask = (task) => {
@@ -896,8 +897,9 @@
                 if (typeof fallbackCompare === 'function') list.sort(fallbackCompare);
                 return list;
             };
-            const isUngroupForKanban = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
-            const needDocFlowForKanban = allowDocFlowForKanban && (!!state.groupByDocName || isUngroupForKanban || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled);
+            const kanbanQuadrantGrouping = !!state.quadrantEnabled && !quadrantBoardMode;
+            const isUngroupForKanban = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !kanbanQuadrantGrouping;
+            const needDocFlowForKanban = allowDocFlowForKanban && (!!state.groupByDocName || isUngroupForKanban || !!state.groupByTaskName || !!state.groupByTime || kanbanQuadrantGrouping);
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const kanbanDetailTaskId = String(state.kanbanDetailTaskId || '').trim();
             const kanbanDetailTask = kanbanDetailTaskId
@@ -955,6 +957,23 @@
                     const av = Number(a?.sortValue);
                     const bv = Number(b?.sortValue);
                     return (Number.isFinite(av) ? av : Infinity) - (Number.isFinite(bv) ? bv : Infinity);
+                });
+            };
+            const buildQuadrantBoardCols = () => {
+                const fallbackNames = {
+                    'urgent-important': '重要紧急',
+                    'not-urgent-important': '重要不紧急',
+                    'urgent-not-important': '不重要紧急',
+                    'not-urgent-not-important': '不重要不紧急',
+                };
+                return quadrantOrder.map((id) => {
+                    const rule = quadrantRules.find((item) => String(item?.id || '').trim() === id) || {};
+                    return {
+                        id,
+                        name: String(rule.name || fallbackNames[id] || id).trim(),
+                        color: quadrantColorMap[String(rule.color || '').trim()] || 'var(--tm-text-color)',
+                        kind: 'quadrant',
+                    };
                 });
             };
             const docsInOrder = __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId).map(d => String(d?.id || '').trim()).filter(Boolean);
@@ -1058,6 +1077,7 @@
                 `;
             }
             const cols = (() => {
+                if (quadrantBoardMode) return buildQuadrantBoardCols();
                 if (timeBoardMode) {
                     const timeCols = buildTimeBoardCols();
                     return showDoneCol ? [...timeCols, doneOpt] : timeCols;
@@ -1225,6 +1245,10 @@
                 const columnTask = getKanbanColumnTask(task);
                 const columnTaskDone = __tmIsTaskDoneForTailGroup(columnTask);
                 if (showDoneCol && columnTaskDone) return '__done__';
+                if (quadrantBoardMode) {
+                    const ruleId = String(resolveQuadrantRule(columnTask)?.id || '').trim();
+                    return quadrantOrder.includes(ruleId) ? ruleId : '';
+                }
                 if (timeBoardMode) return String(getTimeBoardGroup(task)?.key || 'pending').trim() || 'pending';
                 if (!headingMode) return __tmResolveTaskStatusId(columnTask, statusOptions);
                 if (isAllTabsView) return String(columnTask?.root_id || '').trim() || '__unknown__';
@@ -1440,7 +1464,7 @@
             const colsHtml = cols.map(c => {
                 const list0 = tasksByStatus.get(c.id) || [];
                 const isDoneCol = String(c?.id || '').trim() === '__done__';
-                const isCompletedStatusCol = isDoneCol || (!headingMode && __tmDoesStatusIdResolveToDone(String(c?.id || '').trim(), statusOptions));
+                const isCompletedStatusCol = isDoneCol || (!headingMode && !quadrantBoardMode && __tmDoesStatusIdResolveToDone(String(c?.id || '').trim(), statusOptions));
                 const map = new Map();
                 const pinnedGroupBg = 'var(--tm-pinned-bg)';
                 list0.forEach(t => {
@@ -1686,7 +1710,7 @@
                     return `<div class="tm-kanban-group">${renderGroupTitle(doneGroupKey, doneTitle, completedRoots.length, 'var(--tm-secondary-text)', { collapsed: doneCollapsed })}${doneBody}</div>`;
                 };
                 const pinWithinKanbanGroups = !!SettingsStore.data.pinTasksWithinGroups
-                    && !!(state.groupByDocName || state.groupByTaskName || state.groupByTime || state.quadrantEnabled);
+                    && !!(state.groupByDocName || state.groupByTaskName || state.groupByTime || kanbanQuadrantGrouping || quadrantBoardMode);
                 const sortKanbanGroupItems = (items, compare) => {
                     const list = Array.isArray(items) ? items : [];
                     const fallbackCompare = typeof compare === 'function' ? compare : sortByIdx;
@@ -2002,16 +2026,18 @@
                 const count = roots.length + completedRoots.length;
                 const kind = isDoneCol
                     ? 'status'
-                    : (timeBoardMode ? 'time' : (headingMode ? (String(c?.kind || '').trim() || (isAllTabsView ? 'doc' : 'heading')) : 'status'));
+                    : (quadrantBoardMode ? 'quadrant' : (timeBoardMode ? 'time' : (headingMode ? (String(c?.kind || '').trim() || (isAllTabsView ? 'doc' : 'heading')) : 'status')));
                 const columnKey = isDoneCol
                     ? `done:${boardMode || 'status'}`
-                    : (timeBoardMode
-                        ? `time:${String(c?.id || '').trim()}`
-                        : (headingMode
-                            ? (kind === 'doc'
-                                ? `doc:${String(c?.id || '').trim()}`
-                                : `heading:${String(c?.docId || '').trim()}:${String(c?.headingId || '__none__').trim() || '__none__'}`)
-                            : `status:${String(c?.id || '').trim()}`));
+                    : (quadrantBoardMode
+                        ? `quadrant:${String(c?.id || '').trim()}`
+                        : (timeBoardMode
+                            ? `time:${String(c?.id || '').trim()}`
+                            : (headingMode
+                                ? (kind === 'doc'
+                                    ? `doc:${String(c?.id || '').trim()}`
+                                    : `heading:${String(c?.docId || '').trim()}:${String(c?.headingId || '__none__').trim() || '__none__'}`)
+                                : `status:${String(c?.id || '').trim()}`)));
                 const isColumnCollapsed = kanbanCollapsedColumnKeys.has(columnKey);
                 // Use the renderer's own membership rules for the destination;
                 // the caller supplies source columns from the mounted cards.
@@ -2051,7 +2077,7 @@
                     // 标题看板模式下，也支持按文档/时间/四象限/任务名分组
                     if (isCompletedStatusCol) {
                         html = renderDoneColumnList();
-                    } else if (timeBoardMode && state.quadrantEnabled) {
+                    } else if (timeBoardMode && kanbanQuadrantGrouping) {
                         html = renderGroupedByQuadrant();
                     } else if (timeBoardMode && state.groupByDocName) {
                         html = renderGroupedByDoc(isAllTabsView ? {} : { hideDocTitle: true });
@@ -2065,13 +2091,13 @@
                         html = renderGroupedByDoc({ dropDoc: false, forceNoHeading: true, hideDocTitle: true, headingMode: false });
                     } else if (headingMode && state.groupByTime) {
                         html = renderGroupedByTime();
-                    } else if (headingMode && state.quadrantEnabled) {
+                    } else if (headingMode && kanbanQuadrantGrouping) {
                         html = renderGroupedByQuadrant();
                     } else if (headingMode && state.groupByTaskName) {
                         html = renderGroupedByTaskName();
                     } else if (headingMode) {
                         html = roots.length ? renderUngroupedWithPinned() : '';
-                    } else if (state.quadrantEnabled) {
+                    } else if (kanbanQuadrantGrouping) {
                         html = renderGroupedByQuadrant();
                     } else if (state.groupByDocName) {
                         html = renderGroupedByDoc(isAllTabsView ? {} : { hideDocTitle: true });
@@ -2171,20 +2197,24 @@
                 }
                 const title = isDoneCol
                     ? '✅ 已完成'
+                    : (quadrantBoardMode
+                    ? c.name
                     : (timeBoardMode
                     ? c.name
                     : (headingMode
                     ? (kind === 'doc' ? `📄 ${c.name}` : c.name)
-                    : (c.id === '__done__' ? '✅ 已完成' : c.id === 'todo' ? `🗂️ ${c.name}` : c.name)));
+                    : (c.id === '__done__' ? '✅ 已完成' : c.id === 'todo' ? `🗂️ ${c.name}` : c.name))));
                 const dataAttrs = isDoneCol
                     ? `data-kind="status" data-status="__done__"`
+                    : (quadrantBoardMode
+                    ? `data-kind="quadrant" data-quadrant="${esc(String(c?.id || '').trim())}"`
                     : (timeBoardMode
-                    ? `data-kind="time" data-time="${esc(c.id)}"`
-                    : (headingMode
-                    ? (kind === 'doc'
-                        ? `data-kind="doc" data-doc="${esc(String(c?.id || '').trim())}"`
-                        : `data-kind="heading" data-doc="${esc(String(c?.docId || '').trim())}" data-heading="${esc(String(c?.headingId || '__none__').trim())}"`)
-                    : `data-kind="status" data-status="${esc(c.id)}"`));
+                        ? `data-kind="time" data-time="${esc(c.id)}"`
+                        : (headingMode
+                            ? (kind === 'doc'
+                                ? `data-kind="doc" data-doc="${esc(String(c?.id || '').trim())}"`
+                                : `data-kind="heading" data-doc="${esc(String(c?.docId || '').trim())}" data-heading="${esc(String(c?.headingId || '__none__').trim())}"`)
+                            : `data-kind="status" data-status="${esc(c.id)}"`)));
                 const colTintBg = (() => {
                     const rawColor = String(c?.color || '').trim();
                     const rgba = __tmParseCssColorToRgba(rawColor);
@@ -2226,7 +2256,7 @@
                 const headingContextMenuAttrs = headingMode && !isDoneCol && kind === 'heading'
                     ? __tmBuildHeadingGroupContextMenuAttrs(headingDocId, headingIdForCreate)
                     : '';
-                const canQuickAddToStatus = !headingMode && !timeBoardMode && !isDoneCol && !!statusIdForCreate;
+                const canQuickAddToStatus = !headingMode && !timeBoardMode && !quadrantBoardMode && !isDoneCol && !!statusIdForCreate;
                 const canQuickAddToTimeDate = timeBoardMode && !isDoneCol && !!timeDateForCreate;
                 const titleContentHtml = timeBoardMode && !isDoneCol
                     ? `<span>${String(c?.labelHtml || '').trim() || esc(String(c?.name || ''))}</span>`

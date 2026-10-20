@@ -283,11 +283,12 @@
 
     function __tmBuildGroupModeMenuOptions() {
         const hasTaskModeOption = !!(SettingsStore.data.groupByTaskName || state.groupByTaskName);
-        return [
+        const quadrantBoardMode = state.viewMode === 'kanban' && __tmGetKanbanBoardMode() === 'quadrant';
+        const options = [
             {
                 value: 'none',
                 label: '不分组',
-                selected: (!state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled),
+                selected: (!state.groupByDocName && !state.groupByTaskName && !state.groupByTime && (!state.quadrantEnabled || quadrantBoardMode)),
                 action: `tmSwitchGroupMode('none')`
             },
             {
@@ -302,12 +303,6 @@
                 selected: state.groupByTime,
                 action: `tmSwitchGroupMode('time')`
             },
-            {
-                value: 'quadrant',
-                label: '四象限',
-                selected: state.quadrantEnabled,
-                action: `tmSwitchGroupMode('quadrant')`
-            },
             ...(hasTaskModeOption ? [{
                 value: 'task',
                 label: '按任务名',
@@ -315,11 +310,20 @@
                 action: `tmSwitchGroupMode('task')`
             }] : [])
         ];
+        if (!quadrantBoardMode) {
+            options.splice(3, 0, {
+                value: 'quadrant',
+                label: '四象限',
+                selected: state.quadrantEnabled,
+                action: `tmSwitchGroupMode('quadrant')`
+            });
+        }
+        return options;
     }
 
     function __tmBuildKanbanModeMenuOptions() {
         const mode = __tmGetKanbanBoardMode();
-        return [['status', '状态'], ['heading', '标题'], ['time', '时间']].map(([value, label]) => ({
+        return [['status', '状态'], ['heading', '标题'], ['time', '时间'], ['quadrant', '四象限']].map(([value, label]) => ({
             value, label, selected: mode === value, action: `tmSetKanbanBoardMode('${value}')`,
         }));
     }
@@ -561,6 +565,7 @@
         if (groupId !== (String(SettingsStore.data.currentGroupId || 'all').trim() || 'all')) return;
         __tmApplyCompletedVisibilityToRuntime();
         try { __tmRecomputeTaskProjection({ reason: 'show-completed-toggle' }); } catch (e) {}
+        try { globalThis.__tmCalendar?.refreshTaskListState?.(); } catch (e) {}
         if (state.modal && document.body.contains(state.modal)) {
             try { if (!__tmRerenderCurrentViewInPlace(state.modal)) render(); } catch (e) { try { render(); } catch (e2) {} }
         }

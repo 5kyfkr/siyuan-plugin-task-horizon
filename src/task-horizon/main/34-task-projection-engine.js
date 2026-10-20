@@ -42,7 +42,7 @@
             if (!field) return;
             set.add(field);
             if (field === 'priorityScore') SCORE_SOURCE_FIELDS.forEach((item) => set.add(item));
-            if (field === 'taskDate') {
+            if (field === 'taskDate' || field === 'completionTime') {
                 ['startDate', 'completionTime', 'repeatRule', 'repeatState', 'repeatHistory'].forEach((item) => set.add(item));
             }
             if (field === 'tomatoCount') {
@@ -128,6 +128,7 @@
                 if (has(['root_id', 'docId'])) group = true;
                 if (kanbanMode === 'time' && has(TIME_FIELDS)) group = true;
                 if (kanbanMode === 'heading' && has(DOCUMENT_FIELDS)) group = true;
+                if (kanbanMode === 'quadrant' && (has(TIME_FIELDS) || has(['priority', 'priorityScore']))) group = true;
                 if (kanbanCardFields.has('h2') && has(DOCUMENT_FIELDS)) group = true;
             }
             const projection = filter || sort || group;

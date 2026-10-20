@@ -153,14 +153,31 @@ async function run() {
     const parent = { id: 'parent', children: [task] };
     assert.equal(context.__tmGetTaskTimePriorityInfo(parent, { useBestSubtaskTime: true }).diffDays, 2);
 
-    // Explicit date filters stay tied to stored dates; the virtual field follows the plan.
+    // Due-date filters follow the check-in plan even when legacy task dates remain.
     const filter = (field, operator, value) => context.rules.applyRuleFilter([task], {
         id: 'custom-date', conditions: [{ field, operator, value }],
     }).length;
-    assert.equal(filter('completionTime', 'before_today', ''), 1);
+    assert.equal(filter('completionTime', 'before_today', ''), 0);
     assert.equal(filter('startDate', 'before_today', ''), 1);
-    assert.equal(filter('completionTime', 'range_overlap_today', ''), 0);
+    assert.equal(filter('completionTime', 'range_overlap_today', ''), 0, 'old start dates must not span into a non-planned day');
+    assert.equal(filter('completionTime', 'range_today', ''), 0);
+    assert.equal(filter('completionTime', 'after_today', ''), 1);
     assert.equal(filter('taskDate', 'after_today', ''), 1);
+    setDay('2026-10-05');
+    for (const operator of ['range_today', 'range_overlap_today']) {
+        assert.equal(filter('completionTime', operator, ''), 1, 'planned check-ins match due today');
+    }
+    assert.equal(filter('completionTime', '=', '2026-10-05'), 1);
+    const legacyStart = task.startDate;
+    const legacyDue = task.completionTime;
+    task.startDate = task.completionTime = '';
+    assert.equal(filter('completionTime', 'range_today', ''), 1, 'a check-in plan needs no stored due date');
+    check('2026-10-05');
+    assert.equal(filter('completionTime', 'range_today', ''), 1, 'checking in retains today as the due date');
+    task.startDate = legacyStart;
+    task.completionTime = legacyDue;
+    task.repeatState = {};
+    setDay('2026-10-03');
     const ordinary = { id: 'ordinary', completionTime: '2026-10-04', done: false };
     for (const field of ['completionTime', 'taskDate']) {
         assert.deepEqual(Array.from(context.rules.applyRuleSort([task, ordinary], {
@@ -172,6 +189,7 @@ async function run() {
 
     task.repeatRule.until = '2026-10-02';
     assert.equal(date(), '');
+    assert.equal(filter('completionTime', 'range_overlap_today', ''), 0, 'ended plans ignore old task dates');
     assert.equal(info().hasDate, false);
     assert.equal(remaining(), '打卡计划已结束');
     check('2026-10-03');
@@ -184,6 +202,7 @@ async function run() {
     delete task.repeatRule.maxOccurrences;
 
     task.repeatRule.trigger = 'completion';
+    assert.equal(filter('completionTime', 'before_today', ''), 1, 'ordinary repeating tasks keep stored due dates');
     assert.ok(info().diffDays < 0, 'switching recurrence mode restores stored due-date grouping');
     assert.equal(context.__tmGetTaskCardDateValue(task), '2026-09-28');
     task.repeatRule.trigger = 'checkin';

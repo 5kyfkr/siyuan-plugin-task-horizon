@@ -157,6 +157,17 @@ test('a delayed save from A cannot overwrite or rerender B after a rapid switch'
     assert.equal(renders.length, 0);
 });
 
+test('the calendar list is refreshed even when the task sidebar handles the current view render', async () => {
+    const { context } = harness();
+    let refreshed = 0;
+    context.__tmCalendar = { refreshTaskListState: () => { refreshed += 1; } };
+    context.state.viewMode = 'calendar';
+    await context.tmToggleShowCompletedTasks(false);
+    assert.equal(refreshed, 1);
+    await context.tmToggleShowCompletedTasks(true);
+    assert.equal(refreshed, 2);
+});
+
 test('settings and whiteboard entrances delegate to the same group update path', async () => {
     const { context, data } = harness();
     vm.runInContext(between(read('settings/70-doc-group-and-settings-actions.js'), '    window.updateShowCompletedTasks =', '    window.updateSemanticDateAutoPromptEnabled ='), context);

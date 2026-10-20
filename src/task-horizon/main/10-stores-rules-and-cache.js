@@ -12242,9 +12242,12 @@
             else if (key === 'tomatoEstimateCount') result = Number(__tmGetTaskTomatoEstimateCount(task) || 0);
             else if (key === 'tomatoCount') result = Number(__tmGetTaskTomatoCount(task) || 0);
             else if (key === 'startDate') result = task?.startDate ?? task?.start_date;
-            else if (key === 'completionTime') result = task?.completionTime ?? task?.completion_time;
-            // Keep explicit start/due filters on stored values. Only this virtual
-            // field follows the current check-in occurrence.
+            else if (key === 'completionTime') result = typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)
+                ? __tmGetTaskCheckinCurrentDate(task, opts.nowDate)
+                : (task?.completionTime ?? task?.completion_time);
+            // Check-in tasks expose their current planned day through both the
+            // due-date field and the task-date field, so existing due filters
+            // can find the occurrence due today without changing stored dates.
             else if (key === 'taskDate') result = typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)
                 ? __tmGetTaskCheckinCurrentDate(task, opts.nowDate)
                 : (task?.completionTime || task?.completion_time || task?.startDate || task?.start_date || '');
@@ -12779,7 +12782,7 @@
             const taskTs = this.getTaskTimeValue(task, runtime.fieldInfo || runtime.field, opts);
             const timeRuntime = runtime?.timeRuntime || null;
             if (operator === 'range_overlap_today') {
-                if (runtime.field === 'taskDate' && typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+                if (['taskDate', 'completionTime'].includes(runtime.field) && typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
                     return taskTs >= Number(timeRuntime?.todayStartTs || 0) && taskTs < Number(timeRuntime?.tomorrowStartTs || 0);
                 }
                 const startTs = this.getTaskTimeValue(task, 'startDate', opts);

@@ -85,6 +85,8 @@ const prelude = `window.siyuan={config:{system:{kernelVersion:'3.7.3',container:
 window.__tmSuppressStorageWrites=true;
 window.fetch=async()=>({ok:true,status:200,json:async()=>({code:0,data:[]}),text:async()=>'',blob:async()=>new Blob()});`;
 const nativeStyles = `body{margin:0;font:14px/1.5 system-ui;background:#eef0f3} :root{--b3-theme-background:#fff;--b3-theme-surface:#f5f6f8;--b3-theme-on-background:#252932;--b3-theme-on-surface:#647084;--b3-theme-primary:#3877c9;--b3-border-color:#e1e5eb;--b3-theme-error:#bb3545} [data-theme-mode=dark]{--b3-theme-background:#1e1e1e;--b3-theme-surface:#262626;--b3-theme-on-background:#e5e5e5;--b3-theme-on-surface:#a4aab5;--b3-border-color:#444} .b3-switch{appearance:none;width:32px;height:18px;flex-shrink:0;background:#b2b8c2;border-radius:12px;position:relative}.b3-switch:checked{background:var(--b3-switch-checked-background,var(--b3-theme-primary))}.b3-switch:after{content:'';position:absolute;width:14px;height:14px;top:2px;left:2px;border-radius:50%;background:white}.b3-switch:checked:after{left:16px;background:var(--b3-switch-checked,#fff)}.b3-select,.b3-text-field{border:1px solid var(--b3-border-color);padding:6px 10px;border-radius:6px;background:var(--b3-theme-background);color:inherit}.fn__flex-center{display:flex;align-items:center}`;
+// The host injects these styles after the workspace CSS; previews reuse the real quickbar classes.
+const quickbarStyles = read('quickbar.js').match(/style\.id = 'sy-custom-props-floatbar-style';\s*style\.textContent = `([\s\S]*?)`;/)[1];
 const server = http.createServer((req, res) => {
     if (req.url === '/runtime.js') { res.setHeader('content-type', 'text/javascript'); res.end(prelude + runtime); return; }
     if (req.url === '/calendar.js') { res.setHeader('content-type', 'text/javascript'); res.end(read('calendar-view.js')); return; }
@@ -93,8 +95,59 @@ const server = http.createServer((req, res) => {
     const calendarScript = req.url.includes('lazy-calendar')
         ? `<script>window.__taskHorizonEnsureCalendarAssets = () => window.__calendarLoading ||= new Promise(resolve => { window.__loadCalendarForTest = () => { const script = document.createElement('script'); script.src = '/calendar.js'; script.onload = resolve; document.head.append(script); }; });</script>`
         : '<script src="/calendar.js"></script>';
-    res.end(`<html><head><style>${nativeStyles}</style><link rel="stylesheet" href="/task.css"><link rel="stylesheet" href="/basecoat.css"><link rel="stylesheet" href="/calendar.css"></head><body>${calendarScript}<script src="/runtime.js"></script></body></html>`);
+    res.end(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${nativeStyles}</style><link rel="stylesheet" href="/task.css"><link rel="stylesheet" href="/basecoat.css"><link rel="stylesheet" href="/calendar.css"><style>${quickbarStyles}</style></head><body>${calendarScript}<script src="/runtime.js"></script></body></html>`);
 });
+async function checkSettingsLayouts(page, mobile = false) {
+    if (mobile) await page.evaluate(() => {
+        window.__tmRuntimeHost = { getInfo: () => ({ runtimeMobileClient: true, hostUsesMobileUI: true, isMobileDevice: true, isDockHost: false }) };
+    });
+    const pages = await page.evaluate(() => __settingsTest.pages.map(([id]) => id));
+    for (const viewport of [{ width: 320, height: 740 }, { width: 360, height: 844 }, { width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 844, height: 390 }, { width: 1440, height: 1000 }]) {
+        await page.setViewportSize(viewport);
+        for (const id of pages) {
+            await page.evaluate(id => tmOpenSettingsV2Page(id), id);
+            const subpages = await page.locator('.tm-settings-v3-sections button').evaluateAll(nodes => nodes.map(node => node.dataset.settingsSubpage));
+            for (const sub of subpages.length ? subpages : ['']) {
+                if (sub) await page.evaluate(sub => tmOpenSettingsV3Subpage(sub), sub);
+                if (sub === 'd-sync') await page.locator('.tm-settings-device-details').evaluate(el => { el.open = true; });
+                const layout = await page.locator('.tm-settings-content').evaluate(el => {
+                    const bounds = el.getBoundingClientRect();
+                    const controls = [...el.querySelectorAll('.tm-setting-field-control,.tm-settings-chip-stack,.tm-settings-chip,.tm-field-preview,.tm-settings-choice-group,.tm-column-row,.tm-status-option-row,input:not([type="hidden"]),select,textarea')];
+                    const outside = controls.filter(node => {
+                        const rect = node.getBoundingClientRect();
+                        return rect.width && rect.height && (rect.right > bounds.right + 1 || rect.left < bounds.left - 1);
+                    }).map(node => [node.className || node.tagName, Math.round(node.getBoundingClientRect().width), (node.textContent || '').trim().slice(0, 40)]);
+                    const previews = [...el.querySelectorAll('.tm-field-preview__stage')].filter(node => node.getClientRects().length && node.scrollWidth > node.clientWidth + 1).map(node => node.parentElement.dataset.tmFieldPreview);
+                    const cramped = [...el.querySelectorAll('.tm-setting-switch-copy')].filter(node => node.getClientRects().length && node.getBoundingClientRect().width < 140).length;
+                    return { overflow: el.scrollWidth - el.clientWidth, outside, previews, cramped };
+                });
+                const context = `${mobile ? 'mobile host' : 'browser'} ${id}/${sub || 'default'} at ${viewport.width}x${viewport.height}`;
+                if (layout.overflow > 2 || layout.outside.length || layout.previews.length) {
+                    await page.screenshot({ path: path.join(root, 'output/playwright/settings-v2-overflow.png') });
+                }
+                assert.ok(layout.overflow <= 2, `${context} overflows by ${layout.overflow}px`);
+                assert.deepEqual(layout.outside, [], `${context} controls must fit the content`);
+                assert.deepEqual(layout.previews, [], `${context} previews must fit without clipped fields`);
+                assert.equal(layout.cramped, 0, `${context} switch descriptions must stay readable`);
+                if (mobile && viewport.width === 390 && sub === 'v-float') {
+                    const status = page.locator('.tm-settings-chip__input[onchange="updateQuickbarVisibleItem(\'custom-status\', this.checked)"]');
+                    const checked = await status.isChecked();
+                    await status.setChecked(!checked);
+                    await page.waitForFunction(expected => JSON.parse(localStorage.getItem('settings-test')).quickbarVisibleItems.includes('custom-status') === expected, !checked);
+                    assert.equal(await page.locator('[data-tm-field-preview="quickbar"] [data-attr="custom-status"]').count(), checked ? 0 : 1, 'mobile selection updates the preview');
+                    await status.setChecked(checked);
+                    await page.waitForFunction(expected => JSON.parse(localStorage.getItem('settings-test')).quickbarVisibleItems.includes('custom-status') === expected, checked);
+                }
+                if (viewport.width === 390 && ['v-float', 'v-fields', 'v-tl'].includes(sub)) {
+                    await page.screenshot({ path: path.join(root, `output/playwright/settings-mobile-${sub}.png`) });
+                    if (sub === 'v-float') await page.locator('.tm-setting-field-row').filter({ hasText: '悬浮条显示图标' }).screenshot({ path: path.join(root, 'output/playwright/settings-mobile-quickbar-fields.png') });
+                }
+            }
+        }
+        console.log(`Settings layout passed (${mobile ? 'mobile host' : 'browser'}) at ${viewport.width}x${viewport.height}`);
+    }
+    if (mobile) await page.evaluate(() => { delete window.__tmRuntimeHost; });
+}
 (async () => {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const browser = await chromium.launch({ headless: true });
@@ -108,6 +161,12 @@ const server = http.createServer((req, res) => {
         await page.waitForTimeout(300);
         if (errors.length) throw new Error(errors.join('\n'));
         await page.locator('.tm-settings-v2').waitFor();
+        if (process.env.SETTINGS_LAYOUT_ONLY) {
+            await checkSettingsLayouts(page);
+            await checkSettingsLayouts(page, true);
+            assert.deepEqual(errors, [], 'layout checks must not cause runtime errors');
+            return;
+        }
         await page.evaluate(() => tmOpenSettingsV2Page('docs', 't-new'));
         const inboxVisibility = page.locator('[onchange="updateHideInboxFromAllTab(this.checked)"]');
         assert.equal(await inboxVisibility.isChecked(), false, 'inbox remains visible in All by default');
@@ -796,22 +855,8 @@ const server = http.createServer((req, res) => {
         await page.evaluate(async () => { const id = __settingsService.events[0].id; tmScheduledEdit(id); tmScheduledUpdateDraft('name', '待删除事件'); await tmScheduledDelete(id); });
         await page.waitForTimeout(200);
         assert.equal(await page.evaluate(() => __settingsService.events.length), 0);
-        for (const width of [360, 390, 768]) {
-            await page.setViewportSize({ width, height: 844 });
-            for (const id of pages) {
-                await page.evaluate((id) => tmOpenSettingsV2Page(id), id);
-                if (id === 'about') { await page.evaluate(() => tmOpenSettingsV3Subpage('d-sync')); await page.locator('.tm-settings-device-details > summary').click(); }
-                const overflow = await page.locator('.tm-settings-content').evaluate((el) => el.scrollWidth - el.clientWidth);
-                if (overflow > 2) {
-                    console.log('OVERFLOW', await page.locator('.tm-settings-content').evaluate((el) => [...el.querySelectorAll('*')].filter((node) => node.getBoundingClientRect().right > el.getBoundingClientRect().right + 1 && node.getClientRects().length).slice(0, 10).map((node) => [node.tagName, node.className, node.getBoundingClientRect().width, node.textContent.slice(0, 60)])));
-                    await page.screenshot({ path: path.join(root, 'output/playwright/settings-v2-overflow.png') });
-                }
-                assert.ok(overflow <= 2, `${id} overflows by ${overflow}px at ${width}px`);
-                const cramped = await page.locator('.tm-setting-switch-copy').evaluateAll(nodes => nodes.filter(el => el.getClientRects().length && el.getBoundingClientRect().width < 140).length);
-                assert.equal(cramped, 0, `${id} switch descriptions must stay readable`);
-                if (width === 390 && ['about', 'calendar'].includes(id)) await page.screenshot({ path: path.join(root, `output/playwright/settings-v2-${id}-mobile.png`) });
-            }
-        }
+        await checkSettingsLayouts(page);
+        await checkSettingsLayouts(page, true);
         await page.setViewportSize({ width: 390, height: 844 });
         await page.evaluate(() => tmOpenSettingsV2Page('general'));
         await page.waitForTimeout(250);

@@ -39,6 +39,7 @@
     "task-recurring-completion-transaction.test.js",
     "task-recurring-batch-delete.test.js",
     "task-checkin-behavior.test.js",
+    "task-checkin-current-date.test.js",
     "task-checkin-projection.test.js",
     "task-checkin-reminder.test.js",
     "project-visibility.test.js",

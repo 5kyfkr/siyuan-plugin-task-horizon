@@ -20,10 +20,11 @@ const sandbox = {
     protoListTaskFieldEnabled: () => false,
     protoListTaskDone: (task) => task.done === true,
     protoListTaskChildren: (task) => task.children || [],
+    protoListShowCompletedTasks: () => sandbox.state.settingsStore.data.showCompletedTasks !== false,
+    protoListCollapsedTaskIds: () => new Set(sandbox.state.settingsStore.data.collapsedTaskIds || []),
     protoListTaskTitleStyle: () => '',
     protoListTaskTitleHtml: (task) => task.content || '',
     protoEventColor: () => 'var(--tm-cal-primary)',
-    prototypeListState: { collapsedSubtasks: new Set() },
     __tmCalendarKanbanCardHelpers: {
         renderBadgeIcon: (name, size) => '<svg data-shared-icon="' + name + '" width="' + size + '" height="' + size + '"></svg>',
     },
@@ -41,6 +42,22 @@ assert.match(standalone, /来源文档/);
 const withChildren = context.renderCard(event, { ...task, children: [{ id: 'child', content: '子任务', docName: '来源文档' }] }, { isParent: true });
 assert.equal((withChildren.match(/tm-kanban-chip--doc/g) || []).length, 1, 'Document source belongs to the outer card, not repeated subtask rows');
 assert.match(withChildren, /tm-kanban-subtask-row/);
+const mixedChildren = { ...task, children: [
+    { id: 'pending-child', content: '待办子任务' },
+    { id: 'completed-child', content: '已完成子任务', done: true },
+] };
+sandbox.state.settingsStore.data.showCompletedTasks = false;
+const hiddenCompleted = context.renderCard(event, mixedChildren, { isParent: true });
+assert.match(hiddenCompleted, /data-task-id="pending-child"/);
+assert.doesNotMatch(hiddenCompleted, /data-task-id="completed-child"/);
+assert.match(hiddenCompleted, /tm-badge--count">1\/2</, 'Hiding completed rows must retain the actual completion count');
+assert.match(hiddenCompleted, /style="width:50%"/, 'Progress must still include hidden completed subtasks');
+sandbox.state.settingsStore.data.showCompletedTasks = true;
+assert.match(context.renderCard(event, mixedChildren, { isParent: true }), /data-task-id="completed-child"/, 'Re-enabling completed tasks restores child rows');
+sandbox.state.settingsStore.data.collapsedTaskIds = ['task'];
+assert.match(context.renderCard(event, mixedChildren, { isParent: true }), /tm-proto-list-subtasks[^>]*is-collapsed/);
+sandbox.state.settingsStore.data.collapsedTaskIds = [];
+assert.doesNotMatch(context.renderCard(event, mixedChildren, { isParent: true }), /tm-proto-list-subtasks[^>]*is-collapsed/);
 assert.equal((withChildren.match(/tm-parent-task-title/g) || []).length, 1, 'Only the outer card title is bold, not nested subtask titles');
 sandbox.state.settingsStore.data.parentTaskNameBoldEnabled = false;
 const normalParent = context.renderCard(event, { ...task, children: [{ id: 'child', content: '子任务' }] }, { isParent: true });

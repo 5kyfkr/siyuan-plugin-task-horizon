@@ -31,13 +31,23 @@ const repeated = subtaskSection('task-a');
 const unrelated = subtaskSection('task-b');
 let renders = 0;
 let persisted = 0;
+let sharedPersisted = 0;
+const collapsedTaskIds = new Set();
 let navigations = 0;
 const timers = [];
 const context = vm.createContext({
     prototypeMobileMonthSuppressClickUntil: 0,
     state: {},
     calendar: {},
-    prototypeListState: { focusDate: new Date(2026, 8, 14), collapsedSubtasks: new Set(), selectionTransitionToken: 0 },
+    prototypeListState: { focusDate: new Date(2026, 8, 14), selectionTransitionToken: 0 },
+    protoListCollapsedTaskIds: () => collapsedTaskIds,
+    __tmCalendarKanbanCardHelpers: {
+        setTaskCollapsed(taskId, collapsed) {
+            if (collapsed) collapsedTaskIds.add(taskId);
+            else collapsedTaskIds.delete(taskId);
+            sharedPersisted += 1;
+        },
+    },
     prototypeSurface: {
         querySelectorAll: () => [first.section, repeated.section, unrelated.section],
         querySelector: () => { throw new Error('Subtask toggle must not capture global list scroll'); },
@@ -66,8 +76,9 @@ assert.equal(unrelated.section.collapsed, undefined);
 assert.equal(click(repeated.toggle), true);
 assert.equal(first.section.collapsed, false);
 assert.equal(repeated.list.getAttribute('aria-hidden'), 'false');
-assert.equal(context.prototypeListState.collapsedSubtasks.size, 0);
-assert.equal(persisted, 2);
+assert.equal(collapsedTaskIds.size, 0);
+assert.equal(sharedPersisted, 2, 'Subtask toggles must persist the main task view state');
+assert.equal(persisted, 0, 'Subtask toggles must not save separate calendar preferences');
 assert.equal(renders, 0, 'Subtask toggles must not queue a surface render');
 assert.equal(navigations, 0);
 const dateButton = (key) => attributes({ 'data-tm-proto-list-action': 'select-date', 'data-tm-proto-list-date': key });
