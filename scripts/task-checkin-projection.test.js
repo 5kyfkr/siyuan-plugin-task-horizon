@@ -43,6 +43,10 @@ const context = vm.createContext({
     __tmResolveTaskMetaFieldByAttrKey: () => '',
 });
 context.window = context;
+context.__tmRequireTaskMutation = name => {
+    assert.equal(name, 'patchTask');
+    return (...args) => context.__tmPersistMetaAndAttrsKernel(...args);
+};
 vm.runInContext(read('32-runtime-state-and-events.js'), context);
 const store = context.__tmTaskStore;
 context.__tmTaskBoundary = { getTask: id => store.get(id) };

@@ -773,6 +773,7 @@ function testTaskCheckboxRenderUsesLiveDoneState() {
     vm.runInContext(extractFunction(taskModelSource, '__tmRenderTaskCheckbox'), context);
     const statusContext = createStatusContext();
     context.__tmIsTaskClosedForDisplay = statusContext.__tmIsTaskClosedForDisplay;
+    context.__tmIsTaskCanceled = statusContext.__tmIsTaskCanceled;
 
     const staleTask = { id: 'task-1', done: false };
     const liveHtml = context.__tmRenderTaskCheckbox('task-1', staleTask, { checked: false });
@@ -785,8 +786,21 @@ function testTaskCheckboxRenderUsesLiveDoneState() {
         'checkbox rendering must use the TaskStore projection instead of a stale compatibility override');
     for (const marker of [' ', '/', '-', 'X', '?']) {
         context.__tmTaskStore.getProjected = () => ({ id: 'task-1', taskMarker: marker, done: false });
-        assert.equal(/ checked/.test(context.__tmRenderTaskCheckbox('task-1', staleTask)), ![' ', '/'].includes(marker));
+        const html = context.__tmRenderTaskCheckbox('task-1', staleTask);
+        assert.equal(/ checked/.test(html), ![' ', '/'].includes(marker));
+        assert.equal(html.includes('tm-task-checkbox--canceled'), marker === '-', 'only the resolved - marker renders a dash');
     }
+    context.__tmTaskStore.getProjected = () => ({ id: 'task-1', task_marker: '-', customStatus: 'renamed', done: true });
+    assert.match(context.__tmRenderTaskCheckbox('task-1', staleTask), /tm-task-checkbox--canceled/,
+        'marker aliases take precedence over status names and stale done flags');
+    context.__tmTaskStore.getProjected = () => ({ id: 'task-1', marker: '-', done: false });
+    context.__tmIsCheckinTask = () => true;
+    context.__tmNormalizeDateOnly = () => '2026-10-21';
+    context.__tmGetTaskCheckinTodayHint = () => '';
+    context.__tmIsTaskCheckinChecked = () => false;
+    assert.match(context.__tmRenderTaskCheckbox('task-1', staleTask), / checked/,
+        'a canceled check-in task must still display its dash');
+    context.__tmIsCheckinTask = () => false;
     context.__tmTaskStore.getProjected = () => ({ id: 'task-1', taskMarker: 'X', done: true, pendingNativeDoneReset: true });
     assert.doesNotMatch(context.__tmRenderTaskCheckbox('task-1', staleTask), / checked/);
 }
@@ -902,7 +916,9 @@ function testDoneDomPatchTargetsOwnProjectedCheckbox() {
     });
     context.globalThis = context;
     vm.runInContext(extractFunction(writerRuntimeSource, '__tmIsTaskCompletedForProjection'), context);
-    context.__tmIsTaskClosedForDisplay = createStatusContext().__tmIsTaskClosedForDisplay;
+    const statusContext = createStatusContext();
+    context.__tmIsTaskClosedForDisplay = statusContext.__tmIsTaskClosedForDisplay;
+    context.__tmIsTaskCanceled = statusContext.__tmIsTaskCanceled;
     vm.runInContext(extractFunction(writerRuntimeSource, '__tmUpdateTaskDoneInDOM'), context);
 
     assert.equal(context.__tmUpdateTaskDoneInDOM(root, { id: 'task-1', done: true, taskMarker: 'X' }), true);
@@ -920,12 +936,14 @@ function testDoneDomPatchTargetsOwnProjectedCheckbox() {
     assert.equal(titleButton.classList.contains('tm-task-done'), false);
     assert.equal(title.innerHTML, '<span class="tm-task-reminder-emoji">badge</span>',
         'completion patches must preserve view-specific inline badges while clearing stale title styling');
-    for (const marker of ['-', '/']) {
+    for (const marker of ['-', 'X', ' ', '/', '?', '-', ' ']) {
         context.__tmTaskStore.getProjected = () => ({ id: 'task-1', taskMarker: marker, done: false });
         context.__tmUpdateTaskDoneInDOM(root, { id: 'task-1', done: false });
-        assert.equal(ownCheckbox.checked, marker === '-');
-        assert.equal(root.classList.contains('tm-checklist-item--done'), marker === '-');
+        assert.equal(ownCheckbox.checked, ![' ', '/'].includes(marker));
+        assert.equal(ownCheckbox.classList.contains('tm-task-checkbox--canceled'), marker === '-');
+        assert.equal(root.classList.contains('tm-checklist-item--done'), ![' ', '/'].includes(marker));
         assert.equal(descendantCheckbox.checked, true);
+        assert.equal(descendantCheckbox.classList.contains('tm-task-checkbox--canceled'), false);
     }
 }
 
@@ -1290,14 +1308,14 @@ async function run() {
     const nativeCheckboxLocalStateSource = extractFunction(nativeDocHooksSource, '__tmApplyNativeDocCheckboxLocalState');
     assert.doesNotMatch(nativeDocHooksSource, /__tmNativeDocCheckboxSyncIgnoreMap|__tmConsumeNativeDocCheckboxStatusSyncIgnore/,
         'the unreachable plugin-origin checkbox ignore queue must not return');
-    assert.match(nativeCheckboxSyncSource, /const persistedAttrsBefore = await __tmReadDocCheckboxBlockAttrs/,
-        'native checkbox synchronization must still reconcile against persisted task attributes');
-    assert.match(nativeCheckboxSyncSource, /domMarker === ' ' && userInitiatedCheckboxChange[\s\S]*__tmIsRecurringNativeDoneHeld\([\s\S]*previousMarker[\s\S]*__tmDeleteTaskRepeatHistoryEntry/,
-        'only a user-originated native uncheck may roll back a held recurring completion');
+    assert.match(nativeCheckboxSyncSource, /__tmResolveTaskBindingFromAnyBlockId[\s\S]*__tmRequireTaskMutation\('setDone'\)/,
+        'native checkbox changes must resolve confirmed identity and enter the shared writer');
+    assert.match(nativeCheckboxSyncSource, /previous\?\.userInitiated[\s\S]*nativeObserved:/,
+        'user intent must be distinguished from synchronization echoes');
     const setDoneFromUiSource = extractFunction(listRuntimeSource, '__tmSetDoneFromUi');
     assert.match(setDoneFromUiSource, /!targetDone[\s\S]*__tmIsRecurringNativeDoneHeld\(task\)[\s\S]*__tmDeleteTaskRepeatHistoryEntry[\s\S]*resetNativeDone: true/,
         'unchecking a held recurring task inside the plugin must use the history rollback transaction');
-    assert.match(apiSource, /kernelPreviousDone[\s\S]*nativeDoneHeld[\s\S]*effectivePreviousDone[\s\S]*const previousDone = kernelPreviousDone[\s\S]*effectivePreviousDone === false/,
+    assert.match(apiSource, /kernelPreviousDone[\s\S]*nativeDoneHeld[\s\S]*effectivePreviousDone[\s\S]*const previousDone = data\.nativeObserved[\s\S]*effectivePreviousDone === false/,
         'a held native completion must use the plugin effective state as the next occurrence baseline');
     assert.match(listRuntimeSource, /__tmDeleteTaskRepeatHistoryEntry\(recurringSourceTaskId, recurringCompletedAt, \{[\s\S]*resetNativeDone: true/,
         'deleting the latest visible recurring record must not leave its native completion marker behind');
@@ -1341,7 +1359,7 @@ async function run() {
     assert.match(buildSetDoneSource, /patch: optimisticPatch,[\s\S]*projectionPatch,/,
         'completion persistence and presentation fields must remain in one command but separate patches');
     assert.match(listRuntimeSource, /effectiveTaskDone[\s\S]*originalDone[\s\S]*inversePatch\.done = originalDone/);
-    assert.match(listRuntimeSource, /const currentDone = typeof __tmIsTaskDoneEffective[\s\S]*const explicitCheckboxIntent[\s\S]*if \(currentDone === targetDone && !__tmIsTaskCanceled\(task\) && !explicitCheckboxIntent && opts\.force !== true\) return/,
+    assert.match(listRuntimeSource, /const currentDone = typeof __tmIsTaskDoneEffective[\s\S]*const explicitCheckboxIntent[\s\S]*if \(currentDone === targetDone && !__tmIsTaskCanceled\(task\) && !explicitCheckboxIntent && opts\.force !== true && !opts\.restoreCompletionId && !opts\.nativeObserved\) return/,
         'an explicit checkbox intent must enter the mutation queue even when a local projection already matches it');
     assert.ok((storesSource.match(/__tmApplyDoneOverrideToTaskIfPresent\((?:task|target)\)/g) || []).length >= 4);
     assert.match(storesSource, /function __tmMergeLocalTaskPatchIntoTask\(task\)[\s\S]*__tmApplyDoneOverrideToTaskIfPresent\(target\)/);

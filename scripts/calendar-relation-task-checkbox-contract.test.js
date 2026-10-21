@@ -22,7 +22,11 @@ assert.ok(start >= 0 && end > start, 'linked-task checkbox handler remains bound
 const handler = source.slice(start, end);
 
 class FakeCheckbox {
-    constructor(checked) { this.checked = checked; }
+    constructor(checked, canceled = false) {
+        this.checked = checked;
+        const classes = new Set(canceled ? ['tm-task-checkbox--canceled'] : []);
+        this.classList = { remove: name => classes.delete(name), contains: name => classes.has(name) };
+    }
 }
 const calls = [];
 const context = vm.createContext({
@@ -43,10 +47,17 @@ vm.runInContext(`${handler}\nglobalThis.toggleRelationTask = handleCalendarRelat
     assert.equal(calls[0][2], event);
     assert.equal(calls[0][3].source, 'calendar-relation-checkbox');
 
+    const canceledInput = new FakeCheckbox(false, true);
+    assert.equal(await context.toggleRelationTask(canceledInput, 'task-1', event), true);
+    assert.equal(canceledInput.classList.contains('tm-task-checkbox--canceled'), false,
+        'reopening a canceled linked task clears the dash for subsequent checkbox changes');
+
     context.window.tmSetDone = async () => false;
-    const failedInput = new FakeCheckbox(false);
+    const failedInput = new FakeCheckbox(false, true);
     assert.equal(await context.toggleRelationTask(failedInput, 'task-1', event), false);
     assert.equal(failedInput.checked, true, 'failed writes restore the previous task state');
+    assert.equal(failedInput.classList.contains('tm-task-checkbox--canceled'), true,
+        'failed writes preserve the dash');
     console.log('calendar relation task checkbox contract tests passed');
 })().catch((error) => {
     console.error(error);

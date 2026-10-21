@@ -37,6 +37,9 @@
     "monthly-repeat-parity.test.js",
     "completion-repeat-parity.test.js",
     "task-recurring-completion-transaction.test.js",
+    "recurring-transition-behavior.test.js",
+    "recurring-reconciliation-behavior.test.js",
+    "recurring-kernel-integration.test.js",
     "task-recurring-batch-delete.test.js",
     "task-checkin-behavior.test.js",
     "task-checkin-current-date.test.js",
@@ -69,7 +72,8 @@
     "whiteboard-stream-grouping.test.js",
     "whiteboard-tab-group-scope.test.js",
     "custom-field-hierarchy-contract.test.js",
-    "settings-runtime-wiring-contract.test.js"
+    "settings-runtime-wiring-contract.test.js",
+    "settings-excel-attachments-behavior.test.js"
   ],
   "browser": [
     "agent-composer-controls-browser.test.js",

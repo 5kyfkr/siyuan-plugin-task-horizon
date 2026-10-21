@@ -3297,6 +3297,13 @@
             row = await ensureTaskListMutationTarget(id, normalized.registry, row);
             const context = buildAttrContext(row);
             const before = await taskDTO(row);
+            if (options?.expected && typeof options.expected === 'object') {
+                for (const [field, value] of Object.entries(options.expected)) {
+                    if (stableJson(before[field] ?? null) !== stableJson(value)) {
+                        throw new DomainError(ERROR.CONFLICT, '任务已变化，请刷新后重试', { taskID: id, field });
+                    }
+                }
+            }
             if ((options?.inheritedDateFields || []).length && before.parentTaskID) {
                 const parent = await taskDTO(before.parentTaskID);
                 if (parent.dateMode === 'rollup') {

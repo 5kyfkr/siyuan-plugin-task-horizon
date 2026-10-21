@@ -7900,6 +7900,7 @@ return false;
         }
         const effectiveTask = projectedTask || taskLike;
         const taskDone = __tmIsTaskClosedForDisplay(effectiveTask);
+        const taskCanceled = typeof __tmIsTaskCanceled === 'function' && __tmIsTaskCanceled(effectiveTask);
         let touched = false;
         let checkbox = null;
         for (const taskId of taskIds) {
@@ -7910,9 +7911,10 @@ return false;
             checkbox = root.querySelector('.tm-task-checkbox');
         }
         if (checkbox instanceof HTMLInputElement) {
+            checkbox.classList.toggle('tm-task-checkbox--canceled', taskCanceled);
             if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(effectiveTask)) {
                 const checkinDate = __tmNormalizeDateOnly(new Date());
-                checkbox.checked = __tmIsTaskCheckinChecked(effectiveTask, checkinDate);
+                checkbox.checked = taskCanceled || __tmIsTaskCheckinChecked(effectiveTask, checkinDate);
                 checkbox.disabled = false;
                 checkbox.title = __tmGetTaskCheckinTodayHint(effectiveTask);
             } else {
@@ -8963,6 +8965,8 @@ return false;
                 patch: { ...plan.normalizedPatch },
                 projectionPatch: { ...plan.projectionPatch },
                 inheritedDateFields: opts.inheritedDateFields || [],
+                occurrenceId: opts.occurrenceId || (typeof __tmGetTaskOccurrenceId === 'function' ? __tmGetTaskOccurrenceId(taskLike) : ''),
+                timerContext: opts.timerContext || globalThis.__tomatoTimerV2?.getSettlementContext?.() || null,
                 statusBefore: plan.statusBefore && typeof plan.statusBefore === 'object'
                     ? { ...plan.statusBefore }
                     : null,
@@ -12778,10 +12782,13 @@ return false;
         `;
     }
 
-    function __tmBuildTaskRepeatHistorySectionHtml(task) {
+    function __tmBuildTaskRepeatHistorySectionHtml(task, options = {}) {
         const history = __tmNormalizeTaskRepeatHistory(task?.repeatHistory || task?.repeat_history || '');
         if (!history.length) return '';
-        const itemsHtml = history.map((item, index) => {
+        const offset = Math.max(0, Number(options.offset) || 0);
+        const limit = 50;
+        const itemsHtml = history.slice(offset, offset + limit).map((item, pageIndex) => {
+            const index = offset + pageIndex;
             const completedAt = String(item?.completedAt || '').trim();
             const occurrenceNumber = __tmResolveTaskRepeatHistoryOccurrenceNumber(task, item, index);
             const totalOccurrences = __tmNormalizeTaskRepeatMaxOccurrences(
@@ -12799,18 +12806,21 @@ return false;
                 : (sourceDue ? `截止 ${__tmFormatTaskTimeCompact(sourceDue)}` : (sourceStart ? `开始 ${__tmFormatTaskTimeCompact(sourceStart)}` : '未记录日期'));
             const nextText = nextStart && nextDue
                 ? `${__tmFormatTaskTimeCompact(nextStart)} - ${__tmFormatTaskTimeCompact(nextDue)}`
-                : (nextDue ? `截止 ${__tmFormatTaskTimeCompact(nextDue)}` : (nextStart ? `开始 ${__tmFormatTaskTimeCompact(nextStart)}` : '未推进'));
+                : (nextDue ? `截止 ${__tmFormatTaskTimeCompact(nextDue)}` : (nextStart ? `开始 ${__tmFormatTaskTimeCompact(nextStart)}` : (item.id ? '计划已结束' : '未记录下一轮')));
             return `
                 <div class="tm-task-detail-history-item">
                     <div class="tm-task-detail-history-head">
                         <div class="tm-task-detail-history-main">${esc([occurrenceText, completedAt ? `完成于 ${__tmFormatTaskTime(completedAt)}` : '已完成'].filter(Boolean).join(' · '))}</div>
-                        <button type="button" class="tm-task-detail-history-delete" data-tm-detail-repeat-history-delete="${esc(completedAt || String(index))}">删除</button>
+                        <button type="button" class="tm-task-detail-history-delete" data-tm-detail-repeat-history-delete="${esc(item.id || completedAt || String(index))}">删除记录</button>
                     </div>
                     <div class="tm-task-detail-history-sub">本次：${esc(sourceText)}</div>
                     <div class="tm-task-detail-history-sub">已推进到：${esc(nextText)}</div>
                 </div>
             `;
         }).join('');
+        const more = offset + limit < history.length
+            ? `<button type="button" class="b3-button b3-button--outline" data-tm-repeat-history-more="${offset + limit}">再显示 ${Math.min(limit, history.length - offset - limit)} 条记录</button>` : '';
+        if (options.itemsOnly) return itemsHtml + more;
         return `
             <section class="tm-task-detail-section" data-tm-detail-collapsible-section>
                 <div class="tm-task-detail-section-head">
@@ -12822,7 +12832,7 @@ return false;
                         <span class="tm-task-detail-section-count">${history.length}</span>
                     </div>
                 </div>
-                <div class="tm-task-detail-history-list">${itemsHtml}</div>
+                <div class="tm-task-detail-history-list">${itemsHtml}${more}</div>
             </section>
         `;
     }

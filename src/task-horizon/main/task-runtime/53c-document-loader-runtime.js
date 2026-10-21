@@ -1235,6 +1235,12 @@
             const deferredDocIds = Array.isArray(allDocIds) ? allDocIds.slice() : [];
             __tmScheduleIdleTask(async () => {
                 if (!isTokenCurrent()) return;
+                const linkedCompletionIds = Object.values(state.flatTasks || {}).filter(task => !task?.isRecurringInstance
+                    && (task?.repeatState?.lastCompletionId || task?.repeatState?.lastRestoredCompletionId)).map(task => task.id);
+                if (linkedCompletionIds.length) {
+                    try { await __tmReconcileRecurringTasksOnLoad(linkedCompletionIds, { source: 'cache-completion-links' }); } catch (error) {}
+                    if (!isTokenCurrent()) return;
+                }
                 let needRender = false;
                 let needFilters = false;
                 if (shouldLoadMetaLater) {
@@ -2000,7 +2006,7 @@
                         ? __tmIsTaskNativeDone(task)
                         : !!task.done;
                     const pendingNativeDoneReset = task?.repeatState?.pendingNativeDoneReset === true;
-                    if (pendingNativeDoneReset) {
+                    if (pendingNativeDoneReset || task?.repeatState?.lastCompletionId || task?.repeatState?.lastRestoredCompletionId) {
                         recurringReconcileCandidateIds.push(String(task.id || '').trim());
                     } else if (nativeTaskDone && repeatRule?.enabled && repeatRule.type !== 'none'
                         && !(queuedTaskFieldPatch && Object.prototype.hasOwnProperty.call(queuedTaskFieldPatch, 'done'))

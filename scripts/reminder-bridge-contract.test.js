@@ -30,7 +30,7 @@ const bridgeBlock = apiSource.slice(bridgeStart, bridgeEnd);
 assert.match(bridgeBlock, /version:\s*2/, 'Task Horizon reminder bridge must publish the check-in capable version');
 assert.match(bridgeBlock, /checkinFromReminder:\s*true/, 'the bridge must advertise date-specific check-ins');
 assert.match(bridgeBlock, /completeFromReminder[\s\S]*?__tmMaybeAdvanceRecurringTaskFromReminderRecord\(/, 'Tomato completion must enter the existing Task Horizon completion path once');
-assert.match(repeatRuntimeSource, /version:\s*3/, 'Task Horizon must upgrade the reminder bridge to v3 after recurrence services load');
+assert.match(repeatRuntimeSource, /version:\s*4/, 'Task Horizon must upgrade the reminder bridge to v3 after recurrence services load');
 assert.match(repeatRuntimeSource, /taskOwnsRepeatSchedule:\s*true/, 'bridge v3 must declare task-owned recurrence');
 assert.match(repeatRuntimeSource, /applyFollowDraft:\s*__tmApplyFollowReminderDraft/, 'bridge v3 must expose follow-draft writes');
 assert.match(repeatRuntimeSource, /clearFollowDraft:\s*__tmClearFollowReminderDraft/, 'bridge v3 must expose ownership-safe reminder cleanup');

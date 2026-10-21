@@ -8818,14 +8818,29 @@
                 if (!subtaskId) return;
                 try { tmShowTaskContextMenu(ev, subtaskId); } catch (e) {}
             });
-            root.querySelectorAll('[data-tm-detail-repeat-history-delete]').forEach((btn) => {
-                if (!(btn instanceof HTMLButtonElement)) return;
-                on(btn, 'click', async (ev) => {
+            on(root, 'click', async (ev) => {
+                    const more = ev.target instanceof Element ? ev.target.closest('[data-tm-repeat-history-more]') : null;
+                    if (more && root.contains(more)) {
+                        ev.preventDefault(); ev.stopPropagation();
+                        if (more.disabled) return;
+                        more.disabled = true;
+                        try {
+                            const current = await __tmResolveTaskForRepeat(getBoundTaskId() || taskId);
+                            if (current) {
+                                more.insertAdjacentHTML('beforebegin', __tmBuildTaskRepeatHistorySectionHtml(current, { offset: Number(more.dataset.tmRepeatHistoryMore), itemsOnly: true }));
+                                more.remove();
+                            }
+                        } catch (error) { hint(`加载记录失败：${error?.message || error}`, 'warning'); }
+                        finally { more.disabled = false; }
+                        return;
+                    }
+                    const btn = ev.target instanceof Element ? ev.target.closest('[data-tm-detail-repeat-history-delete]') : null;
+                    if (!(btn instanceof HTMLButtonElement) || !root.contains(btn)) return;
                     try { ev.preventDefault(); } catch (e) {}
                     try { ev.stopPropagation(); } catch (e) {}
                     const completedAt = String(btn.getAttribute('data-tm-detail-repeat-history-delete') || '').trim();
                     if (!completedAt) return;
-                    const ok = await showConfirm('删除循环记录', '删除后该条循环完成记录会从插件内移除。是否继续？');
+                    const ok = await showConfirm('删除循环记录', '仅删除这条历史记录，不回退当前日期和轮次。撤销完成请取消对应记录的勾选。是否继续？');
                     if (!ok) return;
                     try {
                         await __tmDeleteTaskRepeatHistoryEntry(getBoundTaskId() || taskId, completedAt, { source: 'detail-repeat-history-delete' });
@@ -8838,7 +8853,6 @@
                     } catch (e) {
                         try { hint(`❌ 删除失败: ${String(e?.message || e || '')}`, 'error'); } catch (e2) {}
                     }
-                });
             });
             root.querySelectorAll('[data-tm-detail-checkin-toggle]').forEach((btn) => {
                 if (!(btn instanceof HTMLButtonElement)) return;

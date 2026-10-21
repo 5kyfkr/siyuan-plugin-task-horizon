@@ -83,7 +83,7 @@ assert.match(source, /data-tm-summary="fieldFocusDuration">专注时长<\/label>
 assert.ok(source.includes('showFocusDuration && t.focusDuration') && source.includes('`专注时长:${t.focusDuration}`'), 'summary markdown must render enabled focus duration values');
 assert.match(taskUtilsSource, /tomatoMinutes: String\(entry\.tomatoMinutes[\s\S]*tomatoHours: String\(entry\.tomatoHours/, 'recurring history must retain actual Tomato duration snapshots');
 assert.match(taskUtilsSource, /tomatoMinutes: String\(history\.tomatoMinutes[\s\S]*tomatoHours: String\(history\.tomatoHours/, 'recurring virtual tasks must expose their own actual Tomato duration snapshot');
-assert.match(recurringRuntimeSource, /__tmSettleTomatoAfterTaskDone[\s\S]*task = await __tmResolveTaskForRepeat[\s\S]*tomatoMinutes:[\s\S]*tomatoHours:/, 'recurring completion must snapshot Tomato duration after the timer is settled');
+assert.match(recurringRuntimeSource, /tomatoMinutes:[\s\S]*tomatoHours:[\s\S]*__tmSettleTomatoAfterTaskDone[\s\S]*task = await __tmReadTaskMutationBaseline/, 'recurring completion must snapshot Tomato duration after the timer is settled');
 
 const focusFormatterSource = segment('function __tmSummaryFormatFocusDuration', 'function __tmSummaryCollectTasks');
 const focusFormatterContext = {

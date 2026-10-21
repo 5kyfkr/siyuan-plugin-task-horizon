@@ -10,6 +10,9 @@ const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, 'src/task-horizon/main', name), 'utf8');
 const detail = read('task-runtime/52-task-detail-runtime.js');
 const model = read('task-runtime/50-task-model-and-repeat-utils.js');
+const historyMoreStart = detail.lastIndexOf("            on(root, 'click', async (ev) => {", detail.indexOf('const more = ev.target instanceof Element ? ev.target.closest'));
+const historyMoreHandler = detail.slice(historyMoreStart, detail.indexOf('\n            });', historyMoreStart) + '\n            });'.length);
+assert.ok(historyMoreStart >= 0 && historyMoreHandler.includes('data-tm-detail-repeat-history-delete'));
 function section(source, from, to, offset = 0) {
     const start = source.indexOf(from, offset), end = source.indexOf(to, start + from.length);
     assert.ok(start >= 0 && end > start, from);
@@ -26,6 +29,7 @@ assert.equal(customHandlers.length, 2);
 assert.equal(positioners.length, 2);
 const production = [
     fn(model, '__tmNormalizeDateOnly'),
+    fn(read('task-runtime/54-recurring-task-runtime.js'), '__tmGetTaskRepeatScheduleSignature'),
     section(model, '    function __tmParseTaskRepeatJson(', '    function __tmIsRecurringInstanceTask('),
     section(read('20-api-and-runtime-services.js'), '    const __tmModalStack = [];', '    function __tmGetTodayDateKey('),
     ...['__tmGetTaskTimeHubRepeatChoice', '__tmRenderTaskTimeHubRepeatEditorHtml', '__tmBuildTaskTimeHubRepeatPresetRule', '__tmGetTaskTimeHubViewport'].map(name => fn(detail, name)),
@@ -169,6 +173,40 @@ async function run() {
                 await page.keyboard.press('Escape');
             }
         }
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.evaluate(() => {
+            document.body.innerHTML = '<div id="history"></div>';
+            window.__tmFormatTaskTime = window.__tmFormatTaskTimeCompact = value => value;
+            window.__tmPhosphorBoldSvg = () => '';
+            window.confirmations = 0;
+            window.showConfirm = async () => { confirmations++; return false; };
+            task.repeatHistory = Array.from({ length: 120 }, (_, index) => ({
+                id: `completion-${index}`, completedAt: `2026-10-21T09:00:00.${String(index).padStart(3, '0')}Z`,
+                occurrenceNumber: index + 1, totalOccurrences: 150, sourceDue: '2026-10-21', nextDue: '2026-10-22',
+            }));
+        });
+        await page.addScriptTag({ content: fn(read('task-runtime/51-whiteboard-and-link-runtime.js'), '__tmBuildTaskRepeatHistorySectionHtml') });
+        await page.addScriptTag({ content: `(() => {
+            const root = document.querySelector('#history');
+            const on = (element, type, handler) => element.addEventListener(type, handler);
+            const getBoundTaskId = () => task.id;
+            root.innerHTML = __tmBuildTaskRepeatHistorySectionHtml(task);
+            ${historyMoreHandler}
+        })();` });
+        assert.equal(await page.locator('.tm-task-detail-history-item').count(), 50);
+        await page.locator('[data-tm-repeat-history-more]').evaluate(button => {
+            button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+        await page.waitForFunction(() => document.querySelectorAll('.tm-task-detail-history-item').length === 100);
+        await page.locator('[data-tm-repeat-history-more]').click();
+        await page.waitForFunction(() => document.querySelectorAll('.tm-task-detail-history-item').length === 120);
+        assert.equal(await page.locator('[data-tm-repeat-history-more]').count(), 0);
+        assert.equal(await page.locator('[data-tm-detail-repeat-history-delete]').evaluateAll(buttons => new Set(buttons.map(button => button.dataset.tmDetailRepeatHistoryDelete)).size), 120);
+        await page.locator('[data-tm-detail-repeat-history-delete]').last().click();
+        assert.equal(await page.evaluate(() => confirmations), 1, 'appended records retain the delegated delete handler');
+        assert.equal(await page.evaluate(() => task.repeatHistory.length), 120, 'pagination does not truncate stored history');
+        console.log('PASS 120-record pagination, rapid clicks and delegated history actions');
         assert.deepEqual(errors, [], 'no browser errors');
         console.log('PASS light/dark layouts at 1280/720/390/320px, custom modes visible without scrolling');
     } finally { await browser.close(); }

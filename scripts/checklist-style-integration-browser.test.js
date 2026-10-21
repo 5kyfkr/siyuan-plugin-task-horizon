@@ -24,7 +24,7 @@ function extract(source, name, assignment = false) {
 }
 const helpers = ['__tmRenderChecklistTaskRemark', '__tmBuildChecklistTitleContentHtml', '__tmRenderChecklistSubtaskProgress', '__tmShouldRenderChecklistTaskStatus', '__tmRenderTaskCheckbox']
     .map((name) => extract(models, name)).join('\n') + '\n' + extract(services, '__tmGetChecklistCompactMetaFieldOrder');
-const patchCode = ['__tmUpdateTaskRemarkInDOM', '__tmBuildTaskInlineContentHtml', '__tmUpdateTaskContentInDOM', '__tmSyncTaskSubtaskSummaryInPlace', '__tmUpdateTaskStatusTagInDOM', '__tmEnsureChecklistMetaContainer', '__tmEnsureChecklistCompactMetaContainer', '__tmSyncChecklistMetaContainerVisibility', '__tmEnsureChecklistTimeNode', '__tmUpdateTaskCustomFieldsInDOM']
+const patchCode = ['__tmUpdateTaskDoneInDOM', '__tmUpdateTaskRemarkInDOM', '__tmBuildTaskInlineContentHtml', '__tmUpdateTaskContentInDOM', '__tmSyncTaskSubtaskSummaryInPlace', '__tmUpdateTaskStatusTagInDOM', '__tmEnsureChecklistMetaContainer', '__tmEnsureChecklistCompactMetaContainer', '__tmSyncChecklistMetaContainerVisibility', '__tmEnsureChecklistTimeNode', '__tmUpdateTaskCustomFieldsInDOM']
     .map((name) => extract(patches, name)).join('\n') + '\n' + extract(timePatches, '__tmUpdateChecklistTaskTimeInDOM');
 const wrapCode = services.slice(services.indexOf('    const __tmTaskTitleWrapCache ='), services.indexOf('    function __tmCollectKanbanSubtaskWrapRowsFromMutation('));
 const toggleCode = extract(dialogs, 'tmChecklistToggleRemark', true);
@@ -75,7 +75,8 @@ window.__tmGetStatusOptions = () => [{id:'todo',name:'待办',marker:' ',color:'
 window.__tmGetDefaultUndoneStatusId = () => SettingsStore.data.checkboxUndoneStatusId || 'todo';
 window.__tmResolveTaskStatusDisplayOption = task => __tmGetStatusOptions().find(option=>option.id===(task.done?'done':task.customStatus || __tmGetDefaultUndoneStatusId()));
 window.__tmBuildStatusChipStyle = () => '';
-window.__tmIsTaskClosedForDisplay = task => !!task.done || task.customStatus==='abandoned';
+window.__tmIsTaskCanceled = task => task.taskMarker==='-' || task.customStatus==='abandoned';
+window.__tmIsTaskClosedForDisplay = task => !!task.done || __tmIsTaskCanceled(task);
 window.__tmIsTaskDoneEffective = task => !!task.done;
 window.__tmIsCheckinTask = () => false;
 window.__tmBuildTaskCheckboxStyle = () => 'style="--tm-checklist-checkbox-color:#b7bec8"';
@@ -208,6 +209,61 @@ window.__tmRerenderCurrentViewInPlace = () => {mount(currentHost,currentWidth);r
                 task.children[1].done = false;
                 state.checklistExpandedRemarks.clear();
             });
+        }
+        for (const circle of [false, true]) {
+            for (const theme of ['light', 'dark']) {
+                await page.evaluate(({circle,theme}) => {
+                    mount('desktop',1000,theme,circle);
+                    const preview = document.createElement('div');
+                    preview.id = 'canceled-checkbox-preview';
+                    preview.style.cssText = 'display:flex;gap:24px;padding:24px;';
+                    document.querySelector('#mount').prepend(preview);
+                    const shapes = circle ? 'tm-task-checkbox--circle' : '';
+                    const surfaces = [
+                        ['list','tm-checklist-item',shapes],
+                        ['detail','tm-task-detail-shell'+(circle?' tm-task-detail--task-checkbox-circle':''),shapes],
+                        ['overlay','',shapes],
+                        ['calendar-modal','tm-calendar-schedule-editor-modal','tm-calendar-edit-relation-check '+shapes],
+                        ['calendar-inline','tm-proto-inline-schedule-editor','tm-proto-inline-relation-check '+shapes],
+                    ];
+                    for (const [name,classes,extraClass] of surfaces) {
+                        const task = {id:'checkbox-'+name,taskMarker:'-',customStatus:'renamed',done:false};
+                        const root = document.createElement('div');
+                        root.className = classes;
+                        root.dataset.surface = name;
+                        if (name==='overlay') root.id='tm-task-detail-overlay';
+                        root.innerHTML = '<span>'+name+'</span><div class="tm-task-detail-subtask-main">'+__tmRenderTaskCheckbox(task.id,task,{extraClass})+'</div>';
+                        preview.append(root);
+                    }
+                }, {circle,theme});
+                const readMark = node => {
+                    const style = getComputedStyle(node,'::after');
+                    return {checked:node.checked,canceled:node.classList.contains('tm-task-checkbox--canceled'),width:parseFloat(style.width),height:parseFloat(style.height),right:style.borderRightWidth,bottom:style.borderBottomWidth,transform:style.transform,radius:getComputedStyle(node).borderRadius};
+                };
+                for (const surface of ['list','detail','overlay','calendar-modal','calendar-inline']) {
+                    const checkbox = page.locator('#canceled-checkbox-preview [data-surface="'+surface+'"] input');
+                    const dash = await checkbox.evaluate(readMark);
+                    assert.equal(dash.checked,true,JSON.stringify({circle,theme,surface,dash}));
+                    assert.equal(dash.canceled,true);
+                    assert.ok(dash.width>=5 && dash.height===0,'dash must be horizontal: '+JSON.stringify({circle,theme,surface,dash}));
+                    assert.equal(dash.right,'0px');
+                    assert.equal(dash.bottom,'2px');
+                    assert.ok(dash.transform.startsWith('matrix(1, 0, 0, 1,'),'dash must not rotate');
+                    assert.equal(dash.radius,circle?'999px':'4px');
+                    for (const marker of ['X',' ','-']) {
+                        await checkbox.evaluate((input,marker) => {
+                            const root = input.closest('[data-surface]');
+                            __tmUpdateTaskDoneInDOM(root,{id:input.dataset.taskId,taskMarker:marker,done:marker==='X'});
+                        },marker);
+                        const updated = await checkbox.evaluate(readMark);
+                        assert.equal(updated.checked,marker!==' ');
+                        assert.equal(updated.canceled,marker==='-','state changes must clear and restore the dash');
+                        if (marker==='X') assert.ok(updated.height>0 && updated.right==='2px','completion restores the check mark');
+                    }
+                }
+                await page.locator('#canceled-checkbox-preview').screenshot({path:path.join(output,'canceled-checkbox-'+(circle?'circle':'square')+'-'+theme+'.png')});
+                await page.locator('#canceled-checkbox-preview').evaluate(node=>node.remove());
+            }
         }
         if (process.env.TM_TEST_SMOKE === '1') {
             assert.deepEqual(errors, []);

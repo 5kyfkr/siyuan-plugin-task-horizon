@@ -364,7 +364,7 @@ assert.match(recurringDeleteSource, /__tmTaskMutationBus\?\.apply\?\.\(\{[\s\S]*
     'recurring history deletion must commit its task snapshot and removed virtual row through the common structural projection');
 assert.match(recurringDeleteSource, /patch: \{ \.\.\.nextPatch \}/,
     'recurring history deletion must publish the rolled-back task fields with its structural projection');
-assert.match(recurringDeleteSource, /shouldResetNativeDone[\s\S]*__tmSetDoneKernel[\s\S]*additionalPatch: nextPatch/,
+assert.match(recurringDeleteSource, /opts\.resetNativeDone[\s\S]*__tmRequireTaskMutation\('setDone'\)[\s\S]*restoreCompletionId:/,
     'rolling back the active held occurrence must clear native completion and history in one mutation');
 assert.doesNotMatch(recurringDeleteSource, /__tmRefreshViewsAfterTaskMutation/,
     'normal recurring history deletion must not own a second generic refresh path');
@@ -373,11 +373,9 @@ const recurringAdvanceStart = recurringSource.indexOf('async function __tmAdvanc
 const recurringAdvanceEnd = recurringSource.indexOf('\n    function __tmScheduleRecurringTaskAdvanceAfterCompletion(', recurringAdvanceStart);
 assert.ok(recurringAdvanceStart >= 0 && recurringAdvanceEnd > recurringAdvanceStart);
 const recurringAdvanceSource = recurringSource.slice(recurringAdvanceStart, recurringAdvanceEnd);
-assert.match(recurringAdvanceSource, /__tmTaskMutationBus\?\.apply\?\.\(\{[\s\S]*task: \{ \.\.\.task \}/,
-    'recurring completion must update the confirmed task snapshot used by live checkbox rendering');
-assert.match(recurringAdvanceSource, /type:\s*'taskLifecycle'[\s\S]*upsertedTaskIds:[\s\S]*recurringInstanceTaskId[\s\S]*structural:\s*true/,
-    'recurring completion must publish the new virtual row through one structural projection');
-assert.match(recurringAdvanceSource, /finalLocalPatch[\s\S]*__tmApplyTaskFieldPatchToLocalMirrors\(resetTaskId, finalLocalPatch\)/,
-    'recurring completion must update local task mirrors before publishing the new occurrence');
+assert.match(recurringAdvanceSource, /window\.tmSetDone[\s\S]*nativeObserved:/,
+    'recovery must use the shared writer instead of another recurrence transaction');
+assert.match(recurringSource, /__tmExecuteTaskCompletion[\s\S]*upsertLocal[\s\S]*__tmApplyTaskFieldPatchToLocalMirrors[\s\S]*__tmSyncRecurringInstanceTasks/,
+    'the confirmed completion must update task mirrors and virtual rows together');
 
 console.log('task projection engine contract tests passed');

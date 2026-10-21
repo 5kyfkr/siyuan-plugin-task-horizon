@@ -21,6 +21,16 @@
 - Each completion advances one occurrence. If the next occurrence is already overdue, it remains incomplete until separately completed.
 - Native checkbox hold/reset and recovery of a previously committed completion remain supported; resetting the held checkbox must not advance dates again. Calendar date previews remain read-only.
 
+## Task completion and cross-plugin recurrence
+
+- `__tmBuildTaskCompletionPlan` in `54-recurring-task-runtime.js` is the pure completion/restore calculation. The existing mutation lane reads a complete baseline, settles the captured focus session when required, and sends one guarded Kernel patch for marker, dates, repeat state and history. Native document handlers adapt confirmed host changes into this same entry point.
+- `repeatState.occurrenceId` identifies the current round; `repeatHistory[].id` identifies a committed completion. A new round may share the same date. Legacy history and deterministic legacy occurrence IDs remain readable; no bulk migration is required.
+- Restore validates the latest completion, rule and both current dates. Undo restores only the affected fields and the removed history entry. Deleting a history log does not undo completion. Focus ledger totals are retained.
+- Task reminder bridge v4 advertises `completionReceipt` and `restoreCompletion`. Dock Tomato owns its reminder writes and timer ledger; calendar owns independent schedule recurrence. Follow reminders and linked schedule occurrences consume committed receipts. Their failures are reported separately and repaired by receipt retry or existing load reconciliation.
+- Capture occurrence and Tomato session before awaiting pending writes. Calendar completion/reference writes share the existing completion queue. Cross-module calls happen outside the reminder mutation lock. No new persistent queue or timer ledger is introduced.
+- Index schema v7 marks omitted recurrence fields as incomplete and falls back to the full document read. History UI loads 50 records per page without truncating persisted history.
+- Behavioral coverage: `recurring-transition-behavior.test.js`, `recurring-kernel-integration.test.js`, `recurring-reconciliation-behavior.test.js`, `calendar-recurring-linked-schedule-completion.test.js`, `native-doc-checkbox-task-identity.test.js`, and `task-repeat-menu-browser.test.js`. Dock Tomato also runs `reminder-completion-receipt.test.js`.
+
 ## Performance and lifecycle boundaries
 
 - Calendar list renders use `TaskStore.createDirectChildrenReader()` through the existing card helper bridge. The reader indexes candidates once for one synchronous render; projection, aliases and pending deletion remain owned by TaskStore. Discard it after rendering so moves, inserts and scope changes cannot reuse stale relations.

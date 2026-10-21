@@ -103,7 +103,7 @@
     const __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES = 20 * 1024 * 1024;
     // The calendar task index now stores repeat history so recurring task
     // instances can be projected during the first calendar paint.
-    const __TM_TASK_INDEX_VERSION = 6;
+    const __TM_TASK_INDEX_VERSION = 7;
     const __TM_TASK_INDEX_MAX_BYTES = 24 * 1024 * 1024;
     const __TM_TASK_INDEX_MAX_DOCS = 1200;
     const __TM_TASK_INDEX_MAX_SINGLE_DOC_BYTES = 10 * 1024 * 1024;
@@ -3806,6 +3806,12 @@
             if (next === undefined) delete out[key];
             else out[key] = next;
         });
+        // An omitted large field is not an empty field. Reject this document's
+        // fast path rather than restoring incomplete recurrence as real state.
+        if (source.incomplete === true || ['repeatRule', 'repeatState', 'repeatHistory'].some((key) => {
+            const value = source[key] || source[key.replace(/[A-Z]/g, (letter) => '_' + letter.toLowerCase())];
+            return __tmCompactTaskIndexValue(value) !== undefined && out[key] === undefined;
+        })) out.incomplete = true;
         return out;
     }
 
@@ -3925,6 +3931,7 @@
             headingLevel: String(item.headingLevel || SettingsStore?.data?.taskHeadingLevel || 'h2').trim() || 'h2',
             level: Math.max(0, Math.round(Number(item.level || 0) || 0)),
             priorityScore: Number.isFinite(Number(item.priorityScore)) ? Number(item.priorityScore) : undefined,
+            ...(item.incomplete === true ? { incomplete: true } : {}),
             repeatRule: __tmCloneTaskSnapshotValue(item.repeatRule, 0),
             repeat_rule: __tmCloneTaskSnapshotValue(item.repeatRule, 0),
             repeatState: __tmCloneTaskSnapshotValue(item.repeatState, 0),
@@ -4344,6 +4351,7 @@
     function __tmIsUsableTaskIndexDoc(entry, options = {}) {
         const item = (entry && typeof entry === 'object') ? entry : null;
         if (!item || !__tmIsLikelyBlockId(item.id)) return false;
+        if (item.incomplete === true || (Array.isArray(item.blocks) && item.blocks.some((block) => block?.incomplete === true))) return false;
         if (!Array.isArray(item.blocks) && !Array.isArray(item.tasks)) return false;
         const updatedAt = Number(item.updatedAt || 0);
         if (!updatedAt) return false;

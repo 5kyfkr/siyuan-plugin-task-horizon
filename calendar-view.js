@@ -9773,6 +9773,7 @@
                 source: 'calendar-relation-checkbox',
             });
             if (result === false) throw new Error('任务完成状态未保存');
+            input.classList.remove('tm-task-checkbox--canceled');
             return true;
         } catch (e) {
             input.checked = !nextDone;
@@ -17609,13 +17610,15 @@
         return String(result?.completedAt || completedAt || '').trim();
     }
 
-    async function setScheduleOccurrenceDone(scheduleId, occurrenceStartMs, done, options = {}) {
-        // Serialize the read as well as the write so rapid clicks on different
-        // schedules/occurrences cannot overwrite each other's completion.
-        const run = () => persistScheduleOccurrenceDone(scheduleId, occurrenceStartMs, done, options);
+    function withScheduleCompletionMutation(run) {
+        // Serialize reads and writes for completion, receipt mapping and undo.
         const pending = Promise.resolve(state.scheduleCompletionWriteTail).then(run, run);
         state.scheduleCompletionWriteTail = pending.catch(() => undefined);
         return pending;
+    }
+
+    async function setScheduleOccurrenceDone(scheduleId, occurrenceStartMs, done, options = {}) {
+        return withScheduleCompletionMutation(() => persistScheduleOccurrenceDone(scheduleId, occurrenceStartMs, done, options));
     }
 
     async function persistScheduleOccurrenceDone(scheduleId, occurrenceStartMs, done, options = {}) {
@@ -17775,9 +17778,9 @@
                     <div class="tm-calendar-edit-actions" style="flex-wrap:wrap;">
                         <button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-scope="cancel">取消</button>
                         <div style="flex:1;"></div>
-                        <button class="tm-btn tm-btn-primary" type="button" data-tm-recurring-scope="one">仅当前这一次</button>
-                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-scope="future">当前及以后</button>
-                        <button class="tm-btn tm-btn-success" type="button" data-tm-recurring-scope="all">全部日程</button>
+                        <button class="tm-btn tm-btn-primary" type="button" data-tm-recurring-scope="one">${opt.taskDate ? '仅本轮改期' : '仅当前这一次'}</button>
+                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-scope="future">${opt.taskDate ? '修改后续规则' : '当前及以后'}</button>
+                        ${opt.taskDate ? (opt.allowDetach ? '<button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-scope="detach">拆出本次为独立日程</button>' : '') : '<button class="tm-btn tm-btn-success" type="button" data-tm-recurring-scope="all">全部日程</button>'}
                     </div>
                 </div>
             `;
@@ -17805,7 +17808,7 @@
                 if (!scope) return;
                 try { event.preventDefault?.(); } catch (e) {}
                 try { event.stopPropagation?.(); } catch (e) {}
-                finish(scope === 'all' || scope === 'one' || scope === 'future' ? scope : '');
+                finish(scope === 'all' || scope === 'one' || scope === 'future' || (scope === 'detach' && opt.taskDate && opt.allowDetach) ? scope : '');
             });
             window.addEventListener('keydown', onKeydown, true);
             document.body.appendChild(modal);
@@ -19068,6 +19071,7 @@
         }
         if (source === 'taskdate' && isRecurringTaskDateReadOnlyOccurrence(ext)) return ext?.__tmTaskDone === true;
         if (source === 'schedule' && ext?.__tmVirtualTaskSchedule === true) return true;
+        if (source === 'schedule' && isRecurringScheduleEventExt(ext)) return ext?.__tmScheduleOccurrenceDone === true;
         if (isDetachedTaskOccurrenceEventExt(ext) || (isDetachedScheduleOccurrenceEventExt(ext) && !isTaskLinkedScheduleEventExt(ext))) return ext?.__tmScheduleOccurrenceDone === true;
         if (isIndependentScheduleEventExt(ext)) return ext?.__tmScheduleOccurrenceDone === true;
         // A one-off schedule of a recurring task represents one completion.
@@ -19185,11 +19189,22 @@
         let applied = false;
         applyTaskDoneVisual(wrapEl, titleText, nextDone);
         try {
+            if (!nextDone && ext?.__tmCompletionId) {
+                const sourceTaskId = String(ext.__tmSourceTaskId || tid);
+                const result = await window.tmSetDone(sourceTaskId, false, null, {
+                    source: 'calendar-undo-completion', restoreCompletionId: ext.__tmCompletionId,
+                    force: true, wait: true,
+                });
+                if (result === false) throw new Error('任务完成记录未撤销');
+                applied = true;
+                return true;
+            }
             if (source === 'reminder') {
                 const reminderId = String(ext?.__tmReminderBlockId || tid || '').trim();
                 const dateKey = String(ext?.__tmReminderDate || '').trim();
                 const timeKeys = Array.isArray(ext?.__tmReminderTimes) ? ext.__tmReminderTimes : [ext?.__tmReminderTime];
-                await setCalendarReminderOccurrenceDone(reminderId, dateKey, timeKeys, nextDone, { occurrenceNumber: ext?.__tmReminderOccurrenceNumber });
+                await setCalendarReminderOccurrenceDone(reminderId, dateKey, timeKeys, nextDone, { occurrenceNumber: ext?.__tmReminderOccurrenceNumber,
+                    taskOccurrenceId: ext?.__tmReminderTaskOccurrenceId, scheduleSignature: ext?.__tmReminderScheduleSignature });
                 try { ext.__tmReminderDone = nextDone; } catch (e) {}
                 applied = true;
                 return true;
@@ -19230,12 +19245,7 @@
                 if (!tid || !completedAt || typeof window.tmSetDetachedTaskRepeatHistoryEntry !== 'function') {
                     throw new Error('循环记录撤销接口不可用');
                 }
-                const result = await window.tmSetDetachedTaskRepeatHistoryEntry(tid, false, { completedAt }, {
-                    source: 'calendar-recurring-instance-uncomplete',
-                    refresh: true,
-                    refreshCalendar: true,
-                    withFilters: true,
-                });
+                const result = await window.tmSetDone(tid, false, null, { source: 'calendar-recurring-instance-uncomplete', restoreCompletionId: completedAt, wait: true, force: true });
                 if (result === false) throw new Error('循环实例状态未保存');
                 applied = true;
                 return true;
@@ -19246,7 +19256,8 @@
             const scheduleId = source === 'schedule'
                 ? String(ext?.__tmScheduleId || '').trim()
                 : '';
-            const result = await window.tmSetDone(tid, nextDone, null, { source: 'calendar', scheduleId, wait: true });
+            const result = await window.tmSetDone(tid, nextDone, null, { source: 'calendar', scheduleId, wait: true, fsrsRating: 3, occurrenceId: ext?.__tmTaskOccurrenceId,
+                origin: scheduleId ? { scheduleId, occurrenceStartMs: ext.__tmOccurrenceStartMs } : null });
             if (result === false) throw new Error('任务完成状态未保存');
             applied = true;
             return true;
@@ -22986,11 +22997,12 @@
                 const occEnd = occurrence?.end instanceof Date ? occurrence.end : end;
                 const allDay = allDayBase || isAllDayRange(occStart, occEnd);
                 const occStartMs = Number(occurrence?.startMs || occStart.getTime());
-                const occurrenceDone = completionIndependent && repeatType === 'none'
+                const completionRef = it.completionRefs?.[String(Math.trunc(occStartMs))] || (repeatType === 'none' && it.completionId ? it : null);
+                const occurrenceDone = !!completionRef || (completionIndependent && repeatType === 'none'
                     ? getScheduleSingleCompletionDone(it)
                     : (isDetachedTaskOccurrence || isDetachedScheduleOccurrence)
                         ? detachedOccurrenceDone
-                        : (Number.isFinite(occStartMs) && completedOccurrenceSet.has(String(Math.trunc(occStartMs))));
+                        : (Number.isFinite(occStartMs) && completedOccurrenceSet.has(String(Math.trunc(occStartMs)))));
                 const eventClassNames = allDay ? ['tm-cal-allday-soft-event'] : ['tm-cal-schedule-event'];
                 const event = {
                     id: repeatType === 'none' ? String(it?.id || uuid()) : `${String(it?.id || uuid())}:${occStartMs}`,
@@ -23015,11 +23027,13 @@
                         __tmScheduleTitle: titleBase,
                         __tmScheduleNote: String(it?.note || it?.remark || '').trim(),
                         __tmTaskId: taskLikeId,
+                        __tmTaskOccurrenceId: linkedTaskSnapshot?.repeatState?.occurrenceId,
+                        __tmCompletionId: completionRef?.completionId,
                         __tmBlockId: blockId,
                         __tmVirtualTaskSchedule: isVirtualTaskSchedule,
                         __tmTaskDateReadOnly: isVirtualTaskSchedule,
                         __tmTaskDone: isVirtualTaskSchedule,
-                        __tmSourceTaskId: sourceTaskId,
+                        __tmSourceTaskId: completionRef?.sourceTaskId || sourceTaskId,
                         __tmAllDayBottom: allDay && allDayBottom,
                         __tmRank: 1,
                         __tmReminderMode: reminderMode,
@@ -23894,6 +23908,7 @@
                     __tmScheduledTaskDayKeys: Array.from(monthScheduleOverlap),
                     __tmTaskDateScheduleSplit: isScheduleSplit,
                     __tmRecurringCompletedAt: String(it?.recurringCompletedAt || '').trim(),
+                    __tmCompletionId: String(it?.recurringCompletionId || '').trim(),
                     __tmRepeatType: String(it?.repeatType || it?.repeat_type || '').trim(),
                     __tmRepeatEvery: Number(it?.repeatEvery ?? it?.repeat_every) || 1,
                     __tmRepeatUntil: String(it?.repeatUntil || it?.repeat_until || '').trim(),
@@ -25333,20 +25348,25 @@
         const repeatRule = isAllDayTaskDateEvent(arg?.event)
             ? await getTaskDateEventRepeatRule(arg?.event)
             : null;
+        let repeatScope = 'one';
         if (repeatRule) {
             const scope = await showScheduleRecurringEditScopeDialog({
                 title: '修改循环任务日期',
-                message: '这是一个时间中心循环任务。要把这次拖拽/调整应用到全部循环，还是只为当前这一次创建普通全天日程例外？',
+                taskDate: true, allowDetach: repeatRule.trigger === 'due' && repeatRule.type !== 'fsrs',
+                message: '仅本轮改期不消耗次数；修改后续规则会调整计划基准。拆出独立日程后，主任务继续下一轮。',
             });
             if (!scope) return { cancelled: true };
-            if (scope === 'one') {
-                return await persistTaskDateRecurringSingleOccurrenceChange(arg, patch);
+            if (scope === 'detach') return await persistTaskDateRecurringSingleOccurrenceChange(arg, patch);
+            repeatScope = scope;
+            if (scope !== 'one' && ((repeatRule.weekdays?.length || 0) > 1 || (repeatRule.monthDays?.length || 0) > 1)) {
+                throw new Error('请在循环设置中修改多日期规则，或选择仅本轮改期');
             }
         }
         const taskDateUpdatePatch = {};
         if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) taskDateUpdatePatch.startDate = patch.startDate;
         if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) taskDateUpdatePatch.completionTime = patch.completionTime;
         const result = await window.tmUpdateTaskDates(patch.taskId, taskDateUpdatePatch, {
+            repeatScope,
             source: 'calendar-taskdate-event-change',
             refresh: false,
             refreshCalendar: false,
@@ -25524,6 +25544,8 @@
         if (!Array.isArray(arr)) return set;
         for (const it of arr) {
             if (!it) continue;
+            if (it.taskOccurrenceId && reminder.taskRepeatState?.occurrenceId && it.taskOccurrenceId !== reminder.taskRepeatState.occurrenceId) continue;
+            if (!it.taskOccurrenceId && reminder.taskRepeatState?.occurrenceId && reminder.taskRepeatRule?.enabled) continue;
             if (typeof it === 'string') {
                 const k = it.trim();
                 if (k) set.add(k);
@@ -26062,6 +26084,8 @@
                         __tmReminderDate: dateKey,
                         __tmReminderOccurrenceNumber: r.trigger === 'complete' ? Math.max(1, Number(r.repeatState?.occurrenceCount) || 1) : null,
                         __tmReminderTimes: times,
+                        __tmReminderTaskOccurrenceId: globalThis.__tomatoReminder?.getOccurrenceContext?.(r)?.taskOccurrenceId || r.taskRepeatState?.occurrenceId,
+                        __tmReminderScheduleSignature: globalThis.__tomatoReminder?.getOccurrenceContext?.(r)?.scheduleSignature || '',
                         __tmRank: 3,
                     },
                 });
@@ -27999,7 +28023,8 @@
                 const meta = getCalendarTaskRelationMeta(task);
                 const shapeClass = getCalendarRelationCheckboxShapeClass();
                 const checked = isCalendarRelationTaskDone(task);
-                return `<div class="tm-calendar-edit-relation-current"><div class="tm-calendar-edit-relation-summary"><input class="tm-task-checkbox tm-calendar-edit-relation-check ${shapeClass}" type="checkbox" data-tm-cal-relation-task-check="${esc(id)}" aria-label="完成关联任务"${checked ? ' checked' : ''}><span class="tm-calendar-edit-relation-copy"><b>${esc(title)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</span></div><div class="tm-calendar-edit-relation-actions"><button type="button" data-tm-cal-relation-action="open">打开任务</button><button type="button" data-tm-cal-relation-action="replace">更换</button><button type="button" data-tm-cal-relation-action="unlink" class="is-danger">解除</button></div></div>`;
+                const canceled = globalThis.__tmCalendarKanbanCardHelpers?.isCanceled?.(task) === true;
+                return `<div class="tm-calendar-edit-relation-current"><div class="tm-calendar-edit-relation-summary"><input class="tm-task-checkbox tm-calendar-edit-relation-check ${shapeClass}${canceled ? ' tm-task-checkbox--canceled' : ''}" type="checkbox" data-tm-cal-relation-task-check="${esc(id)}" aria-label="完成关联任务"${checked ? ' checked' : ''}><span class="tm-calendar-edit-relation-copy"><b>${esc(title)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</span></div><div class="tm-calendar-edit-relation-actions"><button type="button" data-tm-cal-relation-action="open">打开任务</button><button type="button" data-tm-cal-relation-action="replace">更换</button><button type="button" data-tm-cal-relation-action="unlink" class="is-danger">解除</button></div></div>`;
             }
             if (!relationSearching) return '<button type="button" class="tm-calendar-edit-relation-start" data-tm-cal-relation-action="search"><span aria-hidden="true">⌕</span><span>搜索任务进行关联</span></button>';
             return `<div class="tm-calendar-edit-relation-search"><div class="tm-calendar-edit-relation-searchbox"><span aria-hidden="true">⌕</span><input type="search" value="${esc(relationQuery)}" data-tm-cal-field="taskSearch" placeholder="搜索任务名称或文档" aria-label="搜索关联任务"><button type="button" data-tm-cal-relation-action="cancel" aria-label="收起搜索">×</button></div><div class="tm-calendar-edit-relation-results" data-tm-cal-relation-results>${taskSearchResultsHtml()}</div></div>`;
@@ -35770,7 +35795,8 @@
                     const meta = getCalendarTaskRelationMeta(task);
                     const shapeClass = getCalendarRelationCheckboxShapeClass();
                     const checked = isCalendarRelationTaskDone(task);
-                    return `<div class="tm-proto-inline-relation-current"><div class="tm-proto-inline-relation-main"><input class="tm-task-checkbox tm-proto-inline-relation-check ${shapeClass}" type="checkbox" data-tm-proto-edit-relation-task-check="${esc(id)}" aria-label="完成关联任务"${checked ? ' checked' : ''}><span><b>${esc(title)}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</span></div><div class="tm-proto-inline-relation-actions"><button type="button" class="tm-proto-inline-relation-open" data-tm-proto-edit-relation="open">任务详情</button><button type="button" data-tm-proto-edit-relation="replace">更换</button><button type="button" data-tm-proto-edit-relation="unlink" class="is-danger">解除</button></div></div>`;
+                    const canceled = globalThis.__tmCalendarKanbanCardHelpers?.isCanceled?.(task) === true;
+                    return `<div class="tm-proto-inline-relation-current"><div class="tm-proto-inline-relation-main"><input class="tm-task-checkbox tm-proto-inline-relation-check ${shapeClass}${canceled ? ' tm-task-checkbox--canceled' : ''}" type="checkbox" data-tm-proto-edit-relation-task-check="${esc(id)}" aria-label="完成关联任务"${checked ? ' checked' : ''}><span><b>${esc(title)}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</span></div><div class="tm-proto-inline-relation-actions"><button type="button" class="tm-proto-inline-relation-open" data-tm-proto-edit-relation="open">任务详情</button><button type="button" data-tm-proto-edit-relation="replace">更换</button><button type="button" data-tm-proto-edit-relation="unlink" class="is-danger">解除</button></div></div>`;
                 }
                 if (!relationSearching) return '<button type="button" class="tm-proto-inline-relation-start" data-tm-proto-edit-relation="search">⌕ <span>搜索任务进行关联</span></button>';
                 const keyword = relationQuery.toLocaleLowerCase('zh-CN').trim();
@@ -36447,7 +36473,7 @@
                         <div class="quick-range-note quick-range-summary tm-proto-event-popover-time" data-tm-proto-inline-duration>${esc(isTaskDateEditor ? '修改后同步到任务日期' : (eventApi.allDay === true ? '全天' : `共 ${durationText}`))}</div>
                     </div>
                     <div class="bd tm-proto-event-popover-body tm-proto-inline-editor-body">
-                        ${isTaskDateEditor ? `<div class="quick-setting-row tm-proto-inline-task-date-owner"><b class="quick-setting-label">归属</b><span>${esc(taskDateOwnerIcon + taskDateOwnerName)}</span></div><div class="tm-proto-event-popover-actions tm-proto-inline-task-date-actions"><button type="button" class="tm-proto-popover-open-task" data-tm-proto-task-date-action="open-task">任务详情</button><button type="button" class="tm-proto-popover-locate" data-tm-proto-task-date-action="locate">跳转笔记</button></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">颜色</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="当前颜色"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="预设颜色">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="莫兰迪预设 ${esc(color)}" aria-label="选择预设颜色 ${esc(color)}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label>` : `${isNew ? `<div class="tm-proto-event-popover-kv"><b>日历</b><span data-tm-proto-calendar-summary>${esc(calendarName)}</span></div>` : `<div class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">关联任务</b><div data-tm-proto-inline-relation>${relationHtml()}</div></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">日历</b><select class="quick-setting-control" data-tm-proto-edit-field="calendar">${calendarOptions}</select></label>`}<button type="button" class="quick-settings-toggle tm-proto-inline-more-toggle" data-tm-proto-edit-more aria-expanded="false"><span>更多设置</span><span class="chevron" aria-hidden="true">›</span></button><div class="quick-advanced tm-proto-inline-more" data-tm-proto-inline-more hidden>${isNew ? `<div class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">关联任务</b><div data-tm-proto-inline-relation>${relationHtml()}</div></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">日历</b><select class="quick-setting-control" data-tm-proto-edit-field="calendar">${calendarOptions}</select></label>` : ''}<label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">提醒</b><select class="quick-setting-control" data-tm-proto-edit-field="reminder"><option value="inherit" ${reminderValue === 'inherit' ? 'selected' : ''}>使用全局设置</option><option value="off" ${reminderValue === 'off' ? 'selected' : ''}>关闭提醒</option><option value="0" ${reminderValue === '0' ? 'selected' : ''}>准时提醒</option><option value="5" ${reminderValue === '5' ? 'selected' : ''}>提前 5 分钟</option><option value="15" ${reminderValue === '15' ? 'selected' : ''}>提前 15 分钟</option><option value="30" ${reminderValue === '30' ? 'selected' : ''}>提前 30 分钟</option><option value="60" ${reminderValue === '60' ? 'selected' : ''}>提前 1 小时</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">重复</b><select class="quick-setting-control" data-tm-proto-edit-field="repeat"><option value="none" ${repeatType === 'none' ? 'selected' : ''}>不循环</option><option value="daily" ${repeatType === 'daily' ? 'selected' : ''}>每天</option><option value="workday" ${repeatType === 'workday' ? 'selected' : ''}>工作日</option><option value="weekly" ${repeatType === 'weekly' ? 'selected' : ''}>每周</option><option value="monthly" ${repeatType === 'monthly' ? 'selected' : ''}>每月</option><option value="yearly" ${repeatType === 'yearly' ? 'selected' : ''}>每年</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">颜色</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="当前颜色"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="预设颜色">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="莫兰迪预设 ${esc(color)}" aria-label="选择预设颜色 ${esc(color)}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label><label class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">备注</b><textarea class="quick-setting-control quick-setting-note" data-tm-proto-edit-field="note" placeholder="${linkedTaskId || linkedBlockId ? '备注与关联任务共用' : '添加备注'}">${esc(noteValue)}</textarea></label><div class="tm-calendar-completion-setting" data-tm-schedule-completion></div>${isNew ? '' : '<div class="quick-setting-row tm-proto-inline-device-row"><span>当前设备预约</span><button type="button" data-tm-proto-edit-device>查看</button></div>'}</div>`}
+                        ${isTaskDateEditor ? `<div class="quick-setting-row tm-proto-inline-task-date-owner"><b class="quick-setting-label">归属</b><span>${esc(taskDateOwnerIcon + taskDateOwnerName)}</span></div><div class="tm-proto-event-popover-actions tm-proto-inline-task-date-actions"><button type="button" class="tm-proto-popover-open-task" data-tm-proto-task-date-action="open-task">任务详情</button><button type="button" class="tm-proto-popover-locate" data-tm-proto-task-date-action="locate">跳转笔记</button></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">颜色</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="当前颜色"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="预设颜色">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="莫兰迪预设 ${esc(color)}" aria-label="选择预设颜色 ${esc(color)}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label>` : `<div class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">关联任务</b><div data-tm-proto-inline-relation>${relationHtml()}</div></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">日历</b><select class="quick-setting-control" data-tm-proto-edit-field="calendar">${calendarOptions}</select></label><button type="button" class="quick-settings-toggle tm-proto-inline-more-toggle" data-tm-proto-edit-more aria-expanded="false"><span>更多设置</span><span class="chevron" aria-hidden="true">›</span></button><div class="quick-advanced tm-proto-inline-more" data-tm-proto-inline-more hidden><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">提醒</b><select class="quick-setting-control" data-tm-proto-edit-field="reminder"><option value="inherit" ${reminderValue === 'inherit' ? 'selected' : ''}>使用全局设置</option><option value="off" ${reminderValue === 'off' ? 'selected' : ''}>关闭提醒</option><option value="0" ${reminderValue === '0' ? 'selected' : ''}>准时提醒</option><option value="5" ${reminderValue === '5' ? 'selected' : ''}>提前 5 分钟</option><option value="15" ${reminderValue === '15' ? 'selected' : ''}>提前 15 分钟</option><option value="30" ${reminderValue === '30' ? 'selected' : ''}>提前 30 分钟</option><option value="60" ${reminderValue === '60' ? 'selected' : ''}>提前 1 小时</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">重复</b><select class="quick-setting-control" data-tm-proto-edit-field="repeat"><option value="none" ${repeatType === 'none' ? 'selected' : ''}>不循环</option><option value="daily" ${repeatType === 'daily' ? 'selected' : ''}>每天</option><option value="workday" ${repeatType === 'workday' ? 'selected' : ''}>工作日</option><option value="weekly" ${repeatType === 'weekly' ? 'selected' : ''}>每周</option><option value="monthly" ${repeatType === 'monthly' ? 'selected' : ''}>每月</option><option value="yearly" ${repeatType === 'yearly' ? 'selected' : ''}>每年</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">颜色</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="当前颜色"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="预设颜色">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="莫兰迪预设 ${esc(color)}" aria-label="选择预设颜色 ${esc(color)}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label><label class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">备注</b><textarea class="quick-setting-control quick-setting-note" data-tm-proto-edit-field="note" placeholder="${linkedTaskId || linkedBlockId ? '备注与关联任务共用' : '添加备注'}">${esc(noteValue)}</textarea></label><div class="tm-calendar-completion-setting" data-tm-schedule-completion></div>${isNew ? '' : '<div class="quick-setting-row tm-proto-inline-device-row"><span>当前设备预约</span><button type="button" data-tm-proto-edit-device>查看</button></div>'}</div>`}
                     </div>
                     <div class="ft quick-new-foot tm-proto-event-popover-actions tm-proto-inline-editor-actions">${isNew || isTaskDateEditor ? '<button type="button" class="secondary tm-proto-inline-cancel" data-tm-proto-edit-action="cancel">取消</button>' : ''}${isNew || isTaskDateEditor ? '' : '<button type="button" class="danger tm-proto-inline-delete" data-tm-proto-edit-action="delete">删除</button>'}<button type="button" class="primary tm-proto-inline-save" data-tm-proto-edit-action="save">${isNew ? '创建日程' : '保存'}</button></div>`;
                 const more = pop.querySelector('[data-tm-proto-inline-more]');
@@ -36705,12 +36731,9 @@
                 pop.querySelector('[data-tm-proto-edit-field="repeatEndMode"]')?.addEventListener('change', syncInlineRepeatControls);
                 pop.querySelector('[data-tm-proto-edit-field="repeatMonthlyMode"]')?.addEventListener('change', syncInlineRepeatControls);
                 pop.querySelector('[data-tm-proto-edit-field="repeatCalendarMode"]')?.addEventListener('change', syncInlineRepeatControls);
-                pop.querySelector('[data-tm-proto-edit-field="calendar"]')?.addEventListener('change', (event) => {
+                pop.querySelector('[data-tm-proto-edit-field="calendar"]')?.addEventListener('change', () => {
                     colorClearedByCalendarChange = true;
                     colorTouched = false;
-                    const summary = pop.querySelector('[data-tm-proto-calendar-summary]');
-                    const option = event.target?.selectedOptions?.[0];
-                    if (summary && option) summary.textContent = option.textContent || option.value || '日历';
                     syncInlineColorToContext();
                 });
                 pop.querySelector('[data-tm-proto-edit-device]')?.addEventListener('click', async (event) => {
@@ -43458,22 +43481,41 @@
     }
 
     async function reassignScheduleLinkedTask(scheduleId, nextTaskId, options = {}) {
+        return withScheduleCompletionMutation(() => persistScheduleLinkedTaskCompletion(scheduleId, nextTaskId, options));
+    }
+
+    async function persistScheduleLinkedTaskCompletion(scheduleId, nextTaskId, options = {}) {
         const id = String(scheduleId || '').trim();
         const taskId = String(nextTaskId || '').trim();
         if (!id || !taskId) return false;
         const opts = (options && typeof options === 'object') ? options : {};
+        await state.scheduleWriteTail;
         const list = await loadScheduleAll();
         const idx = list.findIndex((item) => String(item?.id || '').trim() === id);
         if (idx < 0) return false;
         const prevItem = (list[idx] && typeof list[idx] === 'object') ? list[idx] : {};
-        if (normalizeScheduleRepeatType(getScheduleRepeatType(prevItem)) !== 'none') return true;
-        list[idx] = {
-            ...prevItem,
-            taskId,
-            task_id: taskId,
-            linkedTaskId: taskId,
-            linked_task_id: taskId,
-        };
+        if (opts.sourceTaskId && (prevItem.sourceTaskId || getScheduleLinkedTaskId(prevItem)) !== opts.sourceTaskId) return false;
+        if (normalizeScheduleRepeatType(getScheduleRepeatType(prevItem)) !== 'none') {
+            const key = normalizeScheduleCompletedOccurrenceKey(opts.occurrenceStartMs);
+            if (!key) return false;
+            if (prevItem.completionRefs?.[key]?.completionId === opts.completionId && opts.completionId) return true;
+            if (prevItem.completionRefs?.[key]?.completionId) return false;
+            list[idx] = { ...prevItem, completionRefs: { ...prevItem.completionRefs, [key]: {
+                completionId: opts.completionId, occurrenceId: opts.occurrenceId, sourceTaskId: opts.sourceTaskId,
+            } } };
+        } else {
+            if (prevItem.taskId === taskId && prevItem.completionId === (opts.completionId || '') && prevItem.sourceTaskId === (opts.sourceTaskId || prevItem.sourceTaskId)) return true;
+            if (prevItem.completionId && prevItem.completionId !== opts.completionId) return false;
+            list[idx] = {
+                ...prevItem,
+                taskId,
+                task_id: taskId,
+                linkedTaskId: taskId,
+                linked_task_id: taskId,
+                sourceTaskId: opts.sourceTaskId || getScheduleLinkedTaskId(prevItem),
+                completionId: opts.completionId || '', occurrenceId: opts.occurrenceId || '',
+            };
+        }
         await saveScheduleAll(list, {
             reason: 'reassign-schedule-linked-task',
             op: 'update',
@@ -43495,6 +43537,32 @@
                 });
             } catch (e) {}
         }
+        return true;
+    }
+
+    async function restoreTaskCompletion(taskId, receipt) {
+        return withScheduleCompletionMutation(() => persistRestoredTaskCompletion(taskId, receipt));
+    }
+
+    async function persistRestoredTaskCompletion(taskId, receipt) {
+        if (!taskId || !receipt?.restoredCompletionId) return false;
+        await state.scheduleWriteTail;
+        const list = await loadScheduleAll();
+        let changed = false;
+        const next = list.map((item) => {
+            if (item.sourceTaskId === taskId && item.completionId === receipt.restoredCompletionId) {
+                changed = true;
+                const target = item.sourceTaskId || taskId;
+                return { ...item, taskId: target, task_id: target, linkedTaskId: target, linked_task_id: target,
+                    completionId: '', occurrenceId: '' };
+            }
+            if (!item.completionRefs) return item;
+            const refs = Object.fromEntries(Object.entries(item.completionRefs).filter(([, ref]) => ref.sourceTaskId !== taskId || ref.completionId !== receipt.restoredCompletionId));
+            if (Object.keys(refs).length === Object.keys(item.completionRefs).length) return item;
+            changed = true;
+            return { ...item, completionRefs: refs };
+        });
+        if (changed) await saveScheduleAll(next, { reason: 'restore-task-completion' });
         return true;
     }
 
@@ -43842,6 +43910,7 @@
         deleteScheduleById,
         setScheduleAllDayBottomById,
         reassignScheduleLinkedTask,
+        restoreTaskCompletion,
         setSettingsStore,
         refreshDocGroupNames,
         scheduleDefaultViewForCurrentHost,

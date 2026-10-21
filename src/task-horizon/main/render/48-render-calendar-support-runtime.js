@@ -1833,9 +1833,26 @@
         if ((shouldPersistStartDate || shouldPersistCompletionTime) && repeatRule.enabled) {
             attrPatch.repeatState = __tmNormalizeTaskRepeatState({
                 ...(task?.repeatState && typeof task.repeatState === 'object' ? task.repeatState : {}),
+                occurrenceId: __tmGetTaskOccurrenceId(task),
+                planOverride: task?.repeatState?.planOverride || { startDate: prevStart, completionTime: prevEnd },
                 lastInstanceStart: nextStart,
                 lastInstanceDue: nextEnd,
             });
+            if (repeatRule.type === 'fsrs' && attrPatch.repeatState.fsrsCard && nextEnd) {
+                attrPatch.repeatState.fsrsCard.due = __tmBuildLocalNoonDateFromKey(nextEnd).toISOString();
+            }
+            if (opts.repeatScope === 'future' || opts.repeatScope === 'all') {
+                const anchorDate = nextEnd || nextStart;
+                const anchor = __tmBuildLocalNoonDateFromKey(anchorDate);
+                if (anchor) {
+                    attrPatch.repeatRule = __tmNormalizeTaskRepeatRule({ ...repeatRule, anchorDate,
+                        weekdays: repeatRule.type === 'weekly' ? [anchor.getDay()] : repeatRule.weekdays,
+                        monthDays: repeatRule.monthDays ? [anchor.getDate()] : undefined,
+                        monthWeek: repeatRule.monthWeek ? { ordinal: Math.ceil(anchor.getDate() / 7), weekday: anchor.getDay() } : undefined,
+                    });
+                    delete attrPatch.repeatState.planOverride;
+                }
+            }
         }
         const refreshReason = String(opts.source || 'calendar-dates').trim() || 'calendar-dates';
         const taskDocId = String(task?.root_id || task?.docId || '').trim();
@@ -1857,6 +1874,7 @@
         if (shouldPersistStartDate) inversePatch.startDate = prevStart;
         if (shouldPersistCompletionTime) inversePatch.completionTime = prevEnd;
         if (hasTaskDateColor) inversePatch.taskDateColor = prevColor;
+        if (attrPatch.repeatRule) inversePatch.repeatRule = task.repeatRule;
         if (Object.prototype.hasOwnProperty.call(attrPatch, 'repeatState')) {
             inversePatch.repeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
         }

@@ -1068,6 +1068,12 @@
                 label: '备注',
                 wch: pxToWch(widthMap.remark, 30),
                 value: (task) => String(task?.remark || '').trim()
+            },
+            attachments: {
+                key: 'attachments',
+                label: '附件',
+                wch: pxToWch(widthMap.attachments, 32),
+                value: (task) => __tmBuildTaskAttachmentEntries(__tmGetTaskAttachmentPaths(task))[0]?.name || ''
             }
         };
         __tmGetCustomFieldDefs().forEach((field) => {
@@ -1149,7 +1155,7 @@
             const rootTask = __tmExcelGetVisibleRootTask(task, taskMap) || task;
             return {
                 id,
-                task,
+                task: { ...task, __attachmentPaths: __tmGetTaskAttachmentPaths(task) },
                 depth: Math.max(0, Number(row?.depth) || getDepth(task)),
                 groupLabel: __tmExcelGetGroupLabel(task, rootTask),
                 parentTaskId,
@@ -1161,7 +1167,157 @@
         };
     }
 
-    window.tmExportCurrentTableExcel = async function() {
+    async function __tmExcelHydrateAttachments(rows) {
+        const missing = rows.filter((row) => !__tmHasTaskAttachmentAttrSnapshot(row.task));
+        if (!missing.length) return;
+        const result = await __tmQueryAttachmentLibraryAttachmentAttrRows(missing.map((row) => row.id));
+        if (!result.ok) throw new Error('读取任务附件失败，请刷新后重试');
+        missing.forEach((row) => {
+            const attrs = result.rowMap.get(row.id) || {};
+            // Export hydration is isolated from the task store and pending edits.
+            row.task = { ...row.task };
+            __tmApplyTaskAttachmentPathsToTask(row.task, __tmExtractTaskAttachmentsFromAttrRow(attrs), { attrsLoaded: true });
+        });
+    }
+
+    async function __tmExcelCollectAttachments(rows) {
+        const byTask = new Map();
+        const files = [];
+        const fileOwners = new Map();
+        const resolved = new Map();
+        let failedCount = 0;
+        for (const row of rows) {
+            const items = [];
+            for (const entry of __tmBuildTaskAttachmentEntries(__tmGetTaskAttachmentPaths(row.task))) {
+                const source = entry.path;
+                let item = resolved.get(source);
+                if (!item) {
+                    item = { name: entry.name, source, target: '', status: '' };
+                    try {
+                        if (entry.isBlockRef) {
+                            item.target = `siyuan://blocks/${entry.blockId}`;
+                            item.status = '思源引用（需思源打开）';
+                        } else if (/^https?:/i.test(source)) {
+                            item.target = source;
+                            item.status = '网络链接（未打包）';
+                        } else {
+                            let data;
+                            let outputParts = [];
+                            if (entry.isLocalPath) {
+                                const readLocal = globalThis.__taskHorizonReadLocalAttachmentFile;
+                                if (typeof readLocal !== 'function') throw new Error('当前环境无法读取本地文件');
+                                const local = await readLocal(source);
+                                if (local.isDirectory) {
+                                    item.target = source;
+                                    item.status = '本地目录链接（未打包）';
+                                } else {
+                                    data = local.data;
+                                    outputParts = ['本地', entry.name];
+                                }
+                            } else {
+                                const assetPath = source.split(/[?#]/)[0];
+                                const segments = assetPath.split('/');
+                                if (!/^assets\//i.test(assetPath) || segments.some((part) => {
+                                    const decoded = decodeURIComponent(part);
+                                    return !decoded || decoded === '.' || decoded === '..' || /[\\/]/.test(decoded);
+                                })) throw new Error('不支持的附件路径');
+                                outputParts = segments.slice(1).map((part) => decodeURIComponent(part));
+                                const response = await fetch(__tmResolveTaskAttachmentHref(assetPath));
+                                if (!response.ok) throw new Error(`读取失败（HTTP ${response.status}）`);
+                                data = new Uint8Array(await response.arrayBuffer());
+                            }
+                            if (data) {
+                                const safeParts = outputParts.map((part) => {
+                                    let safe = __tmExcelSanitizeFileName(part)
+                                        .replace(/[\u0000-\u001f\u007f#%]/g, '_').replace(/[. ]+$/g, '') || '附件';
+                                    if (/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(safe)) safe = `_${safe}`;
+                                    const extension = safe.match(/\.[^.]{1,16}$/)?.[0] || '';
+                                    return safe.length > 120
+                                        ? Array.from(safe).slice(0, 120 - extension.length).join('') + extension
+                                        : safe;
+                                });
+                                const originalPath = `附件/${safeParts.join('/')}`;
+                                let path = originalPath;
+                                let suffix = 2;
+                                while (fileOwners.has(path.toLowerCase()) && fileOwners.get(path.toLowerCase()) !== source) {
+                                    const extension = originalPath.match(/\.[^./]{1,16}$/)?.[0] || '';
+                                    path = `${originalPath.slice(0, originalPath.length - extension.length)} (${suffix++})${extension}`;
+                                }
+                                fileOwners.set(path.toLowerCase(), source);
+                                files.push({ path, data });
+                                // Excel treats percent-encoded UTF-8 local paths as literal filenames.
+                                item.target = path;
+                                item.name = path.slice(path.lastIndexOf('/') + 1);
+                                item.status = '已导出';
+                            }
+                        }
+                    } catch (error) {
+                        item.status = `未导出：${String(error?.message || error || '读取失败')}`;
+                        failedCount += 1;
+                    }
+                    resolved.set(source, item);
+                }
+                items.push(item);
+            }
+            byTask.set(row.id, items);
+        }
+        return { byTask, files, failedCount };
+    }
+
+    function __tmExcelAddAttachmentColumns(columns, rows, attachments) {
+        const firstIndex = columns.findIndex((column) => column.key === 'attachments');
+        if (firstIndex < 0) return;
+        const rowItems = attachments.byTask;
+        const maxItems = rows.reduce((max, row) => Math.max(max, rowItems.get(row.id)?.length || 0), 1);
+        const firstColumn = columns[firstIndex];
+        const attachmentColumns = Array.from({ length: maxItems }, (_, attachmentIndex) => ({
+            ...firstColumn,
+            key: attachmentIndex === 0 ? 'attachments' : `__tmAttachment${attachmentIndex + 1}`,
+            label: attachmentIndex === 0 ? '附件' : `附件 ${attachmentIndex + 1}`,
+            value: (_, row) => {
+                const item = rowItems.get(row.id)?.[attachmentIndex];
+                return item ? `${item.name}${item.status.startsWith('未导出：') ? `（${item.status}）` : ''}` : '';
+            },
+        }));
+        columns.splice(firstIndex, 1, ...attachmentColumns);
+    }
+
+    function __tmExcelAddAttachmentLinks(XLSX, ws, columns, rows, attachments) {
+        const firstIndex = columns.findIndex((column) => column.key === 'attachments');
+        if (firstIndex < 0) return;
+        rows.forEach((row, rowIndex) => {
+            const items = attachments.byTask.get(row.id) || [];
+            items.forEach((item, attachmentIndex) => {
+                if (!item.target) return;
+                const cellRef = XLSX.utils.encode_cell({ r: rowIndex + 1, c: firstIndex + attachmentIndex });
+                const cell = ws[cellRef];
+                if (!cell) return;
+                cell.l = { Target: item.target, Tooltip: `${item.name}：${item.status}`.slice(0, 255) };
+            });
+        });
+    }
+
+    async function __tmExcelDownloadAttachmentBundle(XLSX, wb, filename, files) {
+        await globalThis.__taskHorizonEnsureZipModuleLoaded?.();
+        const Zip = [globalThis.JSZip, globalThis.module?.exports, globalThis.exports]
+            .find((candidate) => typeof candidate === 'function' && typeof candidate.prototype?.generateAsync === 'function');
+        if (!Zip) throw new Error('附件打包组件未加载');
+        const zip = new Zip();
+        zip.file(filename, XLSX.write(wb, { type: 'array', bookType: 'xlsx', compression: true, cellStyles: true }));
+        files.forEach((file) => zip.file(file.path, file.data));
+        const data = await zip.generateAsync({ type: 'uint8array' });
+        const url = URL.createObjectURL(new Blob([data], { type: 'application/zip' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename.replace(/\.xlsx$/i, '.zip');
+        document.body.appendChild(a);
+        try { a.click(); } finally {
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+        }
+    }
+
+    async function __tmExportCurrentTableExcel() {
         if (String(state.viewMode || '').trim() !== 'list') {
             hint('⚠️ 仅表格视图支持导出 Excel', 'warning');
             return;
@@ -1182,6 +1338,14 @@
         if (!columns.length) {
             hint('❌ 导出列配置为空', 'error');
             return;
+        }
+        const hasAttachmentColumn = columns.some((col) => col.key === 'attachments');
+        let attachments = null;
+        if (hasAttachmentColumn) {
+            hint('⏳ 正在整理任务附件...', 'info');
+            await __tmExcelHydrateAttachments(model.rows);
+            attachments = await __tmExcelCollectAttachments(model.rows);
+            __tmExcelAddAttachmentColumns(columns, model.rows, attachments);
         }
         const aoa = [columns.map((col) => String(col?.label || '').trim())];
         model.rows.forEach((row) => {
@@ -1214,11 +1378,34 @@
         });
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, '任务导出');
+        if (attachments) __tmExcelAddAttachmentLinks(XLSX, ws, columns, model.rows, attachments);
         const fileBaseName = __tmExcelResolveExportFileBaseName();
         const filename = __tmExcelSanitizeFileName(`${fileBaseName}_表格导出_${__tmExcelDateStamp()}.xlsx`);
+        if (attachments?.files.length) {
+            await __tmExcelDownloadAttachmentBundle(XLSX, wb, filename, attachments.files);
+            const failures = attachments.failedCount ? `，${attachments.failedCount} 个附件未导出，原因见附件单元格` : '';
+            hint(`✅ 已导出 ${model.rows.length} 条任务、${attachments.files.length} 个附件，请解压后打开 Excel${failures}`,
+                attachments.failedCount ? 'warning' : 'success');
+            return;
+        }
         if (typeof XLSX.writeFileXLSX === 'function') XLSX.writeFileXLSX(wb, filename, { compression: true, cellStyles: true });
         else XLSX.writeFile(wb, filename, { bookType: 'xlsx', compression: true, cellStyles: true });
-        hint(`✅ 已导出 Excel（${model.rows.length} 条任务）`, 'success');
+        const failures = attachments?.failedCount ? `，${attachments.failedCount} 个附件未导出，原因见附件单元格` : '';
+        hint(`✅ 已导出 Excel（${model.rows.length} 条任务）${failures}`, attachments?.failedCount ? 'warning' : 'success');
+    }
+
+    let __tmExcelExportPending = false;
+    window.tmExportCurrentTableExcel = async function() {
+        if (__tmExcelExportPending) return;
+        __tmExcelExportPending = true;
+        try {
+            await __tmExportCurrentTableExcel();
+        } catch (error) {
+            console.error('[task-horizon] Excel export failed', error);
+            hint(`❌ 导出失败：${String(error?.message || error || '')}`, 'error');
+        } finally {
+            __tmExcelExportPending = false;
+        }
     };
 
     // 新增：导出当前分组任务

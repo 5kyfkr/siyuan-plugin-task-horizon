@@ -3514,7 +3514,7 @@
         return true;
     }
 
-    async function __tmReassignCompletedScheduleToRecurringInstance(scheduleId, sourceTask, historyItem) {
+    async function __tmReassignCompletedScheduleToRecurringInstance(scheduleId, sourceTask, historyItem, options = {}) {
         const sid = String(scheduleId || '').trim();
         if (!sid) return false;
         let task = (sourceTask && typeof sourceTask === 'object') ? sourceTask : null;
@@ -3529,7 +3529,7 @@
         const history = __tmNormalizeTaskRepeatHistory([historyItem])[0] || null;
         if (!task?.id || !history) return false;
         const virtualTask = __tmBuildRecurringInstanceTask(task, history, 0);
-        const nextTaskId = String(virtualTask?.id || '').trim();
+        const nextTaskId = String(virtualTask?.id || (!history.nextDue && !history.nextStart ? task.id : '')).trim();
         if (!nextTaskId) return false;
         const calendarApi = globalThis.__tmCalendar;
         if (!calendarApi || typeof calendarApi.reassignScheduleLinkedTask !== 'function') return false;
@@ -3537,6 +3537,9 @@
             const result = await calendarApi.reassignScheduleLinkedTask(sid, nextTaskId, {
                 sourceTaskId: String(task.id || '').trim(),
                 completedAt: String(history.completedAt || '').trim(),
+                completionId: history.id || history.completedAt,
+                occurrenceId: history.occurrenceId || '',
+                occurrenceStartMs: options.occurrenceStartMs,
             });
             return result !== false;
         } catch (e) {

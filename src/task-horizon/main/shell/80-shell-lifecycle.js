@@ -1085,6 +1085,8 @@ if (shouldMarkDirty) {
             if (__tmNativeDocCheckboxSyncClickHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(document, 'click', __tmNativeDocCheckboxSyncClickHandler, true);
                 globalThis.__tmRuntimeEvents?.off?.(document, 'pointerup', __tmNativeDocCheckboxSyncClickHandler, true);
+                globalThis.__tmRuntimeEvents?.off?.(document, 'keydown', __tmNativeDocCheckboxSyncClickHandler, true);
+                globalThis.__tmRuntimeEvents?.off?.(document, 'contextmenu', __tmNativeDocCheckboxSyncClickHandler, true);
                 __tmNativeDocCheckboxSyncClickHandler = null;
             }
             if (__tmNativeDocCheckboxSyncObserver) {

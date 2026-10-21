@@ -5657,17 +5657,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     hint('请选择有效的月日期，并检查截止日期', 'warning');
                     return;
                 }
-                const scheduleFields = (rule) => JSON.stringify([
-                    rule.enabled,
-                    rule.type,
-                    rule.every,
-                    rule.weekdays,
-                    rule.monthlyMode,
-                    rule.monthDays,
-                    rule.monthWeek,
-                    rule.calendarMode,
-                    rule.anchorDate,
-                ]);
+                const scheduleFields = __tmGetTaskRepeatScheduleSignature;
                 if (draft.maxOccurrences > 0
                     && currentRule.maxOccurrences > 0
                     && scheduleFields(draft) === scheduleFields(currentRule)

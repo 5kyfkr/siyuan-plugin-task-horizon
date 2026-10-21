@@ -22,7 +22,7 @@ const fn = (name) => {
 const common = [
     slice('    function normalizeScheduleCompletedOccurrenceKey(', '    function normalizeScheduleSkippedOccurrenceKey('),
     slice('    function isTaskDateRecurringExceptionScheduleItem(', '    async function isLinkedTaskRecurringTask('),
-    slice('    async function setScheduleOccurrenceDone(', '    function showScheduleRecurringEditScopeDialog('),
+    slice('    function withScheduleCompletionMutation(', '    function showScheduleRecurringEditScopeDialog('),
     slice('    function isRecurringScheduleEventExt(', '    async function setCalendarReminderOccurrenceDone('),
     slice('    function shouldHideCompletedAllDayCalendarEvent(', '    function getCalendarCompactEventLeadingLayoutVars('),
     fn('buildEventsFromSchedule'), fn('dedupeMonthScheduleEvents'),

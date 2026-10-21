@@ -2178,6 +2178,9 @@ return finish(false, 'noop');
     try { globalThis.__tmRunSetDonePostCommitEffects = __tmRunSetDonePostCommitEffects; } catch (e) {}
 
     async function __tmRunCommittedSetDoneEffects(taskId, options = {}) {
+        if (options.completion && typeof globalThis.__tmApplyCompletionReceiptEffects === 'function') {
+            return await globalThis.__tmApplyCompletionReceiptEffects(taskId, options);
+        }
         const tid = String(taskId || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
         if (!tid) throw new Error('完成后的关联处理缺少任务 ID');
@@ -2880,13 +2883,6 @@ return finish(false, 'noop');
 
     function __tmAutoCompleteIsSubtaskDone(task) {
         if (!(task && typeof task === 'object')) return false;
-        try {
-            if (typeof __tmIsRecurringNativeDoneHeld === 'function'
-                && __tmIsRecurringNativeDoneHeld(task)
-                && typeof __tmIsTaskNativeDone === 'function') {
-                return !!__tmIsTaskNativeDone(task);
-            }
-        } catch (e) {}
         return __tmAutoCompleteIsTaskDone(task);
     }
 
@@ -3060,6 +3056,14 @@ return finish(false, 'noop');
                     previousMarkdown: previousMarkdown,
                     previousStatusId: originalCustomStatus,
                     previousStatePrepared: false,
+                    occurrenceId: String(opts.occurrenceId || (typeof __tmGetTaskOccurrenceId === 'function' ? __tmGetTaskOccurrenceId(taskLike) : '')).trim(),
+                    restoreCompletionId: String(opts.restoreCompletionId || '').trim(),
+                    restoreState: opts.restoreState || null,
+                    restorePatch: opts.restorePatch || null,
+                    nativeObserved: opts.nativeObserved || null,
+                    origin: opts.origin || null,
+                    completedAt: String(opts.completedAt || '').trim(),
+                    timerContext: opts.timerContext || globalThis.__tomatoTimerV2?.getSettlementContext?.() || null,
                     taskCompleteAtDerived,
                     rewardPriorityScore,
                     recordUndo: opts.recordUndo !== false,
@@ -3140,6 +3144,7 @@ return finish(false, 'noop');
         }
         if (childBecameDone && !allChildrenDone) return false;
         const targetParentDone = childBecameDone;
+        if (targetParentDone && typeof __tmGetTaskRepeatRule === 'function' && __tmGetTaskRepeatRule(parentTask).type === 'fsrs') return false;
         const parentDone = __tmAutoCompleteIsTaskDone(parentTask);
         if (parentDone === targetParentDone) return false;
         const source = targetParentDone
@@ -3184,14 +3189,20 @@ return finish(false, 'noop');
             },
         });
         const settlePromise = pendingPromise || opPromise;
-        Promise.resolve(settlePromise).then(() => {
+        Promise.resolve(settlePromise).then((result) => {
             if (intentRevision && !__tmIsLatestSetDoneIntent(tid, intentRevision)) return;
             if (targetDone) {
                 try { __tmQueueTaskDoneDelight(tid, { done: true, suppressHint: opts.suppressHint, source: opts.source }); } catch (e) {}
             }
             if (opts.suppressHint !== true) {
                 try {
-                    const successHint = __tmBuildTaskDoneSuccessHint(targetDone, targetDone ? '✅ 任务已完成' : '✅ 已取消完成');
+                    const receipt = result?.completion;
+                    const nextDate = receipt?.nextDates?.completionTime || receipt?.nextDates?.startDate || '';
+                    const message = receipt?.linkage?.ok === false ? '任务已保存，关联同步待重试'
+                        : (receipt?.completedOccurrence && receipt.recurring
+                            ? (receipt.advanced ? `本轮已完成，下次 ${nextDate}${nextDate && nextDate < __tmNormalizeDateOnly(new Date()) ? '（仍待补做）' : ''}` : '本轮已完成，计划已结束')
+                            : (targetDone ? '✅ 任务已完成' : '✅ 已取消完成'));
+                    const successHint = __tmBuildTaskDoneSuccessHint(targetDone, message);
                     const undoRecord = targetDone ? __tmGetLatestTaskDoneUndoRecord(tid) : null;
                     if (!(targetDone && __tmShowTaskDoneUndoHint(tid, successHint, undoRecord))) {
                         hint(successHint, 'success');
@@ -3273,10 +3284,9 @@ return finish(false, 'noop');
         const source = String(options.source || 'task-checkin').trim() || 'task-checkin';
         let result = false;
         try {
-            result = await __tmPersistMetaAndAttrsKernel(tid, { repeatState: nextState }, {
+            result = await globalThis.__tmRequireTaskMutation('patchTask')(tid, { repeatState: nextState }, {
                 source: String(options.source || 'task-checkin').trim() || 'task-checkin',
-                touchMetaStore: true,
-                skipFlush: false,
+                wait: true, background: false, recordUndo: options.recordUndo !== false,
             });
         } catch (error) {
             try { task.repeatState = currentState; task.repeat_state = currentState; } catch (e) {}
@@ -3441,7 +3451,7 @@ if (ev) {
                 return false;
             }
         }
-        if (!targetDone
+        if (!opts.restoreCompletionId && !targetDone
             && typeof __tmIsRecurringNativeDoneHeld === 'function'
             && __tmIsRecurringNativeDoneHeld(task)) {
             const heldState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
@@ -3470,7 +3480,7 @@ if (ev) {
                 }
             }
         }
-        if (!targetDone
+        if (!opts.restoreCompletionId && !targetDone
             && typeof __tmIsRecurringNativeDoneHeld === 'function'
             && __tmIsRecurringNativeDoneHeld(task)) {
             if (opts.suppressHint !== true) hint('⚠️ 循环完成记录已丢失，请先刷新任务数据', 'warning');
@@ -3487,7 +3497,7 @@ if (ev) {
         if (!currentDone && targetDone) {
             const repeatRule = __tmGetTaskRepeatRule(task);
             if (repeatRule.type === 'fsrs') {
-                if (!fsrsRating && ev?.target) fsrsRating = 3;
+                if (!fsrsRating && opts.automatic !== true) fsrsRating = 3;
                 if (!fsrsRating) {
                     if (opts.suppressHint !== true) hint('⚠ FSRS 间隔重复需要明确选择“良好”或其他评分', 'warning');
                     if (ev?.target) {
@@ -3498,7 +3508,7 @@ if (ev) {
             }
         }
         const explicitCheckboxIntent = String(ev?.target?.type || '').toLowerCase() === 'checkbox';
-        if (currentDone === targetDone && !__tmIsTaskCanceled(task) && !explicitCheckboxIntent && opts.force !== true) return;
+        if (currentDone === targetDone && !__tmIsTaskCanceled(task) && !explicitCheckboxIntent && opts.force !== true && !opts.restoreCompletionId && !opts.nativeObserved) return;
         try {
             const setDone = globalThis.__tmRequireTaskMutation?.('setDone');
             if (typeof setDone !== 'function') throw new Error('任务完成状态写入队列未就绪');
@@ -3518,9 +3528,18 @@ if (ev) {
                 skipSnapshotPersist: opts.skipSnapshotPersist,
                 refreshAncestorViews: opts.refreshAncestorViews !== false,
                 fsrsRating,
+                occurrenceId: opts.occurrenceId,
+                restoreCompletionId: opts.restoreCompletionId,
+                nativeObserved: opts.nativeObserved,
+                origin: opts.origin,
+                completedAt: opts.completedAt,
+                operationId: opts.operationId,
             });
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
-            if (opts.wait === true) await request;
+            if (opts.wait === true) {
+                const result = await request;
+                if (opts.returnReceipt === true) return result?.completion || result;
+            }
             else {
                 Promise.resolve(request).catch((error) => {
                     if (opts.suppressHint !== true) hint(`❌ 操作失败: ${error?.message || String(error)}`, 'error');

@@ -41,6 +41,9 @@ function createHarness(options = {}) {
             },
         },
         SettingsStore: { data: { customStatusOptions: [] } },
+        __tmIsCheckinTask: () => false,
+        __tmGetTaskOccurrenceId: () => 'captured-round',
+        __tmApplyNativeDocCheckboxDomProjection: (...args) => calls.projections.push(args),
         __tmTaskBoundary: { getTask: () => options.cached ? { ...task } : null },
         __tmResolveLocalTaskBindingFromAnyBlockId: () => options.cached
             ? { taskId: taskID, task: { ...task } }
@@ -80,8 +83,9 @@ function createHarness(options = {}) {
         __tmMirrorNativeDocTaskStatusAttr: (...args) => calls.mirrors.push(args),
         __tmApplyNativeDocCheckboxLocalState: (...args) => calls.projections.push(args),
         __tmScheduleNativeDocCheckboxStatusReconcile: (...args) => calls.retries.push(args),
-        __tmRequireTaskMutation: () => async (id, patch, mutationOptions) => {
-            calls.writes.push({ id, patch: { ...patch }, options: { ...mutationOptions } });
+        __tmRequireTaskMutation: () => async (id, value, mutationOptions) => {
+            if (options.writeError) throw new Error('write unavailable');
+            calls.writes.push({ id, done: value, patch: typeof value === 'object' ? value : mutationOptions.statusPatch, options: { ...mutationOptions } });
             return true;
         },
         __tmReportTaskMutationFailure: (error) => calls.errors.push(error),
@@ -111,117 +115,50 @@ function assertSkipped(harness) {
 
 async function main() {
     for (const blockType of ['d', 'p', 'l', 'i']) {
-        const harness = createHarness({ blockType });
-        assert.equal(await harness.sync(), false, `ordinary ${blockType} block must not be synchronized as a task`);
-        assertSkipped(harness);
+        const h = createHarness({ blockType });
+        assert.equal(await h.sync(), false);
+        assertSkipped(h);
     }
-
     for (const options of [{ cached: true }, { readError: true }]) {
-        const harness = createHarness(options);
-        assert.equal(await harness.sync(), false, 'cached or unreadable blocks must not be treated as confirmed tasks');
-        assertSkipped(harness);
+        const h = createHarness(options);
+        assert.equal(await h.sync(), false);
+        assertSkipped(h);
     }
-
-    const missing = createHarness();
-    missing.blocks.clear();
-    assert.equal(await missing.sync(), false, 'a deleted block must not be synthesized into a task');
-    assertSkipped(missing);
-
-    for (const domDone of [false, true]) {
-        const harness = createHarness({ exists: true, domDone });
-        assert.equal(await harness.sync(), true, 'uncached native tasks must still synchronize');
-        assert.equal(harness.calls.writes.length, 1);
-        assert.equal(harness.calls.writes[0].id, harness.taskID);
-        assert.equal(harness.calls.writes[0].patch.customStatus, domDone ? 'completed' : 'todo');
-        if (domDone) assert.equal(harness.calls.writes[0].patch.taskCompleteAt, completedAt);
-        assert.equal(harness.calls.synthesized.length, 0);
-        assert.equal(harness.calls.errors.length, 0);
-        assert.equal(harness.calls.retries.length, 0);
+    const deleted = createHarness();
+    deleted.blocks.clear();
+    assert.equal(await deleted.sync(), false);
+    assertSkipped(deleted);
+    for (const marker of [' ', '/', 'X', '-', '?']) {
+        const done = marker === 'X' || marker === '?';
+        const h = createHarness({ exists: true, domDone: done, marker,
+            previousState: { previousDone: false, previousMarker: '/', occurrenceId: 'clicked-round' } });
+        assert.equal(await h.sync(), true);
+        assert.equal(h.calls.writes.length, 1, 'native intent enters the shared writer once');
+        const write = h.calls.writes[0];
+        assert.equal(write.id, h.taskID);
+        assert.equal(write.done, done);
+        assert.equal(write.options.nativeObserved.targetMarker, marker);
+        assert.equal(write.options.nativeObserved.previousDone, false);
+        assert.equal(write.options.occurrenceId, 'clicked-round');
+        assert.equal(write.options.fsrsRating, 3);
+        assert.equal(write.options.wait, true);
+        assert.equal(h.calls.advances.length, 0, 'the adapter must not schedule another advance');
+        assert.equal(h.calls.rollbacks.length, 0, 'the adapter must not independently roll back history');
     }
-
-    for (const marker of ['/', '-']) {
-        const repeatState = { pendingNativeDoneReset: true, completedCount: 4, lastCompletedAt: completedAt, tomatoBaselineMinutes: 25 };
-        const harness = createHarness({ exists: true, marker, task: { repeatState, repeatHistory: [{ completedAt }] } });
-        assert.equal(await harness.sync(), true);
-        assert.equal(harness.calls.writes[0].patch.customStatus, marker === '/' ? 'doing' : 'cancelled');
-        assert.equal(harness.calls.writes[0].patch.taskCompleteAt, marker === '-' ? completedAt : undefined,
-            'cancellation stamps its completed-group time while progress remains untimed');
-        assert.equal(harness.calls.writes[0].patch.repeatState.pendingNativeDoneReset, false);
-        assert.equal(harness.calls.writes[0].patch.repeatState.completedCount, 4);
-        assert.equal(harness.calls.writes[0].patch.repeatState.tomatoBaselineMinutes, 25);
-        assert.equal(harness.calls.writes[0].patch.repeatHistory, undefined, 'must not rewrite past rounds');
-        assert.equal(harness.calls.projections[0][1], false);
-        assert.equal(harness.calls.projections[0][5].marker, marker);
-        assert.equal(harness.calls.advances.length, 0);
-        assert.equal(harness.calls.rollbacks.length, 0);
-    }
-
-    const explicitUncheck = createHarness({ exists: true,
-        task: { taskMarker: 'X', taskCompleteAt: completedAt, repeatState: { pendingNativeDoneReset: true, lastCompletedAt: completedAt } },
-        previousState: { previousDone: true, previousMarker: 'X' },
-    });
-    await explicitUncheck.sync();
-    assert.equal(explicitUncheck.calls.rollbacks.length, 1, 'native X → space still explicitly rolls back held completion');
-    const completeProgress = createHarness({ exists: true, marker: 'X', domDone: true, previousState: { previousDone: false, previousMarker: '/' } });
-    await completeProgress.sync();
-    assert.equal(completeProgress.calls.writes[0].patch.taskCompleteAt, completedAt);
-    assert.equal(completeProgress.calls.advances.length, 1, '/ → X may advance only after becoming completed');
-
-    for (const beforeMarker of [' ', '/', 'X', '?']) {
-        const cancel = createHarness({ exists: true, marker: '-',
-            task: { taskMarker: beforeMarker, taskCompleteAt: '2026-09-01T10:00:00+08:00' },
-            previousState: { previousMarker: beforeMarker, previousDone: beforeMarker === 'X' || beforeMarker === '?' },
-        });
-        assert.equal(await cancel.sync(), true);
-        assert.equal(cancel.calls.writes[0].patch.taskCompleteAt, completedAt, `${beforeMarker} -> - must stamp the transition time`);
-        assert.equal(cancel.calls.advances.length, 0, 'canceling never advances recurrence');
-    }
-    for (const marker of [' ', '/']) {
-        const resume = createHarness({ exists: true, marker,
-            task: { taskMarker: '-', taskCompleteAt: completedAt },
-            previousState: { previousMarker: '-', taskCompleteAt: completedAt },
-        });
-        assert.equal(await resume.sync(), true);
-        assert.equal(resume.calls.writes[0].patch.taskCompleteAt, '', '- -> unfinished must clear completed-group time');
-        assert.equal(resume.calls.advances.length, 0);
-    }
-    const duplicateCancel = createHarness({ exists: true, marker: '-', persistedStatus: 'cancelled', persistedCompleteAt: completedAt,
-        task: { taskMarker: '-', customStatus: 'cancelled', taskCompleteAt: completedAt },
-        previousState: { previousMarker: '-', status: 'cancelled', taskCompleteAt: completedAt },
-    });
-    assert.equal(await duplicateCancel.sync(), true);
-    assert.equal(duplicateCancel.calls.writes.length, 0, 'repeated native synchronization must preserve the original cancellation time');
-    const customComplete = createHarness({ exists: true, marker: '?', domDone: true, previousState: { previousMarker: '/' } });
-    assert.equal(await customComplete.sync(), true);
-    assert.equal(customComplete.calls.writes[0].patch.taskCompleteAt, completedAt, 'other nonblank markers also receive completion time');
-
+    const echo = createHarness({ exists: true, domDone: true, previousState: { userInitiated: false } });
+    await echo.sync();
+    assert.equal(echo.calls.writes.length, 0, 'synchronization echoes must not create completion commands');
+    const failed = createHarness({ exists: true, domDone: false, writeError: true,
+        task: { repeatState: { pendingNativeDoneReset: true } }, previousState: { previousDone: true, previousMarker: 'X' } });
+    await assert.rejects(failed.sync(), /write unavailable/);
+    assert.equal(failed.calls.projections.length, 0, 'failed rollback cannot publish a successful final projection');
     const wrapper = createHarness({ exists: true, blockType: 'l', blockID: '20260908090000-list001' });
     assert.equal(await wrapper.sync(), true);
-    assert.equal(wrapper.calls.writes[0].id, wrapper.taskID, 'list wrappers must resolve to the actual task item');
-    assert.equal(wrapper.calls.writes[0].options.attrTargetId, wrapper.taskID);
-
+    assert.equal(wrapper.calls.writes[0].id, wrapper.taskID);
     const delayed = createHarness();
     assert.equal(await delayed.sync(), false);
     delayed.tasks.set(delayed.taskID, delayed.task);
-    assert.equal(await delayed.sync(), true, 'a task that becomes available later must not remain excluded');
-    assert.equal(delayed.calls.writes.length, 1);
-
-    const removed = createHarness({ exists: true });
-    assert.equal(await removed.sync(), true);
-    removed.tasks.clear();
-    assert.equal(await removed.reconcile(), false, 'reconciliation must stop when the task no longer exists');
-    assert.equal(removed.calls.writes.length, 1, 'a deleted task must not be written again by reconciliation');
-    assert.equal(removed.calls.mirrors.length, 1, 'a deleted task must not have its DOM status mirrored again');
-
-    const surviving = createHarness({ exists: true });
-    assert.equal(await surviving.reconcile(), true, 'existing task attributes must still be reconciled');
-    assert.equal(surviving.calls.writes.length, 1);
-    assert.equal(surviving.calls.writes[0].options.source, 'native-doc-checkbox-reconcile');
-
-    console.log('native document checkbox task identity tests passed');
+    assert.equal(await delayed.sync(), true);
+    console.log('native task identity and shared completion ingress tests passed');
 }
-
-main().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-});
+main().catch(error => { console.error(error); process.exitCode = 1; });

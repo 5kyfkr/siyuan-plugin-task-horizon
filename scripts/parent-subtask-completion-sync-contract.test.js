@@ -100,8 +100,8 @@ async function run() {
         effectId: 'held-recurring-child-complete',
         returnMutationDefinition: true,
     });
-    assert.equal(heldRecurringChildren.data.done, true,
-        'held native completion from recurring subtasks must still complete the parent');
+    assert.equal(heldRecurringChildren, false,
+        'holding the old native marker must not complete a parent whose next child round is unfinished');
 
     completion.tasks.child2.nativeDone = false;
     completion.tasks.parent.done = true;
@@ -159,11 +159,11 @@ async function run() {
     assert.equal(completeGrandparent.data.done, true, 'the same rule must support cascading to grandparents');
 
     assert.match(settingsSource, /任一直接子任务恢复未完成时，父任务也会恢复为未完成/);
-    assert.equal((nativeSource.match(/__tmSyncParentDoneStateFromSubtasks\?\.\(tid/g) || []).length, 2,
-        'both native checkbox write branches must use the symmetric parent synchronizer');
+    assert.match(nativeSource, /__tmRequireTaskMutation\('setDone'\)/,
+        'native changes must use the same completion service that synchronizes parents');
     const parentSyncOffsets = Array.from(nativeSource.matchAll(/__tmSyncParentDoneStateFromSubtasks\?\.\(tid/g), (match) => match.index);
     const tomatoOffsets = Array.from(nativeSource.matchAll(/await __tmSettleTomatoAfterTaskDone\(tid/g), (match) => match.index);
-    assert.equal(tomatoOffsets.length, 2);
+    assert.equal(tomatoOffsets.length, 0, 'native adapters must not settle Tomato independently');
     assert.ok(parentSyncOffsets.every((offset, index) => offset < tomatoOffsets[index]),
         'native parent synchronization must not wait for external Tomato settlement');
     assert.doesNotMatch(listSource, /childTaskId === cid \|\|/,

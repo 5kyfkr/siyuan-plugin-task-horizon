@@ -850,6 +850,13 @@
                 || Object.prototype.hasOwnProperty.call(raw, 'tomato_baseline_count'));
         return {
             version: fsrsCard ? 2 : 1,
+            ...(raw.occurrenceId ? { occurrenceId: String(raw.occurrenceId) } : {}),
+            ...(raw.lastCompletionId ? { lastCompletionId: String(raw.lastCompletionId) } : {}),
+            ...(raw.lastRestoredCompletionId ? { lastRestoredCompletionId: String(raw.lastRestoredCompletionId) } : {}),
+            ...(raw.planOverride && typeof raw.planOverride === 'object' ? { planOverride: {
+                startDate: __tmNormalizeDateOnly(raw.planOverride.startDate || ''),
+                completionTime: __tmNormalizeDateOnly(raw.planOverride.completionTime || ''),
+            } } : {}),
             occurrenceCount: Math.max(1, parseInt(raw.occurrenceCount, 10) || 1),
             lastCompletedAt: String(raw.lastCompletedAt || '').trim(),
             lastAdvancedAt: String(raw.lastAdvancedAt || '').trim(),
@@ -863,6 +870,16 @@
             checkinHistory: normalizedCheckinHistory,
             fsrsCard,
         };
+    }
+
+    function __tmGetTaskOccurrenceId(taskLike) {
+        const task = taskLike || {};
+        const repeatState = __tmNormalizeTaskRepeatState(task.repeatState || task.repeat_state);
+        return repeatState.occurrenceId || 'legacy-' + encodeURIComponent(JSON.stringify([
+            String(task.id || ''), repeatState.occurrenceCount,
+            repeatState.lastAdvancedAt, repeatState.lastCompletedAt,
+            task.repeatRule?.anchorDate || task.repeat_rule?.anchorDate || '',
+        ]));
     }
 
     function __tmIsCheckinTask(taskLike) {
@@ -988,6 +1005,18 @@
         const normalized = raw.map((item) => {
             const entry = (item && typeof item === 'object' && !Array.isArray(item)) ? item : {};
             return {
+                ...(entry.id ? { id: String(entry.id) } : {}),
+                ...(entry.occurrenceId ? { occurrenceId: String(entry.occurrenceId) } : {}),
+                ...(entry.ruleSignature ? { ruleSignature: String(entry.ruleSignature) } : {}),
+                ...(entry.before && typeof entry.before === 'object' ? { before: {
+                    done: entry.before.done === true,
+                    customStatus: String(entry.before.customStatus || ''),
+                    taskCompleteAt: String(entry.before.taskCompleteAt || ''),
+                    startDate: __tmNormalizeDateOnly(entry.before.startDate || ''),
+                    completionTime: __tmNormalizeDateOnly(entry.before.completionTime || ''),
+                    repeatState: __tmNormalizeTaskRepeatState(entry.before.repeatState),
+                } } : {}),
+                ...(entry.origin && typeof entry.origin === 'object' ? { origin: { ...entry.origin } } : {}),
                 completedAt: String(entry.completedAt || '').trim(),
                 occurrenceNumber: Math.max(0, parseInt(entry.occurrenceNumber, 10) || 0),
                 totalOccurrences: __tmNormalizeTaskRepeatMaxOccurrences(entry.totalOccurrences),
@@ -1094,16 +1123,15 @@
             { startDate: task?.startDate, completionTime: task?.completionTime }
         );
         const state = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state);
-        if (rule.trigger === 'checkin') return state.checkinHistory.length;
-        let completed = Math.max(0, state.occurrenceCount - 1);
+        if (rule.trigger === 'checkin') return state.checkinHistory.filter((entry) => __tmGetTaskCheckinScheduledDate(task, entry.scheduledDate)).length;
+        const history = __tmNormalizeTaskRepeatHistory(task.repeatHistory || task.repeat_history);
+        let completed = history.length;
         let done = task?.done === true;
         try {
             if (typeof __tmIsTaskDoneEffective === 'function') done = __tmIsTaskDoneEffective(task);
         } catch (e) {}
-        if (done) completed = Math.max(completed, state.occurrenceCount);
-        return rule.maxOccurrences > 0
-            ? Math.min(rule.maxOccurrences, completed)
-            : completed;
+        if (done && !history.some(entry => entry.id === state.lastCompletionId || entry.completedAt === task.taskCompleteAt)) completed += 1;
+        return completed;
     }
 
     function __tmGetTaskRepeatProgressText(taskLike, ruleInput = null) {
@@ -1112,8 +1140,16 @@
             ruleInput || task?.repeatRule || task?.repeat_rule || '',
             { startDate: task?.startDate, completionTime: task?.completionTime }
         );
-        if (!rule.enabled || rule.type === 'none' || rule.maxOccurrences <= 0) return '';
-        return `已完成 ${__tmGetTaskRepeatCompletedCount(task, rule)}/${rule.maxOccurrences}`;
+        if (!rule.enabled || rule.type === 'none') return '';
+        const repeatState = __tmNormalizeTaskRepeatState(task.repeatState);
+        if (repeatState.lastCompletionId && task.done === true && !repeatState.pendingNativeDoneReset) return '计划已结束';
+        if (rule.maxOccurrences <= 0) return '';
+        if (rule.trigger === 'checkin') {
+            const completed = __tmGetTaskRepeatCompletedCount(task, rule);
+            const extra = __tmGetTaskCheckinHistory(task).length - completed;
+            return `计划打卡 ${completed}/${rule.maxOccurrences}${extra > 0 ? ` · 额外 ${extra} 次` : ''}`;
+        }
+        return `第 ${Math.min(rule.maxOccurrences, __tmNormalizeTaskRepeatState(task.repeatState).occurrenceCount)}/${rule.maxOccurrences} 轮`;
     }
 
     function __tmResolveTaskRepeatHistoryOccurrenceNumber(taskLike, historyItem, orderIndex = 0) {
@@ -1315,13 +1351,14 @@
         return new Date(year, month, day, 12, 0, 0, 0);
     }
 
-    function __tmBuildTaskRepeatYearlyDate(baseDate, deltaYears) {
+    function __tmBuildTaskRepeatYearlyDate(baseDate, deltaYears, anchorDateLike = '') {
         const base = (baseDate instanceof Date) ? new Date(baseDate.getTime()) : __tmBuildLocalNoonDateFromKey(baseDate);
         if (!(base instanceof Date) || Number.isNaN(base.getTime())) return null;
+        const anchor = __tmBuildLocalNoonDateFromKey(anchorDateLike) || base;
         const year = base.getFullYear() + (Number(deltaYears) || 0);
-        const month = base.getMonth();
+        const month = anchor.getMonth();
         const lastDay = new Date(year, month + 1, 0, 12, 0, 0, 0).getDate();
-        const day = Math.min(base.getDate(), lastDay);
+        const day = Math.min(anchor.getDate(), lastDay);
         return new Date(year, month, day, 12, 0, 0, 0);
     }
 
@@ -1483,7 +1520,7 @@
             const info = __tmGetLunarDateInfo(cursor);
             if (info
                 && info.day === anchorInfo.day
-                && info.isLeap === anchorInfo.isLeap) {
+                && (!info.isLeap || anchorInfo.isLeap)) {
                 const diffMonths = __tmGetLunarMonthIndex(info) - anchorIndex;
                 if (diffMonths > 0 && diffMonths % every === 0) return new Date(cursor.getTime());
             }
@@ -1572,7 +1609,7 @@
         } else if (rule.type === 'yearly') {
             next = rule.calendarMode === 'lunar'
                 ? __tmFindTaskRepeatNextLunarYearlyDate(base, rule)
-                : __tmBuildTaskRepeatYearlyDate(base, rule.every);
+                : __tmBuildTaskRepeatYearlyDate(base, rule.every, rule.anchorDate);
         }
         const nextKey = __tmFormatDateKeyFromDate(next);
         // A missing calendar occurrence must terminate the sequence. Returning
@@ -1778,16 +1815,19 @@
         if (rule.maxOccurrences > 0 && currentState.occurrenceCount >= rule.maxOccurrences) return null;
         const prevStart = __tmNormalizeDateOnly(task?.startDate || '');
         const prevDue = __tmNormalizeDateOnly(task?.completionTime || '');
+        const plannedAnchor = currentState.planOverride
+            ? (currentState.planOverride.completionTime || currentState.planOverride.startDate)
+            : '';
         const fallbackBase = prevDue || prevStart || rule.anchorDate || __tmNormalizeDateOnly(new Date());
         let nextStart = '';
         let nextDue = '';
-        if (rule.trigger === 'complete' || rule.type === 'weekly' || (rule.type === 'monthly' && rule.calendarMode !== 'lunar')) {
+        {
             const previousAnchor = prevDue || prevStart || fallbackBase;
             const completionKey = rule.trigger === 'complete'
                 ? __tmNormalizeDateOnly(__tmNormalizeTaskCompleteAtValue(options.completedAt || task.taskCompleteAt || task.task_complete_at || ''))
                 : '';
             if (rule.trigger === 'complete' && !completionKey) return null;
-            const nextAnchor = __tmAdvanceTaskRepeatDateKey(completionKey || previousAnchor, rule);
+            const nextAnchor = __tmAdvanceTaskRepeatDateKey(completionKey || plannedAnchor || previousAnchor, rule);
             if (nextAnchor) {
                 const deltaDays = __tmGetTaskRepeatLocalDayOrdinal(nextAnchor) - __tmGetTaskRepeatLocalDayOrdinal(previousAnchor);
                 if (Number.isFinite(deltaDays)) {
@@ -1796,9 +1836,6 @@
                     if (!prevStart && !prevDue) nextDue = nextAnchor;
                 }
             }
-        } else {
-            nextStart = prevStart ? __tmAdvanceTaskRepeatDateKey(prevStart, rule) : '';
-            nextDue = prevDue ? __tmAdvanceTaskRepeatDateKey(prevDue, rule) : '';
         }
         if (rule.trigger !== 'complete' && !nextDue && !prevStart && !prevDue && fallbackBase) {
             nextDue = __tmAdvanceTaskRepeatDateKey(fallbackBase, rule);
@@ -1809,6 +1846,7 @@
         const nowIso = String(options.advancedAt || new Date().toISOString()).trim();
         const repeatState = __tmNormalizeTaskRepeatState({
             ...currentState,
+            planOverride: null,
             occurrenceCount: currentState.occurrenceCount + 1,
             lastCompletedAt: String(options.completedAt || task.taskCompleteAt || task.task_complete_at || '').trim() || String(task?.repeatState?.lastCompletedAt || '').trim(),
             lastAdvancedAt: nowIso,
@@ -1917,8 +1955,11 @@
         const source = (sourceTask && typeof sourceTask === 'object') ? sourceTask : null;
         const history = __tmNormalizeTaskRepeatHistory([historyItem])[0] || null;
         if (!source || !history) return null;
+        if (history.id && source.repeatState?.lastCompletionId === history.id
+            && source.done === true && source.repeatState?.pendingNativeDoneReset !== true) return null;
         const completedAt = String(history.completedAt || '').trim();
-        const completedStamp = completedAt ? completedAt.replace(/[^0-9]/g, '').slice(0, 14) : `${Date.now()}_${orderIndex}`;
+        const completedStamp = history.id ? encodeURIComponent(history.id)
+            : (completedAt ? completedAt.replace(/[^0-9]/g, '').slice(0, 14) : `${Date.now()}_${orderIndex}`);
         const taskId = String(source.id || '').trim();
         if (!taskId) return null;
         const occurrenceNumber = __tmResolveTaskRepeatHistoryOccurrenceNumber(source, history, orderIndex);
@@ -1942,6 +1983,7 @@
             sourceTaskId: taskId,
             recurringSourceTaskId: taskId,
             recurringCompletedAt: completedAt,
+            recurringCompletionId: history.id || completedAt,
             recurringOccurrenceNumber: occurrenceNumber,
             recurringTotalOccurrences: totalOccurrences,
             recurringSourceStart: __tmNormalizeDateOnly(history.sourceStart || ''),
@@ -2324,15 +2366,17 @@
         const jsTid = tid.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         const extraClass = String(options?.extraClass || '').trim();
         let checked = !!options?.checked;
+        let canceled = false;
         try {
             const liveTask = globalThis.__tmTaskStore?.getProjected?.(tid)
                 || globalThis.__tmTaskBoundary?.getTask?.(tid)
                 || task;
-            checked = checkinTask
+            canceled = typeof __tmIsTaskCanceled === 'function' && __tmIsTaskCanceled(liveTask);
+            checked = canceled || (checkinTask
                 ? __tmIsTaskCheckinChecked(liveTask, todayKey)
                 : (typeof __tmIsTaskClosedForDisplay === 'function'
                     ? __tmIsTaskClosedForDisplay(liveTask)
-                    : !!liveTask?.done);
+                    : !!liveTask?.done));
         } catch (e) {}
         const checkedAttr = checked ? ' checked' : '';
         const disabledAttr = options?.disabled ? ' disabled' : '';
@@ -2351,7 +2395,7 @@
         const extraStyle = String(options?.style || '').trim().replace(/;+\s*$/, '');
         const mergedStyle = [baseStyle, extraStyle].filter(Boolean).join(';');
         const styleAttr = mergedStyle ? ` style="${mergedStyle};"` : '';
-        return `<input class="tm-task-checkbox${extraClass ? ` ${extraClass}` : ''}" type="checkbox"${taskIdAttr}${checkedAttr}${disabledAttr}${titleAttr}${mouseDownAttr}${pointerDownAttr}${clickAttr}${changeAttr}${styleAttr}>`;
+        return `<input class="tm-task-checkbox${canceled ? ' tm-task-checkbox--canceled' : ''}${extraClass ? ` ${extraClass}` : ''}" type="checkbox"${taskIdAttr}${checkedAttr}${disabledAttr}${titleAttr}${mouseDownAttr}${pointerDownAttr}${clickAttr}${changeAttr}${styleAttr}>`;
     }
 
     function __tmRenderTaskCheckboxWrap(taskId, task, options = {}) {

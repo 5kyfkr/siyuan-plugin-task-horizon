@@ -90,9 +90,9 @@ assert.equal(third.repeatState.occurrenceCount, 3);
 assert.equal(buildPatch({ ...firstTask, ...third }, rule), null, 'the series must not generate occurrence N+1');
 assert.match(getSummary(rule), /共 3 次/, 'summary must expose the count limit');
 assert.equal(getCompletedCount({ ...firstTask, repeatRule: rule, done: false }), 0);
-assert.equal(getProgressText({ ...firstTask, repeatRule: rule, done: false }), '已完成 0/3');
+assert.equal(getProgressText({ ...firstTask, repeatRule: rule, done: false }), '第 1/3 轮');
 assert.equal(getCompletedCount({ ...firstTask, repeatRule: rule, done: true }), 1);
-assert.equal(getCompletedCount({ ...firstTask, ...second, repeatRule: rule, done: false }), 1);
+assert.equal(getCompletedCount({ ...firstTask, ...second, repeatRule: rule, repeatHistory: [], done: false }), 0, 'a consumed ordinal alone is not proof of completion');
 const normalizedHistory = normalizeHistory([{ completedAt: '2026-07-18T10:00:00.000Z', occurrenceNumber: 1, totalOccurrences: 3 }]);
 assert.equal(normalizedHistory[0].occurrenceNumber, 1);
 assert.equal(normalizedHistory[0].totalOccurrences, 3);
@@ -151,8 +151,8 @@ assert.equal(rangedPatch.completionTime, '2026-07-24', 'task date ranges must mo
 
 assert.match(runtimeSource, /occurrenceCount:\s*Math\.max\(1, currentState\.occurrenceCount - 1\)/, 'latest-history rollback must decrement the occurrence count');
 assert.match(runtimeSource, /结束次数不能小于当前第/, 'lowering a live count below progress must be rejected');
-assert.match(runtimeSource, /occurrenceNumber:\s*currentRepeatState\.occurrenceCount/, 'history records must persist their occurrence number');
-assert.match(runtimeSource, /totalOccurrences:\s*repeatRule\.maxOccurrences/, 'history records must persist the configured total');
+assert.match(runtimeSource, /occurrenceNumber:\s*repeatState\.occurrenceCount/, 'history records must persist their occurrence number');
+assert.match(runtimeSource, /totalOccurrences:\s*rule\.maxOccurrences/, 'history records must persist the configured total');
 assert.match(runtimeSource, /const occurrenceReset =[\s\S]*__tmBuildTaskTomatoBaselinePatch\(task\)/, 'resetting a recurring series must reset its Tomato occurrence baseline');
 assert.ok(runtimeSource.indexOf('__tmResolveTaskIdFromAnyBlockId(requestedTaskId)') < runtimeSource.indexOf('__tmRecurringAdvanceInFlightIds.has(advanceTaskId)'), 'recurring advancement must canonicalize aliases before taking its lock');
 assert.match(

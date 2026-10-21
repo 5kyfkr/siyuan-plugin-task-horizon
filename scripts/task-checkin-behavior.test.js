@@ -113,6 +113,9 @@ const context = vm.createContext({
     __tmIsTaskMarkerClosed: value => value === 'X' || value === '-',
 });
 context.window = context;
+context.__tmRequireTaskMutation = name => name === 'patchTask'
+    ? (id, patch) => context.__tmPersistMetaAndAttrsKernel(id, patch)
+    : () => { throw new Error('unexpected ordinary completion'); };
 vm.runInContext(model.slice(model.indexOf('function __tmParseTaskRepeatJson'), model.indexOf('function __tmGetTaskRepeatWeekdayLabel')), context);
 vm.runInContext(extract(model, '__tmRenderTaskCheckbox'), context);
 vm.runInContext(extract(detail, '__tmToggleTaskTimeHubCheckin'), context);
@@ -262,6 +265,7 @@ async function run() {
 
     const capture = vm.createContext({
         Date: Clock,
+        __tmNormalizeDateOnly: dateKey,
         __TM_NATIVE_DOC_CHECKBOX_PREVIOUS_STATE_TTL_MS: 5000,
         __tmNativeDocCheckboxPreviousStateMap: new Map(),
         __tmReadNativeDocTaskDoneFromDom: () => true,

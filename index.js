@@ -11,6 +11,7 @@ const AGENT_WORKBENCH_STYLE_PATH = `/data/plugins/${PLUGIN_ID}/src/ai/agent-work
 const HOMEPAGE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/homepage.js`;
 const QUICKBAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/quickbar.js`;
 const XLSX_VENDOR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/vendor/xlsx.full.min.js`;
+const ZIP_VENDOR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/vendor/jszip.min.js`;
 const BASECOAT_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/basecoat/basecoat.js`;
 const BASECOAT_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/basecoat/basecoat.css`;
 const CALENDAR_SUBSCRIPTION_CORE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/calendar-subscription-core.js`;
@@ -796,6 +797,19 @@ const openTaskHorizonAssetWithSystem = async (assetPath) => {
     return await openTaskHorizonSystemPath(joinTaskHorizonPath(workspaceDir, "data", normalized));
 };
 
+const readTaskHorizonLocalAttachmentFile = async (fileUri) => {
+    const localPath = normalizeTaskHorizonLocalSystemPath(fileUri);
+    if (!localPath) throw new Error("无效的本地文件路径");
+    let fs;
+    try { fs = require("fs").promises; } catch (e) {
+        throw new Error("当前环境无法读取本地文件");
+    }
+    const stat = await fs.stat(localPath);
+    if (stat.isDirectory()) return { isDirectory: true };
+    if (!stat.isFile()) throw new Error("附件不是普通文件");
+    return { data: new Uint8Array(await fs.readFile(localPath)) };
+};
+
 const normalizeTaskDevScriptPath = (value) => {
     const raw = String(value || "").replace(/\\/g, "/").trim();
     if (!raw) return "";
@@ -1009,6 +1023,11 @@ const hasXlsxRuntime = () => {
     return candidates.some((candidate) => !!(candidate && candidate.utils && (typeof candidate.writeFile === "function" || typeof candidate.writeFileXLSX === "function")));
 };
 
+const hasZipRuntime = () => {
+    const candidates = [globalThis.JSZip, globalThis.module?.exports, globalThis.exports];
+    return candidates.some((candidate) => typeof candidate === "function" && typeof candidate.prototype?.generateAsync === "function");
+};
+
 const ensureDeferredScriptText = async (key, path, sourceName, readyCheck) => {
     try {
         if (typeof readyCheck === "function" && readyCheck()) return true;
@@ -1195,6 +1214,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonOpenMobileFileById = typeof openMobileFileById === "function" ? openMobileFileById : null;
         globalThis.__taskHorizonPlatformUtils = platformUtils || null;
         globalThis.__taskHorizonOpenAssetWithSystem = openTaskHorizonAssetWithSystem;
+        globalThis.__taskHorizonReadLocalAttachmentFile = readTaskHorizonLocalAttachmentFile;
         globalThis.__taskHorizonOpenTabView = this.openTaskHorizonTab.bind(this);
         globalThis.__taskHorizonSyncWindowTopBar = this.syncWindowTopBar.bind(this);
         globalThis.__taskHorizonSyncCalendarSubscriptionTopBar = this.syncCalendarSubscriptionTopBar.bind(this);
@@ -1239,6 +1259,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         };
         globalThis.__taskHorizonEnsureHomepageModuleLoaded = () => ensureDeferredScriptText("homepage", HOMEPAGE_SCRIPT_PATH, "homepage.js", () => !!globalThis.__tmHomepage?.loaded);
         globalThis.__taskHorizonEnsureXlsxModuleLoaded = () => ensureDeferredScriptText("xlsx", XLSX_VENDOR_SCRIPT_PATH, "vendor/xlsx.full.min.js", hasXlsxRuntime);
+        globalThis.__taskHorizonEnsureZipModuleLoaded = () => ensureDeferredScriptText("zip", ZIP_VENDOR_SCRIPT_PATH, "vendor/jszip.min.js", hasZipRuntime);
         globalThis.__taskHorizonPluginManifest = normalizePluginManifest(this?.manifest);
         Promise.resolve(loadPluginManifest(this)).then((manifest) => {
             if (String(globalThis.__taskHorizonMountToken || "") !== mountToken) return;
@@ -3171,6 +3192,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonOpenMobileFileById; } catch (e) {}
         try { delete globalThis.__taskHorizonPlatformUtils; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenAssetWithSystem; } catch (e) {}
+        try { delete globalThis.__taskHorizonReadLocalAttachmentFile; } catch (e) {}
         try { delete globalThis.__taskHorizonHostBridge; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenTabView; } catch (e) {}
         try { delete globalThis.__taskHorizonSyncWindowTopBar; } catch (e) {}
@@ -3190,6 +3212,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonFrontendCapabilityDescriptors; } catch (e) {}
         try { delete globalThis.__taskHorizonInvokeAgentAction; } catch (e) {}
         try { delete globalThis.__taskHorizonEnsureXlsxModuleLoaded; } catch (e) {}
+        try { delete globalThis.__taskHorizonEnsureZipModuleLoaded; } catch (e) {}
         try { delete globalThis.__taskHorizonMount; } catch (e) {}
         try { delete globalThis.__TaskManagerCleanup; } catch (e) {}
         try { delete globalThis.__taskHorizonMountToken; } catch (e) {}

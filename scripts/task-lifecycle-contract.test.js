@@ -679,10 +679,10 @@ function testStaticContracts() {
         'completion archive must not pre-generate a separate heading list ID');
     assert.doesNotMatch(apiSource, /async function __tmApplyTaskStatus\(/,
         'status changes must not retain a second lifecycle-triggering writer');
-    assert.match(nativeSource, /async function __tmSyncNativeDocCheckboxLinkedStatus[\s\S]*userInitiatedCheckboxChange && wasDoneBefore !== !!domDone[\s\S]*__tmTaskLifecycle\?\.notifyCompletion/,
-        'only a user-initiated native document checkbox change may enqueue lifecycle work');
-    assert.equal((nativeSource.match(/userInitiatedCheckboxChange && wasDoneBefore !== !!domDone/g) || []).length, 2,
-        'both native checkbox persistence branches must suppress programmatic completion echoes');
+    assert.match(nativeSource, /async function __tmSyncNativeDocCheckboxLinkedStatus[\s\S]*previous\?\.userInitiated[\s\S]*__tmRequireTaskMutation\('setDone'\)/,
+        'user-initiated native changes must share the completion service and its lifecycle processing');
+    assert.doesNotMatch(nativeSource, /__tmTaskLifecycle\?\.notifyCompletion/,
+        'the native adapter must not enqueue a second lifecycle operation');
     assert.match(nativeSource, /const __TM_NATIVE_DOC_CHECKBOX_SYNC_DELAY_MS = 32;/,
         'native checkbox synchronization should react after the DOM settles without a perceptible debounce');
     assert.match(listSource, /const useRecycle[\s\S]*lifecycle\.archiveDeleted[\s\S]*__tmShowActionHint/);

@@ -19420,6 +19420,19 @@ th[data-col] {
     animation: none !important;
 }
 
+.tm-task-checkbox.tm-task-checkbox--canceled[type="checkbox"]:checked::after,
+.tm-modal .tm-task-detail-subtask-main input.tm-task-checkbox.tm-task-checkbox--canceled[type="checkbox"]:checked::after,
+.tm-task-detail-shell .tm-task-detail-subtask-main input.tm-task-checkbox.tm-task-checkbox--canceled[type="checkbox"]:checked::after,
+#tm-task-detail-overlay .tm-task-detail-subtask-main input.tm-task-checkbox.tm-task-checkbox--canceled[type="checkbox"]:checked::after {
+    left: 50% !important;
+    top: 50% !important;
+    width: 60% !important;
+    height: 0 !important;
+    border-right: none !important;
+    transform: translate(-50%, -50%) !important;
+    animation: none !important;
+}
+
 .tm-priority-high {
     color: var(--tm-danger-color) !important;
     font-weight: 600;
@@ -20694,6 +20707,11 @@ th[data-col] {
 }
 
 .tm-repeat-actions {
+    position: sticky;
+    bottom: -22px;
+    z-index: 2;
+    background: var(--tm-bg-color);
+    padding-block: 10px;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 14px;

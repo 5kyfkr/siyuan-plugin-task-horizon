@@ -49,7 +49,8 @@ const context = vm.createContext({
     applyTaskDoneVisual() {}, queueTaskDateCalendarRender() {},
     collectCalendarsForTaskSync: () => [],
     loadScheduleAll: async () => JSON.parse(stored),
-    getScheduleRepeatType: () => 'none',
+    getScheduleRepeatType: item => item.repeat || 'none',
+    getScheduleLinkedTaskId: item => item.taskId,
     saveScheduleAll: async list => { stored = JSON.stringify(list); },
     scheduleCalendarRefresh() {},
 });
@@ -57,7 +58,9 @@ vm.runInContext([
     between('    function isRecurringScheduleEventExt(', '    async function setCalendarReminderOccurrenceDone('),
     extract('isRecurringTaskDateReadOnlyOccurrence'), extract('isCalendarTaskRecurringSnapshot'),
     extract('shouldHideCompletedAllDayCalendarEvent'), extract('handleCalendarEventCheckboxToggle'),
-    extract('isCalendarForegroundEvent'), extract('syncTaskDoneInPlace'), extract('reassignScheduleLinkedTask'),
+    extract('isCalendarForegroundEvent'), extract('syncTaskDoneInPlace'), extract('withScheduleCompletionMutation'),
+    extract('reassignScheduleLinkedTask'), extract('persistScheduleLinkedTaskCompletion'),
+    extract('restoreTaskCompletion'), extract('persistRestoredTaskCompletion'),
 ].join('\n'), context);
 const checked = () => events.map(event => context.resolveCalendarEventDoneState(event.extendedProps));
 
@@ -111,5 +114,26 @@ context.window.tmSetDone = async (id, done, event, options) => {
     assert.equal(checkbox.checked, false);
     assert.equal(context.resolveCalendarEventDoneState(pending), false);
     assert.equal(advances, 2);
+    stored = JSON.stringify(items);
+    await Promise.all([0, 1].map(index => context.reassignScheduleLinkedTask(`schedule-${index}`, `history-${index}`, {
+        sourceTaskId: taskId, completionId: `completion-${index}`, refetch: false,
+    })));
+    assert.deepEqual(JSON.parse(stored).slice(0, 2).map(item => item.completionId), ['completion-0', 'completion-1'], 'concurrent completion mappings must preserve both receipts');
+    await Promise.all([
+        context.restoreTaskCompletion(taskId, { restoredCompletionId: 'completion-0' }),
+        context.reassignScheduleLinkedTask('schedule-2', 'history-2', { sourceTaskId: taskId, completionId: 'completion-2', refetch: false }),
+    ]);
+    assert.equal(JSON.parse(stored)[0].taskId, taskId);
+    assert.equal(JSON.parse(stored)[2].completionId, 'completion-2', 'undo and a new completion must not overwrite each other');
+    assert.equal(await context.reassignScheduleLinkedTask('schedule-3', 'stale-history', { sourceTaskId: 'other-task', completionId: 'stale' }), false);
+    stored = JSON.stringify([{ ...items[0], repeat: 'daily' }]);
+    await Promise.all([1, 2].map(index => context.reassignScheduleLinkedTask('schedule-0', `history-${index}`, {
+        sourceTaskId: taskId, completionId: `completion-${index}`, occurrenceStartMs: index, refetch: false,
+    })));
+    assert.equal(Object.keys(JSON.parse(stored)[0].completionRefs).length, 2);
+    await context.restoreTaskCompletion('other-task', { restoredCompletionId: 'completion-1' });
+    assert.equal(Object.keys(JSON.parse(stored)[0].completionRefs).length, 2, 'restore must be scoped to its source task');
+    await context.restoreTaskCompletion(taskId, { restoredCompletionId: 'completion-1' });
+    assert.deepEqual(Object.keys(JSON.parse(stored)[0].completionRefs), ['2']);
     console.log('calendar recurring linked schedule completion tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
