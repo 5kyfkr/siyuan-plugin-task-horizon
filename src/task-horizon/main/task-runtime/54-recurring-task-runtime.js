@@ -51,6 +51,18 @@
             occurrenceId: requestedOccurrence, completionId: '', completedAt: '',
             completedOccurrence: false, recurring: !!recurring, advanced: false,
         };
+        if (intent.source === 'task-repeat-native-reset') {
+            const resetDateKey = __tmGetRecurringNativeDoneResetDateKey(task);
+            if (!recurring || !__tmIsRecurringNativeDoneHeld(task)
+                || !__tmIsSameTaskOccurrenceRound(requestedOccurrence, occurrenceId)
+                || !resetDateKey || __tmNormalizeDateOnly(new Date(context.now)) < resetDateKey) {
+                return { patch: {}, receipt: { ...receipt, outcome: 'alreadyApplied' } };
+            }
+            return { patch: {
+                ...context.undoneStatus, done: false, taskCompleteAt: '',
+                repeatState: __tmNormalizeTaskRepeatState({ ...repeatState, pendingNativeDoneReset: false }),
+            }, receipt };
+        }
         if (intent.restorePatch) {
             const restore = intent.restorePatch;
             const clean = (patch) => Object.fromEntries(Object.entries(patch || {}).filter(([key]) => !['markdown', 'taskMarker', 'task_marker', 'title', 'content', 'raw_content'].includes(key)));
@@ -674,12 +686,15 @@
                 return true;
             }
             if (!todayKey || todayKey < resetDateKey) return false;
-            if (typeof window.tmSetDone !== 'function') throw new Error('任务完成写入队列未就绪');
-            const resetResult = await window.tmSetDone(taskId, false, null, {
-                force: true,
+            const setDone = globalThis.__tmRequireTaskMutation?.('setDone');
+            if (typeof setDone !== 'function') throw new Error('任务完成写入队列未就绪');
+            // Reset only the held native marker; the UI entry treats unchecking
+            // a held occurrence as undoing its completion and history.
+            const resetResult = await setDone(taskId, false, {
                 wait: true,
                 suppressHint: true,
                 source: 'task-repeat-native-reset',
+                occurrenceId: __tmGetTaskOccurrenceId(task),
                 recordUndo: false,
                 skipAutoCompleteParent: true,
                 skipInteractionGate: true,
@@ -691,6 +706,7 @@
                 },
             });
             if (resetResult === false) throw new Error('循环任务未能恢复为未完成状态');
+            if (resetResult?.completion?.outcome === 'alreadyApplied') return false;
             try {
                 globalThis.__tmTaskSnapshotService?.scheduleAfterLocalPatch?.(taskId, {
                     done: false,
@@ -962,10 +978,10 @@
                 const opts = __tmRecurringReconcilePending.get(taskId) || {};
                 __tmRecurringReconcilePending.delete(taskId);
                 const todayKey = __tmNormalizeDateOnly(opts.todayKey || new Date());
-                let task = await __tmResolveTaskForRepeat(taskId);
+                const task = await __tmResolveTaskForRepeat(taskId);
                 if (generation !== __tmRecurringReconcileGeneration) break;
                 if (!task?.id) continue;
-                let repeatState = __tmNormalizeTaskRepeatState(task?.repeatState);
+                const repeatState = __tmNormalizeTaskRepeatState(task?.repeatState);
                 const lastEntry = task.repeatHistory?.find(entry => entry.id && entry.id === repeatState.lastCompletionId);
                 if (repeatState.lastRestoredCompletionId) await __tmSynchronizeCompletionLinks(task, { restoredCompletionId: repeatState.lastRestoredCompletionId });
                 if (lastEntry) {
@@ -975,70 +991,11 @@
                     if (!lastEntry.nextStart && !lastEntry.nextDue) continue;
                 }
                 if (repeatState.pendingNativeDoneReset === true) {
-                    const pendingResetRule = __tmGetTaskRepeatRule(task);
-                    const pendingResetDateKey = __tmGetRecurringNativeDoneResetDateKey(task);
-                    const shouldContinueAfterNativeReset = pendingResetRule.enabled
-                        && pendingResetRule.type !== 'none'
-                        && __tmIsTaskNativeDone(task)
-                        && __tmIsRecurringNativeDoneHeld(task)
-                        && !!pendingResetDateKey
-                        && !!todayKey
-                        && todayKey >= pendingResetDateKey;
                     const reset = await __tmResetRecurringNativeDoneIfDue(task, {
                         todayKey,
                         source: 'task-repeat-load-native-reset',
                     });
-                    if (!reset) continue;
-                    changed += 1;
-                    const refreshedTask = await __tmResolveTaskForRepeat(taskId);
-                    if (!shouldContinueAfterNativeReset && !__tmIsTaskNativeDone(refreshedTask || task)) continue;
-                    const refreshedRepeatState = __tmNormalizeTaskRepeatState(
-                        refreshedTask?.repeatState || refreshedTask?.repeat_state || repeatState,
-                    );
-                    task = {
-                        ...task,
-                        ...(refreshedTask?.id ? refreshedTask : {}),
-                        ...(shouldContinueAfterNativeReset ? {
-                            done: false,
-                            taskMarker: ' ',
-                            task_marker: ' ',
-                            taskCompleteAt: '',
-                            task_complete_at: '',
-                        } : {}),
-                        repeatState: __tmNormalizeTaskRepeatState({
-                            ...refreshedRepeatState,
-                            pendingNativeDoneReset: false,
-                        }),
-                    };
-                    repeatState = __tmNormalizeTaskRepeatState(task.repeatState);
-                }
-                const rule = __tmGetTaskRepeatRule(task);
-                if (!rule.enabled || rule.type === 'none') continue;
-                if (rule.trigger === 'checkin' || (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task))) continue;
-                if (__tmIsTaskNativeDone(task)) {
-                    const kernelCompletedAt = __tmNormalizeTaskCompleteAtValue(task?.taskCompleteAt || task?.task_complete_at || '');
-                    if (!kernelCompletedAt) continue;
-                    const repeatHistory = __tmNormalizeTaskRepeatHistory(task?.repeatHistory || task?.repeat_history || '');
-                    const storedCompletedAt = __tmNormalizeTaskCompleteAtValue(
-                        String(repeatState.lastCompletedAt || '').trim()
-                        || String(repeatHistory[0]?.completedAt || '').trim()
-                    );
-                    const completionTimeDrift = Date.parse(kernelCompletedAt) - Date.parse(storedCompletedAt);
-                    const completedAt = (storedCompletedAt && kernelCompletedAt
-                        && completionTimeDrift >= 0 && completionTimeDrift <= 1000)
-                        ? storedCompletedAt
-                        : kernelCompletedAt;
-                    if (!completedAt) continue;
-                    const alreadyAdvanced = String(repeatState.lastCompletedAt || '').trim() === completedAt
-                        || repeatHistory.some((item) => String(item?.completedAt || '').trim() === completedAt);
-                    if (!alreadyAdvanced && rule.type !== 'fsrs' && !__tmBuildTaskRepeatAdvancePatch(task, rule, { completedAt })) continue;
-                    const advanced = await __tmAdvanceRecurringTaskAfterCompletion(task.id, {
-                        source: 'task-repeat-load-reconcile',
-                        completedAt,
-                        suppressHint: true,
-                    });
-                    if (advanced) changed += 1;
-                    continue;
+                    if (reset) changed += 1;
                 }
             }
             return changed;

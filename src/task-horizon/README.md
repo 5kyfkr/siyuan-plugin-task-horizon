@@ -19,7 +19,7 @@
 - Both `due` and `complete` task rules require a committed completion before advancing. Keep the configured rule and existing next-date calculation unchanged.
 - Loading, refreshing, switching groups, or crossing a date boundary must not advance an incomplete occurrence or consume its remaining occurrence count.
 - Each completion advances one occurrence. If the next occurrence is already overdue, it remains incomplete until separately completed.
-- Native checkbox hold/reset and recovery of a previously committed completion remain supported; resetting the held checkbox must not advance dates again. Calendar date previews remain read-only.
+- Native checkbox hold/reset remains supported. Starting the next round clears the held checkbox through a silent mutation without undoing history or changing dates. Loading repairs completion links and due checkbox resets only; it never synthesizes historical completions. Calendar date previews remain read-only.
 
 ## Task completion and cross-plugin recurrence
 

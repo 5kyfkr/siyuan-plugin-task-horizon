@@ -14503,6 +14503,7 @@
             const nextDone = Object.prototype.hasOwnProperty.call(detail, 'nextDone') ? !!detail.nextDone : true;
             const source = String(detail.source || '').trim();
             const backgroundSyncSources = new Set([
+                'task-repeat-load-reconcile',
                 'native-doc-checkbox-sync',
                 'native-doc-checkbox-reconcile',
                 'native-doc-checkbox-status-sync',

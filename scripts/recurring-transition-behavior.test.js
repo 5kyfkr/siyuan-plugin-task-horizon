@@ -221,6 +221,105 @@ async function testRestoredEffects() {
     assert.deepEqual(rewards, []);
 }
 
+async function testRecoveredCompletionDoesNotReward() {
+    const api = read('src/task-horizon/main/20-api-and-runtime-services.js');
+    const recoveredTask = task({ id: '20260718214658-b69t9a7', content: 'FSRS review', repeatRule: { enabled: true, type: 'fsrs' } });
+    const events = [], links = [];
+    let dedupeChecks = 0;
+    const effects = vm.createContext({
+        SettingsStore: { data: { enablePointsRewardIntegration: true } },
+        __tmTaskBoundary: { getTask: () => recoveredTask },
+        __tmIsTaskDoneEffective: value => value.done === true,
+        __tmIsTaskInPointsRewardExcludedGroup: () => false,
+        __tmGetTaskAttrHostId: value => value.id,
+        __tmNormalizeTaskRewardContent: value => value.content,
+        __tmShouldSkipTaskRewardDispatch: () => { dedupeChecks++; return false; },
+        __tmSynchronizeCompletionLinks: async (_task, receipt) => { links.push(receipt.operationId); return { ok: true }; },
+        __tmSyncParentDoneStateFromSubtasks: async () => null,
+        window: { dispatchEvent: event => events.push(event) },
+        CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
+    });
+    vm.runInContext(fn(api, '__tmDispatchTaskCompletedForReward') + '\n' + fn(runtime, '__tmApplyCompletionReceiptEffects'), effects);
+    const receipt = { outcome: 'committed', recurring: true, completedOccurrence: true,
+        operationId: 'recover-' + recoveredTask.id, completedAt: '2026-07-25T23:41:36.685+08:00' };
+    const recovered = await effects.__tmApplyCompletionReceiptEffects(recoveredTask.id, {
+        completion: receipt, rewardPriorityScore: 1270, source: 'task-repeat-load-reconcile',
+    });
+    assert.equal(events.length, 0, 'recovering a historical FSRS completion on load must not dispatch a reward');
+    assert.equal(dedupeChecks, 0, 'background recovery must not suppress the next manual completion reward');
+    assert.equal(recovered.completed, true);
+    assert.equal(recovered.linkage.ok, true);
+    assert.deepEqual(links, [receipt.operationId], 'suppressing recovery rewards must retain completion link repair');
+
+    await effects.__tmApplyCompletionReceiptEffects(recoveredTask.id, {
+        completion: { ...receipt, operationId: 'manual-completion', completedAt: '2026-10-22T19:42:48+08:00' },
+        rewardPriorityScore: 1270, source: 'task-checkbox',
+    });
+    assert.equal(events.length, 1, 'a new manual completion must still dispatch its reward');
+    assert.equal(events[0].type, 'task-horizon:task-completed');
+    assert.equal(events[0].detail.priorityScore, 1270);
+    assert.equal(events[0].detail.idempotencyKey, 'manual-completion:reward');
+    assert.equal(links.length, 2);
+}
+
+async function testHeldOccurrenceResetPreservesCompletion() {
+    const completed = plan(task(), { done: true }, 'held-completion', { keepNativeDone: true });
+    const held = { ...task(), ...clone(completed.patch), taskMarker: 'X' };
+    const history = clone(held.repeatHistory);
+    const nextDates = [held.startDate, held.completionTime];
+    const hints = [], requests = [];
+    Object.assign(context, {
+        state: { viewMode: '' }, window: {}, Element: class {},
+        __tmTaskBoundary: { getTask: () => held },
+        __tmRuntimeState: { getViewMode: () => '' },
+        __tmResolveTaskForRepeat: async () => held,
+        __tmIsTaskNativeDone: value => value.taskMarker === 'X',
+        __tmIsCollectedOtherBlockTask: () => false,
+        __tmRestoreChecklistRenderRestore: () => {},
+        hint: message => hints.push(message),
+        __tmIsTaskDoneEffective: value => value.done === true && !context.__tmIsRecurringNativeDoneHeld(value),
+        __tmRequireTaskMutation: () => async (_id, done, options) => {
+            requests.push(options);
+            const result = plan(held, { ...options, done }, 'reset-request', {
+                previousDone: context.__tmIsTaskDoneEffective(held), targetClosed: done,
+                previousMarker: held.taskMarker, targetMarker: done ? 'X' : ' ',
+                now: '2026-09-12T09:00:00+08:00',
+            });
+            Object.assign(held, clone(result.patch), { taskMarker: result.patch.done ? 'X' : ' ' });
+            if (options.suppressHint !== true) hints.push('unexpected completion hint');
+            return { completion: result.receipt };
+        },
+    });
+    const list = read('src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js');
+    vm.runInContext(fn(runtime, '__tmDeleteTaskRepeatHistoryEntry') + '\n'
+        + fn(list, '__tmSetDoneFromUi') + '\n'
+        + 'const __tmRecurringNativeDoneResetInFlight = new Map();\n'
+        + fn(runtime, '__tmResetRecurringNativeDoneIfDue'), context);
+    context.window.tmSetDone = (...args) => context.__tmSetDoneFromUi(...args);
+    assert.equal(await context.__tmResetRecurringNativeDoneIfDue(held, { todayKey: '2026-09-12' }), true);
+    assert.deepEqual(held.repeatHistory, history, 'starting the next round must retain the completed occurrence');
+    assert.deepEqual([held.startDate, held.completionTime], nextDates, 'resetting the native marker must retain the next dates');
+    assert.equal(held.repeatState.lastCompletionId, 'held-completion');
+    assert.equal(held.repeatState.pendingNativeDoneReset, false);
+    assert.equal(held.done, false);
+    assert.equal(held.taskCompleteAt, '');
+    assert.deepEqual(hints, [], 'an automatic next-round reset must not announce cancellation');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].suppressHint, true);
+    assert.equal(requests[0].restoreCompletionId, undefined);
+    const nextCompleted = plan(held, { done: true }, 'newer-completion', { keepNativeDone: true });
+    const newerTask = { ...held, ...clone(nextCompleted.patch), taskMarker: 'X' };
+    const staleReset = plan(newerTask, { done: false, source: 'task-repeat-native-reset',
+        occurrenceId: requests[0].occurrenceId }, 'stale-reset', { now: '2026-09-13T09:00:00+08:00' });
+    assert.deepEqual(clone(staleReset.patch), {}, 'a queued reset must not undo a newer completion');
+    assert.equal(staleReset.receipt.outcome, 'alreadyApplied');
+    const postponed = { ...newerTask, startDate: '2026-09-20', completionTime: '2026-09-20' };
+    const earlyReset = plan(postponed, { done: false, source: 'task-repeat-native-reset' }, 'early-reset', {
+        now: '2026-09-13T09:00:00+08:00',
+    });
+    assert.deepEqual(clone(earlyReset.patch), {}, 'a task postponed while waiting must retain its held checkbox');
+}
+
 async function testCapturedIntent() {
     const api = read('src/task-horizon/main/20-api-and-runtime-services.js');
     let latest = { id: 'task', occurrence: 'old-round' }, sessionId = 'old-timer', release, queued;
@@ -239,4 +338,4 @@ async function testCapturedIntent() {
     assert.equal(queued.timerContext.sessionId, 'old-timer');
 }
 
-testExecutor().then(testRestoredEffects).then(testCapturedIntent).then(() => console.log('recurring transition, dates, identity, undo, index and single-write behavior passed')).catch(error => { console.error(error); process.exitCode = 1; });
+testExecutor().then(testRestoredEffects).then(testRecoveredCompletionDoesNotReward).then(testHeldOccurrenceResetPreservesCompletion).then(testCapturedIntent).then(() => console.log('recurring transition, dates, identity, undo, index and single-write behavior passed')).catch(error => { console.error(error); process.exitCode = 1; });

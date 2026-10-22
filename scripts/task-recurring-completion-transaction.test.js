@@ -297,6 +297,7 @@ async function testRecurringNativeDoneResetIsDateBoundAndIdempotent() {
         __tmIsRecurringNativeDoneHeld: (value) => value?.repeatState?.pendingNativeDoneReset === true
             && value.repeatState.lastCompletedAt === value.taskCompleteAt,
         __tmGetRecurringNativeDoneResetDateKey: () => '2026-07-24',
+        __tmGetTaskOccurrenceId: () => 'next-round',
         __tmTaskSnapshotService: { scheduleAfterLocalPatch: (taskId, patch, options) => calls.snapshots.push({ taskId, patch, options }) },
         __tmNormalizeDateOnly: (value) => String(value || '').slice(0, 10),
         __tmApplyTaskMetaPatchWithUndo: async (_taskId, patch) => {
@@ -304,7 +305,7 @@ async function testRecurringNativeDoneResetIsDateBoundAndIdempotent() {
             task.repeatState = patch.repeatState;
         },
     });
-    context.window.tmSetDone = async (_taskId, done, _event, options) => {
+    context.__tmRequireTaskMutation = () => async (_taskId, done, options) => {
         calls.reset += 1;
         task.done = done;
         task.taskMarker = done ? 'X' : ' ';
