@@ -23,7 +23,8 @@ function harness() {
             addEventListener: (type, callback) => listeners.set(type, callback),
             removeEventListener: () => {},
         },
-        __tmThemeModeObserver: null, __tmThemeModeRefreshRaf: null, __tmThemeStylesheetLoadHandler: null,
+        __tmThemeModeObserver: null, __tmThemeHeadObserver: null, __tmThemeModeRefreshRaf: null, __tmThemeStylesheetLoadHandler: null,
+        __tmThemeAppearanceRefreshTimers: new Set(),
         MutationObserver: class {
             constructor(callback) { this.callback = callback; }
             observe() {}

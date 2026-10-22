@@ -14,9 +14,9 @@ assert.match(source,
 assert.doesNotMatch(source,
     /__tmThemeModeObserver\.observe\(document\.body/,
     'body class/style mutations must not trigger global theme refreshes');
-assert.doesNotMatch(source,
-    /__tmThemeHeadObserver\s*=\s*new MutationObserver/,
-    'head-wide observation must not trigger theme refreshes');
+assert.match(source,
+    /paletteChanged && readThemeStylesheetState\(\) !== appliedThemeStylesheets/,
+    'head observation must filter palette sources and ignore identical stylesheet writes');
 assert.doesNotMatch(source,
     /\[96, 320\]\.forEach/,
     'theme changes must not schedule delayed global refreshes');

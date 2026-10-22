@@ -872,10 +872,9 @@
         };
     }
 
-    // Round identity is the stored round state only. A rendered task copy rewrites
-    // repeatRule.anchorDate to the view date while normalizeTaskFields runs, so the
-    // rule anchor is display data: including it made the same round read as two
-    // different rounds between the row and the kernel baseline.
+    // Round identity is the stored round state only. Older rendered task copies
+    // rewrote the rule anchor to the view date, so including it could make the
+    // same round read as two different rounds between the row and kernel baseline.
     function __tmGetTaskOccurrenceId(taskLike) {
         const task = taskLike || {};
         const repeatState = __tmNormalizeTaskRepeatState(task.repeatState || task.repeat_state);

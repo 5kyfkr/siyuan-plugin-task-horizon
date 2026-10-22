@@ -148,6 +148,52 @@ async function checkSettingsLayouts(page, mobile = false) {
     }
     if (mobile) await page.evaluate(() => { delete window.__tmRuntimeHost; });
 }
+async function checkBoundStatusDeletion(page) {
+    const original = await page.evaluate(() => {
+        const data = __settingsTest.SettingsStore.data;
+        const original = JSON.parse(JSON.stringify({ customStatusOptions: data.customStatusOptions,
+            checkboxDoneStatusId: data.checkboxDoneStatusId, checkboxUndoneStatusId: data.checkboxUndoneStatusId }));
+        Object.assign(data, {
+            customStatusOptions: [
+                { id: 'todo', name: '待办', marker: ' ' },
+                { id: 'finish', name: '已完成', marker: 'X' },
+                { id: 'backlog', name: '待处理', marker: ' ' },
+            ],
+            checkboxDoneStatusId: 'finish', checkboxUndoneStatusId: 'todo',
+        });
+        tmOpenSettingsV2Page('docs', 't-status');
+        return original;
+    });
+    try {
+        for (const width of [1440, 390]) {
+            await page.setViewportSize({ width, height: 1000 });
+            const doneDelete = page.locator('[onclick="deleteStatusOption(1)"]');
+            const todoDelete = page.locator('[onclick="deleteStatusOption(0)"]');
+            const backlogDelete = page.locator('[onclick="deleteStatusOption(2)"]');
+            assert.equal(await doneDelete.isDisabled(), true);
+            assert.match(await doneDelete.getAttribute('title'), /勾选完成时状态/);
+            assert.equal(await todoDelete.isDisabled(), true);
+            assert.match(await todoDelete.getAttribute('title'), /未完成状态默认状态/);
+            assert.equal(await backlogDelete.isEnabled(), true);
+            const binding = page.locator('[onchange="updateCheckboxStatusBinding(\'undone\', this.value)"]');
+            await binding.selectOption('backlog');
+            await page.waitForFunction(() => !document.querySelector('[onclick="deleteStatusOption(0)"]').disabled
+                && document.querySelector('[onclick="deleteStatusOption(2)"]').disabled);
+            assert.equal(await doneDelete.isDisabled(), true);
+            await page.screenshot({ path: path.join(root, `output/playwright/settings-bound-status-${width}.png`) });
+            await binding.selectOption('todo');
+            await page.waitForFunction(() => document.querySelector('[onclick="deleteStatusOption(0)"]').disabled);
+        }
+    } finally {
+        await page.evaluate(async (original) => {
+            Object.assign(__settingsTest.SettingsStore.data, original);
+            await __settingsTest.SettingsStore.save();
+            showSettings();
+        }, original);
+        await page.setViewportSize({ width: 1440, height: 1000 });
+    }
+}
+
 (async () => {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const browser = await chromium.launch({ headless: true });
@@ -167,6 +213,7 @@ async function checkSettingsLayouts(page, mobile = false) {
             assert.deepEqual(errors, [], 'layout checks must not cause runtime errors');
             return;
         }
+        await checkBoundStatusDeletion(page);
         await page.evaluate(() => tmOpenSettingsV2Page('docs', 't-new'));
         const inboxVisibility = page.locator('[onchange="updateHideInboxFromAllTab(this.checked)"]');
         assert.equal(await inboxVisibility.isChecked(), false, 'inbox remains visible in All by default');

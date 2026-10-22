@@ -4370,9 +4370,20 @@
     function __tmNormalizeCheckboxStatusBindingConfig(target, fillNative = false) {
         const store = (target && typeof target === 'object') ? target : null;
         if (!store) return target;
-        // 编辑和保存时不补回已删除项，允许先删除自动状态，再把 /、- 分配给已有状态。
+        // 编辑和保存时不补回已删除的 /、- 状态，启动时修复缺失的完成和未完成状态。
         store.customStatusOptions = __tmNormalizeCustomStatusOptions(store.customStatusOptions, fillNative);
         const statusOptions = Array.isArray(store.customStatusOptions) ? store.customStatusOptions : [];
+        if (fillNative) {
+            for (const preset of [
+                { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
+                { id: 'todo', name: '待办', color: '#757575', marker: ' ' },
+            ]) {
+                if (statusOptions.some((item) => __tmNormalizeCompatTaskStatusMarker(item.marker) === preset.marker)) continue;
+                let id = preset.id;
+                for (let suffix = 1; statusOptions.some((item) => item.id === id); suffix++) id = `${preset.id}_native${suffix === 1 ? '' : suffix}`;
+                statusOptions.push({ ...preset, id });
+            }
+        }
         const statusIds = new Set(statusOptions.map((item) => String(item?.id || '').trim()).filter(Boolean));
         const normalizeOne = (rawValue, done) => {
             const normalized = __tmNormalizeCheckboxStatusBindingValue(rawValue);
@@ -24180,6 +24191,7 @@ if (!state.homepageOpen) return;
         try { __tmStatusChipStyleCache.clear(); } catch (e) {}
         try { __tmPriorityChipStyleCache.clear(); } catch (e) {}
         try { __tmDocColorHexCache.clear(); } catch (e) {}
+        try { __tmKanbanColsHtmlCache = null; } catch (e) {}
     }
 
     function __tmGetRootThemeAttr(name) {

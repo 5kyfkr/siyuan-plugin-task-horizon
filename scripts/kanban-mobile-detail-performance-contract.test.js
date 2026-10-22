@@ -89,12 +89,12 @@ const ensureAttrsEnd = detailRuntime.indexOf('async function __tmEnsureTaskDetai
 assert.ok(ensureAttrsStart >= 0 && ensureAttrsEnd > ensureAttrsStart, 'detail field attribute hydration must remain extractable');
 const ensureAttrs = detailRuntime.slice(ensureAttrsStart, ensureAttrsEnd);
 const hostAttrRead = ensureAttrs.indexOf('await __tmApplyTaskAttrHostOverrides([task], {');
-const recentCustomFieldReplay = ensureAttrs.indexOf("__tmGetLocalTaskPatchWatermarkValue(tid, 'customFieldValues')");
+const recentLocalFieldReplay = ensureAttrs.indexOf('__tmMergeLocalTaskPatchIntoTask(task)');
 const cacheHydratedTask = ensureAttrs.indexOf('__tmCacheTaskInState(task, {');
 assert.ok(hostAttrRead >= 0
-    && recentCustomFieldReplay > hostAttrRead
-    && cacheHydratedTask > recentCustomFieldReplay,
-    'detail hydration must restore recent local task patches after host reads and before caching so a first kanban reopen cannot render stale custom-field labels');
+    && recentLocalFieldReplay > hostAttrRead
+    && cacheHydratedTask > recentLocalFieldReplay,
+    'detail hydration must restore recent local task patches after host reads and before caching, including recurrence, dates and custom fields');
 
 const positionStart = detailRuntime.indexOf('function __tmPositionKanbanDetailFloat');
 const positionEnd = detailRuntime.indexOf('function __tmScheduleKanbanDetailFloatSettledPosition', positionStart);

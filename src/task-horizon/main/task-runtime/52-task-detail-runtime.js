@@ -964,9 +964,11 @@
     }
 
     async function __tmEnsureTaskDetailFieldAttrs(taskLike, options = {}) {
-        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
-        if (!task) return taskLike || null;
-        if (__tmIsTaskDetailWhiteboardSnapshotTask(task)) return task;
+        const sourceTask = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!sourceTask) return taskLike || null;
+        if (__tmIsTaskDetailWhiteboardSnapshotTask(sourceTask)) return sourceTask;
+        // Host reads must not expose partially hydrated attributes to other views.
+        const task = { ...sourceTask };
         const opts = (options && typeof options === 'object') ? options : {};
         const tid = String(opts.taskId || task.id || '').trim();
         const shouldForce = opts.force === true;
@@ -974,7 +976,7 @@
             && __tmGetCustomFieldDefs().length > 0;
         const customFieldsComplete = !hasCustomFieldDefs || task.__tmLoadedAllCustomFields === true;
         const beforeRemark = __tmGetTaskDetailRemarkRaw(task);
-        const queuedPatch = (() => {
+        const getQueuedPatch = () => {
             try {
                 if (!tid || typeof __tmBuildQueuedTaskFieldPatchMap !== 'function') return null;
                 const patchMap = __tmBuildQueuedTaskFieldPatchMap({ statuses: ['queued', 'running'] });
@@ -985,7 +987,8 @@
             } catch (e) {
                 return null;
             }
-        })();
+        };
+        const queuedPatch = getQueuedPatch();
         const hasQueuedPatch = !!queuedPatch;
         try {
             if (!shouldForce
@@ -993,9 +996,10 @@
                 && typeof __tmHasTaskAttachmentAttrSnapshot === 'function'
                 && __tmHasTaskAttachmentAttrSnapshot(task)
                 && customFieldsComplete) {
-                return task;
+                return sourceTask;
             }
         } catch (e) {}
+        const readToken = globalThis.__tmTaskStore?.captureRead?.([task.root_id || task.docId].filter(Boolean));
         try {
             if (typeof __tmApplyTaskAttrHostOverrides === 'function') {
                 await __tmApplyTaskAttrHostOverrides([task], {
@@ -1018,22 +1022,18 @@
                 }
             }
         } catch (e) {}
-        try {
-            const recentCustomFields = tid && typeof __tmGetLocalTaskPatchWatermarkValue === 'function'
-                ? __tmGetLocalTaskPatchWatermarkValue(tid, 'customFieldValues')
-                : null;
-            if (recentCustomFields?.has === true
-                && recentCustomFields.value
-                && typeof recentCustomFields.value === 'object'
-                && !Array.isArray(recentCustomFields.value)
-                && typeof __tmApplyQueuedTaskFieldPatchToTask === 'function') {
-                __tmApplyQueuedTaskFieldPatchToTask(task, { customFieldValues: recentCustomFields.value });
-            }
-        } catch (e) {}
-        if (queuedPatch) {
+        if (readToken && globalThis.__tmTaskStore?.isReadCurrent?.(readToken) === false) {
+            return globalThis.__tmTaskStore?.getProjected?.(tid)
+                || globalThis.__tmTaskBoundary?.getTask?.(tid) || sourceTask;
+        }
+        // Replay every protected field, including recurrence and dates, after
+        // the asynchronous reads. The queue may have changed while awaiting them.
+        try { __tmMergeLocalTaskPatchIntoTask(task); } catch (e) {}
+        const latestQueuedPatch = getQueuedPatch();
+        if (latestQueuedPatch) {
             try {
                 if (typeof __tmApplyQueuedTaskFieldPatchToTask === 'function') {
-                    __tmApplyQueuedTaskFieldPatchToTask(task, queuedPatch);
+                    __tmApplyQueuedTaskFieldPatchToTask(task, latestQueuedPatch);
                 }
             } catch (e) {}
         }

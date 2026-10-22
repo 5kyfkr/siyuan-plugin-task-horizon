@@ -136,6 +136,19 @@
         return false;
     }
 
+    function __tmGetStatusOptionDeleteBlockReason(option) {
+        const id = String(option?.id || '').trim();
+        if (!id) return '';
+        const options = SettingsStore.data.customStatusOptions || [];
+        if (id === __tmResolveCheckboxLinkedStatusId(true, options)) {
+            return '此状态用于“勾选完成时状态”，请先选择其他状态再删除';
+        }
+        if (id === __tmResolveCheckboxLinkedStatusId(false, options)) {
+            return '此状态用于“未完成状态默认状态”，请先选择其他状态再删除';
+        }
+        return '';
+    }
+
     window.renderStatusOptionsList = function() {
         const options = SettingsStore.data.customStatusOptions || [];
         const compatMode = __tmIsLegacyWin7CompatMode();
@@ -154,6 +167,7 @@
         `];
         rows.push(...options.map((opt, index) => {
             const displayMarker = __tmGetCompatStatusOptionMarker(opt);
+            const deleteBlockReason = __tmGetStatusOptionDeleteBlockReason(opt);
             return `
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
                 <button
@@ -171,7 +185,7 @@
                     <button class="tm-btn" onclick="moveStatusOption(${index}, 1)" ${index === options.length - 1 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↓</button>
                 </div>
                 ${conflictIds.has(opt.id) ? '<span style="color:var(--tm-danger-color);font-size:12px;">语法标记重复，旧任务保留原状态</span>' : ''}
-                <button class="tm-btn tm-btn-danger" onclick="deleteStatusOption(${index})" style="padding: 2px 6px; font-size: 11px;">删除</button>
+                <button class="tm-btn tm-btn-danger" onclick="deleteStatusOption(${index})" ${deleteBlockReason ? `disabled title="${esc(deleteBlockReason)}"` : ''} style="padding: 2px 6px; font-size: 11px; ${deleteBlockReason ? 'opacity:.5;cursor:not-allowed;' : ''}">删除</button>
             </div>
         `; }));
         const draft = __tmGetStatusOptionDraft();
@@ -438,6 +452,7 @@
         SettingsStore.data[key] = nextValue;
         __tmNormalizeCheckboxStatusBindingConfig(SettingsStore.data);
         await SettingsStore.save();
+        showSettings();
         render();
     };
 
@@ -573,10 +588,25 @@
     };
 
     window.deleteStatusOption = async function(index) {
+        const option = (SettingsStore.data.customStatusOptions || [])[index];
+        if (!option) return;
+        const optionId = option.id;
+        let deleteBlockReason = __tmGetStatusOptionDeleteBlockReason(option);
+        if (deleteBlockReason) {
+            hint(deleteBlockReason, 'warning');
+            return;
+        }
         const ok = await showConfirm('删除状态', '确定删除此状态吗？');
         if (!ok) return;
         const options = SettingsStore.data.customStatusOptions || [];
-        options.splice(index, 1);
+        const currentIndex = options.findIndex((item) => item.id === optionId);
+        if (currentIndex < 0) return;
+        deleteBlockReason = __tmGetStatusOptionDeleteBlockReason(options[currentIndex]);
+        if (deleteBlockReason) {
+            hint(deleteBlockReason, 'warning');
+            return;
+        }
+        options.splice(currentIndex, 1);
         SettingsStore.data.customStatusOptions = options;
         __tmNormalizeCheckboxStatusBindingConfig(SettingsStore.data);
         await SettingsStore.save();

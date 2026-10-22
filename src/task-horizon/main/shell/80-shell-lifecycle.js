@@ -203,10 +203,16 @@ if (shouldMarkDirty) {
                 __tmThemeModeObserver.disconnect();
                 __tmThemeModeObserver = null;
             }
+            if (__tmThemeHeadObserver) {
+                __tmThemeHeadObserver.disconnect();
+                __tmThemeHeadObserver = null;
+            }
             if (__tmThemeModeRefreshRaf) {
                 try { cancelAnimationFrame(__tmThemeModeRefreshRaf); } catch (e) {}
                 __tmThemeModeRefreshRaf = null;
             }
+            __tmThemeAppearanceRefreshTimers.forEach(timer => clearTimeout(timer));
+            __tmThemeAppearanceRefreshTimers.clear();
             if (__tmThemeStylesheetLoadHandler) {
                 try { document.removeEventListener('load', __tmThemeStylesheetLoadHandler, true); } catch (e) {}
                 __tmThemeStylesheetLoadHandler = null;
@@ -219,19 +225,79 @@ if (shouldMarkDirty) {
                         return name === 'class' ? value.split(/\s+/).filter(Boolean).sort().join(' ') : value;
                     });
             };
+            const themeStyleNodes = new WeakSet();
+            const isThemeStylesheet = (target) => {
+                if (!target) return false;
+                const tag = String(target.tagName || '').toLowerCase();
+                if (tag === 'style') {
+                    if (themeStyleNodes.has(target)) return true;
+                    // Follow palette definitions, not plugin styles that merely reference host tokens.
+                    if (!/--b3-(?:theme-[\w-]+|border-color|menu-background|list-hover)\s*:/i.test(target.textContent || '')) return false;
+                    themeStyleNodes.add(target);
+                    return true;
+                }
+                if (tag !== 'link') return false;
+                const id = String(target.id || '');
+                const href = String(target.href || target.getAttribute?.('href') || '');
+                return id === 'themeDefaultStyle'
+                    || id === 'themeStyle'
+                    || /\/appearance\/themes\/[^/]+\/theme\.css(?:[?#]|$)/i.test(href);
+            };
+            const readThemeStylesheetState = () => JSON.stringify(
+                Array.from(document.head?.querySelectorAll('link, style') || [])
+                    .filter(isThemeStylesheet)
+                    .map(node => [node.href || node.textContent || '', node.media || '', !!node.disabled])
+            );
+            const readThemePaletteState = () => {
+                if (typeof getComputedStyle !== 'function' || !SettingsStore.data.enableSiyuanThemeColors) return '';
+                const css = getComputedStyle(document.body || document.documentElement);
+                return JSON.stringify([
+                    '--b3-theme-background', '--b3-menu-background', '--b3-theme-on-background',
+                    '--b3-theme-surface', '--b3-theme-surface-light', '--b3-theme-on-surface',
+                    '--b3-theme-on-surface-light', '--b3-list-hover', '--b3-theme-primary',
+                    '--b3-border-color', '--b3-theme-error', '--b3-card-success-color',
+                    '--b3-card-warning-color', '--b3-card-info-color'
+                ].map(key => css.getPropertyValue(key).trim()));
+            };
             let appliedThemeState = readThemeAppearanceState();
+            let appliedThemeStylesheets = readThemeStylesheetState();
+            let appliedThemePalette = readThemePaletteState();
             let forceThemeStylesheetRefresh = false;
             const refreshThemeAppearance = () => {
                 __tmThemeModeRefreshRaf = null;
                 const nextThemeState = readThemeAppearanceState();
                 const forced = forceThemeStylesheetRefresh;
                 forceThemeStylesheetRefresh = false;
-                if (!forced && JSON.stringify(nextThemeState) === JSON.stringify(appliedThemeState)) return;
+                const sameThemeState = JSON.stringify(nextThemeState) === JSON.stringify(appliedThemeState);
+                if (!forced && sameThemeState) return;
+                const nextThemePalette = readThemePaletteState();
+                if (sameThemeState && nextThemePalette && nextThemePalette === appliedThemePalette) {
+                    appliedThemeStylesheets = readThemeStylesheetState();
+                    return;
+                }
                 // Commit before applying CSS: a theme may rewrite the same root classes in response.
                 appliedThemeState = nextThemeState;
+                appliedThemeStylesheets = readThemeStylesheetState();
+                appliedThemePalette = nextThemePalette;
                 try { __tmClearThemeColorRuntimeCaches(); } catch (e) {}
                 try { __tmApplyAppearanceThemeVars(); } catch (e) {}
                 try { if (state.modal) render(); } catch (e) {}
+                // CSSOM updates and delayed theme effects need not emit a DOM mutation or load.
+                // Recheck only during this switch, and rebuild only if the host palette changed.
+                if (typeof setTimeout === 'function') {
+                    __tmThemeAppearanceRefreshTimers.forEach(timer => clearTimeout(timer));
+                    __tmThemeAppearanceRefreshTimers.clear();
+                    [32, 120, 500, 1200].forEach(delay => {
+                        const timer = setTimeout(() => {
+                            __tmThemeAppearanceRefreshTimers.delete(timer);
+                            const palette = readThemePaletteState();
+                            if (palette && palette !== appliedThemePalette) {
+                                scheduleThemeAppearanceRefresh(true);
+                            }
+                        }, delay);
+                        __tmThemeAppearanceRefreshTimers.add(timer);
+                    });
+                }
             };
             const scheduleThemeAppearanceRefresh = (force = false) => {
                 forceThemeStylesheetRefresh ||= force;
@@ -247,14 +313,6 @@ if (shouldMarkDirty) {
                     refreshThemeAppearance();
                 }
             };
-            const isThemeStylesheet = (target) => {
-                if (!target || String(target.tagName || '').toLowerCase() !== 'link') return false;
-                const id = String(target.id || '');
-                const href = String(target.href || target.getAttribute?.('href') || '');
-                return id === 'themeDefaultStyle'
-                    || id === 'themeStyle'
-                    || /\/appearance\/themes\/[^/]+\/theme\.css(?:[?#]|$)/i.test(href);
-            };
             __tmThemeModeObserver = new MutationObserver(() => scheduleThemeAppearanceRefresh());
             __tmThemeModeObserver.observe(document.documentElement, {
                 attributes: true,
@@ -262,9 +320,24 @@ if (shouldMarkDirty) {
             });
             __tmThemeStylesheetLoadHandler = (event) => {
                 const target = event?.target;
-                if (isThemeStylesheet(target)) scheduleThemeAppearanceRefresh(true);
+                if (String(target?.tagName || '').toLowerCase() === 'link' && isThemeStylesheet(target)) {
+                    scheduleThemeAppearanceRefresh(true);
+                }
             };
             document.addEventListener('load', __tmThemeStylesheetLoadHandler, true);
+            __tmThemeHeadObserver = new MutationObserver((records) => {
+                const paletteChanged = records.some(record => isThemeStylesheet(record.target)
+                    || isThemeStylesheet(record.target?.parentElement)
+                    || Array.from(record.addedNodes || []).some(isThemeStylesheet)
+                    || Array.from(record.removedNodes || []).some(isThemeStylesheet));
+                if (paletteChanged && readThemeStylesheetState() !== appliedThemeStylesheets) {
+                    scheduleThemeAppearanceRefresh(true);
+                }
+            });
+            if (document.head) __tmThemeHeadObserver.observe(document.head, {
+                childList: true, subtree: true, characterData: true,
+                attributes: true, attributeFilter: ['href', 'media', 'disabled']
+            });
         } catch (e) {}
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
 

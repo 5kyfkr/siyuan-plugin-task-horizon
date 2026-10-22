@@ -1164,10 +1164,11 @@ async function testDuplicateMarkerSettingsWarning() {
         __tmFormatStatusMarkerText: (marker) => marker === ' ' ? '空格' : marker,
         esc: (value) => String(value ?? ''),
     });
-    for (const name of ['__tmNormalizeCheckboxStatusBindingValue', '__tmGetCheckboxStatusBindingFallbackId', '__tmNormalizeCheckboxStatusBindingConfig']) {
+    for (const name of ['__tmNormalizeCheckboxStatusBindingValue', '__tmGetCheckboxStatusBindingFallbackId', '__tmGetDefaultUndoneStatusId', '__tmNormalizeCheckboxStatusBindingConfig', '__tmResolveCheckboxLinkedStatusId']) {
         vm.runInContext(extractFunction(apiSource, name), context);
     }
     vm.runInContext(extractFunction(settingsSource, '__tmGetCompatStatusOptionMarker'), context);
+    vm.runInContext(extractFunction(settingsSource, '__tmGetStatusOptionDeleteBlockReason'), context);
     for (const name of ['renderStatusOptionsList', 'saveStatusOptionDraft', 'updateStatusOption', 'deleteStatusOption']) {
         const start = settingsSource.indexOf(`    window.${name} = `);
         const end = settingsSource.indexOf('\n    };', start) + '\n    };'.length;
@@ -1230,6 +1231,129 @@ async function testDuplicateMarkerSettingsWarning() {
     assert.equal(context.SettingsStore.data.customStatusOptions.find((item) => item.id === 'another').marker, '/');
 }
 
+async function testCheckboxBoundStatusDeletion() {
+    const settingsSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/62-settings-columns-and-rules.js'), 'utf8');
+    const hints = [];
+    let saves = 0;
+    let confirmations = 0;
+    let settingsRenders = 0;
+    const data = {
+        customStatusOptions: [
+            { id: 'todo', name: '待办', marker: ' ' },
+            { id: 'finish', name: '完成', marker: 'X' },
+            { id: 'backlog', name: '待处理', marker: ' ' },
+            { id: 'later', name: '稍后', marker: ' ' },
+            { id: 'quit', name: '放弃', marker: '-' },
+        ],
+        checkboxDoneStatusId: 'finish', checkboxUndoneStatusId: 'todo',
+    };
+    const context = vm.createContext({
+        __tmTaskStatusRules: statusRules,
+        window: {}, state: {}, SettingsStore: { data, save: async () => { saves++; } },
+        hint: (...args) => hints.push(args), showSettings: () => { settingsRenders++; }, render: () => {},
+        showConfirm: async () => { confirmations++; return true; },
+        __tmGetStatusOptions: (items) => items || data.customStatusOptions,
+        __tmNormalizeCustomStatusOptions: (items, fillNative = true) => statusRules.normalizeOptions(items, false, fillNative),
+        __tmNormalizeCompatTaskStatusMarker: statusRules.normalizeMarker,
+        __tmNormalizeTaskStatusMarker: statusRules.normalizeMarker,
+        __tmGuessStatusOptionDefaultMarker: statusRules.guessMarker,
+        __tmIsLegacyWin7CompatMode: () => false,
+        __tmGetStatusOptionDraft: () => null,
+        __tmNormalizeHexColor: (color, fallback) => color || fallback,
+        __tmGetStatusPresetColor: () => '#757575',
+        __tmFormatStatusMarkerText: (marker) => marker,
+        esc: (value) => String(value ?? ''),
+    });
+    for (const name of ['__tmNormalizeCheckboxStatusBindingValue', '__tmGetCheckboxStatusBindingFallbackId', '__tmGetDefaultUndoneStatusId', '__tmNormalizeCheckboxStatusBindingConfig', '__tmResolveCheckboxLinkedStatusId']) {
+        vm.runInContext(extractFunction(apiSource, name), context);
+    }
+    for (const name of ['__tmGetCompatStatusOptionMarker', '__tmGetStatusOptionDeleteBlockReason', '__tmRemapStatusId']) {
+        vm.runInContext(extractFunction(settingsSource, name), context);
+    }
+    for (const name of ['renderStatusOptionsList', 'deleteStatusOption', 'updateCheckboxStatusBinding', 'updateStatusOption']) {
+        const start = settingsSource.indexOf(`    window.${name} = `);
+        const end = settingsSource.indexOf('\n    };', start) + '\n    };'.length;
+        vm.runInContext(settingsSource.slice(start, end), context);
+    }
+    const indexOf = (id) => data.customStatusOptions.findIndex((item) => item.id === id);
+    const deleteButton = (id) => context.window.renderStatusOptionsList().match(new RegExp(`onclick="deleteStatusOption\\(${indexOf(id)}\\)"([^>]*)>`))[1];
+    for (const [id, label] of [['finish', '勾选完成时状态'], ['todo', '未完成状态默认状态']]) {
+        assert.match(deleteButton(id), /\bdisabled\b/);
+        assert.ok(deleteButton(id).includes(label), 'disabled delete button must explain which setting uses the status');
+        await context.window.deleteStatusOption(indexOf(id));
+        assert.ok(indexOf(id) >= 0, 'direct handler calls must not delete a bound status');
+        assert.ok(hints.at(-1)[0].includes(label));
+    }
+    assert.equal(confirmations, 0, 'blocked deletions must not open a confirmation');
+    assert.equal(saves, 0, 'blocked deletions must not persist changes');
+    assert.doesNotMatch(deleteButton('backlog'), /\bdisabled\b/);
+
+    await context.window.updateCheckboxStatusBinding('undone', 'backlog');
+    assert.equal(settingsRenders, 1, 'switching bindings must refresh delete buttons');
+    assert.match(deleteButton('backlog'), /\bdisabled\b/);
+    assert.doesNotMatch(deleteButton('todo'), /\bdisabled\b/);
+    context.showConfirm = async () => false;
+    await context.window.deleteStatusOption(indexOf('todo'));
+    assert.ok(indexOf('todo') >= 0, 'cancelling deletion must preserve an unbound status');
+    context.showConfirm = async () => true;
+    await context.window.deleteStatusOption(indexOf('todo'));
+    assert.equal(indexOf('todo'), -1, 'a previously bound status can be deleted after switching bindings');
+
+    await context.window.updateStatusOption(indexOf('finish'), 'id', 'closed');
+    assert.equal(data.checkboxDoneStatusId, 'closed');
+    assert.match(deleteButton('closed'), /\bdisabled\b/, 'renaming a bound ID must preserve deletion protection');
+    data.checkboxDoneStatusId = '__none__';
+    data.checkboxUndoneStatusId = '';
+    assert.match(deleteButton('closed'), /\bdisabled\b/, 'legacy completion fallback must be protected');
+    assert.match(deleteButton('backlog'), /\bdisabled\b/, 'legacy undone fallback must be protected');
+
+    let resolveConfirmation;
+    context.showConfirm = () => new Promise((resolve) => { resolveConfirmation = resolve; });
+    const pendingDeletion = context.window.deleteStatusOption(indexOf('later'));
+    data.checkboxUndoneStatusId = 'later';
+    const savesBeforeConfirmation = saves;
+    resolveConfirmation(true);
+    await pendingDeletion;
+    assert.ok(indexOf('later') >= 0, 'a status bound while confirmation is open must be protected');
+    assert.equal(saves, savesBeforeConfirmation);
+
+    const reorderedDeletion = context.window.deleteStatusOption(indexOf('quit'));
+    data.customStatusOptions.unshift(data.customStatusOptions.pop());
+    resolveConfirmation(true);
+    await reorderedDeletion;
+    assert.equal(indexOf('quit'), -1, 'confirmation must delete the original status after reordering');
+    assert.ok(indexOf('later') >= 0);
+    await context.window.deleteStatusOption(-1);
+}
+
+function testMissingCheckboxStatusRecovery() {
+    const context = vm.createContext({
+        __tmNormalizeCustomStatusOptions: (items, fillNative = true) => statusRules.normalizeOptions(items, false, fillNative),
+        __tmGetStatusOptions: (items) => items,
+        __tmNormalizeCompatTaskStatusMarker: statusRules.normalizeMarker,
+    });
+    for (const name of ['__tmNormalizeCheckboxStatusBindingValue', '__tmGetCheckboxStatusBindingFallbackId', '__tmNormalizeCheckboxStatusBindingConfig']) {
+        vm.runInContext(extractFunction(apiSource, name), context);
+    }
+    for (const options of [
+        [{ id: 'todo', name: '待办', marker: ' ' }],
+        [{ id: 'finish', name: '自定义完成', marker: 'X' }],
+        [{ id: 'done', name: '正在做', marker: '/' }, { id: 'todo', name: '不做了', marker: '-' }],
+    ]) {
+        const data = { customStatusOptions: options.map((item) => ({ ...item })), checkboxDoneStatusId: 'finish', checkboxUndoneStatusId: 'todo' };
+        context.__tmNormalizeCheckboxStatusBindingConfig(data, true);
+        assert.equal(data.customStatusOptions.find((item) => item.id === data.checkboxDoneStatusId)?.marker, 'X');
+        assert.equal(data.customStatusOptions.find((item) => item.id === data.checkboxUndoneStatusId)?.marker, ' ');
+        for (const option of options) {
+            assert.equal(data.customStatusOptions.find((item) => item.id === option.id)?.marker, option.marker,
+                'recovery must preserve existing IDs and custom markers');
+        }
+        const recovered = JSON.stringify(data);
+        context.__tmNormalizeCheckboxStatusBindingConfig(data, true);
+        assert.equal(JSON.stringify(data), recovered, 'repeated startup must not add duplicate recovered states');
+    }
+}
+
 function testRemovedNoAutoSwitchBinding() {
     const options = [{ id: 'todo', name: '待办', marker: ' ' }, { id: 'done', name: '已完成', marker: 'X' }];
     const context = vm.createContext({
@@ -1261,6 +1385,8 @@ function testRemovedNoAutoSwitchBinding() {
 }
 
 async function run() {
+    testMissingCheckboxStatusRecovery();
+    await testCheckboxBoundStatusDeletion();
     testRemovedNoAutoSwitchBinding();
     await testDuplicateMarkerSettingsWarning();
     testNativeStatusCompatibility();

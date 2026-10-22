@@ -16,7 +16,7 @@ const detailSource = read('task-runtime/52-task-detail-runtime.js');
 const renderSource = read('40-render-runtime.js');
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const extract = (source, name) => {
-    const start = source.indexOf(`    function ${name}(`);
+    const start = source.search(new RegExp(`    (?:async )?function ${name}\\(`));
     const end = source.indexOf('\n    }', start);
     assert.ok(start >= 0 && end > start, `missing function: ${name}`);
     return source.slice(start, end + 6);
@@ -255,6 +255,82 @@ for (const enabled of [true, false]) {
         assert.equal(textarea.value, '正在编辑的草稿');
     });
 }
+
+function prepareDetailHydration(h) {
+    Object.assign(h.context, {
+        __tmIsTaskDetailWhiteboardSnapshotTask: () => false,
+        __tmGetTaskDetailRemarkRaw: task => task.remark || '',
+        __tmBuildQueuedTaskFieldPatchMap: () => new Map(),
+        __tmTaskHasOwnHeadingContextFields: () => true,
+    });
+    vm.runInContext(extract(read('task-runtime/53-list-render-and-document-loader.js'), '__tmCacheTaskInState'), h.context);
+    vm.runInContext(extract(detailSource, '__tmEnsureTaskDetailFieldAttrs'), h.context);
+}
+
+for (const phase of ['optimistic', 'commit']) {
+    test(`opening detail preserves the ${phase} check-in plan when weekly attributes arrive late`, async () => {
+        const oldRule = { enabled: true, type: 'weekly', trigger: 'due', every: 1, anchorDate: '2026-10-22' };
+        const latest = {
+            repeatRule: { enabled: true, type: 'daily', trigger: 'checkin', every: 2, anchorDate: '2026-10-22' },
+            repeatState: { checkinHistory: [], occurrenceCount: 1 }, startDate: '', completionTime: '',
+        };
+        const h = createHarness({ repeatRule: oldRule });
+        h.mutate('optimistic', latest);
+        if (phase === 'commit') h.mutate('commit', latest);
+        h.context.__tmMarkLocalTaskPatchWatermark('task-a', latest);
+        prepareDetailHydration(h);
+        h.context.__tmApplyTaskAttrHostOverrides = async tasks => {
+            tasks[0].repeatRule = clone(oldRule);
+            tasks[0].repeat_rule = tasks[0].repeatRule;
+        };
+        await h.context.__tmEnsureTaskDetailFieldAttrs(h.store.get('task-a'), { force: true });
+        for (const task of [...h.mirrors, h.store.get('task-a'), h.store.getProjected('task-a')]) {
+            assert.deepEqual(clone(task.repeatRule), latest.repeatRule, 'opening detail must retain the current plan in every view');
+            assert.equal(task.startDate, '');
+            assert.equal(task.completionTime, '');
+        }
+    });
+}
+
+test('view switches never observe partial detail reads and late reads cannot undo a newer task receipt', async () => {
+    const h = createHarness({ completionTime: '2026-10-22', remark: 'current' });
+    prepareDetailHydration(h);
+    let release;
+    const blocked = new Promise(resolve => { release = resolve; });
+    h.context.__tmApplyTaskAttrHostOverrides = async tasks => {
+        tasks[0].completionTime = tasks[0].completion_time = '';
+        tasks[0].remark = 'stale';
+        await blocked;
+    };
+    const hydration = h.context.__tmEnsureTaskDetailFieldAttrs(h.store.get('task-a'), { force: true });
+    for (const view of ['list', 'checklist', 'kanban', 'timeline', 'whiteboard']) {
+        h.context.state.viewMode = view;
+        assert.equal(h.store.get('task-a').completionTime, '2026-10-22', `${view}: the in-flight read must stay detached`);
+    }
+    const latest = { ...clone(h.store.get('task-a')), completionTime: '2026-10-23', completion_time: '2026-10-23', remark: 'new receipt' };
+    h.store.acceptAuthoritative([latest]);
+    h.store.upsertLocal(latest);
+    release();
+    const result = await hydration;
+    assert.equal(result.completionTime, '2026-10-23');
+    for (const task of [...h.mirrors, h.store.getProjected('task-a')]) {
+        assert.equal(task.completionTime, '2026-10-23', 'an outdated detail read must not be cached after a newer receipt');
+        assert.equal(task.remark, 'new receipt');
+    }
+});
+
+test('detail hydration replays the current queue instead of a patch captured before awaiting', async () => {
+    const h = createHarness({ completionTime: '2026-10-22' });
+    prepareDetailHydration(h);
+    let queued = { completionTime: '2026-10-23' };
+    h.context.__tmBuildQueuedTaskFieldPatchMap = () => new Map([['task-a', queued]]);
+    h.context.__tmApplyTaskAttrHostOverrides = async () => {
+        queued = { completionTime: '2026-10-24' };
+    };
+    const result = await h.context.__tmEnsureTaskDetailFieldAttrs(h.store.get('task-a'), { force: true });
+    assert.equal(result.completionTime, '2026-10-24');
+    assert.equal(h.store.get('task-a').completionTime, '2026-10-24');
+});
 
 const timelineCases = [
     ['priority', 'low', 'priority'], ['priority', 'low', 'score'],

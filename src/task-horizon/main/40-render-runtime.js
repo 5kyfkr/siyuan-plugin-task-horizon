@@ -7369,15 +7369,15 @@
         task.customTime = isValidValue(task.customTime) ? String(task.customTime) : (isValidValue(task.custom_time) ? String(task.custom_time) : '');
         task.customStatus = isValidValue(task.custom_status) ? String(task.custom_status) : (isValidValue(task.customStatus) ? String(task.customStatus) : '');
         task.bookmark = isValidValue(task.bookmark) ? String(task.bookmark) : '';
+        // Today is only a fallback; loading a task must preserve its saved plan anchor.
         task.repeatRule = __tmNormalizeTaskRepeatRule(
             task.repeatRule
             || task.repeat_rule
             || task[__TM_TASK_REPEAT_RULE_ATTR]
             || '',
             {
-                anchorDate: todayDateKey,
                 startDate: task.startDate,
-                completionTime: task.completionTime,
+                completionTime: task.completionTime || todayDateKey,
             }
         );
         task.repeat_rule = task.repeatRule;
@@ -7440,9 +7440,8 @@
             if (!hasLoadedMetaAttrField('customStatus') && !isValidValue(task.customStatus) && allowCustomStatusFallback && isValidValue(meta.customStatus)) task.customStatus = meta.customStatus;
             if (!dbHasRepeatRule && Object.prototype.hasOwnProperty.call(meta, 'repeatRule')) {
                 task.repeatRule = __tmNormalizeTaskRepeatRule(meta.repeatRule, {
-                    anchorDate: todayDateKey,
                     startDate: task.startDate,
-                    completionTime: task.completionTime,
+                    completionTime: task.completionTime || todayDateKey,
                 });
             }
             if (!dbHasRepeatState && Object.prototype.hasOwnProperty.call(meta, 'repeatState')) {

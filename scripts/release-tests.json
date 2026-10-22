@@ -43,6 +43,7 @@
     "task-recurring-batch-delete.test.js",
     "task-checkin-behavior.test.js",
     "task-checkin-current-date.test.js",
+    "task-checkin-today-filter.test.js",
     "task-checkin-projection.test.js",
     "task-checkin-reminder.test.js",
     "project-visibility.test.js",
@@ -76,6 +77,7 @@
     "settings-excel-attachments-behavior.test.js"
   ],
   "browser": [
+    "theme-rapid-switch-browser.test.js",
     "agent-composer-controls-browser.test.js",
     "parent-task-date-rollup-browser.test.js",
     "mobile-fullscreen-reopen-browser.test.js",
