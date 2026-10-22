@@ -6909,6 +6909,7 @@
                 compactMonth: options?.compactMonth === true,
             });
         } catch (e) {}
+        if (ext.__tmEventDragPreview === true) showCheck = false;
         const checkboxCircle = (settings || getSettings())?.taskCheckboxCircleStyleEnabled === true;
         const isBuiltinSchedule = isCalendarBuiltinScheduleEvent(ext);
         const title = esc(String(eventApi?.title || ext.__tmTaskTitleMarkdown || '').trim() || '未命名事件');
@@ -6933,13 +6934,14 @@
             || /^(rgb|hsl|oklab|oklch|color|color-mix)a?\([^)]*\)$/i.test(rawColor)
             || /^var\(--[\w-]+(?:\s*,\s*[^)]*)?\)$/.test(rawColor)
             || /^[a-z]+$/i.test(rawColor) ? rawColor : 'var(--tm-primary-color)';
-        const handles = (mode === 'allday' || mode === 'inner' || mode === 'block' || (mode === 'chip' && extraClass.includes('tm-proto-month-event')))
+        const handles = ext.__tmEventDragPreview !== true && (mode === 'allday' || mode === 'inner' || mode === 'block' || (mode === 'chip' && extraClass.includes('tm-proto-month-event')))
             ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span><span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>'
             : '';
         const classes = [
             'tm-proto-event',
             `tm-proto-event--${mode}`,
             source ? `tm-proto-event--${source}` : '',
+            ext.__tmEventDragPreview === true ? 'tm-proto-event--drag-preview' : '',
             checkboxCircle ? 'tm-proto-event--checkbox-circle' : 'tm-proto-event--checkbox-rect',
             isBuiltinSchedule && !showCheck ? 'tm-proto-event--calendar-builtin' : '',
             isIndependentScheduleEventExt(ext) ? 'tm-proto-event--completion-independent' : '',
@@ -7002,6 +7004,49 @@
         if (Number.isNaN(start.getTime())) return null;
         if (eventApi?.allDay === true) start.setHours(0, 0, 0, 0);
         return start;
+    }
+
+    function resolvePrototypeTimedDropHit(surface, clientX, clientY) {
+        const x = Number(clientX);
+        const y = Number(clientY);
+        if (!(surface instanceof HTMLElement) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+        // Preview cards and collapse controls can cover the column under the
+        // pointer. Use the owning timeline's visible geometry for hit testing.
+        const timeCol = Array.from(surface.querySelectorAll('.tm-proto-time-col')).find((col) => {
+            const rect = col.getBoundingClientRect?.();
+            const viewport = col.closest?.('.tm-proto-time-scroll')?.getBoundingClientRect?.();
+            return rect && viewport
+                && x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+                && x >= viewport.left && x < viewport.right && y >= viewport.top && y < viewport.bottom;
+        });
+        if (!(timeCol instanceof HTMLElement)) return null;
+        const day = parseDateOnly(String(timeCol.getAttribute('data-tm-proto-day') || '').trim());
+        if (!(day instanceof Date) || Number.isNaN(day.getTime())) return null;
+        day.setHours(0, 0, 0, 0);
+        const canvas = timeCol.closest('.tm-proto-time-canvas');
+        const rawMinute = prototypeTimelineMinutesAtPoint(canvas, y, getSettings());
+        if (!Number.isFinite(rawMinute)) return null;
+        const minute = Math.max(0, Math.min(1440, Math.round(rawMinute / 15) * 15));
+        const start = new Date(day.getTime() + minute * 60000);
+        return { start, allDay: false, timeCol };
+    }
+
+    function buildPrototypeTimedDragPreview(eventApi, drag) {
+        const projected = Object.create(eventApi);
+        const keepOrigin = eventApi.allDay === true;
+        const id = keepOrigin ? `${drag.id}:drag-preview` : String(eventApi.id || '');
+        drag.previewEventId = id;
+        Object.defineProperties(projected, {
+            id: { value: id, enumerable: true },
+            start: { value: new Date(drag.previewStart.getTime()), enumerable: true },
+            end: { value: new Date(drag.previewEnd.getTime()), enumerable: true },
+            allDay: { value: false, enumerable: true },
+            ...(keepOrigin ? {
+                editable: { value: false, enumerable: true },
+                extendedProps: { value: { ...(eventApi.extendedProps || {}), __tmEventDragPreview: true }, enumerable: true },
+            } : {}),
+        });
+        return keepOrigin ? [eventApi, projected] : [projected];
     }
 
     function buildSharedPrototypeLunarText(key, settings, holidayMap = null) {
@@ -7128,7 +7173,7 @@
             const eventId = getCalendarEventIdFromElement(eventEl);
             const eventApi = getCalendarEventById(activeCalendar, eventId)
                 || getCalendarEvents(activeCalendar).find((item) => String(item?.id || '').trim() === eventId);
-            if (!eventApi || eventApi.editable === false || eventApi.allDay !== true) return;
+            if (!eventApi || (eventApi.editable === false && !isRollupTaskDateDrag(eventApi)) || eventApi.allDay !== true) return;
             pointerId = event.pointerId;
             handlers.pointerdown(event);
         };
@@ -18419,6 +18464,10 @@
         let needsLocalSideRefresh = false;
 
         for (const target of targets) {
+            const task = resolveScheduleDateFollowTask(target);
+            // Derived parent dates belong to the child-task range, including
+            // when a linked schedule is moved outside that range.
+            if (String(task?.dateMode || task?.date_mode || task?.['custom-task-date-mode'] || '').trim() === 'rollup') continue;
             if (await isScheduleDateFollowTargetRecurringTask(target)) continue;
             const aliasSet = target.aliases instanceof Set ? target.aliases : new Set();
             const bounds = (Array.isArray(list) ? list : [])
@@ -21094,7 +21143,7 @@
         const syncSidePrototypeDragElement = (drag, surfaceOverride = sidePrototypeSurface) => {
             const surface = surfaceOverride instanceof HTMLElement ? surfaceOverride : sidePrototypeSurface;
             if (!drag || !(surface instanceof HTMLElement)) return;
-            const id = String(drag.id || '').trim();
+            const id = String((drag.previewMode === 'timed' && drag.previewEventId) || drag.id || '').trim();
             if (!id) return;
             const candidates = Array.from(surface.querySelectorAll('[data-tm-proto-event]'))
                 .filter((node) => node instanceof HTMLElement
@@ -21107,6 +21156,7 @@
             if (!(next instanceof HTMLElement)) return;
             drag.eventEl = next;
             drag.visualEl = next;
+            drag.previewRendered = true;
             try { next.classList.add('tm-proto-event--dragging'); } catch (e) {}
         };
         const applySidePrototypeSelectedEventState = (surfaceOverride = sidePrototypeSurface) => {
@@ -21162,19 +21212,7 @@
                 bindDesktopTimelineZoom(surface, timelineGestureOptions);
                 bindPrototypeScheduleDraft(surface);
                 const resolveSidePrototypeTimedDropAtPoint = (clientX, clientY) => {
-                    const pointTarget = document.elementFromPoint?.(Number(clientX) || 0, Number(clientY) || 0);
-                    const target = pointTarget instanceof Element ? pointTarget : null;
-                    const eventsArea = target?.closest?.('.tm-proto-time-col');
-                    const canvas = target?.closest?.('.tm-proto-time-canvas');
-                    if (!(eventsArea instanceof HTMLElement) || !(canvas instanceof HTMLElement)) return null;
-                     const rect = canvas.getBoundingClientRect?.();
-                     if (!rect || rect.height <= 0) return null;
-                     const liveSettings = getSettings();
-                     const rawMinute = prototypeTimelineMinutesAtPoint(canvas, clientY, liveSettings);
-                     if (!Number.isFinite(rawMinute)) return null;
-                     const minute = Math.max(0, Math.min(1440, Math.round(rawMinute / 15) * 15));
-                    const start = new Date(sidePrototypeDate().getTime() + minute * 60000);
-                    return Number.isNaN(start.getTime()) ? null : { start, allDay: false };
+                    return resolvePrototypeTimedDropHit(surface, clientX, clientY);
                 };
                 surface.addEventListener('click', (event) => {
                     const target = event.target instanceof Element ? event.target : null;
@@ -21402,6 +21440,7 @@
                         else visualEl.style.removeProperty('height');
                     } catch (e) {}
                     try { visualEl.classList.remove('tm-proto-event--dragging'); } catch (e) {}
+                    if (drag.previewRendered || drag.previewMode === 'timed') queueSidePrototypeRender();
                 };
                 bindPrototypeSurfacePointerHandler(surface, 'pointerdown', (event) => {
                     const target = event.target instanceof Element ? event.target : null;
@@ -21414,9 +21453,12 @@
                         const id = String(eventEl.getAttribute('data-tm-proto-event') || '').trim();
                         const activeCalendar = state.sideDay?.calendar || cal;
                         const eventApi = getSidePrototypeEvent(activeCalendar, id);
-                        if (!eventApi || eventApi.editable === false) {
+                        if (!eventApi || (eventApi.editable === false && !isRollupTaskDateDrag(eventApi))) {
                             return;
                         }
+                        // Selected span text can start a native text drag and
+                        // cancel the calendar pointer gesture before its preview.
+                        if (event.pointerType === 'mouse' && eventEl.classList.contains('tm-proto-span-bar')) event.preventDefault();
                         const resizeHandle = target?.closest?.('[data-tm-proto-resize]');
                         const edge = String(resizeHandle?.getAttribute?.('data-tm-proto-resize') || '').trim();
                         const isTouchPointer = event.pointerType === 'touch' || event.pointerType === 'pen';
@@ -21768,6 +21810,17 @@
                                 nextEnd = new Date(nextStart.getTime() + 30 * 60000);
                             }
                         }
+                        if (isRollupTaskDateDrag(eventApi)) {
+                            restoreSidePrototypeDragPreview(drag);
+                            finishSidePrototypeDragScroll(surface);
+                            if (timedDrop) void createScheduleFromRollupTaskDateDrop(eventApi, nextStart, nextEnd);
+                            return;
+                        }
+                        if (!timedDrop && nextStart.getTime() === oldStart.getTime() && nextEnd.getTime() === oldEnd.getTime()) {
+                            restoreSidePrototypeDragPreview(drag);
+                            finishSidePrototypeDragScroll(surface);
+                            return;
+                        }
                         const source = String(eventApi?.extendedProps?.__tmSource || '').trim();
                         const committedSnapshot = source === 'schedule' && eventApi.allDay !== true
                             ? beginSidePrototypeCommittedDrag(eventApi, nextStart, nextEnd, timedDrop ? false : eventApi.allDay === true)
@@ -21868,15 +21921,9 @@
                 ? sidePrototypeEventDrag
                 : null;
             const renderedEvents = sideTimedPreview
-                ? allEvents.map((eventApi) => {
+                ? allEvents.flatMap((eventApi) => {
                     if (String(eventApi?.id || '').trim() !== String(sideTimedPreview.id || '').trim()) return eventApi;
-                    const projected = Object.create(eventApi);
-                    Object.defineProperties(projected, {
-                        start: { value: new Date(sideTimedPreview.previewStart.getTime()), enumerable: true },
-                        end: { value: new Date(sideTimedPreview.previewEnd.getTime()), enumerable: true },
-                        allDay: { value: false, enumerable: true },
-                    });
-                    return projected;
+                    return buildPrototypeTimedDragPreview(eventApi, sideTimedPreview);
                 })
                 : allEvents;
             const previousTimeScroller = surface.querySelector('.tm-proto-time-scroll');
@@ -22358,7 +22405,7 @@
                             toast('✅ 已加入日程', 'success');
                             return;
                         }
-                        const result = await persistTaskDateEventChange(arg, { background: true, calendar });
+                        const result = await persistTaskDateEventChange(arg, { background: true, calendar: cal });
                         if (result?.cancelled) {
                             forgetPendingTaskDateEventPatch(ext.__tmTaskId);
                             try { arg.revert(); } catch (e) {}
@@ -22379,7 +22426,7 @@
                 const source = String(ext.__tmSource || '').trim();
                 if (source === 'taskdate') {
                     try {
-                        const result = await persistTaskDateEventChange(arg, { background: true, calendar });
+                        const result = await persistTaskDateEventChange(arg, { background: true, calendar: cal });
                         if (result?.cancelled) {
                             forgetPendingTaskDateEventPatch(ext.__tmTaskId);
                             try { arg.revert(); } catch (e) {}
@@ -25439,6 +25486,32 @@
         // follows the committed date without waiting for another source event.
         queueTaskDateCalendarRender(arg?.view?.calendar || opt.calendar || state.calendar);
         return repeatRule ? { ...patch, saved: true, recurring: true, scope: 'all' } : patch;
+    }
+
+    function isRollupTaskDateDrag(eventApi) {
+        const ext = eventApi?.extendedProps || {};
+        return eventApi?.allDay === true
+            && ext.__tmSource === 'taskdate'
+            && ext.__tmTaskDateRollup === true
+            && ext.__tmTaskDateReadOnly !== true
+            && ext.__tmCheckin !== true
+            && !!String(ext.__tmTaskId || '').trim();
+    }
+
+    async function createScheduleFromRollupTaskDateDrop(eventApi, start, end) {
+        // A rollup date is derived from child tasks. Schedule a separate timed
+        // projection without changing the protected event in the calendar store.
+        const event = Object.create(eventApi, {
+            start: { value: new Date(start.getTime()), enumerable: true },
+            end: { value: new Date(end.getTime()), enumerable: true },
+            allDay: { value: false, enumerable: true },
+        });
+        try {
+            await createScheduleFromTaskDateDrop({ event });
+            toast('✅ 已加入日程', 'success');
+        } catch (e) {
+            toast(`❌ 加入日程失败：${String(e?.message || e || '')}`, 'error');
+        }
     }
 
     function shouldCreateScheduleFromTaskDateDrop(arg) {
@@ -31987,35 +32060,7 @@
                 }) || null;
             };
             const resolvePrototypeTimedDropAtPoint = (clientX, clientY) => {
-                const pointTarget = document.elementFromPoint?.(Number(clientX) || 0, Number(clientY) || 0);
-                const target = pointTarget instanceof Element ? pointTarget : null;
-                const timeCol = target?.closest?.('.tm-proto-time-col') || (() => {
-                    const cols = Array.from(prototypeSurface.querySelectorAll('.tm-proto-time-col'));
-                    return cols.find((col) => {
-                        const rect = col.getBoundingClientRect?.();
-                        const x = Number(clientX);
-                        const y = Number(clientY);
-                        return rect
-                            && Number.isFinite(x)
-                            && Number.isFinite(y)
-                            && x >= rect.left
-                            && x <= rect.right
-                            && y >= rect.top
-                            && y <= rect.bottom;
-                    }) || null;
-                })();
-                if (!(timeCol instanceof HTMLElement)) return null;
-                const dayKey = String(timeCol.getAttribute('data-tm-proto-day') || '').trim();
-                const day = dayKey ? protoDayStart(new Date(`${dayKey}T00:00:00`)) : null;
-                const rect = timeCol.getBoundingClientRect?.();
-                if (!day || !rect || rect.height <= 0) return null;
-                const settings = getSettings();
-                const canvas = timeCol.closest?.('.tm-proto-time-canvas');
-                const rawMinute = prototypeTimelineMinutesAtPoint(canvas, clientY, settings);
-                if (!Number.isFinite(rawMinute)) return null;
-                const minute = Math.max(0, Math.min(1440, Math.round(rawMinute / 15) * 15));
-                const start = new Date(day.getTime() + minute * 60000);
-                return Number.isNaN(start.getTime()) ? null : { start, allDay: false, timeCol };
+                return resolvePrototypeTimedDropHit(prototypeSurface, clientX, clientY);
             };
             const restorePrototypeDragPreview = (drag) => {
                 drag?.touchScrollAbort?.abort();
@@ -32079,7 +32124,7 @@
             };
             syncPrototypeDragElement = (drag) => {
                 if (!drag || !(prototypeSurface instanceof HTMLElement)) return;
-                const id = String(drag.id || '').trim();
+                const id = String((drag.previewMode === 'timed' && drag.previewEventId) || drag.id || '').trim();
                 if (!id) return;
                 const candidates = Array.from(prototypeSurface.querySelectorAll('[data-tm-proto-event]'))
                     .filter((node) => node instanceof HTMLElement && String(node.getAttribute('data-tm-proto-event') || '') === id);
@@ -32124,7 +32169,7 @@
                     || !(drag.previewStart instanceof Date)
                     || !(drag.previewEnd instanceof Date)
                     || drag.previewEnd <= drag.previewStart) return;
-                const id = String(drag.id || '').trim();
+                const id = String(drag.previewEventId || drag.id || '').trim();
                 if (!id) return;
                 const panelEvent = Array.from(prototypeSurface.querySelectorAll('.tm-proto-day-panel [data-tm-proto-event]'))
                     .find((node) => String(node.getAttribute('data-tm-proto-event') || '').trim() === id);
@@ -32187,7 +32232,8 @@
                 const eventId = getCalendarEventIdFromElement(eventEl);
                 const activeCalendar = state.calendar || calendar;
                 const eventApi = getCalendarEventById(activeCalendar, eventId);
-                if (!eventApi || eventApi.editable === false) return;
+                if (!eventApi || (eventApi.editable === false && !isRollupTaskDateDrag(eventApi))) return;
+                if (event.pointerType === 'mouse' && eventEl.classList.contains('tm-proto-span-bar')) event.preventDefault();
                 const resizeHandle = target?.closest?.('[data-tm-proto-resize]');
                 const resizeEdge = String(resizeHandle?.getAttribute?.('data-tm-proto-resize') || '').trim();
                 const isTouchPointer = event.pointerType === 'touch' || event.pointerType === 'pen';
@@ -32382,7 +32428,7 @@
                                 const targetDay = targetDayKey
                                     ? protoDayStart(new Date(`${targetDayKey}T00:00:00`))
                                     : null;
-                                const preview = getPrototypeAllDayDragDates(drag, eventApi, targetDay);
+                                const preview = getPrototypeAllDayDragDates(drag, eventApi, isRollupTaskDateDrag(eventApi) ? drag.originStart : targetDay);
                                 if (preview) {
                                     const previewKey = `${drag.id}|allday|${preview.start.getTime()}|${preview.end.getTime()}`;
                                     const previewDiffersFromOrigin = preview.start.getTime() !== drag.originStart.getTime()
@@ -32845,6 +32891,23 @@
                     }
                     if (nextEnd.getTime() <= nextStart.getTime()) nextEnd = new Date(nextStart.getTime() + (eventApi.allDay ? 86400000 : 30 * 60000));
                     const meta = { jsEvent: event, el: drag.eventEl, allDay: timedDrop ? false : eventApi.allDay === true, delta: { days: dayDelta, minutes: minuteDelta } };
+                    if (meta.allDay === (eventApi.allDay === true)
+                        && nextStart.getTime() === sourceStart.getTime()
+                        && nextEnd.getTime() === sourceEnd.getTime()) {
+                        prototypeSuppressClickUntil = Date.now() + 650;
+                        prototypeSuppressClickEventId = drag.id;
+                        try { event.preventDefault(); event.stopPropagation(); } catch (e) {}
+                        restorePrototypeDragPreview(drag);
+                        return;
+                    }
+                    if (isRollupTaskDateDrag(eventApi)) {
+                        prototypeSuppressClickUntil = Date.now() + 650;
+                        prototypeSuppressClickEventId = drag.id;
+                        try { event.preventDefault(); event.stopPropagation(); } catch (e) {}
+                        restorePrototypeDragPreview(drag);
+                        if (timedDrop) void createScheduleFromRollupTaskDateDrop(eventApi, nextStart, nextEnd);
+                        return;
+                    }
                     if (String(eventApi?.extendedProps?.__tmSource || '').trim() === 'taskdate' && meta.allDay === true) {
                         try {
                             const pendingEvent = {
@@ -38013,16 +38076,10 @@
                 ? prototypeEventDrag
                 : null;
             const events = activeDragPreview
-                ? storedEvents.map((eventApi) => {
+                ? storedEvents.flatMap((eventApi) => {
                     if (String(eventApi?.id || '') !== String(activeDragPreview.id || '')) return eventApi;
                     if (activeDragPreview.previewMode === 'timed') {
-                        const projected = Object.create(eventApi);
-                        Object.defineProperties(projected, {
-                            start: { value: new Date(activeDragPreview.previewStart.getTime()), enumerable: true },
-                            end: { value: new Date(activeDragPreview.previewEnd.getTime()), enumerable: true },
-                            allDay: { value: false, enumerable: true },
-                        });
-                        return projected;
+                        return buildPrototypeTimedDragPreview(eventApi, activeDragPreview);
                     }
                     const previewEndKey = protoDateKey(activeDragPreview.previewEnd);
                     const previewProps = { ...(eventApi?.extendedProps || {}) };

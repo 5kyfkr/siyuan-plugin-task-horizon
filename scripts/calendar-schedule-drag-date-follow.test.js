@@ -22,7 +22,7 @@ const handlers = [
     extract('            eventResize: async (arg) =>', '            select:', mainDropStart),
 ];
 
-async function verify(handler, originDay, allDay, mode) {
+async function verify(handler, originDay, allDay, mode, dateMode = 'manual', scheduleDay = 13) {
     const date = (day, hour = 0) => new Date(2026, 8, day, hour);
     const dateKey = (value) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
     const start = date(originDay, allDay ? 0 : 9);
@@ -51,11 +51,14 @@ async function verify(handler, originDay, allDay, mode) {
             dispatchEvent() {},
         },
         CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
-        state: {}, calendar: {},
+        state: { flatTasks: { 'linked-task': { id: 'linked-task', startDate: '2026-09-09', completionTime: '2026-09-11',
+            ...(dateMode === 'alias' ? { date_mode: 'rollup' }
+                : dateMode === 'legacy' ? { 'custom-task-date-mode': 'rollup' } : { dateMode }) } } }, calendar: {},
         getSettings: () => ({ scheduleDatesFollowSchedule: true }),
         getScheduleLinkedBlockId: (item) => item?.blockId || '',
         isTaskDateRecurringExceptionScheduleItem: () => false,
         isLinkedTaskRecurringTask: async () => false,
+        buildCalendarTaskMetaLegacyReadKeys: (_field, keys) => keys,
         parseDateOnly: (value) => new Date(`${value}T00:00:00`),
         formatDateKey: dateKey,
         toMs: (value) => new Date(value).getTime(),
@@ -83,8 +86,8 @@ async function verify(handler, originDay, allDay, mode) {
     vm.runInContext(`${persistence}\nglobalThis.handler = Object.values({${handler}})[0];`, context);
     const event = {
         id: original.id, allDay,
-        start: date(13, allDay ? 0 : 9),
-        end: allDay ? date(15) : date(13, 10),
+        start: date(scheduleDay, allDay ? 0 : 9),
+        end: allDay ? date(scheduleDay + 2) : date(scheduleDay, 10),
         extendedProps: { __tmSource: 'schedule', __tmScheduleId: original.id, __tmTaskId: original.taskId },
     };
     await context.handler({
@@ -102,13 +105,16 @@ async function verify(handler, originDay, allDay, mode) {
         assert.deepEqual(notices.map(([type]) => type), ['error']);
     } else {
         assert.equal(saves, 1);
-        assert.equal(updates, 1);
+        assert.equal(updates, dateMode === 'manual' ? 1 : 0, 'rollup task dates must never follow schedule bounds');
         assert.equal(stored[0].start, event.start.toISOString());
-        assert.equal(dateKey(new Date(stored[0].start)), '2026-09-13');
+        assert.equal(dateKey(new Date(stored[0].start)), dateKey(date(scheduleDay)));
         assert.equal(stored[0].allDay, allDay);
         assert.equal(reverts, 0, 'a failed task sync must not revert the already saved schedule');
         assert.equal(refreshed, 1);
-        if (mode === 'follow-fails') {
+        if (dateMode !== 'manual') {
+            assert.equal(pending.size, 0, 'rollup tasks must not receive optimistic date patches');
+            assert.deepEqual(notices, [['success', '✅ 已更新日程']], 'saving the schedule must not report a blocked date write');
+        } else if (mode === 'follow-fails') {
             assert.equal(updateOptions.showErrorHint, false, 'the follow-up owner must suppress duplicate task errors');
             assert.equal(pending.size, 0, 'failed task dates must not remain in the optimistic overlay');
             assert.deepEqual(notices, [['warning', '⚠ 日程已保存，但任务日期同步失败']]);
@@ -116,6 +122,30 @@ async function verify(handler, originDay, allDay, mode) {
             assert.deepEqual(notices, [['success', '✅ 已更新日程']]);
         }
     }
+}
+
+async function verifyRollupUpdaterGuard() {
+    const root = path.resolve(__dirname, '..');
+    const support = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/48-render-calendar-support-runtime.js'), 'utf8');
+    const schema = fs.readFileSync(path.join(root, 'src/task-horizon/main/09-task-field-schema.js'), 'utf8');
+    const core = support.slice(support.indexOf('    window.tmUpdateTaskDates = async function('), support.indexOf('    const __tmUpdateTaskDatesCore'));
+    assert.ok(core.includes('日期由子任务汇总'));
+    const task = { id: 'parent', dateMode: 'rollup', startDate: '2026-10-20', completionTime: '2026-10-25' };
+    const context = vm.createContext({ window: {}, __tmGetCalendarFlatTaskByIdSync: () => task,
+        __tmResolveTaskIdFromAnyBlockId: async () => task.id });
+    vm.runInContext(schema.match(/globalThis\.__tmIsTaskDateRollup =[^;]+;/)[0] + '\n' + core, context);
+    for (const completionTime of ['2026-10-01', '2026-10-22', '2026-11-01']) {
+        const result = await context.window.tmUpdateTaskDates('parent', { completionTime }, {
+            source: 'calendar-schedule-dates-follow', requireTaskIdentity: true,
+        });
+        assert.equal(result.skipped, true, 'automatic follow must skip rollup dates even when caches missed the mode');
+        assert.equal(result.reason, 'date-rollup');
+        assert.equal(task.startDate, '2026-10-20');
+        assert.equal(task.completionTime, '2026-10-25');
+    }
+    await assert.rejects(context.window.tmUpdateTaskDates('parent', { completionTime: '2026-11-01' }, {
+        source: 'calendar-taskdate-event-change',
+    }), /日期由子任务汇总/, 'direct edits must retain the protected-date error');
 }
 
 (async () => {
@@ -126,5 +156,13 @@ async function verify(handler, originDay, allDay, mode) {
             }
         }
     }
-    console.log('calendar schedule drag/date-follow tests passed (48 cases)');
+    for (const handler of handlers) {
+        for (const allDay of [false, true]) {
+            for (const dateMode of ['rollup', 'alias', 'legacy']) {
+                for (const scheduleDay of [7, 10, 13]) await verify(handler, 9, allDay, 'follow-fails', dateMode, scheduleDay);
+            }
+        }
+    }
+    await verifyRollupUpdaterGuard();
+    console.log('calendar schedule drag/date-follow tests passed (120 cases and protected updater checks)');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

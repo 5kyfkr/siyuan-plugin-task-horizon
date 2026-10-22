@@ -872,14 +872,46 @@
         };
     }
 
+    // Round identity is the stored round state only. A rendered task copy rewrites
+    // repeatRule.anchorDate to the view date while normalizeTaskFields runs, so the
+    // rule anchor is display data: including it made the same round read as two
+    // different rounds between the row and the kernel baseline.
     function __tmGetTaskOccurrenceId(taskLike) {
         const task = taskLike || {};
         const repeatState = __tmNormalizeTaskRepeatState(task.repeatState || task.repeat_state);
         return repeatState.occurrenceId || 'legacy-' + encodeURIComponent(JSON.stringify([
             String(task.id || ''), repeatState.occurrenceCount,
             repeatState.lastAdvancedAt, repeatState.lastCompletedAt,
-            task.repeatRule?.anchorDate || task.repeat_rule?.anchorDate || '',
         ]));
+    }
+
+    // Older legacy ids also appended the rendered anchor. Compare the stable round
+    // part so an id captured by that format still names the same round.
+    function __tmBuildTaskOccurrenceRoundKey(value) {
+        const raw = String(value || '').trim();
+        if (!raw.startsWith('legacy-')) return '';
+        try {
+            const parsed = JSON.parse(decodeURIComponent(raw.slice('legacy-'.length)));
+            if (!Array.isArray(parsed) || parsed.length < 4) return '';
+            return JSON.stringify(parsed.slice(0, 4).map((part) => String(part ?? '')));
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function __tmIsSameTaskOccurrenceRound(left, right) {
+        const a = String(left || '').trim();
+        const b = String(right || '').trim();
+        if (!a || !b) return false;
+        if (a === b) return true;
+        const leftKey = __tmBuildTaskOccurrenceRoundKey(a);
+        return !!leftKey && leftKey === __tmBuildTaskOccurrenceRoundKey(b);
+    }
+
+    function __tmFindTaskRepeatHistoryEntryByOccurrence(history, occurrenceId) {
+        const target = String(occurrenceId || '').trim();
+        if (!target || !Array.isArray(history)) return null;
+        return history.find((entry) => !!entry && __tmIsSameTaskOccurrenceRound(entry.occurrenceId, target)) || null;
     }
 
     function __tmIsCheckinTask(taskLike) {

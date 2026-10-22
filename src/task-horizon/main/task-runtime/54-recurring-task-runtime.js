@@ -71,24 +71,27 @@
             const restore = intent.restoreState;
             const entry = restore.historyEntry;
             if (entry?.id && history.some(item => item.id === entry.id)) return applied(entry);
-            if (!entry || occurrenceId !== restore.expectedOccurrenceId
+            if (!entry || !__tmIsSameTaskOccurrenceRound(occurrenceId, restore.expectedOccurrenceId)
                 || (entry.ruleSignature && entry.ruleSignature !== __tmGetTaskRepeatScheduleSignature(rule))) throw new Error('任务已有后续修改，不能恢复该次完成');
             return { patch: { ...restore.patch, repeatHistory: __tmNormalizeTaskRepeatHistory([entry, ...history]) },
                 receipt: { ...applied(entry).receipt, outcome: 'committed', reappliedCompletionId: entry.id || entry.completedAt } };
         }
         let restoreId = String(intent.restoreCompletionId || '');
         if (recurring && intent.done === true) {
-            const prior = history.find(entry => entry.occurrenceId === requestedOccurrence);
+            const prior = __tmFindTaskRepeatHistoryEntryByOccurrence(history, requestedOccurrence);
             if (prior) return applied(prior);
         }
-        if (!restoreId && recurring && intent.done === false && previousDone && history[0]?.occurrenceId === occurrenceId) {
+        if (!restoreId && recurring && intent.done === false && previousDone && __tmIsSameTaskOccurrenceRound(history[0]?.occurrenceId, occurrenceId)) {
             restoreId = history[0].id || history[0].completedAt;
         }
         if (recurring && requestedOccurrence !== occurrenceId) {
-            const previous = history.find((entry) => entry.occurrenceId === requestedOccurrence);
+            const previous = __tmFindTaskRepeatHistoryEntryByOccurrence(history, requestedOccurrence);
             if (previous && intent.done === true) return applied(previous);
             if (previous && intent.done === false) restoreId = previous.id || previous.completedAt;
-            else if (!restoreId) throw new Error('任务轮次已变化，请刷新后重试');
+            // The same round can arrive with an id rendered by a different build
+            // (legacy ids used to carry the view-date anchor). Only a round that
+            // really moved on is a conflict; blocking the click is not a repair.
+            else if (!restoreId && !__tmIsSameTaskOccurrenceRound(requestedOccurrence, occurrenceId)) throw new Error('任务轮次已变化，请刷新后重试');
         }
         if (!restoreId && intent.done === false && intent.nativeObserved?.previousDone === true && intent.nativeObserved.targetMarker === ' '
             && repeatState.pendingNativeDoneReset) restoreId = repeatState.lastCompletionId || repeatState.lastCompletedAt;
@@ -204,7 +207,7 @@
         let task = data.baseline || await __tmReadTaskMutationBaseline(data.taskId);
         if (!task?.id) throw new Error('无法读取完整任务状态');
         const rule = __tmGetTaskRepeatRule(task);
-        const occurrenceMatches = !data.occurrenceId || data.occurrenceId === __tmGetTaskOccurrenceId(task);
+        const occurrenceMatches = !data.occurrenceId || __tmIsSameTaskOccurrenceRound(data.occurrenceId, __tmGetTaskOccurrenceId(task));
         if (data.done && !data.previousDone && occurrenceMatches && !task.repeatHistory?.some(entry => entry.id === op.id) && rule.enabled && rule.trigger !== 'checkin') {
             await __tmSettleTomatoAfterTaskDone(task.id, { task, source: data.source, operationId: op.id, occurrenceId: data.occurrenceId, timerContext: data.timerContext, timerOnly: true, throwOnFailure: true });
             task = await __tmReadTaskMutationBaseline(task.id);
@@ -1265,7 +1268,7 @@
                     return { ok: applied === true, applied: applied === true };
                 }
                 const requestedOccurrence = payload.taskOccurrenceId || payload.reminder?.taskRepeatState?.occurrenceId;
-                const knownCompletion = task.repeatHistory?.some(entry => entry.occurrenceId === requestedOccurrence);
+                const knownCompletion = !!__tmFindTaskRepeatHistoryEntryByOccurrence(task.repeatHistory, requestedOccurrence);
                 if (!knownCompletion && payload.dateKey && task.completionTime && payload.dateKey !== task.completionTime) {
                     return { ok: false, applied: false, code: 'CONFLICT', message: '任务已改期，请刷新提醒' };
                 }

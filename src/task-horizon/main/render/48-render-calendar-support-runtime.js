@@ -1790,6 +1790,9 @@
             throw new Error('未找到任务');
         }
         if ((hasStartDate || hasCompletionTime) && globalThis.__tmIsTaskDateRollup?.(task)) {
+            if (String(opts.source || '').trim() === 'calendar-schedule-dates-follow') {
+                return { id: persistId, requestedId, skipped: true, reason: 'date-rollup' };
+            }
             throw new Error('日期由子任务汇总，请先在日期中心切换为手动设置');
         }
         if ((hasStartDate || hasCompletionTime) && typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {

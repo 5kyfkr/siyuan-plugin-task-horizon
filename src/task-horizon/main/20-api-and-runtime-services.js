@@ -27352,13 +27352,20 @@ return true;
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
         const mode = __tmGetKanbanBoardMode();
-        const labelMap = { status: '状态', heading: '标题', time: '时间' };
+        // 文案以看板模式菜单为准：新增看板模式（如四象限）后，这里不能再回退成“状态”。
+        const modeOptions = typeof __tmBuildKanbanModeMenuOptions === 'function'
+            ? __tmBuildKanbanModeMenuOptions()
+            : [];
+        const modeOption = Array.isArray(modeOptions)
+            ? (modeOptions.find((item) => String(item?.value || '').trim() === mode) || modeOptions[0] || null)
+            : null;
+        const modeLabel = String(modeOption?.label || '').trim();
         let updated = false;
         try {
             modal.querySelectorAll('#tmTopbarKanbanModeSelect, #tmMobileKanbanModeSelect').forEach((root) => {
                 if (!(root instanceof HTMLElement)) return;
                 const valueEl = root.querySelector('.bc-select-trigger__value');
-                if (valueEl) valueEl.textContent = labelMap[mode] || '状态';
+                if (valueEl && modeLabel) valueEl.textContent = modeLabel;
                 root.querySelectorAll('.bc-select-option').forEach((option) => {
                     const selected = String(option?.dataset?.tmOptionValue || '').trim() === mode;
                     option.classList.toggle('is-selected', selected);

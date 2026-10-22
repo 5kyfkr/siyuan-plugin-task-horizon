@@ -71,6 +71,41 @@ for (const keepNativeDone of [false, true]) {
     assert.equal(result.patch.repeatState.pendingNativeDoneReset, keepNativeDone);
     assert.equal(plan({ ...initial, ...clone(result.patch) }, { done: false, restoreCompletionId: result.receipt.completionId }).patch.repeatHistory.length, 0);
 }
+
+// A row rendered by normalizeTaskFields keeps the stored rule but rewrites
+// repeatRule.anchorDate to the view date. That display default must not split one
+// legacy round into two identities, or an overdue recurring row cannot complete.
+const storedOverdueRule = { enabled: true, trigger: 'due', type: 'daily', every: 1, anchorDate: '2026-09-10' };
+const overdueState = { occurrenceCount: 2, lastCompletedAt: '2026-09-10T09:00:00+08:00', lastAdvancedAt: '2026-09-10T09:00:00+08:00' };
+const overdueBase = {
+    id: '20260910120000-overdue', root_id: '20260910120000-doc0002', content: 'Overdue daily',
+    done: false, customStatus: 'todo', taskCompleteAt: '', startDate: '2026-09-10', completionTime: '2026-09-12',
+    repeatState: { ...overdueState }, repeatHistory: [],
+};
+const rowTask = { ...overdueBase, repeatRule: context.__tmNormalizeTaskRepeatRule(storedOverdueRule, { anchorDate: '2026-11-05' }) };
+const kernelTask = { ...overdueBase, repeatRule: context.__tmNormalizeTaskRepeatRule(storedOverdueRule) };
+const rowOccurrenceId = context.__tmGetTaskOccurrenceId(rowTask);
+assert.notEqual(rowTask.repeatRule.anchorDate, kernelTask.repeatRule.anchorDate, 'the fixture must reproduce the view-date anchor rewrite');
+assert.equal(rowOccurrenceId, context.__tmGetTaskOccurrenceId(kernelTask), 'one round must keep one identity in both copies');
+const overdueClick = plan(kernelTask, { done: true, occurrenceId: rowOccurrenceId }, 'overdue-row');
+assert.equal(overdueClick.receipt.completedOccurrence, true, 'an overdue row click must commit');
+assert.equal(overdueClick.patch.repeatState.occurrenceCount, 3);
+const shippedOccurrenceId = 'legacy-' + encodeURIComponent(JSON.stringify([
+    overdueBase.id, overdueState.occurrenceCount, overdueState.lastAdvancedAt, overdueState.lastCompletedAt, '2026-11-05',
+]));
+const shippedClick = plan(kernelTask, { done: true, occurrenceId: shippedOccurrenceId }, 'overdue-shipped-row');
+assert.equal(shippedClick.patch.repeatState.occurrenceCount, 3, 'an id written before the anchor removal must still name this round');
+const overdueDone = { ...kernelTask, ...clone(overdueClick.patch) };
+assert.equal(plan(overdueDone, { done: true, occurrenceId: shippedOccurrenceId }, 'overdue-duplicate').receipt.outcome, 'alreadyApplied',
+    'a repeated click from the same rendered row must stay idempotent');
+assert.equal(plan(overdueDone, { done: true, occurrenceId: overdueDone.repeatState.occurrenceId }, 'overdue-next').patch.repeatState.occurrenceCount, 4,
+    'the next round still advances once per completion');
+assert.throws(() => plan({ ...kernelTask, repeatState: { ...overdueState, occurrenceCount: 3 } }, { done: true, occurrenceId: shippedOccurrenceId }),
+    /轮次已变化/, 'a round that really moved on must still be rejected');
+assert.equal(context.__tmIsSameTaskOccurrenceRound(shippedOccurrenceId, rowOccurrenceId), true);
+assert.equal(context.__tmIsSameTaskOccurrenceRound('round-a', 'round-b'), false);
+assert.equal(context.__tmIsSameTaskOccurrenceRound('round-a', 'round-a'), true);
+
 const terminal = plan(task({ repeatRule: { ...initial.repeatRule, maxOccurrences: 1 } }), { done: true });
 assert.equal(terminal.patch.done, true);
 assert.equal(terminal.patch.repeatHistory.length, 1, 'the last occurrence must also have a record');

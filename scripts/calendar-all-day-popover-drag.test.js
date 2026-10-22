@@ -84,6 +84,7 @@ function createFixture(surfaceSelector, options = {}) {
     });
     vm.runInContext([
         readFunction('bindPrototypeSurfacePointerHandler'),
+        readFunction('isRollupTaskDateDrag'),
         readFunction('bindPrototypeMorePopoverDrag'),
         readFunction('closeTrackedPrototypeMorePopover'),
     ].join('\n'), context);

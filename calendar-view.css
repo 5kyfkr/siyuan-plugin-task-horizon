@@ -7129,6 +7129,15 @@
     overflow: visible !important;
     transition: none !important;
 }
+.tm-proto-event--drag-preview,
+.tm-proto-event--drag-preview *{
+    pointer-events: none !important;
+}
+.tm-proto-span-bar{
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
 
 /* Month single-day cards expose horizontal resize handles at both edges. */
 .tm-proto-event--chip.tm-proto-month-event{
