@@ -5934,6 +5934,60 @@
         }
     }
 
+    async function __tmHydrateMissingRuntimeCustomFields(fieldIds) {
+        const requestedFieldIds = __tmNormalizeCustomFieldIdList(fieldIds);
+        const taskStore = globalThis.__tmTaskStore;
+        const flatTasks = taskStore?.getFlatMap?.() || state.flatTasks || {};
+        const loadedTasks = Object.values(flatTasks).filter((task) => task && typeof task === 'object');
+        if (!loadedTasks.length) return { queryComplete: false, taskCount: 0 };
+        const tasks = loadedTasks.filter((task) => task.__tmLoadedAllCustomFields !== true
+            && requestedFieldIds.some((id) => !(task.__tmLoadedCustomFieldIds || []).includes(id)))
+            .map((task) => ({ ...task }));
+        if (!tasks.length) return { queryComplete: true, taskCount: 0 };
+        const readToken = taskStore?.captureRead?.();
+        const meta = await __tmAttachCustomFieldAttrsToTasks(tasks, { fieldIds: requestedFieldIds });
+        if (meta?.queryComplete === false
+            || flatTasks !== (taskStore?.getFlatMap?.() || state.flatTasks)
+            || (readToken && taskStore.isReadCurrent(readToken) !== true)) {
+            return { queryComplete: false, taskCount: 0 };
+        }
+        const customFieldDefs = __tmGetCustomFieldDefs();
+        const patches = tasks.map((task) => ({
+            id: task.id,
+            root_id: task.root_id || task.docId,
+            __customFieldRawValues: __tmGetTaskCustomFieldRawValues(task),
+            __tmLoadedCustomFieldIds: task.__tmLoadedCustomFieldIds,
+            customFieldValues: __tmNormalizeTaskCustomFieldValues(
+                __tmGetTaskCustomFieldRawValues(task), MetaStore.get(task.id)?.customFieldValues,
+                { customFieldDefs }
+            ),
+        }));
+        taskStore?.acceptAuthoritative?.(patches);
+        const patchesById = new Map(patches.map((patch) => [patch.id, patch]));
+        const visited = new Set();
+        const apply = (task) => {
+            if (!task || typeof task !== 'object' || visited.has(task)) return;
+            visited.add(task);
+            const patch = patchesById.get(task.id);
+            if (patch) {
+                task.__customFieldRawValues = { ...patch.__customFieldRawValues };
+                task.customFieldValues = { ...patch.customFieldValues };
+                task.__tmLoadedCustomFieldIds = patch.__tmLoadedCustomFieldIds.slice();
+                __tmMergeLocalTaskPatchIntoTask(task);
+            }
+            (Array.isArray(task.children) ? task.children : []).forEach(apply);
+        };
+        Object.values(flatTasks).forEach(apply);
+        Object.values(state.pendingInsertedTasks || {}).forEach(apply);
+        (state.taskTree || []).forEach((doc) => (doc.tasks || []).forEach(apply));
+        (state.filteredTasks || []).forEach(apply);
+        (state.otherBlocks || []).forEach(apply);
+        state.listDomRenderSignature = '';
+        state.listRenderSignature = '';
+        try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
+        return { ...meta, queryComplete: true, taskCount: tasks.length };
+    }
+
     function __tmCollectCustomFieldIdsForBulkTaskLoad(options = {}) {
         return __tmCollectCustomFieldLoadPlan(options).allFieldIds;
     }

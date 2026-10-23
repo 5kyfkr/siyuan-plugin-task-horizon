@@ -11502,9 +11502,26 @@ return Number(state.contextInteractionQuietUntil || 0);
         __tmMarkContextInteractionQuiet('switch-doc', 900);
         try { recalcStats(); } catch (e) {}
         const applied = await __tmApplyCurrentContextViewProfile();
-        if (applied?.customFieldReloadNeeded) await loadSelectedDocuments();
+        let customFieldReloadNeeded = !!applied?.customFieldReloadNeeded;
+        if (customFieldReloadNeeded) {
+            const groupId = SettingsStore?.data?.currentGroupId || 'all';
+            const viewMode = state.viewMode;
+            const openToken = state.openToken;
+            let hydrateMeta = null;
+            try {
+                hydrateMeta = await __tmHydrateMissingRuntimeCustomFields(applied.nextCustomFieldPlan.bulkFieldIds);
+            } catch (e) {}
+            if (state.activeDocId !== resolvedDocId || state.viewMode !== viewMode
+                || state.openToken !== openToken || (SettingsStore?.data?.currentGroupId || 'all') !== groupId) {
+                return false;
+            }
+            customFieldReloadNeeded = hydrateMeta?.queryComplete !== true;
+        }
+        if (customFieldReloadNeeded) {
+            await loadSelectedDocuments();
+        }
         else {
-            const viewSnapshotMeta = await __tmTryRestoreCurrentDocTabViewSnapshot(
+            const viewSnapshotMeta = applied?.customFieldReloadNeeded ? null : await __tmTryRestoreCurrentDocTabViewSnapshot(
                 resolvedDocId,
                 SettingsStore?.data?.currentGroupId || 'all'
             );
