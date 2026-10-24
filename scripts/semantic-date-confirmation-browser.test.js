@@ -271,6 +271,7 @@ const server = http.createServer((request, response) => {
                         lines: new Set(Array.from(row.querySelectorAll('label')).map(label => Math.round(label.getBoundingClientRect().top))).size,
                         widths: Array.from(row.querySelectorAll('label')).map(label => label.getBoundingClientRect().width),
                         available: row.querySelector('.tm-semantic-date-confirm-writes').clientWidth,
+                        gap: parseFloat(getComputedStyle(row.querySelector('.tm-semantic-date-confirm-writes')).columnGap),
                     })),
                     touchHeights: Array.from(element.querySelectorAll('label, [data-tm-semantic-action]')).filter(control => !control.classList.contains('tm-semantic-date-confirm-close')).map(control => {
                         const after = getComputedStyle(control, '::after');
@@ -293,8 +294,20 @@ const server = http.createServer((request, response) => {
                     assert.equal(metrics.rows[0].lines, 1, 'date and default reminder should fit on one row');
                     assert.equal(metrics.rows[3].lines, 1, 'date and explicit reminder should fit on one row');
                     if (viewport.width >= 390) {
-                        assert.equal(metrics.rows[1].lines, 1, 'start, deadline and reminder should fit on one row');
-                        assert.equal(metrics.rows[2].lines, 1, 'date and schedule should fit side by side');
+                        // Native CJK fallback fonts differ across Windows and Linux.
+                        // Keep choices together when they fit, and verify compact
+                        // wrapping when their measured widths require another row.
+                        for (const row of metrics.rows) {
+                            let expectedLines = 1, usedWidth = 0;
+                            for (const width of row.widths) {
+                                const nextWidth = usedWidth ? usedWidth + row.gap + width : width;
+                                if (nextWidth > row.available + 1) {
+                                    expectedLines++;
+                                    usedWidth = width;
+                                } else usedWidth = nextWidth;
+                            }
+                            assert.equal(row.lines, expectedLines, 'choices should wrap only when their measured widths exceed the available row: ' + JSON.stringify({ viewport, row }));
+                        }
                     }
                 }
                 const choice = touchPage.locator('.tm-semantic-date-confirm-write').first();
