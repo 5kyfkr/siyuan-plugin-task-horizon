@@ -1,5 +1,11 @@
 {
   "core": [
+    "agent-repeat-rule-coverage.test.js",
+    "agent-recurring-reminder.test.js",
+    "agent-recurring-reminder-workbench.test.js",
+    "task-search-fields.test.js",
+    "semantic-date-task-trigger.test.js",
+    "semantic-date-repeat.test.js",
     "inbox-all-tab-visibility.test.js",
     "table-responsive-resize-behavior.test.js",
     "theme-appearance-refresh-behavior.test.js",
@@ -72,11 +78,15 @@
     "whiteboard-batch-persistence-contract.test.js",
     "whiteboard-stream-grouping.test.js",
     "whiteboard-tab-group-scope.test.js",
+    "whiteboard-traversal-behavior.test.js",
     "custom-field-hierarchy-contract.test.js",
     "settings-runtime-wiring-contract.test.js",
     "settings-excel-attachments-behavior.test.js"
   ],
   "browser": [
+    "task-search-fields-browser.test.js",
+    "semantic-date-confirmation-browser.test.js",
+    "whiteboard-traversal-browser.test.js",
     "theme-rapid-switch-browser.test.js",
     "agent-composer-controls-browser.test.js",
     "parent-task-date-rollup-browser.test.js",

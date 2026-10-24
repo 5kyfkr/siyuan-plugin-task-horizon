@@ -1637,6 +1637,7 @@
     }
 
     window.tmClose = function(event) {
+        if (state.whiteboardTraversal) window.tmWhiteboardExitTraversal?.();
         try { __tmCleanupKanbanLaneAppearance(); } catch (e) {}
         if (event) {
             event.stopPropagation();

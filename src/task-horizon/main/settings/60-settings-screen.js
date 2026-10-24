@@ -3174,8 +3174,8 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '自动识别语义日期（全量分批）',
-                            '开启后，刷新任务后会分批扫描全部任务里的“明天/下周五/今晚8点/从明天到周五”等表达，并弹窗确认写入开始日期或截止日期。默认开启，如需避免同步后自动弹窗可关闭。',
+                            '自动识别语义日期',
+                            '开启后，新建或修改任务名称并保存后，只识别当前任务。离开输入区后确认，普通任务详情关闭后再弹出；清单常驻侧栏无需关闭。默认开启。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.semanticDateAutoPromptEnabled ? 'checked' : ''} onchange="updateSemanticDateAutoPromptEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}

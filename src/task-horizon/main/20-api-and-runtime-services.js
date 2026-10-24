@@ -3589,6 +3589,7 @@
         'taskHorizonGetTask',
         'taskHorizonProjectFocusStatistics',
         'taskHorizonResolveFocusCandidateIDs',
+        'taskHorizonQueryFocusStatistics',
         'taskHorizonResolveAgentScheduleOutputDocument',
         'taskHorizonLoadAgentSchedules',
     ]);
@@ -4979,6 +4980,7 @@
         timelineLinkHoverTaskId: '',
         timelineSelectedLinkId: '',
         whiteboardSelectedTaskId: '',
+        whiteboardTraversal: null,
         whiteboardSelectedNoteId: '',
         whiteboardSelectedFrameId: '',
         whiteboardMultiSelectedTaskIds: [],
@@ -5406,8 +5408,8 @@
                 if (repeatPatch?.repeatRule?.enabled && repeatPatch.repeatRule.type !== 'none') {
                     patch.repeatRule = repeatPatch.repeatRule;
                     patch.repeatState = repeatPatch.repeatState;
+                    patch.startDate = '';
                     if (repeatPatch.repeatRule.trigger === 'checkin') {
-                        patch.startDate = '';
                         patch.completionTime = '';
                     } else if (repeatPatch.completionTime && !patch.completionTime) patch.completionTime = repeatPatch.completionTime;
                 }
@@ -5499,6 +5501,7 @@
                 }
             });
         } catch (e) {}
+        try { __tmQueueSemanticDateTaskAfterMutation(op, detail); } catch (e) {}
         return detail;
     }
 
@@ -9423,6 +9426,9 @@
     const __TM_SEMANTIC_DATE_RECOGNIZED_KEY = 'tm_semantic_date_recognized';
     const __TM_SEMANTIC_DATE_AUTO_SCAN_BATCH_SIZE = 120;
     const __TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE = 50;
+    const __tmSemanticDatePendingTasks = new Map();
+    let __tmSemanticDatePromptTimer = null;
+    let __tmSemanticDatePromptRunning = false;
 
     function __tmYieldSemanticDateScan() {
         return new Promise((resolve) => {
@@ -9698,6 +9704,7 @@
     }
 
     function __tmSemanticAdjustHourByPeriod(hour, period) {
+        if (hour === null || hour === undefined) return null;
         let hh = Number(hour);
         if (!Number.isFinite(hh) || hh < 0 || hh > 23) return null;
         const p = String(period || '').trim();
@@ -9843,6 +9850,12 @@
             reason = `识别到${token}时间，日期按今天处理`;
             matchedText = __tmSemanticNormalizeMatchText(todayPeriod[0]);
             stableKey = `today-period:${matchedText}`;
+            isRelative = true;
+        } else if (!/(昨天|昨日|前天|大前天|上周|上个月|去年)/.test(text) && __tmSemanticExtractTimeInfo(text)) {
+            dt = new Date(today.getTime());
+            reason = '仅识别到时间，日期按今天处理';
+            matchedText = __tmSemanticExtractTimeInfo(text).matchedText;
+            stableKey = 'today-clock';
             isRelative = true;
         }
         if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return null;
@@ -10151,6 +10164,9 @@
         const startDateValue = String(item.startDateValue || '').trim();
         const completionValue = String(item.completionValue || '').trim();
         const reminderAt = String(item.reminderAt || '').trim();
+        if (item.repeatRule?.enabled) {
+            writes.push({ id: 'repeatRule', label: '写入循环日期', value: `${item.repeatSummary} · 首次 ${item.repeatCompletionValue}`, checked: true });
+        }
         if (startDateValue) {
             writes.push({
                 id: 'startDate',
@@ -10187,7 +10203,7 @@
                 id: 'reminder',
                 label: '写入任务提醒',
                 value: reminderAt,
-                checked: !!item.hasTime,
+                checked: !item.repeatRule && !!item.hasTime,
             });
         }
         return writes;
@@ -10199,12 +10215,132 @@
         return labels.join('、') || '写入日期';
     }
 
+    function __tmSemanticHasRepeatExpression(text) {
+        return /每(?:隔|个|天|日|周|星期|礼拜|月|年|工作日|小时|分钟|[\d零〇一二两三四五六七八九十百千])|隔天|隔日/.test(String(text || ''));
+    }
+
+    function __tmSemanticRepeatNumber(value) {
+        const text = String(value || '').trim();
+        if (!text) return 1;
+        if (/^\d+$/.test(text)) return Number(text);
+        const digits = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+        if (text.length === 1 && text in digits) return digits[text];
+        if (!/[十百千]/.test(text)) return NaN;
+        let total = 0, digit = 0;
+        for (const character of text) {
+            if (character in digits) digit = digits[character];
+            else { total += (digit || 1) * ({ 十: 10, 百: 100, 千: 1000 }[character] || NaN); digit = 0; }
+        }
+        return total + digit;
+    }
+
+    function __tmSemanticExtractRepeatSuggestion(task, source, baseDate) {
+        const text = String(source.text || '').trim();
+        const core = globalThis.tmRepeatCore;
+        if (!core?.normalizeRule || /农历|阴历|完成后|(?:重复|共|持续)\s*[\d一二两三四五六七八九十百]+\s*次|截至|直到/.test(text)) return null;
+        if (core.normalizeRule(task?.repeatRule || task?.repeat_rule || '').enabled) return null;
+        const match = /每(?:隔)?\s*([\d零〇一二两三四五六七八九十百千]+)?\s*(?:个)?\s*(工作日|天|日|周|星期|礼拜|月|年)|隔[天日]/.exec(text);
+        if (!match) return null;
+        const every = match[0].startsWith('隔') ? 2 : __tmSemanticRepeatNumber(match[1]);
+        if (!Number.isInteger(every) || every < 1 || every > 3650) return null;
+        const type = ({ 工作日: 'workday', 天: 'daily', 日: 'daily', 周: 'weekly', 星期: 'weekly', 礼拜: 'weekly', 月: 'monthly', 年: 'yearly' })[match[2]] || 'daily';
+        const rawRule = { enabled: true, trigger: 'due', type, every, calendarMode: 'solar' };
+        let end = match.index + match[0].length;
+        const tail = text.slice(end);
+        if (type === 'weekly') {
+            const dayToken = '(?:[一二三四五六日天](?![十百]|\\s*(?:点|[:：]))|[1-7](?!\\d|\\s*(?:点|[:：])))';
+            const weekdays = new RegExp(`^\\s*(?:的)?\\s*((?:周|星期|礼拜)?${dayToken}(?:[、,，和及到至~～\\s]*(?:周|星期|礼拜)?${dayToken})*)`).exec(tail);
+            if (weekdays) {
+                const days = [...weekdays[1].matchAll(/[一二三四五六日天1-7]/g)].map(item => __tmSemanticDowFromToken(item[0]));
+                if (/[到至~～]/.test(weekdays[1]) && days.length === 2) {
+                    rawRule.weekdays = [];
+                    for (let day = days[0], count = 0; count < 7; count++, day = (day + 1) % 7) {
+                        rawRule.weekdays.push(day); if (day === days[1]) break;
+                    }
+                } else rawRule.weekdays = [...new Set(days)];
+                end += weekdays[0].length;
+            } else if (/^\s*末/.test(tail)) { rawRule.weekdays = [6, 0]; end += tail.match(/^\s*末/)[0].length; }
+        }
+        if (type === 'monthly') {
+            const monthWeek = /^\s*(?:的)?\s*(最后一个|第([一二三四五1-5])个?)\s*(?:周|星期|礼拜)([一二三四五六日天1-7])/.exec(tail);
+            if (monthWeek) {
+                rawRule.monthlyMode = 'weekday';
+                rawRule.monthWeek = { ordinal: monthWeek[1] === '最后一个' ? -1 : __tmSemanticRepeatNumber(monthWeek[2]), weekday: __tmSemanticDowFromToken(monthWeek[3]) };
+                end += monthWeek[0].length;
+            }
+            const monthDays = /^\s*(?:的)?\s*(最后一天|月底|月末|([\d零〇一二两三四五六七八九十]+(?:[、,，][\d零〇一二两三四五六七八九十]+)*)\s*[日号])/.exec(tail);
+            if (monthDays) {
+                rawRule.monthDays = monthDays[2] ? monthDays[2].split(/[、,，]/).map(__tmSemanticRepeatNumber) : [-1];
+                if (rawRule.monthDays.some(day => !Number.isInteger(day) || (day !== -1 && (day < 1 || day > 31)))) return null;
+                end += monthDays[0].length;
+            }
+        }
+        let annualMonth = 0, annualDay = 0;
+        if (type === 'yearly') {
+            const annual = /^\s*([\d零〇一二两三四五六七八九十]+)月\s*([\d零〇一二两三四五六七八九十]+)[日号]?/.exec(tail);
+            if (annual) {
+                annualMonth = __tmSemanticRepeatNumber(annual[1]); annualDay = __tmSemanticRepeatNumber(annual[2]);
+                if (!Number.isInteger(annualMonth) || !Number.isInteger(annualDay)) return null;
+                end += annual[0].length;
+            }
+        }
+        const remaining = `${text.slice(0, match.index)} ${text.slice(end)}`;
+        if (__tmSemanticCollectDateInfos(remaining, baseDate).length > 1) return null;
+        const timeInfo = __tmSemanticExtractTimeInfo(remaining);
+        if (!timeInfo && /(?:\d{1,2}|[零〇一二两三四五六七八九十]{1,3})\s*(?:点|[:：])/.test(remaining)) return null;
+        const explicitDate = __tmSemanticExtractDateInfo(remaining, baseDate);
+        const currentCompletionTime = String(task?.completionTime || task?.completion_time || '').trim();
+        const first = explicitDate && !/^(today-clock|today-period:)/.test(explicitDate.stableKey)
+            ? new Date(explicitDate.date.getTime())
+            : currentCompletionTime ? __tmSemanticStartOfDay(new Date(currentCompletionTime.replace(' ', 'T'))) : __tmSemanticStartOfDay(baseDate);
+        if (Number.isNaN(first.getTime())) return null;
+        rawRule.anchorDate = __tmSemanticFormatDateKey(first);
+        if (type === 'workday') {
+            while (!core.isWorkday(first)) first.setDate(first.getDate() + 1);
+        } else if (type === 'weekly' && rawRule.weekdays?.length && !rawRule.weekdays.includes(first.getDay())) {
+            const next = core.nextWeekly(first, { ...rawRule, every: 1 });
+            if (!(next instanceof Date) || Number.isNaN(next.getTime())) return null;
+            first.setTime(next.getTime());
+        } else if (type === 'monthly' && (rawRule.monthDays || rawRule.monthWeek)) {
+            const next = core.monthDates.nextDateKey(core.normalizeRule({ ...rawRule, every: 1 }), rawRule.anchorDate, true);
+            if (!next) return null;
+            first.setTime(new Date(`${next}T00:00:00`).getTime());
+        } else if (type === 'yearly' && annualMonth) {
+            if (annualMonth < 1 || annualMonth > 12 || annualDay < 1 || annualDay > 31) return null;
+            let candidate = null;
+            for (let year = first.getFullYear(); year <= Math.min(9999, first.getFullYear() + 8); year++) {
+                const date = new Date(year, annualMonth - 1, annualDay);
+                if (date.getMonth() === annualMonth - 1 && date.getDate() === annualDay && date >= first) { candidate = date; break; }
+            }
+            if (!candidate) return null;
+            first.setTime(candidate.getTime());
+        }
+        const firstKey = __tmSemanticFormatDateKey(first);
+        const repeatRule = core.normalizeRule({ ...rawRule, anchorDate: firstKey });
+        const reminderTime = timeInfo || __tmSemanticBuildTimeInfoFromClock(__tmGetSemanticDefaultReminderTime());
+        const reminderDate = new Date(first.getTime());
+        reminderDate.setHours(reminderTime.hour, reminderTime.minute, 0, 0);
+        const stableRule = { type, every, weekdays: repeatRule.weekdays, monthDays: repeatRule.monthDays, monthWeek: repeatRule.monthWeek, annualMonth, annualDay };
+        return {
+            taskId: String(task?.id || '').trim(), docId: String(task?.root_id || task?.docId || '').trim(),
+            content: String(task?.content || '').trim(), sourceKey: source.key,
+            startDateValue: '', completionValue: '', repeatCompletionValue: firstKey,
+            repeatRule, repeatSummary: text.slice(match.index, end).trim(),
+            reminderAt: __tmSemanticFormatDateTime(reminderDate), hasTime: !!timeInfo, reminderIntent: true,
+            signature: `repeat-v1||${JSON.stringify(stableRule)}||${explicitDate?.stableKey || ''}||${timeInfo?.stableKey || ''}`,
+            reason: '识别到循环日期；提醒跟随任务循环', isRelativeDate: false,
+        };
+    }
+
     function __tmExtractSemanticTaskDateSuggestion(task, baseDate) {
         const target = (task && typeof task === 'object') ? task : null;
         const sources = [
             { key: 'content', label: '任务内容', text: String(target?.content || '').trim() },
         ].filter((item) => item.text);
         for (const source of sources) {
+            if (__tmSemanticHasRepeatExpression(source.text)) {
+                return __tmSemanticExtractRepeatSuggestion(target, source, baseDate);
+            }
             const ranged = __tmSemanticExtractStartEndSuggestion(target, source, baseDate);
             if (ranged) return ranged;
             const dateInfo = __tmSemanticExtractDateInfo(source.text, baseDate);
@@ -10245,7 +10381,7 @@
             const task = list[index];
             if (truncated) break;
             const taskId = String(task?.id || '').trim();
-            if (taskId && task && !task.done && (!String(task?.startDate || task?.start_date || '').trim() || !String(task?.completionTime || task?.completion_time || '').trim())) {
+            if (taskId && task && !task.done && (__tmSemanticHasRepeatExpression(task.content) || !String(task?.startDate || task?.start_date || '').trim() || !String(task?.completionTime || task?.completion_time || '').trim())) {
                 const suggestion = __tmExtractSemanticTaskDateSuggestion(task, now);
                 if (suggestion) {
                     const recognized = recognizedMap[taskId];
@@ -10296,10 +10432,15 @@
         try { state.semanticDateConfirmModal.remove(); } catch (e) {}
         state.semanticDateConfirmModal = null;
         state.semanticDateAutoApplying = false;
+        try { __tmScheduleSemanticDatePrompt(); } catch (e) {}
     }
 
     function __tmGetSemanticDateConfirmHost() {
         try {
+            if (window.matchMedia?.('(max-width: 760px), (pointer: coarse)')?.matches) return document.body;
+            // A body-level confirmation must escape the manager's stacking context.
+            if (typeof __tmCollectBusyTaskDetailRoots === 'function' && __tmCollectBusyTaskDetailRoots().length) return document.body;
+            if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) return document.body;
             const mountRoot = __tmGetMountRoot?.();
             if (mountRoot instanceof HTMLElement && document.body.contains(mountRoot)) {
                 return mountRoot;
@@ -10330,59 +10471,6 @@
         return task;
     }
 
-    async function __tmLoadSemanticDateTasksForAutoPrompt(token) {
-        if (!__tmIsSemanticDateAutoPromptEnabled()) return [];
-        try { await MetaStore.load(); } catch (e) {}
-        const mergedTasks = [];
-        const seenTaskIds = new Set();
-        Object.values(state.flatTasks || {}).forEach((rawTask) => {
-            if (!__tmIsSemanticDateAutoPromptEnabled()) return;
-            const task = __tmPrepareTaskForSemanticScan(rawTask);
-            const taskId = String(task?.id || '').trim();
-            if (!taskId || seenTaskIds.has(taskId)) return;
-            seenTaskIds.add(taskId);
-            mergedTasks.push(task);
-        });
-
-        if (!__tmIsSemanticDateAutoPromptEnabled()) return mergedTasks;
-        const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
-        if (currentGroupId === 'all') return mergedTasks;
-
-        const allDocIds = await resolveDocIdsFromGroups({
-            groupId: 'all',
-            forceRefreshScope: !!state.isRefreshing,
-        });
-        if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return mergedTasks;
-
-        const loadedDocIdSet = new Set(
-            (Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks : [])
-                .map((id) => String(id || '').trim())
-                .filter(Boolean)
-        );
-        const missingDocIds = (Array.isArray(allDocIds) ? allDocIds : [])
-            .map((id) => String(id || '').trim())
-            .filter((id) => id && !loadedDocIdSet.has(id));
-        if (!missingDocIds.length) return mergedTasks;
-
-        const queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
-        try {
-            const res = await API.getTasksByDocuments(missingDocIds, queryLimit, {
-                doneOnly: false,
-                forceFresh: !!state.isRefreshing,
-            });
-            const extraTasks = Array.isArray(res?.tasks) ? res.tasks : [];
-            extraTasks.forEach((rawTask) => {
-                if (!__tmIsSemanticDateAutoPromptEnabled()) return;
-                const task = __tmPrepareTaskForSemanticScan(rawTask);
-                const taskId = String(task?.id || '').trim();
-                if (!taskId || seenTaskIds.has(taskId)) return;
-                seenTaskIds.add(taskId);
-                mergedTasks.push(task);
-            });
-        } catch (e) {}
-        return mergedTasks;
-    }
-
     function __tmGetSemanticSuggestionWrites(item) {
         if (Array.isArray(item?.writes) && item.writes.length) {
             return item.writes
@@ -10390,6 +10478,9 @@
                 .filter((write) => write && String(write.id || '').trim());
         }
         const writes = [];
+        if (item?.repeatRule?.enabled) {
+            writes.push({ id: 'repeatRule', label: '写入循环日期', value: `${item.repeatSummary} · 首次 ${item.repeatCompletionValue}`, checked: true });
+        }
         if (String(item?.startDateValue || '').trim()) {
             writes.push({ id: 'startDate', checked: true });
         }
@@ -10400,7 +10491,7 @@
             writes.push({ id: 'calendarSchedule', checked: true });
         }
         if (String(item?.reminderAt || '').trim()) {
-            writes.push({ id: 'reminder', checked: true });
+            writes.push({ id: 'reminder', checked: !item.repeatRule });
         }
         return writes;
     }
@@ -10419,7 +10510,7 @@
 
     async function __tmApplySemanticDateSuggestions(items) {
         const chosen = Array.isArray(items) ? items.filter(Boolean) : [];
-        if (!chosen.length) return { startApplied: 0, completionApplied: 0, calendarApplied: 0, reminderApplied: 0, failures: [], appliedItems: [] };
+        if (!chosen.length) return { startApplied: 0, completionApplied: 0, calendarApplied: 0, reminderApplied: 0, repeatApplied: 0, failures: [], appliedItems: [] };
         const failures = [];
         const touchedDocIds = new Set();
         const appliedItems = [];
@@ -10433,18 +10524,38 @@
         let completionApplied = 0;
         let calendarApplied = 0;
         let reminderApplied = 0;
+        let repeatApplied = 0;
         for (const item of chosen) {
             const taskId = String(item?.taskId || '').trim();
             if (!taskId) continue;
             const selectedWriteIds = __tmGetSemanticSelectedWriteIds(item);
             if (!selectedWriteIds.size) continue;
-            const task = globalThis.__tmTaskBoundary?.getTask?.(taskId) || null;
+            let task = globalThis.__tmTaskBoundary?.getTask?.(taskId) || null;
             const taskTitle = String(item?.content || task?.content || taskId).trim() || taskId;
             const startDateValue = selectedWriteIds.has('startDate') ? String(item?.startDateValue || '').trim() : '';
             const completionValue = selectedWriteIds.has('completionTime') ? String(item?.completionValue || '').trim() : '';
             const wantsCalendar = selectedWriteIds.has('calendarSchedule');
             const wantsReminder = selectedWriteIds.has('reminder') && String(item?.reminderAt || '').trim();
+            const wantsRepeat = selectedWriteIds.has('repeatRule') && item.repeatRule?.enabled;
+            let repeatSucceeded = false;
             let itemApplied = false;
+            if (wantsRepeat) {
+                try {
+                    if (typeof __tmApplyTaskRepeatRule !== 'function') throw new Error('循环任务接口未就绪');
+                    await __tmApplyTaskRepeatRule(taskId, item.repeatRule, {
+                        datePatch: { completionTime: item.repeatCompletionValue }, source: 'semantic-date-suggestion',
+                        refresh: false, refreshCalendar: false, withFilters: false,
+                    });
+                    task = await __tmResolveTaskForRepeat(taskId);
+                    repeatSucceeded = true;
+                    repeatApplied += 1;
+                    completionApplied += 1;
+                    itemApplied = true;
+                    touchedDocIds.add(String(item?.docId || task?.root_id || task?.docId || '').trim());
+                } catch (e) {
+                    failures.push(`${taskTitle}：循环日期写入失败，未创建提醒（${String(e?.message || e || '未知错误')}）`);
+                }
+            }
             if (startDateValue || completionValue) {
                 try {
                     const patch = {};
@@ -10504,7 +10615,10 @@
                     failures.push(`${taskTitle}：日历写入失败（${String(e?.message || e || '未知错误')}）`);
                 }
             }
-            if (wantsReminder) {
+            if (wantsReminder && item.repeatRule && !wantsRepeat) {
+                failures.push(`${taskTitle}：循环提醒需要同时应用循环日期`);
+            }
+            if (wantsReminder && (!item.repeatRule || repeatSucceeded)) {
                 try {
                     const reminderTask = task && typeof task === 'object'
                         ? task
@@ -10539,7 +10653,7 @@
             if (!docId) return;
             try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
         });
-        return { startApplied, completionApplied, calendarApplied, reminderApplied, failures, appliedItems };
+        return { startApplied, completionApplied, calendarApplied, reminderApplied, repeatApplied, failures, appliedItems };
     }
 
     function __tmShowSemanticDateConfirmModal(items, options = {}) {
@@ -10560,69 +10674,123 @@
             ...item,
             writes: __tmGetSemanticSuggestionWrites(item),
         }));
-        const dateOnlyCount = modalItems.filter((item) => !item?.hasTime).length;
-        const dateTimeCount = modalItems.filter((item) => !!item?.hasTime).length;
-        const startCount = modalItems.filter((item) => item.writes.some((write) => write?.id === 'startDate')).length;
-        const completionCount = modalItems.filter((item) => item.writes.some((write) => write?.id === 'completionTime')).length;
-        const reminderCount = modalItems.filter((item) => item.writes.some((write) => write?.id === 'reminder')).length;
-        const calendarCount = modalItems.filter((item) => item.writes.some((write) => write?.id === 'calendarSchedule')).length;
+        const writePresentation = {
+            startDate: { label: '开始', icon: 'calendar-plus-2' },
+            completionTime: { label: '截止', icon: 'calendar-check' },
+            calendarSchedule: { label: '日程', icon: 'calendar-days' },
+            reminder: { label: '提醒', icon: 'alarm-clock' },
+            repeatRule: { label: '循环', icon: 'repeat' },
+        };
+        const currentYear = String(new Date().getFullYear());
+        const formatWriteValue = (item, write) => {
+            let value = String(write.value || '').trim();
+            if (write.id === 'repeatRule') value = `${item.repeatSummary} · 首次 ${item.repeatCompletionValue}`;
+            if (write.id === 'calendarSchedule' && item.start instanceof Date && !Number.isNaN(item.start.getTime())) {
+                const end = new Date(item.start.getTime() + 60 * 60000);
+                value += `–${__tmSemanticPad2(end.getHours())}:${__tmSemanticPad2(end.getMinutes())}`;
+                if (__tmSemanticFormatDateKey(end) !== __tmSemanticFormatDateKey(item.start)) value += ' 次日';
+            }
+            value = value.replace(/\b(\d{4})-(\d{2})-(\d{2})/g, (_, year, month, day) =>
+                `${year === currentYear ? '' : `${year}/`}${Number(month)}/${Number(day)}`);
+            if (write.id === 'reminder' && !item.hasTime) value += ' 默认';
+            return value;
+        };
         const modal = document.createElement('div');
         modal.className = 'tm-modal tm-semantic-date-confirm-modal';
+        let modalLayer = 200130;
+        if (!scopedToManager && state.modal instanceof HTMLElement) {
+            modalLayer = Math.max(modalLayer, (Number(window.getComputedStyle(state.modal).zIndex) || 0) + 1);
+        }
         modal.style.cssText = scopedToManager
-            ? 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:200002;'
-            : 'z-index:200002;';
+            ? `position:absolute;top:0;left:0;width:100%;height:100%;z-index:${modalLayer};`
+            : `z-index:${modalLayer};`;
         const box = document.createElement('div');
-        box.className = 'tm-box';
-        box.style.cssText = 'width:min(920px,calc(100% - 24px));max-width:94vw;height:min(82vh,calc(100% - 24px),760px);display:flex;flex-direction:column;';
+        box.className = 'tm-box tm-semantic-date-confirm-box';
+        box.setAttribute('role', 'dialog');
+        box.setAttribute('aria-label', '确认语义识别结果');
         box.innerHTML = `
-            <div class="tm-header" style="padding:12px 16px;border-bottom:1px solid var(--tm-border-color);">
-                <div style="font-size:16px;font-weight:600;">语义日期识别确认</div>
-                <button class="tm-btn tm-btn-gray" data-tm-semantic-action="close" style="padding:4px 8px;font-size:12px;">✕</button>
+            <div class="tm-semantic-date-confirm-header">
+                <div class="tm-semantic-date-confirm-title">${__tmPhosphorBoldSvg('sparkle', { size: 18 })}<span>确认语义识别结果</span></div>
+                <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost tm-semantic-date-confirm-close" data-tm-semantic-action="close" aria-label="关闭">${__tmRenderLucideIcon('x', '', { size: 16 })}</button>
             </div>
-            <div class="tm-body" style="padding:12px 16px;display:flex;flex-direction:column;gap:10px;overflow:auto;">
-                <div style="font-size:13px;color:var(--tm-secondary-text);line-height:1.6;">
-                    本次刷新自动识别到 <b>${totalCount}</b> 条语义日期。
-                    ${batchCount > 1 ? `当前展示第 <b>${batchIndex}</b> / <b>${batchCount}</b> 批，本批 <b>${list.length}</b> 条。` : `本批共 <b>${list.length}</b> 条。`}
-                    其中开始日期 <b>${startCount}</b> 条，截止日期 <b>${completionCount}</b> 条，任务提醒 <b>${reminderCount}</b> 条，日历日程 <b>${calendarCount}</b> 条；仅日期 <b>${dateOnlyCount}</b> 条，带时分 <b>${dateTimeCount}</b> 条。
-                    已识别过的同一任务内容后续重载不会再次扫描；新建任务刷新后会继续识别。
-                </div>
-                ${batchCount > 1 ? `
-                    <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;padding:8px 10px;border:1px dashed var(--tm-border-color);border-radius:8px;background:var(--tm-card-bg);">
-                        自动识别会先分批扫描全量任务，再按批次展示确认列表。
-                        应用当前批次后会继续弹出下一批；取消则停止后续批次。
-                    </div>
-                ` : ''}
-                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button class="tm-btn tm-btn-secondary" data-tm-semantic-action="select-all" style="padding:6px 12px;">全选</button>
-                    <button class="tm-btn tm-btn-secondary" data-tm-semantic-action="clear-all" style="padding:6px 12px;">全不选</button>
-                </div>
-                <div style="display:flex;flex-direction:column;gap:10px;">
-                    ${modalItems.map((item, index) => {
-                        const titlePresentation = API.getTaskTitlePresentation(item.content, '未命名任务');
-                        return `
-                        <div style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
-                            <div style="flex:1;min-width:0;">
-                                <div style="font-size:14px;font-weight:600;line-height:1.5;word-break:break-word;" title="${esc(titlePresentation.text)}">${titlePresentation.html}</div>
-                                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
-                                    ${item.writes.map((write) => `
-                                        <label style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--tm-border-color);border-radius:6px;background:var(--tm-bg-color);cursor:pointer;font-size:12px;color:var(--tm-text-color);">
-                                            <input type="checkbox" data-tm-semantic-index="${index}" data-tm-semantic-write-id="${esc(write.id || '')}" ${write.checked === false ? '' : 'checked'}>
-                                            <span>${esc(write.label || '写入')}：${esc(write.value || '')}</span>
-                                        </label>
-                                    `).join('')}
-                                </div>
-                            </div>
+            <div class="tm-semantic-date-confirm-body">
+                <div class="tm-semantic-date-confirm-columns tm-semantic-date-confirm-row">
+                    <span>任务</span>
+                    <div class="tm-semantic-date-confirm-write-heading">
+                        <span>将应用的设置</span>
+                        <div class="tm-semantic-date-confirm-bulk">
+                            <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost" data-tm-semantic-action="select-all">全选</button>
+                            <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost" data-tm-semantic-action="clear-all">全不选</button>
                         </div>
-                    `;
-                    }).join('')}
+                    </div>
                 </div>
+                ${modalItems.map((item, index) => {
+                    const titlePresentation = API.getTaskTitlePresentation(item.content, '未命名任务');
+                    const docName = String(item.docName || globalThis.__tmTaskBoundary?.getTask?.(item.taskId)?.docName || '').trim();
+                    return `
+                    <div class="tm-semantic-date-confirm-task tm-semantic-date-confirm-row">
+                        <div class="tm-semantic-date-confirm-task-name">
+                            <div class="tm-semantic-date-confirm-task-title" title="${esc(titlePresentation.text)}">${titlePresentation.html}</div>
+                            ${docName ? `<div class="tm-semantic-date-confirm-source">${__tmPhosphorBoldSvg('file-text', { size: 12 })}<span>${esc(docName)}</span></div>` : ''}
+                        </div>
+                        <div class="tm-semantic-date-confirm-writes">
+                            ${item.writes.map((write) => {
+                                const presentation = writePresentation[write.id];
+                                const label = presentation?.label || write.label || '写入';
+                                return `<label class="bc-btn bc-btn--sm bc-btn--ghost tm-semantic-date-confirm-write" title="${esc(`${label}：${write.value || ''}`)}">
+                                    <input type="checkbox" data-tm-semantic-index="${index}" data-tm-semantic-write-id="${esc(write.id || '')}" aria-label="${esc(`${label}：${write.value || ''}，${titlePresentation.text}`)}" ${write.checked === false ? '' : 'checked'}>
+                                    ${presentation ? __tmPhosphorBoldSvg(presentation.icon, { size: 14, className: 'tm-semantic-date-confirm-write-icon' }) : ''}
+                                    <span>${esc(label)}</span><span>${esc(formatWriteValue(item, write))}</span>
+                                </label>`;
+                            }).join('')}
+                        </div>
+                    </div>`;
+                }).join('')}
             </div>
-            <div class="tm-header" style="padding:12px 16px;border-top:1px solid var(--tm-border-color);justify-content:flex-end;gap:10px;">
-                <button class="tm-btn tm-btn-secondary" data-tm-semantic-action="close" style="padding:8px 16px;">取消</button>
-                <button class="tm-btn tm-btn-primary" data-tm-semantic-action="apply" style="padding:8px 16px;">应用勾选项</button>
+            <div class="tm-semantic-date-confirm-footer">
+                <div class="tm-semantic-date-confirm-summary">
+                    <span data-tm-semantic-summary aria-live="polite"></span>
+                    ${batchCount > 1 ? `<span class="tm-semantic-date-confirm-batch">第 ${batchIndex} / ${batchCount} 批 · 本批 ${list.length} 个任务</span>` : ''}
+                </div>
+                <div class="tm-semantic-date-confirm-actions">
+                    <button type="button" class="bc-btn bc-btn--ghost" data-tm-semantic-action="close">忽略</button>
+                    <button type="button" class="bc-btn bc-btn--primary" data-tm-semantic-action="apply">应用选中项</button>
+                </div>
             </div>
         `;
         modal.appendChild(box);
+        const updateSelectionSummary = () => {
+            modalItems.forEach((item, index) => {
+                if (!item.repeatRule) return;
+                const repeat = modal.querySelector(`input[data-tm-semantic-index="${index}"][data-tm-semantic-write-id="repeatRule"]`);
+                const reminder = modal.querySelector(`input[data-tm-semantic-index="${index}"][data-tm-semantic-write-id="reminder"]`);
+                if (reminder) {
+                    reminder.disabled = !repeat?.checked;
+                    if (reminder.disabled) reminder.checked = false;
+                    reminder.parentElement.title = reminder.disabled ? '请先选择循环日期，提醒将跟随任务循环' : `提醒：${item.reminderAt}`;
+                }
+            });
+            const selected = Array.from(modal.querySelectorAll('input[data-tm-semantic-write-id]')).filter((input) => input.checked);
+            const taskCount = new Set(selected.map((input) => input.dataset.tmSemanticIndex)).size;
+            const count = (ids) => selected.filter((input) => ids.includes(input.dataset.tmSemanticWriteId)).length;
+            const summaryParts = [
+                [taskCount, '个任务'],
+                [count(['startDate', 'completionTime']), '项日期'],
+                [count(['repeatRule']), '个循环'],
+                [count(['calendarSchedule']), '个日程'],
+                [count(['reminder']), '个提醒'],
+            ].filter(([value]) => value > 0).map(([value, unit]) => `${value} ${unit}`);
+            const summary = modal.querySelector('[data-tm-semantic-summary]');
+            summary.textContent = summaryParts.length ? `已选 ${summaryParts.join(' · ')}` : '';
+            summary.hidden = !summaryParts.length;
+            if (!state.semanticDateAutoApplying) {
+                modal.querySelector('[data-tm-semantic-action="apply"]').textContent = taskCount ? `应用到 ${taskCount} 个任务` : '应用选中项';
+            }
+        };
+        updateSelectionSummary();
+        modal.addEventListener('change', (event) => {
+            if (event.target?.matches?.('input[data-tm-semantic-write-id]')) updateSelectionSummary();
+        });
         modal.addEventListener('click', async (e) => {
             if (e.target === modal) {
                 __tmCloseSemanticDateConfirmModal();
@@ -10639,6 +10807,7 @@
                 modal.querySelectorAll('input[data-tm-semantic-write-id]').forEach((input) => {
                     input.checked = action === 'select-all';
                 });
+                updateSelectionSummary();
                 return;
             }
             if (action !== 'apply' || state.semanticDateAutoApplying) return;
@@ -10666,7 +10835,7 @@
                     __tmMarkSemanticDateSuggestionsRecognized(result.appliedItems);
                 }
                 if (result.startApplied > 0 || result.completionApplied > 0 || result.calendarApplied > 0 || result.reminderApplied > 0) {
-                    hint(`✅ 已写入 ${result.startApplied || 0} 条开始日期、${result.completionApplied || 0} 条截止日期${result.reminderApplied > 0 ? `，新增 ${result.reminderApplied} 条提醒` : ''}${result.calendarApplied > 0 ? `，新增 ${result.calendarApplied} 条日历` : ''}`, 'success');
+                    hint(`✅ 已写入 ${result.startApplied || 0} 条开始日期、${result.completionApplied || 0} 条截止日期${result.repeatApplied > 0 ? `，设置 ${result.repeatApplied} 个循环` : ''}${result.reminderApplied > 0 ? `，新增 ${result.reminderApplied} 条提醒` : ''}${result.calendarApplied > 0 ? `，新增 ${result.calendarApplied} 条日历` : ''}`, 'success');
                 }
                 if (result.failures.length > 0) {
                     try { console.warn('[task-horizon] semantic date apply failures:', result.failures); } catch (e2) {}
@@ -10712,39 +10881,95 @@
         state.__semanticDateConfirmUnstack = __tmModalStackBind(() => __tmCloseSemanticDateConfirmModal());
     }
 
-    async function __tmMaybeAutoPromptSemanticDates(token) {
-        if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return;
-        if (!__tmIsSemanticDateAutoPromptEnabled()) return;
-        if (state.semanticDateAutoApplying) return;
-        if (state.semanticDateConfirmModal && document.body.contains(state.semanticDateConfirmModal)) return;
-        if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) return;
-        const tasks = await __tmLoadSemanticDateTasksForAutoPrompt(token);
-        if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return;
-        if (!__tmIsSemanticDateAutoPromptEnabled()) return;
-        const { items: suggestions, interrupted } = await __tmCollectSemanticDateSuggestions(tasks, {
-            batchSize: __TM_SEMANTIC_DATE_AUTO_SCAN_BATCH_SIZE,
-            shouldStop: () => {
-                if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return true;
-                if (!__tmIsSemanticDateAutoPromptEnabled()) return true;
-                if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) return true;
-                return false;
-            },
+    function __tmScheduleSemanticDatePrompt() {
+        if (!__tmSemanticDatePendingTasks.size || __tmSemanticDatePromptTimer !== null) return;
+        // Let blur/save/close handlers finish updating focus and detail state.
+        __tmSemanticDatePromptTimer = setTimeout(() => {
+            __tmSemanticDatePromptTimer = null;
+            void __tmMaybeAutoPromptSemanticDates().catch(() => null);
+        }, 0);
+    }
+
+    function __tmQueueSemanticDateTask(taskId, fallbackTask = null) {
+        const id = String(taskId || '').trim();
+        if (!id || !__tmIsSemanticDateAutoPromptEnabled()) return;
+        __tmSemanticDatePendingTasks.set(id, {
+            token: Number(state.openToken) || 0,
+            task: fallbackTask,
         });
-        if (interrupted) return;
-        if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return;
-        if (!__tmIsSemanticDateAutoPromptEnabled()) return;
-        if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) return;
-        if (!suggestions.length) return;
-        __tmMarkSemanticDateSuggestionsRecognized(suggestions);
-        const batchCount = Math.max(1, Math.ceil(suggestions.length / __TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE));
-        const firstBatch = suggestions.slice(0, __TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE);
-        const remainingItems = suggestions.slice(__TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE);
-        __tmShowSemanticDateConfirmModal(firstBatch, {
-            totalCount: suggestions.length,
-            batchCount,
-            batchIndex: 1,
-            remainingItems,
-        });
+        document.addEventListener('focusout', __tmScheduleSemanticDatePrompt, true);
+        __tmScheduleSemanticDatePrompt();
+    }
+
+    function __tmQueueSemanticDateTaskAfterMutation(op, detail) {
+        if (detail?.status !== 'done' || detail.result?.skipped === true) return;
+        const type = String(op?.type || '').trim();
+        const data = op?.data || {};
+        const created = ['createTaskInDoc', 'createSubtask', 'createSibling'].includes(type);
+        const contentChanged = type === 'contentPatch'
+            ? String(data.nextContent || '').trim() !== String(op?.inversePatch?.content || '').trim()
+            : type === 'taskPatch' && Object.prototype.hasOwnProperty.call(data.patch || {}, 'content')
+                && String(data.patch.content || '').trim() !== String(op?.inversePatch?.content || '').trim();
+        if (!created && !contentChanged) return;
+        const taskId = created
+            ? detail.result?.realId || detail.result?.task?.id || data.requestedTaskId || data.tempId
+            : data.taskId;
+        __tmQueueSemanticDateTask(taskId, detail.result?.task || null);
+    }
+
+    function __tmShouldDeferSemanticDatePrompt() {
+        const inputArea = 'textarea, select, [contenteditable="true"], [contenteditable=""], input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"])';
+        if (document.activeElement?.closest?.(inputArea)) return true;
+        const details = typeof __tmCollectBusyTaskDetailRoots === 'function' ? __tmCollectBusyTaskDetailRoots() : [];
+        return details.some(({ scope, root }) => root?.__tmTaskDetailClosed !== true
+            && !(scope === 'checklist' && root?.id === 'tmChecklistDetailPanel'));
+    }
+
+    async function __tmMaybeAutoPromptSemanticDates() {
+        if (__tmSemanticDatePromptRunning) return;
+        const canPrompt = () => __tmIsSemanticDateAutoPromptEnabled()
+            && (typeof __tmRuntimeCleanupRequested === 'undefined' || !__tmRuntimeCleanupRequested)
+            && !state.semanticDateAutoApplying
+            && !__tmShouldDeferSemanticDatePrompt()
+            && !(state.semanticDateConfirmModal && document.body.contains(state.semanticDateConfirmModal));
+        __tmSemanticDatePromptRunning = true;
+        try {
+            while (__tmSemanticDatePendingTasks.size) {
+                if (!canPrompt()) return;
+                const [taskId, pending] = __tmSemanticDatePendingTasks.entries().next().value;
+                __tmSemanticDatePendingTasks.delete(taskId);
+                const isCurrent = () => pending.token === (Number(state.openToken) || 0) && canPrompt();
+                if (!isCurrent()) continue;
+                if (typeof __tmWaitForTaskWrites === 'function') {
+                    const saved = await __tmWaitForTaskWrites(taskId, { types: ['contentPatch', 'taskPatch'] });
+                    if (!saved?.ok) continue;
+                }
+                const readTask = () => __tmPrepareTaskForSemanticScan(
+                    globalThis.__tmTaskBoundary?.getTask?.(taskId) || pending.task
+                );
+                const task = readTask();
+                if (!task) continue;
+                const { items: suggestions, interrupted } = await __tmCollectSemanticDateSuggestions([task], {
+                    maxSuggestions: 1,
+                    shouldStop: () => !isCurrent(),
+                });
+                if (interrupted || !isCurrent()) {
+                    if (pending.token === (Number(state.openToken) || 0) && __tmIsSemanticDateAutoPromptEnabled()
+                        && !__tmSemanticDatePendingTasks.has(taskId)) __tmSemanticDatePendingTasks.set(taskId, pending);
+                    return;
+                }
+                const latestTask = readTask();
+                if (!latestTask || latestTask.content !== task.content || latestTask.done) continue;
+                if (!suggestions.length) continue;
+                __tmMarkSemanticDateSuggestionsRecognized(suggestions);
+                __tmShowSemanticDateConfirmModal(suggestions);
+                return;
+            }
+        } finally {
+            __tmSemanticDatePromptRunning = false;
+            if (!__tmSemanticDatePendingTasks.size) document.removeEventListener('focusout', __tmScheduleSemanticDatePrompt, true);
+            else if (canPrompt()) __tmScheduleSemanticDatePrompt();
+        }
     }
 
     function __tmHasTaskScheduledToday(taskId) {
@@ -11466,21 +11691,32 @@
         return __tmGetTaskRemarkSearchText(taskLike).toLowerCase().includes(query);
     }
 
-    function __tmTaskMatchesSearch(taskLike, keyword = state.searchKeyword) {
-        const query = String(keyword || '').trim().toLowerCase();
-        if (!query) return true;
+    function __tmGetTaskSearchFieldText(taskLike, fieldKey) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
-        const title = String(task.content || task.text || task.raw_content || '').toLowerCase();
-        if (title.includes(query)) return true;
-        return __tmTaskRemarkMatchesSearch(task, query);
+        if (fieldKey === 'content') return String(task.content || task.text || task.raw_content || '');
+        if (fieldKey === 'remark') return __tmGetTaskRemarkSearchText(task);
+        const fieldId = __tmParseCustomFieldColumnKey(fieldKey);
+        const field = __tmGetCustomFieldDefMap().get(fieldId);
+        if (!field || field.enabled === false || field.type !== 'text') return '';
+        return String(__tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(task, fieldId)) || '')
+            .replace(/\s+/g, ' ').trim();
     }
 
-    function __tmBuildTaskRemarkSearchSnippet(taskLike, keyword = state.searchKeyword, options = {}) {
+    function __tmTaskMatchesSearch(taskLike, keyword = state.searchKeyword, fields = __tmGetTaskSearchFields()) {
+        const query = String(keyword || '').trim().toLowerCase();
+        if (!query) return true;
+        return fields.some((field) => __tmGetTaskSearchFieldText(taskLike, field).toLowerCase().includes(query));
+    }
+
+    function __tmBuildTaskSearchSnippet(taskLike, keyword = state.searchKeyword, options = {}) {
         const query = String(keyword || '').trim();
-        if (!query || !__tmTaskRemarkMatchesSearch(taskLike, query)) return '';
-        const remark = __tmGetTaskRemarkSearchText(taskLike);
-        if (!remark) return '';
+        if (!query) return '';
         const opts = (options && typeof options === 'object') ? options : {};
+        const excluded = new Set(['content', ...(opts.excludeFields || [])]);
+        const fieldKey = __tmGetTaskSearchFields().find((field) => !excluded.has(field)
+            && __tmGetTaskSearchFieldText(taskLike, field).toLowerCase().includes(query.toLowerCase()));
+        if (!fieldKey) return '';
+        const remark = __tmGetTaskSearchFieldText(taskLike, fieldKey);
         const maxLength = Math.max(40, Math.min(180, Math.round(Number(opts.maxLength) || 96)));
         const lower = remark.toLowerCase();
         const matchIndex = lower.indexOf(query.toLowerCase());
@@ -11492,7 +11728,7 @@
         const suffix = end < remark.length ? '...' : '';
         const snippet = `${prefix}${remark.slice(start, end).trim()}${suffix}`;
         if (!snippet) return '';
-        const label = String(opts.label || '备注').trim() || '备注';
+        const label = __tmGetTaskSearchFieldOptions().find((field) => field.id === fieldKey)?.name || '文本列';
         return `<span class="tm-task-search-remark-snippet" title="${esc(remark)}"><span class="tm-task-search-remark-snippet__label">${esc(label)}</span><span class="tm-task-search-remark-snippet__text">${esc(snippet)}</span></span>`;
     }
 
@@ -11556,7 +11792,15 @@
         __tmClearSearchHighlights(root);
         const query = String(keyword || '').trim();
         if (!query) return false;
-        const selector = String(options?.selector || '.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title, .tm-kanban-card-title-inline, .tm-cal-task-event-title-text, .tm-gantt-bar__title, .tm-task-card-remark, .tm-task-remark-text, .tm-task-search-remark-snippet__text').trim();
+        const fields = __tmGetTaskSearchFields();
+        const selectors = ['.tm-task-search-remark-snippet__text'];
+        if (fields.includes('content')) selectors.push('.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title, .tm-kanban-card-title-inline, .tm-cal-task-event-title-text, .tm-gantt-bar__title');
+        if (fields.includes('remark')) selectors.push('.tm-task-card-remark, .tm-task-remark-text');
+        fields.forEach((key) => {
+            const fieldId = __tmParseCustomFieldColumnKey(key);
+            if (fieldId) selectors.push(`[data-tm-custom-field-cell="${fieldId}"]`);
+        });
+        const selector = String(options?.selector || selectors.join(', ')).trim();
         const source = __tmEscapeSearchHighlightRegex(query);
         if (!source) return false;
         const pattern = new RegExp(source, 'gi');
@@ -11592,7 +11836,7 @@
         globalThis.__tmGetTaskRemarkSearchText = __tmGetTaskRemarkSearchText;
         globalThis.__tmTaskRemarkMatchesSearch = __tmTaskRemarkMatchesSearch;
         globalThis.__tmTaskMatchesSearch = __tmTaskMatchesSearch;
-        globalThis.__tmBuildTaskRemarkSearchSnippet = __tmBuildTaskRemarkSearchSnippet;
+        globalThis.__tmBuildTaskSearchSnippet = __tmBuildTaskSearchSnippet;
         globalThis.__tmClearSearchHighlights = __tmClearSearchHighlights;
         globalThis.__tmApplySearchHighlights = __tmApplySearchHighlights;
         globalThis.__tmDoesTaskDomTargetBelongToTask = __tmDoesTaskDomTargetBelongToTask;

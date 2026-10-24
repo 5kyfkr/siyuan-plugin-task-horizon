@@ -61,7 +61,7 @@ assert.equal(engine.analyzePatch({ remark: 'x' }, { ...baseContext, searchActive
 assert.equal(engine.analyzePatch({ markdown: 'x' }, { ...baseContext, searchActive: true }).filter, false,
     'fields outside the actual search matcher must not rebuild active search projection');
 assert.equal(engine.analyzePatch({ customFieldValues: { effort: 4 } }, { ...baseContext, searchActive: true }).filter, false,
-    'custom fields must not rebuild search until the matcher supports them');
+    'unselected custom fields must not rebuild active search');
 assert.equal(engine.analyzePatch({ content: 'x' }, { ...baseContext, groupMode: 'task' }).group, true,
     'task-name grouping must depend on content');
 assert.equal(engine.analyzePatch({ completionTime: '2026-08-09' }, { ...baseContext, groupMode: 'time' }).group, true,

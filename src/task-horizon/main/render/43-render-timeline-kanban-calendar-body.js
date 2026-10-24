@@ -1347,10 +1347,10 @@
                 const docChipHtml = (isAllTabsView && !headingMode && docName)
                     ? `<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--doc" style="cursor:default;" title="${esc(docName)}"><span class="tm-icon-label">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${esc(docName)}</span></span></span>`
                     : '';
-                const remarkSearchSnippetHtml = !kanbanCardFields.has('remark') && typeof __tmBuildTaskRemarkSearchSnippet === 'function'
-                    ? __tmBuildTaskRemarkSearchSnippet(task, state.searchKeyword)
+                const remarkSearchSnippetHtml = typeof __tmBuildTaskSearchSnippet === 'function'
+                    ? __tmBuildTaskSearchSnippet(task, state.searchKeyword, { excludeFields: kanbanCardFields.has('remark') ? ['remark'] : [] })
                     : '';
-                const remarkHtml = kanbanCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : remarkSearchSnippetHtml;
+                const remarkHtml = (kanbanCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : '') + remarkSearchSnippetHtml;
                 const multiSelectCls = __tmIsTaskMultiSelected(id) ? ' tm-task-row--multi-selected' : '';
                 const cardDragAttrs = useKanbanCustomCardGesture
                     ? 'draggable="false"'

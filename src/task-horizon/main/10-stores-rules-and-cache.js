@@ -2310,16 +2310,9 @@
     }
 
     function __tmTaskSnapshotDocWatermark(doc) {
-        const queue = [doc];
-        let watermark = 0;
-        while (queue.length) {
-            const item = queue.pop();
-            if (!item || typeof item !== 'object') continue;
-            watermark = Math.max(watermark, __tmParseUpdatedAtNumber(item.updated), __tmParseUpdatedAtNumber(item.updatedAt), __tmParseUpdatedAtNumber(item.docUpdated));
-            if (Array.isArray(item.tasks)) queue.push(...item.tasks);
-            if (Array.isArray(item.children)) queue.push(...item.children);
-        }
-        return watermark;
+        // Task timestamps can decrease when the newest task is deleted. Only
+        // the document's own revision orders complete document snapshots.
+        return Math.max(__tmParseUpdatedAtNumber(doc?.updated), __tmParseUpdatedAtNumber(doc?.docUpdated));
     }
 
     function __tmPatchTaskSnapshotDocuments(rawStore, documents, options = {}) {
@@ -2859,6 +2852,7 @@
                 enabled: rule.enabled !== false,
             }) : null,
             searchKeyword: String(state?.searchKeyword || '').trim(),
+            searchFields: __tmGetTaskSearchFields().join(','),
             archiveMode: state?.docTabsArchiveMode === true ? 1 : 0,
             groupMode,
             kanbanBoardMode: String(opts.viewMode || state?.viewMode || '') === 'kanban' ? __tmGetKanbanBoardMode() : '',
@@ -3757,6 +3751,7 @@
         const out = {
             id,
             root_id: docId,
+            created: String(source.created || source.created_at || '').trim(),
             updated: String(source.updated || '').trim(),
             hash: String(source.hash || '').trim(),
             parent_id: String(source.parent_id || '').trim(),
@@ -3875,6 +3870,7 @@
             id,
             root_id: docId,
             docId,
+            created: String(item.created || item.created_at || '').trim(),
             updated: String(item.updated || '').trim(),
             hash: String(item.hash || '').trim(),
             parent_id: String(item.parent_id || '').trim(),
@@ -5708,6 +5704,24 @@
         return out;
     }
 
+    function __tmGetTaskSearchFieldOptions() {
+        return [
+            { id: 'content', name: '标题' },
+            { id: 'remark', name: '备注' },
+            ...__tmGetCustomFieldDefs()
+                .filter((field) => field.enabled !== false && field.type === 'text')
+                .map((field) => ({ id: `customField:${field.id}`, name: field.name || '文本列' })),
+        ];
+    }
+
+    function __tmGetTaskSearchFields(input = SettingsStore.data.taskSearchFields) {
+        const available = new Set(__tmGetTaskSearchFieldOptions().map((field) => field.id));
+        const fields = Array.from(new Set((Array.isArray(input) ? input : ['content', 'remark'])
+            .map((field) => String(field || '').trim())
+            .filter((field) => available.has(field))));
+        return fields.length ? fields : ['content', 'remark'];
+    }
+
     function __tmCollectCustomFieldLoadPlan(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const viewMode = String(opts.viewMode || state?.viewMode || '').trim();
@@ -5733,6 +5747,9 @@
             pushField(ruleFieldIds, sortRule?.field);
         });
         const bulkFieldIdsSet = new Set(ruleFieldIds);
+        if (String(state?.searchKeyword || '').trim()) {
+            __tmGetTaskSearchFields().forEach((field) => pushField(bulkFieldIdsSet, field));
+        }
         const priorityConfig = (opts.priorityScoreConfig && typeof opts.priorityScoreConfig === 'object')
             ? opts.priorityScoreConfig
             : ((SettingsStore?.data?.priorityScoreConfig && typeof SettingsStore.data.priorityScoreConfig === 'object')
@@ -7135,6 +7152,7 @@
                 String(state?.activeDocId || 'all').trim() || 'all',
                 String(state?.currentRule || '').trim(),
                 String(state?.searchKeyword || '').trim(),
+                __tmGetTaskSearchFields().join(','),
                 String(state?.listRenderSignature || '').trim(),
                 String(limit),
                 String(filtered.length),
@@ -8722,6 +8740,7 @@
             collapsedGroups: [],
             expandedCompletedGroups: [],
             currentRule: null,
+            taskSearchFields: ['content', 'remark'],
             viewProfiles: {
                 global: { ruleId: null, groupMode: 'doc' },
                 allTabs: {},
@@ -17604,7 +17623,8 @@
             if (!__tmCanPatchTaskBlockIncrementally(prevTask, nextTask)) return false;
             const visiblePatch = __tmBuildTaskBlockVisibleDomPatch(prevTask, nextTask);
             if (visiblePatch === null) return false;
-            patches.push({ taskId, nextTask, authoritativeTask, patch: visiblePatch });
+            patches.push({ taskId, nextTask, authoritativeTask, patch: visiblePatch,
+                contentChanged: String(prevTask.content || '').trim() !== String(nextTask.content || '').trim() });
         }
         if (!guardCurrent() || !taskStoreReadCurrent()) return false;
         if (!patches.length) return false;
@@ -17620,6 +17640,11 @@
                 { docIds: Array.from(changedDocIds) },
             );
         } catch (e) {}
+        patches.forEach((item) => {
+            if (item.contentChanged) {
+                try { __tmQueueSemanticDateTask(item.taskId); } catch (e) {}
+            }
+        });
         // This path is entered only after __tmCanPatchTaskBlockIncrementally
         // confirmed that document, parent and sibling order did not change.
         // The task object is already replaced in place, so rebuilding each
@@ -17885,6 +17910,16 @@
         const taskStoreReadCurrent = () => !taskStoreReadToken
             || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true
             || deferRead('task-store-changed');
+        let docFreshnessMap = opts.docFreshnessMap;
+        if (!docFreshnessMap && opts.forceDocRefresh === true && opts.committed === true) {
+            let freshness = null;
+            try { freshness = await API.getTaskFreshnessByDocuments(docIds); } catch (e) {}
+            if (!guardCurrent() || !taskStoreReadCurrent()) return false;
+            if (!freshness?.map || freshness.unavailable || freshness.readFailure) {
+                return deferRead('document-freshness-unavailable');
+            }
+            docFreshnessMap = freshness.map;
+        }
         docIds.forEach((docId) => {
             try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
         });
@@ -18047,6 +18082,9 @@
 
         const tasksByDoc = new Map();
         const nextFlatTasksByDoc = new Map();
+        const semanticChangedTaskIds = [];
+        const semanticTargetTaskIds = new Set(targets.blockIds.concat(opts.resolvedTaskIds || [])
+            .map((id) => String(id || '').trim()).filter(Boolean));
         const allDocuments = Array.isArray(state.allDocuments) ? state.allDocuments : [];
         const normalizeDocDisplayNameCache = new Map();
         const normalizeCustomFieldDefs = __tmGetCustomFieldDefs();
@@ -18117,6 +18155,10 @@
                 }
             } catch (e) {}
             try { __tmMergeLocalTaskPatchIntoTask(task); } catch (e) {}
+            if (semanticTargetTaskIds.has(taskId)
+                && (!prevTask || String(prevTask.content || '').trim() !== String(task.content || '').trim())) {
+                semanticChangedTaskIds.push(taskId);
+            }
 
             if (!tasksByDoc.has(task.root_id)) tasksByDoc.set(task.root_id, []);
             tasksByDoc.get(task.root_id).push(task);
@@ -18187,8 +18229,8 @@
                 alias: __tmNormalizeDocAliasValue(cachedDoc?.alias || existingDoc?.alias),
                 icon: __tmNormalizeDocIconValue(cachedDoc?.icon || existingDoc?.icon),
                 created: String(cachedDoc?.created || existingDoc?.created || '').trim(),
-                updated: String(opts.docFreshnessMap?.get(docId)?.docUpdated || cachedDoc?.updated || existingDoc?.updated || '').trim(),
-                docUpdated: String(opts.docFreshnessMap?.get(docId)?.docUpdated || cachedDoc?.updated || existingDoc?.docUpdated || '').trim(),
+                updated: String(docFreshnessMap?.get(docId)?.docUpdated || cachedDoc?.updated || existingDoc?.updated || '').trim(),
+                docUpdated: String(docFreshnessMap?.get(docId)?.docUpdated || cachedDoc?.updated || existingDoc?.docUpdated || '').trim(),
                 tasks: rootTasks,
             };
             const shouldKeepDoc = rawTasks.length > 0 || !!existingDoc || (quickAddDocId && quickAddDocId === docId);
@@ -18237,6 +18279,9 @@
                 replaceStructure: true,
             });
         } catch (e) {}
+        semanticChangedTaskIds.forEach((taskId) => {
+            try { __tmQueueSemanticDateTask(taskId); } catch (e) {}
+        });
         state.stats.queryTime = Number(res?.queryTime) || 0;
         recalcStats();
         try {

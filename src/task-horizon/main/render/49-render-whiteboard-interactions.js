@@ -1,3 +1,134 @@
+    function __tmBuildWhiteboardTraversalModel(taskId, links, allowedTaskIds) {
+        const id = String(taskId || '').trim();
+        const out = new Map();
+        const reverse = new Map();
+        const validLinks = links.filter((link) => {
+            const from = String(link?.from || '').trim();
+            const to = String(link?.to || '').trim();
+            if (!from || !to || from === to || !allowedTaskIds.has(from) || !allowedTaskIds.has(to)) return false;
+            if (!out.has(from)) out.set(from, []);
+            if (!reverse.has(to)) reverse.set(to, []);
+            out.get(from).push(to);
+            reverse.get(to).push(from);
+            return true;
+        });
+        // Walk each direction independently, so a predecessor's other branches
+        // and a successor's other inputs cannot expand the selected chain.
+        const options = { maxNodes: Math.max(1, allowedTaskIds.size) };
+        const upstream = __tmCollectWhiteboardOutlineReachable(id, reverse, options).ids;
+        const downstream = __tmCollectWhiteboardOutlineReachable(id, out, options).ids;
+        const taskIds = new Set([...upstream, ...downstream]);
+        const linkKeys = new Set(validLinks.filter((link) => (
+            (upstream.has(link.from) && upstream.has(link.to))
+            || (downstream.has(link.from) && downstream.has(link.to))
+        )).map((link) => `${link.from}->${link.to}`));
+        return { taskIds, linkKeys };
+    }
+
+    let __tmWhiteboardTraversalCache = null;
+
+    function __tmGetWhiteboardTraversalScopeKey() {
+        return JSON.stringify([SettingsStore.data.currentGroupId || 'all', state.activeDocId || 'all', __tmGetWhiteboardAllTabsLayoutMode()]);
+    }
+
+    function __tmBuildWhiteboardTraversalButtonHtml(taskId) {
+        const id = String(taskId || '').trim();
+        const active = state.whiteboardTraversal?.taskId === id;
+        const label = active ? '退出遍历' : '遍历关联';
+        const jsId = id.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `<button type="button" class="tm-btn tm-btn-info" data-tm-whiteboard-traverse="${esc(id)}" style="padding:2px 8px;font-size:12px;" aria-pressed="${active}" onclick="tmWhiteboardToggleTraversal('${esc(jsId)}', event)" title="${active ? '退出关联遍历（Esc）' : '查看此卡片的所有前置和后续链路'}">${label}</button>`;
+    }
+
+    function __tmApplyWhiteboardTraversalDom(body) {
+        const traversal = state.whiteboardTraversal;
+        const card = traversal && body.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(traversal.taskId)}"]`);
+        let model = null;
+        if (traversal && card && traversal.scopeKey === __tmGetWhiteboardTraversalScopeKey()) {
+            const docBody = card.closest('.tm-whiteboard-doc-body');
+            const docId = String(card.dataset.docId || '');
+            const links = docBody.dataset.tmWhiteboardScope === 'global'
+                ? __tmGetWhiteboardGlobalTaskLinks(__tmGetWhiteboardActiveBoardKey())
+                : __tmGetAllTaskLinks({ docId, includeAuto: false });
+            const nodes = Array.from(body.querySelectorAll('.tm-whiteboard-node[data-task-id]'));
+            const visibleIds = new Set(nodes.filter((node) => node.closest('.tm-whiteboard-doc-body') === docBody).map((node) => node.dataset.taskId));
+            const allowedIds = new Set(visibleIds);
+            const proxies = new Map();
+            links.forEach((link) => ['from', 'to'].forEach((side) => {
+                const id = String(link[side] || '').trim();
+                if (visibleIds.has(id)) return;
+                const endpointDocId = String(link[side + 'DocId'] || __tmGetTaskDocIdById(id) || docId);
+                const proxyId = __tmFindWhiteboardCollapsedProxyTaskId(id, endpointDocId);
+                if (visibleIds.has(proxyId)) {
+                    allowedIds.add(id);
+                    proxies.set(id, proxyId);
+                }
+            }));
+            const key = JSON.stringify([traversal.taskId, traversal.scopeKey, links.map((link) => [link.from, link.to]), [...allowedIds], [...proxies]]);
+            if (__tmWhiteboardTraversalCache?.key !== key || __tmWhiteboardTraversalCache.card !== card) {
+                model = __tmBuildWhiteboardTraversalModel(traversal.taskId, links, allowedIds);
+                const relatedIds = new Set(model.taskIds);
+                model.taskIds.forEach((id) => { if (proxies.has(id)) relatedIds.add(proxies.get(id)); });
+                const contextNodes = new Set();
+                nodes.filter((node) => relatedIds.has(node.dataset.taskId)).forEach((node) => {
+                    let parent = node.parentElement.closest('.tm-whiteboard-node');
+                    while (parent) {
+                        contextNodes.add(parent);
+                        parent = parent.parentElement.closest('.tm-whiteboard-node');
+                    }
+                });
+                nodes.forEach((node) => {
+                    const related = relatedIds.has(node.dataset.taskId);
+                    const context = !related && contextNodes.has(node);
+                    // Only fade the outermost unrelated subtree. Ancestors of a
+                    // related subtask fade their own content, never the subtask.
+                    node.classList.toggle('tm-whiteboard-traversal-context', context);
+                    node.classList.toggle('tm-whiteboard-traversal-dim', !related && !context && !node.parentElement.closest('.tm-whiteboard-traversal-dim'));
+                    node.classList.toggle('tm-whiteboard-traversal-origin', node.dataset.taskId === traversal.taskId);
+                });
+                __tmWhiteboardTraversalCache = { key, card, model };
+            }
+            model = __tmWhiteboardTraversalCache.model;
+        } else {
+            state.whiteboardTraversal = null;
+            __tmWhiteboardTraversalCache = null;
+        }
+        body.classList.toggle('tm-whiteboard-traversing', !!model);
+        const exit = body.querySelector('.tm-whiteboard-traversal-exit');
+        if (exit) exit.hidden = !model;
+        body.querySelectorAll('[data-tm-whiteboard-traverse]').forEach((button) => {
+            const active = !!model && button.dataset.tmWhiteboardTraverse === traversal.taskId;
+            button.textContent = active ? '退出遍历' : '遍历关联';
+            button.setAttribute('aria-pressed', String(active));
+            button.title = active ? '退出关联遍历（Esc）' : '查看此卡片的所有前置和后续链路';
+        });
+        return model;
+    }
+
+    window.tmWhiteboardExitTraversal = function(ev) {
+        ev?.stopPropagation?.();
+        state.whiteboardTraversal = null;
+        __tmWhiteboardTraversalCache = null;
+        const body = state.modal?.querySelector('#tmWhiteboardBody');
+        if (body) __tmApplyWhiteboardTraversalDom(body);
+        __tmScheduleWhiteboardEdgeRedraw();
+    };
+
+    window.tmWhiteboardToggleTraversal = function(taskId, ev) {
+        ev?.stopPropagation?.();
+        if (state.viewMode !== 'whiteboard') return;
+        const id = String(taskId || '').trim();
+        if (state.whiteboardTraversal?.taskId === id) return window.tmWhiteboardExitTraversal(ev);
+        const body = state.modal?.querySelector('#tmWhiteboardBody');
+        if (!body || !id) return;
+        state.whiteboardTraversal = { taskId: id, scopeKey: __tmGetWhiteboardTraversalScopeKey() };
+        const model = __tmApplyWhiteboardTraversalDom(body);
+        if (model && !model.linkKeys.size) {
+            window.tmWhiteboardExitTraversal(ev);
+            hint('此卡片暂无关联', 'info');
+        }
+        __tmScheduleWhiteboardEdgeRedraw();
+    };
+
     function __tmScheduleWhiteboardEdgeRedraw() {
         if (state.viewMode !== 'whiteboard') return;
         try {
@@ -1373,6 +1504,7 @@
         const body = state.modal?.querySelector?.('#tmWhiteboardBody');
         if (!(body instanceof Element)) return;
         const id = String(taskId || '').trim();
+        if (id && state.whiteboardTraversal) state.whiteboardTraversal.taskId = id;
         try {
             body.querySelectorAll('.tm-whiteboard-node.tm-whiteboard-card--selected').forEach((el) => {
                 try { el.classList.remove('tm-whiteboard-card--selected'); } catch (e) {}
@@ -1405,6 +1537,7 @@
                         tools.className = 'tm-whiteboard-card-tools';
                         tools.setAttribute('data-tm-wb-dyn', '1');
                         tools.innerHTML = `
+                            ${__tmBuildWhiteboardTraversalButtonHtml(tid)}
                             <button class="tm-btn tm-btn-danger" data-tm-wb-action="delete" style="padding:2px 8px;font-size:12px;" title="${esc(deleteTitle)}">移除</button>
                             ${canMoveBack ? `<button class="tm-btn tm-btn-info" data-tm-wb-action="moveBack" style="padding:2px 8px;font-size:12px;" title="移回父任务">移回父任务</button>` : ''}
                         `;
@@ -3288,6 +3421,7 @@
             }
             const dx = (Number(e2?.clientX) || 0) - s.startClientX;
             const dy = (Number(e2?.clientY) || 0) - s.startClientY;
+            if (Math.hypot(dx, dy) > 3) s.moved = true;
             __tmSetWhiteboardView({ x: s.startX + dx, y: s.startY + dy }, { persist: false, syncLocal: false });
             __tmApplyWhiteboardTransform();
         };
@@ -3308,6 +3442,9 @@
             }
             try { viewport.classList.remove('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
             state.whiteboardPanSession = null;
+            if (s?.moved && state.whiteboardTraversal) {
+                state.whiteboardSuppressClickUntil = Date.now() + 260;
+            }
             __tmScheduleWhiteboardViewSave();
         };
         state.whiteboardPanSession.cleanup = onUp;
@@ -5467,6 +5604,10 @@
             return;
         }
         let changed = false;
+        if (state.whiteboardTraversal) {
+            window.tmWhiteboardExitTraversal(ev);
+            changed = true;
+        }
         if (String(state.whiteboardSelectedLinkId || '').trim()) {
             state.whiteboardSelectedLinkId = '';
             state.whiteboardSelectedLinkDocId = '';
@@ -6538,6 +6679,7 @@
         if (state.viewMode !== 'whiteboard') return;
         const body = state.modal?.querySelector?.('#tmWhiteboardBody');
         if (!body) return;
+        const traversalModel = __tmApplyWhiteboardTraversalDom(body);
         const docBodies = body.querySelectorAll('.tm-whiteboard-doc-body[data-doc-id]');
         docBodies.forEach((docBody) => {
             if (!(docBody instanceof Element)) return;
@@ -7237,8 +7379,10 @@
                 const endpointDepthCls = isSubtaskEdge
                     ? ' tm-whiteboard-edge--subtask-endpoint'
                     : '';
+                const traversalCls = traversalModel && !traversalModel.linkKeys.has(`${link.from}->${link.to}`)
+                    ? ' tm-whiteboard-traversal-dim' : '';
                 const cls = link.manual
-                    ? `tm-whiteboard-edge tm-whiteboard-edge--manual${endpointDepthCls}${isSelected ? ' tm-whiteboard-edge--selected' : ''}${multiSelectedLinkSet.has(linkKey) ? ' tm-whiteboard-multi-selected' : ''}`
+                    ? `tm-whiteboard-edge tm-whiteboard-edge--manual${endpointDepthCls}${traversalCls}${isSelected ? ' tm-whiteboard-edge--selected' : ''}${multiSelectedLinkSet.has(linkKey) ? ' tm-whiteboard-multi-selected' : ''}`
                     : `tm-whiteboard-edge tm-whiteboard-edge--auto${endpointDepthCls}`;
                 const idEsc = String(link.id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 const docEsc = String(linkDocId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -8166,6 +8310,12 @@
                 if (await handleWhiteboardDeleteShortcut(ev)) return;
             }
             if (key !== 'escape') return;
+            if (state.viewMode === 'whiteboard' && state.whiteboardTraversal && !isEditableShortcutTarget(ev?.target)) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                window.tmWhiteboardExitTraversal(ev);
+                return;
+            }
             if (!state.whiteboardPluginFullscreen) return;
             if (String(state.viewMode || '').trim() !== 'whiteboard') return;
             try { ev.preventDefault(); } catch (e) {}

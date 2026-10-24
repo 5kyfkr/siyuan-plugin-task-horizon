@@ -67,6 +67,7 @@ function createHarness() {
         __tmHasActiveDocTabContentFilter: () => true,
         __tmRuleUsesDocFlowSort: () => true,
         __tmTaskMatchesSearch: (value, keyword) => value.content.includes(keyword),
+        __tmGetTaskSearchFields: () => ['content', 'remark'],
         __tmDocShouldShowInDocTabs: () => true,
         __tmIsCollectedOtherBlockTask: () => false,
         __tmApplyWhiteboardSequenceFilter: (values) => values,

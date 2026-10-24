@@ -955,6 +955,10 @@
     }
 
     __tmNs.aiBridge = {
+        getDefaultReminderTime: __tmGetSemanticDefaultReminderTime,
+        async applyTaskCompletionReceipt(task, completion) {
+            return await __tmSynchronizeCompletionLinks(task, completion);
+        },
         getSettings() {
             return __tmAiClone({
                 aiEnabled: !!SettingsStore.data.aiEnabled,

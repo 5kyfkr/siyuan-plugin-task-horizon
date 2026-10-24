@@ -178,6 +178,7 @@ async function main() {
     assert.notEqual(context.__tmBuildTaskSnapshotPersistSignature(changedPool.snapshots[legacy.scopeKey], changedPool), persistedSignature,
         'a field or pool change must affect the signature even if the timestamp and pool key do not change');
     await exerciseDocumentPatches(legacy);
+    exerciseDeletedDocumentPatches(legacy);
     await exercisePersistence(legacy, packed);
     await exerciseDocumentReadFailures(legacy.taskTree[0].id);
     await exerciseLoadCost(legacy);
@@ -212,6 +213,46 @@ async function exerciseDocumentReadFailures(docId) {
     assert.equal(await context.__tmFetchTaskSnapshotDocEntryForCreatedTask(docId), null, 'document enrichment must retain the original read token');
     changeDuringBuild = false;
     assert.equal((await context.__tmFetchTaskSnapshotDocEntryForCreatedTask(docId)).id, docId, 'confirmed empty documents remain valid');
+}
+
+function exerciseDeletedDocumentPatches(legacy) {
+    const document = { ...clone(legacy.taskTree[0]), docUpdated: '20261023120000', tasks: [
+        { id: '20261023120000-0000001', updated: '20261023120000', children: [] },
+        { id: '20261023122910-0000002', updated: '20261023122910', children: [
+            { id: '20261023122911-0000003', updatedAt: Date.now(), children: [] },
+        ] },
+    ] };
+    const scope = { ...clone(legacy), queryLimit: 20000, taskTree: [document] };
+    const packed = context.__tmBuildTaskSnapshotStore(scope);
+    const secondScopeKey = context.__tmBuildTaskSnapshotScopeKey(scope.docIds, 'another-group');
+    packed.snapshots[secondScopeKey] = { ...packed.snapshots[scope.scopeKey],
+        groupId: 'another-group', scopeKey: secondScopeKey };
+    const original = clone(packed);
+    const options = { scopeKey: scope.scopeKey, queryLimit: 20000, readStartedAt: Date.now() };
+    // Deleting the newest task lowers MAX(task.updated), while the document
+    // revision can stay equal because host timestamps have second precision.
+    const afterDelete = { ...document, tasks: [document.tasks[0]] };
+    const patched = context.__tmPatchTaskSnapshotDocuments(packed, [afterDelete], options);
+    assert.notEqual(patched?.stale, true, 'deleting the newest task must not look like an older document');
+    assert.equal(patched.affectedScopes.length, 2, 'deletion must update every group sharing the document');
+    for (const record of Object.values(patched.store.snapshots)) {
+        const restored = context.__tmMaterializeTaskSnapshotRecord(record, patched.store);
+        assert.deepEqual(Array.from(restored.taskTree[0].tasks, (task) => task.id), [document.tasks[0].id]);
+    }
+    const empty = context.__tmPatchTaskSnapshotDocuments(patched.store, [{ ...document, tasks: [] }], {
+        ...options, readStartedAt: Date.now(),
+    });
+    assert.notEqual(empty?.stale, true, 'deleting the final task must persist an empty document');
+    for (const record of Object.values(empty.store.snapshots)) {
+        assert.equal(context.__tmMaterializeTaskSnapshotRecord(record, empty.store).taskTree[0].tasks.length, 0);
+    }
+    assert.equal(context.__tmPatchTaskSnapshotDocuments(packed, [{ ...afterDelete, docUpdated: '20261023115959' }], options).stale,
+        true, 'an older document revision must still be rejected');
+    const concurrent = clone(packed);
+    concurrent.snapshots[scope.scopeKey].updatedAt = options.readStartedAt + 1000;
+    assert.equal(context.__tmPatchTaskSnapshotDocuments(concurrent, [afterDelete], options).stale,
+        true, 'a snapshot written after the read started must still be rejected');
+    assert.deepEqual(clone(packed), original, 'deletion patches must not mutate the source store');
 }
 
 async function exerciseDocumentPatches(legacy) {

@@ -1147,6 +1147,7 @@ if (shouldMarkDirty) {
             if (__tmNativeDocTaskContentInputHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(document, 'input', __tmNativeDocTaskContentInputHandler, true);
                 globalThis.__tmRuntimeEvents?.off?.(document, 'compositionend', __tmNativeDocTaskContentInputHandler, true);
+                globalThis.__tmRuntimeEvents?.off?.(document, 'focusout', __tmNativeDocTaskContentInputHandler, true);
                 __tmNativeDocTaskContentInputHandler = null;
             }
             __tmNativeDocTaskContentSyncTimers.forEach((entry) => {
@@ -1828,6 +1829,10 @@ if (shouldMarkDirty) {
                 state.priorityModal.remove();
                 state.priorityModal = null;
             }
+            __tmSemanticDatePendingTasks.clear();
+            document.removeEventListener('focusout', __tmScheduleSemanticDatePrompt, true);
+            if (__tmSemanticDatePromptTimer !== null) clearTimeout(__tmSemanticDatePromptTimer);
+            __tmSemanticDatePromptTimer = null;
             if (state.semanticDateConfirmModal) {
                 state.semanticDateConfirmModal.remove();
                 state.semanticDateConfirmModal = null;

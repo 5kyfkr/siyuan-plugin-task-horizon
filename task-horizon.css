@@ -840,6 +840,29 @@
     margin-top: 8px;
 }
 
+/*
+ * 时长与番茄弹窗里的输入框使用 basecoat 输入控件。
+ * 弹窗位于内容面板上，因此把 basecoat 的描边/底色令牌从顶栏的半透明白换成面板配色，
+ * 否则输入框会与白色背景融为一体。
+ */
+.tm-focus-summary-editor__field {
+    --background: var(--tm-bg-color);
+    --foreground: var(--tm-text-color);
+    --border: var(--tm-input-border);
+    --input: var(--tm-input-bg);
+    --ring: color-mix(in srgb, var(--tm-primary-color) 24%, transparent);
+}
+
+.tm-focus-summary-editor__field input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+.tm-focus-summary-editor__field input[type="number"]::-webkit-outer-spin-button,
+.tm-focus-summary-editor__field input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
 .tm-focus-summary-editor__readonly {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3373,20 +3396,6 @@
     }
 }
 
-.tm-modal.tm-semantic-date-confirm-modal:not(.tm-modal--dock) {
-    align-items: center;
-    justify-content: center;
-    padding: 12px;
-    box-sizing: border-box;
-}
-
-.tm-modal.tm-semantic-date-confirm-modal:not(.tm-modal--dock) .tm-box {
-    max-width: calc(100% - 24px);
-    max-height: calc(100% - 24px);
-    border-radius: 10px;
-    box-sizing: border-box;
-}
-
 /* 容器查询：处理中间档位，先隐藏文档/规则/分组区，保留后部视图与按钮 */
 @container tm-modal (max-width: 1024px) {
     .tm-modal:not(.tm-modal--dock) .tm-header-selectors {
@@ -3732,11 +3741,13 @@ html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-detail-card {
 }
 
 .tm-inline-searchbar__inner {
+    position: relative;
     pointer-events: auto;
     width: min(calc(100% - 8px), 400px);
     max-width: 100%;
     min-width: 0;
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-start;
     gap: 6px;
@@ -3764,7 +3775,8 @@ html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-detail-card {
 }
 
 .tm-inline-searchbar__input {
-    flex: 1 1 auto;
+    flex: 1 1 0;
+    width: 0;
     min-width: 0;
     height: 26px;
     min-height: 26px;
@@ -3778,6 +3790,84 @@ html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-detail-card {
     outline: none;
     box-sizing: border-box;
 }
+
+.tm-search-fields {
+    flex: 0 0 auto;
+    font-size: 12px;
+}
+
+.tm-search-fields__trigger {
+    cursor: pointer;
+}
+
+.tm-search-fields__trigger[aria-expanded="true"] {
+    color: var(--b3-theme-primary) !important;
+    border-color: var(--b3-theme-primary) !important;
+}
+
+.tm-search-fields__trigger:focus-visible,
+.tm-search-fields__reset:focus-visible {
+    outline: 2px solid var(--b3-theme-primary);
+    outline-offset: 2px;
+}
+
+.tm-search-fields__panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    width: 280px;
+    max-width: 100%;
+    max-height: min(320px, 50vh);
+    overflow: auto;
+    padding: 8px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 8px;
+    background: var(--b3-theme-background);
+    color: var(--b3-theme-on-surface);
+    box-shadow: var(--b3-dialog-shadow);
+    box-sizing: border-box;
+}
+
+.tm-search-fields__heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 6px 8px;
+    font-weight: 600;
+}
+
+.tm-search-fields__reset {
+    border: 0;
+    padding: 3px 4px;
+    background: transparent;
+    color: var(--b3-theme-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+.tm-search-fields__option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.tm-search-fields__option:hover { background: var(--b3-theme-surface); }
+.tm-search-fields__option input { flex: 0 0 auto; accent-color: var(--b3-theme-primary); }
+
+.tm-search-fields__hint,
+.tm-inline-searchbar__status {
+    padding: 6px;
+    color: var(--tm-secondary-text);
+    font-size: 12px;
+}
+
+.tm-inline-searchbar__status { flex-basis: 100%; }
 
 .tm-inline-searchbar__input:focus {
     border-color: color-mix(in srgb, var(--b3-theme-primary) 56%, var(--b3-border-color));
@@ -3819,6 +3909,7 @@ html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-detail-card {
 }
 
 @media (max-width: 460px) {
+    .tm-search-fields__option { min-height: 44px; }
     .tm-inline-searchbar {
         padding-left: 8px;
         padding-right: 8px;
@@ -4421,6 +4512,393 @@ html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-detail-card {
 .tm-modal:not(.tm-modal--mobile):not(.tm-modal--tab) .tm-box {
     height: 90vh;
 }
+
+/* Semantic confirmation: keep Basecoat controls scoped to the panel theme. */
+.tm-semantic-date-confirm-modal,
+.tm-semantic-date-confirm-modal * {
+    box-sizing: border-box;
+}
+
+.tm-modal.tm-semantic-date-confirm-modal {
+    --background: var(--tm-bg-color);
+    --foreground: var(--tm-text-color);
+    --primary: var(--tm-primary-color);
+    --primary-foreground: var(--tm-ui-primary-foreground);
+    --secondary: var(--tm-header-bg);
+    --secondary-foreground: var(--tm-text-color);
+    --accent: color-mix(in srgb, var(--tm-primary-color) 8%, var(--tm-bg-color));
+    --accent-foreground: var(--tm-text-color);
+    --border: var(--tm-border-color);
+    --ring: color-mix(in srgb, var(--tm-primary-color) 24%, transparent);
+    --radius: var(--tm-ui-radius, 10px);
+    container-name: tm-semantic-confirm;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+}
+
+.tm-modal.tm-semantic-date-confirm-modal .tm-box.tm-semantic-date-confirm-box {
+    /* Fullscreen manager rules also match nested .tm-box descendants. */
+    width: min(1040px, calc(100% - 24px)) !important;
+    max-width: calc(100% - 24px) !important;
+    height: auto !important;
+    max-height: min(90dvh, calc(100% - 24px), 820px) !important;
+    border: 1px solid var(--tm-border-color);
+    border-radius: var(--radius) !important;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+    padding: 16px 20px 12px;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-title > svg {
+    color: var(--primary);
+    flex-shrink: 0;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-close {
+    width: 32px;
+    height: 32px;
+    margin-left: auto;
+    padding: 0;
+    border-color: transparent;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-body {
+    min-height: 0;
+    flex: 0 1 auto;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-row {
+    display: grid;
+    grid-template-columns: minmax(220px, .95fr) minmax(0, 1.8fr);
+    align-items: center;
+    gap: 24px;
+    padding: 8px 20px;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-columns {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-block: 5px;
+    border-block: 1px solid var(--border);
+    background: var(--tm-header-bg);
+    color: var(--tm-secondary-text);
+    font-size: 11px;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-bulk,
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-bulk .bc-btn {
+    border-color: transparent;
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-task {
+    min-height: 64px;
+    border-bottom: 1px solid var(--border);
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-task-name {
+    min-width: 0;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-task-title {
+    overflow-wrap: anywhere;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-source {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 2px;
+    color: var(--tm-secondary-text);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-source > svg {
+    flex-shrink: 0;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-writes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    min-width: 0;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write {
+    position: relative;
+    max-width: 100%;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write > span {
+    font: inherit;
+    color: inherit;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write:has(input:checked) {
+    border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
+    background: var(--accent);
+    color: var(--accent-foreground);
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write:has(input:checked):hover {
+    background: color-mix(in srgb, var(--accent) 78%, var(--secondary));
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write:has(input:focus-visible) {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write:has(input:disabled) {
+    opacity: .52;
+    cursor: default;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write > input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write-icon {
+    display: block;
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-shrink: 0;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-summary {
+    min-width: 0;
+    color: var(--tm-secondary-text);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-batch {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-actions {
+    flex-shrink: 0;
+}
+
+.tm-semantic-date-confirm-modal .tm-semantic-date-confirm-actions .bc-btn--primary {
+    min-width: 163px;
+}
+
+.tm-semantic-date-confirm-modal .bc-btn:disabled {
+    opacity: .52;
+    cursor: default;
+}
+
+@container tm-semantic-confirm (max-width: 760px) {
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-header {
+        padding: 12px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-row {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
+        padding: 10px 12px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-columns {
+        padding-block: 3px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-columns > span {
+        display: none;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write {
+        min-height: 32px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-footer {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-summary {
+        display: none;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-actions {
+        display: grid;
+        grid-template-columns: .8fr 1.4fr;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-actions .bc-btn {
+        min-height: 43px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-actions .bc-btn--primary {
+        min-width: 0;
+    }
+}
+
+@container tm-semantic-confirm (max-width: 480px) {
+    .tm-modal.tm-semantic-date-confirm-modal .tm-box.tm-semantic-date-confirm-box {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-body {
+        scrollbar-gutter: auto;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-row {
+        gap: 4px;
+        padding-inline: 8px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-task {
+        padding-block: 8px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-writes {
+        gap: 4px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write {
+        min-height: 30px;
+        padding-inline: 6px;
+        gap: 4px;
+        font-size: 13px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write-icon {
+        width: 12px;
+        height: 12px;
+        flex-basis: 12px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-bulk .bc-btn {
+        padding-inline: 6px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-footer {
+        gap: 6px;
+        padding: 8px 10px max(8px, env(safe-area-inset-bottom));
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-actions .bc-btn {
+        min-height: 36px;
+        padding-inline: 10px;
+        font-size: 13px;
+        white-space: nowrap;
+    }
+}
+
+@media (pointer: coarse) {
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write,
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-bulk .bc-btn,
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-actions .bc-btn {
+        min-height: 44px;
+    }
+    @container tm-semantic-confirm (max-width: 480px) {
+        .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-writes {
+            row-gap: 8px;
+        }
+        .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write,
+        .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-bulk .bc-btn {
+            position: relative;
+            min-height: 36px;
+            user-select: none;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-write::after,
+        .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-bulk .bc-btn::after {
+            content: '';
+            position: absolute;
+            inset: -5px 0;
+        }
+    }
+}
+
+@media (max-width: 760px), (pointer: coarse) {
+    .tm-modal.tm-semantic-date-confirm-modal {
+        position: fixed !important;
+        inset: 0;
+        width: 100vw !important;
+        height: 100dvh !important;
+        padding: 0;
+        align-items: stretch;
+    }
+    .tm-modal.tm-semantic-date-confirm-modal .tm-box.tm-semantic-date-confirm-box {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        border: 0;
+        border-radius: 0 !important;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-body {
+        flex: 1 1 auto;
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-header {
+        padding-top: max(12px, env(safe-area-inset-top));
+        padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-row {
+        padding-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right));
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-footer {
+        justify-content: flex-end;
+        padding-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right));
+        padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+    .tm-semantic-date-confirm-modal .tm-semantic-date-confirm-summary {
+        display: none;
+    }
+}
+
 
 .tm-header {
     padding: 20px 24px;
@@ -6963,6 +7441,46 @@ select.tm-btn-secondary {
     background: color-mix(in srgb, var(--tm-bg-color) 92%, transparent);
     box-shadow: 0 4px 10px rgba(0,0,0,0.12);
     z-index: 8;
+}
+
+.tm-whiteboard-traversal-exit {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+}
+
+.tm-whiteboard-traversal-exit[hidden] {
+    display: none;
+}
+
+.tm-whiteboard-traversing .tm-whiteboard-traversal-dim,
+.tm-whiteboard-traversing .tm-whiteboard-note,
+.tm-whiteboard-traversing .tm-whiteboard-frame,
+.tm-whiteboard-traversing .tm-whiteboard-drawing-layer {
+    opacity: 0.24 !important;
+}
+
+.tm-whiteboard-traversing .tm-whiteboard-traversal-context {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+}
+
+.tm-whiteboard-traversing .tm-whiteboard-traversal-context > :not(.tm-kanban-subtasks):not(.tm-whiteboard-card-tools),
+.tm-whiteboard-traversing .tm-whiteboard-traversal-context > .tm-kanban-subtasks > :not(.tm-kanban-subtasks-list) {
+    opacity: 0.24;
+}
+
+.tm-whiteboard-traversing .tm-whiteboard-traversal-origin {
+    outline: 2px solid var(--tm-primary-color);
+    outline-offset: 2px;
+}
+
+.tm-whiteboard-card-tools [data-tm-whiteboard-traverse][aria-pressed="true"] {
+    background: var(--tm-primary-color);
+    color: var(--tm-bg-color);
 }
 
 .tm-whiteboard-card.tm-whiteboard-card--sub {
@@ -10606,6 +11124,34 @@ select.tm-btn-secondary {
     gap: 14px;
 }
 
+.tm-task-detail-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 0;
+    color: var(--tm-secondary-text);
+    font-size: 12px;
+    line-height: 1.5;
+    text-align: center;
+}
+
+.tm-task-detail-footer[hidden] {
+    display: none;
+}
+
+.tm-task-detail-footer__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.tm-task-detail-footer__value {
+    font-variant-numeric: tabular-nums;
+}
+
 .tm-task-detail-header {
     display: flex;
     flex-direction: column;
@@ -11229,6 +11775,87 @@ select.tm-btn-secondary {
     color: var(--tm-secondary-text);
     font-size: 12px;
     font-weight: 600;
+}
+
+/* 专注统计三卡：自身卡片可点击查看按天记录，其余两卡保持只读。 */
+.tm-task-detail-focus-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding: 4px 0 2px;
+}
+
+.tm-task-detail-focus-stat {
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--tm-border-color);
+    border-radius: 6px;
+    background: var(--tm-card-bg);
+    color: var(--tm-text-color);
+    font: inherit;
+    text-align: left;
+    box-sizing: border-box;
+}
+
+.tm-task-detail-focus-stat-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    min-width: 0;
+}
+
+.tm-task-detail-focus-stat-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--tm-secondary-text);
+}
+
+.tm-task-detail-focus-stat-value {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--tm-text-color);
+    overflow-wrap: anywhere;
+}
+
+.tm-task-detail-focus-stat-chevron {
+    flex: 0 0 auto;
+    font-size: 15px;
+    line-height: 1;
+    color: var(--tm-secondary-text);
+    opacity: .72;
+}
+
+button.tm-task-detail-focus-stat {
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+button.tm-task-detail-focus-stat:hover {
+    border-color: color-mix(in srgb, var(--tm-primary-color) 34%, var(--tm-border-color));
+    background: color-mix(in srgb, var(--tm-primary-color) 4%, var(--tm-card-bg));
+}
+
+button.tm-task-detail-focus-stat:hover .tm-task-detail-focus-stat-chevron,
+button.tm-task-detail-focus-stat[aria-expanded="true"] .tm-task-detail-focus-stat-chevron {
+    color: var(--tm-primary-color);
+    opacity: 1;
+}
+
+button.tm-task-detail-focus-stat:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 30%, transparent);
+}
+
+button.tm-task-detail-focus-stat[aria-expanded="true"] {
+    border-color: color-mix(in srgb, var(--tm-primary-color) 42%, var(--tm-border-color));
 }
 
 .tm-task-detail-subtask-visibility-btn {
@@ -12910,6 +13537,146 @@ select.tm-btn-secondary {
     gap: 8px;
 }
 
+.tm-task-detail-inline-popover--focus-records {
+    width: min(340px, calc(100vw - 20px));
+    gap: 8px;
+}
+
+.tm-focus-records-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.tm-focus-records-head-main {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
+
+.tm-focus-records-title {
+    flex: 0 0 auto;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--tm-text-color);
+}
+
+.tm-focus-records-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--tm-secondary-text);
+    font: inherit;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.tm-focus-records-close:hover,
+.tm-focus-records-close:focus-visible {
+    background: var(--tm-hover-bg);
+    color: var(--tm-text-color);
+    outline: none;
+}
+
+.tm-focus-records-summary {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--tm-secondary-text);
+}
+
+.tm-focus-records-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
+    max-height: min(46vh, 300px);
+    overflow: auto;
+    margin: 0 -2px;
+    padding: 0 2px;
+    scrollbar-gutter: stable;
+}
+
+.tm-focus-records-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 8px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--tm-hover-bg) 72%, transparent);
+}
+
+.tm-focus-records-day {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+}
+
+.tm-focus-records-date {
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--tm-text-color);
+}
+
+.tm-focus-records-duration {
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--tm-text-color);
+    white-space: nowrap;
+    text-align: right;
+}
+
+.tm-focus-records-meta {
+    min-width: 0;
+    font-size: 11px;
+    color: var(--tm-secondary-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tm-focus-records-loading,
+.tm-focus-records-empty {
+    padding: 16px 8px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--tm-secondary-text);
+}
+
+.tm-focus-records-retry {
+    margin-left: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--tm-primary-color);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.tm-focus-records-note {
+    padding: 2px 2px 0;
+    font-size: 11px;
+    color: var(--tm-secondary-text);
+}
+
 .tm-task-detail-inline-popover--date-sheet {
     width: min(340px, calc(100vw - 20px));
     gap: 12px;
@@ -13467,12 +14234,14 @@ select.tm-btn-secondary {
     background: color-mix(in srgb, var(--tm-primary-color) 18%, var(--tm-card-bg) 82%);
 }
 
-.tm-task-time-hub__day.is-range:nth-child(7n + 1)::before {
+.tm-task-time-hub__day.is-range:nth-child(7n + 1)::before,
+.tm-task-time-hub__day.is-range-preview:nth-child(7n + 1)::before {
     border-top-left-radius: 999px;
     border-bottom-left-radius: 999px;
 }
 
-.tm-task-time-hub__day.is-range:nth-child(7n)::before {
+.tm-task-time-hub__day.is-range:nth-child(7n)::before,
+.tm-task-time-hub__day.is-range-preview:nth-child(7n)::before {
     border-top-right-radius: 999px;
     border-bottom-right-radius: 999px;
 }
@@ -13566,13 +14335,15 @@ select.tm-btn-secondary {
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tm-primary-color) 38%, transparent);
 }
 
-.tm-task-time-hub__day.is-range-start::before {
+.tm-task-time-hub__day.is-range-start::before,
+.tm-task-time-hub__day.is-range-start-preview::before {
     left: 3px;
     border-top-left-radius: 999px;
     border-bottom-left-radius: 999px;
 }
 
-.tm-task-time-hub__day.is-range-end::before {
+.tm-task-time-hub__day.is-range-end::before,
+.tm-task-time-hub__day.is-range-end-preview::before {
     right: 3px;
     border-top-right-radius: 999px;
     border-bottom-right-radius: 999px;
@@ -13594,11 +14365,6 @@ select.tm-btn-secondary {
 
 .tm-task-time-hub__day.is-range-preview::before {
     background: color-mix(in srgb, var(--tm-primary-color) 24%, var(--tm-card-bg) 76%);
-}
-
-.tm-task-time-hub__day.is-range-start-preview,
-.tm-task-time-hub__day.is-range-end-preview {
-    color: var(--primary-foreground);
 }
 
 .tm-task-time-hub__day.is-active {

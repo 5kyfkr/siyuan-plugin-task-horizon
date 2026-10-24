@@ -41,6 +41,7 @@ const context = vm.createContext({
     __tmRuleHasExplicitSort: () => false, __tmIsAllRuleLike: value => !value.conditions.length,
     __tmHasActiveDocTabContentFilter: () => true, __tmRuleUsesDocFlowSort: () => true,
     __tmTaskMatchesSearch: (task, keyword) => task.content.includes(keyword),
+    __tmGetTaskSearchFields: () => ['content', 'remark'],
     __tmDocShouldShowInDocTabs: () => true, __tmIsCollectedOtherBlockTask: () => false,
     __tmApplyWhiteboardSequenceFilter: tasks => tasks, __tmUpdateFilteredTaskRenderWindowState() {},
     __tmGetCalendarDocsToGroupMapSync: () => new Map(), __tmIsCalendarTaskPendingDeletedSync: () => false,

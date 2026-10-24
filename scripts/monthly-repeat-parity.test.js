@@ -53,9 +53,15 @@ assert.equal(context.__tmBuildTaskRepeatAdvancePatch({ ...ranged, repeatState: {
 vm.runInContext(runtimeSource.slice(runtimeSource.indexOf('function __tmGetTaskRepeatScheduleSignature'), runtimeSource.indexOf('async function __tmApplyTaskRepeatRule')), context);
 const changed = context.__tmBuildTaskRepeatRuleMetaPatch({ ...ranged, repeatRule: rule(), repeatState: { occurrenceCount: 4 } }, rule({ monthDays: [11, 17], maxOccurrences: 3 }));
 assert.equal(changed.completionTime, '2026-09-11');
-assert.equal(changed.startDate, '2026-09-09');
+assert.equal(changed.startDate, '');
+assert.equal(changed.repeatState.lastInstanceStart, '');
 assert.equal(changed.repeatRule.anchorDate, '2026-09-11');
 assert.equal(changed.repeatState.occurrenceCount, 1);
+const startOnly = context.__tmBuildTaskRepeatRuleMetaPatch({ startDate: '2026-09-12' }, rule({ monthDays: [11, 17] }));
+assert.equal(startOnly.startDate, '');
+assert.equal(startOnly.completionTime, '2026-09-17', 'the first monthly occurrence keeps its scheduled date after clearing the start date');
+assert.equal(startOnly.repeatState.lastInstanceStart, '');
+assert.equal(startOnly.repeatState.lastInstanceDue, '2026-09-17');
 const monthlyWeek = rule({ monthlyMode: 'weekday', monthWeek: { ordinal: -1, weekday: 5 }, anchorDate: '2026-09-01' });
 assert.deepEqual(dates(monthlyWeek), ['2026-09-25', '2026-10-30', '2026-11-27']);
 assert.equal(monthly.previousDateKey(monthlyWeek, '2026-11-15', true), '2026-10-30');

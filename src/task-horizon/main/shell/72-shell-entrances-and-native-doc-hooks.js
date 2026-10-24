@@ -2851,6 +2851,7 @@
                     taskItem: taskItem?.isConnected ? taskItem : null,
                     source: 'native-document-input',
                 });
+                if (opts.recognize === true) __tmQueueSemanticDateTask(tid);
             } catch (e) {}
         }, delayMs);
         __tmNativeDocTaskContentSyncTimers.set(tid, { timer, taskItem });
@@ -2861,17 +2862,20 @@
         if (__tmNativeDocTaskContentInputHandler) {
             try { globalThis.__tmRuntimeEvents?.off?.(document, 'input', __tmNativeDocTaskContentInputHandler, true); } catch (e) {}
             try { globalThis.__tmRuntimeEvents?.off?.(document, 'compositionend', __tmNativeDocTaskContentInputHandler, true); } catch (e) {}
+            try { globalThis.__tmRuntimeEvents?.off?.(document, 'focusout', __tmNativeDocTaskContentInputHandler, true); } catch (e) {}
         }
         __tmNativeDocTaskContentInputHandler = (event) => {
             if (!event || event.isTrusted !== true || event.isComposing === true) return;
             const binding = __tmResolveNativeDocTaskContentInput(event.target);
             if (!binding) return;
             __tmScheduleNativeDocTaskContentSync(binding.taskId, binding.taskItem, {
-                immediate: String(event.type || '').trim() === 'compositionend',
+                immediate: ['compositionend', 'focusout'].includes(String(event.type || '').trim()),
+                recognize: event.type === 'focusout',
             });
         };
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'input', __tmNativeDocTaskContentInputHandler, true); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'compositionend', __tmNativeDocTaskContentInputHandler, true); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(document, 'focusout', __tmNativeDocTaskContentInputHandler, true); } catch (e) {}
     }
 
     function __tmMatchesNativeTaskShortcut(event) {

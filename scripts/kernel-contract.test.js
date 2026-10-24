@@ -989,6 +989,37 @@ async function run() {
     assert.equal(scopedFocus.data.totals.focusSec, 1200);
     assert.equal(scopedFocus.data.tasks.length, 1);
     assert.equal(scopedFocus.data.unattributed.focusSec, 0, 'explicit task scopes must exclude unattributed history');
+    const rawFocusStatsWithEmptyDay = {
+        ...rawFocusStats,
+        associations: [
+            focusAssociation(['root-alias'], 600, 'root-session', [
+                focusBucket(600, 'root-session'),
+                {
+                    ...focusBucket(0, 'empty-session'),
+                    key: '2026-07-14',
+                    from: '2026-07-14T00:00:00+08:00',
+                    to: '2026-07-15T00:00:00+08:00',
+                },
+            ]),
+        ],
+    };
+    const unfilteredFocusDays = await harness.call('taskHorizonProjectFocusStatistics', rawFocusStatsWithEmptyDay, {
+        bucket: 'day',
+        groupBy: 'task',
+        taskIDs: [IDS.singleTask],
+    }, focusSnapshot);
+    assert.equal(unfilteredFocusDays.ok, true);
+    assert.equal(unfilteredFocusDays.data.totals.buckets.length, 2, 'empty day buckets must stay unless explicitly dropped');
+    const filteredFocusDays = await harness.call('taskHorizonProjectFocusStatistics', rawFocusStatsWithEmptyDay, {
+        bucket: 'day',
+        groupBy: 'task',
+        taskIDs: [IDS.singleTask],
+        dropEmptyBuckets: true,
+    }, focusSnapshot);
+    assert.equal(filteredFocusDays.ok, true);
+    assert.deepEqual(Array.from(filteredFocusDays.data.totals.buckets, (bucket) => bucket.key), ['2026-07-15']);
+    assert.deepEqual(Array.from(filteredFocusDays.data.tasks[0].buckets, (bucket) => bucket.key), ['2026-07-15']);
+    assert.equal(filteredFocusDays.data.totals.focusSec, 600, 'dropping empty buckets must not change totals');
     const emptyFocus = await harness.call('taskHorizonProjectFocusStatistics', rawFocusStats, {
         bucket: 'day',
         groupBy: 'task',
@@ -1157,6 +1188,64 @@ async function run() {
     assert.equal(expiredStats.error.code, 'STATS_QUERY_EXPIRED');
     assert.equal(bridgeHarness.apiCalls.filter((item) => item.pathname === '/api/plugin/rpc?name=siyuan-plugin-docktomato').length,
         dockCallsBeforeExpired, 'an expired direct query must stop before DockTomato RPC');
+    const prunedBridgeHarness = createHarness({
+        dockTomatoRpc(request) {
+            const focusBucketEntry = (key, from, to, focusSec) => ({
+                key,
+                from,
+                to,
+                focusSec,
+                countdownSec: focusSec,
+                stopwatchSec: 0,
+                distractionCount: 0,
+                sessionCount: focusSec > 0 ? 1 : 0,
+                focusSessionCount: focusSec > 0 ? 1 : 0,
+                completedSessionCount: focusSec > 0 ? 1 : 0,
+                countdownSessionCount: focusSec > 0 ? 1 : 0,
+                stopwatchSessionCount: 0,
+                lastEndMs: Date.parse(`${key}T10:00:00+08:00`),
+            });
+            const data = request.method === 'dockTomatoQueryFocus'
+                ? {
+                    contractVersion: 2,
+                    range: { from: '2026-07-14T00:00:00+08:00', to: '2026-07-16T00:00:00+08:00' },
+                    totals: {},
+                    associations: [{
+                        candidateIds: [IDS.singleTask],
+                        focusSec: 600,
+                        countdownSec: 600,
+                        stopwatchSec: 0,
+                        distractionCount: 0,
+                        sessionCount: 1,
+                        focusSessionCount: 1,
+                        completedSessionCount: 1,
+                        countdownSessionCount: 1,
+                        stopwatchSessionCount: 0,
+                        lastEndMs: Date.parse('2026-07-15T10:00:00+08:00'),
+                        buckets: [
+                            focusBucketEntry('2026-07-15', '2026-07-15T00:00:00+08:00', '2026-07-16T00:00:00+08:00', 600),
+                            focusBucketEntry('2026-07-14', '2026-07-14T00:00:00+08:00', '2026-07-15T00:00:00+08:00', 0),
+                        ],
+                    }],
+                    meta: { source: 'pruned-bridge-test' },
+                }
+                : { contractVersion: 2, items: [], meta: { source: 'indexed-shards', revision: 1 } };
+            return { jsonrpc: '2.0', id: request.id, result: { ok: true, data, error: null } };
+        },
+    });
+    await prunedBridgeHarness.start();
+    const prunedBridge = await prunedBridgeHarness.call('taskHorizonQueryFocusStatistics', {
+        from: '2026-07-14T00:00:00.000Z',
+        to: '2026-07-16T00:00:00.000Z',
+        bucket: 'day',
+        groupBy: 'task',
+        taskIDs: [IDS.singleTask],
+        dropEmptyBuckets: true,
+    });
+    assert.equal(prunedBridge.ok, true);
+    assert.deepEqual(Array.from(prunedBridge.data.totals.buckets, (bucket) => bucket.key), ['2026-07-15'],
+        'the Kernel RPC path must drop empty day buckets for the records popover');
+    assert.equal(prunedBridge.data.totals.focusSec, 600);
     const nonTaskScope = await bridgeHarness.call('taskHorizonResolveFocusCandidateIDs', {
         rootTaskID: IDS.childBlock,
     });
@@ -1732,7 +1821,7 @@ async function run() {
     assert.equal(reminderSchema.properties.documentID.type, 'string');
     assert.match(reminderTool.schema.description, /先用 query_tasks 检索已有任务[\s\S]*先精确、再按可见标题模糊匹配[\s\S]*允许少量错字/, 'unbound reminder lookup must search candidates first and retain fuzzy visible-title matching');
     const reminderFollowSchema = reminderTool.schema.inputSchema.properties.follow;
-    assert.deepEqual(Array.from(reminderFollowSchema.required), ['date', 'times']);
+    assert.deepEqual(Array.from(reminderFollowSchema.required), ['times'], 'check-in reminders must not require a task deadline');
     assert.deepEqual(Object.keys(reminderFollowSchema.properties), ['date', 'times'], 'follow reminders must accept only the requested date and times');
     const completedDuplicate = await harness.mcpTools.create_task.handler({
         action: 'create',
@@ -1880,8 +1969,8 @@ async function run() {
         taskID: IDS.singleTask,
     });
     assert.equal(clearFollowReminder.ok, true);
-    assert.equal(clearFollowReminder.data.completionCleared, true, 'clearing a follow-task reminder must clear its synchronized deadline');
-    assert.equal(harness.attrs.get(IDS.singleTask)['custom-completion-time'], '');
+    assert.equal(clearFollowReminder.data.completionCleared, false, 'clearing a follow-task reminder must preserve the task deadline');
+    assert.equal(harness.attrs.get(IDS.singleTask)['custom-completion-time'], '2026-07-20');
 
     const independentPreview = await reminderTool.handler({
         action: 'get',

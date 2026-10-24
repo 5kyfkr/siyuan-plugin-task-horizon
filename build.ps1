@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
 $pluginDir = Split-Path -Parent $PSCommandPath
+& node (Join-Path $pluginDir 'scripts\sync-kernel-recurrence.js')
+if ($LASTEXITCODE -ne 0) { throw 'Kernel recurrence bundle generation failed' }
 $output = Join-Path $pluginDir 'package.zip'
 $pluginJson = Join-Path $pluginDir 'plugin.json'
 $pluginName = (Get-Content -Raw -Encoding UTF8 -LiteralPath $pluginJson | ConvertFrom-Json).name

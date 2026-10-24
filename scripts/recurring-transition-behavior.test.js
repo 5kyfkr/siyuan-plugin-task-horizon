@@ -338,4 +338,52 @@ async function testCapturedIntent() {
     assert.equal(queued.timerContext.sessionId, 'old-timer');
 }
 
-testExecutor().then(testRestoredEffects).then(testRecoveredCompletionDoesNotReward).then(testHeldOccurrenceResetPreservesCompletion).then(testCapturedIntent).then(() => console.log('recurring transition, dates, identity, undo, index and single-write behavior passed')).catch(error => { console.error(error); process.exitCode = 1; });
+async function testRepeatRuleClearsStartDate() {
+    const api = read('src/task-horizon/main/20-api-and-runtime-services.js');
+    const writes = [];
+    const original = task({ repeatRule: '', repeatState: {} });
+    Object.assign(context, {
+        SettingsStore: { data: {} },
+        __tmNormalizeCreateTaskCustomFieldValues: () => ({}),
+        __tmResolveTaskForRepeat: async () => clone(original),
+        __tmApplyTaskMetaPatchWithUndo: async (taskId, patch, options) => {
+            writes.push({ taskId, patch: clone(patch), options });
+            return { task: { ...original, ...clone(patch) } };
+        },
+    });
+    vm.runInContext(fn(api, '__tmBuildCreateTaskInDocAttrPatchFromPayload') + '\n'
+        + fn(runtime, '__tmApplyTaskRepeatRule'), context);
+    for (const type of ['daily', 'workday', 'weekly', 'monthly', 'yearly', 'fsrs']) {
+        for (const trigger of ['due', 'complete', 'checkin']) {
+            const rule = { enabled: true, type, trigger, anchorDate: original.completionTime };
+            for (const current of [original, task({ repeatRule: rule })]) {
+                const before = clone(current);
+                const patch = context.__tmBuildTaskRepeatRuleMetaPatch(current, rule);
+                assert.equal(patch.startDate, '', `${type}/${trigger} clears the start date when setting or editing recurrence`);
+                assert.equal(patch.repeatState.lastInstanceStart, '');
+                assert.equal(patch.completionTime ?? current.completionTime, patch.repeatRule.trigger === 'checkin' ? '' : current.completionTime);
+                assert.deepEqual(current, before, 'building a patch must not mutate the task');
+            }
+            const created = context.__tmBuildCreateTaskInDocAttrPatchFromPayload({ ...original, repeatRule: rule });
+            assert.equal(created.startDate, '', 'task creation persists the cleared start date');
+            assert.equal(created.completionTime, created.repeatRule.trigger === 'checkin' ? '' : original.completionTime);
+        }
+    }
+    for (const rule of [{ enabled: false, type: 'daily' }, { type: 'none' }]) {
+        const patch = context.__tmBuildTaskRepeatRuleMetaPatch(original, rule);
+        assert.equal(Object.hasOwn(patch, 'startDate'), false, 'disabled recurrence preserves ordinary task dates');
+        const created = context.__tmBuildCreateTaskInDocAttrPatchFromPayload({ ...original, repeatRule: rule });
+        assert.equal(created.startDate, original.startDate);
+        assert.equal(created.completionTime, original.completionTime);
+    }
+    await context.__tmApplyTaskRepeatRule(original.id, { enabled: true, type: 'daily' }, {
+        datePatch: { startDate: '2026-10-24', completionTime: '2026-10-25' },
+    });
+    assert.equal(writes.length, 1, 'the recurrence and date clearing share one undoable write');
+    assert.equal(writes[0].patch.startDate, '', 'an accompanying date patch cannot retain the start date');
+    assert.equal(writes[0].patch.completionTime, '2026-10-25');
+    assert.equal(writes[0].patch.repeatState.lastInstanceStart, '');
+    assert.equal(writes[0].options.label, '循环规则');
+}
+
+testRepeatRuleClearsStartDate().then(testExecutor).then(testRestoredEffects).then(testRecoveredCompletionDoesNotReward).then(testHeldOccurrenceResetPreservesCompletion).then(testCapturedIntent).then(() => console.log('recurring transition, dates, identity, undo, index and single-write behavior passed')).catch(error => { console.error(error); process.exitCode = 1; });

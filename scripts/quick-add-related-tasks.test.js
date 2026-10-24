@@ -105,7 +105,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         const patch = relation === 'subtask' ? op.data.inheritedPatch : op.data.initialPatch;
         assert.equal(patch.priority, 'high');
         assert.equal(patch.customStatus, 'doing');
-        assert.equal(patch.startDate, rollup ? '' : '2026-09-27');
+        assert.equal(patch.startDate, '', 'recurring related tasks clear the start date');
         assert.equal(patch.completionTime, rollup ? '' : '2026-09-30');
         if (rollup) assert.equal(patch.dateMode, 'rollup', 'draft mode reaches the create queue');
         assert.equal(patch.pinned, true);
@@ -116,6 +116,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         if (relation === 'subtask') assert.equal(patch.duration, '25', 'non-composer inherited fields survive');
         const attrs = context.__tmBuildAtomicCreateAttrs(op.data.requestedTaskId, patch);
         assert.equal(attrs['custom-remark'], patch.remark);
+        assert.equal(attrs['custom-startDate'], '');
         assert.equal(attrs['custom-completionTime'], rollup ? '' : '2026-09-30');
         if (rollup) assert.equal(attrs['custom-dateMode'], 'rollup');
     }
@@ -173,6 +174,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         assert.equal(attrs['custom-remark'], patch.remark, 'note is part of the atomic insert');
         assert.deepEqual(plain(attrs['custom-attachments'] || []), op.data.content === '首个任务' ? ['assets/related.png'] : [], 'images are part of the atomic related-task insert');
         assert.equal(attrs['custom-completionTime'], patch.completionTime, 'date is part of the atomic insert');
+        assert.equal(attrs['custom-startDate'], '', 'the cleared start date reaches storage');
         if (!rollup) assert.equal(attrs['custom-repeatRule'].type, 'daily', 'repeat rule reaches storage');
         if (rollup) assert.equal(attrs['custom-dateMode'], 'rollup', 'mode is part of the atomic related-task insert');
         assert.deepEqual(plain(attrs['custom-customFieldValues']), { tag: ['a'] });

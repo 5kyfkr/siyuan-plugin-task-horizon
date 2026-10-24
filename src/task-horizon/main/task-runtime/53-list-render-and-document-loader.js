@@ -290,8 +290,8 @@
             const titleInlineBadgeClass = (completedTodayBadgeHtml || recurringInstanceBadgeHtml)
                 ? ' tm-task-content-clickable--inline-badges'
                 : '';
-            const remarkSearchSnippetHtml = hasContentCol && !colSet.has('remark') && typeof __tmBuildTaskRemarkSearchSnippet === 'function'
-                ? __tmBuildTaskRemarkSearchSnippet(task, state.searchKeyword)
+            const remarkSearchSnippetHtml = hasContentCol && typeof __tmBuildTaskSearchSnippet === 'function'
+                ? __tmBuildTaskSearchSnippet(task, state.searchKeyword, { excludeFields: colSet.has('remark') ? ['remark'] : [] })
                 : '';
             const taskTextSearchRemarkClass = remarkSearchSnippetHtml ? ' tm-task-text--with-search-remark' : '';
 

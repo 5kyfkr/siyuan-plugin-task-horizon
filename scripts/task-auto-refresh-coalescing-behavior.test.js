@@ -135,7 +135,8 @@ test('a mutation during an awaited document read stops further reads and preserv
     vm.runInContext(fs.readFileSync(path.join(root, '32-runtime-state-and-events.js'), 'utf8'), h.context);
     h.context.__tmTaskStore.acceptAuthoritative([task], { docIds: ['doc'], replaceDocuments: true });
     let reads = 0;
-    h.context.API = { getTasksByDocuments: async () => {
+    h.context.API = { getTaskFreshnessByDocuments: async () => ({ map: new Map([['doc', { docUpdated: '20261023123000' }]]) }),
+        getTasksByDocuments: async () => {
         reads++;
         h.context.__tmTaskStore.applyMutation({ type: 'taskPatch', phase: 'optimistic',
             opId: 'newer-edit', taskId: 'task', docId: 'doc', patch: { priority: 'high' } }, { applyLocal: false });
@@ -172,4 +173,84 @@ test('a notification arriving during refresh survives until its own refresh comp
     assert.equal(h.state.externalTaskTxDirty, false);
     assert.equal(h.context.__tmTxTaskRefreshDocIds.size, 0);
     assert.equal(h.calls.full, 0);
+});
+
+test('deleting a task container saves the empty document with its fresh revision', async () => {
+    const docId = '20260202084650-rzxfgy1';
+    const taskId = '20261023122910-2rywfhn';
+    const containerId = '20261023122910-wsph94o';
+    const oldRevision = '20260202084650';
+    const newRevision = '20261023123000';
+    const task = { id: taskId, root_id: docId, parent_id: containerId, children: [] };
+    const state = { viewMode: 'list', modal: {}, taskTree: [{ id: docId, updated: oldRevision, tasks: [task] }],
+        allDocuments: [{ id: docId, updated: oldRevision }], flatTasks: { [taskId]: task },
+        __tmLoadedDocIdsForTasks: [docId], stats: {} };
+    const calls = { snapshots: [], order: [] };
+    const noop = () => {};
+    let revision = 0;
+    const context = vm.createContext({
+        state, Map, Set, Date, console: { log: noop },
+        SettingsStore: { data: {} }, document: { body: { contains: () => true } },
+        __TM_TASK_INDEX_QUERY_LIMIT: 20000,
+        API: {
+            getTaskFreshnessByDocuments: async () => {
+                calls.order.push('freshness');
+                return { map: new Map([[docId, { exists: true, docUpdated: newRevision, taskCount: 0 }]]) };
+            },
+            getTasksByDocuments: async () => { calls.order.push('tasks'); return { tasks: [] }; },
+        },
+        __tmTaskStore: { captureRead: () => ({ revision }), isReadCurrent: (token) => token.revision === revision,
+            getFlatMap: () => ({}), removeFlatByDoc: noop },
+        __tmFlushSqlTransactionsSafe: async () => true,
+        __tmResolveIncrementalRefreshDocIds: async () => [docId],
+        __tmCaptureEditorDocumentTaskOrder: () => [], __tmInvalidateTasksQueryCacheByDocId: noop,
+        __tmGetIncrementalTaskQueryLimit: () => 20000,
+        __tmBuildTaskEnhanceLoadPlan: () => ({ customFieldLoadPlan: { bulkFieldIds: [], deferredListFieldIds: [] } }),
+        __tmCaptureLocalTaskPatchWatermarkRevisions: () => new Map(),
+        __tmCollectTaskEnhanceTargets: () => ({ taskIds: [], taskDocMap: new Map() }),
+        __tmApplyEditorDocumentTaskOrderToFlowRankMap: () => 0,
+        __tmGetCustomFieldDefs: () => [], __tmBuildVisibleDateFallbackTaskIdSet: () => new Set(),
+        __tmGetDocDisplayNameMode: () => 'name', __tmNormalizeDateOnly: () => '2026-10-23',
+        __tmResolveTaskSiblingOrderRanks: async () => new Map(),
+        __tmResolveDocTaskParentLinks: async () => ({ rootTasks: [] }),
+        __tmShouldUseResolvedFlowRankForDoc: () => false, __tmSortTaskTreeBySiblingRankMap: noop,
+        __tmAssignDocSeqByTree: noop, __tmNormalizeDocAliasValue: () => '', __tmNormalizeDocIconValue: () => '',
+        __tmInvalidateFilteredTaskDerivedStateCache: noop,
+        __tmReplaceFlatTasksThroughTaskStore: (flat) => { state.flatTasks = flat; },
+        recalcStats: noop, __tmSchedulePersistTaskIndex: noop,
+        __tmNormalizeTaskSnapshotDocIds: (ids) => ids,
+        __tmSchedulePersistTaskSnapshot: (options) => calls.snapshots.push(options),
+    });
+    vm.runInContext(section(stores, 'function __tmBuildEditorDocumentTaskIdMap',
+        'function __tmBuildAuthoritativeTaskConfirmationCandidate'), context);
+    context.__tmIsLikelyBlockId = (id) => /^\d{14}-[a-z0-9]{7}$/.test(id);
+    vm.runInContext(section(stores, 'async function __tmRefreshAffectedDocsIncrementally(',
+        'let __tmSqlTransactionFlushInFlight'), context);
+    const options = { docIds: [docId], deletedBlockIds: [containerId], forceDocRefresh: true, committed: true,
+        commitView: false, reason: 'ws-main-hidden' };
+    assert.equal(await context.__tmRefreshAffectedDocsIncrementally(options), true);
+    assert.deepEqual(calls.order, ['freshness', 'tasks'], 'read the document revision before reading its task rows');
+    assert.equal(state.taskTree[0].docUpdated, newRevision, 'the stale document list must not supply the saved revision');
+    assert.equal(state.taskTree[0].tasks.length, 0);
+    assert.equal(state.flatTasks[taskId], undefined);
+    assert.equal(calls.snapshots.length, 1);
+    assert.equal(state.allDocuments[0].updated, oldRevision);
+
+    // A failed freshness read must leave the existing projection and dirty
+    // targets available for the coordinator's retry, without querying tasks.
+    calls.order.length = 0;
+    context.API.getTaskFreshnessByDocuments = async () => ({ unavailable: true });
+    const deferred = [];
+    assert.equal(await context.__tmRefreshAffectedDocsIncrementally({ ...options, onDeferred: (reason) => deferred.push(reason) }), false);
+    assert.deepEqual(deferred, ['document-freshness-unavailable']);
+    assert.equal(calls.order.length, 0);
+    assert.equal(calls.snapshots.length, 1);
+    context.API.getTaskFreshnessByDocuments = async () => {
+        revision++;
+        return { map: new Map([[docId, { exists: true, docUpdated: newRevision }]]) };
+    };
+    deferred.length = 0;
+    assert.equal(await context.__tmRefreshAffectedDocsIncrementally({ ...options, onDeferred: (reason) => deferred.push(reason) }), false);
+    assert.deepEqual(deferred, ['task-store-changed'], 'a mutation during the revision read must prevent the task query');
+    assert.equal(calls.order.length, 0);
 });

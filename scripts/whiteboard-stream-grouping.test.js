@@ -56,6 +56,7 @@ const __tmResolveHideCompletedDescendantsFlag = (task, inherited) => inherited |
 const __tmShouldKeepChildTaskVisible = (task, child, inherited) => !__tmResolveHideCompletedDescendantsFlag(task, inherited) || !__tmIsTaskClosedForDisplay(child);
 const __tmKanbanGetCollapsedSet = () => fixture.taskCollapsed;
 const __tmIsTaskMultiSelected = () => false;
+const __tmGetTaskSearchFields = () => ['content', 'remark'];
 const __tmRenderCompletedTodayBadge = () => '';
 const __tmBuildTooltipAttrs = (title) => ' title="' + esc(title) + '"';
 const __tmBuildTaskTitleOpacityStyle = () => '';

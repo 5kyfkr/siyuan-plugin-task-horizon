@@ -231,6 +231,9 @@
             };
 
             const whiteboardScope = __tmResolveWhiteboardScope();
+            if (state.whiteboardTraversal && state.whiteboardTraversal.scopeKey !== __tmGetWhiteboardTraversalScopeKey()) {
+                state.whiteboardTraversal = null;
+            }
             const selectedDocIds = whiteboardScope.docId
                 ? [whiteboardScope.docId]
                 : docsInOrder.filter((id) => whiteboardScope.docIds.has(id) && visibleDocIdSet.has(id)
@@ -285,7 +288,8 @@
                 } catch (e) {}
                 const keyword = String(state.searchKeyword || '').trim();
                 if (keyword && typeof __tmTaskMatchesSearch === 'function') {
-                    tasks = tasks.filter((task) => __tmTaskMatchesSearch(task, keyword));
+                    const searchFields = __tmGetTaskSearchFields();
+                    tasks = tasks.filter((task) => __tmTaskMatchesSearch(task, keyword, searchFields));
                 }
                 return new Set(tasks.map((task) => String(task?.id || '').trim()).filter(Boolean));
             })();
@@ -1064,6 +1068,7 @@
                     const canMoveBack = selected && !!parentId && detachedOrDetachedLike;
                     const toolsHtml = selected && !isFrozen ? `
                         <div class="tm-whiteboard-card-tools">
+                            ${__tmBuildWhiteboardTraversalButtonHtml(tid)}
                             <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteCard('${escSq(tid)}', '${escSq(taskDocId)}', event)" title="${esc(deleteTitle)}">移除</button>
                             ${canMoveBack ? `<button class="tm-btn tm-btn-info" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardMoveBackToParent('${escSq(tid)}', '${escSq(taskDocId)}', event)" title="移回父任务">移回父任务</button>` : ''}
                         </div>
@@ -2301,6 +2306,7 @@
                         <div class="tm-whiteboard-main">
                             <button class="tm-btn tm-btn-info tm-whiteboard-sidebar-toggle" onclick="tmWhiteboardToggleSidebar(event)" title="${sidebarToggleLabel}">${sidebarToggleGlyph}</button>
                             <div id="tmWhiteboardViewport" class="tm-whiteboard-viewport${viewportToolClass}" onpointerdown="tmWhiteboardViewportMouseDown(event)" oncontextmenu="return tmWhiteboardViewportContextMenu(event)" onclick="tmWhiteboardBoardClick(event)" ondblclick="tmWhiteboardBoardDblClick(event)" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event)">
+                                <button type="button" class="tm-btn tm-btn-info tm-whiteboard-traversal-exit" hidden onclick="tmWhiteboardExitTraversal(event)" title="退出关联遍历（Esc）">退出遍历</button>
                                 <div id="tmWhiteboardWorld" class="tm-whiteboard-world" style="transform:translate(${view.x}px, ${view.y}px) scale(${view.zoom});">
                                     <div class="tm-whiteboard tm-kanban--clean${isKanbanCompact ? ' tm-kanban--compact' : ''}">
                                         ${docsHtml || `<div style="padding:18px;color:var(--tm-secondary-text);">暂无任务可用于白板视图</div>`}

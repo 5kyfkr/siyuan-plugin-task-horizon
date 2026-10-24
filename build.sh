@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+node scripts/sync-kernel-recurrence.js
+
 OUTPUT="package.zip"
 PLUGIN_DIR="."
 

@@ -111,8 +111,14 @@
                 .map(normalizeField)
                 .filter(Boolean));
             const has = (fields) => fields.some((field) => changedFields.has(field));
+            const searchFields = new Set((Array.isArray(context.searchFields) ? context.searchFields : SEARCH_FIELDS)
+                .map(normalizeField).filter(Boolean));
+            const searchChanged = fieldsIntersect(changedFields, searchFields)
+                || (changedFields.has('customFieldValues')
+                    && !Array.from(changedFields).some((field) => field.startsWith('customField:'))
+                    && Array.from(searchFields).some((field) => field.startsWith('customField:')));
             const filter = fieldsIntersect(changedFields, ruleDependencies.filterFields)
-                || (context.searchActive === true && has(SEARCH_FIELDS))
+                || (context.searchActive === true && searchChanged)
                 || has(COMPLETION_FIELDS);
             const sort = fieldsIntersect(changedFields, ruleDependencies.sortFields)
                 || changedFields.has('pinned')

@@ -440,8 +440,8 @@
                 const touchDragAttr = __tmShouldUseCustomTouchTaskDrag()
                     ? `onpointerdown="tmTaskTouchDragStart(event, '${escSq(String(task.id || ''))}')"`
                     : '';
-                const remarkSearchSnippetHtml = !compactRemarkHtml && typeof __tmBuildTaskRemarkSearchSnippet === 'function'
-                    ? __tmBuildTaskRemarkSearchSnippet(task, state.searchKeyword)
+                const remarkSearchSnippetHtml = typeof __tmBuildTaskSearchSnippet === 'function'
+                    ? __tmBuildTaskSearchSnippet(task, state.searchKeyword, { excludeFields: compactRemarkHtml ? ['remark'] : [] })
                     : '';
                 renderedChecklistTaskCount += 1;
                 const taskTitleHtml = API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || '(无内容)');

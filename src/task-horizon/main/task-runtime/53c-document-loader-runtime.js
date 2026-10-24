@@ -733,6 +733,7 @@
                 viewMode: getCurrentViewMode(''),
                 currentRule: String(state.currentRule || '').trim(),
                 searchKeyword: String(state.searchKeyword || '').trim(),
+                searchFields: __tmGetTaskSearchFields().join(','),
                 projectVisibilityRevision: globalThis.__tmProjectVisibility?.getRevision() || 0,
                 showCompletedTasks: state.showCompletedTasks === true ? 1 : 0,
                 completedTasksTodayOnly: SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0,
@@ -782,6 +783,7 @@
                 if (getCurrentViewMode('') !== snapshotCacheVerifyBefore.viewMode) return 'view-mode-changed';
                 if (String(state.currentRule || '').trim() !== snapshotCacheVerifyBefore.currentRule) return 'rule-changed';
                 if (String(state.searchKeyword || '').trim() !== snapshotCacheVerifyBefore.searchKeyword) return 'search-changed';
+                if (__tmGetTaskSearchFields().join(',') !== snapshotCacheVerifyBefore.searchFields) return 'search-fields-changed';
                 if ((globalThis.__tmProjectVisibility?.getRevision() || 0) !== snapshotCacheVerifyBefore.projectVisibilityRevision) return 'project-visibility-changed';
                 if ((state.showCompletedTasks === true ? 1 : 0) !== snapshotCacheVerifyBefore.showCompletedTasks) return 'completed-toggle-changed';
                 if ((SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksTodayOnly) return 'completed-today-only-changed';
@@ -2268,6 +2270,7 @@
                         else if (getCurrentViewMode('') !== snapshotCacheVerifyBefore.viewMode) remapSkipReason = 'view-mode-changed';
                         else if (String(state.currentRule || '').trim() !== snapshotCacheVerifyBefore.currentRule) remapSkipReason = 'rule-changed';
                         else if (String(state.searchKeyword || '').trim() !== snapshotCacheVerifyBefore.searchKeyword) remapSkipReason = 'search-changed';
+                        else if (__tmGetTaskSearchFields().join(',') !== snapshotCacheVerifyBefore.searchFields) remapSkipReason = 'search-fields-changed';
                         else if ((globalThis.__tmProjectVisibility?.getRevision() || 0) !== snapshotCacheVerifyBefore.projectVisibilityRevision) remapSkipReason = 'project-visibility-changed';
                         else if ((state.showCompletedTasks === true ? 1 : 0) !== snapshotCacheVerifyBefore.showCompletedTasks) remapSkipReason = 'completed-toggle-changed';
                         else if ((SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksTodayOnly) remapSkipReason = 'completed-today-only-changed';
@@ -2426,15 +2429,6 @@
                 }
                 if (loadBudget.enabled) {
                     scheduleFullLoadAfterFastFirstPaint('query-first-paint');
-                }
-                if (activeModal && isTokenCurrent()) {
-                    try {
-                        requestAnimationFrame(() => {
-                            try { void __tmMaybeAutoPromptSemanticDates(token).catch(() => null); } catch (e) {}
-                        });
-                    } catch (e) {
-                        try { void __tmMaybeAutoPromptSemanticDates(token).catch(() => null); } catch (e2) {}
-                    }
                 }
                 scheduleDeferredPostLoadWork();
                 if (deferH2Enhance && taskIds0.length > 0) {

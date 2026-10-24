@@ -3498,6 +3498,7 @@
         if (expectedSessionId && Number(root.__tmTaskDetailSessionId || 0) !== expectedSessionId) return false;
         try { root.__tmTaskDetailClosed = true; } catch (e) {}
         try { root.__tmTaskDetailClosing = true; } catch (e) {}
+        try { __tmScheduleSemanticDatePrompt(); } catch (e) {}
         return true;
     }
 
@@ -4181,6 +4182,7 @@ __tmScheduleViewRefresh(pending);
             viewMode: String(state.viewMode || '').trim(),
             groupMode,
             searchActive: !!String(state.searchKeyword || '').trim(),
+            searchFields: __tmGetTaskSearchFields(),
             kanbanMode,
             kanbanCardFields: Array.isArray(kanbanCardFields) ? kanbanCardFields : [],
         };
@@ -10250,7 +10252,7 @@ return false;
 
             const durationRow = document.createElement('label');
             durationRow.className = 'tm-focus-summary-editor__field';
-            durationRow.innerHTML = `<span>预计时长</span><input type="text" class="tm-duration-editor-input" data-tm-focus-duration placeholder="例如：30 或 30m" value="${esc(durationValue)}">`;
+            durationRow.innerHTML = `<span>预计时长</span><input type="text" class="bc-input tm-duration-editor-input" data-tm-focus-duration placeholder="例如：30 或 30m" value="${esc(durationValue)}">`;
             durationPanel.appendChild(durationRow);
             editor.appendChild(durationPanel);
             const durationInput = durationRow.querySelector('[data-tm-focus-duration]');
@@ -10260,7 +10262,7 @@ return false;
             estimatePanel.setAttribute('data-tm-focus-summary-panel', 'tomato');
             const estimateRow = document.createElement('label');
             estimateRow.className = 'tm-focus-summary-editor__field';
-            estimateRow.innerHTML = `<span>预计番茄</span><input type="number" min="0" step="1" inputmode="numeric" data-tm-focus-estimate placeholder="空或整数" value="${esc(estimateValue)}">`;
+            estimateRow.innerHTML = `<span>预计番茄</span><input type="number" min="0" step="1" inputmode="numeric" class="bc-input" data-tm-focus-estimate placeholder="空或整数" value="${esc(estimateValue)}">`;
             estimatePanel.appendChild(estimateRow);
             editor.appendChild(estimatePanel);
             const estimateInput = estimateRow.querySelector('[data-tm-focus-estimate]');
@@ -11386,6 +11388,7 @@ return false;
             currentGroupId: String(settings.currentGroupId || 'all').trim() || 'all',
             currentRule: String(state.currentRule || '').trim(),
             searchKeyword: String(state.searchKeyword || '').trim(),
+            searchFields: __tmGetTaskSearchFields().join(','),
             listRenderSignature: String(state.listRenderSignature || '').trim(),
             activeRuleSignature: activeRule ? (() => {
                 try { return JSON.stringify(activeRule); } catch (e) { return String(activeRule?.id || ''); }
@@ -11439,7 +11442,7 @@ return false;
         if (!cache || !meta || !Array.isArray(cache.rows)) return false;
         const keys = [
             'filteredTasksRef', 'taskTreeRef', 'taskDocHeadingGroupTasksRef', 'filterRulesRef', 'taskStoreRevision', 'viewMode',
-            'activeDocId', 'currentGroupId', 'currentRule', 'searchKeyword', 'listRenderSignature', 'activeRuleSignature', 'groupByDocName',
+            'activeDocId', 'currentGroupId', 'currentRule', 'searchKeyword', 'searchFields', 'listRenderSignature', 'activeRuleSignature', 'groupByDocName',
             'groupByTaskName', 'groupByTime', 'quadrantEnabled', 'showCompletedTasks',
             'docTabsArchiveMode', 'calendarSidebarChecklistRender', 'calendarSidebarChecklistMounted', 'isDark', 'collapsedTaskIds', 'collapsedGroups',
             'expandedCompletedGroups', 'todayKey', 'settingsSignature',

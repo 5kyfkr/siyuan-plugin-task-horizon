@@ -3718,6 +3718,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             String(state.currentRule || '').trim(),
             ruleSignature,
             String(state.searchKeyword || '').trim(),
+            __tmGetTaskSearchFields().join(','),
             String(state.docTabsArchiveMode === true ? 1 : 0),
             String(SettingsStore?.data?.docTabsManualArchiveOnly ? 1 : 0),
             String(state.groupByDocName ? 1 : 0),
@@ -10847,8 +10848,9 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         if (state.searchKeyword) {
             const keyword = state.searchKeyword;
-            matchedForTabs = matchedForTabs.filter((task) => __tmTaskMatchesSearch(task, keyword));
-            matched = taskScopeMatchesTabs ? matchedForTabs : matched.filter((task) => __tmTaskMatchesSearch(task, keyword));
+            const searchFields = __tmGetTaskSearchFields();
+            matchedForTabs = matchedForTabs.filter((task) => __tmTaskMatchesSearch(task, keyword, searchFields));
+            matched = taskScopeMatchesTabs ? matchedForTabs : matched.filter((task) => __tmTaskMatchesSearch(task, keyword, searchFields));
         }
 
         const filteredDocIdsForTabs = new Set();
@@ -14344,6 +14346,11 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.searchBarPortalPositionHandler = handler;
         try { window.addEventListener('resize', handler, { passive: true }); } catch (e) {}
         try { document.addEventListener('scroll', handler, true); } catch (e) {}
+        state.searchBarDismissFieldsHandler = (event) => {
+            const scope = document.querySelector('#tmInlineSearchbarPortal .tm-search-fields');
+            if (scope && !scope.contains(event.target)) window.tmToggleSearchScope?.(null, false);
+        };
+        document.addEventListener('pointerdown', state.searchBarDismissFieldsHandler, true);
     }
 
     function __tmUnbindInlineSearchBarPortalPositionEvents() {
@@ -14351,6 +14358,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!handler) return;
         try { window.removeEventListener('resize', handler); } catch (e) {}
         try { document.removeEventListener('scroll', handler, true); } catch (e) {}
+        document.removeEventListener('pointerdown', state.searchBarDismissFieldsHandler, true);
+        state.searchBarDismissFieldsHandler = null;
         state.searchBarPortalPositionHandler = null;
     }
 
@@ -14362,10 +14371,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                     class="tm-inline-searchbar__input"
                     type="search"
                     value="${esc(String(value || ''))}"
-                    placeholder="搜索任务或备注"
+                    placeholder="输入关键词"
                     autocomplete="off"
                     spellcheck="false"
-                    aria-label="搜索任务或备注"
+                    aria-label="搜索关键词"
                     oninput="tmInputInlineSearch(event)"
                     onkeydown="return tmHandleInlineSearchKeydown(event)"
                 >
@@ -14375,14 +14384,30 @@ return Number(state.contextInteractionQuietUntil || 0);
                 <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-inline-searchbar__btn tm-inline-searchbar__btn--icon" type="button" onclick="tmClearInlineSearch(event)"${__tmBuildTooltipAttrs('清除搜索', { side: 'bottom' })}>
                     <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('x-circle', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
                 </button>
+                <div class="tm-search-fields" onkeydown="if(event.key === 'Escape')tmToggleSearchScope(event,false)">
+                    <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-inline-searchbar__btn tm-inline-searchbar__btn--icon tm-search-fields__trigger" aria-expanded="false" aria-controls="tmSearchScopePanel" onclick="tmToggleSearchScope(event)"${__tmBuildTooltipAttrs('搜索范围', { side: 'bottom' })}>
+                        <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('dots-three', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
+                    </button>
+                    <div id="tmSearchScopePanel" class="tm-search-fields__panel" hidden>
+                        <div class="tm-search-fields__heading"><span>搜索范围</span><button type="button" class="tm-search-fields__reset" onclick="tmResetSearchFields(event)">恢复默认</button></div>
+                        <div data-tm-search-field-options></div>
+                        <div class="tm-search-fields__hint">在勾选的范围中搜索</div>
+                    </div>
+                </div>
                 <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-inline-searchbar__btn tm-inline-searchbar__btn--icon" type="button" onclick="tmCloseInlineSearch(event)"${__tmBuildTooltipAttrs('关闭搜索条', { side: 'bottom' })}>
                     <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('x', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
                 </button>
+                <div class="tm-inline-searchbar__status" role="status" hidden></div>
             </form>
         `;
     }
 
     function __tmRemoveInlineSearchBarPortal() {
+        const bar = document.getElementById('tmInlineSearchbarPortal');
+        if (state.floatingTooltipTarget && bar?.contains(state.floatingTooltipTarget)) __tmHideFloatingTooltip();
+        state.searchRequest = null;
+        state.searchLoading = false;
+        state.searchLoadError = false;
         __tmCancelInlineSearchLiveTimer();
         __tmUnbindInlineSearchBarPortalPositionEvents();
         try { document.getElementById('tmInlineSearchbarPortal')?.remove?.(); } catch (e) {}
@@ -14424,6 +14449,29 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (input instanceof HTMLInputElement && document.activeElement !== input && options?.syncValue !== false) {
             try { input.value = String(state.searchKeyword || ''); } catch (e) {}
         }
+        const fields = __tmGetTaskSearchFields();
+        const fieldOptions = __tmGetTaskSearchFieldOptions();
+        const list = bar.querySelector('[data-tm-search-field-options]');
+        const signature = JSON.stringify(fieldOptions);
+        if (list.dataset.signature !== signature) {
+            list.innerHTML = fieldOptions.map((field) => `<label class="tm-search-fields__option"><input type="checkbox" value="${esc(field.id)}" onchange="tmToggleSearchField(event)"><span>${esc(field.name)}</span></label>`).join('');
+            list.dataset.signature = signature;
+        }
+        list.querySelectorAll('input').forEach((checkbox) => { checkbox.checked = fields.includes(checkbox.value); });
+        const status = bar.querySelector('.tm-inline-searchbar__status');
+        status.hidden = !state.searchLoading && !state.searchLoadError;
+        status.textContent = state.searchLoading ? '正在加载搜索内容…' : '';
+        if (state.searchLoadError) {
+            status.textContent = '搜索内容加载失败，结果可能不完整。';
+            const retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'tm-search-fields__reset';
+            retry.textContent = '重试';
+            retry.onclick = () => window.tmSearch(__tmGetInlineSearchInput()?.value ?? state.searchKeyword);
+            status.appendChild(retry);
+        }
+        bar.setAttribute('aria-busy', state.searchLoading ? 'true' : 'false');
+        __tmBindFloatingTooltips(bar);
         __tmBindInlineSearchBarPortalPositionEvents();
         __tmPositionInlineSearchBarPortal();
         if (options?.focus === true) {
@@ -14510,6 +14558,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         try { event?.stopPropagation?.(); } catch (e) {}
         __tmCancelInlineSearchLiveTimer();
         state.searchKeyword = '';
+        state.searchRequest = null;
+        state.searchLoading = false;
+        state.searchLoadError = false;
         state.searchBarOpen = false;
         state.searchBarFocusAfterRender = false;
         state.searchBarSelectAfterRender = true;
@@ -14531,13 +14582,89 @@ return Number(state.contextInteractionQuietUntil || 0);
         return true;
     };
 
-    window.tmSearch = function(keyword) {
+    window.tmToggleSearchScope = function(event, forceOpen) {
+        event?.preventDefault();
+        event?.stopPropagation();
+        const bar = document.getElementById('tmInlineSearchbarPortal');
+        const panel = bar?.querySelector('#tmSearchScopePanel');
+        const trigger = bar?.querySelector('.tm-search-fields__trigger');
+        if (!panel || !trigger) return;
+        const open = typeof forceOpen === 'boolean' ? forceOpen : panel.hidden;
+        panel.hidden = !open;
+        trigger.setAttribute('aria-expanded', String(open));
+        if (event?.key === 'Escape') trigger.focus();
+    };
+
+    function __tmApplyTaskSearchFields(fields) {
+        SettingsStore.data.taskSearchFields = __tmGetTaskSearchFields(fields);
+        SettingsStore.save().catch(() => hint('搜索范围保存失败'));
+        const input = __tmGetInlineSearchInput();
+        window.tmSearch(input instanceof HTMLInputElement ? input.value : state.searchKeyword);
+    }
+
+    window.tmToggleSearchField = function(event) {
+        const checkbox = event.target;
+        const fields = new Set(__tmGetTaskSearchFields());
+        if (checkbox.checked) fields.add(checkbox.value);
+        else fields.delete(checkbox.value);
+        if (!fields.size) {
+            checkbox.checked = true;
+            hint('请至少选择一项搜索范围');
+            return;
+        }
+        __tmApplyTaskSearchFields(Array.from(fields));
+    };
+
+    window.tmResetSearchFields = function(event) {
+        event?.preventDefault();
+        __tmApplyTaskSearchFields(['content', 'remark']);
+    };
+
+    window.tmSearch = async function(keyword) {
+        __tmCancelInlineSearchLiveTimer();
         const next = String(keyword || '').trim();
         state.searchKeyword = next;
+        const request = {};
+        state.searchRequest = request;
+        state.searchLoading = false;
+        state.searchLoadError = false;
+        const fieldIds = next ? __tmGetTaskSearchFields().map(__tmParseCustomFieldColumnKey).filter(Boolean) : [];
+        const taskMap = globalThis.__tmTaskStore?.getFlatMap?.() || state.flatTasks || {};
+        const needsLoad = fieldIds.length && Object.values(taskMap).some((task) => task.__tmLoadedAllCustomFields !== true
+            && fieldIds.some((id) => !(task.__tmLoadedCustomFieldIds || []).includes(id)));
         if (next) {
             state.searchBarOpen = true;
+        }
+        state.searchLoading = !!needsLoad;
+        window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
+        if (needsLoad) {
+            try {
+                let result;
+                for (let attempt = 0; attempt < 2; attempt += 1) {
+                    const signature = fieldIds.join(',');
+                    let load = state.searchFieldLoad;
+                    const currentMap = globalThis.__tmTaskStore?.getFlatMap?.() || state.flatTasks;
+                    if (!load || load.taskMap !== currentMap || load.signature !== signature) {
+                        load = { taskMap: currentMap, signature, promise: __tmHydrateMissingRuntimeCustomFields(fieldIds) };
+                        state.searchFieldLoad = load;
+                    }
+                    result = await load.promise.finally(() => {
+                        if (state.searchFieldLoad === load) state.searchFieldLoad = null;
+                    });
+                    if (state.searchRequest !== request) return;
+                    if (result?.queryComplete !== false) break;
+                }
+                state.searchLoadError = result?.queryComplete === false;
+            } catch (e) {
+                if (state.searchRequest !== request) return;
+                state.searchLoadError = true;
+            }
+            state.searchLoading = false;
             window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
         }
+        state.listDomRenderSignature = '';
+        state.listRenderSignature = '';
+        __tmInvalidateFilteredTaskDerivedStateCache();
         __tmScheduleRender({ withFilters: true });
     };
 

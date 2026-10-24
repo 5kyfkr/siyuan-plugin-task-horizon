@@ -1919,7 +1919,7 @@
     }
 
     async function applyDomainResultEffects(name, result) {
-        const parsed = parseDomainResult(result);
+        let parsed = parseDomainResult(result);
         if (!parsed || parsed.ok === false) return;
         const refresh = collectTaskMutationRefresh(parsed);
         if (refresh) {
@@ -1929,7 +1929,24 @@
         if ((SCHEDULE_MUTATION_TOOLS.has(toolName) || toolName === 'undo_last_mutation') && containsScheduleMutation(parsed)) {
             try { await aiBridge()?.refreshScheduleMutation?.({ reason: `ai-${toolName}` }); } catch (error) {}
         }
-        if (toolName !== 'configure_task_reminder') return;
+        if (Array.isArray(parsed.items)) {
+            for (const item of parsed.items.filter(item => item?.ok && item.changes)) {
+                await applyDomainResultEffects(item.kind === 'task:create' ? 'create_task' : 'update_task', JSON.stringify({ ok: true, data: item.changes }));
+            }
+            return;
+        }
+        if (toolName === 'undo_last_mutation' && parsed.data) {
+            await applyDomainResultEffects('update_task', JSON.stringify({ ok: true, data: parsed.data }));
+            return;
+        }
+        if (parsed.completion && parsed.task) {
+            const linkage = await aiBridge()?.applyTaskCompletionReceipt?.(parsed.task, parsed.completion);
+            if (linkage?.ok === false) aiBridge()?.hint?.(`任务已保存，提醒联动需要重试：${linkage.message || ''}`, 'warning');
+        }
+        if (toolName !== 'configure_task_reminder') {
+            if (!Object.prototype.hasOwnProperty.call(parsed.changes || {}, 'reminder') && !parsed.task?.reminder) return;
+            parsed = { ...parsed, taskID: parsed.task?.id, hasReminder: parsed.task?.hasReminder === true, reminder: parsed.task?.reminder || null };
+        }
         const taskID = text(parsed.taskID || parsed.task?.id);
         if (!taskID) return;
         const value = parsed.hasReminder && parsed.reminder ? JSON.stringify(parsed.reminder) : '';
@@ -1954,7 +1971,7 @@
         try { globalThis.__tomatoUpdateReminderBadge?.(); } catch (error) {}
         try {
             globalThis.__tmBasecoat?.toast?.({
-                title: parsed.hasReminder ? '任务提醒创建完成' : '任务提醒已清除',
+                title: parsed.hasReminder ? (toolName === 'create_task' ? '任务提醒创建完成' : '任务提醒已更新') : '任务提醒已清除',
                 variant: 'success',
                 duration: 2500,
             });
@@ -2166,7 +2183,13 @@
             return `<div class="tm-agent-result"><div class="tm-agent-result__items">${items.slice(0, 50).map((item) => `<div><span>${esc(item.title || item.name || item.id || '结果')}</span><small>${esc(item.documentName || item.start || item.path || '')}</small></div>`).join('')}</div></div>`;
         }
         const task = parsed.task && typeof parsed.task === 'object' ? parsed.task : (parsed.id && parsed.title ? parsed : null);
-        if (task) return `<div class="tm-agent-result">${renderResultRows([{ label: '任务', value: task.title || task.id }, { label: '状态', value: task.done ? '已完成' : '未完成' }, { label: '文档', value: task.documentName || task.documentID || '' }])}</div>`;
+        if (task) return `<div class="tm-agent-result">${renderResultRows([
+            { label: '任务', value: task.title || task.id },
+            { label: '状态', value: task.repeatRule?.trigger === 'checkin' && parsed.repeatSummary ? '打卡计划已设置' : (parsed.completion?.advanced ? '本轮已完成，已进入下一轮' : (task.done ? (parsed.completion?.recurring ? '循环已完成' : '已完成') : '未完成')) },
+            ...(parsed.repeatSummary ? [{ label: '循环', value: parsed.repeatSummary }, { label: task.repeatRule?.trigger === 'checkin' ? '计划起始' : '本轮日期', value: task.repeatRule?.trigger === 'checkin' ? task.repeatRule.anchorDate : (task.completionTime || '') }] : []),
+            ...(task.reminder?.repeatMode === 'followTaskRepeat' ? [{ label: '提醒', value: `${(task.reminder.times || []).join('、')} · ${task.repeatRule?.trigger === 'checkin' ? '跟随打卡计划' : '跟随每轮任务日期'}` }] : []),
+            { label: '文档', value: task.documentName || task.documentID || '' },
+        ])}</div>`;
         return `<pre>${esc(result)}</pre>`;
     }
 
@@ -3455,6 +3478,7 @@
     function isReminderModeChoiceIntent(value) {
         const input = text(value);
         if (!input || isScheduledEventListIntent(input) || isScheduledEventHelpIntent(input)) return false;
+        if (!/(提醒|通知)/.test(input) || /(?:不(?:要|用|必|需|再)?|无需|别|取消|关闭).{0,3}(?:提醒|通知)/.test(input)) return false;
         if (isScheduledEventCreateIntent(input)) return true;
         if (/(怎么|如何|说明|介绍|支持什么|有哪些).{0,12}提醒|提醒.{0,12}(怎么|如何|说明|介绍|支持什么|有哪些)/.test(input)) return false;
         return /(?:创建|新建|设置|添加|安排|帮我|请).{0,16}(?:任务)?提醒|提醒我/.test(input);
@@ -3462,6 +3486,9 @@
 
     function reminderIntentInstruction(value) {
         if (!isReminderModeChoiceIntent(value)) return '';
+        if (/(每(?:隔|个|天|日|周|星期|月|年|工作日)|循环|重复|打卡|FSRS)/i.test(value) && !/(独立提醒|\bAI\b|智能体|定时任务|定时执行)/i.test(value)) {
+            return '\n\n本轮为跟随任务循环的提醒要求：使用 create_task 或 update_task 的 patch.repeatRule 保存任务循环，patch.followReminder.times 保存提醒时点，patch.followReminder.intentText 必须原样使用本轮用户请求；两者一起写入，不要另建 AI 定时任务或独立循环提醒，不要再询问提醒类型。';
+        }
         return '\n\n提醒意图选择：执行任何写入前，必须先调用思源 question 工具单选询问“这次要设置哪种提醒？”。选项固定为：AI 定时任务（到点后让智能体执行指令）、跟随任务提醒（根据要求时间直接设置截止日期并默认同步完成任务）、独立提醒（固定日期或独立重复）；multiple=false，custom=false。用户选择后立即继续，禁止自行猜测，也禁止追加写入确认。选择跟随任务提醒后，直接从用户原话解析日期和时间并传入 follow.date（YYYY-MM-DD）与 follow.times。用户说“今天/今晚”时日期唯一确定为当日，只有说“明天/明晚”时才使用次日；禁止调用 question 询问截止日期，禁止生成“今天/明天”或任何其他日期候选。configure_task_reminder 使用 action=apply 单次直接写入，不要先调用预览，也不要再索要 previewToken。没有由上下文明确绑定真实任务块时，必须先从用户原话提炼不含日期、时间和“提醒我”等命令词的任务核心词，调用 query_tasks（action=query、filters.keyword=核心词，且 filters 不传 scopeToken、ids 或 documentIDs）检索全部任务；不要沿用当前视图的范围令牌。优先选择未完成且标题完全一致的任务，其次选择语义明确对应的未完成任务，并把其 taskID 传给 configure_task_reminder；有多个合理候选时用 question 让用户选择目标任务。只有没有合理候选时才省略 taskID，传入 taskTitle 和插件默认新建位置 documentID，且不要先调用 create_task。提醒工具仍会按可见标题在全部任务中先精确、再模糊兜底匹配，少量错字也会优先绑定未完成任务，只有两种匹配都找不到时才创建任务并立即设置提醒；执行时会同时写入任务截止日期，也不询问跟随开始日期、日期偏移或是否同步完成。';
     }
 
@@ -3571,7 +3598,8 @@
         }
         const creationDestinationInstruction = await taskCreationDestinationInstruction(userText);
         const customFieldInstruction = await customFieldHierarchyInstruction();
-        const basePrompt = `${preset ? `${preset.prompt}\n\n用户请求：${userText}` : userText}${creationDestinationInstruction}${reminderIntentInstruction(userText)}${customFieldInstruction}`;
+        const repeatInstruction = `\n\n循环与提醒写入：使用任务工具 patch.repeatRule；普通循环用 completionTime 设置首次截止日期。按计划打卡使用 trigger=checkin，anchorDate 为计划起始日期，不写任务开始或截止日期；FSRS 间隔重复使用 type=fsrs，自动按完成触发并初始化复习状态。设置打卡或 FSRS 规则时不要写 done，实际打卡和评分使用任务原有入口。按现有语义识别的写入方式，循环日期与提醒分别判断。只有用户本轮明确提到“提醒”或“通知”才添加 patch.followReminder，时间本身不代表提醒意图；没有明确要求时不新增提醒，已有提醒随任务规则保留。明确需要提醒但未指定时间时使用默认 ${aiBridge()?.getDefaultReminderTime?.() || '08:00'}。不要直接编写 repeatState、repeatHistory 或 reminder；完成普通循环任务先读取 occurrenceId，写 done=true 时携带 expectedOccurrenceId。`;
+        const basePrompt = `${preset ? `${preset.prompt}\n\n用户请求：${userText}` : userText}${creationDestinationInstruction}${repeatInstruction}${reminderIntentInstruction(userText)}${customFieldInstruction}`;
         const taskScopeSnapshot = currentViewSnapshot || selectedTaskSnapshot;
         const taskScopeLabel = currentViewSnapshot
             ? (text(runtime.context.scope?.label) || '当前任务视图')

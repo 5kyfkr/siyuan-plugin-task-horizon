@@ -797,7 +797,7 @@ async function run() {
     assert.equal(safety.isScheduledEventHelpIntent('定时功能支持什么'), true);
     assert.equal(safety.isScheduledEventCreateIntent('现在你有哪些定时功能'), false);
     assert.equal(safety.isReminderModeChoiceIntent('设置今天9点15的提醒'), true, 'ambiguous reminder writes must ask which reminder system to use');
-    assert.equal(safety.isReminderModeChoiceIntent('每天下午7点定时总结今日完成任务'), true, 'scheduled Agent writes must also pass through the reminder choice');
+    assert.equal(safety.isReminderModeChoiceIntent('每天下午7点定时总结今日完成任务'), false, 'scheduled Agent requests without explicit reminder intent must not open the reminder choice');
     assert.equal(safety.isReminderModeChoiceIntent('给当前任务添加提醒'), true, 'task reminder writes without a time must still choose follow or independent mode');
     assert.equal(safety.isReminderModeChoiceIntent('查看已有的定时事件'), false, 'read-only scheduled-event requests must not open the choice');
     assert.equal(safety.isReminderModeChoiceIntent('提醒功能怎么用'), false, 'help requests must not open the choice');

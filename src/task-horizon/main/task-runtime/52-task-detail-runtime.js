@@ -229,6 +229,128 @@
         return String(task?.rootId || task?.root_id || task?.docId || '').trim();
     }
 
+    // 任务详情底部展示的创建时间来自思源块自身的 created（yyyyMMddHHmmss）。
+    // 块索引与投影任务通常带 created；缓存恢复、其他块或快照任务缺失时按块 ID 回查 SQL。
+    const __tmTaskDetailCreatedAtCache = new Map();
+
+    function __tmNormalizeTaskDetailCreatedAtValue(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        if (/^\d{14}$/.test(raw) || /^\d{8}$/.test(raw) || /^\d{13}$/.test(raw)) return raw;
+        const ts = typeof __tmParseTimeToTs === 'function' ? Number(__tmParseTimeToTs(raw)) : 0;
+        return Number.isFinite(ts) && ts > 0 ? raw : '';
+    }
+
+    function __tmReadTaskDetailCreatedAtRaw(taskLike) {
+        const item = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!item) return '';
+        const candidates = [item.created, item.created_at, item.blockCreated, item.block_created];
+        for (let index = 0; index < candidates.length; index += 1) {
+            const value = __tmNormalizeTaskDetailCreatedAtValue(candidates[index]);
+            if (value) return value;
+        }
+        return '';
+    }
+
+    function __tmFormatTaskDetailCreatedAt(value) {
+        const raw = __tmNormalizeTaskDetailCreatedAtValue(value);
+        if (!raw) return '';
+        if (typeof __tmFormatTaskCompletedAtTime === 'function') {
+            const shared = String(__tmFormatTaskCompletedAtTime(raw) || '').trim();
+            if (shared) return shared;
+        }
+        const ts = typeof __tmParseTimeToTs === 'function' ? Number(__tmParseTimeToTs(raw)) : 0;
+        if (!Number.isFinite(ts) || ts <= 0) return '';
+        const date = new Date(ts);
+        if (Number.isNaN(date.getTime())) return '';
+        const pad = (part) => String(part).padStart(2, '0');
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    function __tmRememberTaskDetailCreatedAt(blockId, value) {
+        const id = String(blockId || '').trim();
+        const raw = __tmNormalizeTaskDetailCreatedAtValue(value);
+        if (!id || !raw) return raw;
+        __tmTaskDetailCreatedAtCache.set(id, raw);
+        if (__tmTaskDetailCreatedAtCache.size > 400) {
+            const oldestKey = __tmTaskDetailCreatedAtCache.keys().next().value;
+            if (oldestKey !== undefined) __tmTaskDetailCreatedAtCache.delete(oldestKey);
+        }
+        return raw;
+    }
+
+    async function __tmResolveTaskDetailCreatedAtRaw(taskLike) {
+        const direct = __tmReadTaskDetailCreatedAtRaw(taskLike);
+        if (direct) return direct;
+        const blockId = typeof __tmGetTaskDetailBlockId === 'function'
+            ? String(__tmGetTaskDetailBlockId(taskLike) || '').trim()
+            : String(taskLike?.id || '').trim();
+        if (!blockId) return '';
+        if (__tmTaskDetailCreatedAtCache.has(blockId)) {
+            return String(__tmTaskDetailCreatedAtCache.get(blockId) || '');
+        }
+        if (typeof API?.call !== 'function') return '';
+        const safeId = blockId.replace(/'/g, "''");
+        try {
+            const res = await API.call('/api/query/sql', {
+                stmt: `SELECT created FROM blocks WHERE id = '${safeId}' LIMIT 1`,
+            });
+            const row = (res && res.code === 0 && Array.isArray(res.data)) ? res.data[0] : null;
+            return __tmRememberTaskDetailCreatedAt(blockId, row?.created);
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function __tmApplyTaskDetailCreatedAt(root, value) {
+        const rootEl = (root instanceof Element) ? root : null;
+        if (!rootEl) return false;
+        const footer = rootEl.querySelector?.('[data-tm-detail-footer]');
+        const valueEl = footer?.querySelector?.('[data-tm-detail-created-at-value]');
+        const text = __tmFormatTaskDetailCreatedAt(value);
+        if (!(footer instanceof HTMLElement) || !(valueEl instanceof HTMLElement) || !text) return false;
+        if (valueEl.textContent !== text) valueEl.textContent = text;
+        footer.hidden = false;
+        footer.dataset.tmDetailCreatedAt = 'resolved';
+        return true;
+    }
+
+    function __tmHydrateTaskDetailCreatedAt(root, taskLike) {
+        const rootEl = (root instanceof Element) ? root : null;
+        if (!rootEl) return false;
+        const footer = rootEl.querySelector?.('[data-tm-detail-footer]');
+        if (!(footer instanceof HTMLElement)) return false;
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!task) return false;
+        if (__tmApplyTaskDetailCreatedAt(rootEl, __tmReadTaskDetailCreatedAtRaw(task))) return true;
+        const taskId = String(task.id || '').trim();
+        if (!taskId) return false;
+        const requestId = `${taskId}:${Date.now()}`;
+        footer.dataset.tmCreatedAtRequest = requestId;
+        Promise.resolve()
+            .then(() => __tmResolveTaskDetailCreatedAtRaw(task))
+            .then((raw) => {
+                if (!raw) return false;
+                if (!footer.isConnected) return false;
+                if (footer.dataset.tmCreatedAtRequest !== requestId) return false;
+                return __tmApplyTaskDetailCreatedAt(rootEl, raw);
+            })
+            .catch(() => false);
+        return true;
+    }
+
+    function __tmBuildTaskDetailCreatedAtFooterHtml(taskLike) {
+        const createdAtText = __tmFormatTaskDetailCreatedAt(__tmReadTaskDetailCreatedAtRaw(taskLike));
+        return `
+                <div class="tm-task-detail-footer" data-tm-detail-footer${createdAtText ? '' : ' hidden'}>
+                    <span class="tm-task-detail-footer__item" data-tm-detail-created-at>
+                        <span class="tm-task-detail-footer__label">创建于</span>
+                        <span class="tm-task-detail-footer__value" data-tm-detail-created-at-value>${esc(createdAtText)}</span>
+                    </span>
+                </div>
+            `;
+    }
+
     function __tmGetTaskDetailRemarkRaw(task) {
         return String(task?.remark ?? task?.custom_remark ?? task?.customRemark ?? '');
     }
@@ -3003,6 +3125,61 @@
         return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
     }
 
+    function __tmFormatTaskDetailFocusDayLabel(dateKey) {
+        const key = String(dateKey || '').trim().slice(0, 10);
+        const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+        if (!matched) return key || '日期未知';
+        const today = new Date();
+        const pad = (value) => String(value).padStart(2, '0');
+        const todayKey = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+        const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+        const yesterdayKey = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`;
+        if (key === todayKey) return '今天';
+        if (key === yesterdayKey) return '昨天';
+        const year = Number(matched[1]);
+        const month = Number(matched[2]);
+        const day = Number(matched[3]);
+        return year === today.getFullYear() ? `${month}月${day}日` : `${year}年${month}月${day}日`;
+    }
+
+    function __tmBuildTaskDetailFocusRecordRows(buckets) {
+        return (Array.isArray(buckets) ? buckets : [])
+            .map((bucket) => {
+                const key = String(bucket?.key || '').trim().slice(0, 10);
+                const focusSec = Math.max(0, Number(bucket?.focusSec) || 0);
+                if (!(focusSec > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
+                return {
+                    key,
+                    focusSec,
+                    countdownCount: Math.max(0, Math.round(Number(bucket?.countdownSessionCount) || 0)),
+                    stopwatchCount: Math.max(0, Math.round(Number(bucket?.stopwatchSessionCount) || 0)),
+                    focusSessionCount: Math.max(0, Math.round(Number(bucket?.focusSessionCount) || 0)),
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.key.localeCompare(a.key));
+    }
+
+    function __tmRenderTaskDetailFocusRecordRows(rows) {
+        const list = Array.isArray(rows) ? rows : [];
+        if (!list.length) return '<div class="tm-focus-records-empty">暂无专注记录</div>';
+        return list.map((row) => {
+            const counts = [];
+            if (row.countdownCount > 0) counts.push(`${row.countdownCount} 个番茄`);
+            if (row.stopwatchCount > 0) counts.push(`${row.stopwatchCount} 次正计时`);
+            if (!counts.length && row.focusSessionCount > 0) counts.push(`${row.focusSessionCount} 次专注`);
+            return `
+                <div class="tm-focus-records-row">
+                    <span class="tm-focus-records-day">
+                        <span class="tm-focus-records-date">${esc(__tmFormatTaskDetailFocusDayLabel(row.key))}</span>
+                        ${counts.length ? `<span class="tm-focus-records-meta">· ${esc(counts.join(' · '))}</span>` : ''}
+                    </span>
+                    <span class="tm-focus-records-duration">${esc(__tmFormatTaskDetailFocusDuration(row.focusSec))}</span>
+                </div>
+            `;
+        }).join('');
+    }
+
     function __tmIsTaskDetailFocusStatisticsAvailable() {
         const service = globalThis.__tmFocusStatisticsService;
         return !!(service && typeof service.queryFocus === 'function'
@@ -3021,11 +3198,22 @@
             return false;
         }
         const expanded = section.querySelector('[data-tm-detail-section-toggle]')?.getAttribute('aria-expanded') !== 'false';
+        const taskId = String(detail?.taskID || section.dataset?.taskId || '').trim();
         const items = [
             ['自身', self.focusSec],
             ['子任务', descendants.focusSec],
             ['合计', combinedFocusSec],
         ];
+        const statsHtml = items.map(([label, seconds], index) => {
+            const numericSeconds = Math.max(0, Number(seconds) || 0);
+            const interactive = index === 0 && numericSeconds > 0 && !!taskId;
+            const head = `<span class="tm-task-detail-focus-stat-head"><span class="tm-task-detail-focus-stat-label">${esc(label)}</span>${interactive ? '<span class="tm-task-detail-focus-stat-chevron" aria-hidden="true">›</span>' : ''}</span>`;
+            const value = `<span class="tm-task-detail-focus-stat-value">${esc(__tmFormatTaskDetailFocusDuration(numericSeconds))}</span>`;
+            if (interactive) {
+                return `<button type="button" class="tm-task-detail-focus-stat tm-task-detail-focus-stat--records" data-tm-detail-focus-records="${esc(taskId)}" data-tm-detail-focus-records-target="${Math.round(numericSeconds)}" aria-haspopup="dialog" aria-expanded="false" title="查看专注记录">${head}${value}</button>`;
+            }
+            return `<div class="tm-task-detail-focus-stat">${head}${value}</div>`;
+        }).join('');
         section.innerHTML = `
             <div class="tm-task-detail-section-head">
                 <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="${expanded ? 'true' : 'false'}">
@@ -3033,9 +3221,7 @@
                     <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
                 </button>
             </div>
-            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:4px 0 2px;">
-                ${items.map(([label, seconds]) => `<div style="min-width:0;padding:9px 10px;border:1px solid var(--tm-border-color);border-radius:6px;background:var(--tm-card-bg);"><div style="font-size:11px;color:var(--tm-secondary-text);">${esc(label)}</div><div style="margin-top:4px;font-size:13px;font-weight:600;color:var(--tm-text-color);overflow-wrap:anywhere;">${esc(__tmFormatTaskDetailFocusDuration(seconds))}</div></div>`).join('')}
-            </div>
+            <div class="tm-task-detail-focus-stats">${statsHtml}</div>
         `;
         section.hidden = false;
         section.classList.toggle('is-collapsed', !expanded);
@@ -3049,6 +3235,8 @@
         const section = root?.querySelector?.('[data-tm-detail-focus-stats]');
         const taskId = String(task?.id || '').trim();
         if (!(section instanceof HTMLElement) || !taskId) return false;
+        // 统计卡片会被整体重绘，旧的记录弹窗没有可用的锚点，先关闭再重新加载。
+        try { root.__tmTaskDetailCloseFocusRecordsPopover?.(); } catch (e) {}
         const service = globalThis.__tmFocusStatisticsService;
         if (!__tmIsTaskDetailFocusStatisticsAvailable()) {
             return __tmRenderTaskDetailFocusStats(section, null);
@@ -3476,6 +3664,7 @@
                 ${__tmBuildTaskDetailAttachmentSectionHtml(task, detailTip)}
                 ${__tmBuildTaskRepeatHistorySectionHtml(task)}
                 ${__tmBuildTaskCheckinHistorySectionHtml(task)}
+                ${__tmBuildTaskDetailCreatedAtFooterHtml(task)}
             </div>
         `;
     }
@@ -3598,6 +3787,10 @@
             if (root.querySelector('[data-tm-detail-focus-stats]')) {
                 Promise.resolve().then(() => __tmLoadTaskDetailFocusStats(root, initialTask)).catch(() => {});
             }
+        }
+        if (initialTask) {
+            // 详情底部创建时间：任务对象自带块 created 时直接显示，缺失时回查思源块。
+            try { __tmHydrateTaskDetailCreatedAt(root, initialTask); } catch (e) {}
         }
         const sessionId = __tmCreateTaskDetailSession(root, taskId);
         try { root.__tmTaskDetailPendingSave = false; } catch (e) {}
@@ -5977,6 +6170,7 @@
             const popover = activeInlinePopover;
             const trigger = activeInlinePopoverTrigger;
             popover?.__tmDateModeUnsubscribe?.();
+            popover?.__tmInlinePopoverDispose?.();
             try {
 
             } catch (e) {}
@@ -6089,10 +6283,10 @@
                                 </div>
                             </div>
                         ` : ''}
-                        <label class="tm-focus-summary-editor__field"><span>预计时长</span><input class="tm-input tm-task-detail-inline-popover__input tm-duration-editor-input" data-tm-detail-inline-popover-input data-tm-focus-duration type="text" value="${esc(value)}" placeholder="例如：30 或 30m"></label>
+                        <label class="tm-focus-summary-editor__field"><span>预计时长</span><input class="bc-input tm-task-detail-inline-popover__input tm-duration-editor-input" data-tm-detail-inline-popover-input data-tm-focus-duration type="text" value="${esc(value)}" placeholder="例如：30 或 30m"></label>
                     </div>
                     <div class="tm-focus-summary-editor__panel" data-tm-focus-summary-panel="tomato" ${focusSummaryMode === 'tomato' ? '' : 'hidden'}>
-                        <label class="tm-focus-summary-editor__field"><span>预计番茄</span><input class="tm-input tm-task-detail-inline-popover__input" data-tm-focus-estimate type="number" min="0" step="1" inputmode="numeric" value="${esc(tomatoEstimateValue)}" placeholder="空或整数"></label>
+                        <label class="tm-focus-summary-editor__field"><span>预计番茄</span><input class="bc-input tm-task-detail-inline-popover__input" data-tm-focus-estimate type="number" min="0" step="1" inputmode="numeric" value="${esc(tomatoEstimateValue)}" placeholder="空或整数"></label>
                     </div>
                     <div class="tm-focus-summary-editor__readonly">
                         <span>实际番茄 <b class="tm-focus-summary-actual">${esc(actualTomatoValue || '0')}</b></span>
@@ -8709,6 +8903,136 @@
             syncPriorityUi();
             closeMenu('init');
         };
+        const FOCUS_RECORDS_INITIAL_LOOKBACK_DAYS = 365;
+        const FOCUS_RECORDS_MAX_LOOKBACK_DAYS = 3650;
+        const FOCUS_RECORDS_EXTEND_FACTOR = 4;
+        const setFocusRecordsLoading = (popover, text) => {
+            const body = popover?.querySelector?.('[data-tm-focus-records-body]');
+            if (!(body instanceof HTMLElement)) return;
+            body.innerHTML = `<div class="tm-focus-records-loading">${esc(text)}</div>`;
+            positionInlinePopover();
+        };
+        const setFocusRecordsError = (popover, message) => {
+            const body = popover?.querySelector?.('[data-tm-focus-records-body]');
+            if (!(body instanceof HTMLElement)) return;
+            body.innerHTML = `<div class="tm-focus-records-empty">${esc(message)}<button type="button" class="tm-focus-records-retry" data-tm-focus-records-retry>重试</button></div>`;
+            positionInlinePopover();
+        };
+        const renderFocusRecords = (popover, data, rows, targetSec) => {
+            const summary = popover?.querySelector?.('[data-tm-focus-records-summary]');
+            const body = popover?.querySelector?.('[data-tm-focus-records-body]');
+            if (!(body instanceof HTMLElement)) return;
+            const totalSec = Math.max(0, Number(data?.totals?.focusSec) || rows.reduce((sum, row) => sum + row.focusSec, 0));
+            if (summary instanceof HTMLElement) {
+                summary.hidden = rows.length === 0;
+                summary.textContent = rows.length ? `${rows.length} 天 · ${__tmFormatTaskDetailFocusDuration(totalSec)}` : '';
+            }
+            body.innerHTML = __tmRenderTaskDetailFocusRecordRows(rows);
+            if (targetSec > 5 && totalSec + 5 < targetSec) {
+                const note = document.createElement('div');
+                note.className = 'tm-focus-records-note';
+                note.textContent = '更早的记录不在当前时间范围内';
+                body.appendChild(note);
+            }
+            positionInlinePopover();
+        };
+        const loadFocusRecords = async (popover, tid, targetSec) => {
+            const token = {};
+            popover.__tmFocusRecordsToken = token;
+            let lookbackDays = FOCUS_RECORDS_INITIAL_LOOKBACK_DAYS;
+            while (activeInlinePopover === popover && popover.__tmFocusRecordsToken === token) {
+                setFocusRecordsLoading(popover, lookbackDays > FOCUS_RECORDS_INITIAL_LOOKBACK_DAYS ? '正在读取更早的专注记录…' : '正在读取专注记录…');
+                let gateway = null;
+                try {
+                    gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonQueryFocusStatistics', {
+                        from: new Date(Date.now() - lookbackDays * 86400000).toISOString(),
+                        to: new Date().toISOString(),
+                        bucket: 'day',
+                        groupBy: 'task',
+                        taskIDs: [tid],
+                        dropEmptyBuckets: true,
+                        deadlineAt: Date.now() + 8000,
+                    });
+                } catch (e) {
+                    if (activeInlinePopover !== popover || popover.__tmFocusRecordsToken !== token) return;
+                    setFocusRecordsError(popover, '专注记录读取失败');
+                    return;
+                }
+                if (activeInlinePopover !== popover || popover.__tmFocusRecordsToken !== token) return;
+                if (!gateway?.available) {
+                    setFocusRecordsError(popover, '番茄统计服务暂不可用');
+                    return;
+                }
+                const data = gateway.data || {};
+                const rows = __tmBuildTaskDetailFocusRecordRows(data?.totals?.buckets);
+                const totalSec = Math.max(0, Number(data?.totals?.focusSec) || 0);
+                if (totalSec + 5 >= targetSec || lookbackDays >= FOCUS_RECORDS_MAX_LOOKBACK_DAYS) {
+                    renderFocusRecords(popover, data, rows, targetSec);
+                    return;
+                }
+                lookbackDays = Math.min(FOCUS_RECORDS_MAX_LOOKBACK_DAYS, lookbackDays * FOCUS_RECORDS_EXTEND_FACTOR);
+            }
+        };
+        const openFocusRecordsPopover = (trigger, tid) => {
+            if (!(trigger instanceof HTMLElement) || !tid) return;
+            if (!__tmIsTaskDetailFocusStatisticsAvailable()) {
+                try { hint('⚠ 番茄统计服务暂不可用', 'warning'); } catch (e) {}
+                return;
+            }
+            if (activeInlinePopover && activeInlinePopoverTrigger === trigger) {
+                closeInlinePopover(false, 'toggle-focus-records');
+                return;
+            }
+            closeInlinePopover(false, 'replace-before-focus-records');
+            const targetSec = Math.max(0, Number(trigger.getAttribute('data-tm-detail-focus-records-target')) || 0);
+            const popover = document.createElement('div');
+            popover.className = 'tm-task-detail-inline-popover tm-task-detail-inline-popover--focus-records';
+            popover.setAttribute('role', 'dialog');
+            popover.setAttribute('aria-label', '专注记录');
+            popover.innerHTML = `
+                <div class="tm-focus-records-head">
+                    <div class="tm-focus-records-head-main">
+                        <span class="tm-focus-records-title">专注记录</span>
+                        <span class="tm-focus-records-summary" data-tm-focus-records-summary hidden></span>
+                    </div>
+                    <button type="button" class="tm-focus-records-close" data-tm-focus-records-close aria-label="关闭专注记录">&times;</button>
+                </div>
+                <div class="tm-focus-records-body" data-tm-focus-records-body>
+                    <div class="tm-focus-records-loading">正在读取专注记录…</div>
+                </div>
+            `;
+            document.body.appendChild(popover);
+            activeInlinePopover = popover;
+            activeInlinePopoverTrigger = trigger;
+            setTaskDetailActivePopover(popover);
+            try { trigger.classList.add('is-open'); } catch (e) {}
+            try { trigger.setAttribute('aria-expanded', 'true'); } catch (e) {}
+            positionInlinePopover();
+            try { __tmAnimatePopupIn(popover, { origin: 'top-left', duration: 150 }); } catch (e) {}
+            popover.__tmInlinePopoverDispose = () => {
+                popover.__tmFocusRecordsToken = null;
+            };
+            on(popover, 'click', (ev) => {
+                const target = ev.target instanceof Element ? ev.target : null;
+                if (!target) return;
+                if (target.closest('[data-tm-focus-records-close]')) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    closeInlinePopover(false, 'focus-records-close');
+                    return;
+                }
+                if (target.closest('[data-tm-focus-records-retry]')) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    void loadFocusRecords(popover, tid, targetSec);
+                }
+            });
+            void loadFocusRecords(popover, tid, targetSec);
+        };
+        root.__tmTaskDetailCloseFocusRecordsPopover = () => {
+            if (activeInlinePopover instanceof HTMLElement
+                && activeInlinePopover.classList.contains('tm-task-detail-inline-popover--focus-records')) {
+                closeInlinePopover(true, 'focus-stats-refresh');
+            }
+        };
         const bindCoreMetaControls = () => {
             on(root.querySelector('[data-tm-detail-time-hub-trigger]'), 'click', (ev) => {
                 try { ev.preventDefault(); } catch (e) {}
@@ -9088,6 +9412,17 @@
                         attachmentActionPending = false;
                     }
                 }
+            });
+            on(root, 'click', (ev) => {
+                const trigger = ev.target instanceof Element
+                    ? ev.target.closest('[data-tm-detail-focus-records]')
+                    : null;
+                if (!(trigger instanceof HTMLElement) || !root.contains(trigger)) return;
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                const tid = String(trigger.getAttribute('data-tm-detail-focus-records') || '').trim();
+                if (!tid) return;
+                openFocusRecordsPopover(trigger, tid);
             });
         };
         syncMetaChipFaces();

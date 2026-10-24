@@ -154,6 +154,7 @@ async function verifyDocumentReadGuard() {
     let deferredReason = '';
     const applied = await context.__tmRefreshAffectedDocsIncrementally({
         docIds: ['doc'], blockIds: ['known'], forceDocRefresh: true, committed: true,
+        docFreshnessMap: new Map(),
         reason: 'ws-test', onDeferred: (reason) => { deferredReason = reason; },
     });
     assert.equal(applied, false, 'refresh must preserve rejection of a stale task-store read');

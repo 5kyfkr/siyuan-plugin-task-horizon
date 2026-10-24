@@ -1108,6 +1108,7 @@
         if (prev === 'calendar' || next === 'calendar') forceFullRender = true;
         try { __tmRememberViewSwitchWindow(prev); } catch (e) {}
         state.viewMode = next;
+        if (next !== 'whiteboard' && state.whiteboardTraversal) window.tmWhiteboardExitTraversal?.();
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         try {

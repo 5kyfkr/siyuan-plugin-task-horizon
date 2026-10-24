@@ -452,23 +452,17 @@
             repeatRule: nextRule,
             repeatState: nextState,
         };
-        // Check-in schedules own their dates through anchorDate. Clear legacy
-        // task dates so they cannot conflict with the check-in plan or filters.
+        // Check-in schedules own their dates through anchorDate.
         if (nextRule.enabled && nextRule.trigger === 'checkin') {
-            patch.startDate = '';
             patch.completionTime = '';
-            nextState.lastInstanceStart = '';
             nextState.lastInstanceDue = '';
         }
         if (scheduleChanged && nextRule.trigger !== 'checkin' && __tmMonthRepeatCore?.isExplicit(nextRule)) {
             const currentKey = __tmNormalizeDateOnly(task.completionTime || task.startDate || nextRule.anchorDate);
             const firstKey = __tmMonthRepeatCore.nextDateKey(nextRule, currentKey, true);
             if (!firstKey) throw new Error('月循环没有有效日期，请检查日期和结束条件');
-            const deltaDays = __tmGetTaskRepeatLocalDayOrdinal(firstKey) - __tmGetTaskRepeatLocalDayOrdinal(currentKey);
             nextRule.anchorDate = firstKey;
-            if (task.startDate) patch.startDate = __tmShiftTaskRepeatDateKey(task.startDate, deltaDays);
-            if (task.completionTime || !task.startDate) patch.completionTime = firstKey;
-            nextState.lastInstanceStart = patch.startDate || '';
+            patch.completionTime = firstKey;
             nextState.lastInstanceDue = patch.completionTime || '';
         }
         if (nextRule.type === 'fsrs') {
@@ -484,6 +478,10 @@
             }
             if (!__tmNormalizeDateOnly(task?.completionTime || '')) patch.completionTime = dueKey;
         }
+        if (nextRule.enabled && nextRule.type !== 'none') {
+            patch.startDate = '';
+            nextState.lastInstanceStart = '';
+        }
         return patch;
     }
 
@@ -491,7 +489,11 @@
         const task = await __tmResolveTaskForRepeat(taskId);
         if (!task?.id) throw new Error('未找到任务');
         const opts = (options && typeof options === 'object') ? options : {};
-        const patch = __tmBuildTaskRepeatRuleMetaPatch(task, ruleInput);
+        const datePatch = {};
+        for (const field of ['startDate', 'completionTime']) {
+            if (Object.prototype.hasOwnProperty.call(opts.datePatch || {}, field)) datePatch[field] = opts.datePatch[field];
+        }
+        const patch = { ...datePatch, ...__tmBuildTaskRepeatRuleMetaPatch({ ...task, ...datePatch }, ruleInput) };
         const nextRule = patch.repeatRule;
         const nextState = patch.repeatState;
         if (__tmGetTaskRepeatScheduleSignature(task.repeatRule) !== __tmGetTaskRepeatScheduleSignature(nextRule)
