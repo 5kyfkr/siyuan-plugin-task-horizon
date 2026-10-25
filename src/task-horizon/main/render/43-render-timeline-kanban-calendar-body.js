@@ -2238,7 +2238,7 @@
                 const progressPercent = showColumnProgress ? __tmGetProjectProgressPercent(columnProgress, progressDocId) : 0;
                 const progressLabel = columnProgress.total ? `项目进度 ${progressPercent}%` : '暂无任务';
                 const progressTextHtml = showColumnProgress ? `<span class="tm-kanban-col-completion" title="${esc(progressLabel)}">${progressPercent}%</span>` : '';
-                const progressBarHtml = showColumnProgress ? `<div class="tm-kanban-col-progress" data-progress-doc="${esc(progressDocId)}" data-progress-key="${esc(c.id)}" data-progress-none-label="${esc(noHeadingLabel)}" role="progressbar" aria-label="${esc(c.name)}完成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" aria-valuetext="${esc(progressLabel)}" title="${esc(progressLabel)}" style="--tm-kanban-completion:${progressPercent / 100}"><span></span></div>` : '';
+                const progressBarHtml = showColumnProgress ? `<div class="tm-kanban-col-progress" data-progress-doc="${esc(progressDocId)}" data-progress-key="${esc(c.id)}" data-progress-total="${columnProgress.total}" data-progress-done="${columnProgress.done}" data-progress-none-label="${esc(noHeadingLabel)}" role="progressbar" aria-label="${esc(c.name)}完成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" aria-valuetext="${esc(progressLabel)}" title="${esc(progressLabel)}" style="--tm-kanban-completion:${progressPercent / 100}"><span></span></div>` : '';
                 const docIdForTitle = String(c?.docId || c?.id || '').trim();
                 const headingDocId = String(c?.docId || '').trim();
                 const headingIdForCreate = String(c?.headingId || '__none__').trim() || '__none__';

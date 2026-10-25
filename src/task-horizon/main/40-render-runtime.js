@@ -6197,13 +6197,17 @@
             if (globalThis.__tmTaskProjectionEngine?.isTaskCompleted?.(task) === true) addStats('__done__', task);
         });
         const applyCached = () => bars.forEach(bar => {
-            const stats = refreshLocal ? (statsByKey.get(bar.dataset.progressKey) || __tmCreateProjectTaskStats()) : null;
-            const cachedPercent = __tmGetFreshDocProgress(bar.dataset.progressDoc);
-            // Geometry/background paints only apply ready cache values. They
-            // must not traverse every task again on each animation frame.
-            if (!stats && cachedPercent === null) return;
-            const percent = cachedPercent !== null ? cachedPercent : __tmGetProjectProgressPercent(stats);
-            const label = !stats || stats.total ? `项目进度 ${percent}%` : '暂无任务';
+            if (refreshLocal) {
+                const local = statsByKey.get(bar.dataset.progressKey) || __tmCreateProjectTaskStats();
+                bar.dataset.progressTotal = local.total;
+                bar.dataset.progressDone = local.done;
+            }
+            // Retain counts with each bar so geometry paints can reconcile the
+            // SQL cache without traversing tasks or restoring stale completion.
+            const stats = __tmGetProjectTaskStats({ total: Number(bar.dataset.progressTotal) || 0,
+                done: Number(bar.dataset.progressDone) || 0 }, bar.dataset.progressDoc);
+            const percent = __tmGetProjectProgressPercent(stats);
+            const label = stats.total ? `项目进度 ${percent}%` : '暂无任务';
             if (Number(bar.getAttribute('aria-valuenow')) === percent && bar.getAttribute('aria-valuetext') === label) return;
             bar.style.setProperty('--tm-kanban-completion', percent / 100);
             bar.setAttribute('aria-valuenow', percent);

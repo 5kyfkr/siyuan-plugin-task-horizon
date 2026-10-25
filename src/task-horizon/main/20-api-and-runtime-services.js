@@ -18082,10 +18082,19 @@ if (opts.refresh === false) return;
         if (due && today && due < today) stats.overdue++;
     }
 
+    function __tmGetProjectTaskStats(stats, docId = '') {
+        const cached = docId ? __tmGetFreshDocProgressStats(docId) : null;
+        // A smaller local projection can use the full document snapshot. When
+        // all tasks are present locally, retain their current projected states.
+        if (cached && cached.done >= cached.total && Number(stats?.done) < Number(stats?.total)) return stats;
+        return cached && cached.total > Number(stats?.total || 0)
+            ? { ...stats, ...cached } : (stats || __tmCreateProjectTaskStats());
+    }
+
     function __tmGetProjectProgressPercent(stats, docId = '') {
-        const cached = docId ? __tmGetFreshDocProgress(docId) : null;
-        return cached !== null ? cached
-            : (stats?.total ? Math.min(100, Math.max(0, Math.round(stats.done / stats.total * 100))) : 0);
+        const current = __tmGetProjectTaskStats(stats, docId);
+        return current.total ? Math.min(current.done < current.total ? 99 : 100,
+            Math.max(0, Math.round(current.done / current.total * 100))) : 0;
     }
 
     function __tmBuildHomepageProjects(homepageTasks, todayKey) {
@@ -18142,10 +18151,10 @@ if (opts.refresh === false) return;
             const buildDocCard = (docEntry) => {
                 const id = String(docEntry?.id || '').trim();
                 if (!id) return null;
-                const agg = docAgg.get(id) || createAgg();
+                const agg = __tmGetProjectTaskStats(docAgg.get(id) || createAgg(), id);
                 const cachedProgress = __tmGetFreshDocProgress(id);
                 if (cachedProgress === null) noteMissingProgress(id);
-                const progress = __tmGetProjectProgressPercent(agg, id);
+                const progress = __tmGetProjectProgressPercent(agg);
                 const meta = __tmGetCachedDocExpectedMeta(id);
                 if (!meta) noteMissingMeta(id);
                 const expected = __tmComputeDocExpectedProgressPercent(meta);
@@ -18202,7 +18211,7 @@ if (opts.refresh === false) return;
                 return {
                     total,
                     done,
-                    pct: total ? Math.min(100, Math.max(0, Math.round((done / total) * 100))) : 0,
+                    pct: __tmGetProjectProgressPercent({ total, done }),
                     overdueDocs: list.filter((card) => (Number(card?.overdueDays) || 0) > 0).length,
                 };
             };
@@ -24556,6 +24565,7 @@ if (!state.homepageOpen) return;
 
     const __TM_DOC_PROGRESS_CACHE_TTL_MS = 8000;
     const __tmDocProgressCache = new Map();
+    const __tmDocProgressStatsCache = new Map();
     const __tmDocProgressLoadedAt = new Map();
     let __tmDocProgressGlobalRevision = 0;
     const __tmDocProgressBatchState = {
@@ -24572,11 +24582,13 @@ if (!state.homepageOpen) return;
         if (!did) {
             __tmDocProgressGlobalRevision += 1;
             __tmDocProgressCache.clear();
+            __tmDocProgressStatsCache.clear();
             __tmDocProgressLoadedAt.clear();
             return;
         }
         if (__tmDocProgressBatchState.active.has(did)) __tmDocProgressBatchState.invalidated.add(did);
         __tmDocProgressCache.delete(did);
+        __tmDocProgressStatsCache.delete(did);
         __tmDocProgressLoadedAt.delete(did);
     }
     const __TM_DOC_EXPECTED_START_ATTR = 'custom-tm-doc-start-date';
@@ -25134,6 +25146,11 @@ if (!state.homepageOpen) return;
         return Number.isFinite(value) ? value : null;
     }
 
+    function __tmGetFreshDocProgressStats(docId) {
+        const did = String(docId || '').trim();
+        return __tmGetFreshDocProgress(did) === null ? null : (__tmDocProgressStatsCache.get(did) || null);
+    }
+
     async function __tmFlushDocProgressBatch() {
         if (__tmDocProgressBatchState.running) return;
         try { if (__tmDocProgressBatchState.timer) clearTimeout(__tmDocProgressBatchState.timer); } catch (e) {}
@@ -25146,11 +25163,12 @@ if (!state.homepageOpen) return;
         docIds.forEach((did) => __tmDocProgressBatchState.invalidated.delete(did));
         const batchRevision = __tmDocProgressGlobalRevision;
         const results = new Map();
+        const statsByDoc = new Map();
         const staleDocIds = new Set();
         try {
             const idList = docIds.map((id) => "'" + id.replace(/'/g, "''") + "'").join(',');
             const sql = 'SELECT root_id, count(DISTINCT id) AS total, '
-                + `sum(CASE WHEN ${globalThis.__tmTaskStatusRules.sqlDone('markdown')} THEN 1 ELSE 0 END) AS completed `
+                + `count(DISTINCT CASE WHEN ${globalThis.__tmTaskStatusRules.sqlDone('markdown')} THEN id END) AS completed `
                 + 'FROM blocks WHERE root_id IN (' + idList + ") AND type='i' AND subtype='t' GROUP BY root_id";
             const response = await fetch('/api/query/sql', {
                 method: 'POST',
@@ -25165,8 +25183,9 @@ if (!state.homepageOpen) return;
                 if (!did) return;
                 const total = Number(row?.total) || 0;
                 const completed = Number(row?.completed) || 0;
+                statsByDoc.set(did, { total, done: completed });
                 results.set(did, total > 0
-                    ? Math.min(100, Math.max(0, Math.round((completed / total) * 100)))
+                    ? Math.min(completed < total ? 99 : 100, Math.max(0, Math.round((completed / total) * 100)))
                     : 0);
             });
             const loadedAt = Date.now();
@@ -25177,6 +25196,7 @@ if (!state.homepageOpen) return;
                 }
                 const percent = results.get(did) ?? 0;
                 __tmRememberSmallCache(__tmDocProgressCache, did, percent, 1024);
+                __tmRememberSmallCache(__tmDocProgressStatsCache, did, statsByDoc.get(did) || { total: 0, done: 0 }, 1024);
                 __tmRememberSmallCache(__tmDocProgressLoadedAt, did, loadedAt, 1024);
                 results.set(did, percent);
             });

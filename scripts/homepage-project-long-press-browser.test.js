@@ -11,7 +11,7 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 (async () => {
     const server = http.createServer((req, res) => {
         res.setHeader('Content-Type', 'text/html');
-        res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><main id="homepage"></main>');
+        res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div class="tm-modal tm-modal--mobile tm-modal--runtime-mobile"><div class="tm-box"><div class="tm-body tm-body--homepage"><main id="homepage"></main></div></div></div>');
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const browser = await chromium.launch({ headless: true });
@@ -20,6 +20,7 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
     page.on('pageerror', error => errors.push(error.message));
     try {
         await page.goto('http://127.0.0.1:' + server.address().port);
+        await page.addStyleTag({ content: read('task-horizon.css') });
         await page.addStyleTag({ content: 'body{margin:0;--b3-theme-surface:#fafbfc;--b3-theme-on-surface:#27313b;--b3-border-color:#d7dce2} #homepage{width:100%;min-height:100vh}' });
         await page.evaluate(() => {
             window.__saved = {};
@@ -73,6 +74,10 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 
         const point = await hold();
         const bounds = await menu.boundingBox();
+        assert.equal(await item.evaluate(el => {
+            const rect = el.getBoundingClientRect();
+            return el.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+        }), true, 'the menu must be above the real fullscreen shell and receive touches');
         assert.ok(Math.abs(bounds.x - point.x) <= 1 && Math.abs(bounds.y - point.y) <= 1,
             `the menu must open at the finger, got ${JSON.stringify({ bounds, point })}`);
         assert.ok(bounds.x + bounds.width <= 382 && bounds.y + bounds.height <= 836, 'the menu stays within the mobile viewport');

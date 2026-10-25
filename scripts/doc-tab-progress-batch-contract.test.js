@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { DatabaseSync } = require('node:sqlite');
 
 const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'task-horizon', 'main', '20-api-and-runtime-services.js'),
@@ -55,6 +56,29 @@ function createRuntime(fetchImpl) {
 }
 
 (async () => {
+    {
+        const db = new DatabaseSync(':memory:');
+        try {
+            db.exec("CREATE TABLE blocks (id TEXT, root_id TEXT, type TEXT, subtype TEXT, markdown TEXT)");
+            const insert = db.prepare("INSERT INTO blocks VALUES (?, 'doc-duplicates', 'i', 't', ?)");
+            insert.run('done', '- [x] Synthetic completed task');
+            insert.run('done', '- [x] Synthetic completed task');
+            insert.run('todo', '- [ ] Synthetic unfinished task');
+            const context = createRuntime(async (_url, request) => ({
+                json: async () => ({ code: 0, data: db.prepare(JSON.parse(request.body).stmt).all() }),
+            }));
+            const result = await context.window.__tmLoadDocProgressBatch(['doc-duplicates']);
+            assert.equal(result.get('doc-duplicates'), 50, 'duplicate completed index rows must not turn an unfinished document into 100 percent');
+            db.exec('DELETE FROM blocks');
+            for (let i = 0; i < 1000; i++) insert.run(String(i), i < 999 ? '- [x] Synthetic completed task' : '- [ ] Synthetic unfinished task');
+            context.invalidateProgress('doc-duplicates');
+            assert.equal((await context.window.__tmLoadDocProgressBatch(['doc-duplicates'])).get('doc-duplicates'), 99,
+                'rounding must reserve 100 percent for documents with no unfinished tasks');
+        } finally {
+            db.close();
+        }
+    }
+
     {
         let sqlCount = 0;
         let lastSql = '';

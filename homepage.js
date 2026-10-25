@@ -6065,8 +6065,12 @@
     }
 
     function isProjectCardCompleted(entity, manuallyCompleted = false) {
+        if (manuallyCompleted === true) return true;
+        const total = Number(entity?.total);
+        const done = Number(entity?.done);
+        if (Number.isFinite(total) && Number.isFinite(done)) return total > 0 && done >= total;
         const progress = Math.max(0, Math.min(100, Math.round(toNumber(entity?.progress, 0))));
-        return manuallyCompleted === true || progress >= 100;
+        return progress >= 100;
     }
 
     function renderProjectTimingStatusHtml(entity, todayKey, isCompleted = false) {
@@ -6253,7 +6257,7 @@
                 doneTasks += toNumber(section?.agg?.done, 0);
             });
         }
-        const collapsedPct = totalTasks ? Math.min(100, Math.max(0, Math.round((doneTasks / totalTasks) * 100))) : 0;
+        const collapsedPct = totalTasks ? Math.min(doneTasks < totalTasks ? 99 : 100, Math.max(0, Math.round((doneTasks / totalTasks) * 100))) : 0;
         const headActions = `
             <div class="tm-home-projects-head-actions">
                 ${collapsed ? `<span class="tm-home-projects-collapsed-summary">${totalTasks} 任务 · 完成 ${collapsedPct}%</span>` : ""}
@@ -6462,6 +6466,13 @@
         menu.id = "tm-home-project-context-menu";
         menu.className = "tm-home-project-context-menu";
         menu.setAttribute("role", "menu");
+        // The body-mounted menu must sit above the fullscreen host's stacking context.
+        let menuZIndex = 10001;
+        for (let ancestor = runtime.root; ancestor instanceof Element; ancestor = ancestor.parentElement) {
+            const zIndex = Number.parseInt(window.getComputedStyle(ancestor).zIndex, 10);
+            if (Number.isFinite(zIndex)) menuZIndex = Math.max(menuZIndex, zIndex + 1);
+        }
+        menu.style.zIndex = String(menuZIndex);
         const item = document.createElement("button");
         item.type = "button";
         item.setAttribute("role", "menuitem");

@@ -150,6 +150,14 @@ runtime = runtime.slice(0, startup) + `
         await page.evaluate(()=>{window.__sqlProjectCounts={'20261012000000-bbbbbbb':{total:100,completed:80}};kanbanTest.invalidateProgress();kanbanTest.mount();});
         await page.waitForFunction(()=>document.querySelector('[data-col-key="doc:20261012000000-bbbbbbb"] .tm-kanban-col-progress')?.getAttribute('aria-valuenow')==='80');
         assert.equal(await page.evaluate(()=>kanbanTest.projectProgress({total:75,done:45},'20261012000000-bbbbbbb')),80,'homepage and board reuse the authoritative document cache when local task data is incomplete');
+        await page.evaluate(async()=>{
+            window.__sqlProjectCounts={'20261012000000-bbbbbbb':{total:75,completed:75}};
+            kanbanTest.invalidateProgress();
+            await __tmLoadDocProgressBatch(['20261012000000-bbbbbbb']);
+            kanbanTest.mount();
+        });
+        await settle();
+        assert.equal(await page.locator('.tm-kanban-col[data-col-key="doc:20261012000000-bbbbbbb"] .tm-kanban-col-progress').getAttribute('aria-valuenow'),'60','background paints must not replace known unfinished tasks with a stale 100 percent cache');
         await page.evaluate(()=>{window.__sqlProjectCounts=null;kanbanTest.invalidateProgress();kanbanTest.mount();});
         await page.waitForFunction(()=>document.querySelector('[data-col-key="doc:20261012000000-bbbbbbb"] .tm-kanban-col-progress')?.getAttribute('aria-valuenow')==='60');
         await page.setViewportSize({width:390,height:844});
