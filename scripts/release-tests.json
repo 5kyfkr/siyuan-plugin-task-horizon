@@ -4,6 +4,7 @@
     "agent-recurring-reminder.test.js",
     "agent-recurring-reminder-workbench.test.js",
     "task-search-fields.test.js",
+    "task-attachment-document-create.test.js",
     "semantic-date-task-trigger.test.js",
     "semantic-date-repeat.test.js",
     "inbox-all-tab-visibility.test.js",
@@ -85,6 +86,7 @@
   ],
   "browser": [
     "task-search-fields-browser.test.js",
+    "task-attachment-document-create-browser.test.js",
     "semantic-date-confirmation-browser.test.js",
     "whiteboard-traversal-browser.test.js",
     "theme-rapid-switch-browser.test.js",

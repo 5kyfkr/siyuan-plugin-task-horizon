@@ -477,18 +477,6 @@ const clearFocusInsideElement = (element) => {
     }
 };
 
-const resetTaskDockReloadVisibility = (plugin = null) => {
-    const pluginName = String(plugin?.name || PLUGIN_ID).trim() || PLUGIN_ID;
-    const fullType = `${pluginName}${TASK_DOCK_TYPE}`;
-    try {
-        const pluginDocks = globalThis.siyuan?.storage?.["local-plugin-docks"];
-        const savedDock = pluginDocks?.[pluginName]?.[fullType];
-        if (!savedDock || savedDock.show === false) return;
-        savedDock.show = false;
-        platformUtils?.setStorageVal?.("local-plugin-docks", pluginDocks);
-    } catch (e) {}
-};
-
 const fetchText = async (url, data, timeoutMs = RESOURCE_FETCH_TIMEOUT_MS) => {
     let controller = null;
     let timer = null;
@@ -1550,7 +1538,6 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     }
 
     onLayoutReady() {
-        resetTaskDockReloadVisibility(this);
         this._taskWindowTopBarLayoutReady = true;
         this.syncWindowTopBar();
         this.syncCalendarSubscriptionTopBar();
@@ -1807,6 +1794,23 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     }) };
                 } catch (e) {
                     return { error: String(e?.message || e || "读取任务视图失败") };
+                }
+            }),
+            register("query_plugin_settings", "查询任务管理器设置", "查询 Task Horizon 常用设置的用途、设置路径及当前值，供用户选择设置；可省略 query 获取支持的设置目录，再按用户描述推荐。仅查询，不修改设置或任务。", {
+                type: "object",
+                properties: {
+                    query: { type: "string", maxLength: 200, description: "设置名称、关键词或用户需求；省略时返回常用设置目录" },
+                    limit: { type: "integer", minimum: 1, maximum: 20, description: "最多返回的设置项数，默认 12" },
+                },
+                additionalProperties: false,
+            }, { localRead: true }, async (args = {}) => {
+                try {
+                    if (typeof globalThis[PLUGIN_ID]?.querySettings !== "function") await ensureTaskMainLoaded();
+                    const querySettings = globalThis[PLUGIN_ID]?.querySettings;
+                    if (typeof querySettings !== "function") throw new Error("设置查询服务尚未就绪，请重载插件后重试");
+                    return { result: JSON.stringify(await querySettings(args)) };
+                } catch (e) {
+                    return { error: String(e?.message || e || "查询设置失败") };
                 }
             }),
         ];

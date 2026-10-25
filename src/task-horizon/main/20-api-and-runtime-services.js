@@ -127,6 +127,7 @@
         '/api/attr/getBlockAttrs', '/api/attr/batchGetBlockAttrs',
         '/api/filetree/listDocsByPath', '/api/filetree/getHPathByID',
         '/api/filetree/getPathByID', '/api/notebook/lsNotebooks',
+        '/api/filetree/getDocPaths',
     ]);
 
     async function __tmWithReadDeadline(read) {
@@ -208,10 +209,44 @@
             return Array.isArray(notebooks) ? notebooks : [];
         },
 
-        async createDocWithMd(notebook, path, markdown) {
-            const res = await this.call('/api/filetree/createDocWithMd', { notebook, path, markdown });
+        async createDocWithMd(notebook, path, markdown, options = {}) {
+            const parentID = String(options?.parentID || '').trim();
+            const res = await this.call('/api/filetree/createDocWithMd', {
+                notebook, path, markdown,
+                ...(parentID ? { parentID } : {}),
+            });
             if (res.code !== 0) throw new Error(res.msg || '创建文档失败');
             return res.data;
+        },
+
+        async createDocByParent(notebook, parentID, title, markdown, options = {}) {
+            const id = String(options?.id || '').trim();
+            if (!id) throw new Error('缺少新文档 ID');
+            // 旧版未知端点可能返回 HTTP 200 空正文，先用只读请求识别，避免重试结果不明的写入。
+            const probe = await this.call('/api/filetree/getDocPaths', { notebook, ids: [parentID] });
+            const legacyHost = (probe?.code === -1 && probe.msg === 'HTTP 404')
+                || (probe && typeof probe === 'object' && Object.keys(probe).length === 0);
+            if (legacyHost && options?.legacyPath) {
+                return await this.createDocWithMd(notebook, options.legacyPath, markdown, { parentID });
+            }
+            if (probe?.code !== 0) throw new Error(probe?.msg || '无法确认文档创建位置');
+            const res = await this.call('/api/filetree/createDocByParent', {
+                notebook, parentID, id,
+                title: { format: 'plain', text: title },
+                markdown,
+            });
+            // 仅旧服务端缺少端点时回退；业务错误不能改用名称路径重试。
+            if (res.code === -1 && res.msg === 'HTTP 404' && options?.legacyPath) {
+                return await this.createDocWithMd(notebook, options.legacyPath, markdown, { parentID });
+            }
+            if (res.code !== 0) {
+                throw Object.assign(new Error(res.msg || '创建文档失败'), {
+                    reason: res.data?.reason,
+                    commitState: res.data?.commitState,
+                    documentID: res.data?.id,
+                });
+            }
+            return res.data?.id;
         },
 
         async createDailyNote(notebook) {
@@ -9230,7 +9265,7 @@
         if (mode === 'whiteboard') {
             const cards = [18, 58, 30, 66]
                 .map((left) => `
-                    <div class="tm-inline-loading-board-card" style="left:${left}%;top:${18 + (left % 3) * 14}%;"></div>
+                    <div class="tm-skeleton-block tm-inline-loading-board-card" style="left:${left}%;top:${18 + (left % 3) * 14}%;"></div>
                 `)
                 .join('');
             return `
@@ -9390,7 +9425,7 @@
     function __tmModalStackPop() {
         if (__tmModalStack.length === 0) return 0;
         const top = __tmModalStack[__tmModalStack.length - 1];
-        try { top.close(); } catch (e) {}
+        try { if (top.close() === false) return __tmModalStack.length; } catch (e) {}
         __tmModalStackRemove(top);
         return __tmModalStack.length;
     }

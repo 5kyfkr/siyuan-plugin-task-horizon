@@ -1316,8 +1316,7 @@
         __tmUpdateSettingsDocPickerSelectionUi(root);
     };
 
-    window.tmFilterSettingsDocPicker = function(value) {
-        const root = __tmGetSettingsDocPickerRoot();
+    function __tmFilterDocPicker(root, value) {
         if (!root) return;
         const query = String(value || '');
         root.querySelectorAll('[data-tm-doc-picker-row]').forEach((row) => {
@@ -1345,7 +1344,113 @@
         const empty = root.querySelector('[data-tm-doc-picker-empty]');
         if (clear instanceof HTMLElement) clear.hidden = !query.trim();
         if (empty instanceof HTMLElement) empty.hidden = visibleNotebooks > 0;
+    }
+
+    window.tmFilterSettingsDocPicker = function(value) {
+        __tmFilterDocPicker(__tmGetSettingsDocPickerRoot(), value);
     };
+
+    function __tmOpenDocumentLocationPicker(selectedId = '') {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className = 'tm-doc-group-manager__picker-dialog tm-document-location-picker';
+            modal.innerHTML = `
+                <section class="tm-doc-group-manager__picker-dialog-box" role="dialog" aria-modal="true" aria-labelledby="tmDocumentLocationTitle">
+                    <header class="tm-doc-group-manager__picker-dialog-head">
+                        <h3 id="tmDocumentLocationTitle">选择创建位置</h3>
+                        <button type="button" class="tm-doc-group-manager__picker-dialog-close" data-tm-location-close aria-label="关闭">${__tmRenderLucideIcon('x')}</button>
+                    </header>
+                    <div class="tm-doc-group-manager__picker" data-tm-doc-picker>
+                        <div class="tm-doc-group-manager__picker-toolbar">
+                            <div class="tm-doc-group-manager__picker-search">
+                                <span aria-hidden="true">${__tmRenderLucideIcon('search')}</span>
+                                <input type="search" placeholder="搜索文档名称、路径或 ID" aria-label="搜索文档" autocomplete="off" data-tm-doc-picker-search-input>
+                                <button type="button" data-tm-location-clear aria-label="清除搜索" hidden>${__tmRenderLucideIcon('x')}</button>
+                            </div>
+                            <button type="button" class="tm-doc-group-manager__picker-refresh" data-tm-location-refresh aria-label="刷新文档列表">${__tmRenderLucideIcon('refresh-cw')}</button>
+                        </div>
+                        <div class="tm-doc-group-manager__picker-tree" data-tm-doc-picker-tree aria-busy="true"></div>
+                        <div class="tm-doc-group-manager__picker-footer">
+                            <span class="tm-doc-group-manager__picker-selected" data-tm-location-selected>选择父文档</span>
+                            <div class="tm-doc-group-manager__picker-actions">
+                                <button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__add-button" data-tm-location-confirm disabled>选择位置</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            `;
+            document.body.appendChild(modal);
+            const root = modal.querySelector('[data-tm-doc-picker]');
+            const input = root.querySelector('[data-tm-doc-picker-search-input]');
+            const treeEl = root.querySelector('[data-tm-doc-picker-tree]');
+            const refreshBtn = root.querySelector('[data-tm-location-refresh]');
+            const confirmBtn = root.querySelector('[data-tm-location-confirm]');
+            const selectedLabel = root.querySelector('[data-tm-location-selected]');
+            let documents = [];
+            let closed = false;
+            const close = (value = null) => {
+                if (closed) return;
+                closed = true;
+                removeFromStack();
+                modal.remove();
+                resolve(value);
+            };
+            const removeFromStack = __tmModalStackBind(() => close());
+            const syncSelection = () => {
+                const doc = documents.find(item => item.id === selectedId);
+                confirmBtn.disabled = !doc;
+                selectedLabel.textContent = doc?.path || doc?.name || '选择父文档';
+                selectedLabel.title = selectedLabel.textContent;
+            };
+            const load = async () => {
+                refreshBtn.disabled = true;
+                confirmBtn.disabled = true;
+                treeEl.setAttribute('aria-busy', 'true');
+                treeEl.innerHTML = '<div class="tm-doc-group-manager__picker-skeleton" aria-label="正在加载文档"><span></span><span></span><span></span></div>';
+                try {
+                    const [docs, notebooks] = await Promise.all([API.getAllDocuments(), API.lsNotebooks()]);
+                    if (closed) return;
+                    documents = docs;
+                    const tree = __tmBuildSettingsDocPickerTree(docs, notebooks);
+                    treeEl.innerHTML = __tmRenderDocPickerTree(tree, { selectedIds: new Set([selectedId]), singleSelect: true })
+                        + '<div class="tm-doc-group-manager__picker-empty" data-tm-doc-picker-empty hidden>没有匹配的文档</div>';
+                    let ancestor = treeEl.querySelector('input:checked')?.closest('details');
+                    while (ancestor) {
+                        ancestor.open = true;
+                        ancestor = ancestor.parentElement?.closest('details');
+                    }
+                    __tmFilterDocPicker(root, input.value);
+                } catch (e) {
+                    documents = [];
+                    treeEl.textContent = `读取文档失败：${String(e?.message || e || '')}`;
+                } finally {
+                    if (!closed) {
+                        refreshBtn.disabled = false;
+                        treeEl.setAttribute('aria-busy', 'false');
+                        syncSelection();
+                    }
+                }
+            };
+            input.oninput = () => __tmFilterDocPicker(root, input.value);
+            root.querySelector('[data-tm-location-clear]').onclick = () => {
+                input.value = '';
+                __tmFilterDocPicker(root, '');
+                input.focus();
+            };
+            treeEl.onchange = ev => {
+                if (!(ev.target instanceof HTMLInputElement) || !ev.target.matches('[data-tm-doc-picker-checkbox]')) return;
+                selectedId = ev.target.value;
+                syncSelection();
+            };
+            confirmBtn.onclick = () => close(documents.find(doc => doc.id === selectedId) || null);
+            modal.querySelector('[data-tm-location-close]').onclick = () => close();
+            modal.onclick = ev => { if (ev.target === modal) close(); };
+            refreshBtn.onclick = () => { void load(); };
+            __tmApplyPopupOpenAnimation(modal, modal.querySelector('.tm-doc-group-manager__picker-dialog-box'));
+            input.focus();
+            void load();
+        });
+    }
 
     window.tmClearSettingsDocPickerSearch = function() {
         const root = __tmGetSettingsDocPickerRoot();

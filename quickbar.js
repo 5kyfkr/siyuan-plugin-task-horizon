@@ -2428,11 +2428,11 @@
                 display: none;
                 flex-direction: column;
                 align-items: stretch;
-                gap: 6px;
-                padding: 6px;
+                gap: 2px;
+                padding: 3px 4px;
                 border-radius: 8px;
                 background: var(--b3-theme-background);
-                border: 1px solid var(--b3-border-color);
+                border: 0;
                 box-shadow: var(--b3-dialog-shadow);
                 white-space: nowrap;
                 overflow: visible;
@@ -2442,7 +2442,7 @@
             .sy-custom-props-floatbar__row {
                 display: flex;
                 align-items: center;
-                gap: 6px;
+                gap: 2px;
                 flex-wrap: nowrap;
                 min-width: 0;
                 max-width: 100%;
@@ -2509,8 +2509,19 @@
             }
             .sy-custom-props-floatbar__prop--core {
                 gap: 5px;
-                padding: 0 8px;
-                border-radius: 8px;
+                height: 29px;
+                padding: 0 4px;
+                border: 0;
+                border-radius: 5px;
+                background: transparent;
+                line-height: 1.5;
+            }
+            .sy-custom-props-floatbar__prop--core:hover {
+                background: var(--b3-list-hover);
+            }
+            .sy-custom-props-floatbar__prop--core.is-active {
+                background: var(--b3-theme-primary-light);
+                color: var(--b3-theme-primary);
             }
             .sy-custom-props-floatbar__prop--remark {
                 gap: 5px;
@@ -2523,9 +2534,9 @@
                 box-sizing: border-box;
             }
             .sy-custom-props-floatbar__prop--remark:not(.sy-custom-props-floatbar__prop--icon-only) {
-                height: 26px;
-                min-height: 26px;
-                line-height: 26px;
+                height: 29px;
+                min-height: 29px;
+                line-height: 1.5;
                 align-items: center;
             }
             .sy-custom-props-floatbar__prop--custom-field {
@@ -2544,14 +2555,13 @@
             }
             .sy-custom-props-floatbar__prop--custom-empty {
                 opacity: 0.66;
-                padding: 0 8px;
-                border: 1px solid var(--b3-border-color);
-                background: var(--b3-theme-surface);
+                padding: 0 4px;
+                border: 0;
+                background: transparent;
                 line-height: 26px;
             }
             .sy-custom-props-floatbar__prop--custom-empty:hover {
-                border-color: var(--b3-theme-primary);
-                background: var(--b3-theme-background);
+                background: var(--b3-list-hover);
             }
             .sy-custom-props-floatbar__custom-tags {
                 display: inline-flex;
@@ -2564,10 +2574,17 @@
             .sy-custom-props-floatbar__custom-tags .sy-custom-props-floatbar__option-label--status {
                 min-width: 0;
                 max-width: 112px;
+                font-size: inherit;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
                 flex: 0 1 auto;
+            }
+            .sy-custom-props-floatbar .sy-custom-props-floatbar__custom-tags .sy-custom-props-floatbar__option-label--status {
+                box-sizing: border-box;
+                height: 26px;
+                padding: 0 4px;
+                align-items: center;
             }
             .sy-custom-props-floatbar__prop--core .sy-custom-props-floatbar__prop-value {
                 display: inline-block;
@@ -2575,14 +2592,16 @@
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
+                line-height: 1.5;
             }
             .sy-custom-props-floatbar__prop--remark .sy-custom-props-floatbar__prop-value {
                 display: block;
-                max-width: 100%;
+                max-width: 132px;
+                padding-block: 1px;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
-                line-height: 1.35;
+                line-height: 1.5;
             }
             .sy-custom-props-floatbar__prop--icon-only {
                 flex: 0 0 26px;
@@ -2911,16 +2930,70 @@
                 overflow-y: auto;
             }
             .sy-custom-props-floatbar__input-editor.is-remark {
-                width: min(72vw, 420px);
-                min-width: min(72vw, 240px);
+                width: min(400px, calc(100vw - 12px));
+                min-width: min(240px, calc(100vw - 12px));
                 max-width: calc(100vw - 12px);
+                padding: 0;
+                overflow-x: hidden;
             }
             .sy-custom-props-floatbar__input-editor.is-remark.is-visible {
                 display: flex;
                 flex-direction: column;
             }
+            .sy-custom-props-floatbar__input-editor.is-remark > .sy-custom-props-floatbar__remark-toolbar,
+            .sy-custom-props-floatbar__input-editor.is-remark > .sy-custom-props-floatbar__textarea,
+            .sy-custom-props-floatbar__input-editor.is-remark > .sy-custom-props-floatbar__input-actions {
+                box-sizing: border-box;
+                width: 100%;
+                min-width: 0;
+                max-width: 100%;
+            }
             .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__textarea {
                 min-height: 34px;
+                padding: 12px 14px;
+                border: 0;
+                border-radius: 0;
+                background: transparent;
+                box-shadow: none;
+                font-size: 13px;
+                line-height: 1.7;
+                overflow-x: hidden;
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__input-actions {
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 5px;
+                margin-top: 0;
+                padding: 8px 10px;
+                border-top: 1px solid var(--b3-border-color);
+            }
+            .sy-custom-props-floatbar__remark-shortcut {
+                display: none;
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__remark-shortcut {
+                display: inline;
+                margin-right: auto;
+                color: var(--b3-theme-on-surface-light);
+                font-size: 10px;
+                white-space: nowrap;
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__input-actions .sy-custom-props-floatbar__btn {
+                height: 28px;
+                padding: 0 10px;
+                border: 0;
+                border-radius: 4px;
+                background: transparent;
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__input-actions .sy-custom-props-floatbar__btn:hover {
+                background: var(--b3-list-hover);
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__btn[data-action="save"] {
+                background: var(--b3-theme-primary);
+                color: var(--b3-theme-on-primary);
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__btn[data-action="save"]:hover {
+                background: var(--b3-theme-primary);
+                filter: brightness(1.06);
             }
             .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__remark-toolbar,
             .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__input-actions {
@@ -3098,43 +3171,71 @@
             }
             .sy-custom-props-floatbar__remark-toolbar {
                 display: none;
-                align-items: center;
-                gap: 6px;
-                flex-wrap: wrap;
-                margin-top: 10px;
-                padding: 8px 10px;
-                border-radius: 999px;
-                border: 1px solid var(--b3-border-color);
+                align-items: flex-start;
+                gap: 8px;
+                order: -1;
+                padding: 6px 7px;
+                border-bottom: 1px solid var(--b3-border-color);
+                border-radius: 8px 8px 0 0;
                 background: var(--b3-theme-surface);
-                box-shadow: var(--b3-dialog-shadow);
+            }
+            .sy-custom-props-floatbar__remark-tools {
+                display: flex;
+                align-items: center;
+                flex: 1;
+                min-width: 0;
+                gap: 2px;
+                flex-wrap: wrap;
             }
             .sy-custom-props-floatbar__remark-toolbar.is-open {
-                display: inline-flex;
+                display: flex;
             }
-            .sy-custom-props-floatbar__remark-tool {
+            .sy-custom-props-floatbar__remark-tool,
+            .sy-custom-props-floatbar__remark-close {
                 width: 28px;
                 min-width: 28px;
                 height: 28px;
                 padding: 0;
-                border-radius: 8px;
+                flex: 0 0 auto;
+                border: 0;
+                border-radius: 4px;
+                background: transparent;
+                color: var(--b3-theme-on-surface);
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 13px;
-                font-weight: 700;
+                cursor: pointer;
             }
-            .sy-custom-props-floatbar__btn--remark-tools {
-                display: none;
-                min-width: 28px;
-                width: 28px;
-                padding: 0;
-                font-size: 18px;
-                font-weight: 500;
+            .sy-custom-props-floatbar__remark-tool:hover,
+            .sy-custom-props-floatbar__remark-close:hover {
+                background: var(--b3-list-hover);
             }
-            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__btn--remark-tools {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
+            .sy-custom-props-floatbar__remark-tool:focus-visible,
+            .sy-custom-props-floatbar__remark-close:focus-visible {
+                outline: 2px solid var(--b3-theme-primary);
+                outline-offset: 1px;
+            }
+            .sy-custom-props-floatbar__remark-tool svg {
+                width: 16px;
+                height: 16px;
+                fill: currentColor;
+            }
+            .sy-custom-props-floatbar__remark-close svg {
+                width: 14px;
+                height: 14px;
+                fill: currentColor;
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__remark-toolbar [data-tooltip]::before {
+                left: 0;
+                transform: translateY(-4px);
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__remark-toolbar .sy-custom-props-floatbar__remark-close::before {
+                left: auto;
+                right: 0;
+            }
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__remark-toolbar [data-tooltip]:hover::before,
+            .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__remark-toolbar [data-tooltip]:focus-visible::before {
+                transform: translateY(0);
             }
             .sy-custom-props-floatbar__input {
                 width: 100%;
@@ -3277,11 +3378,11 @@
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                height: 26px;
+                height: 29px;
                 width: 26px;
                 border-radius: 6px;
-                border: 1px solid var(--b3-border-color);
-                background: var(--b3-theme-surface);
+                border: 0;
+                background: transparent;
                 color: var(--b3-theme-on-surface);
                 cursor: pointer;
                 user-select: none;
@@ -3324,8 +3425,21 @@
                 background: color-mix(in srgb, var(--b3-theme-primary-light, var(--b3-theme-surface-light)) 70%, var(--b3-theme-background) 30%);
             }
             .sy-custom-props-floatbar__action:hover {
-                background: var(--b3-theme-background);
-                border-color: var(--b3-theme-primary);
+                background: var(--b3-list-hover);
+            }
+            @media (pointer: coarse) {
+                .sy-custom-props-floatbar__remark-tool,
+                .sy-custom-props-floatbar__remark-close {
+                    width: 40px;
+                    min-width: 40px;
+                    height: 40px;
+                }
+                .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__textarea {
+                    font-size: 16px;
+                }
+                .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__input-actions .sy-custom-props-floatbar__btn {
+                    height: 40px;
+                }
             }
             @media (max-width: 640px) {
                 .sy-custom-props-floatbar {
@@ -3577,16 +3691,19 @@
             <textarea class="sy-custom-props-floatbar__textarea is-hidden" placeholder="输入内容..."></textarea>
             <div class="sy-custom-props-floatbar__input-extra" data-input-extra></div>
             <div class="sy-custom-props-floatbar__remark-toolbar" data-remark-toolbar hidden>
-                <button class="sy-custom-props-floatbar__btn sy-custom-props-floatbar__remark-tool" data-remark-tool="bullet"${buildTooltipAttrs('无序列表')}>•</button>
-                <button class="sy-custom-props-floatbar__btn sy-custom-props-floatbar__remark-tool" data-remark-tool="ordered"${buildTooltipAttrs('有序列表')}>1.</button>
-                <button class="sy-custom-props-floatbar__btn sy-custom-props-floatbar__remark-tool" data-remark-tool="bold"${buildTooltipAttrs('粗体')}>B</button>
-                <button class="sy-custom-props-floatbar__btn sy-custom-props-floatbar__remark-tool" data-remark-tool="italic"${buildTooltipAttrs('斜体')}>I</button>
-                <button class="sy-custom-props-floatbar__btn sy-custom-props-floatbar__remark-tool" data-remark-tool="code"${buildTooltipAttrs('行内代码')}>Code</button>
-                <button class="sy-custom-props-floatbar__btn sy-custom-props-floatbar__remark-tool" data-remark-tool="link"${buildTooltipAttrs('链接')}>∞</button>
-                <button class="sy-custom-props-floatbar__btn sy-custom-props-floatbar__remark-tool" data-remark-tool="quote"${buildTooltipAttrs('引用')}>❝</button>
+                <div class="sy-custom-props-floatbar__remark-tools" role="toolbar" aria-label="备注格式">
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="bold"${buildTooltipAttrs('粗体', 'bottom')}>${renderQuickbarRemarkIcon('text-b')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="italic"${buildTooltipAttrs('斜体', 'bottom')}>${renderQuickbarRemarkIcon('text-italic')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="code"${buildTooltipAttrs('行内代码', 'bottom')}>${renderQuickbarRemarkIcon('code')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="link"${buildTooltipAttrs('链接', 'bottom')}>${renderQuickbarRemarkIcon('link-simple')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="bullet"${buildTooltipAttrs('无序列表', 'bottom')}>${renderQuickbarRemarkIcon('list-bullets')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="ordered"${buildTooltipAttrs('有序列表', 'bottom')}>${renderQuickbarRemarkIcon('list-numbers')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="quote"${buildTooltipAttrs('引用', 'bottom')}>${renderQuickbarRemarkIcon('quotes')}</button>
+                </div>
+                <button type="button" class="sy-custom-props-floatbar__remark-close" data-action="remark-close"${buildTooltipAttrs('关闭备注编辑', 'bottom')}>${renderQuickbarRemarkIcon('x', 14)}</button>
             </div>
             <div class="sy-custom-props-floatbar__input-actions">
-                <button class="sy-custom-props-floatbar__btn sy-custom-props-floatbar__btn--remark-tools" data-action="remark-tools">A</button>
+                <span class="sy-custom-props-floatbar__remark-shortcut">Ctrl / ⌘ + Enter 保存</span>
                 <button class="sy-custom-props-floatbar__btn" data-action="cancel">取消</button>
                 <button class="sy-custom-props-floatbar__btn" data-action="save">确定</button>
             </div>
@@ -3821,6 +3938,8 @@
             const extraPanel = inputEditor.querySelector('[data-input-extra]');
             const cancelBtn = inputEditor.querySelector('[data-action="cancel"]');
             if (cancelBtn instanceof HTMLButtonElement) cancelBtn.textContent = '取消';
+            const saveBtn = inputEditor.querySelector('[data-action="save"]');
+            if (saveBtn instanceof HTMLButtonElement) saveBtn.textContent = useTextarea ? '保存' : '确定';
             if (input instanceof HTMLInputElement) {
                 input.classList.toggle('is-hidden', useTextarea);
                 input.disabled = useTextarea;
@@ -3840,8 +3959,8 @@
             inputEditor.classList.toggle('is-remark', useTextarea);
             inputEditor.classList.remove('is-duration', 'is-focus-summary');
             if (remarkToolbar instanceof HTMLElement) {
-                remarkToolbar.classList.remove('is-open');
-                remarkToolbar.hidden = true;
+                remarkToolbar.classList.toggle('is-open', useTextarea);
+                remarkToolbar.hidden = !useTextarea;
             }
             if (extraPanel instanceof HTMLElement) {
                 extraPanel.classList.remove('is-visible');
@@ -4759,6 +4878,44 @@
             if (key === 'custom-tomato-count') return 'timer';
             if (key === 'custom-remark') return 'note-pencil';
             return '';
+        }
+
+        function renderQuickbarRemarkIcon(name, size = 16) {
+            /*
+             * MIT License
+             *
+             * Copyright (c) 2023 Phosphor Icons
+             *
+             * Permission is hereby granted, free of charge, to any person obtaining a copy
+             * of this software and associated documentation files (the "Software"), to deal
+             * in the Software without restriction, including without limitation the rights
+             * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+             * copies of the Software, and to permit persons to whom the Software is
+             * furnished to do so, subject to the following conditions:
+             *
+             * The above copyright notice and this permission notice shall be included in all
+             * copies or substantial portions of the Software.
+             *
+             * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+             * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+             * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+             * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+             * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+             * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+             * SOFTWARE.
+             */
+            const paths = {
+                "text-b": "<path d=\"M178.48,115.7A44,44,0,0,0,148,40H80a8,8,0,0,0-8,8V200a8,8,0,0,0,8,8h80a48,48,0,0,0,18.48-92.3ZM88,56h60a28,28,0,0,1,0,56H88Zm72,136H88V128h72a32,32,0,0,1,0,64Z\"/>",
+                "text-italic": "<path d=\"M200,56a8,8,0,0,1-8,8H157.77L115.1,192H144a8,8,0,0,1,0,16H64a8,8,0,0,1,0-16H98.23L140.9,64H112a8,8,0,0,1,0-16h80A8,8,0,0,1,200,56Z\"/>",
+                "code": "<path d=\"M69.12,94.15,28.5,128l40.62,33.85a8,8,0,1,1-10.24,12.29l-48-40a8,8,0,0,1,0-12.29l48-40a8,8,0,0,1,10.24,12.3Zm176,27.7-48-40a8,8,0,1,0-10.24,12.3L227.5,128l-40.62,33.85a8,8,0,1,0,10.24,12.29l48-40a8,8,0,0,0,0-12.29ZM162.73,32.48a8,8,0,0,0-10.25,4.79l-64,176a8,8,0,0,0,4.79,10.26A8.14,8.14,0,0,0,96,224a8,8,0,0,0,7.52-5.27l64-176A8,8,0,0,0,162.73,32.48Z\"/>",
+                "link-simple": "<path d=\"M165.66,90.34a8,8,0,0,1,0,11.32l-64,64a8,8,0,0,1-11.32-11.32l64-64A8,8,0,0,1,165.66,90.34ZM215.6,40.4a56,56,0,0,0-79.2,0L106.34,70.45a8,8,0,0,0,11.32,11.32l30.06-30a40,40,0,0,1,56.57,56.56l-30.07,30.06a8,8,0,0,0,11.31,11.32L215.6,119.6a56,56,0,0,0,0-79.2ZM138.34,174.22l-30.06,30.06a40,40,0,1,1-56.56-56.57l30.05-30.05a8,8,0,0,0-11.32-11.32L40.4,136.4a56,56,0,0,0,79.2,79.2l30.06-30.07a8,8,0,0,0-11.32-11.31Z\"/>",
+                "list-bullets": "<path d=\"M80,64a8,8,0,0,1,8-8H216a8,8,0,0,1,0,16H88A8,8,0,0,1,80,64Zm136,56H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Zm0,64H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16ZM44,52A12,12,0,1,0,56,64,12,12,0,0,0,44,52Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,116Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,180Z\"/>",
+                "list-numbers": "<path d=\"M224,128a8,8,0,0,1-8,8H104a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128ZM104,72H216a8,8,0,0,0,0-16H104a8,8,0,0,0,0,16ZM216,184H104a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16ZM43.58,55.16,48,52.94V104a8,8,0,0,0,16,0V40a8,8,0,0,0-11.58-7.16l-16,8a8,8,0,0,0,7.16,14.32ZM79.77,156.72a23.73,23.73,0,0,0-9.6-15.95,24.86,24.86,0,0,0-34.11,4.7,23.63,23.63,0,0,0-3.57,6.46,8,8,0,1,0,15,5.47,7.84,7.84,0,0,1,1.18-2.13,8.76,8.76,0,0,1,12-1.59A7.91,7.91,0,0,1,63.93,159a7.64,7.64,0,0,1-1.57,5.78,1,1,0,0,0-.08.11L33.59,203.21A8,8,0,0,0,40,216H72a8,8,0,0,0,0-16H56l19.08-25.53A23.47,23.47,0,0,0,79.77,156.72Z\"/>",
+                "quotes": "<path d=\"M100,56H40A16,16,0,0,0,24,72v64a16,16,0,0,0,16,16h60v8a32,32,0,0,1-32,32,8,8,0,0,0,0,16,48.05,48.05,0,0,0,48-48V72A16,16,0,0,0,100,56Zm0,80H40V72h60ZM216,56H156a16,16,0,0,0-16,16v64a16,16,0,0,0,16,16h60v8a32,32,0,0,1-32,32,8,8,0,0,0,0,16,48.05,48.05,0,0,0,48-48V72A16,16,0,0,0,216,56Zm0,80H156V72h60Z\"/>",
+                "x": "<path d=\"M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z\"/>"
+            };
+            const body = paths[name];
+            return body ? `<svg viewBox="0 0 256 256" width="${size}" height="${size}" fill="currentColor" aria-hidden="true">${body}</svg>` : '';
         }
 
         async function saveRawTaskAttrWithUndo(blockId, attrKey, value, options = {}) {
@@ -7154,7 +7311,7 @@
             const textarea = editorControl instanceof HTMLTextAreaElement ? editorControl : null;
             const valueSource = isRemark ? textarea : input;
             const remarkToolbar = inputEditor.querySelector('[data-remark-toolbar]');
-            const remarkToolsBtn = inputEditor.querySelector('[data-action="remark-tools"]');
+            const remarkCloseBtn = inputEditor.querySelector('[data-action="remark-close"]');
             const extraPanel = inputEditor.querySelector('[data-input-extra]');
             const cancelBtn = inputEditor.querySelector('[data-action="cancel"]');
             const saveBtn = inputEditor.querySelector('[data-action="save"]');
@@ -7252,7 +7409,7 @@
             // 计算位置
             inputEditor.classList.add('is-visible');
             const repositionEditor = () => {
-                if (textarea instanceof HTMLTextAreaElement) syncInputEditorTextareaHeight(textarea, 76);
+                if (textarea instanceof HTMLTextAreaElement) syncInputEditorTextareaHeight(textarea, 132);
                 positionPopupNearAnchor(inputEditor, anchorEl, { gap: 4, viewportMargin: 6 });
             };
             repositionEditor();
@@ -7319,7 +7476,7 @@
                     if (isRemark) {
                         try { textarea.dataset.dirty = 'true'; } catch (e) {}
                     }
-                    syncInputEditorTextareaHeight(textarea, 76);
+                    syncInputEditorTextareaHeight(textarea, 132);
                     repositionEditor();
                 };
                 textarea.oncompositionstart = () => {
@@ -7337,7 +7494,7 @@
                         const handled = remarkTools.handleTextareaKeydown(textarea, e);
                         if (handled) {
                             try { textarea.dataset.dirty = 'true'; } catch (err) {}
-                            syncInputEditorTextareaHeight(textarea, 76);
+                            syncInputEditorTextareaHeight(textarea, 132);
                             repositionEditor();
                             return;
                         }
@@ -7347,12 +7504,6 @@
                         saveText();
                     } else if (e.key === 'Escape') {
                         e.preventDefault();
-                        if (remarkToolbar instanceof HTMLElement && remarkToolbar.classList.contains('is-open')) {
-                            remarkToolbar.classList.remove('is-open');
-                            remarkToolbar.hidden = true;
-                            repositionEditor();
-                            return;
-                        }
                         closeInputEditor();
                     }
                 };
@@ -7387,33 +7538,10 @@
                         else if (action === 'bullet' && typeof remarkTools.toggleLinePrefix === 'function') remarkTools.toggleLinePrefix(textarea, '- ');
                         else if (action === 'ordered' && typeof remarkTools.toggleOrderedList === 'function') remarkTools.toggleOrderedList(textarea);
                         try { textarea.dataset.dirty = 'true'; } catch (err) {}
-                        syncInputEditorTextareaHeight(textarea, 76);
+                        syncInputEditorTextareaHeight(textarea, 132);
                         repositionEditor();
                     };
                 });
-                if (remarkToolsBtn instanceof HTMLButtonElement) {
-                    remarkToolsBtn.onmousedown = (e) => {
-                        e.preventDefault();
-                    };
-                    remarkToolsBtn.onclick = (e) => {
-                        e.preventDefault();
-                        const nextOpen = !remarkToolbar.classList.contains('is-open');
-                        remarkToolbar.classList.toggle('is-open', nextOpen);
-                        remarkToolbar.hidden = !nextOpen;
-                        syncInputEditorTextareaHeight(textarea, 76);
-                        try {
-                            requestAnimationFrame(() => {
-                                syncInputEditorTextareaHeight(textarea, 76);
-                                repositionEditor();
-                            });
-                        } catch (e2) {}
-                        try { textarea.focus({ preventScroll: true }); } catch (e2) { try { textarea.focus(); } catch (e3) {} }
-                        repositionEditor();
-                    };
-                }
-            } else if (remarkToolsBtn instanceof HTMLButtonElement) {
-                remarkToolsBtn.onclick = null;
-                remarkToolsBtn.onmousedown = null;
             }
 
             if (extraPanel instanceof HTMLElement && isDuration && durationPresetOptions.length) {
@@ -7444,6 +7572,10 @@
                 }
                 closeInputEditor();
             };
+            if (remarkCloseBtn instanceof HTMLButtonElement) {
+                remarkCloseBtn.onmousedown = isRemark ? (e) => e.preventDefault() : null;
+                remarkCloseBtn.onclick = isRemark ? () => cancelBtn?.click() : null;
+            }
         }
 
         // 隐藏所有弹出层

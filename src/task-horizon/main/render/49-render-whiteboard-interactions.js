@@ -7627,6 +7627,7 @@
         state.timelineLinkHoverTaskId = id;
         const body = state.modal?.querySelector?.('#tmGanttBody');
         if (!(body instanceof HTMLElement)) return;
+        body.classList.toggle('tm-gantt-body--linking', !!state.whiteboardLinkFromTaskId);
         try {
             body.querySelectorAll('.tm-gantt-row--link-hover, .tm-gantt-row--link-hover-in, .tm-gantt-row--link-hover-out').forEach((el) => {
                 el.classList.remove('tm-gantt-row--link-hover', 'tm-gantt-row--link-hover-in', 'tm-gantt-row--link-hover-out');
@@ -7798,6 +7799,7 @@
         state.whiteboardLinkFromSide = __tmNormalizeTaskLinkSide(side);
         state.whiteboardLinkFromAnchor = __tmGetTaskLinkDotAnchor(ev, state.whiteboardLinkFromSide);
         __tmUpdateWhiteboardLinkHover('', '');
+        __tmUpdateTimelineLinkHover('');
         __tmUpdateWhiteboardLinkPreviewFromEvent(ev, '', did);
         __tmScheduleWhiteboardEdgeRedraw();
         __tmStartTaskLinkPointerFallback(ev, id, did, state.whiteboardLinkFromSide, state.whiteboardLinkFromAnchor);
@@ -7821,6 +7823,7 @@
         state.whiteboardLinkFromSide = __tmNormalizeTaskLinkSide(side);
         state.whiteboardLinkFromAnchor = __tmGetTaskLinkDotAnchor(ev, state.whiteboardLinkFromSide);
         __tmUpdateWhiteboardLinkHover('', '');
+        __tmUpdateTimelineLinkHover('');
         __tmUpdateWhiteboardLinkPreviewFromEvent(ev, '', did);
         try {
             ev.dataTransfer.effectAllowed = 'link';

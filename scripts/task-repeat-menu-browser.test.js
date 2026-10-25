@@ -40,9 +40,9 @@ const baseRule = { enabled: true, type: 'weekly', trigger: 'due', every: 2, week
 
 async function setup(page, entry, theme = 'light') {
     await page.goto('about:blank');
-    await page.setContent('<meta charset="utf-8"><main><h2>任务日期</h2><p>循环规则预览</p></main><div id="hub" class="tm-task-time-hub-popover"></div>');
+    await page.setContent('<meta charset="utf-8"><main><h2>任务日期</h2><p>循环规则预览</p></main><div id="hub" class="tm-task-detail-inline-popover tm-task-time-hub-popover"></div>');
     await page.addStyleTag({ path: path.join(root, 'task-horizon.css') });
-    await page.addStyleTag({ content: `:root{--tm-text-color:${theme === 'dark' ? '#e0e3e8' : '#242834'};--tm-secondary-text:${theme === 'dark' ? '#aeb4bf' : '#687080'};--tm-card-bg:${theme === 'dark' ? '#242830' : '#f8f9fb'};--tm-primary-color:#528aa2;--tm-border-color:${theme === 'dark' ? '#464b55' : '#cfd3da'};--tm-input-bg:var(--tm-card-bg);--tm-input-border:var(--tm-border-color);--tm-modal-overlay:#151a2480;--popover:var(--tm-card-bg);--radius:8px;--background:var(--tm-card-bg);--foreground:var(--tm-text-color)}body{margin:24px;font:14px system-ui;background:${theme === 'dark' ? '#181c22' : '#edf0f4'};color:var(--tm-text-color)}#hub{left:40px;top:100px;width:286px;height:430px;min-height:0;overflow:visible;background:var(--tm-card-bg)}#hub>.tm-task-time-hub__setting{position:absolute;left:12px;bottom:12px;width:250px}*{animation:none!important}@media(max-width:640px){#hub{left:14px;right:14px;top:40px;bottom:auto;width:auto;height:360px}}` });
+    await page.addStyleTag({ content: `:root{--tm-text-color:${theme === 'dark' ? '#e0e3e8' : '#242834'};--tm-secondary-text:${theme === 'dark' ? '#aeb4bf' : '#687080'};--tm-card-bg:${theme === 'dark' ? '#242830' : '#f8f9fb'};--tm-primary-color:#528aa2;--tm-border-color:${theme === 'dark' ? '#464b55' : '#cfd3da'};--tm-input-bg:var(--tm-card-bg);--tm-input-border:var(--tm-border-color);--tm-modal-overlay:#151a2480;--popover:var(--tm-card-bg);--radius:8px;--background:var(--tm-card-bg);--foreground:var(--tm-text-color)}body{margin:24px;font:14px system-ui;background:${theme === 'dark' ? '#181c22' : '#edf0f4'};color:var(--tm-text-color)}#hub{left:40px;top:100px;width:286px;height:430px;min-height:0;background:var(--tm-card-bg)}#hub>.tm-task-time-hub__panel{flex:0 0 100%;min-height:0}#hub .tm-task-time-hub__setting{position:absolute;left:12px;bottom:12px;width:250px}*{animation:none!important}@media(max-width:640px){#hub{left:14px;right:14px;top:40px;bottom:auto;width:auto;height:360px}}` });
     await page.evaluate(({ rule, isDraft }) => {
         window.esc = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         window.__tmApplyPopupOpenAnimation = () => {};
@@ -68,7 +68,7 @@ async function setup(page, entry, theme = 'light') {
         const popover = document.querySelector('#hub'), root = popover, taskId = task.id;
         ${positioners[entry === 1 ? 1 : 0]}
         window.render = () => {
-            popover.innerHTML = '<button class="tm-task-time-hub__setting" data-tm-time-hub-card="repeat"><span class="tm-task-time-hub__setting-icon">↻</span><span class="tm-task-time-hub__setting-text"><span>循环</span><strong>自定义规则</strong></span></button>' + (hubState.editor === 'repeat' ? __tmRenderTaskTimeHubRepeatEditorHtml(task.repeatRule) : '');
+            popover.innerHTML = '<div class="tm-task-time-hub__panel"><button class="tm-task-time-hub__setting" data-tm-time-hub-card="repeat"><span class="tm-task-time-hub__setting-icon">↻</span><span class="tm-task-time-hub__setting-text"><span>循环</span><strong>自定义规则</strong></span></button>' + (hubState.editor === 'repeat' ? __tmRenderTaskTimeHubRepeatEditorHtml(task.repeatRule) : '') + '</div>';
             positionEditorPanel();
         };
         popover.addEventListener('click', async ev => {
@@ -80,8 +80,26 @@ async function setup(page, entry, theme = 'light') {
             }
         });
         window.addEventListener('resize', positionEditorPanel);
+        popover.addEventListener('scroll', positionEditorPanel, { passive: true });
         render();
     ` });
+}
+
+async function assertRepeatMenuVisible(page) {
+    // setViewportSize can return before the resize listener repositions the menu.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const geometry = await page.locator('.tm-task-time-hub__subpanel--repeat').evaluate(panel => {
+        const rect = panel.getBoundingClientRect();
+        const hub = panel.closest('.tm-task-time-hub-popover').getBoundingClientRect();
+        const fixed = getComputedStyle(panel).position === 'fixed';
+        return { rect: rect.toJSON(), hub: hub.toJSON(), fixed,
+            hitTop: panel.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + 4)),
+            hitBottom: panel.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.bottom - 4)),
+            fits: rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight
+                && (fixed || rect.top >= hub.top && rect.bottom <= hub.bottom) };
+    });
+    assert.ok(geometry.fits && geometry.hitTop && geometry.hitBottom,
+        `the entire scrollable menu must be visible inside the clipping container: ${JSON.stringify(geometry)}`);
 }
 
 async function run() {
@@ -95,6 +113,7 @@ async function run() {
         page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
         for (const entry of [0, 1, 2]) {
             await setup(page, entry);
+            await assertRepeatMenuVisible(page);
             const panel = page.locator('.tm-task-time-hub__subpanel--repeat');
             assert.equal(await panel.locator('[role="group"][aria-label="自定义循环"] button').count(), 3);
             assert.equal(await panel.locator('button.is-selected').count(), 1);
@@ -153,10 +172,42 @@ async function run() {
             assert.equal(selected, requested, 'preset label and saved rule agree');
         }
         console.log('PASS FSRS legacy editor and 24 preset transitions');
+        for (const entry of [0, 1, 2]) {
+            await setup(page, entry, 'dark');
+            await page.evaluate(() => {
+                const hub = document.querySelector('#hub');
+                hub.style.height = '250px';
+                hub.querySelector('.tm-task-time-hub__panel').style.flexBasis = '650px';
+                window.dispatchEvent(new Event('resize'));
+            });
+            await assertRepeatMenuVisible(page);
+            for (const scrollTop of [180, 400, 0]) {
+                await page.evaluate(async value => {
+                    document.querySelector('#hub').scrollTop = value;
+                    await new Promise(requestAnimationFrame);
+                    await new Promise(requestAnimationFrame);
+                }, scrollTop);
+                await assertRepeatMenuVisible(page);
+            }
+            const menu = page.locator('.tm-task-time-hub__subpanel--repeat');
+            await menu.evaluate(panel => { panel.scrollTop = panel.scrollHeight; });
+            assert.equal(await menu.locator('[data-tm-time-hub-repeat="lunar-yearly"]').evaluate(button => {
+                const rect = button.getBoundingClientRect();
+                return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+            }), true, 'the last repeat option remains reachable by scrolling the menu');
+            await page.screenshot({ path: path.join(output, `task-repeat-clipped-scroll-${entry}.png`) });
+            await page.setViewportSize({ width: 390, height: 844 });
+            await assertRepeatMenuVisible(page);
+            assert.equal(await menu.evaluate(panel => panel.style.maxHeight), '', 'desktop height limits clear on mobile');
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await assertRepeatMenuVisible(page);
+        }
+        console.log('PASS clipped and scrolled hubs, last-option access and desktop/mobile resizing at all three entries');
         for (const theme of ['light', 'dark']) {
             for (const viewport of [{ width: 1280, height: 900 }, { width: 720, height: 540 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
                 await page.setViewportSize(viewport);
                 await setup(page, 0, theme);
+                await assertRepeatMenuVisible(page);
                 const geometry = await page.locator('.tm-task-time-hub__subpanel--repeat').evaluate(panel => {
                     const rect = panel.getBoundingClientRect();
                     const last = panel.querySelector('[data-tm-time-hub-repeat-custom="checkin"]').getBoundingClientRect();

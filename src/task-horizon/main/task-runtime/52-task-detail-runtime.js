@@ -1969,6 +1969,7 @@
             if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) {
                 panel.style.left = '';
                 panel.style.top = '';
+                panel.style.maxHeight = '';
                 return;
             }
             const popRect = popover.getBoundingClientRect();
@@ -1988,11 +1989,21 @@
             if (top < 8) top = Math.round(cardRect.bottom - baseRect.top + 8);
             if (hubState.editor === 'repeat') {
                 const viewport = __tmGetTaskTimeHubViewport();
-                top = Math.max(viewport.top + 8 - baseRect.top, Math.min(top, viewport.bottom - panelRect.height - 8 - baseRect.top));
+                // The hub clips its children, so viewport bounds alone are insufficient.
+                const visibleTop = Math.max(viewport.top, popRect.top + popover.clientTop) + 8;
+                const visibleBottom = Math.min(viewport.bottom, popRect.top + popover.clientTop + popover.clientHeight) - 8;
+                const panelStyle = getComputedStyle(panel);
+                const extraHeight = panel.offsetHeight - panel.clientHeight
+                    + (parseFloat(panelStyle.paddingTop) || 0) + (parseFloat(panelStyle.paddingBottom) || 0);
+                panel.style.maxHeight = `${Math.max(0, Math.min(360, visibleBottom - visibleTop - extraHeight))}px`;
+                const height = panel.getBoundingClientRect().height;
+                const originTop = baseRect.top + baseEl.clientTop - baseEl.scrollTop;
+                top = Math.round(Math.max(visibleTop, Math.min(cardRect.top - height - 8, visibleBottom - height)) - originTop);
             }
             panel.style.left = `${left}px`;
             panel.style.top = `${top}px`;
         };
+        on(popover, 'scroll', positionEditorPanel, { passive: true });
         const setBusy = (nextBusy) => {
             busy = !!nextBusy;
             try { popover.classList.toggle('is-busy', busy); } catch (e) {}
@@ -7402,6 +7413,7 @@
                 if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) {
                     panel.style.left = '';
                     panel.style.top = '';
+                    panel.style.maxHeight = '';
                     return;
                 }
                 const popRect = popover.getBoundingClientRect();
@@ -7421,11 +7433,21 @@
                 if (top < 8) top = Math.round(cardRect.bottom - baseRect.top + 8);
                 if (hubState.editor === 'repeat') {
                     const viewport = __tmGetTaskTimeHubViewport();
-                    top = Math.max(viewport.top + 8 - baseRect.top, Math.min(top, viewport.bottom - panelRect.height - 8 - baseRect.top));
+                    // The hub clips its children, so viewport bounds alone are insufficient.
+                    const visibleTop = Math.max(viewport.top, popRect.top + popover.clientTop) + 8;
+                    const visibleBottom = Math.min(viewport.bottom, popRect.top + popover.clientTop + popover.clientHeight) - 8;
+                    const panelStyle = getComputedStyle(panel);
+                    const extraHeight = panel.offsetHeight - panel.clientHeight
+                        + (parseFloat(panelStyle.paddingTop) || 0) + (parseFloat(panelStyle.paddingBottom) || 0);
+                    panel.style.maxHeight = `${Math.max(0, Math.min(360, visibleBottom - visibleTop - extraHeight))}px`;
+                    const height = panel.getBoundingClientRect().height;
+                    const originTop = baseRect.top + baseEl.clientTop - baseEl.scrollTop;
+                    top = Math.round(Math.max(visibleTop, Math.min(cardRect.top - height - 8, visibleBottom - height)) - originTop);
                 }
                 panel.style.left = `${left}px`;
                 panel.style.top = `${top}px`;
             };
+            on(popover, 'scroll', positionEditorPanel, { passive: true });
             const updateDateField = async (field, value) => {
                 if (isCheckin() || isDateRollup()) return;
                 const key = value ? __tmNormalizeDateOnly(value) : '';
@@ -9364,7 +9386,16 @@
                 if (target.hasAttribute('data-tm-detail-attachment-add')) {
                     try {
                         attachmentActionPending = true;
-                        const pickedPaths = await __tmOpenTaskAttachmentPicker({ existingPaths: currentPaths });
+                        const pickedPaths = await __tmOpenTaskAttachmentPicker({
+                            existingPaths: currentPaths,
+                            documentTitle: API.getTaskTitlePresentation(task.markdown || task.content || '', task.content || '').text,
+                            parentDocId: task.root_id || task.docId || task.rootId || '',
+                            onCreateDocument: async (draft) => {
+                                const result = await __tmCreateTaskAttachmentDocument(task.id, draft);
+                                if (getBoundTask()?.id === task.id) syncAttachmentSectionPaths(task, result.paths);
+                                return result;
+                            },
+                        });
                         if (!Array.isArray(pickedPaths) || !pickedPaths.length) return;
                         const nextPaths = __tmNormalizeTaskAttachmentPaths(currentPaths.concat(pickedPaths));
                         if (JSON.stringify(nextPaths) === JSON.stringify(currentPaths)) return;

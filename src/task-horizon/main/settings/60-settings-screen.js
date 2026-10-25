@@ -90,6 +90,60 @@
         ));
     }
 
+    function __tmRenderDocPickerTree(tree, options = {}) {
+        const selectedIds = options.selectedIds || new Set();
+        const disabledIds = options.disabledIds || new Set();
+        const singleSelect = options.singleSelect === true;
+        const icon = (name, size) => __tmRenderLucideIcon(name, '', { size });
+        const renderNode = (node, depth = 0) => {
+            const docId = String(node?.id || '').trim();
+            if (!docId) return '';
+            const displayName = __tmGetDocDisplayName(node.doc, node.name || '未命名文档');
+            const alreadyAdded = disabledIds.has(docId);
+            const checked = alreadyAdded || selectedIds.has(docId);
+            const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+            const searchText = [displayName, node.name, node.alias, node.path, docId].filter(Boolean).join(' ');
+            const rowTag = hasChildren ? 'span' : 'div';
+            const row = `
+                <${rowTag} class="tm-doc-group-manager__picker-row${alreadyAdded ? ' is-added' : ''}"
+                    data-tm-doc-picker-row data-tm-doc-picker-search="${esc(searchText)}"
+                    style="--tm-doc-picker-depth:${Math.max(0, depth)}">
+                    <span class="tm-doc-group-manager__picker-indent" aria-hidden="true"></span>
+                    ${hasChildren
+                        ? `<span class="tm-doc-group-manager__picker-chevron" aria-hidden="true">${icon('chevron-right', 14)}</span>`
+                        : '<span class="tm-doc-group-manager__picker-chevron-placeholder" aria-hidden="true"></span>'}
+                    <label class="tm-doc-group-manager__picker-label" onclick="event.stopPropagation()">
+                        <input type="${singleSelect ? 'radio' : 'checkbox'}" ${singleSelect ? 'name="tm-document-location"' : ''} data-tm-doc-picker-checkbox value="${esc(docId)}"
+                            ${checked ? 'checked' : ''}${alreadyAdded ? ' disabled' : ''}
+                            ${singleSelect ? '' : `onchange="tmToggleSettingsDocPickerSelection('${escSq(docId)}', this.checked)"`}>
+                        <span class="tm-doc-group-manager__picker-doc-icon">${icon('file-text', 14)}</span>
+                        <span class="tm-doc-group-manager__picker-name" title="${esc(node.path || displayName)}">${esc(displayName)}</span>
+                        ${alreadyAdded ? '<span class="tm-doc-group-manager__picker-status">已添加</span>' : ''}
+                    </label>
+                </${rowTag}>
+            `;
+            if (!hasChildren) return `<div class="tm-doc-group-manager__picker-item" data-tm-doc-picker-item>${row}</div>`;
+            return `
+                <details class="tm-doc-group-manager__picker-item tm-doc-group-manager__picker-branch" data-tm-doc-picker-item>
+                    <summary>${row}</summary>
+                    <div class="tm-doc-group-manager__picker-children">${node.children.map(child => renderNode(child, depth + 1)).join('')}</div>
+                </details>
+            `;
+        };
+        const countNodes = nodes => nodes.reduce((count, node) => count + 1 + countNodes(node.children), 0);
+        return tree.map(group => `
+            <details class="tm-doc-group-manager__picker-notebook" data-tm-doc-picker-notebook>
+                <summary>
+                    <span class="tm-doc-group-manager__picker-chevron" aria-hidden="true">${icon('chevron-right', 14)}</span>
+                    <span class="tm-doc-group-manager__picker-notebook-icon">${icon('archive', 14)}</span>
+                    <span class="tm-doc-group-manager__picker-notebook-name">${esc(group.name)}</span>
+                    <span class="tm-doc-group-manager__picker-notebook-count">${countNodes(group.roots)}</span>
+                </summary>
+                <div class="tm-doc-group-manager__picker-notebook-docs">${group.roots.map(node => renderNode(node)).join('')}</div>
+            </details>
+        `).join('');
+    }
+
     function __tmPrepareSettingsDocPickerDraft(groupId, existingIds = []) {
         const normalizedGroupId = String(groupId || 'all').trim() || 'all';
         if (__tmSettingsDocPickerDraft.groupId !== normalizedGroupId) {
@@ -120,6 +174,114 @@
         about: '关于'
     });
     const TM_SETTINGS_SEARCH_INDEX_TABS = Object.freeze(Object.keys(TM_SETTINGS_SEARCH_TAB_LABELS));
+    // Shared with the settings controls so the native Agent never maintains a second copy of their text.
+    const __tmSettingsQueryDefinitions = {
+        fontSize: {
+            title: '字体大小', description: '设置桌面端任务管理器的基础字号。',
+            page: 'appearance', sub: 'l-density', scope: '桌面端', aliases: ['字号', '字太小', '电脑', 'font'],
+            read: data => Number(data.fontSize),
+        },
+        fontSizeMobile: {
+            title: '移动端字体', description: '单独设置移动端字号，未设置时跟随桌面端。',
+            page: 'appearance', sub: 'l-density', scope: '移动端', aliases: ['手机', '字号', '字太小', 'mobile'],
+            read: data => Number(data.fontSizeMobile || data.fontSize),
+        },
+        rowHeightMode: {
+            title: '行高模式', description: '控制任务行整体密度。',
+            page: 'appearance', sub: 'l-density', scope: '全局', aliases: ['行间距', '密度', '太挤', '紧凑', '宽松'],
+            read: data => String(data.rowHeightMode || 'auto'),
+        },
+        taskAutoWrapEnabled: {
+            title: '自动换行', description: '任务内容、备注、看板和白板中的任务内容自动换行显示。',
+            page: 'appearance', sub: 'l-density', scope: '全局', aliases: ['标题太长', '截断', '显示不全', '折行'],
+            read: data => data.taskAutoWrapEnabled !== false,
+        },
+        taskContentWrapMaxLines: {
+            title: '桌面端内容行数', description: '限制桌面端任务内容最多显示的行数。',
+            page: 'appearance', sub: 'l-density', scope: '桌面端', aliases: ['标题太长', '显示不全', '换行', '电脑'],
+            read: data => Math.max(1, Math.min(10, Number(data.taskContentWrapMaxLines) || 2)),
+        },
+        taskContentWrapMaxLinesMobile: {
+            title: '移动端与 Dock 内容行数', description: '限制移动端和 Dock 侧边栏任务内容最多显示的行数。',
+            page: 'appearance', sub: 'l-density', scope: '移动端与 Dock', aliases: ['手机', '侧栏', '标题太长', '显示不全', '换行'],
+            read: data => Math.max(1, Math.min(10, Number(data.taskContentWrapMaxLinesMobile) || 2)),
+        },
+        remainingTimeUseWorkdays: {
+            title: '剩余时间按工作日计算', description: '开启后，剩余时间显示会跳过周六和周日；显示文案保持不变。时间分组、四象限和排序不受影响。',
+            page: 'docs', sub: 't-review', scope: '全局', aliases: ['周末', '倒计时', '剩余天数'],
+            read: data => !!data.remainingTimeUseWorkdays,
+        },
+        taskDoneDelightEnabled: {
+            title: '完成反馈', description: '勾选完成后播放轻微动画并显示趣味提示；关闭后恢复为普通完成提示。',
+            page: 'docs', sub: 't-done', scope: '全局', aliases: ['完成动画', '庆祝', '趣味提示'],
+            read: data => data.taskDoneDelightEnabled !== false,
+        },
+        checklistCompactMode: {
+            title: '清单紧凑模式', description: '开启时字段显示在任务右侧，窄屏下自动换行；关闭时字段始终显示在任务名称下方。',
+            page: 'view', sub: 'v-table', scope: '清单视图', aliases: ['右边', '右侧', '下方', '字段太挤', '布局'],
+            read: data => !!data.checklistCompactMode,
+        },
+        showCompletedTasks: {
+            title: '显示已完成任务', description: '按当前文档分组单独记忆，包含“全部文档”。关闭时仅在视图中隐藏已完成任务，任务仍会进入本地索引。',
+            page: 'docs', sub: 't-done', scope: '当前文档分组', aliases: ['完成后消失', '消失', '看不到', '隐藏完成'],
+            note: '实际显示还受当前筛选规则和“已完成分组仅显示今天完成”等设置影响。',
+            read: data => __tmGetShowCompletedTasksFromSettings(data),
+        },
+        completedTasksTodayOnly: {
+            title: '已完成分组仅显示今天完成', description: '开启后，“已完成任务”尾部分组只保留完成日期为今天的任务；任务标题旁仍会用“今天”标签标识今天完成的任务。',
+            page: 'docs', sub: 't-done', scope: '全局', aliases: ['昨天完成', '历史完成', '今天'],
+            read: data => !!data.completedTasksTodayOnly,
+        },
+        completedTasksInlineInGroups: {
+            title: '已完成任务不单独分组', description: '开启后，已完成任务跟随当前文档、时间、四象限或任务名分组显示；看板中也不再显示单独已完成列或列底部已完成分组。',
+            page: 'docs', sub: 't-done', scope: '全局', aliases: ['已完成列', '完成分组', '混合显示'],
+            read: data => !!data.completedTasksInlineInGroups,
+        },
+    };
+
+    function __tmSettingsQueryText(id) {
+        const item = __tmSettingsQueryDefinitions[id];
+        return [item.title, item.description];
+    }
+
+    __tmNs.querySettings = async function(args = {}) {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('设置查询参数必须是对象');
+        if (args.query != null && typeof args.query !== 'string') throw new Error('设置查询关键词必须是文本');
+        const query = String(args.query || '').trim();
+        if (query.length > 200) throw new Error('设置查询关键词不能超过 200 字');
+        const limit = args.limit == null ? 12 : args.limit;
+        if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('设置查询数量必须是 1–20 的整数');
+        if (!SettingsStore.loaded) await __tmEnsureSettingsLoaded(false);
+        if (!SettingsStore.loaded) throw new Error('设置尚未加载，请稍后重试');
+
+        const normalized = query.toLowerCase();
+        const terms = normalized.split(/\s+/).filter(Boolean);
+        const matches = Object.entries(__tmSettingsQueryDefinitions).map(([id, item]) => {
+            const words = [id, item.title, ...item.aliases].map(word => word.toLowerCase());
+            const text = [item.description, item.scope].join(' ').toLowerCase();
+            const score = !normalized ? 1
+                : (words.includes(normalized) ? 100 : 0)
+                    + words.filter(word => word.includes(normalized) || normalized.includes(word)).length * 10
+                    + terms.filter(term => text.includes(term)).length;
+            return { id, item, score };
+        }).filter(match => match.score > 0).sort((a, b) => b.score - a.score);
+        const data = SettingsStore.data;
+        return {
+            readOnly: true,
+            coverage: '仅覆盖常用显示、完成行为与清单设置；未匹配时可省略 query 查看支持的设置，不代表插件没有其他设置。',
+            total: matches.length,
+            items: matches.slice(0, limit).map(({ id, item }) => ({
+                id, title: item.title, description: item.description,
+                path: [TM_SETTINGS_V2_PAGES.find(page => page[0] === item.page)[1],
+                    TM_SETTINGS_V3_SUBPAGES[item.page].find(sub => sub[0] === item.sub)[1], item.title].join(' → '),
+                scope: item.scope,
+                ...(id === 'showCompletedTasks' ? { groupID: String(data.currentGroupId || 'all') } : {}),
+                currentValue: item.read(data),
+                ...(item.note ? { note: item.note } : {}),
+            })),
+        };
+    };
+
     let __tmSettingsSearchCaptureBuffer = null;
     let __tmSettingsSearchIndexBuilding = false;
     let __tmSettingsSearchIndexBuildTimer = 0;
@@ -1052,60 +1214,6 @@
             }).filter(Boolean));
             const docPickerDraft = __tmPrepareSettingsDocPickerDraft(currentGroupId, currentDocIdSet);
             const docPickerTree = __tmBuildSettingsDocPickerTree(state.allDocuments, state.notebooks);
-            const renderDocPickerNode = (node, depth = 0) => {
-                const docId = String(node?.id || '').trim();
-                if (!docId) return '';
-                const displayName = __tmGetDocDisplayName(node.doc, node.name || '未命名文档');
-                const alreadyAdded = currentDocIdSet.has(docId);
-                const checked = alreadyAdded || docPickerDraft.has(docId);
-                const hasChildren = Array.isArray(node.children) && node.children.length > 0;
-                const searchText = [displayName, node.name, node.alias, node.path, docId].filter(Boolean).join(' ');
-                const rowTag = hasChildren ? 'span' : 'div';
-                const row = `
-                    <${rowTag} class="tm-doc-group-manager__picker-row${alreadyAdded ? ' is-added' : ''}"
-                        data-tm-doc-picker-row data-tm-doc-picker-search="${esc(searchText)}"
-                        style="--tm-doc-picker-depth:${Math.max(0, depth)}">
-                        <span class="tm-doc-group-manager__picker-indent" aria-hidden="true"></span>
-                        ${hasChildren
-                            ? `<span class="tm-doc-group-manager__picker-chevron" aria-hidden="true">${icon('chevron-right', 14)}</span>`
-                            : '<span class="tm-doc-group-manager__picker-chevron-placeholder" aria-hidden="true"></span>'}
-                        <label class="tm-doc-group-manager__picker-label" onclick="event.stopPropagation()">
-                            <input type="checkbox" data-tm-doc-picker-checkbox value="${esc(docId)}"
-                                ${checked ? 'checked' : ''}${alreadyAdded ? ' disabled' : ''}
-                                onchange="tmToggleSettingsDocPickerSelection('${escSq(docId)}', this.checked)">
-                            <span class="tm-doc-group-manager__picker-doc-icon">${icon('file-text', 14)}</span>
-                            <span class="tm-doc-group-manager__picker-name" title="${esc(node.path || displayName)}">${esc(displayName)}</span>
-                            ${alreadyAdded ? '<span class="tm-doc-group-manager__picker-status">已添加</span>' : ''}
-                        </label>
-                    </${rowTag}>
-                `;
-                if (!hasChildren) {
-                    return `<div class="tm-doc-group-manager__picker-item" data-tm-doc-picker-item>${row}</div>`;
-                }
-                return `
-                    <details class="tm-doc-group-manager__picker-item tm-doc-group-manager__picker-branch" data-tm-doc-picker-item>
-                        <summary>${row}</summary>
-                        <div class="tm-doc-group-manager__picker-children">
-                            ${node.children.map((child) => renderDocPickerNode(child, depth + 1)).join('')}
-                        </div>
-                    </details>
-                `;
-            };
-            const countDocPickerNodes = (nodes) => (Array.isArray(nodes) ? nodes : [])
-                .reduce((count, node) => count + 1 + countDocPickerNodes(node.children), 0);
-            const renderDocPickerNotebook = (group) => `
-                <details class="tm-doc-group-manager__picker-notebook" data-tm-doc-picker-notebook>
-                    <summary>
-                        <span class="tm-doc-group-manager__picker-chevron" aria-hidden="true">${icon('chevron-right', 14)}</span>
-                        <span class="tm-doc-group-manager__picker-notebook-icon">${icon('archive', 14)}</span>
-                        <span class="tm-doc-group-manager__picker-notebook-name">${esc(group.name)}</span>
-                        <span class="tm-doc-group-manager__picker-notebook-count">${countDocPickerNodes(group.roots)}</span>
-                    </summary>
-                    <div class="tm-doc-group-manager__picker-notebook-docs">
-                        ${group.roots.map((node) => renderDocPickerNode(node, 0)).join('')}
-                    </div>
-                </details>
-            `;
             const renderSourceRows = () => {
                 if (!currentDocs.length) {
                     return '<div class="tm-doc-group-manager__empty">暂无文档来源。可在上方添加文档，或从思源文档菜单加入当前分组。</div>';
@@ -1201,7 +1309,7 @@
                                     <span></span><span></span><span></span>
                                 </div>
                             ` : docPickerTree.length
-                                ? docPickerTree.map(renderDocPickerNotebook).join('')
+                                ? __tmRenderDocPickerTree(docPickerTree, { selectedIds: docPickerDraft, disabledIds: currentDocIdSet })
                                 : '<div class="tm-doc-group-manager__picker-empty">没有可选择的文档</div>'}
                             <div class="tm-doc-group-manager__picker-empty" data-tm-doc-picker-empty hidden>没有匹配的文档</div>
                         </div>
@@ -2427,20 +2535,17 @@
                         <div class="tm-settings-section-title">🖥️ 基础显示</div>
                         <div class="tm-settings-section-desc">调整常规字号、行高和文本展示方式。</div>
                         ${renderSingleFieldSetting(
-                            '字体大小',
-                            '设置桌面端任务管理器的基础字号。',
+                            ...__tmSettingsQueryText('fontSize'),
                             `<input class="b3-text-field" type="number" value="${SettingsStore.data.fontSize}" min="10" max="30" onchange="updateFontSize(this.value)" style="width:88px;">
                              <span class="tm-setting-field-unit">px</span>`
                         )}
                         ${renderSingleFieldSetting(
-                            '移动端字体',
-                            '单独设置移动端字号，未设置时跟随桌面端。',
+                            ...__tmSettingsQueryText('fontSizeMobile'),
                             `<input class="b3-text-field" type="number" value="${SettingsStore.data.fontSizeMobile || SettingsStore.data.fontSize}" min="10" max="30" onchange="updateFontSizeMobile(this.value)" style="width:88px;">
                              <span class="tm-setting-field-unit">px</span>`
                         )}
                         ${renderSingleFieldSetting(
-                            '行高模式',
-                            '控制任务行整体密度。',
+                            ...__tmSettingsQueryText('rowHeightMode'),
                             `<select class="b3-select" onchange="updateRowHeightMode(this.value)" style="width:180px;">
                                 <option value="auto" ${String(SettingsStore.data.rowHeightMode || 'auto') === 'auto' ? 'selected' : ''}>自动</option>
                                 <option value="compact" ${String(SettingsStore.data.rowHeightMode || '') === 'compact' ? 'selected' : ''}>紧凑</option>
@@ -2455,8 +2560,7 @@
                              <span class="tm-setting-field-unit">(0=跟随)</span>`
                         )}
                         ${renderSingleSwitchSetting(
-                            '剩余时间按工作日计算',
-                            '开启后，剩余时间显示会跳过周六和周日；显示文案保持不变。时间分组、四象限和排序不受影响。',
+                            ...__tmSettingsQueryText('remainingTimeUseWorkdays'),
                             '<input class="b3-switch fn__flex-center" type="checkbox" ' + (SettingsStore.data.remainingTimeUseWorkdays ? 'checked' : '') + ' onchange="updateRemainingTimeUseWorkdays(this.checked)">'
                         )}
                         ${renderSingleSwitchSetting(
@@ -2465,13 +2569,11 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.parentTaskNameBoldEnabled !== false ? 'checked' : ''} onchange="updateParentTaskNameBoldEnabled(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '自动换行',
-                            '任务内容、备注、看板和白板中的任务内容自动换行显示。',
+                            ...__tmSettingsQueryText('taskAutoWrapEnabled'),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskAutoWrapEnabled !== false ? 'checked' : ''} onchange="updateTaskAutoWrapEnabled(this.checked)">`
                         )}
                         ${renderSingleFieldSetting(
-                            '桌面端内容行数',
-                            '限制桌面端任务内容最多显示的行数。',
+                            ...__tmSettingsQueryText('taskContentWrapMaxLines'),
                             `<input class="b3-text-field" type="number" value="${Math.max(1, Math.min(10, Number(SettingsStore.data.taskContentWrapMaxLines) || 2))}" min="1" max="10"
                                    ${SettingsStore.data.taskAutoWrapEnabled !== false ? '' : 'disabled'}
                                    onchange="updateTaskContentWrapMaxLines(this.value)" style="width:88px;opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};">
@@ -2479,8 +2581,7 @@
                             { style: `opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};` }
                         )}
                         ${renderSingleFieldSetting(
-                            '移动端与 Dock 内容行数',
-                            '限制移动端和 Dock 侧边栏任务内容最多显示的行数。',
+                            ...__tmSettingsQueryText('taskContentWrapMaxLinesMobile'),
                             `<input class="b3-text-field" type="number" value="${Math.max(1, Math.min(10, Number(SettingsStore.data.taskContentWrapMaxLinesMobile) || 2))}" min="1" max="10"
                                    ${SettingsStore.data.taskAutoWrapEnabled !== false ? '' : 'disabled'}
                                    onchange="updateTaskContentWrapMaxLinesMobile(this.value)" style="width:88px;opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};">
@@ -2509,8 +2610,7 @@
                             </select>`
                         )}
                         ${renderSingleSwitchSetting(
-                            '完成反馈',
-                            '勾选完成后播放轻微动画并显示趣味提示；关闭后恢复为普通完成提示。',
+                            ...__tmSettingsQueryText('taskDoneDelightEnabled'),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskDoneDelightEnabled !== false ? 'checked' : ''} onchange="updateTaskDoneDelightEnabled(this.checked)">`,
                             { style: 'margin-top:10px;' }
                         )}
@@ -2944,8 +3044,7 @@
                             { style: 'margin-bottom:10px;' }
                         ) : ''}
                         ${renderSingleSwitchSetting(
-                            '清单紧凑模式',
-                            '开启时字段显示在任务右侧，窄屏下自动换行；关闭时字段始终显示在任务名称下方。',
+                            ...__tmSettingsQueryText('checklistCompactMode'),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactMode ? 'checked' : ''} onchange="updateChecklistCompactMode(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -3120,8 +3219,7 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '显示已完成任务',
-                            '按当前文档分组单独记忆，包含“全部文档”。关闭时仅在视图中隐藏已完成任务，任务仍会进入本地索引。',
+                            ...__tmSettingsQueryText('showCompletedTasks'),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmGetShowCompletedTasksFromSettings(SettingsStore.data) ? 'checked' : ''} onchange="updateShowCompletedTasks(this.checked)">`
                         )}
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px; margin-bottom: 12px;">
@@ -3129,14 +3227,12 @@
                             <br>规则设置中将「完成状态」设为「所有状态」或「是」时，也会显示对应已完成任务。
                         </div>
                         ${renderSingleSwitchSetting(
-                            '已完成分组仅显示今天完成',
-                            '开启后，“已完成任务”尾部分组只保留完成日期为今天的任务；任务标题旁仍会用“今天”标签标识今天完成的任务。',
+                            ...__tmSettingsQueryText('completedTasksTodayOnly'),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.completedTasksTodayOnly ? 'checked' : ''} onchange="updateCompletedTasksTodayOnly(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '已完成任务不单独分组',
-                            '开启后，已完成任务跟随当前文档、时间、四象限或任务名分组显示；看板中也不再显示单独已完成列或列底部已完成分组。',
+                            ...__tmSettingsQueryText('completedTasksInlineInGroups'),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.completedTasksInlineInGroups ? 'checked' : ''} onchange="updateCompletedTasksInlineInGroups(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}

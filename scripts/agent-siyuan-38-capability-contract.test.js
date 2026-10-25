@@ -83,12 +83,13 @@ vm.createContext(context);
 vm.runInContext(index, context, { filename: 'index.js' });
 const plugin = new context.module.exports();
 assert.equal(plugin.registerTaskHorizonAgentActions(), true);
-assert.deepEqual(registered.map((item) => item.name), ['open_task_manager', 'focus_task', 'get_task_view_context']);
+assert.deepEqual(registered.map((item) => item.name), ['open_task_manager', 'focus_task', 'get_task_view_context', 'query_plugin_settings']);
 assert.equal(registered.every((item) => item.id.startsWith('plugin/frontend/siyuan-plugin-task-horizon/')), true);
 assert.equal(registered.every((item) => item.generation > 0 && item.inputSchema?.type === 'object' && item.effects), true);
-assert.equal(context.__taskHorizonFrontendCapabilityDescriptors.length, 3);
+assert.equal(context.__taskHorizonFrontendCapabilityDescriptors.length, 4);
 assert.equal(registered.find((item) => item.name === 'open_task_manager').effects.localWrite, true, 'opening the manager may persist UI state');
 assert.equal(registered.find((item) => item.name === 'focus_task').effects.localRead, true, 'focusing a task must not be classified as a business-data write');
+assert.equal(registered.find((item) => item.name === 'query_plugin_settings').effects.localRead, true, 'settings queries must be read-only');
 assert.equal(Object.prototype.hasOwnProperty.call(context, '__taskHorizonAgentActionDescriptors'), false);
 
 console.log('SiYuan 3.8 capability compatibility contract tests passed');

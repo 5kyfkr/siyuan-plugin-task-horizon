@@ -6966,10 +6966,60 @@ return false;
             reason: String(options?.reason || options?.source || 'task-attachments').trim() || 'task-attachments',
             broadcast: options?.broadcast !== false,
             skipNoopCheck: options?.skipNoopCheck === true || normalizedPaths.length === 0,
-            background: true,
-            wait: false,
+            background: options?.wait !== true,
+            wait: options?.wait === true,
             skipInteractionGate: true,
         });
+    }
+
+    async function __tmCreateTaskAttachmentDocument(taskId, draft) {
+        const tid = String(taskId || '').trim();
+        if (!tid || !draft || typeof draft !== 'object') throw new Error('缺少任务或文档信息');
+        if (!draft.createdDocId) {
+            const title = String(draft.title || '').trim();
+            if (!title) throw new Error('请输入文档标题');
+            if (title.length > 512 || /[\\/\x00-\x1f]/.test(title) || title === '.' || title === '..') {
+                throw new Error('文档标题最多 512 个字符，不能包含斜杠或控制字符，也不能为 . 或 ..');
+            }
+            const parentId = __tmNormalizeTaskAttachmentBlockId(draft.parentDocId);
+            if (!parentId) throw new Error('请选择创建位置');
+            const parent = await API.getDocMetaById(parentId);
+            if (!parent?.notebook || !parent?.path) throw new Error('无法读取创建位置，请重新选择文档');
+            const docPath = `${String(parent.path).replace(/\/+$/, '')}/${title}`;
+            if (!draft.requestedDocId) draft.requestedDocId = __tmNewTaskBlockId();
+            let created;
+            let creationFailure = null;
+            try {
+                created = await API.createDocByParent(parent.notebook, parentId, title, '', {
+                    id: draft.requestedDocId,
+                    legacyPath: `${docPath}.sy`,
+                });
+            } catch (e) {
+                if (e.commitState !== 'committed' || e.documentID !== draft.requestedDocId) throw e;
+                created = e.documentID;
+                creationFailure = e;
+            }
+            const docId = __tmNormalizeTaskAttachmentBlockId(created);
+            if (!docId) throw new Error('文档已创建，但未返回有效的文档 ID');
+            // 先保留创建结果；关联失败时只重试写入附件。
+            draft.createdDocId = docId;
+            draft.title = title;
+            draft.docPath = docPath;
+            __tmPrimeTaskAttachmentBlockMeta({ id: docId, type: 'd', content: title, doc_path: docPath });
+            if (creationFailure) throw creationFailure;
+        }
+        const token = __tmBuildTaskAttachmentBlockToken(draft.createdDocId);
+        if (!token) throw new Error('文档 ID 无效');
+        const currentPaths = __tmGetQueuedTaskAttachmentPatchPaths(tid) || __tmGetCurrentTaskAttachmentPatchBase(tid);
+        const paths = __tmNormalizeTaskAttachmentPaths(currentPaths.concat(token));
+        const saved = await __tmUpdateTaskAttachmentsField(tid, paths, {
+            source: 'detail-attachment-create-document',
+            currentPaths,
+            wait: true,
+            skipNoopCheck: true,
+        });
+        if (saved === false) throw new Error('任务附件未保存，请重试关联');
+        return { id: draft.createdDocId, paths };
     }
 
     const __TM_ATTACHMENT_LIBRARY_TYPE_OPTIONS = [
@@ -12268,21 +12318,44 @@ return false;
             const modal = document.createElement('div');
             modal.className = 'tm-prompt-modal tm-task-attachment-picker-modal';
             modal.innerHTML = `
-                <div class="tm-prompt-box tm-task-attachment-picker-box">
-                    <div class="tm-prompt-title">添加附件</div>
-                    <label class="tm-task-attachment-picker-switch">
-                        <span class="tm-task-attachment-picker-switch__text">搜索思源文档</span>
-                        <input class="b3-switch" type="checkbox" data-tm-attachment-picker-doc-toggle>
-                    </label>
+                <div class="tm-prompt-box tm-task-attachment-picker-box" role="dialog" aria-modal="true" aria-labelledby="tm-attachment-picker-title">
+                    <div class="tm-prompt-title" id="tm-attachment-picker-title">添加附件</div>
+                    <div class="tm-task-attachment-picker-search" data-tm-attachment-picker-search>
+                    <div class="tm-task-attachment-picker-modebar">
+                        <div class="tm-task-attachment-picker-tabs" role="tablist" aria-label="附件类型">
+                            <button type="button" role="tab" id="tm-attachment-tab-asset" aria-controls="tm-attachment-search-panel" aria-selected="true" data-tm-attachment-picker-mode="asset">文件附件</button>
+                            <button type="button" role="tab" id="tm-attachment-tab-doc" aria-controls="tm-attachment-search-panel" aria-selected="false" tabindex="-1" data-tm-attachment-picker-mode="doc">思源文档</button>
+                        </div>
+                        ${typeof opts.onCreateDocument === 'function' ? `<button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-create>${__tmRenderLucideIcon('plus', 'tm-task-attachment-picker-action-icon')}<span>新建文档</span></button>` : ''}
+                    </div>
+                    <div class="tm-task-attachment-picker-search" role="tabpanel" id="tm-attachment-search-panel" aria-labelledby="tm-attachment-tab-asset">
                     <div class="tm-task-attachment-picker-toolbar">
-                        <input class="tm-prompt-input tm-task-attachment-picker-input" type="text" placeholder="搜索附件名，拖拽/上传文件，或粘贴 assets/… / 本地路径 / 块链接">
-                        <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-upload>上传本地</button>
-                        <input class="tm-task-attachment-picker-file-input" type="file" multiple data-tm-attachment-picker-file>
+                        <input class="tm-prompt-input tm-task-attachment-picker-input" type="search" aria-label="搜索附件" placeholder="搜索附件名称，或粘贴链接、路径">
+                        <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-upload>${__tmRenderLucideIcon('arrow-up', 'tm-task-attachment-picker-action-icon')}<span>上传本地</span></button>
+                        <input class="tm-task-attachment-picker-file-input" type="file" multiple data-tm-attachment-picker-file hidden>
                     </div>
                     <div class="tm-task-attachment-picker-helper" data-tm-attachment-picker-helper>支持搜索思源附件，也支持拖拽/上传本地文件、Ctrl+V 粘贴图片、assets 路径、本地路径、Markdown 附件链接或文档/块链接。</div>
                     <div class="tm-task-attachment-picker-list" data-tm-attachment-picker-list></div>
+                    </div>
+                    </div>
+                    <form id="tm-attachment-create-document-form" class="tm-task-attachment-create-form" data-tm-attachment-create-form hidden>
+                        <label class="tm-task-attachment-create-field">
+                            <span>文档标题</span>
+                            <input class="tm-prompt-input" data-tm-attachment-create-title maxlength="512" autocomplete="off" required value="${esc(String(opts.documentTitle || ''))}">
+                        </label>
+                        <div class="tm-task-attachment-create-field">
+                            <span id="tm-attachment-create-location-label">创建位置</span>
+                            <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary tm-task-attachment-create-location" data-tm-attachment-create-location aria-labelledby="tm-attachment-create-location-label tm-attachment-create-location-value">
+                                <span id="tm-attachment-create-location-value" data-tm-attachment-create-location-value>选择文档</span><span>更改</span>
+                            </button>
+                            <span class="tm-task-attachment-picker-helper">新文档将建在所选文档下。</span>
+                        </div>
+                        <div class="tm-task-attachment-picker-helper tm-task-attachment-create-status" data-tm-attachment-create-status role="status" aria-live="polite"></div>
+                    </form>
                     <div class="tm-prompt-buttons">
                         <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-cancel>取消</button>
+                        <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-create-open hidden>打开文档</button>
+                        <button type="submit" form="tm-attachment-create-document-form" class="tm-prompt-btn tm-prompt-btn-primary" data-tm-attachment-create-submit hidden>创建并关联</button>
                         <button type="button" class="tm-prompt-btn tm-prompt-btn-primary" data-tm-attachment-picker-add disabled>添加选中</button>
                     </div>
                 </div>
@@ -12294,11 +12367,27 @@ return false;
             const helper = modal.querySelector('[data-tm-attachment-picker-helper]');
             const list = modal.querySelector('[data-tm-attachment-picker-list]');
             const pickerBox = modal.querySelector('.tm-task-attachment-picker-box');
-            const docToggle = modal.querySelector('[data-tm-attachment-picker-doc-toggle]');
+            const modeTabs = Array.from(modal.querySelectorAll('[data-tm-attachment-picker-mode]'));
+            let searchMode = 'asset';
             const uploadBtn = modal.querySelector('[data-tm-attachment-picker-upload]');
             const uploadInput = modal.querySelector('[data-tm-attachment-picker-file]');
             const cancelBtn = modal.querySelector('[data-tm-attachment-picker-cancel]');
             const addBtn = modal.querySelector('[data-tm-attachment-picker-add]');
+            const createBtn = modal.querySelector('[data-tm-attachment-picker-create]');
+            const searchPanel = modal.querySelector('[data-tm-attachment-picker-search]');
+            const createForm = modal.querySelector('[data-tm-attachment-create-form]');
+            const titleInput = modal.querySelector('[data-tm-attachment-create-title]');
+            const locationBtn = modal.querySelector('[data-tm-attachment-create-location]');
+            const locationValue = modal.querySelector('[data-tm-attachment-create-location-value]');
+            const createStatus = modal.querySelector('[data-tm-attachment-create-status]');
+            const createSubmit = modal.querySelector('[data-tm-attachment-create-submit]');
+            const openDocBtn = modal.querySelector('[data-tm-attachment-create-open]');
+            const documentDraft = { parentDocId: String(opts.parentDocId || '').trim() };
+            let createMode = false;
+            let createBusy = false;
+            let createDone = false;
+            let locationBusy = false;
+            let closed = false;
             const existingSet = new Set(__tmNormalizeTaskAttachmentPaths(opts.existingPaths || []));
             const selectedPaths = new Set();
             let results = [];
@@ -12306,23 +12395,23 @@ return false;
             let searchSeq = 0;
             let pickerDragDepth = 0;
             let dragRestoreHelperText = '';
-            const getSearchMode = () => ((docToggle instanceof HTMLInputElement) && docToggle.checked ? 'doc' : 'asset');
+            const getSearchMode = () => searchMode;
             const getModeEmptyText = () => (
                 getSearchMode() === 'doc'
-                    ? '输入文档名开始搜索，或粘贴块链接'
-                    : '输入文件名开始搜索，或拖拽/粘贴图片、附件链接、本地路径'
+                    ? '输入名称，查找要关联的文档'
+                    : '输入名称，查找思源中已有的附件'
             );
             const getModeZeroText = () => (getSearchMode() === 'doc' ? '没有找到匹配文档' : '没有找到匹配附件');
             const getModeSearchText = () => (getSearchMode() === 'doc' ? '文档搜索中...' : '搜索中...');
             const getDefaultHelperText = () => (
                 getSearchMode() === 'doc'
-                    ? '已切换到文档搜索，可直接搜索思源文档并作为附件添加，也支持粘贴块链接。'
-                    : '支持搜索思源附件，也支持拖拽/上传本地文件、Ctrl+V 粘贴图片、assets 路径、本地路径、Markdown 附件链接或文档/块链接。'
+                    ? '搜索思源文档并关联到任务，也可粘贴文档或块链接。'
+                    : '可拖拽上传文件，或粘贴图片、附件链接、本地路径。'
             );
             const getInputPlaceholder = () => (
                 getSearchMode() === 'doc'
                     ? '搜索文档名，或粘贴块链接'
-                    : '搜索附件名，拖拽/上传文件，或粘贴 assets/… / 本地路径 / 块链接'
+                    : '搜索附件名称，或粘贴链接、路径'
             );
             const getInputText = () => String(input instanceof HTMLInputElement ? input.value : '').trim();
             const setHelperText = (text) => {
@@ -12338,9 +12427,12 @@ return false;
             };
             const removeFromStack = __tmModalStackBind(() => {
                 try { cancelBtn?.click?.(); } catch (e) {}
+                return closed;
             });
 
             const close = (value = null) => {
+                if (closed || createBusy || locationBusy) return;
+                closed = true;
                 try {
                     if (searchTimer) clearTimeout(searchTimer);
                 } catch (e) {}
@@ -12348,6 +12440,102 @@ return false;
                 try { modal.remove(); } catch (e) {}
                 resolve(value);
             };
+
+            const syncCreateControls = () => {
+                const locked = createBusy || locationBusy || !!documentDraft.createdDocId;
+                titleInput.disabled = locked;
+                locationBtn.disabled = locked;
+                createSubmit.disabled = createBusy || locationBusy || !String(titleInput.value || '').trim() || !documentDraft.parentDocId;
+                createSubmit.hidden = !createMode || createDone;
+                createSubmit.textContent = createBusy ? '处理中…' : (documentDraft.createdDocId ? '重试关联' : '创建并关联');
+                openDocBtn.hidden = !createMode || !documentDraft.createdDocId;
+                openDocBtn.disabled = createBusy;
+                cancelBtn.disabled = createBusy || locationBusy;
+                cancelBtn.textContent = createDone ? '完成' : (createMode ? (documentDraft.createdDocId ? '关闭' : '返回') : '取消');
+                createForm.setAttribute('aria-busy', String(createBusy || locationBusy));
+            };
+            const setCreateMode = (active) => {
+                createMode = active;
+                searchPanel.hidden = active;
+                createForm.hidden = !active;
+                addBtn.hidden = active;
+                modal.querySelector('.tm-prompt-title').textContent = active ? '新建文档并关联' : '添加附件';
+                syncCreateControls();
+                if (active) { titleInput.focus(); titleInput.select(); }
+                else input.focus();
+            };
+            if (createBtn instanceof HTMLButtonElement) {
+                createBtn.onclick = async () => {
+                    setCreateMode(true);
+                    if (!documentDraft.parentDocId) return;
+                    locationBusy = true;
+                    syncCreateControls();
+                    try {
+                        const parent = await API.getDocMetaById(documentDraft.parentDocId);
+                        locationValue.textContent = parent?.path || parent?.name || '选择文档';
+                        locationBtn.title = locationValue.textContent;
+                    } catch (e) {
+                        createStatus.textContent = `读取位置失败：${String(e?.message || e || '')}`;
+                    } finally {
+                        locationBusy = false;
+                        syncCreateControls();
+                        titleInput.focus();
+                    }
+                };
+            }
+            locationBtn.onclick = async () => {
+                if (createBusy || locationBusy || documentDraft.createdDocId) return;
+                locationBusy = true;
+                syncCreateControls();
+                try {
+                    const selected = await __tmOpenDocumentLocationPicker(documentDraft.parentDocId);
+                    if (selected) {
+                        documentDraft.parentDocId = selected.id;
+                        locationValue.textContent = selected.path || selected.name || '所选文档';
+                        locationBtn.title = locationValue.textContent;
+                        createStatus.textContent = '';
+                    }
+                } catch (e) {
+                    createStatus.textContent = `读取位置失败：${String(e?.message || e || '')}`;
+                } finally {
+                    locationBusy = false;
+                    syncCreateControls();
+                    locationBtn.focus();
+                }
+            };
+            titleInput.oninput = syncCreateControls;
+            createForm.onsubmit = async (ev) => {
+                ev.preventDefault();
+                if (createBusy || locationBusy || createDone || typeof opts.onCreateDocument !== 'function') return;
+                documentDraft.title = titleInput.value;
+                createBusy = true;
+                createStatus.textContent = documentDraft.createdDocId ? '正在关联文档…' : '正在创建并关联文档…';
+                createStatus.classList.remove('is-error');
+                syncCreateControls();
+                try {
+                    await opts.onCreateDocument(documentDraft);
+                    createDone = true;
+                    createStatus.textContent = '已创建并关联到当前任务。';
+                } catch (e) {
+                    createStatus.textContent = `${documentDraft.createdDocId ? '文档已创建，关联失败，可重试关联。' : '创建失败：'}${String(e?.message || e || '')}`;
+                    createStatus.classList.add('is-error');
+                } finally {
+                    createBusy = false;
+                    if (documentDraft.createdDocId) titleInput.value = documentDraft.title;
+                    syncCreateControls();
+                    (createDone ? openDocBtn : createSubmit).focus();
+                }
+            };
+            openDocBtn.onclick = (ev) => {
+                if (documentDraft.createdDocId) void __tmOpenTaskAttachmentBlockRef(documentDraft.createdDocId, ev);
+            };
+            modal.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Escape' && createMode) {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    cancelBtn.click();
+                }
+            });
 
             const setUploadButtonBusy = (busy, label = '') => {
                 if (!(uploadBtn instanceof HTMLButtonElement)) return;
@@ -12401,6 +12589,7 @@ return false;
             };
 
             const handlePasteImport = async (ev) => {
+                if (createMode) return false;
                 const clipboardData = ev?.clipboardData || null;
                 if (!clipboardData) return false;
                 const clipboardFiles = __tmBuildTaskAttachmentClipboardFiles(clipboardData);
@@ -12444,6 +12633,7 @@ return false;
             };
 
             const runSearch = async () => {
+                if (closed || createMode) return;
                 const query = getInputText();
                 const currentSeq = ++searchSeq;
                 if (!query) {
@@ -12469,7 +12659,7 @@ return false;
                     const found = getSearchMode() === 'doc'
                         ? await API.searchDocs(query, { limit: 60 })
                         : await API.searchAssets(query, { limit: 60 });
-                    if (currentSeq !== searchSeq) return;
+                    if (currentSeq !== searchSeq || closed || createMode) return;
                     results = found.map((item) => ({
                         ...item,
                         ...(__tmBuildTaskAttachmentEntries([item.path])[0] || {}),
@@ -12477,7 +12667,7 @@ return false;
                     setHelperText(results.length ? `找到 ${results.length} 个${getSearchMode() === 'doc' ? '文档' : '附件'}` : getModeZeroText());
                     renderList(results.length ? '' : getModeZeroText());
                 } catch (e) {
-                    if (currentSeq !== searchSeq) return;
+                    if (currentSeq !== searchSeq || closed || createMode) return;
                     results = [];
                     const message = `${getSearchMode() === 'doc' ? '文档' : '附件'}搜索失败：${String(e?.message || e || '')}`;
                     setHelperText(message);
@@ -12524,6 +12714,7 @@ return false;
                 void handlePasteImport(ev);
             };
             modal.ondragenter = (ev) => {
+                if (createMode) return;
                 if (!__tmTaskAttachmentDataTransferHasFiles(ev?.dataTransfer)) return;
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
@@ -12532,6 +12723,7 @@ return false;
                 setPickerDragActive(true, __tmGetTaskAttachmentFiles(ev?.dataTransfer).length);
             };
             modal.ondragover = (ev) => {
+                if (createMode) return;
                 if (!__tmTaskAttachmentDataTransferHasFiles(ev?.dataTransfer)) return;
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
@@ -12549,6 +12741,7 @@ return false;
                 setPickerDragActive(false);
             };
             modal.ondrop = (ev) => {
+                if (createMode) return;
                 if (!__tmTaskAttachmentDataTransferHasFiles(ev?.dataTransfer)) return;
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
@@ -12585,12 +12778,24 @@ return false;
                 };
             }
 
-            if (docToggle instanceof HTMLInputElement) {
-                docToggle.onchange = () => {
+            modeTabs.forEach((tab, index) => {
+                tab.onclick = () => {
+                    searchMode = tab.dataset.tmAttachmentPickerMode;
+                    searchSeq += 1;
+                    modeTabs.forEach(item => {
+                        const active = item === tab;
+                        item.setAttribute('aria-selected', String(active));
+                        item.tabIndex = active ? 0 : -1;
+                    });
+                    modal.querySelector('[role="tabpanel"]').setAttribute('aria-labelledby', tab.id);
+                    uploadBtn.hidden = searchMode === 'doc';
                     selectedPaths.clear();
                     results = [];
                     dragRestoreHelperText = '';
-                    if (input instanceof HTMLInputElement) input.placeholder = getInputPlaceholder();
+                    if (input instanceof HTMLInputElement) {
+                        input.placeholder = getInputPlaceholder();
+                        input.setAttribute('aria-label', searchMode === 'doc' ? '搜索文档' : '搜索附件');
+                    }
                     if (getInputText()) {
                         void runSearch();
                     } else {
@@ -12599,9 +12804,20 @@ return false;
                     }
                     syncAddButton();
                 };
-            }
+                tab.onkeydown = ev => {
+                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) return;
+                    ev.preventDefault();
+                    const next = ev.key === 'Home' ? 0 : ev.key === 'End' ? modeTabs.length - 1 : (index + (ev.key === 'ArrowRight' ? 1 : -1) + modeTabs.length) % modeTabs.length;
+                    modeTabs[next].click();
+                    modeTabs[next].focus();
+                };
+            });
 
-            if (cancelBtn instanceof HTMLButtonElement) cancelBtn.onclick = () => close(null);
+            if (cancelBtn instanceof HTMLButtonElement) cancelBtn.onclick = () => {
+                if (createBusy || locationBusy) return;
+                if (createMode && !documentDraft.createdDocId) setCreateMode(false);
+                else close(null);
+            };
             if (addBtn instanceof HTMLButtonElement) addBtn.onclick = () => close(Array.from(selectedPaths));
             modal.onclick = (ev) => {
                 if (ev.target === modal) close(null);

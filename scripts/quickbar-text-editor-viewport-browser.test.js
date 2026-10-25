@@ -16,6 +16,10 @@ function segment(startMarker, endMarker) {
 }
 const styles = segment('style.textContent = `', '`.trim();').slice('style.textContent = `'.length);
 const editorSetup = segment('// 输入编辑器', '// 状态变量');
+const remarkIcons = segment('function renderQuickbarRemarkIcon(', 'async function saveRawTaskAttrWithUndo(');
+const tooltipBuilder = segment('function buildTooltipAttrs(', 'function getFloatbarCoreIconName(');
+const basecoat = fs.readFileSync(path.join(root, 'src/basecoat/basecoat.css'), 'utf8');
+const tooltipStyles = basecoat.slice(basecoat.indexOf('[data-tooltip] {'), basecoat.indexOf('.bc-toast-viewport {'));
 const editorRuntime = [
     segment('function getInputEditorControls()', 'function isQuickbarInteractionTarget('),
     segment('function setInputEditorMode(', 'function getBlockElById('),
@@ -25,6 +29,43 @@ const editorRuntime = [
 
 async function settle(page) {
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+
+async function checkRemarkTooltips(page, width) {
+    const buttons = page.locator('[data-remark-toolbar] [data-tooltip]');
+    assert.equal(await buttons.count(), 8, 'formatting and close buttons retain their descriptions');
+    for (let index = 0; index < await buttons.count(); index++) {
+        const button = buttons.nth(index);
+        assert.equal(await button.getAttribute('data-side'), 'bottom', 'remark tooltips open below the toolbar');
+        await button.hover();
+        await page.waitForTimeout(140);
+        const boxes = await button.evaluate(element => {
+            const style = getComputedStyle(element, '::before');
+            // Materialize the pseudo-element to measure the same font, box and placement.
+            const probe = document.createElement('span');
+            for (const property of ['position', 'left', 'right', 'top', 'bottom', 'transform', 'width', 'height',
+                'min-width', 'max-width', 'padding', 'border', 'box-sizing', 'font-family', 'font-size',
+                'font-weight', 'line-height', 'white-space']) probe.style.setProperty(property, style.getPropertyValue(property));
+            probe.textContent = element.dataset.tooltip;
+            element.appendChild(probe);
+            const tooltip = probe.getBoundingClientRect().toJSON();
+            probe.remove();
+            const editor = element.closest('.sy-custom-props-floatbar__input-editor');
+            return { tooltip, button: element.getBoundingClientRect().toJSON(), editor: editor.getBoundingClientRect().toJSON(), opacity: Number(style.opacity) };
+        });
+        assert.ok(boxes.opacity > .99, 'hover shows the tooltip');
+        assert.ok(boxes.tooltip.top >= boxes.button.bottom, 'the tooltip appears below its button');
+        assert.ok(boxes.tooltip.left >= boxes.editor.left && boxes.tooltip.right <= boxes.editor.right &&
+            boxes.tooltip.top >= boxes.editor.top && boxes.tooltip.bottom <= boxes.editor.bottom,
+        'remark tooltips fit inside the clipping boundary: ' + JSON.stringify(boxes));
+    }
+    if (width === 1440) {
+        await page.locator('[data-remark-tool="quote"]').hover();
+        await page.waitForTimeout(140);
+        fs.mkdirSync(path.join(root, 'output/playwright'), { recursive: true });
+        await page.locator('.sy-custom-props-floatbar__input-editor').screenshot({ path: path.join(root, 'output/playwright/quickbar-remark-tooltip.png') });
+    }
+    await page.mouse.move(0, 0);
 }
 
 async function geometry(page) {
@@ -45,6 +86,12 @@ async function geometry(page) {
             focused: document.activeElement === textarea,
             scrollable: textarea.scrollHeight > textarea.clientHeight,
             visible: editor.classList.contains('is-visible'),
+            remark: editor.classList.contains('is-remark'),
+            horizontalOverflow: { clientWidth: editor.clientWidth, scrollWidth: editor.scrollWidth,
+                children: [...editor.children].map(element => ({
+                    className: element.className, width: element.getBoundingClientRect().width,
+                    boxSizing: getComputedStyle(element).boxSizing,
+                })) },
             listeners: window.viewportListenerCount(),
         };
     });
@@ -52,6 +99,8 @@ async function geometry(page) {
 
 function assertVisible(boxes, label) {
     const view = boxes.viewport;
+    if (boxes.remark) assert.ok(boxes.horizontalOverflow.scrollWidth <= boxes.horizontalOverflow.clientWidth + 1,
+        `${label}: the remark must not scroll horizontally: ${JSON.stringify(boxes.horizontalOverflow)}`);
     for (const name of ['editor', 'control', 'save', 'cancel']) {
         const rect = boxes[name];
         assert.ok(rect.width > 0 && rect.height > 0, `${label}: ${name} is visible`);
@@ -69,9 +118,10 @@ async function checkViewport(browser, width, height, keyboardHeight, hasVisualVi
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
         await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1">
-            <style>${styles}</style><style>
+            <style>${tooltipStyles}</style><style>${styles}</style><style>
                 :root{--b3-theme-background:#202126;--b3-theme-surface:#2d2e35;--b3-theme-on-surface:#e6dbcb;
-                    --b3-theme-primary:#df857d;--b3-border-color:#625854;--b3-dialog-shadow:0 4px 16px #15161966}
+                    --b3-theme-primary:#df857d;--b3-border-color:#625854;--b3-dialog-shadow:0 4px 16px #15161966;
+                    --popover:#303139;--popover-foreground:#f4ede3;--border:#625854;--radius:8px}
                 body{margin:0;min-height:1600px;font:14px system-ui;background:var(--b3-theme-background)}
                 #anchor{position:absolute;left:${width - 85}px;top:${Math.round(height * 0.65)}px;width:40px;height:28px}
             </style><button id="anchor">备注</button>`);
@@ -94,10 +144,20 @@ async function checkViewport(browser, width, height, keyboardHeight, hasVisualVi
             Object.defineProperty(window, 'visualViewport', { configurable: true, value: ${hasVisualViewport ? 'viewport' : 'null'} });
             window.viewportListenerCount = () => listenerRecords.length;
             window.moveViewport = (metrics, event = 'resize') => { Object.assign(viewport, metrics); viewport.dispatchEvent(new Event(event)); };
-            const buildTooltipAttrs = () => '';
+            const esc = value => String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+            ${tooltipBuilder}
+            ${remarkIcons}
             ${editorSetup}
             let currentBlockId = 'remark-test', currentProps = {}, quickbarTextEditorAutoSave = null, inputEditorViewportCleanup = null;
-            const getRemarkMarkdownTools = () => null, getQuickbarDurationPresetOptions = () => [];
+            window.remarkToolCalls = [];
+            const recordTool = (tool, textarea) => window.remarkToolCalls.push({ tool, selection: [textarea.selectionStart, textarea.selectionEnd] });
+            const getRemarkMarkdownTools = () => ({
+                wrapSelection: (textarea, marker) => recordTool('wrap:' + marker, textarea),
+                insertLinkTemplate: textarea => recordTool('link', textarea),
+                toggleLinePrefix: (textarea, prefix) => recordTool('prefix:' + prefix, textarea),
+                toggleOrderedList: textarea => recordTool('ordered', textarea),
+            });
+            const getQuickbarDurationPresetOptions = () => [];
             const normalizeRemarkMarkdown = value => String(value || '').trim();
             const normalizeTomatoCountValue = value => String(value || '').trim();
             const renderFloatBar = () => {}, patchInlineMetaCache = () => {}, refreshInlineMetaByTaskId = () => {};
@@ -116,6 +176,7 @@ async function checkViewport(browser, width, height, keyboardHeight, hasVisualVi
         })();` });
         await settle(page);
         assertVisible(await geometry(page), 'before keyboard');
+        await checkRemarkTooltips(page, width);
 
         if (hasVisualViewport) {
             await page.evaluate(next => window.moveViewport({ height: next }), keyboardHeight);
@@ -144,9 +205,18 @@ async function checkViewport(browser, width, height, keyboardHeight, hasVisualVi
         await textarea.evaluate(element => { element.scrollTop = 200; });
         await settle(page);
         assert.equal(await textarea.evaluate(element => element.scrollTop), 200, 'scrolling the draft must not reset its position');
-        await page.locator('[data-action="remark-tools"]').click();
-        await settle(page);
-        assertVisible(await geometry(page), 'expanded formatting tools');
+        assert.equal(await page.locator('[data-remark-toolbar]').isVisible(), true, 'formatting tools are always visible above the remark');
+        assert.equal(await page.locator('[data-remark-tool] svg').count(), 7, 'all existing Markdown tools use icons');
+        const toolbar = await page.locator('[data-remark-toolbar]').boundingBox();
+        assert.ok(toolbar.y + toolbar.height <= boxes.textarea.top + 1, 'formatting tools sit above the input');
+        assertVisible(await geometry(page), 'integrated formatting tools');
+        await textarea.evaluate(element => { element.focus(); element.setSelectionRange(2, 5); });
+        for (const tool of ['bold', 'italic', 'code', 'link', 'bullet', 'ordered', 'quote']) {
+            await page.locator(`[data-remark-tool="${tool}"]`).click();
+        }
+        assert.deepEqual(await page.evaluate(() => window.remarkToolCalls),
+            ['wrap:**', 'wrap:*', 'wrap:`', 'link', 'prefix:- ', 'ordered', 'prefix:> ']
+                .map(tool => ({ tool, selection: [2, 5] })), 'format buttons preserve selection and call the existing Markdown API');
 
         await textarea.evaluate(element => {
             element.focus({ preventScroll: true }); element.setSelectionRange(2, 5);
@@ -188,11 +258,20 @@ async function checkViewport(browser, width, height, keyboardHeight, hasVisualVi
         assert.equal((await geometry(page)).listeners, hasVisualViewport ? 4 : 2, 'reopening does not accumulate listeners');
         await page.locator('[data-action="cancel"]').click();
         assert.equal((await geometry(page)).listeners, 0, 'cancel releases listeners');
+        await page.evaluate(() => window.openRemark());
+        await page.locator('[data-action="remark-close"]').click();
+        assert.equal((await geometry(page)).visible, false, 'the header close button uses the cancel path');
+        assert.equal((await geometry(page)).listeners, 0, 'header close releases listeners');
+        await page.evaluate(() => window.openRemark());
+        await textarea.press('Escape');
+        assert.equal((await geometry(page)).visible, false, 'Escape closes the remark with its always-visible toolbar');
         await page.evaluate(() => { window.openRemark(); window.hideEditor(); });
         await settle(page);
         assert.equal((await geometry(page)).listeners, 0, 'dismissal cancels pending frames and listeners');
         await page.evaluate(() => { window.openRemark(); window.openText(); });
         await settle(page);
+        assert.equal(await page.locator('[data-remark-toolbar]').isVisible(), false, 'custom text has no remark formatting toolbar');
+        assert.equal(await page.locator('[data-action="save"]').innerText(), '确定', 'other editors keep their original action label');
         assert.equal((await geometry(page)).listeners, hasVisualViewport ? 4 : 2, 'switching editor modes replaces listeners');
         const input = page.locator('.sy-custom-props-floatbar__input');
         await input.fill('自定义文本列修改后');
