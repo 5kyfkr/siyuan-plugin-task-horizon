@@ -306,8 +306,8 @@
                 const totalChildren = allChildren.length;
                 const completedChildren = allChildren.filter((child) => {
                     try {
-                        return typeof __tmIsTaskDoneEffective === 'function'
-                            ? __tmIsTaskDoneEffective(child)
+                        return typeof __tmIsTaskClosedForDisplay === 'function'
+                            ? __tmIsTaskClosedForDisplay(child)
                             : child?.done === true;
                     } catch (e) {
                         return child?.done === true;

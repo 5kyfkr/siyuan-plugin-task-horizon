@@ -2754,7 +2754,20 @@
 
     window.updateDurationFormat = async function(format) {
         const v = String(format || '').trim();
-        SettingsStore.data.durationFormat = (v === 'minutes') ? 'minutes' : 'hours';
+        const next = (v === 'minutes') ? 'minutes' : 'hours';
+        const current = String(SettingsStore.data.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours';
+        if (next === current) return;
+        let ok = false;
+        try {
+            ok = await showConfirm('切换时长单位', '切换后，历史任务和预设里的数字会按新单位重新解释（例如 1.5 会从 1.5 小时变成 1.5 分钟），不会自动换算。继续？');
+        } catch (e) {
+            ok = false;
+        }
+        if (!ok) {
+            if (state.settingsModal) showSettings();
+            return;
+        }
+        SettingsStore.data.durationFormat = next;
         state.durationFormat = SettingsStore.data.durationFormat;
         await SettingsStore.save();
         if (state.settingsModal) showSettings();

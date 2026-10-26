@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>预估时长选择器 · 需求评估</title>
+<style>
+  :root{
+    --bg:#f3f5f8;
+    --card:#ffffff;
+    --ink:#1d2733;
+    --ink-2:#5b6878;
+    --ink-3:#8794a5;
+    --line:#e2e8f0;
+    --line-strong:#d3dce7;
+    --primary:#4285f4;
+    --primary-ink:#1a6ae0;
+    --primary-soft:#edf4ff;
+    --mock:#f7f9fc;
+    --mono:"Cascadia Mono","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    width:1240px;
+    padding:34px 36px 30px;
+    background:
+      radial-gradient(1200px 380px at 12% -8%, #ffffff 0%, rgba(255,255,255,0) 62%),
+      var(--bg);
+    color:var(--ink);
+    font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Noto Sans SC",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);
+  }
+  .topbar .brand{display:flex;align-items:center;gap:9px;font-weight:600;color:#415167}
+  .brand .dot{width:7px;height:7px;border-radius:2px;background:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+  .topbar .date{font-family:var(--mono);letter-spacing:.04em}
+  h1{
+    margin:18px 0 10px;
+    font-size:27px;line-height:1.22;font-weight:650;letter-spacing:-.015em;
+  }
+  h1 em{font-style:normal;color:var(--primary-ink);font-family:var(--mono);font-weight:600;font-size:.94em;letter-spacing:-.02em}
+  .lead{
+    margin:0;max-width:980px;font-size:13.5px;line-height:1.75;color:var(--ink-2);
+  }
+  .lead b{font-weight:600;color:#334155}
+
+  .section-head{display:flex;align-items:baseline;gap:10px;margin:30px 0 13px}
+  .section-head .idx{font-family:var(--mono);font-size:11px;color:var(--primary);letter-spacing:.06em}
+  .section-head h2{margin:0;font-size:14px;font-weight:650;letter-spacing:.01em}
+  .section-head .hint{margin-left:auto;font-size:11.5px;color:var(--ink-3)}
+
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:15px;
+    padding:16px 16px 14px;
+    box-shadow:0 1px 2px rgba(18,32,51,.03),0 10px 24px -18px rgba(18,32,51,.28);
+    display:flex;flex-direction:column;min-height:392px;
+  }
+  .card.is-rec{border-color:#bfd6ff;box-shadow:0 1px 2px rgba(66,133,244,.06),0 14px 30px -18px rgba(66,133,244,.45)}
+  .card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px}
+  .kicker{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  .card h3{margin:5px 0 0;font-size:15.5px;font-weight:650;letter-spacing:-.005em}
+  .pill{
+    flex:none;font-size:10.5px;font-weight:600;color:#5c718c;background:#f1f5f9;
+    border:1px solid #e2e8f0;border-radius:999px;padding:3px 8px;letter-spacing:.02em;
+  }
+  .pill.rec{color:var(--primary-ink);background:var(--primary-soft);border-color:#cfe0ff}
+
+  .mock{
+    background:var(--mock);border:1px solid #e8eef6;border-radius:12px;
+    padding:12px;margin-bottom:12px;
+  }
+  .mock-label{font-size:11px;font-weight:600;color:#5f6f82;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .mock-label svg{display:block}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:9px}
+  .chip{
+    height:26px;padding:0 9px;border:1px solid var(--line-strong);border-radius:7px;
+    background:#fff;color:#41516a;font-size:11.5px;font-family:var(--mono);
+    display:inline-flex;align-items:center;
+  }
+  .chip.on{border-color:#9dc0ff;background:var(--primary-soft);color:var(--primary-ink);font-weight:600}
+  .textfield{
+    display:flex;align-items:center;height:36px;border:1px solid var(--line-strong);border-radius:8px;
+    background:#fff;padding:0 10px;gap:8px;
+  }
+  .textfield span{font-family:var(--mono);font-size:13px;color:#334155}
+  .textfield .ph{color:#a3afbe;font-family:inherit;font-size:12px}
+  .caret{width:1px;height:16px;background:var(--primary);opacity:.55}
+  .helper{margin-top:6px;font-size:10.5px;color:var(--ink-3)}
+
+  /* picker */
+  .picker{
+    background:#fff;border:1px solid #dfe7f2;border-radius:11px;
+    box-shadow:0 1px 2px rgba(16,24,40,.04),0 14px 30px -18px rgba(16,24,40,.35);
+    padding:12px;
+  }
+  .fields{display:flex;align-items:flex-end;gap:7px}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field .cap{font-size:10px;color:var(--ink-3);letter-spacing:.04em}
+  .numbox{display:flex;align-items:stretch;height:38px;border:1px solid var(--line-strong);border-radius:8px;background:#fff;overflow:hidden}
+  .numbox .n{width:40px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:15px;font-weight:600;color:#223144}
+  .numbox .n.focus{background:#f7fbff}
+  .steps{display:flex;flex-direction:column;width:23px;border-left:1px solid #e6ecf4}
+  .steps i{flex:1;display:flex;align-items:center;justify-content:center;background:#f8fafc}
+  .steps i:first-child{border-bottom:1px solid #e6ecf4}
+  .tri{width:0;height:0;border-left:3.5px solid transparent;border-right:3.5px solid transparent}
+  .tri.up{border-bottom:4.5px solid #64748b}
+  .tri.dn{border-top:4.5px solid #64748b}
+  .unit{font-size:11px;color:#7b8794;padding-bottom:12px;font-family:var(--mono)}
+  .preview{
+    display:flex;align-items:center;gap:8px;margin:10px 0 9px;padding-top:9px;
+    border-top:1px dashed #e6edf6;font-size:11px;color:var(--ink-3);
+  }
+  .preview b{font-family:var(--mono);font-size:14px;color:#1d2733;letter-spacing:-.01em}
+  .preview .eq{font-family:var(--mono);color:#a9b5c4}
+  .actions{display:flex;justify-content:flex-end;gap:7px;margin-top:10px}
+  .btn{height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--line-strong);background:#fff;color:#41516a;font-size:11.5px;font-weight:600;display:inline-flex;align-items:center}
+  .btn.pri{background:var(--primary);border-color:var(--primary);color:#fff;box-shadow:0 1px 2px rgba(26,106,224,.25)}
+  .inline-format{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}
+  .inline-format .lbl{font-size:10px;color:var(--ink-3);letter-spacing:.03em}
+  .select-mini{
+    height:28px;display:inline-flex;align-items:center;gap:6px;padding:0 8px;
+    border:1px solid var(--line-strong);border-radius:7px;background:#fff;
+    font-family:var(--mono);font-size:11.5px;color:#334155;
+  }
+  .select-mini .chev{width:5px;height:5px;border-right:1.4px solid #7b8794;border-bottom:1.4px solid #7b8794;transform:rotate(45deg);margin-top:-2px}
+
+  .note{
+    margin-top:auto;padding-top:11px;border-top:1px solid #eef2f7;
+    font-size:11.5px;line-height:1.65;color:#6b788a;
+  }
+  .note b{font-weight:600;color:#3c4a5d}
+  .note .x{color:#b45309;font-weight:600}
+
+  /* matrix */
+  .matrix{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .fmt{
+    background:#fff;border:1px solid var(--line);border-radius:13px;padding:13px 13px 12px;
+    box-shadow:0 1px 2px rgba(18,32,51,.03);
+  }
+  .fmt .name{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  .fmt .sample{font-family:var(--mono);font-size:23px;font-weight:600;letter-spacing:-.02em;margin:7px 0 3px;color:#172233}
+  .fmt .sample small{font-size:11px;font-weight:500;color:#94a3b5;letter-spacing:.02em;margin-left:5px;font-family:inherit}
+  .fmt .desc{font-size:11px;line-height:1.55;color:#7a8798}
+  .fmt.default{border-color:#bfd6ff;background:linear-gradient(180deg,#fbfdff 0%,#fff 70%)}
+  .fmt.default .name{color:var(--primary-ink)}
+  .fmt-row{
+    margin-top:10px;display:flex;align-items:center;gap:12px;
+    background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 13px;
+  }
+  .taskdot{width:15px;height:15px;border:1.5px solid #c4cfdd;border-radius:4px;flex:none}
+  .task-title{font-size:12px;color:#3a4757;font-weight:500}
+  .task-due{margin-left:auto;font-size:10.5px;color:#93a0b0}
+  .task-dur{
+    font-family:var(--mono);font-size:11px;color:#41516a;background:#f1f5fa;border:1px solid #e6ecf4;
+    border-radius:6px;padding:3px 7px;
+  }
+  .sync-line{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:10.5px;color:var(--ink-3)}
+  .sync-line .tag{background:#f1f5f9;border:1px solid #e6ecf4;border-radius:5px;padding:2px 6px;color:#66758a}
+
+  /* facts */
+  .facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .fact{
+    background:#fff;border:1px solid var(--line);border-radius:13px;padding:13px 14px;
+  }
+  .fact .fh{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:650;color:#334155;margin-bottom:6px}
+  .fact .fh .n{font-family:var(--mono);font-size:10px;color:var(--primary);background:var(--primary-soft);border-radius:4px;padding:2px 5px}
+  .fact p{margin:0;font-size:11px;line-height:1.65;color:#6b788a}
+  .fact p b{font-weight:600;color:#3c4a5d}
+  .fact code{font-family:var(--mono);font-size:10.5px;background:#f3f6fa;border:1px solid #e8edf4;border-radius:4px;padding:1px 4px;color:#334155}
+
+  .footer{
+    margin-top:20px;display:flex;align-items:center;gap:12px;
+    border-top:1px solid #dfe6ef;padding-top:14px;
+  }
+  .verdict{
+    flex:none;font-size:11px;font-weight:650;letter-spacing:.02em;color:#0f5132;
+    background:#e9f7ef;border:1px solid #c5ebd6;border-radius:999px;padding:5px 10px;
+  }
+  .footer .rec{font-size:11.5px;line-height:1.6;color:#6b788a}
+  .footer .rec b{color:#334155;font-weight:600}
+  .footer .stamp{margin-left:auto;font-family:var(--mono);font-size:10px;color:#a0acbb;letter-spacing:.04em}
+
+  svg{flex:none}
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><span>Task Horizon · 需求评估</span></div>
+    <div class="date">2026-10-26 · v3.3.1 baseline</div>
+  </div>
+
+  <h1>预估时长输入选择器：<em>2h30m</em></h1>
+  <p class="lead">
+    需求可以拆成三件事：<b>输入要能表达组合时长</b>、<b>默认按 2h30m 呈现</b>、<b>显示格式可调整</b>。
+    但现在的时长是自由文本，纯数字的单位由全局设置决定 —— 在换控件之前，得先把这条数据规则定下来，否则切换格式会改变历史值的含义。
+  </p>
+
+  <div class="section-head">
+    <span class="idx">01</span><h2>现状与两个方向</h2>
+    <span class="hint">输入入口 ×5：详情弹层 / 表格单元格 / 批量修改 / 右键菜单 / 悬浮条</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="kicker">Current</div>
+          <h3>自由文本 + 无单位预设</h3>
+        </div>
+        <span class="pill">现状</span>
+      </div>
+      <div class="mock">
+        <div class="mock-label">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8899ab" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          预计时长
+        </div>
+        <div class="chips">
+          <span class="chip">0.5</span><span class="chip">1</span><span class="chip">2</span><span class="chip">4</span>
+        </div>
+        <div class="textfield"><span>30</span><span class="caret"></span></div>
+        <div class="helper">选预设或直接输入 · 例如 30 或 30m</div>
+      </div>
+      <div class="note">
+        <b>同一个“1”可能是 1 小时，也可能是 1 分钟。</b><br>
+        预设和输入都不带单位，含义完全取决于设置里的「时长显示格式」；用户无法从界面判断。
+      </div>
+    </div>
+
+    <div class="card is-rec">
+      <div class="card-head">
+        <div>
+          <div class="kicker">Option A</div>
+          <h3>小时 + 分钟双输入</h3>
+        </div>
+        <span class="pill rec">推荐</span>
+      </div>
+      <div class="mock">
+        <div class="picker">
+          <div class="mock-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8899ab" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            预计时长
+          </div>
+          <div class="fields">
+            <div class="field"><span class="cap">小时</span><div class="numbox"><span class="n">2</span><span class="steps"><i><span class="tri up"></span></i><i><span class="tri dn"></span></i></span></div></div>
+            <div class="field"><span class="cap">分钟</span><div class="numbox"><span class="n focus">30</span><span class="steps"><i><span class="tri up"></span></i><i><span class="tri dn"></span></i></span></div></div>
+            <span class="unit">=</span>
+            <div class="field"><span class="cap">预览</span><div class="numbox" style="border-style:dashed;background:#fbfdff"><span class="n" style="width:73px;font-size:13px">2h30m</span></div></div>
+          </div>
+          <div class="preview"><span class="eq">快捷</span><span>15m</span><span>30m</span><span>45m</span><span>1h</span><span style="color:#1a6ae0;font-weight:600">1h30m</span><span>2h</span></div>
+          <div class="actions"><span class="btn">清空</span><span class="btn pri">确定</span></div>
+        </div>
+      </div>
+      <div class="note">
+        <b>单位显式，歧义归零。</b><br>
+        保留分钟精度（25m、1h35m 都能填），键盘、触屏和读屏都容易操作；预设直接显示成 1h30m，不再猜单位。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="kicker">Option B</div>
+          <h3>智能文本 + 格式下拉</h3>
+        </div>
+        <span class="pill">轻量</span>
+      </div>
+      <div class="mock">
+        <div class="mock-label">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8899ab" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          预计时长
+        </div>
+        <div class="textfield"><span>2h30m</span><span class="caret"></span><span class="ph">支持 90、1.5h、2h30m</span></div>
+        <div class="inline-format">
+          <span class="lbl">显示为</span>
+          <span class="select-mini">2h30m <span class="chev"></span></span>
+        </div>
+        <div class="helper">识别结果：150 分钟</div>
+      </div>
+      <div class="note">
+        <b>改动最小，只换显示层。</b><br>
+        但自由文本仍要维护解析、校验和中文单位；用户输入 “2.5” 时依旧无法确定单位，长期会反复踩坑。
+      </div>
+    </div>
+  </div>
+
+  <div class="section-head">
+    <span class="idx">02</span><h2>显示格式矩阵</h2>
+    <span class="hint">同一条 150 分钟的预估，切换格式只改变展示，不改变任务数据</span>
+  </div>
+
+  <div class="matrix">
+    <div class="fmt default">
+      <div class="name">复合 · 默认</div>
+      <div class="sample">2h30m <small>150 min</small></div>
+      <div class="desc">小时和分钟都读得出来，最适合作为默认值；与需求里的示例一致。</div>
+    </div>
+    <div class="fmt">
+      <div class="name">小时小数</div>
+      <div class="sample">2.5h <small>2.5 小时</small></div>
+      <div class="desc">适合按小时估算；2h20m 这类值会四舍五入，不能作为输入回显。</div>
+    </div>
+    <div class="fmt">
+      <div class="name">分钟</div>
+      <div class="sample">150min <small>150 分钟</small></div>
+      <div class="desc">适合精确排期、导出和与番茄数换算；数字偏大时略难扫读。</div>
+    </div>
+    <div class="fmt">
+      <div class="name">时钟</div>
+      <div class="sample">2:30 <small>2 小时 30 分</small></div>
+      <div class="desc">适合紧凑表格；需要表头或 tooltip 说明这是时长而不是时刻。</div>
+    </div>
+  </div>
+
+  <div class="fmt-row">
+    <span class="taskdot"></span>
+    <span class="task-title">整理季度复盘</span>
+    <span class="task-due">今天 18:00</span>
+    <span class="task-dur">预估 2h30m</span>
+    <span class="sync-line" style="margin:0 0 0 4px"><span class="tag">列表</span><span class="tag">看板</span><span class="tag">悬浮条</span><span class="tag">分组合计</span>同步切换</span>
+  </div>
+
+  <div class="section-head">
+    <span class="idx">03</span><h2>先定这三条，再动手</h2>
+    <span class="hint">否则“支持调整显示格式”会变成一次数据事故</span>
+  </div>
+
+  <div class="facts">
+    <div class="fact">
+      <div class="fh"><span class="n">01</span>数据语义</div>
+      <p>现在 <code>custom-duration</code> 存自由文本，纯数字按设置解释。把格式从“小时”切到“分钟”，<code>30</code> 会从 30 小时变成 30 分钟。建议新数据统一写显式单位（<code>2h30m</code> / <code>45m</code>），历史裸值提供一次性转换。</p>
+    </div>
+    <div class="fact">
+      <div class="fh"><span class="n">02</span>一套解析</div>
+      <p>前端、kernel、首页各有一套解析：<code>90</code> 在界面按 90 小时算，在 kernel 汇总里按 90 分钟算；<code>90分钟</code> 排序时会掉进 <code>parseFloat</code> 变成 90 小时。展示层也至少四套写法：列表 <code>2h</code>、详情“2 小时 30 分钟”、首页“3.5 小时”、分组合计 <code>1.5h</code>。换控件前应合并成一套 parse / format。</p>
+    </div>
+    <div class="fact">
+      <div class="fh"><span class="n">03</span>影响面</div>
+      <p>大约 5 个输入入口、10 余个展示点，外加设置页、预设编辑器、导出与 AI 工具描述。工作量不在“画一个选择器”，而在统一与回归测试；建议分三步落地。</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span class="verdict">可做 · 中等改造</span>
+    <div class="rec">
+      <b>推荐顺序：</b>① 统一 parse/format + 四种显示格式 → ② 五个入口换成方案 A → ③ 单独确认历史值迁移与 kernel 对齐。
+    </div>
+    <span class="stamp">TASK-HORIZON / DURATION-INPUT</span>
+  </div>
+
+</body>
+</html>

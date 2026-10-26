@@ -2605,9 +2605,12 @@
     }
 
     function __tmParseDurationMinutes(value) {
+        const fmt = String(SettingsStore?.data?.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours';
+        if (typeof globalThis.__tmDuration?.parse === 'function') {
+            return globalThis.__tmDuration.parse(value, fmt);
+        }
         const s = String(value || '').trim();
         if (!s) return null;
-        const fmt = String(SettingsStore?.data?.durationFormat || 'hours').trim();
         const numberToMinutes = (n) => {
             if (!Number.isFinite(n) || n < 0) return null;
             if (fmt === 'hours') return n * 60;

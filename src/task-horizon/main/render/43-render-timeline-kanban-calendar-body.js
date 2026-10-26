@@ -315,7 +315,7 @@
                 const allChildren = task.children || [];
                 const totalChildren = allChildren.length;
                 const completedChildren = allChildren.filter((child) => (
-                    typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(child) : !!child?.done
+                    typeof __tmIsTaskClosedForDisplay === 'function' ? __tmIsTaskClosedForDisplay(child) : !!child?.done
                 )).length;
                 const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
                 const taskDone = typeof __tmIsTaskClosedForDisplay === 'function'
@@ -871,7 +871,8 @@
                 const allChildren = id ? getKanbanChildTasksByParentId(id) : (Array.isArray(task?.children) ? task.children : []);
                 const stats = {
                     total: allChildren.length,
-                    completed: allChildren.reduce((sum, child) => sum + (isKanbanTaskCompleted(child) ? 1 : 0), 0),
+                    completed: allChildren.reduce((sum, child) => sum + ((isKanbanTaskCompleted(child)
+                        || (typeof __tmIsTaskCanceled === 'function' && __tmIsTaskCanceled(child))) ? 1 : 0), 0),
                 };
                 stats.remaining = Math.max(0, stats.total - stats.completed);
                 if (id) directChildStatsMemo.set(id, stats);

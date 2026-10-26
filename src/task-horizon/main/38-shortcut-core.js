@@ -197,7 +197,10 @@
                 whiteboardSelectedTaskId: state.whiteboardSelectedTaskId,
                 whiteboardMultiSelectedTaskIds: state.whiteboardMultiSelectedTaskIds,
                 groupMode: __tmGetCurrentGroupModeValue(), kanbanBoardMode: __tmGetKanbanBoardMode(),
-                queryDoneOnly: state.__tmQueryDoneOnly };
+                queryDoneOnly: state.__tmQueryDoneOnly, dateFilter: state.dateFilter };
+            if (previous.shortcutContext?.shortcutId !== item.id) {
+                globalThis.__tmDateFilter?.clearForContextChange?.();
+            }
             const groupChanged = previous.groupId !== item.groupId;
             SettingsStore.data.currentGroupId = item.groupId;
             state.activeDocId = item.docId !== 'all' ? item.docId
@@ -260,7 +263,8 @@
                     attachmentLibraryOpen: previous.attachmentLibraryOpen, docTabsArchiveMode: previous.docTabsArchiveMode,
                     whiteboardSelectedTaskId: previous.whiteboardSelectedTaskId,
                     whiteboardMultiSelectedTaskIds: previous.whiteboardMultiSelectedTaskIds,
-                    __tmQueryDoneOnly: previous.queryDoneOnly });
+                    __tmQueryDoneOnly: previous.queryDoneOnly, dateFilter: previous.dateFilter });
+                globalThis.__tmDateFilter?.refresh?.();
                 __tmApplyCompletedVisibilityToRuntime();
                 __tmApplyGroupModeToRuntime(previous.groupMode);
                 __tmRecomputeTaskProjection({ reason: 'shortcut-rollback' });
@@ -292,7 +296,7 @@
         // Remember that exact result; do not run a parallel filtering engine for shortcuts.
         function counts() {
             const result = new Map();
-            if (openingGeneration || !Array.isArray(state.filteredTasks)) return result;
+            if (openingGeneration || !Array.isArray(state.filteredTasks) || globalThis.__tmDateFilter?.active()) return result;
             const viewId = state.homepageOpen ? 'home' : state.viewMode;
             for (const item of items()) {
                 const activeDocId = item.docId !== 'all' ? item.docId

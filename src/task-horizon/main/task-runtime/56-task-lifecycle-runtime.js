@@ -319,17 +319,20 @@
         const cleanupIds = Array.isArray(payload.scheduleCleanupTaskIds)
             ? payload.scheduleCleanupTaskIds
             : __tmCollectTaskTreeIdsForScheduleCleanup(task, tid);
-        if (meta.recycle) {
+        const currentDocId = String(task.root_id || task.docId || '').trim();
+        const targetDocId = String(payload.targetDocId || SettingsStore?.data?.taskRecycleDocId || '').trim();
+        if (!targetDocId) throw new Error('请先设置回收站文档');
+        if (meta.recycle && currentDocId === targetDocId) {
             await __tmCleanupDeletedTaskRelations(cleanupIds, {
                 source: String(payload.source || 'task-recycle').trim() || 'task-recycle',
                 reason: 'task-recycle-schedules',
                 background: false,
             });
-            return { skipped: true, reason: 'already-recycled', taskId: tid };
+            return { ok: true, skipped: true, reason: 'already-recycled', taskId: tid, targetDocId };
         }
-        const originDocId = String(payload.originDocId || payload.docId || task.root_id || task.docId || '').trim();
-        const targetDocId = String(payload.targetDocId || SettingsStore?.data?.taskRecycleDocId || '').trim();
-        if (!targetDocId) throw new Error('请先设置回收站文档');
+        // Native moves and document restores can retain an older recycle
+        // attribute. Replace it only after the new move has committed.
+        const originDocId = currentDocId || String(payload.originDocId || payload.docId || '').trim();
         if (!originDocId) throw new Error('未找到任务所在文档');
         if (targetDocId === originDocId) throw new Error('回收站文档不能是任务当前文档');
         const moveResult = await __tmMoveTaskToPlacement(tid, targetDocId, { parentID: targetDocId }, {
@@ -339,7 +342,7 @@
             ...meta,
             recycle: {
                 originDocId,
-                originParentTaskId: String(payload.originParentTaskId || task.parentTaskId || task.parent_task_id || '').trim(),
+                originParentTaskId: String(task.parent_task_id ?? task.parentTaskId ?? payload.originParentTaskId ?? '').trim(),
                 archivedAt: new Date().toISOString(),
                 archiveDocId: targetDocId,
                 archiveListId: String(moveResult?.listID || moveResult?.placement?.parentListId || '').trim(),
@@ -686,7 +689,7 @@
             archiveDeleted(taskId, options = {}) {
                 const opts = (options && typeof options === 'object') ? options : {};
                 const task = opts.task || __tmGetTaskLifecycleLocalTask(taskId);
-                return __tmEnqueueTaskLifecycle('archiveDeleted', taskId, {
+                const request = __tmEnqueueTaskLifecycle('archiveDeleted', taskId, {
                     snapshot: opts.snapshot,
                     originDocId: String(opts.originDocId || opts.snapshot?.docId || task?.root_id || task?.docId || '').trim(),
                     originParentTaskId: String(opts.originParentTaskId || opts.snapshot?.parentTaskId || task?.parentTaskId || task?.parent_task_id || '').trim(),
@@ -695,6 +698,13 @@
                     backgroundScheduleCleanup: opts.backgroundScheduleCleanup === true,
                     source: String(opts.source || 'task-recycle').trim() || 'task-recycle',
                 }, { wait: opts.wait === true, errorAction: '移入回收站' });
+                return Promise.resolve(request).then((result) => {
+                    if (opts.wait === true && result?.ok !== true) {
+                        const reason = String(result?.reason || '').trim();
+                        throw new Error(reason ? `任务未移入回收站: ${reason}` : '任务未移入回收站');
+                    }
+                    return result;
+                });
             },
             restoreDeleted(taskId, options = {}) {
                 const opts = (options && typeof options === 'object') ? options : {};

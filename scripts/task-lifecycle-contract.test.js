@@ -500,6 +500,69 @@ async function testRestoreResultContract() {
     );
 }
 
+async function testRecycleStaleMetadataAndResultContract() {
+    const { context, attrs, tasks, moves } = createHarness();
+    const taskId = 'task-stale-recycle';
+    const completed = { originDocId: 'doc-original', mode: 'document', archivedAt: 'earlier' };
+    tasks.set(taskId, { id: taskId, root_id: 'doc-current', parent_task_id: 'parent-current', done: true });
+    tasks.set('parent-current', { id: 'parent-current', root_id: 'doc-current' });
+    context.__tmResolveTaskMovePlacementMeta = async () => ({ targetChildListId: 'parent-current-list' });
+    attrs.set(taskId, {
+        'custom-task-horizon-lifecycle': JSON.stringify({
+            v: 1, completed,
+            recycle: {
+                originDocId: 'doc-old-origin', originParentTaskId: 'parent-old',
+                archiveDocId: 'doc-recycle', archiveListId: 'list-old', archivedAt: 'old',
+            },
+        }),
+    });
+    const result = await context.__tmTaskLifecycle.execute({
+        action: 'archiveDeleted', taskId, originDocId: 'doc-stale-ui', targetDocId: 'doc-recycle',
+    });
+    assert.equal(result.ok, true, 'a stale recycle marker must not skip the actual move');
+    assert.equal(moves.length, 1);
+    assert.equal(moves[0].targetDocId, 'doc-recycle');
+    let stored = JSON.parse(attrs.get(taskId)['custom-task-horizon-lifecycle']);
+    assert.deepEqual(stored.completed, completed);
+    assert.equal(stored.recycle.originDocId, 'doc-current', 'undo must use the actual source document');
+    assert.equal(stored.recycle.originParentTaskId, 'parent-current');
+    assert.equal(stored.recycle.archiveListId, `archive-list-${taskId}`);
+
+    const repeated = await context.__tmTaskLifecycle.execute({
+        action: 'archiveDeleted', taskId, originDocId: 'doc-current', targetDocId: 'doc-recycle',
+    });
+    assert.equal(repeated.ok, true, 'a task confirmed in the recycle document may acknowledge a repeated request');
+    assert.equal(repeated.reason, 'already-recycled');
+    assert.equal(moves.length, 1, 'an actually recycled task must not move twice');
+    await context.__tmTaskLifecycle.execute({ action: 'restoreDeleted', taskId });
+    assert.equal(moves.at(-1).targetDocId, 'doc-current');
+    assert.equal(moves.at(-1).options.parentTaskId, 'parent-current');
+    stored = JSON.parse(attrs.get(taskId)['custom-task-horizon-lifecycle']);
+    assert.equal(stored.recycle, undefined);
+    assert.deepEqual(stored.completed, completed);
+
+    const failed = createHarness({ moveFailsOnce: true });
+    failed.tasks.set(taskId, { id: taskId, root_id: 'doc-current', parent_task_id: '' });
+    const staleAttrs = { 'custom-task-horizon-lifecycle': JSON.stringify({
+        v: 1, recycle: { originDocId: 'doc-old', archiveDocId: 'doc-recycle', archivedAt: 'old' },
+    }) };
+    failed.attrs.set(taskId, plain(staleAttrs));
+    await assert.rejects(failed.context.__tmTaskLifecycle.execute({
+        action: 'archiveDeleted', taskId, targetDocId: 'doc-recycle',
+    }), /move failed once/);
+    assert.deepEqual(failed.attrs.get(taskId), staleAttrs, 'a failed retry must not replace the old lifecycle metadata');
+    assert.deepEqual(failed.cleanupSteps, [], 'a failed retry must not clear linked reminders or schedules');
+
+    const skippedHarness = createHarness({ mutationResult: { skipped: true, reason: 'pending-delete' } });
+    await assert.rejects(
+        skippedHarness.context.__tmTaskLifecycle.archiveDeleted('task-skipped', { wait: true }),
+        /任务未移入回收站: pending-delete/,
+        'a skipped request must not produce the success toast in single or batch delete',
+    );
+    const confirmed = await createHarness().context.__tmTaskLifecycle.archiveDeleted('task-confirmed', { wait: true });
+    assert.equal(confirmed.ok, true);
+}
+
 async function testDeleteRelationCleanupIsolation() {
     const harness = createHarness({
         reminderCleanupFails: true,
@@ -707,6 +770,7 @@ function testStaticContracts() {
     await testCompletionArchiveIdempotency();
     await testHeadingLockAndQueueLane();
     await testRestoreResultContract();
+    await testRecycleStaleMetadataAndResultContract();
     await testDeleteRelationCleanupIsolation();
     await testRecycleMoveFailureDoesNotCommitMetadata();
     testStaticContracts();

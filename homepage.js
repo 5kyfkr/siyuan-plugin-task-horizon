@@ -4335,6 +4335,8 @@
         const raw = String(task?.duration ?? task?.custom_duration ?? "").trim();
         if (!raw) return 0;
         const fmt = String(ctx?.durationFormat || "hours").trim() === "minutes" ? "minutes" : "hours";
+        const shared = globalThis.__tmDuration?.parse?.(raw, fmt);
+        if (shared != null) return shared > 0 ? shared : 0;
         const numericToMinutes = (num) => {
             if (!Number.isFinite(num) || num <= 0) return 0;
             return fmt === "minutes" ? num : num * 60;

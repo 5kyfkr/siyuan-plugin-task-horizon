@@ -548,8 +548,15 @@
     }
 
     function __tmRequireWhiteboardFrameFeature() {
-        return typeof window.tmRequireFullFeature !== 'function'
-            || window.tmRequireFullFeature('whiteboard-frame', '白板分组框');
+        return typeof window.tmRequireFullFeature === 'function'
+            && window.tmRequireFullFeature('whiteboard-frame', '白板分组框');
+    }
+
+    function __tmRequireWhiteboardCreateFeature(tool) {
+        if (tool === 'text') return true;
+        if (tool === 'frame') return __tmRequireWhiteboardFrameFeature();
+        return tool === 'sticky' && typeof window.tmRequireFullFeature === 'function'
+            && window.tmRequireFullFeature('whiteboard-sticky', '白板便签工具');
     }
 
     function __tmRequireWhiteboardDrawingFeature() {
@@ -2660,6 +2667,172 @@
         render();
     };
 
+    function __tmWhiteboardPngDimensions(width, height, mobile = false) {
+        const edge = mobile ? 4096 : 8192;
+        const pixels = mobile ? 4000000 : 16000000;
+        const scale = Math.min(2, edge / width, edge / height, Math.sqrt(pixels / (width * height)));
+        if (!Number.isFinite(scale) || scale < 0.1) throw new Error('白板内容跨度过大，请将内容靠拢后重试');
+        return { width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)), scale };
+    }
+
+    function __tmCreateWhiteboardPngSnapshot(world) {
+        const host = document.createElement('div');
+        host.setAttribute('data-tm-whiteboard-export', '');
+        host.setAttribute('aria-hidden', 'true');
+        host.inert = true;
+        host.style.cssText = 'position:fixed;left:-100000px;top:0;pointer-events:none;';
+        const snapshot = state.modal.cloneNode(false);
+        snapshot.removeAttribute('id');
+        // 保留宿主继承的字体和主题变量，不更改正在操作的白板。
+        const theme = getComputedStyle(state.modal);
+        for (const property of theme) {
+            if (property.startsWith('--')) snapshot.style.setProperty(property, theme.getPropertyValue(property));
+        }
+        snapshot.style.cssText += ';position:relative;inset:auto;left:0;top:0;display:block;width:1000px;height:1000px;min-width:0;min-height:0;max-width:none;max-height:none;margin:0;padding:0;border:0;border-radius:0;overflow:hidden;transform:none;opacity:1;background:var(--tm-bg-color);';
+        snapshot.style.font = theme.font;
+        snapshot.style.color = theme.color;
+        const clone = world.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.style.transform = 'none';
+        let branch = clone;
+        for (let parent = world.parentElement; parent && parent !== state.modal; parent = parent.parentElement) {
+            const context = parent.cloneNode(false);
+            context.removeAttribute('id');
+            context.style.cssText += `;position:absolute;inset:auto;left:0;top:0;width:${parent.clientWidth}px;height:${parent.clientHeight}px;min-width:0;min-height:0;margin:0;padding:0;border:0;overflow:visible;transform:none;background:none;`;
+            context.appendChild(branch);
+            branch = context;
+        }
+        snapshot.appendChild(branch);
+        host.appendChild(snapshot);
+        try {
+            clone.querySelectorAll([
+                '.tm-whiteboard-card-tools', '.tm-whiteboard-note-tools', '.tm-whiteboard-sticky-tools',
+                '.tm-whiteboard-frame-tools', '.tm-whiteboard-frame-resize', '.tm-whiteboard-note-resize',
+                '.tm-whiteboard-note-width-resize', '.tm-whiteboard-note-height-resize', '.tm-task-link-dot',
+                '.tm-whiteboard-collapse-proxy-dot', '.tm-whiteboard-link-tools', '.tm-whiteboard-doc-resize',
+                '.tm-whiteboard-edge--hit', '.tm-whiteboard-edge--preview', '.tm-whiteboard-tool-preview',
+                '.tm-kanban-more', '.tm-whiteboard-note-editor', '.tm-whiteboard-sticky-editor',
+            ].join(',')).forEach(node => node.remove());
+            [snapshot, ...snapshot.querySelectorAll('*')].forEach(node => {
+                for (const name of Array.from(node.classList)) {
+                    if (/^tm-whiteboard-(?:.*--selected|multi-selected|traversing|traversal-.*|node--link-hover)$/.test(name)) node.classList.remove(name);
+                }
+                for (const attr of Array.from(node.attributes)) {
+                    if (attr.name.startsWith('on') || (attr.name === 'id' && node instanceof HTMLElement)) node.removeAttribute(attr.name);
+                }
+                if (node.style) {
+                    node.style.animation = 'none';
+                    node.style.transition = 'none';
+                }
+            });
+            document.body.appendChild(host);
+            const origin = clone.getBoundingClientRect();
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            let count = 0;
+            const content = '.tm-whiteboard-node--root,.tm-whiteboard-note,.tm-whiteboard-frame,.tm-whiteboard-drawing-stroke';
+            const extras = '.tm-whiteboard-frame-title,.tm-whiteboard-doc-head,.tm-whiteboard-doc-frame-head,.tm-whiteboard-edge';
+            clone.querySelectorAll(`${content},${extras}`).forEach(node => {
+                if (!node.getClientRects().length || getComputedStyle(node).visibility === 'hidden') return;
+                const rect = node.getBoundingClientRect();
+                if (![rect.left, rect.top, rect.right, rect.bottom].every(Number.isFinite)) return;
+                if (node.matches(content)) count++;
+                minX = Math.min(minX, rect.left - origin.left);
+                minY = Math.min(minY, rect.top - origin.top);
+                maxX = Math.max(maxX, rect.right - origin.left);
+                maxY = Math.max(maxY, rect.bottom - origin.top);
+            });
+            if (!count) {
+                host.remove();
+                return null;
+            }
+            const pad = 40;
+            const dimensions = __tmWhiteboardPngDimensions(Math.ceil(maxX - minX + pad * 2), Math.ceil(maxY - minY + pad * 2), __tmIsMobileDevice());
+            snapshot.style.width = `${dimensions.width}px`;
+            snapshot.style.height = `${dimensions.height}px`;
+            clone.style.transformOrigin = '0 0';
+            clone.style.transform = `scale(${dimensions.scale}) translate(${pad - minX}px, ${pad - minY}px)`;
+            // SVG 子节点由渲染库深复制，需先固化连线、箭头和手写的计算样式。
+            const svgProperties = ['fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'filter', 'marker-start', 'marker-mid', 'marker-end'];
+            clone.querySelectorAll('svg *').forEach(node => {
+                const style = getComputedStyle(node);
+                svgProperties.forEach(property => node.style.setProperty(property, style.getPropertyValue(property)));
+            });
+            return { host, node: snapshot, ...dimensions };
+        } catch (error) {
+            host.remove();
+            throw error;
+        }
+    }
+
+    function __tmWhiteboardPngFilename() {
+        const scope = __tmResolveWhiteboardScope();
+        const tabGroup = scope.tabGroupId ? __tmFindDocTabCustomGroupById(scope.tabGroupId, { currentGroupId: scope.docGroupId }) : null;
+        const doc = scope.docId ? (state.taskTree || []).find(item => String(item.id) === scope.docId) : null;
+        const group = (SettingsStore.data.docGroups || []).find(item => String(item.id) === scope.docGroupId);
+        const name = String(doc?.name || tabGroup?.name || group?.name || '白板').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').slice(0, 80) || '白板';
+        const now = new Date();
+        const pad = value => String(value).padStart(2, '0');
+        const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        return `${name}_白板_${stamp}.png`;
+    }
+
+    window.tmWhiteboardExportPng = async function(ev) {
+        ev?.preventDefault?.();
+        ev?.stopPropagation?.();
+        if (state.whiteboardPngExportPending || state.viewMode !== 'whiteboard') return;
+        state.whiteboardPngExportPending = true;
+        let snapshot = null;
+        try {
+            const scopeKey = __tmGetWhiteboardTraversalScopeKey();
+            await __tmCloseWhiteboardNoteEditor({ save: true });
+            if (document.fonts) await document.fonts.ready;
+            if (state.viewMode !== 'whiteboard' || scopeKey !== __tmGetWhiteboardTraversalScopeKey()) return;
+            const world = state.modal?.querySelector('#tmWhiteboardWorld');
+            if (!(world instanceof HTMLElement)) return;
+            state.whiteboardBottomMoreOpen = false;
+            state.modal.querySelector('.tm-whiteboard-bottom-more-panel')?.remove();
+            const toggle = state.modal.querySelector('[onclick="tmWhiteboardToggleBottomMore(event)"]');
+            toggle?.classList.remove('tm-whiteboard-toolbar-btn--active');
+            toggle?.setAttribute('aria-pressed', 'false');
+            __tmRenderWhiteboardEdges();
+            snapshot = __tmCreateWhiteboardPngSnapshot(world);
+            if (!snapshot) {
+                hint('当前白板没有可导出的内容', 'warning');
+                return;
+            }
+            const filename = __tmWhiteboardPngFilename();
+            hint('正在生成 PNG…', 'info');
+            const blob = await __tmGetWhiteboardPngRenderer()(snapshot.node, {
+                width: snapshot.width, height: snapshot.height, pixelRatio: 1,
+                skipAutoScale: true, includeQueryParams: true,
+            });
+            if (!blob?.size) throw new Error('未能生成 PNG 图片');
+            const url = URL.createObjectURL(blob);
+            try {
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                try { link.click(); } finally { link.remove(); }
+            } finally {
+                setTimeout(() => URL.revokeObjectURL(url), 30000);
+            }
+            hint(`PNG 已导出（${snapshot.width} × ${snapshot.height}${snapshot.scale < 2 ? '，已适配大画布' : ''}）`, 'success');
+        } catch (error) {
+            console.error('[task-horizon] Whiteboard PNG export failed', error);
+            hint(`导出 PNG 失败：${String(error?.message || error || '请重试')}`, 'error');
+        } finally {
+            snapshot?.host.remove();
+            state.whiteboardPngExportPending = false;
+            const button = state.modal?.querySelector('[onclick="tmWhiteboardExportPng(event)"]');
+            if (button) {
+                button.disabled = false;
+                const label = button.querySelector('span');
+                if (label) label.textContent = '导出 PNG';
+            }
+        }
+    };
+
     function __tmRemoveWhiteboardMultiTools() {
         const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
         if (!(viewport instanceof HTMLElement)) return;
@@ -3130,40 +3303,8 @@
             if (pointerId !== null && Number(eUp?.pointerId) !== pointerId) return;
             applyDraft(resolveRect(Number(eUp?.clientX) || start.clientX, Number(eUp?.clientY) || start.clientY, { enforceMin: true }));
             cleanup();
-            const stored = __tmWhiteboardFrameDisplayRectToStored(rect, docBody);
-            const now = String(Date.now());
-            const frameId = `tm_frame_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-            const frame = {
-                id: frameId,
-                docId: start.docId,
-                name: '分组',
-                backgroundColor: '#dbeafe',
-                x: stored.x,
-                y: stored.y,
-                w: stored.w,
-                h: stored.h,
-                memberTaskIds: [],
-                memberNoteIds: [],
-                memberStrokeIds: [],
-                createdAt: now,
-                updatedAt: now,
-            };
-            const members = __tmCollectWhiteboardFrameMembers(frame, docBody);
             try { draft.remove(); } catch (e) {}
-            const storage = __tmGetWhiteboardFrameStorage();
-            const frames = __tmApplyWhiteboardFrameOwnership([...storage.frames, frame], frameId, members, { clearTarget: true });
-            __tmPushWhiteboardHistorySnapshot('add-frame');
-            __tmSaveWhiteboardFrameStorage(storage, frames, { persist: true });
-            __tmClearWhiteboardMultiSelection();
-            __tmClearWhiteboardStrokeSelection();
-            state.whiteboardSelectedTaskId = '';
-            state.whiteboardSelectedNoteId = '';
-            state.whiteboardSelectedFrameId = frameId;
-            state.whiteboardSelectedLinkId = '';
-            state.whiteboardSelectedLinkDocId = '';
-            __tmApplyWhiteboardCardSelectionDom('');
-            state.whiteboardSuppressClickUntil = Date.now() + 260;
-            render();
+            if (eUp?.type !== 'pointercancel') __tmCreateWhiteboardElement('frame', start, rect);
         };
         state.whiteboardFrameCreate = { docId: start.docId, rect };
         if (pointerId !== null && typeof viewport.setPointerCapture === 'function') {
@@ -3206,12 +3347,12 @@
         }
         if (target && target.closest) {
             if (panMode) {
-                const blocked = target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-node,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-doc-head');
+                const blocked = target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-node,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-frame--selected,.tm-whiteboard-doc-head');
                 if (blocked) {
                     return;
                 }
             } else if (selectMode) {
-                const blocked = target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-edge,.tm-whiteboard-link-tools,.tm-whiteboard-pool-item,.tm-whiteboard-doc-resize,.tm-whiteboard-doc-head,input,button,select,textarea,label,a');
+                const blocked = target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-frame,.tm-whiteboard-edge,.tm-whiteboard-link-tools,.tm-whiteboard-pool-item,.tm-whiteboard-doc-resize,.tm-whiteboard-doc-head,input,button,select,textarea,label,a');
                 if (blocked) {
                     return;
                 }
@@ -3396,6 +3537,7 @@
             if (old && typeof old.cleanup === 'function') old.cleanup();
         } catch (e) {}
         const v0 = __tmGetWhiteboardView();
+        const panFrame = target?.closest?.('.tm-whiteboard-frame[data-frame-id]');
         const pointerId = Number(ev?.pointerId);
         const hasPointerId = Number.isFinite(pointerId);
         state.whiteboardPanSession = {
@@ -3446,6 +3588,12 @@
                 state.whiteboardSuppressClickUntil = Date.now() + 260;
             }
             __tmScheduleWhiteboardViewSave();
+            if (panFrame instanceof HTMLElement && s && !s.rightButtonPan) {
+                state.whiteboardSuppressClickUntil = Date.now() + 260;
+                if (!s.moved && (e2?.type === 'pointerup' || e2?.type === 'mouseup')) {
+                    window.tmWhiteboardSelectFrame(panFrame.dataset.frameId, e2);
+                }
+            }
         };
         state.whiteboardPanSession.cleanup = onUp;
         try { document.addEventListener('mousemove', onMove, true); } catch (e) {}
@@ -3574,6 +3722,7 @@
         if (!id) return;
         const frameEl = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : __tmGetWhiteboardFrameElement(id);
         if (!(frameEl instanceof HTMLElement)) return;
+        if (String(state.whiteboardSelectedFrameId || '') !== id) return;
         const docBody = frameEl.closest('.tm-whiteboard-doc-body[data-doc-id]');
         if (!(docBody instanceof HTMLElement)) return;
         const found = __tmGetWhiteboardFrameByIdLocal(id);
@@ -3722,6 +3871,7 @@
         if (target && target.closest && target.closest('.tm-whiteboard-frame-tools,.tm-whiteboard-frame-resize,input,button,select,textarea,label,a')) return;
         const id = String(frameId || '').trim();
         if (!id) return;
+        if (String(state.whiteboardSelectedFrameId || '') !== id) return;
         const pointerId = Number(ev?.pointerId);
         const sx = Number(ev?.clientX) || 0;
         const sy = Number(ev?.clientY) || 0;
@@ -5250,6 +5400,7 @@
         if (!o.save) return;
         if (!did || !Number.isFinite(x) || !Number.isFinite(y)) return;
         if (!title && !text) return;
+        if (!noteId && !__tmRequireWhiteboardCreateFeature('sticky')) return;
         const allView = __tmIsWhiteboardAggregateTab();
         const isGlobalNote = !!st?.globalBoard;
         const sx = Math.round(x - ((allView && !isGlobalNote) ? ox : 0));
@@ -5304,6 +5455,7 @@
         const st = state.whiteboardNoteEditor;
         state.whiteboardNoteEditor = null;
         if (!st || typeof st !== 'object') return;
+        st.cleanupOutsideClick?.();
         if (String(st.kind || '').trim() === 'sticky') {
             await __tmCloseWhiteboardStickyEditorState(st, o);
             return;
@@ -5370,14 +5522,37 @@
         render();
     }
 
+    function __tmBindWhiteboardEditorOutsideClick(st) {
+        const controller = new AbortController();
+        const options = { capture: true, signal: controller.signal };
+        let pressedOutside = false;
+        document.addEventListener('pointerdown', (event) => {
+            if (!st.el.isConnected || state.whiteboardNoteEditor !== st) {
+                controller.abort();
+                return;
+            }
+            // Only a fresh press can commit; releasing the toolbar drag must keep editing.
+            pressedOutside = event.target instanceof Node && !st.el.contains(event.target);
+        }, options);
+        document.addEventListener('click', (event) => {
+            if (!pressedOutside || state.whiteboardNoteEditor !== st || st.el.contains(event.target)) return;
+            // Toolbar creation handles saving at drop time so an in-progress drag survives.
+            if (event.target instanceof Element && event.target.closest('[data-tm-whiteboard-create-tool]')) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            __tmCloseWhiteboardNoteEditor({ save: true }).catch(() => null);
+        }, options);
+        st.cleanupOutsideClick = () => controller.abort();
+    }
+
     function __tmOpenWhiteboardNoteEditor(docBody, docId, x, y, opts = {}) {
         const o = (opts && typeof opts === 'object') ? opts : {};
         const bodyEl = docBody instanceof HTMLElement ? docBody : null;
         const did = String(docId || '').trim();
         if (!bodyEl || !did) return;
         const noteId = String(o.noteId || '').trim();
-        const baseX = Math.round(Number(x) || 24);
-        const baseY = Math.round(Number(y) || 24);
+        const baseX = Math.round(Number.isFinite(Number(x)) ? Number(x) : 24);
+        const baseY = Math.round(Number.isFinite(Number(y)) ? Number(y) : 24);
         const nx = baseX;
         const ny = baseY;
         const initialText = String(o.text || '');
@@ -5432,6 +5607,7 @@
             bold: bd0,
             globalBoard: __tmIsWhiteboardGlobalElement(bodyEl),
         };
+        __tmBindWhiteboardEditorOutsideClick(state.whiteboardNoteEditor);
     }
 
     function __tmOpenWhiteboardStickyEditor(docBody, docId, x, y, opts = {}) {
@@ -5440,8 +5616,8 @@
         const did = String(docId || '').trim();
         if (!bodyEl || !did) return;
         const noteId = String(o.noteId || '').trim();
-        const nx = Math.round(Number(x) || 24);
-        const ny = Math.round(Number(y) || 24);
+        const nx = Math.round(Number.isFinite(Number(x)) ? Number(x) : 24);
+        const ny = Math.round(Number.isFinite(Number(y)) ? Number(y) : 24);
         const initialTitle = String(o.title || '');
         const initialText = __tmNormalizeRemarkMarkdown(o.text || '');
         const initialTheme = __tmNormalizeWhiteboardStickyTheme(o.theme);
@@ -5556,10 +5732,172 @@
             width: initialWidth,
             globalBoard: __tmIsWhiteboardGlobalElement(bodyEl),
         };
+        __tmBindWhiteboardEditorOutsideClick(state.whiteboardNoteEditor);
         syncTextHeight();
         try { titleInput?.focus?.(); } catch (e) {}
         try { titleInput?.setSelectionRange?.(titleInput.value.length, titleInput.value.length); } catch (e) {}
     }
+
+    function __tmCreateWhiteboardElement(tool, point, rect = null) {
+        const docBody = point?.body;
+        const did = String(point?.docId || '').trim();
+        if (!(docBody instanceof HTMLElement) || !docBody.isConnected || !did) return;
+        if (!__tmRequireWhiteboardCreateFeature(tool)) return;
+        if (tool !== 'frame') {
+            if (__tmIsWhiteboardAggregateTab() && !__tmIsWhiteboardGlobalElement(docBody)) return;
+            if (tool === 'sticky') {
+                __tmOpenWhiteboardStickyEditor(docBody, did, point.localX, point.localY);
+            } else {
+                __tmOpenWhiteboardNoteEditor(docBody, did, point.localX, point.localY, {
+                    fontSize: SettingsStore.data.whiteboardNoteDefaultFontSize,
+                });
+            }
+            return;
+        }
+        if (!rect) return;
+        const stored = __tmWhiteboardFrameDisplayRectToStored(rect, docBody);
+        const now = String(Date.now());
+        const frameId = `tm_frame_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        const frame = {
+            id: frameId, docId: did, name: '分组', backgroundColor: '#dbeafe',
+            x: stored.x, y: stored.y, w: stored.w, h: stored.h,
+            memberTaskIds: [], memberNoteIds: [], memberStrokeIds: [],
+            createdAt: now, updatedAt: now,
+        };
+        const members = __tmCollectWhiteboardFrameMembers(frame, docBody);
+        const storage = __tmGetWhiteboardFrameStorage();
+        const frames = __tmApplyWhiteboardFrameOwnership([...storage.frames, frame], frameId, members, { clearTarget: true });
+        __tmPushWhiteboardHistorySnapshot('add-frame');
+        __tmSaveWhiteboardFrameStorage(storage, frames, { persist: true });
+        __tmClearWhiteboardMultiSelection();
+        __tmClearWhiteboardStrokeSelection();
+        state.whiteboardSelectedTaskId = '';
+        state.whiteboardSelectedNoteId = '';
+        state.whiteboardSelectedFrameId = frameId;
+        state.whiteboardSelectedLinkId = '';
+        state.whiteboardSelectedLinkDocId = '';
+        __tmApplyWhiteboardCardSelectionDom('');
+        state.whiteboardSuppressClickUntil = Date.now() + 260;
+        render();
+    }
+
+    function __tmResolveWhiteboardToolbarDropPoint(ev, viewport, tool) {
+        const hit = document.elementFromPoint(ev.clientX, ev.clientY);
+        if (!(hit instanceof Element) || !viewport.contains(hit)) return null;
+        if (hit.closest('.tm-whiteboard-bottom-toolbar,.tm-whiteboard-drawing-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-whiteboard-doc-head,button,input,textarea,select,a')) return null;
+        const point = __tmResolveWhiteboardCreatePointerInfo(ev, __tmGetWhiteboardSingleDocId());
+        if (!point || !viewport.contains(point.body)) return null;
+        if (tool !== 'frame' && __tmIsWhiteboardAggregateTab() && !__tmIsWhiteboardGlobalElement(point.body)) return null;
+        return point;
+    }
+
+    window.tmWhiteboardToolPointerDown = function(ev, tool) {
+        if (state.viewMode !== 'whiteboard' || ev.button !== 0 || ev.isPrimary === false) return;
+        if (tool !== 'text' && tool !== 'sticky' && tool !== 'frame') return;
+        const button = ev.currentTarget;
+        const toolbar = button?.closest?.('.tm-whiteboard-bottom-toolbar');
+        const viewport = button?.closest?.('#tmWhiteboardViewport');
+        if (!(viewport instanceof HTMLElement) || !(toolbar instanceof HTMLElement)) return;
+        state.whiteboardToolDragCleanup?.();
+        // Keep the current editor focused until the gesture is committed or cancelled.
+        ev.preventDefault();
+        ev.stopPropagation();
+        const controller = new AbortController();
+        const options = { capture: true, signal: controller.signal };
+        const pointerId = ev.pointerId;
+        const startX = ev.clientX, startY = ev.clientY;
+        const threshold = ev.pointerType === 'touch' ? 625 : 16;
+        const docId = state.activeDocId, boardKey = __tmGetWhiteboardActiveBoardKey();
+        const width = tool === 'frame' ? 480 : (tool === 'sticky' ? 260 : 160);
+        const height = tool === 'frame' ? 320 : (tool === 'sticky' ? 132 : 72);
+        let dragging = false, cancelled = false, preview = null;
+        const cleanup = () => {
+            controller.abort();
+            preview?.remove();
+            button.classList.remove('is-dragging');
+            if (button.hasPointerCapture(pointerId)) button.releasePointerCapture(pointerId);
+            if (state.whiteboardToolDragCleanup === cleanup) state.whiteboardToolDragCleanup = null;
+            if (dragging) state.whiteboardSuppressClickUntil = Date.now() + 300;
+        };
+        state.whiteboardToolDragCleanup = cleanup;
+        const resolveDrop = (event, targetViewport = viewport) => {
+            const point = __tmResolveWhiteboardToolbarDropPoint(event, targetViewport, tool);
+            if (!point) return null;
+            const rect = { x: Math.round(point.localX - width / 2), y: Math.round(point.localY - height / 2), w: width, h: height };
+            return { point: { ...point, localX: rect.x, localY: rect.y }, rect };
+        };
+        const update = (event) => {
+            if (cancelled) return null;
+            if (!button.isConnected || state.viewMode !== 'whiteboard' || state.activeDocId !== docId || __tmGetWhiteboardActiveBoardKey() !== boardKey) {
+                cleanup();
+                return null;
+            }
+            const drop = resolveDrop(event);
+            if (!drop) {
+                preview?.remove();
+                return null;
+            }
+            const { point, rect } = drop;
+            if (!preview) {
+                preview = document.createElement('div');
+                const baseClass = tool === 'frame' ? 'tm-whiteboard-frame tm-whiteboard-frame--draft' : (tool === 'sticky' ? 'tm-whiteboard-note tm-whiteboard-sticky' : '');
+                preview.className = `${baseClass} tm-whiteboard-tool-preview`;
+                preview.textContent = tool === 'frame' ? '分组' : (tool === 'sticky' ? '便利贴' : '文字');
+                preview.setAttribute('aria-hidden', 'true');
+            }
+            preview.style.left = `${rect.x}px`;
+            preview.style.top = `${rect.y}px`;
+            preview.style.width = `${width}px`;
+            preview.style.height = `${height}px`;
+            point.body.appendChild(preview);
+            return drop;
+        };
+        document.addEventListener('pointermove', (event) => {
+            if (event.pointerId !== pointerId) return;
+            if (cancelled) { event.preventDefault(); event.stopPropagation(); return; }
+            if (!dragging) {
+                const dx = event.clientX - startX, dy = event.clientY - startY;
+                const bounds = toolbar.getBoundingClientRect();
+                if (dx * dx + dy * dy < threshold || (event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom)) return;
+                dragging = true;
+                if (!__tmRequireWhiteboardCreateFeature(tool)) { cleanup(); return; }
+                button.classList.add('is-dragging');
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            update(event);
+        }, options);
+        document.addEventListener('pointerup', async (event) => {
+            if (event.pointerId !== pointerId) return;
+            let drop = dragging ? update(event) : null;
+            if (dragging) { event.preventDefault(); event.stopPropagation(); }
+            cleanup();
+            if (drop && state.whiteboardNoteEditor) {
+                await __tmCloseWhiteboardNoteEditor({ save: true });
+                const currentViewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+                if (!(currentViewport instanceof HTMLElement) || state.viewMode !== 'whiteboard'
+                    || state.activeDocId !== docId || __tmGetWhiteboardActiveBoardKey() !== boardKey) return;
+                drop = resolveDrop(event, currentViewport);
+            }
+            if (drop) __tmCreateWhiteboardElement(tool, drop.point, drop.rect);
+        }, options);
+        document.addEventListener('pointercancel', (event) => {
+            if (event.pointerId === pointerId) cleanup();
+        }, options);
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            // Retain capture until release so Escape cannot turn into a canvas click.
+            dragging = true;
+            cancelled = true;
+            preview?.remove();
+            button.classList.remove('is-dragging');
+        }, options);
+        window.addEventListener('blur', cleanup, { signal: controller.signal });
+        button.addEventListener('lostpointercapture', cleanup, { signal: controller.signal });
+        button.setPointerCapture(pointerId);
+    };
 
     window.tmWhiteboardDocClick = async function(ev, docId) {
         const allView = __tmIsWhiteboardAggregateTab();
@@ -5579,18 +5917,9 @@
         if (!(docBody instanceof HTMLElement)) return;
         did = String(point?.docId || docBody.getAttribute('data-doc-id') || did).trim();
         if (!did) return;
-        const isGlobalBody = __tmIsWhiteboardGlobalElement(docBody);
-        if (allView && !isGlobalBody) return;
         const localX = Number.isFinite(Number(point?.localX)) ? Number(point.localX) : 24;
         const localY = Number.isFinite(Number(point?.localY)) ? Number(point.localY) : 24;
-        if (tool === 'sticky') {
-            if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-sticky', '白板便签工具')) return;
-            __tmOpenWhiteboardStickyEditor(docBody, did, localX, localY);
-            return;
-        }
-        __tmOpenWhiteboardNoteEditor(docBody, did, localX, localY, {
-            fontSize: SettingsStore.data.whiteboardNoteDefaultFontSize,
-        });
+        __tmCreateWhiteboardElement(tool, { body: docBody, docId: did, localX, localY });
     };
 
     window.tmWhiteboardBoardClick = async function(ev) {
@@ -5599,7 +5928,7 @@
         if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-frame,.tm-whiteboard-edge,.tm-whiteboard-doc-resize,.tm-whiteboard-link-tools,.tm-whiteboard-multi-tools')) return;
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         const isNoteCreateTool = tool === 'text' || tool === 'sticky';
-        if (state.whiteboardNoteEditor && isNoteCreateTool) {
+        if (state.whiteboardNoteEditor) {
             await __tmCloseWhiteboardNoteEditor({ save: true });
             return;
         }
@@ -8346,13 +8675,13 @@
         try { await SettingsStore.save(); } catch (e) {}
     };
 
-    window.tmWhiteboardSetTool = async function(tool) {
+    window.tmWhiteboardSetTool = async function(tool, ev) {
+        if (ev?.type === 'click' && Number(state.whiteboardSuppressClickUntil || 0) > Date.now()) return;
         const t = String(tool || 'pan').trim();
         const next = (t === 'select' || t === 'text' || t === 'sticky' || t === 'pen' || t === 'highlighter' || t === 'eraser' || t === 'frame' || t === 'pan') ? t : 'pan';
         if (__tmIsWhiteboardDrawingTool(next) && !__tmIsWhiteboardDrawingEnabled()) return;
         if (__tmIsWhiteboardDrawingTool(next) && __tmIsWhiteboardDrawingLayerHidden()) return;
-        if (next === 'sticky' && typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-sticky', '白板便签工具')) return;
-        if (next === 'frame' && !__tmRequireWhiteboardFrameFeature()) return;
+        if ((next === 'text' || next === 'sticky' || next === 'frame') && !__tmRequireWhiteboardCreateFeature(next)) return;
         if (__tmIsWhiteboardDrawingTool(next) && !__tmRequireWhiteboardDrawingFeature()) return;
         const currentEditorKind = String(state.whiteboardNoteEditor?.kind || '').trim();
         if (next !== 'text' || currentEditorKind === 'sticky') {
@@ -8595,3 +8924,37 @@
             }
         } catch (e) {}
     };
+
+    // 白板 PNG 渲染器：html-to-image 1.11.13，仅保留 toBlob 及其依赖。
+    /*
+     * MIT License
+     *
+     * Copyright (c) 2017-2025 W.Y.
+     *
+     * Permission is hereby granted, free of charge, to any person obtaining a copy
+     * of this software and associated documentation files (the "Software"), to deal
+     * in the Software without restriction, including without limitation the rights
+     * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+     * copies of the Software, and to permit persons to whom the Software is
+     * furnished to do so, subject to the following conditions:
+     *
+     * The above copyright notice and this permission notice shall be included in all
+     * copies or substantial portions of the Software.
+     *
+     * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+     * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+     * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+     * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+     * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+     * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+     * SOFTWARE.
+     */
+    let __tmWhiteboardPngRenderer = null;
+    function __tmGetWhiteboardPngRenderer() {
+        if (!__tmWhiteboardPngRenderer) {
+            var __tmWhiteboardPngLibrary=(()=>{var P=Object.defineProperty;var tt=Object.getOwnPropertyDescriptor;var et=Object.getOwnPropertyNames;var rt=Object.prototype.hasOwnProperty;var nt=(t,e)=>{for(var r in e)P(t,r,{get:e[r],enumerable:!0})},it=(t,e,r,n)=>{if(e&&typeof e=="object"||typeof e=="function")for(let i of et(e))!rt.call(t,i)&&i!==r&&P(t,i,{get:()=>e[i],enumerable:!(n=tt(e,i))||n.enumerable});return t};var ot=t=>it(P({},"__esModule",{value:!0}),t);var _t={};nt(_t,{toBlob:()=>Z});function A(t,e){if(t.match(/^[a-z]+:\/\//i))return t;if(t.match(/^\/\//))return window.location.protocol+t;if(t.match(/^[a-z]+:/i))return t;let r=document.implementation.createHTMLDocument(),n=r.createElement("base"),i=r.createElement("a");return r.head.appendChild(n),r.body.appendChild(i),e&&(n.href=e),i.href=t,i.href}var U=(()=>{let t=0,e=()=>`0000${(Math.random()*36**4<<0).toString(36)}`.slice(-4);return()=>(t+=1,`u${e()}${t}`)})();function f(t){let e=[];for(let r=0,n=t.length;r<n;r++)e.push(t[r]);return e}var g=null;function E(t={}){return g||(t.includeStyleProperties?(g=t.includeStyleProperties,g):(g=f(window.getComputedStyle(document.documentElement)),g))}function S(t,e){let n=(t.ownerDocument.defaultView||window).getComputedStyle(t).getPropertyValue(e);return n?parseFloat(n.replace("px","")):0}function at(t){let e=S(t,"border-left-width"),r=S(t,"border-right-width");return t.clientWidth+e+r}function st(t){let e=S(t,"border-top-width"),r=S(t,"border-bottom-width");return t.clientHeight+e+r}function T(t,e={}){let r=e.width||at(t),n=e.height||st(t);return{width:r,height:n}}function v(){let t,e;try{e=process}catch(n){}let r=e&&e.env?e.env.devicePixelRatio:null;return r&&(t=parseInt(r,10),Number.isNaN(t)&&(t=1)),t||window.devicePixelRatio||1}var u=16384;function k(t){(t.width>u||t.height>u)&&(t.width>u&&t.height>u?t.width>t.height?(t.height*=u/t.width,t.width=u):(t.width*=u/t.height,t.height=u):t.width>u?(t.height*=u/t.width,t.width=u):(t.width*=u/t.height,t.height=u))}function M(t,e={}){return t.toBlob?new Promise(r=>{t.toBlob(r,e.type?e.type:"image/png",e.quality?e.quality:1)}):new Promise(r=>{let n=window.atob(t.toDataURL(e.type?e.type:void 0,e.quality?e.quality:void 0).split(",")[1]),i=n.length,o=new Uint8Array(i);for(let a=0;a<i;a+=1)o[a]=n.charCodeAt(a);r(new Blob([o],{type:e.type?e.type:"image/png"}))})}function d(t){return new Promise((e,r)=>{let n=new Image;n.onload=()=>{n.decode().then(()=>{requestAnimationFrame(()=>e(n))})},n.onerror=r,n.crossOrigin="anonymous",n.decoding="async",n.src=t})}async function ct(t){return Promise.resolve().then(()=>new XMLSerializer().serializeToString(t)).then(encodeURIComponent).then(e=>`data:image/svg+xml;charset=utf-8,${e}`)}async function H(t,e,r){let n="http://www.w3.org/2000/svg",i=document.createElementNS(n,"svg"),o=document.createElementNS(n,"foreignObject");return i.setAttribute("width",`${e}`),i.setAttribute("height",`${r}`),i.setAttribute("viewBox",`0 0 ${e} ${r}`),o.setAttribute("width","100%"),o.setAttribute("height","100%"),o.setAttribute("x","0"),o.setAttribute("y","0"),o.setAttribute("externalResourcesRequired","true"),i.appendChild(o),o.appendChild(t),ct(i)}var l=(t,e)=>{if(t instanceof e)return!0;let r=Object.getPrototypeOf(t);return r===null?!1:r.constructor.name===e.name||l(r,e)};function lt(t){let e=t.getPropertyValue("content");return`${t.cssText} content: '${e.replace(/'|"/g,"")}';`}function ut(t,e){return E(e).map(r=>{let n=t.getPropertyValue(r),i=t.getPropertyPriority(r);return`${r}: ${n}${i?" !important":""};`}).join(" ")}function ft(t,e,r,n){let i=`.${t}:${e}`,o=r.cssText?lt(r):ut(r,n);return document.createTextNode(`${i}{${o}}`)}function V(t,e,r,n){let i=window.getComputedStyle(t,r),o=i.getPropertyValue("content");if(o===""||o==="none")return;let a=U();try{e.className=`${e.className} ${a}`}catch(c){return}let s=document.createElement("style");s.appendChild(ft(a,r,i,n)),e.appendChild(s)}function O(t,e,r){V(t,e,":before",r),V(t,e,":after",r)}var W="application/font-woff",B="image/jpeg",mt={woff:W,woff2:W,ttf:"application/font-truetype",eot:"application/vnd.ms-fontobject",png:"image/png",jpg:B,jpeg:B,gif:"image/gif",tiff:"image/tiff",svg:"image/svg+xml",webp:"image/webp"};function ht(t){let e=/\.([^./]*?)$/g.exec(t);return e?e[1]:""}function p(t){let e=ht(t).toLowerCase();return mt[e]||""}function gt(t){return t.split(/,/)[1]}function x(t){return t.search(/^(data:)/)!==-1}function $(t,e){return`data:${e};base64,${t}`}async function F(t,e,r){let n=await fetch(t,e);if(n.status===404)throw new Error(`Resource "${n.url}" not found`);let i=await n.blob();return new Promise((o,a)=>{let s=new FileReader;s.onerror=a,s.onloadend=()=>{try{o(r({res:n,result:s.result}))}catch(c){a(c)}},s.readAsDataURL(i)})}var L={};function dt(t,e,r){let n=t.replace(/\?.*/,"");return r&&(n=t),/ttf|otf|eot|woff2?/i.test(n)&&(n=n.replace(/.*\//,"")),e?`[${e}]${n}`:n}async function y(t,e,r){let n=dt(t,e,r.includeQueryParams);if(L[n]!=null)return L[n];r.cacheBust&&(t+=(/\?/.test(t)?"&":"?")+new Date().getTime());let i;try{let o=await F(t,r.fetchRequestInit,({res:a,result:s})=>(e||(e=a.headers.get("Content-Type")||""),gt(s)));i=$(o,e)}catch(o){i=r.imagePlaceholder||"";let a=`Failed to fetch resource: ${t}`;o&&(a=typeof o=="string"?o:o.message),a&&console.warn(a)}return L[n]=i,i}async function pt(t){let e=t.toDataURL();return e==="data:,"?t.cloneNode(!1):d(e)}async function yt(t,e){if(t.currentSrc){let o=document.createElement("canvas"),a=o.getContext("2d");o.width=t.clientWidth,o.height=t.clientHeight,a==null||a.drawImage(t,0,0,o.width,o.height);let s=o.toDataURL();return d(s)}let r=t.poster,n=p(r),i=await y(r,n,e);return d(i)}async function wt(t,e){var r;try{if(!((r=t==null?void 0:t.contentDocument)===null||r===void 0)&&r.body)return await b(t.contentDocument.body,e,!0)}catch(n){}return t.cloneNode(!1)}async function xt(t,e){return l(t,HTMLCanvasElement)?pt(t):l(t,HTMLVideoElement)?yt(t,e):l(t,HTMLIFrameElement)?wt(t,e):t.cloneNode(_(t))}var bt=t=>t.tagName!=null&&t.tagName.toUpperCase()==="SLOT",_=t=>t.tagName!=null&&t.tagName.toUpperCase()==="SVG";async function St(t,e,r){var n,i;if(_(e))return e;let o=[];return bt(t)&&t.assignedNodes?o=f(t.assignedNodes()):l(t,HTMLIFrameElement)&&(!((n=t.contentDocument)===null||n===void 0)&&n.body)?o=f(t.contentDocument.body.childNodes):o=f(((i=t.shadowRoot)!==null&&i!==void 0?i:t).childNodes),o.length===0||l(t,HTMLVideoElement)||await o.reduce((a,s)=>a.then(()=>b(s,r)).then(c=>{c&&e.appendChild(c)}),Promise.resolve()),e}function Et(t,e,r){let n=e.style;if(!n)return;let i=window.getComputedStyle(t);i.cssText?(n.cssText=i.cssText,n.transformOrigin=i.transformOrigin):E(r).forEach(o=>{let a=i.getPropertyValue(o);o==="font-size"&&a.endsWith("px")&&(a=`${Math.floor(parseFloat(a.substring(0,a.length-2)))-.1}px`),l(t,HTMLIFrameElement)&&o==="display"&&a==="inline"&&(a="block"),o==="d"&&e.getAttribute("d")&&(a=`path(${e.getAttribute("d")})`),n.setProperty(o,a,i.getPropertyPriority(o))})}function Rt(t,e){l(t,HTMLTextAreaElement)&&(e.innerHTML=t.value),l(t,HTMLInputElement)&&e.setAttribute("value",t.value)}function Ct(t,e){if(l(t,HTMLSelectElement)){let r=e,n=Array.from(r.children).find(i=>t.value===i.getAttribute("value"));n&&n.setAttribute("selected","")}}function Pt(t,e,r){return l(e,Element)&&(Et(t,e,r),O(t,e,r),Rt(t,e),Ct(t,e)),e}async function Tt(t,e){let r=t.querySelectorAll?t.querySelectorAll("use"):[];if(r.length===0)return t;let n={};for(let o=0;o<r.length;o++){let s=r[o].getAttribute("xlink:href");if(s){let c=t.querySelector(s),m=document.querySelector(s);!c&&m&&!n[s]&&(n[s]=await b(m,e,!0))}}let i=Object.values(n);if(i.length){let o="http://www.w3.org/1999/xhtml",a=document.createElementNS(o,"svg");a.setAttribute("xmlns",o),a.style.position="absolute",a.style.width="0",a.style.height="0",a.style.overflow="hidden",a.style.display="none";let s=document.createElementNS(o,"defs");a.appendChild(s);for(let c=0;c<i.length;c++)s.appendChild(i[c]);t.appendChild(a)}return t}async function b(t,e,r){return!r&&e.filter&&!e.filter(t)?null:Promise.resolve(t).then(n=>xt(n,e)).then(n=>St(t,n,e)).then(n=>Pt(t,n,e)).then(n=>Tt(n,e))}var q=/url\((['"]?)([^'"]+?)\1\)/g,Lt=/url\([^)]+\)\s*format\((["']?)([^"']+)\1\)/g,$t=/src:\s*(?:url\([^)]+\)\s*format\([^)]+\)[,;]\s*)+/g;function Ft(t){let e=t.replace(/([.*+?^${}()|\[\]\/\\])/g,"\\$1");return new RegExp(`(url\\(['"]?)(${e})(['"]?\\))`,"g")}function It(t){let e=[];return t.replace(q,(r,n,i)=>(e.push(i),r)),e.filter(r=>!x(r))}async function Dt(t,e,r,n,i){try{let o=r?A(e,r):e,a=p(e),s;if(i){let c=await i(o);s=$(c,a)}else s=await y(o,a,n);return t.replace(Ft(e),`$1${s}$3`)}catch(o){}return t}function At(t,{preferredFontFormat:e}){return e?t.replace($t,r=>{for(;;){let[n,,i]=Lt.exec(r)||[];if(!i)return"";if(i===e)return`src: ${n};`}}):t}function I(t){return t.search(q)!==-1}async function R(t,e,r){if(!I(t))return t;let n=At(t,r);return It(n).reduce((o,a)=>o.then(s=>Dt(s,a,e,r)),Promise.resolve(n))}async function w(t,e,r){var n;let i=(n=e.style)===null||n===void 0?void 0:n.getPropertyValue(t);if(i){let o=await R(i,null,r);return e.style.setProperty(t,o,e.style.getPropertyPriority(t)),!0}return!1}async function Ut(t,e){await w("background",t,e)||await w("background-image",t,e),await w("mask",t,e)||await w("-webkit-mask",t,e)||await w("mask-image",t,e)||await w("-webkit-mask-image",t,e)}async function vt(t,e){let r=l(t,HTMLImageElement);if(!(r&&!x(t.src))&&!(l(t,SVGImageElement)&&!x(t.href.baseVal)))return;let n=r?t.src:t.href.baseVal,i=await y(n,p(n),e);await new Promise((o,a)=>{t.onload=o,t.onerror=e.onImageErrorHandler?(...c)=>{try{o(e.onImageErrorHandler(...c))}catch(m){a(m)}}:a;let s=t;s.decode&&(s.decode=o),s.loading==="lazy"&&(s.loading="eager"),r?(t.srcset="",t.src=i):t.href.baseVal=i})}async function kt(t,e){let n=f(t.childNodes).map(i=>D(i,e));await Promise.all(n).then(()=>t)}async function D(t,e){l(t,Element)&&(await Ut(t,e),await vt(t,e),await kt(t,e))}function j(t,e){let{style:r}=t;e.backgroundColor&&(r.backgroundColor=e.backgroundColor),e.width&&(r.width=`${e.width}px`),e.height&&(r.height=`${e.height}px`);let n=e.style;return n!=null&&Object.keys(n).forEach(i=>{r[i]=n[i]}),t}var z={};async function G(t){let e=z[t];if(e!=null)return e;let n=await(await fetch(t)).text();return e={url:t,cssText:n},z[t]=e,e}async function X(t,e){let r=t.cssText,n=/url\(["']?([^"')]+)["']?\)/g,o=(r.match(/url\([^)]+\)/g)||[]).map(async a=>{let s=a.replace(n,"$1");return s.startsWith("https://")||(s=new URL(s,t.url).href),F(s,e.fetchRequestInit,({result:c})=>(r=r.replace(a,`url(${c})`),[a,c]))});return Promise.all(o).then(()=>r)}function J(t){if(t==null)return[];let e=[],r=/(\/\*[\s\S]*?\*\/)/gi,n=t.replace(r,""),i=new RegExp("((@.*?keyframes [\\s\\S]*?){([\\s\\S]*?}\\s*?)})","gi");for(;;){let c=i.exec(n);if(c===null)break;e.push(c[0])}n=n.replace(i,"");let o=/@import[\s\S]*?url\([^)]*\)[\s\S]*?;/gi,a="((\\s*?(?:\\/\\*[\\s\\S]*?\\*\\/)?\\s*?@media[\\s\\S]*?){([\\s\\S]*?)}\\s*?})|(([\\s\\S]*?){([\\s\\S]*?)})",s=new RegExp(a,"gi");for(;;){let c=o.exec(n);if(c===null){if(c=s.exec(n),c===null)break;o.lastIndex=s.lastIndex}else s.lastIndex=o.lastIndex;e.push(c[0])}return e}async function Mt(t,e){let r=[],n=[];return t.forEach(i=>{if("cssRules"in i)try{f(i.cssRules||[]).forEach((o,a)=>{if(o.type===CSSRule.IMPORT_RULE){let s=a+1,c=o.href,m=G(c).then(h=>X(h,e)).then(h=>J(h).forEach(C=>{try{i.insertRule(C,C.startsWith("@import")?s+=1:i.cssRules.length)}catch(N){console.error("Error inserting rule from remote css",{rule:C,error:N})}})).catch(h=>{console.error("Error loading remote css",h.toString())});n.push(m)}})}catch(o){let a=t.find(s=>s.href==null)||document.styleSheets[0];i.href!=null&&n.push(G(i.href).then(s=>X(s,e)).then(s=>J(s).forEach(c=>{a.insertRule(c,a.cssRules.length)})).catch(s=>{console.error("Error loading remote stylesheet",s)})),console.error("Error inlining remote css file",o)}}),Promise.all(n).then(()=>(t.forEach(i=>{if("cssRules"in i)try{f(i.cssRules||[]).forEach(o=>{r.push(o)})}catch(o){console.error(`Error while reading CSS rules from ${i.href}`,o)}}),r))}function Ht(t){return t.filter(e=>e.type===CSSRule.FONT_FACE_RULE).filter(e=>I(e.style.getPropertyValue("src")))}async function Vt(t,e){if(t.ownerDocument==null)throw new Error("Provided element is not within a Document");let r=f(t.ownerDocument.styleSheets),n=await Mt(r,e);return Ht(n)}function K(t){return t.trim().replace(/["']/g,"")}function Ot(t){let e=new Set;function r(n){(n.style.fontFamily||getComputedStyle(n).fontFamily).split(",").forEach(o=>{e.add(K(o))}),Array.from(n.children).forEach(o=>{o instanceof HTMLElement&&r(o)})}return r(t),e}async function Q(t,e){let r=await Vt(t,e),n=Ot(t);return(await Promise.all(r.filter(o=>n.has(K(o.style.fontFamily))).map(o=>{let a=o.parentStyleSheet?o.parentStyleSheet.href:null;return R(o.cssText,a,e)}))).join(`
+`)}async function Y(t,e){let r=e.fontEmbedCSS!=null?e.fontEmbedCSS:e.skipFonts?null:await Q(t,e);if(r){let n=document.createElement("style"),i=document.createTextNode(r);n.appendChild(i),t.firstChild?t.insertBefore(n,t.firstChild):t.appendChild(n)}}async function Wt(t,e={}){let{width:r,height:n}=T(t,e),i=await b(t,e,!0);return await Y(i,e),await D(i,e),j(i,e),await H(i,r,n)}async function Bt(t,e={}){let{width:r,height:n}=T(t,e),i=await Wt(t,e),o=await d(i),a=document.createElement("canvas"),s=a.getContext("2d"),c=e.pixelRatio||v(),m=e.canvasWidth||r,h=e.canvasHeight||n;return a.width=m*c,a.height=h*c,e.skipAutoScale||k(a),a.style.width=`${m}`,a.style.height=`${h}`,e.backgroundColor&&(s.fillStyle=e.backgroundColor,s.fillRect(0,0,a.width,a.height)),s.drawImage(o,0,0,a.width,a.height),a}async function Z(t,e={}){let r=await Bt(t,e);return await M(r)}return ot(_t);})();
+            __tmWhiteboardPngRenderer = __tmWhiteboardPngLibrary.toBlob;
+        }
+        return __tmWhiteboardPngRenderer;
+    }

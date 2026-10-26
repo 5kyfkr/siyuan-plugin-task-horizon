@@ -31,7 +31,10 @@ const code = helperNames.map((name) => extract(runtime, name)).join('\n') + '\n'
         .map((name) => extract(projection, name)).join('\n');
 
 (async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({
+        headless: true,
+        ...(process.env.PLAYWRIGHT_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE } : {}),
+    });
     try {
         const page = await browser.newPage();
         const errors = [];
@@ -154,7 +157,43 @@ const code = helperNames.map((name) => extract(runtime, name)).join('\n') + '\n'
         });
         assert.deepEqual(table, { fast: false, unchanged: true, ok: true, sourceGone: true, kept: true, destination: true },
             'table rows already defer disappearing tasks and groups to their renderer');
+        const headingBoundary = await page.evaluate(() => {
+            state.viewMode = 'checklist';
+            const item = (id, content) => `<div class="tm-checklist-item" data-id="${id}" data-depth="0">${content}</div>`;
+            const heading = (key, label) => `<div class="tm-checklist-group" data-group-key="${key}" data-group-kind="h2">${label}</div>`;
+            state.modal.innerHTML = `<div class="tm-body tm-body--checklist"><div class="tm-checklist-pane tm-checklist-pane--compact"><div class="tm-checklist-items"><section class="tm-checklist-group-card">`
+                + `<div class="tm-checklist-group-card-items">`
+                + heading('chest', '胸肌训练')
+                + item('chest-task', '宽距俯卧撑')
+                + heading('core', '腹肌训练')
+                + item('core-one', '长杆平板撑')
+                + item('core-two', '空体卷腹')
+                + heading('daily', '每天健康打卡')
+                + item('daily-task', '蹲墙功')
+                + `</div></section></div></div></div>`;
+            window.__tmBuildTaskRowModel = () => [
+                { type: 'group', key: 'chest', kind: 'h2', count: 1 },
+                { type: 'task', id: 'chest-task', depth: 0 },
+                { type: 'group', key: 'core', kind: 'h2', count: 2 },
+                { type: 'task', id: 'core-one', depth: 0 },
+                { type: 'task', id: 'core-two', depth: 0 },
+                { type: 'group', key: 'daily', kind: 'h2', count: 1 },
+                { type: 'task', id: 'daily-task', depth: 0 },
+            ];
+            const ok = __tmTryApplyChecklistOptimisticProjectionInPlace('chest-task', { repeatRule: {} }, { filtersApplied: true });
+            const container = state.modal.querySelector('.tm-checklist-group-card-items');
+            return {
+                ok,
+                order: Array.from(container.children).map((node) => node.getAttribute('data-id') || node.getAttribute('data-group-key')),
+                coreSameContainer: state.modal.querySelector('[data-group-key="core"]').parentElement === container,
+            };
+        });
+        assert.deepEqual(headingBoundary, {
+            ok: true,
+            order: ['chest', 'chest-task', 'core', 'core-one', 'core-two', 'daily', 'daily-task'],
+            coreSameContainer: true,
+        }, 'a last task in a compact heading group must stay before the next heading');
         assert.deepEqual(errors, []);
-        console.log('checklist refresh scope browser regressions: 13 passed, 0 failed');
+        console.log('checklist refresh scope browser regressions: 14 passed, 0 failed');
     } finally { await browser.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

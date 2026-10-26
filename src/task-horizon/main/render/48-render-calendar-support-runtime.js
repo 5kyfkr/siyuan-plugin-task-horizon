@@ -116,6 +116,7 @@
         };
 
         const filteredTasks = pickFrom(state.filteredTasks);
+        if (globalThis.__tmDateFilter?.active()) return { tasks: filteredTasks, docsToGroup };
         if (filteredTasks.length > 0) return { tasks: filteredTasks, docsToGroup };
 
         const treeTasks = pickFrom(__tmFlattenCalendarTaskTreeSync());
@@ -1097,7 +1098,8 @@
         // source refreshes must not treat a partial first-paint snapshot as an
         // authoritative replacement for events already on screen.
         const markTaskDateQueryResult = (events, complete, path = '') => {
-            const list = Array.isArray(events) ? events : [];
+            const list = globalThis.__tmDateFilter?.filterCalendarEvents(Array.isArray(events) ? events : [], opts)
+                || (Array.isArray(events) ? events : []);
             try {
                 Object.defineProperties(list, {
                     __tmTaskDateQueryComplete: {
@@ -1469,7 +1471,7 @@
             if (!SettingsStore.data.calendarColumnWidths || Object.keys(SettingsStore.data.calendarColumnWidths).length === 0) {
                 SettingsStore.data.calendarColumnWidths = { content: 140, tomatoSummary: 112 };
             }
-            if (!(Array.isArray(state.filteredTasks) && state.filteredTasks.length > 0)) {
+            if (!globalThis.__tmDateFilter?.active() && !(Array.isArray(state.filteredTasks) && state.filteredTasks.length > 0)) {
                 const fallbackTasks = __tmGetCalendarTaskCandidatesSync().tasks;
                 if (Array.isArray(fallbackTasks) && fallbackTasks.length > 0) {
                     state.filteredTasks = fallbackTasks;

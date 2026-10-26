@@ -3039,12 +3039,12 @@
                 visibility: hidden;
                 width: 14px;
                 height: 14px;
-                color: var(--b3-theme-primary);
+                color: var(--tm-primary-color, var(--b3-theme-primary));
             }
             .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra-row.is-active {
-                border-color: var(--b3-theme-primary);
-                background: var(--b3-theme-primary-light, var(--b3-theme-surface-light));
-                color: var(--b3-theme-primary);
+                border-color: color-mix(in srgb, var(--tm-primary-color, var(--b3-theme-primary)) 55%, var(--b3-border-color) 45%);
+                background: color-mix(in srgb, var(--tm-primary-color, var(--b3-theme-primary)) 10%, var(--b3-theme-surface));
+                color: var(--b3-theme-on-surface);
             }
             .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra-row.is-active .sy-custom-props-floatbar__input-extra-tail {
                 visibility: visible;
@@ -3097,12 +3097,12 @@
                 visibility: hidden;
                 width: 14px;
                 height: 14px;
-                color: var(--b3-theme-primary);
+                color: var(--tm-primary-color, var(--b3-theme-primary));
             }
             .sy-custom-props-floatbar__input-editor.is-focus-summary .sy-custom-props-floatbar__input-extra-row.is-active {
-                border-color: var(--b3-theme-primary);
-                background: var(--b3-theme-primary-light, var(--b3-theme-surface-light));
-                color: var(--b3-theme-primary);
+                border-color: color-mix(in srgb, var(--tm-primary-color, var(--b3-theme-primary)) 55%, var(--b3-border-color) 45%);
+                background: color-mix(in srgb, var(--tm-primary-color, var(--b3-theme-primary)) 10%, var(--b3-theme-surface));
+                color: var(--b3-theme-on-surface);
             }
             .sy-custom-props-floatbar__input-editor.is-focus-summary .sy-custom-props-floatbar__input-extra-row.is-active .sy-custom-props-floatbar__input-extra-tail {
                 visibility: visible;
@@ -3745,6 +3745,9 @@
                 if (durationPanel instanceof HTMLElement) {
                     const input = durationPanel.querySelector('.sy-custom-props-floatbar__input');
                     const extraPanel = durationPanel.querySelector('[data-input-extra]');
+                    if (input instanceof HTMLElement && input.__tmDurationPicker) {
+                        try { input.__tmDurationPicker.destroy(); } catch (e) {}
+                    }
                     if (input instanceof HTMLElement) {
                         inputEditor.insertBefore(input, durationPanel);
                     }
@@ -5224,7 +5227,7 @@
                 total += taskItems.length;
                 completed += taskItems.filter((child) => {
                     const nativeMarker = globalThis.__tmTaskStatusRules.fromElement(child);
-                    if (nativeMarker) return globalThis.__tmTaskStatusRules.isDone(nativeMarker);
+                    if (nativeMarker) return globalThis.__tmTaskStatusRules.isClosed(nativeMarker);
                     if (child.classList?.contains('protyle-task--done')) return true;
                     const marker = String(child.getAttribute?.('data-marker') || '').trim();
                     return marker.includes('[x]') || marker.includes('[X]');
@@ -7141,6 +7144,13 @@
             durationPanel.setAttribute('data-focus-summary-duration-panel', 'true');
             inputEditor.insertBefore(durationPanel, input);
             durationPanel.appendChild(input);
+            if (typeof globalThis.__tmCreateDurationPicker === 'function') {
+                const picker = globalThis.__tmCreateDurationPicker({
+                    value: String(input.value || ''),
+                    storageInput: input,
+                });
+                durationPanel.insertBefore(picker.root, input);
+            }
 
             let estimateInput = inputEditor.querySelector('[data-focus-summary-estimate]');
             if (!(estimateInput instanceof HTMLInputElement)) {
@@ -7156,15 +7166,20 @@
             estimateInput.placeholder = '空或整数';
 
             if (extraPanel instanceof HTMLElement) {
+                const presetUnit = globalThis.__tmDuration?.getUnit?.()
+                    || (String(globalThis.localStorage?.getItem('tm_duration_format') || '').includes('minutes') ? 'minutes' : 'hours');
                 extraPanel.innerHTML = durationPresetOptions.length
-                    ? durationPresetOptions.map((value) => `
+                    ? durationPresetOptions.map((value) => {
+                        const label = globalThis.__tmDuration?.formatPresetLabel?.(value, presetUnit) || value;
+                        return `
                         <button type="button" class="sy-custom-props-floatbar__input-extra-row ${normalizeDurationPresetValue(input.value) === value ? 'is-active' : ''}" data-duration-preset-value="${esc(value)}">
                             <span class="sy-custom-props-floatbar__input-extra-main">
-                                <span class="sy-custom-props-floatbar__input-extra-text"><span class="sy-custom-props-floatbar__input-extra-title">${esc(value)}</span></span>
+                                <span class="sy-custom-props-floatbar__input-extra-text"><span class="sy-custom-props-floatbar__input-extra-title">${esc(label)}</span></span>
                             </span>
                             <span class="sy-custom-props-floatbar__input-extra-tail"><span class="tm-selection-check" aria-hidden="true"></span></span>
                         </button>
-                    `).join('')
+                    `;
+                    }).join('')
                     : '';
                 extraPanel.classList.toggle('is-visible', durationPresetOptions.length > 0);
                 durationPanel.appendChild(extraPanel);
@@ -7210,8 +7225,13 @@
                     try {
                         requestAnimationFrame(() => {
                             const target = focusSummaryMode === 'tomato' ? estimateInput : input;
-                            target.focus();
-                            target.select();
+                            const picker = target.__tmDurationPicker;
+                            if (picker && typeof picker.focus === 'function') {
+                                picker.focus();
+                            } else {
+                                target.focus();
+                                target.select();
+                            }
                         });
                     } catch (e) {}
                 }
@@ -7230,8 +7250,13 @@
             repositionEditor();
             try {
                 const target = focusSummaryMode === 'tomato' ? estimateInput : input;
-                target.focus();
-                target.select();
+                const picker = target.__tmDurationPicker;
+                if (picker && typeof picker.focus === 'function') {
+                    picker.focus();
+                } else {
+                    target.focus();
+                    target.select();
+                }
             } catch (e) {}
 
             const saveFocusSummary = async (patch) => {
@@ -7266,6 +7291,8 @@
             estimateInput.oninput = () => {
                 if (!normalizeTomatoCountValue(estimateInput.value)) return;
                 input.value = '';
+                try { input.__tmDurationPicker?.sync?.(); } catch (err) {}
+                try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (err) {}
                 if (extraPanel instanceof HTMLElement) {
                     extraPanel.querySelectorAll('[data-duration-preset-value]').forEach((btn) => btn.classList.remove('is-active'));
                 }
@@ -7290,8 +7317,13 @@
                         if (!nextValue) return;
                         input.value = nextValue;
                         estimateInput.value = '';
+                        try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (err) {}
                         extraPanel.querySelectorAll('[data-duration-preset-value]').forEach((btn) => btn.classList.toggle('is-active', btn === button));
-                        try { input.focus(); input.select(); } catch (err) {}
+                        try {
+                            const picker = input.__tmDurationPicker;
+                            if (picker && typeof picker.focus === 'function') picker.focus();
+                            else { input.focus(); input.select(); }
+                        } catch (err) {}
                     };
                 });
             }
@@ -7305,6 +7337,8 @@
             const isTomatoCount = String(config?.attrKey || '').trim() === 'custom-tomato-estimate-count'
                 || String(config?.attrKey || '').trim() === 'custom-tomato-count';
             const durationPresetOptions = isDuration ? getQuickbarDurationPresetOptions() : [];
+            const durationPresetUnit = globalThis.__tmDuration?.getUnit?.()
+                || (String(globalThis.localStorage?.getItem('tm_duration_format') || '').includes('minutes') ? 'minutes' : 'hours');
             const remarkTools = getRemarkMarkdownTools();
             const editorControl = setInputEditorMode(isRemark ? 'textarea' : 'input');
             const input = editorControl instanceof HTMLInputElement ? editorControl : null;
@@ -7387,17 +7421,20 @@
                 if (isDuration && durationPresetOptions.length) {
                     extraPanel.innerHTML = `
                         <div class="sy-custom-props-floatbar__duration-helper">选预设或直接输入</div>
-                        ${durationPresetOptions.map((value) => `
+                        ${durationPresetOptions.map((value) => {
+                            const label = globalThis.__tmDuration?.formatPresetLabel?.(value, durationPresetUnit) || value;
+                            return `
                             <button type="button" class="sy-custom-props-floatbar__input-extra-row ${normalizeDurationPresetValue(currentValue) === value ? 'is-active' : ''}" data-duration-preset-value="${esc(value)}">
                                 <span class="sy-custom-props-floatbar__input-extra-main">
                                     <span class="sy-custom-props-floatbar__input-extra-icon">${renderPhosphorBoldIcon('timer', 14)}</span>
                                     <span class="sy-custom-props-floatbar__input-extra-text">
-                                        <span class="sy-custom-props-floatbar__input-extra-title">${esc(value)}</span>
+                                        <span class="sy-custom-props-floatbar__input-extra-title">${esc(label)}</span>
                                     </span>
                                 </span>
                                 <span class="sy-custom-props-floatbar__input-extra-tail"><span class="tm-selection-check" aria-hidden="true"></span></span>
                             </button>
-                        `).join('')}
+                        `;
+                        }).join('')}
                     `.trim();
                     extraPanel.classList.add('is-visible');
                 } else {

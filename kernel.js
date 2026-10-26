@@ -11377,16 +11377,36 @@
         };
     }
 
-    function parseDurationMinutes(value) {
-        const raw = text(value).toLowerCase();
+    function normalizeDurationUnit(value) {
+        return text(value).toLowerCase() === 'minutes' ? 'minutes' : 'hours';
+    }
+
+    function parseDurationMinutes(value, unit = 'hours') {
+        const raw = text(value);
         if (!raw) return null;
-        if (/^\d+(?:\.\d+)?$/.test(raw)) return Number(raw);
+        if (/^-/.test(raw)) return null;
+        const normalizedUnit = normalizeDurationUnit(unit);
+        const clock = /^(\d+)\s*:\s*([0-5]\d)$/.exec(raw);
+        if (clock) return Number(clock[1]) * 60 + Number(clock[2]);
+        if (/^\d+(?:\.\d+)?$/.test(raw)) {
+            const n = Number(raw);
+            if (!Number.isFinite(n) || n < 0) return null;
+            return normalizedUnit === 'minutes' ? n : n * 60;
+        }
         let minutes = 0;
-        const hour = raw.match(/(\d+(?:\.\d+)?)\s*(?:h|hour|小时)/);
-        const minute = raw.match(/(\d+(?:\.\d+)?)\s*(?:m|min|分钟)/);
-        if (hour) minutes += Number(hour[1]) * 60;
-        if (minute) minutes += Number(minute[1]);
-        return minutes > 0 ? minutes : null;
+        let matched = false;
+        const re = /(\d+(?:\.\d+)?)\s*(天|小时|时|分钟|分|days?|day|d|hours?|hour|hrs?|hr|h|minutes?|minute|mins?|min|m)/gi;
+        let match;
+        while ((match = re.exec(raw))) {
+            const amount = Number(match[1]);
+            if (!Number.isFinite(amount) || amount < 0) continue;
+            const token = text(match[2]).toLowerCase();
+            matched = true;
+            if (token === '天' || token === 'day' || token === 'days' || token === 'd') minutes += amount * 1440;
+            else if (token === '小时' || token === '时' || token === 'hour' || token === 'hours' || token === 'hr' || token === 'hrs' || token === 'h') minutes += amount * 60;
+            else minutes += amount;
+        }
+        return matched ? minutes : null;
     }
 
     async function aggregateTimeUsage(input) {
@@ -11401,6 +11421,8 @@
             throw new DomainError(ERROR.INVALID_ARGUMENT, 'from/to 必须构成有效时间范围');
         }
         const registry = await getFieldRegistry();
+        const settings = await getSettings();
+        const durationUnit = normalizeDurationUnit(settings.durationFormat);
         const durationField = registry.byId.get('duration');
         const estimateExpr = completionAttrExpression([durationField.attr].concat(durationField.aliases || []));
         const taskConditions = ["t.type = 'i'", "t.subtype = 't'"];
@@ -11409,7 +11431,7 @@
         let estimatedMinutes = 0;
         let estimateAvailable = 0;
         rows.forEach((row) => {
-            const estimate = parseDurationMinutes(row.estimate);
+            const estimate = parseDurationMinutes(row.estimate, durationUnit);
             if (estimate != null) { estimatedMinutes += estimate; estimateAvailable += 1; }
         });
         const scopedTaskIDs = new Set(rows.map((row) => text(row.id)).filter(Boolean));

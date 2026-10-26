@@ -13,6 +13,10 @@
     "shortcut-navigation.test.js",
     "doc-group-scope-read-failure-behavior.test.js",
     "kernel-contract.test.js",
+    "duration-utils.test.js",
+    "duration-runtime-parity.test.js",
+    "duration-picker-contract.test.js",
+    "duration-picker-dom.test.js",
     "parent-task-date-rollup.test.js",
     "kernel-settings-persistence.test.js",
     "task-lifecycle-contract.test.js",
@@ -95,6 +99,7 @@
     "mobile-fullscreen-reopen-browser.test.js",
     "shortcut-session-reload-browser.test.js",
     "shortcut-sidebar-first-paint-browser.test.js",
+    "shortcut-hide-guide-browser.test.js",
     "calendar-host-snapshot-browser.test.js",
     "checklist-style-integration-browser.test.js",
     "checklist-refresh-scope-browser.test.js",
@@ -103,6 +108,7 @@
     "settings-v2-browser.test.js",
     "task-move-placement-browser.test.js",
     "quick-add-keyboard-browser.test.js",
-    "calendar-schedule-editor-device-browser.test.js"
+    "calendar-schedule-editor-device-browser.test.js",
+    "duration-picker-browser.test.js"
   ]
 }

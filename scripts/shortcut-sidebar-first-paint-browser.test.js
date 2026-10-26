@@ -17,7 +17,7 @@ const html = fixture.replace(boot, `
     globalThis.__taskHorizonRuntimeClientKind=params.get('native')==='1'?'mobile-app':'desktop-browser';
     host.dataset.tmUiMode=params.get('hostMobile')==='1'?'mobile':'desktop';
     SettingsStore.data.shortcutSidebarPreferences={
-        mobile:{mode:params.get('mode')||'full'},desktop:{mode:params.get('mode')||'full'},
+        mobile:{mode:params.get('mode')||'full',hideGuideAcknowledged:true},desktop:{mode:params.get('mode')||'full',hideGuideAcknowledged:true},
     };
     window.sidebarFrames=[];
     window.captureSidebar=()=>{

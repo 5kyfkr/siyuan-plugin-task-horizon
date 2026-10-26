@@ -19,6 +19,7 @@ const sandbox = {
     getCalendarTaskDocumentId: (task) => task?.docId || '',
     protoListTaskFieldEnabled: () => false,
     protoListTaskDone: (task) => task.done === true,
+    protoListTaskCanceled: (task) => task.taskMarker === '-',
     protoListTaskChildren: (task) => task.children || [],
     protoListShowCompletedTasks: () => sandbox.state.settingsStore.data.showCompletedTasks !== false,
     protoListCollapsedTaskIds: () => new Set(sandbox.state.settingsStore.data.collapsedTaskIds || []),
@@ -52,6 +53,18 @@ assert.match(hiddenCompleted, /data-task-id="pending-child"/);
 assert.doesNotMatch(hiddenCompleted, /data-task-id="completed-child"/);
 assert.match(hiddenCompleted, /tm-badge--count">1\/2</, 'Hiding completed rows must retain the actual completion count');
 assert.match(hiddenCompleted, /style="width:50%"/, 'Progress must still include hidden completed subtasks');
+const cancelledChild = { id: 'cancelled-child', content: '放弃子任务', taskMarker: '-', done: false };
+const withCancelled = context.renderCard(event, { ...mixedChildren, children: [...mixedChildren.children, cancelledChild] }, { isParent: true });
+assert.match(withCancelled, /tm-badge--count">2\/3</, 'Canceled subtasks must count toward parent progress');
+assert.match(withCancelled, /style="width:67%"/);
+assert.doesNotMatch(withCancelled, /data-task-id="cancelled-child"/, 'Counting cancellation must preserve calendar task visibility');
+const onlyCancelled = { ...task, children: [cancelledChild] };
+assert.match(context.renderCard(event, onlyCancelled, { isParent: true }), /tm-badge--count">1\/1</);
+cancelledChild.taskMarker = '/';
+const reopened = context.renderCard(event, onlyCancelled, { isParent: true });
+assert.match(reopened, /tm-badge--count">0\/1</);
+assert.match(reopened, /data-task-id="cancelled-child"/);
+assert.equal(cancelledChild.done, false);
 sandbox.state.settingsStore.data.showCompletedTasks = true;
 assert.match(context.renderCard(event, mixedChildren, { isParent: true }), /data-task-id="completed-child"/, 'Re-enabling completed tasks restores child rows');
 sandbox.state.settingsStore.data.collapsedTaskIds = ['task'];

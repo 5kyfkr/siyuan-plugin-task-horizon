@@ -7,6 +7,16 @@
 - Release mode: [build.ps1](/abs/path/d:/AI/trae/siyuan-plugin-task-horizon/build.ps1:1) concatenates those scripts into the root `task.js` inside the temporary packaging directory.
 - Root `task.js` remains the published/fallback entry and should not be treated as the long-term source of truth.
 
+## Shortcut date filter
+
+- `main/38-date-filter.js` owns the session-only `state.dateFilter`, shared interval matcher and one calendar mounted in the sidebar or its rail flyout. Only the month/week preference is persisted through the existing shortcut preferences.
+- `applyFilters()` captures candidates after the current document, visibility, rule and search scope, then applies the date condition before rebuilding ancestor context. Calendar dots use the candidates before the date condition; context ancestors do not count as date matches. A compact selected-date label and clear button appear above the calendar, without an extra banner above the task list.
+- Range drag advances one page when it reaches the first or last visible date. Holding or leaving the edge does not repeat paging; deliberately return to an interior date before reaching an edge again. Paging uses the stationary live grid; slide animations are separate visual siblings without date targets.
+- Page transitions move two full-width visual pages together over 260ms while the live grid stays fixed. Vertical wheel input navigates the visible month/week with burst throttling; it preserves the selection and does not intercept browser zoom or range dragging.
+- Date conditions participate in existing snapshot/render signatures and patch dependencies. Temporary matching counts never overwrite shortcut count caches. Main calendar task events honor the filter; side-calendar reads, independent schedules and ICS publication retain their own scope.
+- Closing the flyout preserves the condition. Sidebar disposal removes its portal and aborts event listeners. Regression coverage: `shortcut-date-filter.test.js` and `shortcut-date-filter-browser.test.js`.
+- The bottom view bar shares the shortcut layout's stacking context, below its scrim and sidebar; disabling the sidebar returns the bar to its original parent. Date drags track move/release/cancel in capture phase so mobile/Dock gesture isolation does not swallow the range gesture.
+
 ## Calendar subscription scope
 
 - `calendarIcsScope` defaults to `all`; `selected` uses the union of `calendarIcsDocGroupIds`. An empty or deleted selection stays empty.
@@ -43,6 +53,7 @@
 ## Native task statuses (SiYuan 3.8.4)
 
 - Read the native `data-task` / Markdown marker before checkbox CSS. Space and `/` are unfinished; `-` is 放弃, excluded from active tasks and successful completions. Existing other custom markers keep their completion behavior. Normalize `x` to `X`.
+- Parent subtask counts and progress include `-` as completed work, including document quickbars and calendar list cards. Reopening a subtask restores its remaining count; the subtask's own `done` value and successful-completion behavior stay unchanged.
 - Group every valid marker except space and `/` under completed tasks, respecting the existing visibility and grouping settings. Switching to one of these markers stamps the existing `taskCompleteAt` field; switching to space or `/` clears it. Repeated synchronization of the same marker preserves its timestamp. `-` remains `done=false`, grants no rewards, and does not advance recurring tasks. Detail status options must retain their markers when resolving the selected status.
 - Resolve status by marker and retain an existing matching status ID, including legacy duplicates. Non-space markers must be unique when adding/editing/importing; duplicate settings show a warning and reject the change.
 - Startup fills missing `/` and `-` with stable IDs, reusing any existing matching option. Settings edits/saves do not refill deleted options, so users can delete a generated option and assign its marker to an existing status before reloading.

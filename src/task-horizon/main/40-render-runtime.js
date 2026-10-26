@@ -70,6 +70,7 @@
         try { state.dockTaskPointerGestureCleanup?.(); } catch (e) {}
         try { __tmCleanupKanbanLaneAppearance({ preserveBackground: true }); } catch (e) {}
         try { state.multiSelectPointerGestureCleanup?.(); } catch (e) {}
+        try { state.whiteboardToolDragCleanup?.(); } catch (e) {}
         try { state.mobileBottomViewbarSwipeCleanup?.(); } catch (e) {}
         try { __tmCloseMultiSelectMoreMenu(); } catch (e) {}
         if (!__tmIsTomatoFocusModeEnabled()) {

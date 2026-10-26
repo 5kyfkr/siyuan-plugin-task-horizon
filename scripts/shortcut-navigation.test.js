@@ -490,12 +490,13 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
         return {sidebar:context.sidebar,store:sessionStore,file:()=>savedFile};
     };
     for(const mode of ['full','rail','hidden']){
-        const session=restartSidebar();Object.assign(session.sidebar.preferences,{mode,width:280,edgePosition:.27});
+        const session=restartSidebar();Object.assign(session.sidebar.preferences,{mode,width:280,edgePosition:.27,hideGuideAcknowledged:true});
         session.sidebar.persistPreferences();await Promise.resolve();
         const restarted=restartSidebar(session.file(),{});
         assert.equal(restarted.sidebar.preferences.mode,mode,'desktop mode restores after all local caches are lost');
         assert.equal(restarted.sidebar.preferences.width,280,'sidebar width restores from the settings file');
         assert.equal(restarted.sidebar.preferences.edgePosition,.27,'floating button position restores from the settings file');
+        assert.equal(restarted.sidebar.preferences.hideGuideAcknowledged,true,'hide-guide acknowledgement restores from the settings file');
     }
     const persistedDesktop={desktop:{mode:'rail',width:260,edgePosition:.3}};
     const mobileSession=restartSidebar(persistedDesktop,{},true);
@@ -505,5 +506,6 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
     assert.equal(restartSidebar(mobileSession.file(),{},true).sidebar.preferences.edgePosition,.7);
     const migrated=restartSidebar({}, {'tm_shortcut_sidebar_preferences':{mode:'hidden',width:220,edgePosition:.8}});
     assert.equal(migrated.sidebar.preferences.mode,'hidden','existing local sidebar preferences remain usable');
+    assert.equal(migrated.sidebar.preferences.hideGuideAcknowledged,false,'older preferences show the hide guide until it is acknowledged');
     console.log('Shortcut navigation: independent defaults, session grouping and board modes, reload, rollback, authoritative counts, validated snapshot first paint and latest-click behavior passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

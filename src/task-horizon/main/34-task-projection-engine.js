@@ -118,6 +118,7 @@
                     && !Array.from(changedFields).some((field) => field.startsWith('customField:'))
                     && Array.from(searchFields).some((field) => field.startsWith('customField:')));
             const filter = fieldsIntersect(changedFields, ruleDependencies.filterFields)
+                || (context.dateFilterActive === true && has([...TIME_FIELDS, 'repeatRule', 'repeatState', 'repeatHistory']))
                 || (context.searchActive === true && searchChanged)
                 || has(COMPLETION_FIELDS);
             const sort = fieldsIntersect(changedFields, ruleDependencies.sortFields)

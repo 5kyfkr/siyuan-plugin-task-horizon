@@ -204,6 +204,10 @@ assert.deepEqual(renderIds([due, otherDue, early, holiday]), ['due-b', 'holiday'
 assert.deepEqual(Array.from(context.taskChildren({ id: 'parent', children: [
     { id: 'task-a', taskMarker: ' ' }, { id: 'task-b', taskMarker: '-' },
 ]}), (task) => task.id), ['task-b'], 'Subtasks must use their latest status and hide cancellation');
+assert.deepEqual(Array.from(context.taskChildren({ id: 'parent', children: [
+    { id: 'task-a', taskMarker: ' ' }, { id: 'task-b', taskMarker: '-' },
+]}, { includeCanceled: true }), (task) => task.id), ['task-a', 'task-b'],
+'Parent progress must retain abandoned children while resolving their latest statuses');
 taskSnapshots.set('task-a', { id: 'task-a', taskMarker: ' ', done: false });
 assert.deepEqual(renderIds([due]), ['due-a'], 'Reopened tasks must reappear');
 taskSnapshots.set('task-a', { id: 'task-a', taskMarker: 'X', done: true });

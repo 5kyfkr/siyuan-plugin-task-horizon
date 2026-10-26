@@ -3486,7 +3486,8 @@
         const showHeadingLocation = !!isOtherBlock
             || __tmDocHasAnyHeading(docId);
         const children = __tmGetTaskDetailProjectedDirectChildren(task);
-        const completedChildren = children.filter((child) => __tmIsTaskCompletedForProjection(child)).length;
+        const completedChildren = children.filter((child) => __tmIsTaskCompletedForProjection(child)
+            || __tmIsTaskCanceled(child)).length;
         const customFieldDefs = __tmGetCustomFieldDefs();
         const configuredColumnOrder = Array.isArray(SettingsStore?.data?.columnOrder)
             ? SettingsStore.data.columnOrder
@@ -3732,6 +3733,25 @@
                 </div>
             </div>
         `;
+    }
+
+    // 文本输入类控件自己消化 Ctrl+V，附件粘贴逻辑不得抢占。
+    const __TM_TASK_DETAIL_TEXT_PASTE_TARGET_SELECTOR = [
+        'textarea',
+        'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="range"]):not([type="file"])',
+        '[contenteditable="true"]',
+        '[contenteditable=""]',
+        '[data-tm-detail="remark"]',
+    ].join(', ');
+
+    function __tmIsTaskDetailTextPasteTarget(target) {
+        const element = target instanceof Element ? target : null;
+        if (!element) return false;
+        try {
+            return !!element.closest(__TM_TASK_DETAIL_TEXT_PASTE_TARGET_SELECTOR);
+        } catch (e) {
+            return false;
+        }
     }
 
     function __tmReadTaskDetailAttachmentPathsFromSection(section) {
@@ -4974,7 +4994,7 @@
                     const remarkShell = root.querySelector('[data-tm-detail-remark-shell]');
                     const isEditingRemark = remarkShell instanceof HTMLElement && remarkShell.classList.contains('is-editing');
                     const isDraftActive = __tmIsTaskDetailRemarkDraftActive(root);
-                    if (preview instanceof HTMLElement && !isEditingRemark && !isDraftActive) preview.innerHTML = __tmRenderRemarkMarkdown(normalizedRemarkValue);
+                    if (preview instanceof HTMLElement && !isEditingRemark && !isDraftActive) preview.innerHTML = __tmRenderRemarkMarkdown(normalizedRemarkValue, { blockRefs: true });
                 } else if (taskMetaField === 'pinned') {
                     setHiddenInputValue('pinned', nextTask.pinned ? '1' : '');
                     syncMetaChipFaces();
@@ -5116,7 +5136,7 @@
                         const isEditingRemark = remarkShell instanceof HTMLElement && remarkShell.classList.contains('is-editing');
                         const isDraftActive = __tmIsTaskDetailRemarkDraftActive(root);
                         if (preview instanceof HTMLElement && !isEditingRemark && !isDraftActive) {
-                            preview.innerHTML = __tmRenderRemarkMarkdown(normalizedRemarkValue);
+                            preview.innerHTML = __tmRenderRemarkMarkdown(normalizedRemarkValue, { blockRefs: true });
                         }
                     }
                     break;
@@ -6294,7 +6314,7 @@
                                 </div>
                             </div>
                         ` : ''}
-                        <label class="tm-focus-summary-editor__field"><span>预计时长</span><input class="bc-input tm-task-detail-inline-popover__input tm-duration-editor-input" data-tm-detail-inline-popover-input data-tm-focus-duration type="text" value="${esc(value)}" placeholder="例如：30 或 30m"></label>
+                        <div class="tm-focus-summary-editor__field"><span>预计时长</span><div data-tm-duration-picker-slot></div></div>
                     </div>
                     <div class="tm-focus-summary-editor__panel" data-tm-focus-summary-panel="tomato" ${focusSummaryMode === 'tomato' ? '' : 'hidden'}>
                         <label class="tm-focus-summary-editor__field"><span>预计番茄</span><input class="bc-input tm-task-detail-inline-popover__input" data-tm-focus-estimate type="number" min="0" step="1" inputmode="numeric" value="${esc(tomatoEstimateValue)}" placeholder="空或整数"></label>
@@ -6320,6 +6340,25 @@
             positionInlinePopover();
             try { __tmAnimatePopupIn(popover, { origin: 'top-left', duration: 150 }); } catch (e) {}
 
+            if (isFocusSummary) {
+                const durationSlot = popover.querySelector('[data-tm-duration-picker-slot]');
+                if (durationSlot) {
+                    if (typeof globalThis.__tmCreateDurationPicker === 'function') {
+                        const picker = globalThis.__tmCreateDurationPicker({
+                            value,
+                            storageAttributes: {
+                                'data-tm-detail-inline-popover-input': '',
+                                'data-tm-focus-duration': '',
+                                class: 'tm-duration-editor-input',
+                            },
+                        });
+                        durationSlot.appendChild(picker.root);
+                    } else {
+                        durationSlot.innerHTML = `<input class="bc-input tm-task-detail-inline-popover__input tm-duration-editor-input" data-tm-detail-inline-popover-input data-tm-focus-duration type="text" value="${esc(value)}" placeholder="例如：30 或 30m">`;
+                    }
+                    try { positionInlinePopover(); } catch (e) {}
+                }
+            }
             const input = popover.querySelector('[data-tm-detail-inline-popover-input]');
             const estimateInput = popover.querySelector('[data-tm-focus-estimate]');
             const clearBtn = popover.querySelector('[data-tm-detail-inline-popover-clear]');
@@ -6344,8 +6383,13 @@
                         requestAnimationFrame(() => {
                             const target = focusSummaryMode === 'tomato' ? estimateInput : input;
                             if (target instanceof HTMLInputElement) {
+                            const picker = target.__tmDurationPicker;
+                            if (picker && typeof picker.focus === 'function') {
+                                picker.focus();
+                            } else {
                                 target.focus();
                                 target.select?.();
+                            }
                             }
                         });
                     } catch (e) {}
@@ -6452,16 +6496,21 @@
                             const focusTarget = isFocusSummary && focusSummaryMode === 'tomato' && estimateInput instanceof HTMLInputElement
                                 ? estimateInput
                                 : input;
-                            try { focusTarget.focus(); } catch (e) {}
-                            if (mode === 'date') {
-                                try {
-                                    if (typeof input.showPicker === 'function') input.showPicker();
-                                    else input.click();
-                                } catch (e) {
-                                    try { input.click(); } catch (e2) {}
-                                }
+                            const picker = focusTarget.__tmDurationPicker;
+                            if (picker && typeof picker.focus === 'function') {
+                                picker.focus();
                             } else {
-                                try { focusTarget.select(); } catch (e) {}
+                                try { focusTarget.focus(); } catch (e) {}
+                                if (mode === 'date') {
+                                    try {
+                                        if (typeof input.showPicker === 'function') input.showPicker();
+                                        else input.click();
+                                    } catch (e) {
+                                        try { input.click(); } catch (e2) {}
+                                    }
+                                } else {
+                                    try { focusTarget.select(); } catch (e) {}
+                                }
                             }
                         });
                     } catch (e) {}
@@ -6472,6 +6521,8 @@
                     if (!isFocusSummary || !__tmNormalizeTomatoCountValue(estimateInput.value)) return;
                     if (input instanceof HTMLInputElement) {
                         input.value = '';
+                        try { input.__tmDurationPicker?.sync?.(); } catch (e) {}
+                        try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
                         try { durationPresetBinding?.sync?.(); } catch (e) {}
                     }
                 });
@@ -7447,6 +7498,7 @@
                 panel.style.left = `${left}px`;
                 panel.style.top = `${top}px`;
             };
+            try { popover.__tmTaskDetailPositionEditorPanel = positionEditorPanel; } catch (e) {}
             on(popover, 'scroll', positionEditorPanel, { passive: true });
             const updateDateField = async (field, value) => {
                 if (isCheckin() || isDateRollup()) return;
@@ -8087,7 +8139,9 @@
                 return;
             }
             positionInlinePopover();
-            positionEditorPanel();
+            if (typeof activeInlinePopover.__tmTaskDetailPositionEditorPanel === 'function') {
+                try { activeInlinePopover.__tmTaskDetailPositionEditorPanel(); } catch (e) {}
+            }
         });
         on(window, 'scroll', (ev) => {
             if (!activeInlinePopover) return;
@@ -8590,7 +8644,8 @@
             }
             if (count instanceof HTMLElement) {
                 count.setAttribute('data-tm-subtask-count-owner', String(task?.id || '').trim());
-                count.textContent = `${children.filter((child) => __tmIsTaskCompletedForProjection(child)).length}/${children.length}`;
+                count.textContent = `${children.filter((child) => __tmIsTaskCompletedForProjection(child)
+                    || __tmIsTaskCanceled(child)).length}/${children.length}`;
             }
             syncSubtaskVisibilityToggle(task);
         };
@@ -9279,6 +9334,8 @@
                 return Date.now() - attachmentPasteContextAt < 8000;
             };
             const handleDetailAttachmentPaste = async (ev) => {
+                // 备注、标题等文本输入获得焦点时，粘贴应写入输入框，而不是被当作附件导入。
+                if (__tmIsTaskDetailTextPasteTarget(ev?.target)) return;
                 if (!isAttachmentPasteContextActive(ev)) return;
                 const clipboardData = ev?.clipboardData || null;
                 if (!clipboardData) return;
@@ -9533,6 +9590,20 @@
                 if (target && typeof target === 'object' && target.parentElement instanceof Element) return target.parentElement;
                 return null;
             };
+            const resolveRemarkBlockRefElement = (target) => {
+                const element = resolveRemarkTargetElement(target);
+                if (!(element instanceof Element)) return null;
+                return element.closest('[data-tm-remark-block-id]');
+            };
+            const jumpToRemarkBlockRef = async (blockRef, ev) => {
+                if (!(blockRef instanceof HTMLElement)) return false;
+                const blockId = String(blockRef.getAttribute('data-tm-remark-block-id') || '').trim();
+                if (!blockId) return false;
+                const jumped = await __tmOpenTaskAttachmentBlockRef(blockId, ev);
+                const keepChecklistSideDetailOpen = embedded && String(root.id || '').trim() === 'tmChecklistDetailPanel';
+                if (jumped !== false && !keepChecklistSideDetailOpen) await close();
+                return jumped !== false;
+            };
             let remarkEnterGuardUntil = 0;
             let remarkExitInFlight = false;
             let remarkCommitInFlight = null;
@@ -9639,7 +9710,7 @@
             try { syncRemarkSavedState(__tmGetTaskDetailRemarkRaw(root.__tmTaskDetailTask)); } catch (e) {}
             const syncRemarkPreview = (force = false) => {
                 if (!force && remarkShell.classList.contains('is-editing') && __tmIsMobileDevice()) return;
-                remarkPreview.innerHTML = __tmRenderRemarkMarkdown(remarkTextarea.value || '');
+                remarkPreview.innerHTML = __tmRenderRemarkMarkdown(remarkTextarea.value || '', { blockRefs: true });
             };
             const commitRemarkValue = () => {
                 const nextValue = __tmNormalizeRemarkMarkdown(remarkTextarea.value || '');
@@ -9791,8 +9862,18 @@
                 try { ev.stopPropagation(); } catch (e) {}
                 enterRemarkEditMode();
             });
+            on(remarkPreview, 'click', (ev) => {
+                const blockRef = resolveRemarkBlockRefElement(ev.target);
+                if (!(blockRef instanceof HTMLElement)) return;
+                void jumpToRemarkBlockRef(blockRef, ev);
+            });
             on(remarkPreview, 'keydown', (ev) => {
                 if (ev.key !== 'Enter' && ev.key !== ' ') return;
+                const blockRef = resolveRemarkBlockRefElement(ev.target);
+                if (blockRef instanceof HTMLElement) {
+                    void jumpToRemarkBlockRef(blockRef, ev);
+                    return;
+                }
                 try { ev.preventDefault(); } catch (e) {}
                 enterRemarkEditMode();
             });
@@ -10842,7 +10923,7 @@ return true;
             const remarkShell = panel.querySelector('[data-tm-detail-remark-shell]');
             const isEditingRemark = remarkShell instanceof HTMLElement && remarkShell.classList.contains('is-editing');
             if (preview instanceof HTMLElement && !isDraftActive && !isEditingRemark) {
-                preview.innerHTML = __tmRenderRemarkMarkdown(remarkValue);
+                preview.innerHTML = __tmRenderRemarkMarkdown(remarkValue, { blockRefs: true });
                 touched = true;
             }
         }

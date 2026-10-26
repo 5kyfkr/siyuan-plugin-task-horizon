@@ -452,6 +452,10 @@ return ok;
         const viewMode = String(state.viewMode || '').trim();
         const hasCalendarDatePatch = Object.prototype.hasOwnProperty.call(patch, 'startDate')
             || Object.prototype.hasOwnProperty.call(patch, 'completionTime');
+        if (hasCalendarDatePatch && globalThis.__tmDateFilter?.active()) {
+            __tmScheduleViewRefresh({ mode: 'current', withFilters: true, reason: 'date-filter-task-date-changed' });
+            return false;
+        }
         const taskForRefresh = hasCalendarDatePatch
             ? (() => {
                 const next = { ...task };

@@ -3438,7 +3438,7 @@
                 toolbar.classList.toggle('is-open', snapshot.toolbarOpen === true);
                 toolbar.hidden = snapshot.toolbarOpen !== true;
             }
-            if (preview instanceof HTMLElement) preview.innerHTML = __tmRenderRemarkMarkdown(value);
+            if (preview instanceof HTMLElement) preview.innerHTML = __tmRenderRemarkMarkdown(value, { blockRefs: true });
             try {
                 textarea.style.height = 'auto';
                 textarea.style.height = `${Math.max(snapshot.editing === true ? 80 : 34, Math.ceil(Number(textarea.scrollHeight) || 0))}px`;
@@ -4182,6 +4182,7 @@ __tmScheduleViewRefresh(pending);
             viewMode: String(state.viewMode || '').trim(),
             groupMode,
             searchActive: !!String(state.searchKeyword || '').trim(),
+            dateFilterActive: globalThis.__tmDateFilter?.active() === true,
             searchFields: __tmGetTaskSearchFields(),
             kanbanMode,
             kanbanCardFields: Array.isArray(kanbanCardFields) ? kanbanCardFields : [],
@@ -4471,6 +4472,7 @@ return false;
         const baseDepth = Math.max(0, Number(item.getAttribute('data-depth')) || 0);
         let cursor = item;
         while (cursor instanceof HTMLElement) {
+            if (cursor !== item && cursor.classList.contains('tm-checklist-group')) break;
             if (cursor !== item && cursor.classList.contains('tm-checklist-item')) {
                 const depth = Math.max(0, Number(cursor.getAttribute('data-depth')) || 0);
                 if (depth <= baseDepth) break;
@@ -4541,7 +4543,9 @@ return false;
         // Moving the last row can remove both a subgroup and its parent header.
         // Let the grouped renderer reconcile those shells before moving nodes.
         if (Array.from(modal.querySelectorAll('.tm-checklist-group[data-group-key]'))
-            .some((header) => !groupCounts.has(String(header.getAttribute('data-group-key') || '').trim()))) return false;
+            .some((header) => !groupCounts.has(String(header.getAttribute('data-group-key') || '').trim()))) {
+            return false;
+        }
         const visibleTaskIds = new Set(taskRows.map((row) => row.id).filter(Boolean));
         const block = __tmCollectChecklistProjectionDomBlock(item);
         const targetIndex = taskRows.findIndex((row) => row.id === tid);
@@ -4561,7 +4565,9 @@ return false;
         // Compact mode requires every grouped task to stay inside its card. If
         // the optimistic patch creates a new group, let the immediate grouped
         // refresh build that card instead of leaving a temporary root row.
-        if (compactChecklist && target.groupKey && !(targetContainer instanceof HTMLElement)) return false;
+        if (compactChecklist && target.groupKey && !(targetContainer instanceof HTMLElement)) {
+            return false;
+        }
         let fallbackAnchor = null;
         if (!(targetContainer instanceof HTMLElement)
             && (target.groupKind === 'pinned' || target.groupKind === 'normal')) {
@@ -4581,6 +4587,27 @@ return false;
         if (nextTaskRow && !(nextNode instanceof HTMLElement)) {
 
             return false;
+        }
+        // Compact checklists keep every heading and its tasks in one shared
+        // document-card body. If the moving task is last in its heading, the
+        // next heading is the boundary; appending to the card would move it
+        // after unrelated headings until the next full render.
+        if (!(nextNode instanceof HTMLElement)) {
+            const targetRowIndex = rows.findIndex((row) => (
+                row?.type === 'task' && String(row.id || '').trim() === tid
+            ));
+            for (let index = targetRowIndex + 1; index >= 0 && index < rows.length; index += 1) {
+                const row = rows[index];
+                if (row?.type !== 'group') continue;
+                const boundaryKey = String(row.key || '').trim();
+                if (!boundaryKey || boundaryKey === target.groupKey) continue;
+                nextNode = Array.from(targetContainer.children || []).find((node) => (
+                    node instanceof HTMLElement
+                    && node.classList.contains('tm-checklist-group')
+                    && String(node.getAttribute('data-group-key') || '').trim() === boundaryKey
+                )) || null;
+                break;
+            }
         }
         if (nextNode instanceof HTMLElement) {
             targetContainer = targetContainer || nextNode.parentElement;
@@ -4655,8 +4682,10 @@ return false;
             children = Array.isArray(task?.children) ? task.children : [];
         }
         const total = children.length;
+        // 放弃的子任务计入父任务进度，但不改变任务自身的完成状态。
         const completed = children.reduce((count, child) => (
-            count + (__tmIsTaskCompletedForProjection(child) ? 1 : 0)
+            count + ((__tmIsTaskCompletedForProjection(child)
+                || (typeof __tmIsTaskCanceled === 'function' && __tmIsTaskCanceled(child))) ? 1 : 0)
         ), 0);
         return {
             total,
@@ -10300,11 +10329,23 @@ return false;
                 durationPanel.appendChild(presetWrap);
             }
 
-            const durationRow = document.createElement('label');
+            const durationRow = document.createElement('div');
             durationRow.className = 'tm-focus-summary-editor__field';
-            durationRow.innerHTML = `<span>预计时长</span><input type="text" class="bc-input tm-duration-editor-input" data-tm-focus-duration placeholder="例如：30 或 30m" value="${esc(durationValue)}">`;
+            durationRow.innerHTML = `<span>预计时长</span><div data-tm-duration-picker-slot></div>`;
             durationPanel.appendChild(durationRow);
             editor.appendChild(durationPanel);
+            const durationSlot = durationRow.querySelector('[data-tm-duration-picker-slot]');
+            if (durationSlot) {
+                if (typeof globalThis.__tmCreateDurationPicker === 'function') {
+                    const picker = globalThis.__tmCreateDurationPicker({
+                        value: durationValue,
+                        storageAttributes: { 'data-tm-focus-duration': '' },
+                    });
+                    durationSlot.appendChild(picker.root);
+                } else {
+                    durationSlot.innerHTML = `<input type="text" class="bc-input tm-duration-editor-input" data-tm-focus-duration placeholder="例如：30 或 30m" value="${esc(durationValue)}">`;
+                }
+            }
             const durationInput = durationRow.querySelector('[data-tm-focus-duration]');
 
             const estimatePanel = document.createElement('div');
@@ -10351,8 +10392,13 @@ return false;
                         requestAnimationFrame(() => {
                             const target = activeMode === 'tomato' ? estimateInput : durationInput;
                             if (target instanceof HTMLInputElement) {
-                                target.focus();
-                                target.select?.();
+                                const picker = target.__tmDurationPicker;
+                                if (picker && typeof picker.focus === 'function') {
+                                    picker.focus();
+                                } else {
+                                    target.focus();
+                                    target.select?.();
+                                }
                             }
                         });
                     } catch (e) {}
@@ -10375,6 +10421,8 @@ return false;
                     if (!__tmNormalizeTomatoCountValue(estimateInput.value)) return;
                     if (durationInput instanceof HTMLInputElement) {
                         durationInput.value = '';
+                        try { durationInput.__tmDurationPicker?.sync?.(); } catch (e) {}
+                        try { durationInput.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
                         try { durationPresetBinding?.sync?.(); } catch (e) {}
                     }
                 });
@@ -10403,8 +10451,13 @@ return false;
             try {
                 const target = activeMode === 'tomato' ? estimateInput : durationInput;
                 if (target instanceof HTMLInputElement) {
-                    target.focus();
-                    target.select?.();
+                    const picker = target.__tmDurationPicker;
+                    if (picker && typeof picker.focus === 'function') {
+                        picker.focus();
+                    } else {
+                        target.focus();
+                        target.select?.();
+                    }
                 }
             } catch (e) {}
             const submitOnEnter = (ev) => {
@@ -12280,7 +12333,8 @@ return false;
                 : [];
             const viewTaskDone = __tmIsTaskClosedForDisplay(viewTask);
             const totalKids = kids.length;
-            const doneKids = kids.filter((child) => __tmIsTaskCompletedForProjection(child)).length;
+            const doneKids = kids.filter((child) => __tmIsTaskCompletedForProjection(child)
+                || __tmIsTaskCanceled(child)).length;
             const childStatsHtml = totalKids > 0
                 ? `<span class="tm-task-detail-subtask-count" data-tm-subtask-count-owner="${esc(tid)}">${doneKids}/${totalKids}</span>`
                 : '';
@@ -12979,7 +13033,7 @@ return false;
 
     function __tmBuildTaskDetailRemarkSectionHtml(remarkValue, detailTip) {
         const source = __tmNormalizeRemarkMarkdown(remarkValue);
-        const previewHtml = __tmRenderRemarkMarkdown(source);
+        const previewHtml = __tmRenderRemarkMarkdown(source, { blockRefs: true });
         return `
             <section class="tm-task-detail-section" data-tm-detail-collapsible-section>
                 <div class="tm-task-detail-section-head tm-task-detail-remark-head">

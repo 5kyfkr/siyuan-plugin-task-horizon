@@ -2852,6 +2852,7 @@
                 enabled: rule.enabled !== false,
             }) : null,
             searchKeyword: String(state?.searchKeyword || '').trim(),
+            dateFilter: globalThis.__tmDateFilter?.signature() || '',
             searchFields: __tmGetTaskSearchFields().join(','),
             archiveMode: state?.docTabsArchiveMode === true ? 1 : 0,
             groupMode,
@@ -8990,7 +8991,7 @@
             currentGroupId: 'all',
             // 任务标题级别 (h1-h6)
             taskHeadingLevel: 'h2',
-            // 时长显示格式: 'hours' 或 'minutes'
+            // 时长单位: 'hours' 或 'minutes'
             durationFormat: 'hours',
             // 默认显示已完成任务（仅视图过滤，任务仍会进入索引）
             excludeCompletedTasks: false,

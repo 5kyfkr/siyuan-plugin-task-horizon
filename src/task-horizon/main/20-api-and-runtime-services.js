@@ -4133,14 +4133,19 @@
 
     function __tmBuildDurationPresetOptionsHtml(selectedValue, optionsInput = null) {
         const options = __tmGetDurationPresetOptions(optionsInput);
-        const selected = __tmNormalizeDurationPresetValue(selectedValue).toLowerCase();
+        const unit = globalThis.__tmDuration?.getUnit?.()
+            || (String(SettingsStore?.data?.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours');
+        const selectedMinutes = globalThis.__tmDuration?.parse?.(selectedValue, unit);
         return options.map((item) => {
             const value = __tmNormalizeDurationPresetValue(item);
-            const active = !!selected && value.toLowerCase() === selected;
+            const valueMinutes = globalThis.__tmDuration?.parse?.(value, unit);
+            const active = selectedMinutes != null && valueMinutes != null
+                && Math.abs(selectedMinutes - valueMinutes) < 0.001;
+            const label = globalThis.__tmDuration?.formatPresetLabel?.(value, unit) || value;
             return `
                 <button type="button" class="tm-duration-preset-option ${active ? 'is-selected' : ''}" data-tm-duration-preset-value="${esc(value)}" aria-pressed="${active ? 'true' : 'false'}">
                     <span class="tm-duration-preset-option__main">
-                        <span class="tm-duration-preset-option__title">${esc(value)}</span>
+                        <span class="tm-duration-preset-option__title">${esc(label)}</span>
                     </span>
                     <span class="tm-duration-preset-option__check tm-selection-check" aria-hidden="true"></span>
                 </button>
@@ -4168,7 +4173,13 @@
             }
         };
         const buttons = Array.from(root.querySelectorAll('[data-tm-duration-preset-value]')).filter((el) => el instanceof HTMLButtonElement);
-        const normalize = (value) => __tmNormalizeDurationPresetValue(value).toLowerCase();
+        const unit = globalThis.__tmDuration?.getUnit?.()
+            || (String(SettingsStore?.data?.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours');
+        const normalize = (value) => {
+            const minutes = globalThis.__tmDuration?.parse?.(value, unit);
+            if (minutes != null && Number.isFinite(minutes)) return String(Math.round(minutes * 1000) / 1000);
+            return __tmNormalizeDurationPresetValue(value).toLowerCase();
+        };
         const sync = () => {
             const current = normalize(input.value);
             buttons.forEach((btn) => {
@@ -4183,14 +4194,20 @@
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
                 input.value = __tmNormalizeDurationPresetValue(btn.getAttribute('data-tm-duration-preset-value') || '');
+                try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
                 sync();
                 if (typeof opts.onSelect === 'function') {
                     try { await opts.onSelect(input.value, btn); } catch (e) {}
                 }
                 if (opts.focusInputOnSelect !== false) {
                     try {
-                        input.focus();
-                        if (opts.selectInput !== false) input.select?.();
+                        const picker = input.__tmDurationPicker;
+                        if (picker && typeof picker.focus === 'function') {
+                            picker.focus();
+                        } else {
+                            input.focus();
+                            if (opts.selectInput !== false) input.select?.();
+                        }
                     } catch (e) {}
                 }
             });
@@ -4800,6 +4817,7 @@
         flatTasks: {},
         otherBlocks: [],
         filteredTasks: [],
+        dateFilter: null,
         doneOverrides: {},
 
         // UI状态
@@ -6115,6 +6133,10 @@
             const lifecycle = globalThis.__tmTaskLifecycle;
             if (!lifecycle || typeof lifecycle.execute !== 'function') throw new Error('任务归档服务未就绪');
             const result = await lifecycle.execute(op?.data || {});
+            if (String(op?.data?.action || '').trim() === 'archiveDeleted' && result?.ok !== true) {
+                const reason = String(result?.reason || '').trim();
+                throw new Error(reason ? `任务未移入回收站: ${reason}` : '任务未移入回收站');
+            }
             if (String(op?.data?.action || '').trim() === 'restoreDeleted' && result?.ok !== true) {
                 const reason = String(result?.reason || '').trim();
                 throw new Error(reason ? `任务未恢复: ${reason}` : '任务未恢复');
@@ -20292,6 +20314,8 @@ if (!state.homepageOpen) return;
                 ['SetMark', true], ['SetSup', true], ['SetSub', true],
                 ['SetAutoSpace', false], ['SetFixTermTypo', false], ['SetEmoji', false],
                 ['SetGFMAutoLink', false], ['SetInlineMath', false], ['SetKramdownIAL', false],
+                // 备注里的 ((块 ID)) 需要解析成块引用，才能渲染成可点击跳转的引用节点。
+                ['SetBlockRef', true],
             ]) lute[method]?.(value);
             __tmRemarkLute = lute;
         } catch (e) {}
@@ -20323,16 +20347,69 @@ if (!state.homepageOpen) return;
         return __tmTrimOuterBlankLines(normalized.join('\n'));
     }
 
+    const __TM_REMARK_BLOCK_HREF_RE = /^siyuan:\/\/blocks\/([0-9]{14}-[A-Za-z0-9]+)$/i;
+    const __TM_REMARK_BLOCK_TEXT_RE = /siyuan:\/\/blocks\/([0-9]{14}-[A-Za-z0-9]+)(?![0-9A-Za-z_-])|(^|[^0-9A-Za-z_-])([0-9]{14}-[A-Za-z0-9]{7})(?![0-9A-Za-z_-])/g;
+    const __TM_REMARK_BLOCK_TEXT_HINT_RE = /siyuan:\/\/blocks\/|[0-9]{14}-[A-Za-z0-9]{7}/;
+
     function __tmSanitizeRemarkHref(rawHref) {
         const href = String(rawHref || '').trim();
         if (!href) return '';
+        const blockMatch = __TM_REMARK_BLOCK_HREF_RE.exec(href);
+        if (blockMatch) return `siyuan://blocks/${blockMatch[1]}`;
         if (/^(https?:|mailto:|tel:)/i.test(href)) return href;
         return /^\/(?!\/)/.test(href) ? href : '';
     }
 
-    function __tmRenderRemarkInlineHtml(input, plainText = false) {
+    function __tmParseRemarkBlockHref(rawHref) {
+        const match = __TM_REMARK_BLOCK_HREF_RE.exec(String(rawHref || '').trim());
+        return match ? match[1] : '';
+    }
+
+    function __tmBuildRemarkBlockRefHtml(blockId, labelHtml = '') {
+        const id = String(blockId || '').trim();
+        if (!id) return String(labelHtml || '').trim();
+        const label = String(labelHtml || '').trim() || esc(id);
+        return `<a class="tm-task-detail-remark-link tm-task-detail-remark-block-ref" role="link" tabindex="0" data-tm-remark-block-id="${esc(id)}" title="跳转到块 ${esc(id)}">${label}</a>`;
+    }
+
+    // 纯文本里的 siyuan://blocks/<id> 与裸块 ID 都渲染成可跳转的块引用。
+    function __tmRenderRemarkTextHtml(rawText) {
+        const source = String(rawText || '');
+        if (!source) return '';
+        if (!__TM_REMARK_BLOCK_TEXT_HINT_RE.test(source)) return esc(source);
+        const pattern = new RegExp(__TM_REMARK_BLOCK_TEXT_RE.source, 'g');
+        let html = '';
+        let last = 0;
+        let match;
+        while ((match = pattern.exec(source)) !== null) {
+            const urlId = String(match[1] || '').trim();
+            const bareId = String(match[3] || '').trim();
+            const id = urlId || bareId;
+            if (!id) {
+                pattern.lastIndex = match.index + 1;
+                continue;
+            }
+            const replaceStart = urlId ? match.index : match.index + String(match[2] || '').length;
+            if (replaceStart > last) html += esc(source.slice(last, replaceStart));
+            html += __tmBuildRemarkBlockRefHtml(id, esc(id));
+            last = match.index + match[0].length;
+        }
+        if (last < source.length) html += esc(source.slice(last));
+        return html;
+    }
+
+    function __tmRenderRemarkInlineHtml(input, plainText = false, options = {}) {
         const source = String(input || '');
-        const renderText = (value) => plainText ? String(value || '') : esc(value);
+        // 块引用只在任务详情备注里渲染成可跳转链接，白板便签等其它位置保持纯文本。
+        const blockRefs = !(options && typeof options === 'object') || options.blockRefs !== false;
+        // 链接标签内部不再生成块引用，避免出现嵌套的 a 标签。
+        let insideRemarkLink = 0;
+        const renderText = (value) => {
+            const text = String(value || '');
+            if (plainText) return text;
+            if (!blockRefs || insideRemarkLink > 0) return esc(text);
+            return __tmRenderRemarkTextHtml(text);
+        };
         if (!source) return '';
         try {
             const lute = __tmGetRemarkLute();
@@ -20355,24 +20432,39 @@ if (!state.homepageOpen) return;
                     const text = children.find((child) => child.Type === 'NodeCodeSpanContent')?.Data || '';
                     return plainText ? text : `<code>${esc(text)}</code>`;
                 }
+                if (node.Type === 'NodeBlockRef') {
+                    const id = String(children.find((child) => child.Type === 'NodeBlockRefID')?.Data || '').trim();
+                    const labelNode = children.find((child) => child.Type === 'NodeBlockRefText' || child.Type === 'NodeBlockRefDynamicText');
+                    const label = String(labelNode?.Data || '').trim();
+                    if (!id) return children.map(render).join('');
+                    if (plainText) return label || id;
+                    if (!blockRefs || insideRemarkLink > 0) return esc(label || id);
+                    return __tmBuildRemarkBlockRefHtml(id, esc(label || id));
+                }
                 if (node.Type === 'NodeLink') {
                     const href = __tmSanitizeRemarkHref(children.find((child) => child.Type === 'NodeLinkDest')?.Data);
                     const title = children.find((child) => child.Type === 'NodeLinkTitle')?.Data || '';
+                    insideRemarkLink += 1;
                     const label = children.filter((child) => !['NodeOpenBracket', 'NodeCloseBracket', 'NodeOpenParen',
                         'NodeCloseParen', 'NodeLinkDest', 'NodeLinkSpace', 'NodeLinkTitle'].includes(child.Type)).map(render).join('');
-                    if (plainText || !href) return label;
+                    insideRemarkLink -= 1;
+                    const blockId = __tmParseRemarkBlockHref(href);
+                    if (plainText) return label;
+                    if (blockId) return blockRefs ? __tmBuildRemarkBlockRefHtml(blockId, label) : label;
+                    if (!href) return label;
                     return `<a class="tm-task-detail-remark-link" href="${esc(href)}"${title ? ` title="${esc(title)}"` : ''} target="_blank" rel="noopener noreferrer">${label}</a>`;
                 }
                 return children.length ? children.map(render).join('') : renderText(node.Data);
             };
             const html = render(tree);
-            if (html.startsWith(prefix)) return html.slice(prefix.length);
+            if (!html) return renderText(source);
+            return html.startsWith(prefix) ? html.slice(prefix.length) : html;
         } catch (e) {}
         return renderText(source);
     }
 
-    function __tmRenderRemarkLineHtml(input) {
-        return `<span class="tm-task-detail-remark-inline">${__tmRenderRemarkInlineHtml(input)}</span>`;
+    function __tmRenderRemarkLineHtml(input, options = {}) {
+        return `<span class="tm-task-detail-remark-inline">${__tmRenderRemarkInlineHtml(input, false, options)}</span>`;
     }
 
     function __tmMeasureRemarkIndent(rawLine) {
@@ -20384,7 +20476,7 @@ if (!state.homepageOpen) return;
         return width;
     }
 
-    function __tmRenderRemarkListHtml(entries) {
+    function __tmRenderRemarkListHtml(entries, options = {}) {
         const list = Array.isArray(entries) ? entries.filter((item) => item && item.text) : [];
         if (!list.length) return '';
         let html = '';
@@ -20424,17 +20516,20 @@ if (!state.homepageOpen) return;
             if (!stack.length || stack[stack.length - 1].indent !== indent || stack[stack.length - 1].type !== type) {
                 openList(type, indent);
             }
-            html += `<li>${__tmRenderRemarkLineHtml(entry.text)}`;
+            html += `<li>${__tmRenderRemarkLineHtml(entry.text, options)}`;
             stack[stack.length - 1].liOpen = true;
         });
         while (stack.length) closeList();
         return html;
     }
 
-    function __tmRenderRemarkMarkdown(input) {
+    function __tmRenderRemarkMarkdown(input, options = {}) {
+        const blockRefs = !!(options && typeof options === 'object' && options.blockRefs === true);
+        const renderOptions = blockRefs ? { blockRefs: true } : { blockRefs: false };
         const source = __tmNormalizeRemarkMarkdown(input);
         if (!source) return '<div class="tm-task-detail-remark-empty">点击添加备注</div>';
-        const cached = __tmRemarkRenderCache.get(source);
+        const cacheKey = `${blockRefs ? 'refs' : 'text'}|${source}`;
+        const cached = __tmRemarkRenderCache.get(cacheKey);
         if (cached) return cached;
         const lines = source.split('\n');
         const blocks = [];
@@ -20444,17 +20539,17 @@ if (!state.homepageOpen) return;
 
         const flushParagraph = () => {
             if (!paragraph.length) return;
-            blocks.push(`<p>${paragraph.map((line) => __tmRenderRemarkLineHtml(line)).join('<br>')}</p>`);
+            blocks.push(`<p>${paragraph.map((line) => __tmRenderRemarkLineHtml(line, renderOptions)).join('<br>')}</p>`);
             paragraph = [];
         };
         const flushQuote = () => {
             if (!quote.length) return;
-            blocks.push(`<blockquote>${quote.map((line) => __tmRenderRemarkLineHtml(line)).join('<br>')}</blockquote>`);
+            blocks.push(`<blockquote>${quote.map((line) => __tmRenderRemarkLineHtml(line, renderOptions)).join('<br>')}</blockquote>`);
             quote = [];
         };
         const flushList = () => {
             if (!listEntries.length) return;
-            blocks.push(__tmRenderRemarkListHtml(listEntries));
+            blocks.push(__tmRenderRemarkListHtml(listEntries, renderOptions));
             listEntries = [];
         };
 
@@ -20509,7 +20604,7 @@ if (!state.homepageOpen) return;
 
         const html = blocks.join('') || '<div class="tm-task-detail-remark-empty">点击添加备注</div>';
         if (__tmRemarkRenderCache.size > 400) __tmRemarkRenderCache.clear();
-        if (__tmRemarkLute) __tmRemarkRenderCache.set(source, html);
+        if (__tmRemarkLute) __tmRemarkRenderCache.set(cacheKey, html);
         return html;
     }
 
@@ -27290,7 +27385,7 @@ return true;
             const allChildren = task.children || [];
             const totalChildren = allChildren.length;
             const completedChildren = allChildren.filter((child) => (
-                typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(child) : !!child?.done
+                typeof __tmIsTaskClosedForDisplay === 'function' ? __tmIsTaskClosedForDisplay(child) : !!child?.done
             )).length;
             const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
             const taskDone = typeof __tmIsTaskClosedForDisplay === 'function'
@@ -28919,13 +29014,14 @@ return true;
         if (Array.isArray(opts.docIds) && opts.docIds.length) {
             checklistProjectionTaskIds = __tmCollectChecklistDocumentRefreshTaskIds(body, nextBody, checklistProjectionTaskIds, opts.docIds);
         }
-        if (checklistProjectionTaskIds.length > 0
+        const groupRefreshHandled = checklistProjectionTaskIds.length > 0
             && __tmTryRefreshChecklistProjectionGroups(modal, body, nextBody, checklistProjectionTaskIds, {
                 paneTop,
                 paneLeft,
                 scrollAnchor,
                 renderSignature,
-            })) {
+            });
+        if (groupRefreshHandled) {
             try { globalThis.__tmSyncChecklistWrappedTitleClasses?.(modal); } catch (e) {}
             return true;
         }

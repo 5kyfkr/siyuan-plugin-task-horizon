@@ -214,7 +214,8 @@
                 });
                 const stats = {
                     total: uniqueChildren.length,
-                    completed: uniqueChildren.reduce((sum, child) => sum + (isWhiteboardTaskDone(child) ? 1 : 0), 0),
+                    completed: uniqueChildren.reduce((sum, child) => sum + ((isWhiteboardTaskDone(child)
+                        || (typeof __tmIsTaskCanceled === 'function' && __tmIsTaskCanceled(child))) ? 1 : 0), 0),
                 };
                 stats.remaining = Math.max(0, stats.total - stats.completed);
                 if (id) whiteboardDirectChildStatsMemo.set(id, stats);
@@ -923,7 +924,7 @@
                     const resizeHtml = selected
                         ? `<span class="tm-whiteboard-frame-resize tm-whiteboard-frame-resize--nw" onpointerdown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'nw')" onmousedown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'nw')" title="拖拽调整分组框"></span><span class="tm-whiteboard-frame-resize tm-whiteboard-frame-resize--se" onpointerdown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'se')" onmousedown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'se')" title="拖拽调整分组框"></span>`
                         : '';
-                    return `<div class="tm-whiteboard-frame${selected ? ' tm-whiteboard-frame--selected' : ''}" data-frame-id="${esc(frameId)}" data-doc-id="${esc(docId)}" data-x="${Math.round(fx)}" data-y="${Math.round(fy)}" data-local-x="${Math.round(localX)}" data-local-y="${Math.round(localY)}" data-w="${w}" data-h="${h}" style="${frameStyle}" onclick="tmWhiteboardSelectFrame('${escSq(frameId)}', event)" onpointerdown="tmWhiteboardFramePointerDown(event, '${escSq(frameId)}', '${escSq(docId)}')" onmousedown="tmWhiteboardFrameMouseDown(event, '${escSq(frameId)}', '${escSq(docId)}')" title="拖动分组框"><div class="tm-whiteboard-frame-title">${esc(name)}</div>${toolsHtml}${resizeHtml}</div>`;
+                    return `<div class="tm-whiteboard-frame${selected ? ' tm-whiteboard-frame--selected' : ''}" data-frame-id="${esc(frameId)}" data-doc-id="${esc(docId)}" data-x="${Math.round(fx)}" data-y="${Math.round(fy)}" data-local-x="${Math.round(localX)}" data-local-y="${Math.round(localY)}" data-w="${w}" data-h="${h}" style="${frameStyle}" onclick="tmWhiteboardSelectFrame('${escSq(frameId)}', event)" onpointerdown="tmWhiteboardFramePointerDown(event, '${escSq(frameId)}', '${escSq(docId)}')" onmousedown="tmWhiteboardFrameMouseDown(event, '${escSq(frameId)}', '${escSq(docId)}')" title="${selected ? '拖动分组框' : '点击选中分组框后可移动'}"><div class="tm-whiteboard-frame-title">${esc(name)}</div>${toolsHtml}${resizeHtml}</div>`;
                 };
 
                 const renderWhiteboardNote = (n, idx) => {
@@ -2202,14 +2203,15 @@
                 : '';
             const whiteboardPluginFullscreen = !!state.whiteboardPluginFullscreen;
             const whiteboardBottomMoreOpen = !!state.whiteboardBottomMoreOpen;
-            const renderWhiteboardToolbarButton = ({ label, icon, onclick, active = false, pressed = null, extraClass = '' }) => {
+            const renderWhiteboardToolbarButton = ({ label, icon, onclick, active = false, pressed = null, extraClass = '', createTool = '' }) => {
                 const cls = `tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-toolbar-btn${active ? ' tm-whiteboard-toolbar-btn--active' : ''}${extraClass ? ` ${extraClass}` : ''}`;
                 const ariaPressed = pressed == null ? '' : ` aria-pressed="${pressed ? 'true' : 'false'}"`;
-                return `<button type="button" class="${cls}" onclick="${onclick}"${ariaPressed}${__tmBuildTooltipAttrs(label, { side: 'top' })}>${__tmPhosphorBoldSvg(icon, { size: 20, className: 'tm-whiteboard-toolbar-btn__icon', style: 'width:20px;height:20px;min-width:20px;min-height:20px;max-width:20px;max-height:20px;' })}</button>`;
+                const dragAttrs = createTool ? ` data-tm-whiteboard-create-tool="${createTool}" onpointerdown="tmWhiteboardToolPointerDown(event, '${createTool}')"` : '';
+                return `<button type="button" class="${cls}" onclick="${onclick}"${dragAttrs}${ariaPressed}${__tmBuildTooltipAttrs(createTool ? `${label}，可拖到白板创建` : label, { side: 'top' })}>${__tmPhosphorBoldSvg(icon, { size: 20, className: 'tm-whiteboard-toolbar-btn__icon', style: 'width:20px;height:20px;min-width:20px;min-height:20px;max-width:20px;max-height:20px;' })}</button>`;
             };
-            const renderWhiteboardBottomMoreItem = ({ label, icon, onclick, danger = false }) => {
+            const renderWhiteboardBottomMoreItem = ({ label, icon, onclick, danger = false, disabled = false }) => {
                 const cls = `tm-whiteboard-bottom-more-item${danger ? ' tm-whiteboard-bottom-more-item--danger' : ''}`;
-                return `<button type="button" class="${cls}" onclick="${onclick}">${__tmPhosphorBoldSvg(icon, { size: 16, className: 'tm-whiteboard-bottom-more-item__icon' })}<span>${esc(label)}</span></button>`;
+                return `<button type="button" class="${cls}" onclick="${onclick}"${disabled ? ' disabled' : ''}>${__tmPhosphorBoldSvg(icon, { size: 16, className: 'tm-whiteboard-bottom-more-item__icon' })}<span>${esc(label)}</span></button>`;
             };
             const renderDrawingToolButton = ({ label, icon, onclick, active = false, danger = false, disabled = false, extraClass = '' }) => {
                 const cls = `tm-btn ${danger ? 'tm-btn-danger' : 'tm-btn-info'} bc-btn bc-btn--sm tm-whiteboard-drawing-tool-btn${active ? ' tm-whiteboard-drawing-tool-btn--active' : ''}${disabled ? ' tm-whiteboard-drawing-tool-btn--disabled' : ''}${extraClass ? ` ${extraClass}` : ''}`;
@@ -2324,22 +2326,23 @@
                                 <div class="tm-whiteboard-bottom-toolbar">
                                     ${renderWhiteboardToolbarButton({ label: '平移模式', icon: 'hand', onclick: "tmWhiteboardSetTool('pan')", active: whiteboardTool === 'pan', pressed: whiteboardTool === 'pan' })}
                                     ${renderWhiteboardToolbarButton({ label: '多选模式', icon: 'selection-plus', onclick: "tmWhiteboardSetTool('select')", active: whiteboardTool === 'select', pressed: whiteboardTool === 'select' })}
-                                    ${renderWhiteboardToolbarButton({ label: '文字模式', icon: 'cursor-text', onclick: "tmWhiteboardSetTool('text')", active: whiteboardTool === 'text', pressed: whiteboardTool === 'text' })}
-                                    ${renderWhiteboardToolbarButton({ label: '便利贴模式', icon: 'note-pencil', onclick: "tmWhiteboardSetTool('sticky')", active: whiteboardTool === 'sticky', pressed: whiteboardTool === 'sticky' })}
-                                    ${renderWhiteboardToolbarButton({ label: '分组框', icon: 'bounding-box', onclick: "tmWhiteboardSetTool('frame')", active: whiteboardTool === 'frame', pressed: whiteboardTool === 'frame' })}
+                                    ${renderWhiteboardToolbarButton({ label: '文字模式', icon: 'cursor-text', onclick: "tmWhiteboardSetTool('text', event)", createTool: 'text', active: whiteboardTool === 'text', pressed: whiteboardTool === 'text' })}
+                                    ${renderWhiteboardToolbarButton({ label: '便利贴模式', icon: 'note-pencil', onclick: "tmWhiteboardSetTool('sticky', event)", createTool: 'sticky', active: whiteboardTool === 'sticky', pressed: whiteboardTool === 'sticky' })}
+                                    ${renderWhiteboardToolbarButton({ label: '分组框', icon: 'bounding-box', onclick: "tmWhiteboardSetTool('frame', event)", createTool: 'frame', active: whiteboardTool === 'frame', pressed: whiteboardTool === 'frame' })}
                                     ${whiteboardDrawingToolsEnabled ? renderWhiteboardToolbarButton({ label: '手写模式', icon: 'pencil', onclick: "tmWhiteboardSetTool('pen')", active: whiteboardDrawingModeActive, pressed: whiteboardDrawingModeActive }) : ''}
                                     ${renderWhiteboardToolbarButton({ label: '缩小画布', icon: 'minus', onclick: 'tmWhiteboardZoomOut()' })}
                                     ${renderWhiteboardToolbarButton({ label: '放大画布', icon: 'plus', onclick: 'tmWhiteboardZoomIn()' })}
                                     ${renderWhiteboardToolbarButton({ label: whiteboardPluginFullscreen ? '退出全屏' : '全屏', icon: whiteboardPluginFullscreen ? 'corners-in' : 'corners-out', onclick: 'tmWhiteboardTogglePluginFullscreen(event)', active: whiteboardPluginFullscreen, pressed: whiteboardPluginFullscreen })}
                                     <div class="tm-whiteboard-bottom-more">
                                         ${renderWhiteboardToolbarButton({ label: '更多白板操作', icon: 'dots-three', onclick: 'tmWhiteboardToggleBottomMore(event)', active: whiteboardBottomMoreOpen, pressed: whiteboardBottomMoreOpen })}
-                                        ${whiteboardBottomMoreOpen ? `<div class="tm-whiteboard-bottom-more-panel">
-                                            ${whiteboardDrawingToolsEnabled ? renderWhiteboardBottomMoreItem({ label: drawingConfig.hidden ? '显示手写' : '隐藏手写', icon: drawingConfig.hidden ? 'eye' : 'eye-slash', onclick: 'tmWhiteboardToggleDrawingLayer(event)' }) : ''}
-                                            ${renderWhiteboardBottomMoreItem({ label: '回到画布中心', icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView(event)' })}
-                                            ${renderWhiteboardBottomMoreItem({ label: '清空卡片连线', icon: 'link-simple-break', onclick: 'tmWhiteboardClearLinks(event)', danger: true })}
-                                        </div>` : ''}
                                     </div>
                                 </div>
+                                ${whiteboardBottomMoreOpen ? `<div class="tm-whiteboard-bottom-more-panel">
+                                    ${renderWhiteboardBottomMoreItem({ label: state.whiteboardPngExportPending ? '正在导出…' : '导出 PNG', icon: 'export', onclick: 'tmWhiteboardExportPng(event)', disabled: !!state.whiteboardPngExportPending })}
+                                    ${whiteboardDrawingToolsEnabled ? renderWhiteboardBottomMoreItem({ label: drawingConfig.hidden ? '显示手写' : '隐藏手写', icon: drawingConfig.hidden ? 'eye' : 'eye-slash', onclick: 'tmWhiteboardToggleDrawingLayer(event)' }) : ''}
+                                    ${renderWhiteboardBottomMoreItem({ label: '回到画布中心', icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView(event)' })}
+                                    ${renderWhiteboardBottomMoreItem({ label: '清空卡片连线', icon: 'link-simple-break', onclick: 'tmWhiteboardClearLinks(event)', danger: true })}
+                                </div>` : ''}
                             </div>
                         </div>
                     </div>

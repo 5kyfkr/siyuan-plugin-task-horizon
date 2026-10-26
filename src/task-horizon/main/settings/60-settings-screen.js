@@ -3162,16 +3162,16 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '时长显示格式',
-                            '控制耗时和番茄累计时间的展示形式。',
+                            '时长单位',
+                            '决定任务时长和预设数字按小时还是分钟解释。切换不会换算历史数字，已有值会按新单位重新解释。',
                             `<select class="b3-select" onchange="updateDurationFormat(this.value)" style="width:180px;">
-                                <option value="hours" ${String(SettingsStore.data.durationFormat || 'hours') === 'hours' ? 'selected' : ''}>小时 (如 1.5h)</option>
-                                <option value="minutes" ${String(SettingsStore.data.durationFormat || '') === 'minutes' ? 'selected' : ''}>分钟 (如 90min)</option>
+                                <option value="hours" ${String(SettingsStore.data.durationFormat || 'hours') === 'hours' ? 'selected' : ''}>小时（1.5 = 90 分钟）</option>
+                                <option value="minutes" ${String(SettingsStore.data.durationFormat || '') === 'minutes' ? 'selected' : ''}>分钟（90 = 1.5 小时）</option>
                             </select>`
                         )}
                         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);" ${__tmSettingsSearchAttrs('main', '时长预设', '用于任务详情、悬浮条和表格的时长快捷选择，支持新增、修改、排序和删除预设。', { section: 'layout', key: 'main-duration-presets' })}>
                             <div style="font-size:13px;font-weight:600;margin-bottom:6px;">时长预设</div>
-                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">用于任务详情、悬浮条和表格视图的时长快捷选择。仍支持直接填写自定义数值；如果这里不添加任何预设，就继续使用当前的自由输入方式。预设里即使写了 h、min 等字符，也只会取数字部分。</div>
+                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">用于任务详情、悬浮条和表格视图的时长快捷选择。预设保存的是当前单位的数字；编辑时会按当前单位显示（小时模式如 0.5h，分钟模式如 30m）。仍支持直接填写自定义数值；如果这里不添加任何预设，就继续使用当前的自由输入方式。</div>
                             <div id="tm-duration-options-list">
                                 ${renderDurationOptionsList()}
                             </div>

@@ -215,11 +215,17 @@
         if (!options.length) {
             return '<div style="color: var(--tm-secondary-text); font-size: 12px;">暂无时长预设，编辑时会继续使用自定义填写。</div>';
         }
+        const unit = globalThis.__tmDuration?.getUnit?.()
+            || (String(SettingsStore?.data?.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours');
+        const unitName = unit === 'minutes' ? '分钟' : '小时';
+        const placeholder = unit === 'minutes' ? '例如 30 / 60 / 90' : '例如 0.5 / 1 / 2';
         return options.map((value, index) => {
             const normalized = __tmNormalizeDurationPresetValue(value);
+            const label = globalThis.__tmDuration?.formatPresetLabel?.(normalized, unit) || normalized;
             return `
                 <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
-                    <input type="text" data-tm-duration-option-input="${index}" value="${esc(normalized)}" onchange="updateDurationOption(${index}, this.value)" placeholder="例如 0.5 / 1 / 30" style="width: 200px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="时长值（只取数字部分）">
+                    <input type="text" data-tm-duration-option-input="${index}" value="${esc(normalized)}" onchange="updateDurationOption(${index}, this.value)" placeholder="${esc(placeholder)}" style="width: 200px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="时长值（当前单位：${esc(unitName)}；可写 30m / 1h30m 自动换算）">
+                    <span style="font-size:11px;color:var(--tm-secondary-text);min-width:44px;">= ${esc(label)}</span>
                     <div style="display:flex;gap:2px;">
                         <button class="tm-btn" onclick="moveDurationOption(${index}, -1)" ${index === 0 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↑</button>
                         <button class="tm-btn" onclick="moveDurationOption(${index}, 1)" ${index === options.length - 1 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↓</button>
@@ -347,9 +353,13 @@
     };
 
     window.addDurationOption = async function() {
-        const rawValue = await showPrompt('添加时长预设', '请输入时长值，例如 0.5 / 1 / 30；若写 1h / 30min 也只会取数字', '');
+        const unit = globalThis.__tmDuration?.getUnit?.()
+            || (String(SettingsStore?.data?.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours');
+        const unitName = unit === 'minutes' ? '分钟' : '小时';
+        const example = unit === 'minutes' ? '30 / 60' : '0.5 / 1';
+        const rawValue = await showPrompt('添加时长预设', `请输入时长值（当前单位：${unitName}），例如 ${example}；也可以写 30m / 1h30m，会自动换算`, '');
         if (rawValue == null) return;
-        const value = __tmNormalizeDurationPresetValue(rawValue);
+        const value = __tmNormalizeDurationInputValue(rawValue);
         if (!value) {
             hint('时长值不能为空', 'warning');
             return;
@@ -543,7 +553,7 @@
     window.updateDurationOption = async function(index, value) {
         const options = __tmGetDurationPresetOptions();
         if (!options[index]) return;
-        const nextValue = __tmNormalizeDurationPresetValue(value);
+        const nextValue = __tmNormalizeDurationInputValue(value);
         if (!nextValue) {
             hint('时长值不能为空', 'warning');
             showSettings();

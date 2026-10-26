@@ -123,6 +123,7 @@ const context = vm.createContext({
     __tmTaskStateKernel: { getTask: () => null },
     __tmGetEffectiveProgressBarColor: () => '#16a34a',
     __tmIsDarkMode: () => false,
+    __tmIsTaskCanceled: (task) => task?.taskMarker === '-',
 });
 context.globalThis = context;
 context.__tmTaskStore = {
@@ -185,6 +186,34 @@ assert.equal(remainingCount.textContent, '1');
 assert.equal(remainingCount.hidden, false);
 assert.equal(progress.style.width, '50%');
 assert.match(backgroundProgress.style.backgroundImage, /50%/);
+
+children[1].taskMarker = '-';
+assert.equal(context.__tmSyncTaskSubtaskSummaryInPlace('parent', modal), true);
+assert.equal(count.textContent, '2/2', 'abandoned subtasks must count toward the parent completion total');
+assert.equal(detailCount.textContent, '2/2');
+assert.equal(remainingCount.textContent, '0');
+assert.equal(remainingCount.hidden, true);
+assert.equal(progress.style.width, '100%');
+assert.match(backgroundProgress.style.backgroundImage, /100%/);
+assert.equal(children[1].done, false, 'parent progress must not mark the abandoned task itself as successfully completed');
+
+children[0].done = false;
+children[0].taskMarker = '-';
+assert.equal(context.__tmSyncTaskSubtaskSummaryInPlace('parent', modal), true);
+assert.equal(count.textContent, '2/2', 'a parent with only abandoned subtasks must have full progress');
+assert.equal(progress.style.width, '100%');
+
+children[0].taskMarker = ' ';
+children[1].taskMarker = '/';
+assert.equal(context.__tmSyncTaskSubtaskSummaryInPlace('parent', modal), true);
+assert.equal(count.textContent, '0/2', 'reopening abandoned subtasks must restore the remaining count');
+assert.equal(detailCount.textContent, '0/2');
+assert.equal(remainingCount.textContent, '2');
+assert.equal(remainingCount.hidden, false);
+assert.equal(progress.style.width, '0%');
+assert.equal(backgroundProgress.style.backgroundImage, '');
+delete children[0].taskMarker;
+delete children[1].taskMarker;
 
 children[0].done = false;
 assert.equal(context.__tmSyncTaskSubtaskSummaryInPlace('parent', modal), true);
@@ -287,6 +316,42 @@ assert.match(inlineChip.getAttribute('title'), /未完成1个/);
 unfinishedOnly = true;
 assert.equal(quickbarContext.syncInlineSubtaskSummaryFromEvent({ taskId: 'parent', total: 2, completed: 2 }), true);
 assert.equal(inlineValue.textContent, '0');
+
+class QuickbarNode extends FakeElement {
+    constructor(type, marker = null) {
+        super([], { 'data-type': type });
+        this.children = [];
+        if (marker !== null) this.setAttribute('data-task', marker);
+    }
+
+    matches(selector) {
+        return selector.includes(`[data-type="${this.getAttribute('data-type')}"]`);
+    }
+}
+
+const statusRules = vm.runInNewContext(apiSource.slice(0, apiSource.indexOf('globalThis.__tmTaskStatusRules ='))
+    + '\n__tmCreateTaskStatusRules()');
+const nativeParent = new QuickbarNode('NodeListItem', ' ');
+const nativeList = new QuickbarNode('NodeList');
+const nativeChildren = [' ', '/', '-', 'X', '?'].map((marker) => new QuickbarNode('NodeListItem', marker));
+nativeParent.children = [nativeList];
+nativeList.children = [...nativeChildren, new QuickbarNode('NodeListItem')];
+const nestedList = new QuickbarNode('NodeList');
+nestedList.children = [new QuickbarNode('NodeListItem', '-')];
+nativeChildren[0].children = [nestedList];
+const nativeContext = vm.createContext({
+    Element: QuickbarNode,
+    __tmTaskStatusRules: statusRules,
+    isTaskBlockElement: (node) => node.getAttribute('data-task') !== null,
+});
+vm.runInContext(extractFunction(quickbarSource, 'getQuickbarDomSubtaskStats'), nativeContext);
+let nativeStats = nativeContext.getQuickbarDomSubtaskStats(nativeParent);
+assert.equal(nativeStats.total, 5, 'quickbar counts must include direct task children only');
+assert.equal(nativeStats.completed, 3, 'native -, X and custom completed markers must count toward parent progress');
+assert.equal(statusRules.isDone('-'), false, 'abandonment must retain its own status semantics');
+nativeChildren[2].setAttribute('data-task', ' ');
+nativeStats = nativeContext.getQuickbarDomSubtaskStats(nativeParent);
+assert.equal(nativeStats.completed, 2, 'reopening an abandoned native task must reduce quickbar progress');
 
 class FakeChecklistNode {
     constructor(classes = [], attrs = {}) {

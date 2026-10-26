@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>时长与番茄 · 界面评估</title>
+<style>
+  :root{
+    --bg:#f3f5f8; --card:#fff; --ink:#1d2733; --ink2:#5b6878; --ink3:#8794a5;
+    --line:#e2e8f0; --line2:#d3dce7; --pri:#4285f4; --pri-ink:#1a6ae0; --pri-soft:#edf4ff;
+    --mock:#f7f9fc; --mono:"Cascadia Mono","SFMono-Regular",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    width:1240px;padding:34px 36px 30px;color:var(--ink);
+    background:radial-gradient(1200px 380px at 12% -8%,#fff 0%,rgba(255,255,255,0) 62%),var(--bg);
+    font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Noto Sans SC",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .topbar{display:flex;align-items:center;justify-content:space-between;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;color:#415167}
+  .dot{width:7px;height:7px;border-radius:2px;background:var(--pri);box-shadow:0 0 0 3px var(--pri-soft)}
+  .date{font-family:var(--mono);letter-spacing:.04em}
+  h1{margin:18px 0 10px;font-size:27px;line-height:1.22;font-weight:650;letter-spacing:-.015em}
+  h1 em{font-style:normal;color:var(--pri-ink);font-family:var(--mono);font-size:.94em}
+  .lead{margin:0;max-width:1010px;font-size:13.5px;line-height:1.75;color:var(--ink2)}
+  .lead b{color:#334155;font-weight:600}
+  .sh{display:flex;align-items:baseline;gap:10px;margin:28px 0 12px}
+  .sh .idx{font-family:var(--mono);font-size:11px;color:var(--pri);letter-spacing:.06em}
+  .sh h2{margin:0;font-size:14px;font-weight:650}
+  .sh .hint{margin-left:auto;font-size:11.5px;color:var(--ink3)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:16px;box-shadow:0 1px 2px rgba(18,32,51,.03),0 10px 24px -18px rgba(18,32,51,.28)}
+  .review{display:grid;grid-template-columns:372px 1fr;gap:18px;align-items:start}
+  .mockwrap{background:var(--mock);border:1px solid #e8eef6;border-radius:12px;padding:16px;display:flex;justify-content:center}
+  .cap{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);font-weight:600;margin-bottom:9px}
+  .cap .tag{float:right;letter-spacing:0;text-transform:none;font-family:var(--mono);font-size:10px;color:#94a3b5}
+
+  /* current popover */
+  .pop{width:228px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:10px;box-shadow:0 12px 28px -16px rgba(15,23,42,.35)}
+  .pop .ptitle{font-size:12px;font-weight:700;color:#66727f}
+  .tabs{display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:3px;border-radius:12px;background:#f8f9fa}
+  .tabs button{min-height:28px;border:1px solid transparent;border-radius:10px;background:transparent;color:#66727f;font-size:12px;font-weight:700;font-family:inherit}
+  .tabs button.on{background:#fff;border-color:#e2e8f0;color:#1d2733;box-shadow:0 1px 2px rgba(15,23,42,.06)}
+  .presets{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .presets span{min-height:30px;display:flex;align-items:center;justify-content:center;border:1px solid #e2e8f0;border-radius:8px;background:#fff;font-family:var(--mono);font-size:12px;color:#334155}
+  .fld{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#66727f}
+  .inp{height:32px;display:flex;align-items:center;padding:0 10px;border:1px solid #d9e1ea;border-radius:8px;background:#fff;font-family:var(--mono);font-size:13px;color:#334155}
+  .ro{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:#66727f}
+  .ro span{min-width:0;padding:5px 6px;border-radius:6px;background:#f8f9fa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ro b{color:#1d2733;font-weight:700}
+  .acts{display:flex;justify-content:flex-end;gap:8px}
+  .btn{height:28px;padding:0 11px;border-radius:7px;border:1px solid #d3dce7;background:#fff;color:#41516a;font-size:11.5px;font-weight:600;font-family:inherit;display:inline-flex;align-items:center}
+  .btn.pri{background:var(--pri);border-color:var(--pri);color:#fff}
+
+  .issues{display:flex;flex-direction:column;gap:10px}
+  .issue{display:grid;grid-template-columns:24px 1fr;gap:10px;padding:10px 12px;border:1px solid #e8edf4;border-radius:11px;background:#fff}
+  .issue .n{width:22px;height:22px;border-radius:6px;background:var(--pri-soft);color:var(--pri-ink);font-family:var(--mono);font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .issue h4{margin:1px 0 3px;font-size:12.5px;font-weight:650;color:#334155}
+  .issue p{margin:0;font-size:11.5px;line-height:1.6;color:#6b788a}
+  .issue p code{font-family:var(--mono);font-size:10.5px;background:#f3f6fa;border:1px solid #e8edf4;border-radius:4px;padding:1px 4px;color:#334155}
+
+  table{width:100%;border-collapse:separate;border-spacing:0;font-size:11.5px}
+  th{ text-align:left;font-weight:600;color:#7a8798;background:#f7f9fc;padding:9px 12px;border-bottom:1px solid #e8edf4;font-size:10.5px;letter-spacing:.04em}
+  td{padding:10px 12px;border-bottom:1px solid #eef2f7;color:#4b5a6d;vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  td b{color:#334155;font-weight:600}
+  .badge{display:inline-block;font-family:var(--mono);font-size:10.5px;background:#f3f6fa;border:1px solid #e8edf4;border-radius:5px;padding:1px 5px;color:#41516a}
+  .bad{color:#b45309;font-weight:600}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .opt .oh{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .opt .oh h3{margin:0;font-size:14.5px;font-weight:650}
+  .opt .oh .pill{font-size:10px;font-weight:600;border-radius:999px;padding:3px 7px;background:#f1f5f9;border:1px solid #e2e8f0;color:#5c718c}
+  .opt .oh .pill.rec{background:var(--pri-soft);border-color:#cfe0ff;color:var(--pri-ink)}
+  .opt .oh .pill.pick{background:#e9f7ef;border-color:#c5ebd6;color:#0f5132}
+  .opt .sub{font-size:11.5px;line-height:1.6;color:#7a8798;margin:0 0 11px}
+  .opt .mockwrap{padding:14px;justify-content:flex-start}
+  .pop2{width:228px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:11px;display:flex;flex-direction:column;gap:8px;box-shadow:0 12px 28px -16px rgba(15,23,42,.35)}
+  .pop3{width:272px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:9px;box-shadow:0 12px 28px -16px rgba(15,23,42,.35)}
+  .hm{display:flex;align-items:flex-end;gap:6px}
+  .hm .f{display:flex;flex-direction:column;gap:3px}
+  .hm .f span{font-size:9.5px;color:#94a3b5}
+  .hm .n{width:44px;height:32px;display:flex;align-items:center;justify-content:center;border:1px solid #d9e1ea;border-radius:7px;background:#fff;font-family:var(--mono);font-size:14px;font-weight:600;color:#223144}
+  .hm .u{font-size:10.5px;color:#7b8794;padding-bottom:9px;font-family:var(--mono)}
+  .prev{font-size:10.5px;color:#7a8798;display:flex;align-items:center;gap:5px}
+  .prev b{font-family:var(--mono);font-size:11.5px;color:#223144}
+  .mini-ro{font-size:10.5px;color:#7a8798;padding:5px 7px;background:#f8f9fa;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mini-ro b{color:#1d2733}
+  .line{height:1px;background:#eef2f7;margin:1px 0}
+  .warnstrip{display:flex;align-items:flex-start;gap:6px;font-size:10.5px;line-height:1.45;color:#92400e;background:#fff7ed;border:1px solid #fed7aa;border-radius:7px;padding:6px 7px}
+  .warnstrip .w{flex:none;width:13px;height:13px;border-radius:50%;background:#f59e0b;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:.5px}
+  .warnstrip b{font-weight:600;color:#7c2d12}
+  .tabdot{display:inline-block;width:5px;height:5px;border-radius:50%;background:#f59e0b;vertical-align:1px;margin-left:3px}
+  .pros{margin:11px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:5px}
+  .pros li{position:relative;padding-left:13px;font-size:11px;line-height:1.55;color:#6b788a}
+  .pros li:before{content:"";position:absolute;left:2px;top:6px;width:4px;height:4px;border-radius:50%;background:#94a3b5}
+  .pros li.good:before{background:#22a06b}
+  .pros li.warn:before{background:#d97706}
+
+  .verdict{display:flex;align-items:flex-start;gap:12px;margin-top:18px;border-top:1px solid #dfe6ef;padding-top:14px}
+  .verdict .badge2{flex:none;font-size:11px;font-weight:650;color:#0f5132;background:#e9f7ef;border:1px solid #c5ebd6;border-radius:999px;padding:5px 10px}
+  .verdict p{margin:0;font-size:11.5px;line-height:1.7;color:#6b788a}
+  .verdict p b{color:#334155}
+  .ask{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .ask span{font-size:10.5px;border:1px solid #e2e8f0;background:#fff;border-radius:6px;padding:3px 7px;color:#5c718c}
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><span>Task Horizon · 界面评估</span></div>
+    <div class="date">2026-10-26 · 按 v3.3.1 代码还原</div>
+  </div>
+
+  <h1>「时长与番茄」界面要不要改？</h1>
+  <p class="lead">
+    要改，而且它是这次改动的<b>主入口</b>：预计时长的输入就在这个弹层里。当前同一套界面有<b>三份实现</b>（详情 / 内联 / 悬浮条），宽度 228–280px 不等，按钮和只读文案也不一致。换选择器不能只改一处。
+    已确认<b>预计时长与预计番茄二选一</b>，所以不合并面板；本次先做 <b>A 基础版：只换控件</b>，静默覆盖、数据层强制和历史优先级留到后续。
+  </p>
+
+  <div class="sh"><span class="idx">01</span><h2>现在的结构</h2><span class="hint">228px 窄弹层：标题 + tabs + 预设 + 单个输入框</span></div>
+
+  <div class="review">
+    <div class="card">
+      <div class="cap">任务详情 · 时长与番茄 <span class="tag">228 × auto</span></div>
+      <div class="mockwrap">
+        <div class="pop">
+          <div class="ptitle">时长与番茄</div>
+          <div class="tabs"><button class="on">预计时长</button><button>预计番茄</button></div>
+          <div class="presets"><span>30</span><span>45</span><span>60</span><span>90</span></div>
+          <label class="fld"><span>预计时长</span><div class="inp">30</div></label>
+          <div class="ro"><span>实际番茄 <b>0</b></span><span>实际耗时 <b>0m</b></span></div>
+          <div class="acts"><button class="btn">清空</button><button class="btn pri">确定</button></div>
+        </div>
+      </div>
+      <div style="margin-top:9px;font-size:10.5px;color:#94a3b5;text-align:center">示意图：预设数量和值取决于设置；没有预设时这一块不显示</div>
+    </div>
+
+    <div class="issues">
+      <div class="issue"><span class="n">01</span><div><h4>标题、tab、字段标签三层重复</h4><p>「时长与番茄」→「预计时长」→ 字段「预计时长」。在 228px 里占了约 70px 高度，实际可编辑的只有一个输入框。</p></div></div>
+      <div class="issue"><span class="n">02</span><div><h4>二选一是对的，但现在是「静默二选一」</h4><p>输入时长会立刻清空预计番茄，反之亦然，界面上没有任何提示；数据层也没有强制二选一，旧数据、块属性或导入仍可能同时存在两个值，chip 会把两个都显示出来。</p></div></div>
+      <div class="issue"><span class="n">03</span><div><h4>预设仍然是裸数字</h4><p><code>30</code> 在小时模式下表示 30 小时，在分钟模式下表示 30 分钟。同一组预设换一个设置就换了含义，界面上没有任何提示。</p></div></div>
+      <div class="issue"><span class="n">04</span><div><h4>核心输入仍是自由文本</h4><p>placeholder 还是「例如：30 或 30m」。如果只把别处的时长输入换成选择器，这个最常用的入口反而成了例外。</p></div></div>
+      <div class="issue"><span class="n">05</span><div><h4>「实际耗时」不跟随显示格式</h4><p>它走 <code>tomatoSpentAttrMode</code> 的格式器：分钟模式输出 <code>2h30m</code>，小时模式输出 <code>2.5h</code>，和预计时长的 <code>durationFormat</code> 是两套逻辑。切换格式后这一行不会变。</p></div></div>
+      <div class="issue"><span class="n">06</span><div><h4>228px 放不下完整选择器</h4><p>上一版评估里的三段式选择器约 330px。这个弹层只有 228px，悬浮条同款是 280px；要么做紧凑版（两个数字框），要么加宽并统一三处宽度。</p></div></div>
+    </div>
+  </div>
+
+  <div class="sh"><span class="idx">02</span><h2>三份实现已经不一致</h2><span class="hint">改一次选择器，要同步改三套 DOM / 交互</span></div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <table>
+      <thead>
+        <tr><th style="width:30%">入口</th><th>宽度</th><th>主按钮</th><th>只读行</th><th>预设样式</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>任务详情弹层</b><br><span style="font-size:10.5px;color:#94a3b5">openInlinePopover · mode: focus-summary</span></td><td><span class="badge">228px</span></td><td>确定</td><td>实际番茄 / 实际耗时</td><td>2 列紧凑</td></tr>
+        <tr><td><b>表格 / 看板 / 白板内联</b><br><span style="font-size:10.5px;color:#94a3b5">tmEditFocusSummaryInline</span></td><td><span class="badge">228px</span></td><td>保存</td><td>实际番茄 / 实际耗时</td><td>2 列紧凑</td></tr>
+        <tr><td><b>悬浮条</b><br><span style="font-size:10.5px;color:#94a3b5">quickbar focus editor</span></td><td><span class="badge">280px</span></td><td>保存</td><td>实际 / 耗时</td><td>列表行</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="sh"><span class="idx">03</span><h2>保留 tabs 的两种做法</h2><span class="hint">已确认二选一 + 只换控件：先做 A，A+ 留作后续</span></div>
+
+  <div class="two">
+    <div class="card opt">
+      <div class="oh"><h3>A · 基础版：只换控件</h3><span class="pill pick">已选</span></div>
+      <p class="sub">保留标题、tabs、字段标签和信息层级，只把自由文本换成紧凑的小时/分钟选择器，宽度 228 → 252px。</p>
+      <div class="mockwrap">
+        <div class="pop2">
+          <div class="ptitle">时长与番茄</div>
+          <div class="tabs"><button class="on">预计时长</button><button>预计番茄</button></div>
+          <div class="presets"><span>0.5h</span><span>0.75h</span><span>1h</span><span>1.5h</span></div>
+          <label class="fld"><span>预计时长</span></label>
+          <div class="hm">
+            <div class="f"><span>小时</span><div class="n">2</div></div><span class="u">h</span>
+            <div class="f"><span>分钟</span><div class="n">30</div></div><span class="u">m</span>
+            <span class="prev" style="margin-left:auto">= <b>2h30m</b></span>
+          </div>
+          <div class="mini-ro">实际番茄 <b>0</b> · 耗时 <b>0m</b></div>
+          <div class="acts"><button class="btn">清空</button><button class="btn pri">确定</button></div>
+        </div>
+      </div>
+      <ul class="pros">
+        <li class="good">UI 结构不变，只替换输入控件</li>
+        <li class="good">保留「二选一」的既有产品规则，不引入新语义</li>
+        <li class="good">预设只改显示：0.5/1/2 显示为 0.5h/1h/2h（小时模式），写入仍是原数字</li>
+        <li class="warn">依赖 P0：数字写入前要先统一四套解析，否则日历/kernel 会误读</li>
+        <li class="warn">静默清空仍在：输入一个会立刻清掉另一个，且没有提示</li>
+        <li class="warn">数据层没有强制，旧数据仍可能两个值并存</li>
+      </ul>
+    </div>
+
+    <div class="card opt">
+      <div class="oh"><h3>A+ · 后续可选：明确二选一</h3><span class="pill">后续</span></div>
+      <p class="sub">本次不做，留作后续参考：保留 tabs，两个 draft 都保留，切换 tab 不清空；保存时如果要覆盖另一个已填的值，明确提示；数据层同步清空另一个字段。宽度 228 → 272px。</p>
+      <div class="mockwrap">
+        <div class="pop3">
+          <div class="ptitle">时长与番茄</div>
+          <div class="tabs"><button class="on">预计时长</button><button>预计番茄<span class="tabdot"></span></button></div>
+          <div class="presets"><span>0.5h</span><span>0.75h</span><span>1h</span><span>1.5h</span></div>
+          <div class="hm">
+            <div class="f"><span>小时</span><div class="n">2</div></div><span class="u">h</span>
+            <div class="f"><span>分钟</span><div class="n">30</div></div><span class="u">m</span>
+            <span class="prev" style="margin-left:auto">= <b>2h30m</b></span>
+          </div>
+          <div class="warnstrip"><span class="w">!</span><span>保存后只保留预计时长，将清除<b>「预计番茄 3」</b></span></div>
+          <div class="mini-ro">实际番茄 <b>0</b> · 实际耗时 <b>0m</b></div>
+          <div class="acts"><button class="btn">清空</button><button class="btn pri">保存</button></div>
+        </div>
+      </div>
+      <ul class="pros">
+        <li class="good">规则可见，不再静默丢值；跳过的 tab 上有橙点提示</li>
+        <li class="good">保留二选一，不引入双估算，也不需要换算</li>
+        <li class="good">数据层同步强制后，chip / 列表不会同时出现两个值</li>
+        <li class="good">顺手去掉重复的字段标签，228px 里省出约 20px</li>
+        <li class="warn">要改三处实现 + 数据层；历史同时有两个值时要先定优先级（建议时长优先）</li>
+        <li class="warn">多一条覆盖提示，弹层高度会增加；可只在会覆盖时显示</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="verdict">
+    <span class="badge2">结论：先做 A</span>
+    <div>
+      <p><b>本次范围（A 基础版）：</b>三处「预计时长」文本框换成同一个紧凑小时/分钟控件；预设按格式显示；写入当前单位下的数字（小时 2.5 / 分钟 150）；宽度 228 → 252px。tabs、标题、字段标签、只读行、按钮和「静默二选一」都不动。</p>
+      <p><b>暂不做（A+）：</b>草稿保留、覆盖提示、数据层强制、历史优先级、实际耗时统一格式；等这版验证后再补。</p>
+      <div class="ask"><span>紧凑 h/m 控件</span><span>预设格式化</span><span>数字写入（当前单位）</span><span>宽度 252</span></div>
+    </div>
+  </div>
+
+</body>
+</html>

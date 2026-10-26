@@ -30,7 +30,9 @@ SOFTWARE.
             return { mode: ['full', 'rail', 'hidden'].includes(stored.mode) ? stored.mode : 'full',
                 width: Math.max(200, Math.min(320, Number(stored.width) || 200)),
                 rail: 40, edgePosition: Number.isFinite(Number(stored.edgePosition))
-                    ? Math.max(0, Math.min(1, Number(stored.edgePosition))) : .5 };
+                    ? Math.max(0, Math.min(1, Number(stored.edgePosition))) : .5,
+                hideGuideAcknowledged: stored.hideGuideAcknowledged === true,
+                calendarView: stored.calendarView === 'week' ? 'week' : 'month' };
         };
         const preferences = normalizePreferences(Storage.get('tm_shortcut_sidebar_preferences', {}));
         const preferencePlatform = () => __tmIsRuntimeMobileClient() ? 'mobile' : 'desktop';
@@ -38,6 +40,7 @@ SOFTWARE.
         let sidebar = null, layout = null, observer = null, narrow = false, drawer = false;
         let drawerHover = false, drawerHoverTimer = null, edgeDragging = false;
         let popup = null, popupOwner = null, popupClose = null, popupSession = 0, drawerUnstack = null;
+        let hideGuide = null, hideGuideUnstack = null, hideGuideFrame = 0, hideGuideContentInert = false;
         let scrollTimer = null, optionRequest = 0, resizing = null;
         let countTimer = null, countGeneration = 0, unsubscribe = null;
         const lastCounts = new Map(Object.entries(Storage.get('tm_shortcut_counts', {}) || {})
@@ -129,6 +132,7 @@ SOFTWARE.
                 const labelCount = q('.tm-shortcut-extension-count', layout);
                 const hovered = items.get(hoverId);
                 if (labelCount && hovered) labelCount.textContent = cachedCount(hovered) ?? '';
+                globalThis.__tmDateFilter?.refresh();
             }, 100);
         }
         function hideName() {
@@ -152,7 +156,7 @@ SOFTWARE.
             hoverFrame = requestAnimationFrame(() => { if (extension.isConnected && hoverId === item.id) extension.classList.add('is-visible'); });
         }
         function applyMode() {
-            if (!layout || !sidebar) return;
+            if (!layout?.isConnected || !sidebar?.isConnected || !state.modal?.isConnected) return;
             const mode = drawer ? 'drawer' : narrow ? 'hidden' : preferences.mode;
             const modalDrawer = __tmIsRuntimeMobileClient() || (__tmIsDockHost() && layout.clientWidth < 768);
             layout.dataset.shortcutMode = mode;
@@ -181,10 +185,12 @@ SOFTWARE.
             sidebar.setAttribute('role', drawer ? 'dialog' : 'navigation');
             if (drawer) sidebar.setAttribute('aria-modal', String(modalDrawer));
             else sidebar.removeAttribute('aria-modal');
+            globalThis.__tmDateFilter?.mount(sidebar, state.modal, mode, preferences, persistPreferences);
             scrollThumb();
         }
         function setMode(mode) {
             const content = q(':scope > .tm-main-stage', layout), before = content?.getBoundingClientRect().left;
+            if (mode !== 'hidden') closeHideGuide(false);
             closeDrawer(false);preferences.mode = mode;persistPreferences();applyMode();
             const after = content?.getBoundingClientRect().left;
             if (!narrow && before !== undefined && before !== after) content.animate([{ transform: `translateX(${before - after}px)` }, { transform: 'translateX(0)' }], { duration: 220, easing: 'cubic-bezier(.16,1,.3,1)' });
@@ -198,6 +204,7 @@ SOFTWARE.
             return Promise.all((sidebar?.getAnimations?.() || []).map(animation => animation.finished.catch(() => {})));
         }
         function openDrawer(fromHover = false) {
+            closeHideGuide(false);
             clearDrawerHoverTimer();drawerHover = fromHover;
             drawer = true;applyMode();drawerUnstack?.();drawerUnstack = __tmModalStackBind(() => closeDrawer());
             if (!fromHover) q('[data-shortcut-action="collapse"]', sidebar)?.focus({ preventScroll: true });
@@ -226,6 +233,69 @@ SOFTWARE.
                 drawerHoverTimer = null;
                 if (drawerHover && !edgeDragging) closeDrawer(false);
             }, 110);
+        }
+        function closeHideGuide(restoreFocus = true) {
+            const wasOpen = !!hideGuide;
+            cancelAnimationFrame(hideGuideFrame);hideGuideFrame = 0;
+            hideGuideUnstack?.();hideGuideUnstack = null;
+            layout?.removeEventListener('keydown', hideGuideKeydown);
+            layout?.classList.remove('is-hide-guide-open');
+            const content = q(':scope > .tm-main-stage', layout);
+            if (content && wasOpen) content.inert = hideGuideContentInert;
+            hideGuideContentInert = false;
+            hideGuide?.remove();hideGuide = null;
+            if (restoreFocus && layout?.dataset.shortcutMode === 'hidden') q('.tm-shortcut-edge', layout)?.focus({ preventScroll: true });
+        }
+        function positionHideGuide() {
+            if (!hideGuide?.isConnected || !layout) return;
+            const area = layout.getBoundingClientRect(), edge = q('.tm-shortcut-edge', layout)?.getBoundingClientRect();
+            const panel = q('.tm-shortcut-hide-guide-panel', hideGuide);
+            if (!edge || !panel) return;
+            const width = Math.max(260, Math.min(320, area.width - 56));
+            panel.style.width = `${width}px`;
+            const edgeCenter = edge.top - area.top + edge.height / 2;
+            const top = Math.max(12, Math.min(area.height - panel.offsetHeight - 12, edgeCenter - panel.offsetHeight / 2));
+            panel.style.left = `${edge.right - area.left + 18}px`;
+            panel.style.top = `${top}px`;
+            panel.style.setProperty('--tm-hide-guide-pointer-top', `${Math.max(18, Math.min(panel.offsetHeight - 18, edgeCenter - top))}px`);
+        }
+        function hideGuideKeydown(event) {
+            if (event.key !== 'Tab' || !hideGuide?.isConnected) return;
+            const focusable = [q('.tm-shortcut-edge', layout), q('[data-hide-guide-close]', hideGuide), q('[data-hide-guide-acknowledge]', hideGuide)].filter(Boolean);
+            if (!focusable.length) return;
+            const index = focusable.indexOf(document.activeElement);
+            event.preventDefault();
+            focusable[(index + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length].focus({ preventScroll: true });
+        }
+        function showHideGuide() {
+            if (!layout?.isConnected || narrow || drawer || preferences.mode !== 'hidden'
+                || preferences.hideGuideAcknowledged || hideGuide?.isConnected
+                || __tmIsRuntimeMobileClient() || __tmHostUsesMobileUI()) return false;
+            const content = q(':scope > .tm-main-stage', layout);
+            if (!content) return false;
+            hideGuideContentInert = content.inert;
+            hideGuide = document.createElement('div');hideGuide.className = 'tm-shortcut-hide-guide';
+            hideGuide.setAttribute('role', 'dialog');hideGuide.setAttribute('aria-modal', 'true');
+            hideGuide.setAttribute('aria-labelledby', 'tm-shortcut-hide-guide-title');
+            hideGuide.setAttribute('aria-describedby', 'tm-shortcut-hide-guide-description');
+            hideGuide.innerHTML = `<button type="button" class="tm-shortcut-hide-guide-scrim" data-hide-guide-close aria-label="关闭隐藏侧栏提示"></button><section class="tm-shortcut-hide-guide-panel"><button type="button" class="tm-shortcut-hide-guide-close" data-hide-guide-close aria-label="关闭隐藏侧栏提示" title="关闭">${glyph('x')}</button><h2 id="tm-shortcut-hide-guide-title">从这里重新展开</h2><p id="tm-shortcut-hide-guide-description">快捷方式侧栏已完全隐藏。点击左侧的<strong>半透明箭头</strong>，即可重新打开。</p><div class="tm-shortcut-hide-guide-footer"><span>按住可上下拖拽调节位置</span><button type="button" class="b3-button tm-shortcut-hide-guide-acknowledge" data-hide-guide-acknowledge>知道了</button></div></section>`;
+            layout.append(hideGuide);layout.classList.add('is-hide-guide-open');content.inert = true;
+            hideGuide.querySelectorAll('[data-hide-guide-close]').forEach(button => { button.onclick = () => closeHideGuide(); });
+            q('[data-hide-guide-acknowledge]', hideGuide).onclick = () => {
+                preferences.hideGuideAcknowledged = true;persistPreferences();closeHideGuide();
+            };
+            hideGuideUnstack = __tmModalStackBind(() => closeHideGuide());
+            layout.addEventListener('keydown', hideGuideKeydown);
+            positionHideGuide();
+            q('[data-hide-guide-acknowledge]', hideGuide)?.focus({ preventScroll: true });
+            return true;
+        }
+        function queueHideGuide() {
+            cancelAnimationFrame(hideGuideFrame);
+            hideGuideFrame = requestAnimationFrame(() => {
+                hideGuideFrame = 0;
+                showHideGuide();
+            });
         }
         function mount(modal) {
             if (SettingsStore.data.shortcutSidebarEnabled === false) { dispose();return; }
@@ -259,7 +329,7 @@ SOFTWARE.
                     else if (action === 'sort') sort();
                     else if (action === 'pin') { if (drawer) setMode('full');else { setMode('hidden');openDrawer(); } }
                     else if (action === 'expand') setMode('full');
-                    else if (action === 'hide') setMode('hidden');
+                    else if (action === 'hide') { setMode('hidden');queueHideGuide(); }
                     else if (action === 'collapse') drawer ? closeDrawer() : setMode('rail');
                 });
                 sidebar.addEventListener('contextmenu', event => {
@@ -284,10 +354,14 @@ SOFTWARE.
             }
             parent.insertBefore(layout, content);
             layout.append(sidebar, content);
+            // Share one stacking context so the drawer and its scrim cover the
+            // bottom navigation without lifting the task body above that bar.
+            const bottomBar = parent.querySelector(':scope > .tm-mobile-bottom-viewbar');
+            if (bottomBar) layout.append(bottomBar);
             const scrim = document.createElement('button');scrim.className = 'tm-shortcut-scrim';scrim.setAttribute('aria-label', '关闭快捷导航');scrim.onclick = () => closeDrawer();layout.append(scrim);
             const edge = document.createElement('button');edge.className = 'tm-shortcut-edge';edge.setAttribute('aria-label', '打开快捷导航');edge.title = '打开快捷导航，上下拖动调整位置';edge.innerHTML = glyph('caret-right');layout.append(edge);
             edge.onpointerenter = event => {
-                if (event.pointerType !== 'mouse' || event.buttons || __tmIsRuntimeMobileClient() || drawer || edgeDragging) return;
+                if (event.pointerType !== 'mouse' || event.buttons || hideGuide?.isConnected || __tmIsRuntimeMobileClient() || drawer || edgeDragging) return;
                 clearDrawerHoverTimer();
                 drawerHoverTimer = setTimeout(() => {
                     drawerHoverTimer = null;
@@ -301,6 +375,7 @@ SOFTWARE.
                 if (height <= 0) return;
                 preferences.edgePosition = Math.max(margin, Math.min(height - margin, center)) / height;
                 layout.style.setProperty('--tm-shortcut-edge-position', `${preferences.edgePosition * 100}%`);
+                positionHideGuide();
             };
             edge.onpointerdown = event => {
                 if (event.button !== 0) return;
@@ -338,9 +413,10 @@ SOFTWARE.
             const resize = () => {
                 const next = layout.clientWidth < 768 || __tmIsRuntimeMobileClient() || __tmHostUsesMobileUI();
                 if (narrow !== next) { narrow = next;closeDrawer(false); }
-                applyMode();
+                applyMode();positionHideGuide();
             };
             observer = new ResizeObserver(resize);observer.observe(layout);resize();refresh();
+            if (!narrow && !__tmIsRuntimeMobileClient() && !__tmHostUsesMobileUI() && preferences.mode === 'hidden') queueHideGuide();
         }
         function closePopup() { popupClose?.(); }
         function showPopup(title, body, footer = '', width = '460px') {
@@ -526,15 +602,18 @@ SOFTWARE.
         }
         function dispose() {
             edgeDragging = false;
-            closePopup();hideName();closeDrawer(false);observer?.disconnect();observer = null;clearTimeout(scrollTimer);clearTimeout(countTimer);countGeneration++;unsubscribe?.();unsubscribe = null;window.removeEventListener('tm:filtered-tasks-updated', scheduleCounts);sidebar?.remove();sidebar = null;layout = null;
+            closePopup();closeHideGuide(false);hideName();closeDrawer(false);
+            globalThis.__tmDateFilter?.dispose();
+            observer?.disconnect();observer = null;clearTimeout(scrollTimer);clearTimeout(countTimer);countGeneration++;unsubscribe?.();unsubscribe = null;window.removeEventListener('tm:filtered-tasks-updated', scheduleCounts);sidebar?.remove();sidebar = null;layout = null;
         }
         function syncEnabled() {
             const modal = state.modal;
             if (SettingsStore.data.shortcutSidebarEnabled === false) {
                 const wrapper = modal?.querySelector('.tm-shortcut-layout');
                 const content = wrapper?.querySelector(':scope > .tm-main-stage');
+                const bottomBar = wrapper?.querySelector(':scope > .tm-mobile-bottom-viewbar');
                 dispose();
-                if (content) { content.inert = false;wrapper.replaceWith(content); }
+                if (content) { content.inert = false;wrapper.replaceWith(...[content, bottomBar].filter(Boolean)); }
             } else if (modal?.isConnected && !modal.querySelector('.tm-shortcut-layout')) mount(modal);
         }
         return { mount, refresh, closeDrawer, showInvalid, edit, dispose, syncEnabled, iconHtml };

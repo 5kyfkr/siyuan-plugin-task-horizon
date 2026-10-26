@@ -219,7 +219,7 @@
             const allChildren = Array.isArray(task?.children) ? task.children : [];
             let completed = 0;
             for (let i = 0; i < allChildren.length; i += 1) {
-                if (__tmIsTaskCompletedForProjection(allChildren[i])) completed += 1;
+                if (__tmIsTaskCompletedForProjection(allChildren[i]) || __tmIsTaskCanceled(allChildren[i])) completed += 1;
             }
             const stats = {
                 total: allChildren.length,

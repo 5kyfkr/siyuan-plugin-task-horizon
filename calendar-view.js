@@ -18658,14 +18658,30 @@
         return { saved: true, item: mutationResult.item, recurring: repeatType !== 'none', dateFollowFailed: dateFollow?.failed === true };
     }
 
+    function getCalendarDurationUnit() {
+        try {
+            const shared = globalThis.__tmDuration?.getUnit?.();
+            if (shared) return shared === 'minutes' ? 'minutes' : 'hours';
+        } catch (e) {}
+        try {
+            const raw = String(globalThis.localStorage?.getItem('tm_duration_format') || '');
+            return /minutes/i.test(raw) ? 'minutes' : 'hours';
+        } catch (e) {}
+        return 'hours';
+    }
+
     function parseTaskDurationMinutes(raw) {
-        const s = String(raw || '').trim().toLowerCase();
+        const s = String(raw || '').trim();
         if (!s) return 60;
+        const unit = getCalendarDurationUnit();
+        const shared = globalThis.__tmDuration?.parse?.(s, unit);
+        if (shared != null && Number.isFinite(shared) && shared > 0) return Math.max(15, Math.round(shared));
         const num = Number(s);
-        if (Number.isFinite(num) && num > 0) return Math.max(15, Math.round(num));
-        const m1 = /(\d+(?:\.\d+)?)\s*h/.exec(s);
+        if (Number.isFinite(num) && num > 0) return Math.max(15, Math.round(unit === 'minutes' ? num : num * 60));
+        const lower = s.toLowerCase();
+        const m1 = /(\d+(?:\.\d+)?)\s*h/.exec(lower);
         if (m1) return Math.max(15, Math.round(Number(m1[1]) * 60));
-        const m2 = /(\d+(?:\.\d+)?)\s*(m|min|分钟)/.exec(s);
+        const m2 = /(\d+(?:\.\d+)?)\s*(m|min|分钟)/.exec(lower);
         if (m2) return Math.max(15, Math.round(Number(m2[1])));
         return 60;
     }
@@ -35025,7 +35041,7 @@
                 protoListChildContext = { cachedByParent, runtimeByParent, readProjected };
                 return protoListChildContext;
             };
-            const protoListTaskChildren = (task) => {
+            const protoListTaskChildren = (task, { includeCanceled = false } = {}) => {
                 const parentId = String(task?.id || '').trim();
                 if (!parentId) return [];
                 const children = Array.isArray(task?.children) ? [...task.children] : [];
@@ -35046,7 +35062,7 @@
                 });
                 const result = Array.from(byId.values())
                     .map((child) => getCalendarTaskSnapshotById(String(child.id || child.blockId || '').trim()) || child)
-                    .filter((child) => !protoListTaskCanceled(child) && !globalThis.__tmProjectVisibility?.isTaskHidden(child));
+                    .filter((child) => (includeCanceled || !protoListTaskCanceled(child)) && !globalThis.__tmProjectVisibility?.isTaskHidden(child));
                 return result;
             };
             const protoListTaskHasChildren = (task) => {
@@ -35206,7 +35222,7 @@
                 const titleSettings = (state.settingsStore || state.sideDay?.settingsStore)?.data;
                 const parentTitleClass = titleSettings?.parentTaskNameBoldEnabled === false ? '' : ' tm-parent-task-title';
                 const done = protoListTaskDone(task);
-                const children = isParent ? protoListTaskChildren(task) : [];
+                const children = isParent ? protoListTaskChildren(task, { includeCanceled: true }) : [];
                 const eventProps = eventApi?.extendedProps || {};
                 const checkboxTaskId = eventProps.__tmTaskDateReadOnly === true
                     ? String(eventProps.__tmTaskDateEventTaskId || id).trim() || id
@@ -35232,7 +35248,8 @@
                         ? __tmRenderTaskCheckboxWrap(checkboxTaskId, checkboxTask, { checked: done, stopMouseDown: true, stopPointerDown: true, stopClick: true })
                     : `<input class="tm-task-checkbox" type="checkbox" data-task-id="${esc(checkboxTaskId)}" ${done ? 'checked' : ''} onchange="tmSetDone('${esc(checkboxTaskId)}', this.checked, event)" onclick="event.stopPropagation()">`;
                 const showCompletedTasks = protoListShowCompletedTasks();
-                const childRows = children.filter((child) => showCompletedTasks || !protoListTaskDone(child)).map((child) => {
+                const childRows = children.filter((child) => !protoListTaskCanceled(child)
+                    && (showCompletedTasks || !protoListTaskDone(child))).map((child) => {
                     const childId = String(child?.id || child?.blockId || '').trim();
                     if (!childId) return '';
                     const childDone = protoListTaskDone(child);
@@ -35279,7 +35296,7 @@
                 const subtaskHtml = children.length
                     ? (() => {
                         const collapsed = protoListCollapsedTaskIds().has(id);
-                        const completed = children.filter(protoListTaskDone).length;
+                        const completed = children.filter((child) => protoListTaskDone(child) || protoListTaskCanceled(child)).length;
                         const progress = children.length ? Math.round((completed / children.length) * 100) : 0;
                         const subtaskIcon = typeof bridge.renderBadgeIcon === 'function'
                             ? bridge.renderBadgeIcon('clipboard-list', 14)

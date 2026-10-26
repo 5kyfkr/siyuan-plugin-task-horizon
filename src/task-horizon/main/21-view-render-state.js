@@ -898,6 +898,7 @@
             String(state?.activeDocId || 'all').trim() || 'all',
             String(state?.currentRule || '').trim(),
             String(state?.searchKeyword || '').trim(),
+            globalThis.__tmDateFilter?.signature() || '',
         ].join('|');
     }
 
