@@ -1,0 +1,80 @@
+name: warm-cache
+
+# The release workflow caches Playwright and Chromium, but GitHub Actions scopes
+# every cache entry to the ref that wrote it: an entry created by one tag is
+# invisible to the next tag. Each release therefore re-installs Playwright, its
+# system packages and the browsers from scratch (~330 MB).
+#
+# Entries written on the default branch are visible to every ref, tags included,
+# so this workflow fills the same cache on main. A release run then restores it
+# and skips the whole install block in scripts/verify-release.ps1, exactly like
+# re-running the same tag does today.
+#
+# release.yml, tests.yml and the scripts are untouched: this only writes the
+# Actions cache they already read. Nothing here builds, tests or publishes.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Refresh the entry so it is not evicted after 7 days without access.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-cache
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # The key, the dependency directory and the browser path must stay byte for
+      # byte identical to the cache step in release.yml, otherwise the release run
+      # computes a different cache version and misses. Reading the version from
+      # release.yml keeps both sides in sync.
+      - name: Resolve cache identity from release.yml
+        id: identity
+        run: |
+          version=$(grep -oP 'task-horizon-playwright-\K[0-9]+(\.[0-9]+)*' .github/workflows/release.yml | head -n 1)
+          if [ -z "$version" ]; then
+            echo "::error::release.yml no longer contains a task-horizon-playwright-<version> cache key"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "key=${RUNNER_OS}-task-horizon-playwright-$version" >> "$GITHUB_OUTPUT"
+          echo "deps=/tmp/task-horizon-release-tests-$version" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright cache
+        id: restore
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/task-horizon-release-tests-${{ steps.identity.outputs.version }}
+            ~/.cache/ms-playwright
+          key: ${{ steps.identity.outputs.key }}
+
+      - name: Install Playwright and Chromium
+        if: steps.restore.outputs.cache-hit != 'true'
+        env:
+          DEPS_DIR: ${{ steps.identity.outputs.deps }}
+          PLAYWRIGHT_VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          npm install --prefix "$DEPS_DIR" --no-save --no-package-lock --ignore-scripts "playwright@$PLAYWRIGHT_VERSION"
+          node "$DEPS_DIR/node_modules/playwright/cli.js" install --with-deps chromium
+
+      # Fails before a broken entry is saved, and catches a path or key that no
+      # longer matches what scripts/verify-release.ps1 expects.
+      - name: Verify the cached layout
+        env:
+          DEPS_DIR: ${{ steps.identity.outputs.deps }}
+        run: |
+          test -f "$DEPS_DIR/node_modules/playwright/package.json"
+          test -d "$HOME/.cache/ms-playwright"
+          echo "cache-hit=${{ steps.restore.outputs.cache-hit }}"
