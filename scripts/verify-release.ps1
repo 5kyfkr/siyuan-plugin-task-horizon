@@ -44,12 +44,21 @@ if (($tests | Where-Object { $_.Name -match 'browser.*\.test\.js$' }) -and [stri
     $playwrightVersion = '1.63.0'
     $testDependencyDir = Join-Path ([System.IO.Path]::GetTempPath()) "task-horizon-release-tests-$playwrightVersion"
     $playwrightModule = Join-Path $testDependencyDir 'node_modules/playwright'
-    if (-not (Test-Path -LiteralPath (Join-Path $playwrightModule 'package.json') -PathType Leaf)) {
+    $playwrightCached = Test-Path -LiteralPath (Join-Path $playwrightModule 'package.json') -PathType Leaf
+    if (-not $playwrightCached) {
         & npm install --prefix $testDependencyDir --no-save --no-package-lock --ignore-scripts "playwright@$playwrightVersion"
         if ($LASTEXITCODE -ne 0) { throw 'Playwright test dependency installation failed' }
     }
     $browserInstallArgs = @('install', 'chromium')
-    if ($IsLinux) { $browserInstallArgs = @('install', '--with-deps', 'chromium') }
+    $browsersCached = Test-Path -LiteralPath (Join-Path $HOME '.cache/ms-playwright')
+    if ($IsLinux -and -not ($playwrightCached -and $browsersCached)) {
+        # --with-deps runs apt, and system packages live on the runner instead of
+        # the restored cache, so it is the slowest and least predictable part of a
+        # release (the Ubuntu mirror can drop to ~80 kB/s). A restored Playwright
+        # module plus browser cache means the browsers are already usable, so a
+        # plain install is enough; only a cold cache needs the apt dependencies.
+        $browserInstallArgs = @('install', '--with-deps', 'chromium')
+    }
     & node (Join-Path $playwrightModule 'cli.js') @browserInstallArgs
     if ($LASTEXITCODE -ne 0) { throw 'Chromium test browser installation failed' }
     $env:PLAYWRIGHT_MODULE = $playwrightModule
