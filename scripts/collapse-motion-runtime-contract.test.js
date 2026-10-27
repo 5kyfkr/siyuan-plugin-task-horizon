@@ -72,7 +72,13 @@ assert.match(apiRuntime, /function __tmInsertChecklistTaskBranchFragment[\s\S]*?
 assert.match(apiRuntime, /if \(opts\.listOnly === true\)[\s\S]*?__tmReconcileChecklistCollapseList\(currentItems, nextItems, opts\)/, 'checklist collapse must use the targeted node reconciler');
 assert.match(apiRuntime, /renderBodyHtml\(\{[\s\S]*?taskBranchId,[\s\S]*?\}\)[\s\S]*?branchFragment[\s\S]*?(?:__tmInsertChecklistTaskBranchFragment|__tmAppendChecklistRenderWindowFragment)/, 'small cold task expansion must request and consume a branch-only render');
 assert.match(apiRuntime, /if \(branchFragment\) \{[\s\S]*?__tmScheduleIdleTask\(finishBranchRefresh, 260\)[\s\S]*?return true;[\s\S]*?__tmRefreshChecklistSelectionInPlace/, 'branch-only expansion must defer full-list enhancement work until after the interaction');
-assert.ok(apiRuntime.indexOf('if (opts.listOnly === true)') < apiRuntime.indexOf('if (checklistProjectionTaskIds.length > 0'), 'explicit checklist collapse must outrank concurrent projection refresh branches');
+const checklistRerenderStart = apiRuntime.indexOf('function __tmRerenderChecklistInPlace(');
+const checklistRerenderEnd = apiRuntime.indexOf('function __tmGetKanbanColScrollKey(', checklistRerenderStart);
+assert.ok(checklistRerenderStart >= 0 && checklistRerenderEnd > checklistRerenderStart, 'checklist rerender must remain discoverable');
+const checklistRerender = apiRuntime.slice(checklistRerenderStart, checklistRerenderEnd);
+const collapseCommitIndex = checklistRerender.indexOf('if (opts.listOnly === true)');
+const projectionCommitIndex = checklistRerender.indexOf('const groupRefreshHandled =');
+assert.ok(collapseCommitIndex >= 0 && projectionCommitIndex > collapseCommitIndex, 'explicit checklist collapse must outrank concurrent projection refresh branches');
 const checklistDisclosureStart = apiRuntime.indexOf('function __tmAnimateChecklistDisclosure');
 const checklistDisclosureEnd = apiRuntime.indexOf('function __tmTryRefreshChecklistProjectionGroups', checklistDisclosureStart);
 assert.ok(checklistDisclosureStart > -1 && checklistDisclosureEnd > checklistDisclosureStart, 'checklist disclosure implementation must remain discoverable');

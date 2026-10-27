@@ -19448,8 +19448,9 @@ if (!state.homepageOpen) return;
                         deletedBlockIds: Array.isArray(options?.deletedBlockIds) ? options.deletedBlockIds.slice() : [],
                         commitView,
                         refreshView: commitView,
-                        onDeferred: () => {
+                        onDeferred: (reason) => {
                             incrementalDeferred = true;
+                            try { options?.onDeferred?.(reason); } catch (e) {}
                         },
                     });
                     if (incrementalOk) {

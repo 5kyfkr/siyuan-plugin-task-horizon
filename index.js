@@ -43,6 +43,17 @@ const SIYUAN_UNPINNED_TOPBAR_STORAGE_KEY = "local-plugintopunpin";
 const CUSTOM_TAB_ID = PLUGIN_ID + TAB_TYPE;
 const TASK_DOCK_TYPE = "::task-horizon-dock";
 const TASK_DOCK_TITLE = "任务侧栏";
+// 移动端底部导航栏（思源「导航栏」设置）只认插件 Dock，因此额外注册一个只做入口的
+// Dock：图标可被用户挑进底部栏，点开即收起侧边面板并打开全屏任务管理器。它不渲染
+// 第二份管理器，只在需要时把同一个实例搬到全屏宿主，和「任务侧栏」共用一份状态。
+const TASK_FULLSCREEN_DOCK_TYPE = "::task-horizon-fullscreen";
+const TASK_FULLSCREEN_DOCK_TITLE = "全屏打开";
+const TASK_FULLSCREEN_DOCK_ID = "fullscreen";
+// 与任务管理器共用同一个入口图标：符号由 buildEntryIconSymbols 注册，跟随「入口图标」设置。
+const TASK_FULLSCREEN_DOCK_ICON = ICON_ID;
+const TASK_FULLSCREEN_DOCK_STYLE_ID = "tm-fullscreen-dock-style";
+const TASK_FULLSCREEN_OPEN_RETRY_MS = 150;
+const TASK_FULLSCREEN_OPEN_MAX_RETRY = 40;
 const TASK_DOCK_ROOT_ATTR = "data-task-horizon-dock-root";
 const TASK_DOCK_SNAPSHOT_ATTR = "data-task-horizon-dock-snapshot";
 const RESOURCE_FETCH_TIMEOUT_MS = 12000;
@@ -1292,6 +1303,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         `);
         this._taskCountBadgeStartupReady = true;
         try { globalThis.__tmTaskCountBadge?.startAfterLoad?.(); } catch (e) {}
+        try { globalThis.__tmPublicApiRuntime?.install?.(this); } catch (e) { console.warn("[task-horizon] public API initialization failed", e); }
     }
 
     registerDocumentSyncReloadListener() {
@@ -1538,6 +1550,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     }
 
     onLayoutReady() {
+        try { globalThis.__tmPublicApiRuntime?.syncWidget?.(); } catch (e) {}
         this._taskWindowTopBarLayoutReady = true;
         this.syncWindowTopBar();
         this.syncCalendarSubscriptionTopBar();
@@ -1867,6 +1880,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         // Calendar is part of the main plugin experience; preload its runtime so
         // the first calendar view and calendar settings open without a second load.
         await this.loadTaskHorizonCalendarAssets();
+        try { globalThis.__tmPublicApiRuntime?.install?.(this); } catch (e) { console.warn("[task-horizon] public API initialization failed", e); }
         this.mountExistingTabs(this.isRuntimeMobileClient() ? 7000 : 5000);
         if (!this.isRuntimeMobileClient()) {
             const dockElement = this.resolveTaskDockElement();
@@ -2701,9 +2715,195 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         };
         try { window.addEventListener("tm:task-horizon-dock-settings-changed", this._taskMobileDockSettingsHandler); } catch (e) {}
         try { window.addEventListener("storage", this._taskMobileDockStorageHandler); } catch (e) {}
+        // 全屏入口与「移动端侧栏」开关无关，始终注册：它只是底部栏图标的落点。
+        this.ensureMobileFullscreenDockRegistered("startup");
         if (readMobileSidebarEnabled()) {
             this.ensureMobileTaskDockRegistered("startup");
         }
+    }
+
+    /**
+     * 注册移动端底部栏的全屏入口 Dock。
+     * 思源的「导航栏」只把已注册 Dock 列进槽位下拉，因此必须真的注册一个 Dock；
+     * 这个 Dock 不挂载管理器，点开只负责收起侧边面板并打开全屏宿主。
+     */
+    ensureMobileFullscreenDockRegistered(reason = "manual") {
+        if (!this.isRuntimeMobileClient()) return false;
+        if (typeof this.addDock !== "function") return false;
+        if (this._taskFullscreenDockAdded) return true;
+        const plugin = this;
+        try {
+            this.addDock({
+                id: TASK_FULLSCREEN_DOCK_ID,
+                type: TASK_FULLSCREEN_DOCK_TYPE,
+                data: { plugin, reason },
+                config: {
+                    position: "RightBottom",
+                    size: { width: 320, height: 720 },
+                    icon: TASK_FULLSCREEN_DOCK_ICON,
+                    title: TASK_FULLSCREEN_DOCK_TITLE,
+                    index: 0,
+                },
+                init() {
+                    plugin._taskFullscreenDockElement = this.element || null;
+                    plugin.handleMobileFullscreenDockTrigger(this.element || null, reason);
+                },
+                update() {
+                    plugin._taskFullscreenDockElement = this.element || null;
+                    plugin.handleMobileFullscreenDockTrigger(this.element || null, `${reason}:update`);
+                },
+                destroy() {
+                    if (plugin._taskFullscreenDockElement === (this.element || null)) {
+                        plugin._taskFullscreenDockElement = null;
+                    }
+                },
+            });
+        } catch (e) {
+            console.warn("[task-horizon] register mobile fullscreen dock failed", e);
+            return false;
+        }
+        this._taskFullscreenDockAdded = true;
+        this.applyMobileFullscreenDockStyle();
+        this.bindMobileFullscreenDockClick();
+        return true;
+    }
+
+    /**
+     * 底部栏按钮点按时拦下思源默认的 openDock：面板不滑入、不切页签，直接开全屏。
+     * 拦截放在捕获阶段，先于思源自己的冒泡监听执行；万一拦截失效，Dock 的 init
+     * 仍会兜底打开全屏，只是会先闪一下面板。
+     */
+    bindMobileFullscreenDockClick() {
+        if (this._taskFullscreenDockClickHandler) return;
+        const plugin = this;
+        const dockType = `${this.name}${TASK_FULLSCREEN_DOCK_TYPE}`;
+        const handler = (event) => {
+            const target = event.target;
+            if (!(target instanceof Element)) return;
+            const button = target.closest("[data-mobile-plugin-dock]");
+            if (!(button instanceof HTMLElement) || button.dataset.mobilePluginDock !== dockType) return;
+            try {
+                event.preventDefault();
+                event.stopPropagation();
+            } catch (e) {}
+            plugin.openTaskHorizonFullscreen("bottom-bar");
+        };
+        this._taskFullscreenDockClickHandler = handler;
+        try { document.addEventListener("click", handler, true); } catch (e) {}
+    }
+
+    /** 底部栏图标（或该 Dock 页签）被点开时的唯一行为：收起面板并打开全屏管理器。 */
+    handleMobileFullscreenDockTrigger(element, reason = "manual") {
+        if (!this.isRuntimeMobileClient()) return false;
+        try {
+            if (element instanceof HTMLElement && !element.querySelector("[data-tm-fullscreen-placeholder]")) {
+                element.innerHTML = `<div data-tm-fullscreen-placeholder style="height:100%;display:flex;align-items:center;justify-content:center;font-size:13px;opacity:.6;">正在打开任务管理器…</div>`;
+            }
+        } catch (e) {}
+        // openDock 先把面板滑进来再派发点击；这里同步收回，避免用户看到面板闪一下。
+        this.closeMobileSidePanel();
+        return this.openTaskHorizonFullscreen(reason);
+    }
+
+    closeMobileSidePanel() {
+        try {
+            ["sidebar", "sidebarRight"].forEach((id) => {
+                const panel = document.getElementById(id);
+                if (panel instanceof HTMLElement) panel.style.removeProperty("transform");
+            });
+            const mask = document.querySelector(".side-mask");
+            if (mask instanceof HTMLElement) {
+                mask.style.opacity = "";
+                mask.classList.add("fn__none");
+            }
+        } catch (e) {}
+    }
+
+    /**
+     * 打开全屏任务管理器。移动端复用思源宿主已有的全屏入口（与顶栏入口、启动自动
+     * 打开同一套逻辑），它会把管理器从 Dock 宿主搬到全屏宿主，不会产生第二个实例。
+     */
+    openTaskHorizonFullscreen(reason = "manual", attempt = 0) {
+        if (!this.isRuntimeMobileClient()) {
+            this.openTaskHorizonTab();
+            return true;
+        }
+        const opener = globalThis.__taskHorizonOpenManagerFromTopbarEntry;
+        if (typeof opener === "function") {
+            try {
+                const result = opener({
+                    restoreDocTopbarContext: false,
+                    source: `mobile-fullscreen-dock:${reason}`,
+                });
+                Promise.resolve(result).catch((e) => {
+                    console.warn("[task-horizon] open fullscreen manager failed", e);
+                });
+                return true;
+            } catch (e) {
+                console.warn("[task-horizon] open fullscreen manager failed", e);
+            }
+        }
+        if (!hasTaskMainRuntime()) {
+            this.scheduleTaskMainRuntimeRecovery("mobile-fullscreen-open", { delayMs: 120 });
+        }
+        if (attempt >= TASK_FULLSCREEN_OPEN_MAX_RETRY) {
+            // 运行时始终没就绪：给一次可见反馈，避免点了图标没动静。
+            try {
+                fetchText("/api/notification/pushMsg", {
+                    msg: "任务管理器正在加载，请稍后再点一次",
+                    timeout: 4000,
+                }).catch(() => {});
+            } catch (e) {}
+            return false;
+        }
+        if (this._taskFullscreenOpenTimer) {
+            clearTimeout(this._taskFullscreenOpenTimer);
+            this._taskFullscreenOpenTimer = null;
+        }
+        this._taskFullscreenOpenTimer = setTimeout(() => {
+            this._taskFullscreenOpenTimer = null;
+            this.openTaskHorizonFullscreen(reason, attempt + 1);
+        }, TASK_FULLSCREEN_OPEN_RETRY_MS);
+        return false;
+    }
+
+    /**
+     * 这个 Dock 只给底部栏当入口，侧边面板里不出现它的页签：思源每次重排面板都会
+     * 重新挂载页签元素，所以用样式常驻隐藏（而不是删节点或临时加 fn__none）。
+     */
+    applyMobileFullscreenDockStyle() {
+        try {
+            if (document.getElementById(TASK_FULLSCREEN_DOCK_STYLE_ID)) return;
+            const dockType = `${this.name}${TASK_FULLSCREEN_DOCK_TYPE}`;
+            const style = document.createElement("style");
+            style.id = TASK_FULLSCREEN_DOCK_STYLE_ID;
+            style.textContent = `.side-panel [data-type="sidebar-${dockType}-tab"],`
+                + `[data-mobile-plugin-dock-tab="${dockType}"]{display:none !important;}`;
+            (document.head || document.body).appendChild(style);
+        } catch (e) {}
+    }
+
+    removeMobileFullscreenDock() {
+        try {
+            if (this._taskFullscreenOpenTimer) {
+                clearTimeout(this._taskFullscreenOpenTimer);
+                this._taskFullscreenOpenTimer = null;
+            }
+        } catch (e) {}
+        try {
+            if (this._taskFullscreenDockClickHandler) {
+                document.removeEventListener("click", this._taskFullscreenDockClickHandler, true);
+                this._taskFullscreenDockClickHandler = null;
+            }
+        } catch (e) {}
+        try {
+            if (this._taskFullscreenDockAdded && typeof this.removeDock === "function") {
+                this.removeDock(TASK_FULLSCREEN_DOCK_ID);
+            }
+        } catch (e) {}
+        this._taskFullscreenDockAdded = false;
+        this._taskFullscreenDockElement = null;
+        try { document.getElementById(TASK_FULLSCREEN_DOCK_STYLE_ID)?.remove(); } catch (e) {}
     }
 
     handleTaskDockSettingsChanged() {
@@ -3115,6 +3315,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     }
 
     onunload() {
+        try { globalThis.__tmPublicApiRuntime?.cleanup?.(this); } catch (e) {}
         clearPluginResourceTextCache();
         this._taskDataChangedQueued = false;
         try { this.unregisterDocumentSyncReloadListener(); } catch (e) {}
@@ -3230,6 +3431,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__tmViewPolicy; } catch (e) {}
         try { delete globalThis.__tmRuntimeState; } catch (e) {}
         try { delete globalThis.__tmRuntimeEvents; } catch (e) {}
+        try { this.removeMobileFullscreenDock(); } catch (e) {}
     }
 
     async uninstall() {

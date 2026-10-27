@@ -320,6 +320,7 @@
             return { completion: receipt, followUpOps, linkage };
         }
         if (receipt.completedOccurrence) {
+            globalThis.__tmPublicApiRuntime?.notifyCompleted(task, receipt, options.source);
             if (Number(options.rewardPriorityScore) > 0) __tmDispatchTaskCompletedForReward(task, {
                 taskId, priorityScore: options.rewardPriorityScore,
                 completedAt: receipt.completedAt, previousDone: false, nextDone: true,

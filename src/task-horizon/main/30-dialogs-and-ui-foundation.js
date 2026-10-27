@@ -880,6 +880,7 @@
     function __tmIsInboxHiddenFromAllTab(docId) {
         if (SettingsStore?.data?.hideInboxFromAllTab !== true) return false;
         if (String(state.activeDocId || 'all').trim() !== 'all') return false;
+        if ((String(SettingsStore.data.currentGroupId || 'all').trim() || 'all') === 'all') return false;
         const inboxDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         return !!inboxDocId && String(docId || '').trim() === inboxDocId;
     }
@@ -10743,9 +10744,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             tasks.push(...docTasks);
         });
         if (hasOtherBlocks) {
-            const otherTasks = buildProjectionIndex
+            const otherTasks = (buildProjectionIndex
                 ? buildProjectionIndex(state.otherBlocks).flatTasks
-                : (Array.isArray(state.otherBlocks) ? state.otherBlocks : []);
+                : (Array.isArray(state.otherBlocks) ? state.otherBlocks : []))
+                .filter((task) => !__tmIsInboxHiddenFromAllTab(task?.root_id || task?.docId));
             allTasksForTabs.push(...otherTasks);
             if (activeDocId === 'all' || isOtherBlocksActive) {
                 tasks.push(...otherTasks);

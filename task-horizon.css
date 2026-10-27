@@ -17567,6 +17567,15 @@ button.tm-task-detail-focus-stat[aria-expanded="true"] {
     list-style: none;
 }
 
+.tm-timeline-scale-menu > summary::marker {
+    content: '';
+}
+
+.tm-timeline-scale-menu > summary::before {
+    content: none;
+    display: none;
+}
+
 .tm-timeline-scale-menu > summary::-webkit-details-marker {
     display: none;
 }
@@ -26141,10 +26150,10 @@ th[data-col] {
 .tm-shortcut-hide-guide-acknowledge { min-height:30px; padding:4px 10px; font-size:12px; flex:none; }
 @keyframes tm-shortcut-hide-guide-in { from { opacity:0; transform:translateX(-6px); } to { opacity:1; transform:translateX(0); } }
 @media(prefers-reduced-motion:reduce) { .tm-shortcut-hide-guide-panel { animation:none; } }
-.tm-shortcut-layout[data-shortcut-narrow="true"] { --tm-shortcut-width:300px !important; --tm-shortcut-item-height:52px; }
-.tm-shortcut-layout[data-shortcut-narrow="true"] .tm-shortcut-head { height:52px; }
-.tm-shortcut-layout[data-shortcut-narrow="true"] .tm-shortcut-tool { width:44px; height:44px; }
-.tm-shortcut-layout[data-shortcut-narrow="true"] .tm-shortcut-row > .tm-shortcut-tool { top:4px; }
+.tm-shortcut-layout[data-shortcut-narrow="true"] { --tm-shortcut-width:300px !important; --tm-shortcut-item-height:44px; }
+.tm-shortcut-layout[data-shortcut-narrow="true"] .tm-shortcut-head { height:48px; }
+.tm-shortcut-layout[data-shortcut-narrow="true"] .tm-shortcut-tool { width:40px; height:40px; }
+.tm-shortcut-layout[data-shortcut-narrow="true"] .tm-shortcut-row > .tm-shortcut-tool { top:2px; }
 .tm-shortcut-layout[data-shortcut-narrow="true"] .tm-shortcut-edge { width:44px; justify-content:flex-start; padding-left:4px; background:transparent; border:0; }
 .tm-shortcut-layout[data-shortcut-narrow="true"] .tm-shortcut-edge::before { content:""; position:absolute; inset:0 22px 0 0; background:var(--tm-header-bg); border:1px solid var(--tm-border-color); border-left:0; border-radius:0 10px 10px 0; z-index:-1; }
 .tm-shortcut-backdrop { position:fixed; inset:0; z-index:200003; display:flex; align-items:center; justify-content:center; background:var(--tm-modal-overlay,rgba(30,40,50,.25)); }

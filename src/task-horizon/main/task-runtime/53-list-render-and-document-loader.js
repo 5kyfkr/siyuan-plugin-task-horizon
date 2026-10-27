@@ -2106,6 +2106,9 @@ return finish(false, 'noop');
             || latestTask?.task_complete_at
             || '',
         );
+        globalThis.__tmPublicApiRuntime?.notifyCompleted(latestTask, {
+            taskId: tid, completedOccurrence: true, completedAt, operationId: opts.effectId,
+        }, opts.source);
         let recurringScheduled = false;
         if (completedAt) {
             try {
@@ -2263,6 +2266,9 @@ return finish(false, 'noop');
                 latestTask.taskCompleteAt || latestTask.task_complete_at || '',
             );
         }
+        globalThis.__tmPublicApiRuntime?.notifyCompleted(latestTask, {
+            taskId: tid, completedOccurrence: true, completedAt, operationId: opts.effectId,
+        }, opts.source);
         latestTask.done = true;
         if (completedAt) {
             latestTask.taskCompleteAt = completedAt;

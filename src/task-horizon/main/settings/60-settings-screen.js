@@ -2642,7 +2642,7 @@
                         )}
                         ${renderSingleSwitchSetting(
                             '收集箱仅在独立页签显示',
-                            '开启后，文档分组的“全部”页签不显示收集箱文档中的任务；点击页签栏中的收集箱文档查看。',
+                            '开启后，自定义文档分组的“全部”页签不显示收集箱文档中的任务；点击页签栏中的收集箱文档查看。“全部文档”分组的“全部”页签仍会显示收集箱任务。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.hideInboxFromAllTab === true ? 'checked' : ''} onchange="updateHideInboxFromAllTab(this.checked)">`
                         )}
                         ${renderSingleFieldSetting(

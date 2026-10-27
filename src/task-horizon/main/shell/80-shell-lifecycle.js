@@ -1013,6 +1013,7 @@ if (shouldMarkDirty) {
 
     // 插件卸载清理
     function __tmCleanup() {
+        try { __tmPublicApiRuntime.cleanup(); } catch (e) {}
         try { __tmCleanupKanbanLaneAppearance(); } catch (e) {}
         try {
             if (state.__tmCalendarTopbarSyncTimer) clearTimeout(state.__tmCalendarTopbarSyncTimer);
@@ -1325,8 +1326,7 @@ if (shouldMarkDirty) {
                 state.scrollDeferredRefreshTimer = 0;
             }
             __tmTxTaskRefreshInFlight = false;
-            __tmTxTaskRefreshDocIds.clear();
-            __tmTxTaskRefreshBlockIds.clear();
+            __tmClearPendingTxRefreshTargets();
             __tmRecentVisibleDateFallbackTasks.clear();
             state.inheritedSubtaskPatchQueuedIds = {};
             __tmClearExternalTaskTxDirty();

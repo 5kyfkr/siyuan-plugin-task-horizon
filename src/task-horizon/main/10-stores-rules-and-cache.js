@@ -2855,6 +2855,8 @@
             dateFilter: globalThis.__tmDateFilter?.signature() || '',
             searchFields: __tmGetTaskSearchFields().join(','),
             archiveMode: state?.docTabsArchiveMode === true ? 1 : 0,
+            hideInboxFromAllTab: data.hideInboxFromAllTab === true ? 1 : 0,
+            newTaskDocId: String(data.newTaskDocId || '').trim(),
             groupMode,
             kanbanBoardMode: String(opts.viewMode || state?.viewMode || '') === 'kanban' ? __tmGetKanbanBoardMode() : '',
             groupByDocName: groupMode === 'doc' ? 1 : 0,
@@ -3007,6 +3009,7 @@
                 continue;
             }
             if (globalThis.__tmProjectVisibility?.isTaskHidden(task)) continue;
+            if (__tmIsInboxHiddenFromAllTab(task.root_id || task.docId)) continue;
             filtered.push(task);
         }
         if (missingIds.length > 0) {
@@ -13423,6 +13426,7 @@
         truncated: false,
         wholeScopeDirty: false,
         hiddenDocOnly: false,
+        indexWaitDocIds: [],
         insertedBlockIds: [],
         deletedBlockIds: [],
     };
@@ -16361,7 +16365,6 @@
                 v.ops,
                 v.operations,
                 v.doOperations,
-                v.undoOperations,
                 v.children,
                 v.items,
                 v.srcs,
@@ -16411,6 +16414,7 @@
 
     function __tmRememberPendingTxRefreshTargets(docIds = [], blockIds = [], options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        __tmTxTaskRefreshMeta.indexWaitDocIds = [];
         if (!__tmAddBoundedTaskTxIds(__tmTxTaskRefreshDocIds, docIds, __TM_TASK_TX_DOC_ID_LIMIT)) {
             __tmTxTaskRefreshDocIds.clear();
             __tmTxTaskRefreshMeta.wholeScopeDirty = true;
@@ -16509,6 +16513,7 @@
                 truncated: false,
                 wholeScopeDirty: false,
                 hiddenDocOnly: false,
+                indexWaitDocIds: [],
                 insertedBlockIds: [],
                 deletedBlockIds: [],
             };
@@ -16531,6 +16536,7 @@
             truncated: false,
             wholeScopeDirty: false,
             hiddenDocOnly: false,
+            indexWaitDocIds: [],
             insertedBlockIds: [],
             deletedBlockIds: [],
         };
@@ -19281,6 +19287,12 @@
                 insertedBlockIds: Array.isArray(pendingTargets?.meta?.insertedBlockIds) ? pendingTargets.meta.insertedBlockIds.slice() : [],
                 deletedBlockIds: Array.isArray(pendingTargets?.meta?.deletedBlockIds) ? pendingTargets.meta.deletedBlockIds.slice() : [],
                 pendingTargets,
+                onDeferred: (reason) => {
+                    if (!state.externalTaskTxDirty || pendingTargets.generation !== __tmTxTaskRefreshGeneration) return;
+                    __tmTxTaskRefreshMeta.indexWaitDocIds = reason === 'insert-index-not-visible'
+                        ? classified.docIds.slice()
+                        : [];
+                },
                 force: forceImmediate,
                 ignoreContextQuiet: retryOptions.ignoreContextQuiet,
                 bypassThrottle: retryOptions.bypassThrottle,
@@ -19430,6 +19442,29 @@
         arm(250, '');
     }
 
+    function __tmWakePendingTaskRefreshAfterIndexCommit(msg) {
+        if (!state.externalTaskTxDirty || __tmTxTaskRefreshInFlight) return false;
+        const waitingDocIds = new Set(__tmTxTaskRefreshMeta.indexWaitDocIds || []);
+        if (!waitingDocIds.size) return false;
+        const detail = __tmGetWsMainTaskTxDetail(msg);
+        const rootIDs = Array.isArray(detail?.data?.rootIDs) ? detail.data.rootIDs : [];
+        if (!rootIDs.some((id) => waitingDocIds.has(String(id || '').trim()))) return false;
+        // 消费本次唤醒以合并重复通知；数据确认仍由原协调器及版本校验完成。
+        __tmTxTaskRefreshMeta.indexWaitDocIds = [];
+        if (__tmTxTaskRefreshTimer) clearTimeout(__tmTxTaskRefreshTimer);
+        const hidden = typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow();
+        __tmTxTaskRefreshTimer = setTimeout(() => {
+            __tmTxTaskRefreshTimer = null;
+            __tmFlushTaskIncrementalRefreshFromTx({
+                source: 'ws-main-index-commit',
+                allowHiddenDataRefresh: hidden,
+                ignoreContextQuiet: hidden,
+                bypassThrottle: true,
+            }).catch(() => {});
+        }, 0);
+        return true;
+    }
+
     function __tmBindSqlCacheInvalidation() {
         if (__tmSqlCacheInvalidationBound) return;
         __tmSqlCacheInvalidationBound = true;
@@ -19444,6 +19479,10 @@
             const buses = globalThis.__tmHost?.getEventBuses?.() || [];
             __tmSqlCacheEventBuses = [];
             __tmSqlCacheEventBusHandler = (msg) => {
+                if (String(msg?.detail?.cmd || msg?.cmd || '').trim().toLowerCase() === 'databaseindexcommit') {
+                    __tmWakePendingTaskRefreshAfterIndexCommit(msg);
+                    return;
+                }
                 if (__tmShouldIgnoreWsMainTaskRefreshMessage(msg)) return;
                 const txTargets = __tmSummarizeWsMainTaskTx(msg);
                 const docIds = txTargets.docIds;
