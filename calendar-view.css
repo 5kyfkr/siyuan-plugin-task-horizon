@@ -2353,6 +2353,20 @@
     width: 28px;
     min-height: 28px;
     font-size: 16px;
+}.tm-cal-chrome-icon{
+    width: 14px;
+    height: 14px;
+    display: block;
+    fill: currentColor;
+    stroke: none;
+    pointer-events: none;
+}.tm-mini-cal-btn .tm-cal-chrome-icon{
+    width: 12px;
+    height: 12px;
+}.tm-proto-list-week-nav .tm-cal-chrome-icon,
+.tm-calendar-holiday-editor__toolbar .tm-cal-chrome-icon{
+    width: 18px;
+    height: 18px;
 }.tm-proto-day-panel-actions .tm-proto-today{
     min-height: 28px;
     min-width: 48px;
@@ -4277,6 +4291,7 @@
 .tm-proto-inline-hub-month-actions{display:inline-flex;align-items:center;gap:2px}
 .tm-proto-inline-hub-month-actions button{width:26px;height:26px;padding:0;border:1px solid transparent;border-radius:999px;background:transparent;color:var(--tm-cal-muted);font-size:13px;font-weight:800;cursor:pointer}
 .tm-proto-inline-hub-month-actions button:hover{border-color:color-mix(in srgb,var(--tm-cal-primary) 28%,transparent);color:var(--tm-cal-primary)}
+.tm-proto-inline-hub-month-actions .tm-cal-chrome-icon{width:12px;height:12px}
 .tm-proto-inline-hub-weekdays,.tm-proto-inline-hub-calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
 .tm-proto-inline-hub-weekdays{gap:1px}
 .tm-proto-inline-hub-weekdays span{height:20px;display:flex;align-items:center;justify-content:center;color:var(--tm-cal-muted);font-size:10.5px;font-weight:800}

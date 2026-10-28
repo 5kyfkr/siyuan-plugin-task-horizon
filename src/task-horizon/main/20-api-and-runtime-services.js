@@ -20686,6 +20686,20 @@ if (!state.homepageOpen) return;
         while (stack.length > __TM_REMARK_TEXTAREA_HISTORY_LIMIT) stack.shift();
     }
 
+    function __tmGetRemarkTextareaHistoryState(textarea) {
+        const history = __tmRemarkTextareaHistoryMap.get(textarea);
+        const editable = !!history && !history.composing && !textarea.readOnly && !textarea.disabled;
+        const current = editable ? __tmReadRemarkTextareaHistorySnapshot(textarea) : null;
+        return {
+            canUndo: editable && history.undoStack.some((snapshot) => !__tmAreRemarkTextareaHistorySnapshotsEqual(snapshot, current)),
+            canRedo: editable && history.redoStack.some((snapshot) => !__tmAreRemarkTextareaHistorySnapshotsEqual(snapshot, current)),
+        };
+    }
+
+    function __tmNotifyRemarkTextareaHistoryChanged(textarea) {
+        textarea.dispatchEvent(new Event('tm-remark-history-change', { bubbles: true }));
+    }
+
     function __tmIsRemarkTextareaHistoryTypingInput(inputType) {
         const type = String(inputType || '').trim();
         return type === 'insertText'
@@ -20698,6 +20712,7 @@ if (!state.homepageOpen) return;
         if (!history) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const snap = snapshot || __tmReadRemarkTextareaHistorySnapshot(textarea);
+        if (opts.keepRedo !== true) history.redoStack = [];
         if (__tmAreRemarkTextareaHistorySnapshotsEqual(snap, history.undoStack[history.undoStack.length - 1], true)) {
             return false;
         }
@@ -20708,7 +20723,6 @@ if (!state.homepageOpen) return;
         }
         history.undoStack.push({ ...snap });
         __tmTrimRemarkTextareaHistoryStack(history.undoStack);
-        if (opts.keepRedo !== true) history.redoStack = [];
         return true;
     }
 
@@ -20723,6 +20737,7 @@ if (!state.homepageOpen) return;
         const shouldMerge = isTyping
             && history.typingGroupActive
             && history.lastInputType === type
+            && __tmAreRemarkTextareaHistorySnapshotsEqual(editSnapshot, history.lastSnapshot, true)
             && now - Number(history.lastInputAt || 0) <= __TM_REMARK_TEXTAREA_HISTORY_TYPING_WINDOW;
         if (!shouldMerge || opts.force === true) {
             __tmPushRemarkTextareaUndoSnapshot(textarea, editSnapshot, { force: true });
@@ -20738,6 +20753,8 @@ if (!state.homepageOpen) return;
         if (!(textarea instanceof HTMLTextAreaElement) || !snapshot) return false;
         const history = __tmGetRemarkTextareaHistory(textarea);
         if (!history) return false;
+        const scrollTop = textarea.scrollTop;
+        const scrollLeft = textarea.scrollLeft;
         history.typingGroupActive = false;
         history.pendingNativeInput = false;
         history.ignoreInputCount += 1;
@@ -20745,22 +20762,28 @@ if (!state.homepageOpen) return;
         try { textarea.focus({ preventScroll: true }); } catch (e) { try { textarea.focus(); } catch (e2) {} }
         try { textarea.setSelectionRange(Number(snapshot.selectionStart || 0), Number(snapshot.selectionEnd || 0)); } catch (e) {}
         try { textarea.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+        textarea.scrollTop = scrollTop;
+        textarea.scrollLeft = scrollLeft;
         history.lastSnapshot = __tmReadRemarkTextareaHistorySnapshot(textarea);
+        __tmNotifyRemarkTextareaHistoryChanged(textarea);
         return true;
     }
 
     function __tmRestoreRemarkTextareaHistory(textarea, direction = 'undo') {
         const history = __tmGetRemarkTextareaHistory(textarea);
-        if (!history) return false;
+        if (!history || history.composing || textarea.readOnly || textarea.disabled) return false;
         const undo = String(direction || '').trim() !== 'redo';
         const sourceStack = undo ? history.undoStack : history.redoStack;
         const targetStack = undo ? history.redoStack : history.undoStack;
         const current = __tmReadRemarkTextareaHistorySnapshot(textarea);
         let target = sourceStack.pop();
-        while (target && __tmAreRemarkTextareaHistorySnapshotsEqual(target, current, true)) {
+        while (target && __tmAreRemarkTextareaHistorySnapshotsEqual(target, current)) {
             target = sourceStack.pop();
         }
-        if (!target) return false;
+        if (!target) {
+            __tmNotifyRemarkTextareaHistoryChanged(textarea);
+            return false;
+        }
         targetStack.push({ ...current });
         __tmTrimRemarkTextareaHistoryStack(targetStack);
         return __tmApplyRemarkTextareaHistorySnapshot(textarea, target);
@@ -20770,7 +20793,12 @@ if (!state.homepageOpen) return;
         const history = __tmGetRemarkTextareaHistory(textarea);
         if (!history || history.ignoreInputCount > 0 || history.composing || event?.isComposing) return false;
         const type = String(event?.inputType || '').trim();
-        if (type === 'historyUndo' || type === 'historyRedo') return false;
+        if (type === 'historyUndo' || type === 'historyRedo') {
+            event.preventDefault();
+            event.stopPropagation();
+            __tmRestoreRemarkTextareaHistory(textarea, type === 'historyRedo' ? 'redo' : 'undo');
+            return true;
+        }
         return __tmPrepareRemarkTextareaHistoryEdit(textarea, type, { nativeInput: true });
     }
 
@@ -20794,6 +20822,7 @@ if (!state.homepageOpen) return;
         }
         history.pendingNativeInput = false;
         history.lastSnapshot = __tmReadRemarkTextareaHistorySnapshot(textarea);
+        __tmNotifyRemarkTextareaHistoryChanged(textarea);
         return true;
     }
 
@@ -20812,6 +20841,7 @@ if (!state.homepageOpen) return;
             if (!nextHistory) return;
             nextHistory.composing = true;
             nextHistory.compositionSnapshot = __tmReadRemarkTextareaHistorySnapshot(textarea);
+            __tmNotifyRemarkTextareaHistoryChanged(textarea);
         }, true);
         textarea.addEventListener('compositionend', () => {
             const nextHistory = __tmGetRemarkTextareaHistory(textarea);
@@ -20825,6 +20855,10 @@ if (!state.homepageOpen) return;
             nextHistory.compositionSnapshot = null;
             nextHistory.lastSnapshot = current;
             nextHistory.typingGroupActive = false;
+            __tmNotifyRemarkTextareaHistoryChanged(textarea);
+        }, true);
+        textarea.addEventListener('blur', () => {
+            history.typingGroupActive = false;
         }, true);
         return true;
     }
@@ -20842,6 +20876,16 @@ if (!state.homepageOpen) return;
         history.ignoreInputCount = 0;
         history.composing = false;
         history.compositionSnapshot = null;
+        __tmNotifyRemarkTextareaHistoryChanged(textarea);
+        return true;
+    }
+
+    function __tmSetRemarkTextareaExternalValue(textarea, value) {
+        if (!(textarea instanceof HTMLTextAreaElement) || textarea.value === String(value || '')) return false;
+        // A normalized save echo must not discard the current editing history.
+        if (__tmNormalizeRemarkMarkdown(textarea.value) === __tmNormalizeRemarkMarkdown(value)) return false;
+        textarea.value = String(value || '');
+        __tmResetRemarkTextareaUndoHistory(textarea);
         return true;
     }
 
@@ -20852,10 +20896,14 @@ if (!state.homepageOpen) return;
         const isUndo = key === 'z' && !event.shiftKey;
         const isRedo = (key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey);
         if (!isUndo && !isRedo) return false;
-        if (!__tmRestoreRemarkTextareaHistory(textarea, isRedo ? 'redo' : 'undo')) return false;
+        const history = __tmGetRemarkTextareaHistory(textarea);
+        if (!history || history.composing || textarea.readOnly || textarea.disabled) return false;
+        // Bound remark editors own their history even after it is exhausted.
+        if (!history.bound && !history.undoStack.length && !history.redoStack.length) return false;
         try { event.preventDefault(); } catch (e) {}
         try { event.stopPropagation(); } catch (e) {}
         try { event.stopImmediatePropagation(); } catch (e) {}
+        __tmRestoreRemarkTextareaHistory(textarea, isRedo ? 'redo' : 'undo');
         return true;
     }
 
@@ -20875,6 +20923,7 @@ if (!state.homepageOpen) return;
             const history = __tmGetRemarkTextareaHistory(textarea);
             if (history) history.lastSnapshot = __tmReadRemarkTextareaHistorySnapshot(textarea);
         }
+        __tmNotifyRemarkTextareaHistoryChanged(textarea);
     }
 
     function __tmWrapRemarkSelection(textarea, prefix, suffix = prefix) {
@@ -21160,6 +21209,7 @@ if (!state.homepageOpen) return;
             handleTextareaKeydown: __tmHandleRemarkTextareaKeydown,
             bindUndoHistory: __tmBindRemarkTextareaUndoHistory,
             resetUndoHistory: __tmResetRemarkTextareaUndoHistory,
+            getHistoryState: __tmGetRemarkTextareaHistoryState,
             undo: (textarea) => __tmRestoreRemarkTextareaHistory(textarea, 'undo'),
             redo: (textarea) => __tmRestoreRemarkTextareaHistory(textarea, 'redo'),
         };

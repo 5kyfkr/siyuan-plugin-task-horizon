@@ -1098,6 +1098,7 @@
             && __tmGetCustomFieldDefs().length > 0;
         const customFieldsComplete = !hasCustomFieldDefs || task.__tmLoadedAllCustomFields === true;
         const beforeRemark = __tmGetTaskDetailRemarkRaw(task);
+        const beforeCustomFields = JSON.stringify(task.customFieldValues || {});
         const getQueuedPatch = () => {
             try {
                 if (!tid || typeof __tmBuildQueuedTaskFieldPatchMap !== 'function') return null;
@@ -1168,6 +1169,24 @@
                     }) || task;
                 }
             } catch (e) {}
+        }
+        // Detail reads must advance the confirmed base as well as the mounted
+        // task mirrors; subsequent renders project from that base.
+        if (tid) {
+            globalThis.__tmTaskStore?.acceptAuthoritative?.([{
+                ...resolvedTask,
+                customFieldValues: {
+                    ...__tmGetTaskCustomFieldRawValues(resolvedTask),
+                    ...(resolvedTask.customFieldValues || {}),
+                },
+            }]);
+            if (beforeCustomFields !== JSON.stringify(resolvedTask.customFieldValues || {})) {
+                try {
+                    globalThis.__tmTaskSnapshotService?.schedulePersist?.({
+                        changedDocIds: [resolvedTask.root_id || resolvedTask.docId].filter(Boolean),
+                    });
+                } catch (e) {}
+            }
         }
         if (tid) {
             try {
@@ -4985,7 +5004,7 @@
                     if (textarea instanceof HTMLTextAreaElement) {
                         const isActiveRemarkEditor = __tmIsTaskDetailRemarkDraftActive(root);
                         if (!isActiveRemarkEditor) {
-                            textarea.value = normalizedRemarkValue;
+                            __tmSetRemarkTextareaExternalValue(textarea, normalizedRemarkValue);
                             syncAutoHeight(textarea, 34);
                         }
                         syncRemarkSavedState(normalizedRemarkValue);
@@ -5124,7 +5143,7 @@
                         if (textarea instanceof HTMLTextAreaElement) {
                             const isActiveRemarkEditor = __tmIsTaskDetailRemarkDraftActive(root);
                             if (!isActiveRemarkEditor) {
-                                textarea.value = normalizedRemarkValue;
+                                __tmSetRemarkTextareaExternalValue(textarea, normalizedRemarkValue);
                                 syncAutoHeight(textarea, 34);
                             }
                             syncRemarkSavedState(normalizedRemarkValue);
@@ -10917,7 +10936,7 @@ return true;
                 : textarea instanceof HTMLTextAreaElement && textarea === document.activeElement;
             if (textarea instanceof HTMLTextAreaElement) {
                 try { __tmSyncTaskDetailRemarkTextareaSavedState(textarea, remarkValue); } catch (e) {}
-                if (!isDraftActive) textarea.value = remarkValue;
+                if (!isDraftActive) __tmSetRemarkTextareaExternalValue(textarea, remarkValue);
             }
             const preview = panel.querySelector('[data-tm-detail-remark-preview]');
             const remarkShell = panel.querySelector('[data-tm-detail-remark-shell]');

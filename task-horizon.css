@@ -13681,6 +13681,27 @@ button.tm-task-detail-focus-stat[aria-expanded="true"] {
     font-weight: 700;
 }
 
+.tm-task-detail-remark-toolbar-btn:disabled {
+    opacity: .35;
+    cursor: default;
+}
+
+.tm-task-detail-remark-toolbar-btn .tm-lucide-emoji,
+.tm-task-detail-remark-toolbar-btn svg,
+.tm-task-detail-remark-toolbar-toggle svg {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+}
+
+.tm-remark-toolbar-separator {
+    width: 1px;
+    height: 16px;
+    flex: 0 0 1px;
+    margin: 0 2px;
+    background: var(--border);
+}
+
 .tm-task-detail-core-chip.is-open {
     border-color: color-mix(in srgb, var(--primary) 42%, var(--border) 58%);
     background: color-mix(in srgb, var(--accent) 72%, var(--input) 28%);
@@ -23942,6 +23963,15 @@ th[data-col] {
 
 .tm-doc-group-manager__more > summary {
     list-style: none;
+}
+
+.tm-doc-group-manager__more > summary::marker {
+    content: '';
+}
+
+.tm-doc-group-manager__more > summary::before {
+    content: none;
+    display: none;
 }
 
 .tm-doc-group-manager__more > summary::-webkit-details-marker {

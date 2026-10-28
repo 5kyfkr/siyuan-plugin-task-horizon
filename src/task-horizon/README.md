@@ -7,6 +7,11 @@
 - Release mode: [build.ps1](/abs/path/d:/AI/trae/siyuan-plugin-task-horizon/build.ps1:1) concatenates those scripts into the root `task.js` inside the temporary packaging directory.
 - Root `task.js` remains the published/fallback entry and should not be treated as the long-term source of truth.
 
+## Remark editing history
+
+- `main/20-api-and-runtime-services.js` owns the bounded history for each remark textarea. Buttons, Ctrl/Cmd+Z, redo shortcuts and native history input events use the same snapshots and notify their toolbar through `tm-remark-history-change`.
+- Detail and quickbar share the Phosphor Bold icon table and editing commands. Ordinary save echoes preserve history; replacing external content or opening another quickbar editing session resets the baseline. History stays in memory with the editor and is not a document version archive.
+
 ## Shortcut date filter
 
 - `main/38-date-filter.js` owns the session-only `state.dateFilter`, shared interval matcher and one calendar mounted in the sidebar or its rail flyout. Only the month/week preference is persisted through the existing shortcut preferences.

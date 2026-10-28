@@ -3187,6 +3187,13 @@
                 gap: 2px;
                 flex-wrap: wrap;
             }
+            .sy-custom-props-floatbar__remark-separator {
+                width: 1px;
+                height: 16px;
+                flex: 0 0 1px;
+                margin: 0 4px;
+                background: var(--b3-border-color);
+            }
             .sy-custom-props-floatbar__remark-toolbar.is-open {
                 display: flex;
             }
@@ -3206,7 +3213,11 @@
                 justify-content: center;
                 cursor: pointer;
             }
-            .sy-custom-props-floatbar__remark-tool:hover,
+            .sy-custom-props-floatbar__remark-tool:disabled {
+                opacity: .35;
+                cursor: default;
+            }
+            .sy-custom-props-floatbar__remark-tool:not(:disabled):hover,
             .sy-custom-props-floatbar__remark-close:hover {
                 background: var(--b3-list-hover);
             }
@@ -3692,12 +3703,17 @@
             <div class="sy-custom-props-floatbar__input-extra" data-input-extra></div>
             <div class="sy-custom-props-floatbar__remark-toolbar" data-remark-toolbar hidden>
                 <div class="sy-custom-props-floatbar__remark-tools" role="toolbar" aria-label="备注格式">
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="undo" disabled aria-label="撤销"${buildTooltipAttrs('撤销（Ctrl / ⌘ + Z）', 'bottom')}>${renderQuickbarRemarkIcon('arrow-u-up-left')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="redo" disabled aria-label="重做"${buildTooltipAttrs('重做（Ctrl / ⌘ + Shift + Z）', 'bottom')}>${renderQuickbarRemarkIcon('arrow-u-up-right')}</button>
+                    <span class="sy-custom-props-floatbar__remark-separator" role="separator" aria-orientation="vertical"></span>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="outdent" aria-label="取消缩进"${buildTooltipAttrs('取消缩进（Shift + Tab）', 'bottom')}>${renderQuickbarRemarkIcon('text-outdent')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="indent" aria-label="缩进"${buildTooltipAttrs('缩进（Tab）', 'bottom')}>${renderQuickbarRemarkIcon('text-indent')}</button>
                     <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="bold"${buildTooltipAttrs('粗体', 'bottom')}>${renderQuickbarRemarkIcon('text-b')}</button>
                     <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="italic"${buildTooltipAttrs('斜体', 'bottom')}>${renderQuickbarRemarkIcon('text-italic')}</button>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="code"${buildTooltipAttrs('行内代码', 'bottom')}>${renderQuickbarRemarkIcon('code')}</button>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="link"${buildTooltipAttrs('链接', 'bottom')}>${renderQuickbarRemarkIcon('link-simple')}</button>
                     <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="bullet"${buildTooltipAttrs('无序列表', 'bottom')}>${renderQuickbarRemarkIcon('list-bullets')}</button>
                     <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="ordered"${buildTooltipAttrs('有序列表', 'bottom')}>${renderQuickbarRemarkIcon('list-numbers')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="code"${buildTooltipAttrs('行内代码', 'bottom')}>${renderQuickbarRemarkIcon('code')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="link"${buildTooltipAttrs('链接', 'bottom')}>${renderQuickbarRemarkIcon('link-simple')}</button>
                     <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="quote"${buildTooltipAttrs('引用', 'bottom')}>${renderQuickbarRemarkIcon('quotes')}</button>
                 </div>
                 <button type="button" class="sy-custom-props-floatbar__remark-close" data-action="remark-close"${buildTooltipAttrs('关闭备注编辑', 'bottom')}>${renderQuickbarRemarkIcon('x', 14)}</button>
@@ -3709,6 +3725,13 @@
             </div>
         `.trim();
         document.body.appendChild(inputEditor);
+        inputEditor.addEventListener('tm-remark-history-change', (event) => {
+            const history = getRemarkMarkdownTools()?.getHistoryState?.(event.target);
+            ['undo', 'redo'].forEach((action) => {
+                const button = inputEditor.querySelector(`[data-remark-tool="${action}"]`);
+                if (button instanceof HTMLButtonElement) button.disabled = !history?.[action === 'undo' ? 'canUndo' : 'canRedo'];
+            });
+        });
 
         // 状态变量
         let currentBlockEl = null;
@@ -4907,18 +4930,7 @@
              * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
              * SOFTWARE.
              */
-            const paths = {
-                "text-b": "<path d=\"M178.48,115.7A44,44,0,0,0,148,40H80a8,8,0,0,0-8,8V200a8,8,0,0,0,8,8h80a48,48,0,0,0,18.48-92.3ZM88,56h60a28,28,0,0,1,0,56H88Zm72,136H88V128h72a32,32,0,0,1,0,64Z\"/>",
-                "text-italic": "<path d=\"M200,56a8,8,0,0,1-8,8H157.77L115.1,192H144a8,8,0,0,1,0,16H64a8,8,0,0,1,0-16H98.23L140.9,64H112a8,8,0,0,1,0-16h80A8,8,0,0,1,200,56Z\"/>",
-                "code": "<path d=\"M69.12,94.15,28.5,128l40.62,33.85a8,8,0,1,1-10.24,12.29l-48-40a8,8,0,0,1,0-12.29l48-40a8,8,0,0,1,10.24,12.3Zm176,27.7-48-40a8,8,0,1,0-10.24,12.3L227.5,128l-40.62,33.85a8,8,0,1,0,10.24,12.29l48-40a8,8,0,0,0,0-12.29ZM162.73,32.48a8,8,0,0,0-10.25,4.79l-64,176a8,8,0,0,0,4.79,10.26A8.14,8.14,0,0,0,96,224a8,8,0,0,0,7.52-5.27l64-176A8,8,0,0,0,162.73,32.48Z\"/>",
-                "link-simple": "<path d=\"M165.66,90.34a8,8,0,0,1,0,11.32l-64,64a8,8,0,0,1-11.32-11.32l64-64A8,8,0,0,1,165.66,90.34ZM215.6,40.4a56,56,0,0,0-79.2,0L106.34,70.45a8,8,0,0,0,11.32,11.32l30.06-30a40,40,0,0,1,56.57,56.56l-30.07,30.06a8,8,0,0,0,11.31,11.32L215.6,119.6a56,56,0,0,0,0-79.2ZM138.34,174.22l-30.06,30.06a40,40,0,1,1-56.56-56.57l30.05-30.05a8,8,0,0,0-11.32-11.32L40.4,136.4a56,56,0,0,0,79.2,79.2l30.06-30.07a8,8,0,0,0-11.32-11.31Z\"/>",
-                "list-bullets": "<path d=\"M80,64a8,8,0,0,1,8-8H216a8,8,0,0,1,0,16H88A8,8,0,0,1,80,64Zm136,56H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Zm0,64H88a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16ZM44,52A12,12,0,1,0,56,64,12,12,0,0,0,44,52Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,116Zm0,64a12,12,0,1,0,12,12A12,12,0,0,0,44,180Z\"/>",
-                "list-numbers": "<path d=\"M224,128a8,8,0,0,1-8,8H104a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128ZM104,72H216a8,8,0,0,0,0-16H104a8,8,0,0,0,0,16ZM216,184H104a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16ZM43.58,55.16,48,52.94V104a8,8,0,0,0,16,0V40a8,8,0,0,0-11.58-7.16l-16,8a8,8,0,0,0,7.16,14.32ZM79.77,156.72a23.73,23.73,0,0,0-9.6-15.95,24.86,24.86,0,0,0-34.11,4.7,23.63,23.63,0,0,0-3.57,6.46,8,8,0,1,0,15,5.47,7.84,7.84,0,0,1,1.18-2.13,8.76,8.76,0,0,1,12-1.59A7.91,7.91,0,0,1,63.93,159a7.64,7.64,0,0,1-1.57,5.78,1,1,0,0,0-.08.11L33.59,203.21A8,8,0,0,0,40,216H72a8,8,0,0,0,0-16H56l19.08-25.53A23.47,23.47,0,0,0,79.77,156.72Z\"/>",
-                "quotes": "<path d=\"M100,56H40A16,16,0,0,0,24,72v64a16,16,0,0,0,16,16h60v8a32,32,0,0,1-32,32,8,8,0,0,0,0,16,48.05,48.05,0,0,0,48-48V72A16,16,0,0,0,100,56Zm0,80H40V72h60ZM216,56H156a16,16,0,0,0-16,16v64a16,16,0,0,0,16,16h60v8a32,32,0,0,1-32,32,8,8,0,0,0,0,16,48.05,48.05,0,0,0,48-48V72A16,16,0,0,0,216,56Zm0,80H156V72h60Z\"/>",
-                "x": "<path d=\"M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z\"/>"
-            };
-            const body = paths[name];
-            return body ? `<svg viewBox="0 0 256 256" width="${size}" height="${size}" fill="currentColor" aria-hidden="true">${body}</svg>` : '';
+            return globalThis.__tmPhosphorBoldSvg?.(name, { size }) || '';
         }
 
         async function saveRawTaskAttrWithUndo(blockId, attrKey, value, options = {}) {
@@ -7567,7 +7579,11 @@
                         e.preventDefault();
                         const action = String(button.dataset.remarkTool || '').trim();
                         if (!action || !remarkTools) return;
-                        if (action === 'bold' && typeof remarkTools.wrapSelection === 'function') remarkTools.wrapSelection(textarea, '**');
+                        if (action === 'undo' || action === 'redo') {
+                            if (!remarkTools[action]?.(textarea)) return;
+                        } else if (action === 'indent' || action === 'outdent') {
+                            if (!remarkTools.adjustIndent?.(textarea, action === 'outdent')) return;
+                        } else if (action === 'bold' && typeof remarkTools.wrapSelection === 'function') remarkTools.wrapSelection(textarea, '**');
                         else if (action === 'italic' && typeof remarkTools.wrapSelection === 'function') remarkTools.wrapSelection(textarea, '*');
                         else if (action === 'code' && typeof remarkTools.wrapSelection === 'function') remarkTools.wrapSelection(textarea, '`');
                         else if (action === 'link' && typeof remarkTools.insertLinkTemplate === 'function') remarkTools.insertLinkTemplate(textarea);

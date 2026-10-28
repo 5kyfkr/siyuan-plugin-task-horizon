@@ -25,6 +25,7 @@ const context = vm.createContext({
     window: {}, state: {},
     prototypeListState: { focusDate: day, collapsedGroups: new Set() },
     esc: (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;'),
+    buildCalendarChromeIcon: (name, size = 14) => `<svg data-icon="${name}" data-size="${size}"></svg>`,
     protoDayStart: (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()),
     protoAddDays: addDays, protoDateKey: dateKey, protoSafeDate: (date) => date,
     protoEventEnd: (event) => event.end,

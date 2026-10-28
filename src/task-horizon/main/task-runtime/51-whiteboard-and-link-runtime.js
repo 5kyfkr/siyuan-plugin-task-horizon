@@ -3423,7 +3423,10 @@
             const preview = root.querySelector('[data-tm-detail-remark-preview]');
             const toolbar = root.querySelector('[data-tm-detail-remark-toolbar]');
             const value = String(snapshot.value || '');
-            textarea.value = value;
+            if (textarea.value !== value) {
+                textarea.value = value;
+                __tmResetRemarkTextareaUndoHistory(textarea);
+            }
             textarea.dataset.savedValue = __tmNormalizeRemarkMarkdown(snapshot.savedValue || root.__tmTaskDetailTask?.remark || '');
             if (snapshot.composing === true) textarea.dataset.composing = 'true';
             else delete textarea.dataset.composing;
@@ -12959,32 +12962,41 @@ return false;
         const buttonClass = String(opts.buttonClass || 'bc-btn bc-btn--sm tm-task-detail-remark-toolbar-btn').trim() || 'bc-btn bc-btn--sm tm-task-detail-remark-toolbar-btn';
         const tooltipSide = String(opts.tooltipSide || 'top').trim() || 'top';
         const tools = [
-            { action: 'outdent', title: '取消缩进', content: __tmRenderLucideIcon('text-outdent') },
-            { action: 'indent', title: '缩进', content: __tmRenderLucideIcon('text-indent') },
-            { action: 'bullet', title: '无序列表', content: __tmRenderLucideIcon('list-bullets', '', { size: 16, style: 'width:16px;height:16px;' }) },
-            { action: 'ordered', title: '有序列表', content: __tmRenderLucideIcon('list-numbers', '', { size: 16, style: 'width:16px;height:16px;' }) },
-            { action: 'bold', label: 'B', title: '粗体' },
-            { action: 'italic', content: '<span style="font-style:italic;">I</span>', title: '斜体' },
-            { action: 'code', label: 'Code', title: '行内代码' },
-            { action: 'link', title: '链接', content: __tmRenderLucideIcon('link-simple', '', { size: 18, style: 'width:18px;height:18px;' }) },
-            { action: 'quote', label: '❝', title: '引用' },
+            { action: 'outdent', title: '取消缩进', icon: 'text-outdent' },
+            { action: 'indent', title: '缩进', icon: 'text-indent' },
+            { action: 'bold', title: '粗体', icon: 'text-b' },
+            { action: 'italic', title: '斜体', icon: 'text-italic' },
+            { action: 'bullet', title: '无序列表', icon: 'list-bullets' },
+            { action: 'ordered', title: '有序列表', icon: 'list-numbers' },
+            { action: 'code', title: '行内代码', icon: 'code' },
+            { action: 'link', title: '链接', icon: 'link-simple' },
+            { action: 'quote', title: '引用', icon: 'quotes' },
         ];
+        if (opts.history === true) {
+            tools.unshift(
+                { action: 'undo', title: '撤销（Ctrl / ⌘ + Z）', icon: 'arrow-u-up-left', history: true },
+                { action: 'redo', title: '重做（Ctrl / ⌘ + Shift + Z）', icon: 'arrow-u-up-right', history: true },
+            );
+        }
         return tools.map((tool) => `
             <button type="button"
                 class="${esc(buttonClass)}"
                 ${toolAttr}="${esc(tool.action)}"
-                ${__tmBuildTooltipAttrs(tool.title, { side: tooltipSide, ariaLabel: false })}>${tool.content || tool.label || ''}</button>
+                aria-label="${esc(tool.title)}" ${tool.history ? 'disabled' : ''}
+                ${__tmBuildTooltipAttrs(tool.title, { side: tooltipSide, ariaLabel: false })}>${__tmRenderLucideIcon(tool.icon, '', { size: 16, style: 'width:16px;height:16px;' })}</button>
+            ${tool.action === 'redo' ? '<span class="tm-remark-toolbar-separator" role="separator" aria-orientation="vertical"></span>' : ''}
         `).join('');
     }
 
     function __tmBuildTaskDetailRemarkToolbarHtml() {
-        return __tmBuildRemarkMarkdownToolbarHtml();
+        return __tmBuildRemarkMarkdownToolbarHtml({ history: true });
     }
 
     function __tmApplyRemarkMarkdownTool(textarea, action) {
         if (!(textarea instanceof HTMLTextAreaElement)) return false;
         const key = String(action || '').trim();
         if (!key) return false;
+        if (key === 'undo' || key === 'redo') return __tmRestoreRemarkTextareaHistory(textarea, key);
         if (key === 'indent') return __tmAdjustRemarkIndent(textarea, false);
         if (key === 'outdent') return __tmAdjustRemarkIndent(textarea, true);
         if (key === 'bold') return __tmWrapRemarkSelection(textarea, '**');
@@ -13007,6 +13019,15 @@ return false;
                 try { target.addEventListener(type, handler, listenerOptions); } catch (e) {}
             };
         const runApply = typeof opts.apply === 'function' ? opts.apply : (fn) => fn();
+        const syncHistoryButtons = () => {
+            const history = __tmGetRemarkTextareaHistoryState(textarea);
+            ['undo', 'redo'].forEach((action) => {
+                const button = toolbar.querySelector(`[${toolAttr}="${action}"]`);
+                if (button instanceof HTMLButtonElement) button.disabled = !history[action === 'undo' ? 'canUndo' : 'canRedo'];
+            });
+        };
+        bind(textarea, 'tm-remark-history-change', syncHistoryButtons);
+        syncHistoryButtons();
         toolbar.querySelectorAll(`[${toolAttr}]`).forEach((button) => {
             if (!(button instanceof HTMLButtonElement)) return;
             bind(button, 'mousedown', (ev) => {
@@ -13042,7 +13063,7 @@ return false;
                             <span class="tm-task-detail-section-title">备注</span>
                             <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
                         </button>
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-remark-toolbar-toggle" data-tm-detail-remark-toolbar-toggle${detailTip('格式工具', { ariaLabel: false })}>A</button>
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-remark-toolbar-toggle" data-tm-detail-remark-toolbar-toggle aria-label="格式工具"${detailTip('格式工具', { ariaLabel: false })}>${__tmPhosphorBoldSvg('sliders-horizontal', { size: 16 })}</button>
                     </div>
                     <div class="tm-task-detail-remark-toolbar" data-tm-detail-remark-toolbar>${__tmBuildTaskDetailRemarkToolbarHtml()}</div>
                 </div>

@@ -4009,17 +4009,43 @@ return Number(state.contextInteractionQuietUntil || 0);
         const source = String(options.source || 'cache-first-paint:verify');
         const token = Number(state.openToken) || 0;
         const groupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const activeDocId = String(state.activeDocId || 'all');
+        const viewMode = String(state.viewMode || '');
         const isCurrent = () => token === (Number(state.openToken) || 0)
             && (String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') === groupId
+            && String(state.activeDocId || 'all') === activeDocId
+            && String(state.viewMode || '') === viewMode
             && (typeof options.isCurrent !== 'function' || options.isCurrent());
-        const key = `${token}:${groupId}`;
+        const key = `${token}:${groupId}:${activeDocId}:${viewMode}`;
         const previous = state.__tmCachedScopeVerifyInFlight;
         if (previous?.key === key) return await previous.promise;
         const request = Promise.resolve().then(async () => {
             if (!isCurrent()) return { complete: false };
             const freshness = options.freshness || await __tmProbeCurrentGroupTaskFreshness();
             if (!isCurrent()) return { complete: false };
-            if (freshness?.status === 'unchanged') return { complete: true, changed: false };
+            if (freshness?.status === 'unchanged') {
+                // Block freshness does not describe which custom attributes
+                // an older snapshot/index actually loaded. Repair that coverage
+                // independently, including a tab group's aggregate context.
+                const plan = typeof __tmBuildRuntimeCustomFieldLoadPlan === 'function'
+                    ? __tmBuildRuntimeCustomFieldLoadPlan() : null;
+                let changed = false;
+                let complete = true;
+                if (plan?.bulkFieldIds?.length) {
+                    const meta = await __tmHydrateMissingRuntimeCustomFields(plan.bulkFieldIds, { isCurrent });
+                    complete = meta?.queryComplete !== false;
+                    changed = Number(meta?.taskCount || 0) > 0;
+                }
+                if (!isCurrent()) return { complete: false };
+                if (plan?.deferredListFieldIds?.length && String(state.viewMode || '') === 'list') {
+                    const meta = await __tmHydrateVisibleListCustomFields(plan.deferredListFieldIds, { onlyMissing: true, isCurrent });
+                    complete = complete && meta?.queryComplete !== false;
+                    changed = Number(meta?.taskCount || 0) > 0 || changed;
+                }
+                if (!isCurrent()) return { complete: false };
+                if (changed) __tmRecomputeTaskProjection({ reason: source });
+                return { complete, changed, incremental: true };
+            }
             // A failed lightweight read must not cause a heavier full-scope read.
             if (freshness?.readFailure) return { complete: false };
             if (freshness?.status === 'changed') {
@@ -4113,7 +4139,6 @@ return Number(state.contextInteractionQuietUntil || 0);
             if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== groupId) return;
             const freshness = await __tmProbeCurrentGroupTaskFreshness();
             const freshnessStatus = String(freshness?.status || (freshness?.changed ? 'changed' : 'unknown')).trim() || 'unknown';
-            if (freshnessStatus === 'unchanged') return;
             if (freshness?.readFailure) return;
             const refreshGate = __tmGetBackgroundRefreshGateMeta(`${source}:task-refresh`);
             if (!refreshGate.allowRun) {
@@ -4130,6 +4155,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     && (String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') === groupId,
             });
             if (!verified.complete && !verified.changed) return;
+            if (!verified.changed) return;
             if (token !== (Number(state.openToken) || 0)) return;
             if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== groupId) return;
             try { recalcStats(); } catch (e) {}
@@ -4223,6 +4249,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!Array.isArray(state.deferredListCustomFieldIds) || state.deferredListCustomFieldIds.length === 0) return false;
         state.listAutoLoadMoreHydrateToken = (Number(state.listAutoLoadMoreHydrateToken) || 0) + 1;
         const token = Number(state.listAutoLoadMoreHydrateToken) || 0;
+        let retriesRemaining = 1;
         const arm = (delayMs = 240) => {
             try {
                 if (state.listAutoLoadMoreHydrateTimer) clearTimeout(state.listAutoLoadMoreHydrateTimer);
@@ -4251,6 +4278,13 @@ return Number(state.contextInteractionQuietUntil || 0);
                     hydrateMeta = null;
                 }
                 if (token !== (Number(state.listAutoLoadMoreHydrateToken) || 0)) return;
+                if (hydrateMeta?.queryComplete === false) {
+                    if (retriesRemaining > 0 && String(state.viewMode || '').trim() === 'list') {
+                        retriesRemaining -= 1;
+                        arm(180);
+                    }
+                    return;
+                }
                 const changed = Number(hydrateMeta?.cacheMissCount || 0) > 0
                     || Number(hydrateMeta?.hostAssignedCount || 0) > 0
                     || Number(hydrateMeta?.selfAssignedCount || 0) > 0;
@@ -11559,7 +11593,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             __tmScheduleRender({ withFilters: !viewSnapshotMeta });
         }
         try {
-            if (state.__tmCacheFirstPaintNeedsVerify) {
+            if (state.__tmCacheFirstPaintNeedsVerify || resolvedDocId === 'all') {
                 __tmScheduleSilentCacheVerifyAfterFirstPaint({
                     source: 'switch-doc-group:doc-tab-cache',
                     delayMs: 240,
@@ -11632,6 +11666,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 SettingsStore?.data?.currentGroupId || 'all'
             );
             __tmScheduleRender({ withFilters: !viewSnapshotMeta });
+            __tmScheduleSilentCacheVerifyAfterFirstPaint({ source: 'switch-doc-tab-group' });
         }
         if (state.viewMode === 'whiteboard') {
             try {
@@ -18911,6 +18946,16 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     // Phosphor 2.1.1 assets/bold/export-bold.svg。
     __tmPhosphorBoldPaths['export'] = 'M220,112v96a20,20,0,0,1-20,20H56a20,20,0,0,1-20-20V112A20,20,0,0,1,56,92H76a12,12,0,0,1,0,24H60v88H196V116H180a12,12,0,0,1,0-24h20A20,20,0,0,1,220,112ZM96.49,72.49,116,53v83a12,12,0,0,0,24,0V53l19.51,19.52a12,12,0,1,0,17-17l-40-40a12,12,0,0,0-17,0l-40,40a12,12,0,1,0,17,17Z';
+
+    __tmPhosphorBoldPaths['arrow-u-up-left'] = 'M236,144a68.07,68.07,0,0,1-68,68H80a12,12,0,0,1,0-24h88a44,44,0,0,0,0-88H61l27.52,27.51a12,12,0,0,1-17,17l-48-48a12,12,0,0,1,0-17l48-48a12,12,0,1,1,17,17L61,76H168A68.08,68.08,0,0,1,236,144Z';
+    __tmPhosphorBoldPaths['arrow-u-up-right'] = 'M167.51,127.51,195,100H88a44,44,0,0,0,0,88h88a12,12,0,0,1,0,24H88A68,68,0,0,1,88,76H195L167.51,48.49a12,12,0,1,1,17-17l48,48a12,12,0,0,1,0,17l-48,48a12,12,0,0,1-17-17Z';
+
+    __tmPhosphorBoldPaths['text-b'] = 'M185.08,114.46A48,48,0,0,0,148,36H80A12,12,0,0,0,68,48V200a12,12,0,0,0,12,12h80a52,52,0,0,0,25.08-97.54ZM92,60h56a24,24,0,0,1,0,48H92Zm68,128H92V132h68a28,28,0,0,1,0,56Z';
+    __tmPhosphorBoldPaths['text-italic'] = 'M204,56a12,12,0,0,1-12,12H160.65l-40,120H144a12,12,0,0,1,0,24H64a12,12,0,0,1,0-24H95.35l40-120H112a12,12,0,0,1,0-24h80A12,12,0,0,1,204,56Z';
+    __tmPhosphorBoldPaths['code'] = 'M71.68,97.22,34.74,128l36.94,30.78a12,12,0,1,1-15.36,18.44l-48-40a12,12,0,0,1,0-18.44l48-40A12,12,0,0,1,71.68,97.22Zm176,21.56-48-40a12,12,0,1,0-15.36,18.44L221.26,128l-36.94,30.78a12,12,0,1,0,15.36,18.44l48-40a12,12,0,0,0,0-18.44ZM164.1,28.72a12,12,0,0,0-15.38,7.18l-64,176a12,12,0,0,0,7.18,15.37A11.79,11.79,0,0,0,96,228a12,12,0,0,0,11.28-7.9l64-176A12,12,0,0,0,164.1,28.72Z';
+    __tmPhosphorBoldPaths['quotes'] = 'M100,52H40A20,20,0,0,0,20,72v64a20,20,0,0,0,20,20H96v4a28,28,0,0,1-28,28,12,12,0,0,0,0,24,52.06,52.06,0,0,0,52-52V72A20,20,0,0,0,100,52Zm-4,80H44V76H96ZM216,52H156a20,20,0,0,0-20,20v64a20,20,0,0,0,20,20h56v4a28,28,0,0,1-28,28,12,12,0,0,0,0,24,52.06,52.06,0,0,0,52-52V72A20,20,0,0,0,216,52Zm-4,80H160V76h52Z';
+
+    __tmPhosphorBoldPaths['sliders-horizontal'] = 'M40,92H70.06a36,36,0,0,0,67.88,0H216a12,12,0,0,0,0-24H137.94a36,36,0,0,0-67.88,0H40a12,12,0,0,0,0,24Zm64-24A12,12,0,1,1,92,80,12,12,0,0,1,104,68Zm112,96H201.94a36,36,0,0,0-67.88,0H40a12,12,0,0,0,0,24h94.06a36,36,0,0,0,67.88,0H216a12,12,0,0,0,0-24Zm-48,24a12,12,0,1,1,12-12A12,12,0,0,1,168,188Z';
 
     function __tmPhosphorBoldSvg(iconName, options = {}) {
         const normalizedName = __tmNormalizeLucideIconName(iconName);

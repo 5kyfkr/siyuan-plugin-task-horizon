@@ -2526,6 +2526,20 @@
         return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] || ch));
     }
 
+    // Calendar chrome controls (day stepping, month/week paging, close) draw
+    // their arrows from the shared Phosphor bold renderer instead of text
+    // glyphs, so they keep their shape whatever font the user picks.
+    function buildCalendarChromeIcon(name, size = 14, className = 'tm-cal-chrome-icon') {
+        try {
+            const renderIcon = globalThis.__tmPhosphorBoldSvg;
+            if (typeof renderIcon === 'function') {
+                const markup = renderIcon(name, { size, className });
+                if (markup) return String(markup);
+            }
+        } catch (e) {}
+        return '';
+    }
+
     function normalizeColorInputHex(value, fallback = '#7FA2DA') {
         const normalize = (input) => {
             const raw = String(input || '').trim();
@@ -8465,6 +8479,9 @@
         return rendered;
     }
 
+    // The day panel steps/closes with the calendar toolbar's icon language:
+    // the same Phosphor bold chevrons and x replace the ‹ › × text glyphs,
+    // which followed the active font and drifted away from the toolbar.
     function buildSharedPrototypeDayPanelMarkup(options = {}) {
         const settings = options.settings || getSettings();
         const date = options.date instanceof Date ? new Date(options.date.getTime()) : new Date(options.date || '');
@@ -8474,6 +8491,12 @@
         const actionAttr = String(options.actionAttr || 'data-tm-proto-action').trim() || 'data-tm-proto-action';
         const actions = options.actions || { prev: 'dayPanelPrev', today: 'dayPanelToday', next: 'dayPanelNext', close: 'closeDayPanel', toggleAllDay: 'toggleAllDay' };
         const actionButton = (action, className, label, ariaLabel) => `<button type="button" class="${className} tm-btn tm-btn-info bc-btn bc-btn--sm" ${actionAttr}="${esc(action)}" aria-label="${esc(ariaLabel)}" title="${esc(ariaLabel)}">${label}</button>`;
+        // Stepping and closing reuse the calendar toolbar icons instead of text
+        // glyphs. Contract and browser fixtures evaluate this builder on its own,
+        // so the shared renderer stays optional here.
+        const actionIcon = (name) => (typeof buildCalendarChromeIcon === 'function'
+            ? buildCalendarChromeIcon(name, 14)
+            : '');
         const lunar = typeof options.lunarText === 'function' ? options.lunarText(dateKey, settings) : '';
         const headerInfo = typeof options.dateHeaderInfo === 'function' ? options.dateHeaderInfo(dateKey, settings) || {} : {};
         const headerLabel = String(headerInfo.label || '').trim() || lunar;
@@ -8482,7 +8505,10 @@
             ? `<i class="tm-proto-holiday-status tm-proto-holiday-status--${esc(status)}" title="${status === 'work' ? '调休工作日' : '休息日'}">${status === 'work' ? '班' : '休'}</i>`
             : '';
         const panelClass = ['tm-proto-day-panel', options.panelClass || ''].filter(Boolean).join(' ');
-        const header = `<header><div><b>${safeDate.getMonth() + 1}月${safeDate.getDate()}日${statusMarkup}</b><span>周${['日', '一', '二', '三', '四', '五', '六'][safeDate.getDay()]}</span><small>${esc(headerLabel)}</small></div><div class="tm-proto-day-panel-actions">${actionButton(actions.prev, 'tm-proto-icon-btn', '‹', '前一天')}${actionButton(actions.today, 'tm-proto-today', '今天', '今天')}${actionButton(actions.next, 'tm-proto-icon-btn', '›', '后一天')}${actionButton(actions.close, 'tm-proto-icon-btn', '×', '关闭')}</div></header>`;
+        const prevIcon = actionIcon('chevron-left');
+        const nextIcon = actionIcon('chevron-right');
+        const closeIcon = actionIcon('x');
+        const header = `<header><div><b>${safeDate.getMonth() + 1}月${safeDate.getDate()}日${statusMarkup}</b><span>周${['日', '一', '二', '三', '四', '五', '六'][safeDate.getDay()]}</span><small>${esc(headerLabel)}</small></div><div class="tm-proto-day-panel-actions">${actionButton(actions.prev, 'tm-proto-icon-btn', prevIcon, '前一天')}${actionButton(actions.today, 'tm-proto-today', '今天', '今天')}${actionButton(actions.next, 'tm-proto-icon-btn', nextIcon, '后一天')}${actionButton(actions.close, 'tm-proto-icon-btn', closeIcon, '关闭')}</div></header>`;
         const timeline = buildSharedPrototypeTimelineMarkup({
             ...options,
             days: [safeDate],
@@ -11441,11 +11467,11 @@
         return `
             <div class="${rootClass}" data-tm-mini-root="1" data-tm-mini-kind="${esc(kind || 'default')}">
                 <div class="tm-mini-cal-header">
-                    <button class="tm-mini-cal-btn" type="button" data-tm-mini-action="prev">‹</button>
+                    <button class="tm-mini-cal-btn" type="button" data-tm-mini-action="prev" aria-label="上个月" title="上个月">${buildCalendarChromeIcon('chevron-left', 12)}</button>
                     ${kind === 'sidebar'
                         ? `<button class="tm-mini-cal-title tm-mini-cal-title--button" type="button" data-tm-mini-action="month-picker" aria-label="选择年月" aria-haspopup="dialog" aria-expanded="false">${esc(String(model?.title || ''))}</button>`
                         : `<div class="tm-mini-cal-title">${esc(String(model?.title || ''))}</div>`}
-                    <button class="tm-mini-cal-btn" type="button" data-tm-mini-action="next">›</button>
+                    <button class="tm-mini-cal-btn" type="button" data-tm-mini-action="next" aria-label="下个月" title="下个月">${buildCalendarChromeIcon('chevron-right', 12)}</button>
                 </div>
                 ${showTargetLabel ? `<div class="tm-mini-cal-target${targetLabel ? ' is-active' : ''}" data-tm-mini-target>${esc(targetLabel || '拖到日期上修改截止日期')}</div>` : ''}
                 <div class="tm-mini-cal-grid">
@@ -11530,9 +11556,9 @@
             panel.setAttribute('role', 'dialog');
             panel.setAttribute('aria-label', '选择年月');
             panel.innerHTML = `<div class="tm-task-time-hub__month-year-row">
-                <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-mini-year-step="-1" aria-label="上一年">‹</button>
+                <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-mini-year-step="-1" aria-label="上一年" title="上一年">${buildCalendarChromeIcon('chevron-left', 14)}</button>
                 <input class="tm-input tm-task-time-hub__month-year-input" type="text" inputmode="numeric" autocomplete="off" maxlength="4" aria-label="年份" data-tm-mini-year-input>
-                <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-mini-year-step="1" aria-label="下一年">›</button>
+                <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-mini-year-step="1" aria-label="下一年" title="下一年">${buildCalendarChromeIcon('chevron-right', 14)}</button>
             </div><div class="tm-task-time-hub__month-grid">${Array.from({ length: 12 }, (_, index) =>
                 `<button type="button" class="tm-task-time-hub__month-btn" data-tm-mini-month-pick="${index}">${index + 1}月</button>`
             ).join('')}</div>`;
@@ -35605,7 +35631,7 @@
                 return cell.replace('tm-proto-list-date-cell', `tm-proto-list-date-cell tm-proto-list-month-cell${date.getMonth() === monthCursor.getMonth() ? '' : ' is-outside'}`);
             }).join('');
             const calendarClasses = ['tm-proto-view', 'tm-proto-list', `is-day-count-${visibleDays.length}`, prototypeListState.calendarExpanded ? 'is-calendar-expanded' : '', prototypeListState.calendarTransition ? `is-calendar-transition-${prototypeListState.calendarTransition}` : ''].filter(Boolean).join(' ');
-             return `<section class="${calendarClasses}"><section class="tm-proto-list-picker" aria-label="日期选择器"><div class="tm-proto-list-week-picker"><button type="button" class="tm-proto-list-week-nav" data-tm-proto-list-action="prev-week" aria-label="上一周">‹</button><div class="tm-proto-list-week-grid">${weekCells}</div><button type="button" class="tm-proto-list-week-nav" data-tm-proto-list-action="next-week" aria-label="下一周">›</button></div><div class="tm-proto-list-month-picker"><div class="tm-proto-list-month-grid">${weekdayCells}${monthCells}</div></div><button type="button" class="tm-proto-list-calendar-toggle" data-tm-proto-list-action="toggle-calendar" aria-expanded="${prototypeListState.calendarExpanded ? 'true' : 'false'}" aria-label="${prototypeListState.calendarExpanded ? '收起月历' : '展开月历'}"><span aria-hidden="true"></span></button></section><div class="tm-proto-list-days">${cards}</div></section>`;
+             return `<section class="${calendarClasses}"><section class="tm-proto-list-picker" aria-label="日期选择器"><div class="tm-proto-list-week-picker"><button type="button" class="tm-proto-list-week-nav" data-tm-proto-list-action="prev-week" aria-label="上一周" title="上一周">${buildCalendarChromeIcon('chevron-left', 18)}</button><div class="tm-proto-list-week-grid">${weekCells}</div><button type="button" class="tm-proto-list-week-nav" data-tm-proto-list-action="next-week" aria-label="下一周" title="下一周">${buildCalendarChromeIcon('chevron-right', 18)}</button></div><div class="tm-proto-list-month-picker"><div class="tm-proto-list-month-grid">${weekdayCells}${monthCells}</div></div><button type="button" class="tm-proto-list-calendar-toggle" data-tm-proto-list-action="toggle-calendar" aria-expanded="${prototypeListState.calendarExpanded ? 'true' : 'false'}" aria-label="${prototypeListState.calendarExpanded ? '收起月历' : '展开月历'}"><span aria-hidden="true"></span></button></section><div class="tm-proto-list-days">${cards}</div></section>`;
         };
         const protoRenderDayPanel = (events, settings) => {
             if (!prototypeShowDayPanel) return '';
@@ -36011,7 +36037,7 @@
                     ].filter(Boolean).join(' ');
                     days += `<button type="button" class="tm-proto-inline-hub-day ${classes}" data-tm-proto-hub-date="${key}" aria-label="${esc(hubDateText(key))}">${date.getDate()}</button>`;
                 }
-                return `<div class="tm-proto-inline-hub-calendar-head"><strong>${year}年${month}月</strong><div class="tm-proto-inline-hub-month-actions"><button type="button" data-tm-proto-hub-month="-1" aria-label="上个月">‹</button><button type="button" data-tm-proto-hub-month="0" aria-label="回到本月">今</button><button type="button" data-tm-proto-hub-month="1" aria-label="下个月">›</button></div></div><div class="tm-proto-inline-hub-weekdays">${labels}</div><div class="tm-proto-inline-hub-calendar">${days}</div>`;
+                return `<div class="tm-proto-inline-hub-calendar-head"><strong>${year}年${month}月</strong><div class="tm-proto-inline-hub-month-actions"><button type="button" data-tm-proto-hub-month="-1" aria-label="上个月" title="上个月">${buildCalendarChromeIcon('chevron-left', 12)}</button><button type="button" data-tm-proto-hub-month="0" aria-label="回到本月">今</button><button type="button" data-tm-proto-hub-month="1" aria-label="下个月" title="下个月">${buildCalendarChromeIcon('chevron-right', 12)}</button></div></div><div class="tm-proto-inline-hub-weekdays">${labels}</div><div class="tm-proto-inline-hub-calendar">${days}</div>`;
             };
             const syncHubDateDragPreview = () => {
                 if (!(timeHub instanceof HTMLElement) || timeHubMode !== 'date') return;
@@ -42145,11 +42171,11 @@
                         <button type="button" class="tm-calendar-holiday-editor__close" data-tm-holiday-editor-action="close" aria-label="关闭">×</button>
                     </div>
                     <div class="tm-calendar-holiday-editor__toolbar">
-                        <button type="button" data-tm-holiday-editor-action="prev-year" aria-label="上一年">‹</button>
-                        <button type="button" data-tm-holiday-editor-action="prev-month" aria-label="上个月">‹</button>
+                        <button type="button" data-tm-holiday-editor-action="prev-year" aria-label="上一年" title="上一年">${buildCalendarChromeIcon('chevron-left', 18)}</button>
+                        <button type="button" data-tm-holiday-editor-action="prev-month" aria-label="上个月" title="上个月">${buildCalendarChromeIcon('chevron-left', 18)}</button>
                         <span class="tm-calendar-holiday-editor__month">${year} 年 ${month + 1} 月</span>
-                        <button type="button" data-tm-holiday-editor-action="next-month" aria-label="下个月">›</button>
-                        <button type="button" data-tm-holiday-editor-action="next-year" aria-label="下一年">›</button>
+                        <button type="button" data-tm-holiday-editor-action="next-month" aria-label="下个月" title="下个月">${buildCalendarChromeIcon('chevron-right', 18)}</button>
+                        <button type="button" data-tm-holiday-editor-action="next-year" aria-label="下一年" title="下一年">${buildCalendarChromeIcon('chevron-right', 18)}</button>
                     </div>
                     <div class="tm-calendar-holiday-editor__mode" role="group" aria-label="设置类型">
                         <button type="button" class="${mode === 'rest' ? 'is-active' : ''}" data-tm-holiday-editor-mode="rest">休</button>
