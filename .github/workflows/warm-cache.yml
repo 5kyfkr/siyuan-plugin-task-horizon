@@ -58,6 +58,7 @@ jobs:
           path: |
             /tmp/task-horizon-release-tests-${{ steps.identity.outputs.version }}
             ~/.cache/ms-playwright
+            ~/.cache/task-horizon-fonts
           key: ${{ steps.identity.outputs.key }}
 
       - name: Install Playwright and Chromium
@@ -69,6 +70,18 @@ jobs:
           npm install --prefix "$DEPS_DIR" --no-save --no-package-lock --ignore-scripts "playwright@$PLAYWRIGHT_VERSION"
           node "$DEPS_DIR/node_modules/playwright/cli.js" install --with-deps chromium
 
+      # --with-deps installs system fonts whose fontconfig rules decide the text
+      # metrics the browser tests assert on. Those paths are root-owned and cannot
+      # be cached directly, so pack them into a user-owned archive that the
+      # release run unpacks before verifying.
+      - name: Stage system fonts
+        if: steps.restore.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$HOME/.cache/task-horizon-fonts"
+          sudo tar czf "$HOME/.cache/task-horizon-fonts/fonts.tgz" -C / usr/share/fonts etc/fonts
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/.cache/task-horizon-fonts"
+          du -h "$HOME/.cache/task-horizon-fonts/fonts.tgz"
+
       # Fails before a broken entry is saved, and catches a path or key that no
       # longer matches what scripts/verify-release.ps1 expects.
       - name: Verify the cached layout
@@ -77,4 +90,5 @@ jobs:
         run: |
           test -f "$DEPS_DIR/node_modules/playwright/package.json"
           test -d "$HOME/.cache/ms-playwright"
+          test -s "$HOME/.cache/task-horizon-fonts/fonts.tgz"
           echo "cache-hit=${{ steps.restore.outputs.cache-hit }}"

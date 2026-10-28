@@ -23,7 +23,12 @@ jobs:
           path: |
             /tmp/task-horizon-release-tests-1.63.0
             ~/.cache/ms-playwright
+            ~/.cache/task-horizon-fonts
           key: ${{ runner.os }}-task-horizon-playwright-1.63.0
+      - name: Restore test fonts
+        run: |
+          archive="$HOME/.cache/task-horizon-fonts/fonts.tgz"
+          if [ -s "$archive" ]; then sudo tar xzf "$archive" -C / && sudo fc-cache -f >/dev/null; fi
       - name: Verify selected suite
         env:
           TEST_SUITE: ${{ inputs.suite }}
