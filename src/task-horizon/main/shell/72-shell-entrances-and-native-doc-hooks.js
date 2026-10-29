@@ -2686,6 +2686,11 @@
             __tmScheduleNativeDocCheckboxStatusSync(rawId);
             return false;
         }
+        // Document tasks may not be cached until the manager is opened.
+        // Register the resolved task before entering the shared completion writer.
+        if (!globalThis.__tmTaskBoundary?.getTask?.(taskId)) {
+            __tmCacheTaskInState(task);
+        }
         const statusOptions = SettingsStore?.data?.customStatusOptions || [];
         const customStatus = __tmResolveTaskStatusId({ taskMarker: marker, customStatus: task.customStatus }, statusOptions);
         const setDone = globalThis.__tmRequireTaskMutation('setDone');

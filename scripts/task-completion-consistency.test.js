@@ -1384,7 +1384,116 @@ function testRemovedNoAutoSwitchBinding() {
     assert.equal(context.SettingsStore.data.checkboxDoneStatusId, 'done');
 }
 
+async function testNativeDocCheckboxWorksWithoutOpeningPanel() {
+    const task = { id: 'native-task', root_id: 'doc-1', done: true, markdown: '- [X] Task' };
+    const options = [
+        { id: 'todo', marker: ' ' }, { id: 'doing', marker: '/' },
+        { id: 'quit', marker: '-' }, { id: 'done', marker: 'X' },
+    ];
+    const tasks = new Map();
+    const writes = [];
+    let cacheWrites = 0;
+    let userInitiated = true;
+    let available = true;
+    let marker = 'X';
+    let previousMarker = ' ';
+    const context = createStatusContext();
+    Object.assign(context, {
+        API: { ...context.API, getTaskById: async () => available ? { ...task } : null },
+        MetaStore: { applyToTask() {} },
+        normalizeTaskFields() {},
+        __tmTaskHasOwnHeadingContextFields: () => true,
+        __tmTaskBoundary: { getTask: id => tasks.get(id) || null },
+        __tmTaskStore: { upsertLocal(row) { cacheWrites += 1; tasks.set(row.id, row); } },
+        __tmFlushSqlTransactionsSafe: async () => {},
+        __tmReadNativeDocTaskDoneFromDom: () => statusRules.isDone(marker),
+        __tmReadNativeDocTaskMarkerFromDom: () => marker,
+        __tmWasNativeDocCheckboxRecentlySynced: () => false,
+        __tmConsumeNativeDocCheckboxPreviousState: () => ({ userInitiated, previousDone: statusRules.isDone(previousMarker), previousMarker }),
+        __tmConsumeNativeDocCheckboxInsertedBlock: () => false,
+        __tmIsCheckinTask: () => false,
+        __tmApplyNativeDocCheckboxDomProjection: () => {},
+        __tmGetStatusOptions: (input = options) => statusRules.normalizeOptions(input, false, false),
+        __tmFindStatusOptionById: id => options.find(option => option.id === id),
+        __tmNormalizeQueueTaskValue: (_key, value) => value,
+        __tmBuildTaskMarkdownWithMarker: (_task, nextMarker) => `- [${nextMarker}] Task`,
+        __tmCaptureTaskPatchInverse: id => ({ ...tasks.get(id) }),
+        __tmBuildTaskCompleteAtPatch: () => ({ taskCompleteAt: '2026-10-30T12:00:00+08:00' }),
+        __tmGetTaskOccurrenceId: () => 'occurrence-1',
+        __tmQueueSetDoneTask: async (id, done, row, opts) => {
+            assert.equal(tasks.get(id), row, 'the shared writer must receive a task registered in the store');
+            const { definition } = context.__tmBuildSetDoneQueuedDefinition(id, done, row, opts);
+            writes.push({ id, done, opts, definition });
+            return true;
+        },
+        __tmMarkNativeDocCheckboxSyncedState: () => {},
+        __tmScheduleNativeDocCheckboxDetailRefresh: () => {},
+    });
+    context.SettingsStore.data.customStatusOptions = options;
+    for (const [source, names] of [
+        [listRuntimeSource, ['__tmCacheTaskInState', '__tmResolveTaskBindingFromAnyBlockId', '__tmBuildSetDoneQueuedDefinition']],
+        [apiSource, ['__tmMutationGetTask', '__tmMutationSetDone', '__tmResolveTaskStatusId', '__tmBuildCheckboxStatusPatch']],
+        [nativeDocHooksSource, ['__tmSyncNativeDocCheckboxLinkedStatus']],
+    ]) {
+        for (const name of names) vm.runInContext(extractFunction(source, name), context);
+    }
+    context.__tmRequireTaskMutation = name => {
+        assert.equal(name, 'setDone');
+        return context.__tmMutationSetDone;
+    };
+    context.__tmCopyTaskHeadingContext = () => assert.fail('existing task context must not be overwritten');
+
+    assert.equal(await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id), true);
+    assert.equal(writes.length, 1, 'an uncached document checkbox must reach the shared writer');
+    assert.equal(cacheWrites, 1);
+    assert.equal(writes[0].opts.nativeObserved.previousDone, false, 'preserve the pre-click baseline');
+
+    const cached = { ...task, priority: 'high' };
+    tasks.set(task.id, cached);
+    assert.equal(await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id), true);
+    assert.equal(tasks.get(task.id), cached, 'reuse cached tasks without replacing local fields');
+    assert.equal(cacheWrites, 1);
+
+    tasks.clear();
+    userInitiated = false;
+    assert.equal(await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id), false);
+    assert.equal(tasks.size, 0, 'sync echoes must not load tasks or submit completion commands');
+    assert.equal(writes.length, 2);
+
+    available = false;
+    context.API.getBlocksByIds = async () => [];
+    userInitiated = true;
+    assert.equal(await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id), false);
+    assert.equal(writes.length, 2, 'missing blocks must not create completion commands');
+
+    available = true;
+    for (const cached of [false, true]) {
+        for (const before of options) {
+            for (const after of options) {
+                tasks.clear();
+                previousMarker = before.marker;
+                marker = after.marker;
+                Object.assign(task, { customStatus: before.id, taskMarker: after.marker,
+                    done: statusRules.isDone(after.marker), markdown: `- [${after.marker}] Task` });
+                if (cached) tasks.set(task.id, { ...task, taskMarker: before.marker,
+                    done: statusRules.isDone(before.marker), markdown: `- [${before.marker}] Task` });
+                assert.equal(await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id), true);
+                const write = writes.at(-1);
+                const label = `${before.id} -> ${after.id}, cached=${cached}`;
+                assert.equal(write.opts.statusPatch.customStatus, after.id, label);
+                assert.equal(write.done, statusRules.isDone(after.marker), label);
+                assert.equal(write.opts.nativeObserved.taskMarker, before.marker, label);
+                assert.equal(write.opts.nativeObserved.targetMarker, after.marker, label);
+                assert.equal(write.definition.data.projectionPatch.taskMarker, after.marker, label);
+                assert.equal(write.definition.data.projectionPatch.customStatus, after.id, label);
+                assert.equal(write.definition.data.projectionPatch.done, statusRules.isDone(after.marker), label);
+            }
+        }
+    }
+}
+
 async function run() {
+    await testNativeDocCheckboxWorksWithoutOpeningPanel();
     testMissingCheckboxStatusRecovery();
     await testCheckboxBoundStatusDeletion();
     testRemovedNoAutoSwitchBinding();
