@@ -8,8 +8,6 @@
             { id: 'in_progress', name: '进行中', color: '#2196F3', marker: '/' },
             { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
             { id: 'cancelled', name: '放弃', color: '#9E9E9E', marker: '-' },
-            { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
-            { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' },
         ];
         const markerPattern = /^([ \t]*)(?:[-*+]|\d+[.)])[ \t]*(?:(?:\{:[ \t]*[^}\r\n]*\})[ \t]*)*\[([^\]\r\n]?)\][ \t]*/;
         function normalizeMarker(value, fallback = ' ') {
@@ -69,7 +67,7 @@
             const seen = new Set();
             const result = [];
             const source = !legacy && fillNative && isLegacyDefaultOptions(input)
-                ? defaults
+                ? [...defaults, ...input.filter((item) => ['blocked', 'review'].includes(String(item.id || item.value || '').trim()))]
                 : (Array.isArray(input) ? input : []);
             source.forEach((item) => {
                 const id = String(item?.id || item?.value || '').trim();

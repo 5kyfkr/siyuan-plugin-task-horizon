@@ -193,6 +193,56 @@ store.applyMutation({ type: 'taskPatch', phase: 'rollback', opId: 'unpin', taskI
 assert.equal(store.getProjected(pinTask.id).priorityScore, 137, 'a failed unpin restores the pinned score');
 
 context.SettingsStore.data.priorityScoreConfig = priorityScoreConfig;
+Object.assign(context, {
+    __tmGetPriorityTitleOpacityRanges: () => [
+        { minScore: 0, maxScore: 0, opacity: 0.5, color: '#666666', index: 0 },
+        { minScore: 1, maxScore: Infinity, opacity: 1, color: '#cc3300', index: 1 },
+    ],
+    __tmIsDarkMode: () => false,
+    __tmGetReadablePriorityTitleColor: (color) => color,
+});
+for (const [start, end] of [
+    ['function __tmResolveTaskTitleOpacity(', '    function __tmRelativeLuminanceFromRgba('],
+    ['function __tmResolveTaskTitleVisual(', '    function __tmApplyTaskTitleOpacityToElement('],
+    ['function __tmBuildTaskTitleOpacityStyle(', '    function __tmApplyTaskTitleOpacityInContainer('],
+]) {
+    vm.runInContext(sliceSource(servicesSource, start, end), context);
+}
+
+for (const mode of ['child', 'after']) {
+    const taskId = `move-score-${mode}`;
+    const task = { id: taskId, docId: 'doc', root_id: 'doc', priority: 'none',
+        customFieldValues: { stage: 'now' }, priorityScore: 112, children: [] };
+    store.replaceFlat({ [taskId]: task }, { authoritative: true, mergeOtherBlocks: false });
+    store.applyMutation({ type: 'moveTask', phase: 'optimistic', opId: taskId, taskId,
+        data: { mode, targetDocId: 'doc', targetTaskId: 'parent' },
+    }, { applyLocal: false });
+    const parentTaskId = mode === 'child' ? 'parent' : '';
+    context.state.flatTasks[taskId] = { ...task, parentTaskId, parent_task_id: parentTaskId };
+    // Kernel move receipts do not calculate a priority score and return null.
+    store.applyMutation({ type: 'moveTask', phase: 'commit', opId: taskId, taskId,
+        data: { mode, targetDocId: 'doc', targetTaskId: 'parent' },
+        placement: { taskID: taskId, documentID: 'doc', parentListID: 'list', parentTaskID: parentTaskId },
+        task: { id: taskId, docId: 'doc', root_id: 'doc', parentTaskId, priorityScore: null },
+    }, { applyLocal: false });
+    const projected = store.getProjected(taskId);
+    assert.equal(projected.priorityScore, null, 'the fixture must exercise a null kernel score');
+    assert.equal(context.__tmBuildTaskTitleOpacityStyle(projected), 'opacity:1;color:#cc3300;',
+        `${mode}: the first render after a move must retain the computed score color`);
+    assert.equal(projected.priorityScore, 112, `${mode}: rendering recomputes the missing score`);
+    assert.equal(context.__tmResolveTaskTitleOpacity({ ...projected, priorityScore: null }), 1,
+        `${mode}: opacity must use the computed score rather than treating null as zero`);
+    assert.equal(context.__tmEnsureTaskPriorityScore({ ...projected, priorityScore: null }), 112,
+        `${mode}: a null score is never a valid cached score`);
+}
+const zeroScoreTask = { priorityScore: 0, customFieldValues: { stage: 'now' } };
+assert.equal(context.__tmBuildTaskTitleOpacityStyle(zeroScoreTask), 'opacity:0.5;color:#666666;',
+    'an explicitly calculated zero must retain its zero-score color');
+assert.equal(context.__tmResolveTaskTitleOpacity(zeroScoreTask), 0.5,
+    'an explicit zero must retain its zero-score opacity');
+assert.equal(context.__tmEnsureTaskPriorityScore(zeroScoreTask), 0,
+    'an explicit zero must remain a valid cached score');
+
 const loadPlan = vm.runInContext(`__tmCollectCustomFieldLoadPlan({
     viewMode: 'list',
     colOrder: ['customField:stage'],

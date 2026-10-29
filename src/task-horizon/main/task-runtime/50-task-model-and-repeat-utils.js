@@ -537,7 +537,7 @@
         const parts = __tmGetTaskTomatoSummaryParts(task);
         const actualForPlan = parts.actual || '0';
         const durationProgress = parts.duration ? `${parts.spent || '0'}/${parts.duration}` : '';
-        const tomatoPlanText = parts.estimate ? `🍅 ${actualForPlan}/${parts.estimate}` : '';
+        const tomatoPlanText = parts.estimate ? `番茄 ${actualForPlan}/${parts.estimate}` : '';
         if (parts.duration) {
             return `${tomatoPlanText ? `${tomatoPlanText} ` : ''}${durationProgress}`.trim();
         }
@@ -545,6 +545,16 @@
             return `${tomatoPlanText}${parts.spent ? ` ${parts.spent}` : ''}`.trim();
         }
         return parts.spent || '';
+    }
+
+    // Keep the shape and theme colors aligned with Dock Tomato's tomato.js icon.
+    function __tmRenderTomatoIconHtml() {
+        return '<svg class="tm-focus-tomato-icon" width="16" height="16" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="var(--tomato-ui-red,#ef705e)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"> <path fill="none" stroke-width="1.9" d="M7.1 7.1C3.8 7.7 2.5 10.1 2.5 13.15c0 4.42 4.2 7.65 9.5 7.65s9.5-3.23 9.5-7.65c0-2.98-1.5-5.44-4.7-6.05"/> <path fill="none" stroke="var(--tomato-ui-leaf,#8acb77)" transform="translate(-1.2 .15) scale(1.1)" d="M10.7 5.5C9.6 4.4 8.4 4.7 7.5 4c.1 1.3.7 2 1.9 2.4-.8.4-1.4 1.1-2 2 1.6.5 2.8.3 3.8-.6-.2 1.5.5 2.4 1.6 3 .9-1.2 1-2.2.6-3.4 1.2.9 2.4 1 3.7.5-.6-.9-1.4-1.4-2.3-1.7 1.2-.5 1.7-1.1 1.8-1.9-1.5-.1-2.3.5-3.1 1 .1-1 .5-1.8 1.1-2.4-1.5-.2-2.6.7-2.7 2.3-.4 0-.8.1-1.2.3Z"/> </svg>';
+    }
+
+    function __tmGetTomatoCountDisplayHtml(value) {
+        const count = __tmNormalizeActualTomatoCountValue(value);
+        return count ? `${__tmRenderTomatoIconHtml()} ${esc(count)}` : '';
     }
 
     function __tmRenderFocusActualValueHtml(value) {
@@ -558,7 +568,7 @@
         const actualHtml = (value) => __tmRenderFocusActualValueHtml(value);
         const spentHtml = (value) => esc(String(value ?? '').trim());
         const durationProgress = parts.duration ? `${spentHtml(parts.spent || '0')}/${esc(parts.duration)}` : '';
-        const tomatoPlanHtml = parts.estimate ? `🍅 ${actualHtml(actualForPlan)}/${esc(parts.estimate)}` : '';
+        const tomatoPlanHtml = parts.estimate ? `${__tmRenderTomatoIconHtml()} ${actualHtml(actualForPlan)}/${esc(parts.estimate)}` : '';
         if (parts.duration) {
             return `${tomatoPlanHtml ? `${tomatoPlanHtml} ` : ''}${durationProgress}`.trim();
         }
@@ -571,7 +581,7 @@
 
     function __tmGetActualTomatoCountDisplayHtml(value) {
         const count = __tmNormalizeActualTomatoCountValue(value);
-        return count ? `🍅 ${__tmRenderFocusActualValueHtml(count)}` : '';
+        return count ? `${__tmRenderTomatoIconHtml()} ${__tmRenderFocusActualValueHtml(count)}` : '';
     }
 
     function __tmGetTaskSpentDisplayHtml(task) {

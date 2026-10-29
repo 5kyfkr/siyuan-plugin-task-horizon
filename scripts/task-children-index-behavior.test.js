@@ -19,6 +19,8 @@ const tasks = {
     p2: { id: 'p2', children: [] },
 };
 store.replaceFlat(tasks, { authoritative: true, mergeOtherBlocks: false });
+assert.deepEqual(Array.from(store.listProjectedDirectChildren('real-parent', { scanFlat: false }), task => task.id), ['nested'],
+    'legacy nested children without explicit parent metadata remain structural children');
 store.upsertLocal({ id: 'pending', parentTaskId: 'real-parent' }, { pending: true });
 function parity() {
     const reader = store.createDirectChildrenReader();

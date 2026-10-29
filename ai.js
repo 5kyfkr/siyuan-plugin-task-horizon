@@ -1972,9 +1972,9 @@
         const cleanPriority = (v) => {
             const t = String(v || '').trim().toLowerCase();
             if (!t) return '';
-            if (['high', 'h', 'a', '高', '高优先级', '紧急'].includes(t)) return 'high';
-            if (['medium', 'm', 'b', '中', '中优先级', '普通'].includes(t)) return 'medium';
-            if (['low', 'l', 'c', '低', '低优先级'].includes(t)) return 'low';
+            if (['high', 'h', 'a', '高', '高重要性', '高优先级', '紧急'].includes(t)) return 'high';
+            if (['medium', 'm', 'b', '中', '中重要性', '中优先级', '普通'].includes(t)) return 'medium';
+            if (['low', 'l', 'c', '低', '低重要性', '低优先级'].includes(t)) return 'low';
             if (['none', '无', '未设置'].includes(t)) return 'none';
             return String(v || '').trim();
         };
@@ -2040,7 +2040,7 @@
         if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
             const p = String(patch.priority || '').trim();
             const label = p === 'high' ? '高' : (p === 'medium' ? '中' : (p === 'low' ? '低' : (p === 'none' ? '无' : p || '空')));
-            parts.push(`优先级设为${label}`);
+            parts.push(`重要性设为${label}`);
         }
         if (Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
             const matched = resolveConfiguredStatusOption(patch.customStatus, getConfig().statusOptions);
@@ -3189,7 +3189,7 @@
         if (!task) throw new Error('未找到任务');
         const hKey = ['task-edit', String(taskId || '').trim()];
         const history = await loadHistory(hKey[0], hKey[1]);
-        const input = await promptInput('AI 编辑字段', '例如：改成高优先级，状态设为进行中，明天下午3点截止，备注加上等设计稿', 'AI 会把自然语言翻译成字段 patch，并先展示预览。', { history });
+        const input = await promptInput('AI 编辑字段', '例如：重要性改为高，状态设为进行中，明天下午3点截止，备注加上等设计稿', 'AI 会把自然语言翻译成字段 patch，并先展示预览。', { history });
         if (!input) return;
         if (!input.instruction) throw new Error('请输入编辑指令');
         setModal('AI 编辑字段', `<div class="tm-ai-box"><h4>处理中</h4><div class="tm-ai-hint">正在生成字段 patch...</div></div>`);

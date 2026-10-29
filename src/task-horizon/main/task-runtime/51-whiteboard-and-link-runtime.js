@@ -2961,7 +2961,7 @@
         const force = opts.force === true;
         const nowTs = Number.isFinite(Number(opts.nowTs)) ? Number(opts.nowTs) : Date.now();
         const cacheVersion = Number(SettingsStore?.data?.settingsUpdatedAt || 0);
-        const raw = Number(task.priorityScore);
+        const raw = Number(task.priorityScore ?? Number.NaN);
         const cacheUntil = Number(task.__tmPriorityScoreCacheUntil || 0);
         if (!force
             && Number.isFinite(raw)
@@ -4515,6 +4515,8 @@ return false;
         if (!tid || String(state.viewMode || '').trim() !== 'checklist' || !modal) return false;
         const item = modal.querySelector(`.tm-checklist-item[data-id="${CSS.escape(tid)}"]`);
         if (!(item instanceof HTMLElement)) return false;
+        // Reconcile every old group before attempting to move a duplicated row.
+        if (modal.querySelectorAll(`.tm-checklist-item[data-id="${CSS.escape(tid)}"]`).length > 1) return false;
         const detailTaskId = String(state.detailTaskId || state.kanbanDetailTaskId || '').trim();
         if (options?.filtersApplied !== true) return __tmScheduleOptimisticProjectionFrame('checklist', tid, patch);
         if (options?.structural === true) {
@@ -8248,7 +8250,7 @@ return false;
         }
         if (__tmTaskCardFieldEnabled(viewKey, 'tomatoEstimateCount')) {
             const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(taskLike));
-            if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoEstimateCount">${esc(text)}</span>`);
+            if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoEstimateCount">${__tmGetTomatoCountDisplayHtml(__tmGetTaskTomatoEstimateCount(taskLike))}</span>`);
         }
         if (__tmTaskCardFieldEnabled(viewKey, 'tomatoCount')) {
             const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(taskLike));
@@ -9258,7 +9260,7 @@ return false;
             const next = value === 'high' || value === 'medium' || value === 'low' ? value : '';
             return patchTask(tid, { priority: next }, {
                 source: 'cell-edit-priority',
-                label: '优先级',
+                label: '重要性',
             });
         }
         if (field === 'duration') {
@@ -10214,7 +10216,7 @@ return false;
                 }
                 void patchTask(tid, { priority: next }, {
                     source: 'inline-priority-editor',
-                    label: '优先级',
+                    label: '重要性',
                 }).catch((error) => {
                     hint(`❌ 更新失败: ${error.message}`, 'error');
                 });
@@ -10802,7 +10804,7 @@ return false;
         const tid = String(id || '').trim();
         const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const next = await showSelectPrompt('设置优先级', [
+        const next = await showSelectPrompt('设置重要性', [
             { value: '', label: '无' },
             { value: 'high', label: '高' },
             { value: 'medium', label: '中' },
@@ -10811,8 +10813,8 @@ return false;
         if (next == null) return;
         __tmCommitPromptTaskPatchInBackground(tid, { priority: next }, {
             source: 'prompt-priority',
-            label: '优先级',
-            successHint: '✅ 优先级已更新',
+            label: '重要性',
+            successHint: '✅ 重要性已更新',
         });
     };
 
@@ -12281,11 +12283,11 @@ return false;
         }
         if (kind === 'tomatoEstimateCount') {
             const text = __tmGetTomatoCountDisplay(value);
-            return text ? `<span class="tm-task-detail-core-chip__text">${esc(text)}</span>` : '<span class="tm-task-detail-core-chip__text">🍅</span>';
+            return `<span class="tm-task-detail-core-chip__text">${text ? __tmGetTomatoCountDisplayHtml(value) : __tmRenderTomatoIconHtml()}</span>`;
         }
         if (kind === 'tomatoCount') {
             const text = __tmGetTomatoCountDisplay(value);
-            return text ? `<span class="tm-task-detail-core-chip__text">${__tmGetActualTomatoCountDisplayHtml(value)}</span>` : '<span class="tm-task-detail-core-chip__text">🍅</span>';
+            return `<span class="tm-task-detail-core-chip__text">${text ? __tmGetActualTomatoCountDisplayHtml(value) : __tmRenderTomatoIconHtml()}</span>`;
         }
         if (kind === 'tomatoSummary') {
             const taskLike = (rawValue && typeof rawValue === 'object') ? rawValue : null;

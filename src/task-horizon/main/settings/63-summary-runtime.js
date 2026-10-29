@@ -407,7 +407,7 @@
         const statusName = String(filter.status || '__all__') === '__all__'
             ? '全部状态'
             : (String(filter.status) === '__done__' ? '已完成' : (String(filter.status) === '__undone__' ? '未完成' : (statusMap.get(String(filter.status || '')) || String(filter.status || ''))));
-        const priorityName = String(filter.priority || '__all__') === '__all__' ? '全部优先级' : __tmSummaryPriorityText(filter.priority);
+        const priorityName = String(filter.priority || '__all__') === '__all__' ? '全部重要性' : __tmSummaryPriorityText(filter.priority);
         const groupBy = String(filter.groupBy || 'status').trim() || 'status';
         const groupByName = groupBy === 'h2'
             ? '按二级标题'
@@ -494,7 +494,7 @@
                 const level = Math.max(0, Number(t.level) || 0);
                 const indent = '  '.repeat(level);
                 if (showDocName && groupBy !== 'doc') ext.push(t.docName);
-                if (showPriority) ext.push(`优先级:${pr}`);
+                if (showPriority) ext.push(`重要性:${pr}`);
                 if (showStatus) ext.push(__tmSummaryStatusName(t, statusMap));
                 if (t.recurringLabel) ext.push(t.recurringLabel);
                 if (showFocusDuration && t.focusDuration) ext.push(`专注时长:${t.focusDuration}`);
@@ -931,7 +931,7 @@
                     <span>显示字段:</span>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldTaskName" checked>任务名称</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDocName">文档名称</label>
-                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldPriority">优先级</label>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldPriority">重要性</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldStatus">状态</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDate">日期</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldFocusDuration">专注时长</label>

@@ -169,7 +169,7 @@
         ai: 'AI',
         rules: '规则管理',
         quadrant: '四象限',
-        priority: '优先级算法',
+        priority: '优先级分值',
         benefits: '功能权益',
         about: '关于'
     });
@@ -2375,7 +2375,7 @@
                             <button class="tm-settings-nav-btn ${activeTab === 'ai' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="ai">🤖 AI</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'rules' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="rules">📋 规则管理</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'quadrant' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="quadrant">📊 四象限</button>
-                            <button class="tm-settings-nav-btn ${activeTab === 'priority' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="priority">⚙️ 优先级算法</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'priority' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="priority">⚙️ 优先级分值</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'benefits' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="benefits">💎 功能权益</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'about' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="about">ℹ️ 关于</button>
                             ` : `
@@ -2481,6 +2481,7 @@
                                 <div style="font-weight: 600;">📋 筛选规则管理</div>
                                 <div style="display:flex;gap:8px;align-items:center;">
                                     <button class="tm-btn tm-btn-primary" data-tm-action="addNewRule" style="padding: 4px 10px; font-size: 12px;">+ 新建规则</button>
+                                    <button class="tm-btn tm-btn-secondary" data-tm-action="tmRestoreRecommendedRules" style="padding: 4px 10px; font-size: 12px;">恢复推荐规则</button>
                                 </div>
                             </div>
                             <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--tm-border-color); border-radius:8px; background: var(--tm-card-bg); margin-bottom: 12px;" ${__tmSettingsSearchAttrs('rules', '时间轴强制按截止日期排序', '时间轴规则排序行为')}>
@@ -2491,13 +2492,13 @@
                                 ${renderRulesList()}
                             </div>
                             <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--tm-border-color);">
-                                规则说明：支持多条件组合筛选，可设置“包含/不包含”关键词、“优先级”、“状态”等条件。
+                                规则说明：支持多条件组合筛选，可设置“包含/不包含”关键词、“重要性”、“状态”等条件。
                             </div>
                         </div>
                     ` : ''}
 
                     ${activeTab === 'priority' ? `
-                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('priority', '优先级算法', '配置任务优先级评分权重和规则')}>
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('priority', '优先级分值', '配置优先级分值的权重和规则')}>
                             <div id="tm-priority-settings">
                                 ${__tmRenderPriorityScoreSettings(true)}
                             </div>
@@ -3283,7 +3284,7 @@
                         )}
                         ${renderSingleSwitchSetting(
                             '父任务按子任务时间参与时间相关排序',
-                            '按时间/四象限分组，以及截止日期、优先级数值排序时：已过期远 > 已过期近 > 未过期近 > 未过期远。',
+                            '按时间/四象限分组，以及截止日期、优先级分值排序时：已过期远 > 已过期近 > 未过期近 > 未过期远。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant ? 'checked' : ''} onchange="updateGroupSortByBestSubtaskTimeInTimeQuadrant(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(

@@ -52,7 +52,7 @@ let clientKind = 'ios-app';
 const state = { modal, checklistDetailSheetFullscreen: false };
 const context = vm.createContext({
     HTMLElement: Element, Element, window, navigator, state,
-    document: { documentElement: { clientHeight: 844 }, body: { contains: (node) => node.isConnected } },
+    document: Object.assign(new EventTarget(), { documentElement: { clientHeight: 844 }, body: { contains: (node) => node.isConnected } }),
     __tmGetRuntimeClientKind: () => clientKind,
     __tmComputeMobileBottomViewbarLayoutSig: () => 'unchanged',
     __tmApplyMobileBrowserViewportMetrics: () => {},
@@ -110,7 +110,31 @@ flush(frames);
 assert.deepEqual(metrics(fixedSheet), [0, 0, 844], 'keyboard dismissal must restore the original available area');
 assert.deepEqual(metrics(embeddedSheet), [0, 0, 780]);
 
-for (const kind of ['harmony-app', 'android-app', 'desktop-browser']) {
+clientKind = 'android-app';
+viewport.height = 400;
+viewport.offsetTop = 80;
+context.__tmApplyMobileDetailSheetViewportMetrics(modal);
+assert.deepEqual(metrics(fixedSheet), [80, 364, 400], 'Android keyboards must also constrain the sheet to the visual viewport');
+assert.deepEqual(metrics(embeddedSheet), [16, 364, 400], 'Android embedded sheets must use their own containing block');
+
+window.innerHeight = 400;
+context.document.documentElement.clientHeight = 400;
+viewport.offsetTop = 0;
+host.top = 0;
+host.clientHeight = 400;
+context.__tmApplyMobileDetailSheetViewportMetrics(modal);
+assert.deepEqual(metrics(fixedSheet), [0, 0, 400], 'Android layout viewport resizing must not subtract the keyboard twice');
+assert.deepEqual(metrics(embeddedSheet), [0, 0, 400]);
+window.innerHeight = 844;
+context.document.documentElement.clientHeight = 844;
+
+clientKind = 'mobile-browser';
+navigator.userAgent = 'Mozilla/5.0 (Linux; Android 14)';
+context.__tmApplyMobileDetailSheetViewportMetrics(modal);
+assert.equal(fixedSheet.classes.has('tm-checklist-sheet--visual-viewport'), true, 'Android browsers must receive the same bounds');
+navigator.userAgent = '';
+
+for (const kind of ['harmony-app', 'desktop-browser']) {
     clientKind = kind;
     context.__tmApplyMobileDetailSheetViewportMetrics(modal);
     assert.equal(fixedSheet.classes.has('tm-checklist-sheet--visual-viewport'), false, `${kind} must retain its existing layout`);
@@ -132,5 +156,9 @@ assert.equal(frames.size, 0, 'closing must cancel the pending frame');
 assert.equal(timers.size, 0, 'closing must cancel the pending refresh');
 viewport.dispatchEvent(new Event('scroll'));
 assert.equal(frames.size, 0, 'closing must remove viewport listeners');
+context.document.dispatchEvent(new Event('focusin'));
+context.document.dispatchEvent(new Event('focusout'));
+assert.equal(frames.size, 0, 'closing must remove keyboard focus listeners');
+assert.equal(modal.classes.has('tm-modal--keyboard-open'), false, 'closing must clear the temporary keyboard visibility state');
 
 console.log('task detail iOS viewport tests passed');

@@ -269,7 +269,6 @@
             const taskCompleteAtText = hasTaskCompleteAtCol ? __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task)) : '';
             const tomatoSummaryText = colSet.has('tomatoSummary') ? __tmGetTaskTomatoSummaryText(task) : '';
             const tomatoSummaryHtml = colSet.has('tomatoSummary') ? __tmGetTaskTomatoSummaryHtml(task) : '';
-            const tomatoEstimateText = colSet.has('tomatoEstimateCount') ? __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task)) : '';
             const tomatoCountText = colSet.has('tomatoCount') ? __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task)) : '';
             const tomatoCountHtml = colSet.has('tomatoCount') ? __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task)) : '';
             const remainingInfo = hasRemainingTimeCol ? __tmGetTaskRemainingTimeInfo(task) : null;
@@ -401,7 +400,7 @@
                         rowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="tomatoSummary" style="${getTableCellStyle('tomatoSummary', 'text-align:center; font-variant-numeric: inherit;')}" onclick="tmBeginCellEdit('${taskId}','tomatoSummary',this,event)">${tomatoSummaryHtml}</td>`;
                         break;
                     case 'tomatoEstimateCount':
-                        rowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="tomatoEstimateCount" style="${getTableCellStyle('tomatoEstimateCount', 'text-align:center; font-variant-numeric: inherit;')}" onclick="tmBeginCellEdit('${taskId}','tomatoEstimateCount',this,event)">${esc(tomatoEstimateText)}</td>`;
+                        rowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="tomatoEstimateCount" style="${getTableCellStyle('tomatoEstimateCount', 'text-align:center; font-variant-numeric: inherit;')}" onclick="tmBeginCellEdit('${taskId}','tomatoEstimateCount',this,event)">${__tmGetTomatoCountDisplayHtml(__tmGetTaskTomatoEstimateCount(task))}</td>`;
                         break;
                     case 'tomatoCount':
                         rowHtml += `<td class="tm-task-meta-cell" data-tm-task-time-field="tomatoCount" style="${getTableCellStyle('tomatoCount', 'text-align:center; font-variant-numeric: inherit;')}">${tomatoCountHtml || esc(tomatoCountText)}</td>`;
@@ -5976,7 +5975,7 @@ if (ev) {
             wrap.className = 'tm-task-context-priority';
             const title = document.createElement('div');
             title.className = 'tm-task-context-priority__title';
-            title.textContent = '优先级';
+            title.textContent = '重要性';
             wrap.appendChild(title);
             const row = document.createElement('div');
             row.className = 'tm-task-context-priority__row';
@@ -5995,7 +5994,7 @@ if (ev) {
                 btn.type = 'button';
                 btn.className = `tm-task-context-priority__btn${active ? ' is-active' : ''}`;
                 btn.style.setProperty('--tm-context-priority-color', color);
-                btn.setAttribute('aria-label', `设置优先级为${info?.label || '无'}`);
+                btn.setAttribute('aria-label', `设置重要性为${info?.label || '无'}`);
                 btn.setAttribute('aria-pressed', active ? 'true' : 'false');
                 btn.title = info?.label || '无';
                 btn.innerHTML = __tmRenderPriorityJira(opt.value, false);
@@ -6012,9 +6011,9 @@ if (ev) {
                     });
                     menu.remove();
                     Promise.resolve(savePromise).then((ok) => {
-                        if (!ok) hint('❌ 优先级更新失败', 'error');
+                        if (!ok) hint('❌ 重要性更新失败', 'error');
                     }).catch((err) => {
-                        hint(`❌ 优先级更新失败: ${err?.message || err}`, 'error');
+                        hint(`❌ 重要性更新失败: ${err?.message || err}`, 'error');
                     });
                 };
                 row.appendChild(btn);

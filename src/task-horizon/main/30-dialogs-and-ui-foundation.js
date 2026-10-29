@@ -2338,7 +2338,7 @@
 
     function __tmNormalizeRuleIdValue(ruleId) {
         const value = String(ruleId || '').trim();
-        return value || null;
+        return ['default_all', 'high_priority', 'default_completed'].includes(value) ? null : (value || null);
     }
 
     function __tmNormalizeViewProfileDefaultViewMode(mode) {
@@ -2538,11 +2538,9 @@
     }
 
     function __tmRuleNeedsDoneOnly(ruleOrId) {
-        if (String(ruleOrId || '').trim() === 'default_all') return false;
         const rule = (ruleOrId && typeof ruleOrId === 'object')
             ? ruleOrId
             : __tmFindRuleById(ruleOrId);
-        if (String(rule?.id || '').trim() === 'default_all') return false;
         return !!(rule && Array.isArray(rule.conditions) && rule.conditions.some((c) => {
             if (!c || c.field !== 'done' || c.operator !== '=') return false;
             return (c.value === true || String(c.value) === 'true' || c.value === '') && String(c.value) !== '__all__';
@@ -8306,11 +8304,12 @@ return Number(state.contextInteractionQuietUntil || 0);
                     <div class="tm-rules-title">📋 筛选规则管理器</div>
                     <div style="display:flex;gap:10px;align-items:center;">
                         <button class="tm-rule-btn tm-rule-btn-secondary" data-tm-action="showPriorityScoreSettings">
-                            优先级算法
+                            优先级分值
                         </button>
                         <button class="tm-rule-btn tm-rule-btn-success" data-tm-action="addNewRule">
                             <span>+</span> 添加规则
                         </button>
+                        <button class="tm-rule-btn tm-rule-btn-secondary" data-tm-action="tmRestoreRecommendedRules">恢复推荐规则</button>
                     </div>
                 </div>
 
@@ -8479,6 +8478,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 const field = RuleManager.getFieldInfo(c.field);
                 const operatorLabel = (RuleManager.getOperators(field?.type || 'text').find(op => op.value === c.operator)?.label || c.operator);
                 const noValueDatetimeOperators = new Set([
+                    'overdue',
                     'range_today',
                     'range_overlap_today',
                     'range_week',
@@ -8696,6 +8696,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             return '<span class="tm-rule-condition-value tm-rule-condition-value-empty">无需填写</span>';
         }
         const noValueDatetimeOperators = new Set([
+            'overdue',
             'range_today',
             'range_overlap_today',
             'range_week',
@@ -9197,7 +9198,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (embedded) {
             return `
                 <div class="tm-priority-settings tm-priority-modules">
-                    <div class="tm-priority-embedded-title" style="font-weight: 700; font-size: 15px;">⚙️ 优先级算法</div>
+                    <div class="tm-priority-embedded-title" style="font-weight: 700; font-size: 15px;">⚙️ 优先级分值</div>
 
                     <div class="tm-priority-module">
                         <div class="tm-priority-module__head">
@@ -9320,7 +9321,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         return `
             <div class="tm-box tm-priority-settings" style="width: ${embedded ? '100%' : '720px'}; height: auto; ${embedded ? '' : 'max-height: 86vh;'}">
                 <div class="tm-header">
-                    <div style="font-size: 16px; font-weight: 700; color: var(--tm-text-color);">⚙️ 优先级算法</div>
+                    <div style="font-size: 16px; font-weight: 700; color: var(--tm-text-color);">⚙️ 优先级分值</div>
                     ${embedded
                         ? '<button class="tm-btn tm-btn-gray" data-tm-action="tmSwitchSettingsTab" data-tab="rules">返回</button>'
                         : '<button class="tm-btn tm-btn-gray" data-tm-action="closePriorityScoreSettings">关闭</button>'}
@@ -9460,7 +9461,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             __tmScheduleRender({ withFilters: true });
         }
         closePriorityScoreSettings();
-        hint('✅ 优先级算法已保存', 'success');
+        hint('✅ 优先级分值已保存', 'success');
     };
 
     // 渲染四象限设置
@@ -10176,6 +10177,27 @@ return Number(state.contextInteractionQuietUntil || 0);
         __tmRerenderRulesManagerUI();
     };
 
+    window.tmRestoreRecommendedRules = async function() {
+        const confirmed = await showConfirm('恢复推荐规则', '将恢复未完成、今日、已逾期、未来七天和未安排五条推荐规则的筛选与排序。自定义规则和任务数据保留。');
+        if (!confirmed) return;
+        await __tmFlushSettingsAutosave();
+        const defaults = RuleManager.getDefaultRules();
+        const builtinIds = new Set(['default_all', 'high_priority', 'default_completed', ...defaults.map((rule) => rule.id)]);
+        const customRules = (state.filterRules || []).filter((rule) => !builtinIds.has(rule.id));
+        try {
+            RuleManager.clearRetiredRuleReferences();
+            await RuleManager.saveRules([...defaults, ...customRules]);
+            state.filterRules = SettingsStore.data.filterRules;
+            state.editingRule = null;
+            __tmRefreshRuleTopbarSelectsInPlace();
+            __tmRerenderRulesManagerUI();
+            __tmScheduleRender({ withFilters: true });
+            hint('✅ 推荐规则已恢复，自定义规则已保留', 'success');
+        } catch (error) {
+            hint(`❌ 恢复推荐规则失败：${error?.message || error}`, 'error');
+        }
+    };
+
     window.editRule = function(ruleId) {
         __tmFlushSettingsInputs();
         const rule = state.filterRules.find(r => r.id === ruleId);
@@ -10304,6 +10326,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 condition.value = { from: '', to: '' };
             }
             else if (fieldInfo?.type === 'datetime' && [
+                'overdue',
                 'range_today',
                 'range_overlap_today',
                 'range_week',
@@ -10605,7 +10628,6 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function __tmIsAllRuleLike(rule) {
         if (!rule || typeof rule !== 'object') return false;
-        if (String(rule.id || '').trim() === 'default_all') return true;
         const conds = Array.isArray(rule.conditions) ? rule.conditions.filter(Boolean) : [];
         if (conds.length === 0) return true;
         if (conds.length === 1) {

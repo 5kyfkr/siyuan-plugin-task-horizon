@@ -538,7 +538,7 @@
 
     function __tmGetTomatoCountDisplay(value) {
         const normalized = __tmNormalizeActualTomatoCountValue(value);
-        return normalized ? `🍅 ${normalized}` : '';
+        return normalized ? `番茄 ${normalized}` : '';
     }
 
     function __tmGetTaskTomatoEstimateCount(task) {
@@ -6922,7 +6922,7 @@
         if (raw === 'pinned') return '置顶';
         if (raw === 'content') return '任务内容';
         if (raw === 'status') return '状态';
-        if (raw === 'score') return '优先级';
+        if (raw === 'score') return '优先级分值';
         if (raw === 'doc') return '文档';
         if (raw === 'h2') return __tmGetTaskHeadingColumnLabel();
         if (raw === 'priority') return '重要性';
@@ -6944,7 +6944,7 @@
             { key: 'pinned', label: '置顶', kind: 'builtin' },
             { key: 'content', label: '任务内容', kind: 'builtin' },
             { key: 'status', label: '状态', kind: 'builtin' },
-            { key: 'score', label: '优先级', kind: 'builtin' },
+            { key: 'score', label: '优先级分值', kind: 'builtin' },
             { key: 'doc', label: '文档', kind: 'builtin' },
             { key: 'h2', label: __tmGetTaskHeadingColumnLabel(), kind: 'builtin' },
             { key: 'priority', label: '重要性', kind: 'builtin' },
@@ -8768,6 +8768,7 @@
                 docs: {}
             },
             filterRules: [],
+            filterRulesDefaultsVersion: 0,
             shortcutItems: [],
             shortcutSidebarEnabled: true,
             shortcutSidebarPreferences: {},
@@ -8966,9 +8967,7 @@
                 { id: 'todo', name: '待办', color: '#757575', marker: ' ' },
                 { id: 'in_progress', name: '进行中', color: '#2196F3', marker: '/' },
                 { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
-                { id: 'cancelled', name: '放弃', color: '#9E9E9E', marker: '-' },
-                { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
-                { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' }
+                { id: 'cancelled', name: '放弃', color: '#9E9E9E', marker: '-' }
             ],
             customDurationOptions: [],
             checkboxDoneStatusId: 'done',
@@ -9352,6 +9351,7 @@
                         try {
                             const cloudData = JSON.parse(text);
                             if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
+                                if (Array.isArray(cloudData.filterRules) && typeof cloudData.filterRulesDefaultsVersion !== 'number') cloudData.filterRulesDefaultsVersion = 1;
                                 migratedLegacyTaskTitleClickSettings = __tmMigrateLegacyTaskTitleClickSettings(cloudData, cloudData)
                                     || migratedLegacyTaskTitleClickSettings;
                                 migratedLegacyTaskTitleClickSettings = __tmMigrateScheduleTimeFieldDefaults(cloudData)
@@ -9501,6 +9501,7 @@
                                 if (cloudData.shortcutSidebarPreferences && typeof cloudData.shortcutSidebarPreferences === 'object' && !Array.isArray(cloudData.shortcutSidebarPreferences)) this.data.shortcutSidebarPreferences = cloudData.shortcutSidebarPreferences;
                                 if (cloudData.shortcutNavigationSessions && typeof cloudData.shortcutNavigationSessions === 'object' && !Array.isArray(cloudData.shortcutNavigationSessions)) this.data.shortcutNavigationSessions = cloudData.shortcutNavigationSessions;
                                 if (Array.isArray(cloudData.filterRules)) this.data.filterRules = cloudData.filterRules;
+                                if (typeof cloudData.filterRulesDefaultsVersion === 'number') this.data.filterRulesDefaultsVersion = cloudData.filterRulesDefaultsVersion;
                                 if (typeof cloudData.fontSize === 'number') this.data.fontSize = cloudData.fontSize;
                                 if (typeof cloudData.fontSizeMobile === 'number') this.data.fontSizeMobile = cloudData.fontSizeMobile;
                                 if (typeof cloudData.rowHeightMode === 'string') this.data.rowHeightMode = cloudData.rowHeightMode;
@@ -10019,6 +10020,7 @@
             this.data.currentRule = Storage.get('tm_current_rule', null);
             this.data.viewProfiles = Storage.get('tm_view_profiles', this.data.viewProfiles) || this.data.viewProfiles;
             this.data.filterRules = Storage.get('tm_filter_rules', []);
+            this.data.filterRulesDefaultsVersion = Number(Storage.get('tm_filter_rules_defaults_version', Storage.has('tm_filter_rules') ? 1 : 0)) || 0;
             this.data.shortcutItems = __tmShortcuts.normalize(Storage.get('tm_shortcut_items', []));
             this.data.shortcutSidebarEnabled = Storage.get('tm_shortcut_sidebar_enabled', this.data.shortcutSidebarEnabled) !== false;
             this.data.shortcutSidebarPreferences = Storage.get('tm_shortcut_sidebar_saved_preferences', this.data.shortcutSidebarPreferences) || {};
@@ -10631,6 +10633,7 @@
                 groupMode: this.data.groupMode
             }));
             Storage.set('tm_filter_rules', this.data.filterRules);
+            Storage.set('tm_filter_rules_defaults_version', Number(this.data.filterRulesDefaultsVersion) || 0);
             Storage.set('tm_shortcut_items', this.data.shortcutItems || []);
             Storage.set('tm_shortcut_sidebar_enabled', this.data.shortcutSidebarEnabled !== false);
             Storage.set('tm_shortcut_sidebar_saved_preferences', this.data.shortcutSidebarPreferences || {});
@@ -12045,7 +12048,7 @@
         // 获取所有规则（优先从 SettingsStore 获取）
         getRules() {
             // 优先从 SettingsStore 获取
-            if (SettingsStore.loaded && Array.isArray(SettingsStore.data.filterRules) && SettingsStore.data.filterRules.length > 0) {
+            if (SettingsStore.loaded && Array.isArray(SettingsStore.data.filterRules)) {
                 return SettingsStore.data.filterRules;
             }
             // 回退到本地存储
@@ -12054,43 +12057,66 @@
 
         // 保存规则（使用 SettingsStore 保存到云端和本地）
         async saveRules(rules) {
+            const previousRules = SettingsStore.data.filterRules;
+            const previousVersion = SettingsStore.data.filterRulesDefaultsVersion;
             SettingsStore.data.filterRules = (Array.isArray(rules) ? rules : []).map((rule) => {
                 if (rule && typeof rule === 'object' && __tmRuleSortsUseCustomOrderField(rule)) {
                     return { ...rule, sort: [{ field: __TM_CUSTOM_ORDER_SORT_FIELD, order: 'asc' }] };
                 }
                 return rule;
             });
-            await SettingsStore.save();
+            const nextRules = SettingsStore.data.filterRules;
+            SettingsStore.data.filterRulesDefaultsVersion = 1;
+            try { await SettingsStore.save(); }
+            catch (error) {
+                if (SettingsStore.data.filterRules === nextRules) {
+                    SettingsStore.data.filterRules = previousRules;
+                    SettingsStore.data.filterRulesDefaultsVersion = previousVersion;
+                }
+                throw error;
+            }
+        },
+
+        clearRetiredRuleReferences() {
+            const retired = new Set(['default_all', 'high_priority', 'default_completed']);
+            let changed = false;
+            const clear = (value) => {
+                if (!value || typeof value !== 'object') return;
+                Object.keys(value).forEach((key) => {
+                    if ((key === 'ruleId' || key === 'currentRule') && retired.has(String(value[key] || '').trim())) {
+                        value[key] = null;
+                        changed = true;
+                    } else if (value[key] && typeof value[key] === 'object') clear(value[key]);
+                });
+            };
+            const data = SettingsStore.data;
+            if (retired.has(String(data.currentRule || '').trim())) {
+                data.currentRule = null;
+                changed = true;
+            }
+            [data.viewProfiles, data.shortcutItems, data.shortcutNavigationSessions, data.taskCountBadge].forEach(clear);
+            if (typeof state !== 'undefined' && retired.has(String(state.currentRule || '').trim())) state.currentRule = null;
+            return changed;
         },
 
         // 获取默认规则
         getDefaultRules() {
             return [
                 {
-                    id: 'default_all',
-                    name: '所有任务',
-                    enabled: true,
-                    conditions: [],
-                    sort: [
-                        { field: 'priority', order: 'desc' },
-                        { field: 'created', order: 'asc' }
-                    ]
-                },
-                {
                     id: 'default_todo',
-                    name: '待办任务',
+                    name: '未完成',
                     enabled: true,
                     conditions: [
                         { field: 'done', operator: '=', value: false }
                     ],
                     sort: [
                         { field: 'priority', order: 'desc' },
-                        { field: 'updated', order: 'desc' }
+                        { field: 'completionTime', order: 'asc' }
                     ]
                 },
                 {
                     id: 'default_today',
-                    name: '今日任务',
+                    name: '今日',
                     enabled: true,
                     conditions: [
                         { field: 'done', operator: '=', value: false },
@@ -12101,22 +12127,46 @@
                         }
                     ],
                     sort: [
-                        { field: 'priority', order: 'desc' },
-                        { field: 'completionTime', order: 'asc' }
+                        { field: 'completionTime', order: 'asc' },
+                        { field: 'priority', order: 'desc' }
                     ]
                 },
                 {
-                    id: 'high_priority',
-                    name: '高优先级',
+                    id: 'default_overdue',
+                    name: '已逾期',
                     enabled: true,
                     conditions: [
                         { field: 'done', operator: '=', value: false },
-                        { field: 'priority', operator: '=', value: 'high' }
+                        { field: 'completionTime', operator: 'overdue', value: '' }
                     ],
                     sort: [
-                        { field: 'created', order: 'asc' },
-                        { field: 'completionTime', order: 'asc' }
+                        { field: 'completionTime', order: 'asc' },
+                        { field: 'priority', order: 'desc' }
                     ]
+                },
+                {
+                    id: 'default_next_seven_days',
+                    name: '未来七天',
+                    enabled: true,
+                    conditions: [
+                        { field: 'done', operator: '=', value: false },
+                        { field: 'taskDate', operator: 'after_today', value: '' },
+                        { field: 'taskDate', operator: 'range_next_days', value: 7 }
+                    ],
+                    sort: [
+                        { field: 'taskDate', order: 'asc' },
+                        { field: 'priority', order: 'desc' }
+                    ]
+                },
+                {
+                    id: 'default_unscheduled',
+                    name: '未安排',
+                    enabled: true,
+                    conditions: [
+                        { field: 'done', operator: '=', value: false },
+                        { field: 'taskDate', operator: 'is_empty', value: '' }
+                    ],
+                    sort: [{ field: 'priority', order: 'desc' }]
                 }
             ];
         },
@@ -12124,12 +12174,14 @@
         // 初始化规则
         async initRules() {
             const rules = this.getRules();
-            if (rules.length === 0) {
+            const initialize = Number(SettingsStore.data.filterRulesDefaultsVersion || 0) < 1;
+            const referencesChanged = this.clearRetiredRuleReferences();
+            if (rules.length === 0 && initialize) {
                 const defaultRules = this.getDefaultRules();
                 await this.saveRules(defaultRules);
                 return defaultRules;
             }
-            const migratedRules = rules.map((rule) => {
+            const migratedRules = rules.filter((rule) => !['default_all', 'high_priority', 'default_completed'].includes(String(rule?.id || '').trim())).map((rule) => {
                 if (String(rule?.id || '').trim() !== 'default_today' || !Array.isArray(rule?.conditions)) return rule;
                 const hasLegacyTodayCondition = rule.conditions.some((condition) => (
                     String(condition?.field || '').trim() === 'completionTime'
@@ -12146,7 +12198,7 @@
                     )),
                 };
             });
-            if (migratedRules.some((rule, index) => rule !== rules[index])) {
+            if (initialize || referencesChanged || migratedRules.length !== rules.length || migratedRules.some((rule, index) => rule !== rules[index])) {
                 await this.saveRules(migratedRules);
             }
             return migratedRules;
@@ -12154,15 +12206,14 @@
 
         // 创建新规则
         createRule(name) {
+            const currentRuleId = typeof state !== 'undefined' ? state.currentRule : SettingsStore.data.currentRule;
+            const currentRule = (SettingsStore.data.filterRules || []).find((rule) => rule?.id === currentRuleId);
             return {
                 id: 'rule_' + Date.now(),
                 name: name || '新规则',
                 enabled: true,
                 conditions: [],
-                sort: [
-                    { field: 'priorityScore', order: 'desc' },
-                    { field: 'priority', order: 'desc' }
-                ]
+                sort: (Array.isArray(currentRule?.sort) ? currentRule.sort : []).map((item) => ({ ...item }))
             };
         },
 
@@ -12248,13 +12299,13 @@
                 },
                 {
                     value: 'priority',
-                    label: '优先级',
+                    label: '重要性',
                     type: 'select',
                     options: ['high', 'medium', 'low', 'none'],
                     optionLabels: { high: '高', medium: '中', low: '低', none: '无' },
                     emptyLabel: '无',
                 },
-                { value: 'priorityScore', label: '优先级数值', type: 'number' },
+                { value: 'priorityScore', label: '优先级分值', type: 'number' },
                 {
                     value: 'customStatus',
                     label: '状态',
@@ -12426,8 +12477,16 @@
                         return { todayStartTs, tomorrowStartTs: todayStartTs + 24 * 60 * 60 * 1000 };
                     }
                     case 'range_week': {
-                        const startTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - nowDate.getDay()).getTime();
-                        return { startTs, endTs: startTs + 7 * 24 * 60 * 60 * 1000 };
+                        const configuredFirstDay = Number(SettingsStore.data.calendarFirstDay ?? 1);
+                        const firstDay = Number.isInteger(configuredFirstDay) && configuredFirstDay >= 0 && configuredFirstDay <= 6 ? configuredFirstDay : 1;
+                        const offset = (nowDate.getDay() - firstDay + 7) % 7;
+                        const startTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - offset).getTime();
+                        const endTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - offset + 7).getTime();
+                        return { startTs, endTs };
+                    }
+                    case 'overdue': {
+                        const todayStartTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
+                        return { todayStartTs, nowTs: nowDate.getTime() };
                     }
                     case 'range_month': {
                         const startTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1).getTime();
@@ -12592,6 +12651,7 @@
             const datetimeOperators = [
                 { value: 'range_today', label: '今天' },
                 { value: 'range_overlap_today', label: '覆盖今天' },
+                { value: 'overdue', label: '已逾期' },
                 { value: 'range_week', label: '本周' },
                 { value: 'range_month', label: '本月' },
                 { value: 'range_recent_days', label: '今天至N天前' },
@@ -12625,8 +12685,8 @@
         getSortFields() {
             const sortFields = [
                 { value: __TM_CUSTOM_ORDER_SORT_FIELD, label: '自定义排序' },
-                { value: 'priorityScore', label: '优先级数值' },
-                { value: 'priority', label: '优先级' },
+                { value: 'priorityScore', label: '优先级分值' },
+                { value: 'priority', label: '重要性' },
                 { value: 'customStatus', label: '状态' },
                 { value: 'docSeq', label: '文档出现顺序' },
                 { value: 'startDate', label: '开始日期' },
@@ -12663,9 +12723,6 @@
         // 第 0 个条件的 join 被忽略（作为 reduce 的种子）。
         // 例：[a and b or c and d] = (((a AND b) OR c) AND d)
         applyRuleFilter(tasks, rule, options = {}) {
-            if (String(rule?.id || '').trim() === 'default_all') {
-                return tasks;
-            }
             if (!rule || !rule.conditions || rule.conditions.length === 0) {
                 return tasks;
             }
@@ -12898,6 +12955,11 @@
             if (!taskTs) return operator === '!='; // 空时间处理
 
             switch(operator) {
+                case 'overdue': {
+                    const raw = String(this.getTaskFieldValue(task, runtime.fieldInfo || runtime.field, opts) || '').trim();
+                    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw) || /^\d{8}$/.test(raw);
+                    return taskTs < Number(dateOnly ? timeRuntime?.todayStartTs : timeRuntime?.nowTs);
+                }
                 case 'range_today': {
                     return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
                 }
@@ -13187,7 +13249,8 @@
                         if (!hasA && !hasB) return 0;
                         if (!hasA) return 1;
                         if (!hasB) return -1;
-                        return Number(leftKey?.ts || 0) - Number(rightKey?.ts || 0);
+                        const delta = Number(leftKey?.ts || 0) - Number(rightKey?.ts || 0);
+                        return order === 'desc' ? -delta : delta;
                     }
                     default:
                         if (leftKey === rightKey) return 0;
@@ -13212,7 +13275,7 @@
                     const sortContext = sortContexts[i];
                     const result = comparePreparedSortKey(left.keys[i], right.keys[i], sortContext, sortRule.order);
                     if (result !== 0) {
-                        if (sortContext?.kind === 'duration' || sortContext?.kind === 'customText') return result;
+                        if (sortContext?.kind === 'duration' || sortContext?.kind === 'customText' || sortContext?.kind === 'time') return result;
                         return sortRule.order === 'desc' ? -result : result;
                     }
                 }

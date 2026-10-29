@@ -22,7 +22,7 @@ runtime = runtime.slice(0, end) + `
         queue: __tmQueueSettingsSave, run: __tmRunSettingsSave, jobs: __tmSettingsSaveJobs,
         pageFor: __tmSettingsV2PageFor, policy: __tmAgentPolicyView,
         flush: __tmFlushSettingsAutosave, failures: __tmSettingsSaveErrors, applyTheme: __tmApplyAppearanceThemeVars,
-        persistPolicy: __tmPersistPolicySetting, policySnapshot: () => __tmSettingsDomainSnapshot('policy') };
+        persistPolicy: __tmPersistPolicySetting, policySnapshot: () => __tmSettingsDomainSnapshot('policy'), ruleOptions: __tmBuildRuleMenuOptions };
     const cached = localStorage.getItem('settings-test');
     if (cached) Object.assign(SettingsStore.data, JSON.parse(cached));
     SettingsStore.loaded = true;
@@ -167,6 +167,10 @@ async function checkBoundStatusDeletion(page) {
     try {
         for (const width of [1440, 390]) {
             await page.setViewportSize({ width, height: 1000 });
+            const statusId = page.locator('[onchange="updateStatusOption(0, \'id\', this.value)"]');
+            assert.equal(await statusId.isVisible(), true, 'status IDs remain directly visible on desktop and mobile');
+            assert.equal(await page.locator('[onchange="updateStatusOption(0, \'marker\', this.value)"]').isVisible(), true);
+            assert.equal(await page.locator('[data-tm-status-advanced-toggle]').count(), 0, 'status settings have no collapsing control');
             const doneDelete = page.locator('[onclick="deleteStatusOption(1)"]');
             const todoDelete = page.locator('[onclick="deleteStatusOption(0)"]');
             const backlogDelete = page.locator('[onclick="deleteStatusOption(2)"]');
@@ -194,6 +198,44 @@ async function checkBoundStatusDeletion(page) {
     }
 }
 
+async function checkRecommendedRules(page) {
+    assert.deepEqual(await page.evaluate(() => __settingsTest.SettingsStore.data.customStatusOptions.map(item => item.name)),
+        ['待办', '进行中', '已完成', '放弃']);
+    const original = await page.evaluate(() => {
+        const { SettingsStore, state } = __settingsTest;
+        const original = JSON.parse(JSON.stringify({ filterRules: SettingsStore.data.filterRules,
+            filterRulesDefaultsVersion: SettingsStore.data.filterRulesDefaultsVersion,
+            currentRule: SettingsStore.data.currentRule, viewProfiles: SettingsStore.data.viewProfiles }));
+        SettingsStore.data.filterRules = [{ id: 'default_all', name: '所有任务', enabled: true, conditions: [], sort: [] },
+            { id: 'custom-keep', name: '自定义查询', enabled: true, conditions: [], sort: [] }];
+        state.filterRules = SettingsStore.data.filterRules;
+        state.currentRule = 'default_all';
+        SettingsStore.data.currentRule = 'default_all';
+        tmOpenSettingsV2Page('algo', 'r-rules');
+        return original;
+    });
+    try {
+        await page.locator('[data-tm-action="tmRestoreRecommendedRules"]').click();
+        await page.locator('#tm-confirm-cancel').click();
+        assert.equal(await page.evaluate(() => __settingsTest.state.filterRules[0].id), 'default_all', 'cancel preserves existing rules');
+        await page.locator('[data-tm-action="tmRestoreRecommendedRules"]').click();
+        await page.locator('#tm-confirm-ok').click();
+        await page.waitForFunction(() => __settingsTest.state.filterRules.length === 6);
+        assert.deepEqual(await page.evaluate(() => __settingsTest.ruleOptions().map(option => option.label)),
+            ['全部', '未完成', '今日', '已逾期', '未来七天', '未安排', '自定义查询']);
+        assert.equal(await page.evaluate(() => __settingsTest.state.currentRule), null);
+        assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('settings-test')).currentRule), null);
+    } finally {
+        await page.evaluate(async original => {
+            Object.assign(__settingsTest.SettingsStore.data, original);
+            __settingsTest.state.filterRules = original.filterRules;
+            __settingsTest.state.currentRule = original.currentRule;
+            await __settingsTest.SettingsStore.save();
+            showSettings();
+        }, original);
+    }
+}
+
 (async () => {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const browser = await chromium.launch({ headless: true });
@@ -213,6 +255,7 @@ async function checkBoundStatusDeletion(page) {
             assert.deepEqual(errors, [], 'layout checks must not cause runtime errors');
             return;
         }
+        await checkRecommendedRules(page);
         await checkBoundStatusDeletion(page);
         await page.evaluate(() => tmOpenSettingsV2Page('docs', 't-new'));
         const inboxVisibility = page.locator('[onchange="updateHideInboxFromAllTab(this.checked)"]');
@@ -351,7 +394,7 @@ async function checkBoundStatusDeletion(page) {
             assert.equal(entry.tab, 'priority', 'standalone actions are scoped to the priority module editor');
             assert.match(decodeURIComponent(entry.key), /tm(?:Add|Remove)Priority(?:DueRange|DurationBucket|TitleOpacityRange|DocDelta|GroupDelta)\|/);
             assert.deepEqual(entry.route, { page: 'algo', sub: 'r-priority' });
-            assert.equal(entry.sectionLabel, '优先级数值', 'action results retain their settings context');
+            assert.equal(entry.sectionLabel, '优先级分值', 'action results retain their settings context');
         }
         assert.equal(new Set(relevance.actionEntries.map(entry => entry.key)).size, relevance.actionEntries.length,
             'repeated module actions have unique search targets');

@@ -887,6 +887,28 @@
     font-weight: 700;
 }
 
+.tm-focus-tomato-icon {
+    --tomato-ui-red: #ba4335;
+    --tomato-ui-leaf: #367a41;
+    width: 1.3em;
+    height: 1.3em;
+    display: inline-block;
+    flex: 0 0 auto;
+    vertical-align: -0.25em;
+    pointer-events: none;
+}
+
+:root[data-theme-mode="dark"] .tm-focus-tomato-icon {
+    --tomato-ui-red: #ef705e;
+    --tomato-ui-leaf: #8acb77;
+}
+
+.tm-focus-tomato-icon,
+.tm-focus-tomato-icon path {
+    fill: none !important;
+    pointer-events: none;
+}
+
 .tm-focus-summary-actual {
     color: var(--b3-theme-error, var(--tm-danger-color));
     font-weight: 700;
@@ -3679,6 +3701,15 @@
 
 .tm-main-stage.tm-main-stage--with-bottom-viewbar {
     --tm-view-bottom-inset: calc(var(--tm-mobile-bottom-viewbar-offset, env(safe-area-inset-bottom, 0px)) + 52px);
+}
+
+.tm-modal.tm-modal--keyboard-open .tm-mobile-bottom-viewbar {
+    display: none !important;
+    pointer-events: none !important;
+}
+
+.tm-modal.tm-modal--keyboard-open .tm-main-stage--with-bottom-viewbar {
+    --tm-view-bottom-inset: 0px;
 }
 
 /* The full-screen mobile view bar keeps horizontal tab scrolling native while
@@ -16689,8 +16720,8 @@ button.tm-task-detail-focus-stat[aria-expanded="true"] {
     bottom: 0;
 }
 
-/* Keep iOS sheets inside the visible area above the software keyboard, even
-   when WebKit pans the viewport while focusing a title, subtask or remark. */
+/* Keep mobile sheets inside the visible area above the software keyboard, even
+   when the browser pans the viewport while focusing a title, subtask or remark. */
 .tm-modal.tm-modal--mobile #tmChecklistSheet.tm-checklist-sheet--visual-viewport,
 .tm-modal.tm-modal--mobile #tmTaskDetailSheet.tm-checklist-sheet--visual-viewport {
     bottom: var(--tm-sheet-visible-bottom, 0px);

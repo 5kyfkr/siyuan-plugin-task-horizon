@@ -176,7 +176,7 @@ return false;
         setCell('taskCompleteAt', taskCompleteAtText, { title: taskCompleteAtText });
         setCell('duration', esc(__tmFormatDurationDisplayValue(task.duration || '')), { html: true });
         setCell('tomatoSummary', __tmGetTaskTomatoSummaryHtml(task), { html: true });
-        setCell('tomatoEstimateCount', esc(__tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task))), { html: true });
+        setCell('tomatoEstimateCount', __tmGetTomatoCountDisplayHtml(__tmGetTaskTomatoEstimateCount(task)), { html: true });
         setCell('tomatoCount', __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task)), { html: true });
         const remainingInfo = __tmGetTaskRemainingTimeInfo(task);
         const remainingLabel = String(remainingInfo?.label || '').trim();
@@ -276,7 +276,7 @@ return ok;
         if (!syncNode('completionTime', esc(completionText), { html: true, shouldExist: !!taskCompletionTimeValue })) valid = false;
         if (!syncNode('duration', `${__tmRenderLucideIcon('timer')} ${esc(durationText)}`, { html: true, shouldExist: !!durationText })) valid = false;
         if (!syncNode('tomatoSummary', `${__tmRenderLucideIcon('timer')} ${focusSummaryHtml}`, { html: true, shouldExist: !!focusSummaryText })) valid = false;
-        if (!syncNode('tomatoEstimateCount', esc(tomatoEstimateText), { html: true, shouldExist: !!tomatoEstimateText })) valid = false;
+        if (!syncNode('tomatoEstimateCount', __tmGetTomatoCountDisplayHtml(__tmGetTaskTomatoEstimateCount(task)), { html: true, shouldExist: !!tomatoEstimateText })) valid = false;
         if (!syncNode('tomatoCount', tomatoCountHtml, { html: true, shouldExist: !!tomatoCountText })) valid = false;
         if (!syncNode('startDateCompact', compactStartText, { shouldExist: !!compactStartText })) valid = false;
         if (!syncNode('completionTimeCompact', compactCompletionText, { shouldExist: !!compactCompletionText })) valid = false;
@@ -293,7 +293,7 @@ return ok;
         if (!syncNode('remainingTimeCompact', compactRemainingHtml, { html: true, title: compactRemainingText, shouldExist: !!compactRemainingText && __tmShouldRenderTaskCardRemainingTime(task, compactDateVisible) })) valid = false;
         if (!syncNode('durationCompact', compactDurationText, { shouldExist: !!compactDurationText })) valid = false;
         if (!syncNode('tomatoSummaryCompact', compactFocusSummaryHtml, { html: true, shouldExist: !!compactFocusSummaryText })) valid = false;
-        if (!syncNode('tomatoEstimateCountCompact', compactTomatoEstimateText, { shouldExist: !!compactTomatoEstimateText })) valid = false;
+        if (!syncNode('tomatoEstimateCountCompact', __tmGetTomatoCountDisplayHtml(__tmGetTaskTomatoEstimateCount(task)), { html: true, shouldExist: !!compactTomatoEstimateText })) valid = false;
         if (!syncNode('tomatoCountCompact', compactTomatoCountHtml, { html: true, shouldExist: !!compactTomatoCountText })) valid = false;
         __tmSyncChecklistMetaContainerVisibility(item);
         return valid && (touched || !sawNode);
@@ -376,7 +376,8 @@ return ok;
             shouldExist: cardFields.has('tomatoSummary') && !!focusText,
         })) return false;
         const estimateText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(taskForRender));
-        if (!syncExistingMetaNode('tomatoEstimateCount', estimateText, {
+        if (!syncExistingMetaNode('tomatoEstimateCount', __tmGetTomatoCountDisplayHtml(__tmGetTaskTomatoEstimateCount(taskForRender)), {
+            html: true,
             shouldExist: cardFields.has('tomatoEstimateCount') && !!estimateText,
         })) return false;
         const countText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(taskForRender));

@@ -6,7 +6,7 @@
             enabled: src.enabled === true,
             topbar: src.topbar !== false,
             dock: src.dock !== false,
-            ruleId: String(src.ruleId || 'default_today').trim(),
+            ruleId: String(src.ruleId === undefined ? 'default_today' : (src.ruleId || '')).trim(),
             unfinishedOnly: src.unfinishedOnly !== false,
             scope: src.scope === 'group' ? 'group' : 'all',
             groupId: String(src.groupId || '').trim(),
@@ -41,7 +41,9 @@
             target.addEventListener(name, handler);
             disposers.push(() => target.removeEventListener(name, handler));
         };
-        const ruleFor = (cfg) => (SettingsStore.data.filterRules || []).find((item) => item?.id === cfg.ruleId);
+        const ruleFor = (cfg) => cfg.ruleId
+            ? (SettingsStore.data.filterRules || []).find((item) => item?.id === cfg.ruleId)
+            : { id: '', name: '全部', conditions: [], enabled: true };
         const isEnabled = (cfg) => cfg.enabled && (cfg.topbar || cfg.dock);
         const labelFor = () => String(rule?.name || '任务数量');
         const yieldWork = () => new Promise((resolve) => setTimeout(resolve, 0));

@@ -1113,7 +1113,7 @@
                     }
                     if (whiteboardCardFields.has('tomatoEstimateCount')) {
                         const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task));
-                        if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoEstimateCount">${esc(text)}</span>`);
+                        if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoEstimateCount">${__tmGetTomatoCountDisplayHtml(__tmGetTaskTomatoEstimateCount(task))}</span>`);
                     }
                     if (whiteboardCardFields.has('tomatoCount')) {
                         const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task));

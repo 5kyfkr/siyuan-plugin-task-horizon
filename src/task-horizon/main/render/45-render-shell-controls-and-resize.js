@@ -244,7 +244,7 @@
                 action: `applyFilterRule('')`
             },
             ...state.filterRules
-                .filter((rule) => rule.enabled)
+                .filter((rule) => rule.enabled && !['default_all', 'high_priority', 'default_completed'].includes(rule.id))
                 .map((rule) => {
                     const ruleId = String(rule?.id || '').trim();
                     return {

@@ -11,7 +11,7 @@
         const entryIcon = '<svg class="tm-task-count-preview-icon" aria-hidden="true"><use href="#iconTaskHorizon"></use></svg>';
         const preview = `<span class="tm-task-count-preview">${entryIcon}<span class="tm-task-count-badge">3</span></span>`;
         const entryTitle = (text) => `<span class="tm-task-count-entry-title">${preview}${text}</span>`;
-        const ruleOptions = rules.filter((item) => item.enabled !== false).map((item) => [item.id, item.name]);
+        const ruleOptions = [['', '全部'], ...rules.filter((item) => item.enabled !== false).map((item) => [item.id, item.name])];
         if (!ruleOptions.some(([id]) => id === cfg.ruleId)) ruleOptions.unshift([cfg.ruleId, '所选规则已失效']);
         const groupOptions = [['', '请选择文档分组'], ...groups.map((group) => [group.id, group.name])];
         if (cfg.groupId && !groups.some((group) => group.id === cfg.groupId)) groupOptions.unshift([cfg.groupId, '所选分组已失效']);

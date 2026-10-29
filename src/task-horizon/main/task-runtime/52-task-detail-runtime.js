@@ -9568,8 +9568,8 @@
                 if (target && (target === titleTextarea || titleTextarea.contains(target))) return;
                 try { titleTextarea.blur(); } catch (e) {}
             };
-            on(document, 'pointerdown', blurTitleWhenPointerLeavesEditor, { capture: true });
-            on(document, 'touchstart', blurTitleWhenPointerLeavesEditor, { capture: true, passive: true });
+            // Touch presses may become scroll/sheet drags; dismiss only on a completed tap.
+            on(document, __tmIsMobileDevice() ? 'click' : 'pointerdown', blurTitleWhenPointerLeavesEditor, { capture: true });
             try {
                 requestAnimationFrame(() => syncAutoHeight(titleTextarea, 36));
             } catch (e) {}
@@ -9682,6 +9682,9 @@
                 } catch (e) {}
             };
             const preserveDetailScroll = (fn, snapshotOverride = null) => {
+                // Native keyboard/caret scrolling owns the mobile position. Replaying
+                // an older snapshot after a viewport resize fights that adjustment.
+                if (__tmIsMobileDevice()) return typeof fn === 'function' ? fn() : undefined;
                 const snapshot = snapshotOverride || captureDetailScrollSnapshot();
                 const result = typeof fn === 'function' ? fn() : undefined;
                 restoreDetailScrollSnapshot(snapshot);
@@ -9691,40 +9694,61 @@
                 return result;
             };
             const getDetailScrollContainer = () => {
-                if (embedded) {
-                    const modal = state.modal instanceof Element ? state.modal : null;
-                    const panel = __tmResolveChecklistDetailPanel(modal).panel;
-                    if (panel instanceof HTMLElement) return panel;
-                }
+                if (embedded && root instanceof HTMLElement) return root;
                 const standalone = root.closest?.('.tm-task-detail');
                 if (standalone instanceof HTMLElement) return standalone;
                 return root instanceof HTMLElement ? root : null;
             };
             const ensureRemarkVisibleOnMobile = () => {
                 if (!__tmIsMobileDevice()) return;
-                if (!remarkShell.classList.contains('is-editing')) return;
+                if (abortController.signal.aborted || !remarkTextarea.isConnected || !remarkShell.classList.contains('is-editing')) return;
+                if (document.activeElement !== remarkTextarea) return;
                 const scroller = getDetailScrollContainer();
                 if (!(scroller instanceof HTMLElement)) return;
                 try {
+                    const viewport = window.visualViewport;
+                    const viewportTop = Number(viewport?.offsetTop) || 0;
+                    const viewportBottom = viewportTop + (Number(viewport?.height) || window.innerHeight || 0);
                     const scrollerRect = scroller.getBoundingClientRect();
-                    const shellRect = remarkShell.getBoundingClientRect();
-                    const topPadding = 12;
-                    const bottomPadding = 160;
-                    const isAbove = shellRect.top < (scrollerRect.top + topPadding);
-                    const isBelow = shellRect.bottom > (scrollerRect.bottom - bottomPadding);
-                    if (!isAbove && !isBelow) return;
-                    const targetTop = Math.max(0, Number(scroller.scrollTop || 0) + (shellRect.top - scrollerRect.top) - topPadding);
+                    const visibleTop = Math.max(scrollerRect.top + scroller.clientTop, viewportTop) + 12;
+                    const visibleBottom = Math.min(scrollerRect.bottom, viewportBottom) - 12;
+                    if (visibleBottom <= visibleTop) return;
+                    // A long, auto-growing textarea must not make the browser pan
+                    // the whole sheet to reveal its caret below the keyboard.
+                    remarkTextarea.style.maxHeight = `${Math.max(80, Math.floor(visibleBottom - visibleTop))}px`;
+                    remarkTextarea.style.overflowY = 'auto';
+                    const inputRect = remarkTextarea.getBoundingClientRect();
+                    let delta = 0;
+                    if (inputRect.top < visibleTop) delta = inputRect.top - visibleTop;
+                    else if (inputRect.bottom > visibleBottom) delta = inputRect.bottom - visibleBottom;
+                    if (Math.abs(delta) < 1) return;
+                    const targetTop = Math.max(0, Number(scroller.scrollTop || 0) + delta);
                     try { scroller.scrollTo({ top: targetTop, behavior: 'auto' }); } catch (e) { scroller.scrollTop = targetTop; }
                 } catch (e) {}
             };
-            const scheduleEnsureRemarkVisibleOnMobile = () => {
-                if (!__tmIsMobileDevice()) return;
-                try { ensureRemarkVisibleOnMobile(); } catch (e) {}
-                try { requestAnimationFrame(() => ensureRemarkVisibleOnMobile()); } catch (e) {}
-                try { setTimeout(() => ensureRemarkVisibleOnMobile(), 60); } catch (e) {}
-                try { setTimeout(() => ensureRemarkVisibleOnMobile(), 180); } catch (e) {}
-                try { setTimeout(() => ensureRemarkVisibleOnMobile(), 320); } catch (e) {}
+            let remarkVisibilityFrame = 0;
+            let remarkVisibilityTimer = 0;
+            const cancelRemarkVisibility = () => {
+                if (remarkVisibilityFrame) cancelAnimationFrame(remarkVisibilityFrame);
+                if (remarkVisibilityTimer) clearTimeout(remarkVisibilityTimer);
+                remarkVisibilityFrame = 0;
+                remarkVisibilityTimer = 0;
             };
+            const scheduleEnsureRemarkVisibleOnMobile = () => {
+                if (!__tmIsMobileDevice() || abortController.signal.aborted) return;
+                if (!remarkVisibilityFrame) {
+                    remarkVisibilityFrame = requestAnimationFrame(() => {
+                        remarkVisibilityFrame = 0;
+                        ensureRemarkVisibleOnMobile();
+                    });
+                }
+                if (remarkVisibilityTimer) clearTimeout(remarkVisibilityTimer);
+                remarkVisibilityTimer = setTimeout(() => {
+                    remarkVisibilityTimer = 0;
+                    ensureRemarkVisibleOnMobile();
+                }, 140);
+            };
+            abortController.signal.addEventListener('abort', cancelRemarkVisibility, { once: true });
             const syncRemarkHeight = () => syncAutoHeight(remarkTextarea, 80);
             try { syncRemarkSavedState(__tmGetTaskDetailRemarkRaw(root.__tmTaskDetailTask)); } catch (e) {}
             const syncRemarkPreview = (force = false) => {
@@ -9827,6 +9851,9 @@
                         await commitRemarkValue().catch(() => false);
                     }
                     setRemarkToolbarOpen(false);
+                    cancelRemarkVisibility();
+                    remarkTextarea.style.removeProperty('max-height');
+                    remarkTextarea.style.removeProperty('overflow-y');
                     remarkShell.classList.remove('is-editing');
                     try { remarkShell.dataset.mode = 'preview'; } catch (e) {}
                 };
@@ -10019,8 +10046,7 @@
                 } catch (e) {}
                 exitRemarkEditMode(true);
             };
-            on(document, 'pointerdown', exitRemarkWhenPointerLeavesEditor, { capture: true });
-            on(document, 'touchstart', exitRemarkWhenPointerLeavesEditor, { capture: true, passive: true });
+            on(document, __tmIsMobileDevice() ? 'click' : 'pointerdown', exitRemarkWhenPointerLeavesEditor, { capture: true });
             if (window.visualViewport?.addEventListener) {
                 on(window.visualViewport, 'resize', () => {
                     scheduleEnsureRemarkVisibleOnMobile();
@@ -10029,6 +10055,7 @@
                     scheduleEnsureRemarkVisibleOnMobile();
                 }, { passive: true });
             }
+            on(window, 'resize', scheduleEnsureRemarkVisibleOnMobile, { passive: true });
             try {
                 requestAnimationFrame(() => {
                     syncRemarkHeight();

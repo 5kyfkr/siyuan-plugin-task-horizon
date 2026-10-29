@@ -548,7 +548,7 @@
 
     function formatTomatoCountDisplay(value) {
         const normalized = normalizeActualTomatoCountValue(value);
-        return normalized ? `🍅 ${normalized}` : '';
+        return normalized ? `番茄 ${normalized}` : '';
     }
 
     function parseQuickbarNumber(value) {
@@ -639,12 +639,22 @@
         const spent = String(source['custom-focus-spent-display'] || source.spent || '').trim();
         const actualForPlan = actual || '0';
         const durationProgress = duration ? `${spent || '0'}/${duration}` : '';
-        const tomatoPlanText = estimate ? `🍅 ${actualForPlan}/${estimate}` : '';
+        const tomatoPlanText = estimate ? `番茄 ${actualForPlan}/${estimate}` : '';
         if (duration) {
             return `${tomatoPlanText ? `${tomatoPlanText} ` : ''}${durationProgress}`.trim();
         }
         if (estimate) return `${tomatoPlanText}${spent ? ` ${spent}` : ''}`.trim();
         return spent || '';
+    }
+
+    // Quickbar also runs independently of the task view and Dock Tomato.
+    function renderQuickbarTomatoIconHtml() {
+        return '<svg class="tm-focus-tomato-icon" width="16" height="16" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="var(--tomato-ui-red,#ef705e)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"> <path fill="none" stroke-width="1.9" d="M7.1 7.1C3.8 7.7 2.5 10.1 2.5 13.15c0 4.42 4.2 7.65 9.5 7.65s9.5-3.23 9.5-7.65c0-2.98-1.5-5.44-4.7-6.05"/> <path fill="none" stroke="var(--tomato-ui-leaf,#8acb77)" transform="translate(-1.2 .15) scale(1.1)" d="M10.7 5.5C9.6 4.4 8.4 4.7 7.5 4c.1 1.3.7 2 1.9 2.4-.8.4-1.4 1.1-2 2 1.6.5 2.8.3 3.8-.6-.2 1.5.5 2.4 1.6 3 .9-1.2 1-2.2.6-3.4 1.2.9 2.4 1 3.7.5-.6-.9-1.4-1.4-2.3-1.7 1.2-.5 1.7-1.1 1.8-1.9-1.5-.1-2.3.5-3.1 1 .1-1 .5-1.8 1.1-2.4-1.5-.2-2.6.7-2.7 2.3-.4 0-.8.1-1.2.3Z"/> </svg>';
+    }
+
+    function formatTomatoCountDisplayHtml(value) {
+        const count = normalizeActualTomatoCountValue(value);
+        return count ? `${renderQuickbarTomatoIconHtml()} ${esc(count)}` : '';
     }
 
     function renderQuickbarFocusActualHtml(value) {
@@ -660,7 +670,7 @@
         const spent = String(source['custom-focus-spent-display'] || source.spent || '').trim();
         const actualForPlan = actual || '0';
         const durationProgress = duration ? `${esc(spent || '0')}/${esc(duration)}` : '';
-        const tomatoPlanHtml = estimate ? `🍅 ${renderQuickbarFocusActualHtml(actualForPlan)}/${esc(estimate)}` : '';
+        const tomatoPlanHtml = estimate ? `${renderQuickbarTomatoIconHtml()} ${renderQuickbarFocusActualHtml(actualForPlan)}/${esc(estimate)}` : '';
         if (duration) {
             return `${tomatoPlanHtml ? `${tomatoPlanHtml} ` : ''}${durationProgress}`.trim();
         }
@@ -671,7 +681,7 @@
 
     function formatActualTomatoCountDisplayHtml(value) {
         const count = normalizeActualTomatoCountValue(value);
-        return count ? `🍅 ${renderQuickbarFocusActualHtml(count)}` : '';
+        return count ? `${renderQuickbarTomatoIconHtml()} ${renderQuickbarFocusActualHtml(count)}` : '';
     }
 
     function getConfiguredTomatoCountAttrKey(kind) {
@@ -2503,6 +2513,25 @@
             .sy-custom-props-floatbar__prop-value {
                 font-weight: 500;
             }
+            .tm-focus-tomato-icon {
+                --tomato-ui-red: #ba4335;
+                --tomato-ui-leaf: #367a41;
+                width: 1.3em;
+                height: 1.3em;
+                display: inline-block;
+                flex: 0 0 auto;
+                vertical-align: -0.25em;
+                pointer-events: none;
+            }
+            :root[data-theme-mode="dark"] .tm-focus-tomato-icon {
+                --tomato-ui-red: #ef705e;
+                --tomato-ui-leaf: #8acb77;
+            }
+            .tm-focus-tomato-icon,
+            .tm-focus-tomato-icon path {
+                fill: none !important;
+                pointer-events: none;
+            }
             .sy-custom-props-focus-actual {
                 color: var(--b3-theme-error);
                 font-weight: 700;
@@ -2961,10 +2990,10 @@
             }
             .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__input-actions {
                 align-items: center;
-                flex-wrap: wrap;
-                gap: 5px;
+                flex-wrap: nowrap;
+                gap: 4px;
                 margin-top: 0;
-                padding: 8px 10px;
+                padding: 4px 8px;
                 border-top: 1px solid var(--b3-border-color);
             }
             .sy-custom-props-floatbar__remark-shortcut {
@@ -2978,8 +3007,14 @@
                 white-space: nowrap;
             }
             .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__input-actions .sy-custom-props-floatbar__btn {
-                height: 28px;
-                padding: 0 10px;
+                height: 26px;
+                min-height: 0;
+                padding: 0 8px;
+                flex: 0 0 auto;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                line-height: 1;
                 border: 0;
                 border-radius: 4px;
                 background: transparent;
@@ -3171,10 +3206,11 @@
             }
             .sy-custom-props-floatbar__remark-toolbar {
                 display: none;
-                align-items: flex-start;
-                gap: 8px;
+                position: relative;
+                align-items: center;
+                gap: 4px;
                 order: -1;
-                padding: 6px 7px;
+                padding: 4px 6px;
                 border-bottom: 1px solid var(--b3-border-color);
                 border-radius: 8px 8px 0 0;
                 background: var(--b3-theme-surface);
@@ -3184,14 +3220,31 @@
                 align-items: center;
                 flex: 1;
                 min-width: 0;
-                gap: 2px;
-                flex-wrap: wrap;
+                gap: 1px;
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                overflow-y: hidden;
+                overscroll-behavior-x: contain;
+                scrollbar-width: none;
+            }
+            .sy-custom-props-floatbar__remark-tools::-webkit-scrollbar {
+                display: none;
+            }
+            .sy-custom-props-floatbar__remark-tools .sy-custom-props-floatbar__remark-tool {
+                /* Anchor tooltips outside the horizontal scroll clipping area. */
+                position: static;
+            }
+            .sy-custom-props-floatbar__remark-tools .sy-custom-props-floatbar__remark-tool:focus-visible {
+                outline-offset: -2px;
+            }
+            .sy-custom-props-floatbar__remark-tools [data-tooltip]::after {
+                left: 12px;
             }
             .sy-custom-props-floatbar__remark-separator {
                 width: 1px;
                 height: 16px;
                 flex: 0 0 1px;
-                margin: 0 4px;
+                margin: 0 2px;
                 background: var(--b3-border-color);
             }
             .sy-custom-props-floatbar__remark-toolbar.is-open {
@@ -3439,17 +3492,14 @@
                 background: var(--b3-list-hover);
             }
             @media (pointer: coarse) {
-                .sy-custom-props-floatbar__remark-tool,
-                .sy-custom-props-floatbar__remark-close {
-                    width: 40px;
-                    min-width: 40px;
-                    height: 40px;
-                }
                 .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__textarea {
                     font-size: 16px;
                 }
                 .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__input-actions .sy-custom-props-floatbar__btn {
-                    height: 40px;
+                    height: 28px;
+                }
+                .sy-custom-props-floatbar__input-editor.is-remark .sy-custom-props-floatbar__remark-shortcut {
+                    display: none;
                 }
             }
             @media (max-width: 640px) {
@@ -5712,7 +5762,7 @@
                 if (!displayValue) return '';
                 const displayHtml = attrKey === 'custom-tomato-count'
                     ? formatActualTomatoCountDisplayHtml(rawValue)
-                    : esc(displayValue);
+                    : formatTomatoCountDisplayHtml(rawValue);
                 return `
                     <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--tomato-count" data-inline-attr="${escapedAttr}" data-inline-type="${config.type}" data-inline-name="${escapedName}" data-inline-value="${escapedValue}" title="${escapedName}">
                         <span class="sy-custom-props-inline-chip-value">${displayHtml}</span>
@@ -6356,11 +6406,11 @@
                 });
             } else if (config.type === 'tomato-count') {
                 const isActualTomato = attrKey === 'custom-tomato-count';
-                return renderFloatbarCoreLikeProp(config, value, isActualTomato ? {
+                return renderFloatbarCoreLikeProp(config, value, {
                     displayValue: formatTomatoCountDisplay(value),
-                    displayHtml: formatActualTomatoCountDisplayHtml(value),
+                    displayHtml: isActualTomato ? formatActualTomatoCountDisplayHtml(value) : formatTomatoCountDisplayHtml(value),
                     htmlValue: true,
-                } : {});
+                });
             } else {
                 // 文本类型属性（时长、备注）
                 if (attrKey === 'custom-duration') {

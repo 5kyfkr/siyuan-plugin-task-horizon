@@ -4628,9 +4628,9 @@
 
     function resolveTaskPriority(task) {
         const raw = String(task?.priority || "").trim().toLowerCase();
-        if (raw === "high") return "高优先级";
-        if (raw === "medium") return "中优先级";
-        if (raw === "low") return "低优先级";
+        if (raw === "high") return "高重要性";
+        if (raw === "medium") return "中重要性";
+        if (raw === "low") return "低重要性";
         return "";
     }
 

@@ -136,3 +136,47 @@ test('a sparse move receipt promotes the acknowledged aliases and current descen
     assert.equal(projected.parentListParentId, '');
     assert.deepEqual(Array.from(projected.children, (task) => task.id), ['current-descendant']);
 });
+
+for (const parentPinned of [false, true]) {
+    test(`an outdented pinned task leaves its former projected parent (parentPinned=${parentPinned})`, () => {
+        const grandchild = { id: 'grandchild', parentTaskId: 'child', children: [] };
+        const child = { id: 'child', docId: 'doc', root_id: 'doc', parentTaskId: 'parent',
+            parent_task_id: 'parent', pinned: true, children: [grandchild] };
+        const parent = { id: 'parent', docId: 'doc', root_id: 'doc', parentTaskId: '',
+            pinned: parentPinned, children: [child] };
+        const state = { flatTasks: {}, pendingInsertedTasks: {}, pendingDeletedTasks: {}, allDocuments: [],
+            taskTree: [], filteredTasks: [], otherBlocks: [], doneOverrides: {} };
+        const context = vm.createContext({ state, Map, Set, Date, Symbol, console, SettingsStore: { data: {} } });
+        vm.runInContext(read('32-runtime-state-and-events.js'), context);
+        vm.runInContext(between(read('task-runtime/53b-task-create-and-quick-add-runtime.js'),
+            'function __tmResetMovedTaskAttrHostProjection(', 'function __tmCloneTaskTreeForMove('), context);
+        const store = context.__tmTaskStore;
+        store.replaceFlat({ parent, child, grandchild }, { authoritative: true, mergeOtherBlocks: false });
+        store.applyMutation({ type: 'moveTask', phase: 'optimistic', opId: 'outdent', taskId: 'child',
+            data: { taskId: 'child', mode: 'after', targetDocId: 'doc', targetTaskId: 'parent',
+                targetParentTaskId: '', targetListId: 'root-list' },
+        }, { applyLocal: false });
+        // The local tree has moved, while the confirmed parent's old children
+        // remain cached until its document is read again.
+        state.flatTasks.parent = { ...parent, children: [] };
+        state.flatTasks.child = { ...child, parentTaskId: '', parent_task_id: '' };
+        assert.equal(store.getProjected('child').parentTaskId, '', 'the pending move must already project root placement');
+        assert.equal(store.projectRead(child).parentTaskId, '', 'reading a stale child must apply the pending move');
+        assert.deepEqual(Array.from(store.listProjectedDirectChildren('parent'), task => task.id), [],
+            'optimistic rendering must not show the moved task under its old parent');
+        store.applyMutation({ type: 'moveTask', phase: 'commit', opId: 'outdent', taskId: 'child',
+            placement: { taskID: 'child', documentID: 'doc', parentListID: 'root-list', parentTaskID: '' },
+            task: { id: 'child', parentTaskId: '', parent_task_id: '' },
+        }, { applyLocal: false });
+        assert.equal(store.getProjected('child').pinned, true);
+        assert.equal(store.getProjected('child').parentTaskId, '');
+        for (const scanFlat of [false, true]) {
+            assert.deepEqual(Array.from(store.listProjectedDirectChildren('parent', { scanFlat }), task => task.id), [],
+                'the pinned root must not also render under its former parent');
+        }
+        const reader = store.createDirectChildrenReader();
+        assert.deepEqual(Array.from(reader('parent'), task => task.id), []);
+        assert.deepEqual(Array.from(reader('child'), task => task.id), ['grandchild'],
+            'outdenting a task must retain its own descendants');
+    });
+}

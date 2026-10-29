@@ -1801,6 +1801,13 @@
                         border-color: color-mix(in srgb, var(--tm-topbar-control-border) 72%, transparent) !important;
                         box-shadow: 0 4px 12px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
                     }
+                    .tm-modal.tm-modal--keyboard-open .tm-mobile-bottom-viewbar {
+                        display: none !important;
+                        pointer-events: none !important;
+                    }
+                    .tm-modal.tm-modal--keyboard-open .tm-main-stage--with-bottom-viewbar {
+                        --tm-view-bottom-inset: 0px;
+                    }
                     .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar__inner,
                     .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar.tm-mobile-bottom-viewbar--active .tm-mobile-bottom-viewbar__inner,
                     .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar:active .tm-mobile-bottom-viewbar__inner,
@@ -8604,7 +8611,7 @@
             wrap.className = 'tm-task-context-priority';
             const title = document.createElement('div');
             title.className = 'tm-task-context-priority__title';
-            title.textContent = '优先级';
+            title.textContent = '重要性';
             wrap.appendChild(title);
             const row = document.createElement('div');
             row.className = 'tm-task-context-priority__row';

@@ -46,7 +46,7 @@ assert.equal(
 assert.equal(context.actual({ tomatoMinutes: 45 }), '1.5');
 assert.equal(context.actual({ tomatoMinutes: 10 }), '0.3');
 assert.equal(context.actual({ tomatoMinutes: 50 }), '1.7');
-assert.equal(context.display('1.5'), '🍅 1.5', 'actual tomato display must preserve decimals');
+assert.equal(context.display('1.5'), '番茄 1.5', 'plain-text actual tomato display must preserve decimals');
 
 context.SettingsStore.data.tomatoSpentAttrMode = 'hours';
 assert.equal(

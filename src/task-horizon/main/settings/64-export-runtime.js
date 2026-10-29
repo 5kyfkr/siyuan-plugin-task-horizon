@@ -28,7 +28,7 @@
     const TM_SETTINGS_EXPORT_SCHEMA = 'task-horizon-settings-export';
     const TM_SETTINGS_EXPORT_VERSION = 1;
     const TM_SETTINGS_EXPORT_MODULES = Object.freeze([
-        { id: 'settings', label: '常规设置', desc: '常规、外观、规则、状态、自定义字段、视图布局、白板、优先级等。', defaultChecked: true },
+        { id: 'settings', label: '常规设置', desc: '常规、外观、规则、状态、自定义字段、视图布局、白板、重要性与优先级分值等。', defaultChecked: true },
         { id: 'docGroups', label: '文档分组', desc: '文档分组、默认文档、隐藏文档页签、文档颜色、页签排序/钉住等。', defaultChecked: true },
         { id: 'ai', label: 'AI 接入设置', desc: 'AI 供应商、API Key、Base URL、模型、上下文与排期窗口。', defaultChecked: false },
         { id: 'aiData', label: 'AI 数据', desc: '智能体自定义预设与安排规则；旧版模式下为提示词和会话记录。', defaultChecked: false },
@@ -992,7 +992,7 @@
             },
             score: {
                 key: 'score',
-                label: '优先级分',
+                label: '优先级分值',
                 wch: pxToWch(widthMap.score, 12),
                 value: (task) => Math.round(__tmEnsureTaskPriorityScore(task))
             },
@@ -1679,7 +1679,7 @@
                     const tags = [];
                     if (task.priority) {
                         const priorityText = task.priority === 'high' ? '高' : task.priority === 'medium' ? '中' : task.priority === 'low' ? '低' : task.priority;
-                        tags.push(`**优先级：${priorityText}**`);
+                        tags.push(`**重要性：${priorityText}**`);
                     }
                     if (task.startDate) {
                         tags.push(`📅 开始：${task.startDate}`);

@@ -34,6 +34,80 @@ async function settle(page) {
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
+async function checkCompactRemarkChrome(page) {
+    const boxes = await page.evaluate(() => {
+        const editor = document.querySelector('.sy-custom-props-floatbar__input-editor');
+        const tools = editor.querySelector('.sy-custom-props-floatbar__remark-tools');
+        const toolbar = editor.querySelector('[data-remark-toolbar]');
+        const close = editor.querySelector('[data-action="remark-close"]');
+        const footer = editor.querySelector('.sy-custom-props-floatbar__input-actions');
+        return {
+            toolbar: toolbar.getBoundingClientRect().toJSON(),
+            close: close.getBoundingClientRect().toJSON(),
+            footer: footer.getBoundingClientRect().toJSON(),
+            buttons: [...tools.querySelectorAll('button')].map(el => el.getBoundingClientRect().toJSON()),
+            actions: [...footer.querySelectorAll('button')].map(el => el.getBoundingClientRect().toJSON()),
+            shortcutHidden: getComputedStyle(footer.querySelector('.sy-custom-props-floatbar__remark-shortcut')).display === 'none',
+            coarse: matchMedia('(pointer: coarse)').matches,
+            overflow: tools.scrollWidth > tools.clientWidth,
+        };
+    });
+    assert.ok(boxes.toolbar.height <= 38, 'remark tools occupy one compact row');
+    assert.ok(boxes.footer.height <= 38, 'save/cancel occupy one compact row');
+    assert.equal(boxes.shortcutHidden, boxes.coarse, 'touch uses the space for writing; desktop keeps its shortcut hint');
+    for (const button of boxes.buttons) {
+        assert.ok(Math.abs(button.top - boxes.buttons[0].top) < 1, 'tools must never wrap');
+        assert.ok(button.width <= 28 && button.height <= 28, 'touch must not enlarge formatting buttons');
+    }
+    assert.ok(boxes.close.left >= boxes.buttons[0].left && boxes.close.right <= boxes.toolbar.right,
+        'the close button stays at the right edge');
+    for (const button of boxes.actions) {
+        assert.ok(button.height <= 28, 'footer buttons remain compact');
+        assert.equal(button.top, boxes.actions[0].top, 'footer buttons stay aligned');
+    }
+    return boxes.overflow;
+}
+
+async function checkToolbarSwipe(page, context) {
+    const overflow = await checkCompactRemarkChrome(page);
+    if (!overflow) return;
+    const tools = page.locator('.sy-custom-props-floatbar__remark-tools');
+    const close = page.locator('[data-action="remark-close"]');
+    const closeBefore = await close.boundingBox();
+    await tools.evaluate(el => { el.scrollLeft = 0; });
+    await tools.evaluate(el => {
+        window.remarkToolbarScrollEnded = false;
+        el.addEventListener('scrollend', () => { window.remarkToolbarScrollEnded = true; }, { once: true });
+    });
+    await page.locator('.sy-custom-props-floatbar__textarea').evaluate(el => {
+        el.focus(); el.setSelectionRange(2, 5);
+    });
+    const rect = await tools.boundingBox();
+    const session = await context.newCDPSession(page);
+    try {
+        const from = rect.x + rect.width - 14, to = rect.x + 14, y = rect.y + rect.height / 2;
+        await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from, y }] });
+        for (let i = 1; i <= 8; i++) {
+            await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from + (to - from) * i / 8, y }] });
+            await page.waitForTimeout(16);
+        }
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await page.waitForFunction(() => window.remarkToolbarScrollEnded, null, { timeout: 2000 });
+        // Let Chromium leave its native fling/tap-suppression window before tapping.
+        await page.waitForTimeout(500);
+        assert.ok(await tools.evaluate(el => el.scrollLeft > 0), 'a finger swipe reveals tools that do not fit');
+        assert.deepEqual(await close.boundingBox(), closeBefore, 'swiping tools does not move close');
+        assert.deepEqual(await page.locator('.sy-custom-props-floatbar__textarea').evaluate(el =>
+            [el.selectionStart, el.selectionEnd, document.activeElement === el]), [2, 5, true], 'swiping keeps the editor selection and focus');
+        await page.locator('[data-remark-tool="quote"]').tap();
+        await page.waitForFunction(() => window.remarkToolCalls.length > 0, null, { timeout: 1000 });
+        assert.deepEqual((await page.evaluate(() => window.remarkToolCalls)).at(-1),
+            { tool: 'prefix:> ', selection: [2, 5] }, 'a revealed tool still applies to the current selection');
+        await page.evaluate(() => { window.remarkToolCalls = []; });
+        await tools.evaluate(el => { el.scrollLeft = 0; });
+    } finally { await session.detach(); }
+}
+
 async function checkRemarkTooltips(page, width) {
     const buttons = page.locator('[data-remark-toolbar] [data-tooltip]');
     assert.equal(await buttons.count(), 12, 'history, formatting and close buttons retain their descriptions');
@@ -188,6 +262,7 @@ async function checkViewport(browser, width, height, keyboardHeight, hasVisualVi
         assert.deepEqual(errors, [], 'editor setup must complete without browser errors');
         await settle(page);
         assertVisible(await geometry(page), 'before keyboard');
+        await checkCompactRemarkChrome(page);
         await checkRemarkTooltips(page, width);
 
         if (hasVisualViewport) {
@@ -222,6 +297,7 @@ async function checkViewport(browser, width, height, keyboardHeight, hasVisualVi
         const toolbar = await page.locator('[data-remark-toolbar]').boundingBox();
         assert.ok(toolbar.y + toolbar.height <= boxes.textarea.top + 1, 'formatting tools sit above the input');
         assertVisible(await geometry(page), 'integrated formatting tools');
+        await checkToolbarSwipe(page, context);
         await textarea.evaluate(element => { element.focus(); element.setSelectionRange(2, 5); });
         for (const tool of ['outdent', 'indent', 'bold', 'italic', 'code', 'link', 'bullet', 'ordered', 'quote']) {
             await page.locator(`[data-remark-tool="${tool}"]`).click();

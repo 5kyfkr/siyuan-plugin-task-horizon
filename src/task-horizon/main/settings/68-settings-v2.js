@@ -25,7 +25,7 @@
         calendar: [['c-cal', '日历'], ['c-content', '日程与显示'], ['c-remind', '提醒通知'], ['c-ics', 'ICS 订阅'], ['c-focus', '专注与联动']],
         appearance: [['l-density', '字号与密度'], ['l-icon', '图标与复选框'], ['l-color', '配色'], ['l-top', '顶栏控件']],
         ai: [['a-mode', '工作方式'], ['a-agent', '智能体'], ['a-legacy', '旧版接入'], ['a-policy', '安排规则']],
-        algo: [['r-rules', '筛选与排序'], ['r-priority', '优先级数值'], ['r-quadrant', '四象限']],
+        algo: [['r-rules', '筛选与排序'], ['r-priority', '优先级分值'], ['r-quadrant', '四象限']],
         about: [['d-io', '导入导出'], ['d-sync', '同步与设备'], ['d-about', '版本与帮助']],
         benefits: [],
     };

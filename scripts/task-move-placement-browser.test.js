@@ -16,6 +16,12 @@ const runtime = read('20-api-and-runtime-services.js');
 const projection = read('task-runtime/51-whiteboard-and-link-runtime.js');
 const code = [
     read('32-runtime-state-and-events.js'),
+    section(read('task-runtime/53b-task-create-and-quick-add-runtime.js'), 'function __tmResetMovedTaskAttrHostProjection(', 'function __tmCloneTaskTreeForMove('),
+    section(runtime, 'function __tmGetChecklistGroupKeyFromCard(', 'function __tmInsertChecklistTaskBranchFragment('),
+    section(runtime, 'function __tmTryRefreshChecklistProjectionGroups(', 'function __tmCollectChecklistDocumentRefreshTaskIds('),
+    section(projection, 'function __tmBuildFilteredTaskDerivedState(', 'function __tmGetFilteredTaskDerivedState('),
+    section(projection, 'function __tmGetProjectedOrderedTaskChildren(', 'function __tmIsTaskDoneForTailGroup('),
+    section(projection, 'function __tmBuildTaskRowModel(', 'function __tmResolveFirstVisibleTaskIdFromRowModel('),
     section(projection, 'function __tmTaskPlacementMatchesDom(', 'function __tmTryApplyChecklistOptimisticProjectionInPlace('),
     section(projection, 'function __tmTryApplyChecklistOptimisticProjectionInPlace(', 'function __tmGetProjectedDirectChildStats('),
     section(projection, 'function __tmTryApplyKanbanOptimisticProjectionInPlace(', 'function __tmRefreshKanbanProjectionPatchNow('),
@@ -200,6 +206,91 @@ async function setup(page) {
             });
             assert.deepEqual(result, { outdent: false, oldDom: false });
         });
+        for (const parentPinned of [false, true]) for (const compact of [false, true]) {
+            await run(`checklist pinned outdent reconciles every phase (parentPinned=${parentPinned}, compact=${compact})`, async (page) => {
+                const result = await page.evaluate(({ parentPinned, compact }) => {
+                    Object.assign(window, {
+                        __tmClearChecklistProjectionGroupRefresh: () => {},
+                        __tmBuildTaskRowModelCacheMeta: () => ({ viewMode: 'checklist' }),
+                        __tmTaskRowModelCacheMatches: () => false,
+                        __tmRememberTaskRowModelCache: (rows) => rows,
+                        __tmGetAlwaysVisibleTaskDocHeadingTasks: () => [],
+                        __tmIsDarkMode: () => false,
+                        __tmNormalizeHexColor: (value, fallback) => value || fallback,
+                        __tmGetFilteredTaskDerivedState: () => __tmBuildFilteredTaskDerivedState('all'),
+                        __tmSortDocEntriesForTabs: (docs) => docs,
+                        __tmBuildRuleSortContext: () => ({ hasExplicitSort: false }),
+                        __tmSplitTasksByDoneState: (tasks) => ({ active: tasks, done: [] }),
+                        __tmResolveHideCompletedDescendantsFlag: () => false,
+                        __tmShouldKeepChildTaskVisible: () => true,
+                        __tmCalcGroupDurationText: () => '',
+                    });
+                    setModel([{ id: 'anchor', pinned: true }, { id: 'parent', pinned: parentPinned },
+                        { id: 'child', pinned: true, parentTaskId: 'parent', parent_task_id: 'parent' },
+                        { id: 'grandchild', parentTaskId: 'child', parent_task_id: 'child' }]);
+                    state.viewMode = 'checklist';
+                    state.allDocuments = [];
+                    state.collapsedTaskIds = new Set(); state.collapsedGroups = new Set();
+                    const buildBody = () => {
+                        const groups = [];
+                        let group = null;
+                        for (const row of __tmBuildTaskRowModel()) {
+                            if (row.type === 'group') {
+                                group = { header: `<div class="tm-checklist-group" data-group-key="${row.key}" data-count="${row.count}"></div>`, rows: [] };
+                                groups.push(group);
+                            } else if (row.type === 'task') {
+                                const task = __tmTaskStore.getProjected(row.id);
+                                group.rows.push(`<div class="tm-checklist-item" data-id="${row.id}" data-depth="${row.depth}" data-tm-placement-doc="${task.docId}" data-tm-placement-parent="${task.parentTaskId}"></div>`);
+                            }
+                        }
+                        return __tmBuildElementFromHtml(`<div class="tm-body tm-body--checklist"><div class="tm-checklist-pane${compact ? ' tm-checklist-pane--compact' : ''}"><div class="tm-checklist-items">${groups.map((entry) => compact
+                            ? `<section class="tm-checklist-group-card">${entry.header}<div class="tm-checklist-group-card-items">${entry.rows.join('')}</div></section>`
+                            : entry.header + entry.rows.join('')).join('')}</div></div></div>`);
+                    };
+                    const readRows = () => Array.from(state.modal.querySelectorAll('.tm-checklist-item'), (node) => ({ id: node.dataset.id, depth: node.dataset.depth }));
+                    state.modal.replaceChildren(buildBody());
+                    const body = state.modal.firstElementChild;
+                    const anchor = body.querySelector('[data-id="anchor"]');
+                    const reconcile = () => __tmTryRefreshChecklistProjectionGroups(state.modal, body, buildBody(), ['child']);
+                    __tmTaskStore.applyMutation({ type: 'moveTask', phase: 'optimistic', opId: 'outdent', taskId: 'child',
+                        taskIds: ['child', 'parent'], data: { taskId: 'child', mode: 'after', targetDocId: 'doc',
+                            targetTaskId: 'parent', targetParentTaskId: '', targetListId: 'root-list' },
+                    }, { applyLocal: false });
+                    state.flatTasks.parent = { ...state.flatTasks.parent, children: [] };
+                    state.flatTasks.child = { ...state.flatTasks.child, parentTaskId: '', parent_task_id: '' };
+                    state.filteredTasks = Object.values(state.flatTasks);
+                    const fast = __tmTryApplyChecklistOptimisticProjectionInPlace('child', {}, { filtersApplied: true, structural: true });
+                    const pendingHandled = reconcile();
+                    const pending = readRows();
+                    __tmTaskStore.applyMutation({ type: 'moveTask', phase: 'commit', opId: 'outdent', taskId: 'child',
+                        task: { id: 'child', parentTaskId: '', parent_task_id: '' },
+                        placement: { taskID: 'child', documentID: 'doc', parentListID: 'root-list', parentTaskID: '' },
+                    }, { applyLocal: false });
+                    const commitHandled = reconcile();
+                    const first = readRows();
+                    const laterHandled = reconcile();
+                    const later = readRows();
+                    return { fast, pendingHandled, pending, commitHandled, laterHandled, first, later,
+                        bodyKept: body === state.modal.firstElementChild,
+                        anchorKept: anchor === body.querySelector('[data-id="anchor"]'),
+                        pinnedCount: state.modal.querySelector('[data-group-key="pinned_root_tasks"]').dataset.count };
+                }, { parentPinned, compact });
+                assert.equal(result.fast, false);
+                assert.equal(result.pendingHandled, true);
+                assert.equal(result.commitHandled, true);
+                assert.equal(result.laterHandled, true);
+                assert.equal(result.bodyKept, true, 'the full checklist body must not be replaced');
+                assert.equal(result.anchorKept, true, 'unaffected pinned rows retain their existing nodes');
+                assert.equal(result.first.filter((row) => row.id === 'child').length, 1);
+                assert.equal(result.first.find((row) => row.id === 'child').depth, '0');
+                assert.equal(result.first.filter((row) => row.id === 'grandchild').length, 1);
+                assert.equal(result.first.find((row) => row.id === 'grandchild').depth, '1');
+                assert.equal(result.first.filter((row) => row.id === 'parent').length, 1);
+                assert.equal(result.pinnedCount, parentPinned ? '3' : '2');
+                assert.deepEqual(result.pending, result.first, 'the pending move must already have the final unique rows');
+                assert.deepEqual(result.later, result.first);
+            });
+        }
     } finally { await browser.close(); }
     for (const failure of failures) console.error(failure.name + '\n' + failure.error);
     console.log(`Task move placement browser regressions: ${passed} passed, ${failures.length} failed`);

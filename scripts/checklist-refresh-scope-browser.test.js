@@ -193,7 +193,43 @@ const code = helperNames.map((name) => extract(runtime, name)).join('\n') + '\n'
             order: ['chest', 'chest-task', 'core', 'core-one', 'core-two', 'daily', 'daily-task'],
             coreSameContainer: true,
         }, 'a last task in a compact heading group must stay before the next heading');
+        for (const compact of [false, true]) {
+            const result = await page.evaluate((compact) => {
+                state.viewMode = 'checklist';
+                const row = (id, depth) => `<div class="tm-checklist-item" data-id="${id}" data-depth="${depth}">${id}</div>`;
+                const group = (key, rows) => {
+                    const header = `<div class="tm-checklist-group" data-group-key="${key}">${key}</div>`;
+                    return compact ? `<section class="tm-checklist-group-card">${header}<div class="tm-checklist-group-card-items">${rows}</div></section>` : header + rows;
+                };
+                const html = (stale) => `<div class="tm-body tm-body--checklist"><div class="tm-checklist-items">${
+                    group('pinned_root_tasks', row('child', 0) + row('grandchild', 1))
+                    + group('normal_root_tasks', row('parent', 0) + (stale ? row('child', 1) + row('grandchild', 2) : ''))
+                    + group('other', row('unrelated', 0))}</div></div>`;
+                state.modal.innerHTML = html(true);
+                const body = state.modal.firstElementChild;
+                const unrelated = body.querySelector('[data-id="unrelated"]');
+                const before = body.innerHTML;
+                const fast = __tmTryApplyChecklistOptimisticProjectionInPlace('child', {}, { filtersApplied: true });
+                const fastUnchanged = before === body.innerHTML;
+                const template = document.createElement('template'); template.innerHTML = html(false);
+                const nextBody = template.content.firstElementChild;
+                const first = __tmTryRefreshChecklistProjectionGroups(state.modal, body, nextBody, ['child']);
+                const firstIds = Array.from(body.querySelectorAll('.tm-checklist-item'), node => node.dataset.id);
+                const later = __tmTryRefreshChecklistProjectionGroups(state.modal, body, nextBody, ['child']);
+                return { fast, fastUnchanged, first, later, firstIds,
+                    laterIds: Array.from(body.querySelectorAll('.tm-checklist-item'), node => node.dataset.id),
+                    unrelatedKept: unrelated === body.querySelector('[data-id="unrelated"]') };
+            }, compact);
+            assert.equal(result.fast, false, 'duplicate rows must fall back before moving any existing subtree');
+            assert.equal(result.fastUnchanged, true);
+            assert.equal(result.first, true);
+            assert.deepEqual(result.firstIds, ['child', 'grandchild', 'parent', 'unrelated'],
+                `compact=${compact}: partial refresh must remove stale copies from the old parent group`);
+            assert.equal(result.later, true);
+            assert.deepEqual(result.laterIds, result.firstIds);
+            assert.equal(result.unrelatedKept, true);
+        }
         assert.deepEqual(errors, []);
-        console.log('checklist refresh scope browser regressions: 14 passed, 0 failed');
+        console.log('checklist refresh scope browser regressions: 16 passed, 0 failed');
     } finally { await browser.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

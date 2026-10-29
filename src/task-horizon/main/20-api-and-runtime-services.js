@@ -5,8 +5,6 @@
             { id: 'in_progress', name: '进行中', color: '#2196F3', marker: '/' },
             { id: 'done', name: '已完成', color: '#4CAF50', marker: 'X' },
             { id: 'cancelled', name: '放弃', color: '#9E9E9E', marker: '-' },
-            { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
-            { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' },
         ];
         const markerPattern = /^([ \t]*)(?:[-*+]|\d+[.)])[ \t]*(?:(?:\{:[ \t]*[^}\r\n]*\})[ \t]*)*\[([^\]\r\n]?)\][ \t]*/;
         function normalizeMarker(value, fallback = ' ') {
@@ -66,7 +64,7 @@
             const seen = new Set();
             const result = [];
             const source = !legacy && fillNative && isLegacyDefaultOptions(input)
-                ? defaults
+                ? [...defaults, ...input.filter((item) => ['blocked', 'review'].includes(String(item.id || item.value || '').trim()))]
                 : (Array.isArray(input) ? input : []);
             source.forEach((item) => {
                 const id = String(item?.id || item?.value || '').trim();
@@ -4907,6 +4905,7 @@
         mobileViewportRefreshTimer: 0,
         mobileViewportRefreshHandler: null,
         mobileViewportRefreshVisualViewport: null,
+        mobileViewportRefreshModal: null,
         timelineMobileSidebarExpanded: false,
         timelineCardFieldsHidden: false,
         timelineInfiniteRangeShifting: false,
@@ -11162,7 +11161,7 @@
         if (!task) return null;
         const ranges = __tmGetPriorityTitleOpacityRanges(config);
         if (!ranges.length) return null;
-        let score = Number(task.priorityScore);
+        let score = Number(task.priorityScore ?? Number.NaN);
         if (!Number.isFinite(score)) {
             try { score = Number(__tmEnsureTaskPriorityScore(task)); } catch (e) { score = Number.NaN; }
         }
@@ -11242,7 +11241,7 @@
         if (!task) return null;
         const ranges = __tmGetPriorityTitleOpacityRanges(config);
         if (!ranges.length) return null;
-        let score = Number(task.priorityScore);
+        let score = Number(task.priorityScore ?? Number.NaN);
         if (!Number.isFinite(score)) {
             try { score = Number(__tmEnsureTaskPriorityScore(task)); } catch (e) { score = Number.NaN; }
         }
@@ -17991,10 +17990,13 @@ if (opts.refresh === false) return;
     }
 
     async function __tmEnsureFilterRulesLoaded(force = false) {
-        if (!force && Array.isArray(state.filterRules) && state.filterRules.length > 0) {
+        const initialized = SettingsStore.loaded && Number(SettingsStore.data.filterRulesDefaultsVersion || 0) >= 1
+            && Array.isArray(SettingsStore.data.filterRules)
+            && !SettingsStore.data.filterRules.some((rule) => ['default_all', 'high_priority', 'default_completed'].includes(rule?.id));
+        if (!force && initialized && state.filterRules === SettingsStore.data.filterRules) {
             return state.filterRules;
         }
-        if (!force && SettingsStore.loaded && Array.isArray(SettingsStore.data.filterRules) && SettingsStore.data.filterRules.length > 0) {
+        if (!force && initialized) {
             state.filterRules = SettingsStore.data.filterRules;
             return state.filterRules;
         }
@@ -24091,14 +24093,15 @@ if (!state.homepageOpen) return;
         const isIOS = __tmGetRuntimeClientKind() === 'ios-app'
             || /iPhone|iPad|iPod/i.test(String(navigator.userAgent || ''))
             || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-        const enabled = isIOS && modal.classList.contains('tm-modal--mobile') && Number(vv?.height) > 0;
+        const isAndroid = __tmGetRuntimeClientKind() === 'android-app' || /Android/i.test(String(navigator.userAgent || ''));
+        const enabled = (isIOS || isAndroid) && modal.classList.contains('tm-modal--mobile') && Number(vv?.height) > 0;
         modal.querySelectorAll('#tmChecklistSheet, #tmTaskDetailSheet').forEach((sheet) => {
             sheet.classList.toggle('tm-checklist-sheet--visual-viewport', enabled);
             if (!enabled) {
                 ['--tm-sheet-visible-top', '--tm-sheet-visible-bottom', '--tm-sheet-visible-height'].forEach((name) => sheet.style.removeProperty(name));
                 return;
             }
-            // iOS can pan/shrink the visual viewport without resizing vh. Convert
+            // Mobile keyboards can pan/shrink the visual viewport without resizing vh. Convert
             // its bounds to the sheet's containing block (including embedded sheets).
             const host = sheet.offsetParent;
             const hostTop = host instanceof HTMLElement ? host.getBoundingClientRect().top + host.clientTop : 0;
@@ -24112,6 +24115,30 @@ if (!state.homepageOpen) return;
             sheet.style.setProperty('--tm-sheet-visible-bottom', `${Math.max(0, hostBottom - visibleBottom)}px`);
             sheet.style.setProperty('--tm-sheet-visible-height', `${Math.max(0, visibleBottom - visibleTop)}px`);
         });
+    }
+
+    function __tmApplyMobileKeyboardVisibility(modal) {
+        if (!(modal instanceof HTMLElement)) return;
+        const mobile = modal.classList.contains('tm-modal--mobile') || modal.classList.contains('tm-modal--runtime-mobile');
+        const active = document.activeElement;
+        const editable = active instanceof HTMLElement && !active.matches(':disabled, [readonly], [inputmode="none"]')
+            && (active.isContentEditable || (active.matches('input, textarea') && !/^(button|checkbox|radio|range|color|file|hidden|submit|reset|image)$/i.test(active.type)));
+        const layoutHeight = Math.max(Number(window.innerHeight) || 0, Number(document.documentElement?.clientHeight) || 0);
+        const width = Number(window.innerWidth) || Number(document.documentElement?.clientWidth) || 0;
+        const viewport = window.visualViewport;
+        const wasOpen = modal.classList.contains('tm-modal--keyboard-open');
+        let baseline = modal.__tmMobileKeyboardViewport;
+        if (!baseline || baseline.width !== width) baseline = { width, height: layoutHeight };
+        // SiYuan remembers the full native WebView height even when the manager
+        // opens after Android has already resized the layout for the keyboard.
+        const sizes = window.siyuan?.mobile?.size;
+        const nativeHeight = Number((sizes?.isLandscape ? sizes.landscape : sizes?.portrait)?.height1) || 0;
+        baseline.height = (editable || wasOpen) ? Math.max(baseline.height, layoutHeight, nativeHeight) : layoutHeight;
+        modal.__tmMobileKeyboardViewport = baseline;
+        const visibleHeight = Number(viewport?.height) || Number(window.innerHeight) || layoutHeight;
+        const open = mobile && (editable || wasOpen) && (Number(viewport?.scale) || 1) <= 1.05
+            && baseline.height - visibleHeight > 100;
+        modal.classList.toggle('tm-modal--keyboard-open', open);
     }
 
     function __tmUnbindMobileViewportAutoRefresh() {
@@ -24131,10 +24158,14 @@ if (!state.homepageOpen) return;
                 globalThis.__tmRuntimeEvents?.off?.(window, 'orientationchange', state.mobileViewportRefreshHandler);
                 globalThis.__tmRuntimeEvents?.off?.(state.mobileViewportRefreshVisualViewport, 'resize', state.mobileViewportRefreshHandler);
                 globalThis.__tmRuntimeEvents?.off?.(state.mobileViewportRefreshVisualViewport, 'scroll', state.mobileViewportRefreshHandler);
+                globalThis.__tmRuntimeEvents?.off?.(document, 'focusin', state.mobileViewportRefreshHandler, true);
+                globalThis.__tmRuntimeEvents?.off?.(document, 'focusout', state.mobileViewportRefreshHandler, true);
             }
         } catch (e) {}
         state.mobileViewportRefreshHandler = null;
         state.mobileViewportRefreshVisualViewport = null;
+        state.mobileViewportRefreshModal?.classList?.toggle('tm-modal--keyboard-open', false);
+        state.mobileViewportRefreshModal = null;
         state.mobileViewportRefreshSig = '';
     }
 
@@ -24142,13 +24173,18 @@ if (!state.homepageOpen) return;
         __tmUnbindMobileViewportAutoRefresh();
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
+        state.mobileViewportRefreshModal = modal;
+        __tmApplyMobileKeyboardVisibility(modal);
         __tmApplyMobileDetailSheetViewportMetrics(modal);
         state.mobileViewportRefreshSig = __tmComputeMobileBottomViewbarLayoutSig();
         const onViewportChange = () => {
             if (!state.mobileDetailSheetViewportFrame) {
                 state.mobileDetailSheetViewportFrame = requestAnimationFrame(() => {
                     state.mobileDetailSheetViewportFrame = 0;
-                    if (state.modal === modal && modal.isConnected) __tmApplyMobileDetailSheetViewportMetrics(modal);
+                    if (state.modal === modal && modal.isConnected) {
+                        __tmApplyMobileKeyboardVisibility(modal);
+                        __tmApplyMobileDetailSheetViewportMetrics(modal);
+                    }
                 });
             }
             try {
@@ -24157,11 +24193,13 @@ if (!state.homepageOpen) return;
             state.mobileViewportRefreshTimer = setTimeout(() => {
                 state.mobileViewportRefreshTimer = 0;
                 if (!state.modal || !document.body.contains(state.modal)) return;
+                __tmApplyMobileKeyboardVisibility(state.modal);
                 try { __tmApplyMobileBrowserViewportMetrics(state.modal); } catch (e) {}
                 try { __tmApplyMobileDetailSheetViewportMetrics(state.modal); } catch (e) {}
                 const nextSig = __tmComputeMobileBottomViewbarLayoutSig();
                 if (nextSig === state.mobileViewportRefreshSig) return;
                 state.mobileViewportRefreshSig = nextSig;
+                if (state.modal.classList.contains('tm-modal--keyboard-open')) return;
                 // 移动端从后台恢复到前台时，visualViewport/resize 可能会抖动多次，
                 // 这里避免触发整套面板重绘，减少“像重新打开插件”的感觉。
                 const hiddenGap = Date.now() - (Number(__tmWasHiddenAt) || 0);
@@ -24172,6 +24210,8 @@ if (!state.homepageOpen) return;
         state.mobileViewportRefreshHandler = onViewportChange;
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'resize', onViewportChange, { passive: true }); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'orientationchange', onViewportChange, { passive: true }); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(document, 'focusin', onViewportChange, true); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(document, 'focusout', onViewportChange, true); } catch (e) {}
         try {
             if (window.visualViewport?.addEventListener) {
                 globalThis.__tmRuntimeEvents?.on?.(window.visualViewport, 'resize', onViewportChange, { passive: true });
@@ -28450,9 +28490,11 @@ return true;
         if (!currentSegments.map.size && !nextSegments.map.size) return false;
         const keys = new Set();
         (Array.isArray(taskIds) ? taskIds : []).forEach((id) => {
-            const oldKey = __tmFindChecklistSegmentKeyByTask(currentItems, id);
+            const oldKeys = currentSegments.ordered.filter((segment) => segment.nodes.some((node) => (
+                node.classList.contains('tm-checklist-item') && String(node.getAttribute('data-id') || '').trim() === id
+            ))).map((segment) => segment.key);
             const newKey = __tmFindChecklistSegmentKeyByTask(nextItems, id);
-            if (oldKey) keys.add(oldKey);
+            oldKeys.forEach((key) => keys.add(key));
             if (newKey) keys.add(newKey);
             const removedKey = currentItems.__tmChecklistRemovedTaskGroups?.get(id);
             if (removedKey) keys.add(removedKey);
@@ -28813,11 +28855,13 @@ return true;
         if (!currentCards.length || !nextCards.length) return false;
         const keys = new Set();
         (Array.isArray(taskIds) ? taskIds : []).forEach((id) => {
-            const oldCard = __tmFindChecklistCardByTask(currentItems, id);
+            const oldCards = currentCards.filter((card) => card.querySelector(`.tm-checklist-item[data-id="${CSS.escape(id)}"]`));
             const newCard = __tmFindChecklistCardByTask(nextItems, id);
-            const oldKey = __tmGetChecklistGroupKeyFromCard(oldCard);
             const newKey = __tmGetChecklistGroupKeyFromCard(newCard);
-            if (oldKey) keys.add(oldKey);
+            oldCards.forEach((card) => {
+                const key = __tmGetChecklistGroupKeyFromCard(card);
+                if (key) keys.add(key);
+            });
             if (newKey) keys.add(newKey);
             const removedKey = currentItems.__tmChecklistRemovedTaskGroups?.get(id);
             if (removedKey) keys.add(removedKey);

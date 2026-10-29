@@ -37481,7 +37481,7 @@
             pop.innerHTML = `<div class="tm-proto-event-popover-head"><div class="tm-proto-event-popover-title">${esc(title)}</div><button type="button" class="tm-proto-event-popover-close" aria-label="关闭">×</button><div class="tm-proto-event-popover-time">${esc(rangeText || protoEventTime(eventApi))}</div></div>`
                 + `<div class="tm-proto-event-popover-body">`
                 + `<div class="tm-proto-event-popover-kv"><b>归属</b><span>${sourceIcon}${esc(sourceText)}</span></div>`
-                + `${priorityText ? `<div class="tm-proto-event-popover-kv"><b>优先级</b><span class="tm-proto-popover-priority">● ${esc(priorityText)}</span></div>` : ''}`
+                + `${priorityText ? `<div class="tm-proto-event-popover-kv"><b>重要性</b><span class="tm-proto-popover-priority">● ${esc(priorityText)}</span></div>` : ''}`
                 + `${repeatText ? `<div class="tm-proto-event-popover-kv"><b>重复</b><span>🔄 ${esc(repeatText)}</span></div>` : ''}`
                 + `</div>`
                 + `${canEdit ? `<div class="tm-proto-event-popover-actions">${taskId ? '<button type="button" class="tm-proto-popover-open-task">任务详情</button><button type="button" class="tm-proto-popover-locate">跳转笔记</button>' : '<button type="button" class="tm-proto-popover-edit">编辑</button>'}</div>` : ''}`;

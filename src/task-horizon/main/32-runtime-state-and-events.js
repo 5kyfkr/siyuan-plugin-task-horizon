@@ -280,6 +280,17 @@
         return task;
     };
 
+    const applyTaskOverlay = (task, overlay, taskId) => {
+        if (overlay.type === 'moveTask' && normalizeId(overlay.taskId) === normalizeId(taskId)) {
+            try {
+                if (typeof __tmApplyQueuedTaskMovePatchToTask === 'function') {
+                    __tmApplyQueuedTaskMovePatchToTask(task, overlay.data);
+                }
+            } catch (e) {}
+        }
+        return applyOverlayPatch(task, overlay.patch);
+    };
+
     const projectTaskFromBase = (taskId, fallback = null) => {
         const tid = normalizeId(taskId || fallback?.id);
         if (!tid) return null;
@@ -299,7 +310,7 @@
             }
             if (!projected && overlay.task && typeof overlay.task === 'object') projected = cloneTaskRecord(overlay.task);
             if (!projected) continue;
-            applyOverlayPatch(projected, overlay.patch);
+            applyTaskOverlay(projected, overlay, tid);
             priorityScoreDirty = taskStorePatchAffectsPriorityScore(overlay.patch) || priorityScoreDirty;
         }
         return syncTaskStorePriorityScore(projected, priorityScoreDirty);
@@ -320,7 +331,7 @@
             if (!overlay) continue;
             if (isTaskStoreDeleteMutation(overlay)
                 && (Array.isArray(overlay.deletedTaskIds) ? overlay.deletedTaskIds : []).includes(tid)) return null;
-            applyOverlayPatch(projected, overlay.patch);
+            applyTaskOverlay(projected, overlay, tid);
             priorityScoreDirty = taskStorePatchAffectsPriorityScore(overlay.patch) || priorityScoreDirty;
         }
         return syncTaskStorePriorityScore(projected, priorityScoreDirty);
@@ -333,6 +344,7 @@
         pendingTaskOverlays.set(key, {
             key,
             type: normalizeId(mutation.type),
+            taskId: normalizeId(mutation.taskId || mutation.data?.taskId),
             taskIds,
             deletedTaskIds: collectDeletedTaskIds(mutation),
             patch: mutation.patch && typeof mutation.patch === 'object' ? { ...mutation.patch } : {},
@@ -1034,7 +1046,10 @@
                 const projectedParentAliases = new Set(getTaskIdAliases(projectedParentId));
                 projectedParentAliases.add(projectedParentId);
                 if (!Array.from(projectedParentAliases).some((id) => parentAliases.has(id))) return;
-            } else if (!nestedUnderParent) {
+            } else if (!nestedUnderParent
+                // Explicit root placement overrides a stale parent.children snapshot.
+                || Object.prototype.hasOwnProperty.call(projected, 'parentTaskId')
+                || Object.prototype.hasOwnProperty.call(projected, 'parent_task_id')) {
                 return;
             }
             children.set(childId, projected);
