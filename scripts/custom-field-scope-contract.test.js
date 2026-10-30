@@ -1,9 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const fs = require('./i18n-source-fixture');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const root = path.resolve(__dirname, '..');
 const storeSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/10-stores-rules-and-cache.js'), 'utf8');
@@ -97,7 +97,7 @@ vm.runInContext(`${sliceSource(
     assert.doesNotMatch(settingsSource, /data-tm-custom-field-scope-doc-search[^>]*>[\s\S]{0,120}__tmRenderLucideIcon\('search'\)/, 'document search must not render a separate search icon');
     assert.doesNotMatch(settingsSource, /data-tm-custom-field-scope-trigger="(?:docGroup|tabGroup)"[\s\S]{0,300}__tmRenderLucideIcon\('chevron-down'\)/, 'group scope triggers must not render separate dropdown icons');
     assert.match(settingsSource, /resolveDocScopeSearchResults[\s\S]*if \(!query\) return \{ matches: \[\], shown: \[\] \};[\s\S]*matches\.slice\(0, 60\)/, 'document choices must stay empty before search and cap broad result sets');
-    assert.match(settingsSource, /data-tm-custom-field-scope-doc-list[\s\S]*\$\{scopeDocSearch \? docScopeChoices : '<div class="tm-custom-field-scope-empty">输入文档名称开始搜索<\/div>'\}/, 'an empty document search must render guidance instead of all documents');
+    assert.match(settingsSource, /data-tm-custom-field-scope-doc-list[\s\S]*\$\{scopeDocSearch \? docScopeChoices : [`']<div class="tm-custom-field-scope-empty">输入文档名称开始搜索<\/div>[`']\}/, 'an empty document search must render guidance instead of all documents');
     assert.match(settingsSource, /renderedIds[\s\S]*!renderedIds\.has\(id\)[\s\S]*previousScope\.docIds/, 'search result changes must preserve selected documents that are not currently rendered');
     assert.match(settingsSource, /data-tm-custom-field-scope-remove[\s\S]*draft\.scope\[key\][\s\S]*filter/, 'selected scope targets must be removable from the summary');
     assert.doesNotMatch(settingsSource, /<select multiple|Ctrl 或 Command/, 'scope selection must not rely on ambiguous native multi-select highlighting');

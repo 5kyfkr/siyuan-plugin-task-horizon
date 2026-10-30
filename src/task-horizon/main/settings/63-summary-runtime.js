@@ -97,15 +97,15 @@
 
     function __tmSummaryStatusName(task, statusMap) {
         const sid = __tmResolveTaskStatusId(task);
-        return statusMap.get(sid) || sid || '未完成';
+        return statusMap.get(sid) || sid || __tmT("ai.notDone");
     }
 
     function __tmSummaryPriorityText(priority) {
         const p = String(priority || '').trim();
-        if (p === 'high') return '高';
-        if (p === 'medium') return '中';
-        if (p === 'low') return '低';
-        return '无';
+        if (p === 'high') return __tmT("common.high");
+        if (p === 'medium') return __tmT("common.medium");
+        if (p === 'low') return __tmT("common.low");
+        return __tmT("common.none");
     }
 
     function __tmSummaryDateKeyFromTs(ts) {
@@ -203,7 +203,7 @@
             } catch (e) {}
             try { MetaStore.applyToTask?.(t); } catch (e) {}
             t.done = parsedDone;
-            const docName = String(t.docName || '未命名文档');
+            const docName = String(t.docName || __tmT("kernel.untitledDocument"));
             try { normalizeTaskFields(t, docName); } catch (e) {}
             return t;
         }).filter(Boolean));
@@ -232,7 +232,7 @@
             } catch (e) {}
             try { MetaStore.applyToTask?.(t); } catch (e) {}
             t.done = parsedDone;
-            const docName = String(t.docName || t.doc_name || '未命名文档');
+            const docName = String(t.docName || t.doc_name || __tmT("kernel.untitledDocument"));
             try { normalizeTaskFields(t, docName); } catch (e) {}
             return t;
         }).filter(Boolean));
@@ -283,8 +283,8 @@
         const occurrence = Math.max(0, parseInt(task?.recurringOccurrenceNumber, 10) || 0);
         const total = Math.max(0, Math.min(200, parseInt(task?.recurringTotalOccurrences, 10) || 0));
         return occurrence > 0
-            ? `循环任务 · 第 ${occurrence}${total > 0 ? `/${total}` : ''} 次`
-            : '循环任务';
+            ? __tmT("settings.recurringTask", { occurrence: occurrence, value2: total > 0 ? `/${total}` : '' })
+            : __tmT("calendar.recurringTask");
     }
 
     function __tmSummaryFormatFocusDuration(task) {
@@ -370,7 +370,7 @@
 
             out.push({
                 id: String(task.id || '').trim(),
-                content: String(task.content || '').trim() || '无内容',
+                content: String(task.content || '').trim() || __tmT("settings.noContent"),
                 done: __tmIsTaskDoneEffective(task),
                 taskMarker: __tmResolveTaskMarker(task),
                 customStatus: __tmResolveTaskStatusId(task),
@@ -381,9 +381,9 @@
                 dateKey,
                 dueDate: String(task.completionTime || '').trim(),
                 docId,
-                docName: String(docNameMap[docId] || task.docName || '未命名文档'),
+                docName: String(docNameMap[docId] || task.docName || __tmT("kernel.untitledDocument")),
                 h2Id: String(task.h2Id || '').trim(),
-                h2Name: String(task.h2 || task.h2Name || '').trim() || '无二级标题',
+                h2Name: String(task.h2 || task.h2Name || '').trim() || __tmT("homepage.noHeading"),
                 level: resolveLevel(task),
             });
         });
@@ -402,16 +402,16 @@
         const selectedGroupIds = __tmSummaryGetGroupIds(filter);
         const groupName = __tmSummaryGroupLabel(selectedGroupIds, ctx.groupNameMap, { compact: false });
         const docName = filter.docId === '__all__'
-            ? (selectedGroupIds.includes('__all__') ? '全部分区内文档' : '已选分组内全部文档')
-            : (ctx.docNameMap?.[String(filter.docId || '')] || '指定文档');
+            ? (selectedGroupIds.includes('__all__') ? __tmT("settings.allDocumentsInAllGroups") : __tmT("settings.allDocumentsInTheSelectedGroups"))
+            : (ctx.docNameMap?.[String(filter.docId || '')] || __tmT("settings.specifiedDocuments"));
         const statusName = String(filter.status || '__all__') === '__all__'
-            ? '全部状态'
-            : (String(filter.status) === '__done__' ? '已完成' : (String(filter.status) === '__undone__' ? '未完成' : (statusMap.get(String(filter.status || '')) || String(filter.status || ''))));
-        const priorityName = String(filter.priority || '__all__') === '__all__' ? '全部重要性' : __tmSummaryPriorityText(filter.priority);
+            ? __tmT("settings.allStatuses")
+            : (String(filter.status) === '__done__' ? __tmT("ai.completed") : (String(filter.status) === '__undone__' ? __tmT("ai.notDone") : (statusMap.get(String(filter.status || '')) || String(filter.status || ''))));
+        const priorityName = String(filter.priority || '__all__') === '__all__' ? __tmT("settings.allPriorities") : __tmSummaryPriorityText(filter.priority);
         const groupBy = String(filter.groupBy || 'status').trim() || 'status';
         const groupByName = groupBy === 'h2'
-            ? '按二级标题'
-            : (groupBy === 'date' ? '按完成日期' : (groupBy === 'priority' ? '按重要性' : (groupBy === 'doc' ? '按文档' : '按状态')));
+            ? __tmT("settings.byHeading")
+            : (groupBy === 'date' ? __tmT("settings.byCompletionDate") : (groupBy === 'priority' ? __tmT("settings.byPriority") : (groupBy === 'doc' ? __tmT("task.byDocument") : __tmT("settings.byStatus"))));
         const fields = (filter.fields && typeof filter.fields === 'object') ? filter.fields : {};
         const showTaskName = fields.taskName !== false;
         const showDocName = fields.docName !== false;
@@ -420,17 +420,17 @@
         const showDate = fields.date !== false;
         const showFocusDuration = fields.focusDuration !== false;
         const rangeLabel = (filter.start || filter.end)
-            ? `${filter.start || '最早'} ~ ${filter.end || '最晚'}`
-            : '全部时间';
+            ? `${filter.start || __tmT("settings.earliest")} ~ ${filter.end || __tmT("settings.latest")}`
+            : __tmT("settings.allTime");
 
-        lines.push(isDailyReport ? '# 今日日报' : (preset === 'this_week_report' ? '# 本周周报' : (preset === 'last_week_report' ? '# 上周周报' : '# 任务摘要')));
+        lines.push(isDailyReport ? __tmT("settings.todaySReport") : (preset === 'this_week_report' ? __tmT("settings.thisWeekSReport") : (preset === 'last_week_report' ? __tmT("settings.lastWeekSReport") : __tmT("settings.taskSummary"))));
         lines.push('');
-        lines.push(`> 生成时间：${now}`);
-        lines.push(`> 筛选：${rangeLabel} | ${groupName} | ${docName} | ${statusName} | ${priorityName} | ${groupByName}`);
+        lines.push(__tmT("settings.generatedAt", { now: now }));
+        lines.push(__tmT("settings.filters", { rangeLabel: rangeLabel, groupName: groupName, docName: docName, statusName: statusName, priorityName: priorityName, groupByName: groupByName }));
         lines.push('');
 
         if (!tasks.length) {
-            lines.push('> 没有匹配到任务。');
+            lines.push(__tmT("settings.noTasksMatched"));
             return lines.join('\n');
         }
 
@@ -441,20 +441,20 @@
         if (isDailyReport || isWeeklyReport) {
             const renderTaskLines = (arr) => arr.length
                 ? arr.map((t) => {
-                    const details = [t.recurringLabel, showFocusDuration && t.focusDuration ? `专注时长:${t.focusDuration}` : ''].filter(Boolean);
+                    const details = [t.recurringLabel, showFocusDuration && t.focusDuration ? __tmT("settings.focusTime", { focusDuration: t.focusDuration }) : ''].filter(Boolean);
                     const suffix = [t.docName, ...details].filter(Boolean);
                     return `- [${__tmResolveTaskMarker(t)}] ${t.content}${suffix.length ? `（${suffix.join('｜')}）` : ''}`;
                 }).join('\n')
-                : '- 无';
-            lines.push('## 完成情况');
+                : __tmT("settings.none");
+            lines.push(__tmT("settings.completion"));
             lines.push('');
             lines.push(renderTaskLines(doneTasks));
             lines.push('');
-            lines.push('## 计划项');
+            lines.push(__tmT("settings.planned"));
             lines.push('');
             lines.push(renderTaskLines(todoTasks.slice(0, 30)));
             lines.push('');
-            lines.push('## 逾期项');
+            lines.push(__tmT("settings.overdue"));
             lines.push('');
             lines.push(renderTaskLines(overdueTasks));
             lines.push('');
@@ -462,10 +462,10 @@
 
         const sectionMap = new Map();
         const sectionLabel = (t) => {
-            if (groupBy === 'h2') return String(t.h2Name || '无二级标题');
-            if (groupBy === 'date') return String(t.dateKey || '无完成日期');
-            if (groupBy === 'priority') return `重要性：${__tmSummaryPriorityText(t.priority)}`;
-            if (groupBy === 'doc') return String(t.docName || '未命名文档');
+            if (groupBy === 'h2') return String(t.h2Name || __tmT("homepage.noHeading"));
+            if (groupBy === 'date') return String(t.dateKey || __tmT("settings.noCompletionDate"));
+            if (groupBy === 'priority') return __tmT("settings.priority", { value1: __tmSummaryPriorityText(t.priority) });
+            if (groupBy === 'doc') return String(t.docName || __tmT("kernel.untitledDocument"));
             return __tmSummaryStatusName(t, statusMap);
         };
         tasks.forEach((t) => {
@@ -489,15 +489,15 @@
                 const d = (showDate && groupBy !== 'date' && t.dateKey) ? `[${t.dateKey}] ` : '';
                 const pr = __tmSummaryPriorityText(t.priority);
                 const checkbox = t.done ? '[x]' : '[ ]';
-                const body = showTaskName ? t.content : '(任务)';
+                const body = showTaskName ? t.content : __tmT("settings.task");
                 const ext = [];
                 const level = Math.max(0, Number(t.level) || 0);
                 const indent = '  '.repeat(level);
                 if (showDocName && groupBy !== 'doc') ext.push(t.docName);
-                if (showPriority) ext.push(`重要性:${pr}`);
+                if (showPriority) ext.push(__tmT("settings.importance", { pr: pr }));
                 if (showStatus) ext.push(__tmSummaryStatusName(t, statusMap));
                 if (t.recurringLabel) ext.push(t.recurringLabel);
-                if (showFocusDuration && t.focusDuration) ext.push(`专注时长:${t.focusDuration}`);
+                if (showFocusDuration && t.focusDuration) ext.push(__tmT("settings.focusTime", { focusDuration: t.focusDuration }));
                 lines.push(`${indent}- ${checkbox} ${d}${body}${ext.length ? `（${ext.join('｜')}）` : ''}`);
             });
             lines.push('');
@@ -506,9 +506,9 @@
         const doneCount = tasks.filter(t => t.done).length;
         lines.push('---');
         lines.push('');
-        lines.push(`- 总计：${tasks.length}`);
-        lines.push(`- 已完成：${doneCount}`);
-        lines.push(`- 未完成：${tasks.length - doneCount}`);
+        lines.push(__tmT("settings.total", { length: tasks.length }));
+        lines.push(__tmT("settings.completed", { doneCount: doneCount }));
+        lines.push(__tmT("settings.unfinished", { value1: tasks.length - doneCount }));
         return lines.join('\n');
     }
 
@@ -531,10 +531,10 @@
 
     function __tmSummaryGroupLabel(groupIds, groupNameMap, options = {}) {
         const ids = __tmSummaryNormalizeGroupIds(groupIds);
-        if (ids.includes('__all__')) return '全部分组';
+        if (ids.includes('__all__')) return __tmT("settings.allGroups");
         const names = ids.map((id) => String(groupNameMap?.[id] || id)).filter(Boolean);
         if (names.length === 1 || options.compact === false) return names.join('、');
-        return `已选 ${names.length} 个分组`;
+        return __tmT("settings.selectedGroups", { length: names.length });
     }
 
     function __tmSummaryReadGroupIds(root) {
@@ -708,8 +708,8 @@
         const docTaskCount = (ctx.docTaskCount && typeof ctx.docTaskCount === 'object') ? ctx.docTaskCount : {};
         const groupDocIdsMap = (ctx.groupDocIdsMap && typeof ctx.groupDocIdsMap === 'object') ? ctx.groupDocIdsMap : {};
         const allLabel = allGroups
-            ? '全部分区内文档'
-            : '已选分组内全部文档';
+            ? __tmT("settings.allDocumentsInAllGroups")
+            : __tmT("settings.allDocumentsInTheSelectedGroups");
         const options = [{ id: '__all__', name: allLabel }];
         const ids = new Set();
         if (allGroups) {
@@ -854,7 +854,7 @@
         });
 
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
-        const groupNameMap = { '__all__': '全部分组' };
+        const groupNameMap = { '__all__': __tmT("settings.allGroups") };
         groups.forEach((g) => {
             const gid = String(g?.id || '').trim();
             if (gid) groupNameMap[gid] = __tmResolveDocGroupName(g);
@@ -879,31 +879,31 @@
         box.className = 'tm-box tm-summary-box';
         box.innerHTML = `
             <div class="tm-header" style="padding:12px 16px;border-bottom:1px solid var(--tm-border-color);">
-                <div style="font-size:16px;font-weight:600;">📝 任务摘要</div>
+                <div style="font-size:16px;font-weight:600;">${__tmT("settings.taskSummary2")}</div>
                 <button class="tm-btn tm-btn-gray" data-tm-summary-action="close" style="padding:4px 8px;font-size:12px;">✕</button>
             </div>
             <div class="tm-body tm-summary-body" style="padding:12px 16px;display:flex;flex-direction:column;gap:10px;overflow:auto;">
                 <div class="tm-summary-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                     <select class="tm-rule-select" data-tm-summary="preset" style="min-width:110px;">
-                        <option value="all">全部时间</option>
-                        <option value="today_report">今日日报</option>
-                        <option value="this_week_report">本周周报</option>
-                        <option value="last_week_report">上周周报</option>
-                        <option value="today">今天</option>
-                        <option value="this_week" selected>本周</option>
-                        <option value="last_week">上周</option>
-                        <option value="this_month">本月</option>
-                        <option value="last_month">上月</option>
-                        <option value="custom">自定义</option>
+                        <option value="all">${__tmT("settings.allTime")}</option>
+                        <option value="today_report">${__tmT("settings.todaySReport2")}</option>
+                        <option value="this_week_report">${__tmT("settings.thisWeekSReport2")}</option>
+                        <option value="last_week_report">${__tmT("settings.lastWeekSReport2")}</option>
+                        <option value="today">${__tmT("common.today")}</option>
+                        <option value="this_week" selected>${__tmT("task.thisWeek")}</option>
+                        <option value="last_week">${__tmT("settings.lastWeek")}</option>
+                        <option value="this_month">${__tmT("task.thisMonth")}</option>
+                        <option value="last_month">${__tmT("calendar.lastMonth")}</option>
+                        <option value="custom">${__tmT("settings.custom")}</option>
                     </select>
                     <input class="tm-input" type="date" data-tm-summary="start" style="width:140px;">
                     <span style="color:var(--tm-secondary-text);">~</span>
                     <input class="tm-input" type="date" data-tm-summary="end" style="width:140px;">
                     <details class="tm-summary-group-picker" data-tm-summary-group-picker>
-                        <summary class="tm-rule-select tm-summary-group-trigger" data-tm-summary-group-trigger aria-label="选择摘要文档分组范围">
-                            <span data-tm-summary-group-label>全部分组</span><span class="tm-summary-group-trigger__icon" aria-hidden="true">${__tmLucideIconSvg('caret-down', { size: 14, className: 'tm-inline-icon__svg' })}</span>
+                        <summary class="tm-rule-select tm-summary-group-trigger" data-tm-summary-group-trigger aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.chooseDocumentGroupsForTheSummary")}">
+                            <span data-tm-summary-group-label>${__tmT("settings.allGroups")}</span><span class="tm-summary-group-trigger__icon" aria-hidden="true">${__tmLucideIconSvg('caret-down', { size: 14, className: 'tm-inline-icon__svg' })}</span>
                         </summary>
-                        <div class="tm-summary-group-menu" data-tm-summary-group-menu role="listbox" aria-label="摘要文档分组范围" aria-multiselectable="true">
+                        <div class="tm-summary-group-menu" data-tm-summary-group-menu role="listbox" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.summarydocumentGroupsscope")}" aria-multiselectable="true">
                             ${groupOptions.map((g) => `<label class="tm-summary-group-option"><input type="checkbox" data-tm-summary-group-option value="${esc(g.id)}"${g.id === '__all__' ? ' checked' : ''}><span>${esc(g.name)}</span></label>`).join('')}
                         </div>
                     </details>
@@ -913,35 +913,35 @@
                         ${statusSelectOptions.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}
                     </select>
                     <select class="tm-rule-select" data-tm-summary="priority" style="min-width:120px;">
-                        <option value="__all__">全部重要性</option>
-                        <option value="high">高</option>
-                        <option value="medium">中</option>
-                        <option value="low">低</option>
-                        <option value="none">无</option>
+                        <option value="__all__">${__tmT("settings.allPriorities")}</option>
+                        <option value="high">${__tmT("common.high")}</option>
+                        <option value="medium">${__tmT("common.medium")}</option>
+                        <option value="low">${__tmT("common.low")}</option>
+                        <option value="none">${__tmT("common.none")}</option>
                     </select>
                     <select class="tm-rule-select" data-tm-summary="groupBy" style="min-width:130px;">
-                        <option value="status">按状态分组</option>
-                        <option value="date">按完成日期分组</option>
-                        <option value="priority">按重要性分组</option>
-                        <option value="doc">按文档分组</option>
-                        <option value="h2">按二级标题分组</option>
+                        <option value="status">${__tmT("settings.groupByStatus")}</option>
+                        <option value="date">${__tmT("settings.groupByCompletionDate")}</option>
+                        <option value="priority">${__tmT("settings.groupByPriority")}</option>
+                        <option value="doc">${__tmT("calendar.groupByDocument")}</option>
+                        <option value="h2">${__tmT("settings.groupByHeading")}</option>
                     </select>
                 </div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;color:var(--tm-secondary-text);font-size:12px;">
-                    <span>显示字段:</span>
-                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldTaskName" checked>任务名称</label>
-                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDocName">文档名称</label>
-                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldPriority">重要性</label>
-                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldStatus">状态</label>
-                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDate">日期</label>
-                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldFocusDuration">专注时长</label>
+                    <span>${__tmT("settings.fields")}</span>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldTaskName" checked>${__tmT("task.taskName")}</label>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDocName">${__tmT("task.documentName")}</label>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldPriority">${__tmT("kernel.importance")}</label>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldStatus">${__tmT("kernel.status")}</label>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDate">${__tmT("calendar.date")}</label>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldFocusDuration">${__tmT("settings.focusTime2")}</label>
                 </div>
                 <textarea class="tm-summary-preview" data-tm-summary="preview" style="width:100%;height:100%;box-sizing:border-box;padding:12px;font-size:0.875rem;line-height:1.55;background:var(--tm-input-bg);color:var(--tm-text-color);border:1px solid var(--tm-input-border);border-radius:8px;resize:vertical;"></textarea>
             </div>
             <div class="tm-header tm-summary-footer" style="padding:12px 16px;border-top:1px solid var(--tm-border-color);justify-content:flex-end;gap:10px;">
-                <button class="tm-btn tm-btn-secondary" data-tm-summary-action="refresh" style="padding:8px 16px;">生成</button>
-                <button class="tm-btn tm-btn-primary" data-tm-summary-action="copy" style="padding:8px 16px;">复制</button>
-                <button class="tm-btn tm-btn-primary" data-tm-summary-action="export" style="padding:8px 16px;">导出</button>
+                <button class="tm-btn tm-btn-secondary" data-tm-summary-action="refresh" style="padding:8px 16px;">${__tmT("settings.generate")}</button>
+                <button class="tm-btn tm-btn-primary" data-tm-summary-action="copy" style="padding:8px 16px;">${__tmT("task.copy")}</button>
+                <button class="tm-btn tm-btn-primary" data-tm-summary-action="export" style="padding:8px 16px;">${__tmT("settings.export")}</button>
             </div>
         `;
         state.summaryModal.appendChild(box);
@@ -979,7 +979,7 @@
             const groupTrigger = root.querySelector('[data-tm-summary-group-trigger]');
             if (groupTrigger) groupTrigger.setAttribute('aria-disabled', loading ? 'true' : 'false');
             const preview = root.querySelector('[data-tm-summary="preview"]');
-            if (preview) preview.placeholder = loading ? '正在加载摘要数据…' : '';
+            if (preview) preview.placeholder = loading ? __tmT("settings.loadingSummaryData") : '';
         };
         setLoading(true);
 
@@ -1026,13 +1026,13 @@
                 await __tmSummaryEnsureH2Contexts(ctx, filter);
                 if (state.summaryModal !== root) return;
                 __tmSummaryUpdatePreview(root, ctx);
-                hint('✅ 已生成摘要', 'success');
+                hint(__tmT("settings.summaryGenerated"), 'success');
                 return;
             }
             if (action === 'copy') {
                 const text = String(root.querySelector('[data-tm-summary="preview"]')?.value || '');
                 if (!text.trim()) {
-                    hint('⚠️ 没有可复制内容', 'warning');
+                    hint(__tmT("settings.nothingToCopy"), 'warning');
                     return;
                 }
                 let ok = false;
@@ -1050,13 +1050,13 @@
                         ok = document.execCommand('copy');
                     } catch (e2) {}
                 }
-                hint(ok ? '✅ 已复制摘要 Markdown' : '❌ 复制失败', ok ? 'success' : 'error');
+                hint(ok ? __tmT("settings.summaryMarkdownCopied") : __tmT("ai.copyFailed"), ok ? 'success' : 'error');
                 return;
             }
             if (action === 'export') {
                 const text = String(root.querySelector('[data-tm-summary="preview"]')?.value || '');
                 if (!text.trim()) {
-                    hint('⚠️ 没有可导出的内容', 'warning');
+                    hint(__tmT("settings.nothingToExport"), 'warning');
                     return;
                 }
                 const filter = __tmSummaryReadFilter(root);
@@ -1076,7 +1076,7 @@
                     try { URL.revokeObjectURL(a.href); } catch (e2) {}
                     try { a.remove(); } catch (e2) {}
                 }, 0);
-                hint('✅ 已导出 Markdown', 'success');
+                hint(__tmT("settings.markdownExported"), 'success');
             }
         });
 

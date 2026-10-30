@@ -32,8 +32,11 @@ def verify(package_path):
         packaged_plugin = json.loads(read('plugin.json'))
         if (packaged_plugin.get('name'), packaged_plugin.get('version')) != (plugin['name'], plugin['version']):
             raise ValueError('Packaged plugin name/version differs from source')
-        required = ['plugin.json', 'README.md', 'index.js', 'ai.js', 'homepage.js', 'quickbar.js', 'kernel.js',
+        required = ['plugin.json', 'README.md', 'README.zh-CN.md', 'i18n/en.json', 'i18n/zh-CN.json', 'src/i18n/runtime.js',
+                    'index.js', 'ai.js', 'homepage.js', 'quickbar.js', 'kernel.js',
                     'calendar-view.js', 'calendar-subscription-core.js', 'calendar-view.css', 'task-horizon.css', 'icon.png', 'preview.png']
+        required.extend(packaged_plugin.get('readme', {}).values())
+        required.extend(file.relative_to(ROOT).as_posix() for file in (ROOT / 'i18n').glob('*.json'))
         required.extend(file.relative_to(ROOT).as_posix() for file in (ROOT / 'src').rglob('*')
                         if file.is_file() and not file.is_relative_to(ROOT / 'src/task-horizon'))
         # Check every packaged JS/CSS asset too, including lazy AI/calendar modules.

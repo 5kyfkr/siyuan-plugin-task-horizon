@@ -5,7 +5,7 @@
         const documentNames = new Map(), documentScopes = new Map();
         const restoredSessions = new Set();
         const text = value => String(value ?? '').trim();
-        const groups = () => [{ id: 'all', name: '全部文档' }, ...(SettingsStore.data.docGroups || []).map(group => ({ ...group, name: __tmResolveDocGroupName(group) }))];
+        const groups = () => [{ id: 'all', name: __tmT("task.allDocuments") }, ...(SettingsStore.data.docGroups || []).map(group => ({ ...group, name: __tmResolveDocGroupName(group) }))];
         const rules = () => Array.isArray(state.filterRules) ? state.filterRules : [];
         const tabGroups = groupId => (SettingsStore.data.docTabCustomGroups || [])
             .filter(group => __tmGetDocTabCustomGroupScopeId(group) === groupId);
@@ -32,25 +32,25 @@
             return {
                 group: groups().find(group => group.id === item.groupId)?.name || item.targetNames?.group || item.groupId,
                 tabGroup: tabGroups(item.groupId).find(group => group.id === item.tabGroupId)?.name || item.targetNames?.tabGroup || item.tabGroupId,
-                doc: item.docId === 'all' ? '全部页签' : documentName(item.docId) || item.targetNames?.doc || item.docId,
-                view: item.viewId === 'home' ? '首页' : __TM_ALL_VIEWS.find(view => view.id === item.viewId)?.label || item.viewId,
-                groupMode: item.groupMode ? __tmGetGroupModeLabel(item.groupMode) : '保持当前分组',
-                kanbanBoardMode: item.kanbanBoardMode ? __tmGetKanbanBoardModeLongLabel(item.kanbanBoardMode) : '保持当前看板模式',
-                rule: !item.ruleId ? '不应用规则' : rules().find(rule => rule.id === item.ruleId)?.name || item.targetNames?.rule || item.ruleId,
+                doc: item.docId === 'all' ? __tmT("task.allTabs2") : documentName(item.docId) || item.targetNames?.doc || item.docId,
+                view: item.viewId === 'home' ? __tmT("task.home") : __TM_ALL_VIEWS.find(view => view.id === item.viewId)?.label || item.viewId,
+                groupMode: item.groupMode ? __tmGetGroupModeLabel(item.groupMode) : __tmT("task.keepCurrentGroup"),
+                kanbanBoardMode: item.kanbanBoardMode ? __tmGetKanbanBoardModeLongLabel(item.kanbanBoardMode) : __tmT("task.keepCurrentKanbanMode"),
+                rule: !item.ruleId ? __tmT("task.noRule") : rules().find(rule => rule.id === item.ruleId)?.name || item.targetNames?.rule || item.ruleId,
             };
         }
         function issues(item, checkDocument = true) {
             const result = [], labels = names(item);
-            if (!groups().some(group => group.id === item.groupId)) result.push(`文档分组「${labels.group}」已删除或不可用`);
-            if (item.tabGroupId && !tabGroups(item.groupId).some(group => group.id === item.tabGroupId)) result.push(`页签组「${labels.tabGroup}」已删除或不属于此分组`);
-            if (!views.includes(item.viewId) || (item.viewId !== 'home' && !__tmIsViewEnabled(item.viewId))) result.push(`视图「${labels.view}」已停用或不可用`);
-            if (item.ruleId && !rules().some(rule => rule.id === item.ruleId && rule.enabled !== false)) result.push(`规则「${labels.rule}」已删除或停用`);
+            if (!groups().some(group => group.id === item.groupId)) result.push(__tmT("task.documentGroupWasDeletedOrUnavailable", { group: labels.group }));
+            if (item.tabGroupId && !tabGroups(item.groupId).some(group => group.id === item.tabGroupId)) result.push(__tmT("task.tabGroupWasDeletedOrDoesNotBelongTo", { tabGroup: labels.tabGroup }));
+            if (!views.includes(item.viewId) || (item.viewId !== 'home' && !__tmIsViewEnabled(item.viewId))) result.push(__tmT("task.viewIsDisabledOrUnavailable", { view: labels.view }));
+            if (item.ruleId && !rules().some(rule => rule.id === item.ruleId && rule.enabled !== false)) result.push(__tmT("task.ruleWasDeletedOrDisabled", { rule: labels.rule }));
             const scope = documentScopes.get(item.groupId + '|' + item.tabGroupId);
-            if (checkDocument && item.docId !== 'all' && scope && scope.version === Number(SettingsStore.data.docGroupSettingsUpdatedAt || 0) && !scope.ids.has(item.docId)) result.push(`文档「${labels.doc}」已删除或移出所选范围`);
+            if (checkDocument && item.docId !== 'all' && scope && scope.version === Number(SettingsStore.data.docGroupSettingsUpdatedAt || 0) && !scope.ids.has(item.docId)) result.push(__tmT("task.documentWasDeletedOrMovedOutOfTheSelected", { doc: labels.doc }));
             return result;
         }
         async function documents(groupId, tabGroupId = '', withNames = false) {
-            if (!groups().some(group => group.id === groupId)) throw new Error('文档分组不存在');
+            if (!groups().some(group => group.id === groupId)) throw new Error(__tmT("task.theDocumentGroupDoesNotExist"));
             const ids = await resolveDocIdsFromGroups({ groupId, skipPersistedScope: true, verifyCachedScope: false });
             const known = new Map([...(state.allDocuments || []), ...(state.taskTree || [])].map(doc => [doc.id, doc]));
             let docs = (ids || []).map(id => ({ ...(known.get(id) || {}), id, name: known.get(id)?.name || id }));
@@ -63,8 +63,8 @@
                 const missing = docs.filter(doc => !documentName(doc.id) && /^[0-9]+-[a-zA-Z0-9]+$/.test(doc.id));
                 if (missing.length) {
                     const response = await API.call('/api/query/sql', { stmt: `SELECT id, content FROM blocks WHERE type = 'd' AND id IN (${missing.map(doc => `'${doc.id}'`).join(',')})` });
-                    if (response?.code !== 0) throw new Error('无法加载文档名称');
-                    for (const row of response.data || []) documentNames.set(row.id, String(row.content || '').trim() || '未命名文档');
+                    if (response?.code !== 0) throw new Error(__tmT("task.couldNotLoadTheDocumentName"));
+                    for (const row of response.data || []) documentNames.set(row.id, String(row.content || '').trim() || __tmT("kernel.untitledDocument"));
                 }
                 docs = docs.map(doc => ({ ...doc, name: documentName(doc.id) || doc.name }));
             }
@@ -93,7 +93,7 @@
                 await SettingsStore.save({ suppressMobileCloseSyncDirty: true });
                 return true;
             } catch (error) {
-                hint('快捷方式状态保存失败，请稍后重试', 'warning');
+                hint(__tmT("task.failedToSaveTheShortcutStateTryAgainLater"), 'warning');
                 return false;
             }
         }
@@ -182,9 +182,9 @@
             if (!invalid.length && item.docId !== 'all') {
                 try {
                     const docs = await documents(item.groupId, item.tabGroupId);
-                    if (!docs.some(doc => doc.id === item.docId)) invalid.push(`文档「${names(item).doc}」已删除或移出所选范围`);
+                    if (!docs.some(doc => doc.id === item.docId)) invalid.push(__tmT("task.documentWasDeletedOrMovedOutOfTheSelected", { doc: names(item).doc }));
                 } catch (error) {
-                    if (request === generation) hint('暂时无法确认文档范围，请稍后重试', 'warning');
+                    if (request === generation) hint(__tmT("task.cannotConfirmTheDocumentScopeRightNowTryAgain"), 'warning');
                     return false;
                 }
             }
@@ -239,7 +239,7 @@
                     const loaded = await loadSelectedDocuments({ source: 'shortcut', showInlineLoading: true,
                         skipSnapshotFirstPaint: true, skipSessionRestoreFirstPaint: true,
                         skipDocSessionRestoreFirstPaint: true, waitWhiteboardInline: item.viewId === 'whiteboard' });
-                    if (loaded === false) throw new Error('任务加载失败，请稍后重试');
+                    if (loaded === false) throw new Error(__tmT("task.failedToLoadTasksTryAgainLater"));
                 } else {
                     if (snapshotRestored) recalcStats();
                     __tmRecomputeTaskProjection({ reason: 'shortcut' });
@@ -270,7 +270,7 @@
                 __tmRecomputeTaskProjection({ reason: 'shortcut-rollback' });
                 render();
                 __tmShortcutSidebar.refresh();
-                hint(`打开快捷项失败：${error?.message || error}`, 'error');
+                hint(__tmT("task.failedToOpenTheShortcut", { value1: error?.message || error }), 'error');
                 return false;
             } finally {
                 if (openingGeneration === request) openingGeneration = 0;

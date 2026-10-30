@@ -1,7 +1,7 @@
 const assert = require('assert');
-const fs = require('fs');
+const fs = require('./i18n-source-fixture');
 const path = require('path');
-const vm = require('vm');
+const vm = require('./i18n-vm-fixture');
 
 const root = path.resolve(__dirname, '..');
 const timerHarnesses = [];

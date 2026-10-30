@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { test, before, after } = require('node:test');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = require('./i18n-browser-fixture');
 const read = (file) => fs.readFileSync(path.join(__dirname, '../src/task-horizon/main', file), 'utf8');
 const runtime = read('20-api-and-runtime-services.js');
 function section(start, end) {

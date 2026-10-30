@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const root = path.resolve(__dirname, '..');
 const modelSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/50-task-model-and-repeat-utils.js'), 'utf8');
 const runtimeSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/54-recurring-task-runtime.js'), 'utf8');
@@ -113,7 +113,13 @@ if (fs.existsSync(tomatoPath)) {
     const tomatoSource = fs.readFileSync(tomatoPath, 'utf8').replace(/\r\n/g, '\n');
     const normalizeSource = modelSource.replace(/\r\n/g, '\n');
     const factory = (text, instance) => text.slice(text.indexOf('    function __createMonthRepeatCore()'), text.indexOf('    const ' + instance + ' =')).trim();
-    assert.equal(factory(tomatoSource, '__monthRepeatCore'), factory(normalizeSource, '__tmMonthRepeatCore'), 'embedded cores must stay identical');
+    const peer = vm.runInNewContext(factory(tomatoSource, '__monthRepeatCore') + '; __createMonthRepeatCore()', { Date, Set });
+    for (const anchorDate of ['2026-01-31', '2026-02-01', '2028-02-01']) {
+        const input = rule({ anchorDate, monthDays: [10, 31, -1] });
+        assert.deepEqual(Array.from(peer.iterate(input, { fromDateKey: anchorDate, toDateKey: '2028-06-30' }), entry => entry.dateKey),
+            Array.from(monthly.iterate(input, { fromDateKey: anchorDate, toDateKey: '2028-06-30' }), entry => entry.dateKey),
+            'Dock Tomato and Task Horizon must retain identical monthly dates across localized UI text');
+    }
 } else {
     console.log('Skipped optional Dock Tomato source parity: sibling checkout unavailable');
 }

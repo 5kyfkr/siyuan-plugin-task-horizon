@@ -8,7 +8,7 @@ const unindexedSettingsControls = () => [...document.querySelectorAll('.tm-setti
     .filter(el => !el.closest('.tm-settings-subtabs,.tm-settings-choice-group,dialog,.tm-doc-group-manager__picker') && el.dataset.tmCall !== 'tmOpenSettingsV3Subpage')
     .filter(el => !el.closest('[data-tm-settings-search-key]') || el.closest('[data-tm-settings-search-key]').matches('.tm-settings-panel'))
     .map(el => el.getAttribute('aria-label') || el.id || el.getAttribute('placeholder') || el.getAttribute('onchange') || el.textContent.trim());
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = require('./i18n-browser-fixture');
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const manifest = JSON.parse(read('src/task-horizon/manifest.main.json'));
@@ -41,7 +41,7 @@ runtime = runtime.slice(0, end) + `
     window.tmLicenseHasFeature = () => window.__hasPro;
     const clone = value => JSON.parse(JSON.stringify(value));
     const service = window.__settingsService = { policy: clone(__tmAgentPolicyView.policy), events: [], calls: [], patches: new Map(), delay: 0, active: 0, maxActive: 0 };
-    window.__taskHorizonHostBridge = { kernel: { rpc: { call: {
+    window.__taskHorizonHostBridge = { i18n: globalThis.__taskHorizonHostBridge?.i18n, kernel: { rpc: { call: {
         taskHorizonGetPolicy: async () => ({ ok: true, data: clone(service.policy) }),
         taskHorizonPreviewPolicyPatch: async request => {
             service.calls.push(['preview', request.expectedRevision]);
@@ -88,7 +88,11 @@ const nativeStyles = `body{margin:0;font:14px/1.5 system-ui;background:#eef0f3} 
 // The host injects these styles after the workspace CSS; previews reuse the real quickbar classes.
 const quickbarStyles = read('quickbar.js').match(/style\.id = 'sy-custom-props-floatbar-style';\s*style\.textContent = `([\s\S]*?)`;/)[1];
 const server = http.createServer((req, res) => {
-    if (req.url === '/runtime.js') { res.setHeader('content-type', 'text/javascript'); res.end(prelude + runtime); return; }
+    if (req.url === '/runtime.js') {
+        const locale = process.env.TM_TEST_LANGUAGE === 'en' ? 'en' : 'zh-CN';
+        const setup = `${read('src/i18n/runtime.js')}\nwindow.__taskHorizonHostBridge.i18n = window.__taskHorizonHostBridge.i18nRuntime.createI18n(${read('i18n/' + locale + '.json')}, { locale: '${locale}' });`;
+        res.setHeader('content-type', 'text/javascript'); res.end(setup + prelude + runtime); return;
+    }
     if (req.url === '/calendar.js') { res.setHeader('content-type', 'text/javascript'); res.end(read('calendar-view.js')); return; }
     if (req.url.endsWith('.css')) { res.setHeader('content-type', 'text/css'); res.end(req.url === '/basecoat.css' ? read('src/basecoat/basecoat.css') : req.url === '/calendar.css' ? read('calendar-view.css') : read('task-horizon.css')); return; }
     res.setHeader('content-type', 'text/html; charset=utf-8');
@@ -249,6 +253,83 @@ async function checkRecommendedRules(page) {
         await page.waitForTimeout(300);
         if (errors.length) throw new Error(errors.join('\n'));
         await page.locator('.tm-settings-v2').waitFor();
+        if (process.env.TM_TEST_LANGUAGE) {
+            const locale = process.env.TM_TEST_LANGUAGE;
+            await page.evaluate(() => tmOpenSettingsV2Page('appearance', 'l-density'));
+            const language = page.locator('[data-tm-ui-language]');
+            assert.equal(await language.isVisible(), true);
+            assert.equal(await language.inputValue(), 'system');
+            for (const value of ['en', 'zh-CN', 'system']) {
+                await language.selectOption(value);
+                await page.waitForFunction(value => JSON.parse(localStorage.getItem('settings-test')).uiLanguage === value, value);
+            }
+            await page.evaluate(() => { window.__failSave = true; });
+            await language.selectOption('en');
+            await page.waitForFunction(() => __settingsTest.SettingsStore.data.uiLanguage === 'system');
+            assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('settings-test')).uiLanguage), 'system');
+            await page.evaluate(() => { window.__failSave = false; });
+            await page.locator('[data-tm-ui-language]').selectOption('zh-CN');
+            await page.waitForFunction(() => JSON.parse(localStorage.getItem('settings-test')).uiLanguage === 'zh-CN');
+            await page.reload();
+            await page.locator('.tm-settings-v2').waitFor();
+            await page.evaluate(() => tmOpenSettingsV2Page('appearance', 'l-density'));
+            assert.equal(await page.locator('[data-tm-ui-language]').inputValue(), 'zh-CN');
+            for (const width of [320, 390, 768, 1440]) {
+                await page.setViewportSize({ width, height: 900 });
+                await page.evaluate(() => tmOpenSettingsV2Page('appearance', 'l-density'));
+                assert.equal(await page.locator('[data-tm-ui-language]').isVisible(), true);
+                await page.screenshot({ path: path.join(root, `output/playwright/i18n-settings-${locale}-${width}.png`) });
+            }
+            for (const pageId of ['docs', 'view', 'calendar', 'appearance', 'ai', 'algo', 'about', 'benefits']) {
+                await page.evaluate(id => tmOpenSettingsV2Page(id), pageId);
+                const text = await page.locator('.tm-settings-v3').innerText();
+                assert.doesNotMatch(text, /(?:common|settings|task|kernel|calendar|ai)\.[a-zA-Z]{3,}/, 'no missing-key text');
+                if (locale === 'en') {
+                    const texts = await page.locator('.tm-setting-field-title,.tm-setting-switch-title,.tm-settings-nav-btn,.tm-settings-section-title').allTextContents();
+                    assert.deepEqual(texts.filter(value => /\p{Script=Han}/u.test(value)), [], 'setting labels must be English');
+                }
+            }
+            await page.evaluate(() => {
+                const { SettingsStore, state, RuleManager } = __settingsTest;
+                SettingsStore.data.filterRules = RuleManager.getDefaultRules();
+                state.filterRules = SettingsStore.data.filterRules;
+                tmOpenSettingsV2Page('docs', 't-status');
+            });
+            const statusNames = await page.locator('[onchange^="updateStatusOption("][onchange*="\'name\'"]').inputValues?.();
+            const visibleStatusNames = await page.locator('[onchange^="updateStatusOption("][onchange*="\'name\'"]').evaluateAll(nodes => nodes.map(node => node.value));
+            assert.deepEqual(visibleStatusNames, locale === 'en' ? ['To do', 'In progress', 'Done', 'Abandoned'] : ['待办', '进行中', '已完成', '放弃']);
+            assert.deepEqual(await page.evaluate(() => __settingsTest.SettingsStore.data.customStatusOptions.map(item => item.name)), ['待办', '进行中', '已完成', '放弃'], 'displaying translated status inputs must not rewrite saved names');
+            await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-quadrant'));
+            const quadrantNames = await page.locator('[data-tm-settings-subpage="r-quadrant"] .tm-quadrant-indicator + span').allTextContents();
+            assert.deepEqual(quadrantNames.map(name => name.trim()), locale === 'en'
+                ? ['Important & urgent', 'Important & not urgent', 'Not important & urgent', 'Not important & not urgent']
+                : ['重要紧急', '重要不紧急', '不重要紧急', '不重要不紧急']);
+            await page.evaluate(() => tmEditQuadrantRule(0));
+            assert.ok((await page.locator('.tm-quick-add-modal .tm-prompt-title').innerText()).includes(locale === 'en' ? 'Important & urgent' : '重要紧急'));
+            await page.locator('#tm-cancel-quadrant-rule').click();
+            await page.evaluate(() => tmOpenSettingsV2Page('algo', 'r-rules'));
+            const names = await page.locator('.tm-rule-group-title').allTextContents();
+            const expectedNames = locale === 'en' ? ['Incomplete', 'Today', 'Overdue', 'Next seven days', 'Unscheduled'] : ['未完成', '今日', '已逾期', '未来七天', '未安排'];
+            assert.deepEqual(names.map(name => name.trim()), expectedNames);
+            await page.evaluate(() => editRule('default_todo'));
+            assert.equal(await page.locator('[data-tm-call="updateEditingRuleName"]').inputValue(), expectedNames[0]);
+            await page.evaluate(() => {
+                __settingsTest.state.editingRule.conditions.push({ field: 'customStatus', operator: '=', value: 'todo' });
+                showSettings();
+            });
+            const conditionOptions = await page.locator('.tm-rule-conditions select option').allTextContents();
+            assert.ok(conditionOptions.some(name => name.trim() === (locale === 'en' ? 'To do' : '待办')), 'rule status options use localized names');
+            assert.equal(await page.evaluate(() => __settingsTest.RuleManager.normalizeSelectFieldValues('customStatus', '待办')[0]), 'todo', 'legacy condition names still resolve to stable IDs');
+            await page.screenshot({ path: path.join(root, `output/playwright/i18n-settings-${locale}-rule-editor.png`) });
+            const kept = await page.evaluate(() => {
+                const i18n = __taskHorizonHostBridge.i18n;
+                return [i18n.builtinName('status', { id: 'todo', name: '我的待办' }), i18n.builtinName('rule', { id: 'default_today', name: 'My day' })];
+            });
+            assert.deepEqual(kept, ['我的待办', 'My day']);
+            assert.deepEqual(errors, []);
+            console.log('Language settings passed: ' + locale + ', three synchronized choices, failed save rollback, reload, four widths and all categories');
+            return;
+        }
         if (process.env.SETTINGS_LAYOUT_ONLY) {
             await checkSettingsLayouts(page);
             await checkSettingsLayouts(page, true);

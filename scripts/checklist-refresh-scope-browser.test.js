@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = require('./i18n-browser-fixture');
 const root = path.join(__dirname, '../src/task-horizon/main');
 const runtime = fs.readFileSync(path.join(root, '20-api-and-runtime-services.js'), 'utf8');
 const removal = fs.readFileSync(path.join(root, 'task-runtime/53b-task-create-and-quick-add-runtime.js'), 'utf8');

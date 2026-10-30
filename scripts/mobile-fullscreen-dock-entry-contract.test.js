@@ -1,9 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const fs = require('./i18n-source-fixture');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
@@ -104,7 +104,7 @@ const createPlugin = (options = {}) => {
         hasTaskMainRuntime: options.hasTaskMainRuntime || (() => true),
     };
     const api = vm.runInNewContext(
-        `${constBlock}\n({ ${METHOD_NAMES.map(sliceMethod).join(',\n')} })`,
+        `${constBlock}\nTASK_FULLSCREEN_DOCK_TITLE = __tmT('common.openFullscreen');\n({ ${METHOD_NAMES.map(sliceMethod).join(',\n')} })`,
         sandbox,
     );
     api.name = PLUGIN_NAME;

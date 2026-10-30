@@ -3,9 +3,9 @@
 // 看板模式下拉在局部刷新后由 __tmSyncKanbanModeSelectUi 回写文案；
 // 四象限等新增模式必须与菜单选项文案保持一致，不能回退成“状态”。
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const fs = require('./i18n-source-fixture');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const { test } = require('node:test');
 
 const root = path.resolve(__dirname, '..');

@@ -1,4 +1,6 @@
 (function () {
+    const __tmT = globalThis.__taskHorizonHostBridge.i18n.t;
+
     if (globalThis.__tmHomepage?.loaded) return;
 
     const runtime = {
@@ -50,14 +52,14 @@
     const FOCUS_CALENDAR_CACHE_BYTE_LIMIT = 4 * 1024 * 1024;
     const FOCUS_SCOPE_TASK_ID_LIMIT = 10000;
     const HOMEPAGE_MODULE_DEFS = Object.freeze([
-        { id: "projects", label: "项目进度", desc: "按分组/文档/二级标题的进度卡片", wide: true, collapsible: true },
-        { id: "overview", label: "任务概览", desc: "任务状态、完成摘要", wide: true },
-        { id: "focus", label: "专注统计", desc: "番茄联动开启时展示", wide: true },
-        { id: "trend", label: "完成趋势", desc: "最近完成曲线", wide: true },
-        { id: "heatmap", label: "完成热力图", desc: "按月展示近一年完成情况", wide: false },
-        { id: "distribution", label: "任务分布", desc: "未完成任务分布", wide: false },
-        { id: "recent", label: "最近完成", desc: "最近 6 条完成记录", wide: false },
-        { id: "risk", label: "风险提醒", desc: "逾期与临期任务", wide: false },
+        { id: "projects", label: __tmT("homepage.projectProgress"), desc: __tmT("homepage.progressCardsByGroupDocumentSubheading"), wide: true, collapsible: true },
+        { id: "overview", label: __tmT("homepage.taskOverview"), desc: __tmT("homepage.taskStatusCompletionSummary"), wide: true },
+        { id: "focus", label: __tmT("kernel.focusStatistics"), desc: __tmT("homepage.shownWhenPomodoroIntegrationIsOn"), wide: true },
+        { id: "trend", label: __tmT("homepage.completionTrend"), desc: __tmT("homepage.recentCompletionCurve"), wide: true },
+        { id: "heatmap", label: __tmT("homepage.completionHeatmap"), desc: __tmT("homepage.monthlyCompletionOverThePastYear"), wide: false },
+        { id: "distribution", label: __tmT("homepage.taskDistribution"), desc: __tmT("homepage.unfinishedTaskDistribution"), wide: false },
+        { id: "recent", label: __tmT("homepage.recentCompletions"), desc: __tmT("homepage.lastCompletionRecords"), wide: false },
+        { id: "risk", label: __tmT("homepage.riskAlerts"), desc: __tmT("homepage.overdueAndDueSoonTasks"), wide: false },
     ]);
     const HOMEPAGE_DEFAULT_MODULE_ORDER = Object.freeze(HOMEPAGE_MODULE_DEFS.map((item) => item.id));
     const HOMEPAGE_MODULE_DEF_BY_ID = HOMEPAGE_MODULE_DEFS.reduce((map, item) => {
@@ -111,7 +113,7 @@
 
     async function setHomepageProjectCompleted(kind, id, completed) {
         const service = globalThis.__tmProjectVisibility;
-        if (!service) throw new Error("项目状态服务未加载");
+        if (!service) throw new Error(__tmT("homepage.projectStatusServiceNotLoaded"));
         return await service.setCompleted(kind, id, completed);
     }
 
@@ -3662,8 +3664,8 @@
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
 
-    function getTaskTitlePresentation(source, fallback = "未命名任务") {
-        const fallbackText = String(fallback || "").trim() || "未命名任务";
+    function getTaskTitlePresentation(source, fallback = __tmT("kernel.untitledTask")) {
+        const fallbackText = String(fallback || "").trim() || __tmT("kernel.untitledTask");
         try {
             const presentation = globalThis.__tmGetTaskTitlePresentation?.(source, fallbackText);
             if (presentation && typeof presentation.html === "string" && typeof presentation.text === "string") {
@@ -3789,8 +3791,8 @@
     function formatListDate(key) {
         const dt = buildDateFromKey(key);
         if (!(dt instanceof Date)) return key || "";
-        const week = ["日", "一", "二", "三", "四", "五", "六"];
-        return `${dt.getMonth() + 1}月${dt.getDate()}日 周${week[dt.getDay()]}`;
+        const week = [__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')];
+        return __tmT("date.monthDayWeekday", { value1: dt.getMonth() + 1, value2: dt.getDate(), value3: week[dt.getDay()] });
     }
 
     function formatMetricValue(value) {
@@ -3876,7 +3878,7 @@
 
     function formatMonthLabel(monthKey) {
         const bounds = getMonthBounds(monthKey);
-        return `${bounds.start.getFullYear()}年${bounds.start.getMonth() + 1}月`;
+        return __tmT("date.yearMonthNumbers", { value1: bounds.start.getFullYear(), value2: bounds.start.getMonth() + 1 });
     }
 
     function normalizeCalendarFirstDay(value) {
@@ -3899,7 +3901,7 @@
     }
 
     function getCalendarWeekLabels(firstDay) {
-        const labels = ["日", "一", "二", "三", "四", "五", "六"];
+        const labels = [__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')];
         const start = normalizeCalendarFirstDay(firstDay);
         return labels.slice(start).concat(labels.slice(0, start));
     }
@@ -4366,7 +4368,7 @@
     }
 
     function formatFocusHoursText(minutes) {
-        return `${formatFocusHoursValue(minutes)} 小时`;
+        return __tmT("homepage.h", { value1: formatFocusHoursValue(minutes) });
     }
 
     function secondsToDisplayMinutes(seconds) {
@@ -4377,24 +4379,24 @@
 
     function formatRecentFocusTime(ms, todayKey) {
         const num = Number(ms);
-        if (!Number.isFinite(num) || num <= 0) return "时间未知";
+        if (!Number.isFinite(num) || num <= 0) return __tmT("homepage.timeUnknown");
         const dt = new Date(num);
-        if (Number.isNaN(dt.getTime())) return "时间未知";
+        if (Number.isNaN(dt.getTime())) return __tmT("homepage.timeUnknown");
         const clock = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
         const key = formatDateKey(dt);
-        if (key === todayKey) return `今天 ${clock}`;
-        if (key === shiftDateKey(todayKey, -1)) return `昨天 ${clock}`;
+        if (key === todayKey) return __tmT("homepage.today", { clock: clock });
+        if (key === shiftDateKey(todayKey, -1)) return __tmT("homepage.yesterday", { clock: clock });
         return `${dt.getMonth() + 1}/${dt.getDate()} ${clock}`;
     }
 
     function formatFocusDateTitle(focusDate) {
-        if (focusDate?.isToday) return "今日专注";
-        return "当日专注";
+        if (focusDate?.isToday) return __tmT("homepage.focusToday");
+        return __tmT("homepage.focusForTheDay");
     }
 
     function formatFocusDateText(key) {
         const normalized = normalizeDateKey(key);
-        return normalized ? formatListDate(normalized) : "日期未知";
+        return normalized ? formatListDate(normalized) : __tmT("homepage.dateUnknown");
     }
 
     function buildFocusTaskPlan(task, group, ctx) {
@@ -4404,17 +4406,17 @@
         const estimateTomatoes = parsePositiveNumber(task?.tomatoEstimateCount ?? task?.tomato_estimate_count);
         if (estimateTomatoes > 0) {
             const estimate = Number.isInteger(estimateTomatoes) ? String(estimateTomatoes) : String(Math.round(estimateTomatoes * 10) / 10);
-            return { text: `${actualPomodoros} / ${estimate} 番茄`, empty: false };
+            return { text: __tmT("homepage.pomodoros", { actualPomodoros: actualPomodoros, estimate: estimate }), empty: false };
         }
         const estimateMinutes = parseTaskDurationMinutes(task, ctx);
         if (estimateMinutes > 0) {
             return {
-                text: `${actualMinutes} / ${Math.round(estimateMinutes)} 分钟`,
+                text: __tmT("homepage.minutes", { actualMinutes: actualMinutes, estimateMinutes: Math.round(estimateMinutes) }),
                 empty: false,
             };
         }
-        if (actualMinutes > 0) return { text: `${actualMinutes} / 0 分钟`, empty: false };
-        return { text: "未填预估", empty: true };
+        if (actualMinutes > 0) return { text: __tmT("homepage.minutes2", { actualMinutes: actualMinutes }), empty: false };
+        return { text: __tmT("homepage.noEstimate"), empty: true };
     }
 
     function buildFocusStats(ctx, records, settings) {
@@ -4433,8 +4435,8 @@
             const lastMs = Math.max(0, toNumber(statsValue?.lastEndMs, 0));
             return {
                 id: String(task?.id || "").trim(),
-                title: String(task?.title || "").trim() || "未命名任务",
-                doc: String(task?.documentName || "").trim() || "未命名文档",
+                title: String(task?.title || "").trim() || __tmT("kernel.untitledTask"),
+                doc: String(task?.documentName || "").trim() || __tmT("kernel.untitledDocument"),
                 lastText: formatRecentFocusTime(lastMs, win.todayKey),
                 lastMs,
                 planText: plan.text,
@@ -4558,11 +4560,11 @@
     }
 
     function resolveTaskTitle(task) {
-        return String(task?.content || task?.title || task?.name || task?.raw_content || "").trim() || "未命名任务";
+        return String(task?.content || task?.title || task?.name || task?.raw_content || "").trim() || __tmT("kernel.untitledTask");
     }
 
     function resolveTaskDoc(task) {
-        return String(task?.doc_name || task?.docName || task?.root_name || task?.groupName || "").trim() || "未命名文档";
+        return String(task?.doc_name || task?.docName || task?.root_name || task?.groupName || "").trim() || __tmT("kernel.untitledDocument");
     }
 
     function resolveTaskDoneValue(task) {
@@ -4621,16 +4623,16 @@
     }
 
     function resolveTaskStatus(task) {
-        if (task?.done) return "已完成";
+        if (task?.done) return __tmT("ai.completed");
         const raw = String(task?.customStatus || task?.status || "").trim();
-        return raw || "待办";
+        return raw || __tmT("homepage.toDo");
     }
 
     function resolveTaskPriority(task) {
         const raw = String(task?.priority || "").trim().toLowerCase();
-        if (raw === "high") return "高重要性";
-        if (raw === "medium") return "中重要性";
-        if (raw === "low") return "低重要性";
+        if (raw === "high") return __tmT("ai.highImportance");
+        if (raw === "medium") return __tmT("ai.mediumImportance");
+        if (raw === "low") return __tmT("ai.lowImportance");
         return "";
     }
 
@@ -4749,7 +4751,7 @@
             }
             months.push({
                 key: `${y}-${String(m + 1).padStart(2, "0")}`,
-                label: `${m + 1}月`,
+                label: __tmT("date.monthNumber", { value1: m + 1 }),
                 rows: sharedRows,
                 cells,
             });
@@ -4775,7 +4777,7 @@
             .map(([label, value]) => ({ label, value }))
             .sort((a, b) => b.value - a.value)
             .slice(0, 5);
-        return { title: "文档分布", items: docItems };
+        return { title: __tmT("homepage.documentDistribution"), items: docItems };
     }
 
     function buildRecentDone(tasks, todayKey) {
@@ -4827,10 +4829,10 @@
 
     function getProcrastinationLevel(score) {
         const value = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
-        if (value >= 75) return "爆红";
-        if (value >= 50) return "高风险";
-        if (value >= 25) return "注意";
-        return "健康";
+        if (value >= 75) return __tmT("homepage.critical");
+        if (value >= 50) return __tmT("homepage.highRisk");
+        if (value >= 25) return __tmT("homepage.watch");
+        return __tmT("homepage.healthy");
     }
 
     function normalizeProcrastinationMetrics(metrics, fallback = {}) {
@@ -4875,9 +4877,9 @@
     function formatProcrastinationNote(metrics) {
         const item = normalizeProcrastinationMetrics(metrics);
         const parts = [
-            `逾期 ${item.overduePercent}%（${item.overdueCount}/${item.dueTaskCount}）`,
-            item.penaltyEnabled ? `扣分 ${item.penaltyCount}` : "",
-            `推迟 ${item.rescheduleCount}`,
+            __tmT("homepage.overdue", { overduePercent: item.overduePercent, overdueCount: item.overdueCount, dueTaskCount: item.dueTaskCount }),
+            item.penaltyEnabled ? __tmT("homepage.penalty", { penaltyCount: item.penaltyCount }) : "",
+            __tmT("homepage.postponed", { rescheduleCount: item.rescheduleCount }),
         ].filter(Boolean);
         return `${item.levelLabel} · ${parts.join("，")}`;
     }
@@ -4939,11 +4941,11 @@
         const procrastination = normalizeProcrastinationMetrics(rawProcrastination, fallbackProcrastination);
         const streak = buildStreak(tasks, todayKey);
         const profile = resolveProfile(ctx);
-        const scopeLabel = String(ctx?.currentDocName || ctx?.currentGroupName || "当前范围").trim() || "当前范围";
+        const scopeLabel = String(ctx?.currentDocName || ctx?.currentGroupName || __tmT("homepage.currentScope")).trim() || __tmT("homepage.currentScope");
         const rangeDone = trend.points.reduce((sum, point) => sum + (Number(point?.value) || 0), 0);
         const subtitleParts = [];
-        if (rangeDone > 0) subtitleParts.push(`近 ${runtime.rangeDays} 天完成 ${rangeDone} 项`);
-        if (overdue > 0) subtitleParts.push(`逾期 ${overdue} 项`);
+        if (rangeDone > 0) subtitleParts.push(__tmT("homepage.completedInTheLastDays", { rangeDays: runtime.rangeDays, rangeDone: rangeDone }));
+        if (overdue > 0) subtitleParts.push(__tmT("homepage.overdue2", { overdue: overdue }));
         return {
             tasks,
             trend,
@@ -4952,10 +4954,10 @@
             recentDone: buildRecentDone(globalThis.__tmProjectVisibility?.filterTasks(tasks) || tasks, todayKey),
             riskList: buildRiskList(globalThis.__tmProjectVisibility?.filterTasks(scopeTasks) || scopeTasks, todayKey, relationIndex),
             procrastination,
-            title: `主页 - ${scopeLabel}`,
+            title: __tmT("homepage.home", { scopeLabel: scopeLabel }),
             subtitle: subtitleParts.length
                 ? subtitleParts.join("，")
-                : `近 ${runtime.rangeDays} 天暂时没有完成记录`,
+                : __tmT("homepage.noCompletionsInTheLastDaysYet", { rangeDays: runtime.rangeDays }),
             kpis: {
                 todayDone: trend.points.length ? trend.points[trend.points.length - 1].value : 0,
                 weekDone,
@@ -4976,21 +4978,21 @@
         return [
             {
                 key: "done",
-                label: "已完成",
+                label: __tmT("ai.completed"),
                 value: Number(overview?.kpis?.doneCount) || 0,
                 pct: total > 0 ? Math.round(((Number(overview?.kpis?.doneCount) || 0) / total) * 100) : 0,
                 tone: "is-accent",
             },
             {
                 key: "overdue",
-                label: "已过期",
+                label: __tmT("homepage.overdue3"),
                 value: Number(overview?.kpis?.overdueCount) || 0,
                 pct: total > 0 ? Math.round(((Number(overview?.kpis?.overdueCount) || 0) / total) * 100) : 0,
                 tone: "is-overdue",
             },
             {
                 key: "pending",
-                label: "未完成",
+                label: __tmT("ai.notDone"),
                 value: Number(overview?.kpis?.pendingCount) || 0,
                 pct: total > 0 ? Math.round(((Number(overview?.kpis?.pendingCount) || 0) / total) * 100) : 0,
                 tone: "is-pending",
@@ -5042,7 +5044,7 @@
                 ${points.map((point, index) => {
                     const showDate = ((lastIndex - index) % step === 0) || index === 0 || index === lastIndex;
                     return `
-                    <div class="tm-homepage-trend-axis-item" aria-label="${esc(`${point.label} 完成 ${Number(point.value) || 0} 项`)}">
+                    <div class="tm-homepage-trend-axis-item" aria-label="${esc(__tmT("homepage.doneItems", { label: point.label, value2: Number(point.value) || 0 }))}">
                         <span class="tm-homepage-trend-axis-date ${showDate ? "" : "is-empty"}">${showDate ? esc(point.label || "") : ""}</span>
                     </div>
                 `;
@@ -5089,8 +5091,8 @@
     function renderRangeSwitch() {
         const rangeOptions = [7, 30, 90];
         return `
-            <div class="tm-homepage-range-switch" role="tablist" aria-label="趋势范围">
-                ${rangeOptions.map((days) => `<button type="button" class="tm-homepage-range-btn ${runtime.rangeDays === days ? "is-active" : ""}" data-tm-home-range="${days}">${days} 天</button>`).join("")}
+            <div class="tm-homepage-range-switch" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.trendRange")}">
+                ${rangeOptions.map((days) => `<button type="button" class="tm-homepage-range-btn ${runtime.rangeDays === days ? "is-active" : ""}" data-tm-home-range="${days}">${__tmT("homepage.days", { days: days })}</button>`).join("")}
             </div>
         `;
     }
@@ -5101,16 +5103,16 @@
         const open = runtime.homepageSettingsOpen === true;
         return `
             <div class="tm-homepage-settings">
-                <button type="button" class="tm-homepage-settings-btn ${open ? "is-active" : ""}" data-tm-home-settings-toggle="1" aria-label="主页模块排序" aria-expanded="${open ? "true" : "false"}">
+                <button type="button" class="tm-homepage-settings-btn ${open ? "is-active" : ""}" data-tm-home-settings-toggle="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.homemoduleOrder")}" aria-expanded="${open ? "true" : "false"}">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
                         <path d="M128,76a52,52,0,1,0,52,52A52.06,52.06,0,0,0,128,76Zm0,80a28,28,0,1,1,28-28A28,28,0,0,1,128,156Zm113.86-49.57A12,12,0,0,0,236,98.34L208.21,82.49l-.11-31.31a12,12,0,0,0-4.25-9.12,116,116,0,0,0-38-21.41,12,12,0,0,0-9.68.89L128,37.27,99.83,21.53a12,12,0,0,0-9.7-.9,116.06,116.06,0,0,0-38,21.47,12,12,0,0,0-4.24,9.1l-.14,31.34L20,98.35a12,12,0,0,0-5.85,8.11,110.7,110.7,0,0,0,0,43.11A12,12,0,0,0,20,157.66l27.82,15.85.11,31.31a12,12,0,0,0,4.25,9.12,116,116,0,0,0,38,21.41,12,12,0,0,0,9.68-.89L128,218.73l28.14,15.74a12,12,0,0,0,9.7.9,116.06,116.06,0,0,0,38-21.47,12,12,0,0,0,4.24-9.1l.14-31.34,27.81-15.81a12,12,0,0,0,5.85-8.11A110.7,110.7,0,0,0,241.86,106.43Zm-22.63,33.18-26.88,15.28a11.94,11.94,0,0,0-4.55,4.59c-.54,1-1.11,1.93-1.7,2.88a12,12,0,0,0-1.83,6.31L184.13,199a91.83,91.83,0,0,1-21.07,11.87l-27.15-15.19a12,12,0,0,0-5.86-1.53h-.29c-1.14,0-2.3,0-3.44,0a12.08,12.08,0,0,0-6.14,1.51L93,210.82A92.27,92.27,0,0,1,71.88,199l-.11-30.24a12,12,0,0,0-1.83-6.32c-.58-.94-1.16-1.91-1.7-2.88A11.92,11.92,0,0,0,63.7,155L36.8,139.63a86.53,86.53,0,0,1,0-23.24l26.88-15.28a12,12,0,0,0,4.55-4.58c.54-1,1.11-1.94,1.7-2.89a12,12,0,0,0,1.83-6.31L71.87,57A91.83,91.83,0,0,1,92.94,45.17l27.15,15.19a11.92,11.92,0,0,0,6.15,1.52c1.14,0,2.3,0,3.44,0a12.08,12.08,0,0,0,6.14-1.51L163,45.18A92.27,92.27,0,0,1,184.12,57l.11,30.24a12,12,0,0,0,1.83,6.32c.58.94,1.16,1.91,1.7,2.88A11.92,11.92,0,0,0,192.3,101l26.9,15.33A86.53,86.53,0,0,1,219.23,139.61Z"></path>
                     </svg>
                 </button>
                 ${open ? `
-                    <div class="tm-homepage-settings-panel" role="dialog" aria-label="主页模块排序设置">
+                    <div class="tm-homepage-settings-panel" role="dialog" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.homemoduleOrdersettings")}">
                         <div class="tm-homepage-settings-head">
-                            <div class="tm-homepage-settings-title">模块排序</div>
-                            <button type="button" class="tm-homepage-module-reset-btn" data-tm-home-module-reset="1">重置</button>
+                            <div class="tm-homepage-settings-title">${__tmT("homepage.moduleOrder")}</div>
+                            <button type="button" class="tm-homepage-module-reset-btn" data-tm-home-module-reset="1">${__tmT("homepage.reset")}</button>
                         </div>
                         <div class="tm-homepage-module-order-list">
                             ${order.map((id, index) => {
@@ -5119,9 +5121,9 @@
                                 const supportsLayout = id === "trend" || id === "focus";
                                 const moduleLayout = id === "trend" ? getHomepageTrendLayout() : (id === "focus" ? getHomepageFocusLayout() : "");
                                 const layoutSwitch = supportsLayout ? `
-                                    <div class="tm-homepage-module-layout-switch" aria-label="${esc(`${def.label}布局`)}">
-                                        <button type="button" class="tm-homepage-module-layout-btn ${moduleLayout !== "narrow" ? "is-active" : ""}" data-tm-home-module-id="${esc(id)}" data-tm-home-module-layout="wide">宽版</button>
-                                        <button type="button" class="tm-homepage-module-layout-btn ${moduleLayout === "narrow" ? "is-active" : ""}" data-tm-home-module-id="${esc(id)}" data-tm-home-module-layout="narrow">窄版</button>
+                                    <div class="tm-homepage-module-layout-switch" aria-label="${esc(__tmT("homepage.layout", { label: def.label }))}">
+                                        <button type="button" class="tm-homepage-module-layout-btn ${moduleLayout !== "narrow" ? "is-active" : ""}" data-tm-home-module-id="${esc(id)}" data-tm-home-module-layout="wide">${__tmT("homepage.wide")}</button>
+                                        <button type="button" class="tm-homepage-module-layout-btn ${moduleLayout === "narrow" ? "is-active" : ""}" data-tm-home-module-id="${esc(id)}" data-tm-home-module-layout="narrow">${__tmT("homepage.narrow")}</button>
                                     </div>
                                 ` : "";
                                 return `
@@ -5132,8 +5134,8 @@
                                         </div>
                                         <div class="tm-homepage-module-order-actions">
                                             ${layoutSwitch}
-                                            <button type="button" class="tm-homepage-module-order-btn" data-tm-home-module-id="${esc(id)}" data-tm-home-module-move="-1" aria-label="${esc(`上移${def.label}`)}" ${index <= 0 ? "disabled" : ""}>↑</button>
-                                            <button type="button" class="tm-homepage-module-order-btn" data-tm-home-module-id="${esc(id)}" data-tm-home-module-move="1" aria-label="${esc(`下移${def.label}`)}" ${index >= order.length - 1 ? "disabled" : ""}>↓</button>
+                                            <button type="button" class="tm-homepage-module-order-btn" data-tm-home-module-id="${esc(id)}" data-tm-home-module-move="-1" aria-label="${esc(__tmT("homepage.moveUp", { label: def.label }))}" ${index <= 0 ? "disabled" : ""}>↑</button>
+                                            <button type="button" class="tm-homepage-module-order-btn" data-tm-home-module-id="${esc(id)}" data-tm-home-module-move="1" aria-label="${esc(__tmT("homepage.moveDown", { label: def.label }))}" ${index >= order.length - 1 ? "disabled" : ""}>↓</button>
                                         </div>
                                     </div>
                                 `;
@@ -5155,7 +5157,7 @@
 
     function buildTrendSvg(trend, ctx, profile, layout = "wide", viewport = null) {
         const rawPoints = Array.isArray(trend?.points) ? trend.points : [];
-        if (!rawPoints.length) return `<div class="tm-homepage-chart-empty">暂无趋势数据</div>`;
+        if (!rawPoints.length) return `<div class="tm-homepage-chart-empty">${__tmT("homepage.noTrendDataYet")}</div>`;
         const points = rawPoints.slice();
         const metrics = getLayoutMetrics(ctx, profile);
         const isNarrow = String(layout || "").trim() === "narrow";
@@ -5200,13 +5202,13 @@
         }).join("");
         const markers = [
             pointMarkers,
-            peakPoint ? `<circle cx="${peakPoint.x}" cy="${peakPoint.y}" r="3.5" class="tm-homepage-trend-dot tm-homepage-trend-dot--peak"><title>${esc(`峰值 ${peakPoint.label}：${peakPoint.value}`)}</title></circle>` : "",
-            lastPoint ? `<circle cx="${lastPoint.x}" cy="${lastPoint.y}" r="5.5" class="tm-homepage-trend-dot tm-homepage-trend-dot--last"><title>${esc(`最新 ${lastPoint.label}：${lastPoint.value}`)}</title></circle>` : "",
+            peakPoint ? `<circle cx="${peakPoint.x}" cy="${peakPoint.y}" r="3.5" class="tm-homepage-trend-dot tm-homepage-trend-dot--peak"><title>${esc(__tmT("homepage.peak", { label: peakPoint.label, value: peakPoint.value }))}</title></circle>` : "",
+            lastPoint ? `<circle cx="${lastPoint.x}" cy="${lastPoint.y}" r="5.5" class="tm-homepage-trend-dot tm-homepage-trend-dot--last"><title>${esc(__tmT("homepage.latest", { label: lastPoint.label, value: lastPoint.value }))}</title></circle>` : "",
             lastPoint ? `<circle cx="${lastPoint.x}" cy="${lastPoint.y}" r="9" class="tm-homepage-trend-dot tm-homepage-trend-dot--last-ring"></circle>` : "",
             pointLabels,
         ].join("");
         return `
-            <svg class="tm-homepage-trend-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMax meet" role="img" aria-label="完成趋势">
+            <svg class="tm-homepage-trend-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMax meet" role="img" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.completionTrend")}">
                 <defs>
                     <linearGradient id="tmHomepageTrendStroke" x1="0" y1="0" x2="1" y2="0">
                         <stop offset="0%" style="stop-color:color-mix(in srgb, var(--tm-home-accent) 68%, var(--tm-home-accent-soft-2));"></stop>
@@ -5247,16 +5249,16 @@
 
     function renderHeatmap(heatmap) {
         const months = Array.isArray(heatmap?.months) ? heatmap.months : [];
-        if (!months.length) return `<div class="tm-homepage-chart-empty">暂无热力图数据</div>`;
+        if (!months.length) return `<div class="tm-homepage-chart-empty">${__tmT("homepage.noHeatmapDataYet")}</div>`;
         return `
             <div class="tm-homepage-heatmap-shell" style="--tm-home-heatmap-cell:${Math.max(12, Number(heatmap?.cellSize) || 16)}px;--tm-home-heatmap-gap:${Math.max(4, Number(heatmap?.gapSize) || 5)}px;--tm-home-heatmap-month-cols:${Math.max(3, Number(heatmap?.monthCols) || 4)};">
-                <div class="tm-homepage-heatmap-grid" role="img" aria-label="完成热力图">
+                <div class="tm-homepage-heatmap-grid" role="img" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.completionHeatmap")}">
                     ${months.map((month) => `
                     <div class="tm-homepage-heatmap-month">
                         <div class="tm-homepage-heatmap-month-label">${esc(month?.label || "")}</div>
                         <div class="tm-homepage-heatmap-month-grid" style="--tm-home-heatmap-month-rows:${Math.max(1, Number(month?.rows) || 1)};">
                             ${(Array.isArray(month?.cells) ? month.cells : []).map((cell) => `
-                                <span class="tm-homepage-heatmap-cell tm-homepage-heatmap-cell--l${Number(cell?.level) || 0}${cell?.placeholder ? " tm-homepage-heatmap-cell--placeholder" : ""}"${cell?.placeholder ? ' aria-hidden="true"' : ` title="${esc(`${cell?.key || ""} · 完成 ${Number(cell?.count) || 0} 项`)}"`}></span>
+                                <span class="tm-homepage-heatmap-cell tm-homepage-heatmap-cell--l${Number(cell?.level) || 0}${cell?.placeholder ? " tm-homepage-heatmap-cell--placeholder" : ""}"${cell?.placeholder ? ' aria-hidden="true"' : ` title="${esc(__tmT("homepage.doneItems2", { value1: cell?.key || "", value2: Number(cell?.count) || 0 }))}"`}></span>
                             `).join("")}
                         </div>
                     </div>
@@ -5269,20 +5271,20 @@
     function renderHeatmapLegend() {
         return `
             <div class="tm-homepage-heatmap-legend" aria-hidden="true">
-                <span class="tm-homepage-heatmap-legend-label">低</span>
+                <span class="tm-homepage-heatmap-legend-label">${__tmT("common.low")}</span>
                 <span class="tm-homepage-heatmap-cell tm-homepage-heatmap-cell--l0"></span>
                 <span class="tm-homepage-heatmap-cell tm-homepage-heatmap-cell--l1"></span>
                 <span class="tm-homepage-heatmap-cell tm-homepage-heatmap-cell--l2"></span>
                 <span class="tm-homepage-heatmap-cell tm-homepage-heatmap-cell--l3"></span>
                 <span class="tm-homepage-heatmap-cell tm-homepage-heatmap-cell--l4"></span>
-                <span class="tm-homepage-heatmap-legend-label">高</span>
+                <span class="tm-homepage-heatmap-legend-label">${__tmT("common.high")}</span>
             </div>
         `;
     }
 
     function renderDistribution(distribution) {
         const items = Array.isArray(distribution?.items) ? distribution.items : [];
-        if (!items.length) return `<div class="tm-homepage-chart-empty">暂无分布数据</div>`;
+        if (!items.length) return `<div class="tm-homepage-chart-empty">${__tmT("homepage.noDistributionDataYet")}</div>`;
         const maxValue = Math.max(1, ...items.map((item) => Number(item?.value) || 0));
         return `
             <div class="tm-homepage-distribution-list">
@@ -5310,9 +5312,9 @@
             <div class="tm-homepage-list">
                 ${items.map((item) => {
                     const meta = kind === "risk"
-                        ? (item.diffDays < 0 ? `逾期 ${Math.abs(item.diffDays)} 天` : (item.diffDays === 0 ? "今天到期" : `${item.diffDays} 天后到期`))
+                        ? (item.diffDays < 0 ? __tmT("homepage.overdueByDays", { value1: Math.abs(item.diffDays) }) : (item.diffDays === 0 ? __tmT("homepage.dueToday") : __tmT("homepage.daysFromNow", { diffDays: item.diffDays })))
                         : formatListDate(item.dateKey);
-                    const titlePresentation = getTaskTitlePresentation(item.title, "未命名任务");
+                    const titlePresentation = getTaskTitlePresentation(item.title, __tmT("kernel.untitledTask"));
                     const badge = kind === "risk"
                         ? `<span class="tm-homepage-list-badge ${item.diffDays < 0 ? "is-danger" : "is-warning"}">${esc(meta)}</span>`
                         : `<span class="tm-homepage-list-date">${esc(meta)}</span>`;
@@ -5337,18 +5339,18 @@
             <section class="tm-homepage-card tm-homepage-card--overview">
                 <div class="tm-homepage-card-head">
                     <div>
-                        <div class="tm-homepage-card-title">任务状态</div>
-                        <div class="tm-homepage-card-desc">完成、逾期、未完成占比</div>
+                        <div class="tm-homepage-card-title">${__tmT("homepage.taskStatus")}</div>
+                        <div class="tm-homepage-card-desc">${__tmT("homepage.completedOverdueAndUnfinishedShares")}</div>
                     </div>
-                    <div class="tm-homepage-overview-rate">完成率 ${completionRate}%</div>
+                    <div class="tm-homepage-overview-rate">${__tmT("homepage.completionRate", { completionRate: completionRate })}</div>
                 </div>
                 <div class="tm-homepage-overview-summary">
                     <div class="tm-homepage-overview-total">
-                        <div class="tm-homepage-overview-total-label">总任务</div>
+                        <div class="tm-homepage-overview-total-label">${__tmT("homepage.totalTasks")}</div>
                         <div class="tm-homepage-overview-total-value">${Number(overview?.kpis?.total) || 0}</div>
                     </div>
                     <div class="tm-homepage-overview-bar-wrap">
-                        <div class="tm-homepage-overview-bar" aria-label="任务状态概览">
+                        <div class="tm-homepage-overview-bar" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.taskStatusoverview")}">
                             ${segments.map((segment) => `<span class="tm-homepage-overview-bar-seg ${segment.tone}" style="width:${Math.max((segment.value > 0 ? 8 : 0), Number(segment.pct) || 0)}%;"></span>`).join("")}
                         </div>
                     </div>
@@ -5372,14 +5374,14 @@
         const procrastination = normalizeProcrastinationMetrics(overview?.procrastination || overview?.kpis?.procrastination);
         const rows = [
             {
-                label: "连续完成",
+                label: __tmT("homepage.completionStreak"),
                 value: Number(overview?.kpis?.streak) || 0,
-                unit: "天",
-                note: Number(overview?.kpis?.streak) > 0 ? "最近保持连续完成" : "最近还没有形成连续完成",
+                unit: __tmT("homepage.days2"),
+                note: Number(overview?.kpis?.streak) > 0 ? __tmT("homepage.currentStreak") : __tmT("homepage.noStreakYet"),
                 tone: Number(overview?.kpis?.streak) > 0 ? "is-success" : "",
             },
             {
-                label: "拖延值",
+                label: __tmT("homepage.procrastinationScore"),
                 value: procrastination.score,
                 unit: "",
                 note: formatProcrastinationNote(procrastination),
@@ -5391,15 +5393,15 @@
             <section class="tm-homepage-card tm-homepage-card--summary">
                 <div class="tm-homepage-card-head">
                     <div>
-                        <div class="tm-homepage-card-title">完成摘要</div>
-                        <div class="tm-homepage-card-desc">先看今天，再看连续性和拖延值</div>
+                        <div class="tm-homepage-card-title">${__tmT("homepage.completionSummary")}</div>
+                        <div class="tm-homepage-card-desc">${__tmT("homepage.startWithTodayThenCheckConsistencyAndProcrastination")}</div>
                     </div>
                 </div>
                 <div class="tm-homepage-summary-layout">
                     <article class="tm-homepage-summary-main">
-                        <div class="tm-homepage-summary-main-label">今日完成</div>
+                        <div class="tm-homepage-summary-main-label">${__tmT("homepage.completedToday")}</div>
                         <div class="tm-homepage-summary-main-value">${overview?.kpis?.todayDone || 0}</div>
-                        <div class="tm-homepage-summary-main-note">最近一周累计 ${overview?.kpis?.weekDone || 0} 项</div>
+                        <div class="tm-homepage-summary-main-note">${__tmT("homepage.lastDaysItems", { value1: overview?.kpis?.weekDone || 0 })}</div>
                     </article>
                     <div class="tm-homepage-summary-list">
                         ${rows.map((item) => `
@@ -5419,15 +5421,15 @@
     }
 
     function renderFocusLoadingCard(text, layout = getHomepageFocusLayout()) {
-        const dayScope = Math.min(0, Math.round(toNumber(runtime.focusDateOffset, 0))) === 0 ? "今日当前范围" : "当日当前范围";
-        const message = esc(text || "正在读取番茄历史...");
+        const dayScope = Math.min(0, Math.round(toNumber(runtime.focusDateOffset, 0))) === 0 ? __tmT("homepage.todayCurrentScope") : __tmT("homepage.dayCurrentScope");
+        const message = esc(text || __tmT("homepage.readingPomodoroHistory"));
         const isNarrow = String(layout || "").trim() === "narrow";
         return `
             <section class="tm-homepage-card tm-homepage-card--focus ${isNarrow ? "is-narrow" : ""}">
                 <div class="tm-homepage-card-head">
                     <div>
-                        <div class="tm-homepage-card-title">专注统计</div>
-                        <div class="tm-homepage-card-desc">${isNarrow ? dayScope : `${dayScope} · 最近专注近 90 天`}</div>
+                        <div class="tm-homepage-card-title">${__tmT("kernel.focusStatistics")}</div>
+                        <div class="tm-homepage-card-desc">${isNarrow ? dayScope : __tmT("homepage.recentFocusOverDays", { dayScope: dayScope })}</div>
                     </div>
                 </div>
                 <div class="tm-homepage-focus-grid">
@@ -5475,15 +5477,15 @@
                 isFuture ? "is-future" : "",
             ].filter(Boolean).join(" ");
             cells.push(`
-                <button type="button" class="${cls}" data-tm-home-focus-calendar-date="${esc(key)}" title="${esc(minutes > 0 ? `${key} · 专注 ${minutes} 分钟` : `${key} · 暂无专注记录`)}">
+                <button type="button" class="${cls}" data-tm-home-focus-calendar-date="${esc(key)}" title="${esc(minutes > 0 ? __tmT("homepage.focusMin", { key: key, minutes: minutes }) : __tmT("homepage.noFocusRecords", { key: key }))}">
                     ${day}
                 </button>
             `);
         }
         const body = status === "loading" || status === "idle"
-            ? `<div class="tm-homepage-focus-empty tm-homepage-focus-calendar-loading">正在读取本月专注记录...</div>`
+            ? `<div class="tm-homepage-focus-empty tm-homepage-focus-calendar-loading">${__tmT("homepage.readingThisMonthSFocusRecords")}</div>`
             : (status === "error"
-                ? `<div class="tm-homepage-focus-empty tm-homepage-focus-calendar-loading">本月专注记录暂不可用。</div>`
+                ? `<div class="tm-homepage-focus-empty tm-homepage-focus-calendar-loading">${__tmT("homepage.thisMonthSFocusRecordsAreUnavailable")}</div>`
                 : `
                     <div class="tm-homepage-focus-calendar-week">
                         ${weekLabels.map((label) => `<span>${esc(label)}</span>`).join("")}
@@ -5493,9 +5495,9 @@
         return `
             <div class="tm-homepage-focus-calendar-popover">
                 <div class="tm-homepage-focus-calendar-head">
-                    <button type="button" class="tm-homepage-focus-day-btn" data-tm-home-focus-calendar-month="-1" aria-label="查看上个月">&lsaquo;</button>
+                    <button type="button" class="tm-homepage-focus-day-btn" data-tm-home-focus-calendar-month="-1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.viewpreviousMonth")}">&lsaquo;</button>
                     <div class="tm-homepage-focus-calendar-month">${esc(formatMonthLabel(month.key))}</div>
-                    <button type="button" class="tm-homepage-focus-day-btn" data-tm-home-focus-calendar-month="1" aria-label="查看下个月" ${isCurrentMonth ? "disabled" : ""}>&rsaquo;</button>
+                    <button type="button" class="tm-homepage-focus-day-btn" data-tm-home-focus-calendar-month="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.viewnextMonth")}" ${isCurrentMonth ? "disabled" : ""}>&rsaquo;</button>
                 </div>
                 ${body}
             </div>
@@ -5513,7 +5515,7 @@
                 </div>
                 <div class="tm-homepage-focus-total">
                     <span class="tm-homepage-focus-total-value">${esc(formatFocusHoursValue(totalMinutes || 0))}</span>
-                    <span class="tm-homepage-focus-total-unit">小时</span>
+                    <span class="tm-homepage-focus-total-unit">${__tmT("homepage.h2")}</span>
                 </div>
             </div>
         `;
@@ -5528,7 +5530,7 @@
                         <div class="tm-homepage-focus-calendar-wrap">${renderFocusCalendar(stats)}</div>
                         <div class="tm-homepage-focus-day-metrics">
                             ${dayHead(0)}
-                            <div class="tm-homepage-focus-empty">暂无专注数据</div>
+                            <div class="tm-homepage-focus-empty">${__tmT("homepage.noFocusDataYet")}</div>
                         </div>
                     </div>
                 </article>
@@ -5536,9 +5538,9 @@
         }
         const progressPct = Math.max(0, Math.min(100, Math.round(toNumber(today.progressPct, 0))));
         const items = [
-            { label: "番茄", value: `${Math.max(0, Math.round(toNumber(today.pomodoroCount, 0)))}` },
-            { label: "正计时", value: formatFocusHoursText(today.stopwatchMinutes || 0) },
-            { label: "分心", value: `${Math.max(0, Math.round(toNumber(today.distractionCount, 0)))}` },
+            { label: __tmT("homepage.pomodoro"), value: `${Math.max(0, Math.round(toNumber(today.pomodoroCount, 0)))}` },
+            { label: __tmT("homepage.stopwatch"), value: formatFocusHoursText(today.stopwatchMinutes || 0) },
+            { label: __tmT("homepage.distractions"), value: `${Math.max(0, Math.round(toNumber(today.distractionCount, 0)))}` },
         ];
         return `
             <article class="tm-homepage-focus-panel tm-homepage-focus-today" data-tm-home-focus-today-slot>
@@ -5548,10 +5550,10 @@
                         ${dayHead(today.totalMinutes || 0)}
                         <div class="tm-homepage-focus-progress" style="--tm-home-focus-progress:${progressPct}%;">
                             <div class="tm-homepage-focus-progress-meta">
-                                <span>目标 ${esc(formatFocusHoursText(today.targetMinutes || 0))}</span>
+                                <span>${__tmT("homepage.goal", { value1: esc(formatFocusHoursText(today.targetMinutes || 0)) })}</span>
                                 <span class="tm-homepage-focus-progress-value">${progressPct}%</span>
                             </div>
-                            <div class="tm-homepage-focus-progress-track" aria-label="${esc(`今日专注目标完成 ${progressPct}%`)}">
+                            <div class="tm-homepage-focus-progress-track" aria-label="${esc(__tmT("homepage.todaySFocusGoalComplete", { progressPct: progressPct }))}">
                                 <span class="tm-homepage-focus-progress-bar"></span>
                             </div>
                         </div>
@@ -5575,15 +5577,15 @@
             <div class="tm-homepage-focus-list">
                 ${list.map((item) => {
                     const selected = String(item.id || "").trim() && String(item.id || "").trim() === String(runtime.selectedFocusTaskId || "").trim();
-                    const titlePresentation = getTaskTitlePresentation(item.title, "未命名任务");
+                    const titlePresentation = getTaskTitlePresentation(item.title, __tmT("kernel.untitledTask"));
                     return `
                         <button type="button" class="tm-homepage-focus-task ${selected ? "is-selected" : ""}" data-tm-home-focus-task="${esc(item.id || "")}" data-tm-home-open-task="${esc(item.id || "")}">
                             <span class="tm-homepage-focus-task-main">
                                 <span class="tm-homepage-focus-task-title" title="${esc(titlePresentation.text)}">${titlePresentation.html}</span>
-                                <span class="tm-homepage-focus-task-meta">${esc(item.doc || "未命名文档")} · ${esc(item.lastText || "时间未知")}</span>
+                                <span class="tm-homepage-focus-task-meta">${esc(item.doc || __tmT("kernel.untitledDocument"))} · ${esc(item.lastText || __tmT("homepage.timeUnknown"))}</span>
                             </span>
                             <span class="tm-homepage-focus-task-side">
-                                <span class="tm-homepage-focus-pill ${item.planEmpty ? "is-empty" : ""}">${esc(item.planText || "未填预估")}</span>
+                                <span class="tm-homepage-focus-pill ${item.planEmpty ? "is-empty" : ""}">${esc(item.planText || __tmT("homepage.noEstimate"))}</span>
                             </span>
                         </button>
                     `;
@@ -5597,25 +5599,25 @@
         const page = Math.max(0, Math.round(toNumber(stats?.dayPage, 0)));
         const totalPages = Math.max(1, Math.round(toNumber(stats?.dayTotalPages, 1)));
         const pager = totalPages > 1 ? `
-            <div class="tm-homepage-focus-page-nav" aria-label="当日专注任务分页">
-                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="-1" aria-label="上一页当日专注任务" ${page <= 0 ? "disabled" : ""}>&lsaquo;</button>
+            <div class="tm-homepage-focus-page-nav" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.dailyFocusTaskPages")}">
+                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="-1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.previousPageOfDailyFocusTasks")}" ${page <= 0 ? "disabled" : ""}>&lsaquo;</button>
                 <span class="tm-homepage-focus-page-count">${esc(`${page + 1}/${totalPages}`)}</span>
-                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="1" aria-label="下一页当日专注任务" ${page >= totalPages - 1 ? "disabled" : ""}>&rsaquo;</button>
+                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.nextPageOfDailyFocusTasks")}" ${page >= totalPages - 1 ? "disabled" : ""}>&rsaquo;</button>
             </div>
         ` : "";
         return `
             <div class="tm-homepage-focus-task-popover" data-tm-home-focus-task-popover>
                 <div class="tm-homepage-focus-task-popover-head">
                     <div>
-                        <div class="tm-homepage-focus-task-popover-title">当日专注任务</div>
+                        <div class="tm-homepage-focus-task-popover-title">${__tmT("homepage.dailyFocusTasks")}</div>
                         <div class="tm-homepage-focus-task-popover-date">${esc(formatFocusDateText(stats?.focusDate?.key))}</div>
                     </div>
                     <div class="tm-homepage-focus-task-popover-actions">
                         ${pager}
-                        <button type="button" class="tm-homepage-focus-task-popover-close" data-tm-home-focus-task-popover-close="1" aria-label="关闭当日专注任务">&times;</button>
+                        <button type="button" class="tm-homepage-focus-task-popover-close" data-tm-home-focus-task-popover-close="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.offdailyFocusTasks")}">&times;</button>
                     </div>
                 </div>
-                ${renderFocusTaskListContent(stats?.dayItems, "这一天当前范围暂无专注记录。")}
+                ${renderFocusTaskListContent(stats?.dayItems, __tmT("homepage.noFocusRecordsForThisDayInTheCurrent"))}
             </div>
         `;
     }
@@ -5625,22 +5627,22 @@
         const items = isDayMode
             ? (Array.isArray(stats?.dayItems) ? stats.dayItems : [])
             : (Array.isArray(stats?.recentItems) ? stats.recentItems : []);
-        const title = isDayMode ? "当日专注任务" : "最近专注任务";
-        const hint = isDayMode ? "跟随左侧选中日期" : "跟随当前页签，按最近结束时间排序";
-        const range = isDayMode ? formatFocusDateText(stats?.focusDate?.key) : `近 ${Number(stats?.rangeDays) || runtime.focusRecentDays} 天`;
-        const emptyText = isDayMode ? "这一天当前范围暂无专注记录。" : "当前范围暂无专注记录。";
+        const title = isDayMode ? __tmT("homepage.dailyFocusTasks") : __tmT("homepage.recentFocusTasks");
+        const hint = isDayMode ? __tmT("homepage.followTheSelectedDateOnTheLeft") : __tmT("homepage.followTheCurrentTabSortedByLatestEndTime");
+        const range = isDayMode ? formatFocusDateText(stats?.focusDate?.key) : __tmT("homepage.lastDays", { focusRecentDays: Number(stats?.rangeDays) || runtime.focusRecentDays });
+        const emptyText = isDayMode ? __tmT("homepage.noFocusRecordsForThisDayInTheCurrent") : __tmT("homepage.noFocusRecordsInTheCurrentScope");
         const page = Math.max(0, Math.round(toNumber(stats?.dayPage, 0)));
         const totalPages = Math.max(1, Math.round(toNumber(stats?.dayTotalPages, 1)));
         const pager = isDayMode && totalPages > 1 ? `
-            <div class="tm-homepage-focus-page-nav" aria-label="当日专注任务分页">
-                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="-1" aria-label="上一页当日专注任务" ${page <= 0 ? "disabled" : ""}>&lsaquo;</button>
+            <div class="tm-homepage-focus-page-nav" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.dailyFocusTaskPages")}">
+                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="-1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.previousPageOfDailyFocusTasks")}" ${page <= 0 ? "disabled" : ""}>&lsaquo;</button>
                 <span class="tm-homepage-focus-page-count">${esc(`${page + 1}/${totalPages}`)}</span>
-                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="1" aria-label="下一页当日专注任务" ${page >= totalPages - 1 ? "disabled" : ""}>&rsaquo;</button>
+                <button type="button" class="tm-homepage-focus-page-btn" data-tm-home-focus-day-page="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.nextPageOfDailyFocusTasks")}" ${page >= totalPages - 1 ? "disabled" : ""}>&rsaquo;</button>
             </div>
         ` : "";
         const modeButton = isDayMode
-            ? `<button type="button" class="tm-homepage-focus-mode-btn" data-tm-home-focus-mode="recent">最近专注</button>`
-            : `<button type="button" class="tm-homepage-focus-mode-btn" data-tm-home-focus-mode="day">当日任务</button>`;
+            ? `<button type="button" class="tm-homepage-focus-mode-btn" data-tm-home-focus-mode="recent">${__tmT("homepage.recentFocus")}</button>`
+            : `<button type="button" class="tm-homepage-focus-mode-btn" data-tm-home-focus-mode="day">${__tmT("homepage.dayTasks")}</button>`;
         return `
             <article class="tm-homepage-focus-panel tm-homepage-focus-recent">
                 <div class="tm-homepage-focus-recent-head">
@@ -5691,9 +5693,9 @@
         taskRows.forEach((task) => {
             const documentID = String(task?.documentID || "").trim();
             if (!globalScope && currentDocID !== "all" && documentID && documentID !== currentDocID) return;
-            const documentName = String(task?.documentName || "").trim() || "文档名称缺失";
+            const documentName = String(task?.documentName || "").trim() || __tmT("homepage.documentNameMissing");
             const h2ID = String(task?.h2Id || "").trim();
-            const h2Name = String(task?.h2 || "").trim() || "无二级标题";
+            const h2Name = String(task?.h2 || "").trim() || __tmT("homepage.noHeading");
             const key = globalScope
                 ? `doc:${documentID || documentName}`
                 : `h2:${h2ID || h2Name}`;
@@ -5711,7 +5713,7 @@
             groups.set(key, current);
         });
         if (globalScope && records?.unattributed && typeof records.unattributed === "object") {
-            const current = { key: "doc:__unattributed__", label: "未关联任务", documentID: "", seconds: 0 };
+            const current = { key: "doc:__unattributed__", label: __tmT("homepage.noLinkedTask"), documentID: "", seconds: 0 };
             (Array.isArray(records.unattributed.buckets) ? records.unattributed.buckets : []).forEach((bucket) => {
                 const bucketKey = normalizeDateKey(String(bucket?.key || "").slice(0, 10));
                 if (!bucketKey || bucketKey < startKey || bucketKey > endKey) return;
@@ -5726,17 +5728,17 @@
 
     function renderFocusDistributionPanel(ctx, records) {
         const distribution = buildFocusDistributionGroups(ctx, records);
-        const rangeLabel = distribution.rangeDays === 1 ? "当天" : `近 ${distribution.rangeDays} 天`;
+        const rangeLabel = distribution.rangeDays === 1 ? __tmT("homepage.today2") : __tmT("homepage.lastDays2", { rangeDays: distribution.rangeDays });
         if (!distribution.rows.length || distribution.totalSeconds <= 0) {
             return `
                 <article class="tm-homepage-focus-distribution">
                     <div class="tm-homepage-focus-distribution-toolbar">
-                        <div class="tm-homepage-card-desc">${distribution.globalScope ? "全部页签 · 按文档分布" : "当前文档 · 按二级标题分布"}</div>
-                        <div class="tm-homepage-focus-distribution-range" role="tablist" aria-label="专注分布范围">
+                        <div class="tm-homepage-card-desc">${distribution.globalScope ? __tmT("homepage.allTabsByDocument") : __tmT("homepage.currentDocumentByHeadingdistribution")}</div>
+                        <div class="tm-homepage-focus-distribution-range" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.focusdistributionscope")}">
                             ${renderFocusDistributionRangeButtons(distribution.rangeDays)}
                         </div>
                     </div>
-                    <div class="tm-homepage-focus-distribution-empty">${esc(rangeLabel)}暂无已完成专注记录。</div>
+                    <div class="tm-homepage-focus-distribution-empty">${__tmT("homepage.nonecompletedfocusRecords", { rangeLabel: esc(rangeLabel) })}</div>
                 </article>
             `;
         }
@@ -5758,17 +5760,17 @@
         return `
             <article class="tm-homepage-focus-distribution">
                 <div class="tm-homepage-focus-distribution-toolbar">
-                    <div class="tm-homepage-card-desc">${distribution.globalScope ? "全部页签 · 按文档分布" : "当前文档 · 按二级标题分布"}</div>
-                    <div class="tm-homepage-focus-distribution-range" role="tablist" aria-label="专注分布范围">
+                    <div class="tm-homepage-card-desc">${distribution.globalScope ? __tmT("homepage.allTabsByDocument") : __tmT("homepage.currentDocumentByHeadingdistribution")}</div>
+                    <div class="tm-homepage-focus-distribution-range" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.focusdistributionscope")}">
                         ${renderFocusDistributionRangeButtons(distribution.rangeDays)}
                     </div>
                 </div>
                 <div class="tm-homepage-focus-distribution-body">
                     <div class="tm-homepage-focus-donut-wrap">
-                        <svg class="tm-homepage-focus-donut" viewBox="0 0 100 100" role="img" aria-label="${esc(`${rangeLabel}专注分布`)}">
+                        <svg class="tm-homepage-focus-donut" viewBox="0 0 100 100" role="img" aria-label="${esc(__tmT("homepage.focusdistribution", { rangeLabel: rangeLabel }))}">
                             <circle class="tm-homepage-focus-donut-track" cx="50" cy="50" r="35"></circle>${slices}
                         </svg>
-                        <div class="tm-homepage-focus-donut-center"><div class="tm-homepage-focus-donut-total">${esc(formatFocusHoursText(distribution.totalSeconds / 60))}</div><div class="tm-homepage-focus-donut-label">${esc(rangeLabel)}完成专注</div></div>
+                        <div class="tm-homepage-focus-donut-center"><div class="tm-homepage-focus-donut-total">${esc(formatFocusHoursText(distribution.totalSeconds / 60))}</div><div class="tm-homepage-focus-donut-label">${__tmT("homepage.donefocus", { rangeLabel: esc(rangeLabel) })}</div></div>
                     </div>
                     <div class="tm-homepage-focus-distribution-list">${rows}</div>
                 </div>
@@ -5777,7 +5779,7 @@
     }
 
     function renderFocusDistributionRangeButtons(activeRange) {
-        return [[1, "当天"], [7, "7天"], [30, "30天"], [90, "90天"]].map(([value, label]) => `
+        return [[1, __tmT("homepage.today2")], [7, __tmT("homepage.days3")], [30, __tmT("homepage.days4")], [90, __tmT("homepage.days5")]].map(([value, label]) => `
             <button type="button" class="tm-homepage-focus-range-btn ${Number(activeRange) === value ? "is-active" : ""}" data-tm-home-focus-distribution-range="${value}" role="tab" aria-selected="${Number(activeRange) === value}">${label}</button>
         `).join("");
     }
@@ -5790,24 +5792,24 @@
         const state = runtime.focusState && typeof runtime.focusState === "object" ? runtime.focusState : {};
         const matches = String(state.key || "") === expectedKey;
         if (!matches || state.status === "idle" || state.status === "loading") {
-            return renderFocusLoadingCard("正在读取番茄历史...", layout);
+            return renderFocusLoadingCard(__tmT("homepage.readingPomodoroHistory"), layout);
         }
         if (state.status === "error") {
-            return renderFocusLoadingCard("番茄钟历史暂不可用。", layout);
+            return renderFocusLoadingCard(__tmT("homepage.pomodoroHistoryIsUnavailable"), layout);
         }
         const stats = buildFocusStats(ctx, state.stats || null, state.settings || null);
-        const dayScope = stats?.focusDate?.isToday ? "今日当前范围" : "当日当前范围";
+        const dayScope = stats?.focusDate?.isToday ? __tmT("homepage.todayCurrentScope") : __tmT("homepage.dayCurrentScope");
         const isDistribution = runtime.focusView === "distribution";
         return `
             <section class="tm-homepage-card tm-homepage-card--focus ${isNarrow ? "is-narrow" : ""}">
                 <div class="tm-homepage-card-head">
                     <div>
-                        <div class="tm-homepage-card-title">专注统计</div>
-                        <div class="tm-homepage-card-desc">${isDistribution ? "已完成专注分布" : (isNarrow ? dayScope : `${dayScope} · 最近专注近 90 天`)}</div>
+                        <div class="tm-homepage-card-title">${__tmT("kernel.focusStatistics")}</div>
+                        <div class="tm-homepage-card-desc">${isDistribution ? __tmT("homepage.completedfocusdistribution") : (isNarrow ? dayScope : __tmT("homepage.recentFocusOverDays", { dayScope: dayScope }))}</div>
                     </div>
-                    <div class="tm-homepage-focus-view-switch" role="tablist" aria-label="专注统计视图">
-                        <button type="button" class="tm-homepage-focus-view-btn ${isDistribution ? "" : "is-active"}" data-tm-home-focus-view="overview" role="tab" aria-selected="${!isDistribution}">概览</button>
-                        <button type="button" class="tm-homepage-focus-view-btn ${isDistribution ? "is-active" : ""}" data-tm-home-focus-view="distribution" role="tab" aria-selected="${isDistribution}">分布</button>
+                    <div class="tm-homepage-focus-view-switch" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.focusStatisticsView")}">
+                        <button type="button" class="tm-homepage-focus-view-btn ${isDistribution ? "" : "is-active"}" data-tm-home-focus-view="overview" role="tab" aria-selected="${!isDistribution}">${__tmT("homepage.overview")}</button>
+                        <button type="button" class="tm-homepage-focus-view-btn ${isDistribution ? "is-active" : ""}" data-tm-home-focus-view="distribution" role="tab" aria-selected="${isDistribution}">${__tmT("homepage.distribution")}</button>
                     </div>
                 </div>
                 ${isDistribution
@@ -5986,17 +5988,17 @@
     function renderTrendCard(ctx, profile, overview, layout = "wide") {
         const summary = buildTrendSummary(overview?.trend);
         const stats = [
-            { label: "最近", value: summary.last.value, note: summary.last.label || "暂无" },
-            { label: "峰值", value: summary.peak.value, note: summary.peak.label || "暂无" },
-            { label: "日均", value: formatMetricValue(summary.average), note: `近 ${summary.pointCount || 0} 天` },
+            { label: __tmT("homepage.recent"), value: summary.last.value, note: summary.last.label || __tmT("homepage.none") },
+            { label: __tmT("homepage.peak2"), value: summary.peak.value, note: summary.peak.label || __tmT("homepage.none") },
+            { label: __tmT("homepage.dailyAverage"), value: formatMetricValue(summary.average), note: __tmT("homepage.lastDays3", { value1: summary.pointCount || 0 }) },
         ];
         return `
             <section class="tm-homepage-card tm-homepage-card--trend ${String(layout || "").trim() === "narrow" ? "is-narrow" : ""}">
                 <div class="tm-homepage-card-head tm-homepage-trend-head">
                     <div class="tm-homepage-trend-head-main">
                         <div class="tm-homepage-trend-title-group">
-                        <div class="tm-homepage-card-title">完成趋势</div>
-                        <div class="tm-homepage-card-desc">最近 ${runtime.rangeDays} 天完成曲线</div>
+                        <div class="tm-homepage-card-title">${__tmT("homepage.completionTrend")}</div>
+                        <div class="tm-homepage-card-desc">${__tmT("homepage.completionsOverTheLastDays", { rangeDays: runtime.rangeDays })}</div>
                         </div>
                         <div class="tm-homepage-trend-summary">
                             ${stats.map((item) => `
@@ -6077,14 +6079,14 @@
 
     function renderProjectTimingStatusHtml(entity, todayKey, isCompleted = false) {
         if (isProjectCardCompleted(entity, isCompleted)) {
-            return `<span class="tm-home-project-completed">已完成</span>`;
+            return `<span class="tm-home-project-completed">${__tmT("ai.completed")}</span>`;
         }
         const remainingDays = getProjectRemainingDays(entity, todayKey);
         if (remainingDays == null) return "";
         if (remainingDays < 0) {
-            return `<span class="tm-home-project-risk">逾期${Math.abs(remainingDays)}天</span>`;
+            return `<span class="tm-home-project-risk">${__tmT("homepage.overdueD", { value1: Math.abs(remainingDays) })}</span>`;
         }
-        return `<span class="days-remaining">剩余${remainingDays}天</span>`;
+        return `<span class="days-remaining">${__tmT("homepage.remainingD", { remainingDays: remainingDays })}</span>`;
     }
 
     function renderProjectProgressHtml(entity, isCompleted = false) {
@@ -6093,15 +6095,15 @@
         const delta = isProjectCardCompleted(entity, isCompleted) || expected == null ? null : progress - expected;
         const deltaHtml = delta == null ? ""
             : delta >= 0
-                ? `<span class="delta is-ahead">超前 ${delta}%</span>`
-                : `<span class="delta is-behind">落后 ${-delta}%</span>`;
+                ? `<span class="delta is-ahead">${__tmT("homepage.ahead", { delta: delta })}</span>`
+                : `<span class="delta is-behind">${__tmT("homepage.behind", { value1: -delta })}</span>`;
         return `
             <div class="tm-home-project-progress">
                 <div class="tm-home-project-progress-fill" style="width:${progress}%"></div>
-                ${expected != null ? `<div class="tm-home-project-progress-expected" style="left:calc(${expected}% - 1px)" title="预期进度 ${expected}%"></div>` : ""}
+                ${expected != null ? `<div class="tm-home-project-progress-expected" style="left:calc(${expected}% - 1px)" title="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.expectedProgress", { expected: expected })}"></div>` : ""}
             </div>
             <div class="tm-home-project-progress-meta">
-                <span><span class="pct">${progress}%</span>${expected != null ? ` · 预期 ${expected}%` : ""}</span>
+                <span><span class="pct">${progress}%</span>${expected != null ? __tmT("homepage.expected", { expected: expected }) : ""}</span>
                 ${deltaHtml}
             </div>`;
     }
@@ -6112,13 +6114,13 @@
         const overdue = isProjectCardCompleted(entity, isCompleted) ? 0 : Math.max(0, Math.round(toNumber(overdueTasks, 0)));
         return `
             <div class="tm-home-project-stats">
-                <span><span class="n">${toNumber(entity?.total, 0)}</span> 任务</span>
-                <span><span class="n is-done">${toNumber(entity?.done, 0)}</span> 完成</span>
-                ${overdue > 0 ? `<span><span class="n is-overdue">${overdue}</span> 逾期</span>` : ""}
-                ${doing > 0 ? `<span><span class="n">${doing}</span> 进行中</span>` : ""}
+                <span><span class="n">${toNumber(entity?.total, 0)}</span>${__tmT("homepage.tasks")}</span>
+                <span><span class="n is-done">${toNumber(entity?.done, 0)}</span>${__tmT("homepage.done")}</span>
+                ${overdue > 0 ? `<span><span class="n is-overdue">${overdue}</span>${__tmT("homepage.overdue4")}</span>` : ""}
+                ${doing > 0 ? `<span><span class="n">${doing}</span>${__tmT("homepage.inProgress")}</span>` : ""}
                 ${range
                     ? `<span class="range ${overdueDays > 0 && !isProjectCardCompleted(entity, isCompleted) ? "is-urgent" : ""}">${esc(range)}</span>`
-                    : `<span class="range is-none">未设置时间</span>`}
+                    : `<span class="range is-none">${__tmT("homepage.notSettime")}</span>`}
             </div>`;
     }
 
@@ -6134,12 +6136,12 @@
              data-tm-home-project-doc="${esc(card.id)}"
              data-tm-home-project-kind="doc"
              data-tm-home-project-id="${esc(card.id)}"
-             title="点击切换：查看「${esc(card.name)}」按二级标题的进度">
+             title="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.showProgressByHeadingFor", { name: card.name })}">
             <div class="tm-home-project-top">
                 <span class="tm-home-project-dot"></span>
                 <span class="tm-home-project-name">${esc(card.name)}</span>
                 ${renderProjectTimingStatusHtml(card, todayKey, isCompleted)}
-                ${renderProjectCalButton("doc", card.id, card.name, !!range, range ? `设置文档日期（${range}）` : "设置文档开始/截止日期")}
+                ${renderProjectCalButton("doc", card.id, card.name, !!range, range ? __tmT("homepage.settingsdocumentsdate", { range: range }) : __tmT("homepage.settingsdocumentsstartDueDate"))}
             </div>
             ${renderProjectStatsHtml(card, overdueDays, card.overdue, isCompleted)}
             ${renderProjectProgressHtml(card, isCompleted)}
@@ -6148,7 +6150,7 @@
 
     function renderProjectH2Card(h, doc, todayKey) {
         if (!h) return "";
-        const titlePresentation = getTaskTitlePresentation(h.name, "(空标题)");
+        const titlePresentation = getTaskTitlePresentation(h.name, __tmT("homepage.untitledHeading"));
         const overdueDays = Math.max(0, Math.round(toNumber(h.overdueDays, 0)));
         const overdueTasks = Math.max(0, Math.round(toNumber(h.overdue, 0)));
         const projectId = String(h.h2Id || (h.key === "no-h2" && doc?.id ? `no-h2:${doc.id}` : "")).trim();
@@ -6164,7 +6166,7 @@
                 <span class="tm-home-project-h2-index">${toNumber(h.index, 0) + 1}</span>
                 <span class="tm-home-project-name">${titlePresentation.html}</span>
                 ${renderProjectTimingStatusHtml(h, todayKey, isCompleted)}
-                ${renderProjectCalButton("heading", h.h2Id, titlePresentation.text, !!range, range ? `设置标题日期（${range}）` : "设置该二级标题的开始/截止日期")}
+                ${renderProjectCalButton("heading", h.h2Id, titlePresentation.text, !!range, range ? __tmT("homepage.setHeadingDates", { range: range }) : __tmT("homepage.setTheStartDueDatesOfThisSubheading"))}
             </div>
             ${renderProjectStatsHtml(h, overdueDays, overdueTasks, isCompleted)}
             ${renderProjectProgressHtml(h, isCompleted)}
@@ -6182,7 +6184,7 @@
             <span class="tm-home-projects-section-agg">${aggHtml}</span>
             <span class="tm-home-projects-section-bar">
                 <span class="tm-home-projects-section-bar-fill" style="width:${safePct}%"></span>
-                ${exp != null ? `<span class="tm-home-projects-section-bar-expected" style="left:calc(${exp}% - 1px)" title="预期进度 ${exp}%"></span>` : ""}
+                ${exp != null ? `<span class="tm-home-projects-section-bar-expected" style="left:calc(${exp}% - 1px)" title="${globalThis.__taskHorizonHostBridge.i18n.html("homepage.expectedProgress2", { exp: exp })}"></span>` : ""}
             </span>
             <span class="tm-home-projects-section-pct">${safePct}%</span>
         </div>`;
@@ -6196,11 +6198,11 @@
             return Math.max(0, Math.round(toNumber(card?.overdueDays, 0))) > 0
                 && !isProjectCardCompleted(card, isHomepageProjectCompleted("doc", id));
         }).length;
-        const aggHtml = `${cards.length} 个文档 · ${toNumber(agg.total, 0)} 任务 / ${toNumber(agg.done, 0)} 完成`
-            + (overdueDocs ? ` · <span class="is-overdue">${overdueDocs} 个逾期</span>` : "");
+        const aggHtml = __tmT("homepage.documentsTasksDone", { length: cards.length, value2: toNumber(agg.total, 0), value3: toNumber(agg.done, 0) })
+            + (overdueDocs ? ` · <span class="is-overdue">${__tmT("homepage.overdue5", { overdueDocs: overdueDocs })}</span>` : "");
         return `
         <div class="tm-home-projects-section">
-            ${renderProjectsSectionHead(section?.label || "未分组", section?.color, aggHtml, agg.pct, null)}
+            ${renderProjectsSectionHead(section?.label || __tmT("homepage.ungrouped"), section?.color, aggHtml, agg.pct, null)}
             <div class="tm-home-projects-grid">${cards.map((card) => renderProjectDocCard(card, todayKey)).join("")}</div>
         </div>`;
     }
@@ -6210,9 +6212,9 @@
         const expected = normalizeProjectExpected(doc.expected);
         const delta = expected != null ? Math.round(toNumber(doc.progress, 0)) - expected : null;
         const range = formatProjectDateRange(doc);
-        const aggHtml = `${toNumber(doc.total, 0)} 任务 / ${toNumber(doc.done, 0)} 完成`
-            + (range ? ` · ${esc(range)}` : " · 未设置时间")
-            + (delta != null ? ` · <span style="color:${delta >= 0 ? "var(--tm-home-success)" : "var(--tm-home-danger)"};font-weight:600">${delta >= 0 ? "超前" : "落后"} ${Math.abs(delta)}%</span>` : "");
+        const aggHtml = __tmT("homepage.tasksDone", { value1: toNumber(doc.total, 0), value2: toNumber(doc.done, 0) })
+            + (range ? ` · ${esc(range)}` : __tmT("homepage.noTimeSet"))
+            + (delta != null ? ` · <span style="color:${delta >= 0 ? "var(--tm-home-success)" : "var(--tm-home-danger)"};font-weight:600">${delta >= 0 ? __tmT("homepage.ahead2") : __tmT("homepage.behind2")} ${Math.abs(delta)}%</span>` : "");
         const h2Cards = Array.isArray(projects.h2Cards) ? projects.h2Cards : [];
         let inner;
         if (h2Cards.length) {
@@ -6221,7 +6223,7 @@
             inner = `<div class="tm-home-projects-grid">${cardsHtml}</div>`;
         } else {
             inner = `
-            <div class="tm-home-projects-noh2-hint">该文档没有二级标题，显示文档整体进度</div>
+            <div class="tm-home-projects-noh2-hint">${__tmT("homepage.thisDocumentHasNoSubheadingsShowingOverallDocumentProgress")}</div>
             <div class="tm-home-projects-grid">${renderProjectDocCard(doc, todayKey)}</div>`;
         }
         return `
@@ -6236,9 +6238,9 @@
         if (!projects || typeof projects !== "object" || projects.scope === "unsupported") return "";
         const todayKey = ctx?.todayKey;
         const descByScope = {
-            all: "全部范围 · 按页签分组归组 · 刻度线为预期进度 · 点击卡片切换到对应文档",
-            group: "当前分组 · 只显示该分组下的文档 · 点击卡片切换到对应文档",
-            doc: "当前文档 · 按二级标题统计 · 日历按钮可设置开始/截止日期",
+            all: __tmT("homepage.allScopesGroupedByTabGroupsTickMarksShow"),
+            group: __tmT("homepage.currentGroupOnlyDocumentsInThisGroupClickA"),
+            doc: __tmT("homepage.currentDocumentCountedBySubheadingTheCalendarButtonSets"),
         };
         const collapsed = isHomepageModuleCollapsed("projects");
         let body = "";
@@ -6253,7 +6255,7 @@
                 .filter((section) => Array.isArray(section?.cards) && section.cards.length);
             body = sections.length
                 ? sections.map((section) => renderProjectsSection(section, todayKey)).join("")
-                : `<div class="tm-home-projects-empty">当前范围没有可展示的文档</div>`;
+                : `<div class="tm-home-projects-empty">${__tmT("homepage.noDocumentsToDisplayInTheCurrentScope")}</div>`;
             sections.forEach((section) => {
                 totalTasks += toNumber(section?.agg?.total, 0);
                 doneTasks += toNumber(section?.agg?.done, 0);
@@ -6262,11 +6264,11 @@
         const collapsedPct = totalTasks ? Math.min(doneTasks < totalTasks ? 99 : 100, Math.max(0, Math.round((doneTasks / totalTasks) * 100))) : 0;
         const headActions = `
             <div class="tm-home-projects-head-actions">
-                ${collapsed ? `<span class="tm-home-projects-collapsed-summary">${totalTasks} 任务 · 完成 ${collapsedPct}%</span>` : ""}
+                ${collapsed ? `<span class="tm-home-projects-collapsed-summary">${__tmT("homepage.tasksDone2", { totalTasks: totalTasks, collapsedPct: collapsedPct })}</span>` : ""}
                 <button type="button" class="tm-home-projects-collapse ${collapsed ? "is-collapsed" : ""}"
                     data-tm-home-module-collapse="projects"
                     aria-expanded="${collapsed ? "false" : "true"}"
-                    title="${collapsed ? "展开项目进度" : "折叠项目进度"}">
+                    title="${collapsed ? __tmT("homepage.expandProjectProgress") : __tmT("homepage.collapseProjectProgress")}">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
             </div>`;
@@ -6274,7 +6276,7 @@
             <section class="tm-homepage-card tm-homepage-card--projects ${collapsed ? "is-collapsed" : ""}">
                 <div class="tm-homepage-card-head">
                     <div>
-                        <div class="tm-homepage-card-title">项目进度</div>
+                        <div class="tm-homepage-card-title">${__tmT("homepage.projectProgress")}</div>
                         <div class="tm-homepage-card-desc">${esc(descByScope[projects.scope] || descByScope.all)}</div>
                     </div>
                     ${headActions}
@@ -6310,8 +6312,8 @@
                     <section class="tm-homepage-card tm-homepage-card--heatmap">
                         <div class="tm-homepage-card-head">
                             <div>
-                                <div class="tm-homepage-card-title">完成热力图</div>
-                                <div class="tm-homepage-card-desc">按月展示当前范围近一年的完成情况</div>
+                                <div class="tm-homepage-card-title">${__tmT("homepage.completionHeatmap")}</div>
+                                <div class="tm-homepage-card-desc">${__tmT("homepage.monthlyCompletionForTheCurrentScopeOverThePast")}</div>
                             </div>
                             ${renderHeatmapLegend()}
                         </div>
@@ -6323,8 +6325,8 @@
                     <section class="tm-homepage-card">
                         <div class="tm-homepage-card-head">
                             <div>
-                                <div class="tm-homepage-card-title">${esc(overview.distribution?.title || "分布")}</div>
-                                <div class="tm-homepage-card-desc">当前范围内未完成任务分布</div>
+                                <div class="tm-homepage-card-title">${esc(overview.distribution?.title || __tmT("homepage.distribution"))}</div>
+                                <div class="tm-homepage-card-desc">${__tmT("homepage.unfinishedTaskDistributionInTheCurrentScope")}</div>
                             </div>
                         </div>
                         ${renderDistribution(overview.distribution)}
@@ -6335,11 +6337,11 @@
                     <section class="tm-homepage-card">
                         <div class="tm-homepage-card-head">
                             <div>
-                                <div class="tm-homepage-card-title">最近完成</div>
-                                <div class="tm-homepage-card-desc">保留最近 6 条完成记录</div>
+                                <div class="tm-homepage-card-title">${__tmT("homepage.recentCompletions")}</div>
+                                <div class="tm-homepage-card-desc">${__tmT("homepage.keepsTheLastCompletionRecords")}</div>
                             </div>
                         </div>
-                        ${renderTaskList(overview.recentDone, "当前范围内还没有完成记录。", "done")}
+                        ${renderTaskList(overview.recentDone, __tmT("homepage.noCompletionRecordsInTheCurrentScopeYet"), "done")}
                     </section>
                 `);
             case "risk":
@@ -6347,11 +6349,11 @@
                     <section class="tm-homepage-card">
                         <div class="tm-homepage-card-head">
                             <div>
-                                <div class="tm-homepage-card-title">风险提醒</div>
-                                <div class="tm-homepage-card-desc">逾期优先，其次展示 7 天内到期项</div>
+                                <div class="tm-homepage-card-title">${__tmT("homepage.riskAlerts")}</div>
+                                <div class="tm-homepage-card-desc">${__tmT("homepage.overdueFirstThenItemsDueWithinDays")}</div>
                             </div>
                         </div>
-                        ${renderTaskList(overview.riskList, "当前没有需要优先处理的风险任务。", "risk")}
+                        ${renderTaskList(overview.riskList, __tmT("homepage.noRiskTasksNeedAttentionRightNow"), "risk")}
                     </section>
                 `);
             default:
@@ -6372,7 +6374,7 @@
                 <div class="tm-homepage-main">
                     <header class="tm-homepage-header">
                         <div class="tm-homepage-title-wrap">
-                            <h2 class="tm-homepage-title">${esc(overview.title || "主页")}</h2>
+                            <h2 class="tm-homepage-title">${esc(overview.title || __tmT("homepage.home2"))}</h2>
                             <p class="tm-homepage-subtitle" data-tm-home-subtitle>${esc(overview.subtitle)}</p>
                         </div>
                         <div class="tm-homepage-toolbar" data-tm-home-settings-slot>${renderHomepageSettings()}</div>
@@ -6478,7 +6480,7 @@
         const item = document.createElement("button");
         item.type = "button";
         item.setAttribute("role", "menuitem");
-        item.textContent = isCompleted ? "取消完成标记并恢复任务" : "标记已完成并隐藏任务";
+        item.textContent = isCompleted ? __tmT("homepage.unmarkCompleteAndRestoreTheTask") : __tmT("homepage.markCompleteAndHideTheTask");
         item.addEventListener("click", async (clickEvent) => {
             clickEvent.preventDefault();
             clickEvent.stopPropagation();
@@ -6489,7 +6491,7 @@
                 doRender();
             } catch (error) {
                 item.disabled = false;
-                item.textContent = "保存失败，点击重试";
+                item.textContent = __tmT("homepage.saveFailedClickToRetry");
                 item.title = String(error?.message || error);
             }
         });

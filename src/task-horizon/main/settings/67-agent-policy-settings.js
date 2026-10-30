@@ -16,8 +16,8 @@
     };
 
     const __TM_AGENT_POLICY_DAYS = Object.freeze([
-        ['mon', '周一'], ['tue', '周二'], ['wed', '周三'], ['thu', '周四'],
-        ['fri', '周五'], ['sat', '周六'], ['sun', '周日'],
+        ['mon', __tmT("calendar.monday")], ['tue', __tmT("calendar.tuesday")], ['wed', __tmT("calendar.wednesday")], ['thu', __tmT("calendar.thursday")],
+        ['fri', __tmT("calendar.friday")], ['sat', __tmT("calendar.saturday")], ['sun', __tmT("calendar.sunday")],
     ]);
     const __TM_AGENT_POLICY_MAX_DAILY_RANGES = 5;
     const __TM_AGENT_DURATION_MINUTES_MIN = 15;
@@ -86,10 +86,10 @@
 
     async function __tmAgentPolicyCall(name, ...args) {
         const method = __tmAgentPolicyKernelMethod(name);
-        if (!method) throw new Error('当前思源版本未提供安排规则服务');
+        if (!method) throw new Error(__tmT("settings.thisSiyuanVersionDoesNotProvideTheSchedulingRules"));
         const result = await method(...args);
         if (!result || result.ok !== true) {
-            const error = new Error(String(result?.error?.message || '安排规则服务调用失败'));
+            const error = new Error(String(result?.error?.message || __tmT("settings.schedulingRulesServiceCallFailed")));
             error.code = String(result?.error?.code || 'STORAGE_ERROR');
             throw error;
         }
@@ -179,7 +179,7 @@
                     __tmAgentPolicyApplyLoaded(cached, 'cache');
                     return cached;
                 }
-                __tmAgentPolicyView.error = String(error?.message || error || '安排规则读取失败');
+                __tmAgentPolicyView.error = String(error?.message || error || __tmT("settings.failedToReadSchedulingRules"));
                 return null;
             }
         })().finally(() => {
@@ -199,14 +199,14 @@
     function __tmAgentPolicyDocumentName(id) {
         const key = String(id || '').trim();
         const doc = (Array.isArray(state.allDocuments) ? state.allDocuments : []).find((item) => String(item?.id || '').trim() === key);
-        return String(doc?.name || doc?.content || key || '未命名文档').trim() || '未命名文档';
+        return String(doc?.name || doc?.content || key || __tmT("kernel.untitledDocument")).trim() || __tmT("kernel.untitledDocument");
     }
 
     function __tmAgentPolicyDocumentGroupName(id) {
         const key = String(id || '').trim();
         const group = (Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [])
             .find((item) => String(item?.id || '').trim() === key);
-        return String(group?.name || key || '未命名文档分组').trim() || '未命名文档分组';
+        return String(group?.name || key || __tmT("kernel.untitledDocumentGroup")).trim() || __tmT("kernel.untitledDocumentGroup");
     }
 
     function __tmAgentPolicyGroupOptions(selected, includeEmpty = true) {
@@ -220,12 +220,12 @@
             if (!groups.has(id)) groups.set(id, __tmAgentPolicyDocumentGroupName(id));
         });
         if (current && !groups.has(current)) groups.set(current, __tmAgentPolicyDocumentGroupName(current));
-        return `${includeEmpty ? '<option value="">选择文档分组</option>' : ''}${Array.from(groups, ([id, name]) => `<option value="${esc(id)}" ${id === current ? 'selected' : ''}>${esc(name)}</option>`).join('')}`;
+        return `${includeEmpty ? `<option value="">${__tmT("task.selectADocumentGroup")}</option>` : ''}${Array.from(groups, ([id, name]) => `<option value="${esc(id)}" ${id === current ? 'selected' : ''}>${esc(name)}</option>`).join('')}`;
     }
 
     function __tmAgentPolicyCalendarOptions(selected) {
         const current = String(selected || '').trim();
-        const calendars = new Map([['', '跟随日历默认'], ['default', '未分组']]);
+        const calendars = new Map([['', __tmT("settings.followCalendarDefault")], ['default', __tmT("homepage.ungrouped")]]);
         (Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : []).forEach((group) => {
             const id = String(group?.id || '').trim();
             if (id) calendars.set(`group:${id}`, String(group?.name || id).trim() || id);
@@ -304,7 +304,7 @@
     function __tmAgentPolicyRenderFieldHeading(title, field) {
         if (__tmAgentPolicyParseScope().type === 'global') return `<div class="tm-agent-policy-group__title">${esc(title)}</div>`;
         const enabled = __tmAgentPolicyFieldEnabled(field);
-        return `<div class="tm-agent-policy-group__heading"><div class="tm-agent-policy-group__title">${esc(title)}</div><label><input class="b3-switch fn__flex-center" type="checkbox" ${enabled ? 'checked' : ''} data-tm-call="tmAgentPolicyToggleOverrideField" data-tm-args='${esc(JSON.stringify([field]))}'><span>${enabled ? '单独设置' : '继承上级，编辑后覆盖'}</span></label></div>`;
+        return `<div class="tm-agent-policy-group__heading"><div class="tm-agent-policy-group__title">${esc(title)}</div><label><input class="b3-switch fn__flex-center" type="checkbox" ${enabled ? 'checked' : ''} data-tm-call="tmAgentPolicyToggleOverrideField" data-tm-args='${esc(JSON.stringify([field]))}'><span>${enabled ? __tmT("settings.setSeparately") : __tmT("settings.inheritFromParentEditsOverride")}</span></label></div>`;
     }
 
     function __tmAgentPolicyAvailabilityRanges(value) {
@@ -323,37 +323,37 @@
 
     function __tmAgentPolicyRenderAvailability(config) {
         const value = config.weeklyAvailability && typeof config.weeklyAvailability === 'object' ? config.weeklyAvailability : {};
-        return `<section class="tm-agent-policy-group tm-agent-policy-group--availability">${__tmAgentPolicyRenderFieldHeading('每周可安排时间', 'weeklyAvailability')}<div class="tm-agent-policy-week">${__TM_AGENT_POLICY_DAYS.map(([key, label]) => {
+        return `<section class="tm-agent-policy-group tm-agent-policy-group--availability">${__tmAgentPolicyRenderFieldHeading(__tmT("settings.weeklyAvailability"), 'weeklyAvailability')}<div class="tm-agent-policy-week">${__TM_AGENT_POLICY_DAYS.map(([key, label]) => {
             const ranges = __tmAgentPolicyAvailabilityRanges(value[key]);
             const atLimit = ranges.length >= __TM_AGENT_POLICY_MAX_DAILY_RANGES;
-            return `<div class="tm-agent-policy-day"><span class="tm-agent-policy-day__label"><strong>${label}</strong><small>${ranges.length}/${__TM_AGENT_POLICY_MAX_DAILY_RANGES}</small></span><div class="tm-agent-policy-day__ranges">${ranges.map((range, index) => `<div class="tm-agent-policy-time-range"><input class="b3-text-field" type="time" value="${esc(range.start)}" aria-label="${label}开始时间" data-tm-call="tmAgentPolicyUpdateAvailabilityRange" data-tm-args='${esc(JSON.stringify([key, index, 'start']))}'><span>至</span><input class="b3-text-field" type="time" value="${esc(range.end)}" aria-label="${label}结束时间" data-tm-call="tmAgentPolicyUpdateAvailabilityRange" data-tm-args='${esc(JSON.stringify([key, index, 'end']))}'><button class="tm-agent-policy-icon-button tm-agent-policy-icon-button--danger" type="button" data-tm-call="tmAgentPolicyRemoveAvailabilityRange" data-tm-args='${esc(JSON.stringify([key, index]))}' aria-label="删除${label}时段" title="删除时段">${__tmAgentPolicyIcon('trash')}</button></div>`).join('') || '<span class="tm-agent-policy-day__empty">不安排</span>'}</div><button class="tm-agent-policy-icon-button tm-agent-policy-day__add" type="button" ${!atLimit ? '' : 'disabled'} data-tm-call="tmAgentPolicyAddAvailabilityRange" data-tm-args='${esc(JSON.stringify([key]))}' aria-label="${atLimit ? `${label}已达到 5 段上限` : `${label}添加时段`}" title="${atLimit ? '已达到 5 段上限' : '添加时段（最多 5 段）'}">${__tmAgentPolicyIcon('plus')}</button></div>`;
+            return `<div class="tm-agent-policy-day"><span class="tm-agent-policy-day__label"><strong>${label}</strong><small>${ranges.length}/${__TM_AGENT_POLICY_MAX_DAILY_RANGES}</small></span><div class="tm-agent-policy-day__ranges">${ranges.map((range, index) => `<div class="tm-agent-policy-time-range"><input class="b3-text-field" type="time" value="${esc(range.start)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.startTime", { label: label })}" data-tm-call="tmAgentPolicyUpdateAvailabilityRange" data-tm-args='${esc(JSON.stringify([key, index, 'start']))}'><span>${__tmT("task.to")}</span><input class="b3-text-field" type="time" value="${esc(range.end)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.endTime", { label: label })}" data-tm-call="tmAgentPolicyUpdateAvailabilityRange" data-tm-args='${esc(JSON.stringify([key, index, 'end']))}'><button class="tm-agent-policy-icon-button tm-agent-policy-icon-button--danger" type="button" data-tm-call="tmAgentPolicyRemoveAvailabilityRange" data-tm-args='${esc(JSON.stringify([key, index]))}' aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.deleteTimeSlot", { label: label })}" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.deleteTimeSlot2")}">${__tmAgentPolicyIcon('trash')}</button></div>`).join('') || `<span class="tm-agent-policy-day__empty">${__tmT("settings.notScheduled")}</span>`}</div><button class="tm-agent-policy-icon-button tm-agent-policy-day__add" type="button" ${!atLimit ? '' : 'disabled'} data-tm-call="tmAgentPolicyAddAvailabilityRange" data-tm-args='${esc(JSON.stringify([key]))}' aria-label="${atLimit ? __tmT("settings.hasReachedTheSlotLimit", { label: label }) : __tmT("settings.addTimeSlot", { label: label })}" title="${atLimit ? __tmT("settings.hasReachedTheSlotLimit2") : __tmT("settings.addTimeSlotMax")}">${__tmAgentPolicyIcon('plus')}</button></div>`;
         }).join('')}</div></section>`;
     }
 
     function __tmAgentPolicyRenderOccupancy(config) {
         const rows = Array.isArray(config.fixedOccupancy) ? config.fixedOccupancy : [];
-        return `<section class="tm-agent-policy-group">${__tmAgentPolicyRenderFieldHeading('固定占用', 'fixedOccupancy')}<div class="tm-agent-policy-list">${rows.map((item, index) => `<div class="tm-agent-policy-row tm-agent-policy-row--occupancy"><select class="b3-select" data-tm-call="tmAgentPolicyUpdateOccupancy" data-tm-args='${esc(JSON.stringify([index, 'day']))}'>${__TM_AGENT_POLICY_DAYS.map(([key, label]) => `<option value="${key}" ${String(item?.day || '') === key ? 'selected' : ''}>${label}</option>`).join('')}</select><input class="b3-text-field" type="time" value="${esc(item?.start || '')}" data-tm-call="tmAgentPolicyUpdateOccupancy" data-tm-args='${esc(JSON.stringify([index, 'start']))}'><span>至</span><input class="b3-text-field" type="time" value="${esc(item?.end || '')}" data-tm-call="tmAgentPolicyUpdateOccupancy" data-tm-args='${esc(JSON.stringify([index, 'end']))}'><input class="b3-text-field" type="text" value="${esc(item?.label || '')}" placeholder="会议或通勤" data-tm-call="tmAgentPolicyUpdateOccupancy" data-tm-args='${esc(JSON.stringify([index, 'label']))}'><button class="tm-agent-policy-icon-button tm-agent-policy-icon-button--danger" type="button" data-tm-call="tmAgentPolicyRemoveOccupancy" data-tm-args='${esc(JSON.stringify([index]))}' aria-label="删除固定占用" title="删除">${__tmAgentPolicyIcon('trash')}</button></div>`).join('') || '<div class="tm-agent-policy-empty">没有固定占用</div>'}</div><button class="tm-btn tm-btn-secondary tm-agent-policy-add" type="button" data-tm-call="tmAgentPolicyAddOccupancy">${__tmAgentPolicyIcon('plus')}<span>添加占用</span></button></section>`;
+        return `<section class="tm-agent-policy-group">${__tmAgentPolicyRenderFieldHeading(__tmT("settings.fixedBlocks"), 'fixedOccupancy')}<div class="tm-agent-policy-list">${rows.map((item, index) => `<div class="tm-agent-policy-row tm-agent-policy-row--occupancy"><select class="b3-select" data-tm-call="tmAgentPolicyUpdateOccupancy" data-tm-args='${esc(JSON.stringify([index, 'day']))}'>${__TM_AGENT_POLICY_DAYS.map(([key, label]) => `<option value="${key}" ${String(item?.day || '') === key ? 'selected' : ''}>${label}</option>`).join('')}</select><input class="b3-text-field" type="time" value="${esc(item?.start || '')}" data-tm-call="tmAgentPolicyUpdateOccupancy" data-tm-args='${esc(JSON.stringify([index, 'start']))}'><span>${__tmT("task.to")}</span><input class="b3-text-field" type="time" value="${esc(item?.end || '')}" data-tm-call="tmAgentPolicyUpdateOccupancy" data-tm-args='${esc(JSON.stringify([index, 'end']))}'><input class="b3-text-field" type="text" value="${esc(item?.label || '')}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.meetingOrCommute")}" data-tm-call="tmAgentPolicyUpdateOccupancy" data-tm-args='${esc(JSON.stringify([index, 'label']))}'><button class="tm-agent-policy-icon-button tm-agent-policy-icon-button--danger" type="button" data-tm-call="tmAgentPolicyRemoveOccupancy" data-tm-args='${esc(JSON.stringify([index]))}' aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.deletefixedBlocks")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("common.delete")}">${__tmAgentPolicyIcon('trash')}</button></div>`).join('') || `<div class="tm-agent-policy-empty">${__tmT("settings.noFixedBlocks")}</div>`}</div><button class="tm-btn tm-btn-secondary tm-agent-policy-add" type="button" data-tm-call="tmAgentPolicyAddOccupancy">${__tmAgentPolicyIcon('plus')}<span>${__tmT("settings.addBlock")}</span></button></section>`;
     }
 
     function __tmAgentPolicyRenderDurationDefaults() {
         const config = __tmAgentPolicyNormalizeDurationDefaults(__tmAgentPolicyView.draft?.durationDefaults);
         const disabled = config.enabled ? '' : 'disabled';
         const rows = config.rules.map((rule, index) => `<div class="tm-agent-policy-duration-row">
-            <input class="b3-text-field tm-agent-policy-duration-row__name" type="text" maxlength="40" value="${esc(rule.name)}" placeholder="类型名称" aria-label="规则类型名称" data-tm-call="tmAgentPolicyUpdateDurationRule" data-tm-args='${esc(JSON.stringify([index, 'name']))}'>
-            <input class="b3-text-field tm-agent-policy-duration-row__keywords" type="text" maxlength="800" value="${esc(rule.keywords.join('、'))}" placeholder="关键词，用逗号或顿号分隔" aria-label="${esc(rule.name || `规则 ${index + 1}`)}关键词" data-tm-call="tmAgentPolicyUpdateDurationRule" data-tm-args='${esc(JSON.stringify([index, 'keywords']))}'>
-            <label class="tm-agent-policy-duration-row__minutes"><input class="b3-text-field" type="number" min="${__TM_AGENT_DURATION_MINUTES_MIN}" max="${__TM_AGENT_DURATION_MINUTES_MAX}" step="5" value="${rule.minutes}" aria-label="${esc(rule.name || `规则 ${index + 1}`)}时长" data-tm-call="tmAgentPolicyUpdateDurationRule" data-tm-args='${esc(JSON.stringify([index, 'minutes']))}'><span>分钟</span></label>
-            <div class="tm-agent-policy-duration-row__actions"><button class="tm-agent-policy-icon-button" type="button" ${index > 0 ? '' : 'disabled'} data-tm-call="tmAgentPolicyMoveDurationRule" data-tm-args='${esc(JSON.stringify([index, -1]))}' aria-label="上移${esc(rule.name || `规则 ${index + 1}`)}" title="上移">${__tmAgentPolicyIcon('arrow-up')}</button><button class="tm-agent-policy-icon-button" type="button" ${index < config.rules.length - 1 ? '' : 'disabled'} data-tm-call="tmAgentPolicyMoveDurationRule" data-tm-args='${esc(JSON.stringify([index, 1]))}' aria-label="下移${esc(rule.name || `规则 ${index + 1}`)}" title="下移">${__tmAgentPolicyIcon('arrow-down')}</button><button class="tm-agent-policy-icon-button tm-agent-policy-icon-button--danger" type="button" data-tm-call="tmAgentPolicyRemoveDurationRule" data-tm-args='${esc(JSON.stringify([index]))}' aria-label="删除${esc(rule.name || `规则 ${index + 1}`)}" title="删除">${__tmAgentPolicyIcon('trash')}</button></div>
+            <input class="b3-text-field tm-agent-policy-duration-row__name" type="text" maxlength="40" value="${esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule))}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.typename")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.rulestypename")}" data-tm-call="tmAgentPolicyUpdateDurationRule" data-tm-args='${esc(JSON.stringify([index, 'name']))}'>
+            <input class="b3-text-field tm-agent-policy-duration-row__keywords" type="text" maxlength="800" value="${esc(rule.keywords.join('、'))}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.keywordsSeparatedByCommas")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.keywords", { value1: rule.name || __tmT("kernel.rule", { value1: index + 1 }) })}" data-tm-call="tmAgentPolicyUpdateDurationRule" data-tm-args='${esc(JSON.stringify([index, 'keywords']))}'>
+            <label class="tm-agent-policy-duration-row__minutes"><input class="b3-text-field" type="number" min="${__TM_AGENT_DURATION_MINUTES_MIN}" max="${__TM_AGENT_DURATION_MINUTES_MAX}" step="5" value="${rule.minutes}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.duration", { value1: rule.name || __tmT("kernel.rule", { value1: index + 1 }) })}" data-tm-call="tmAgentPolicyUpdateDurationRule" data-tm-args='${esc(JSON.stringify([index, 'minutes']))}'><span>${__tmT("task.minutes")}</span></label>
+            <div class="tm-agent-policy-duration-row__actions"><button class="tm-agent-policy-icon-button" type="button" ${index > 0 ? '' : 'disabled'} data-tm-call="tmAgentPolicyMoveDurationRule" data-tm-args='${esc(JSON.stringify([index, -1]))}' aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.moveUp2", { value1: rule.name || __tmT("kernel.rule", { value1: index + 1 }) })}" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.moveUp3")}">${__tmAgentPolicyIcon('arrow-up')}</button><button class="tm-agent-policy-icon-button" type="button" ${index < config.rules.length - 1 ? '' : 'disabled'} data-tm-call="tmAgentPolicyMoveDurationRule" data-tm-args='${esc(JSON.stringify([index, 1]))}' aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.moveDown2", { value1: rule.name || __tmT("kernel.rule", { value1: index + 1 }) })}" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.moveDown3")}">${__tmAgentPolicyIcon('arrow-down')}</button><button class="tm-agent-policy-icon-button tm-agent-policy-icon-button--danger" type="button" data-tm-call="tmAgentPolicyRemoveDurationRule" data-tm-args='${esc(JSON.stringify([index]))}' aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.delete2", { value1: rule.name || __tmT("kernel.rule", { value1: index + 1 }) })}" title="${globalThis.__taskHorizonHostBridge.i18n.html("common.delete")}">${__tmAgentPolicyIcon('trash')}</button></div>
         </div>`).join('');
-        return `<section class="tm-agent-policy-group tm-agent-policy-duration-defaults"><div class="tm-agent-policy-group__heading"><div class="tm-agent-policy-group__title">任务默认时长</div><label><input class="b3-switch fn__flex-center" type="checkbox" ${config.enabled ? 'checked' : ''} data-tm-call="tmAgentPolicySetDurationDefaultsEnabled"><span>启用默认时长规则</span></label></div><div class="tm-agent-policy-help">即时生效，全局使用。规则仅决定排程块长度，不会填写任务时长；按从上到下首个匹配。</div><div class="tm-agent-policy-duration-controls"><label><input class="b3-switch fn__flex-center" type="checkbox" ${config.syncToManualDrag ? 'checked' : ''} ${disabled} data-tm-call="tmAgentPolicySetManualDragDurationSync"><span>同步应用到手动拖拽</span></label><label class="tm-agent-policy-duration-fallback"><span>未命中时长</span><input class="b3-text-field" type="number" min="${__TM_AGENT_DURATION_MINUTES_MIN}" max="${__TM_AGENT_DURATION_MINUTES_MAX}" step="5" value="${config.fallbackMinutes}" data-tm-call="tmAgentPolicySetDurationFallback"><span>分钟</span></label></div><div class="tm-agent-policy-duration-list">${rows || '<div class="tm-agent-policy-empty">没有关键词规则，未填写时长的任务将使用未命中时长。</div>'}</div><div class="tm-agent-policy-duration-footer"><button class="tm-btn tm-btn-secondary tm-agent-policy-add" type="button" data-tm-call="tmAgentPolicyAddDurationRule">${__tmAgentPolicyIcon('plus')}<span>添加类型规则</span></button></div></section>`;
+        return `<section class="tm-agent-policy-group tm-agent-policy-duration-defaults"><div class="tm-agent-policy-group__heading"><div class="tm-agent-policy-group__title">${__tmT("settings.defaultTaskDuration")}</div><label><input class="b3-switch fn__flex-center" type="checkbox" ${config.enabled ? 'checked' : ''} data-tm-call="tmAgentPolicySetDurationDefaultsEnabled"><span>${__tmT("settings.enableDefaultDurationRules")}</span></label></div><div class="tm-agent-policy-help">${__tmT("settings.appliesImmediatelyAndGloballyRulesOnlySetTheLength")}</div><div class="tm-agent-policy-duration-controls"><label><input class="b3-switch fn__flex-center" type="checkbox" ${config.syncToManualDrag ? 'checked' : ''} ${disabled} data-tm-call="tmAgentPolicySetManualDragDurationSync"><span>${__tmT("settings.alsoApplyToManualDrags")}</span></label><label class="tm-agent-policy-duration-fallback"><span>${__tmT("settings.fallbackDuration")}</span><input class="b3-text-field" type="number" min="${__TM_AGENT_DURATION_MINUTES_MIN}" max="${__TM_AGENT_DURATION_MINUTES_MAX}" step="5" value="${config.fallbackMinutes}" data-tm-call="tmAgentPolicySetDurationFallback"><span>${__tmT("task.minutes")}</span></label></div><div class="tm-agent-policy-duration-list">${rows || `<div class="tm-agent-policy-empty">${__tmT("settings.noKeywordRulesTasksWithoutADurationUseThe")}</div>`}</div><div class="tm-agent-policy-duration-footer"><button class="tm-btn tm-btn-secondary tm-agent-policy-add" type="button" data-tm-call="tmAgentPolicyAddDurationRule">${__tmAgentPolicyIcon('plus')}<span>${__tmT("settings.addTypeRule")}</span></button></div></section>`;
     }
 
     function __tmAgentPolicyRenderCustomInstructions(config) {
-        return `<section class="tm-agent-policy-group">${__tmAgentPolicyRenderFieldHeading('自定义要求', 'customInstructions')}<div class="tm-agent-policy-help">补充希望 AI 在当前规则作用域内遵守的安排或处理要求。</div><textarea class="b3-text-field tm-agent-policy-instructions" rows="4" maxlength="4000" data-tm-call="tmAgentPolicySetCustomInstructions" placeholder="例如：会议前后预留 15 分钟；本组任务只安排在工作日上午。">${esc(String(config.customInstructions || ''))}</textarea></section>`;
+        return `<section class="tm-agent-policy-group">${__tmAgentPolicyRenderFieldHeading(__tmT("settings.customInstructions"), 'customInstructions')}<div class="tm-agent-policy-help">${__tmT("settings.addSchedulingOrHandlingRequirementsForTheAiTo")}</div><textarea class="b3-text-field tm-agent-policy-instructions" rows="4" maxlength="4000" data-tm-call="tmAgentPolicySetCustomInstructions" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.forExampleLeaveMinutesBeforeAndAfterMeetingsSchedule")}">${esc(String(config.customInstructions || ''))}</textarea></section>`;
     }
 
     function __tmAgentPolicyRenderDefaults(config) {
         const priority = config.deadlinePriority && typeof config.deadlinePriority === 'object' ? config.deadlinePriority : { enabled: true, priority: 'high' };
-        return `<section class="tm-agent-policy-group">${__tmAgentPolicyRenderFieldHeading('截止时间重要性', 'deadlinePriority')}<div class="tm-agent-policy-inline"><label><input class="b3-switch fn__flex-center" type="checkbox" ${priority.enabled !== false ? 'checked' : ''} data-tm-call="tmAgentPolicySetDeadlineEnabled"><span>有截止时间时自动设置</span></label><select class="b3-select" data-tm-call="tmAgentPolicySetDeadlinePriority"><option value="high" ${priority.priority === 'high' ? 'selected' : ''}>高</option><option value="medium" ${priority.priority === 'medium' ? 'selected' : ''}>中</option><option value="low" ${priority.priority === 'low' ? 'selected' : ''}>低</option></select></div></section><section class="tm-agent-policy-group">${__tmAgentPolicyRenderFieldHeading('默认日历', 'defaultCalendarID')}<select class="b3-select tm-agent-policy-calendar" data-tm-call="tmAgentPolicySetDefaultCalendar">${__tmAgentPolicyCalendarOptions(config.defaultCalendarID)}</select></section>`;
+        return `<section class="tm-agent-policy-group">${__tmAgentPolicyRenderFieldHeading(__tmT("settings.duetimeimportance"), 'deadlinePriority')}<div class="tm-agent-policy-inline"><label><input class="b3-switch fn__flex-center" type="checkbox" ${priority.enabled !== false ? 'checked' : ''} data-tm-call="tmAgentPolicySetDeadlineEnabled"><span>${__tmT("settings.setAutomaticallyWhenADeadlineExists")}</span></label><select class="b3-select" data-tm-call="tmAgentPolicySetDeadlinePriority"><option value="high" ${priority.priority === 'high' ? 'selected' : ''}>${__tmT("common.high")}</option><option value="medium" ${priority.priority === 'medium' ? 'selected' : ''}>${__tmT("common.medium")}</option><option value="low" ${priority.priority === 'low' ? 'selected' : ''}>${__tmT("common.low")}</option></select></div></section><section class="tm-agent-policy-group">${__tmAgentPolicyRenderFieldHeading(__tmT("settings.defaultCalendar"), 'defaultCalendarID')}<select class="b3-select tm-agent-policy-calendar" data-tm-call="tmAgentPolicySetDefaultCalendar">${__tmAgentPolicyCalendarOptions(config.defaultCalendarID)}</select></section>`;
     }
 
     function __tmRenderAgentPolicySettingsPanel() {
@@ -361,7 +361,7 @@
             Promise.resolve(__tmLoadAgentPolicySettings()).then(__tmAgentPolicyRerender);
         }
         if (!__tmAgentPolicyView.loaded) {
-            return `<div class="tm-settings-panel tm-agent-policy-panel" data-tm-settings-section="ai-policy" ${__tmSettingsSearchAttrs('ai', '安排规则', '默认时长、时间地图、固定占用、自定义要求、重要性和默认日历', { key: 'ai-policy' })}><div class="tm-settings-section-title">安排规则</div><div class="tm-settings-section-desc">${esc(__tmAgentPolicyView.error || '正在读取安排规则...')}</div>${__tmAgentPolicyView.error ? '<div class="tm-agent-policy-footer"><button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmAgentPolicyReload">重试</button></div>' : ''}</div>`;
+            return `<div class="tm-settings-panel tm-agent-policy-panel" data-tm-settings-section="ai-policy" ${__tmSettingsSearchAttrs('ai', __tmT("kernel.schedulingRules"), __tmT("settings.defaultDurationsTimeMapBlockedTimeCustomRequirementsImportance"), { key: 'ai-policy' })}><div class="tm-settings-section-title">${__tmT("kernel.schedulingRules")}</div><div class="tm-settings-section-desc">${esc(__tmAgentPolicyView.error || __tmT("settings.readingSchedulingRules"))}</div>${__tmAgentPolicyView.error ? `<div class="tm-agent-policy-footer"><button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmAgentPolicyReload">${__tmT("common.retry")}</button></div>` : ''}</div>`;
         }
         const draft = __tmAgentPolicyView.draft;
         const documentOverrides = Object.keys(draft.documentOverrides || {});
@@ -369,16 +369,16 @@
         const config = __tmAgentPolicyEffectiveConfig();
         const selected = __tmAgentPolicyView.selectedScope;
         const scope = __tmAgentPolicyParseScope(selected);
-        const deleteLabel = scope.type === 'group' ? '删除文档分组规则' : '删除文档规则';
+        const deleteLabel = scope.type === 'group' ? __tmT("settings.deleteDocumentGroupRule") : __tmT("settings.deleteDocumentRule");
         const documentPickerLabel = __tmAgentPolicyView.addDocumentOverrideID
             ? __tmAgentPolicyDocumentName(__tmAgentPolicyView.addDocumentOverrideID)
-            : '搜索并选择文档';
+            : __tmT("settings.searchAndSelectDocuments");
         const scopeOptions = [
-            ...groupOverrides.map((id) => `<option value="group:${esc(id)}" ${selected === `group:${id}` ? 'selected' : ''}>文档分组 · ${esc(__tmAgentPolicyDocumentGroupName(id))}</option>`),
-            ...documentOverrides.map((id) => `<option value="document:${esc(id)}" ${selected === `document:${id}` ? 'selected' : ''}>文档 · ${esc(__tmAgentPolicyDocumentName(id))}</option>`),
+            ...groupOverrides.map((id) => `<option value="group:${esc(id)}" ${selected === `group:${id}` ? 'selected' : ''}>${__tmT("settings.documentGroups2", { value1: esc(__tmAgentPolicyDocumentGroupName(id)) })}</option>`),
+            ...documentOverrides.map((id) => `<option value="document:${esc(id)}" ${selected === `document:${id}` ? 'selected' : ''}>${__tmT("settings.documents2", { value1: esc(__tmAgentPolicyDocumentName(id)) })}</option>`),
         ].join('');
-        const addControls = `<div class="tm-agent-policy-scope__add"><button class="tm-btn tm-btn-secondary tm-agent-policy-document-picker" type="button" data-tm-call="tmAgentPolicyPickDocumentOverride" title="搜索文档">${__tmAgentPolicyIcon('search')}<span>${esc(documentPickerLabel)}</span></button><button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmAgentPolicyAddDocumentOverride">${__tmAgentPolicyIcon('plus')}<span>添加文档规则</span></button></div><div class="tm-agent-policy-scope__add"><select class="b3-select" aria-label="选择覆盖规则的文档分组" data-tm-call="tmAgentPolicyChooseGroupOverride">${__tmAgentPolicyGroupOptions(__tmAgentPolicyView.addGroupOverrideID, true)}</select><button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmAgentPolicyAddGroupOverride">${__tmAgentPolicyIcon('plus')}<span>添加文档分组规则</span></button></div>`;
-        return `<div class="tm-settings-panel tm-agent-policy-panel" data-tm-settings-section="ai-policy" ${__tmSettingsSearchAttrs('ai', '安排规则', '默认时长、时间地图、固定占用、自定义要求、重要性和默认日历', { key: 'ai-policy' })}><div class="tm-agent-policy-toolbar"><div><div class="tm-settings-section-title">安排规则</div><div class="tm-settings-section-desc">智能体规划任务时读取这些规则。本次对话的临时要求不会自动保存。</div></div></div>${__tmAgentPolicyRenderDurationDefaults()}<div class="tm-agent-policy-scope"><select class="b3-select" aria-label="安排规则作用范围" data-tm-call="tmAgentPolicySelectScope"><option value="global" ${selected === 'global' ? 'selected' : ''}>全局规则</option>${scopeOptions}</select>${scope.type !== 'global' ? `<button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmAgentPolicyDeleteOverride">${__tmAgentPolicyIcon('trash')}<span>${deleteLabel}</span></button>` : addControls}</div>${__tmAgentPolicyRenderAvailability(config)}${__tmAgentPolicyRenderOccupancy(config)}${__tmAgentPolicyRenderCustomInstructions(config)}${__tmAgentPolicyRenderDefaults(config)}<div class="tm-agent-policy-footer"><button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmAgentPolicyReload">重新读取</button></div></div>`;
+        const addControls = `<div class="tm-agent-policy-scope__add"><button class="tm-btn tm-btn-secondary tm-agent-policy-document-picker" type="button" data-tm-call="tmAgentPolicyPickDocumentOverride" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.searchDocuments")}">${__tmAgentPolicyIcon('search')}<span>${esc(documentPickerLabel)}</span></button><button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmAgentPolicyAddDocumentOverride">${__tmAgentPolicyIcon('plus')}<span>${__tmT("settings.addDocumentRule")}</span></button></div><div class="tm-agent-policy-scope__add"><select class="b3-select" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.chooseDocumentGroupsForOverrides")}" data-tm-call="tmAgentPolicyChooseGroupOverride">${__tmAgentPolicyGroupOptions(__tmAgentPolicyView.addGroupOverrideID, true)}</select><button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmAgentPolicyAddGroupOverride">${__tmAgentPolicyIcon('plus')}<span>${__tmT("settings.addDocumentGroupRule")}</span></button></div>`;
+        return `<div class="tm-settings-panel tm-agent-policy-panel" data-tm-settings-section="ai-policy" ${__tmSettingsSearchAttrs('ai', __tmT("kernel.schedulingRules"), __tmT("settings.defaultDurationsTimeMapBlockedTimeCustomRequirementsImportance"), { key: 'ai-policy' })}><div class="tm-agent-policy-toolbar"><div><div class="tm-settings-section-title">${__tmT("kernel.schedulingRules")}</div><div class="tm-settings-section-desc">${__tmT("settings.theAgentReadsTheseRulesWhenPlanningTasksTemporary")}</div></div></div>${__tmAgentPolicyRenderDurationDefaults()}<div class="tm-agent-policy-scope"><select class="b3-select" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.schedulingRuleScope")}" data-tm-call="tmAgentPolicySelectScope"><option value="global" ${selected === 'global' ? 'selected' : ''}>${__tmT("settings.globalRules")}</option>${scopeOptions}</select>${scope.type !== 'global' ? `<button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmAgentPolicyDeleteOverride">${__tmAgentPolicyIcon('trash')}<span>${deleteLabel}</span></button>` : addControls}</div>${__tmAgentPolicyRenderAvailability(config)}${__tmAgentPolicyRenderOccupancy(config)}${__tmAgentPolicyRenderCustomInstructions(config)}${__tmAgentPolicyRenderDefaults(config)}<div class="tm-agent-policy-footer"><button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmAgentPolicyReload">${__tmT("settings.reload")}</button></div></div>`;
     }
 
     window.tmAgentPolicySelectScope = function (value) {
@@ -410,9 +410,9 @@
 
     window.tmAgentPolicyPickDocumentOverride = async function () {
         const docs = await __tmAgentPolicySearchDocuments();
-        const id = await __tmOpenDocSearchPrompt('选择文档', docs, {
-            placeholder: '输入文档名、别名或 ID',
-            emptyText: '没有匹配的文档',
+        const id = await __tmOpenDocSearchPrompt(__tmT("task.selectDocument"), docs, {
+            placeholder: __tmT("task.enterADocumentNameAliasOrId"),
+            emptyText: __tmT("calendar.noMatchingDocuments"),
         });
         if (!id) return;
         __tmAgentPolicyView.addDocumentOverrideID = String(id).trim();
@@ -421,7 +421,7 @@
 
     window.tmAgentPolicyAddDocumentOverride = function () {
         const id = String(__tmAgentPolicyView.addDocumentOverrideID || '').trim();
-        if (!id) return hint('请先搜索并选择文档', 'warning');
+        if (!id) return hint(__tmT("settings.searchAndSelectDocumentsFirst"), 'warning');
         __tmAgentPolicyView.draft.documentOverrides[id] = __tmAgentPolicyView.draft.documentOverrides[id] || {};
         __tmAgentPolicyView.deletedDocumentOverrides.delete(id);
         __tmAgentPolicyView.selectedScope = `document:${id}`;
@@ -436,7 +436,7 @@
 
     window.tmAgentPolicyAddGroupOverride = function () {
         const id = String(__tmAgentPolicyView.addGroupOverrideID || '').trim();
-        if (!id) return hint('请选择文档分组', 'warning');
+        if (!id) return hint(__tmT("settings.selectDocumentGroups"), 'warning');
         __tmAgentPolicyView.draft.groupOverrides[id] = __tmAgentPolicyView.draft.groupOverrides[id] || {};
         __tmAgentPolicyView.deletedGroupOverrides.delete(id);
         __tmAgentPolicyView.selectedScope = `group:${id}`;
@@ -641,14 +641,14 @@
     function __tmAgentPolicyValidateDurationDefaults(durationDefaults) {
         const fallbackMinutes = Number(durationDefaults?.fallbackMinutes);
         if (!Number.isFinite(fallbackMinutes) || fallbackMinutes < __TM_AGENT_DURATION_MINUTES_MIN || fallbackMinutes > __TM_AGENT_DURATION_MINUTES_MAX) {
-            return `未命中时长应为 ${__TM_AGENT_DURATION_MINUTES_MIN}-${__TM_AGENT_DURATION_MINUTES_MAX} 分钟`;
+            return __tmT("settings.fallbackDurationMustBeMinutes", { TM_AGENT_DURATION_MINUTES_MIN: __TM_AGENT_DURATION_MINUTES_MIN, TM_AGENT_DURATION_MINUTES_MAX: __TM_AGENT_DURATION_MINUTES_MAX });
         }
         for (const [index, rule] of (Array.isArray(durationDefaults?.rules) ? durationDefaults.rules : []).entries()) {
-            if (!String(rule?.name || '').trim()) return `第 ${index + 1} 条时长规则缺少类型名称`;
-            if (!(Array.isArray(rule?.keywords) && rule.keywords.some((keyword) => String(keyword || '').trim()))) return `第 ${index + 1} 条时长规则缺少关键词`;
+            if (!String(rule?.name || '').trim()) return __tmT("settings.ruleDurationRuleIsMissingATypeName", { value1: index + 1 });
+            if (!(Array.isArray(rule?.keywords) && rule.keywords.some((keyword) => String(keyword || '').trim()))) return __tmT("settings.ruleDurationRuleIsMissingKeywords", { value1: index + 1 });
             const minutes = Number(rule?.minutes);
             if (!Number.isFinite(minutes) || minutes < __TM_AGENT_DURATION_MINUTES_MIN || minutes > __TM_AGENT_DURATION_MINUTES_MAX) {
-                return `第 ${index + 1} 条时长规则应为 ${__TM_AGENT_DURATION_MINUTES_MIN}-${__TM_AGENT_DURATION_MINUTES_MAX} 分钟`;
+                return __tmT("settings.ruleDurationMustBeMinutes", { value1: index + 1, TM_AGENT_DURATION_MINUTES_MIN: __TM_AGENT_DURATION_MINUTES_MIN, TM_AGENT_DURATION_MINUTES_MAX: __TM_AGENT_DURATION_MINUTES_MAX });
             }
         }
         return '';
@@ -665,16 +665,16 @@
             ...Object.values(draft.groupOverrides || {}),
         ];
         for (const config of configs) {
-            if (String(config?.customInstructions || '').length > 4000) return '自定义要求不能超过 4000 字';
+            if (String(config?.customInstructions || '').length > 4000) return __tmT("settings.customInstructionsCannotExceedCharacters");
             const availability = config?.weeklyAvailability;
             if (availability && typeof availability === 'object') {
                 for (const value of Object.values(availability)) {
                     const ranges = String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
-                    if (ranges.some((item) => !/^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/.test(item))) return '可安排时间格式应为 09:00-12:00，多个时段用逗号分隔';
+                    if (ranges.some((item) => !/^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/.test(item))) return __tmT("settings.availabilityFormatIsSeparateMultipleSlotsWithCommas");
                 }
             }
             for (const item of Array.isArray(config?.fixedOccupancy) ? config.fixedOccupancy : []) {
-                if (!item.start || !item.end || item.end <= item.start) return '固定占用的结束时间必须晚于开始时间';
+                if (!item.start || !item.end || item.end <= item.start) return __tmT("settings.aFixedBlockSEndTimeMustBeLater");
             }
         }
         return '';
@@ -704,14 +704,14 @@
             __tmAgentPolicyView.draft.durationDefaults = __tmAgentPolicyClone(saved.durationDefaults, __tmAgentPolicyDefaultDurationDefaults());
             __tmAgentPolicyWriteCache(saved);
             __tmAgentPolicyView.error = '';
-            hint('任务默认时长已保存', 'success');
+            hint(__tmT("settings.defaultTaskDurationsSaved"), 'success');
             return true;
         } catch (error2) {
             if (String(error2?.code || '') === 'STALE_REVISION') {
                 await __tmLoadAgentPolicySettings(true);
-                hint('安排规则已在其他位置发生变化，已重新读取最新设置，请重新修改后保存', 'warning');
+                hint(__tmT("settings.theSchedulingRulesChangedElsewhereTheLatestSettingsWere"), 'warning');
             } else {
-                __tmAgentPolicyView.error = String(error2?.message || error2 || '任务默认时长保存失败');
+                __tmAgentPolicyView.error = String(error2?.message || error2 || __tmT("settings.failedToSaveTheDefaultTaskDurations"));
                 hint(__tmAgentPolicyView.error, 'error');
             }
             return false;
@@ -755,13 +755,13 @@
             __tmAgentPolicyView.deletedDocumentOverrides.clear();
             __tmAgentPolicyView.deletedGroupOverrides.clear();
             __tmAgentPolicyView.error = '';
-            hint('其他安排规则已保存', 'success');
+            hint(__tmT("settings.otherSchedulingRulesSaved"), 'success');
         } catch (error2) {
             if (String(error2?.code || '') === 'STALE_REVISION') {
                 await __tmLoadAgentPolicySettings(true);
-                hint('安排规则已在其他位置发生变化，已重新读取最新设置，请重新修改后保存', 'warning');
+                hint(__tmT("settings.theSchedulingRulesChangedElsewhereTheLatestSettingsWere"), 'warning');
             } else {
-                __tmAgentPolicyView.error = String(error2?.message || error2 || '安排规则保存失败');
+                __tmAgentPolicyView.error = String(error2?.message || error2 || __tmT("settings.failedToSaveTheSchedulingRules"));
                 hint(__tmAgentPolicyView.error, 'error');
             }
         } finally {

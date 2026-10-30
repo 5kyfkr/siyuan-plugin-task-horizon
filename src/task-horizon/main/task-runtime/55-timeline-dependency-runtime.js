@@ -138,7 +138,7 @@
         const deltaDays = Math.round(Number(opts.deltaDays) || 0);
         if (!sourceTaskId || deltaDays <= 0 || !Object.keys(sourcePatch).length) return { changed: false, cascadeCount: 0, skippedCount: 0 };
         const sourceTask = __tmGetTimelineDependencyTask(sourceTaskId, opts.getTaskById);
-        if (!sourceTask || sourceTask.__tmWhiteboardSnapshot === true) throw new Error('任务不存在或为只读快照');
+        if (!sourceTask || sourceTask.__tmWhiteboardSnapshot === true) throw new Error(__tmT("task.theTaskDoesNotExistOrIsARead"));
         const sourceDatePatch = {};
         const sourceStart = String(sourceTask.startDate || sourceTask.start_date || '').trim();
         const sourceEnd = String(sourceTask.completionTime || sourceTask.completion_time || '').trim();
@@ -152,7 +152,7 @@
         });
         const isMutableInScope = (task) => !!task && !task.__tmGlobalFrozen && !task.__tmGlobalRetained && !task.__tmGhost
             && (resolvedScope.kind !== 'tabGroup' || __tmIsTaskInWhiteboardScope(task, resolvedScope));
-        if (!isMutableInScope(sourceTask)) throw new Error('任务不在当前白板的可编辑范围内');
+        if (!isMutableInScope(sourceTask)) throw new Error(__tmT("task.theTaskIsNotWithinTheEditableRangeOf"));
         const links = __tmGetTimelineDependencyLinks({ resolvedScope }).filter((link) => resolvedScope.kind !== 'tabGroup' || (
             isMutableInScope(__tmGetTimelineDependencyTask(link.from, opts.getTaskById))
             && isMutableInScope(__tmGetTimelineDependencyTask(link.to, opts.getTaskById))
@@ -216,7 +216,7 @@
                         patch: item.patch,
                         inversePatch: item.inversePatch,
                     })),
-                    label: `时间轴顺延 +${deltaDays} 天`,
+                    label: __tmT("task.timelineShiftD", { deltaDays: deltaDays }),
                     source: 'timeline-dependency-shift',
                 });
             }

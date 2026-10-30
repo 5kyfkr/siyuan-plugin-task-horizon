@@ -136,13 +136,13 @@
             if (API && typeof API.getTaskTitlePresentation === 'function') {
                 return API.getTaskTitlePresentation(
                     t?.markdown,
-                    t?.content || t?.title || t?.raw_content || fb || '(无标题)'
+                    t?.content || t?.title || t?.raw_content || fb || __tmT("calendar.untitled")
                 ).text;
             }
         } catch (e) {}
         let title = String(t?.content || t?.title || t?.raw_content || '').trim();
         if (!title) title = fb;
-        if (!title) return '(无标题)';
+        if (!title) return __tmT("calendar.untitled");
         try {
             if (API && typeof API.normalizeTaskContent === 'function') {
                 const normalized = String(API.normalizeTaskContent(title) || '').trim();
@@ -150,7 +150,7 @@
             }
         } catch (e) {}
         title = title.split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim();
-        return title || fb || '(无标题)';
+        return title || fb || __tmT("calendar.untitled");
     }
 
     function __tmBuildCalendarRepeatHistoryTask(sourceTask, historyItem, orderIndex = 0) {
@@ -187,7 +187,7 @@
         } catch (e) {
             virtualTask = null;
         }
-        const title = String(history.content || source.content || source.raw_content || '').trim() || '(无内容)';
+        const title = String(history.content || source.content || source.raw_content || '').trim() || __tmT("kernel.noContent");
         const next = {
             ...source,
             ...(virtualTask && typeof virtualTask === 'object' ? virtualTask : {}),
@@ -208,7 +208,7 @@
             repeatHistory: [],
             repeat_history: [],
         };
-        try { normalizeTaskFields(next, next.docName || next.doc_name || source.docName || '未命名文档'); } catch (e) {}
+        try { normalizeTaskFields(next, next.docName || next.doc_name || source.docName || __tmT("kernel.untitledDocument")); } catch (e) {}
         return next;
     }
 
@@ -503,7 +503,7 @@
             try { MetaStore.applyToTask?.(task); } catch (e) {}
             try { __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask); } catch (e) {}
             task.done = parsedDone;
-            try { normalizeTaskFields(task, task.docName || '未命名文档'); } catch (e) {}
+            try { normalizeTaskFields(task, task.docName || __tmT("kernel.untitledDocument")); } catch (e) {}
             try { __tmMergeLocalTaskPatchIntoTask(task); } catch (e) {}
             __tmAppendCalendarTaskAndRepeatHistory(out, task);
         }
@@ -713,7 +713,7 @@
                 disableChunkedQuery: true,
             });
             if (opts.failOnTruncation === true && res?.limitReached) {
-                throw new Error('任务数量超过读取上限');
+                throw new Error(__tmT("calendar.taskCountExceedsTheReadLimit"));
             }
             const tasks = Array.isArray(res?.tasks) ? res.tasks : [];
             await globalThis.__tmProjectVisibility?.prepareTaskHeadings(tasks);
@@ -830,7 +830,7 @@
             if (!task || __tmIsCalendarTaskDoneSync(task) || __tmIsTaskCanceled(task)) continue;
             const id = String(task.id || '').trim();
             if (!id) continue;
-            const title = __tmResolveCalendarTaskDisplayTitle(task, '(无标题)');
+            const title = __tmResolveCalendarTaskDisplayTitle(task, __tmT("calendar.untitled"));
             const docId = String(task.root_id || '').trim();
             const gid = docId ? docsToGroup.get(docId) : '';
             const calendarId = gid ? `group:${gid}` : 'default';
@@ -865,8 +865,8 @@
         const widths = SettingsStore.data.columnWidths || SettingsStore.data.calendarColumnWidths || {};
         const tableLayout = __tmGetTableWidthLayout(colOrder, widths, state.tableAvailableWidth);
         const headers = {
-            content: `<th data-col="content" style="${tableLayout.cellStyle('content', 'white-space: nowrap; overflow: hidden;')}">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
-            tomatoSummary: `<th data-col="tomatoSummary" style="${tableLayout.cellStyle('tomatoSummary', 'text-align: center; white-space: nowrap; overflow: hidden;')}">专注<span class="tm-col-resize" onmousedown="startColResize(event, 'tomatoSummary')"></span></th>`,
+            content: `<th data-col="content" style="${tableLayout.cellStyle('content', 'white-space: nowrap; overflow: hidden;')}">${__tmT("task.taskContent")}<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
+            tomatoSummary: `<th data-col="tomatoSummary" style="${tableLayout.cellStyle('tomatoSummary', 'text-align: center; white-space: nowrap; overflow: hidden;')}">${__tmT("calendar.focus")}<span class="tm-col-resize" onmousedown="startColResize(event, 'tomatoSummary')"></span></th>`,
         };
         const buildCell = (item, col) => {
             if (col === 'content') {
@@ -881,7 +881,7 @@
                         <td style="${tableLayout.cellStyle('content')}">
                             <div class="tm-task-cell" style="padding-left:${depthPad}px;">
                                 <span class="tm-task-text">
-                                    <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${escSq(item.id)}', event, { surface: 'calendar' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(item.task?.markdown, item.title || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(item.task)}">${contentHtml}</span>
+                                    <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${escSq(item.id)}', event, { surface: 'calendar' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(item.task?.markdown, item.title || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(item.task)}">${contentHtml}</span>
                                 </span>
                             </div>
                         </td>`;
@@ -898,7 +898,7 @@
                     </tr>
                 `;
             }).join('')
-            : `<tr><td colspan="${Math.max(1, colOrder.length || 3)}" style="text-align: center; padding: 40px; color: var(--tm-secondary-text);">暂无任务</td></tr>`;
+            : `<tr><td colspan="${Math.max(1, colOrder.length || 3)}" style="text-align: center; padding: 40px; color: var(--tm-secondary-text);">${__tmT("calendar.noTasks")}</td></tr>`;
         const thead = colOrder.map((col) => headers[col] || '').join('');
         return `
             <div class="tm-calendar-task-list" style="height:100%; display:flex; flex-direction:column;">
@@ -940,7 +940,7 @@
 
             out.push({
                 id,
-                title: title || '(无标题)',
+                title: title || __tmT("calendar.untitled"),
                 content: String(t?.content || t?.raw_content || title || '').trim(),
                 markdown: String(t?.markdown || '').trim(),
                 spent,
@@ -988,7 +988,7 @@
             if ((typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(t) : t.done) && !(typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(t))) continue;
             const id = String(t.id || '').trim();
             if (!id) continue;
-            const title = __tmResolveCalendarTaskDisplayTitle(t, '(无标题)');
+            const title = __tmResolveCalendarTaskDisplayTitle(t, __tmT("calendar.untitled"));
             if (q && !title.toLowerCase().includes(q)) continue;
             const docId = String(t.root_id || '').trim();
             const gid = docId ? docsToGroup.get(docId) : '';
@@ -1040,7 +1040,7 @@
             toDateKey: endKey,
             limit: 2400,
         });
-        const title = __tmResolveCalendarTaskDisplayTitle(task, '(无标题)');
+        const title = __tmResolveCalendarTaskDisplayTitle(task, __tmT("calendar.untitled"));
         const docId = String(task.root_id || '').trim();
         const groupMap = docsToGroup instanceof Map ? docsToGroup : __tmGetCalendarDocsToGroupMapSync();
         const gid = docId ? groupMap.get(docId) : '';
@@ -1285,7 +1285,7 @@
                 if (rangeStartTs && endExTs && endExTs <= rangeStartTs) continue;
                 if (rangeEndTs && startTs && startTs >= rangeEndTs) continue;
 
-                const title = __tmResolveCalendarTaskDisplayTitle(t, '(无标题)');
+                const title = __tmResolveCalendarTaskDisplayTitle(t, __tmT("calendar.untitled"));
                 const docId = String(t.root_id || '').trim();
                 const gid = docId ? groupMap.get(docId) : '';
                 const calendarId = gid ? `group:${gid}` : 'default';
@@ -1331,8 +1331,8 @@
             const result = await API.getTasksByDocuments(opts.docIds, __TM_TASK_INDEX_QUERY_LIMIT, {
                 doneOnly: false, forceFresh: true, customFieldIds: [], disableChunkedQuery: true,
             });
-            if (result?.limitReached) throw new Error('任务数量超过读取上限');
-            if (!Array.isArray(result?.tasks)) throw new Error('任务日期读取失败');
+            if (result?.limitReached) throw new Error(__tmT("calendar.taskCountExceedsTheReadLimit"));
+            if (!Array.isArray(result?.tasks)) throw new Error(__tmT("calendar.failedToReadTaskDates"));
             await globalThis.__tmProjectVisibility?.prepareTaskHeadings(result.tasks);
             return markTaskDateQueryResult(buildTaskDateEventsFromTasks(__tmNormalizeCalendarTaskRows(result.tasks)), true, 'scoped');
         }
@@ -1508,8 +1508,8 @@
             state.tableAvailableWidth = tableAvailableWidth;
             const tableLayout = __tmGetTableWidthLayout(colOrder, widths, tableAvailableWidth);
             const headers = {
-                content: `<th data-col="content" style="${tableLayout.cellStyle('content', 'white-space: nowrap; overflow: hidden;')}">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
-                tomatoSummary: `<th data-col="tomatoSummary" style="${tableLayout.cellStyle('tomatoSummary', 'text-align: center; white-space: nowrap; overflow: hidden;')}">专注<span class="tm-col-resize" onmousedown="startColResize(event, 'tomatoSummary')"></span></th>`,
+                content: `<th data-col="content" style="${tableLayout.cellStyle('content', 'white-space: nowrap; overflow: hidden;')}">${__tmT("task.taskContent")}<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
+                tomatoSummary: `<th data-col="tomatoSummary" style="${tableLayout.cellStyle('tomatoSummary', 'text-align: center; white-space: nowrap; overflow: hidden;')}">${__tmT("calendar.focus")}<span class="tm-col-resize" onmousedown="startColResize(event, 'tomatoSummary')"></span></th>`,
             };
             const thead = colOrder.map((col) => headers[col] || __tmBuildTableHeaderCellHtml(col, tableLayout)).join('');
             return `
@@ -1602,7 +1602,7 @@
         const mins = __tmParseDurationMinutes(t?.duration);
         const durationExplicit = Number.isFinite(Number(mins)) && Number(mins) > 0;
         const durationMin = durationExplicit ? Math.round(Number(mins)) : 60;
-        const title = __tmResolveCalendarTaskDisplayTitle(t, '(无标题)');
+        const title = __tmResolveCalendarTaskDisplayTitle(t, __tmT("calendar.untitled"));
         return {
             title,
             durationMin,
@@ -1746,14 +1746,14 @@
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         const opts = (options && typeof options === 'object') ? options : {};
         if (!requestedId) {
-            throw new Error('缺少任务 ID');
+            throw new Error(__tmT("plugin.missingTaskId"));
         }
         const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate');
         const hasCompletionTime = Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime');
         const hasTaskDateColor = Object.prototype.hasOwnProperty.call(nextPatch, 'taskDateColor')
             || Object.prototype.hasOwnProperty.call(nextPatch, 'color');
         if (!hasStartDate && !hasCompletionTime && !hasTaskDateColor) {
-            throw new Error('缺少日期字段');
+            throw new Error(__tmT("calendar.missingDateField"));
         }
         let resolvedId = requestedId;
         let task = __tmGetCalendarFlatTaskByIdSync(requestedId);
@@ -1764,7 +1764,7 @@
                 if (opts.ignoreMissingTask === true) {
                     return { id: '', requestedId, skipped: true, reason: 'not-task' };
                 }
-                throw new Error('未找到任务');
+                throw new Error(__tmT("kernel.noTaskFound"));
             }
             resolvedId = strictResolvedId;
             task = __tmGetCalendarFlatTaskByIdSync(resolvedId);
@@ -1789,16 +1789,16 @@
         }
         const persistId = String(task?.id || resolvedId || requestedId).trim();
         if (!persistId) {
-            throw new Error('未找到任务');
+            throw new Error(__tmT("kernel.noTaskFound"));
         }
         if ((hasStartDate || hasCompletionTime) && globalThis.__tmIsTaskDateRollup?.(task)) {
             if (String(opts.source || '').trim() === 'calendar-schedule-dates-follow') {
                 return { id: persistId, requestedId, skipped: true, reason: 'date-rollup' };
             }
-            throw new Error('日期由子任务汇总，请先在日期中心切换为手动设置');
+            throw new Error(__tmT("kernel.datesAreRolledUpFromSubtasksSwitchToManual2"));
         }
         if ((hasStartDate || hasCompletionTime) && typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
-            throw new Error('打卡日期由循环计划决定，请在循环设置中调整');
+            throw new Error(__tmT("task.theCheckInDateIsDeterminedByTheRecurrence"));
         }
 
         const normalizeDate = (value) => {
@@ -1889,7 +1889,7 @@
         try {
             persistPromise = __tmApplyTaskMetaPatchWithUndo(persistId, attrPatch, {
                 source: refreshReason,
-                label: __tmBuildUndoLabelFromMetaPatch(attrPatch, '日期'),
+                label: __tmBuildUndoLabelFromMetaPatch(attrPatch, __tmT("calendar.date")),
                 skipNoopCheck: opts.skipNoopCheck === true || opts.background === true,
                 hard: opts.hard === true,
                 broadcast: opts.broadcast !== false,
@@ -1926,7 +1926,7 @@
                         attrTargetId,
                         patch: attrPatch,
                         inversePatch,
-                        label: __tmBuildUndoLabelFromMetaPatch(attrPatch, '日期'),
+                        label: __tmBuildUndoLabelFromMetaPatch(attrPatch, __tmT("calendar.date")),
                         source: refreshReason,
                     });
                 }

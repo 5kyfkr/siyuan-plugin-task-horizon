@@ -1,3 +1,30 @@
+    window.tmUpdateLanguagePreference = async function(value) {
+        const next = value === 'en' || value === 'zh-CN' ? value : 'system';
+        const previous = SettingsStore.data.uiLanguage || 'system';
+        const request = Symbol('language-save');
+        globalThis.__taskHorizonHostBridge.languageSaveRequest = request;
+        SettingsStore.data.uiLanguage = next;
+        try {
+            await SettingsStore.save();
+            if (typeof SettingsStore.flushSave === 'function') await SettingsStore.flushSave();
+            hint(__tmT('settings.languageSaved'), 'success');
+            return true;
+        } catch (error) {
+            if (globalThis.__taskHorizonHostBridge.languageSaveRequest === request && SettingsStore.data.uiLanguage === next) SettingsStore.data.uiLanguage = previous;
+            if (state.settingsModal) showSettings();
+            throw error;
+        }
+    };
+
+    window.tmReloadLanguage = async function() {
+        __tmFlushSettingsInputs();
+        await __tmFlushSettingsAutosave();
+        if (__tmSettingsSaveErrors.size) return false;
+        if (typeof SettingsStore.flushSave === 'function') await SettingsStore.flushSave();
+        window.location.reload();
+        return true;
+    };
+
     window.tmUpdateAiEnabled = async function(enabled) {
         SettingsStore.data.aiEnabled = !!enabled;
         await SettingsStore.save();
@@ -15,7 +42,7 @@
         const previousMode = String(SettingsStore.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent';
         if (mode === previousMode) return true;
         if (globalThis.__tmAI?.isBusy?.() === true) {
-            hint('请先停止当前 AI 请求，再切换工作方式', 'warning');
+            hint(__tmT("settings.stopTheCurrentAiRequestBeforeSwitchingTheWorkflow"), 'warning');
             showSettings();
             return false;
         }
@@ -24,7 +51,7 @@
                 const ready = await globalThis.__taskHorizonSetAiExperienceMode(mode, {
                     open: SettingsStore.data.aiSideDockEnabled === true,
                 });
-                if (!ready) throw new Error('目标 AI 运行时未就绪');
+                if (!ready) throw new Error(__tmT("settings.theTargetAiRuntimeIsNotReady"));
             }
             SettingsStore.data.aiExperienceMode = mode;
             SettingsStore.data.aiExperienceModeInitialized = true;
@@ -36,7 +63,7 @@
                     open: SettingsStore.data.aiSideDockEnabled === true,
                 });
             } catch (restoreError) {}
-            hint(`切换失败：${String(e?.message || e || '未知错误')}`, 'error');
+            hint(__tmT("settings.switchFailed2", { value1: String(e?.message || e || __tmT("plugin.unknownError")) }), 'error');
             showSettings();
             return false;
         }
@@ -131,7 +158,7 @@
             let payload = null;
             try { payload = await response.json(); } catch (e) {}
             if (!response.ok || !payload || Number(payload.code) !== 0) {
-                throw new Error(String(payload?.msg || payload?.message || `思源能力设置保存失败 (${response.status})`));
+                throw new Error(String(payload?.msg || payload?.message || __tmT("settings.failedToSaveTheSiyuanCapabilitySettings", { status: response.status })));
             }
             window.siyuan.config.ai = payload.data && typeof payload.data === 'object' ? payload.data : nextAI;
             try { window.dispatchEvent(new CustomEvent('siyuan-ai-config-changed')); } catch (e) {}
@@ -179,7 +206,7 @@
         const input = { allowed: allowed === true };
         if (typeof enabled === 'boolean') input.enabled = enabled === true;
         const result = await method(input);
-        if (!result || result.ok !== true) throw new Error(String(result?.error?.message || '任务工具权益同步失败'));
+        if (!result || result.ok !== true) throw new Error(String(result?.error?.message || __tmT("settings.failedToSyncTheTaskToolEntitlement")));
         __tmRememberAgentMcpCapabilities(result.data);
         return result.data;
     }
@@ -199,14 +226,14 @@
         if (typeof method !== 'function') {
             SettingsStore.data.agentMcpEnabled = false;
             await SettingsStore.save();
-            if (opt.notify !== false) hint('任务 MCP 工具服务未启动，请重启思源笔记后再试', 'warning');
+            if (opt.notify !== false) hint(__tmT("settings.theTaskMcpToolServiceIsNotStartedRestart"), 'warning');
             if (opt.refreshSettings !== false) showSettings();
             return false;
         }
         try {
             await __tmSyncAgentMcpAuthorization(allowed, next);
             const result = await method(next);
-            if (!result || result.ok !== true) throw new Error(String(result?.error?.message || '任务工具设置失败'));
+            if (!result || result.ok !== true) throw new Error(String(result?.error?.message || __tmT("settings.failedToUpdateTheTaskToolSettings")));
             const capabilitiesLoaded = __tmRememberAgentMcpCapabilities(result.data);
             if (opt.syncAgentPolicy === true) {
                 try {
@@ -223,8 +250,8 @@
             if (allowed) SettingsStore.data.agentMcpEnabledInitialized = true;
             await SettingsStore.save();
             if (opt.notify !== false) {
-                if (!allowed && enabled === true) hint('任务 MCP 工具属于全功能权益，免费版保持关闭', 'warning');
-                else hint(SettingsStore.data.agentMcpEnabled ? '任务 MCP 工具已启用' : '任务 MCP 工具已停用', 'success');
+                if (!allowed && enabled === true) hint(__tmT("settings.taskMcpToolsAreAFullFeatureEntitlementThey"), 'warning');
+                else hint(SettingsStore.data.agentMcpEnabled ? __tmT("settings.taskMcpToolsEnabled") : __tmT("settings.taskMcpToolsDisabled"), 'success');
             }
             if (capabilitiesLoaded && opt.refreshSettings === false && state.settingsModal && state.settingsActiveTab === 'ai') {
                 setTimeout(() => showSettings(), 0);
@@ -233,7 +260,7 @@
             const current = await __tmLoadAgentMcpCapabilities();
             SettingsStore.data.agentMcpEnabled = allowed && current?.mcpEnabled === true;
             await SettingsStore.save();
-            if (opt.notify !== false) hint(`任务工具设置失败：${String(e?.message || e || '未知错误')}`, 'error');
+            if (opt.notify !== false) hint(__tmT("settings.failedToUpdateTheTaskToolSettings2", { value1: String(e?.message || e || __tmT("plugin.unknownError")) }), 'error');
         }
         if (opt.refreshSettings !== false) showSettings();
         return SettingsStore.data.agentMcpEnabled;
@@ -254,7 +281,7 @@
                 if (delayMs > 0 && !await __tmWaitForAgentMcpStartupRetry(delayMs)) return false;
                 try {
                     const capabilities = await __tmSyncAgentMcpAuthorization(allowed);
-                    if (!capabilities) throw new Error('任务 MCP 工具服务尚未启动');
+                    if (!capabilities) throw new Error(__tmT("settings.theTaskMcpToolServiceIsNotStartedYet"));
                     if (__tmAgentMcpStartupDisposed) return false;
                     const nextEnabled = allowed && capabilities.mcpEnabled === true;
                     const nextInitialized = SettingsStore.data.agentMcpEnabledInitialized === true || allowed;
@@ -268,7 +295,7 @@
                     lastError = e;
                 }
             }
-            throw lastError || new Error('任务 MCP 工具启动同步失败');
+            throw lastError || new Error(__tmT("settings.failedToSyncTheTaskMcpToolOnStartup"));
         }).finally(() => {
             __tmAgentMcpEntitlementSyncPromise = null;
         });
@@ -335,19 +362,19 @@
 
     async function __tmSetAgentMcpToolConfig(input) {
         if (!__tmAgentMcpHasFullFeature()) {
-            hint('任务 MCP 工具属于全功能权益', 'warning');
+            hint(__tmT("settings.taskMcpToolsAreAFullFeatureEntitlement"), 'warning');
             showSettings();
             return false;
         }
         if (SettingsStore.data.agentMcpEnabled !== true) {
-            hint('请先启用任务 MCP 工具', 'warning');
+            hint(__tmT("settings.enableTheTaskMcpToolsFirst"), 'warning');
             showSettings();
             return false;
         }
         const kernel = globalThis.__taskHorizonHostBridge?.kernel || globalThis.__taskHorizonHostBridge?.plugin?.kernel;
         const method = kernel?.rpc?.call?.taskHorizonSetMcpToolConfig;
         if (typeof method !== 'function') {
-            hint('当前思源版本不支持单独设置工具', 'warning');
+            hint(__tmT("settings.thisSiyuanVersionDoesNotSupportConfiguringIndividualTools"), 'warning');
             return false;
         }
         try {
@@ -357,7 +384,7 @@
                 return [name, tool?.enabled === true];
             }));
             const result = await method(input || {});
-            if (!result || result.ok !== true) throw new Error(String(result?.error?.message || '工具设置失败'));
+            if (!result || result.ok !== true) throw new Error(String(result?.error?.message || __tmT("settings.failedToUpdateTheToolSettings")));
             __tmRememberAgentMcpCapabilities(result.data);
             try {
                 await __tmSetAgentCapabilityPolicy(__tmAgentMcpToolNames(input, result.data), input?.enabled === true);
@@ -372,11 +399,11 @@
             }
             SettingsStore.data.agentMcpEnabled = result.data?.mcpEnabled === true;
             await SettingsStore.save();
-            hint(input?.enabled === true ? '工具已启用' : '工具已关闭', 'success');
+            hint(input?.enabled === true ? __tmT("settings.toolEnabled") : __tmT("settings.toolDisabled"), 'success');
             showSettings();
             return true;
         } catch (error) {
-            hint(`工具设置失败：${String(error?.message || error || '未知错误')}`, 'error');
+            hint(__tmT("settings.failedToUpdateTheToolSettings2", { value1: String(error?.message || error || __tmT("plugin.unknownError")) }), 'error');
             showSettings();
             return false;
         }
@@ -471,7 +498,7 @@
         const ready = await __tmEnsureAiRuntimeLoaded();
         const fn = ready ? globalThis.__tmAI?.testConnection : null;
         if (typeof fn !== 'function') {
-            hint('⚠ AI 模块尚未加载完成', 'warning');
+            hint(__tmT("settings.theAiModuleHasNotFinishedLoading"), 'warning');
             return;
         }
         try {
@@ -486,7 +513,7 @@
         SettingsStore.data.groupByDocName = state.groupByDocName;
         SettingsStore.data.groupByTime = state.groupByTime;
         await SettingsStore.save();
-        hint('✅ 设置已保存', 'success');
+        hint(__tmT("settings.settingsSaved"), 'success');
         render();
         closeSettings();
     };

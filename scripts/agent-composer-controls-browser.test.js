@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = require('./i18n-browser-fixture');
 const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const output = path.join(root, 'output/playwright/agent-composer-controls');
@@ -70,6 +70,7 @@ function installHost() {
         close() { cancelAnimationFrame(this.openFrame); this.element.remove(); this.scrim?.remove(); this.closeCB?.(); }
     }
     window.__taskHorizonHostBridge = {
+        i18n: globalThis.__taskHorizonHostBridge?.i18n,
         app: { appId: 'agent-controls-test' }, Menu,
         loadData: async () => structuredClone(savedStore),
         saveData: async (_name, value) => { savedStore = structuredClone(value); },

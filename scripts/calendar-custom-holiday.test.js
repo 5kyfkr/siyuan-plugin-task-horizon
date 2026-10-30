@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 
 global.window = global;
+require('./i18n-vm-fixture').prepare(globalThis);
 global.localStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
 global.Element = class Element {};
 global.HTMLElement = class HTMLElement extends global.Element {};

@@ -1,6 +1,36 @@
 (function () {
     'use strict';
 
+    let __tmKernelMessages = siyuan.plugin.i18n || {};
+    const __tmKernelLanguages = new Map();
+    if (__tmKernelMessages.__locale) __tmKernelLanguages.set(__tmKernelMessages.__locale, __tmKernelMessages);
+
+    function __tmT(key, params = {}) {
+        const value = __tmKernelMessages[key];
+        if (typeof value !== 'string') return key;
+        return value.replace(/\{([A-Za-z_$][\w$]*)\}/g, (placeholder, name) => (
+            Object.prototype.hasOwnProperty.call(params, name) ? String(params[name] ?? '') : placeholder
+        ));
+    }
+
+    async function __tmLoadKernelLanguage(preference) {
+        const locale = preference === 'en' || preference === 'zh-CN'
+            ? preference : siyuan.plugin.i18n?.__locale;
+        if (!locale || __tmKernelMessages.__locale === locale) return;
+        if (!__tmKernelLanguages.has(locale)) {
+            const response = await siyuan.client.fetch('/api/file/getFile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: '/data/plugins/siyuan-plugin-task-horizon/i18n/' + locale + '.json' }),
+            });
+            if (!response.ok) throw new Error('Unable to load Task Horizon language: ' + locale);
+            const messages = JSON.parse(await response.text());
+            if (messages.__locale !== locale) throw new Error('Invalid Task Horizon language: ' + locale);
+            __tmKernelLanguages.set(locale, messages);
+        }
+        __tmKernelMessages = __tmKernelLanguages.get(locale);
+    }
+
     function createTaskStatusRules() {
         // 只处理状态语义；不读取设置、不写任务，也不处理循环轮次。
         const defaults = [
@@ -2165,7 +2195,7 @@
         if (occurrenceReset) {
             occurrenceCount = 1;
         } else if (nextRule.maxOccurrences > 0 && nextRule.maxOccurrences < occurrenceCount) {
-            throw new Error(`结束次数不能小于当前第 ${occurrenceCount} 次`);
+            throw new Error(__tmT("task.theEndCountCannotBeLessThanTheCurrent", { occurrenceCount: occurrenceCount }));
         }
         let nextState = __tmNormalizeTaskRepeatState({
             ...currentState,
@@ -2192,7 +2222,7 @@
         if (scheduleChanged && nextRule.trigger !== 'checkin' && __tmMonthRepeatCore?.isExplicit(nextRule)) {
             const currentKey = __tmNormalizeDateOnly(task.completionTime || task.startDate || nextRule.anchorDate);
             const firstKey = __tmMonthRepeatCore.nextDateKey(nextRule, currentKey, true);
-            if (!firstKey) throw new Error('月循环没有有效日期，请检查日期和结束条件');
+            if (!firstKey) throw new Error(__tmT("task.theMonthlyRecurrenceHasNoValidDatesCheckThe"));
             nextRule.anchorDate = firstKey;
             patch.completionTime = firstKey;
             nextState.lastInstanceDue = patch.completionTime || '';
@@ -2505,7 +2535,7 @@
     function __tmRequireFsrsRuntime() {
         const runtime = globalThis.FSRS;
         if (!runtime || typeof runtime.fsrs !== 'function' || typeof runtime.createEmptyCard !== 'function') {
-            throw new Error('FSRS 调度器未加载');
+            throw new Error(__tmT("task.fsrsSchedulerNotLoaded"));
         }
         return runtime;
     }
@@ -2554,13 +2584,13 @@
     function __tmGetTaskRepeatSummary(ruleInput, options = {}) {
         const rule = __tmNormalizeTaskRepeatRule(ruleInput, options);
         if (!rule.enabled || rule.type === 'none') return '';
-        if (rule.type === 'fsrs') return 'FSRS 间隔重复';
-        const triggerText = rule.trigger === 'complete' ? '完成后' : (rule.trigger === 'checkin' ? '打卡' : '到期后');
+        if (rule.type === 'fsrs') return __tmT("task.fsrsSpacedRepetition");
+        const triggerText = rule.trigger === 'complete' ? __tmT("task.afterCompletion") : (rule.trigger === 'checkin' ? __tmT("task.checkIn2") : __tmT("task.whenDue"));
         const unitText = __tmGetTaskRepeatCalendarUnitLabel(rule.type, rule.every, rule.calendarMode);
-        const untilText = rule.until ? ` · 至 ${rule.until}` : '';
-        const countText = rule.maxOccurrences > 0 ? ` · 共 ${rule.maxOccurrences} 次` : '';
+        const untilText = rule.until ? __tmT("task.until2", { until: rule.until }) : '';
+        const countText = rule.maxOccurrences > 0 ? __tmT("task.timesTotal", { maxOccurrences: rule.maxOccurrences }) : '';
         const weekdayText = rule.type === 'weekly' && rule.weekdays.length > 0
-            ? `（${[1, 2, 3, 4, 5, 6, 0].filter((weekday) => rule.weekdays.includes(weekday)).map((weekday) => ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][weekday]).join('、')}）`
+            ? `（${[1, 2, 3, 4, 5, 6, 0].filter((weekday) => rule.weekdays.includes(weekday)).map((weekday) => [__tmT("calendar.sunday"), __tmT("calendar.monday"), __tmT("calendar.tuesday"), __tmT("calendar.wednesday"), __tmT("calendar.thursday"), __tmT("calendar.friday"), __tmT("calendar.saturday")][weekday]).join('、')}）`
             : '';
         const monthDayText = __tmMonthRepeatCore?.isExplicit(rule)
             ? `（${rule.monthlyMode === 'weekday' ? __tmMonthRepeatCore.weekdayLabel(rule.monthWeek, rule.anchorDate) : __tmMonthRepeatCore.label(rule.monthDays)}）` : '';
@@ -2572,21 +2602,21 @@
         const mode = __tmNormalizeTaskRepeatCalendarMode(calendarMode, repeatType);
         const n = __tmNormalizeTaskRepeatEvery(every, repeatType);
         if (mode !== 'lunar') return __tmGetTaskRepeatUnitLabel(repeatType, n);
-        if (repeatType === 'monthly') return n > 1 ? `每${n}个农历月` : '农历每月';
-        if (repeatType === 'yearly') return n > 1 ? `每${n}个农历年` : '农历每年';
+        if (repeatType === 'monthly') return n > 1 ? __tmT("task.everyLunarMonths", { n: n }) : __tmT("calendar.lunarMonthly");
+        if (repeatType === 'yearly') return n > 1 ? __tmT("task.everyLunarYears", { n: n }) : __tmT("calendar.lunarYearly");
         return __tmGetTaskRepeatUnitLabel(repeatType, n);
     }
 
     function __tmGetTaskRepeatUnitLabel(type, every) {
         const repeatType = __tmNormalizeTaskRepeatType(type);
         const n = __tmNormalizeTaskRepeatEvery(every, repeatType);
-        if (repeatType === 'daily') return n > 1 ? `每${n}天` : '每天';
-        if (repeatType === 'workday') return n > 1 ? `每${n}个工作日` : '每个工作日';
-        if (repeatType === 'weekly') return n > 1 ? `每${n}周` : '每周';
-        if (repeatType === 'monthly') return n > 1 ? `每${n}个月` : '每月';
-        if (repeatType === 'yearly') return n > 1 ? `每${n}年` : '每年';
-        if (repeatType === 'fsrs') return 'FSRS 间隔重复';
-        return '不循环';
+        if (repeatType === 'daily') return n > 1 ? __tmT("task.everyDays", { n: n }) : __tmT("calendar.daily");
+        if (repeatType === 'workday') return n > 1 ? __tmT("task.everyWorkdays", { n: n }) : __tmT("task.everyWorkday");
+        if (repeatType === 'weekly') return n > 1 ? __tmT("task.everyWeeks", { n: n }) : __tmT("calendar.weekly");
+        if (repeatType === 'monthly') return n > 1 ? __tmT("task.everyMonths", { n: n }) : __tmT("calendar.monthly2");
+        if (repeatType === 'yearly') return n > 1 ? __tmT("task.everyYears", { n: n }) : __tmT("calendar.yearly");
+        if (repeatType === 'fsrs') return __tmT("task.fsrsSpacedRepetition");
+        return __tmT("calendar.noRepeat");
     }
 
     function __tmBuildTaskCompletionPlan(task, intent, context) {
@@ -2621,7 +2651,7 @@
             const restore = intent.restorePatch;
             const clean = (patch) => Object.fromEntries(Object.entries(patch || {}).filter(([key]) => !['markdown', 'taskMarker', 'task_marker', 'title', 'content', 'raw_content'].includes(key)));
             for (const [key, value] of Object.entries(clean(restore.expected))) {
-                if (JSON.stringify(task[key] ?? '') !== JSON.stringify(value ?? '')) throw new Error('任务已有后续修改，不能覆盖新的状态');
+                if (JSON.stringify(task[key] ?? '') !== JSON.stringify(value ?? '')) throw new Error(__tmT("task.theTaskHasLaterChangesTheNewStateCannot"));
             }
             return { patch: clean(restore.patch), receipt: { ...receipt, restoredState: true } };
         }
@@ -2638,7 +2668,7 @@
             const entry = restore.historyEntry;
             if (entry?.id && history.some(item => item.id === entry.id)) return applied(entry);
             if (!entry || !__tmIsSameTaskOccurrenceRound(occurrenceId, restore.expectedOccurrenceId)
-                || (entry.ruleSignature && entry.ruleSignature !== __tmGetTaskRepeatScheduleSignature(rule))) throw new Error('任务已有后续修改，不能恢复该次完成');
+                || (entry.ruleSignature && entry.ruleSignature !== __tmGetTaskRepeatScheduleSignature(rule))) throw new Error(__tmT("task.theTaskHasLaterChangesThisCompletionCannotBe"));
             return { patch: { ...restore.patch, repeatHistory: __tmNormalizeTaskRepeatHistory([entry, ...history]) },
                 receipt: { ...applied(entry).receipt, outcome: 'committed', reappliedCompletionId: entry.id || entry.completedAt } };
         }
@@ -2657,7 +2687,7 @@
             // The same round can arrive with an id rendered by a different build
             // (legacy ids used to carry the view-date anchor). Only a round that
             // really moved on is a conflict; blocking the click is not a repair.
-            else if (!restoreId && !__tmIsSameTaskOccurrenceRound(requestedOccurrence, occurrenceId)) throw new Error('任务轮次已变化，请刷新后重试');
+            else if (!restoreId && !__tmIsSameTaskOccurrenceRound(requestedOccurrence, occurrenceId)) throw new Error(__tmT("task.theTaskCycleHasChangedRefreshAndTryAgain"));
         }
         if (!restoreId && intent.done === false && intent.nativeObserved?.previousDone === true && intent.nativeObserved.targetMarker === ' '
             && repeatState.pendingNativeDoneReset) restoreId = repeatState.lastCompletionId || repeatState.lastCompletedAt;
@@ -2665,21 +2695,21 @@
             let index = history.findIndex((entry) => entry.id === restoreId);
             if (index < 0) {
                 const matching = history.map((entry, i) => entry.completedAt === restoreId ? i : -1).filter(i => i >= 0);
-                if (matching.length > 1) throw new Error('存在同一时间的多条记录，请选择具体完成记录');
+                if (matching.length > 1) throw new Error(__tmT("task.multipleRecordsShareTheSameTimeChooseTheSpecific"));
                 index = matching[0] ?? -1;
             }
             if (index < 0) {
                 if (repeatState.lastRestoredCompletionId === restoreId) return { patch: {}, receipt: { ...receipt, outcome: 'alreadyApplied', restoredCompletionId: restoreId } };
-                throw new Error('未找到可撤销的完成记录');
+                throw new Error(__tmT("task.noRevertibleCompletionRecordFound"));
             }
             const entry = history[index];
             if (index !== 0 || (entry.ruleSignature && entry.ruleSignature !== __tmGetTaskRepeatScheduleSignature(rule))) {
-                throw new Error('任务已有后续完成或循环规则已修改，不能回退该记录');
+                throw new Error(__tmT("task.theTaskHasLaterCompletionsOrTheRepeatRule"));
             }
             const advanced = !!(entry.nextDue || entry.nextStart);
             const expectedDue = advanced ? entry.nextDue : entry.sourceDue;
             const expectedStart = advanced ? entry.nextStart : entry.sourceStart;
-            if (String(task.completionTime || '') !== expectedDue || String(task.startDate || '') !== expectedStart) throw new Error('任务已改期，不能覆盖新的日期');
+            if (String(task.completionTime || '') !== expectedDue || String(task.startDate || '') !== expectedStart) throw new Error(__tmT("task.theTaskHasBeenRescheduledTheNewDatesCannot"));
             const nextHistory = history.filter((_, i) => i !== index);
             const before = entry.before;
             const rollback = before ? {
@@ -2715,13 +2745,13 @@
         if (!recurring) return { patch, receipt };
         const fsrs = rule.type === 'fsrs';
         const rating = Number(intent.fsrsRating) || 0;
-        if (fsrs && rating < 2) throw new Error('FSRS 任务需要选择困难、良好或简单；重来请使用复习菜单');
+        if (fsrs && rating < 2) throw new Error(__tmT("task.fsrsTasksRequireHardGoodOrEasyUseThe"));
         const next = fsrs
             ? __tmBuildFsrsReviewPatch(task, rating, { completedAt, reviewedAt: completedAt })
             : __tmBuildTaskRepeatAdvancePatch(task, rule, { completedAt, advancedAt: context.now });
         if (!next && !(rule.maxOccurrences > 0 && repeatState.occurrenceCount >= rule.maxOccurrences)
             && !__tmBuildTaskRepeatAdvancePatch(task, { ...rule, until: '', maxOccurrences: 0 }, { completedAt })) {
-            throw new Error('循环规则没有有效的下一日期，请检查规则和支持的日期范围');
+            throw new Error(__tmT("task.theRepeatRuleHasNoValidNextDateCheck"));
         }
         const keepNativeDone = !!next && context.keepNativeDone === true;
         const focus = __tmGetTaskTomatoFocusValues(task);
@@ -3616,29 +3646,29 @@
         const label = (value) => {
             const days = normalizeDays(value);
             const dates = days.filter((day) => day > 0);
-            return [dates.length ? dates.join('、') + '日' : '', days.includes(-1) ? '最后一天' : ''].filter(Boolean).join('、');
+            return [dates.length ? dates.join('、') + '日' : '', days.includes(-1) ? __tmT("task.lastDay") : ''].filter(Boolean).join('、');
         };
         const weekdayLabel = (value, anchorKey = '') => {
             const pattern = weekdayRule(value, anchorKey);
-            return (pattern.ordinal === -1 ? '最后一个' : ['第一个', '第二个', '第三个', '第四个', '第五个'][pattern.ordinal - 1])
-                + ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][pattern.weekday];
+            return (pattern.ordinal === -1 ? __tmT("task.last") : [__tmT("task.first2"), __tmT("task.second"), __tmT("task.third"), __tmT("task.fourth"), __tmT("task.fifth")][pattern.ordinal - 1])
+                + [__tmT("calendar.sunday"), __tmT("calendar.monday"), __tmT("calendar.tuesday"), __tmT("calendar.wednesday"), __tmT("calendar.thursday"), __tmT("calendar.friday"), __tmT("calendar.saturday")][pattern.weekday];
         };
         const weekdayPickerHTML = (value, anchorKey = '') => {
             const pattern = weekdayRule(value, anchorKey);
-            const ordinals = [[1, '第一个'], [2, '第二个'], [3, '第三个'], [4, '第四个'], [5, '第五个'], [-1, '最后一个']];
-            const weekdays = [[0, '周日'], [1, '周一'], [2, '周二'], [3, '周三'], [4, '周四'], [5, '周五'], [6, '周六']];
+            const ordinals = [[1, __tmT("task.first2")], [2, __tmT("task.second")], [3, __tmT("task.third")], [4, __tmT("task.fourth")], [5, __tmT("task.fifth")], [-1, __tmT("task.last")]];
+            const weekdays = [[0, __tmT("calendar.sunday")], [1, __tmT("calendar.monday")], [2, __tmT("calendar.tuesday")], [3, __tmT("calendar.wednesday")], [4, __tmT("calendar.thursday")], [5, __tmT("calendar.friday")], [6, __tmT("calendar.saturday")]];
             const select = (field, label, values, selected) => '<select data-tm-month-week="' + field + '" aria-label="' + label + '" style="flex:1;min-width:0;height:36px;padding:0 10px;border:1px solid var(--tm-border-color,var(--b3-theme-surface-light));border-radius:6px;background:var(--tm-bg-color,var(--b3-theme-background));color:var(--tm-text-color,var(--b3-theme-on-background));font:inherit;">'
                 + values.map(([key, text]) => '<option value="' + key + '"' + (key === selected ? ' selected' : '') + '>' + text + '</option>').join('') + '</select>';
-            return '<div style="display:flex;gap:8px;width:100%;min-width:0;">' + select('ordinal', '每月第几个星期', ordinals, pattern.ordinal) + select('weekday', '星期几', weekdays, pattern.weekday) + '</div>';
+            return '<div style="display:flex;gap:8px;width:100%;min-width:0;">' + select('ordinal', __tmT("task.weekdayOfTheMonth"), ordinals, pattern.ordinal) + select('weekday', __tmT("task.weekday"), weekdays, pattern.weekday) + '</div>';
         };
         const pickerHTML = (value, anchorKey = '') => {
             const days = value === undefined ? [parseKey(anchorKey)?.day || 1] : normalizeDays(value);
             const buttons = Array.from({ length: 32 }, (_, index) => index < 31 ? index + 1 : -1).map((day) => {
                 const selected = days.includes(day);
-                const title = day === -1 ? '最后一天' : String(day);
-                return '<button type="button" class="tm-repeat-month-day' + (selected ? ' is-selected' : '') + '" data-tm-month-day="' + day + '" aria-pressed="' + selected + '" aria-label="每月' + (day === -1 ? title : title + '日') + '">' + title + '</button>';
+                const title = day === -1 ? __tmT("task.lastDay") : String(day);
+                return '<button type="button" class="tm-repeat-month-day' + (selected ? ' is-selected' : '') + '" data-tm-month-day="' + day + '" aria-pressed="' + selected + '" aria-label="' + __tmT('task.repeatMonthDay', { day: day === -1 ? title : String(day) }) + '">' + title + '</button>';
             }).join('');
-            return '<style>.tm-repeat-month-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;width:100%;min-width:0}.tm-repeat-month-day{position:relative;z-index:0;min-width:0;height:36px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--tm-text-color,var(--b3-theme-on-background));font:inherit;font-size:12px;font-weight:750;cursor:pointer}.tm-repeat-month-day::after{content:"";position:absolute;z-index:-1;pointer-events:none;width:28px;height:28px;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:999px}.tm-repeat-month-day:hover::after{background:var(--tm-hover-bg,var(--b3-theme-surface-light))}.tm-repeat-month-day.is-selected{color:var(--tm-primary-color,var(--b3-theme-primary))}.tm-repeat-month-day.is-selected::after{background:color-mix(in srgb,var(--tm-primary-color,var(--b3-theme-primary)) 20%,var(--tm-card-bg,var(--b3-theme-background)) 80%)}.tm-repeat-month-day:focus-visible{outline:2px solid var(--tm-primary-color,var(--b3-theme-primary));outline-offset:1px}.tm-repeat-month-day[data-tm-month-day="-1"]{grid-column:span 2;font-weight:500}.tm-repeat-month-day[data-tm-month-day="-1"]::after{width:calc(100% - 8px);border-radius:6px}.tm-repeat-month-days-note{margin:6px 0 0;color:var(--tm-secondary-text,var(--b3-theme-on-surface-light));font-size:12px;line-height:1.5}@media(pointer:coarse){.tm-repeat-month-day{height:44px}.tm-repeat-month-day::after{width:32px;height:32px}}</style><div class="tm-repeat-month-days" role="group" aria-label="每月日期，可多选">' + buttons + '</div><p class="tm-repeat-month-days-note">' + (value === undefined ? '可多选；未修改时保留原有月末规则。' : '当月不存在的日期跳过；最后一天随月份变化。') + '</p>';
+            return `<style>.tm-repeat-month-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;width:100%;min-width:0}.tm-repeat-month-day{position:relative;z-index:0;min-width:0;height:36px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--tm-text-color,var(--b3-theme-on-background));font:inherit;font-size:12px;font-weight:750;cursor:pointer}.tm-repeat-month-day::after{content:"";position:absolute;z-index:-1;pointer-events:none;width:28px;height:28px;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:999px}.tm-repeat-month-day:hover::after{background:var(--tm-hover-bg,var(--b3-theme-surface-light))}.tm-repeat-month-day.is-selected{color:var(--tm-primary-color,var(--b3-theme-primary))}.tm-repeat-month-day.is-selected::after{background:color-mix(in srgb,var(--tm-primary-color,var(--b3-theme-primary)) 20%,var(--tm-card-bg,var(--b3-theme-background)) 80%)}.tm-repeat-month-day:focus-visible{outline:2px solid var(--tm-primary-color,var(--b3-theme-primary));outline-offset:1px}.tm-repeat-month-day[data-tm-month-day="-1"]{grid-column:span 2;font-weight:500}.tm-repeat-month-day[data-tm-month-day="-1"]::after{width:calc(100% - 8px);border-radius:6px}.tm-repeat-month-days-note{margin:6px 0 0;color:var(--tm-secondary-text,var(--b3-theme-on-surface-light));font-size:12px;line-height:1.5}@media(pointer:coarse){.tm-repeat-month-day{height:44px}.tm-repeat-month-day::after{width:32px;height:32px}}</style><div class="tm-repeat-month-days" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.monthlyDatesMultiSelect")}">` + buttons + '</div><p class="tm-repeat-month-days-note">' + (value === undefined ? __tmT("task.multiSelectKeepsTheOriginalMonthEndRuleWhen") : __tmT("task.datesThatDoNotExistInTheMonthAre")) + '</p>';
         };
         return Object.freeze({ version: 1, normalizeDays, weekdayRule, weekdayLabel, weekdayPickerHTML, isExplicit, candidates, nextDateKey, previousDateKey, ordinal, iterate, afterCompletion, label, pickerHTML });
     }
@@ -3710,68 +3740,68 @@
     const MCP_TOOL_GROUPS = Object.freeze([
         {
             id: 'tasks',
-            label: '任务',
-            description: '查询、新建、修改、移动和删除任务。',
+            get label() { return __tmT("kernel.task"); },
+            get description() { return __tmT("kernel.queryCreateUpdateMoveAndDeleteTasks"); },
             tools: [
-                ['list_task_scopes', '列出任务范围'],
-                ['get_task', '读取任务详情'],
-                ['query_tasks', '筛选任务'],
-                ['create_task', '新建任务'],
-                ['update_task', '更新任务'],
-                ['move_task', '移动任务'],
-                ['delete_task', '删除任务'],
-                ['batch_tasks', '批量处理任务'],
+                ['list_task_scopes', __tmT("kernel.listTaskScopes")],
+                ['get_task', __tmT("kernel.getTaskDetails")],
+                ['query_tasks', __tmT("kernel.queryTasks")],
+                ['create_task', __tmT("common.newTask")],
+                ['update_task', __tmT("kernel.updateTask")],
+                ['move_task', __tmT("kernel.moveTask")],
+                ['delete_task', __tmT("kernel.deleteTask")],
+                ['batch_tasks', __tmT("kernel.batchTasks")],
             ],
         },
         {
             id: 'schedules',
-            label: '日程',
-            description: '查询和管理任务日程。',
+            get label() { return __tmT("kernel.schedule"); },
+            get description() { return __tmT("kernel.queryAndManageTaskSchedules"); },
             tools: [
-                ['query_schedules', '查询日程'],
-                ['create_schedule', '新建日程'],
-                ['update_schedule', '更新日程'],
-                ['delete_schedule', '删除日程'],
-                ['batch_schedules', '批量处理日程'],
+                ['query_schedules', __tmT("kernel.querySchedules")],
+                ['create_schedule', __tmT("kernel.newSchedule")],
+                ['update_schedule', __tmT("kernel.updateSchedule")],
+                ['delete_schedule', __tmT("kernel.deleteSchedule")],
+                ['batch_schedules', __tmT("kernel.batchSchedules")],
             ],
         },
         {
             id: 'operations',
-            label: '组合操作',
-            description: '在一次确认中协调任务和日程修改。',
+            get label() { return __tmT("kernel.combinedOperations"); },
+            get description() { return __tmT("kernel.coordinateTaskAndScheduleChangesInOneConfirmation"); },
             tools: [
-                ['apply_task_operation_plan', '执行任务与日程计划'],
+                ['apply_task_operation_plan', __tmT("kernel.applyTaskAndSchedulePlan")],
             ],
         },
         {
             id: 'reminders',
-            label: '提醒与自动化',
-            description: '设置任务提醒和 AI 定时任务。',
+            get label() { return __tmT("kernel.remindersAutomation"); },
+            get description() { return __tmT("kernel.setTaskRemindersAndAiScheduledTasks"); },
             tools: [
-                ['configure_task_reminder', '设置任务提醒'],
-                ['manage_agent_schedules', '管理 AI 定时任务'],
+                ['configure_task_reminder', __tmT("kernel.configureTaskReminder")],
+                ['manage_agent_schedules', __tmT("kernel.manageAiScheduledTasks")],
             ],
         },
         {
             id: 'policy',
-            label: '安排规则',
-            description: '读取、预览和修改任务规划规则。',
+            get label() { return __tmT("kernel.schedulingRules"); },
+            get description() { return __tmT("kernel.readPreviewAndModifyTaskPlanningRules"); },
             tools: [
-                ['get_task_policy', '读取安排规则'],
-                ['preview_task_policy_patch', '预览规则修改'],
-                ['apply_task_policy_patch', '应用规则修改'],
+                ['get_task_policy', __tmT("kernel.getTaskPolicy")],
+                ['preview_task_policy_patch', __tmT("kernel.previewPolicyChanges")],
+                ['apply_task_policy_patch', __tmT("kernel.applyPolicyChanges")],
             ],
         },
         {
             id: 'stats',
-            label: '统计复盘',
-            description: '聚合任务完成情况和时间投入。',
+            get label() { return __tmT("kernel.statisticsReview"); },
+            get description() { return __tmT("kernel.aggregateTaskCompletionAndTimeUsage"); },
             tools: [
-                ['aggregate_task_stats', '任务完成统计'],
-                ['aggregate_time_usage', '时间投入统计'],
-                ['query_focus_statistics', '专注统计'],
-                ['query_routine_statistics', '日常统计'],
-                ['list_focus_sessions', '专注明细'],
+                ['aggregate_task_stats', __tmT("kernel.taskCompletionStatistics")],
+                ['aggregate_time_usage', __tmT("kernel.timeUsageStatistics")],
+                ['query_focus_statistics', __tmT("kernel.focusStatistics")],
+                ['query_routine_statistics', __tmT("kernel.routineStatistics")],
+                ['list_focus_sessions', __tmT("kernel.focusSessionDetails")],
             ],
         },
     ]);
@@ -3819,23 +3849,23 @@
     });
 
     const BUILTIN_FIELDS = Object.freeze([
-        { id: 'priority', label: '重要性', type: 'string', attr: 'custom-priority', writable: true },
-        { id: 'customStatus', label: '状态', type: 'string', attr: 'custom-status', writable: true },
-        { id: 'startDate', label: '开始日期', type: 'date', attr: 'custom-start-date', writable: true, mirror: true },
-        { id: 'completionTime', label: '截止日期', type: 'date', attr: 'custom-completion-time', writable: true, mirror: true },
-        { id: 'dateMode', label: '日期模式', type: 'string', attr: 'custom-task-date-mode', writable: true },
-        { id: 'taskCompleteAt', label: '完成时间', type: 'datetime', attr: 'custom-task-complete-at', writable: false, system: true },
-        { id: 'duration', label: '预估时长', type: 'duration', attr: 'custom-duration', writable: true },
-        { id: 'remark', label: '备注', type: 'string', attr: 'custom-remark', writable: true },
-        { id: 'taskDateColor', label: '任务日期颜色', type: 'color', attr: 'custom-task-date-color', writable: true, mirror: true },
-        { id: 'customTime', label: '自定义时间', type: 'string', attr: 'custom-time', writable: true, mirror: true },
-        { id: 'milestone', label: '里程碑', type: 'boolean', attr: 'custom-milestone-event', writable: true },
-        { id: 'pinned', label: '置顶', type: 'boolean', attr: 'custom-pinned', writable: true },
-        { id: 'allDayBottom', label: '全天置底', type: 'boolean', attr: 'custom-all-day-bottom', writable: true },
-        { id: 'tomatoEstimateCount', label: '预计番茄数', type: 'number', attr: 'custom-tomato-estimate-count', writable: true },
-        { id: 'tomatoCount', label: '实际番茄数', type: 'number', attr: 'custom-tomato-count', writable: false, system: true },
-        { id: 'tomatoMinutes', label: '实际专注分钟', type: 'number', attr: 'custom-tomato-minutes', writable: false, system: true },
-        { id: 'tomatoHours', label: '实际专注小时', type: 'number', attr: 'custom-tomato-time', writable: false, system: true },
+        { id: 'priority', get label() { return __tmT("kernel.importance"); }, type: 'string', attr: 'custom-priority', writable: true },
+        { id: 'customStatus', get label() { return __tmT("kernel.status"); }, type: 'string', attr: 'custom-status', writable: true },
+        { id: 'startDate', get label() { return __tmT("kernel.startDate"); }, type: 'date', attr: 'custom-start-date', writable: true, mirror: true },
+        { id: 'completionTime', get label() { return __tmT("kernel.dueDate"); }, type: 'date', attr: 'custom-completion-time', writable: true, mirror: true },
+        { id: 'dateMode', get label() { return __tmT("kernel.dateMode"); }, type: 'string', attr: 'custom-task-date-mode', writable: true },
+        { id: 'taskCompleteAt', get label() { return __tmT("kernel.completionTime"); }, type: 'datetime', attr: 'custom-task-complete-at', writable: false, system: true },
+        { id: 'duration', get label() { return __tmT("kernel.estimatedDuration"); }, type: 'duration', attr: 'custom-duration', writable: true },
+        { id: 'remark', get label() { return __tmT("kernel.note"); }, type: 'string', attr: 'custom-remark', writable: true },
+        { id: 'taskDateColor', get label() { return __tmT("kernel.taskDateColor"); }, type: 'color', attr: 'custom-task-date-color', writable: true, mirror: true },
+        { id: 'customTime', get label() { return __tmT("kernel.customTime"); }, type: 'string', attr: 'custom-time', writable: true, mirror: true },
+        { id: 'milestone', get label() { return __tmT("kernel.milestone"); }, type: 'boolean', attr: 'custom-milestone-event', writable: true },
+        { id: 'pinned', get label() { return __tmT("kernel.pin"); }, type: 'boolean', attr: 'custom-pinned', writable: true },
+        { id: 'allDayBottom', get label() { return __tmT("kernel.allDayBottom"); }, type: 'boolean', attr: 'custom-all-day-bottom', writable: true },
+        { id: 'tomatoEstimateCount', get label() { return __tmT("kernel.estimatedPomodoros"); }, type: 'number', attr: 'custom-tomato-estimate-count', writable: true },
+        { id: 'tomatoCount', get label() { return __tmT("kernel.actualPomodoros"); }, type: 'number', attr: 'custom-tomato-count', writable: false, system: true },
+        { id: 'tomatoMinutes', get label() { return __tmT("kernel.actualFocusMinutes"); }, type: 'number', attr: 'custom-tomato-minutes', writable: false, system: true },
+        { id: 'tomatoHours', get label() { return __tmT("kernel.actualFocusHours"); }, type: 'number', attr: 'custom-tomato-time', writable: false, system: true },
     ]);
     const DEFAULT_STATUS_OPTIONS = Object.freeze([
         { id: 'todo', name: '待办', color: '#757575', marker: ' ' },
@@ -3846,10 +3876,10 @@
         { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' },
     ]);
     const PRIORITY_DEFINITIONS = Object.freeze([
-        { id: 'high', name: '高' },
-        { id: 'medium', name: '中' },
-        { id: 'low', name: '低' },
-        { id: 'none', name: '未设置' },
+        { id: 'high', get name() { return __tmT('common.high'); } },
+        { id: 'medium', get name() { return __tmT('common.medium'); } },
+        { id: 'low', get name() { return __tmT('common.low'); } },
+        { id: 'none', get name() { return __tmT('common.notSet'); } },
     ]);
     const TASK_READ_FIELDS = Object.freeze([
         'markdown', 'parentListID', 'parentTaskID', 'documentName', 'documentPath', 'created', 'updated',
@@ -3926,7 +3956,7 @@
 
     function requireID(value, label) {
         const id = text(value);
-        if (!ID_RE.test(id)) throw new DomainError(ERROR.INVALID_ARGUMENT, `${label || 'ID'} 格式无效`);
+        if (!ID_RE.test(id)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.hasAnInvalidFormat", { value1: label || 'ID' }));
         return id;
     }
 
@@ -3967,7 +3997,7 @@
     function failure(error) {
         const err = error instanceof DomainError
             ? error
-            : new DomainError(ERROR.STORAGE_ERROR, text(error && error.message) || '操作失败');
+            : new DomainError(ERROR.STORAGE_ERROR, text(error && error.message) || __tmT("kernel.operationFailed"));
         return {
             ok: false,
             data: null,
@@ -3993,7 +4023,7 @@
     async function asAgentCapabilityResult(handler, args) {
         const result = await handler(args);
         if (result?.ok === false) {
-            const error = new Error(text(result.error?.message) || '任务工具调用失败');
+            const error = new Error(text(result.error?.message) || __tmT("kernel.taskToolCallFailed"));
             error.code = text(result.error?.code) || ERROR.STORAGE_ERROR;
             error.details = result.error?.details || null;
             throw error;
@@ -4011,10 +4041,10 @@
         try {
             payload = await response.json();
         } catch (error) {
-            throw new DomainError(ERROR.STORAGE_ERROR, `思源接口返回无效数据: ${path}`);
+            throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.siyuanApiReturnedInvalidData", { path: path }));
         }
         if (!response.ok || !payload || Number(payload.code) !== 0) {
-            const message = text(payload && payload.msg) || `思源接口调用失败: ${path}`;
+            const message = text(payload && payload.msg) || __tmT("kernel.siyuanApiCallFailed", { path: path });
             const code = /not found|不存在/i.test(message) ? ERROR.NOT_FOUND : ERROR.STORAGE_ERROR;
             throw new DomainError(code, message, {
                 path,
@@ -4035,12 +4065,12 @@
         const status = text(record && record.status) || 'unavailable';
         const cause = text(record && record.error && record.error.message);
         if (status === 'missing') {
-            return new DomainError(ERROR.STORAGE_MISSING, `未找到 ${path}`, { path, status, cause });
+            return new DomainError(ERROR.STORAGE_MISSING, __tmT("kernel.notFound", { path: path }), { path, status, cause });
         }
         if (status === 'corrupt') {
-            return new DomainError(ERROR.STORAGE_CORRUPT, `${path} 内容损坏`, { path, status, cause });
+            return new DomainError(ERROR.STORAGE_CORRUPT, __tmT("kernel.isCorrupted", { path: path }), { path, status, cause });
         }
-        return new DomainError(ERROR.STORAGE_ERROR, `读取 ${path} 失败`, { path, status, cause });
+        return new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.failedToRead", { path: path }), { path, status, cause });
     }
 
     async function readJsonState(path) {
@@ -4073,16 +4103,16 @@
             serialized = JSON.stringify(value, null, 2);
             await siyuan.storage.put(path, serialized);
         } catch (error) {
-            throw new DomainError(ERROR.STORAGE_ERROR, `保存 ${path} 失败`, { cause: text(error && error.message) });
+            throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.failedToSave", { path: path }), { cause: text(error && error.message) });
         }
         const verified = await readJsonState(path);
         let expected;
         try { expected = JSON.parse(serialized); }
         catch (error) {
-            throw new DomainError(ERROR.STORAGE_ERROR, `保存 ${path} 后无法校验`, { cause: text(error && error.message) });
+            throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.cannotVerifyAfterSaving", { path: path }), { cause: text(error && error.message) });
         }
         if (verified.status !== 'valid' || stableJson(verified.value) !== stableJson(expected)) {
-            throw new DomainError(ERROR.STORAGE_ERROR, `保存 ${path} 后回读不一致`, {
+            throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.readBackMismatchAfterSaving", { path: path }), {
                 path,
                 status: verified.status,
                 cause: text(verified.error && verified.error.message),
@@ -4092,6 +4122,7 @@
 
     async function getSettings() {
         const settings = await readJson(SETTINGS_FILE, {});
+        await __tmLoadKernelLanguage(settings?.uiLanguage);
         return settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {};
     }
 
@@ -4205,10 +4236,10 @@
         const raw = text(value);
         if (!raw) return '';
         if (!/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?:\.\d{3})?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(raw)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, `${field} 日期格式无效`);
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.hasAnInvalidDateFormat", { field: field }));
         }
         if (!isStrictDateKey(raw.slice(0, 10))) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, `${field} 日期不存在`);
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.dateDoesNotExist", { field: field }));
         }
         return raw;
     }
@@ -4218,7 +4249,7 @@
         const raw = text(value).toLowerCase();
         if (raw === '1' || raw === 'true' || raw === 'yes') return true;
         if (!raw || raw === '0' || raw === 'false' || raw === 'no') return false;
-        throw new DomainError(ERROR.INVALID_ARGUMENT, '布尔字段格式无效');
+        throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidBooleanFieldFormat"));
     }
 
     async function normalizeTaskPatch(input, options) {
@@ -4229,14 +4260,14 @@
         const out = {};
         if (own(source, 'title')) {
             const title = text(source.title);
-            if (!title) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务标题不能为空');
+            if (!title) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.taskTitleCannotBeEmpty"));
             out.title = title;
         }
         if (own(source, 'done')) out.done = normalizeBoolean(source.done);
         for (const field of registry.fields) {
             if (field.custom || !own(source, field.id)) continue;
             if (!field.writable && opts.allowSystem !== true) {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, `${field.id} 为只读字段`);
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.isAReadOnlyField", { id: field.id }));
             }
             const value = source[field.id];
             if (field.type === 'boolean') out[field.id] = normalizeBoolean(value);
@@ -4244,32 +4275,32 @@
                 if (text(value) === '') out[field.id] = '';
                 else {
                     const number = Number(value);
-                    if (!Number.isFinite(number) || number < 0) throw new DomainError(ERROR.INVALID_ARGUMENT, `${field.id} 必须是非负数`);
+                    if (!Number.isFinite(number) || number < 0) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.mustBeANonNegativeNumber", { id: field.id }));
                     out[field.id] = String(number);
                 }
             } else if (field.type === 'date' || field.type === 'datetime') out[field.id] = normalizeDateValue(value, field.id);
             else out[field.id] = text(value);
         }
         if (own(out, 'dateMode') && !['manual', 'rollup'].includes(out.dateMode)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '日期模式必须为 manual 或 rollup');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.dateModeMustBeManualOrRollup"));
         }
         if (own(source, 'customFieldValues')) {
             const values = source.customFieldValues;
             if (!values || typeof values !== 'object' || Array.isArray(values)) {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, 'customFieldValues 必须是对象');
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.customfieldvaluesMustBeAnObject"));
             }
             const custom = {};
             Object.keys(values).forEach((fieldID) => {
                 const field = registry.byId.get(fieldID);
                 if (!field || !field.custom || !field.writable) {
-                    throw new DomainError(ERROR.INVALID_ARGUMENT, `未注册或不可写的自定义字段: ${fieldID}`);
+                    throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unregisteredOrNonWritableCustomField", { fieldID: fieldID }));
                 }
                 custom[fieldID] = normalizeCustomValue(field, values[fieldID]);
             });
             out.customFieldValues = custom;
         }
         if (own(source, 'attachments')) {
-            if (!Array.isArray(source.attachments)) throw new DomainError(ERROR.INVALID_ARGUMENT, 'attachments 必须是数组');
+            if (!Array.isArray(source.attachments)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.attachmentsMustBeAnArray"));
             out.attachments = uniqueStrings(source.attachments.map((item) => text(item?.path || item?.assetPath || item)));
         }
         ['repeatRule', 'repeatState', 'repeatHistory', 'reminder', 'followReminder', 'expectedOccurrenceId'].forEach((key) => {
@@ -4280,41 +4311,41 @@
             ...registry.fields.map((field) => field.id),
         ]);
         const unknown = Object.keys(source).filter((key) => !allowed.has(key));
-        if (unknown.length) throw new DomainError(ERROR.INVALID_ARGUMENT, `不支持的任务字段: ${unknown.join(', ')}`);
+        if (unknown.length) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unsupportedTaskFields", { value1: unknown.join(', ') }));
         return { patch: out, registry };
     }
 
     function validateAgentTaskRecurrence(patch) {
         if (['repeatState', 'repeatHistory', 'reminder'].some(key => own(patch, key))) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '循环状态和历史由任务管理器维护；设置跟随提醒请使用 followReminder');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.repeatStateAndHistoryAreMaintainedByTheTask"));
         }
         if (own(patch, 'repeatRule')) {
             const rule = patch.repeatRule;
-            if (!rule || typeof rule !== 'object' || Array.isArray(rule)) throw new DomainError(ERROR.INVALID_ARGUMENT, '循环规则必须是对象');
+            if (!rule || typeof rule !== 'object' || Array.isArray(rule)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theRepeatRuleMustBeAnObject"));
             const unknown = Object.keys(rule).filter(key => !['version', 'enabled', 'type', 'trigger', 'every', 'weekdays', 'monthDays', 'monthWeek', 'monthlyMode', 'calendarMode', 'anchorDate', 'until', 'maxOccurrences'].includes(key));
-            if (unknown.length) throw new DomainError(ERROR.INVALID_ARGUMENT, `不支持的循环字段: ${unknown.join(', ')}`);
-            if (!['none', 'daily', 'workday', 'weekly', 'monthly', 'yearly', 'fsrs'].includes(rule.type)) throw new DomainError(ERROR.INVALID_ARGUMENT, '请选择天、工作日、周、月、年或 FSRS 循环');
-            if (own(rule, 'trigger') && !['due', 'complete', 'checkin'].includes(rule.trigger)) throw new DomainError(ERROR.INVALID_ARGUMENT, '循环触发方式必须为 due、complete 或 checkin');
-            if (own(rule, 'enabled') && typeof rule.enabled !== 'boolean') throw new DomainError(ERROR.INVALID_ARGUMENT, '循环开关必须为布尔值');
+            if (unknown.length) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unsupportedRepeatFields", { value1: unknown.join(', ') }));
+            if (!['none', 'daily', 'workday', 'weekly', 'monthly', 'yearly', 'fsrs'].includes(rule.type)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.chooseDayWorkdayWeekMonthYearOrFsrsRepeat"));
+            if (own(rule, 'trigger') && !['due', 'complete', 'checkin'].includes(rule.trigger)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theRepeatTriggerMustBeDueCompleteOrCheckin"));
+            if (own(rule, 'enabled') && typeof rule.enabled !== 'boolean') throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theRepeatToggleMustBeABoolean"));
             for (const [key, minimum, maximum] of [['every', 1, 3650], ['maxOccurrences', 0, 200]]) {
-                if (own(rule, key) && (!Number.isInteger(rule[key]) || rule[key] < minimum || rule[key] > maximum)) throw new DomainError(ERROR.INVALID_ARGUMENT, `${key} 必须为 ${minimum} 到 ${maximum} 的整数`);
+                if (own(rule, key) && (!Number.isInteger(rule[key]) || rule[key] < minimum || rule[key] > maximum)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.mustBeAnIntegerFromTo", { key: key, minimum: minimum, maximum: maximum }));
             }
             for (const key of ['anchorDate', 'until']) {
-                if (rule[key] && !isStrictDateKey(rule[key])) throw new DomainError(ERROR.INVALID_ARGUMENT, `${key} 必须是有效日期 YYYY-MM-DD`);
+                if (rule[key] && !isStrictDateKey(rule[key])) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.mustBeAValidDateYyyyMmDd", { key: key }));
             }
-            if (rule.until && rule.maxOccurrences > 0) throw new DomainError(ERROR.INVALID_ARGUMENT, '结束日期与结束次数只能设置一项');
+            if (rule.until && rule.maxOccurrences > 0) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.setEitherAnEndDateOrAnOccurrenceCount"));
             for (const [key, valid] of [['weekdays', value => Number.isInteger(value) && value >= 0 && value <= 6], ['monthDays', value => Number.isInteger(value) && (value === -1 || value >= 1 && value <= 31)]]) {
-                if (own(rule, key) && (!Array.isArray(rule[key]) || key === 'monthDays' && !rule[key].length || !rule[key].every(valid))) throw new DomainError(ERROR.INVALID_ARGUMENT, `${key} 包含无效日期`);
+                if (own(rule, key) && (!Array.isArray(rule[key]) || key === 'monthDays' && !rule[key].length || !rule[key].every(valid))) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.containsAnInvalidDate", { key: key }));
             }
-            if (rule.monthlyMode && !['date', 'weekday'].includes(rule.monthlyMode)) throw new DomainError(ERROR.INVALID_ARGUMENT, '月循环方式无效');
-            if (rule.calendarMode && !['solar', 'lunar'].includes(rule.calendarMode)) throw new DomainError(ERROR.INVALID_ARGUMENT, '循环历法无效');
-            if (rule.monthWeek && (!Number.isInteger(rule.monthWeek.ordinal) || ![-1, 1, 2, 3, 4, 5].includes(rule.monthWeek.ordinal) || !Number.isInteger(rule.monthWeek.weekday) || rule.monthWeek.weekday < 0 || rule.monthWeek.weekday > 6)) throw new DomainError(ERROR.INVALID_ARGUMENT, '月循环星期规则无效');
+            if (rule.monthlyMode && !['date', 'weekday'].includes(rule.monthlyMode)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidMonthlyRepeatMode"));
+            if (rule.calendarMode && !['solar', 'lunar'].includes(rule.calendarMode)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidRepeatCalendar"));
+            if (rule.monthWeek && (!Number.isInteger(rule.monthWeek.ordinal) || ![-1, 1, 2, 3, 4, 5].includes(rule.monthWeek.ordinal) || !Number.isInteger(rule.monthWeek.weekday) || rule.monthWeek.weekday < 0 || rule.monthWeek.weekday > 6)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidMonthlyWeekdayRule"));
         }
         if (own(patch, 'followReminder')) {
             const reminder = patch.followReminder;
-            if (!reminder || typeof reminder !== 'object' || Array.isArray(reminder)) throw new DomainError(ERROR.INVALID_ARGUMENT, '跟随提醒必须是对象');
+            if (!reminder || typeof reminder !== 'object' || Array.isArray(reminder)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theFollowUpReminderMustBeAnObject"));
             const intent = text(reminder.intentText);
-            if (!TaskRecurrence.hasReminderIntent(intent) || /(?:不(?:要|用|必|需|再)?|无需|别|取消|关闭).{0,3}(?:提醒|通知)/.test(intent)) throw new DomainError(ERROR.INVALID_ARGUMENT, '用户明确要求提醒或通知时才添加提醒');
+            if (!TaskRecurrence.hasReminderIntent(intent) || /(?:不(?:要|用|必|需|再)?|无需|别|取消|关闭).{0,3}(?:提醒|通知)/.test(intent)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.addAReminderOnlyWhenTheUserExplicitlyAsks"));
             normalizeReminderTimes(reminder.times);
         }
     }
@@ -4334,7 +4365,7 @@
             const checkin = patch.repeatRule.trigger === 'checkin';
             if (patch.repeatRule.enabled && !checkin && !text(patch.completionTime || before.completionTime)) patch.completionTime = patch.repeatRule.anchorDate;
             const firstDate = checkin ? patch.repeatRule.anchorDate : text(patch.completionTime || before.completionTime).slice(0, 10);
-            if (patch.repeatRule.until && patch.repeatRule.until < firstDate) throw new DomainError(ERROR.INVALID_ARGUMENT, '循环结束日期不能早于首次日期');
+            if (patch.repeatRule.until && patch.repeatRule.until < firstDate) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theRepeatEndDateCannotBeEarlierThanThe"));
         }
         const candidate = nativeTask({ ...before, ...patch, done: before.done, customStatus: before.customStatus, taskCompleteAt: before.taskCompleteAt });
         const recurring = candidate.repeatRule?.enabled && candidate.repeatRule.type !== 'none';
@@ -4345,8 +4376,8 @@
         const expectedOccurrenceId = text(patch.expectedOccurrenceId);
         delete patch.expectedOccurrenceId;
         if (recurring && (own(patch, 'done') || status && requestedDone)) {
-            if (candidate.repeatRule.trigger === 'checkin' || candidate.repeatRule.type === 'fsrs') throw new DomainError(ERROR.UNSUPPORTED, '打卡或 FSRS 请使用任务详情中的完成入口');
-            if (requestedDone && !expectedOccurrenceId) throw new DomainError(ERROR.INVALID_ARGUMENT, '完成循环任务前请读取 repeatState.occurrenceId，并传入 expectedOccurrenceId');
+            if (candidate.repeatRule.trigger === 'checkin' || candidate.repeatRule.type === 'fsrs') throw new DomainError(ERROR.UNSUPPORTED, __tmT("kernel.useTheCompletionEntryInTheTaskDetailsFor"));
+            if (requestedDone && !expectedOccurrenceId) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.beforeCompletingARecurringTaskReadRepeatstateOccurrenceidAnd"));
             const doneStatus = registry.statusById.get(registry.settings?.checkboxDoneStatusId || 'done') || registry.statusOptions.find(item => isTaskMarkerDone(statusOptionMarker(item)));
             const undoneStatus = registry.statusById.get(registry.settings?.checkboxUndoneStatusId || 'todo') || registry.statusOptions.find(item => statusOptionMarker(item) === ' ');
             const plan = TaskRecurrence.completionPlan(candidate, { done: requestedDone === true, occurrenceId: expectedOccurrenceId || undefined }, {
@@ -4523,11 +4554,11 @@
     }
 
     async function readBlockDOM(blockID) {
-        const id = requireID(blockID, '块 ID');
+        const id = requireID(blockID, __tmT("kernel.blockId"));
         const result = await api('/api/block/getBlockDOM', { id });
         const dom = String(result?.dom || '').trim();
         if (!dom || !dom.includes(`data-node-id="${id}"`)) {
-            throw new DomainError(ERROR.STORAGE_ERROR, '读取到的任务块 DOM 与任务 ID 不一致', { taskID: id });
+            throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.theReadTaskBlockDomDoesNotMatchThe"), { taskID: id });
         }
         return dom;
     }
@@ -4582,14 +4613,14 @@
         const source = String(dom || '');
         const pattern = /(<div\b[^>]*\bdata-type="NodeParagraph"[^>]*>)[\s\S]*?(<div\b[^>]*\bclass="[^"]*protyle-attr[^"]*"[^>]*>[\s\S]*?<\/div>\s*<\/div>)/;
         if (!pattern.test(source)) {
-            throw new DomainError(ERROR.STORAGE_ERROR, '任务块中未找到可更新的标题段落');
+            throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.noUpdatableTitleParagraphFoundInTheTaskBlock"));
         }
         const content = `<div contenteditable="true">${escapeTaskDOMText(title)}</div>`;
         return source.replace(pattern, `$1${content}$2`);
     }
 
     async function verifyTaskDirect(taskID, expected = {}) {
-        const id = requireID(taskID, '任务 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
         const source = expected && typeof expected === 'object' ? expected : {};
         if (own(source, 'marker')) {
             const dom = await readBlockDOM(id);
@@ -4599,7 +4630,7 @@
             const checkboxMarkerMatches = String(actualMarker || '').toUpperCase() === 'X'
                 && String(expectedMarker || '').toUpperCase() === 'X';
             if (actualMarker !== expectedMarker && !checkboxMarkerMatches) {
-                throw new DomainError(ERROR.CONFLICT, '任务状态标记写入后校验失败', {
+                throw new DomainError(ERROR.CONFLICT, __tmT("kernel.taskStatusMarkerVerificationFailedAfterWriting"), {
                     taskID: id,
                     expectedMarker,
                     actualMarker,
@@ -4611,14 +4642,14 @@
             const actual = await readAttrs(id);
             const mismatch = Object.entries(attrs).find(([key, value]) => String(actual[key] == null ? '' : actual[key]) !== String(value == null ? '' : value));
             if (mismatch) {
-                throw new DomainError(ERROR.CONFLICT, '任务字段写入后校验失败', { taskID: id, field: mismatch[0] });
+                throw new DomainError(ERROR.CONFLICT, __tmT("kernel.taskFieldVerificationFailedAfterWriting"), { taskID: id, field: mismatch[0] });
             }
         }
         return true;
     }
 
     async function getTaskRow(taskID) {
-        const id = requireID(taskID, '任务 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
         const rows = await sql(`
             SELECT
                 task.id,
@@ -4654,14 +4685,14 @@
             WHERE task.id = '${escapeSql(id)}' AND task.type = 'i' AND task.subtype = 't'
             LIMIT 1
         `);
-        if (!rows.length) throw new DomainError(ERROR.NOT_FOUND, '未找到任务', { taskID: id });
+        if (!rows.length) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.noTaskFound"), { taskID: id });
         return rows[0];
     }
 
     async function getBlockRole(blockID, label) {
-        const id = requireID(blockID, label || '块 ID');
+        const id = requireID(blockID, label || __tmT("kernel.blockId"));
         const rows = await sql(`SELECT id, parent_id, root_id, type, subtype FROM blocks WHERE id = '${escapeSql(id)}' LIMIT 1`);
-        if (!rows.length) throw new DomainError(ERROR.NOT_FOUND, `未找到${label || '块'}`, { blockID: id });
+        if (!rows.length) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.notFound2", { value1: label || __tmT("kernel.block") }), { blockID: id });
         const row = rows[0];
         return {
             id,
@@ -4673,9 +4704,9 @@
     }
 
     async function requireDocumentBlock(documentID) {
-        const block = await getBlockRole(documentID, '目标文档');
+        const block = await getBlockRole(documentID, __tmT("kernel.targetDocument"));
         if (block.type !== 'd') {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '目标文档 ID 必须指向文档块', { blockID: block.id, actualType: block.type });
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theTargetDocumentIdMustPointToADocument"), { blockID: block.id, actualType: block.type });
         }
         return block;
     }
@@ -4729,10 +4760,10 @@
     }
 
     async function resolveTaskBinding(blockID, control = {}) {
-        let current = requireID(blockID, '块 ID');
+        let current = requireID(blockID, __tmT("kernel.blockId"));
         for (let depth = 0; depth < 30; depth += 1) {
             assertFocusStatsDeadline(control, 'task-binding-resolve');
-            const row = await getBlockRole(current, '块');
+            const row = await getBlockRole(current, __tmT("kernel.block"));
             const type = row.type;
             const subtype = row.subtype;
             if (type === 'i' && subtype === 't') {
@@ -4752,17 +4783,17 @@
             if (!parentID || parentID === current) break;
             current = parentID;
         }
-        throw new DomainError(ERROR.NOT_FOUND, '该块不属于任务');
+        throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.theBlockDoesNotBelongToTheTask"));
     }
 
     async function readAttrs(blockID) {
-        const data = await api('/api/attr/getBlockAttrs', { id: requireID(blockID, '属性宿主 ID') });
+        const data = await api('/api/attr/getBlockAttrs', { id: requireID(blockID, __tmT("kernel.attributeHostId")) });
         return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
     }
 
     async function setAttrs(blockID, attrs) {
         if (!attrs || !Object.keys(attrs).length) return;
-        await api('/api/attr/setBlockAttrs', { id: requireID(blockID, '属性宿主 ID'), attrs });
+        await api('/api/attr/setBlockAttrs', { id: requireID(blockID, __tmT("kernel.attributeHostId")), attrs });
     }
 
     async function readTaskAttributes(binding, registry) {
@@ -4895,10 +4926,18 @@
         });
     }
 
+    function statusDisplayName(option) {
+        if (!option) return '';
+        const name = text(option.name) || text(option.id);
+        const builtin = DEFAULT_STATUS_OPTIONS.find(item => item.id === option.id);
+        const untouched = builtin && (name === builtin.name || option.id === 'cancelled' && name === '已取消');
+        return untouched ? __tmT('builtin.status.' + option.id) : name;
+    }
+
     function statusDefinitions(registry) {
         return (Array.isArray(registry && registry.statusOptions) ? registry.statusOptions : []).map((option) => ({
             id: text(option.id),
-            name: text(option.name) || text(option.id),
+            name: statusDisplayName(option),
             color: text(option.color),
             marker: statusOptionMarker(option),
         }));
@@ -4910,13 +4949,13 @@
 
     function resolveStatusName(value, registry) {
         const id = text(value);
-        if (!id) return '未设置';
-        return text(registry?.statusById?.get(id)?.name) || id;
+        if (!id) return __tmT("common.notSet");
+        return statusDisplayName(registry?.statusById?.get(id)) || id;
     }
 
     function resolvePriorityName(value) {
         const id = text(value).toLowerCase();
-        if (!id || id === 'none') return '未设置';
+        if (!id || id === 'none') return __tmT("common.notSet");
         const matched = PRIORITY_DEFINITIONS.find((item) => item.id === id);
         return matched ? matched.name : text(value);
     }
@@ -5003,7 +5042,7 @@
         if (scope) {
             const inTaskSet = scope.taskIDs.includes(dto.id);
             const inDocumentSet = scope.scopeMode === 'documents' && scope.documentIDs.includes(dto.documentID);
-            if (!inTaskSet && !inDocumentSet) throw new DomainError(ERROR.NOT_FOUND, '任务不属于指定范围');
+            if (!inTaskSet && !inDocumentSet) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.theTaskDoesNotBelongToTheSpecifiedScope"));
         }
         applyScopedTaskValues(dto, dto.id, fields, scope);
         if (!Array.isArray(fields) || !fields.length || fields.includes('customFieldValues')) {
@@ -5017,10 +5056,10 @@
     async function getTaskDTOByReference(taskID, fields, scopeToken) {
         const rawID = text(taskID);
         if (VIRTUAL_TASK_ID_RE.test(rawID)) {
-            if (!text(scopeToken)) throw new DomainError(ERROR.NOT_FOUND, '循环虚拟任务需要有效的任务范围令牌');
+            if (!text(scopeToken)) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.recurringVirtualTasksNeedAValidTaskScopeToken"));
             const scope = normalizeTaskScope({ scopeToken });
             const virtualTask = scope.virtualTaskMap.get(rawID);
-            if (!virtualTask) throw new DomainError(ERROR.NOT_FOUND, '循环虚拟任务不属于指定范围');
+            if (!virtualTask) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.theRecurringVirtualTaskDoesNotBelongToThe"));
             const registry = await getFieldRegistry();
             const dto = projectTaskDTO(applyTaskDisplayNames({ ...virtualTask }, registry), fields, ['virtualTask', 'virtualType', 'readOnly', 'sourceTaskID']);
             if (!Array.isArray(fields) || !fields.length || fields.includes('customFieldValues')) {
@@ -5142,7 +5181,7 @@
         `);
         if (!taskRows.length) return { status: 'skipped-empty' };
 
-        const taskID = requireID(taskRows[0].id, '迁移目标任务 ID');
+        const taskID = requireID(taskRows[0].id, __tmT("kernel.migrationTargetTaskId"));
         const owner = text(sourceAttrs[ATTR_OWNER]);
         if (taskRows.length === 1) {
             if (owner && owner !== taskID) return { status: 'skipped-owner', taskID, owner };
@@ -5292,13 +5331,13 @@
         if (!report.failures.length) report.version = TASK_ATTR_ITEM_STORAGE_VERSION;
         await writeJson(TASK_ATTR_STORAGE_FILE, report);
         if (report.failures.length) {
-            throw new DomainError(ERROR.STORAGE_ERROR, '任务属性迁移未完成', { failures: report.failures });
+            throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.taskAttributeMigrationDidNotComplete"), { failures: report.failures });
         }
         return report;
     }
 
     async function buildCanonicalTaskAttrs(binding, patchAttrs, registry) {
-        const taskID = requireID(binding.taskID, '任务 ID');
+        const taskID = requireID(binding.taskID, __tmT("kernel.taskId"));
         const out = {};
         const allowed = taskOwnedAttrKeys(registry);
         const sourceAttrs = await readAttrs(taskID);
@@ -5318,7 +5357,7 @@
 
     async function buildTaskAttrWriteOperations(binding, attrs) {
         if (!Object.keys(attrs || {}).length) return [];
-        const taskID = requireID(binding.taskID, '任务 ID');
+        const taskID = requireID(binding.taskID, __tmT("kernel.taskId"));
         return [{ action: 'setAttrs', id: taskID, data: JSON.stringify(attrs) }];
     }
 
@@ -5349,7 +5388,7 @@
     }
 
     async function reconcileTaskAttrHostsNow(taskIDs, registryInput) {
-        const requestedIDs = uniqueStrings(taskIDs).map((id) => requireID(id, '任务 ID'));
+        const requestedIDs = uniqueStrings(taskIDs).map((id) => requireID(id, __tmT("kernel.taskId")));
         if (!requestedIDs.length) return { taskIDs: [], reconciled: 0, writtenHosts: [] };
         const registry = registryInput || await getFieldRegistry();
         const items = [];
@@ -5380,7 +5419,7 @@
     }
 
     async function reconcileTaskAttrHosts(taskIDs) {
-        const ids = uniqueStrings(taskIDs).map((id) => requireID(id, '任务 ID'));
+        const ids = uniqueStrings(taskIDs).map((id) => requireID(id, __tmT("kernel.taskId")));
         return runTaskLanes(ids, () => reconcileTaskAttrHostsNow(ids));
     }
 
@@ -5390,7 +5429,7 @@
     }
 
     async function captureAttrSnapshots(binding, keys) {
-        const hostIDs = [requireID(binding.taskID, '任务 ID')];
+        const hostIDs = [requireID(binding.taskID, __tmT("kernel.taskId"))];
         const snapshots = [];
         for (const hostID of hostIDs) {
             const current = await readAttrs(hostID);
@@ -5424,7 +5463,7 @@
             const attachmentSlot = key.startsWith(ATTACHMENT_ATTR_PREFIX)
                 && /^\d+$/.test(key.slice(ATTACHMENT_ATTR_PREFIX.length));
             if (!allowed.has(key) && !attachmentSlot) {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, `不支持的任务属性: ${key || '(empty)'}`);
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unsupportedTaskAttribute", { value1: key || '(empty)' }));
             }
             out[key] = String(value == null ? '' : value);
         });
@@ -5432,7 +5471,7 @@
     }
 
     async function persistUiTaskAttrs(taskID, rawAttrs, options) {
-        const id = requireID(taskID, '任务 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
         const laneID = text(options?.laneID || options?.laneId) || id;
         return runTaskLane(laneID, async () => {
             const attrs = await normalizeUiAttrPayload(rawAttrs);
@@ -5492,35 +5531,35 @@
     function normalizeReminderDate(value, label, required) {
         const raw = text(value);
         if (!raw) {
-            if (required) throw new DomainError(ERROR.INVALID_ARGUMENT, `${label}不能为空`);
+            if (required) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.cannotBeEmpty", { label: label }));
             return '';
         }
         const key = raw.slice(0, 10);
         if (!isStrictDateKey(key)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, `${label}格式无效，应为 YYYY-MM-DD`);
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.hasAnInvalidFormatExpectedYyyyMmDd", { label: label }));
         }
         return key;
     }
 
     function normalizeReminderTimes(value) {
-        if (!Array.isArray(value) || !value.length) throw new DomainError(ERROR.INVALID_ARGUMENT, '提醒时间不能为空');
+        if (!Array.isArray(value) || !value.length) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.reminderTimeCannotBeEmpty"));
         const times = uniqueStrings(value.map((item) => text(item))).map((item) => {
             const matched = item.match(/^(\d{2}):(\d{2})$/);
             const hour = matched ? Number(matched[1]) : NaN;
             const minute = matched ? Number(matched[2]) : NaN;
             if (!matched || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, `提醒时间无效: ${item || '(empty)'}`);
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidReminderTime", { value1: item || '(empty)' }));
             }
             return item;
         }).sort();
-        if (times.length > 12) throw new DomainError(ERROR.INVALID_ARGUMENT, '单个任务最多设置 12 个提醒时间');
+        if (times.length > 12) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aTaskCanHaveAtMostReminderTimes"));
         return times;
     }
 
     function normalizeReminderEvery(value) {
         const every = value == null || text(value) === '' ? 1 : Number(value);
         if (!Number.isInteger(every) || every < 1 || every > 365) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '提醒间隔必须是 1 到 365 的整数');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theReminderIntervalMustBeAnIntegerFromTo"));
         }
         return every;
     }
@@ -5564,8 +5603,8 @@
             ...previous,
             blockId: taskState.binding.primaryHostID,
             taskId: taskState.task.id,
-            blockName: taskState.task.title || '任务',
-            blockContent: taskState.task.title || '任务',
+            blockName: taskState.task.title || __tmT("kernel.task"),
+            blockContent: taskState.task.title || __tmT("kernel.task"),
             rootId: taskState.task.documentID,
             enabled: true,
             createdAt: text(current && current.createdAt) || now,
@@ -5575,13 +5614,13 @@
 
     function buildFollowTaskReminder(args, taskState) {
         const follow = args.follow && typeof args.follow === 'object' && !Array.isArray(args.follow) ? args.follow : {};
-        const taskStartDate = normalizeReminderDate(taskState.task.startDate, '任务开始日期', false);
+        const taskStartDate = normalizeReminderDate(taskState.task.startDate, __tmT("kernel.taskStartDate"), false);
         const repeatRule = taskState.task.repeatRule && typeof taskState.task.repeatRule === 'object'
             ? taskState.task.repeatRule
             : null;
         const repeatEnabled = !!(repeatRule && repeatRule.enabled !== false && text(repeatRule.type) !== 'none');
         const checkin = repeatEnabled && repeatRule.trigger === 'checkin';
-        const taskCompletionTime = checkin ? '' : normalizeReminderDate(follow.date || taskState.task.completionTime, '跟随提醒日期', true);
+        const taskCompletionTime = checkin ? '' : normalizeReminderDate(follow.date || taskState.task.completionTime, __tmT("kernel.followReminderDate"), true);
         return {
             ...reminderBaseRecord(taskState.reminder, taskState),
             repeatMode: REMINDER_REPEAT_MODE_FOLLOW_TASK,
@@ -5609,11 +5648,11 @@
         const schedule = args.schedule && typeof args.schedule === 'object' && !Array.isArray(args.schedule) ? args.schedule : {};
         const interval = text(schedule.interval) || 'once';
         if (!REMINDER_INTERVALS.includes(interval)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, `不支持的提醒重复方式: ${interval}`);
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unsupportedReminderRecurrence", { interval: interval }));
         }
-        const startDate = normalizeReminderDate(schedule.startDate, '提醒开始日期', true);
-        const endDate = normalizeReminderDate(schedule.endDate, '提醒结束日期', false);
-        if (endDate && endDate < startDate) throw new DomainError(ERROR.INVALID_ARGUMENT, '提醒结束日期不能早于开始日期');
+        const startDate = normalizeReminderDate(schedule.startDate, __tmT("kernel.reminderStartDate"), true);
+        const endDate = normalizeReminderDate(schedule.endDate, __tmT("kernel.reminderEndDate"), false);
+        if (endDate && endDate < startDate) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theReminderEndDateCannotBeEarlierThanThe"));
         return {
             ...reminderBaseRecord(taskState.reminder, taskState),
             repeatMode: REMINDER_REPEAT_MODE_MANUAL,
@@ -5638,12 +5677,12 @@
     function normalizeReminderOperation(args, taskState) {
         const operation = text(args && args.operation);
         if (operation !== 'set' && operation !== 'clear') {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '提醒操作必须是 set 或 clear');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theReminderActionMustBeSetOrClear"));
         }
         if (operation === 'clear') return { operation, mode: '', reminder: null };
         const mode = text(args && args.mode);
         if (mode !== 'follow_task' && mode !== 'independent') {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '提醒模式必须是 follow_task 或 independent');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theReminderModeMustBeFollowTaskOrIndependent"));
         }
         const reminder = mode === 'follow_task'
             ? buildFollowTaskReminder(args, taskState)
@@ -5693,13 +5732,13 @@
     async function persistTaskReminder(binding, taskState, normalized) {
         const registry = await getFieldRegistry();
         const completionField = registry.byId.get('completionTime');
-        if (!completionField || !completionField.attr) throw new DomainError(ERROR.STORAGE_ERROR, '任务截止日期字段不可写');
+        if (!completionField || !completionField.attr) throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.theTaskDueDateFieldIsNotWritable"));
 
         const previousReminder = taskState.reminder && typeof taskState.reminder === 'object' ? taskState.reminder : null;
         const previousFollowDate = previousReminder && previousReminder.repeatMode === REMINDER_REPEAT_MODE_FOLLOW_TASK
             ? text(previousReminder.taskCompletionTime || previousReminder.startDate).slice(0, 10)
             : '';
-        const currentCompletion = normalizeReminderDate(taskState.task.completionTime, '任务截止日期', false);
+        const currentCompletion = normalizeReminderDate(taskState.task.completionTime, __tmT("kernel.taskDueDate"), false);
         let completionTime = currentCompletion;
         let completionChanged = false;
         const completionCleared = false;
@@ -5709,7 +5748,7 @@
         }
 
         if (completionChanged && taskState.task.dateMode === 'rollup') {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '日期由子任务汇总，请先切换为手动设置');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.datesAreRolledUpFromSubtasksSwitchToManual"));
         }
         const deadlineAttrs = completionChanged
             ? buildAttrPayload({ completionTime }, registry, binding.taskID)
@@ -5727,7 +5766,7 @@
                 await persistTaskAttrs({ taskID: binding.taskID, ...taskState.binding }, deadlineAttrs);
                 const persistedTask = await taskDTO(binding.taskID, ['completionTime']);
                 if (persistedTask.completionTime !== completionTime) {
-                    throw new DomainError(ERROR.STORAGE_ERROR, '任务截止日期写入后回读校验失败');
+                    throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.readBackVerificationFailedAfterWritingTheTaskDue"));
                 }
             }
             await persistReminderAttrs({ taskID: binding.taskID, ...taskState.binding }, reminderAttrs);
@@ -5736,7 +5775,7 @@
             const reminderPersisted = normalized.reminder
                 ? !!persistedReminder && stableJson(persistedReminder) === stableJson(normalized.reminder)
                 : !text(persistedAttrs[REMINDER_ATTR]);
-            if (!reminderPersisted) throw new DomainError(ERROR.STORAGE_ERROR, '提醒写入后回读校验失败');
+            if (!reminderPersisted) throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.readBackVerificationFailedAfterWritingTheReminder"));
             const task = await taskDTO(binding.taskID);
             return {
                 taskID: binding.taskID,
@@ -5755,7 +5794,7 @@
         } catch (error) {
             const rollbackFailures = await restoreAttrSnapshots(snapshots);
             if (rollbackFailures.length) {
-                throw new DomainError(ERROR.STORAGE_ERROR, '提醒写入失败，且属性回滚未完全成功', {
+                throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.reminderWriteFailedAndTheAttributeRollbackDidNot"), {
                     cause: text(error && error.message) || String(error),
                     rollbackFailures,
                 });
@@ -5832,17 +5871,17 @@
         let taskMatchType = '';
         let taskMatchDistance = null;
         if (!taskID) {
-            if (text(source.operation) !== 'set') throw new DomainError(ERROR.INVALID_ARGUMENT, '清除提醒时必须提供任务 ID');
+            if (text(source.operation) !== 'set') throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aTaskIdIsRequiredWhenClearingAReminder"));
             const taskTitle = text(source.taskTitle || source.title);
             const documentID = text(source.documentID || source.documentId);
-            if (!taskTitle) throw new DomainError(ERROR.INVALID_ARGUMENT, '没有绑定任务时必须提供提醒对应的任务标题');
+            if (!taskTitle) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.whenNoTaskIsBoundTheReminderTaskTitle"));
             const taskMatch = await findReminderTaskByTitle(taskTitle);
             taskID = text(taskMatch?.taskID);
             taskReused = !!taskID;
             taskMatchType = taskReused ? text(taskMatch?.matchType) : '';
             taskMatchDistance = taskReused && Number.isFinite(Number(taskMatch?.matchDistance)) ? Number(taskMatch.matchDistance) : null;
             if (!taskID) {
-                if (!documentID) throw new DomainError(ERROR.INVALID_ARGUMENT, '没有匹配任务时必须提供插件默认新建位置的文档 ID');
+                if (!documentID) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.whenNoTaskMatchesThePluginDefaultCreationDocument"));
                 created = await createTask({ title: taskTitle, documentID });
                 taskID = text(created?.task?.id);
             }
@@ -5875,17 +5914,17 @@
         pruneTokens(state.reminderTokens);
         const previewToken = text(args && args.previewToken);
         const preview = state.reminderTokens.get(previewToken);
-        if (!preview) throw new DomainError(ERROR.CONFIRMATION_REQUIRED, '请先预览提醒变更并使用有效确认令牌');
+        if (!preview) throw new DomainError(ERROR.CONFIRMATION_REQUIRED, __tmT("kernel.previewTheReminderChangeFirstAndUseAValid"));
         const binding = await resolveTaskBinding(args && args.taskID);
         const requestedOperation = text(args && args.operation);
         if (binding.taskID !== preview.taskID || (requestedOperation && requestedOperation !== preview.normalized.operation)) {
-            throw new DomainError(ERROR.CONFIRMATION_REQUIRED, '提醒确认令牌与当前操作不匹配');
+            throw new DomainError(ERROR.CONFIRMATION_REQUIRED, __tmT("kernel.theReminderConfirmationTokenDoesNotMatchTheCurrent"));
         }
         return runTaskLane(binding.taskID, async () => {
             const taskState = await readReminderTaskState(binding.taskID);
             if (taskState.fingerprint !== preview.fingerprint) {
                 state.reminderTokens.delete(previewToken);
-                throw new DomainError(ERROR.STALE_REVISION, '任务或提醒在预览后已发生变化，请重新预览');
+                throw new DomainError(ERROR.STALE_REVISION, __tmT("kernel.theTaskOrReminderChangedAfterPreviewPreviewAgain"));
             }
             const normalized = preview.normalized.operation === 'set'
                 ? normalizeReminderOperation({
@@ -5925,7 +5964,7 @@
         }
         if (result.completionChanged) {
             try { result.dateRollupUpdates = await reconcileTaskDateRollups(result.refresh?.documentIDs || []); }
-            catch (error) { result.dateRollupError = text(error.message) || '父任务日期汇总失败'; }
+            catch (error) { result.dateRollupError = text(error.message) || __tmT("kernel.parentTaskDateRollUpFailed"); }
         }
         return result;
     }
@@ -5945,7 +5984,7 @@
         const hour = match ? Number(match[1]) : NaN;
         const minute = match ? Number(match[2]) : NaN;
         if (!match || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, 'AI 定时任务时间无效，应为 HH:mm');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidAiScheduledTaskTimeExpectedHhMm"));
         }
         return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
     }
@@ -5960,11 +5999,11 @@
             ? source.output
             : (previous.output || {});
         const kind = text(schedule.kind || previous.schedule && previous.schedule.kind);
-        if (!AGENT_SCHEDULE_KINDS.includes(kind)) throw new DomainError(ERROR.INVALID_ARGUMENT, 'AI 定时任务重复方式无效');
-        const date = kind === 'once' ? normalizeReminderDate(schedule.date || previous.schedule && previous.schedule.date, 'AI 定时任务日期', true) : '';
+        if (!AGENT_SCHEDULE_KINDS.includes(kind)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidAiScheduledTaskRecurrence"));
+        const date = kind === 'once' ? normalizeReminderDate(schedule.date || previous.schedule && previous.schedule.date, __tmT("kernel.aiScheduledTaskDate"), true) : '';
         const name = text(source.name || previous.name).slice(0, 120);
         const prompt = text(source.prompt || previous.prompt).slice(0, 20000);
-        if (!name || !prompt) throw new DomainError(ERROR.INVALID_ARGUMENT, 'AI 定时任务名称和指令不能为空');
+        if (!name || !prompt) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aiScheduledTaskNameAndInstructionCannotBeEmpty"));
         const id = text(source.id || previous.id) || token('agent_schedule');
         const now = Date.now();
         const outputMode = text(output.mode || previous.output && previous.output.mode);
@@ -6007,7 +6046,7 @@
                 : cloneAgentSchedule(previous.lastRun || {}),
         };
         if (event.output.mode === 'document' && !event.output.documentId) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, 'AI 定时任务写入文档时必须指定文档 ID');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aDocumentIdIsRequiredWhenAnAiScheduled"));
         }
         return event;
     }
@@ -6046,20 +6085,20 @@
 
     async function resolveAgentScheduleOutputDocument(input) {
         const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
-        const parentDocumentID = requireID(source.parentDocumentID || source.parentDocumentId, '父文档 ID');
+        const parentDocumentID = requireID(source.parentDocumentID || source.parentDocumentId, __tmT("kernel.parentDocumentId"));
         const month = text(source.month);
         if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '月度子文档月份无效，应为 YYYY-MM');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidMonthlySubdocumentMonthExpectedYyyyMm"));
         }
         return runAgentScheduleLane(async () => {
             const parentRows = await sql(`SELECT id, box, path, hpath FROM blocks WHERE id = '${escapeSql(parentDocumentID)}' AND type = 'd' LIMIT 1`);
             const parent = parentRows[0];
-            if (!parent) throw new DomainError(ERROR.NOT_FOUND, 'AI 定时任务父文档不存在');
+            if (!parent) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.theAiScheduledTaskParentDocumentDoesNotExist"));
             const box = text(parent.box);
             const parentPath = text(parent.path);
             const parentHPath = text(parent.hpath).replace(/\/$/, '');
             if (!box || !parentPath.endsWith('.sy') || !parentHPath) {
-                throw new DomainError(ERROR.STORAGE_ERROR, '无法解析 AI 定时任务父文档路径');
+                throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.cannotResolveTheAiScheduledTaskParentDocumentPath"));
             }
             const childPathPrefix = `${parentPath.slice(0, -3)}/`;
             const rows = await sql(`
@@ -6075,14 +6114,14 @@
                 const relative = childPath.startsWith(childPathPrefix) ? childPath.slice(childPathPrefix.length) : '';
                 return relative.endsWith('.sy') && !relative.slice(0, -3).includes('/');
             });
-            if (existing) return { documentID: requireID(existing.id, '月度子文档 ID'), created: false, month };
+            if (existing) return { documentID: requireID(existing.id, __tmT("kernel.monthlySubdocumentId")), created: false, month };
             const created = await api('/api/filetree/createDocWithMd', {
                 notebook: box,
                 path: `${parentHPath}/${month}`,
                 parentID: parentDocumentID,
                 markdown: '',
             });
-            return { documentID: requireID(created, '月度子文档 ID'), created: true, month };
+            return { documentID: requireID(created, __tmT("kernel.monthlySubdocumentId")), created: true, month };
         });
     }
 
@@ -6129,8 +6168,8 @@
 
     async function replaceAgentSchedules(input) {
         const source = Array.isArray(input) ? input : (Array.isArray(input && input.events) ? input.events : null);
-        if (!source) throw new DomainError(ERROR.INVALID_ARGUMENT, 'AI 定时任务列表格式无效');
-        if (source.length > 500) throw new DomainError(ERROR.INVALID_ARGUMENT, 'AI 定时任务最多保留 500 条');
+        if (!source) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidAiScheduledTaskListFormat"));
+        if (source.length > 500) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aiScheduledTasksAreCappedAt"));
         return runAgentScheduleLane(async () => {
             const currentItems = await loadAgentSchedules({ allowMissing: true });
             const currentByID = new Map(currentItems.map((event) => [event.id, event]));
@@ -6138,11 +6177,11 @@
             const next = source.map((item) => {
                 const requestedID = text(item && item.id);
                 if (requestedID && seen.has(requestedID)) {
-                    throw new DomainError(ERROR.INVALID_ARGUMENT, `AI 定时任务 ID 重复: ${requestedID}`);
+                    throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.duplicateAiScheduledTaskId", { requestedID: requestedID }));
                 }
                 const current = requestedID ? currentByID.get(requestedID) : null;
                 const event = preserveAgentScheduleRuntime(normalizeAgentScheduleEvent(item, current), current);
-                if (seen.has(event.id)) throw new DomainError(ERROR.INVALID_ARGUMENT, `AI 定时任务 ID 重复: ${event.id}`);
+                if (seen.has(event.id)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.duplicateAiScheduledTaskId2", { id: event.id }));
                 seen.add(event.id);
                 return event;
             });
@@ -6153,11 +6192,11 @@
 
     async function deleteAgentSchedule(scheduleID) {
         const id = text(scheduleID);
-        if (!id) throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少 AI 定时任务 ID');
+        if (!id) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.missingAiScheduledTaskId"));
         return runAgentScheduleLane(async () => {
             const items = await loadAgentSchedules();
             const next = items.filter((item) => item.id !== id);
-            if (next.length === items.length) throw new DomainError(ERROR.NOT_FOUND, 'AI 定时任务不存在');
+            if (next.length === items.length) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.aiScheduledTaskDoesNotExist"));
             await writeJson(AGENT_SCHEDULE_FILE, next);
             return { id, deleted: true };
         });
@@ -6169,11 +6208,11 @@
         const occurrenceKey = text(source.occurrenceKey);
         const manual = source.manual === true;
         const preserveResult = source.preserveResult === true;
-        if (!scheduleID || !occurrenceKey) throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少 AI 定时任务 ID 或发生键');
+        if (!scheduleID || !occurrenceKey) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.missingAiScheduledTaskIdOrOccurrenceKey"));
         return runAgentScheduleLane(async () => {
             const items = await loadAgentSchedules();
             const index = items.findIndex((item) => item.id === scheduleID);
-            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, 'AI 定时任务不存在');
+            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.aiScheduledTaskDoesNotExist"));
             const event = items[index];
             const ledger = event.lastOccurrence && typeof event.lastOccurrence === 'object' ? event.lastOccurrence : {};
             const now = Date.now();
@@ -6227,17 +6266,17 @@
         const scheduleID = text(source.scheduleID || source.id);
         const occurrenceKey = text(source.occurrenceKey);
         const ownerID = text(source.ownerID || source.ownerId);
-        if (!scheduleID || !occurrenceKey || !ownerID) throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少 AI 定时任务续租参数');
+        if (!scheduleID || !occurrenceKey || !ownerID) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.missingAiScheduledTaskLeaseParameters"));
         return runAgentScheduleLane(async () => {
             const items = await loadAgentSchedules();
             const index = items.findIndex((item) => item.id === scheduleID);
-            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, 'AI 定时任务不存在');
+            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.aiScheduledTaskDoesNotExist"));
             const event = items[index];
             const ledger = event.lastOccurrence && typeof event.lastOccurrence === 'object' ? event.lastOccurrence : {};
             if (text(ledger.status) !== 'running'
                 || text(ledger.occurrenceKey) !== occurrenceKey
                 || text(ledger.ownerId) !== ownerID) {
-                throw new DomainError(ERROR.CONFLICT, 'AI 定时任务执行权已失效');
+                throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theAiScheduledTaskLeaseHasExpired"));
             }
             const leaseUntil = Date.now() + AGENT_SCHEDULE_LEASE_MS;
             event.lastOccurrence = { ...ledger, leaseUntil };
@@ -6255,16 +6294,16 @@
         const status = text(source.status);
         const manual = source.manual === true;
         const patch = source.patch && typeof source.patch === 'object' && !Array.isArray(source.patch) ? source.patch : {};
-        if (!scheduleID || !occurrenceKey) throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少 AI 定时任务 ID 或发生键');
-        if (!AGENT_SCHEDULE_FINISH_STATUSES.has(status)) throw new DomainError(ERROR.INVALID_ARGUMENT, 'AI 定时任务完成状态无效');
+        if (!scheduleID || !occurrenceKey) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.missingAiScheduledTaskIdOrOccurrenceKey"));
+        if (!AGENT_SCHEDULE_FINISH_STATUSES.has(status)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidAiScheduledTaskCompletionState"));
         return runAgentScheduleLane(async () => {
             const items = await loadAgentSchedules();
             const index = items.findIndex((item) => item.id === scheduleID);
-            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, 'AI 定时任务不存在');
+            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.aiScheduledTaskDoesNotExist"));
             const event = items[index];
             const ledger = event.lastOccurrence && typeof event.lastOccurrence === 'object' ? event.lastOccurrence : {};
             if (!manual && (text(ledger.occurrenceKey) !== occurrenceKey || !ownerID || text(ledger.ownerId) !== ownerID)) {
-                throw new DomainError(ERROR.CONFLICT, 'AI 定时任务执行权已失效');
+                throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theAiScheduledTaskLeaseHasExpired"));
             }
             const now = Date.now();
             if (!manual) {
@@ -6301,13 +6340,13 @@
         if (action === 'create') return saveAgentSchedule({ ...(args.event || {}), id: '' });
         if (action === 'update') {
             const id = text(args && (args.scheduleID || args.id));
-            if (!id) throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少 AI 定时任务 ID');
+            if (!id) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.missingAiScheduledTaskId"));
             const current = (await loadAgentSchedules()).find((item) => item.id === id);
-            if (!current) throw new DomainError(ERROR.NOT_FOUND, 'AI 定时任务不存在');
+            if (!current) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.aiScheduledTaskDoesNotExist"));
             return saveAgentSchedule({ ...current, ...(args.patch || {}), id });
         }
         if (action === 'delete') return deleteAgentSchedule(args && (args.scheduleID || args.id));
-        throw new DomainError(ERROR.INVALID_ARGUMENT, 'AI 定时任务操作必须是 list、create、update 或 delete');
+        throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theAiScheduledTaskActionMustBeListCreate"));
     }
 
     function normalizeExplicitAttrs(rawAttrs) {
@@ -6316,7 +6355,7 @@
         Object.entries(source).forEach(([rawKey, value]) => {
             const key = text(rawKey);
             if (key !== 'alias' && key !== 'bookmark' && !SAFE_ATTR_RE.test(key)) {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, `属性名无效: ${key || '(empty)'}`);
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidAttributeName", { value1: key || '(empty)' }));
             }
             out[key] = String(value == null ? '' : value);
         });
@@ -6327,7 +6366,7 @@
         const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
         const action = text(source.action);
         if (action === 'setAttrs') {
-            const id = requireID(source.id, '块 ID');
+            const id = requireID(source.id, __tmT("kernel.blockId"));
             const attrs = normalizeExplicitAttrs(source.attrs);
             await guardTaskDateAttrWrite(id, attrs);
             await setAttrs(id, attrs);
@@ -6336,7 +6375,7 @@
         if (action === 'batchSetAttrs') {
             const entries = Array.isArray(source.entries) ? source.entries.slice(0, 200) : [];
             const blockAttrs = entries.map((entry) => ({
-                id: requireID(entry && entry.id, '块 ID'),
+                id: requireID(entry && entry.id, __tmT("kernel.blockId")),
                 attrs: normalizeExplicitAttrs(entry && entry.attrs),
             })).filter((entry) => Object.keys(entry.attrs).length > 0);
             for (const entry of blockAttrs) await guardTaskDateAttrWrite(entry.id, entry.attrs);
@@ -6346,25 +6385,25 @@
             return { written: entries.length };
         }
         if (action === 'updateBlock') {
-            const id = requireID(source.id, '块 ID');
+            const id = requireID(source.id, __tmT("kernel.blockId"));
             const data = String(source.data == null ? '' : source.data);
             const dataType = text(source.dataType) === 'dom' ? 'dom' : 'markdown';
             const result = await api('/api/block/updateBlock', { id, data, dataType });
             return { id: extractInsertedID(result) || id };
         }
         if (action === 'insertBlock' || action === 'appendBlock' || action === 'prependBlock') {
-            const parentID = requireID(source.parentID || source.parentId, '父块 ID');
+            const parentID = requireID(source.parentID || source.parentId, __tmT("kernel.parentBlockId"));
             const requestedID = text(source.requestedID || source.requestedId);
             if (requestedID) {
-                requireID(requestedID, '预生成块 ID');
+                requireID(requestedID, __tmT("kernel.preGeneratedBlockId"));
                 const existing = await sql(`SELECT id FROM blocks WHERE id = '${escapeSql(requestedID)}' LIMIT 1`);
                 if (existing.length) return { id: requestedID, recovered: true };
             }
             const dataType = text(source.dataType) === 'dom' ? 'dom' : 'markdown';
             const payload = { parentID, data: String(source.data == null ? '' : source.data), dataType };
             if (action === 'insertBlock') {
-                if (text(source.nextID || source.nextId)) payload.nextID = requireID(source.nextID || source.nextId, '后一块 ID');
-                if (text(source.previousID || source.previousId)) payload.previousID = requireID(source.previousID || source.previousId, '前一块 ID');
+                if (text(source.nextID || source.nextId)) payload.nextID = requireID(source.nextID || source.nextId, __tmT("kernel.nextBlockId"));
+                if (text(source.previousID || source.previousId)) payload.previousID = requireID(source.previousID || source.previousId, __tmT("kernel.previousBlockId"));
             }
             const endpoint = action === 'insertBlock'
                 ? '/api/block/insertBlock'
@@ -6373,13 +6412,13 @@
                     : '/api/block/appendBlock';
             const result = await api(endpoint, payload);
             const id = requestedID || extractInsertedID(result);
-            if (!id) throw new DomainError(ERROR.STORAGE_ERROR, '写入块后未返回块 ID');
+            if (!id) throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.noBlockIdWasReturnedAfterWritingTheBlock"));
             return { id };
         }
         if (action === 'createSubtask') {
-            const parentTaskID = requireID(source.parentTaskID || source.parentTaskId, '父任务 ID');
-            const taskID = requireID(source.taskID || source.taskId, '子任务 ID');
-            const listID = requireID(source.listID || source.listId, '子列表 ID');
+            const parentTaskID = requireID(source.parentTaskID || source.parentTaskId, __tmT("kernel.parentTaskId"));
+            const taskID = requireID(source.taskID || source.taskId, __tmT("kernel.subtaskId"));
+            const listID = requireID(source.listID || source.listId, __tmT("kernel.sublistId"));
             let listData = String(source.listData == null ? '' : source.listData).trim();
             let itemData = String(source.itemData == null ? '' : source.itemData).trim();
             if ((source.inheritedDateFields || []).length) {
@@ -6398,12 +6437,12 @@
                 }
             }
             const requestedPreviousID = text(source.previousTaskID || source.previousTaskId);
-            if (requestedPreviousID) requireID(requestedPreviousID, '前一子任务 ID');
-            if (!listData || !itemData) throw new DomainError(ERROR.INVALID_ARGUMENT, '子任务 DOM 不能为空');
+            if (requestedPreviousID) requireID(requestedPreviousID, __tmT("kernel.previousSubtaskId"));
+            if (!listData || !itemData) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.subtaskDomCannotBeEmpty"));
             if (!listData.includes(`data-node-id="${listID}"`)
                 || !listData.includes(`data-node-id="${taskID}"`)
                 || !itemData.includes(`data-node-id="${taskID}"`)) {
-                throw new DomainError(ERROR.STORAGE_ERROR, '子任务 DOM 与预生成块 ID 不一致');
+                throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.theSubtaskDomDoesNotMatchThePreGenerated"));
             }
             const readBlockDOM = async (id) => {
                 try {
@@ -6445,12 +6484,12 @@
                     && parentDOM.includes(`data-node-id="${listID}"`)) {
                     return { id: taskID, listID, recovered: true, authoritative: true };
                 }
-                throw new DomainError(ERROR.CONFLICT, '预生成子任务 ID 已被其他块占用');
+                throw new DomainError(ERROR.CONFLICT, __tmT("kernel.thePreGeneratedSubtaskIdIsAlreadyUsedBy"));
             }
             const listRows = await sql(`SELECT id, parent_id, type FROM blocks WHERE id = '${escapeSql(listID)}' LIMIT 1`);
             if (listRows.length) {
                 if (text(listRows[0].parent_id) !== parentTaskID || text(listRows[0].type).toLowerCase() !== 'l') {
-                    throw new DomainError(ERROR.CONFLICT, '预生成子列表 ID 已被其他块占用');
+                    throw new DomainError(ERROR.CONFLICT, __tmT("kernel.thePreGeneratedSublistIdIsAlreadyUsedBy"));
                 }
                 const previousID = requestedPreviousID || await resolveLastChildID(listID);
                 await api('/api/transactions', {
@@ -6474,7 +6513,7 @@
             if (existingListDOM) {
                 const parentDOM = await readBlockDOM(parentTaskID);
                 if (!parentDOM.includes(`data-node-id="${listID}"`)) {
-                    throw new DomainError(ERROR.CONFLICT, '预生成子列表已存在于其他父任务');
+                    throw new DomainError(ERROR.CONFLICT, __tmT("kernel.thePreGeneratedSublistAlreadyExistsUnderAnotherParent"));
                 }
                 if (existingListDOM.includes(`data-node-id="${taskID}"`)) {
                     return { id: taskID, listID, recovered: true, authoritative: true };
@@ -6510,30 +6549,30 @@
             return { id: taskID, listID, previousID: parentPreviousID, atomic: true, authoritative: true };
         }
         if (action === 'moveBlock') {
-            const id = requireID(source.id, '块 ID');
+            const id = requireID(source.id, __tmT("kernel.blockId"));
             const payload = { id };
-            if (text(source.previousID || source.previousId)) payload.previousID = requireID(source.previousID || source.previousId, '前一块 ID');
+            if (text(source.previousID || source.previousId)) payload.previousID = requireID(source.previousID || source.previousId, __tmT("kernel.previousBlockId"));
             const nextID = text(source.nextID || source.nextId);
             if (!payload.previousID && nextID) {
-                requireID(nextID, '后一块 ID');
+                requireID(nextID, __tmT("kernel.nextBlockId"));
                 const nextRows = await sql(`SELECT id, parent_id FROM blocks WHERE id = '${escapeSql(nextID)}' LIMIT 1`);
-                if (!nextRows.length) throw new DomainError(ERROR.NOT_FOUND, '后一块不存在');
+                if (!nextRows.length) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.theNextBlockDoesNotExist"));
                 const parentID = text(nextRows[0].parent_id);
                 const siblings = await sql(`SELECT id FROM blocks WHERE parent_id = '${escapeSql(parentID)}' ORDER BY sort ASC, created ASC, id ASC`);
                 const ordered = siblings.map((item) => text(item.id)).filter((itemID) => itemID && itemID !== id);
                 const nextIndex = ordered.indexOf(nextID);
-                if (nextIndex < 0) throw new DomainError(ERROR.CONFLICT, '后一块的位置已经变化');
+                if (nextIndex < 0) throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theNextBlockSPositionHasChanged"));
                 if (nextIndex > 0) payload.previousID = ordered[nextIndex - 1];
-                else payload.parentID = requireID(parentID, '父块 ID');
+                else payload.parentID = requireID(parentID, __tmT("kernel.parentBlockId"));
             } else if (text(source.parentID || source.parentId)) {
-                payload.parentID = requireID(source.parentID || source.parentId, '父块 ID');
+                payload.parentID = requireID(source.parentID || source.parentId, __tmT("kernel.parentBlockId"));
             }
-            if (Object.keys(payload).length === 1) throw new DomainError(ERROR.INVALID_ARGUMENT, '移动块缺少目标位置');
+            if (Object.keys(payload).length === 1) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theMovedBlockHasNoTargetPosition"));
             await api('/api/block/moveBlock', payload);
             return { id };
         }
         if (action === 'deleteBlock') {
-            const id = requireID(source.id, '块 ID');
+            const id = requireID(source.id, __tmT("kernel.blockId"));
             await api('/api/sqlite/flushTransaction', {});
             const existing = await sql(`SELECT id FROM blocks WHERE id = '${escapeSql(id)}' LIMIT 1`);
             if (!existing.length) return { id, recovered: true };
@@ -6542,9 +6581,9 @@
             return { id };
         }
         if (action === 'updateMarker') {
-            const id = requireID(source.id, '任务 ID');
+            const id = requireID(source.id, __tmT("kernel.taskId"));
             const marker = String(source.marker == null ? '' : source.marker);
-            if (marker.length !== 1) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务状态标记必须是单个字符');
+            if (marker.length !== 1) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theTaskStatusMarkerMustBeASingleCharacter"));
             await ensureTaskListMutationTarget(id);
             await api('/api/block/updateTaskListItemMarker', { id, marker });
             // Confirm against the same block tree that accepted the write. The
@@ -6554,9 +6593,9 @@
         }
         if (action === 'batchUpdateMarker') {
             const items = (Array.isArray(source.items) ? source.items : []).slice(0, 200).map((item) => {
-                const id = requireID(item && item.id, '任务 ID');
+                const id = requireID(item && item.id, __tmT("kernel.taskId"));
                 const marker = String(item?.marker == null ? '' : item.marker);
-                if (marker.length !== 1) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务状态标记必须是单个字符');
+                if (marker.length !== 1) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theTaskStatusMarkerMustBeASingleCharacter"));
                 return { id, marker };
             });
             if (!items.length) return { items: [] };
@@ -6566,7 +6605,7 @@
             await api('/api/block/batchUpdateTaskListItemMarker', { items });
             return { items };
         }
-        throw new DomainError(ERROR.INVALID_ARGUMENT, `不支持的 UI 块操作: ${action || '(empty)'}`);
+        throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unsupportedUiBlockAction", { value1: action || '(empty)' }));
     }
 
     async function persistUiBlockOperation(input) {
@@ -6612,10 +6651,10 @@
         catch (error) { if (error.code === ERROR.NOT_FOUND) return; throw error; }
         const modeKey = [fields[0].attr, ...fields[0].aliases].find(key => own(attrs, key));
         const requestedMode = modeKey ? attrs[modeKey] : undefined;
-        if (requestedMode && requestedMode !== 'manual') throw new DomainError(ERROR.INVALID_ARGUMENT, '请通过日期模式命令启用子任务汇总');
+        if (requestedMode && requestedMode !== 'manual') throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.enableSubtaskRollUpViaTheDateModeCommand"));
         if (task.dateMode === 'rollup' && requestedMode !== 'manual'
             && fields.slice(1).some(field => [field.attr, ...field.aliases].some(key => own(attrs, key)))) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '日期由子任务汇总，请先切换为手动设置');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.datesAreRolledUpFromSubtasksSwitchToManual"));
         }
     }
 
@@ -6663,7 +6702,7 @@
         const dateKey = value => isStrictDateKey(text(value).slice(0, 10)) ? text(value).slice(0, 10) : '';
         const visit = task => {
             if (visited.has(task.id)) return task;
-            if (visiting.has(task.id)) throw new DomainError(ERROR.CONFLICT, '任务层级存在循环，无法汇总日期');
+            if (visiting.has(task.id)) throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskHierarchyContainsACycleDatesCannotBe"));
             visiting.add(task.id);
             if (task.dateMode === 'rollup' && taskSupportsDateRollup(task)) {
                 const starts = [], ends = [];
@@ -6853,14 +6892,14 @@
             const dateDocuments = await taskDateMutationDocuments(source);
             let value;
             if (action === 'patch') {
-                const taskID = requireID(source.taskID || source.taskId, '任务 ID');
+                const taskID = requireID(source.taskID || source.taskId, __tmT("kernel.taskId"));
                 value = await applyTaskPatch(taskID, source.patch || {}, {
                     ...(source.options && typeof source.options === 'object' ? source.options : {}),
                     laneID,
                     recordUndo: source.recordUndo !== false,
                 });
             } else if (action === 'attrs') {
-                const taskID = requireID(source.taskID || source.taskId, '任务 ID');
+                const taskID = requireID(source.taskID || source.taskId, __tmT("kernel.taskId"));
                 value = await persistUiTaskAttrs(taskID, source.attrs || {}, { laneID });
             } else if (action === 'reconcileAttrs') {
                 value = await reconcileTaskAttrHosts(source.taskIDs || source.taskIds || []);
@@ -6877,7 +6916,7 @@
             } else if (action === 'blockOperation') {
                 value = await persistUiBlockOperation({ ...(source.operation || {}), laneID });
             } else {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, `不支持的任务命令: ${action || '(empty)'}`);
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unsupportedTaskCommand", { value1: action || '(empty)' }));
             }
             const dateRollupUpdates = action === 'reconcileDates' ? value.dateRollupUpdates : [];
             if (dateDocuments.length) {
@@ -6886,7 +6925,7 @@
                 catch (error) {
                     // The user's command is already committed. Report the derived
                     // write separately; a later authoritative refresh reconciles it.
-                    value.dateRollupError = text(error.message) || '父任务日期汇总失败';
+                    value.dateRollupError = text(error.message) || __tmT("kernel.parentTaskDateRollUpFailed");
                 }
             }
             const ownUpdate = dateRollupUpdates.find(update => update.taskID === (value?.task?.id || source.taskID));
@@ -6928,13 +6967,13 @@
         if (receipt.outcome === 'committed') return receipt.value;
         throw new DomainError(
             text(receipt.error?.code) || ERROR.STORAGE_ERROR,
-            text(receipt.error?.message) || '任务命令未提交',
+            text(receipt.error?.message) || __tmT("kernel.taskCommandWasNotSubmitted"),
             receipt.error?.details || null,
         );
     }
 
     async function applyTaskPatch(taskID, rawPatch, options) {
-        const id = requireID(taskID, '任务 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
         const laneID = text(options?.laneID || options?.laneId) || id;
         return runTaskLane(laneID, async () => {
             let row = await getTaskRow(id);
@@ -6949,7 +6988,7 @@
             if (options?.expected && typeof options.expected === 'object') {
                 for (const [field, value] of Object.entries(options.expected)) {
                     if (stableJson(before[field] ?? null) !== stableJson(value)) {
-                        throw new DomainError(ERROR.CONFLICT, '任务已变化，请刷新后重试', { taskID: id, field });
+                        throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskHasChangedRefreshAndTryAgain"), { taskID: id, field });
                     }
                 }
             }
@@ -6963,25 +7002,25 @@
             }
             const dateMode = patch.dateMode || before.dateMode;
             if (dateMode === 'rollup') {
-                if (!taskSupportsDateRollup({ ...before, ...patch })) throw new DomainError(ERROR.INVALID_ARGUMENT, '循环和打卡任务不支持子任务日期汇总');
+                if (!taskSupportsDateRollup({ ...before, ...patch })) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.repeatingAndCheckInTasksDoNotSupportSubtask"));
                 if (own(patch, 'dateMode')) {
                     await api('/api/sqlite/flushTransaction', {});
                     const rows = await readTaskDateTree([before.documentID], normalized.registry);
                     const parent = rows.find(item => item.id === id);
                     if (parent) parent.dateMode = 'rollup';
                     const derived = calculateTaskDateRollups(rows).find(item => item.id === id);
-                    if (!derived) throw new DomainError(ERROR.CONFLICT, '无法读取完整子任务日期');
+                    if (!derived) throw new DomainError(ERROR.CONFLICT, __tmT("kernel.couldNotReadTheCompleteSubtaskDates"));
                     patch.startDate = derived.startDate;
                     patch.completionTime = derived.completionTime;
                 } else if (own(patch, 'startDate') || own(patch, 'completionTime')) {
-                    throw new DomainError(ERROR.INVALID_ARGUMENT, '日期由子任务汇总，请先在日期中心切换为手动设置');
+                    throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.datesAreRolledUpFromSubtasksSwitchToManual2"));
                 }
             }
             let taskMarker = null;
             if (own(patch, 'customStatus') && patch.customStatus) {
                 const statusOption = normalized.registry.statusById.get(patch.customStatus);
                 if (!statusOption) {
-                    throw new DomainError(ERROR.INVALID_ARGUMENT, `未配置的任务状态: ${patch.customStatus}`);
+                    throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unconfiguredTaskStatus", { customStatus: patch.customStatus }));
                 }
                 taskMarker = statusOptionMarker(statusOption);
                 if (normalized.registry.settings?.legacyWin7CompatMode === true && taskMarker !== 'X') taskMarker = ' ';
@@ -7052,7 +7091,7 @@
                 state.lastUndo = {
                     id: token('undo'),
                     createdAt: Date.now(),
-                    label: `更新任务：${after.title}`,
+                    label: __tmT("kernel.updateTask2", { title: after.title }),
                     verify: async () => {
                         const current = await taskDTO(id);
                         return Object.keys(expected).every((key) => {
@@ -7099,7 +7138,7 @@
     }
 
     async function resolveInsertedTaskID(insertedID) {
-        const id = requireID(insertedID, '新块 ID');
+        const id = requireID(insertedID, __tmT("kernel.newBlockId"));
         const rows = await sql(`
             WITH RECURSIVE tree(id, depth) AS (
                 SELECT '${escapeSql(id)}', 0
@@ -7111,23 +7150,23 @@
             ORDER BY tree.depth ASC, b.sort ASC, b.created ASC LIMIT 1
         `);
         if (rows.length) return text(rows[0].id);
-        throw new DomainError(ERROR.STORAGE_ERROR, '任务已写入但暂未解析到真实任务块', { insertedID: id });
+        throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.theTaskWasWrittenButTheRealTaskBlock"), { insertedID: id });
     }
 
     async function createTask(input) {
         const source = input && typeof input === 'object' ? input : {};
         if (source.options?.agentWrite === true) validateAgentTaskRecurrence(source.patch || {});
         const title = text(source.title || source.content);
-        if (!title) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务标题不能为空');
+        if (!title) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.taskTitleCannotBeEmpty"));
         const parentTaskID = text(source.parentTaskID || source.parentTaskId);
         const documentID = text(source.documentID || source.documentId || source.docID || source.docId);
-        const parentID = parentTaskID ? requireID(parentTaskID, '父任务 ID') : requireID(documentID, '文档 ID');
+        const parentID = parentTaskID ? requireID(parentTaskID, __tmT("kernel.parentTaskId")) : requireID(documentID, __tmT("kernel.documentsId"));
         if (parentTaskID) await getTaskRow(parentTaskID);
         else await requireDocumentBlock(documentID);
         const markdown = `- [${source.patch && source.patch.done ? 'x' : ' '}] ${title}`;
         const result = await api('/api/block/appendBlock', { parentID, data: markdown, dataType: 'markdown' });
         const insertedID = extractInsertedID(result);
-        if (!insertedID) throw new DomainError(ERROR.STORAGE_ERROR, '新建任务失败：未返回块 ID');
+        if (!insertedID) throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.failedToCreateTheTaskNoBlockIdWas"));
         const taskID = await resolveInsertedTaskID(insertedID);
         const patch = { ...(source.patch && typeof source.patch === 'object' ? source.patch : {}) };
         delete patch.title;
@@ -7137,7 +7176,7 @@
             else task = await taskDTO(taskID);
         } catch (error) {
             try { await api('/api/block/deleteBlock', { id: insertedID }); }
-            catch (rollbackError) { throw new DomainError(ERROR.STORAGE_ERROR, '任务字段写入失败，且新建任务未能清理', { taskID, cause: text(error.message), rollbackError: text(rollbackError.message) }); }
+            catch (rollbackError) { throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.failedToWriteTaskFieldsAndTheNewlyCreated"), { taskID, cause: text(error.message), rollbackError: text(rollbackError.message) }); }
             throw error;
         }
         const createdFingerprint = stableJson((() => {
@@ -7148,7 +7187,7 @@
         state.lastUndo = {
             id: token('undo'),
             createdAt: Date.now(),
-            label: `新建任务：${task.title}`,
+            label: __tmT("kernel.newTask", { title: task.title }),
             verify: async () => {
                 const current = { ...(await taskDTO(taskID)) };
                 delete current.updated;
@@ -7195,17 +7234,17 @@
         return isTreeBlockType(block, 'i', 'nodelistitem') && text(block?.subtype).toLowerCase() === 't';
     }
 
-    async function readBlockTreePath(blockID, label = '块') {
+    async function readBlockTreePath(blockID, label = __tmT("kernel.block")) {
         const id = requireID(blockID, `${label} ID`);
         const raw = await api('/api/block/getBlockBreadcrumb', { id, excludeTypes: [] });
         const path = (Array.isArray(raw) ? raw : []).map(normalizeTreeBlock).filter((item) => item.id);
         const current = path.find((item) => item.id === id) || null;
-        if (!current) throw new DomainError(ERROR.NOT_FOUND, `未找到${label}`, { blockID: id });
+        if (!current) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.notFound3", { label: label }), { blockID: id });
         const document = path.find(isTreeDocumentBlock) || null;
         return { id, path, current, document };
     }
 
-    async function tryReadBlockTreePath(blockID, label = '块') {
+    async function tryReadBlockTreePath(blockID, label = __tmT("kernel.block")) {
         try {
             return await readBlockTreePath(blockID, label);
         } catch (error) {
@@ -7215,7 +7254,7 @@
     }
 
     async function readTreeChildren(blockID) {
-        const id = requireID(blockID, '父块 ID');
+        const id = requireID(blockID, __tmT("kernel.parentBlockId"));
         const raw = await api('/api/block/getChildBlocks', { id });
         return (Array.isArray(raw) ? raw : []).map(normalizeTreeBlock).filter((item) => item.id);
     }
@@ -7247,13 +7286,13 @@
     }
 
     function placementFromTaskList(taskID, listID, children, context = {}) {
-        const id = requireID(taskID, '任务 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
         const taskIDs = (Array.isArray(children) ? children : [])
             .filter(isTreeTaskBlock)
             .map((item) => item.id);
         const index = taskIDs.indexOf(id);
         if (index < 0) {
-            throw new DomainError(ERROR.CONFLICT, '任务不在预期列表中', {
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskIsNotInTheExpectedList"), {
                 taskID: id,
                 listID: text(listID),
                 childTaskIDs: taskIDs,
@@ -7273,10 +7312,10 @@
     }
 
     async function readTaskTreeContext(taskID) {
-        const id = requireID(taskID, '任务 ID');
-        const location = await readBlockTreePath(id, '任务');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
+        const location = await readBlockTreePath(id, __tmT("kernel.task"));
         if (!isTreeTaskBlock(location.current)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '目标块不是任务', { blockID: id });
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theTargetBlockIsNotATask"), { blockID: id });
         }
         const currentIndex = location.path.findIndex((item) => item.id === id);
         const ancestors = currentIndex >= 0 ? location.path.slice(0, currentIndex) : location.path;
@@ -7306,7 +7345,7 @@
             .reverse()
             .filter((item, index, items) => item.id && items.findIndex((candidate) => candidate.id === item.id) === index);
         if (!ownerCandidates.length) {
-            throw new DomainError(ERROR.CONFLICT, '无法确定任务所在文档', { taskID: context.id });
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.cannotDetermineTheDocumentContainingTheTask"), { taskID: context.id });
         }
         const summarizeBlock = (item) => ({
             id: item.id,
@@ -7350,7 +7389,7 @@
             attempts,
             matchingListIDs: attempts.flatMap((attempt) => attempt.matchingListIDs),
         };
-        throw new DomainError(ERROR.CONFLICT, '无法确定任务所在列表', diagnostic);
+        throw new DomainError(ERROR.CONFLICT, __tmT("kernel.cannotDetermineTheListContainingTheTask"), diagnostic);
     }
 
     function comparablePlacement(value) {
@@ -7413,11 +7452,11 @@
                 || currentPlacement?.parentListID || currentPlacement?.parentListId
         );
         if (text(input.previousID || input.previousId)) {
-            const previous = await readBlockTreePath(input.previousID || input.previousId, '前一块');
-            if (previous.id === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能相对自身移动');
-            if (isTreeDocumentBlock(previous.current)) throw new DomainError(ERROR.INVALID_ARGUMENT, '前一块不能是文档块');
+            const previous = await readBlockTreePath(input.previousID || input.previousId, __tmT("kernel.previousBlock"));
+            if (previous.id === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aTaskCannotBeMovedRelativeToItself"));
+            if (isTreeDocumentBlock(previous.current)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.thePreviousBlockCannotBeADocumentBlock"));
             if (!isTreeTaskBlock(previous.current)) {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, '任务项只能直接移动到任务列表内，请使用文档或标题移动方式');
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.taskItemsCanOnlyBeMovedDirectlyWithinA"));
             }
             payload.previousID = previous.id;
             const targetPlacement = await readTaskPlacementFromTree(previous.id, preferredListID);
@@ -7431,8 +7470,8 @@
             };
         }
         if (text(input.nextID || input.nextId)) {
-            const nextID = requireID(input.nextID || input.nextId, '后一任务 ID');
-            if (nextID === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能相对自身移动');
+            const nextID = requireID(input.nextID || input.nextId, __tmT("kernel.nextTaskId"));
+            if (nextID === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aTaskCannotBeMovedRelativeToItself"));
             const nextPlacement = await readTaskPlacementFromTree(nextID, preferredListID);
             let previousID = text(nextPlacement.previousSiblingID);
             if (previousID === taskID) {
@@ -7458,12 +7497,12 @@
             const explicitParentID = text(input.parentID || input.parentId);
             const target = await readBlockTreePath(
                 explicitParentID || input.documentID || input.documentId,
-                explicitParentID ? '移动目标' : '目标文档',
+                explicitParentID ? __tmT("kernel.moveTarget") : __tmT("kernel.targetDocument"),
             );
             if (!isTreeListBlock(target.current)) {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, '任务项只能直接移入列表，请使用文档或父任务移动方式');
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.taskItemsCanOnlyBeMovedDirectlyIntoA"));
             }
-            if (target.id === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能移动到自身内部');
+            if (target.id === taskID) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aTaskCannotBeMovedInsideItself"));
             payload.parentID = target.id;
             const currentIndex = target.path.findIndex((item) => item.id === target.id);
             const ancestors = currentIndex >= 0 ? target.path.slice(0, currentIndex) : target.path;
@@ -7477,7 +7516,7 @@
                 },
             };
         }
-        throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少目标位置');
+        throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.missingTargetPosition"));
     }
 
     async function confirmMovePlanPlacement(taskID, plan) {
@@ -7501,7 +7540,7 @@
         const mode = text(value || '');
         if (!mode || mode === 'doc') return 'docTop';
         if (['docTop', 'docBottom', 'document-list', 'independent-document', 'recycle-document', 'heading', 'before', 'after', 'child', 'child-top'].includes(mode)) return mode;
-        throw new DomainError(ERROR.INVALID_ARGUMENT, `不支持的任务移动方式: ${mode}`);
+        throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unsupportedTaskMoveMode", { mode: mode }));
     }
 
     async function resolveTaskMoveCommand(taskID, source) {
@@ -7512,7 +7551,7 @@
             if (legacyParentTaskID) {
                 return {
                     mode: text(input.childPosition || input.position).toLowerCase() === 'top' ? 'child-top' : 'child',
-                    parentTaskID: requireID(legacyParentTaskID, '父任务 ID'),
+                    parentTaskID: requireID(legacyParentTaskID, __tmT("kernel.parentTaskId")),
                     requestedListID: input.requestedListID || input.requestedListId,
                     childPosition: text(input.childPosition || input.position).toLowerCase() === 'top' ? 'top' : 'bottom',
                 };
@@ -7523,7 +7562,7 @@
         }
         const mode = normalizeTaskMoveMode(input.mode);
         if (mode === 'child' || mode === 'child-top') {
-            const parentTaskID = requireID(input.parentTaskID || input.parentTaskId || input.targetTaskID || input.targetTaskId, '父任务 ID');
+            const parentTaskID = requireID(input.parentTaskID || input.parentTaskId || input.targetTaskID || input.targetTaskId, __tmT("kernel.parentTaskId"));
             return {
                 mode,
                 parentTaskID,
@@ -7532,7 +7571,7 @@
             };
         }
         if (mode === 'before' || mode === 'after') {
-            const targetTaskID = requireID(input.targetTaskID || input.targetTaskId, '目标任务 ID');
+            const targetTaskID = requireID(input.targetTaskID || input.targetTaskId, __tmT("kernel.targetTaskId"));
             const targetListID = text(input.targetListID || input.targetListId);
             return {
                 mode,
@@ -7542,12 +7581,12 @@
             };
         }
         if (mode === 'heading') {
-            const headingID = requireID(input.headingID || input.headingId || input.targetHeadingID || input.targetHeadingId, '标题 ID');
-            const heading = await getBlockRole(headingID, '标题块');
-            if (heading.type !== 'h') throw new DomainError(ERROR.INVALID_ARGUMENT, '目标块不是标题');
+            const headingID = requireID(input.headingID || input.headingId || input.targetHeadingID || input.targetHeadingId, __tmT("kernel.headingId"));
+            const heading = await getBlockRole(headingID, __tmT("kernel.headingBlock"));
+            if (heading.type !== 'h') throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theTargetBlockIsNotAHeading"));
             const documentID = text(input.targetDocumentID || input.targetDocumentId || input.documentID || input.documentId);
             if (documentID && heading.rootID !== documentID) {
-                throw new DomainError(ERROR.CONFLICT, '目标标题不属于指定文档');
+                throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTargetHeadingDoesNotBelongToTheSpecified"));
             }
             return {
                 mode,
@@ -7558,7 +7597,7 @@
         if (mode === 'document-list') {
             const documentID = requireID(
                 input.targetDocumentID || input.targetDocumentId || input.documentID || input.documentId,
-                '目标文档 ID',
+                __tmT("kernel.targetDocumentId"),
             );
             await requireDocumentBlock(documentID);
             return {
@@ -7572,14 +7611,14 @@
         if (mode === 'recycle-document' || mode === 'independent-document') {
             const documentID = requireID(
                 input.targetDocumentID || input.targetDocumentId || input.documentID || input.documentId,
-                '目标文档 ID',
+                __tmT("kernel.targetDocumentId"),
             );
             await requireDocumentBlock(documentID);
             return { mode, documentID };
         }
         const documentID = requireID(
             input.targetDocumentID || input.targetDocumentId || input.documentID || input.documentId,
-            '目标文档 ID',
+            __tmT("kernel.targetDocumentId"),
         );
         await requireDocumentBlock(documentID);
         const targetLists = await inspectTaskListsUnder(
@@ -7622,10 +7661,10 @@
     }
 
     function nestedTaskListDOM(listID, taskDOM) {
-        const id = requireID(listID, '子列表 ID');
+        const id = requireID(listID, __tmT("kernel.sublistId"));
         const dom = String(taskDOM || '').trim();
         if (!dom || !dom.includes('data-type="NodeListItem"')) {
-            throw new DomainError(ERROR.STORAGE_ERROR, '无法读取待移动任务的标准块 DOM');
+            throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.cannotReadTheStandardBlockDomOfTheTask"));
         }
         return `<div data-subtype="t" data-node-id="${id}" data-type="NodeList" class="list" updated="${id.slice(0, 14)}">${dom}<div class="protyle-attr" contenteditable="false">&ZeroWidthSpace;</div></div>`;
     }
@@ -7633,7 +7672,7 @@
     async function ensureTaskListContainer(row, registryInput) {
         const source = row && typeof row === 'object' ? row : {};
         if (text(source.parent_type).toLowerCase() !== 'd') return source;
-        const documentID = requireID(source.parent_id || source.root_id, '任务所在文档 ID');
+        const documentID = requireID(source.parent_id || source.root_id, __tmT("kernel.containingDocumentIdOfTheTask"));
         try {
             const liveDocumentChildren = await api('/api/block/getChildBlocks', { id: documentID });
             const liveChildren = Array.isArray(liveDocumentChildren) ? liveDocumentChildren : [];
@@ -7712,7 +7751,7 @@
                 .map((child) => text(child && (child.id || child.ID)))
                 .filter(Boolean);
             if (!childIDs.includes(taskID)) {
-                throw new DomainError(ERROR.CONFLICT, '顶层任务项修复后未进入任务列表', {
+                throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTopLevelTaskItemDidNotEnterThe"), {
                     taskID,
                     listID: entry.listID,
                     childIDs,
@@ -7736,7 +7775,7 @@
     }
 
     async function ensureTaskListMutationTarget(taskID, registryInput, rowInput) {
-        const id = requireID(taskID, '任务 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
         let row = rowInput && typeof rowInput === 'object' ? rowInput : await getTaskRow(id);
         if (text(row.parent_type).toLowerCase() !== 'l') {
             // SQL parent metadata can lag behind the live tree. Verify the
@@ -7761,7 +7800,7 @@
         row = await ensureTaskListContainer(row, registryInput);
         const parentType = text(row && row.parent_type).toLowerCase();
         if (parentType !== 'l') {
-            throw new DomainError(ERROR.CONFLICT, '任务不在合法的列表容器中', {
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskIsNotInAValidListContainer"), {
                 taskID: id,
                 parentID: text(row && row.parent_id),
                 parentType,
@@ -7771,10 +7810,10 @@
     }
 
     async function moveIndependentTaskListToDocument(taskID, documentID, sourceListID, sourceDocumentID, source) {
-        const id = requireID(taskID, '任务 ID');
-        const targetDocumentID = requireID(documentID, '目标文档 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
+        const targetDocumentID = requireID(documentID, __tmT("kernel.targetDocumentId"));
         await requireDocumentBlock(targetDocumentID);
-        const archiveDocumentID = requireID(sourceDocumentID, '归档文档 ID');
+        const archiveDocumentID = requireID(sourceDocumentID, __tmT("kernel.archiveDocumentId"));
         await requireDocumentBlock(archiveDocumentID);
         const archiveChildren = await api('/api/block/getChildBlocks', { id: archiveDocumentID });
         const liveArchiveChildren = Array.isArray(archiveChildren) ? archiveChildren : [];
@@ -7783,7 +7822,7 @@
             return type === 'l' || type === 'nodelist';
         });
         const requestedListID = text(sourceListID);
-        if (requestedListID) requireID(requestedListID, '归档任务列表 ID');
+        if (requestedListID) requireID(requestedListID, __tmT("kernel.archiveTaskListId"));
         const orderedCandidates = listCandidates.slice().sort((left, right) => {
             if (text(left?.id) === requestedListID) return -1;
             if (text(right?.id) === requestedListID) return 1;
@@ -7805,7 +7844,7 @@
             && text(item?.subType || item?.subtype).toLowerCase() === 't'
         ));
         if (matches.length !== 1 && !directTask) {
-            throw new DomainError(ERROR.CONFLICT, '无法从归档文档确定任务所在列表', {
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.cannotDetermineTheContainingListFromTheArchiveDocument"), {
                 taskID: id,
                 archiveDocumentID,
                 requestedListID,
@@ -7813,7 +7852,7 @@
             });
         }
         if (matches.length > 1) {
-            throw new DomainError(ERROR.CONFLICT, '任务同时出现在多个归档列表中', {
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskAppearsInMultipleArchiveListsAtOnce"), {
                 taskID: id,
                 archiveDocumentID,
                 matchedListIDs: matches.map((item) => item.id),
@@ -7848,12 +7887,12 @@
                 && blockID !== (directTask ? id : ''));
         if (previousID) {
             if (!orderedTargetIDs.includes(previousID)) {
-                throw new DomainError(ERROR.CONFLICT, '默认位置的前一块已经变化', { previousID, targetDocumentID });
+                throw new DomainError(ERROR.CONFLICT, __tmT("kernel.thePreviousBlockAtTheDefaultPositionHasChanged"), { previousID, targetDocumentID });
             }
             expectedPreviousID = previousID;
         } else if (nextID) {
             const nextIndex = orderedTargetIDs.indexOf(nextID);
-            if (nextIndex < 0) throw new DomainError(ERROR.CONFLICT, '默认位置的后一块已经变化', { nextID, targetDocumentID });
+            if (nextIndex < 0) throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theNextBlockAtTheDefaultPositionHasChanged"), { nextID, targetDocumentID });
             expectedNextID = nextID;
             if (nextIndex > 0) expectedPreviousID = orderedTargetIDs[nextIndex - 1];
         }
@@ -7872,11 +7911,11 @@
                 data: '- [ ]',
                 dataType: 'markdown',
             });
-            listID = requireID(extractInsertedID(scaffoldResult), '恢复任务列表 ID');
+            listID = requireID(extractInsertedID(scaffoldResult), __tmT("kernel.restoreTaskListId"));
             const scaffoldChildren = await api('/api/block/getChildBlocks', { id: listID });
             const scaffoldTaskID = requireID(
                 (Array.isArray(scaffoldChildren) ? scaffoldChildren : [])[0]?.id,
-                '恢复任务列表占位任务 ID',
+                __tmT("kernel.restoreTaskListPlaceholderTaskId"),
             );
             try {
                 await api('/api/block/moveBlock', { id, parentID: listID });
@@ -7885,7 +7924,7 @@
                     .map((item) => text(item?.id))
                     .filter(Boolean);
                 if (!movedChildIDs.includes(id)) {
-                    throw new DomainError(ERROR.CONFLICT, '任务恢复后未进入独立列表', { taskID: id, listID, movedChildIDs });
+                    throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskDidNotEnterAStandaloneListAfter"), { taskID: id, listID, movedChildIDs });
                 }
                 await api('/api/block/deleteBlock', { id: scaffoldTaskID });
             } catch (error) {
@@ -7917,7 +7956,7 @@
             || (expectedNextID && actualNextID !== expectedNextID)
             || verifiedTaskIDs.length !== 1
             || verifiedTaskIDs[0] !== id) {
-            throw new DomainError(ERROR.CONFLICT, '任务未落盘到默认新建位置', {
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskWasNotPersistedToTheDefaultCreation"), {
                 taskID: id,
                 listID,
                 targetDocumentID,
@@ -7949,21 +7988,21 @@
     }
 
     async function moveTaskIntoHeading(taskID, headingID, requestedListID, sourceRow) {
-        const id = requireID(taskID, '任务 ID');
-        const hid = requireID(headingID, '标题 ID');
-        const heading = await getBlockRole(hid, '标题块');
-        if (heading.type !== 'h') throw new DomainError(ERROR.INVALID_ARGUMENT, '目标块不是标题');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
+        const hid = requireID(headingID, __tmT("kernel.headingId"));
+        const heading = await getBlockRole(hid, __tmT("kernel.headingBlock"));
+        if (heading.type !== 'h') throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theTargetBlockIsNotAHeading"));
         const before = sourceRow && typeof sourceRow === 'object' ? sourceRow : await getTaskRow(id);
         const sourceList = before.__taskHorizonStructureRepaired === true
             ? { id: text(before.parent_id), parentID: text(before.root_id), rootID: text(before.root_id), type: 'l', subtype: 't' }
-            : await getBlockRole(before.parent_id, '任务列表');
+            : await getBlockRole(before.parent_id, __tmT("kernel.taskList"));
         let sourceListChildren = [];
         let sourceListParent = null;
         try {
             sourceListChildren = await api('/api/block/getChildBlocks', { id: sourceList.id });
             sourceListParent = before.__taskHorizonStructureRepaired === true
                 ? { id: text(before.root_id), type: 'd' }
-                : await getBlockRole(sourceList.parentID, '任务列表父块');
+                : await getBlockRole(sourceList.parentID, __tmT("kernel.taskListParentBlock"));
         } catch (e) {
             sourceListChildren = [];
             sourceListParent = null;
@@ -7989,9 +8028,9 @@
                 data: '- [ ]',
                 dataType: 'markdown',
             });
-            listID = requireID(extractInsertedID(scaffoldResult), '标题任务列表 ID');
+            listID = requireID(extractInsertedID(scaffoldResult), __tmT("kernel.headingTaskListId"));
             const scaffoldChildren = await api('/api/block/getChildBlocks', { id: listID });
-            scaffoldTaskID = requireID((Array.isArray(scaffoldChildren) ? scaffoldChildren : [])[0]?.id, '标题任务列表占位任务 ID');
+            scaffoldTaskID = requireID((Array.isArray(scaffoldChildren) ? scaffoldChildren : [])[0]?.id, __tmT("kernel.headingTaskListPlaceholderTaskId"));
             movePayload = { id, parentID: listID };
             try {
                 await api('/api/block/moveBlock', movePayload);
@@ -8000,7 +8039,7 @@
                     .map((item) => text(item?.id))
                     .filter(Boolean);
                 if (!movedChildIDs.includes(id)) {
-                    throw new DomainError(ERROR.CONFLICT, '任务移动后未进入独立列表', { taskID: id, listID, movedChildIDs });
+                    throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskDidNotEnterAStandaloneListAfter2"), { taskID: id, listID, movedChildIDs });
                 }
                 await api('/api/block/deleteBlock', { id: scaffoldTaskID });
             } catch (error) {
@@ -8026,7 +8065,7 @@
             .filter(Boolean);
         const headingIndex = documentChildIDs.indexOf(hid);
         if (headingIndex < 0 || documentChildIDs[headingIndex + 1] !== listID || !verifiedTaskIDs.includes(id)) {
-            throw new DomainError(ERROR.CONFLICT, '任务未落盘到目标标题下', {
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskWasNotPersistedUnderTheTargetHeading"), {
                 taskID: id,
                 headingID: hid,
                 listID,
@@ -8053,21 +8092,21 @@
     }
 
     async function moveTaskIntoIndependentDocument(taskID, documentID, independentPosition, sourceRow) {
-        const id = requireID(taskID, '任务 ID');
-        const targetDocumentID = requireID(documentID, '目标文档 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
+        const targetDocumentID = requireID(documentID, __tmT("kernel.targetDocumentId"));
         const position = text(independentPosition).toLowerCase() === 'bottom' ? 'bottom' : 'top';
         await requireDocumentBlock(targetDocumentID);
         const before = sourceRow && typeof sourceRow === 'object' ? sourceRow : await getTaskRow(id);
         const sourceList = before.__taskHorizonStructureRepaired === true
             ? { id: text(before.parent_id), parentID: text(before.root_id), rootID: text(before.root_id), type: 'l', subtype: 't' }
-            : await getBlockRole(before.parent_id, '任务列表');
+            : await getBlockRole(before.parent_id, __tmT("kernel.taskList"));
         let sourceListChildren = [];
         let sourceListParent = null;
         try {
             sourceListChildren = await api('/api/block/getChildBlocks', { id: sourceList.id });
             sourceListParent = before.__taskHorizonStructureRepaired === true
                 ? { id: text(before.root_id), type: 'd' }
-                : await getBlockRole(sourceList.parentID, '任务列表父块');
+                : await getBlockRole(sourceList.parentID, __tmT("kernel.taskListParentBlock"));
         } catch (e) {
             sourceListChildren = [];
             sourceListParent = null;
@@ -8100,9 +8139,9 @@
                 data: '- [ ]',
                 dataType: 'markdown',
             });
-            listID = requireID(extractInsertedID(scaffoldResult), '目标任务列表 ID');
+            listID = requireID(extractInsertedID(scaffoldResult), __tmT("kernel.targetTaskListId"));
             const scaffoldChildren = await api('/api/block/getChildBlocks', { id: listID });
-            scaffoldTaskID = requireID((Array.isArray(scaffoldChildren) ? scaffoldChildren : [])[0]?.id, '列表占位任务 ID');
+            scaffoldTaskID = requireID((Array.isArray(scaffoldChildren) ? scaffoldChildren : [])[0]?.id, __tmT("kernel.listPlaceholderTaskId"));
             try {
                 await api('/api/block/moveBlock', { id, parentID: listID });
                 const movedChildren = await api('/api/block/getChildBlocks', { id: listID });
@@ -8110,7 +8149,7 @@
                     .map((item) => text(item?.id))
                     .filter(Boolean);
                 if (!movedChildIDs.includes(id)) {
-                    throw new DomainError(ERROR.CONFLICT, '任务移动后未进入目标独立列表', { taskID: id, listID, movedChildIDs });
+                    throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskDidNotEnterTheTargetStandaloneList"), { taskID: id, listID, movedChildIDs });
                 }
                 await api('/api/block/deleteBlock', { id: scaffoldTaskID });
             } catch (error) {
@@ -8138,7 +8177,7 @@
             ? text(documentChildIDs[documentChildIDs.length - 1])
             : text(documentChildIDs[0]);
         if (expectedDocumentListID !== listID || verifiedTaskIDs.length !== 1 || verifiedTaskIDs[0] !== id) {
-            throw new DomainError(ERROR.CONFLICT, '任务未落盘到目标文档的独立列表', {
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskWasNotPersistedToTheTargetDocument"), {
                 taskID: id,
                 listID,
                 targetDocumentID,
@@ -8166,19 +8205,19 @@
     }
 
     async function moveTaskIntoParent(taskID, parentTaskID, requestedListID, childPosition, sourceRow) {
-        const id = requireID(taskID, '任务 ID');
-        const parentID = requireID(parentTaskID, '父任务 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
+        const parentID = requireID(parentTaskID, __tmT("kernel.parentTaskId"));
         const position = text(childPosition).toLowerCase() === 'top' ? 'top' : 'bottom';
-        if (id === parentID) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能移动到自身内部');
+        if (id === parentID) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aTaskCannotBeMovedInsideItself"));
 
         const before = sourceRow && typeof sourceRow === 'object' ? sourceRow : await getTaskRow(id);
         const parentContext = await readTaskTreeContext(parentID);
         if (parentContext.ancestorTaskIDs.includes(id)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '父任务不能移动到自己的子任务中');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aParentTaskCannotBeMovedIntoItsOwn"));
         }
         const targetLists = await inspectTaskListsUnder(parentID, requestedListID);
         if (targetLists.taskList) {
-            const listID = requireID(targetLists.taskList.list.id, '子列表 ID');
+            const listID = requireID(targetLists.taskList.list.id, __tmT("kernel.sublistId"));
             const liveChildren = targetLists.taskList.children;
             const liveTaskIDs = liveChildren.filter(isTreeTaskBlock).map((item) => item.id);
             const currentIndex = liveTaskIDs.indexOf(id);
@@ -8217,15 +8256,15 @@
             };
         }
 
-        const listID = requireID(requestedListID, '预生成子列表 ID');
-        const duplicateList = await tryReadBlockTreePath(listID, '预生成子列表');
+        const listID = requireID(requestedListID, __tmT("kernel.preGeneratedSublistId"));
+        const duplicateList = await tryReadBlockTreePath(listID, __tmT("kernel.preGeneratedSublist"));
         if (duplicateList) {
-            throw new DomainError(ERROR.CONFLICT, '预生成子列表 ID 已被其他块占用');
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.thePreGeneratedSublistIdIsAlreadyUsedBy"));
         }
         const domResult = await api('/api/block/getBlockDOM', { id });
         const taskDOM = String(domResult && domResult.dom || '').trim();
         if (!taskDOM.includes(`data-node-id="${id}"`)) {
-            throw new DomainError(ERROR.STORAGE_ERROR, '读取到的任务块 DOM 与任务 ID 不一致');
+            throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.theReadTaskBlockDomDoesNotMatchThe"));
         }
         const targetLastChildID = text(targetLists.ownerChildren
             .filter((item) => item.id !== id)
@@ -8264,7 +8303,7 @@
         const selected = new Set(taskIDs);
         const actualOrder = childIDs.filter((id) => selected.has(id));
         if (actualOrder.length !== taskIDs.length || actualOrder.some((id, index) => id !== taskIDs[index])) {
-            throw new DomainError(ERROR.CONFLICT, '批量移动后的位置校验失败', {
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.positionVerificationFailedAfterBatchMove"), {
                 listID,
                 expectedTaskIDs: taskIDs,
                 actualTaskIDs: actualOrder,
@@ -8274,11 +8313,11 @@
     }
 
     async function batchMoveTasksIntoParent(taskIDs, parentTaskID, requestedListID, childPosition) {
-        const ids = uniqueStrings(taskIDs).map((id) => requireID(id, '任务 ID'));
-        const parentID = requireID(parentTaskID, '父任务 ID');
+        const ids = uniqueStrings(taskIDs).map((id) => requireID(id, __tmT("kernel.taskId")));
+        const parentID = requireID(parentTaskID, __tmT("kernel.parentTaskId"));
         const position = text(childPosition).toLowerCase() === 'top' ? 'top' : 'bottom';
-        if (ids.length < 2) throw new DomainError(ERROR.INVALID_ARGUMENT, '批量移动至少需要两个任务');
-        if (ids.includes(parentID)) throw new DomainError(ERROR.INVALID_ARGUMENT, '任务不能移动到自身内部');
+        if (ids.length < 2) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.batchMoveNeedsAtLeastTwoTasks"));
+        if (ids.includes(parentID)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aTaskCannotBeMovedInsideItself"));
 
         const [rows, parentContext, registry] = await Promise.all([
             Promise.all(ids.map((id) => getTaskRow(id))),
@@ -8287,7 +8326,7 @@
         ]);
         const previousPlacements = await Promise.all(ids.map((id, index) => capturePlacement(id, rows[index])));
         if (ids.some((id) => parentContext.ancestorTaskIDs.includes(id))) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '父任务不能移动到自己的子任务中');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.aParentTaskCannotBeMovedIntoItsOwn"));
         }
 
         const attrOperations = (await Promise.all(rows.map((row) => buildTaskAttrPreservationOperation(row, registry)))).filter(Boolean);
@@ -8295,10 +8334,10 @@
         const targetLists = await inspectTaskListsUnder(parentID, requestedID);
         let listID = text(targetLists.taskList?.list?.id);
         if (!listID && requestedID) {
-            requireID(requestedID, '预生成子列表 ID');
-            const duplicateList = await tryReadBlockTreePath(requestedID, '预生成子列表');
+            requireID(requestedID, __tmT("kernel.preGeneratedSublistId"));
+            const duplicateList = await tryReadBlockTreePath(requestedID, __tmT("kernel.preGeneratedSublist"));
             if (duplicateList) {
-                throw new DomainError(ERROR.CONFLICT, '预生成子列表 ID 已被其他块占用');
+                throw new DomainError(ERROR.CONFLICT, __tmT("kernel.thePreGeneratedSublistIdIsAlreadyUsedBy"));
             }
         }
         let transactionCount = 0;
@@ -8317,7 +8356,7 @@
             await pushTaskTransaction([...attrOperations, ...moveOperations]);
             transactionCount = 1;
         } else {
-            listID = requireID(requestedID, '预生成子列表 ID');
+            listID = requireID(requestedID, __tmT("kernel.preGeneratedSublistId"));
             const seedID = position === 'top' ? ids[ids.length - 1] : ids[0];
             const seedAttr = attrOperations.find((operation) => text(operation.id) === seedID);
             const taskDOM = await readBlockDOM(seedID);
@@ -8390,7 +8429,7 @@
             ...(Array.isArray(source.taskIDs) ? source.taskIDs : []),
             ...(Array.isArray(source.taskIds) ? source.taskIds : []),
         ]);
-        const parentTaskID = requireID(source.parentTaskID || source.parentTaskId || source.targetTaskID || source.targetTaskId, '父任务 ID');
+        const parentTaskID = requireID(source.parentTaskID || source.parentTaskId || source.targetTaskID || source.targetTaskId, __tmT("kernel.parentTaskId"));
         const position = text(source.childPosition || source.position).toLowerCase() === 'top'
             || text(source.mode).toLowerCase() === 'child-top'
             ? 'top'
@@ -8405,7 +8444,7 @@
 
     async function moveTask(input, options) {
         const source = input && typeof input === 'object' ? input : {};
-        const taskID = requireID(source.taskID || source.taskId, '任务 ID');
+        const taskID = requireID(source.taskID || source.taskId, __tmT("kernel.taskId"));
         const laneID = text(source.laneID || source.laneId) || taskID;
         const targetLaneIDs = uniqueStrings([
             laneID,
@@ -8509,7 +8548,7 @@
                 state.lastUndo = {
                     id: token('undo'),
                     createdAt: Date.now(),
-                    label: `移动任务：${task.title}`,
+                    label: __tmT("kernel.moveTask2", { title: task.title }),
                     verify: async () => stableJson(comparablePlacement(await capturePlacement(taskID, expectedPlacement))) === stableJson(comparablePlacement(expectedPlacement)),
                     execute: async () => {
                         const restorePlan = await buildMovePlan(taskID, before, expectedPlacement);
@@ -8549,7 +8588,7 @@
     }
 
     async function collectTaskSubtreeIDs(taskID) {
-        const id = requireID(taskID, '任务 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
         const rows = await sql(`
             WITH RECURSIVE task_tree(id, depth) AS (
                 SELECT id, 0 FROM blocks WHERE id = '${escapeSql(id)}'
@@ -8566,7 +8605,7 @@
     }
 
     async function deleteTaskNow(taskID) {
-        const id = requireID(taskID, '任务 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
         const row = await getTaskRow(id);
         const cleanupWarnings = [];
         let deletedTaskIDs = [id];
@@ -8575,7 +8614,7 @@
         } catch (error) {
             cleanupWarnings.push({
                 step: 'collect-task-subtree',
-                message: text(error && error.message) || '无法收集任务子树',
+                message: text(error && error.message) || __tmT("kernel.cannotCollectTheTaskSubtree"),
             });
         }
         await api('/api/sqlite/flushTransaction', {});
@@ -8592,7 +8631,7 @@
         } catch (error) {
             cleanupWarnings.push({
                 step: 'delete-task-schedules',
-                message: text(error && error.message) || '清除任务日程失败',
+                message: text(error && error.message) || __tmT("kernel.failedToClearTaskSchedules"),
             });
         }
         return {
@@ -8611,10 +8650,10 @@
     }
 
     function normalizeRegisteredScopeIDs(values, label) {
-        if (!Array.isArray(values)) throw new DomainError(ERROR.INVALID_ARGUMENT, `${label}必须是数组`);
+        if (!Array.isArray(values)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.mustBeAnArray", { label: label }));
         const ids = uniqueStrings(values);
         const invalid = ids.find((id) => !ID_RE.test(id));
-        if (invalid) throw new DomainError(ERROR.INVALID_ARGUMENT, `${label}包含无效 ID`, { id: invalid });
+        if (invalid) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.containsInvalidIds", { label: label }), { id: invalid });
         return ids;
     }
 
@@ -8629,26 +8668,26 @@
 
     function normalizeRegisteredVirtualTasks(values) {
         if (values == null) return [];
-        if (!Array.isArray(values)) throw new DomainError(ERROR.INVALID_ARGUMENT, '循环虚拟任务范围必须是数组');
+        if (!Array.isArray(values)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theRecurringVirtualTaskScopeMustBeAnArray"));
         const seen = new Set();
         return values.map((item) => {
             const source = item && typeof item === 'object' && !Array.isArray(item) ? item : {};
             const id = text(source.id);
             const match = id.match(VIRTUAL_TASK_ID_RE);
-            if (!match) throw new DomainError(ERROR.INVALID_ARGUMENT, '循环虚拟任务包含无效 ID', { id });
+            if (!match) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theRecurringVirtualTaskScopeContainsInvalidIds"), { id });
             if (seen.has(id)) return null;
             seen.add(id);
             const sourceTaskID = text(source.sourceTaskID || source.sourceTaskId || match[1]);
-            if (sourceTaskID !== match[1]) throw new DomainError(ERROR.INVALID_ARGUMENT, '循环虚拟任务来源不匹配', { id, sourceTaskID });
+            if (sourceTaskID !== match[1]) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theRecurringVirtualTaskSourceDoesNotMatch"), { id, sourceTaskID });
             const documentID = text(source.documentID || source.documentId);
-            if (documentID && !ID_RE.test(documentID)) throw new DomainError(ERROR.INVALID_ARGUMENT, '循环虚拟任务文档 ID 无效', { id, documentID });
+            if (documentID && !ID_RE.test(documentID)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidRecurringVirtualTaskDocumentId"), { id, documentID });
             const dto = {
                 id,
                 virtualTask: true,
                 virtualType: 'recurring-history',
                 readOnly: true,
                 sourceTaskID,
-                title: text(source.title) || '(无内容)',
+                title: text(source.title) || __tmT("kernel.noContent"),
                 markdown: String(source.markdown || ''),
                 done: true,
                 parentListID: '',
@@ -8702,10 +8741,10 @@
 
     function registerTaskScope(input) {
         const source = input && typeof input === 'object' ? input : {};
-        const taskIDs = normalizeRegisteredScopeIDs(source.taskIDs, '任务范围');
-        const documentIDs = normalizeRegisteredScopeIDs(source.documentIDs || [], '文档范围');
+        const taskIDs = normalizeRegisteredScopeIDs(source.taskIDs, __tmT("kernel.taskScope"));
+        const documentIDs = normalizeRegisteredScopeIDs(source.documentIDs || [], __tmT("kernel.documentScope"));
         const scopeMode = text(source.scopeMode) === 'documents' ? 'documents' : 'tasks';
-        if (scopeMode === 'documents' && !documentIDs.length) throw new DomainError(ERROR.INVALID_ARGUMENT, '文档任务范围缺少文档 ID');
+        if (scopeMode === 'documents' && !documentIDs.length) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theDocumentTaskScopeIsMissingTheDocumentId"));
         const virtualTasks = normalizeRegisteredVirtualTasks(source.virtualTasks);
         const virtualTaskMap = new Map(virtualTasks.map((item) => [item.id, item]));
         const taskIDSet = new Set(taskIDs);
@@ -8803,7 +8842,7 @@
         if (!scopeToken) return null;
         pruneTokens(state.taskScopes);
         const item = state.taskScopes.get(scopeToken);
-        if (!item) throw new DomainError(ERROR.NOT_FOUND, '任务范围已过期或不存在，请重新读取当前视图范围');
+        if (!item) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.theTaskScopeHasExpiredOrDoesNotExist"));
         item.expiresAt = Date.now() + TASK_SCOPE_TOKEN_TTL;
         state.taskScopes.delete(scopeToken);
         state.taskScopes.set(scopeToken, item);
@@ -8812,7 +8851,7 @@
 
     async function previewTaskDelete(taskID) {
         pruneTokens(state.deleteTokens);
-        const task = await taskDTO(requireID(taskID, '任务 ID'));
+        const task = await taskDTO(requireID(taskID, __tmT("kernel.taskId")));
         const deletedTaskIDs = await collectTaskSubtreeIDs(task.id);
         const schedules = await loadSchedules({ fresh: true });
         const linkedSchedules = schedules.filter((item) => (
@@ -8836,15 +8875,15 @@
 
     async function executeTaskDelete(taskID, previewToken) {
         pruneTokens(state.deleteTokens);
-        const id = requireID(taskID, '任务 ID');
+        const id = requireID(taskID, __tmT("kernel.taskId"));
         const item = state.deleteTokens.get(text(previewToken));
         if (!item || item.kind !== 'task' || item.taskID !== id) {
-            throw new DomainError(ERROR.CONFIRMATION_REQUIRED, '请先预览删除并使用有效确认令牌');
+            throw new DomainError(ERROR.CONFIRMATION_REQUIRED, __tmT("kernel.previewTheDeletionFirstAndUseAValidConfirmation"));
         }
         const row = await getTaskRow(id);
         if (item.fingerprint !== `${text(row.updated)}:${id}`) {
             state.deleteTokens.delete(text(previewToken));
-            throw new DomainError(ERROR.CONFLICT, '任务在预览后已发生变化，请重新预览');
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theTaskChangedAfterPreviewPreviewAgain"));
         }
         state.deleteTokens.delete(text(previewToken));
         return executeTaskCommandValue({ action: 'delete', taskID: id });
@@ -8853,25 +8892,25 @@
     function normalizeTaskQueryDateRange(value) {
         if (value == null) return null;
         if (!value || typeof value !== 'object' || Array.isArray(value)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, 'dateRange 格式无效');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidDaterangeFormat"));
         }
         const field = text(value.field);
         if (!['taskSpan', 'startDate', 'completionTime', 'taskCompleteAt'].includes(field)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, 'dateRange.field 不受支持');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unsupportedDaterangeField"));
         }
         const normalizeDay = (input, label) => {
             const day = text(input);
             if (day && !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, `${label} 必须为 YYYY-MM-DD`);
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.mustBeYyyyMmDd", { label: label }));
             }
             return day;
         };
         const from = normalizeDay(value.from, 'dateRange.from');
         const to = normalizeDay(value.to, 'dateRange.to');
-        if (!from && !to) throw new DomainError(ERROR.INVALID_ARGUMENT, 'dateRange 至少需要 from 或 to');
-        if (from && to && from > to) throw new DomainError(ERROR.INVALID_ARGUMENT, 'dateRange.from 不能晚于 to');
+        if (!from && !to) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.daterangeRequiresAtLeastFromOrTo"));
+        if (from && to && from > to) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.daterangeFromCannotBeLaterThanTo"));
         const mode = text(value.mode) || 'overlap';
-        if (!['overlap', 'within'].includes(mode)) throw new DomainError(ERROR.INVALID_ARGUMENT, 'dateRange.mode 不受支持');
+        if (!['overlap', 'within'].includes(mode)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unsupportedDaterangeMode"));
         return { field, from, to, mode };
     }
 
@@ -8879,9 +8918,9 @@
         const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
         const normalizeSet = (value, label) => {
             if (value == null) return [];
-            if (!Array.isArray(value)) throw new DomainError(ERROR.INVALID_ARGUMENT, `${label} 必须为数组`);
+            if (!Array.isArray(value)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.mustBeAnArray2", { label: label }));
             const items = uniqueStrings(value);
-            if (items.length > 50) throw new DomainError(ERROR.INVALID_ARGUMENT, `${label} 最多 50 项`);
+            if (items.length > 50) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.allowsAtMostItems", { label: label }));
             return items;
         };
         return {
@@ -8916,7 +8955,7 @@
 
     function taskFieldAttrExpression(registry, fieldID, alias) {
         const field = registry && registry.byId && registry.byId.get(fieldID);
-        if (!field) throw new DomainError(ERROR.UNSUPPORTED, `任务字段不可用: ${fieldID}`);
+        if (!field) throw new DomainError(ERROR.UNSUPPORTED, __tmT("kernel.taskFieldUnavailable", { fieldID: fieldID }));
         return completionAttrExpression([field.attr].concat(field.aliases || []), alias);
     }
 
@@ -9048,7 +9087,7 @@
         const virtualRows = filterVirtualTaskRows(scope, filters);
         const virtualCursor = text(source.cursor).match(/^virtual:(\d+)$/);
         if (virtualCursor) {
-            if (!scope.tokenBacked) throw new DomainError(ERROR.INVALID_ARGUMENT, '循环虚拟任务游标需要有效范围令牌');
+            if (!scope.tokenBacked) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theRecurringVirtualTaskCursorNeedsAValidScope"));
             const offset = Math.max(0, Number(virtualCursor[1]) || 0);
             const page = virtualRows.slice(offset, offset + limit);
             const nextOffset = offset + page.length;
@@ -9134,7 +9173,7 @@
         return {
             items: rows.map((row) => ({
                 id: text(row.id),
-                name: text(row.name) || `文档 ${text(row.id).slice(-6)}`,
+                name: text(row.name) || __tmT("kernel.document", { value1: text(row.id).slice(-6) }),
                 path: text(row.path),
                 box: text(row.box),
                 updated: text(row.updated),
@@ -9147,7 +9186,7 @@
         const settings = await getSettings();
         const groups = (Array.isArray(settings.docGroups) ? settings.docGroups : []).map((group) => ({
             id: text(group && group.id),
-            name: text(group && group.name) || '未命名分组',
+            name: text(group && group.name) || __tmT("kernel.untitledGroup"),
             documents: Array.isArray(group && group.docs) ? group.docs.map((item) => ({ id: text(item && (item.id || item.docId)), recursive: !!(item && item.recursive) })).filter((item) => item.id) : [],
         }));
         const documents = await sql("SELECT DISTINCT d.id, d.content AS name, d.hpath AS path FROM blocks t JOIN blocks d ON d.id = t.root_id WHERE t.type = 'i' AND t.subtype = 't' ORDER BY d.hpath COLLATE NOCASE LIMIT 500");
@@ -9188,40 +9227,40 @@
         out.color = text(out.color);
         out.allDay = !!out.allDay;
         if (out.repeatRule != null && typeof out.repeatRule !== 'object') {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '日程循环规则无效');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidScheduleRecurrenceRule"));
         }
         if (out.repeatRule && typeof out.repeatRule === 'object') {
             try {
                 out.repeatRule = JSON.parse(JSON.stringify(out.repeatRule));
             } catch (e) {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, '日程循环规则无效');
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidScheduleRecurrenceRule"));
             }
         }
         if (out.completedOccurrences != null && !Array.isArray(out.completedOccurrences)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '已完成日程实例无效');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidCompletedScheduleOccurrence"));
         }
         if (out.skippedOccurrences != null && !Array.isArray(out.skippedOccurrences)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '已跳过日程实例无效');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidSkippedScheduleOccurrence"));
         }
         if (out.plannedMinutes != null && text(out.plannedMinutes) !== '') {
             const minutes = Number(out.plannedMinutes);
-            if (!Number.isFinite(minutes) || minutes < 0) throw new DomainError(ERROR.INVALID_ARGUMENT, '计划时长无效');
+            if (!Number.isFinite(minutes) || minutes < 0) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidPlannedDuration"));
             out.plannedMinutes = minutes;
         }
         const explicitReminderMode = own(source, 'reminderMode');
         const reminderMode = text(out.reminderMode) || 'inherit';
         if (explicitReminderMode && !SCHEDULE_REMINDER_MODES.includes(reminderMode)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '日程提醒模式无效');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidScheduleReminderMode"));
         }
         out.reminderMode = reminderMode === 'custom' ? 'custom' : 'inherit';
         if (out.reminderMode === 'custom') {
             if (own(source, 'reminderEnabled') && typeof source.reminderEnabled !== 'boolean') {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, '日程提醒开关无效');
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidScheduleReminderSwitch"));
             }
             out.reminderEnabled = out.reminderEnabled === true;
             const reminderOffset = Number(out.reminderOffsetMin);
             if (own(source, 'reminderOffsetMin') && !SCHEDULE_REMINDER_OFFSETS.includes(reminderOffset)) {
-                throw new DomainError(ERROR.INVALID_ARGUMENT, '日程提醒提前时间无效');
+                throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidScheduleReminderLeadTime"));
             }
             out.reminderOffsetMin = SCHEDULE_REMINDER_OFFSETS.includes(reminderOffset) ? reminderOffset : 0;
         } else {
@@ -9230,8 +9269,8 @@
         }
         const startMs = Date.parse(out.start);
         const endMs = Date.parse(out.end);
-        if (!out.start || !Number.isFinite(startMs)) throw new DomainError(ERROR.INVALID_ARGUMENT, '日程开始时间无效');
-        if (!out.end || !Number.isFinite(endMs) || endMs <= startMs) throw new DomainError(ERROR.INVALID_ARGUMENT, '日程结束时间必须晚于开始时间');
+        if (!out.start || !Number.isFinite(startMs)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidScheduleStartTime"));
+        if (!out.end || !Number.isFinite(endMs) || endMs <= startMs) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theScheduleEndTimeMustBeLaterThanThe"));
         return out;
     }
 
@@ -9252,7 +9291,7 @@
             const scope = normalizeTaskScope({ scopeToken });
             const virtualTask = scope.virtualTaskMap.get(taskID);
             if (!virtualTask) {
-                throw new DomainError(ERROR.NOT_FOUND, '循环虚拟任务不在当前任务范围内，请重新读取当前视图范围');
+                throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.theRecurringVirtualTaskIsNotInTheCurrent"));
             }
             item.taskId = virtualTask.id;
             item.virtualTask = true;
@@ -9260,7 +9299,7 @@
             item.sourceTaskId = text(virtualTask.sourceTaskID);
             item.docId = text(virtualTask.documentID);
             item.recurringCompletedAt = text(virtualTask.taskCompleteAt || virtualTask.completionTime);
-            if (!text(item.title)) item.title = text(virtualTask.title) || '(无内容)';
+            if (!text(item.title)) item.title = text(virtualTask.title) || __tmT("kernel.noContent");
             return item;
         }
         const binding = await resolveTaskBinding(taskID);
@@ -9410,14 +9449,14 @@
             const item = normalizeSchedule(input);
             await normalizeScheduleTaskLink(item, input && input.scopeToken);
             item.id = text(input && input.id) || token('schedule');
-            if (list.some((current) => text(current.id) === item.id)) throw new DomainError(ERROR.CONFLICT, '日程 ID 已存在');
+            if (list.some((current) => text(current.id) === item.id)) throw new DomainError(ERROR.CONFLICT, __tmT("kernel.scheduleIdAlreadyExists"));
             list.push(item);
             await saveSchedules(list);
             let undoID = '';
             if (!options || options.recordUndo !== false) {
                 const expected = stableJson(item);
                 state.lastUndo = {
-                    id: token('undo'), createdAt: Date.now(), label: `新建日程：${item.title || item.id}`,
+                    id: token('undo'), createdAt: Date.now(), label: __tmT("kernel.createSchedule", { id: item.title || item.id }),
                     verify: async () => {
                         const current = (await loadSchedules()).find((entry) => text(entry.id) === item.id);
                         return !!current && stableJson(current) === expected;
@@ -9434,10 +9473,10 @@
     async function updateSchedule(input, options) {
         return runScheduleLane(async () => {
             const id = text(input && (input.id || input.scheduleID || input.scheduleId));
-            if (!id) throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少日程 ID');
+            if (!id) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.missingScheduleId"));
             const list = await loadSchedules();
             const index = list.findIndex((item) => text(item.id) === id);
-            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, '未找到日程');
+            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.scheduleNotFound"));
             const before = { ...list[index] };
             const patch = input && input.patch && typeof input.patch === 'object' ? input.patch : input;
             const next = normalizeSchedule(patch, before);
@@ -9451,7 +9490,7 @@
             if (!options || options.recordUndo !== false) {
                 const expected = stableJson(next);
                 state.lastUndo = {
-                    id: token('undo'), createdAt: Date.now(), label: `更新日程：${next.title || id}`,
+                    id: token('undo'), createdAt: Date.now(), label: __tmT("kernel.updateSchedule2", { value1: next.title || id }),
                     verify: async () => {
                         const current = (await loadSchedules()).find((entry) => text(entry.id) === id);
                         return !!current && stableJson(current) === expected;
@@ -9468,10 +9507,10 @@
     async function restoreScheduleSnapshot(snapshot) {
         return runScheduleLane(async () => {
             const id = text(snapshot && snapshot.id);
-            if (!id) throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少日程 ID');
+            if (!id) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.missingScheduleId"));
             const list = await loadSchedules();
             const index = list.findIndex((item) => text(item.id) === id);
-            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, '未找到日程');
+            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.scheduleNotFound"));
             const restored = { ...snapshot, id };
             list[index] = restored;
             await saveSchedules(list);
@@ -9482,10 +9521,10 @@
     async function deleteScheduleNow(scheduleID) {
         return runScheduleLane(async () => {
             const id = text(scheduleID);
-            if (!id) throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少日程 ID');
+            if (!id) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.missingScheduleId"));
             const list = await loadSchedules();
             const index = list.findIndex((item) => text(item.id) === id);
-            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, '未找到日程');
+            if (index < 0) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.scheduleNotFound"));
             const removed = list[index];
             list.splice(index, 1);
             await saveSchedules(list);
@@ -9498,7 +9537,7 @@
         const id = text(scheduleID);
         const list = await loadSchedules();
         const item = list.find((current) => text(current.id) === id);
-        if (!item) throw new DomainError(ERROR.NOT_FOUND, '未找到日程');
+        if (!item) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.scheduleNotFound"));
         const previewToken = token('delete_schedule');
         state.deleteTokens.set(previewToken, { kind: 'schedule', scheduleID: id, fingerprint: stableJson(item), expiresAt: Date.now() + DELETE_TOKEN_TTL });
         return { previewToken, expiresAt: new Date(Date.now() + DELETE_TOKEN_TTL).toISOString(), schedule: item };
@@ -9509,14 +9548,14 @@
         const id = text(scheduleID);
         const item = state.deleteTokens.get(text(previewToken));
         if (!item || item.kind !== 'schedule' || item.scheduleID !== id) {
-            throw new DomainError(ERROR.CONFIRMATION_REQUIRED, '请先预览删除并使用有效确认令牌');
+            throw new DomainError(ERROR.CONFIRMATION_REQUIRED, __tmT("kernel.previewTheDeletionFirstAndUseAValidConfirmation"));
         }
         const list = await loadSchedules();
         const current = list.find((schedule) => text(schedule.id) === id);
-        if (!current) throw new DomainError(ERROR.NOT_FOUND, '未找到日程');
+        if (!current) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.scheduleNotFound"));
         if (item.fingerprint !== stableJson(current)) {
             state.deleteTokens.delete(text(previewToken));
-            throw new DomainError(ERROR.CONFLICT, '日程在预览后已发生变化，请重新预览');
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.theScheduleChangedAfterPreviewPreviewAgain"));
         }
         state.deleteTokens.delete(text(previewToken));
         return deleteScheduleNow(id);
@@ -9590,16 +9629,16 @@
         pruneUndoRecords();
         const source = input && typeof input === 'object' ? input : {};
         const undoIDs = uniqueStrings(source.undoIDs || source.undoIds).slice(0, 50);
-        if (!undoIDs.length) throw new DomainError(ERROR.INVALID_ARGUMENT, '缺少需要组合的撤销令牌');
+        if (!undoIDs.length) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.missingTheUndoTokenRequiredForCombining"));
         if (!undoIDs.includes(text(state.lastUndo && state.lastUndo.id))) {
-            throw new DomainError(ERROR.CONFLICT, '组合撤销前已有新的写入，请重新执行当前操作');
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.aNewWriteOccurredBeforeTheCombinedUndoRe"));
         }
         const steps = undoIDs.map((id) => state.undoRecords.get(id));
         if (steps.some((undo) => !undo)) {
-            throw new DomainError(ERROR.NOT_FOUND, '部分撤销令牌已过期，无法安全组合');
+            throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.someUndoTokensHaveExpiredTheyCannotBeSafely"));
         }
         steps.sort((left, right) => Number(left.sequence) - Number(right.sequence));
-        const grouped = setGroupedUndo(text(source.label).slice(0, 120) || '撤销本轮 AI 操作', steps);
+        const grouped = setGroupedUndo(text(source.label).slice(0, 120) || __tmT("kernel.undoThisRoundOfAiOperations"), steps);
         grouped.childUndoIDs = steps.map((undo) => undo.id);
         rememberUndo(grouped);
         return { undoID: grouped.id, label: grouped.label, count: undoIDs.length };
@@ -9607,7 +9646,7 @@
 
     function operationKind(domain, operation, index) {
         const itemIndex = Math.max(0, Number(index) || 0);
-        const label = domain === 'schedules' ? '日程' : '任务';
+        const label = domain === 'schedules' ? __tmT("kernel.schedule") : __tmT("kernel.task");
         const supported = domain === 'schedules'
             ? ['create', 'update', 'delete']
             : ['create', 'update', 'move', 'delete'];
@@ -9616,7 +9655,7 @@
             value: text(operation && operation[key]).toLowerCase(),
         })).filter((item) => item.value);
         if (!fields.length) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, `第 ${itemIndex + 1} 项${label}操作缺少 kind/action/type`, {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.itemIsMissingKindActionType", { value1: itemIndex + 1, label: label }), {
                 index: itemIndex,
                 domain,
                 supported,
@@ -9627,14 +9666,14 @@
         ));
         const kinds = Array.from(new Set(normalized));
         if (kinds.length > 1) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, `第 ${itemIndex + 1} 项${label}操作类型冲突`, {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.itemHasConflictingActionTypes", { value1: itemIndex + 1, label: label }), {
                 index: itemIndex,
                 domain,
                 fields: Object.fromEntries(fields.map((item) => [item.key, item.value])),
             });
         }
         if (!supported.includes(kinds[0])) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, `第 ${itemIndex + 1} 项${label}操作未知: ${fields[0].value}`, {
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unknownActionForItem", { value1: itemIndex + 1, label: label, value: fields[0].value }), {
                 index: itemIndex,
                 domain,
                 operation: fields[0].value,
@@ -9664,7 +9703,7 @@
                 rows.push({ kind: `task:${kind}`, targetID: text(operation && (operation.taskID || operation.taskId)), targetLabel: text(operation && operation.title), ok: false, changes: null, error: failure(error).error, reversible: false });
             }
         }
-        setGroupedUndo('撤销本次任务操作', undoSteps);
+        setGroupedUndo(__tmT("kernel.undoThisTaskOperation"), undoSteps);
         return mutationReceipt(rows);
     }
 
@@ -9690,7 +9729,7 @@
                 rows.push({ kind: `schedule:${kind}`, targetID: text(operation && (operation.id || operation.scheduleID || operation.scheduleId)), targetLabel: text(operation && operation.title), ok: false, changes: null, error: failure(error).error, reversible: false });
             }
         }
-        setGroupedUndo('撤销本次日程操作', undoSteps);
+        setGroupedUndo(__tmT("kernel.undoThisScheduleOperation"), undoSteps);
         return mutationReceipt(rows);
     }
 
@@ -9703,16 +9742,16 @@
         const action = text(args && args.action);
         const expected = phase === 'preview' ? 'get' : executeAction;
         if (phase !== 'preview' && phase !== 'execute') {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, 'phase 必须是 preview 或 execute');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.phaseMustBePreviewOrExecute"));
         }
         if (action !== expected) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, `${phase} 阶段必须使用 action=${expected}`);
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.thePhaseMustUseAction", { phase: phase, expected: expected }));
         }
     }
 
     function requireAction(args, expected) {
         const action = text(args && args.action);
-        if (action !== expected) throw new DomainError(ERROR.INVALID_ARGUMENT, `必须使用 action=${expected}`);
+        if (action !== expected) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.mustUseAction", { expected: expected }));
     }
 
     async function guardOperationPreview(kind, operations, phase, previewToken) {
@@ -9736,7 +9775,7 @@
         }
         const item = state.operationTokens.get(text(previewToken));
         if (!item || item.kind !== kind || item.fingerprint !== fingerprint) {
-            throw new DomainError(ERROR.CONFIRMATION_REQUIRED, '包含删除的批处理必须先预览并使用确认令牌');
+            throw new DomainError(ERROR.CONFIRMATION_REQUIRED, __tmT("kernel.aBatchContainingDeletionsMustBePreviewedFirstAnd"));
         }
         state.operationTokens.delete(text(previewToken));
         return null;
@@ -9763,7 +9802,7 @@
     function normalizeDurationMinutes(value, fallback, path) {
         const minutes = Number(value);
         if (!Number.isFinite(minutes) || minutes < DURATION_DEFAULT_MINUTES_MIN || minutes > DURATION_DEFAULT_MINUTES_MAX) {
-            if (path) throw new DomainError(ERROR.INVALID_ARGUMENT, `${path} 应为 ${DURATION_DEFAULT_MINUTES_MIN}-${DURATION_DEFAULT_MINUTES_MAX} 分钟`);
+            if (path) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.mustBeBetweenAndMinutes", { path: path, DURATION_DEFAULT_MINUTES_MIN: DURATION_DEFAULT_MINUTES_MIN, DURATION_DEFAULT_MINUTES_MAX: DURATION_DEFAULT_MINUTES_MAX }));
             return fallback;
         }
         return Math.round(minutes);
@@ -9773,14 +9812,14 @@
         const strict = options?.strict === true;
         const defaults = defaultDurationDefaults();
         if (!value || typeof value !== 'object' || Array.isArray(value)) {
-            if (strict) throw new DomainError(ERROR.INVALID_ARGUMENT, 'durationDefaults 策略格式无效');
+            if (strict) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidDurationdefaultsPolicyFormat"));
             return defaults;
         }
         const source = value;
         const rawRules = Array.isArray(source.rules) ? source.rules : defaults.rules;
         const rules = rawRules.map((item, index) => {
             if (!item || typeof item !== 'object' || Array.isArray(item)) {
-                if (strict) throw new DomainError(ERROR.INVALID_ARGUMENT, `durationDefaults.rules.${index} 格式无效`);
+                if (strict) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.durationdefaultsRulesHasAnInvalidFormat", { index: index }));
                 return null;
             }
             const name = text(item.name).slice(0, 40);
@@ -9792,11 +9831,11 @@
                 seen.add(normalized);
                 return true;
             });
-            if (strict && !name) throw new DomainError(ERROR.INVALID_ARGUMENT, `durationDefaults.rules.${index}.name 不能为空`);
-            if (strict && !keywords.length) throw new DomainError(ERROR.INVALID_ARGUMENT, `durationDefaults.rules.${index}.keywords 不能为空`);
+            if (strict && !name) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.durationdefaultsRulesNameCannotBeEmpty", { index: index }));
+            if (strict && !keywords.length) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.durationdefaultsRulesKeywordsCannotBeEmpty", { index: index }));
             return {
                 id: text(item.id).slice(0, 80) || `duration-rule-${index + 1}`,
-                name: name || `规则 ${index + 1}`,
+                name: name || __tmT("kernel.rule", { value1: index + 1 }),
                 keywords,
                 minutes: normalizeDurationMinutes(item.minutes, defaults.fallbackMinutes, strict ? `durationDefaults.rules.${index}.minutes` : ''),
             };
@@ -9946,7 +9985,7 @@
         }
         if (record.status !== 'missing' && record.status !== 'corrupt') throw jsonStorageError(POLICY_FILE, record);
         const restored = normalizePolicySnapshot(input);
-        if (!restored) throw new DomainError(ERROR.INVALID_ARGUMENT, '安排规则恢复数据无效');
+        if (!restored) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidSchedulingRulesRestoreData"));
         await writeJson(POLICY_FILE, restored);
         return restored;
     }
@@ -9954,7 +9993,7 @@
     function normalizePolicyDocumentGroups(settings) {
         return (Array.isArray(settings && settings.docGroups) ? settings.docGroups : []).map((group) => ({
             id: text(group && group.id),
-            name: text(group && group.name) || '未命名文档分组',
+            name: text(group && group.name) || __tmT("kernel.untitledDocumentGroup"),
             notebookID: text(group && (group.notebookId || group.notebookID)),
             documents: (Array.isArray(group && group.docs) ? group.docs : []).map((entry) => ({
                 id: text(entry && typeof entry === 'object' ? (entry.id || entry.docId) : entry),
@@ -10041,18 +10080,18 @@
     }
 
     function normalizePolicyConfigPatch(config, path) {
-        if (!config || typeof config !== 'object' || Array.isArray(config)) throw new DomainError(ERROR.INVALID_ARGUMENT, `${path} 策略格式无效`);
+        if (!config || typeof config !== 'object' || Array.isArray(config)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.hasAnInvalidPolicyFormat", { path: path }));
         const allowed = new Set(POLICY_CONFIG_FIELDS);
         const out = {};
         Object.keys(config).forEach((key) => {
-            if (!allowed.has(key)) throw new DomainError(ERROR.INVALID_ARGUMENT, `不支持的策略字段: ${path}.${key}`);
+            if (!allowed.has(key)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unsupportedPolicyField", { path: path, key: key }));
             out[key] = config[key];
         });
         return out;
     }
 
     function normalizePolicyOverridePatch(overrides, path) {
-        if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) throw new DomainError(ERROR.INVALID_ARGUMENT, `${path} 策略格式无效`);
+        if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.hasAnInvalidPolicyFormat", { path: path }));
         return Object.fromEntries(Object.entries(overrides).map(([scopeID, config]) => [
             scopeID,
             config == null ? null : normalizePolicyConfigPatch(config, `${path}.${scopeID}`),
@@ -10067,14 +10106,14 @@
         if (own(source, 'documentOverrides') || own(source, 'listOverrides')) {
             const legacy = own(source, 'listOverrides') ? source.listOverrides : {};
             const current = own(source, 'documentOverrides') ? source.documentOverrides : {};
-            if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) throw new DomainError(ERROR.INVALID_ARGUMENT, 'listOverrides 策略格式无效');
-            if (!current || typeof current !== 'object' || Array.isArray(current)) throw new DomainError(ERROR.INVALID_ARGUMENT, 'documentOverrides 策略格式无效');
+            if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidListoverridesPolicyFormat"));
+            if (!current || typeof current !== 'object' || Array.isArray(current)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidDocumentoverridesPolicyFormat"));
             out.documentOverrides = normalizePolicyOverridePatch({ ...legacy, ...current }, 'documentOverrides');
         }
         if (own(source, 'groupOverrides')) {
             out.groupOverrides = normalizePolicyOverridePatch(source.groupOverrides, 'groupOverrides');
         }
-        if (!Object.keys(out).length) throw new DomainError(ERROR.INVALID_ARGUMENT, '策略补丁为空');
+        if (!Object.keys(out).length) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.thePolicyPatchIsEmpty"));
         return out;
     }
 
@@ -10096,7 +10135,7 @@
         const current = await getPolicy();
         const expectedRevision = Number(input && input.expectedRevision);
         if (Number.isFinite(expectedRevision) && expectedRevision !== Number(current.revision)) {
-            throw new DomainError(ERROR.STALE_REVISION, '策略版本已变化，请重新读取');
+            throw new DomainError(ERROR.STALE_REVISION, __tmT("kernel.thePolicyVersionChangedReadItAgain"));
         }
         const patch = normalizePolicyPatch(input && input.patch);
         const changes = policyDiff(current, patch);
@@ -10109,9 +10148,9 @@
         pruneTokens(state.policyTokens);
         const current = await getPolicy();
         const item = state.policyTokens.get(text(input && input.previewToken));
-        if (!item) throw new DomainError(ERROR.CONFIRMATION_REQUIRED, '请先预览策略变更');
+        if (!item) throw new DomainError(ERROR.CONFIRMATION_REQUIRED, __tmT("kernel.previewThePolicyChangeFirst"));
         if (Number(current.revision) !== Number(item.expectedRevision) || Number(input && input.expectedRevision) !== Number(item.expectedRevision)) {
-            throw new DomainError(ERROR.STALE_REVISION, '策略版本已变化，请重新预览');
+            throw new DomainError(ERROR.STALE_REVISION, __tmT("kernel.thePolicyVersionChangedPreviewAgain"));
         }
         const nextDocumentOverrides = { ...(current.documentOverrides || {}) };
         Object.entries(item.patch.documentOverrides || {}).forEach(([scopeID, value]) => {
@@ -10231,7 +10270,7 @@
         const requestedCustomFieldIDs = uniqueStrings(input && input.customFieldIDs).slice(0, 20);
         const customFields = requestedCustomFieldIDs.map((fieldID, index) => {
             const field = registry.byId.get(fieldID);
-            if (!field || !field.custom) throw new DomainError(ERROR.INVALID_ARGUMENT, `未注册的自定义字段: ${fieldID}`);
+            if (!field || !field.custom) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.unregisteredCustomField", { fieldID: fieldID }));
             return { field, alias: `custom_field_${index}` };
         });
         const customSelect = customFields.map(({ field, alias }) => `, ${completionAttrExpression([field.attr].concat(field.aliases || []))} AS ${alias}`).join('');
@@ -10240,9 +10279,9 @@
         appendTaskScopeConditions(conditions, scope, 't');
         const fromDate = text(input && input.from);
         const toDate = text(input && input.to);
-        if (fromDate && !isStrictDateKey(fromDate)) throw new DomainError(ERROR.INVALID_ARGUMENT, '统计起始日期格式无效，应为 YYYY-MM-DD');
-        if (toDate && !isStrictDateKey(toDate)) throw new DomainError(ERROR.INVALID_ARGUMENT, '统计结束日期格式无效，应为 YYYY-MM-DD');
-        if (fromDate && toDate && fromDate > toDate) throw new DomainError(ERROR.INVALID_ARGUMENT, '统计结束日期不能早于起始日期');
+        if (fromDate && !isStrictDateKey(fromDate)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidStatisticsStartDateExpectedYyyyMmDd"));
+        if (toDate && !isStrictDateKey(toDate)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.invalidStatisticsEndDateExpectedYyyyMmDd"));
+        if (fromDate && toDate && fromDate > toDate) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theStatisticsEndDateCannotBeEarlierThanThe"));
         const coverageRows = await sql(`
             SELECT COUNT(*) AS completed_in_scope,
                 SUM(CASE WHEN ${completeExpr} = '' THEN 1 ELSE 0 END) AS missing_completion_time
@@ -10294,7 +10333,7 @@
     function countBy(rows, keySelector) {
         const map = new Map();
         rows.forEach((row) => {
-            const key = text(keySelector(row)) || '未设置';
+            const key = text(keySelector(row)) || __tmT("common.notSet");
             map.set(key, (map.get(key) || 0) + 1);
         });
         return Array.from(map, ([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
@@ -10304,7 +10343,7 @@
         const map = new Map();
         rows.forEach((row) => {
             const value = text(valueSelector(row));
-            const current = map.get(value) || { value, key: text(labelSelector(value)) || value || '未设置', count: 0 };
+            const current = map.get(value) || { value, key: text(labelSelector(value)) || value || __tmT("common.notSet"), count: 0 };
             current.count += 1;
             map.set(value, current);
         });
@@ -10373,7 +10412,7 @@
     const FOCUS_STATS_SNAPSHOT_BYTE_LIMIT = 8 * 1024 * 1024;
 
     function focusStatsScopeTooLarge(details = {}) {
-        return new DomainError('FOCUS_SCOPE_TOO_LARGE', '专注统计任务范围过大', {
+        return new DomainError('FOCUS_SCOPE_TOO_LARGE', __tmT("kernel.theFocusStatisticsTaskScopeIsTooLarge"), {
             maxTaskCount: FOCUS_STATS_SCOPE_TASK_LIMIT,
             ...details,
         });
@@ -10390,7 +10429,7 @@
     function assertFocusStatsDeadline(input, stage) {
         const deadlineAt = Math.max(0, Number(input?.deadlineAt) || 0);
         if (!deadlineAt || Date.now() < deadlineAt) return;
-        throw new DomainError('STATS_QUERY_EXPIRED', '统计查询已超过执行期限', {
+        throw new DomainError('STATS_QUERY_EXPIRED', __tmT("kernel.theStatisticsQueryExceededItsExecutionDeadline"), {
             deadlineAt,
             stage: text(stage),
         });
@@ -10405,7 +10444,7 @@
         const timeout = new Promise((resolve, reject) => {
             timer = setTimeout(() => {
                 try { controller?.abort?.(); } catch (e) {}
-                reject(new DomainError('STATS_QUERY_EXPIRED', '统计查询已超过执行期限', {
+                reject(new DomainError('STATS_QUERY_EXPIRED', __tmT("kernel.theStatisticsQueryExceededItsExecutionDeadline"), {
                     deadlineAt,
                     stage: text(stage),
                 }));
@@ -10438,7 +10477,7 @@
                     signal,
                 });
                 if (!response?.ok) {
-                    throw new DomainError('DOCK_TOMATO_STATS_UNAVAILABLE', '底栏番茄钟统计服务不可用', {
+                    throw new DomainError('DOCK_TOMATO_STATS_UNAVAILABLE', __tmT("kernel.theBottomBarPomodoroStatisticsServiceIsUnavailable"), {
                         method,
                         status: Number(response?.status) || 0,
                     });
@@ -10446,7 +10485,7 @@
                 try {
                     return await response.json();
                 } catch (error) {
-                    throw new DomainError(ERROR.STORAGE_CORRUPT, '底栏番茄钟统计响应无法解析', {
+                    throw new DomainError(ERROR.STORAGE_CORRUPT, __tmT("kernel.cannotParseTheBottomBarPomodoroStatisticsResponse"), {
                         method,
                         cause: text(error?.message),
                     });
@@ -10454,7 +10493,7 @@
             });
         } catch (error) {
             if (error instanceof DomainError) throw error;
-            throw new DomainError('DOCK_TOMATO_STATS_UNAVAILABLE', '底栏番茄钟统计服务不可用', {
+            throw new DomainError('DOCK_TOMATO_STATS_UNAVAILABLE', __tmT("kernel.theBottomBarPomodoroStatisticsServiceIsUnavailable"), {
                 method,
                 cause: text(error?.message),
             });
@@ -10463,7 +10502,7 @@
             const rpcCode = Number(payload.error.code);
             const unavailable = rpcCode === -32001 || rpcCode === -32002;
             throw new DomainError(unavailable ? 'DOCK_TOMATO_STATS_UNAVAILABLE' : ERROR.UNSUPPORTED,
-                unavailable ? '底栏番茄钟统计服务未加载' : '底栏番茄钟统计接口调用失败', {
+                unavailable ? __tmT("kernel.theBottomBarPomodoroStatisticsServiceIsNotLoaded") : __tmT("kernel.bottomBarPomodoroStatisticsApiCallFailed"), {
                     method,
                     rpcCode,
                     rpcMessage: text(payload.error.message),
@@ -10474,15 +10513,15 @@
         if (result?.ok !== true) {
             if (result?.ok === false && result.error) {
                 throw new DomainError(text(result.error.code) || ERROR.STORAGE_ERROR,
-                    text(result.error.message) || '底栏番茄钟统计失败', {
+                    text(result.error.message) || __tmT("kernel.bottomBarPomodoroStatisticsFailed"), {
                         method,
                         ...(result.error.details && typeof result.error.details === 'object' ? result.error.details : {}),
                     });
             }
-            throw new DomainError(ERROR.UNSUPPORTED, '底栏番茄钟统计响应格式不兼容', { method });
+            throw new DomainError(ERROR.UNSUPPORTED, __tmT("kernel.incompatibleBottomBarPomodoroStatisticsResponseFormat"), { method });
         }
         if (Number(result.data?.contractVersion) !== FOCUS_STATS_CONTRACT_VERSION) {
-            throw new DomainError(ERROR.UNSUPPORTED, '底栏番茄钟统计核心不兼容', { method });
+            throw new DomainError(ERROR.UNSUPPORTED, __tmT("kernel.incompatibleBottomBarPomodoroStatisticsCore"), { method });
         }
         return result.data;
     }
@@ -10492,7 +10531,7 @@
     const listDockTomatoSessions = (input) => callDockTomatoRpc('dockTomatoListSessions', input);
 
     async function collectFocusSubtreeTaskIDs(rootTaskID, input) {
-        const id = requireID(rootTaskID, '根任务 ID');
+        const id = requireID(rootTaskID, __tmT("kernel.rootTaskId"));
         assertFocusStatsDeadline(input, 'before-root-scope');
         const rows = await sql(`
             WITH RECURSIVE task_tree(id, depth) AS (
@@ -10516,7 +10555,7 @@
         `);
         assertFocusStatsDeadline(input, 'after-root-scope');
         if (!rows.length || text(rows[0]?.id) !== id) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '根任务必须指向任务块', { rootTaskID: id });
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.theRootTaskMustPointToATaskBlock"), { rootTaskID: id });
         }
         if (rows.some((item) => Number(item?.tree_depth) >= 128)) {
             throw focusStatsScopeTooLarge({ rootTaskID: id, maxDepth: 128 });
@@ -10660,7 +10699,7 @@
     }
 
     function focusStatsSnapshotTooLarge(details = {}) {
-        return new DomainError('FOCUS_SCOPE_TOO_LARGE', '任务统计快照过大', {
+        return new DomainError('FOCUS_SCOPE_TOO_LARGE', __tmT("kernel.theTaskStatisticsSnapshotIsTooLarge"), {
             maxTaskCount: FOCUS_STATS_SNAPSHOT_TASK_LIMIT,
             maxSnapshotBytes: FOCUS_STATS_SNAPSHOT_BYTE_LIMIT,
             ...details,
@@ -10691,7 +10730,7 @@
                 h2: text(row.h2 || row.h2Name || row.headingName),
                 h2Id: text(row.h2Id || row.h2_id || row.headingId),
                 h2Path: text(row.h2Path),
-                title: text(row.title || row.content) || '未命名任务',
+                title: text(row.title || row.content) || __tmT("kernel.untitledTask"),
                 done: row.done === true,
                 customStatus: text(row.customStatus || row.custom_status),
                 customStatusName: text(row.customStatusName),
@@ -10740,7 +10779,7 @@
             h2: text(task.h2 || task.h2Name || task.headingName),
             h2Id: text(task.h2Id || task.h2_id || task.headingId),
             h2Path: text(task.h2Path),
-            title: text(task.title) || '未命名任务',
+            title: text(task.title) || __tmT("kernel.untitledTask"),
             done: task.done === true,
             customStatus: text(task.customStatus),
             customStatusName: text(task.customStatusName),
@@ -11146,8 +11185,8 @@
 
     function classificationValues(task, options, resolverTasks) {
         const groupBy = text(options?.groupBy || 'task');
-        if (groupBy === 'document') return [{ id: task.documentID || '__unset', label: task.documentName || '未命名文档' }];
-        if (groupBy === 'status') return [{ id: task.customStatus || '__unset', label: task.customStatusName || task.customStatus || '未设置' }];
+        if (groupBy === 'document') return [{ id: task.documentID || '__unset', label: task.documentName || __tmT("kernel.untitledDocument") }];
+        if (groupBy === 'status') return [{ id: task.customStatus || '__unset', label: task.customStatusName || task.customStatus || __tmT("common.notSet") }];
         if (groupBy === 'priority') return [{ id: task.priority || 'none', label: task.priorityName || resolvePriorityName(task.priority) }];
         if (groupBy === 'customField') {
             const fieldID = text(options?.customFieldID || options?.customFieldId);
@@ -11155,12 +11194,12 @@
             const values = Array.isArray(raw) ? raw : (text(raw) ? [raw] : []);
             return values.length
                 ? uniqueStrings(values).map((value) => ({ id: value, label: value }))
-                : [{ id: '__unset', label: '未设置' }];
+                : [{ id: '__unset', get label() { return __tmT("common.notSet"); } }];
         }
         if (groupBy === 'parent') {
             const parentID = task.parentTaskID || task.id;
             const parent = resolverTasks.get(parentID);
-            return [{ id: parentID, label: parent?.title || (parentID === task.id ? task.title : '父任务') }];
+            return [{ id: parentID, label: parent?.title || (parentID === task.id ? task.title : __tmT("kernel.parentTask")) }];
         }
         return [{ id: task.id, label: task.title }];
     }
@@ -11184,7 +11223,7 @@
 
     async function projectFocusStatistics(rawStats, input = {}, snapshotValue = null) {
         if (Number(rawStats?.contractVersion) !== FOCUS_STATS_CONTRACT_VERSION) {
-            throw new DomainError(ERROR.UNSUPPORTED, '番茄统计数据契约不兼容');
+            throw new DomainError(ERROR.UNSUPPORTED, __tmT("kernel.incompatiblePomodoroStatisticsDataContract"));
         }
         const source = input && typeof input === 'object' ? input : {};
         assertFocusStatsDeadline(source, 'task-projection-start');
@@ -11300,10 +11339,10 @@
         const source = input && typeof input === 'object' ? { ...input } : {};
         const to = text(source.to) || new Date().toISOString();
         const toMs = Date.parse(to);
-        if (!Number.isFinite(toMs)) throw new DomainError(ERROR.INVALID_ARGUMENT, 'to 不是有效时间');
+        if (!Number.isFinite(toMs)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.toIsNotAValidTime"));
         const from = text(source.from) || new Date(toMs - 30 * 86400000).toISOString();
         const fromMs = Date.parse(from);
-        if (!Number.isFinite(fromMs) || toMs <= fromMs) throw new DomainError(ERROR.INVALID_ARGUMENT, 'from/to 必须构成有效时间范围');
+        if (!Number.isFinite(fromMs) || toMs <= fromMs) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.fromToMustFormAValidTimeRange"));
         return { ...source, from, to };
     }
 
@@ -11412,11 +11451,11 @@
         const scope = normalizeTaskScope(source);
         const effectiveTo = text(source.to) || new Date().toISOString();
         const effectiveToMs = Date.parse(effectiveTo);
-        if (!Number.isFinite(effectiveToMs)) throw new DomainError(ERROR.INVALID_ARGUMENT, 'to 不是有效时间');
+        if (!Number.isFinite(effectiveToMs)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.toIsNotAValidTime"));
         const effectiveFrom = text(source.from) || new Date(effectiveToMs - 30 * 86400000).toISOString();
         const effectiveFromMs = Date.parse(effectiveFrom);
         if (!Number.isFinite(effectiveFromMs) || !Number.isFinite(effectiveToMs) || effectiveToMs <= effectiveFromMs) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, 'from/to 必须构成有效时间范围');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.fromToMustFormAValidTimeRange"));
         }
         const registry = await getFieldRegistry();
         const settings = await getSettings();
@@ -11494,11 +11533,11 @@
 
     async function undoLastMutation(input) {
         const undo = state.lastUndo;
-        if (!undo || (input && text(input.undoID) && text(input.undoID) !== undo.id)) throw new DomainError(ERROR.NOT_FOUND, '没有可撤销的操作');
+        if (!undo || (input && text(input.undoID) && text(input.undoID) !== undo.id)) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.thereIsNoOperationToUndo"));
         if (typeof undo.verify === 'function' && !(await undo.verify())) {
             state.lastUndo = null;
             state.undoRecords.delete(undo.id);
-            throw new DomainError(ERROR.CONFLICT, '相关任务或日程已被其他操作修改，撤销已取消');
+            throw new DomainError(ERROR.CONFLICT, __tmT("kernel.relatedTasksOrSchedulesWereModifiedByAnotherOperation"));
         }
         state.lastUndo = null;
         state.undoRecords.delete(undo.id);
@@ -11507,7 +11546,7 @@
             const data = await undo.execute();
             return { undoID: undo.id, label: undo.label, data };
         } catch (error) {
-            throw new DomainError(text(error && error.code) || ERROR.STORAGE_ERROR, text(error && error.message) || '撤销执行失败', {
+            throw new DomainError(text(error && error.code) || ERROR.STORAGE_ERROR, text(error && error.message) || __tmT("kernel.undoExecutionFailed"), {
                 ...(error && error.details && typeof error.details === 'object' ? error.details : {}),
                 undoConsumed: true,
             });
@@ -11546,14 +11585,14 @@
         const missingGroup = Array.from(definedNames).filter((name) => !configuredNames.has(name));
         const missingDefinition = Array.from(configuredNames).filter((name) => !definedNames.has(name));
         if (missingGroup.length || missingDefinition.length || configuredNames.size !== MCP_TOOL_NAMES.length) {
-            throw new DomainError(ERROR.STORAGE_ERROR, '任务工具分组定义不完整', { missingGroup, missingDefinition });
+            throw new DomainError(ERROR.STORAGE_ERROR, __tmT("kernel.incompleteTaskToolGroupDefinition"), { missingGroup, missingDefinition });
         }
     }
 
     function agentCapabilityConfig(name, definition) {
         const config = {
             title: definition[1],
-            description: `任务管理器插件：${definition[1]}`,
+            description: __tmT("kernel.taskManagerPlugin", { value1: definition[1] }),
             inputSchema: definition[2],
         };
         const actionEffects = MCP_ACTION_EFFECTS[name];
@@ -11577,7 +11616,7 @@
                 kind: 'mcp',
                 register: (name, definition, handler) => legacy.registerTool(name, {
                     title: definition[1],
-                    description: `任务管理器插件：${definition[1]}`,
+                    description: __tmT("kernel.taskManagerPlugin", { value1: definition[1] }),
                     inputSchema: definition[2],
                     readOnly: MCP_READ_ONLY_TOOLS.has(name),
                 }, handler),
@@ -11599,7 +11638,7 @@
             if (toolName && !isMcpToolEnabled(toolName)) disabled.add(toolName);
         }
         if (disabled.size) {
-            throw new DomainError(ERROR.UNSUPPORTED, '批量操作包含已在设置中关闭的工具', { tools: Array.from(disabled) });
+            throw new DomainError(ERROR.UNSUPPORTED, __tmT("kernel.theBatchIncludesToolsDisabledInTheSettings"), { tools: Array.from(disabled) });
         }
     }
 
@@ -11608,34 +11647,34 @@
         const taskRepeatRule = objectSchema({
             version: { type: 'integer', minimum: 1, maximum: 1 },
             enabled: { type: 'boolean' },
-            type: stringSchema('循环单位；none 清除循环，fsrs 为 FSRS 间隔重复并自动使用 complete', ['none', 'daily', 'workday', 'weekly', 'monthly', 'yearly', 'fsrs']),
-            trigger: stringSchema('due 按原计划推进，complete 从实际完成日计算，checkin 为按计划打卡', ['due', 'complete', 'checkin']),
+            type: stringSchema(__tmT("kernel.repeatUnitNoneClearsTheRepeatFsrsIsFsrs"), ['none', 'daily', 'workday', 'weekly', 'monthly', 'yearly', 'fsrs']),
+            trigger: stringSchema(__tmT("kernel.dueAdvancesOnThePlannedScheduleCompleteIsCalculated"), ['due', 'complete', 'checkin']),
             every: { type: 'integer', minimum: 1, maximum: 3650 },
-            weekdays: { type: 'array', description: '每周日期，0=周日；空列表按起始日期的星期计算', items: { type: 'integer', minimum: 0, maximum: 6 } },
-            monthDays: { type: 'array', description: '1–31；-1 表示月末', items: { type: 'integer', minimum: -1, maximum: 31 }, minItems: 1 },
+            weekdays: { type: 'array', get description() { return __tmT("kernel.weekdaysSundayAnEmptyListUsesTheWeekdayOf"); }, items: { type: 'integer', minimum: 0, maximum: 6 } },
+            monthDays: { type: 'array', get description() { return __tmT("kernel.meansTheEndOfTheMonth"); }, items: { type: 'integer', minimum: -1, maximum: 31 }, minItems: 1 },
             monthWeek: objectSchema({ ordinal: { type: 'integer', minimum: -1, maximum: 5 }, weekday: { type: 'integer', minimum: 0, maximum: 6 } }, ['ordinal', 'weekday']),
-            monthlyMode: stringSchema('月循环方式', ['date', 'weekday']),
-            calendarMode: stringSchema('历法', ['solar', 'lunar']),
-            anchorDate: stringSchema('首次日期 YYYY-MM-DD；打卡使用此字段作为计划起始日期，不写任务开始或截止日期'),
-            until: stringSchema('可选结束日期，与 maxOccurrences 互斥；FSRS 不使用固定结束条件'),
-            maxOccurrences: { type: 'integer', description: '总轮数（含首次）；0 为不限制；FSRS 固定为 0', minimum: 0, maximum: 200 },
+            monthlyMode: stringSchema(__tmT("kernel.monthlyRepeatMode"), ['date', 'weekday']),
+            calendarMode: stringSchema(__tmT("kernel.calendar"), ['solar', 'lunar']),
+            anchorDate: stringSchema(__tmT("kernel.firstDateYyyyMmDdCheckInTasksUse")),
+            until: stringSchema(__tmT("kernel.optionalEndDateMutuallyExclusiveWithMaxoccurrencesFsrsDoes")),
+            maxOccurrences: { type: 'integer', get description() { return __tmT("kernel.totalOccurrencesIncludingTheFirstMeansUnlimitedFixedAt"); }, minimum: 0, maximum: 200 },
         }, ['type']);
         const taskPatch = { ...anyObject, properties: {
             repeatRule: taskRepeatRule,
-            expectedOccurrenceId: stringSchema('完成循环任务必填，使用 get_task 返回的 occurrenceId，防止重复完成下一轮'),
+            expectedOccurrenceId: stringSchema(__tmT("kernel.requiredToCompleteARecurringTaskUseTheOccurrenceid")),
             followReminder: objectSchema({
                 times: { type: 'array', items: stringSchema('HH:mm'), minItems: 1, maxItems: 12 },
-                intentText: stringSchema('用户本轮原话；明确提到提醒或通知时才添加，不能从循环或时间推断'),
+                intentText: stringSchema(__tmT("kernel.theUserSExactWordsThisTurnAddOnly")),
             }, ['times', 'intentText']),
         } };
         const taskDateRange = objectSchema({
-            field: stringSchema('日期字段', ['taskSpan', 'startDate', 'completionTime', 'taskCompleteAt']),
-            from: stringSchema('起始日期 YYYY-MM-DD'),
-            to: stringSchema('结束日期 YYYY-MM-DD'),
-            mode: stringSchema('taskSpan 匹配方式', ['overlap', 'within']),
+            field: stringSchema(__tmT("kernel.dateField"), ['taskSpan', 'startDate', 'completionTime', 'taskCompleteAt']),
+            from: stringSchema(__tmT("kernel.startDateYyyyMmDd")),
+            to: stringSchema(__tmT("kernel.endDateYyyyMmDd")),
+            mode: stringSchema(__tmT("kernel.taskspanMatchMode"), ['overlap', 'within']),
         }, ['field']);
         const taskQueryFilters = objectSchema({
-            scopeToken: stringSchema('当前任务视图范围令牌'),
+            scopeToken: stringSchema(__tmT("kernel.currentTaskViewScopeToken")),
             ids: { type: 'array', items: { type: 'string' } },
             documentIDs: { type: 'array', items: { type: 'string' } },
             keyword: { type: 'string' },
@@ -11643,52 +11682,52 @@
             dateRange: taskDateRange,
             overdue: { type: 'boolean' },
             priorities: { type: 'array', items: { type: 'string' }, maxItems: 50 },
-            customStatuses: { type: 'array', description: '状态 ID；可从 statusDefinitions 读取 ID 与中文状态名映射', items: { type: 'string' }, maxItems: 50 },
+            customStatuses: { type: 'array', get description() { return __tmT("kernel.statusIdReadTheIdToChineseStatusName"); }, items: { type: 'string' }, maxItems: 50 },
             includeVirtual: { type: 'boolean' },
         });
         const taskFields = {
             type: 'array',
-            description: '返回字段投影；省略则返回全部。priority 与 customStatus 是稳定 ID，并分别配套中文 priorityName、customStatusName；completionTime=截止日期，taskCompleteAt=完成时间，priorityScore=加权分数，duration=预估时长，tomatoEstimateCount=预计番茄；循环任务的 tomatoCount/tomatoMinutes/tomatoHours 表示当前轮或历史当次专注，其他任务表示累计实际专注；attachments=附件，customFieldValues=自定义列。',
+            get description() { return __tmT("kernel.fieldProjectionOmitToReturnAllFieldsPriorityAnd"); },
             items: { type: 'string', enum: TASK_READ_FIELDS },
         };
-        const readAction = stringSchema('只读操作', ['get']);
-        const listAction = stringSchema('只读操作', ['list']);
-        const queryAction = stringSchema('只读操作', ['query']);
+        const readAction = stringSchema(__tmT("kernel.readOnlyOperation"), ['get']);
+        const listAction = stringSchema(__tmT("kernel.readOnlyOperation"), ['list']);
+        const queryAction = stringSchema(__tmT("kernel.readOnlyOperation"), ['query']);
         const reminderFollow = objectSchema({
-            date: stringSchema('普通任务从提醒要求解析日期 YYYY-MM-DD；今天/今晚使用当日；已有打卡循环时省略，使用打卡计划而不写任务截止日期'),
+            date: stringSchema(__tmT("kernel.forRegularTasksTheDateParsedFromTheReminder")),
             times: { type: 'array', items: stringSchema('HH:mm'), minItems: 1, maxItems: 12 },
         }, ['times']);
         const reminderSchedule = objectSchema({
-            startDate: stringSchema('开始日期 YYYY-MM-DD'),
-            endDate: stringSchema('可选结束日期 YYYY-MM-DD'),
+            startDate: stringSchema(__tmT("kernel.startDateYyyyMmDd2")),
+            endDate: stringSchema(__tmT("kernel.optionalEndDateYyyyMmDd")),
             times: { type: 'array', items: stringSchema('HH:mm'), minItems: 1, maxItems: 12 },
-            interval: stringSchema('重复方式', REMINDER_INTERVALS),
+            interval: stringSchema(__tmT("kernel.recurrence"), REMINDER_INTERVALS),
             every: { type: 'integer', minimum: 1, maximum: 365 },
-            monthlyMode: stringSchema('月重复方式', ['date', 'weekday']),
-            calendarMode: stringSchema('历法', ['solar', 'lunar']),
+            monthlyMode: stringSchema(__tmT("kernel.monthlyRecurrenceMode"), ['date', 'weekday']),
+            calendarMode: stringSchema(__tmT("kernel.calendar"), ['solar', 'lunar']),
         }, ['startDate', 'times', 'interval']);
         const agentScheduleRule = objectSchema({
-            kind: stringSchema('运行方式', AGENT_SCHEDULE_KINDS),
-            date: stringSchema('单次运行日期 YYYY-MM-DD'),
+            kind: stringSchema(__tmT("kernel.runMode"), AGENT_SCHEDULE_KINDS),
+            date: stringSchema(__tmT("kernel.oneOffRunDateYyyyMmDd")),
             weekday: { type: 'integer', minimum: 0, maximum: 6 },
-            time: stringSchema('运行时间 HH:mm'),
+            time: stringSchema(__tmT("kernel.runTimeHhMm")),
         }, ['kind', 'time']);
         const agentScheduleConfig = objectSchema({
-            name: stringSchema('定时任务名称'),
-            prompt: stringSchema('到点后交给智能体执行的指令'),
+            name: stringSchema(__tmT("kernel.scheduledTaskName")),
+            prompt: stringSchema(__tmT("kernel.instructionForTheAgentToRunWhenDue")),
             enabled: { type: 'boolean' },
-            includeInternalPrompt: { type: 'boolean', description: '是否附加插件的无人值守内部提示词；只影响发给模型的文字规则，定时执行始终自动处理能力确认、提问和浏览器操作' },
-            condition: stringSchema('运行条件', ['always', 'today_has_completed_tasks']),
+            includeInternalPrompt: { type: 'boolean', get description() { return __tmT("kernel.whetherToAttachThePluginSInternalUnattendedPrompt"); } },
+            condition: stringSchema(__tmT("kernel.runCondition"), ['always', 'today_has_completed_tasks']),
             schedule: agentScheduleRule,
             output: objectSchema({
-                mode: stringSchema('输出方式：notification=通知展示，document=写入指定文档，daily_note=写入今天日记', ['notification', 'document', 'daily_note']),
-                documentId: stringSchema('写入文档 ID'),
-                documentMode: stringSchema('文档组织方式', ['target', 'monthly_child']),
-                insertPosition: stringSchema('插入位置', ['bottom', 'top']),
+                mode: stringSchema(__tmT("kernel.outputModeNotificationShowANotificationDocumentWriteTo"), ['notification', 'document', 'daily_note']),
+                documentId: stringSchema(__tmT("kernel.outputDocumentId")),
+                documentMode: stringSchema(__tmT("kernel.documentOrganization"), ['target', 'monthly_child']),
+                insertPosition: stringSchema(__tmT("kernel.insertPosition"), ['bottom', 'top']),
             }),
         });
         const scheduleMutableFields = {
-            taskId: stringSchema('可选真实任务、任务子块或循环虚拟实例 ID'),
+            taskId: stringSchema(__tmT("kernel.optionalRealTaskTaskSubBlockOrRecurringVirtual")),
             title: { type: 'string' },
             start: { type: 'string' },
             end: { type: 'string' },
@@ -11696,106 +11735,106 @@
             calendarId: { type: 'string' },
             color: { type: 'string' },
             plannedMinutes: { type: 'number' },
-            reminderMode: stringSchema('inherit=继承全局日程提醒，custom=使用本日程提醒设置', SCHEDULE_REMINDER_MODES),
-            reminderEnabled: { type: 'boolean', description: 'reminderMode=custom 时启用或关闭本日程提醒' },
-            reminderOffsetMin: { type: 'integer', description: 'reminderMode=custom 时提前提醒分钟数，仅支持 0、5、10、15、30、60', minimum: 0, maximum: 60 },
+            reminderMode: stringSchema(__tmT("kernel.inheritUseTheGlobalScheduleReminderCustomUseThis"), SCHEDULE_REMINDER_MODES),
+            reminderEnabled: { type: 'boolean', get description() { return __tmT("kernel.enableOrDisableThisScheduleSReminderWhenRemindermode"); } },
+            reminderOffsetMin: { type: 'integer', get description() { return __tmT("kernel.leadMinutesWhenRemindermodeCustomOnlyAreSupported"); }, minimum: 0, maximum: 60 },
             repeatRule: anyObject,
         };
         const schedulePatch = objectSchema(scheduleMutableFields);
         const taskOperationKinds = ['create', 'update', 'move', 'delete'];
         const scheduleOperationKinds = ['create', 'update', 'delete'];
         const taskOperation = objectSchema({
-            kind: stringSchema('规范操作类型', taskOperationKinds),
-            action: stringSchema('兼容操作类型；patch 等价于 update', taskOperationKinds.concat('patch')),
-            type: stringSchema('兼容操作类型；patch 等价于 update', taskOperationKinds.concat('patch')),
-            taskID: stringSchema('更新、移动或删除的任务 ID'),
-            title: stringSchema('创建任务时的标题'),
-            documentID: stringSchema('创建或移动任务时的目标文档 ID'),
-            parentTaskID: stringSchema('创建任务时的可选父任务 ID'),
+            kind: stringSchema(__tmT("kernel.canonicalActionType"), taskOperationKinds),
+            action: stringSchema(__tmT("kernel.compatibleActionTypePatchIsEquivalentToUpdate"), taskOperationKinds.concat('patch')),
+            type: stringSchema(__tmT("kernel.compatibleActionTypePatchIsEquivalentToUpdate"), taskOperationKinds.concat('patch')),
+            taskID: stringSchema(__tmT("kernel.taskIdToUpdateMoveOrDelete")),
+            title: stringSchema(__tmT("kernel.titleWhenCreatingATask")),
+            documentID: stringSchema(__tmT("kernel.targetDocumentIdWhenCreatingOrMovingATask")),
+            parentTaskID: stringSchema(__tmT("kernel.optionalParentTaskIdWhenCreatingATask")),
             patch: taskPatch,
-            parentID: stringSchema('移动任务时的目标文档、列表或父任务 ID'),
-            previousID: stringSchema('移动到该块之后'),
-            nextID: stringSchema('移动到该任务之前'),
+            parentID: stringSchema(__tmT("kernel.targetDocumentListOrParentTaskIdWhenMoving")),
+            previousID: stringSchema(__tmT("kernel.moveAfterThisBlock")),
+            nextID: stringSchema(__tmT("kernel.moveBeforeThisTask")),
         });
         const scheduleOperation = objectSchema({
-            kind: stringSchema('规范操作类型', scheduleOperationKinds),
-            action: stringSchema('兼容操作类型', scheduleOperationKinds),
-            type: stringSchema('兼容操作类型', scheduleOperationKinds),
-            id: stringSchema('更新日程时的日程 ID'),
-            scheduleID: stringSchema('删除日程时的日程 ID'),
-            scopeToken: stringSchema('关联循环虚拟实例时必填的当前任务范围令牌'),
+            kind: stringSchema(__tmT("kernel.canonicalActionType"), scheduleOperationKinds),
+            action: stringSchema(__tmT("kernel.compatibleActionType"), scheduleOperationKinds),
+            type: stringSchema(__tmT("kernel.compatibleActionType"), scheduleOperationKinds),
+            id: stringSchema(__tmT("kernel.scheduleIdWhenUpdating")),
+            scheduleID: stringSchema(__tmT("kernel.scheduleIdWhenDeleting")),
+            scopeToken: stringSchema(__tmT("kernel.currentTaskScopeTokenRequiredWhenLinkingARecurring")),
             ...scheduleMutableFields,
             patch: schedulePatch,
         });
         const taskOperations = { type: 'array', items: taskOperation };
         const scheduleOperations = { type: 'array', items: scheduleOperation };
         return [
-            ['list_task_scopes', '列出任务范围', objectSchema({ action: listAction }, ['action']), async () => listTaskScopes()],
-            ['get_task', '读取完整任务字段；返回 customFieldValues 时同时返回含父级、路径和归档状态的 customFieldDefinitions；循环虚拟任务只读且必须提供 scopeToken', objectSchema({ action: readAction, taskID: stringSchema('任务、子块或循环虚拟任务 ID'), scopeToken: stringSchema('读取当前视图或循环虚拟任务的范围令牌'), fields: taskFields }, ['action', 'taskID']), async (args) => getTaskDTOByReference(args.taskID, args.fields, args.scopeToken)],
-            ['query_tasks', '在任务范围内按完成、日期、逾期、优先级和状态分页查询；省略 fields 返回全部字段；返回 customFieldValues 时同时返回含父级、路径和归档状态的 customFieldDefinitions', objectSchema({ action: queryAction, filters: taskQueryFilters, fields: taskFields, limit: { type: 'integer', minimum: 1, maximum: 200 }, cursor: { type: 'string' } }, ['action']), queryTaskRows],
-            ['create_task', '直接在文档或父任务下创建单个任务，无需预览；未指定位置时使用对话提供的插件默认新建位置；patch.repeatRule 设置循环，只有明确要求提醒时才传 followReminder，与循环一起保存', objectSchema({ action: stringSchema('直接创建', ['create']), title: stringSchema('任务标题'), documentID: stringSchema('目标文档块 ID'), parentTaskID: stringSchema('可选父任务 ID，提供时优先于 documentID'), patch: taskPatch }, ['action', 'title']), async (args) => { requireAction(args, 'create'); return executeTaskCommandValue({ ...args, action: 'create', options: { agentWrite: true } }); }],
-            ['update_task', '更新任务字段及循环；repeatRule 由任务管理器维护轮次；明确要求提醒才传 followReminder；完成循环任务先读取 occurrenceId，再传 expectedOccurrenceId；禁止写 repeatState/repeatHistory/reminder', objectSchema({ action: stringSchema('写操作', ['update']), taskID: { type: 'string' }, patch: taskPatch }, ['action', 'taskID', 'patch']), async (args) => { requireAction(args, 'update'); return executeTaskCommandValue({ ...args, action: 'patch', options: { agentWrite: true } }); }],
-            ['configure_task_reminder', '单次直接配置跟随任务或独立提醒；应先用 query_tasks 检索已有任务并在明确匹配时传入 taskID；没有绑定任务时使用 taskTitle 在全部任务中先精确、再按可见标题模糊匹配，允许少量错字并优先绑定未完成项，找不到才使用插件默认新建位置 documentID 自动创建任务并立即设置提醒，不要先调用 create_task；跟随任务提醒同时设置截止日期并默认同步完成任务；提醒类型未明确时必须先用 question 选择类型', objectSchema({
-                action: stringSchema('直接写入', ['apply']),
-                operation: stringSchema('提醒操作', ['set', 'clear']),
-                taskID: stringSchema('已有任务或任务子块 ID；没有绑定任务时省略'),
-                taskTitle: stringSchema('没有绑定任务时创建的任务标题'),
-                documentID: stringSchema('全局没有同名任务、需要新建时使用的插件默认新建文档 ID'),
-                mode: stringSchema('提醒模式', ['follow_task', 'independent']),
+            ['list_task_scopes', __tmT("kernel.listTaskScopes"), objectSchema({ action: listAction }, ['action']), async () => listTaskScopes()],
+            ['get_task', __tmT("kernel.readFullTaskFieldsWhenReturningCustomfieldvaluesAlsoReturn"), objectSchema({ action: readAction, taskID: stringSchema(__tmT("kernel.taskSubBlockOrRecurringVirtualTaskId")), scopeToken: stringSchema(__tmT("kernel.scopeTokenOfTheCurrentViewOrRecurringVirtual")), fields: taskFields }, ['action', 'taskID']), async (args) => getTaskDTOByReference(args.taskID, args.fields, args.scopeToken)],
+            ['query_tasks', __tmT("kernel.pagedQueriesWithinTheTaskScopeByCompletionDate"), objectSchema({ action: queryAction, filters: taskQueryFilters, fields: taskFields, limit: { type: 'integer', minimum: 1, maximum: 200 }, cursor: { type: 'string' } }, ['action']), queryTaskRows],
+            ['create_task', __tmT("kernel.createASingleTaskDirectlyInADocumentOr"), objectSchema({ action: stringSchema(__tmT("kernel.createDirectly"), ['create']), title: stringSchema(__tmT("kernel.taskHeading")), documentID: stringSchema(__tmT("kernel.targetDocumentblockId")), parentTaskID: stringSchema(__tmT("kernel.optionalParentTaskIdTakesPrecedenceOverDocumentidWhen")), patch: taskPatch }, ['action', 'title']), async (args) => { requireAction(args, 'create'); return executeTaskCommandValue({ ...args, action: 'create', options: { agentWrite: true } }); }],
+            ['update_task', __tmT("kernel.updateTaskFieldsAndRepeatRepeatruleOccurrencesAreMaintained"), objectSchema({ action: stringSchema(__tmT("kernel.writeOperation"), ['update']), taskID: { type: 'string' }, patch: taskPatch }, ['action', 'taskID', 'patch']), async (args) => { requireAction(args, 'update'); return executeTaskCommandValue({ ...args, action: 'patch', options: { agentWrite: true } }); }],
+            ['configure_task_reminder', __tmT("kernel.configureAFollowOrStandaloneReminderInOneDirect"), objectSchema({
+                action: stringSchema(__tmT("kernel.writeDirectly"), ['apply']),
+                operation: stringSchema(__tmT("kernel.reminderAction"), ['set', 'clear']),
+                taskID: stringSchema(__tmT("kernel.existingTaskOrTaskSubBlockIdOmitWhen")),
+                taskTitle: stringSchema(__tmT("kernel.taskTitleCreatedWhenNoTaskIsBound")),
+                documentID: stringSchema(__tmT("kernel.pluginDefaultCreationDocumentIdUsedWhenNoSame")),
+                mode: stringSchema(__tmT("kernel.reminderMode"), ['follow_task', 'independent']),
                 follow: reminderFollow,
                 schedule: reminderSchedule,
             }, ['action', 'operation']), configureTaskReminder],
-            ['manage_agent_schedules', '管理 AI 定时任务；提醒类型未明确时必须先用 question 让用户选择 AI 定时任务、跟随任务提醒或独立提醒', objectSchema({
-                action: stringSchema('操作', ['list', 'create', 'update', 'delete']),
-                scheduleID: stringSchema('AI 定时任务 ID'),
+            ['manage_agent_schedules', __tmT("kernel.manageAiScheduledTasksWhenTheReminderTypeIs"), objectSchema({
+                action: stringSchema(__tmT("kernel.actions"), ['list', 'create', 'update', 'delete']),
+                scheduleID: stringSchema(__tmT("kernel.aiScheduledTaskId")),
                 event: agentScheduleConfig,
                 patch: agentScheduleConfig,
             }, ['action']), manageAgentSchedules],
-            ['move_task', '移动任务并验证目标块类型', objectSchema({ action: stringSchema('写操作', ['move']), taskID: stringSchema('真实任务 ID'), parentID: stringSchema('目标文档、列表或父任务 ID'), documentID: stringSchema('目标文档块 ID'), previousID: stringSchema('移动到该块之后'), nextID: stringSchema('移动到该任务之前') }, ['action', 'taskID']), async (args) => { requireAction(args, 'move'); return executeTaskCommandValue({ ...args, action: 'move' }); }],
-            ['delete_task', '预览或删除任务', objectSchema({ action: stringSchema('预览只读，执行为删除', ['get', 'delete']), phase: stringSchema('阶段', ['preview', 'execute']), taskID: { type: 'string' }, previewToken: { type: 'string' } }, ['action', 'phase', 'taskID']), async (args) => {
+            ['move_task', __tmT("kernel.moveATaskAndVerifyTheTargetBlockType"), objectSchema({ action: stringSchema(__tmT("kernel.writeOperation"), ['move']), taskID: stringSchema(__tmT("kernel.realTaskId")), parentID: stringSchema(__tmT("kernel.targetDocumentListOrParentTaskId")), documentID: stringSchema(__tmT("kernel.targetDocumentblockId")), previousID: stringSchema(__tmT("kernel.moveAfterThisBlock")), nextID: stringSchema(__tmT("kernel.moveBeforeThisTask")) }, ['action', 'taskID']), async (args) => { requireAction(args, 'move'); return executeTaskCommandValue({ ...args, action: 'move' }); }],
+            ['delete_task', __tmT("kernel.previewOrDeleteTasks"), objectSchema({ action: stringSchema(__tmT("kernel.previewIsReadOnlyExecuteDeletes"), ['get', 'delete']), phase: stringSchema(__tmT("kernel.phase"), ['preview', 'execute']), taskID: { type: 'string' }, previewToken: { type: 'string' } }, ['action', 'phase', 'taskID']), async (args) => {
                 requirePhaseAction(args, 'delete');
                 return args.phase === 'preview' ? previewTaskDelete(args.taskID) : executeTaskDelete(args.taskID, args.previewToken);
             }],
-            ['batch_tasks', '批量执行任务操作；每项使用 kind，兼容 action/type', objectSchema({ action: stringSchema('预览只读，执行为写入', ['get', 'apply']), phase: stringSchema('阶段', ['preview', 'execute']), operations: taskOperations, previewToken: { type: 'string' } }, ['action', 'phase', 'operations']), async (args) => {
+            ['batch_tasks', __tmT("kernel.batchTaskOperationsEachItemUsesKindWithAction"), objectSchema({ action: stringSchema(__tmT("kernel.previewIsReadOnlyExecuteWrites"), ['get', 'apply']), phase: stringSchema(__tmT("kernel.phase"), ['preview', 'execute']), operations: taskOperations, previewToken: { type: 'string' } }, ['action', 'phase', 'operations']), async (args) => {
                 requirePhaseAction(args, 'apply');
                 requireMcpOperationTools('tasks', args.operations);
                 return (await guardOperationPreview('tasks', args.operations, args.phase, args.previewToken)) || executeTaskOperations(args.operations);
             }],
-            ['query_schedules', '查询日程；filters.taskIDs 可包含循环虚拟实例 ID', objectSchema({ action: queryAction, filters: anyObject, limit: { type: 'integer', minimum: 1, maximum: 500 } }, ['action']), querySchedules],
-            ['create_schedule', '创建日程；提醒未指定时继承全局设置；可关联真实任务，或使用当前 scopeToken 关联只读循环虚拟实例', objectSchema({ action: stringSchema('写操作', ['create']), scopeToken: stringSchema('关联循环虚拟实例时必填的当前任务范围令牌'), ...scheduleMutableFields }, ['action', 'start', 'end']), async (args) => { requireAction(args, 'create'); return createSchedule(args); }],
-            ['update_schedule', '更新日程及单条日程提醒；重新关联循环虚拟实例时必须提供当前 scopeToken', objectSchema({ action: stringSchema('写操作', ['update']), id: { type: 'string' }, scopeToken: stringSchema('重新关联循环虚拟实例时必填的当前任务范围令牌'), patch: schedulePatch }, ['action', 'id', 'patch']), async (args) => { requireAction(args, 'update'); return updateSchedule(args); }],
-            ['delete_schedule', '预览或删除日程', objectSchema({ action: stringSchema('预览只读，执行为删除', ['get', 'delete']), phase: stringSchema('阶段', ['preview', 'execute']), scheduleID: { type: 'string' }, previewToken: { type: 'string' } }, ['action', 'phase', 'scheduleID']), async (args) => {
+            ['query_schedules', __tmT("kernel.querySchedulesFiltersTaskidsMayIncludeRecurringVirtualInstance"), objectSchema({ action: queryAction, filters: anyObject, limit: { type: 'integer', minimum: 1, maximum: 500 } }, ['action']), querySchedules],
+            ['create_schedule', __tmT("kernel.createAScheduleInheritsGlobalSettingsWhenTheReminder"), objectSchema({ action: stringSchema(__tmT("kernel.writeOperation"), ['create']), scopeToken: stringSchema(__tmT("kernel.currentTaskScopeTokenRequiredWhenLinkingARecurring")), ...scheduleMutableFields }, ['action', 'start', 'end']), async (args) => { requireAction(args, 'create'); return createSchedule(args); }],
+            ['update_schedule', __tmT("kernel.updateAScheduleAndItsSingleReminderWhenRelinking"), objectSchema({ action: stringSchema(__tmT("kernel.writeOperation"), ['update']), id: { type: 'string' }, scopeToken: stringSchema(__tmT("kernel.currentTaskScopeTokenRequiredWhenRelinkingARecurring")), patch: schedulePatch }, ['action', 'id', 'patch']), async (args) => { requireAction(args, 'update'); return updateSchedule(args); }],
+            ['delete_schedule', __tmT("kernel.previewOrDeleteSchedules"), objectSchema({ action: stringSchema(__tmT("kernel.previewIsReadOnlyExecuteDeletes"), ['get', 'delete']), phase: stringSchema(__tmT("kernel.phase"), ['preview', 'execute']), scheduleID: { type: 'string' }, previewToken: { type: 'string' } }, ['action', 'phase', 'scheduleID']), async (args) => {
                 requirePhaseAction(args, 'delete');
                 return args.phase === 'preview' ? previewScheduleDelete(args.scheduleID) : executeScheduleDelete(args.scheduleID, args.previewToken);
             }],
-            ['batch_schedules', '批量执行日程操作；每项使用 kind，兼容 action/type；关联循环虚拟实例的 create/update 操作各自携带当前 scopeToken', objectSchema({ action: stringSchema('预览只读，执行为写入', ['get', 'apply']), phase: stringSchema('阶段', ['preview', 'execute']), operations: scheduleOperations, previewToken: { type: 'string' } }, ['action', 'phase', 'operations']), async (args) => {
+            ['batch_schedules', __tmT("kernel.batchScheduleOperationsEachItemUsesKindWithAction"), objectSchema({ action: stringSchema(__tmT("kernel.previewIsReadOnlyExecuteWrites"), ['get', 'apply']), phase: stringSchema(__tmT("kernel.phase"), ['preview', 'execute']), operations: scheduleOperations, previewToken: { type: 'string' } }, ['action', 'phase', 'operations']), async (args) => {
                 requirePhaseAction(args, 'apply');
                 requireMcpOperationTools('schedules', args.operations);
                 return (await guardOperationPreview('schedules', args.operations, args.phase, args.previewToken)) || executeScheduleOperations(args.operations);
             }],
-            ['apply_task_operation_plan', '协调任务与日程操作；每项使用 kind，兼容 action/type；关联循环虚拟实例的日程操作各自携带当前 scopeToken', objectSchema({ action: stringSchema('写操作', ['apply']), taskOperations, scheduleOperations }, ['action']), async (args) => {
+            ['apply_task_operation_plan', __tmT("kernel.coordinateTaskAndScheduleOperationsEachItemUsesKind"), objectSchema({ action: stringSchema(__tmT("kernel.writeOperation"), ['apply']), taskOperations, scheduleOperations }, ['action']), async (args) => {
                 requireAction(args, 'apply');
                 const taskOperations = Array.isArray(args.taskOperations) ? args.taskOperations : [];
                 const scheduleOperations = Array.isArray(args.scheduleOperations) ? args.scheduleOperations : [];
-                if (taskOperations.length + scheduleOperations.length > 50) throw new DomainError(ERROR.INVALID_ARGUMENT, '组合操作最多 50 项');
-                if (operationsHaveDelete('tasks', taskOperations) || operationsHaveDelete('schedules', scheduleOperations)) throw new DomainError(ERROR.INVALID_ARGUMENT, '组合操作不支持删除，请使用独立删除工具');
+                if (taskOperations.length + scheduleOperations.length > 50) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.combinedOperationsTakeAtMostItems"));
+                if (operationsHaveDelete('tasks', taskOperations) || operationsHaveDelete('schedules', scheduleOperations)) throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.combinedOperationsDoNotSupportDeletionUseTheStandalone"));
                 requireMcpOperationTools('tasks', taskOperations);
                 requireMcpOperationTools('schedules', scheduleOperations);
                 const taskReceipt = await executeTaskOperations(taskOperations);
                 const taskUndo = state.lastUndo;
                 const scheduleReceipt = await executeScheduleOperations(scheduleOperations);
                 const scheduleUndo = state.lastUndo;
-                setGroupedUndo('撤销本次任务与日程操作', [taskUndo, scheduleUndo]);
+                setGroupedUndo(__tmT("kernel.undoThisTaskAndScheduleOperation"), [taskUndo, scheduleUndo]);
                 return mutationReceipt(taskReceipt.items.concat(scheduleReceipt.items));
             }],
-            ['get_task_policy', '读取任务规划策略；传入任务所属文档 ID 时同时返回按“文档 > 文档分组 > 全局”解析后的有效规则，可为缺少预估时长的任务返回确定性默认时长', objectSchema({ action: readAction, documentIDs: { type: 'array', items: { type: 'string' }, maxItems: 200 }, durationCandidates: { type: 'array', maxItems: 200, items: objectSchema({ taskID: { type: 'string' }, title: { type: 'string' }, documentID: { type: 'string' } }, ['taskID', 'title']) } }, ['action']), getTaskPolicy],
-            ['preview_task_policy_patch', '预览规划策略变更', objectSchema({ action: readAction, expectedRevision: { type: 'integer' }, patch: anyObject }, ['action', 'expectedRevision', 'patch']), async (args) => { requireAction(args, 'get'); return previewPolicyPatch(args); }],
-            ['apply_task_policy_patch', '应用已预览的规划策略变更', objectSchema({ action: stringSchema('写操作', ['apply']), expectedRevision: { type: 'integer' }, previewToken: { type: 'string' } }, ['action', 'expectedRevision', 'previewToken']), async (args) => { requireAction(args, 'apply'); return applyPolicyPatch(args); }],
-            ['aggregate_task_stats', '聚合任务完成统计；自定义标签同时返回直接计数 items 与按祖先去重汇总的 hierarchyItems（directCount/totalCount）', objectSchema({ action: queryAction, scopeToken: stringSchema('当前任务视图范围令牌'), from: { type: 'string' }, to: { type: 'string' }, period: stringSchema('聚合周期', ['day', 'week', 'month', 'year']), taskIDs: { type: 'array', items: { type: 'string' } }, documentIDs: { type: 'array', items: { type: 'string' } }, customFieldIDs: { type: 'array', description: '需要按自定义标签直接计数和父级汇总时传入 customFieldDefinitions 中的字段 ID', items: { type: 'string' }, maxItems: 20 } }, ['action']), aggregateTaskStats],
-            ['aggregate_time_usage', '聚合预估、计划和实际用时', objectSchema({ action: queryAction, scopeToken: stringSchema('当前任务视图范围令牌'), from: { type: 'string' }, to: { type: 'string' }, taskIDs: { type: 'array', items: { type: 'string' } }, documentIDs: { type: 'array', items: { type: 'string' } } }, ['action']), aggregateTimeUsage],
-            ['query_focus_statistics', '查询任意时间范围的专注统计；未指定时间时默认最近30天，可按日、周、月、季度或年直接返回分桶结果', objectSchema({ action: queryAction, scopeToken: stringSchema('当前任务视图范围令牌'), from: { type: 'string' }, to: { type: 'string' }, bucket: stringSchema('时间分桶', ['none', 'hour', 'day', 'week', 'month', 'quarter', 'year']), groupBy: stringSchema('任务分类维度', ['task', 'parent', 'document', 'status', 'priority', 'customField']), customFieldID: { type: 'string' }, rootTaskID: { type: 'string' }, taskIDs: { type: 'array', items: { type: 'string' } }, documentIDs: { type: 'array', items: { type: 'string' } } }, ['action']), queryAgentFocusStatistics],
-            ['query_routine_statistics', '查询任意时间范围的日常事务、专注、休息、覆盖和未记录时长', objectSchema({ action: queryAction, from: { type: 'string' }, to: { type: 'string' }, bucket: stringSchema('时间分桶', ['none', 'hour', 'day', 'week', 'month', 'quarter', 'year']) }, ['action']), queryAgentRoutineStatistics],
-            ['list_focus_sessions', '分页读取专注会话明细；常规汇总应优先使用 query_focus_statistics', objectSchema({ action: queryAction, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 }, cursor: { type: 'integer', minimum: 0 } }, ['action']), listAgentFocusSessions],
+            ['get_task_policy', __tmT("kernel.readTheTaskPlanningPolicyWhenATaskS"), objectSchema({ action: readAction, documentIDs: { type: 'array', items: { type: 'string' }, maxItems: 200 }, durationCandidates: { type: 'array', maxItems: 200, items: objectSchema({ taskID: { type: 'string' }, title: { type: 'string' }, documentID: { type: 'string' } }, ['taskID', 'title']) } }, ['action']), getTaskPolicy],
+            ['preview_task_policy_patch', __tmT("kernel.previewPlanningPolicyChanges"), objectSchema({ action: readAction, expectedRevision: { type: 'integer' }, patch: anyObject }, ['action', 'expectedRevision', 'patch']), async (args) => { requireAction(args, 'get'); return previewPolicyPatch(args); }],
+            ['apply_task_policy_patch', __tmT("kernel.applyThePreviewedPlanningPolicyChanges"), objectSchema({ action: stringSchema(__tmT("kernel.writeOperation"), ['apply']), expectedRevision: { type: 'integer' }, previewToken: { type: 'string' } }, ['action', 'expectedRevision', 'previewToken']), async (args) => { requireAction(args, 'apply'); return applyPolicyPatch(args); }],
+            ['aggregate_task_stats', __tmT("kernel.aggregateTaskCompletionStatisticsCustomTagsAlsoReturnDirectly"), objectSchema({ action: queryAction, scopeToken: stringSchema(__tmT("kernel.currentTaskViewScopeToken")), from: { type: 'string' }, to: { type: 'string' }, period: stringSchema(__tmT("kernel.aggregationPeriod"), ['day', 'week', 'month', 'year']), taskIDs: { type: 'array', items: { type: 'string' } }, documentIDs: { type: 'array', items: { type: 'string' } }, customFieldIDs: { type: 'array', get description() { return __tmT("kernel.passFieldIdsFromCustomfielddefinitionsToGetDirectCounts"); }, items: { type: 'string' }, maxItems: 20 } }, ['action']), aggregateTaskStats],
+            ['aggregate_time_usage', __tmT("kernel.aggregateEstimatedPlannedAndActualTimeUsage"), objectSchema({ action: queryAction, scopeToken: stringSchema(__tmT("kernel.currentTaskViewScopeToken")), from: { type: 'string' }, to: { type: 'string' }, taskIDs: { type: 'array', items: { type: 'string' } }, documentIDs: { type: 'array', items: { type: 'string' } } }, ['action']), aggregateTimeUsage],
+            ['query_focus_statistics', __tmT("kernel.focusStatisticsForAnyTimeRangeDefaultsToThe"), objectSchema({ action: queryAction, scopeToken: stringSchema(__tmT("kernel.currentTaskViewScopeToken")), from: { type: 'string' }, to: { type: 'string' }, bucket: stringSchema(__tmT("kernel.timeBucket"), ['none', 'hour', 'day', 'week', 'month', 'quarter', 'year']), groupBy: stringSchema(__tmT("kernel.taskGroupingDimension"), ['task', 'parent', 'document', 'status', 'priority', 'customField']), customFieldID: { type: 'string' }, rootTaskID: { type: 'string' }, taskIDs: { type: 'array', items: { type: 'string' } }, documentIDs: { type: 'array', items: { type: 'string' } } }, ['action']), queryAgentFocusStatistics],
+            ['query_routine_statistics', __tmT("kernel.routineFocusBreakCoveredAndUntrackedDurationsForAny"), objectSchema({ action: queryAction, from: { type: 'string' }, to: { type: 'string' }, bucket: stringSchema(__tmT("kernel.timeBucket"), ['none', 'hour', 'day', 'week', 'month', 'quarter', 'year']) }, ['action']), queryAgentRoutineStatistics],
+            ['list_focus_sessions', __tmT("kernel.paginatedFocusSessionDetailsPreferQueryFocusStatisticsFor"), objectSchema({ action: queryAction, from: { type: 'string' }, to: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500 }, cursor: { type: 'integer', minimum: 0 } }, ['action']), listAgentFocusSessions],
         ];
     }
 
@@ -11810,7 +11849,7 @@
         }
         const runtime = mcpToolRuntime();
         if ((desired.size || state.registeredTools.size) && !runtime) {
-            throw new DomainError(ERROR.UNSUPPORTED, '当前思源内核未提供插件 Agent 能力接口');
+            throw new DomainError(ERROR.UNSUPPORTED, __tmT("kernel.theCurrentSiyuanKernelDoesNotProvideThePlugin"));
         }
         for (const name of Array.from(state.registeredTools)) {
             if (desired.has(name)) continue;
@@ -11821,7 +11860,7 @@
             if (state.registeredTools.has(name)) continue;
             await runtime.register(name, definition, async (args) => asResult(() => {
                 if (!state.mcpEnabled || !isMcpToolEnabled(name)) {
-                    throw new DomainError(ERROR.UNSUPPORTED, '该任务工具已在设置中关闭', { tool: name });
+                    throw new DomainError(ERROR.UNSUPPORTED, __tmT("kernel.thisTaskToolIsDisabledInTheSettings"), { tool: name });
                 }
                 return definition[3](args || {});
             }));
@@ -11895,7 +11934,7 @@
     async function setMcpEnabled(enabled) {
         const desired = enabled === true;
         if (desired && !state.mcpAuthorized) {
-            throw new DomainError(ERROR.UNSUPPORTED, '当前版本未获得任务 MCP 工具权益');
+            throw new DomainError(ERROR.UNSUPPORTED, __tmT("kernel.thisVersionDoesNotHaveTheTaskMcpTools"));
         }
         return await applyMcpConfigChange(() => {
             state.mcpDesiredEnabled = desired;
@@ -11906,7 +11945,7 @@
     async function syncMcpEntitlement(input) {
         const value = input && typeof input === 'object' ? input : {};
         if (typeof value.allowed !== 'boolean') {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, 'allowed 必须是布尔值');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.allowedMustBeABoolean"));
         }
         return await applyMcpConfigChange(() => {
             state.mcpAuthorized = value.allowed === true;
@@ -11917,23 +11956,23 @@
     async function setMcpToolConfig(input) {
         const value = input && typeof input === 'object' ? input : {};
         if (typeof value.enabled !== 'boolean') {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, 'enabled 必须是布尔值');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.enabledMustBeABoolean"));
         }
         if (value.enabled === true && !state.mcpAuthorized) {
-            throw new DomainError(ERROR.UNSUPPORTED, '当前版本未获得任务 MCP 工具权益');
+            throw new DomainError(ERROR.UNSUPPORTED, __tmT("kernel.thisVersionDoesNotHaveTheTaskMcpTools"));
         }
         const toolName = text(value.toolName || value.tool);
         const groupID = text(value.groupID || value.group);
         if ((toolName && groupID) || (!toolName && !groupID)) {
-            throw new DomainError(ERROR.INVALID_ARGUMENT, '必须且只能指定一个工具或分组');
+            throw new DomainError(ERROR.INVALID_ARGUMENT, __tmT("kernel.exactlyOneToolOrGroupMustBeSpecified"));
         }
         let names;
         if (toolName) {
-            if (!MCP_TOOL_NAMES.includes(toolName)) throw new DomainError(ERROR.NOT_FOUND, '未找到任务工具', { tool: toolName });
+            if (!MCP_TOOL_NAMES.includes(toolName)) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.taskToolNotFound"), { tool: toolName });
             names = [toolName];
         } else {
             const group = getMcpToolGroup(groupID);
-            if (!group) throw new DomainError(ERROR.NOT_FOUND, '未找到任务工具分组', { group: groupID });
+            if (!group) throw new DomainError(ERROR.NOT_FOUND, __tmT("kernel.taskToolGroupNotFound"), { group: groupID });
             names = group.tools.map((tool) => tool[0]);
         }
         return await applyMcpConfigChange(() => {
@@ -12054,6 +12093,7 @@
     ];
 
     siyuan.plugin.lifecycle.onload = async function () {
+        await getSettings();
         await ensureTaskAttrItemStorageMigration();
         const scheduleWarmup = warmScheduleSnapshot();
         await bindRpc();

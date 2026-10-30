@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const assert = require('node:assert/strict');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = require('./i18n-browser-fixture');
 const root = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const manifest = JSON.parse(read('src/task-horizon/manifest.main.json'));

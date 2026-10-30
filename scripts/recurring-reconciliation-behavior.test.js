@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const source = fs.readFileSync(path.join(__dirname, '../src/task-horizon/main/task-runtime/54-recurring-task-runtime.js'), 'utf8');
 const start = source.indexOf('    let __tmRecurringDueReconcilePromise = null;');
 const end = source.indexOf('    window.tmGetTaskRepeatRule =', start);

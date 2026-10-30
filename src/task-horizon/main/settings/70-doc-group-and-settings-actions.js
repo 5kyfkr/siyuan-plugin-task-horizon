@@ -4,26 +4,26 @@
         if (!__tmIsLikelyBlockId(did) || !__tmIsLikelyBlockId(hid)) return false;
         try {
             const current = await __tmReadHeadingGroupBlock(hid);
-            const input = await showPrompt('修改标题分组名称', '请输入新标题名称', current.text);
+            const input = await showPrompt(__tmT("settings.renameHeadingGroup"), __tmT("settings.enterTheNewHeadingName"), current.text);
             if (input === null) return false;
             const name = String(input || '').trim();
             if (!name || /[\r\n]/.test(name)) {
-                hint('⚠ 标题名称不能为空或包含换行', 'warning');
+                hint(__tmT("settings.theHeadingNameCannotBeEmptyOrContainLine"), 'warning');
                 return false;
             }
             if (name === current.text) return false;
             if (!await __tmWaitForGlobalUnlock(8000)) {
-                hint('⚠ 正在同步任务，请稍后重试', 'warning');
+                hint(__tmT("settings.tasksAreSyncingTryAgainShortly"), 'warning');
                 return false;
             }
             const latest = await __tmReadHeadingGroupBlock(hid);
-            if (latest.text !== current.text) throw new Error('标题已被修改，请重新打开菜单');
+            if (latest.text !== current.text) throw new Error(__tmT("settings.theHeadingWasChangedReopenTheMenu"));
             latest.content.textContent = name;
             await __tmRunInTaskWriterContext('heading-group-rename', () =>
                 __tmBackendAdapter.updateBlock(hid, latest.block.outerHTML, 'dom'));
             await __tmFlushSqlTransactionsSafe('heading-group-rename');
             const saved = await __tmReadHeadingGroupBlock(hid);
-            if (saved.text !== name || saved.level !== latest.level) throw new Error('标题保存校验失败，请刷新后重试');
+            if (saved.text !== name || saved.level !== latest.level) throw new Error(__tmT("settings.headingSaveValidationFailedRefreshAndTryAgain"));
             try {
                 await __tmWarmKanbanDocHeadings([did], { force: true });
                 const refreshed = await __tmRefreshAffectedDocsIncrementally({
@@ -35,17 +35,17 @@
                     silent: true, skipSharedStateReload: true, deferIfDetailBusy: false,
                     reason: 'heading-group-rename',
                 })) {
-                    hint('标题已保存，请手动刷新视图', 'warning');
+                    hint(__tmT("settings.headingSavedRefreshTheViewManually"), 'warning');
                     return true;
                 }
             } catch (e) {
-                hint('标题已保存，视图刷新失败，请手动刷新', 'warning');
+                hint(__tmT("settings.headingSavedButTheViewRefreshFailedRefreshManually"), 'warning');
                 return true;
             }
-            hint('✅ 标题名称已修改', 'success');
+            hint(__tmT("settings.headingRenamed"), 'success');
             return true;
         } catch (e) {
-            hint(`❌ 修改标题失败: ${e.message}`, 'error');
+            hint(__tmT("settings.failedToRenameTheHeading", { message: e.message }), 'error');
             return false;
         }
     };
@@ -142,7 +142,7 @@
             .some((member) => String(member?.id || '').trim() === id);
     }
 
-    function __tmHintPinnedDocTabCustomGroupPlacement(docId, groupId, actionText = '已加入页签组') {
+    function __tmHintPinnedDocTabCustomGroupPlacement(docId, groupId, actionText = __tmT("settings.addedToTheTabGroup")) {
         const id = String(docId || '').trim();
         const gid = String(groupId || '').trim();
         if (!id || !gid || typeof __tmIsDocPinnedInGroup !== 'function') return false;
@@ -152,10 +152,10 @@
         const groupShown = __tmIsDocTabCustomGroupShownInCurrentTabBar(gid);
         try {
             const suffix = docShown
-                ? '会在页签组内排到最前'
-                : (groupShown ? '当前筛选恢复显示后会在页签组内排到最前' : '页签组显示后会在组内排到最前');
+                ? __tmT("settings.willSortFirstWithinTheTabGroup")
+                : (groupShown ? __tmT("settings.willSortFirstWithinTheTabGroupAfterThe") : __tmT("settings.willSortFirstInTheGroupOnceShown"));
             const isExisting = /^该文档已/.test(actionText);
-            hint(`${isExisting ? 'ℹ' : '✅'} ${actionText}，该页签已钉住，${suffix}`, isExisting ? 'info' : 'success');
+            hint(__tmT("settings.thisTabIsPinned", { value1: isExisting ? 'ℹ' : '✅', actionText: actionText, suffix: suffix }), isExisting ? 'info' : 'success');
         } catch (e) {}
         return true;
     }
@@ -195,10 +195,10 @@
 
     function __tmGetDocTabCustomGroupSettingsContextName() {
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
-        if (currentGroupId === 'all') return '全部文档';
+        if (currentGroupId === 'all') return __tmT("task.allDocuments");
         const group = (Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [])
             .find((item) => String(item?.id || '').trim() === currentGroupId);
-        return __tmResolveDocGroupName(group) || '当前文档分组';
+        return __tmResolveDocGroupName(group) || __tmT("settings.currentDocumentGroup");
     }
 
     function __tmCloseDocTabCustomGroupSettingsModal() {
@@ -223,7 +223,7 @@
         const entries = Array.isArray(activeGroup?.entries) ? activeGroup.entries : [];
         const directEntryByDocId = new Map(entries.map((entry) => [String(entry?.id || '').trim(), entry]).filter(([id]) => !!id));
         const expanded = activeGroup ? __tmExpandDocTabCustomGroup(activeGroup, docs) : new Map();
-        const activeGroupName = String(activeGroup?.name || '').trim() || '未命名页签组';
+        const activeGroupName = String(activeGroup?.name || '').trim() || __tmT("task.untitledTabGroup");
         const activeGroupColor = activeGroup && typeof __tmGetDocTabCustomGroupColor === 'function'
             ? __tmGetDocTabCustomGroupColor(activeGroup)
             : 'var(--tm-primary-color)';
@@ -239,7 +239,7 @@
         const groupsHtml = groups.length ? groups.map((group, index) => {
             const gid = String(group?.id || '').trim();
             if (!gid) return '';
-            const name = String(group?.name || '').trim() || '未命名页签组';
+            const name = String(group?.name || '').trim() || __tmT("task.untitledTabGroup");
             const count = Array.isArray(group?.entries) ? group.entries.length : 0;
             const isFirst = index <= 0;
             const isLast = index >= groups.length - 1;
@@ -250,18 +250,16 @@
                         <small>${count}</small>
                     </button>
                     <div class="tm-doc-tab-group-settings-sort">
-                        <button type="button" class="tm-doc-tab-group-settings-sort-btn" onclick="tmMoveDocTabCustomGroup('${escSq(gid)}', -1, event)" title="上移" aria-label="${esc(`上移页签组：${name}`)}" ${isFirst ? 'disabled' : ''}>${__tmRenderLucideIcon('arrow-up', '', { size: 12 })}</button>
-                        <button type="button" class="tm-doc-tab-group-settings-sort-btn" onclick="tmMoveDocTabCustomGroup('${escSq(gid)}', 1, event)" title="下移" aria-label="${esc(`下移页签组：${name}`)}" ${isLast ? 'disabled' : ''}>${__tmRenderLucideIcon('arrow-down', '', { size: 12 })}</button>
+                        <button type="button" class="tm-doc-tab-group-settings-sort-btn" onclick="tmMoveDocTabCustomGroup('${escSq(gid)}', -1, event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.moveUp3")}" aria-label="${esc(__tmT("settings.moveTabGroupUp", { name: name }))}" ${isFirst ? 'disabled' : ''}>${__tmRenderLucideIcon('arrow-up', '', { size: 12 })}</button>
+                        <button type="button" class="tm-doc-tab-group-settings-sort-btn" onclick="tmMoveDocTabCustomGroup('${escSq(gid)}', 1, event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.moveDown3")}" aria-label="${esc(__tmT("settings.moveTabGroupDown", { name: name }))}" ${isLast ? 'disabled' : ''}>${__tmRenderLucideIcon('arrow-down', '', { size: 12 })}</button>
                     </div>
                 </div>
             `;
         }).join('') : `
-            <div class="tm-doc-tab-group-settings-empty">暂无页签组</div>
+            <div class="tm-doc-tab-group-settings-empty">${__tmT("settings.noTabGroups")}</div>
         `;
         const foreignGroupsHtml = foreignGroupCount ? `
-            <div class="tm-doc-tab-group-settings-scope-note">
-                另有 ${foreignGroupCount} 个页签组属于其他文档分组，当前不可编辑；切换到对应文档分组后再管理。
-            </div>
+            <div class="tm-doc-tab-group-settings-scope-note">${__tmT("settings.anotherTabGroupsBelongToOtherDocumentGroupsAnd", { foreignGroupCount: foreignGroupCount })}</div>
         ` : '';
         const rowsHtml = activeGroup ? (docs.length ? docs.map((doc) => {
             const docId = String(doc?.id || '').trim();
@@ -275,7 +273,7 @@
             const includeChildren = !!directEntry?.includeChildren;
             const childDocs = __tmGetDocTabChildDocs(docId, docs).filter((child) => String(child?.id || '').trim() !== docId);
             const childDocsInCurrentTabs = childDocs.filter((child) => currentDocIds.has(String(child?.id || '').trim()));
-            const docName = __tmGetDocDisplayName(doc, doc.name || '未命名文档');
+            const docName = __tmGetDocDisplayName(doc, doc.name || __tmT("kernel.untitledDocument"));
             const inheritedFromId = inherited ? String(relation?.entryId || '').trim() : '';
             const inheritedFromName = inheritedFromId
                 ? __tmGetDocDisplayName(inheritedFromId, __tmGetDocRawName(inheritedFromId, inheritedFromId))
@@ -292,27 +290,27 @@
                             <div class="tm-doc-tab-group-settings-doc-main">
                                 ${__tmRenderDocIcon(doc, { size: 14 })}
                                 <span title="${esc(docName)}">${esc(docName)}</span>
-                                ${directEntry ? '<em>直接加入</em>' : ''}
-                                ${inherited ? `<em>由 ${esc(inheritedFromName || '上级文档')} 带入</em>` : ''}
-                                ${pinned ? '<em>已钉住，组内靠前</em>' : ''}
+                                ${directEntry ? `<em>${__tmT("settings.addedDirectly")}</em>` : ''}
+                                ${inherited ? `<em>${__tmT("settings.inheritedFrom", { value1: esc(inheritedFromName || __tmT("task.inheritedFromParent")) })}</em>` : ''}
+                                ${pinned ? `<em>${__tmT("settings.pinnedSortsFirstInTheGroup")}</em>` : ''}
                             </div>
                             <div class="tm-doc-tab-group-settings-doc-sub">
                                 ${childDocsInCurrentTabs.length
-                                    ? `当前页签中有 ${childDocsInCurrentTabs.length} 个子文档${includeChildren ? '，会随此文档收入分组' : ''}`
-                                    : '当前页签中未检测到子文档'}
+                                    ? __tmT("settings.inTheCurrentTabsSubdocuments", { length: childDocsInCurrentTabs.length, value2: includeChildren ? __tmT("settings.collectedIntoTheGroupTogetherWithThisDocument") : '' })
+                                    : __tmT("settings.noSubdocumentsDetectedInTheCurrentTabs")}
                             </div>
                         </div>
                         <label class="tm-doc-tab-group-settings-child-toggle${directEntry ? '' : ' is-disabled'}">
                             <input class="b3-switch fn__flex-center" type="checkbox" ${includeChildren ? 'checked' : ''} ${directEntry ? '' : 'disabled'} onchange="tmToggleDocTabCustomGroupEntryChildren('${escSq(activeGroupId)}', '${escSq(docId)}', this.checked)">
-                            <span>包含子文档</span>
+                            <span>${__tmT("settings.includeSubdocuments")}</span>
                         </label>
                     </div>
                 </div>
             `;
         }).join('') : `
-            <div class="tm-doc-tab-group-settings-empty">当前文档分组没有可选页签</div>
+            <div class="tm-doc-tab-group-settings-empty">${__tmT("settings.thisDocumentGroupHasNoSelectableTabs")}</div>
         `) : `
-            <div class="tm-doc-tab-group-settings-empty">先新建一个页签组</div>
+            <div class="tm-doc-tab-group-settings-empty">${__tmT("settings.createATabGroupFirst")}</div>
         `;
         const externalEntries = activeGroup ? entries.filter((entry) => {
             const id = String(entry?.id || '').trim();
@@ -320,7 +318,7 @@
         }) : [];
         const externalHtml = externalEntries.length ? `
             <div class="tm-doc-tab-group-settings-offscreen">
-                <div class="tm-doc-tab-group-settings-section-title">不在当前页签栏的直接成员</div>
+                <div class="tm-doc-tab-group-settings-section-title">${__tmT("settings.directMembersNotInTheCurrentTabBar")}</div>
                 ${externalEntries.map((entry) => {
                     const docId = String(entry?.id || '').trim();
                     const docName = __tmGetDocDisplayName(docId, __tmGetDocRawName(docId, docId));
@@ -328,7 +326,7 @@
                         <div class="tm-doc-tab-group-settings-offscreen-row">
                             <span>${esc(docName)}</span>
                             <small>${esc(docId.slice(0, 8))}...</small>
-                            <button type="button" class="tm-btn tm-btn-danger" onclick="tmRemoveDocFromDocTabCustomGroup('${escSq(activeGroupId)}', '${escSq(docId)}')">移除</button>
+                            <button type="button" class="tm-btn tm-btn-danger" onclick="tmRemoveDocFromDocTabCustomGroup('${escSq(activeGroupId)}', '${escSq(docId)}')">${__tmT("task.remove")}</button>
                         </div>
                     `;
                 }).join('')}
@@ -339,14 +337,14 @@
             <div class="tm-box tm-doc-tab-group-settings-box" data-tm-doc-tab-settings-active-group-id="${esc(activeGroupId)}" onclick="event.stopPropagation()">
                 <div class="tm-header">
                     <div>
-                        <div style="font-size:18px;font-weight:700;color:var(--tm-text-color);">页签分组设置</div>
-                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:3px;">${esc(contextName)} / 仅当前文档分组</div>
+                        <div style="font-size:18px;font-weight:700;color:var(--tm-text-color);">${__tmT("settings.tabGroupSettings")}</div>
+                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:3px;">${__tmT("settings.currentDocumentGroupOnly", { contextName: esc(contextName) })}</div>
                     </div>
-                    <button class="tm-btn tm-btn-gray" type="button" onclick="tmCloseDocTabCustomGroupSettings()">关闭</button>
+                    <button class="tm-btn tm-btn-gray" type="button" onclick="tmCloseDocTabCustomGroupSettings()">${__tmT("common.close")}</button>
                 </div>
                 <div class="tm-doc-tab-group-settings-layout">
                     <aside class="tm-doc-tab-group-settings-sidebar">
-                        <button type="button" class="tm-btn tm-btn-primary" onclick="tmCreateDocTabCustomGroupFromSettings()" style="width:100%;justify-content:center;">新建页签组</button>
+                        <button type="button" class="tm-btn tm-btn-primary" onclick="tmCreateDocTabCustomGroupFromSettings()" style="width:100%;justify-content:center;">${__tmT("settings.newTabGroup2")}</button>
                         <div class="tm-doc-tab-group-settings-groups">${groupsHtml}</div>
                         ${foreignGroupsHtml}
                     </aside>
@@ -355,17 +353,17 @@
                             <div class="tm-doc-tab-group-settings-toolbar">
                                 <div class="tm-doc-tab-group-settings-title">
                                     <strong>${esc(activeGroupName)}</strong>
-                                    <span>${entries.length} 个直接成员，${docs.length} 个当前页签可选</span>
+                                    <span>${__tmT("settings.directMembersSelectableTabs", { length: entries.length, length2: docs.length })}</span>
                                 </div>
                                 <div class="tm-doc-tab-group-settings-actions">
-                                    <button type="button" class="tm-btn tm-btn-secondary tm-doc-tab-group-settings-color-btn" onclick="tmSetDocTabCustomGroupColor('${escSq(activeGroupId)}')" title="设置页签组颜色">
+                                    <button type="button" class="tm-btn tm-btn-secondary tm-doc-tab-group-settings-color-btn" onclick="tmSetDocTabCustomGroupColor('${escSq(activeGroupId)}')" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.settingstabGroupColor")}">
                                         ${__tmRenderLucideIcon('brush-cleaning', '', { size: 13 })}
                                         <span class="tm-doc-tab-group-settings-color-swatch" style="background:${esc(activeGroupColor)}"></span>
-                                        <span>颜色</span>
+                                        <span>${__tmT("calendar.color")}</span>
                                     </button>
-                                    ${activeGroupHasCustomColor ? `<button type="button" class="tm-btn tm-btn-gray" onclick="tmResetDocTabCustomGroupColor('${escSq(activeGroupId)}')">恢复自动</button>` : ''}
-                                    <button type="button" class="tm-btn tm-btn-secondary" onclick="tmRenameDocTabCustomGroup('${escSq(activeGroupId)}')">重命名</button>
-                                    <button type="button" class="tm-btn tm-btn-danger" onclick="tmDeleteDocTabCustomGroup('${escSq(activeGroupId)}')">删除</button>
+                                    ${activeGroupHasCustomColor ? `<button type="button" class="tm-btn tm-btn-gray" onclick="tmResetDocTabCustomGroupColor('${escSq(activeGroupId)}')">${__tmT("settings.restoreAutomatic")}</button>` : ''}
+                                    <button type="button" class="tm-btn tm-btn-secondary" onclick="tmRenameDocTabCustomGroup('${escSq(activeGroupId)}')">${__tmT("settings.rename")}</button>
+                                    <button type="button" class="tm-btn tm-btn-danger" onclick="tmDeleteDocTabCustomGroup('${escSq(activeGroupId)}')">${__tmT("common.delete")}</button>
                                 </div>
                             </div>
                             <div class="tm-doc-tab-group-settings-list">${rowsHtml}</div>
@@ -709,15 +707,15 @@
     window.tmCreateDocTabCustomGroupWithDoc = async function(docId) {
         const id = String(docId || '').trim();
         if (!id) {
-            hint('⚠ 未找到当前文档', 'warning');
+            hint(__tmT("settings.currentDocumentNotFound"), 'warning');
             return null;
         }
-        const docName = __tmGetDocDisplayName(id, __tmGetDocRawName(id, '未命名文档'));
-        const name = await showPrompt('新建页签组', '请输入页签组名称', docName || '新页签组');
+        const docName = __tmGetDocDisplayName(id, __tmGetDocRawName(id, __tmT("kernel.untitledDocument")));
+        const name = await showPrompt(__tmT("settings.newTabGroup2"), __tmT("settings.enterTheTabGroupName"), docName || __tmT("settings.newTabGroup3"));
         if (name === null || name === undefined) return null;
         const groupName = String(name || '').trim();
         if (!groupName) {
-            hint('⚠ 页签组名称不能为空', 'warning');
+            hint(__tmT("settings.theTabGroupNameCannotBeEmpty"), 'warning');
             return null;
         }
         const groups = __tmGetDocTabCustomGroups();
@@ -731,17 +729,17 @@
         groups.push(group);
         state.docTabCustomGroupSettingsActiveGroupId = group.id;
         await __tmSaveDocTabCustomGroups(groups);
-        const warned = __tmHintPinnedDocTabCustomGroupPlacement(id, group.id, `已新建页签组“${groupName}”`);
-        if (!warned) hint(`✅ 已新建页签组“${groupName}”`, 'success');
+        const warned = __tmHintPinnedDocTabCustomGroupPlacement(id, group.id, __tmT("settings.createdTabGroup", { groupName: groupName }));
+        if (!warned) hint(__tmT("settings.createdTabGroup2", { groupName: groupName }), 'success');
         return group;
     };
 
     window.tmCreateDocTabCustomGroupFromSettings = async function() {
-        const name = await showPrompt('新建页签组', '请输入页签组名称', '新页签组');
+        const name = await showPrompt(__tmT("settings.newTabGroup2"), __tmT("settings.enterTheTabGroupName"), __tmT("settings.newTabGroup3"));
         if (name === null || name === undefined) return null;
         const groupName = String(name || '').trim();
         if (!groupName) {
-            hint('⚠ 页签组名称不能为空', 'warning');
+            hint(__tmT("settings.theTabGroupNameCannotBeEmpty"), 'warning');
             return null;
         }
         const groups = __tmGetDocTabCustomGroups();
@@ -755,7 +753,7 @@
         groups.push(group);
         state.docTabCustomGroupSettingsActiveGroupId = group.id;
         await __tmSaveDocTabCustomGroups(groups);
-        hint(`✅ 已创建页签组“${groupName}”`, 'success');
+        hint(__tmT("settings.createdTabGroup3", { groupName: groupName }), 'success');
         return group;
     };
 
@@ -766,7 +764,7 @@
         const groups = __tmGetDocTabCustomGroups();
         const group = __tmFindEditableDocTabCustomGroup(groups, gid);
         if (!group) {
-            hint('⚠ 当前文档分组下未找到该页签组', 'warning');
+            hint(__tmT("task.theTabGroupWasNotFoundInTheCurrent"), 'warning');
             return false;
         }
         if (!Array.isArray(group.entries)) group.entries = [];
@@ -774,14 +772,14 @@
         if (existing) {
             existing.includeChildren = !!(existing.includeChildren || includeChildren);
             await __tmSaveDocTabCustomGroups(groups);
-            const warned = __tmHintPinnedDocTabCustomGroupPlacement(id, gid, `该文档已在“${group.name || '未命名页签组'}”中`);
-            if (!warned) hint(`ℹ 该文档已在“${group.name || '未命名页签组'}”中`, 'info');
+            const warned = __tmHintPinnedDocTabCustomGroupPlacement(id, gid, __tmT("settings.theDocumentIsAlreadyIn", { value1: group.name || __tmT("task.untitledTabGroup") }));
+            if (!warned) hint(__tmT("settings.theDocumentIsAlreadyIn2", { value1: group.name || __tmT("task.untitledTabGroup") }), 'info');
             return true;
         }
         group.entries.push({ id, includeChildren: !!includeChildren });
         await __tmSaveDocTabCustomGroups(groups);
-        const warned = __tmHintPinnedDocTabCustomGroupPlacement(id, gid, `已添加到页签组“${group.name || '未命名页签组'}”`);
-        if (!warned) hint(`✅ 已添加到页签组“${group.name || '未命名页签组'}”`, 'success');
+        const warned = __tmHintPinnedDocTabCustomGroupPlacement(id, gid, __tmT("settings.addedToTabGroup", { value1: group.name || __tmT("task.untitledTabGroup") }));
+        if (!warned) hint(__tmT("settings.addedToTabGroup2", { value1: group.name || __tmT("task.untitledTabGroup") }), 'success');
         return true;
     };
 
@@ -790,7 +788,7 @@
         const input = btn?.parentElement?.querySelector?.('[data-tm-doc-tab-group-entry-input]');
         const docId = String(input?.value || '').trim();
         if (!docId) {
-            hint('⚠ 请输入文档 ID', 'warning');
+            hint(__tmT("settings.enterADocumentId"), 'warning');
             return;
         }
         const ok = await window.tmAddDocToDocTabCustomGroup?.(groupId, docId, false);
@@ -807,11 +805,11 @@
         const before = group.entries.length;
         group.entries = group.entries.filter((entry) => String(entry?.id || '').trim() !== id);
         if (group.entries.length === before) {
-            hint('⚠ 该文档不是页签组的直接成员', 'warning');
+            hint(__tmT("settings.theDocumentIsNotADirectMemberOfThe"), 'warning');
             return false;
         }
         await __tmSaveDocTabCustomGroups(groups);
-        hint(`✅ 已从页签组“${group.name || '未命名页签组'}”移除`, 'success');
+        hint(__tmT("settings.removedFromTabGroup", { value1: group.name || __tmT("task.untitledTabGroup") }), 'success');
         return true;
     };
 
@@ -834,18 +832,18 @@
         const groups = __tmGetDocTabCustomGroups();
         const group = __tmFindEditableDocTabCustomGroup(groups, gid);
         if (!group) return;
-        const oldName = String(group.name || '').trim() || '未命名页签组';
-        const next = await showPrompt('重命名页签组', '请输入新的页签组名称', oldName);
+        const oldName = String(group.name || '').trim() || __tmT("task.untitledTabGroup");
+        const next = await showPrompt(__tmT("settings.renameTabGroup"), __tmT("settings.enterTheNewTabGroupName"), oldName);
         if (next === null || next === undefined) return;
         const name = String(next || '').trim();
         if (!name) {
-            hint('⚠ 页签组名称不能为空', 'warning');
+            hint(__tmT("settings.theTabGroupNameCannotBeEmpty"), 'warning');
             return;
         }
         if (name === oldName) return;
         group.name = name;
         await __tmSaveDocTabCustomGroups(groups);
-        hint('✅ 页签组已重命名', 'success');
+        hint(__tmT("settings.tabGroupRenamed"), 'success');
     };
 
     window.tmSetDocTabCustomGroupColor = function(groupId) {
@@ -853,18 +851,18 @@
         const groups = __tmGetDocTabCustomGroups();
         const group = __tmFindEditableDocTabCustomGroup(groups, gid);
         if (!group) {
-            hint('⚠ 当前文档分组下未找到该页签组', 'warning');
+            hint(__tmT("task.theTabGroupWasNotFoundInTheCurrent"), 'warning');
             return;
         }
         const initial = __tmNormalizeHexColor(group.color || group.tabColor || group.bgColor, '#3b82f6') || '#3b82f6';
-        __tmOpenColorPickerDialog('页签组颜色', initial, async (next) => {
+        __tmOpenColorPickerDialog(__tmT("settings.tabGroupColor"), initial, async (next) => {
             const color = __tmNormalizeHexColor(next, '');
             if (!color) return;
             group.color = color;
             delete group.tabColor;
             delete group.bgColor;
             await __tmSaveDocTabCustomGroups(groups, { refreshSettings: true });
-            hint('✅ 页签组颜色已更新', 'success');
+            hint(__tmT("settings.tabGroupColorUpdated"), 'success');
         }, __tmBuildPresetColorPickerOptions(initial));
     };
 
@@ -873,7 +871,7 @@
         const groups = __tmGetDocTabCustomGroups();
         const group = __tmFindEditableDocTabCustomGroup(groups, gid);
         if (!group) {
-            hint('⚠ 当前文档分组下未找到该页签组', 'warning');
+            hint(__tmT("task.theTabGroupWasNotFoundInTheCurrent"), 'warning');
             return;
         }
         const hadCustomColor = !!__tmNormalizeHexColor(group.color || group.tabColor || group.bgColor, '');
@@ -882,7 +880,7 @@
         delete group.bgColor;
         if (!hadCustomColor) return;
         await __tmSaveDocTabCustomGroups(groups, { refreshSettings: true });
-        hint('✅ 已恢复页签组自动颜色', 'success');
+        hint(__tmT("settings.tabGroupColorRestoredToAutomatic"), 'success');
     };
 
     window.tmDeleteDocTabCustomGroup = async function(groupId) {
@@ -890,12 +888,12 @@
         const groups = __tmGetDocTabCustomGroups();
         const group = __tmFindEditableDocTabCustomGroup(groups, gid);
         if (!group) return;
-        const name = String(group.name || '').trim() || '未命名页签组';
+        const name = String(group.name || '').trim() || __tmT("task.untitledTabGroup");
         if (typeof showConfirm !== 'function') {
-            hint('⚠ 删除确认弹窗不可用，请刷新后重试', 'warning');
+            hint(__tmT("settings.theDeleteConfirmationDialogIsUnavailableRefreshAndTry"), 'warning');
             return;
         }
-        const ok = await showConfirm('删除页签组', `确定要删除页签组“${name}”吗？`);
+        const ok = await showConfirm(__tmT("settings.deleteTabGroup"), __tmT("settings.deleteTheTabGroup", { name: name }));
         if (!ok) return;
         if (typeof __tmParseDocTabCustomGroupActiveId === 'function' && __tmParseDocTabCustomGroupActiveId(state.activeDocId) === gid) {
             state.activeDocId = 'all';
@@ -904,7 +902,7 @@
             state.docTabCustomGroupSettingsActiveGroupId = '';
         }
         await __tmSaveDocTabCustomGroups(groups.filter((item) => String(item?.id || '').trim() !== gid));
-        hint('✅ 页签组已删除', 'success');
+        hint(__tmT("settings.tabGroupDeleted"), 'success');
     };
 
     window.tmSelectDocTabCustomGroupSettingsGroup = function(groupId) {
@@ -927,7 +925,7 @@
             .filter(Boolean);
         const scopedIndex = scopedIds.indexOf(gid);
         if (scopedIndex < 0) {
-            hint('⚠ 当前文档分组下未找到该页签组', 'warning');
+            hint(__tmT("task.theTabGroupWasNotFoundInTheCurrent"), 'warning');
             return false;
         }
         const targetScopedIndex = scopedIndex + step;
@@ -946,7 +944,7 @@
         });
         state.docTabCustomGroupSettingsActiveGroupId = gid;
         await __tmSaveDocTabCustomGroups(nextGroups, { refreshSettings: true });
-        hint('✅ 页签组排序已更新', 'success');
+        hint(__tmT("settings.tabGroupOrderUpdated"), 'success');
         return true;
     };
 
@@ -957,7 +955,7 @@
         const groups = __tmGetDocTabCustomGroups();
         const group = __tmFindEditableDocTabCustomGroup(groups, gid);
         if (!group) {
-            hint('⚠ 当前文档分组下未找到该页签组', 'warning');
+            hint(__tmT("task.theTabGroupWasNotFoundInTheCurrent"), 'warning');
             return;
         }
         if (!Array.isArray(group.entries)) group.entries = [];
@@ -973,9 +971,9 @@
             : group.entries.length !== before;
         await __tmSaveDocTabCustomGroups(groups, { refreshSettings: true });
         if (changed) {
-            const warned = included ? __tmHintPinnedDocTabCustomGroupPlacement(id, gid, '已加入页签组') : false;
+            const warned = included ? __tmHintPinnedDocTabCustomGroupPlacement(id, gid, __tmT("settings.addedToTheTabGroup")) : false;
             if (!warned) {
-                try { hint(included ? '✅ 已加入页签组' : '✅ 已移出页签组', 'success'); } catch (e) {}
+                try { hint(included ? __tmT("settings.addedToTheTabGroup2") : __tmT("settings.removedFromTheTabGroup"), 'success'); } catch (e) {}
             }
         }
     };
@@ -1020,10 +1018,10 @@
         const group = groups.find(g => String(g?.id || '').trim() === currentId);
         if (group) {
             const isNotebookGroup = !!String(group.notebookId || '').trim();
-            const groupName = __tmResolveDocGroupName(group) || '当前分组';
+            const groupName = __tmResolveDocGroupName(group) || __tmT("task.currentGroup");
             const message = isNotebookGroup
-                ? `确定解除分组“${groupName}”与笔记本的关联吗？分组会保留并转为自定义分组，思源中的文档不会被删除。`
-                : `确定清空分组“${groupName}”的手动文档吗？其他块来源和思源中的文档不会被删除。`;
+                ? __tmT("settings.unlinkTheGroupFromItsNotebookTheGroupIs", { groupName: groupName })
+                : __tmT("settings.clearTheManualDocumentsOfGroupOtherBlockSources", { groupName: groupName });
             if (!confirm(message)) return;
             group.docs = [];
             group.excludedDocIds = [];
@@ -1071,13 +1069,13 @@
         const groups = SettingsStore.data.docGroups || [];
         const group = groups.find(g => String(g?.id || '').trim() === currentId);
         if (!group || !Array.isArray(group.docs)) {
-            hint('⚠ 未找到该分组文档', 'warning');
+            hint(__tmT("settings.groupDocumentNotFound"), 'warning');
             return;
         }
         const before = group.docs.length;
         group.docs = group.docs.filter((doc) => String((typeof doc === 'object' ? doc?.id : doc) || '').trim() !== id);
         if (group.docs.length === before) {
-            hint('⚠ 该文档不是手动添加的分组文档', 'warning');
+            hint(__tmT("settings.thisDocumentWasNotAddedManuallyToTheGroup"), 'warning');
             return;
         }
         group.excludedDocIds = __tmGetGroupExcludedDocIds(group).filter((item) => item !== id);
@@ -1094,7 +1092,7 @@
         if (!id) return;
         if (!targetGroupId) targetGroupId = currentId === 'all' ? '' : currentId;
         if (!targetGroupId) {
-            hint('⚠ 未找到其他块所在分组', 'warning');
+            hint(__tmT("settings.theGroupContainingTheOtherBlockWasNotFound"), 'warning');
             return;
         }
 
@@ -1139,7 +1137,7 @@
         } catch (e) {}
 
         if (!blockIds.length) {
-            hint('⚠ 未找到该文档对应的其他块', 'warning');
+            hint(__tmT("settings.noOtherBlocksFoundForThisDocument"), 'warning');
             return;
         }
 
@@ -1148,7 +1146,7 @@
         });
         if (result?.removed > 0) {
             try { await __tmEnsureOtherBlockSourceDocsForGroup?.(targetGroupId, { force: true }); } catch (e) {}
-            hint(`✅ 已移除 ${result.removed} 个其他块`, 'success');
+            hint(__tmT("settings.removedOtherBlockS", { removed: result.removed }), 'success');
             showSettings();
         }
     };
@@ -1157,10 +1155,10 @@
         const currentId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         const result = await __tmSetDocExcludedForGroup(docId, false, currentId);
         if (!result?.changed) {
-            hint('⚠ 该文档未被隐藏', 'warning');
+            hint(__tmT("settings.thisDocumentIsNotHidden"), 'warning');
             return;
         }
-        hint('✅ 已恢复显示文档页签', 'success');
+        hint(__tmT("settings.documentTabShownAgain"), 'success');
     };
 
     window.removeDocFromAll = async function(docId) {
@@ -1239,7 +1237,7 @@
         } catch (e) {}
 
         if (!changed) {
-            hint('⚠ 未找到该文档', 'warning');
+            hint(__tmT("settings.documentNotFound"), 'warning');
             return;
         }
 
@@ -1300,7 +1298,7 @@
         const selectedIds = __tmPrepareSettingsDocPickerDraft(groupId);
         const count = root.querySelector('[data-tm-doc-picker-selected-count]');
         const addButton = root.querySelector('[data-tm-action="tmAddSelectedSettingsDocs"]');
-        if (count) count.textContent = `已选择 ${selectedIds.size} 项`;
+        if (count) count.textContent = __tmT("settings.selected", { size: selectedIds.size });
         if (addButton instanceof HTMLButtonElement) addButton.disabled = selectedIds.size === 0;
     }
 
@@ -1357,23 +1355,23 @@
             modal.innerHTML = `
                 <section class="tm-doc-group-manager__picker-dialog-box" role="dialog" aria-modal="true" aria-labelledby="tmDocumentLocationTitle">
                     <header class="tm-doc-group-manager__picker-dialog-head">
-                        <h3 id="tmDocumentLocationTitle">选择创建位置</h3>
-                        <button type="button" class="tm-doc-group-manager__picker-dialog-close" data-tm-location-close aria-label="关闭">${__tmRenderLucideIcon('x')}</button>
+                        <h3 id="tmDocumentLocationTitle">${__tmT("settings.chooseCreationLocation")}</h3>
+                        <button type="button" class="tm-doc-group-manager__picker-dialog-close" data-tm-location-close aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}">${__tmRenderLucideIcon('x')}</button>
                     </header>
                     <div class="tm-doc-group-manager__picker" data-tm-doc-picker>
                         <div class="tm-doc-group-manager__picker-toolbar">
                             <div class="tm-doc-group-manager__picker-search">
                                 <span aria-hidden="true">${__tmRenderLucideIcon('search')}</span>
-                                <input type="search" placeholder="搜索文档名称、路径或 ID" aria-label="搜索文档" autocomplete="off" data-tm-doc-picker-search-input>
-                                <button type="button" data-tm-location-clear aria-label="清除搜索" hidden>${__tmRenderLucideIcon('x')}</button>
+                                <input type="search" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.searchDocumentNamePathOrId")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.searchDocuments")}" autocomplete="off" data-tm-doc-picker-search-input>
+                                <button type="button" data-tm-location-clear aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearSearch")}" hidden>${__tmRenderLucideIcon('x')}</button>
                             </div>
-                            <button type="button" class="tm-doc-group-manager__picker-refresh" data-tm-location-refresh aria-label="刷新文档列表">${__tmRenderLucideIcon('refresh-cw')}</button>
+                            <button type="button" class="tm-doc-group-manager__picker-refresh" data-tm-location-refresh aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.refreshTheDocumentList")}">${__tmRenderLucideIcon('refresh-cw')}</button>
                         </div>
                         <div class="tm-doc-group-manager__picker-tree" data-tm-doc-picker-tree aria-busy="true"></div>
                         <div class="tm-doc-group-manager__picker-footer">
-                            <span class="tm-doc-group-manager__picker-selected" data-tm-location-selected>选择父文档</span>
+                            <span class="tm-doc-group-manager__picker-selected" data-tm-location-selected>${__tmT("settings.selectParentDocument")}</span>
                             <div class="tm-doc-group-manager__picker-actions">
-                                <button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__add-button" data-tm-location-confirm disabled>选择位置</button>
+                                <button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__add-button" data-tm-location-confirm disabled>${__tmT("settings.selectLocation")}</button>
                             </div>
                         </div>
                     </div>
@@ -1399,21 +1397,21 @@
             const syncSelection = () => {
                 const doc = documents.find(item => item.id === selectedId);
                 confirmBtn.disabled = !doc;
-                selectedLabel.textContent = doc?.path || doc?.name || '选择父文档';
+                selectedLabel.textContent = doc?.path || doc?.name || __tmT("settings.selectParentDocument");
                 selectedLabel.title = selectedLabel.textContent;
             };
             const load = async () => {
                 refreshBtn.disabled = true;
                 confirmBtn.disabled = true;
                 treeEl.setAttribute('aria-busy', 'true');
-                treeEl.innerHTML = '<div class="tm-doc-group-manager__picker-skeleton" aria-label="正在加载文档"><span></span><span></span><span></span></div>';
+                treeEl.innerHTML = `<div class="tm-doc-group-manager__picker-skeleton" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.loadingDocuments")}"><span></span><span></span><span></span></div>`;
                 try {
                     const [docs, notebooks] = await Promise.all([API.getAllDocuments(), API.lsNotebooks()]);
                     if (closed) return;
                     documents = docs;
                     const tree = __tmBuildSettingsDocPickerTree(docs, notebooks);
                     treeEl.innerHTML = __tmRenderDocPickerTree(tree, { selectedIds: new Set([selectedId]), singleSelect: true })
-                        + '<div class="tm-doc-group-manager__picker-empty" data-tm-doc-picker-empty hidden>没有匹配的文档</div>';
+                        + `<div class="tm-doc-group-manager__picker-empty" data-tm-doc-picker-empty hidden>${__tmT("calendar.noMatchingDocuments")}</div>`;
                     let ancestor = treeEl.querySelector('input:checked')?.closest('details');
                     while (ancestor) {
                         ancestor.open = true;
@@ -1422,7 +1420,7 @@
                     __tmFilterDocPicker(root, input.value);
                 } catch (e) {
                     documents = [];
-                    treeEl.textContent = `读取文档失败：${String(e?.message || e || '')}`;
+                    treeEl.textContent = __tmT("settings.failedToReadTheDocument", { value1: String(e?.message || e || '') });
                 } finally {
                     if (!closed) {
                         refreshBtn.disabled = false;
@@ -1482,7 +1480,7 @@
         const groupId = String(root.dataset.tmDocPickerGroupId || 'all').trim() || 'all';
         const selectedIds = Array.from(__tmPrepareSettingsDocPickerDraft(groupId));
         if (!selectedIds.length) {
-            hint('⚠ 请先选择文档', 'warning');
+            hint(__tmT("settings.selectDocumentsFirst"), 'warning');
             return;
         }
         const recursive = groupId !== 'all' && root.querySelector('[data-tm-doc-picker-recursive]')?.checked === true;
@@ -1497,7 +1495,7 @@
                 const nextIds = Array.from(nextIdSet);
                 const added = nextIds.length - previousIds.size;
                 if (!added) {
-                    hint('⚠ 所选文档已添加', 'warning');
+                    hint(__tmT("settings.theSelectedDocumentsWereAlreadyAdded"), 'warning');
                     return;
                 }
                 await SettingsStore.updateDocIds(nextIds);
@@ -1508,7 +1506,7 @@
                 __tmSettingsDocPickerDraft.selectedIds.clear();
                 window.tmCloseSettingsDocPicker({ restoreFocus: false });
                 if (state.settingsModal) showSettings();
-                hint(`✅ 已添加 ${added} 个文档`, 'success');
+                hint(__tmT("settings.addedDocuments", { added: added }), 'success');
                 return;
             }
             const result = await __tmAddDocsToGroup(selectedIds, groupId, {
@@ -1520,10 +1518,10 @@
                 __tmSettingsDocPickerDraft.selectedIds.clear();
                 window.tmCloseSettingsDocPicker({ restoreFocus: false });
                 if (state.settingsModal) showSettings();
-                hint(`✅ 已添加 ${result.added} 个文档`, 'success');
+                hint(__tmT("settings.addedDocuments", { added: result.added }), 'success');
             }
         } catch (e) {
-            hint(`❌ 添加文档失败: ${e?.message || '未知错误'}`, 'error');
+            hint(__tmT("settings.failedToAddDocuments", { value1: e?.message || __tmT("plugin.unknownError") }), 'error');
         } finally {
             if (addButton instanceof HTMLButtonElement && document.body.contains(addButton)) addButton.disabled = false;
         }
@@ -1537,13 +1535,13 @@
         const isRecursive = recursiveCheck ? recursiveCheck.checked : false;
 
         if (!docId) {
-            hint('⚠ 请输入文档ID', 'warning');
+            hint(__tmT("settings.enterADocumentId2"), 'warning');
             return;
         }
 
         // 验证ID格式（思源笔记ID格式：数字-字母数字组合）
         if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(docId)) {
-            hint('⚠ 文档ID格式不正确，格式应为：数字-字母数字组合', 'warning');
+            hint(__tmT("settings.invalidDocumentIdFormatExpectedNumbersAlphanumeric"), 'warning');
             return;
         }
 
@@ -1553,11 +1551,11 @@
             // 添加到旧版列表（不支持递归标志，或者我们需要升级旧版列表结构）
             // 为了兼容，我们在 "全部" 模式下只操作 selectedDocIds
             if (isRecursive) {
-                hint('⚠ "全部文档"模式下不支持递归选项，请先创建或选择一个分组', 'warning');
+                hint(__tmT("settings.recursiveOptionsAreNotSupportedInAllDocumentsMode"), 'warning');
                 return;
             }
             if (SettingsStore.data.selectedDocIds.includes(docId)) {
-                hint('⚠ 该文档已被添加', 'warning');
+                hint(__tmT("settings.theDocumentWasAlreadyAdded"), 'warning');
                 return;
             }
             await SettingsStore.addDocId(docId);
@@ -1569,7 +1567,7 @@
                 if (!group.docs) group.docs = [];
                 // 检查重复
                 if (group.docs.some(d => d.id === docId)) {
-                    hint('⚠ 该文档已在当前分组中', 'warning');
+                    hint(__tmT("settings.theDocumentIsAlreadyInTheCurrentGroup"), 'warning');
                     return;
                 }
                 group.docs.push({ id: docId, recursive: isRecursive });
@@ -1587,25 +1585,25 @@
 
         if (input) input.value = '';
         if (recursiveCheck) recursiveCheck.checked = false;
-        hint('✅ 已添加文档', 'success');
+        hint(__tmT("settings.documentAdded"), 'success');
     };
 
     async function __tmAddDocsToGroup(docIdsInput, groupId, options = {}) {
         const docIds = __tmNormalizeDocIdsForGroupInput(docIdsInput);
         const targetGroupId = String(groupId || '').trim();
         if (!docIds.length) {
-            hint('⚠ 未找到可添加的文档', 'warning');
+            hint(__tmT("settings.noDocumentsToAdd"), 'warning');
             return { added: 0, existed: 0, group: null };
         }
         if (!targetGroupId) {
-            hint('⚠ 请选择目标分组', 'warning');
+            hint(__tmT("settings.selectATargetGroup"), 'warning');
             return { added: 0, existed: 0, group: null };
         }
 
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
         const group = groups.find((item) => String(item?.id || '').trim() === targetGroupId);
         if (!group) {
-            hint('⚠ 目标分组不存在', 'warning');
+            hint(__tmT("task.theTargetGroupDoesNotExist"), 'warning');
             return { added: 0, existed: 0, group: null };
         }
 
@@ -1624,7 +1622,7 @@
 
         if (!added) {
             const groupName = __tmResolveDocGroupName(group);
-            hint(docIds.length > 1 ? `⚠ 所选文档已都在分组“${groupName}”中` : `⚠ 该文档已在分组“${groupName}”中`, 'warning');
+            hint(docIds.length > 1 ? __tmT("settings.allSelectedDocumentsAreAlreadyInGroup", { groupName: groupName }) : __tmT("settings.theDocumentIsAlreadyInGroup", { groupName: groupName }), 'warning');
             return { added: 0, existed, group };
         }
 
@@ -1661,7 +1659,7 @@
 
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
         if (!groups.length) {
-            hint('⚠ 请先在任务管理器中创建文档分组', 'warning');
+            hint(__tmT("settings.createADocumentGroupInTheTaskManagerFirst"), 'warning');
             return { groupId: '', group: null, reason: 'no-groups' };
         }
 
@@ -1674,11 +1672,11 @@
             label: __tmResolveDocGroupName(group)
         })).filter((item) => item.value);
         if (!selectOptions.length) {
-            hint('⚠ 当前没有可用的文档分组', 'warning');
+            hint(__tmT("settings.noDocumentGroupsAvailable2"), 'warning');
             return { groupId: '', group: null, reason: 'no-groups' };
         }
 
-        const title = String(options?.title || '选择文档分组').trim() || '选择文档分组';
+        const title = String(options?.title || __tmT("task.selectADocumentGroup")).trim() || __tmT("task.selectADocumentGroup");
         const selectedGroupId = await showSelectPrompt(title, selectOptions, defaultGroupId);
         if (!selectedGroupId) return { groupId: '', group: null, reason: 'cancelled' };
 
@@ -1704,13 +1702,13 @@
     window.tmOpenAddDocToGroupDialog = async function(docIdsInput, options = {}) {
         const docIds = __tmNormalizeDocIdsForGroupInput(docIdsInput);
         if (!docIds.length) {
-            hint('⚠ 未找到当前文档', 'warning');
+            hint(__tmT("settings.currentDocumentNotFound"), 'warning');
             return;
         }
 
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
         if (!groups.length) {
-            hint('⚠ 请先在任务管理器中创建文档分组', 'warning');
+            hint(__tmT("settings.createADocumentGroupInTheTaskManagerFirst"), 'warning');
             return;
         }
 
@@ -1723,13 +1721,13 @@
             label: __tmResolveDocGroupName(group)
         })).filter((item) => item.value);
         if (!selectOptions.length) {
-            hint('⚠ 当前没有可用的文档分组', 'warning');
+            hint(__tmT("settings.noDocumentGroupsAvailable2"), 'warning');
             return;
         }
 
-        let title = '添加到任务管理器分组';
+        let title = __tmT("settings.addToATaskManagerGroup");
         if (docIds.length > 1) {
-            title = `添加 ${docIds.length} 个文档到任务管理器分组`;
+            title = __tmT("settings.addDocumentsToATaskManagerGroup", { length: docIds.length });
         }
 
         const selectedGroupId = await showSelectPrompt(title, selectOptions, defaultGroupId);
@@ -1740,22 +1738,22 @@
 
         const groupName = __tmResolveDocGroupName(result.group);
         if (result.existed > 0) {
-            hint(`✅ 已添加 ${result.added} 个文档到“${groupName}”，${result.existed} 个已存在`, 'success');
+            hint(__tmT("settings.addedDocumentsToAlreadyExisted", { added: result.added, groupName: groupName, existed: result.existed }), 'success');
             return;
         }
-        hint(docIds.length > 1 ? `✅ 已将 ${result.added} 个文档添加到“${groupName}”` : `✅ 已添加到分组“${groupName}”`, 'success');
+        hint(docIds.length > 1 ? __tmT("settings.addedDocumentsTo", { added: result.added, groupName: groupName }) : __tmT("settings.addedToGroup", { groupName: groupName }), 'success');
     };
 
     window.tmOpenAddOtherBlocksToGroupDialog = async function(blockIdsInput, options = {}) {
         const blockIds = __tmNormalizeOtherBlockRefs(Array.isArray(blockIdsInput) ? blockIdsInput : [blockIdsInput]).map((item) => item.id);
         if (!blockIds.length) {
-            hint('⚠ 未找到当前块', 'warning');
+            hint(__tmT("settings.currentBlockNotFound"), 'warning');
             return;
         }
 
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
         if (!groups.length) {
-            hint('⚠ 请先在任务管理器中创建文档分组', 'warning');
+            hint(__tmT("settings.createADocumentGroupInTheTaskManagerFirst"), 'warning');
             return;
         }
 
@@ -1768,11 +1766,11 @@
             label: __tmResolveDocGroupName(group)
         })).filter((item) => item.value);
         if (!selectOptions.length) {
-            hint('⚠ 当前没有可用的文档分组', 'warning');
+            hint(__tmT("settings.noDocumentGroupsAvailable2"), 'warning');
             return;
         }
 
-        const title = blockIds.length > 1 ? `添加 ${blockIds.length} 个块到其他块页签` : '添加到其他块页签';
+        const title = blockIds.length > 1 ? __tmT("settings.addBlocksToOtherBlockTabs", { length: blockIds.length }) : __tmT("settings.addToOtherBlockTabs");
         const selectedGroupId = await showSelectPrompt(title, selectOptions, defaultGroupId);
         if (!selectedGroupId) return;
 
@@ -1782,11 +1780,11 @@
         const groupName = __tmResolveDocGroupName(result.group);
         if (result.existed > 0) {
             hint(blockIds.length > 1
-                ? `✅ 已添加 ${result.added} 个块到“${groupName}”，${result.existed} 个已存在`
-                : `✅ 已添加到“${groupName}”，该分组中已有 ${result.existed} 个重复块`, 'success');
+                ? __tmT("settings.addedBlocksToAlreadyExisted", { added: result.added, groupName: groupName, existed: result.existed })
+                : __tmT("settings.addedToDuplicateBlockSAlreadyInTheGroup", { groupName: groupName, existed: result.existed }), 'success');
             return;
         }
-        hint(blockIds.length > 1 ? `✅ 已将 ${result.added} 个块添加到“${groupName}”` : `✅ 已添加到“${groupName}”`, 'success');
+        hint(blockIds.length > 1 ? __tmT("settings.addedBlocksTo", { added: result.added, groupName: groupName }) : __tmT("settings.addedTo", { groupName: groupName }), 'success');
     };
 
     window.tmAutoAddOtherBlocksToCurrentGroup = async function(blockIdsInput, options = {}) {
@@ -1808,7 +1806,7 @@
         if (!blockIds.length) return { added: 0, existed: 0, invalid: 0, group: null, reason: 'empty' };
         const docId = await __tmResolveOtherBlockSourceDocId(blockIds, options);
         const target = await __tmEnsureSourceDocGroupForAction(docId, {
-            title: '选择文档分组',
+            title: __tmT("task.selectADocumentGroup"),
             forceRefresh: options?.forceRefresh !== false,
         });
         const targetGroupId = String(target?.groupId || '').trim();
@@ -1830,7 +1828,7 @@
             if (res.code === 0 && res.data && res.data.length > 0) {
                 const row = res.data[0] || {};
                 return {
-                    name: row.content || '未命名文档',
+                    name: row.content || __tmT("kernel.untitledDocument"),
                     icon: __tmNormalizeDocIconValue(__tmReadIalAttrValue(row.ial, 'icon'))
                 };
             }
@@ -1848,7 +1846,7 @@
 
     // 清空所有文档
     window.clearAllDocs = async function() {
-        if (!confirm('确定要清空所有已选文档吗？')) return;
+        if (!confirm(__tmT("settings.clearAllSelectedDocuments"))) return;
         await SettingsStore.clearDocIds();
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
         if (state.settingsModal) showSettings(); // 重新渲染设置界面
@@ -2513,7 +2511,7 @@
             if (!next.includes(id)) next.push(id);
         } else {
             if (next.length <= 1) {
-                try { hint('至少保留一个视图', 'warning'); } catch (e) {}
+                try { hint(__tmT("settings.keepAtLeastOneView"), 'warning'); } catch (e) {}
                 showSettings();
                 return;
             }
@@ -2759,7 +2757,7 @@
         if (next === current) return;
         let ok = false;
         try {
-            ok = await showConfirm('切换时长单位', '切换后，历史任务和预设里的数字会按新单位重新解释（例如 1.5 会从 1.5 小时变成 1.5 分钟），不会自动换算。继续？');
+            ok = await showConfirm(__tmT("settings.switchDurationUnit"), __tmT("settings.afterSwitchingNumbersInExistingTasksAndPresetsAre"));
         } catch (e) {
             ok = false;
         }
@@ -2906,12 +2904,12 @@
         try {
             const docs = await __tmCollectDefaultNewTaskSearchDocs();
             if (typeof globalThis.__tmOpenDocSearchPrompt !== 'function') {
-                hint('⚠ 文档搜索组件尚未加载，请刷新后重试', 'warning');
+                hint(__tmT("settings.theDocumentSearchComponentIsNotLoadedYetRefresh"), 'warning');
                 return false;
             }
-            const selectedId = await globalThis.__tmOpenDocSearchPrompt('选择收集箱文档', docs, {
-                placeholder: '搜索文档名、别名、路径或 ID',
-                emptyText: '没有匹配的文档',
+            const selectedId = await globalThis.__tmOpenDocSearchPrompt(__tmT("settings.selectInboxDocument"), docs, {
+                placeholder: __tmT("calendar.searchDocumentNameAliasPathOrId"),
+                emptyText: __tmT("calendar.noMatchingDocuments"),
                 limit: 80,
             });
             const nextId = String(selectedId || '').trim();
@@ -2920,7 +2918,7 @@
             showSettings();
             return true;
         } catch (e) {
-            hint(`⚠ 搜索文档失败：${String(e?.message || e || '未知错误')}`, 'error');
+            hint(__tmT("settings.failedToSearchDocuments", { value1: String(e?.message || e || __tmT("plugin.unknownError")) }), 'error');
             return false;
         } finally {
             if (button && button.isConnected) button.disabled = false;
@@ -3000,7 +2998,7 @@
         const preset = __tmNormalizeEntryIconPreset(value);
         if (preset !== 'classic') {
             if (typeof window.tmRequireFullFeature !== 'function') return false;
-            if (!window.tmRequireFullFeature('plugin-icon-presets', '插件图标预设')) return false;
+            if (!window.tmRequireFullFeature('plugin-icon-presets', __tmT("task.pluginIconPresets"))) return false;
         }
         SettingsStore.data.entryIconPreset = preset;
         __tmApplyEntryIconPreset(preset);
@@ -3080,7 +3078,7 @@
         const input = document.getElementById('tmDefaultDocIdInput');
         const v = String(input?.value || '').trim();
         await updateDefaultDocId(v);
-        hint(v ? '✅ 默认文档ID已更新' : '✅ 默认文档已清空', 'success');
+        hint(v ? __tmT("settings.defaultDocumentIdUpdated") : __tmT("settings.defaultDocumentCleared"), 'success');
         if (state.settingsModal) showSettings();
     };
 
@@ -3088,7 +3086,7 @@
         const input = document.getElementById('tmDefaultDocIdInput');
         if (input) input.value = '';
         await updateDefaultDocId('');
-        hint('✅ 默认文档已清空', 'success');
+        hint(__tmT("settings.defaultDocumentCleared"), 'success');
         if (state.settingsModal) showSettings();
     };
 
@@ -3244,7 +3242,7 @@
     window.tmSwitchGroupMode = async function(mode) {
         const m = String(mode || '').trim();
         if (m === 'quadrant' && state.viewMode === 'kanban' && __tmGetKanbanBoardMode() === 'quadrant') {
-            try { hint('四象限看板已固定按四象限展示，无需再设置分组', 'info'); } catch (e) {}
+            try { hint(__tmT("settings.theQuadrantBoardIsPinnedToTheQuadrantView"), 'info'); } catch (e) {}
             return;
         }
         if (typeof __tmShortcuts !== 'undefined' && __tmShortcuts.context()) {
@@ -3299,8 +3297,8 @@
         }
         __tmRefreshSettingsProjectionView('settings-kanban-board-mode');
         if (typeof __tmShortcutSidebar !== 'undefined') __tmShortcutSidebar.refresh();
-        const labelMap = { status: '状态看板', heading: '标题看板', time: '时间看板', quadrant: '四象限看板' };
-        try { hint(`✅ 已切换到${labelMap[next] || '状态看板'}`, 'success'); } catch (e) {}
+        const labelMap = { status: __tmT("task.statusKanban"), heading: __tmT("task.headingKanban"), time: __tmT("task.timeKanban"), quadrant: __tmT("task.quadrantBoard") };
+        try { hint(__tmT("settings.switchedTo", { value1: labelMap[next] || __tmT("task.statusKanban") }), 'success'); } catch (e) {}
     };
 
     window.tmSetKanbanHeadingGroupMode = async function(mode, ev) {
@@ -3320,9 +3318,9 @@
         try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
         render();
-        const labelMap = { global: '全局白板', board: '单文档总览', stream: '卡片流' };
+        const labelMap = { global: __tmT("task.globalWhiteboard"), board: __tmT("task.documentOverview"), stream: __tmT("task.cardStream") };
         if (opts.silent !== true) {
-            try { hint(`✅ 已切换到${labelMap[next] || '白板'}`, 'success'); } catch (e) {}
+            try { hint(__tmT("settings.switchedTo", { value1: labelMap[next] || __tmT("task.whiteboard") }), 'success'); } catch (e) {}
         }
     };
 
@@ -3341,8 +3339,8 @@
         if (needSwitchAllTabs) {
             await window.tmSwitchDoc('all');
             if (next === prev) {
-                const labelMap = { global: '全局白板', board: '单文档总览', stream: '卡片流' };
-                try { hint(`✅ 已切换到${labelMap[next] || '白板'}`, 'success'); } catch (e) {}
+                const labelMap = { global: __tmT("task.globalWhiteboard"), board: __tmT("task.documentOverview"), stream: __tmT("task.cardStream") };
+                try { hint(__tmT("settings.switchedTo", { value1: labelMap[next] || __tmT("task.whiteboard") }), 'success'); } catch (e) {}
                 try { window.tmHideMobileMenu?.(); } catch (e) {}
                 return;
             }

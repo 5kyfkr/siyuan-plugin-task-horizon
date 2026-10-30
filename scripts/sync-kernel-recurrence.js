@@ -30,7 +30,7 @@ const facade = {
     now: '__tmNowInChinaTimezoneIso',
     hasReminderIntent: '__tmSemanticHasReminderIntent',
 };
-const external = new Set(['__tmBuildFsrsReviewPatch', '__tmResolveTaskCompletedAtRaw', '__tmResolveTaskMarker']);
+const external = new Set(['__tmT', '__tmBuildFsrsReviewPatch', '__tmResolveTaskCompletedAtRaw', '__tmResolveTaskMarker']);
 const included = new Map();
 function include(name) {
     if (included.has(name) || external.has(name)) return;

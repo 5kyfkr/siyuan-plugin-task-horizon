@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const source = fs.readFileSync(path.join(__dirname, '..', 'calendar-view.js'), 'utf8');
 const extract = name => {
     const match = source.match(new RegExp(`    (?:async )?function ${name}\\(`));

@@ -5,7 +5,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = require('./i18n-browser-fixture');
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(process.env.QUICKBAR_SOURCE || path.join(root, 'quickbar.js'), 'utf8').replace(/\r\n/g, '\n');
 function segment(startMarker, endMarker) {

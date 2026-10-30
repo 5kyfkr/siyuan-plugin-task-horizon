@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const fs = require('./i18n-source-fixture');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');

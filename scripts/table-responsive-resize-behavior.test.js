@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const file = process.env.TM_RESIZE_TEST_SOURCE
     || path.join(__dirname, '../src/task-horizon/main/20-api-and-runtime-services.js');

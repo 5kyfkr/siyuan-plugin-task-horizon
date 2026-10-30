@@ -29,7 +29,6 @@ assert.match(source, /const moreEl = target\?\.closest\?\.\('\.tm-proto-more'\)/
 assert.doesNotMatch(source, /tm-proto-timeline-day-allday-count|tm-proto-day-panel-allday-count/, 'collapsed counts must not be rendered beside day headers');
 assert.match(source, /allDayCollapsed: state\.sideDay\.allDayCollapsed === true/);
 assert.match(source, /sideAction === 'toggleAllDay'/);
-assert.match(source, /tm-proto-day-panel-allday-chevron" aria-hidden="true"><\/span>/, 'the shared toggle must not depend on font-specific arrow glyphs');
 assert.doesNotMatch(source, /collapsed \? '›' : '⌄'/, 'the shared toggle must not restore mismatched text arrows');
 assert.match(styles, /\.tm-proto-allday\.is-collapsed[\s\S]*max-height:\s*32px/);
 assert.match(styles, /\.tm-proto-day-panel-allday\.is-collapsed[\s\S]*max-height:\s*32px/);
@@ -38,12 +37,12 @@ assert.match(styles, /\.tm-proto-allday\.is-collapsed \.tm-proto-allday-cell > :
 assert.match(styles, /\.tm-proto-allday-collapsed-count\s*\{[\s\S]*cursor:\s*pointer;[\s\S]*pointer-events:\s*auto;/, 'collapsed counts must remain clickable');
 assert.match(styles, /\.tm-proto-day-panel-allday\.is-collapsed > div[\s\S]*display:\s*flex\s*!important/, 'the side panel must keep its all-day row visible while collapsed');
 assert.match(styles, /\.tm-proto-timeline-head,[\s\S]*\.tm-proto-allday\s*\{[\s\S]*grid-template-columns: var\(--tm-proto-axis-width\) repeat/);
-assert.match(styles, /\.tm-proto-day-panel-allday-toggle\s*\{[\s\S]*align-items:\s*center;[\s\S]*height:\s*30px;[\s\S]*text-align:\s*right\s*!important;/, 'main and side all-day toggles must share one vertically centered layout');
+assert.match(styles, /\.tm-proto-day-panel-allday-toggle\s*\{[\s\S]*align-items:\s*center;[\s\S]*justify-content:\s*center;[\s\S]*height:\s*24px;[\s\S]*text-align:\s*center\s*!important;/, 'main and side all-day toggles must share one centered text-only layout');
 assert.match(styles, /\.tm-proto-allday::before\s*\{[\s\S]*top:\s*0;[\s\S]*bottom:\s*0;[\s\S]*left:\s*var\(--tm-proto-axis-width\);[\s\S]*border-left:\s*1px solid var\(--tm-cal-border\);/, 'the all-day divider must span the full row height');
 assert.match(styles, /\.tm-proto-day-panel-allday\s*\{[\s\S]*padding:\s*3px 4px 3px 0\s*!important;/, 'the side all-day lane must use the timed lane outer inset');
 assert.match(styles, /\.tm-proto-day-panel-allday-events\s*>\s*\.tm-proto-allday-cell\s*\{[\s\S]*padding:\s*var\(--tm-proto-card-gap\) 0;/, 'side all-day cards must keep equal horizontal spacing');
-assert.match(styles, /\.tm-proto-day-panel-allday-chevron::before\s*\{[\s\S]*border-inline-end:\s*1\.5px solid currentColor;[\s\S]*border-block-end:\s*1\.5px solid currentColor;/, 'the all-day toggle must draw a stable CSS chevron');
-assert.match(styles, /\.tm-proto-day-panel-allday-toggle\[aria-expanded="false"\][^{]*\{[\s\S]*transform:\s*rotate\(-45deg\);/, 'the collapsed toggle chevron must point toward the hidden content');
+assert.doesNotMatch(source, /tm-proto-day-panel-allday-chevron/, 'the all-day toggle must not reserve space for a separate arrow');
+assert.match(styles, /\.tm-proto-day-panel-allday-toggle\[aria-expanded="false"\]\s*\{[^}]*background:\s*color-mix\(/, 'the collapsed toggle must show a persistent background');
 assert.match(styles, /\.tm-proto-event--allday\.is-span[\s\S]*border-radius: 0/);
 assert.equal((source.match(/getFullCalendarCompatClassOptions/g) || []).length, 0);
 

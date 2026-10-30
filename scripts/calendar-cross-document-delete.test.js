@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const root = path.resolve(__dirname, '..');
 const calendar = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');
 const runtime = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js'), 'utf8');
@@ -48,6 +48,7 @@ function harness(sourceType, mode = 'permanent') {
         __tmGetPriorityAccentColor: () => '', __tmRenderPriorityJira: () => '',
         __tmGetStatusOptions: () => [{ id: 'todo', name: '待办', color: '#777777' }],
         __tmResolveTaskStatusId: (task) => task?.customStatus || 'todo',
+        __tmIsTaskDoneEffective: (task) => task?.done === true,
         __tmBuildStatusChipStyle: () => '',
         __tmRenderContextMenuLabel: (_icon, label) => label,
         __tmIsAiFeatureEnabled: () => false,

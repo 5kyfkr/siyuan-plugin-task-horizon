@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const fs = require('./i18n-source-fixture');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
@@ -23,7 +23,7 @@ assert.match(panels, /function __tmAiUsesOverlayPanel\(\)[\s\S]*__tmIsMobileDevi
 assert.match(panels, /canRenderInCurrentHost = __tmIsPluginVisibleNow\(\)[\s\S]*if \(!canRenderInCurrentHost\)[\s\S]*openManager/, 'an active visible Task Horizon host, including Dock, must not open a separate manager window');
 assert.match(panels, /window\.tmCloseAiSidebar[\s\S]*aiSideDockEnabled = false[\s\S]*SettingsStore\.save/, 'closing AI must keep the menu switch state synchronized');
 assert.match(scene, /showAiSideDock[\s\S]*!isMobile && !isDockHost/, 'Dock must not use the desktop split sidebar');
-assert.match(workbench, /runtime\.mobile \? '[^']*data-agent-action="close-sidebar"/, 'narrow AI panels must expose a close action');
+assert.match(workbench, /runtime\.mobile \? [`'][^\n]*data-agent-action="close-sidebar"/, 'narrow AI panels must expose a close action');
 assert.doesNotMatch(workbench, /tm-agent-new-session/, 'new session must use the same neutral header icon style as neighboring actions');
 assert.doesNotMatch(styles, /tm-agent-new-session/, 'new session must not retain a dedicated filled background');
 assert.match(styles, /tm-agent-workbench--mobile \.tm-agent-header__actions \.block__icon[\s\S]*width: 44px[\s\S]*height: 44px/, 'mobile header actions must remain touch sized');

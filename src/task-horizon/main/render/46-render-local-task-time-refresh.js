@@ -282,7 +282,7 @@ return ok;
         if (!syncNode('completionTimeCompact', compactCompletionText, { shouldExist: !!compactCompletionText })) valid = false;
         const scheduleTimeInfo = enabledCompactFields?.has('scheduleTime') ? __tmGetTaskScheduleTimeInfo(task) : null;
         const compactScheduleTime = scheduleTimeInfo?.text || '';
-        if (!syncNode('scheduleTimeCompact', compactScheduleTime, { title: '日程开始时间', shouldExist: !!compactScheduleTime })) valid = false;
+        if (!syncNode('scheduleTimeCompact', compactScheduleTime, { title: __tmT("task.scheduleStartTime"), shouldExist: !!compactScheduleTime })) valid = false;
         item.querySelectorAll('[data-tm-task-time-field="scheduleTimeCompact"]').forEach((node) => {
             node.classList.toggle('tm-task-schedule-time--today', scheduleTimeInfo?.isToday === true);
         });
@@ -363,7 +363,7 @@ return ok;
             if (!dateShouldExist) {
                 dateNode.remove();
             } else {
-                dateNode.textContent = __tmFormatTaskCardDateValue(taskForRender) || '日期';
+                dateNode.textContent = __tmFormatTaskCardDateValue(taskForRender) || __tmT("calendar.date");
                 __tmApplyTaskCardDateChipState(dateNode, taskForRender);
             }
             touched = true;
@@ -429,7 +429,7 @@ return ok;
         } else if (dateShouldExist) {
             return false;
         }
-        const text = __tmFormatTaskCardDateValue(task) || '日期';
+        const text = __tmFormatTaskCardDateValue(task) || __tmT("calendar.date");
         const focusHtml = __tmGetTaskTomatoSummaryHtml(task);
         dateNodes.forEach((node) => {
             if (!(node instanceof HTMLElement)) return;

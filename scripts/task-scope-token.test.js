@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const TASK_COUNT = 1000;
 const taskIDs = Array.from({ length: TASK_COUNT }, (_, index) => `20260101${String(index).padStart(6, '0')}-task`);

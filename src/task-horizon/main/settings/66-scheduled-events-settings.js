@@ -24,7 +24,7 @@
         return __tmNormalizeScheduledEvent({
             id: source.id || __tmScheduledNewId(),
             type: 'agent_prompt',
-            name: source.name || '定时事件',
+            name: source.name || __tmT("settings.scheduledEvents"),
             enabled: source.enabled !== false,
             prompt: source.prompt || '',
             includeInternalPrompt: source.includeInternalPrompt !== false,
@@ -42,7 +42,7 @@
     function __tmScheduledSummaryTemplate() {
         return __tmScheduledSettingsDraft({
             name: '每日完成总结',
-            prompt: '请总结今天完成的任务，提炼主要成果、推进中的方向和明天值得优先关注的事项。内容应简洁、具体，不要虚构任务数据。涉及专注时长或番茄时，必须从本轮 tool definitions 中选择描述为“专注统计”或“时间投入统计”的 Task Horizon MCP capability（内部标识分别为 query_focus_statistics、aggregate_time_usage），实际调用必须使用带 plugin__siyuan_plugin_task_horizon__ 前缀和校验后缀的完整工具名，禁止直接调用裸标识，也禁止通过 SQL 读取 custom-tomato-* 属性。',
+            prompt: __tmT("settings.summarizeTodaySCompletedTasksHighlightTheMainResults"),
             condition: 'today_has_completed_tasks',
             schedule: { kind: 'daily', date: '', weekday: 1, time: '19:00' },
             output: { mode: 'notification', documentId: '' },
@@ -51,36 +51,36 @@
 
     function __tmScheduledRecurrenceLabel(event) {
         const schedule = event?.schedule || {};
-        const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-        if (schedule.kind === 'once') return `${schedule.date || '未设置日期'} ${schedule.time}`;
-        if (schedule.kind === 'weekdays') return `工作日 ${schedule.time}`;
-        if (schedule.kind === 'weekly') return `每周${weekdayNames[Number(schedule.weekday)] || '一'} ${schedule.time}`;
-        return `每天 ${schedule.time}`;
+        const weekdayNames = [__tmT("calendar.sunday"), __tmT("calendar.monday"), __tmT("calendar.tuesday"), __tmT("calendar.wednesday"), __tmT("calendar.thursday"), __tmT("calendar.friday"), __tmT("calendar.saturday")];
+        if (schedule.kind === 'once') return `${schedule.date || __tmT("settings.noDateSet")} ${schedule.time}`;
+        if (schedule.kind === 'weekdays') return __tmT("settings.workdays", { time: schedule.time });
+        if (schedule.kind === 'weekly') return __tmT("settings.weekly", { value1: weekdayNames[Number(schedule.weekday)] || '一', time: schedule.time });
+        return __tmT("settings.everyDay", { time: schedule.time });
     }
 
     function __tmScheduledNextRunLabel(event) {
-        if (!event?.enabled) return '已停用';
+        if (!event?.enabled) return __tmT("settings.disabled");
         const timing = __tmScheduledResolveTiming(event, new Date());
-        if (timing.due && timing.occurrence) return '等待执行';
-        if (!timing.nextAt) return event.schedule?.kind === 'once' ? '已过期' : '待计算';
+        if (timing.due && timing.occurrence) return __tmT("settings.waitingToRun");
+        if (!timing.nextAt) return event.schedule?.kind === 'once' ? __tmT("homepage.overdue3") : __tmT("settings.pending2");
         const next = timing.nextAt;
         const today = __tmScheduledLocalDateKey(new Date());
         const date = __tmScheduledLocalDateKey(next);
-        return `${date === today ? '今天' : date} ${__tmScheduledPad(next.getHours())}:${__tmScheduledPad(next.getMinutes())}`;
+        return `${date === today ? __tmT("common.today") : date} ${__tmScheduledPad(next.getHours())}:${__tmScheduledPad(next.getMinutes())}`;
     }
 
     function __tmScheduledStatusMeta(status) {
         const map = {
-            idle: ['等待', 'is-idle'],
-            running: ['运行中', 'is-running'],
-            succeeded: ['成功', 'is-success'],
-            skipped_empty: ['空任务跳过', 'is-muted'],
-            blocked: ['安全阻断', 'is-danger'],
-            config_error: ['配置错误', 'is-warning'],
-            desktop_only: ['仅电脑端', 'is-muted'],
-            failed: ['失败', 'is-danger'],
-            delivery_commit_pending: ['已投递，等待确认', 'is-warning'],
-            commit_pending: ['已投递，等待确认', 'is-warning'],
+            idle: [__tmT("settings.waiting"), 'is-idle'],
+            running: [__tmT("settings.running"), 'is-running'],
+            succeeded: [__tmT("ai.success"), 'is-success'],
+            skipped_empty: [__tmT("settings.skippedNoTasks"), 'is-muted'],
+            blocked: [__tmT("settings.blockedSafety"), 'is-danger'],
+            config_error: [__tmT("settings.misconfigured"), 'is-warning'],
+            desktop_only: [__tmT("settings.desktopOnly"), 'is-muted'],
+            failed: [__tmT("ai.failed2"), 'is-danger'],
+            delivery_commit_pending: [__tmT("settings.deliveredAwaitingConfirmation"), 'is-warning'],
+            commit_pending: [__tmT("settings.deliveredAwaitingConfirmation"), 'is-warning'],
         };
         return map[String(status || '')] || map.idle;
     }
@@ -95,7 +95,7 @@
         });
         if (selected && !map.has(selected)) map.set(selected, selected);
         return [
-            '<option value="">选择文档</option>',
+            `<option value="">${__tmT("task.selectDocument")}</option>`,
             ...Array.from(map.entries()).map(([id, name]) => `<option value="${esc(id)}" ${id === selected ? 'selected' : ''}>${esc(name)}</option>`),
         ].join('');
     }
@@ -104,108 +104,108 @@
         if (!draft) return '';
         const schedule = draft.schedule || {};
         const output = draft.output || {};
-        const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        const weekdays = [__tmT("calendar.sunday"), __tmT("calendar.monday"), __tmT("calendar.tuesday"), __tmT("calendar.wednesday"), __tmT("calendar.thursday"), __tmT("calendar.friday"), __tmT("calendar.saturday")];
         return `
-            <section class="tm-scheduled-events-editor" aria-label="定时事件编辑器">
+            <section class="tm-scheduled-events-editor" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.scheduledEventEditor")}">
                 <div class="tm-scheduled-events-editor__heading">
                     <div>
-                        <div class="tm-settings-section-title">${state.scheduledEventEditingId ? '编辑定时事件' : '新建定时事件'}</div>
-                        <div class="tm-settings-section-desc">改动即时生效；新事件默认暂停，配置完成后在列表中启用。结果持续追加到固定对话。</div>
+                        <div class="tm-settings-section-title">${state.scheduledEventEditingId ? __tmT("settings.editScheduledEvent") : __tmT("settings.newScheduledEvent")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.changesTakeEffectImmediatelyNewEventsStartPausedEnable")}</div>
                     </div>
-                    <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledCancelEdit" title="关闭编辑器" aria-label="关闭编辑器">${__tmScheduledSettingsIcon('x')}</button>
+                    <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledCancelEdit" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.closeEditor")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.closeEditor")}">${__tmScheduledSettingsIcon('x')}</button>
                 </div>
                 <div class="tm-scheduled-events-form-grid">
                     <label class="tm-scheduled-events-field tm-scheduled-events-field--wide">
-                        <span>名称</span>
-                        <input class="b3-text-field" type="text" value="${esc(draft.name)}" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["name"]' placeholder="例如：每日完成总结">
+                        <span>${__tmT("ai.name")}</span>
+                        <input class="b3-text-field" type="text" value="${esc(draft.name)}" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["name"]' placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.forExampleDailyCompletionSummary")}">
                     </label>
                     <label class="tm-scheduled-events-field tm-scheduled-events-field--wide">
-                        <span>提示词</span>
-                        <textarea class="b3-text-field" rows="5" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["prompt"]' placeholder="告诉智能体需要总结或分析什么">${esc(draft.prompt)}</textarea>
+                        <span>${__tmT("settings.prompt")}</span>
+                        <textarea class="b3-text-field" rows="5" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["prompt"]' placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.tellTheAgentWhatToSummarizeOrAnalyze")}">${esc(draft.prompt)}</textarea>
                     </label>
                     <div class="tm-scheduled-events-field tm-scheduled-events-field--wide">
-                        <span>内部提示词</span>
+                        <span>${__tmT("settings.internalPrompt")}</span>
                         <label class="fn__flex-center" style="gap:8px;">
                             <input class="b3-switch fn__flex-center" type="checkbox" ${draft.includeInternalPrompt ? 'checked' : ''} data-tm-call="tmScheduledUpdateDraft" data-tm-args='["includeInternalPrompt"]'>
-                            <span>附加无人值守安全规则和统计口径</span>
+                            <span>${__tmT("settings.attachUnattendedSafetyRulesAndStatisticsRules")}</span>
                         </label>
-                        <small class="tm-settings-section-desc">只决定是否附加这段文字规则；定时执行始终自动批准思源能力确认、代答提问并处理浏览器操作。关闭后只发送你填写的提示词。</small>
+                        <small class="tm-settings-section-desc">${__tmT("settings.onlyControlsWhetherThisTextBlockIsAttachedScheduled")}</small>
                     </div>
                     <label class="tm-scheduled-events-field">
-                        <span>运行条件</span>
+                        <span>${__tmT("kernel.runCondition")}</span>
                         <select class="b3-select" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["condition"]'>
-                            <option value="always" ${draft.condition === 'always' ? 'selected' : ''}>始终运行</option>
-                            <option value="today_has_completed_tasks" ${draft.condition === 'today_has_completed_tasks' ? 'selected' : ''}>当天有已完成任务</option>
+                            <option value="always" ${draft.condition === 'always' ? 'selected' : ''}>${__tmT("settings.alwaysRun")}</option>
+                            <option value="today_has_completed_tasks" ${draft.condition === 'today_has_completed_tasks' ? 'selected' : ''}>${__tmT("settings.hasCompletedTasksToday")}</option>
                         </select>
                     </label>
                     <label class="tm-scheduled-events-field">
-                        <span>重复规则</span>
+                        <span>${__tmT("settings.repeatRule")}</span>
                         <select class="b3-select" data-tm-call="tmScheduledChangeScheduleKind">
-                            <option value="once" ${schedule.kind === 'once' ? 'selected' : ''}>一次</option>
-                            <option value="daily" ${schedule.kind === 'daily' ? 'selected' : ''}>每日</option>
-                            <option value="weekdays" ${schedule.kind === 'weekdays' ? 'selected' : ''}>工作日</option>
-                            <option value="weekly" ${schedule.kind === 'weekly' ? 'selected' : ''}>每周</option>
+                            <option value="once" ${schedule.kind === 'once' ? 'selected' : ''}>${__tmT("settings.once")}</option>
+                            <option value="daily" ${schedule.kind === 'daily' ? 'selected' : ''}>${__tmT("calendar.daily2")}</option>
+                            <option value="weekdays" ${schedule.kind === 'weekdays' ? 'selected' : ''}>${__tmT("calendar.workdays")}</option>
+                            <option value="weekly" ${schedule.kind === 'weekly' ? 'selected' : ''}>${__tmT("calendar.weekly")}</option>
                         </select>
                     </label>
                     ${schedule.kind === 'once' ? `
                         <label class="tm-scheduled-events-field">
-                            <span>日期</span>
+                            <span>${__tmT("calendar.date")}</span>
                             <input class="b3-text-field" type="date" value="${esc(schedule.date)}" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["schedule.date"]'>
                         </label>
                     ` : ''}
                     ${schedule.kind === 'weekly' ? `
                         <label class="tm-scheduled-events-field">
-                            <span>星期</span>
+                            <span>${__tmT("calendar.weekdays")}</span>
                             <select class="b3-select" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["schedule.weekday"]'>
                                 ${weekdays.map((label, index) => `<option value="${index}" ${Number(schedule.weekday) === index ? 'selected' : ''}>${label}</option>`).join('')}
                             </select>
                         </label>
                     ` : ''}
                     <label class="tm-scheduled-events-field">
-                        <span>时间</span>
+                        <span>${__tmT("task.time")}</span>
                         <input class="b3-text-field" type="time" value="${esc(schedule.time)}" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["schedule.time"]'>
                     </label>
                     <div class="tm-scheduled-events-field tm-scheduled-events-field--wide">
-                        <span>输出方式</span>
-                        <div class="tm-scheduled-events-segmented tm-scheduled-events-segmented--output" role="group" aria-label="输出方式">
-                            <button type="button" class="${output.mode === 'notification' ? 'is-active' : ''}" data-tm-call="tmScheduledSetOutputMode" data-tm-args='["notification"]'>通知展示</button>
-                            <button type="button" class="${output.mode === 'document' ? 'is-active' : ''}" data-tm-call="tmScheduledSetOutputMode" data-tm-args='["document"]'>写入文档</button>
-                            <button type="button" class="${output.mode === 'daily_note' ? 'is-active' : ''}" data-tm-call="tmScheduledSetOutputMode" data-tm-args='["daily_note"]'>写入到日记</button>
+                        <span>${__tmT("settings.outputMethod")}</span>
+                        <div class="tm-scheduled-events-segmented tm-scheduled-events-segmented--output" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.outputMethod")}">
+                            <button type="button" class="${output.mode === 'notification' ? 'is-active' : ''}" data-tm-call="tmScheduledSetOutputMode" data-tm-args='["notification"]'>${__tmT("settings.notification")}</button>
+                            <button type="button" class="${output.mode === 'document' ? 'is-active' : ''}" data-tm-call="tmScheduledSetOutputMode" data-tm-args='["document"]'>${__tmT("settings.writeToDocument")}</button>
+                            <button type="button" class="${output.mode === 'daily_note' ? 'is-active' : ''}" data-tm-call="tmScheduledSetOutputMode" data-tm-args='["daily_note"]'>${__tmT("settings.writeToDailyNote")}</button>
                         </div>
                     </div>
                     ${output.mode === 'document' ? `
                         <div class="tm-scheduled-events-field">
-                            <span>文档组织</span>
-                            <div class="tm-scheduled-events-segmented" role="group" aria-label="文档组织">
-                                <button type="button" class="${output.documentMode === 'target' ? 'is-active' : ''}" data-tm-call="tmScheduledSetDocumentMode" data-tm-args='["target"]'>直接写入</button>
-                                <button type="button" class="${output.documentMode === 'monthly_child' ? 'is-active' : ''}" data-tm-call="tmScheduledSetDocumentMode" data-tm-args='["monthly_child"]'>按月子文档</button>
+                            <span>${__tmT("settings.documentOrganization")}</span>
+                            <div class="tm-scheduled-events-segmented" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.documentOrganization")}">
+                                <button type="button" class="${output.documentMode === 'target' ? 'is-active' : ''}" data-tm-call="tmScheduledSetDocumentMode" data-tm-args='["target"]'>${__tmT("kernel.writeDirectly")}</button>
+                                <button type="button" class="${output.documentMode === 'monthly_child' ? 'is-active' : ''}" data-tm-call="tmScheduledSetDocumentMode" data-tm-args='["monthly_child"]'>${__tmT("settings.monthlySubdocument")}</button>
                             </div>
                         </div>
                         <div class="tm-scheduled-events-field">
-                            <span>插入位置</span>
-                            <div class="tm-scheduled-events-segmented" role="group" aria-label="插入位置">
-                                <button type="button" class="${output.insertPosition === 'bottom' ? 'is-active' : ''}" data-tm-call="tmScheduledSetInsertPosition" data-tm-args='["bottom"]'>文档底部</button>
-                                <button type="button" class="${output.insertPosition === 'top' ? 'is-active' : ''}" data-tm-call="tmScheduledSetInsertPosition" data-tm-args='["top"]'>文档顶部</button>
+                            <span>${__tmT("kernel.insertPosition")}</span>
+                            <div class="tm-scheduled-events-segmented" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.insertPosition")}">
+                                <button type="button" class="${output.insertPosition === 'bottom' ? 'is-active' : ''}" data-tm-call="tmScheduledSetInsertPosition" data-tm-args='["bottom"]'>${__tmT("settings.documentBottom")}</button>
+                                <button type="button" class="${output.insertPosition === 'top' ? 'is-active' : ''}" data-tm-call="tmScheduledSetInsertPosition" data-tm-args='["top"]'>${__tmT("settings.documentTop")}</button>
                             </div>
                         </div>
                         <label class="tm-scheduled-events-field">
-                            <span>${output.documentMode === 'monthly_child' ? '父文档' : '目标文档'}</span>
+                            <span>${output.documentMode === 'monthly_child' ? __tmT("settings.parentDocument") : __tmT("kernel.targetDocument")}</span>
                             <select class="b3-select" data-tm-call="tmScheduledPickDocument">${__tmScheduledDocumentOptions(output.documentId)}</select>
                         </label>
                         <label class="tm-scheduled-events-field">
-                            <span>${output.documentMode === 'monthly_child' ? '父文档 ID' : '文档 ID'}</span>
-                            <input class="b3-text-field" type="text" value="${esc(output.documentId)}" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["output.documentId"]' placeholder="也可直接输入文档 ID">
+                            <span>${output.documentMode === 'monthly_child' ? __tmT("kernel.parentDocumentId") : __tmT("kernel.documentsId")}</span>
+                            <input class="b3-text-field" type="text" value="${esc(output.documentId)}" data-tm-call="tmScheduledUpdateDraft" data-tm-args='["output.documentId"]' placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.orEnterADocumentIdDirectly")}">
                         </label>
                     ` : ''}
                     ${output.mode === 'daily_note' ? `
                         <div class="tm-scheduled-events-field tm-scheduled-events-field--wide">
-                            <span>日记目标</span>
-                            <div class="tm-settings-section-desc">使用常规设置中的“今天日记默认笔记本”；插入位置由“日记追加到底部”控制。</div>
+                            <span>${__tmT("settings.dailyNoteTarget")}</span>
+                            <div class="tm-settings-section-desc">${__tmT("settings.usesTheDefaultNotebookForTodaySDailyNote")}</div>
                         </div>
                     ` : ''}
                 </div>
                 <div class="tm-scheduled-events-editor__actions">
-                    <button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmScheduledCancelEdit">完成</button>
+                    <button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmScheduledCancelEdit">${__tmT("quickbar.done")}</button>
                 </div>
             </section>
         `;
@@ -218,9 +218,9 @@
             <div class="tm-scheduled-events-result">
                 <div class="tm-scheduled-events-result__heading">
                     <strong>${esc(run.title || event.name)}</strong>
-                    <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledCloseResult" title="关闭结果" aria-label="关闭结果">${__tmScheduledSettingsIcon('x')}</button>
+                    <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledCloseResult" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.offresult")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.offresult")}">${__tmScheduledSettingsIcon('x')}</button>
                 </div>
-                ${run.markdown ? `<pre>${esc(run.markdown)}</pre>` : `<div class="tm-scheduled-events-empty">${esc(run.error || '尚无运行结果')}</div>`}
+                ${run.markdown ? `<pre>${esc(run.markdown)}</pre>` : `<div class="tm-scheduled-events-empty">${esc(run.error || __tmT("settings.noResultsYet"))}</div>`}
                 ${run.error ? `<div class="tm-scheduled-events-result__error">${esc(run.error)}</div>` : ''}
             </div>
         `;
@@ -233,49 +233,49 @@
             const status = __tmScheduledStatusMeta(event.lastRun?.status);
             const statusError = String(event.lastRun?.error || '').trim().replace(/^(?:已阻止\s*){2,}/, '已阻止').slice(0, 500);
             const outputLabel = event.output?.mode === 'document'
-                ? `${event.output?.documentMode === 'monthly_child' ? '月度子文档' : '目标文档'} · ${event.output?.insertPosition === 'top' ? '顶部' : '底部'}`
+                ? `${event.output?.documentMode === 'monthly_child' ? __tmT("settings.monthlySubdocument2") : __tmT("kernel.targetDocument")} · ${event.output?.insertPosition === 'top' ? __tmT("settings.top") : __tmT("settings.bottom")}`
                 : event.output?.mode === 'daily_note'
-                    ? `今天日记 · ${SettingsStore.data.newTaskDailyNoteAppendToBottom === true ? '底部' : '顶部'}`
-                    : '通知展示';
+                    ? __tmT("settings.todaySDailyNote2", { value1: SettingsStore.data.newTaskDailyNoteAppendToBottom === true ? __tmT("settings.bottom") : __tmT("settings.top") })
+                    : __tmT("settings.notification");
             const args = esc(JSON.stringify([event.id]));
             return `
                 <div class="tm-scheduled-events-row${event.enabled ? '' : ' is-disabled'}">
                     <div class="tm-scheduled-events-row__toggle">
-                        <input class="b3-switch fn__flex-center" type="checkbox" ${event.enabled ? 'checked' : ''} ${supported ? '' : 'disabled'} data-tm-call="tmScheduledToggle" data-tm-args='${args}' aria-label="${event.enabled ? '停用' : '启用'} ${esc(event.name)}">
+                        <input class="b3-switch fn__flex-center" type="checkbox" ${event.enabled ? 'checked' : ''} ${supported ? '' : 'disabled'} data-tm-call="tmScheduledToggle" data-tm-args='${args}' aria-label="${event.enabled ? __tmT("settings.disable") : __tmT("settings.enable")} ${esc(event.name)}">
                     </div>
                     <div class="tm-scheduled-events-row__main">
                         <strong title="${esc(event.name)}">${esc(event.name)}</strong>
                         <span>${esc(__tmScheduledRecurrenceLabel(event))}</span>
                     </div>
-                    <div class="tm-scheduled-events-cell"><span class="tm-scheduled-events-cell__label">下次运行</span><span>${esc(__tmScheduledNextRunLabel(event))}</span></div>
-                    <div class="tm-scheduled-events-cell"><span class="tm-scheduled-events-cell__label">输出</span><span>${outputLabel}</span></div>
-                    <div class="tm-scheduled-events-cell tm-scheduled-events-cell--status"><span class="tm-scheduled-events-cell__label">状态</span><span class="tm-scheduled-events-status ${status[1]}" ${statusError ? `title="${esc(statusError)}"` : ''}>${status[0]}</span>${statusError ? `<small class="tm-scheduled-events-status-detail">${esc(statusError)}</small>` : ''}</div>
+                    <div class="tm-scheduled-events-cell"><span class="tm-scheduled-events-cell__label">${__tmT("settings.nextRun")}</span><span>${esc(__tmScheduledNextRunLabel(event))}</span></div>
+                    <div class="tm-scheduled-events-cell"><span class="tm-scheduled-events-cell__label">${__tmT("settings.output")}</span><span>${outputLabel}</span></div>
+                    <div class="tm-scheduled-events-cell tm-scheduled-events-cell--status"><span class="tm-scheduled-events-cell__label">${__tmT("kernel.status")}</span><span class="tm-scheduled-events-status ${status[1]}" ${statusError ? `title="${esc(statusError)}"` : ''}>${status[0]}</span>${statusError ? `<small class="tm-scheduled-events-status-detail">${esc(statusError)}</small>` : ''}</div>
                     <div class="tm-scheduled-events-row__actions">
-                        <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledRunNow" data-tm-args='${args}' ${supported ? '' : 'disabled'} title="立即运行" aria-label="立即运行">${__tmScheduledSettingsIcon('play')}</button>
-                        ${event.conversationId ? `<button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledOpenConversation" data-tm-args='${args}' title="打开对话" aria-label="打开对话">${__tmScheduledSettingsIcon('chat-circle-text')}</button>` : ''}
-                        <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledViewResult" data-tm-args='${args}' title="查看结果" aria-label="查看结果">${__tmScheduledSettingsIcon('file-text')}</button>
-                        <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledEdit" data-tm-args='${args}' ${supported ? '' : 'disabled'} title="编辑" aria-label="编辑">${__tmScheduledSettingsIcon('pencil')}</button>
-                        <button class="tm-scheduled-events-icon-btn is-danger" type="button" data-tm-call="tmScheduledDelete" data-tm-args='${args}' ${supported ? '' : 'disabled'} title="删除" aria-label="删除">${__tmScheduledSettingsIcon('trash-2')}</button>
+                        <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledRunNow" data-tm-args='${args}' ${supported ? '' : 'disabled'} title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.runNow")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.runNow")}">${__tmScheduledSettingsIcon('play')}</button>
+                        ${event.conversationId ? `<button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledOpenConversation" data-tm-args='${args}' title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.openConversation")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.openConversation")}">${__tmScheduledSettingsIcon('chat-circle-text')}</button>` : ''}
+                        <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledViewResult" data-tm-args='${args}' title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.viewresult")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.viewresult")}">${__tmScheduledSettingsIcon('file-text')}</button>
+                        <button class="tm-scheduled-events-icon-btn" type="button" data-tm-call="tmScheduledEdit" data-tm-args='${args}' ${supported ? '' : 'disabled'} title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.edit")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.edit")}">${__tmScheduledSettingsIcon('pencil')}</button>
+                        <button class="tm-scheduled-events-icon-btn is-danger" type="button" data-tm-call="tmScheduledDelete" data-tm-args='${args}' ${supported ? '' : 'disabled'} title="${globalThis.__taskHorizonHostBridge.i18n.html("common.delete")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.delete")}">${__tmScheduledSettingsIcon('trash-2')}</button>
                     </div>
                 </div>
                 ${__tmScheduledRenderResult(event)}
             `;
         }).join('');
         return `
-            <div class="tm-settings-panel tm-scheduled-events-panel" data-tm-settings-section="ai-scheduled" ${__tmSettingsSearchAttrs('ai', '定时事件', '自动运行智能体提示词并通知或写入文档', { key: 'ai-scheduled-events' })}>
+            <div class="tm-settings-panel tm-scheduled-events-panel" data-tm-settings-section="ai-scheduled" ${__tmSettingsSearchAttrs('ai', __tmT("settings.scheduledEvents"), __tmT("settings.runsAgentPromptsAutomaticallyAndNotifiesOrWritesTo"), { key: 'ai-scheduled-events' })}>
                 <div class="tm-scheduled-events-toolbar">
                     <div>
-                        <div class="tm-settings-section-title">定时事件</div>
-                        <div class="tm-settings-section-desc">事件配置和执行记录随云端设置同步；每次结果追加到固定智能体对话，同一 occurrenceKey 不会重复执行。</div>
+                        <div class="tm-settings-section-title">${__tmT("settings.scheduledEvents")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.eventConfigurationsAndRunRecordsSyncWithCloudSettings")}</div>
                     </div>
                     <div class="tm-scheduled-events-toolbar__actions">
-                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmScheduledUseSummaryTemplate" ${supported ? '' : 'disabled'}>${__tmScheduledSettingsIcon('calendar-check')}<span>每日完成总结</span></button>
-                        <button class="tm-btn tm-btn-primary" type="button" data-tm-call="tmScheduledCreate" ${supported ? '' : 'disabled'}>${__tmScheduledSettingsIcon('plus')}<span>新建定时事件</span></button>
+                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-call="tmScheduledUseSummaryTemplate" ${supported ? '' : 'disabled'}>${__tmScheduledSettingsIcon('calendar-check')}<span>${__tmT("settings.dailyCompletionSummary")}</span></button>
+                        <button class="tm-btn tm-btn-primary" type="button" data-tm-call="tmScheduledCreate" ${supported ? '' : 'disabled'}>${__tmScheduledSettingsIcon('plus')}<span>${__tmT("settings.newScheduledEvent")}</span></button>
                     </div>
                 </div>
-                ${supported ? '' : '<div class="tm-scheduled-events-compat">定时事件需要思源 3.7.3 或更高版本。当前版本仍可使用插件其他功能。</div>'}
+                ${supported ? '' : `<div class="tm-scheduled-events-compat">${__tmT("settings.scheduledEventsRequireSiyuanOrLaterOtherPluginFeatures")}</div>`}
                 <div class="tm-scheduled-events-list">
-                    ${rows || '<div class="tm-scheduled-events-empty">暂无定时事件</div>'}
+                    ${rows || `<div class="tm-scheduled-events-empty">${__tmT("settings.noScheduledEvents")}</div>`}
                 </div>
                 ${__tmScheduledRenderEditor(state.scheduledEventDraft)}
             </div>
@@ -288,7 +288,7 @@
 
     window.tmScheduledCreate = function () {
         state.scheduledEventEditingId = '';
-        state.scheduledEventDraft = __tmScheduledSettingsDraft({ enabled: false, prompt: '总结今天的任务。' });
+        state.scheduledEventDraft = __tmScheduledSettingsDraft({ enabled: false, prompt: __tmT("settings.summarizeTodaySTasks") });
         __tmScheduledRerenderSettings();
     };
 
@@ -366,7 +366,7 @@
         await __tmScheduledSettingsApi()?.save?.(draft);
         state.scheduledEventEditingId = '';
         state.scheduledEventDraft = null;
-        hint('定时事件已保存', 'success');
+        hint(__tmT("settings.scheduledEventSaved"), 'success');
         __tmScheduledRerenderSettings();
     };
 
@@ -381,15 +381,15 @@
     };
 
     window.tmScheduledRunNow = async function (id) {
-        hint('定时事件正在运行', 'info');
+        hint(__tmT("settings.theScheduledEventIsRunning"), 'info');
         const result = await __tmScheduledSettingsApi()?.runNow?.(id);
         const status = __tmScheduledStatusMeta(result?.status);
         const notificationFailed = result?.status === 'succeeded' && result?.notificationDelivered === false;
         const message = result?.error
             ? `${status[0]}：${result.error}`
             : (notificationFailed
-                ? `定时事件已完成，但系统通知未发送：${result.notificationError || '未知原因'}；正在打开对话`
-                : (result?.status === 'succeeded' ? '' : `定时事件：${status[0]}`));
+                ? __tmT("settings.theScheduledEventCompletedButTheSystemNotificationWas", { value1: result.notificationError || __tmT("calendar.unknownReason") })
+                : (result?.status === 'succeeded' ? '' : __tmT("settings.scheduledEvents2", { value1: status[0] })));
         if (message) hint(message, notificationFailed ? 'warning' : (result?.status === 'skipped_empty' ? 'info' : 'warning'));
         if (result?.status === 'succeeded') state.scheduledEventResultId = String(id || '').trim();
         __tmScheduledRerenderSettings();
@@ -400,12 +400,12 @@
         const event = (__tmScheduledSettingsApi()?.list?.() || []).find((item) => item.id === String(id || '').trim());
         const conversationId = String(event?.conversationId || '').trim();
         if (!conversationId) {
-            hint('该事件还没有运行对话', 'info');
+            hint(__tmT("settings.thisEventHasNoRunConversationYet"), 'info');
             return;
         }
         try { await globalThis.__taskHorizonEnsureAiModuleLoaded?.(); } catch (e) {}
         if (typeof globalThis.__tmAI?.openConversation !== 'function') {
-            hint('任务智能体对话暂不可用', 'warning');
+            hint(__tmT("settings.theTaskAgentConversationIsTemporarilyUnavailable"), 'warning');
             return;
         }
         try { window.closeSettings?.(); } catch (e) {}
@@ -425,7 +425,7 @@
     window.tmScheduledDelete = async function (id) {
         const event = (__tmScheduledSettingsApi()?.list?.() || []).find((item) => item.id === String(id || '').trim());
         if (!event) return;
-        if (!window.confirm(`删除定时事件“${event.name}”？`)) return;
+        if (!window.confirm(__tmT("settings.deleteTheScheduledEvent", { name: event.name }))) return;
         __tmFlushSettingsInputs();
         await __tmRunSettingsSave(`scheduled:${event.id}`);
         await __tmScheduledSettingsApi()?.remove?.(event.id);

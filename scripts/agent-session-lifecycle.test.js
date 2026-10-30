@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const workbench = fs.readFileSync(process.argv[2] || path.join(__dirname, '../src/ai/agent-workbench.js'), 'utf8');
 const plain = value => JSON.parse(JSON.stringify(value));

@@ -25,7 +25,7 @@
         const pending = Promise.resolve().then(() => operation(operationSignal));
         const timeout = new Promise((resolve, reject) => {
             timer = setTimeout(() => {
-                const error = new Error('番茄统计服务响应超时');
+                const error = new Error(__tmT("task.thePomodoroStatisticsServiceTimedOut"));
                 error.code = 'FOCUS_STATS_TIMEOUT';
                 error.details = { stage: String(stage || '').trim(), timeoutMs };
                 reject(error);
@@ -46,7 +46,7 @@
     }
 
     function __tmFocusStatsSupersededError(stage) {
-        const error = new Error('专注统计请求已被更新的页面状态替代');
+        const error = new Error(__tmT("task.theFocusStatisticsRequestWasSupersededByANewer"));
         error.code = 'FOCUS_STATS_SUPERSEDED';
         error.details = { stage: String(stage || '').trim() };
         return error;
@@ -167,7 +167,7 @@
         const rootTaskID = String(options?.rootTaskID || options?.rootTaskId || '').trim();
         if (!taskIDs && !rootTaskID) return null;
         if (taskIDs && taskIDs.length > __TM_FOCUS_QUERY_TASK_ID_LIMIT) {
-            const error = new Error('专注统计任务范围过大');
+            const error = new Error(__tmT("kernel.theFocusStatisticsTaskScopeIsTooLarge"));
             error.code = 'FOCUS_SCOPE_TOO_LARGE';
             error.details = { taskCount: taskIDs.length, maxTaskCount: __TM_FOCUS_QUERY_TASK_ID_LIMIT };
             throw error;
@@ -178,13 +178,13 @@
                 __tmCallTaskHorizonKernelRpc('taskHorizonResolveFocusCandidateIDs', options || {})
             ), control);
             if (!gateway?.available) {
-                const error = new Error('任务统计内核暂不可用');
+                const error = new Error(__tmT("task.theTaskStatisticsKernelIsTemporarilyUnavailable"));
                 error.code = 'TASK_STATS_UNAVAILABLE';
                 throw error;
             }
             const resolvedIDs = Array.isArray(gateway?.data?.candidateIDs) ? gateway.data.candidateIDs : null;
             if (!resolvedIDs) {
-                const error = new Error('任务统计范围响应格式不兼容');
+                const error = new Error(__tmT("task.incompatibleTaskStatisticsScopeResponseFormat"));
                 error.code = 'STATS_CONTRACT_MISMATCH';
                 throw error;
             }
@@ -198,7 +198,7 @@
             if (!id) return;
             out.add(id);
             if (out.size > __TM_FOCUS_CANDIDATE_ID_LIMIT) {
-                const error = new Error('专注统计候选任务范围过大');
+                const error = new Error(__tmT("task.theFocusStatisticsCandidateTaskScopeIsTooLarge"));
                 error.code = 'FOCUS_SCOPE_TOO_LARGE';
                 error.details = { candidateCount: out.size, maxCandidateCount: __TM_FOCUS_CANDIDATE_ID_LIMIT };
                 throw error;
@@ -224,7 +224,7 @@
 
     function __tmBuildFocusTaskSnapshot(rawStats = null, options = {}) {
         const store = globalThis.__tmTaskStore;
-        if (!store) throw new Error('任务状态仓储尚未就绪');
+        if (!store) throw new Error(__tmT("task.theTaskStateRepositoryIsNotReadyYet"));
         const token = store.captureRead?.() || null;
         const byId = new Map();
         const taskByteLengths = new Map();
@@ -248,7 +248,7 @@
             return bytes;
         };
         const snapshotTooLarge = (details = {}) => {
-            const error = new Error('专注统计任务快照过大');
+            const error = new Error(__tmT("task.theFocusStatisticsTaskSnapshotIsTooLarge"));
             error.code = 'FOCUS_SCOPE_TOO_LARGE';
             error.details = {
                 maxTaskCount: __TM_FOCUS_SNAPSHOT_TASK_LIMIT,
@@ -263,7 +263,7 @@
             const id = String(value || '').trim();
             if (!id || queuedIDs.has(id)) return;
             if (queuedIDs.size >= __TM_FOCUS_SNAPSHOT_TASK_LIMIT) {
-                const error = new Error('专注统计任务快照过大');
+                const error = new Error(__tmT("task.theFocusStatisticsTaskSnapshotIsTooLarge"));
                 error.code = 'FOCUS_SCOPE_TOO_LARGE';
                 error.details = { maxTaskCount: __TM_FOCUS_SNAPSHOT_TASK_LIMIT };
                 throw error;
@@ -355,7 +355,7 @@
 
     function __tmRequireFocusStatsContract(value) {
         if (!value || Number(value.contractVersion) !== __TM_FOCUS_STATS_CONTRACT_VERSION) {
-            const error = new Error('番茄统计契约版本不兼容');
+            const error = new Error(__tmT("task.incompatiblePomodoroStatisticsContractVersion"));
             error.code = 'STATS_CONTRACT_MISMATCH';
             throw error;
         }
@@ -371,12 +371,12 @@
     function __tmRequireCompatibleDockStats(method) {
         const dockStats = globalThis.__dockTomato?.stats;
         if (!dockStats || typeof dockStats[method] !== 'function') {
-            const error = new Error('底栏番茄钟统计服务未加载');
+            const error = new Error(__tmT("kernel.theBottomBarPomodoroStatisticsServiceIsNotLoaded"));
             error.code = 'DOCK_TOMATO_STATS_UNAVAILABLE';
             throw error;
         }
         if (Number(dockStats.contractVersion) !== __TM_FOCUS_STATS_CONTRACT_VERSION) {
-            const error = new Error('番茄统计契约版本不兼容');
+            const error = new Error(__tmT("task.incompatiblePomodoroStatisticsContractVersion"));
             error.code = 'STATS_CONTRACT_MISMATCH';
             throw error;
         }
@@ -448,7 +448,7 @@
             __tmCallTaskHorizonKernelRpc('taskHorizonProjectFocusStatistics', rawStats, options || {}, snapshot || {})
         ), control);
         if (!gateway?.available) {
-            const error = new Error('任务统计内核暂不可用');
+            const error = new Error(__tmT("task.theTaskStatisticsKernelIsTemporarilyUnavailable"));
             error.code = 'TASK_STATS_UNAVAILABLE';
             throw error;
         }
@@ -504,7 +504,7 @@
                     return projected;
                 }
             }
-            const error = new Error('任务结构在统计期间发生变化');
+            const error = new Error(__tmT("task.theTaskStructureChangedDuringStatistics"));
             error.code = 'STALE_TASK_SNAPSHOT';
             throw error;
         } finally {

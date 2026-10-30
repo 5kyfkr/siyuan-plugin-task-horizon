@@ -388,7 +388,7 @@
             const result = await API.call('/api/query/sql', {
                 stmt: `SELECT id, root_id FROM blocks WHERE id IN (${quoted}) LIMIT ${chunk.length}`,
             });
-            if (result?.code !== 0 || !Array.isArray(result.data)) throw new Error('日程关联文档读取失败');
+            if (result?.code !== 0 || !Array.isArray(result.data)) throw new Error(__tmT("task.failedToReadTheScheduleLinkedDocument"));
             result.data.forEach(row => { blockDocIds[row.id] = String(row.root_id || row.id || '').trim(); });
         }
         blockIds.forEach(id => { blockDocIds[id] = blockDocIds[canonicalId(id)] || ''; });
@@ -1557,7 +1557,7 @@
             }
             res.tasks = __tmFilterDeletedTaskRowsForDocumentRefresh(res?.tasks, deletedBlockIds);
             if (missingInsertedTaskIds.length > 0) {
-                throw new Error(`任务索引尚未同步: ${missingInsertedTaskIds.slice(0, 3).join(',')}`);
+                throw new Error(__tmT("task.taskIndexNotSyncedYet", { value1: missingInsertedTaskIds.slice(0, 3).join(',') }));
             }
 
             if (!isTokenCurrent()) {
@@ -1934,7 +1934,7 @@
                     try { __tmMergeLocalTaskPatchIntoTask(task); } catch (e) {}
 
                     // 标准化字段
-                    const docName = task.docName || task.doc_name || '未命名文档';
+                    const docName = task.docName || task.doc_name || __tmT("kernel.untitledDocument");
                     normalizeTaskFields(task, docName, normalizeTaskOptions);
 
                     const hasResolvedH2 = !!taskId && h2ContextMap.has(taskId);
@@ -2116,7 +2116,7 @@
 
                     // 获取文档名称
                     const cachedDocName = String(cachedDoc?.name || '').trim();
-                    let docName = cachedDocName || '未命名文档';
+                    let docName = cachedDocName || __tmT("kernel.untitledDocument");
                     if (!cachedDocName && rawTasks.length > 0) {
                         docName = String(rawTasks[0].docName || rawTasks[0].doc_name || '').trim() || docName;
                     }
@@ -2526,7 +2526,7 @@
             }
         } catch (e) {
             console.error('[加载] 获取任务失败:', e);
-            hint('❌ 加载任务失败', 'error');
+            hint(__tmT("task.failedToLoadTasks"), 'error');
             return false;
         } finally {
             if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) {
@@ -2535,7 +2535,7 @@
         }
         } catch (e) {
             try { console.error('[加载] 获取任务失败:', e); } catch (e2) {}
-            try { hint('❌ 加载任务失败', 'error'); } catch (e3) {}
+            try { hint(__tmT("task.failedToLoadTasks"), 'error'); } catch (e3) {}
             return false;
         } finally {
             clearInlineLoadingWatchdog();

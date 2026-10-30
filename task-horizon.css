@@ -3335,7 +3335,7 @@
 }
 
 [data-task-horizon-snapshot-kind="dock"]::after {
-    content: "点击恢复实时侧栏";
+    content: var(--tm-i18n-restore-sidebar, "点击恢复实时侧栏");
     position: absolute;
     top: 12px;
     right: 12px;
@@ -3352,7 +3352,7 @@
 }
 
 [data-task-horizon-snapshot-kind="tab"]::after {
-    content: "点击恢复实时页签";
+    content: var(--tm-i18n-restore-tab, "点击恢复实时页签");
     position: absolute;
     top: 12px;
     right: 12px;
@@ -12825,7 +12825,7 @@ button.tm-task-detail-focus-stat[aria-expanded="true"] {
 }
 
 [data-tm-detail-attachment-section].tm-task-detail-attachment-dropzone--dragover::after {
-    content: '松手上传到附件';
+    content: var(--tm-i18n-drop-attachment, "松手上传到附件");
     position: absolute;
     inset: 0;
     display: flex;
@@ -15255,7 +15255,7 @@ button.tm-task-detail-focus-stat[aria-expanded="true"] {
 }
 
 .tm-task-scheduled-today::after {
-    content: "今";
+    content: var(--tm-i18n-today, "今");
     font-weight: 600;
     display: inline-flex;
     align-items: center;
@@ -21506,7 +21506,7 @@ th[data-col] {
 }
 
 .tm-task-attachment-picker-box.tm-task-attachment-picker-box--dragover::after {
-    content: '松手上传到思源附件';
+    content: var(--tm-i18n-drop-siyuan-attachment, "松手上传到思源附件");
     position: absolute;
     inset: 0;
     display: flex;
@@ -26022,6 +26022,7 @@ th[data-col] {
 .tm-settings-v3 .tm-settings-tabs { gap: 2px; scrollbar-width: none; }
 .tm-settings-v3 .tm-settings-nav-btn { flex-direction: column; justify-content: center; gap: 4px; min-height: 56px; padding: 7px 2px; text-align: center; font-size: 12px; line-height: 1.3; border-radius: 9px; color: var(--tm-secondary-text); }
 .tm-settings-v3 .tm-settings-nav-btn svg { width: 18px; height: 18px; flex: 0 0 18px; }
+.tm-settings-v3 .tm-settings-nav-btn > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tm-settings-v3 .tm-settings-nav-btn.is-active { color: var(--tm-primary-color); }
 .tm-settings-v3 .tm-settings-v3-rail-search,
 .tm-settings-v3 .tm-settings-v3-search-toggle { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 44px; margin: 0 auto; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--tm-secondary-text); cursor: pointer; }

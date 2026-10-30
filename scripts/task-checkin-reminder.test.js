@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const root = process.env.TASK_HORIZON_TEST_ROOT || path.resolve(__dirname, '../src/task-horizon/main');
 const api = fs.readFileSync(path.join(root, '20-api-and-runtime-services.js'), 'utf8');
 const recurring = fs.readFileSync(path.join(root, 'task-runtime/54-recurring-task-runtime.js'), 'utf8');

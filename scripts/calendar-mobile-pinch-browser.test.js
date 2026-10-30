@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const {chromium} = require('./i18n-browser-fixture');
 const {setup,readFunction,tapMinute,resizeEdge,gesturePath} = require('./calendar-click-draft-browser.test.js');
 const storageKey = 'tm_calendar_mobile_timeline_scale';
 const frame = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));

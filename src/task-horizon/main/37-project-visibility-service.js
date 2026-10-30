@@ -39,7 +39,7 @@
             if (!force && settings) return Promise.resolve(snapshot());
             loading = writes.then(async () => {
                 const host = globalThis.__tmHost;
-                if (typeof host?.loadData !== 'function') throw new Error('项目状态存储不可用');
+                if (typeof host?.loadData !== 'function') throw new Error(__tmT("task.projectStatusStorageUnavailable"));
                 accept(await host.loadData(storageKey, {}));
                 return snapshot();
             }).finally(() => { loading = null; });
@@ -51,7 +51,7 @@
                 const next = normalize(update(snapshot()));
                 const host = globalThis.__tmHost;
                 if (typeof host?.saveData !== 'function' || await host.saveData(storageKey, next) === false) {
-                    throw new Error('项目状态保存失败，请重试');
+                    throw new Error(__tmT("task.failedToSaveTheProjectStatusTryAgain"));
                 }
                 accept(next);
                 return snapshot();
@@ -133,7 +133,7 @@
             },
             async setCompleted(kind, id, completed) {
                 const entityId = String(id || '').trim();
-                if (!entityId || !['doc', 'heading'].includes(kind)) throw new Error('无效的项目卡片');
+                if (!entityId || !['doc', 'heading'].includes(kind)) throw new Error(__tmT("task.invalidProjectCard"));
                 await write((current) => {
                     const next = { ...current.completedProjects };
                     const key = `${kind}:${entityId}`;

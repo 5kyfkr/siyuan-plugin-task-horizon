@@ -417,7 +417,7 @@
         if (!SettingsStore?.data) return false;
         if (__tmDocGroupDropdownSyncPromise) {
             if (opt.silent !== true) {
-                try { hint('同步文档分组中，请稍后', 'info'); } catch (e) {}
+                try { hint(__tmT("task.syncingDocumentGroupsPleaseWait"), 'info'); } catch (e) {}
             }
             try { await __tmDocGroupDropdownSyncPromise; } catch (e) {}
             return true;
@@ -434,7 +434,7 @@
         }
         if (remoteFingerprint && remoteFingerprint !== currentFingerprint) {
             if (opt.silent !== true) {
-                try { hint('同步文档分组中，请稍后', 'info'); } catch (e) {}
+                try { hint(__tmT("task.syncingDocumentGroupsPleaseWait"), 'info'); } catch (e) {}
             }
             const syncPromise = Promise.resolve().then(async () => {
                 const previousGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
@@ -495,7 +495,7 @@
         if (!refreshedScopeFingerprint || refreshedScopeFingerprint === loadedScopeFingerprint) return false;
 
         if (opt.silent !== true) {
-            try { hint('同步文档分组中，请稍后', 'info'); } catch (e) {}
+            try { hint(__tmT("task.syncingDocumentGroupsPleaseWait"), 'info'); } catch (e) {}
         }
         const syncPromise = Promise.resolve().then(async () => {
             await __tmReloadCurrentDocGroupAfterSync({
@@ -1069,7 +1069,7 @@ state.openToken = (Number(state.openToken) || 0) + 1;
         let refreshWriteProtectionSeed = new Map();
         let refreshMutationProjection = null;
         let _refreshHint = null;
-        if (!silent) _refreshHint = hint('🔄 正在刷新...', 'info');
+        if (!silent) _refreshHint = hint(__tmT("task.refreshing"), 'info');
 
         state.isRefreshing = true;
         try {
@@ -1207,14 +1207,14 @@ state.openToken = (Number(state.openToken) || 0) + 1;
 
             if (!silent) {
                 __tmRemoveHint(_refreshHint);
-                const syncedLabel = syncedServerState ? '，已同步伺服共享配置' : (reloadedWhiteboardState ? '，已同步白板' : '');
-                hint(removedCount > 0 ? `✅ 刷新完成${syncedLabel}，已清理冻结任务 ${removedCount} 项` : `✅ 刷新完成${syncedLabel}`, 'success');
+                const syncedLabel = syncedServerState ? __tmT("task.serverSharingConfigSynced") : (reloadedWhiteboardState ? __tmT("task.whiteboardSynced") : '');
+                hint(removedCount > 0 ? __tmT("task.refreshCompleteCleanedUpFrozenTasks", { syncedLabel: syncedLabel, removedCount: removedCount }) : __tmT("task.refreshComplete", { syncedLabel: syncedLabel }), 'success');
             }
 return true;
         } catch (e) {
             if (!silent) {
                 __tmRemoveHint(_refreshHint);
-                hint(`❌ 刷新失败: ${e.message}`, 'error');
+                hint(__tmT("task.refreshFailed", { message: e.message }), 'error');
             }
 return false;
         } finally {
@@ -1243,7 +1243,7 @@ return false;
             layoutOnly: opt.layoutOnly === true,
         })) {
             if (opt.silent !== true) {
-                try { hint('✅ 日历已刷新', 'success'); } catch (e) {}
+                try { hint(__tmT("task.calendarRefreshed"), 'success'); } catch (e) {}
             }
             return true;
         }

@@ -34,7 +34,7 @@ jobs:
         run: pwsh -ExecutionPolicy Bypass -File ./scripts/verify-release.ps1
       - name: Package
         run: pwsh -ExecutionPolicy Bypass -File ./build.ps1
-      - name: Verify packaged artifact
+      - name: Verify packaged artifact and languages
         run: pwsh -ExecutionPolicy Bypass -File ./scripts/verify-package.ps1
       - name: Release
         uses: softprops/action-gh-release@v2

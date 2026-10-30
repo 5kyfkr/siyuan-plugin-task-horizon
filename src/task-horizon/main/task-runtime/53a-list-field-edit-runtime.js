@@ -36,10 +36,10 @@
         const next = raw === 'high' || raw === 'medium' || raw === 'low' ? raw : '';
         const shouldWait = options.wait === true || options.forceImmediate === true;
         const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-        if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+        if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
         const result = patchTask(tid, { priority: next }, {
             source: String(options.source || 'external-priority').trim() || 'external-priority',
-            label: '重要性',
+            label: __tmT("kernel.importance"),
             skipDetailPatch: options.skipDetailPatch === true,
             defer: options.defer === true,
             forceImmediate: options.forceImmediate === true,
@@ -52,13 +52,13 @@
         if (shouldWait) {
             const waitedResult = await result;
             if (waitedResult !== false && options.silent !== true) {
-                const label = next === 'high' ? '高' : (next === 'medium' ? '中' : (next === 'low' ? '低' : '无'));
-                hint(`✅ 重要性已更新为${label}`, 'success');
+                const label = next === 'high' ? __tmT("common.high") : (next === 'medium' ? __tmT("common.medium") : (next === 'low' ? __tmT("common.low") : __tmT("common.none")));
+                hint(__tmT("task.importanceUpdatedTo", { label: label }), 'success');
             }
             return waitedResult !== false;
         }
         Promise.resolve(result).catch((e) => {
-            if (options.silent !== true) hint(`❌ 更新失败: ${e.message}`, 'error');
+            if (options.silent !== true) hint(__tmT("task.updateFailed", { message: e.message }), 'error');
         });
         return true;
     };
@@ -70,12 +70,12 @@
         const raw = String(value || '').trim();
         const next = raw ? __tmNormalizeDateOnly(raw) : '';
         if (raw && !next) {
-            if (options.silent !== true) hint('⚠ 日期格式无效，请使用 YYYY-MM-DD', 'warning');
+            if (options.silent !== true) hint(__tmT("task.invalidDateFormatUseYyyyMmDd"), 'warning');
             return false;
         }
         const shouldWait = options.wait === true || options.forceImmediate === true;
         const updateTaskDates = window.tmUpdateTaskDates;
-        if (typeof updateTaskDates !== 'function') throw new Error('任务日期写入服务未就绪');
+        if (typeof updateTaskDates !== 'function') throw new Error(__tmT("task.taskDateWriteServiceIsNotReady"));
         const result = updateTaskDates(tid, { completionTime: next }, {
             source: String(options.source || 'external-completion-time').trim() || 'external-completion-time',
             skipDetailPatch: options.skipDetailPatch === true,
@@ -87,11 +87,11 @@
         });
         if (shouldWait) {
             const waitedResult = await result;
-            if (waitedResult !== false && options.silent !== true) hint(next ? '✅ 截止日期已更新' : '✅ 截止日期已清空', 'success');
+            if (waitedResult !== false && options.silent !== true) hint(next ? __tmT("task.dueDateUpdated2") : __tmT("task.dueDateCleared"), 'success');
             return waitedResult !== false;
         }
         Promise.resolve(result).catch((e) => {
-            if (options.silent !== true) hint(`❌ 更新失败: ${e.message}`, 'error');
+            if (options.silent !== true) hint(__tmT("task.updateFailed", { message: e.message }), 'error');
         });
         return true;
     };
@@ -142,15 +142,15 @@
                         await onPick(key === 'none' ? '' : key, info);
                         close();
                     } catch (e) {
-                        const msg = String(e?.message || e || '').trim() || '未知错误';
-                        hint(`❌ 更新失败: ${msg}`, 'error');
+                        const msg = String(e?.message || e || '').trim() || __tmT("plugin.unknownError");
+                        hint(__tmT("task.updateFailed4", { msg: msg }), 'error');
                     }
                 } : () => {
                     const request = Promise.resolve(onPick(key === 'none' ? '' : key, info));
                     close();
                     request.catch((e) => {
-                        const msg = String(e?.message || e || '').trim() || '未知错误';
-                        hint(`❌ 更新失败: ${msg}`, 'error');
+                        const msg = String(e?.message || e || '').trim() || __tmT("plugin.unknownError");
+                        hint(__tmT("task.updateFailed4", { msg: msg }), 'error');
                     });
                 };
                 return b;
@@ -176,10 +176,10 @@
         __tmOpenPriorityInlinePicker(el, {
             currentValue: task.priority,
             onPick: (value) => {
-                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                 return patchTask(tid, { priority: value || '' }, {
                     source: 'inline-priority',
-                    label: '重要性',
+                    label: __tmT("kernel.importance"),
                 });
             },
         });
@@ -219,14 +219,14 @@
                     close();
                     const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                     if (typeof patchTask !== 'function') {
-                        hint('❌ 更新失败: 任务写入队列未就绪: patchTask', 'error');
+                        hint(__tmT("task.updateFailedTaskWriteQueueIsNotReadyPatchtask"), 'error');
                         return;
                     }
                     void patchTask(tid, { customStatus: opt.id }, {
                         source: 'inline-status',
-                        label: '状态',
+                        label: __tmT("kernel.status"),
                     }).catch((error) => {
-                        hint(`❌ 更新失败: ${error.message}`, 'error');
+                        hint(__tmT("task.updateFailed", { message: error.message }), 'error');
                     });
                 };
                 wrap.appendChild(b);
@@ -276,19 +276,19 @@
             const valueWrap = previewAnchorEl.querySelector('.tm-task-detail-custom-field-value');
             if (valueWrap instanceof HTMLElement) {
                 valueWrap.innerHTML = __tmBuildCustomFieldDisplayHtml(field, normalized, {
-                    emptyText: '未设置',
+                    emptyText: __tmT("common.notSet"),
                     maxTags: String(field?.type || '').trim() === 'multi' ? 3 : 1,
                 });
             }
         }
         const shouldWait = opts.wait === true || opts.forceImmediate === true;
         const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-        if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+        if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
         const savePromise = patchTask(tid, {
                 customFieldValues: { [fid]: normalized }
             }, {
                 source: String(opts.source || 'custom-field').trim() || 'custom-field',
-                label: String(field?.name || '自定义列').trim() || '自定义列',
+                label: String(field?.name || __tmT("task.customColumn")).trim() || __tmT("task.customColumn"),
                 background: shouldWait ? opts.background : true,
                 wait: shouldWait ? opts.wait : false,
                 defer: opts.defer === true,
@@ -300,7 +300,7 @@
         if (!shouldWait) {
             Promise.resolve(savePromise).catch((e) => {
                 if (opts.silent !== true) {
-                    try { hint(`❌ 更新失败: ${e.message}`, 'error'); } catch (err) {}
+                    try { hint(__tmT("task.updateFailed", { message: e.message }), 'error'); } catch (err) {}
                 }
             });
             if (typeof opts.onAfterSave === 'function') {
@@ -334,16 +334,16 @@
         const input = document.createElement('input');
         input.className = 'b3-text-field';
         input.type = 'search';
-        input.placeholder = '搜索选项';
-        input.setAttribute('aria-label', '搜索选项');
+        input.placeholder = __tmT("task.searchOptions");
+        input.setAttribute('aria-label', __tmT("task.searchOptions"));
         input.autocomplete = 'off';
         input.spellcheck = false;
         const clear = document.createElement('button');
         clear.type = 'button';
         clear.className = 'block__icon tm-custom-field-search-clear';
         clear.textContent = '×';
-        clear.title = '清除搜索';
-        clear.setAttribute('aria-label', '清除搜索');
+        clear.title = __tmT("task.clearSearch");
+        clear.setAttribute('aria-label', __tmT("task.clearSearch"));
         clear.hidden = true;
         const count = document.createElement('span');
         count.className = 'tm-custom-field-search-count';
@@ -408,7 +408,7 @@
             matches: (text) => normalize(text).includes(query),
             refresh(selectedCount = null) {
                 count.hidden = selectedCount === null;
-                count.textContent = selectedCount === null ? '' : `已选 ${selectedCount} 项`;
+                count.textContent = selectedCount === null ? '' : __tmT('task.selectedCount', { count: selectedCount });
                 const items = buttons();
                 const index = items.findIndex((button) => button.getAttribute('data-tm-custom-field-choice') === activeId);
                 activate(items, index >= 0 ? index : (query ? 0 : -1));
@@ -490,14 +490,14 @@
         };
         const appendHistory = () => {
             if (!historicalIds.length) return;
-            appendSectionLabel('已归档或历史值');
+            appendSectionLabel(__tmT("quickbar.archivedOrHistoricalValues"));
             historicalIds.forEach((optionId) => {
                 const option = runtime.optionById.get(optionId);
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'tm-status-option-btn tm-custom-field-inline-option is-historical';
                 button.style.cssText = `display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;height:${optionRowHeight}px;padding:4px 6px;text-align:left;opacity:.72;`;
-                button.title = '从当前任务中移除此历史值';
+                button.title = __tmT("task.removeThisHistoricalValueFromTheCurrentTask");
                 const chip = document.createElement('span');
                 chip.className = 'tm-status-tag tm-custom-field-inline-chip';
                 chip.style.cssText = __tmBuildStatusChipStyle(option?.color || '#9ca3af');
@@ -531,7 +531,7 @@
                     icon.style.transition = 'transform .12s ease';
                     icon.style.transform = expandedIds.has(optionId) ? 'rotate(90deg)' : '';
                 }
-                expand.title = expandedIds.has(optionId) ? '收起子项' : '展开子项';
+                expand.title = expandedIds.has(optionId) ? __tmT("quickbar.collapseChildItems") : __tmT("quickbar.expandChildItems");
                 expand.setAttribute('aria-expanded', expandedIds.has(optionId) ? 'true' : 'false');
                 expand.onclick = () => {
                     if (expandedIds.has(optionId)) expandedIds.delete(optionId);
@@ -572,7 +572,7 @@
         if (!visibleOptions.length && (searching || !historicalIds.length)) {
             const empty = document.createElement('div');
             empty.style.cssText = 'padding:8px;color:var(--tm-secondary-text);font-size:12px;';
-            empty.textContent = searching ? '没有匹配的选项' : '当前字段没有可选项';
+            empty.textContent = searching ? __tmT("quickbar.noMatchingOptions") : __tmT("quickbar.noOptionsForThisField");
             container.appendChild(empty);
         }
         if (searching) appendHistory();
@@ -613,7 +613,7 @@
             title.style.whiteSpace = 'nowrap';
             title.style.overflow = 'hidden';
             title.style.textOverflow = 'ellipsis';
-            title.textContent = String(field.name || field.id || '自定义列').trim() || '自定义列';
+            title.textContent = String(field.name || field.id || __tmT("task.customColumn")).trim() || __tmT("task.customColumn");
             wrap.appendChild(title);
 
             const list = document.createElement('div');
@@ -671,7 +671,7 @@
                                 try {
                                     const ok = await __tmPersistTaskCustomFieldValue(tid, fid, Array.from(nextDraft), options);
                                     if (ok === false) {
-                                        hint('❌ 更新失败', 'error');
+                                        hint(__tmT("calendar.updateFailed"), 'error');
                                         return;
                                     }
                                     draft.clear();
@@ -679,7 +679,7 @@
                                     renderOptions();
                                     if (restoreFocus && editor.isConnected) search.input.focus({ preventScroll: true });
                                 } catch (e) {
-                                    hint(`❌ 更新失败: ${e.message}`, 'error');
+                                    hint(__tmT("task.updateFailed", { message: e.message }), 'error');
                                 } finally {
                                     saving = false;
                                     list.inert = false;
@@ -710,7 +710,7 @@
             clearBtn.type = 'button';
             clearBtn.className = 'tm-btn tm-btn-secondary tm-custom-field-inline-action';
             clearBtn.style.padding = '0 10px';
-            clearBtn.textContent = '清空';
+            clearBtn.textContent = __tmT("common.clear");
             clearBtn.onclick = () => {
                 if (saving) return;
                 if (isMulti) {
@@ -721,13 +721,13 @@
                         try {
                             const ok = await __tmPersistTaskCustomFieldValue(tid, fid, [], options);
                             if (ok === false) {
-                                hint('❌ 更新失败', 'error');
+                                hint(__tmT("calendar.updateFailed"), 'error');
                                 return;
                             }
                             draft.clear();
                             renderOptions();
                         } catch (e) {
-                            hint(`❌ 更新失败: ${e.message}`, 'error');
+                            hint(__tmT("task.updateFailed", { message: e.message }), 'error');
                         } finally {
                             saving = false;
                             list.inert = false;
@@ -745,7 +745,7 @@
                 doneBtn.type = 'button';
                 doneBtn.className = 'tm-btn tm-btn-primary tm-custom-field-inline-action';
                 doneBtn.style.padding = '0 10px';
-                doneBtn.textContent = '完成';
+                doneBtn.textContent = __tmT("quickbar.done");
                 doneBtn.onclick = () => close();
                 actions.appendChild(doneBtn);
             }
@@ -800,14 +800,14 @@
                     close();
                     const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                     if (typeof patchTask !== 'function') {
-                        hint('❌ 更新失败: 任务写入队列未就绪: patchTask', 'error');
+                        hint(__tmT("task.updateFailedTaskWriteQueueIsNotReadyPatchtask"), 'error');
                         return;
                     }
                     void patchTask(tid, { customStatus: opt.id }, {
                         source: 'kanban-status',
-                        label: '状态',
+                        label: __tmT("kernel.status"),
                     }).catch((error) => {
-                        hint(`❌ 更新失败: ${error.message}`, 'error');
+                        hint(__tmT("task.updateFailed", { message: error.message }), 'error');
                     });
                 };
                 wrap.appendChild(b);

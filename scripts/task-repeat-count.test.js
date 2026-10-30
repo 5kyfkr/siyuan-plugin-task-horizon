@@ -1,9 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const fs = require('./i18n-source-fixture');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const root = path.resolve(__dirname, '..');
 const modelSource = fs.readFileSync(
@@ -174,7 +174,7 @@ assert.match(modelSource, /循环记录\$\{progressText\}/, 'recurring record ba
 assert.match(dialogSource, /data-tm-repeat-field="maxOccurrences"[^>]*max="200"/, 'repeat dialog must cap the count input at 200');
 assert.match(dialogSource, /const savedTriggerType = currentRule\.enabled && currentRule\.type !== 'none'[\s\S]*?: 'due';/, 'an unset repeat rule must default to due-triggered recurrence');
 assert.match(dialogSource, /<option value="due"[\s\S]*?<option value="complete"[\s\S]*?<option value="none"/, 'the non-recurring option must remain last');
-assert.match(dialogSource, /\[\[1, '一'\], \[2, '二'\], \[3, '三'\], \[4, '四'\], \[5, '五'\], \[6, '六'\], \[0, '日'\]\]/, 'repeat dialog must render Monday-first weekday controls');
+assert.match(dialogSource, /\[1, 2, 3, 4, 5, 6, 0\]\.map\(day => \[day, __tmT\('date\.weekday\.short\.' \+ day\)\]\)/, 'repeat dialog must render localized Monday-first weekday controls');
 assert.doesNotMatch(dialogSource, /weekdays\.length <= 1/, 'repeat dialog must allow clearing every weekday');
 assert.match(detailSource, /data-tm-time-hub-repeat-end-mode="never"/, 'time hub must edit the never-ending mode directly');
 assert.match(detailSource, /data-tm-time-hub-repeat-end-mode="date"/, 'time hub must edit the date-ending mode directly');

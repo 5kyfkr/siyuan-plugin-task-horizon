@@ -13,7 +13,7 @@
         const colCount = Number(context.colCount) || colOrder.length || 7;
         const alwaysVisibleHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks();
         if (state.filteredTasks.length === 0 && alwaysVisibleHeadingTasks.length === 0) {
-            return `<tr><td colspan="${colCount}" style="text-align: center; padding: 40px; color: var(--tm-secondary-text);">暂无任务</td></tr>`;
+            return `<tr><td colspan="${colCount}" style="text-align: center; padding: 40px; color: var(--tm-secondary-text);">${__tmT("calendar.noTasks")}</td></tr>`;
         }
 
         const isGloballyLocked = GlobalLock.isLocked();
@@ -248,7 +248,7 @@
             const completedChildren = directChildStats.completed;
             const remainingChildren = directChildStats.remaining;
             const childStatsHtml = totalChildren > 0
-                ? `<span class="tm-task-child-count" data-tm-subtask-count-owner="${esc(taskId)}" data-tm-subtask-count-format="remaining"${remainingChildren > 0 ? '' : ' hidden'} style="font-size: 11px; color: var(--tm-secondary-text); margin-left: 4px; background: var(--tm-doc-count-bg); padding: 1px 5px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; height: 14px;" title="共${totalChildren}个任务，已完成${completedChildren}个，剩余${remainingChildren}个">${remainingChildren}</span>`
+                ? `<span class="tm-task-child-count" data-tm-subtask-count-owner="${esc(taskId)}" data-tm-subtask-count-format="remaining"${remainingChildren > 0 ? '' : ' hidden'} style="font-size: 11px; color: var(--tm-secondary-text); margin-left: 4px; background: var(--tm-doc-count-bg); padding: 1px 5px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; height: 14px;" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.tasksDoneRemaining2", { totalChildren: totalChildren, completedChildren: completedChildren, remainingChildren: remainingChildren })}">${remainingChildren}</span>`
                 : '';
 
             const indent = Math.max(0, Number(depth) || 0) * 12;
@@ -262,7 +262,7 @@
             const globalCollectIconHtml = hasContentCol ? __tmRenderGlobalCollectDocTaskInlineIcon(task) : '';
             const renderedContent = hasContentCol ? `${API.renderTaskContentHtml(task.markdown, content)}${globalCollectIconHtml}` : '';
             const contentTooltip = hasContentCol
-                ? __tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, content || '(无内容)').text, { side: 'bottom', ariaLabel: false })
+                ? __tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, content || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })
                 : '';
             const startDateText = hasStartDateCol ? __tmFormatTaskTime(startDate) : '';
             const completionTimeText = hasCompletionTimeCol ? __tmFormatTaskTime(completionTime) : '';
@@ -330,7 +330,7 @@
                     <td style="${getTableCellStyle('pinned', 'text-align: center;')}">
                         <input type="checkbox" ${pinned ? 'checked' : ''}
                                onchange="tmSetPinned('${taskId}', this.checked, event)"
-                               title="置顶">
+                               title="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.pin")}">
                     </td>`;
                         break;
                     case 'content':
@@ -349,8 +349,8 @@
                             </span>
                             <button class="tm-subtask-create-btn"
                                     type="button"
-                                    title="新建子任务"
-                                    aria-label="新建子任务"
+                                    title="${globalThis.__taskHorizonHostBridge.i18n.html("ai.newSubtask")}"
+                                    aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.newSubtask")}"
                                     onpointerdown="event.stopPropagation()"
                                     onclick="tmCreateSubtask('${taskId}', event)">
                                 <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -363,11 +363,11 @@
                         break;
                     case 'doc':
                         rowHtml += `
-                    <td class="tm-cell-editable tm-task-meta-cell" style="${getTableCellStyle('doc')}" title="点击移动到当前分组其他文档" onclick="tmPickTaskDocInline('${taskId}', this, event)">${esc(docName || '')}</td>`;
+                    <td class="tm-cell-editable tm-task-meta-cell" style="${getTableCellStyle('doc')}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clickToMoveToAnotherDocumentInThisGroup")}" onclick="tmPickTaskDocInline('${taskId}', this, event)">${esc(docName || '')}</td>`;
                         break;
                     case 'h2':
                         rowHtml += `
-                    <td class="tm-cell-editable tm-task-meta-cell" style="${getTableCellStyle('h2')}" title="点击切换标题" onclick="tmPickHeadingInline('${taskId}', this, event)">${esc(__tmNormalizeHeadingText(task.h2) || '无')}</td>`;
+                    <td class="tm-cell-editable tm-task-meta-cell" style="${getTableCellStyle('h2')}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clickToSwitchHeading")}" onclick="tmPickHeadingInline('${taskId}', this, event)">${esc(__tmNormalizeHeadingText(task.h2) || __tmT("common.none"))}</td>`;
                         break;
                     case 'score': {
                         const v = Math.round(__tmEnsureTaskPriorityScore(task));
@@ -534,7 +534,7 @@
             const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
             const doneToggle = `<span class="tm-group-toggle${doneCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${doneGroupKey}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
             const doneDurationSum = __tmCalcGroupDurationText(completedRoots);
-            allRows.push(`<tr class="tm-group-row" data-group-key="${doneGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${doneGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${doneToggle}<span class="tm-group-label" style="color:var(--tm-secondary-text);">已完成任务</span><span class="tm-badge tm-badge--count">${completedRoots.length}</span>${doneDurationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(doneDurationSum)}</span>` : ''}</div></td></tr>`);
+            allRows.push(`<tr class="tm-group-row" data-group-key="${doneGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${doneGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${doneToggle}<span class="tm-group-label" style="color:var(--tm-secondary-text);">${__tmT("calendar.completedTasks")}</span><span class="tm-badge tm-badge--count">${completedRoots.length}</span>${doneDurationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(doneDurationSum)}</span>` : ''}</div></td></tr>`);
             if (!doneCollapsed) {
                 currentGroupBg = '';
                 appendCompletedSubgroups(__tmBuildCompletedTaskGroups(completedRoots, {
@@ -550,7 +550,7 @@
             const pinnedCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
             const pinnedToggle = `<span class="tm-group-toggle${pinnedCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${pinnedGroupKey}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
             const pinnedDurationSum = __tmCalcGroupDurationText(pinnedRoots);
-            allRows.push(`<tr class="tm-group-row" data-group-key="${pinnedGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${pinnedGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${pinnedToggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-pinned-color);">置顶</span><span class="tm-badge tm-badge--count">${pinnedRoots.length}</span>${pinnedDurationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(pinnedDurationSum)}</span>` : ''}</div></td></tr>`);
+            allRows.push(`<tr class="tm-group-row" data-group-key="${pinnedGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${pinnedGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${pinnedToggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-pinned-color);">${__tmT("kernel.pin")}</span><span class="tm-badge tm-badge--count">${pinnedRoots.length}</span>${pinnedDurationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(pinnedDurationSum)}</span>` : ''}</div></td></tr>`);
             if (!pinnedCollapsed) {
                 currentGroupBg = '';
                 pinnedRoots.forEach(task => {
@@ -564,7 +564,7 @@
             const normalGroupKey = 'normal_root_tasks';
             const normalCollapsed = state.collapsedGroups?.has(normalGroupKey);
             const normalToggle = `<span class="tm-group-toggle${normalCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${normalGroupKey}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
-            allRows.push(`<tr class="tm-group-row" data-group-key="${normalGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${normalGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${normalToggle}<span class="tm-group-label">普通</span><span class="tm-badge tm-badge--count">${normalRoots.length}</span></div></td></tr>`);
+            allRows.push(`<tr class="tm-group-row" data-group-key="${normalGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${normalGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${normalToggle}<span class="tm-group-label">${__tmT("ai.normal")}</span><span class="tm-badge tm-badge--count">${normalRoots.length}</span></div></td></tr>`);
             if (!normalCollapsed) {
                 currentGroupBg = '';
                 normalRoots.forEach(task => {
@@ -690,7 +690,7 @@
                 };
                 const durationSum = calculateDuration(group.items);
 
-                allRows.push(`<tr class="tm-group-row" data-group-key="${groupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:${color};"><div class="tm-group-sticky">${toggle}${esc(group.name)}<span class="tm-badge tm-badge--count">${group.items.length}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row" data-group-key="${groupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:${color};"><div class="tm-group-sticky">${toggle}${esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', group))}<span class="tm-badge tm-badge--count">${group.items.length}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`);
 
                 // 如果未折叠，渲染任务
                 if (!isCollapsed) {
@@ -707,8 +707,8 @@
             // 按文档分组模式：不应用全局混排，按文档顺序显示，支持折叠
             const enableDocH2Subgroup = SettingsStore.data.docH2SubgroupEnabled !== false;
             const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
-            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-            const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+            const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+            const noHeadingLabel = __tmT("calendar.no", { value1: headingLabelMap[headingLevel] || __tmT("calendar.title") });
             docsInOrder.forEach(docId => {
                 const docEntry = docEntryById.get(String(docId || '').trim());
                 if (!docEntry) return;
@@ -727,12 +727,12 @@
                 const renderDocTasks = sortRenderGroupItems(activeDocRootTasks.slice());
 
                 // 渲染文档标题（支持折叠）
-                const docName = docEntry.name || '未知文档';
+                const docName = docEntry.name || __tmT("task.unknownDocument");
                 const groupKey = `doc_${docId}`;
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
                 const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
                 const labelColor = __tmGetDocColorHex(docId, isDark) || 'var(--tm-group-doc-label-color)';
-                const createBtnHtml = __tmBuildDocGroupQuickAddBtnHtml(docId, '新建任务');
+                const createBtnHtml = __tmBuildDocGroupQuickAddBtnHtml(docId, __tmT("common.newTask"));
                 const docGroupDropAttrs = `data-group-kind="doc" data-group-key="${esc(groupKey)}" data-tm-doc-heading-drop-kind="doc" data-tm-doc-heading-drop-doc="${esc(docId)}" ondragenter="tmDocHeadingGroupDragOver(event)" ondragover="tmDocHeadingGroupDragOver(event)" ondragleave="tmDocHeadingGroupDragLeave(event)" ondrop="tmDocHeadingGroupDrop(event)"`;
 
                 allRows.push(`<tr class="tm-group-row" ${docGroupDropAttrs}><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderDocGroupLabel(docId, docName)}</span><span class="tm-badge tm-badge--count">${docTasks.length}</span>${createBtnHtml}</div></td></tr>`);
@@ -770,7 +770,7 @@
                             const h2Key = `doc_${docId}__h2_${encodeURIComponent(String(bucket.key || 'label:__none__'))}`;
                             const h2Collapsed = state.collapsedGroups?.has(h2Key);
                             const toggleH2 = `<span class="tm-group-toggle${h2Collapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${h2Key}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
-                            const createBtnHtml = __tmBuildHeadingGroupCreateBtnHtml(docId, String(g.id || bucket.id || '').trim(), '在该标题下新建任务');
+                            const createBtnHtml = __tmBuildHeadingGroupCreateBtnHtml(docId, String(g.id || bucket.id || '').trim(), __tmT("task.newTaskUnderThisHeading"));
                             const h2LabelColor = __tmGetHeadingSubgroupLabelColor(labelColor, isDark);
                             const h2Id = String(g.id || bucket.id || '').trim();
                             const h2Rank = Number((items?.[0] || g.sourceTask)?.h2Rank);
@@ -794,16 +794,16 @@
                 const info = getTimePriorityInfo(task);
                 const diffDays = Number(info?.diffDays);
                 if (!Number.isFinite(diffDays)) {
-                    return { key: 'pending', label: '待定', labelHtml: '待定', sortValue: Infinity };
+                    return { key: 'pending', label: __tmT("task.unscheduled"), labelHtml: __tmT("task.unscheduled"), sortValue: Infinity };
                 }
 
-                if (diffDays < 0) return { key: 'overdue', label: '已过期', labelHtml: '已过期', sortValue: diffDays };
-                if (diffDays === 0) return { key: 'today', label: '今天', labelHtml: buildTimeGroupLabelHtml('今天', diffDays), sortValue: 0 };
-                if (diffDays === 1) return { key: 'tomorrow', label: '明天', labelHtml: buildTimeGroupLabelHtml('明天', diffDays), sortValue: 1 };
-                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', labelHtml: buildTimeGroupLabelHtml('后天', diffDays), sortValue: 2 };
-                if (diffDays >= 16) return { key: 'farther', label: '更远', labelHtml: '更远', sortValue: 16 };
+                if (diffDays < 0) return { key: 'overdue', label: __tmT("homepage.overdue3"), labelHtml: __tmT("homepage.overdue3"), sortValue: diffDays };
+                if (diffDays === 0) return { key: 'today', label: __tmT("common.today"), labelHtml: buildTimeGroupLabelHtml(__tmT("common.today"), diffDays), sortValue: 0 };
+                if (diffDays === 1) return { key: 'tomorrow', label: __tmT("calendar.tomorrow"), labelHtml: buildTimeGroupLabelHtml(__tmT("calendar.tomorrow"), diffDays), sortValue: 1 };
+                if (diffDays === 2) return { key: 'after_tomorrow', label: __tmT("task.dayAfterTomorrow"), labelHtml: buildTimeGroupLabelHtml(__tmT("task.dayAfterTomorrow"), diffDays), sortValue: 2 };
+                if (diffDays >= 16) return { key: 'farther', label: __tmT("task.later"), labelHtml: __tmT("task.later"), sortValue: 16 };
 
-                const label = `余${diffDays}天`;
+                const label = __tmT("task.daysLeft2", { diffDays: diffDays });
                 return {
                     key: `days_${diffDays}`,
                     label,
@@ -918,7 +918,7 @@
         appendCompletedRootGroup();
 
         if (allRows.length === 0) {
-            return `<tr><td colspan="${colCount}" style="text-align: center; padding: 40px; color: var(--tm-secondary-text);">暂无任务</td></tr>`;
+            return `<tr><td colspan="${colCount}" style="text-align: center; padding: 40px; color: var(--tm-secondary-text);">${__tmT("calendar.noTasks")}</td></tr>`;
         }
 
         if (virtualEnabled) {
@@ -926,7 +926,7 @@
                 ? Math.max(0, logicalTaskTotal - visitedTaskRows)
                 : 0;
             if (remain > 0) {
-                allRows.push(`<tr class="tm-load-more-row"><td colspan="${colCount}" style="text-align:center;padding:10px;background:var(--tm-header-bg);"><button type="button" class="tm-btn tm-btn-secondary" onclick="tmListLoadMoreRows(event)">继续加载</button></td></tr>`);
+                allRows.push(`<tr class="tm-load-more-row"><td colspan="${colCount}" style="text-align:center;padding:10px;background:var(--tm-header-bg);"><button type="button" class="tm-btn tm-btn-secondary" onclick="tmListLoadMoreRows(event)">${__tmT("task.loadMore")}</button></td></tr>`);
             }
         }
 
@@ -1239,7 +1239,7 @@
         if (!task || typeof task !== 'object') return null;
         const next = task;
         const opts = (options && typeof options === 'object') ? options : {};
-        const docNameFallback = String(opts.docNameFallback || next.doc_name || next.docName || '').trim() || '未命名文档';
+        const docNameFallback = String(opts.docNameFallback || next.doc_name || next.docName || '').trim() || __tmT("kernel.untitledDocument");
         try { MetaStore.applyToTask(next); } catch (e) {}
         try { normalizeTaskFields(next, docNameFallback); } catch (e) {}
         const tid = String(next.id || '').trim();
@@ -1293,7 +1293,7 @@
                             __tmApplyTaskCustomFieldValueLocally(task, field, nextValue);
                         });
                         __tmCacheTaskInState(task, {
-                            docNameFallback: task.doc_name || task.docName || '未命名文档'
+                            docNameFallback: task.doc_name || task.docName || __tmT("kernel.untitledDocument")
                         });
                         MetaStore.set(tid, { customFieldValues: customFieldPatch });
                     }
@@ -1478,7 +1478,7 @@ return finish(false, 'noop');
 
         try {
             __tmCacheTaskInState(task, {
-                docNameFallback: task.doc_name || task.docName || '未命名文档'
+                docNameFallback: task.doc_name || task.docName || __tmT("kernel.untitledDocument")
             });
         } catch (e) {}
         try {
@@ -1502,7 +1502,7 @@ return finish(false, 'noop');
             task.content = parsed.content;
         } catch (e) {}
         return __tmCacheTaskInState(task, {
-            docNameFallback: task.doc_name || task.docName || '未命名文档'
+            docNameFallback: task.doc_name || task.docName || __tmT("kernel.untitledDocument")
         });
     }
 
@@ -1659,7 +1659,7 @@ return finish(false, 'noop');
             });
             blockRow = (res && res.code === 0 && Array.isArray(res.data)) ? res.data[0] : null;
         } catch (e) {}
-        const docName = String(blockRow?.doc_name || '').trim() || '当前块';
+        const docName = String(blockRow?.doc_name || '').trim() || __tmT("task.currentBlock");
         const tomatoEstimateAttrKey = typeof __tmGetTomatoEstimateAttrKey === 'function' ? __tmGetTomatoEstimateAttrKey() : 'custom-tomato-estimate-count';
         const tomatoCountAttrKey = typeof __tmGetTomatoCountAttrKey === 'function' ? __tmGetTomatoCountAttrKey() : 'custom-tomato-count';
         const tomatoEstimateValue = __tmNormalizeTomatoCountValue(attrs[tomatoEstimateAttrKey] || attrs['custom-tomato-estimate-count'] || '');
@@ -1681,8 +1681,8 @@ return finish(false, 'noop');
         const row = {
             id: sourceId,
             markdown: km || '',
-            raw_content: contentText || '(无内容)',
-            content: contentText || '(无内容)',
+            raw_content: contentText || __tmT("kernel.noContent"),
+            content: contentText || __tmT("kernel.noContent"),
             done: !!parsed?.done,
             priority: priorityValue,
             duration: durationValue,
@@ -1969,9 +1969,9 @@ return finish(false, 'noop');
         const val = !!pinned;
         const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
         if (typeof patchTask !== 'function') {
-            const error = new Error('任务写入队列未就绪: patchTask');
+            const error = new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
             if (ev?.target) ev.target.checked = !val;
-            hint(`❌ 操作失败: ${error.message}`, 'error');
+            hint(__tmT("task.operationFailed", { message: error.message }), 'error');
             return false;
         }
         const scheduleCalendarRefresh = () => {
@@ -1990,7 +1990,7 @@ return finish(false, 'noop');
         let pendingPromise = null;
         const commitPromise = patchTask(tid, { pinned: val ? '1' : '' }, {
             source: 'toggle-pinned',
-            label: val ? '置顶' : '取消置顶',
+            label: val ? __tmT("kernel.pin") : __tmT("ai.unpin"),
             background: true,
             wait: false,
             skipInteractionGate: true,
@@ -2007,7 +2007,7 @@ return finish(false, 'noop');
         }).catch((e) => {
             scheduleCalendarRefresh();
             if (ev?.target) ev.target.checked = !!globalThis.__tmTaskBoundary?.getTask?.(tid)?.pinned;
-            hint(`❌ 操作失败: ${e.message}`, 'error');
+            hint(__tmT("task.operationFailed", { message: e.message }), 'error');
         });
         return true;
     };
@@ -2042,7 +2042,7 @@ return finish(false, 'noop');
         try {
             if (task && typeof task === 'object' && !globalThis.__tmTaskBoundary?.getTask?.(persistId, { includePending: false, preferPending: false })) {
                 __tmCacheTaskInState(task, {
-                    docNameFallback: task.doc_name || task.docName || '未命名文档',
+                    docNameFallback: task.doc_name || task.docName || __tmT("kernel.untitledDocument"),
                 });
             }
         } catch (e) {}
@@ -2051,19 +2051,19 @@ return finish(false, 'noop');
         const patch = { allDayBottom: val ? '1' : '' };
         const opts = {
             source: 'toggle-all-day-bottom',
-            label: val ? '置底全天日程' : '取消置底全天日程',
+            label: val ? __tmT("calendar.sendAllDaySchedulesToBottom") : __tmT("calendar.restoreAllDayScheduleOrder"),
         };
         const apply = () => {
             const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-            if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+            if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
             return patchTask(persistId, patch, opts);
         };
         try {
             const ok = await apply();
-            hint(`✅ ${val ? '已置底全天日程' : '已取消置底全天日程'}`, 'success');
+            hint(`✅ ${val ? __tmT("task.allDaySchedulesMovedToBottom") : __tmT("task.allDayScheduleOrderRestored")}`, 'success');
             return ok !== false;
         } catch (e) {
-            hint(`❌ 操作失败: ${e?.message || String(e)}`, 'error');
+            hint(__tmT("task.operationFailed2", { value1: e?.message || String(e) }), 'error');
             return false;
         }
     };
@@ -2185,7 +2185,7 @@ return finish(false, 'noop');
         }
         const tid = String(taskId || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
-        if (!tid) throw new Error('完成后的关联处理缺少任务 ID');
+        if (!tid) throw new Error(__tmT("task.postCompletionLinkHandlingIsMissingATaskId"));
         let latestTask = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         const followUpOps = [];
         if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(latestTask)) {
@@ -2281,7 +2281,7 @@ return finish(false, 'noop');
             recurringTask = repeatRule?.enabled === true && String(repeatRule.type || 'none').trim() !== 'none';
             if (recurringTask) {
                 const advance = globalThis.__tmAdvanceRecurringTaskAfterCompletion;
-                if (typeof advance !== 'function') throw new Error('循环任务推进服务未就绪');
+                if (typeof advance !== 'function') throw new Error(__tmT("task.recurringTaskAdvancementServiceIsNotReady"));
 
                 recurringAdvanced = await advance(tid, {
                     source: opts.source,
@@ -2307,7 +2307,7 @@ return finish(false, 'noop');
                     try { console.warn('[task-horizon] set-done-tomato-failed', error, { taskId: tid }); } catch (e) {}
                     try {
                         globalThis.__tmReportTaskMutationFailure?.(error, {
-                            action: '完成状态已保存，但番茄联动',
+                            action: __tmT("task.completionStatusSavedButPomodoroIntegration"),
                         });
                     } catch (e) {}
                 });
@@ -2315,7 +2315,7 @@ return finish(false, 'noop');
                 try { console.warn('[task-horizon] set-done-tomato-failed', error, { taskId: tid }); } catch (e) {}
                 try {
                     globalThis.__tmReportTaskMutationFailure?.(error, {
-                        action: '完成状态已保存，但番茄联动',
+                        action: __tmT("task.completionStatusSavedButPomodoroIntegration"),
                     });
                 } catch (e) {}
             }
@@ -2368,10 +2368,10 @@ return finish(false, 'noop');
     function __tmShowTaskDoneUndoHint(taskId, message, record) {
         const tid = String(taskId || '').trim();
         if (!tid || !record || typeof __tmShowActionHint !== 'function') return false;
-        __tmShowActionHint(String(message || '✅ 任务已完成').trim() || '✅ 任务已完成', 'success', '撤销', async () => {
+        __tmShowActionHint(String(message || __tmT("task.taskCompleted")).trim() || __tmT("task.taskCompleted"), 'success', __tmT("quickbar.undo"), async () => {
             const stack = Array.isArray(__tmUndoState?.undoStack) ? __tmUndoState.undoStack : [];
             if (stack[stack.length - 1] !== record) {
-                hint('ℹ 该撤销提示已过期，请使用 Ctrl+Z', 'info');
+                hint(__tmT("task.thisUndoPromptHasExpiredUseCtrlZInstead"), 'info');
                 return false;
             }
             return __tmUndoLastMutation({ silentError: false });
@@ -2407,7 +2407,7 @@ return finish(false, 'noop');
                 return;
             }
             if (opts.suppressHint !== true) {
-                try { hint(done ? '✅ 已在插件内标记完成' : '✅ 已取消插件内完成', 'success'); } catch (e) {}
+                try { hint(done ? __tmT("task.markedCompleteInThePlugin") : __tmT("task.pluginCompletionUndone"), 'success'); } catch (e) {}
             }
             if (targetDone && opts.force !== true) __tmQueueTaskDoneDelight(id, { done: true, suppressHint: opts.suppressHint, source: opts.source });
             if (targetDone) {
@@ -2416,7 +2416,7 @@ return finish(false, 'noop');
             return;
         }
         if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
-            throw new Error('打卡模式只记录打卡；请先切换循环方式或关闭循环，再完成任务');
+            throw new Error(__tmT("task.checkInModeOnlyRecordsCheckInsSwitchThe"));
         }
         const statusPatch = __tmBuildCheckboxStatusPatch(task, targetDone, opts.statusPatch);
         const taskWasDone = Object.prototype.hasOwnProperty.call(opts, 'previousDone')
@@ -2471,7 +2471,7 @@ return finish(false, 'noop');
                 } catch (e) {}
                 try { __tmInvalidateAllSqlCaches(); } catch (e) {}
                 if (opts.suppressHint !== true) {
-                    try { hint(__tmBuildTaskDoneSuccessHint(!!done, '✅ 任务已完成'), 'success'); } catch (e) {}
+                    try { hint(__tmBuildTaskDoneSuccessHint(!!done, __tmT("task.taskCompleted")), 'success'); } catch (e) {}
                 }
                 if (opts.deferCompletionEffects !== true) {
                     __tmRunSetDonePostCommitEffects(id, {
@@ -2500,9 +2500,9 @@ return finish(false, 'noop');
                 }
                 return true;
             }
-            if (opts.suppressHint !== true) hint('❌ 任务不存在', 'error');
+            if (opts.suppressHint !== true) hint(__tmT("task.taskDoesNotExist2"), 'error');
             if (ev?.target) ev.target.checked = !done;
-            if (opts.force === true) throw new Error('任务不存在');
+            if (opts.force === true) throw new Error(__tmT("task.taskDoesNotExist"));
             return false;
         }
         const detailScrollSnapshot = __tmCaptureChecklistDetailScrollSnapshot();
@@ -2577,7 +2577,7 @@ return finish(false, 'noop');
             if (!apiSuccess) {
                 if (GlobalLock.isLocked()) {
                     const waited = opts.force === true ? await __tmWaitForGlobalUnlock(12000) : false;
-                    if (!waited) throw new Error('完成状态操作仍在进行中，请稍后重试');
+                    if (!waited) throw new Error(__tmT("task.aCompletionStatusOperationIsStillInProgressTry"));
                 }
                 GlobalLock.lock();
                 fallbackLocked = true;
@@ -2629,7 +2629,7 @@ return finish(false, 'noop');
             }
 
             if (!apiSuccess && !clickSuccess) {
-                throw new Error('未能更新任务复选框状态');
+                throw new Error(__tmT("task.couldNotUpdateTheTaskCheckboxState"));
             }
 
             let actualDone = targetDone;
@@ -2637,11 +2637,11 @@ return finish(false, 'noop');
                 await new Promise(r => setTimeout(r, 150));
                 const domDoneAfter = __tmReadNativeDocTaskDoneFromDom(id);
                 if (domDoneAfter === null) {
-                    throw new Error('无法确认任务复选框状态');
+                    throw new Error(__tmT("task.unableToConfirmTheTaskCheckboxState"));
                 }
                 actualDone = !!domDoneAfter;
                 if (actualDone !== targetDone) {
-                    throw new Error('任务复选框状态未同步成功');
+                    throw new Error(__tmT("task.theTaskCheckboxStateDidNotSyncSuccessfully"));
                 }
             }
 
@@ -2709,7 +2709,7 @@ return finish(false, 'noop');
                         requestedTaskId: String(id || '').trim(),
                         patch: undoPatch,
                         inversePatch,
-                        label: actualDone ? '完成任务' : '取消完成',
+                        label: actualDone ? __tmT("calendar.complete") : __tmT("task.markIncomplete"),
                         source: String(opts.source || 'set-done').trim() || 'set-done',
                     });
                 } catch (e) {}
@@ -2780,7 +2780,7 @@ return finish(false, 'noop');
             } catch (e) {}
 
             if (opts.suppressHint !== true) {
-                const successHint = __tmBuildTaskDoneSuccessHint(!!actualDone, '✅ 任务已完成');
+                const successHint = __tmBuildTaskDoneSuccessHint(!!actualDone, __tmT("task.taskCompleted"));
                 if (!(actualDone && __tmShowTaskDoneUndoHint(id, successHint, undoRecord))) {
                     hint(successHint, 'success');
                 }
@@ -2853,7 +2853,7 @@ return finish(false, 'noop');
             } else {
                 try { __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot); } catch (e) {}
             }
-            if (opts.suppressHint !== true) hint(`❌ 操作失败: ${err.message}`, 'error');
+            if (opts.suppressHint !== true) hint(__tmT("task.operationFailed", { message: err.message }), 'error');
             if (opts.force === true) throw err;
             return false;
         } finally {
@@ -3203,10 +3203,10 @@ return finish(false, 'noop');
                 try {
                     const receipt = result?.completion;
                     const nextDate = receipt?.nextDates?.completionTime || receipt?.nextDates?.startDate || '';
-                    const message = receipt?.linkage?.ok === false ? '任务已保存，关联同步待重试'
+                    const message = receipt?.linkage?.ok === false ? __tmT("task.taskSavedLinkedSyncWillBeRetried")
                         : (receipt?.completedOccurrence && receipt.recurring
-                            ? (receipt.advanced ? `本轮已完成，下次 ${nextDate}${nextDate && nextDate < __tmNormalizeDateOnly(new Date()) ? '（仍待补做）' : ''}` : '本轮已完成，计划已结束')
-                            : (targetDone ? '✅ 任务已完成' : '✅ 已取消完成'));
+                            ? (receipt.advanced ? __tmT("task.thisOccurrenceIsCompleteNext", { nextDate: nextDate, value2: nextDate && nextDate < __tmNormalizeDateOnly(new Date()) ? __tmT("task.stillPending") : '' }) : __tmT("task.thisOccurrenceIsCompleteThePlanHasEnded"))
+                            : (targetDone ? __tmT("task.taskCompleted") : __tmT("task.completionUndone")));
                     const successHint = __tmBuildTaskDoneSuccessHint(targetDone, message);
                     const undoRecord = targetDone ? __tmGetLatestTaskDoneUndoRecord(tid) : null;
                     if (!(targetDone && __tmShowTaskDoneUndoHint(tid, successHint, undoRecord))) {
@@ -3217,7 +3217,7 @@ return finish(false, 'noop');
         }).catch((e) => {
             if (intentRevision && !__tmIsLatestSetDoneIntent(tid, intentRevision)) return;
             if (opts.suppressHint !== true) {
-                try { hint(`❌ 操作失败: ${e?.message || String(e)}`, 'error'); } catch (err) {}
+                try { hint(__tmT("task.operationFailed2", { value1: e?.message || String(e) }), 'error'); } catch (err) {}
             }
         });
         return opts.wait === true ? opPromise : Promise.resolve(true);
@@ -3272,8 +3272,8 @@ return finish(false, 'noop');
         const today = __tmNormalizeDateOnly(new Date());
         // Extra and retrospective check-ins only add history, never move the plan.
         const planDate = __tmNormalizeDateOnly(scheduledDate || today);
-        if (!planDate) throw new Error('无效的打卡日期');
-        if (planDate > today) throw new Error('未来的打卡日期暂不可操作');
+        if (!planDate) throw new Error(__tmT("task.invalidCheckInDate"));
+        if (planDate > today) throw new Error(__tmT("task.futureCheckInDatesCannotBeModifiedYet"));
         const currentState = __tmNormalizeTaskRepeatState(task.repeatState || task.repeat_state || '');
         const history = Array.isArray(currentState.checkinHistory) ? currentState.checkinHistory.slice() : [];
         const existing = history.findIndex((entry) => entry.scheduledDate === planDate);
@@ -3301,7 +3301,7 @@ return finish(false, 'noop');
         if (result === false) {
             try { task.repeatState = currentState; task.repeat_state = currentState; } catch (e) {}
             try { MetaStore.set(tid, { repeatState: currentState, repeat_state: currentState }); } catch (e) {}
-            throw new Error('打卡记录未保存');
+            throw new Error(__tmT("task.checkInRecordWasNotSaved"));
         }
         const checkinPatch = { repeatState: nextState };
         try { __tmMarkLocalTaskPatchWatermark(tid, checkinPatch, { source }); } catch (e) {}
@@ -3371,7 +3371,7 @@ if (ev) {
         const targetDone = !!done;
         if (__tmIsRecurringInstanceTask(task)) {
             if (targetDone !== false) {
-                if (opts.suppressHint !== true) hint('⚠️ 循环完成实例只能撤销完成，请在这里取消勾选', 'warning');
+                if (opts.suppressHint !== true) hint(__tmT("task.recurringCompletionsCanOnlyBeUndoneUncheckItHere"), 'warning');
                 if (ev?.target) {
                     try { ev.target.checked = true; } catch (e) {}
                 }
@@ -3380,7 +3380,7 @@ if (ev) {
             const sourceTaskId = String(__tmResolveRecurringInstanceSourceTaskId(tid, task) || '').trim();
             const completedAt = String(task?.recurringCompletedAt || '').trim();
             if (!sourceTaskId || !completedAt) {
-                if (opts.suppressHint !== true) hint('⚠️ 未找到可撤销的循环记录', 'warning');
+                if (opts.suppressHint !== true) hint(__tmT("task.noRecurringCompletionRecordFoundToUndo"), 'warning');
                 if (ev?.target) {
                     try { ev.target.checked = true; } catch (e) {}
                 }
@@ -3393,7 +3393,7 @@ if (ev) {
                     resetNativeDone: true,
                 });
                 if (!result) {
-                    if (opts.suppressHint !== true) hint('⚠️ 未找到可撤销的循环记录', 'warning');
+                    if (opts.suppressHint !== true) hint(__tmT("task.noRecurringCompletionRecordFoundToUndo"), 'warning');
                     if (ev?.target) {
                         try { ev.target.checked = true; } catch (e) {}
                     }
@@ -3403,10 +3403,10 @@ if (ev) {
                     try { ev.target.checked = false; } catch (e) {}
                 }
                 try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
-                if (opts.suppressHint !== true) hint('✅ 已撤销循环完成记录', 'success');
+                if (opts.suppressHint !== true) hint(__tmT("task.recurringCompletionUndone"), 'success');
                 return true;
             } catch (e) {
-                if (opts.suppressHint !== true) hint(`❌ 撤销失败: ${e?.message || String(e)}`, 'error');
+                if (opts.suppressHint !== true) hint(__tmT("task.undoFailed", { value1: e?.message || String(e) }), 'error');
                 if (ev?.target) {
                     try { ev.target.checked = true; } catch (e2) {}
                 }
@@ -3423,11 +3423,11 @@ if (ev) {
                 if (typeof waitForPendingTaskWrites === 'function') {
                     const pendingResult = await waitForPendingTaskWrites(tid);
                     if (pendingResult?.ok !== true) {
-                        throw new Error(pendingResult?.message || '任务字段写入仍在进行中，请稍后重试');
+                        throw new Error(pendingResult?.message || __tmT("task.taskFieldWritesAreStillInProgressTryAgain"));
                     }
                 }
             } catch (e) {
-                if (opts.suppressHint !== true) hint(`❌ 操作失败: ${e?.message || String(e)}`, 'error');
+                if (opts.suppressHint !== true) hint(__tmT("task.operationFailed2", { value1: e?.message || String(e) }), 'error');
                 if (ev?.target) {
                     try { ev.target.checked = !targetDone; } catch (e2) {}
                 }
@@ -3446,13 +3446,13 @@ if (ev) {
                 if (ev?.target) {
                     try { ev.target.checked = targetDone; } catch (e) {}
                 }
-                if (opts.suppressHint !== true) hint(targetDone ? '✅ 今日已打卡' : '✅ 已取消今日打卡', 'success');
+                if (opts.suppressHint !== true) hint(targetDone ? __tmT("task.checkedInForToday") : __tmT("task.todaySCheckInCancelled"), 'success');
                 return result;
             } catch (e) {
                 if (ev?.target) {
                     try { ev.target.checked = !targetDone; } catch (e2) {}
                 }
-                if (opts.suppressHint !== true) hint(`❌ 打卡失败: ${e?.message || String(e)}`, 'error');
+                if (opts.suppressHint !== true) hint(__tmT("task.checkInFailed3", { value1: e?.message || String(e) }), 'error');
                 return false;
             }
         }
@@ -3468,15 +3468,15 @@ if (ev) {
                         recordUndo: opts.recordUndo !== false,
                         resetNativeDone: true,
                     });
-                    if (!result) throw new Error('未找到可撤销的循环记录');
+                    if (!result) throw new Error(__tmT("task.noRecurringCompletionRecordFoundToUndo2"));
                     if (ev?.target) {
                         try { ev.target.checked = false; } catch (e) {}
                     }
                     try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
-                    if (opts.suppressHint !== true) hint('✅ 已撤销循环完成记录', 'success');
+                    if (opts.suppressHint !== true) hint(__tmT("task.recurringCompletionUndone"), 'success');
                     return true;
                 } catch (e) {
-                    if (opts.suppressHint !== true) hint(`❌ 撤销失败: ${e?.message || String(e)}`, 'error');
+                    if (opts.suppressHint !== true) hint(__tmT("task.undoFailed", { value1: e?.message || String(e) }), 'error');
                     if (ev?.target) {
                         try { ev.target.checked = true; } catch (e2) {}
                     }
@@ -3488,7 +3488,7 @@ if (ev) {
         if (!opts.restoreCompletionId && !targetDone
             && typeof __tmIsRecurringNativeDoneHeld === 'function'
             && __tmIsRecurringNativeDoneHeld(task)) {
-            if (opts.suppressHint !== true) hint('⚠️ 循环完成记录已丢失，请先刷新任务数据', 'warning');
+            if (opts.suppressHint !== true) hint(__tmT("task.theRecurringCompletionRecordIsGoneRefreshTheTask"), 'warning');
             if (ev?.target) {
                 try { ev.target.checked = true; } catch (e) {}
             }
@@ -3504,7 +3504,7 @@ if (ev) {
             if (repeatRule.type === 'fsrs') {
                 if (!fsrsRating && opts.automatic !== true) fsrsRating = 3;
                 if (!fsrsRating) {
-                    if (opts.suppressHint !== true) hint('⚠ FSRS 间隔重复需要明确选择“良好”或其他评分', 'warning');
+                    if (opts.suppressHint !== true) hint(__tmT("task.fsrsSpacedRepetitionRequiresAnExplicitGoodOrOther"), 'warning');
                     if (ev?.target) {
                         try { ev.target.checked = false; } catch (e) {}
                     }
@@ -3516,7 +3516,7 @@ if (ev) {
         if (currentDone === targetDone && !__tmIsTaskCanceled(task) && !explicitCheckboxIntent && opts.force !== true && !opts.restoreCompletionId && !opts.nativeObserved) return;
         try {
             const setDone = globalThis.__tmRequireTaskMutation?.('setDone');
-            if (typeof setDone !== 'function') throw new Error('任务完成状态写入队列未就绪');
+            if (typeof setDone !== 'function') throw new Error(__tmT("task.taskCompletionStatusWriteQueueIsNotReady"));
             const request = setDone(tid, targetDone, {
                 source: String(opts.source || '').trim(),
                 suppressHint: opts.suppressHint === true,
@@ -3547,7 +3547,7 @@ if (ev) {
             }
             else {
                 Promise.resolve(request).catch((error) => {
-                    if (opts.suppressHint !== true) hint(`❌ 操作失败: ${error?.message || String(error)}`, 'error');
+                    if (opts.suppressHint !== true) hint(__tmT("task.operationFailed2", { value1: error?.message || String(error) }), 'error');
                     if (ev?.target) {
                         try { ev.target.checked = !targetDone; } catch (e2) {}
                     }
@@ -3556,7 +3556,7 @@ if (ev) {
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
             return true;
         } catch (e) {
-            if (opts.suppressHint !== true) hint(`❌ 操作失败: ${e.message}`, 'error');
+            if (opts.suppressHint !== true) hint(__tmT("task.operationFailed", { message: e.message }), 'error');
             if (ev?.target) ev.target.checked = !targetDone;
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e2) {}
             return false;
@@ -4010,7 +4010,7 @@ if (ev) {
 
         const newDoc = {
             id: docId,
-            name: docInfo?.name || (docIndex >= 0 ? state.taskTree[docIndex].name : '未知文档'),
+            name: docInfo?.name || (docIndex >= 0 ? state.taskTree[docIndex].name : __tmT("task.unknownDocument")),
             alias: __tmNormalizeDocAliasValue(docInfo?.alias || (docIndex >= 0 ? state.taskTree[docIndex]?.alias : '')),
             icon: __tmNormalizeDocIconValue(docInfo?.icon || (docIndex >= 0 ? state.taskTree[docIndex]?.icon : '')),
             created: String(docInfo?.created || (docIndex >= 0 ? state.taskTree[docIndex]?.created : '') || '').trim(),
@@ -4339,7 +4339,7 @@ if (ev) {
             if (task?.id) tid = String(task.id || '').trim() || tid;
         }
         if (!task) {
-            try { hint('⚠️ 未找到任务数据，无法打开详情', 'warning'); } catch (e) {}
+            try { hint(__tmT("task.taskDataNotFoundCannotOpenDetails"), 'warning'); } catch (e) {}
             return false;
         }
         if (__tmIsRecurringInstanceTask(task)) {
@@ -4429,7 +4429,7 @@ if (ev) {
         } catch (e) {}
         try {
             task = __tmCacheTaskInState(task, {
-                docNameFallback: task.doc_name || task.docName || '未命名文档'
+                docNameFallback: task.doc_name || task.docName || __tmT("kernel.untitledDocument")
             }) || task;
         } catch (e) {}
         {
@@ -4506,7 +4506,7 @@ if (ev) {
                 : [tid].filter(Boolean);
             globalThis.__tmProjectVisibleTaskDetailSubtasks?.(targets);
         } catch (e) {}
-        try { hint(enabled ? '✅ 已显示已完成子任务' : '✅ 已隐藏已完成子任务', 'success'); } catch (e) {}
+        try { hint(enabled ? __tmT("task.completedSubtasksShown") : __tmT("task.completedSubtasksHidden"), 'success'); } catch (e) {}
         return enabled;
     };
 
@@ -4545,7 +4545,7 @@ if (ev) {
     function __tmBuildTaskMarkdownWithContent(taskLike, nextContent) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
         const text = __tmNormalizeTaskContentEditInput(nextContent);
-        if (!text) throw new Error('任务内容不能为空');
+        if (!text) throw new Error(__tmT("task.taskContentCannotBeEmpty2"));
         let nextMarkdown = String(task.markdown || '').trim();
         const checked = typeof __tmIsTaskNativeDone === 'function'
             ? __tmIsTaskNativeDone(task)
@@ -4633,7 +4633,7 @@ if (ev) {
     function __tmQueueMoveTask(taskId, payload = {}, options = {}) {
         const tid = String(taskId || '').trim();
         if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(tid)) {
-            return Promise.reject(new Error('任务已删除，移动已取消'));
+            return Promise.reject(new Error(__tmT("task.theTaskWasDeletedTheMoveWasCancelled")));
         }
         const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         const data = (payload && typeof payload === 'object') ? payload : {};
@@ -4641,7 +4641,7 @@ if (ev) {
         const targetDocId = String(data.targetDocId || '').trim();
         const rawMode = String(data.mode || '').trim() || 'docTop';
         const mode = String(globalThis.__tmTaskStore?.normalizeMoveMode?.(rawMode) || (rawMode === 'doc' ? 'docTop' : rawMode)).trim() || 'docTop';
-        if (!tid || !task || !targetDocId) throw new Error('移动目标无效');
+        if (!tid || !task || !targetDocId) throw new Error(__tmT("task.invalidMoveTarget"));
         const snapshot = __tmCaptureTaskLocalSnapshot(tid);
         const shouldWait = hooks.wait === true || data.wait === true;
         let pendingPromise = null;
@@ -4700,9 +4700,9 @@ if (ev) {
         const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [])
             .map((id) => String(id || '').trim())
             .filter(Boolean)));
-        if (ids.length < 2) return Promise.reject(new Error('批量移动至少需要两个任务'));
+        if (ids.length < 2) return Promise.reject(new Error(__tmT("kernel.batchMoveNeedsAtLeastTwoTasks")));
         if (ids.some((id) => typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(id))) {
-            return Promise.reject(new Error('选中的任务已删除，移动已取消'));
+            return Promise.reject(new Error(__tmT("task.aSelectedTaskWasDeletedTheMoveWasCancelled")));
         }
         const tasks = ids.map((id) => globalThis.__tmTaskBoundary?.getTask?.(id) || null);
         const data = (payload && typeof payload === 'object') ? payload : {};
@@ -4712,7 +4712,7 @@ if (ev) {
         const rawMode = String(data.mode || 'child').trim() || 'child';
         const mode = String(globalThis.__tmTaskStore?.normalizeMoveMode?.(rawMode) || rawMode).trim() || 'child';
         if (tasks.some((task) => !task) || !targetDocId || !targetTaskId || !['child', 'child-top'].includes(mode)) {
-            return Promise.reject(new Error('批量移动目标无效'));
+            return Promise.reject(new Error(__tmT("task.invalidBatchMoveTarget")));
         }
         const snapshots = ids.map((id) => __tmCaptureTaskLocalSnapshot(id));
         const sourceDocIds = Array.from(new Set(tasks
@@ -4831,17 +4831,17 @@ if (ev) {
         const opts = (options && typeof options === 'object') ? options : {};
         let info = __tmBuildDetachSubtaskInfo(taskId);
         if (!info) {
-            if (opts.silent !== true) hint('⚠️ 未找到可移出的父任务', 'warning');
+            if (opts.silent !== true) hint(__tmT("task.noParentTaskFoundToMoveOutOf"), 'warning');
             return false;
         }
-        const movingHint = opts.silent === true ? null : hint('正在移动任务...', 'info', { duration: 60000 });
+        const movingHint = opts.silent === true ? null : hint(__tmT("task.movingTask"), 'info', { duration: 60000 });
         try {
             const authoritative = await __tmResolveAuthoritativeDetachSubtaskInfo(info);
             info = authoritative || info;
         } catch (e) {}
         if (!info?.parentTaskId || !info?.targetDocId) {
             __tmRemoveHint(movingHint);
-            if (opts.silent !== true) hint('⚠️ 无法确认当前父子结构，请稍后重试', 'warning');
+            if (opts.silent !== true) hint(__tmT("task.couldNotConfirmTheCurrentParentChildStructureTry"), 'warning');
             return false;
         }
         const shouldWait = opts.wait === true;
@@ -4856,11 +4856,11 @@ if (ev) {
         };
         const onSuccess = () => {
             __tmRemoveHint(movingHint);
-            if (opts.silent !== true) hint('✅ 已移出子任务', 'success');
+            if (opts.silent !== true) hint(__tmT("task.subtaskMovedOut"), 'success');
         };
         const onError = (e) => {
             __tmRemoveHint(movingHint);
-            if (opts.silent !== true) hint(`❌ 移出子任务失败: ${String(e?.message || e || '未知错误')}`, 'error');
+            if (opts.silent !== true) hint(__tmT("task.failedToMoveTheSubtaskOut", { value1: String(e?.message || e || __tmT("plugin.unknownError")) }), 'error');
         };
         try {
             const result = await __tmQueueMoveTask(info.taskId, payload, {
@@ -4907,14 +4907,14 @@ if (ev) {
             ? String(taskOrId || '').trim()
             : String(taskOrId?.id || '').trim();
         if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(tid)) {
-            throw new Error('任务已删除，写入已取消');
+            throw new Error(__tmT("task.theTaskWasDeletedTheWriteWasCancelled"));
         }
         const task = tid
             ? (
                 globalThis.__tmTaskBoundary?.getTask?.(tid) || null
             )
             : null;
-        if (!task) throw new Error('未找到任务');
+        if (!task) throw new Error(__tmT("kernel.noTaskFound"));
         const isPendingTask = !!state.pendingInsertedTasks?.[tid];
         if (options.fromQueue !== true && ((typeof __tmIsOptimisticTempTaskId === 'function' && __tmIsOptimisticTempTaskId(tid)) || isPendingTask)) {
             return await __tmQueueTaskContentPatch(taskOrId, nextContent, {
@@ -4926,14 +4926,14 @@ if (ev) {
         }
 
         const text = __tmNormalizeTaskContentEditInput(nextContent);
-        if (!text) throw new Error('任务内容不能为空');
+        if (!text) throw new Error(__tmT("task.taskContentCannotBeEmpty2"));
 
         try { __tmProtectMarkdownMutationTaskFields?.(tid, task, { source: 'content-patch-kernel' }); } catch (e) {}
         const nextMarkdown = __tmBuildTaskMarkdownWithContent(task, text);
 
         const contentBlockId = String(await API.getTaskContentBlockId(tid) || '').trim();
         if (!contentBlockId) {
-            throw new Error('未找到任务内容块，已取消写入');
+            throw new Error(__tmT("task.taskContentBlockNotFoundTheWriteWasCancelled"));
         }
         await __tmBackendAdapter.updateBlock(contentBlockId, text);
         if (options.touchState !== false) {
@@ -4948,16 +4948,16 @@ if (ev) {
             ? String(taskOrId || '').trim()
             : String(taskOrId?.id || '').trim();
         if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(tid)) {
-            return Promise.reject(new Error('任务已删除，写入已取消'));
+            return Promise.reject(new Error(__tmT("task.theTaskWasDeletedTheWriteWasCancelled")));
         }
         const task = tid
             ? (
                 globalThis.__tmTaskBoundary?.getTask?.(tid) || null
             )
             : null;
-        if (!tid || !task) return Promise.reject(new Error('未找到任务'));
+        if (!tid || !task) return Promise.reject(new Error(__tmT("kernel.noTaskFound")));
         const text = __tmNormalizeTaskContentEditInput(nextContent);
-        if (!text) return Promise.reject(new Error('任务内容不能为空'));
+        if (!text) return Promise.reject(new Error(__tmT("task.taskContentCannotBeEmpty2")));
         const docId = String(options.docId || task.root_id || task.docId || '').trim();
         const inversePatch = {
             content: String(task.content || '').trim(),
@@ -5010,10 +5010,10 @@ if (ev) {
 
     function __tmHintQueuedTaskOperation(savePromise, getOpId, messages = {}) {
         const msg = (messages && typeof messages === 'object') ? messages : {};
-        const successText = String(msg.success || '✅ 任务已同步');
-        const failedPrefix = String(msg.failedPrefix || '更新失败');
+        const successText = String(msg.success || __tmT("task.taskSynced"));
+        const failedPrefix = String(msg.failedPrefix || __tmT("quickbar.updateFailed"));
         Promise.resolve(savePromise).catch((e) => {
-            try { hint(`❌ ${failedPrefix}: ${e.message || '未知错误'}`, 'error'); } catch (err) {}
+            try { hint(`❌ ${failedPrefix}: ${e.message || __tmT("plugin.unknownError")}`, 'error'); } catch (err) {}
         });
         Promise.resolve(savePromise).then((result) => {
             const opId = String((typeof getOpId === 'function' ? getOpId() : '') || result || '').trim();
@@ -5021,7 +5021,7 @@ if (ev) {
             globalThis.__tmTaskMutations.onSettle({ opId }, (detail) => {
                 try {
                     if (detail?.status === 'done') hint(successText, 'success');
-                    else if (detail?.status === 'failed') hint(`❌ ${failedPrefix}: ${detail?.error?.message || '未知错误'}`, 'error');
+                    else if (detail?.status === 'failed') hint(`❌ ${failedPrefix}: ${detail?.error?.message || __tmT("plugin.unknownError")}`, 'error');
                 } catch (err) {}
             }, { once: true });
         }).catch(() => null);
@@ -5032,21 +5032,21 @@ if (ev) {
         const tid = String(id || '').trim();
         const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         if (!task) return;
-        if (!__tmEnsureEditableTaskLike(task, '编辑内容')) return;
+        if (!__tmEnsureEditableTaskLike(task, __tmT("task.editContent"))) return;
 
         const currentContent = __tmNormalizeTaskContentEditInput(task.content || task.raw_content || task.rawContent || task.markdown || '');
-        const newContent = await showPrompt('编辑任务', '请输入新任务内容', currentContent);
+        const newContent = await showPrompt(__tmT("task.editTask"), __tmT("task.enterTheNewTaskContent"), currentContent);
         if (newContent === null) return;
         const nextContent = __tmNormalizeTaskContentEditInput(newContent);
         if (!nextContent) {
-            hint('⚠ 任务内容不能为空', 'warning');
+            hint(__tmT("task.taskContentCannotBeEmpty3"), 'warning');
             return;
         }
         if (nextContent === currentContent) return;
 
         try {
             const patchContent = globalThis.__tmRequireTaskMutation?.('patchContent');
-            if (typeof patchContent !== 'function') throw new Error('任务写入队列未就绪: patchContent');
+            if (typeof patchContent !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchcontent"));
             let queuedOpId = '';
             const savePromise = patchContent(tid, nextContent, {
                 background: true,
@@ -5058,9 +5058,9 @@ if (ev) {
                 },
             });
             __tmHintQueuedTaskOperation(savePromise, () => queuedOpId);
-            hint('已暂存，正在同步', 'info');
+            hint(__tmT("task.stagedSyncing"), 'info');
         } catch (e) {
-            hint(`❌ 更新失败: ${e.message}`, 'error');
+            hint(__tmT("task.updateFailed", { message: e.message }), 'error');
         }
     };
 
@@ -5174,7 +5174,7 @@ if (ev) {
 
     async function __tmDeleteTaskKernel(id, options = {}) {
         const tid = String(id || '').trim();
-        if (!tid) throw new Error('未找到任务');
+        if (!tid) throw new Error(__tmT("kernel.noTaskFound"));
         const opts = (options && typeof options === 'object') ? options : {};
         const taskBeforeDelete = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         const scheduleCleanupTaskIds = __tmCollectTaskTreeIdsForScheduleCleanup(taskBeforeDelete, [
@@ -5226,33 +5226,33 @@ if (ev) {
             ? String(task?.recurringCompletedAt || '').trim()
             : '';
         if (isRecurringInstance && (!recurringSourceTaskId || !recurringCompletedAt)) {
-            hint('⚠️ 未找到可删除的循环记录', 'warning');
+            hint(__tmT("task.noDeletableRepeatRecordsFound2"), 'warning');
             return false;
         }
-        if (!isRecurringInstance && !__tmEnsureEditableTaskLike(task, '删除任务')) return;
+        if (!isRecurringInstance && !__tmEnsureEditableTaskLike(task, __tmT("kernel.deleteTask"))) return;
         const useRecycle = !isRecurringInstance
             && __tmNormalizeTaskDeleteMode(SettingsStore?.data?.taskDeleteMode) === 'recycle';
         const recycleDocId = useRecycle ? String(SettingsStore?.data?.taskRecycleDocId || '').trim() : '';
         const taskDocId = String(task?.root_id || task?.docId || '').trim();
         if (useRecycle && !recycleDocId) {
-            hint('⚠ 请先设置回收站文档', 'warning');
+            hint(__tmT("task.configureTheRecycleBinDocumentFirst"), 'warning');
             return false;
         }
         if (useRecycle && recycleDocId === taskDocId) {
-            hint('⚠ 回收站文档不能是任务当前文档', 'warning');
+            hint(__tmT("task.theRecycleBinDocumentCannotBeTheTaskS2"), 'warning');
             return false;
         }
         if (!useRecycle) {
             let ok = false;
             try {
                 ok = isRecurringInstance
-                    ? await showConfirm('删除循环记录', '确定要删除这条循环记录吗？此操作不可恢复。')
-                    : await showConfirm('删除任务', '确定要删除这个任务吗？此操作不可恢复。');
+                    ? await showConfirm(__tmT("task.deleteRepeatRecords"), __tmT("task.deleteThisRecurringCompletionRecordThisCannotBeUndone"))
+                    : await showConfirm(__tmT("kernel.deleteTask"), __tmT("task.deleteThisTaskThisCannotBeUndone"));
             } catch (e) {
                 try {
                     ok = !!confirm(isRecurringInstance
-                        ? '确定要删除这条循环记录吗？此操作不可恢复。'
-                        : '确定要删除这个任务吗？此操作不可恢复。');
+                        ? __tmT("task.deleteThisRecurringCompletionRecordThisCannotBeUndone")
+                        : __tmT("task.deleteThisTaskThisCannotBeUndone"));
                 } catch (e2) {
                     ok = false;
                 }
@@ -5267,7 +5267,7 @@ if (ev) {
                     resetNativeDone: true,
                 });
                 if (removed !== true) {
-                    hint('⚠️ 循环记录已不存在', 'warning');
+                    hint(__tmT("task.theRepeatRecordNoLongerExists2"), 'warning');
                     return false;
                 }
                 try {
@@ -5277,10 +5277,10 @@ if (ev) {
                         source: 'task-delete-recurring-instance',
                     });
                 } catch (e) {}
-                hint('✅ 已删除循环记录', 'success');
+                hint(__tmT("task.recurringRecordDeleted"), 'success');
                 return true;
             } catch (e) {
-                hint(`❌ 删除失败: ${String(e?.message || e || '')}`, 'error');
+                hint(__tmT("task.deleteFailed3", { value1: String(e?.message || e || '') }), 'error');
                 return false;
             }
         }
@@ -5290,7 +5290,7 @@ if (ev) {
                 const snapshot = __tmCaptureTaskLocalSnapshot(tid);
                 const scheduleCleanupTaskIds = __tmCollectTaskTreeIdsForScheduleCleanup(snapshot?.task || task, tid);
                 const lifecycle = globalThis.__tmTaskLifecycle;
-                if (!lifecycle || typeof lifecycle.archiveDeleted !== 'function') throw new Error('任务归档服务未就绪');
+                if (!lifecycle || typeof lifecycle.archiveDeleted !== 'function') throw new Error(__tmT("task.taskArchiveServiceIsNotReady"));
                 await lifecycle.archiveDeleted(tid, {
                     task,
                     snapshot,
@@ -5299,7 +5299,7 @@ if (ev) {
                     source: String(opts.source || 'task-recycle').trim() || 'task-recycle',
                     wait: true,
                 });
-                __tmShowActionHint('任务已移入回收站', 'success', '撤销', async () => {
+                __tmShowActionHint(__tmT("task.taskMovedToTheRecycleBin"), 'success', __tmT("quickbar.undo"), async () => {
                     try {
                         await lifecycle.restoreDeleted(tid, {
                             snapshot,
@@ -5308,14 +5308,14 @@ if (ev) {
                             wait: true,
                         });
                         try { __tmScheduleRender({ withFilters: true, reason: 'task-recycle-undo' }); } catch (e) {}
-                        hint('✅ 任务已恢复', 'success');
+                        hint(__tmT("task.taskRestored"), 'success');
                     } catch (error) {
-                        hint(`❌ 恢复失败: ${String(error?.message || error || '')}`, 'error');
+                        hint(__tmT("task.restoreFailed2", { value1: String(error?.message || error || '') }), 'error');
                     }
                 }, { duration: 7000 });
                 return true;
             } catch (e) {
-                hint(`❌ 移入回收站失败: ${String(e?.message || e || '')}`, 'error');
+                hint(__tmT("task.failedToMoveToTheRecycleBin2", { value1: String(e?.message || e || '') }), 'error');
                 return false;
             }
         }
@@ -5341,10 +5341,10 @@ if (ev) {
             }, {
                 wait: true,
             });
-            hint('✅ 任务已删除', 'success');
+            hint(__tmT("task.taskDeleted"), 'success');
             return true;
         } catch (e) {
-            hint(`❌ 删除失败: ${e.message}`, 'error');
+            hint(__tmT("task.deleteFailed4", { message: e.message }), 'error');
             return false;
         }
     };
@@ -5352,7 +5352,7 @@ if (ev) {
     // 任务提醒
     window.tmReminder = async function(id) {
         if (!SettingsStore.data.enableTomatoIntegration) {
-            hint('⚠ 番茄钟联动已关闭', 'warning');
+            hint(__tmT("task.pomodoroIntegrationIsTurnedOff"), 'warning');
             return;
         }
         const requestedTaskId = String(id || '').trim();
@@ -5365,17 +5365,17 @@ if (ev) {
         if (!task) return;
         const showDialog = globalThis.__tomatoReminder?.showDialog;
         if (typeof showDialog === 'function') {
-            const taskName = __tmNormalizeTimerTaskName(task?.content || task?.raw_content || task?.markdown || '', '任务');
-            showDialog(taskId, taskName || '任务', { taskOwned: true, defaultSyncTaskDone: true });
+            const taskName = __tmNormalizeTimerTaskName(task?.content || task?.raw_content || task?.markdown || '', __tmT("kernel.task"));
+            showDialog(taskId, taskName || __tmT("kernel.task"), { taskOwned: true, defaultSyncTaskDone: true });
             try { __tmRefreshReminderMarkForTask(taskId, 1200); } catch (e) {}
             return;
         }
-        hint('⚠ 未检测到底栏番茄钟插件，请前往集市安装底栏番茄钟插件', 'warning');
+        hint(__tmT("task.bottomBarPomodoroPluginNotDetectedInstallItFrom"), 'warning');
     };
 
-    const __tmNormalizeTimerTaskName = (primary, fallback = '任务') => {
+    const __tmNormalizeTimerTaskName = (primary, fallback = __tmT("kernel.task")) => {
         const source = String(primary || '').trim();
-        const backup = String(fallback || '').trim() || '任务';
+        const backup = String(fallback || '').trim() || __tmT("kernel.task");
         try {
             return API.getTaskTitlePresentation(source, backup).text || backup;
         } catch (e) {
@@ -5453,7 +5453,7 @@ if (ev) {
 
     async function __tmWriteTaskContextTextToClipboard(text) {
         const value = String(text || '').trim();
-        if (!value) throw new Error('没有可复制的内容');
+        if (!value) throw new Error(__tmT("task.nothingToCopy"));
         try {
             if (navigator?.clipboard?.writeText) {
                 await navigator.clipboard.writeText(value);
@@ -5469,7 +5469,7 @@ if (ev) {
             textarea.focus();
             textarea.select();
             const ok = document.execCommand('copy');
-            if (!ok) throw new Error('复制失败');
+            if (!ok) throw new Error(__tmT("task.copyFailed"));
             return true;
         } finally {
             textarea.remove();
@@ -5490,7 +5490,7 @@ if (ev) {
     async function __tmCopyTaskContextValue(taskId, taskLike, type) {
         const tid = String(taskId || '').trim();
         if (!tid) {
-            hint('⚠ 未找到任务块 ID', 'warning');
+            hint(__tmT("task.taskBlockNotFoundId"), 'warning');
             return false;
         }
         const mode = String(type || '').trim();
@@ -5498,11 +5498,11 @@ if (ev) {
         let label = '';
         if (mode === 'plain') {
             text = __tmGetTaskCopyPlainText(taskLike, tid);
-            label = '纯文本';
+            label = __tmT("task.plainText");
         } else if (mode === 'blockRef') {
             const refText = await __tmGetTaskCopyRefText(tid, taskLike);
             text = `((${tid} '${refText}'))`;
-            label = '块引用';
+            label = __tmT("task.blockReference");
         } else if (mode === 'blockEmbed') {
             let embedId = tid;
             try {
@@ -5512,28 +5512,28 @@ if (ev) {
                 if (sourceId) embedId = sourceId;
             } catch (e) {}
             if (typeof __tmIsLikelyBlockId === 'function' && !__tmIsLikelyBlockId(embedId)) {
-                hint('⚠ 未找到任务块 ID', 'warning');
+                hint(__tmT("task.taskBlockNotFoundId"), 'warning');
                 return false;
             }
             text = `{{select * from blocks where id='${embedId}'}}`;
-            label = '嵌入块';
+            label = __tmT("task.embed");
         } else if (mode === 'blockId') {
             text = tid;
-            label = '块 ID';
+            label = __tmT("kernel.blockId");
         }
         try {
             await __tmWriteTaskContextTextToClipboard(text);
-            hint(`✅ 已复制${label || '内容'}`, 'success');
+            hint(__tmT("task.copied", { value1: label || __tmT("task.content") }), 'success');
             return true;
         } catch (e) {
-            hint(`❌ ${String(e?.message || e || '复制失败')}`, 'error');
+            hint(`❌ ${String(e?.message || e || __tmT("task.copyFailed"))}`, 'error');
             return false;
         }
     }
 
     window.tmStartPomodoro = async function(id) {
         if (!SettingsStore.data.enableTomatoIntegration) {
-            hint('⚠ 番茄钟联动已关闭', 'warning');
+            hint(__tmT("task.pomodoroIntegrationIsTurnedOff"), 'warning');
             return;
         }
         const rawId = String(id || '').trim();
@@ -5554,7 +5554,7 @@ if (ev) {
             try { task = await __tmEnsureTaskInStateById(resolvedId); } catch (e) { task = null; }
         }
         if (!task) return;
-        const taskName = __tmNormalizeTimerTaskName(task?.content || task?.markdown || '', '任务');
+        const taskName = __tmNormalizeTimerTaskName(task?.content || task?.markdown || '', __tmT("kernel.task"));
         const timer = globalThis.__tomatoTimer;
         const startCountdown = timer?.startCountdown;
         const startPomodoro = timer?.startPomodoro;
@@ -5569,7 +5569,7 @@ if (ev) {
             startPomodoro(resolvedId, taskName, 30, timerFocusRestoreOptions);
             return;
         }
-        hint('⚠ 未检测到番茄计时功能，请确认番茄插件已启用', 'warning');
+        hint(__tmT("task.pomodoroTimerFeatureNotDetectedMakeSureThePomodoro"), 'warning');
     };
 
     // 任务右键菜单
@@ -5766,8 +5766,11 @@ if (ev) {
         };
 
         const task = taskForMenu || globalThis.__tmTaskBoundary?.getTask?.(taskId) || null;
-        const taskName = __tmNormalizeTimerTaskName(task?.content || task?.markdown || '', '任务');
+        const taskName = __tmNormalizeTimerTaskName(task?.content || task?.markdown || '', __tmT("kernel.task"));
         const hasChildren = Array.isArray(task?.children) && task.children.length > 0;
+        const nestedSubtasksForReset = task && !__tmIsRecurringInstanceTask(task) && __tmIsTaskDoneEffective(task)
+            ? __tmCollectNestedSubtasksForReset(taskId, task)
+            : [];
         const showCompletedSubtasks = __tmShouldShowCompletedSubtasksForTask(taskId);
         const canDetachSubtask = typeof __tmCanDetachSubtaskFromParent === 'function'
             && __tmCanDetachSubtaskFromParent(task);
@@ -5820,20 +5823,20 @@ if (ev) {
             }
             const resolvedTaskName = __tmNormalizeTimerTaskName(
                 nextTask?.content || nextTask?.markdown || '',
-                taskName || '任务'
+                taskName || __tmT("kernel.task")
             );
             return {
                 taskId: resolvedId || rawId,
                 task: nextTask,
-                taskName: scheduleTitle0 || resolvedTaskName || '任务',
+                taskName: scheduleTitle0 || resolvedTaskName || __tmT("kernel.task"),
             };
         };
         const runTaskTimer = async (minutes, mode = 'countdown') => {
             const target = await resolveTimerTarget();
             const timerTaskId = String(target?.taskId || taskId || '').trim();
-            const timerTaskName = String(target?.taskName || taskName || '任务').trim() || '任务';
+            const timerTaskName = String(target?.taskName || taskName || __tmT("kernel.task")).trim() || __tmT("kernel.task");
             if (!timerTaskId) {
-                hint('⚠ 未找到可关联的任务块', 'warning');
+                hint(__tmT("task.noTaskBlockFoundToLink"), 'warning');
                 return;
             }
             const timerFocusRestoreOptions = { source: 'task-horizon' };
@@ -5845,7 +5848,7 @@ if (ev) {
                 if (typeof startFromTaskBlock === 'function') p = startFromTaskBlock(timerTaskId, timerTaskName, 0, 'stopwatch', timerFocusRestoreOptions);
                 else if (typeof startStopwatch === 'function') p = startStopwatch(timerTaskId, timerTaskName, timerFocusRestoreOptions);
                 else {
-                    hint('⚠ 未检测到专注正计时功能，请确认番茄插件已启用', 'warning');
+                    hint(__tmT("task.focusStopwatchFeatureNotDetectedMakeSureThePomodoro"), 'warning');
                     return;
                 }
                 if (p && typeof p.finally === 'function') {
@@ -5882,17 +5885,17 @@ if (ev) {
             wrap.className = 'tm-task-context-date';
             const title = document.createElement('div');
             title.className = 'tm-task-context-date__title';
-            title.textContent = '日期';
+            title.textContent = __tmT("calendar.date");
             wrap.appendChild(title);
             const row = document.createElement('div');
             row.className = 'tm-task-context-date__row';
             const currentDate = __tmNormalizeDateOnly(task?.completionTime || task?.completion_time || '');
             const shortcuts = [
-                { mode: 'set', label: '今天', value: getDateShortcutValue(0), icon: 'sun' },
-                { mode: 'set', label: '明天', value: getDateShortcutValue(1), icon: 'sun-horizon' },
-                { mode: 'set', label: '下周', value: getDateShortcutValue(7), icon: 'calendar-plus' },
-                { mode: 'pick', label: '选择日期', icon: 'calendar-dots' },
-                { mode: 'clear', label: '清除日期', value: '', icon: 'calendar-x', danger: true },
+                { mode: 'set', label: __tmT("common.today"), value: getDateShortcutValue(0), icon: 'sun' },
+                { mode: 'set', label: __tmT("calendar.tomorrow"), value: getDateShortcutValue(1), icon: 'sun-horizon' },
+                { mode: 'set', label: __tmT("calendar.nextWeek2"), value: getDateShortcutValue(7), icon: 'calendar-plus' },
+                { mode: 'pick', label: __tmT("task.selectDate"), icon: 'calendar-dots' },
+                { mode: 'clear', label: __tmT("task.clearDate"), value: '', icon: 'calendar-x', danger: true },
             ];
             shortcuts.forEach((opt) => {
                 const active = (opt.mode === 'set' && currentDate && opt.value === currentDate)
@@ -5909,7 +5912,7 @@ if (ev) {
                     e.preventDefault();
                     if (opt.mode === 'pick') {
                         if (typeof window.tmOpenTaskTimeHub !== 'function') {
-                            hint('⚠ 日期面板未就绪', 'warning');
+                            hint(__tmT("task.theDatePanelIsNotReady"), 'warning');
                             return;
                         }
                         btn.setAttribute('aria-haspopup', 'dialog');
@@ -5919,7 +5922,7 @@ if (ev) {
                             source: 'context-menu-completion-time',
                             placement: 'right',
                             contextDate: true,
-                            scheduleTabLabel: '时间段',
+                            scheduleTabLabel: __tmT("task.timeRange"),
                             onClose: () => {
                                 try { btn.classList.remove('is-open'); } catch (e2) {}
                                 try { menu.remove(); } catch (e2) {}
@@ -5932,7 +5935,7 @@ if (ev) {
                             },
                         }))
                             .catch((err) => {
-                                hint(`❌ 截止日期更新失败: ${err?.message || err}`, 'error');
+                                hint(__tmT("task.dueDateUpdateFailed3", { value1: err?.message || err }), 'error');
                             });
                         return;
                     }
@@ -5948,7 +5951,7 @@ if (ev) {
                                 skipInteractionGate: true,
                                 silent: true,
                             })
-                            : Promise.reject(new Error('任务日期写入函数未就绪')))
+                            : Promise.reject(new Error(__tmT("task.taskDateWriterIsNotReady"))))
                         : (typeof window.tmSetTaskCompletionTime === 'function'
                             ? window.tmSetTaskCompletionTime(taskId, opt.value || '', {
                                 source: 'context-menu-completion-time',
@@ -5957,12 +5960,12 @@ if (ev) {
                                 skipInteractionGate: true,
                                 silent: true,
                             })
-                            : Promise.reject(new Error('任务日期写入函数未就绪')));
+                            : Promise.reject(new Error(__tmT("task.taskDateWriterIsNotReady"))));
                     menu.remove();
                     Promise.resolve(savePromise).then((ok) => {
-                        if (!ok) hint('❌ 截止日期更新失败', 'error');
+                        if (!ok) hint(__tmT("task.dueDateUpdateFailed4"), 'error');
                     }).catch((err) => {
-                        hint(`❌ 截止日期更新失败: ${err?.message || err}`, 'error');
+                        hint(__tmT("task.dueDateUpdateFailed3", { value1: err?.message || err }), 'error');
                     });
                 };
                 row.appendChild(btn);
@@ -5975,7 +5978,7 @@ if (ev) {
             wrap.className = 'tm-task-context-priority';
             const title = document.createElement('div');
             title.className = 'tm-task-context-priority__title';
-            title.textContent = '重要性';
+            title.textContent = __tmT("kernel.importance");
             wrap.appendChild(title);
             const row = document.createElement('div');
             row.className = 'tm-task-context-priority__row';
@@ -5994,9 +5997,9 @@ if (ev) {
                 btn.type = 'button';
                 btn.className = `tm-task-context-priority__btn${active ? ' is-active' : ''}`;
                 btn.style.setProperty('--tm-context-priority-color', color);
-                btn.setAttribute('aria-label', `设置重要性为${info?.label || '无'}`);
+                btn.setAttribute('aria-label', __tmT("task.setImportanceTo", { value1: info?.label || __tmT("common.none") }));
                 btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-                btn.title = info?.label || '无';
+                btn.title = info?.label || __tmT("common.none");
                 btn.innerHTML = __tmRenderPriorityJira(opt.value, false);
                 btn.onclick = (e) => {
                     e.stopPropagation();
@@ -6011,9 +6014,9 @@ if (ev) {
                     });
                     menu.remove();
                     Promise.resolve(savePromise).then((ok) => {
-                        if (!ok) hint('❌ 重要性更新失败', 'error');
+                        if (!ok) hint(__tmT("task.priorityUpdateFailed"), 'error');
                     }).catch((err) => {
-                        hint(`❌ 重要性更新失败: ${err?.message || err}`, 'error');
+                        hint(__tmT("task.priorityUpdateFailed2", { value1: err?.message || err }), 'error');
                     });
                 };
                 row.appendChild(btn);
@@ -6034,15 +6037,15 @@ if (ev) {
             const title = document.createElement('div');
             title.className = 'tm-task-context-fsrs__title';
             const titleText = document.createElement('span');
-            titleText.textContent = '复习反馈';
+            titleText.textContent = __tmT("task.reviewFeedback");
             const titleHint = document.createElement('span');
-            titleHint.textContent = '预计下次';
+            titleHint.textContent = __tmT("task.nextDue2");
             title.append(titleText, titleHint);
             wrap.appendChild(title);
             const row = document.createElement('div');
             row.className = 'tm-task-context-fsrs__row';
             row.setAttribute('role', 'group');
-            row.setAttribute('aria-label', 'FSRS 复习反馈');
+            row.setAttribute('aria-label', __tmT("task.fsrsReviewFeedback"));
             const reviewedAt = new Date();
             __tmBuildFsrsReviewPreviews(task, { reviewedAt }).forEach((option) => {
                 const dueDate = option.completionTime;
@@ -6051,8 +6054,8 @@ if (ev) {
                 btn.type = 'button';
                 btn.className = `tm-task-context-fsrs__btn tm-task-context-fsrs__btn--${option.tone}${option.rating === 3 ? ' is-default' : ''}`;
                 btn.setAttribute('data-tm-fsrs-rating', String(option.rating));
-                btn.setAttribute('aria-label', `${option.label}，预计下次 ${dueDate || previewText}`);
-                btn.title = `${option.label} · 预计 ${dueDate || previewText}`;
+                btn.setAttribute('aria-label', __tmT("task.nextDue", { label: option.label, value2: dueDate || previewText }));
+                btn.title = __tmT("task.due2", { label: option.label, value2: dueDate || previewText });
                 const label = document.createElement('span');
                 label.className = 'tm-task-context-fsrs__label';
                 label.textContent = option.label;
@@ -6066,10 +6069,10 @@ if (ev) {
                     row.querySelectorAll('button').forEach((item) => { item.disabled = true; });
                     menu.remove();
                     try {
-                        if (typeof window.tmReviewFsrsTask !== 'function') throw new Error('FSRS 反馈功能未就绪');
+                        if (typeof window.tmReviewFsrsTask !== 'function') throw new Error(__tmT("task.fsrsFeedbackFeatureIsNotReady"));
                         await window.tmReviewFsrsTask(taskId, option.rating, { source: 'task-context-fsrs-review' });
                     } catch (error) {
-                        hint(`FSRS 反馈失败：${error?.message || String(error)}`, 'error');
+                        hint(__tmT("task.fsrsFeedbackFailed", { value1: error?.message || String(error) }), 'error');
                     }
                 };
                 row.appendChild(btn);
@@ -6099,13 +6102,13 @@ if (ev) {
             timerWrap.className = 'tm-task-context-timer';
             const title = document.createElement('div');
             title.className = 'tm-task-context-timer__title';
-            title.innerHTML = __tmRenderTimerMenuLabel('tomato', '计时');
+            title.innerHTML = __tmRenderTimerMenuLabel('tomato', __tmT("task.timer"));
             timerWrap.appendChild(title);
             if (scheduleId0 && scheduleDurationMin > 0) {
                 const scheduleBtn = document.createElement('button');
                 scheduleBtn.type = 'button';
                 scheduleBtn.className = 'tm-btn tm-btn-secondary tm-task-context-timer__schedule';
-                scheduleBtn.textContent = `📅 按日程时长开始番茄（${scheduleDurationMin}m）`;
+                scheduleBtn.textContent = __tmT("task.startPomodoroForTheScheduleDurationM", { scheduleDurationMin: scheduleDurationMin });
                 scheduleBtn.onclick = async (e) => {
                     e.stopPropagation();
                     await runTaskTimer(scheduleDurationMin, 'countdown');
@@ -6116,7 +6119,7 @@ if (ev) {
             const btnRow = document.createElement('div');
             btnRow.className = 'tm-task-context-timer__grid';
             btnRow.setAttribute('role', 'group');
-            btnRow.setAttribute('aria-label', '计时方式');
+            btnRow.setAttribute('aria-label', __tmT("task.timerMode"));
             const sliderRow = document.createElement('div');
             sliderRow.className = 'tm-task-context-timer__slider-row';
             const durationSlider = document.createElement('input');
@@ -6126,12 +6129,12 @@ if (ev) {
             durationSlider.max = '180';
             durationSlider.step = '5';
             durationSlider.value = String(sliderDefaultMinutes);
-            durationSlider.setAttribute('aria-label', '设置正计时时长');
+            durationSlider.setAttribute('aria-label', __tmT("task.setStopwatchDuration"));
             const durationValue = document.createElement('output');
             durationValue.className = 'tm-task-context-timer__slider-value';
             const updateDurationValue = () => {
-                durationValue.value = `${durationSlider.value}分`;
-                durationValue.textContent = `${durationSlider.value}分`;
+                durationValue.value = __tmT("task.min", { value: durationSlider.value });
+                durationValue.textContent = __tmT("task.min", { value: durationSlider.value });
             };
             durationSlider.addEventListener('input', updateDurationValue);
             durationSlider.addEventListener('pointerenter', () => {
@@ -6196,7 +6199,7 @@ if (ev) {
             const sw = document.createElement('button');
             sw.type = 'button';
             sw.className = 'tm-btn tm-btn-secondary tm-task-context-timer__btn tm-task-context-timer__btn--stopwatch';
-            sw.innerHTML = __tmRenderTimerMenuLabel('timer', '正计时');
+            sw.innerHTML = __tmRenderTimerMenuLabel('timer', __tmT("homepage.stopwatch"));
             sw.onclick = async (e) => {
                 e.stopPropagation();
                 await runTaskTimer(0, 'stopwatch');
@@ -6223,19 +6226,19 @@ if (ev) {
         if (task) {
             const statusOptions = __tmGetStatusOptions();
             const currentStatus = __tmResolveTaskStatusId(task, statusOptions);
-            menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('circle-dot', '状态'), () => statusOptions.map((opt) => {
+            menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('circle-dot', __tmT("kernel.status")), () => statusOptions.map((opt) => {
                 const active = opt.id === currentStatus;
                 const item = createItem('', () => {
                     const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                     if (typeof patchTask !== 'function') {
-                        hint('❌ 更新失败: 任务写入队列未就绪: patchTask', 'error');
+                        hint(__tmT("task.updateFailedTaskWriteQueueIsNotReadyPatchtask"), 'error');
                         return;
                     }
                     void patchTask(taskId, { customStatus: opt.id }, {
                         source: 'context-menu-status',
-                        label: '状态',
+                        label: __tmT("kernel.status"),
                     }).catch((error) => {
-                        hint(`❌ 更新失败: ${error.message}`, 'error');
+                        hint(__tmT("task.updateFailed", { message: error.message }), 'error');
                     });
                 });
                 item.style.columnGap = '20px';
@@ -6244,7 +6247,7 @@ if (ev) {
                 const chip = document.createElement('span');
                 chip.className = 'tm-status-tag';
                 chip.style.cssText = __tmBuildStatusChipStyle(opt.color);
-                chip.textContent = String(opt.name || opt.id || '');
+                chip.textContent = globalThis.__taskHorizonHostBridge.i18n.builtinName('status', opt);
                 item.appendChild(chip);
                 const check = document.createElement('span');
                 check.className = 'tm-selection-check';
@@ -6255,50 +6258,57 @@ if (ev) {
                 return item;
             })));
         }
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task?.pinned ? '取消置顶' : '置顶'), () => tmSetPinned(taskId, !task?.pinned, { task })));
+        if (nestedSubtasksForReset.length) {
+            menu.appendChild(createItem(__tmRenderContextMenuLabel('arrow-counter-clockwise', __tmT("task.reopenTaskAndResetSubtasks")), () => {
+                void __tmConfirmAndResetTaskSubtasks(taskId, task).catch((error) => {
+                    hint(__tmT("task.resetsubtasksfailed", { value1: error?.message || String(error) }), 'error');
+                });
+            }));
+        }
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task?.pinned ? __tmT("ai.unpin") : __tmT("kernel.pin")), () => tmSetPinned(taskId, !task?.pinned, { task })));
         if (tomatoEnabled) {
-            menu.appendChild(createItem(__tmRenderContextMenuLabel('alarm-clock', '提醒'), () => tmReminder(taskId)));
+            menu.appendChild(createItem(__tmRenderContextMenuLabel('alarm-clock', __tmT("ai.warnings")), () => tmReminder(taskId)));
         }
         if (tomatoEnabled && timer && typeof timer === 'object') {
             if (state.timerFocusTaskId) {
-                menu.appendChild(createItem(__tmRenderContextMenuLabel('circle-dot', '取消聚焦'), () => {
+                menu.appendChild(createItem(__tmRenderContextMenuLabel('circle-dot', __tmT("task.unfocus")), () => {
                     __tmSyncTomatoFocusInPlace('');
                 }));
             }
         }
         if (hasChildren) {
-            menu.appendChild(createItem(__tmRenderContextMenuLabel(showCompletedSubtasks ? 'check-circle-2' : 'circle-dot', showCompletedSubtasks ? '隐藏已完成子任务' : '显示已完成子任务'), () => {
+            menu.appendChild(createItem(__tmRenderContextMenuLabel(showCompletedSubtasks ? 'check-circle-2' : 'circle-dot', showCompletedSubtasks ? __tmT("task.hideCompletedSubtasks") : __tmT("task.showCompletedSubtasks")), () => {
                 window.tmToggleTaskDetailCompletedSubtasks?.(taskId, !showCompletedSubtasks);
             }));
         }
-        menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('clipboard-list', '复制'), () => [
-            createItem(__tmRenderContextMenuLabel('cursor-text', '复制纯文本'), () => {
+        menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('clipboard-list', __tmT("task.copy")), () => [
+            createItem(__tmRenderContextMenuLabel('cursor-text', __tmT("task.copyPlainText")), () => {
                 void __tmCopyTaskContextValue(taskId, task, 'plain');
             }),
-            createItem(__tmRenderContextMenuLabel('link-simple', '复制块引用'), () => {
+            createItem(__tmRenderContextMenuLabel('link-simple', __tmT("task.copyBlockReference")), () => {
                 void __tmCopyTaskContextValue(taskId, task, 'blockRef');
             }),
-            createItem(__tmRenderContextMenuLabel('stack-simple', '复制嵌入块'), () => {
+            createItem(__tmRenderContextMenuLabel('stack-simple', __tmT("task.copyEmbed")), () => {
                 void __tmCopyTaskContextValue(taskId, task, 'blockEmbed');
             }),
-            createItem(__tmRenderContextMenuLabel('file-text', '复制块 ID'), () => {
+            createItem(__tmRenderContextMenuLabel('file-text', __tmT("task.copyBlockId")), () => {
                 void __tmCopyTaskContextValue(taskId, task, 'blockId');
             }),
         ]));
 
         appendSectionSeparator();
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('text-indent', '新建子任务'), () => tmCreateSubtask(taskId)));
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('list-bullets', '新建同级任务'), () => tmCreateSiblingTask(taskId)));
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('text-indent', __tmT("ai.newSubtask")), () => tmCreateSubtask(taskId)));
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('list-bullets', __tmT("task.newSiblingTask")), () => tmCreateSiblingTask(taskId)));
         if (canDetachSubtask) {
             const detachIconHtml = typeof __tmPhosphorBoldSvg === 'function'
                 ? __tmPhosphorBoldSvg('text-outdent', { size: 14, className: 'tm-task-context-menu__icon' })
                 : '';
-            menu.appendChild(createItem(__tmRenderContextMenuLabel('text-outdent', '移出子任务', { iconHtml: detachIconHtml }), () => {
+            menu.appendChild(createItem(__tmRenderContextMenuLabel('text-outdent', __tmT("task.moveOutOfParent"), { iconHtml: detachIconHtml }), () => {
                 window.tmDetachSubtaskFromParent?.(taskId);
             }));
         }
         if (globalThis.__tmCalendar && (typeof globalThis.__tmCalendar.openScheduleEditor === 'function' || typeof globalThis.__tmCalendar.openScheduleEditorById === 'function' || typeof globalThis.__tmCalendar.openScheduleEditorByTaskId === 'function')) {
-            menu.appendChild(createItem(__tmRenderContextMenuLabel('calendar-days', '编辑日程'), () => {
+            menu.appendChild(createItem(__tmRenderContextMenuLabel('calendar-days', __tmT("calendar.editSchedule")), () => {
                 void __tmOpenScheduleEditorForBlock(taskId, null, {
                     id: scheduleId0,
                     title: scheduleTitle0 || taskName || task?.content || '',
@@ -6313,7 +6323,7 @@ if (ev) {
                 });
             }));
             if (scheduleAllDay) {
-                menu.appendChild(createItem(__tmRenderContextMenuLabel('arrow-down', scheduleAllDayBottom ? '取消置底全天日程' : '置底全天日程'), async () => {
+                menu.appendChild(createItem(__tmRenderContextMenuLabel('arrow-down', scheduleAllDayBottom ? __tmT("calendar.restoreAllDayScheduleOrder") : __tmT("calendar.sendAllDaySchedulesToBottom")), async () => {
                     try {
                         if (scheduleId0 && typeof globalThis.__tmCalendar.setScheduleAllDayBottomById === 'function') {
                             await globalThis.__tmCalendar.setScheduleAllDayBottomById(scheduleId0, !scheduleAllDayBottom, {
@@ -6327,21 +6337,21 @@ if (ev) {
                             await window.tmSetTaskAllDayBottom(taskId, !scheduleAllDayBottom);
                         }
                     } catch (e) {
-                        hint(`❌ ${String(e?.message || e || '操作失败')}`, 'error');
+                        hint(`❌ ${String(e?.message || e || __tmT("kernel.operationFailed"))}`, 'error');
                     }
                 }));
             }
             if (scheduleId0 && typeof globalThis.__tmCalendar.deleteScheduleById === 'function') {
-                menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', '删除日程'), async () => {
+                menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', __tmT("kernel.deleteSchedule")), async () => {
                     try {
                         const ok = await globalThis.__tmCalendar.deleteScheduleById(scheduleId0, {
                             closeModal: false,
                             occurrenceStartMs: extra0.occurrenceStartMs,
                             start: extra0.start || null,
                         });
-                        if (ok) hint('✅ 已删除日程', 'success');
+                        if (ok) hint(__tmT("task.scheduleDeleted"), 'success');
                     } catch (e) {
-                        hint(`❌ ${String(e?.message || e || '删除日程失败')}`, 'error');
+                        hint(`❌ ${String(e?.message || e || __tmT("ai.failedToDeleteTheSchedule"))}`, 'error');
                     }
                 }, true));
             }
@@ -6350,43 +6360,43 @@ if (ev) {
         appendSectionSeparator();
         if (__tmIsAiFeatureEnabled()) {
             menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('bot', 'AI'), () => [
-                createItem(__tmRenderContextMenuLabel('sparkle', '发送到 AI'), async () => {
+                createItem(__tmRenderContextMenuLabel('sparkle', __tmT("task.sendToAi")), async () => {
                     return await window.tmOpenAiSidebar({
                         selectedTaskIds: [taskId],
-                        draft: '请基于这 1 个已选任务继续处理：',
+                        draft: __tmT("task.continueWorkingWithThisSelectedTask"),
                     });
                 }),
-                createItem(__tmRenderContextMenuLabel('bot', '优化任务名称'), async () => {
-                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-optimize-task-name', 'AI 优化任务名称')) return;
+                createItem(__tmRenderContextMenuLabel('bot', __tmT("task.optimizeTaskName")), async () => {
+                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-optimize-task-name', __tmT("ai.aiOptimizeTaskName"))) return;
                     if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
                     try { globalThis.tmAiOptimizeTaskName?.(taskId); } catch (e) {}
                 }),
-                createItem(__tmRenderContextMenuLabel('bot', '编辑字段'), async () => {
-                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-edit-task-fields', 'AI 编辑字段')) return;
+                createItem(__tmRenderContextMenuLabel('bot', __tmT("task.editFields")), async () => {
+                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-edit-task-fields', __tmT("ai.aiEditFields"))) return;
                     if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
                     try { globalThis.tmAiEditTask?.(taskId); } catch (e) {}
                 }),
-                createItem(__tmRenderContextMenuLabel('bot', '安排日程'), async () => {
-                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-plan-task-schedule', 'AI 安排日程')) return;
+                createItem(__tmRenderContextMenuLabel('bot', __tmT("task.schedule2")), async () => {
+                    if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-plan-task-schedule', __tmT("task.aiSchedule"))) return;
                     if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
                     try { globalThis.tmAiPlanTaskSchedule?.(taskId); } catch (e) {}
                 }),
             ]));
         }
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('file-text', '任务详情'), () => {
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('file-text', __tmT("calendar.taskDetails")), () => {
             try { window.tmOpenTaskDetail?.(taskId); } catch (e) {}
         }));
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('map-pin', '跳转到原块'), async () => {
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('map-pin', __tmT("task.goToSourceBlock")), async () => {
             try { await window.tmJumpToTask?.(taskId); } catch (e) {}
         }));
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('square-pen', '修改内容'), () => tmEdit(taskId)));
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('square-pen', __tmT("task.editContent2")), () => tmEdit(taskId)));
         appendSectionSeparator();
         if (__tmIsRecurringInstanceTask(task)) {
-            menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', '删除记录'), () => {
+            menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', __tmT("task.deleteRecord")), () => {
                 tmDelete(taskId, { source: 'context-repeat-history-delete' });
             }, true));
         } else {
-            menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', '删除任务'), () => tmDelete(taskId), true));
+            menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', __tmT("kernel.deleteTask")), () => tmDelete(taskId), true));
         }
 
         document.body.appendChild(menu);
@@ -6451,31 +6461,31 @@ if (ev) {
     window.__tmEnsureAllDocumentsLoaded = __tmEnsureAllDocumentsLoaded;
 
     const TM_MAIN_SETTINGS_SECTIONS = Object.freeze([
-        { id: 'display', label: '基础显示' },
-        { id: 'new-task', label: '新建/归档' },
-        { id: 'status', label: '状态选项' },
-        { id: 'layout', label: '视图布局' },
-        { id: 'search', label: '搜索分组' },
-        { id: 'topbar', label: '顶栏入口' },
-        { id: 'quickbar', label: '悬浮条' },
-        { id: 'tomato', label: '番茄钟/联动' }
+        { id: 'display', label: __tmT("task.basicDisplay") },
+        { id: 'new-task', label: __tmT("task.newArchive") },
+        { id: 'status', label: __tmT("task.statusOptions") },
+        { id: 'layout', label: __tmT("task.viewsLayout") },
+        { id: 'search', label: __tmT("settings.searchGrouping") },
+        { id: 'topbar', label: __tmT("task.topBarEntry") },
+        { id: 'quickbar', label: __tmT("task.quickbar") },
+        { id: 'tomato', label: __tmT("task.pomodoroIntegration") }
     ]);
 
     const TM_CALENDAR_SETTINGS_SECTIONS = Object.freeze([
-        { id: 'calendar-general', label: '基础视图' },
-        { id: 'calendar-layout', label: '视图布局' },
-        { id: 'calendar-content', label: '日程与显示' },
-        { id: 'calendar-reminders', label: '提醒通知' },
-        { id: 'calendar-subscription', label: 'ICS 订阅' }
+        { id: 'calendar-general', label: __tmT("settings.basicViews") },
+        { id: 'calendar-layout', label: __tmT("task.viewsLayout") },
+        { id: 'calendar-content', label: __tmT("settings.scheduleDisplay") },
+        { id: 'calendar-reminders', label: __tmT("settings.remindersNotifications") },
+        { id: 'calendar-subscription', label: __tmT("settings.icsSubscription") }
     ]);
 
     const TM_APPEARANCE_SETTINGS_SECTIONS = Object.freeze([
-        { id: 'columns', label: '列设置' },
-        { id: 'icons', label: '插件图标' },
-        { id: 'tabs', label: '页签栏' },
-        { id: 'topbar', label: '顶栏按钮' },
-        { id: 'checkbox', label: '任务复选框' },
-        { id: 'colors', label: '配色' }
+        { id: 'columns', label: __tmT("task.columns") },
+        { id: 'icons', label: __tmT("settings.pluginIcon") },
+        { id: 'tabs', label: __tmT("settings.tabBar") },
+        { id: 'topbar', label: __tmT("settings.topBarButton") },
+        { id: 'checkbox', label: __tmT("settings.taskCheckboxes") },
+        { id: 'colors', label: __tmT("settings.colors") }
     ]);
 
     function __tmGetSettingsSections(tab = state.settingsActiveTab || '') {
@@ -6487,18 +6497,18 @@ if (ev) {
         const experienceMode = String(SettingsStore.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent';
         if (experienceMode === 'legacy') {
             return [
-                { id: 'ai-mode', label: '工作方式' },
-                { id: 'ai-connection', label: '模型设置' },
-                { id: 'ai-scheduled', label: '定时事件' }
+                { id: 'ai-mode', label: __tmT("settings.workflow") },
+                { id: 'ai-connection', label: __tmT("task.modelSettings") },
+                { id: 'ai-scheduled', label: __tmT("settings.scheduledEvents") }
             ];
         }
         const sections = [
-            { id: 'ai-mode', label: '工作方式' },
-            { id: 'ai-agent', label: '智能体' }
+            { id: 'ai-mode', label: __tmT("settings.workflow") },
+            { id: 'ai-agent', label: __tmT("settings.agent") }
         ];
         const hasFullFeature = typeof window.tmLicenseHasFeature === 'function' && window.tmLicenseHasFeature('pro');
-        if (hasFullFeature) sections.push({ id: 'ai-policy', label: '安排规则' });
-        sections.push({ id: 'ai-scheduled', label: '定时事件' });
+        if (hasFullFeature) sections.push({ id: 'ai-policy', label: __tmT("kernel.schedulingRules") });
+        sections.push({ id: 'ai-scheduled', label: __tmT("settings.scheduledEvents") });
         return sections;
     }
 

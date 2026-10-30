@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const test = require('node:test');
 const { createHash } = require('node:crypto');
 // Keep hashing deterministic under the fake clock. Native WebCrypto runs on a

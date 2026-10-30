@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = require('./i18n-browser-fixture');
 const rootPath = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(rootPath, 'src/task-horizon/main', name), 'utf8');
 const detail = read('task-runtime/52-task-detail-runtime.js');

@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 const between = (source, start, end) => {
     const begin = source.indexOf(start), finish = source.indexOf(end, begin + start.length);

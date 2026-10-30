@@ -5,7 +5,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = require('./i18n-browser-fixture');
 const read = (name) => fs.readFileSync(path.join(__dirname, '../src/task-horizon/main', name), 'utf8');
 function section(source, start, end) {
     const from = source.indexOf(start), to = source.indexOf(end, from);
@@ -194,6 +194,7 @@ async function setup(page) {
     const failures = [];
     const smoke = process.env.TM_TEST_SMOKE === '1';
     const smokeCases = new Set([
+        'child-only date matches survive unrelated structural changes',
         'subtask status survives a later full render with the same filtered parent',
         'all rule fields preserve attached subtasks through local edits',
         'outdent updates one column; later confirmation preserves placement (false)',
@@ -213,6 +214,122 @@ async function setup(page) {
         finally { await page.close(); }
     }
     try {
+        await run('child-only date matches survive unrelated structural changes', async (page) => {
+            const taskModel = read('task-runtime/50-task-model-and-repeat-utils.js');
+            const dateNormalizerStart = taskModel.indexOf('    function __tmNormalizeDateOnly(');
+            const dateNormalizerEnd = taskModel.indexOf('\n    }', dateNormalizerStart) + 6;
+            await page.addScriptTag({ content: taskModel.slice(dateNormalizerStart, dateNormalizerEnd)
+                + section(taskModel, 'function __tmParseTimeToTs(', 'function __tmParseDurationMinutes(')
+                + section(read('10-stores-rules-and-cache.js'),
+                    'function __tmBuildStructuredAuthoritativeTaskList(', 'function __tmPrepareTaskBlockIncrementalRow(')
+                + section(read('task-runtime/53b-task-create-and-quick-add-runtime.js'),
+                    'function __tmResolveOptimisticTaskForLocalUse(', 'window.tmCreateTaskForHeadingGroup = ') });
+            await page.evaluate(() => {
+                Object.assign(window, {
+                    __tmGetArchiveModeFilterRule: (rule) => rule,
+                    __tmRuleUsesCustomOrderSort: () => false,
+                    __tmParseDocTabCustomGroupActiveId: () => '',
+                    __tmIsDocManuallyUnarchivedInGroup: () => false,
+                    __tmIsDocManuallyArchivedInGroup: () => false,
+                    __tmGetActiveDocTabCustomGroupDocIdSet: () => new Set(),
+                    __tmIsAllRuleLike: () => false,
+                    __tmHasActiveDocTabContentFilter: () => true,
+                    __tmIsInboxHiddenFromAllTab: () => false,
+                    __tmIsCollectedOtherBlockTask: () => false,
+                    __tmApplyWhiteboardSequenceFilter: (tasks) => tasks,
+                    __tmUpdateFilteredTaskRenderWindowState: () => {},
+                    __tmResolveOptimisticTaskId: (id) => id,
+                    __tmRememberPendingInsertedTask: () => {},
+                    __tmIsTaskActive: (task) => !task.done,
+                    MetaStore: { set() {} },
+                    RuleManager: {
+                        applyRuleFilter: (tasks) => tasks.filter((task) => !!task.completionTime),
+                        applyRuleSort: (tasks) => tasks.slice(),
+                    },
+                });
+                SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant = true;
+                SettingsStore.data.kanbanPreventSubtaskSeparation = true;
+                window.boardMode = 'time';
+                state.groupByTime = true;
+                state.collapsedTaskIds = new Set();
+                state.allDocuments = [];
+                state.rule = { conditions: [{ field: 'completionTime', operator: 'is_not_empty' }] };
+                __tmGetCurrentRule = () => state.rule;
+            });
+            await page.addScriptTag({ content: filterCode });
+            for (const scope of ['all', 'doc']) {
+                const result = await page.evaluate((scope) => {
+                    state.activeDocId = scope;
+                    const date = (days) => {
+                        const value = new Date();
+                        value.setDate(value.getDate() + days);
+                        return __tmNormalizeDateOnly(value);
+                    };
+                    setModel([
+                        { id: 'orvr', content: 'ORVR', pinned: true },
+                        { id: 'orvr-dated', parentTaskId: 'orvr', completionTime: date(-3) },
+                        { id: 'orvr-undated', parentTaskId: 'orvr' },
+                        { id: 'other', completionTime: date(0) },
+                        { id: 'other-child', parentTaskId: 'other', completionTime: date(0) },
+                        { id: 'other-overdue', completionTime: date(-2) },
+                    ]);
+                    applyFilters();
+                    mount();
+                    const snapshot = () => ({
+                        filtered: state.filteredTasks.map((task) => task.id),
+                        parent: placement('orvr'), child: placement('orvr-dated'),
+                        time: __tmGetTaskTimePriorityInfo(__tmTaskStore.getProjected('orvr')),
+                    });
+                    const before = snapshot();
+                    const confirmDocument = () => {
+                        // Incremental SQL reads use storage aliases. The resolved
+                        // document tree has already normalized its display fields.
+                        const rows = new Map(Object.values(state.flatTasks).map((task) => {
+                            const row = { ...task, completion_time: task.completionTime || '', children: [] };
+                            delete row.completionTime;
+                            return [row.id, row];
+                        }));
+                        const confirmed = __tmBuildStructuredAuthoritativeTaskList(rows,
+                            state.taskTree.map((nextDoc) => ({ nextDoc })));
+                        __tmTaskStore.acceptAuthoritative(confirmed, {
+                            docIds: ['doc'], replaceDocuments: true, replaceStructure: true,
+                        });
+                        applyFilters();
+                        patch(['other-child'], ['other']);
+                        // Also exercise the complete redraw used by reconciliation.
+                        mount();
+                        return snapshot();
+                    };
+                    __tmInsertTaskAsChildLocal({ id: 'new-child', root_id: 'doc', docId: 'doc',
+                        content: 'new child', children: [] }, 'other');
+                    __tmTaskStore.applyMutation({ type: 'createSubtask', phase: 'optimistic',
+                        opId: 'create-child', taskId: 'new-child', task: state.flatTasks['new-child'],
+                        affected: { parentTaskIds: ['other'] } }, { applyLocal: false });
+                    applyFilters();
+                    const created = patch(['new-child'], ['other']);
+                    if (!created) mount();
+                    const afterCreate = snapshot();
+                    const afterCreateConfirmation = confirmDocument();
+                    const child = state.flatTasks['other-child'];
+                    __tmApplyMoveOptimisticLocal({ taskId: child.id, mode: 'docBottom', targetDocId: 'doc',
+                        snapshot: { docId: 'doc', task: child } });
+                    __tmTaskStore.applyMutation({ type: 'moveTask', phase: 'optimistic',
+                        opId: 'outdent-child', taskId: child.id }, { applyLocal: false });
+                    applyFilters();
+                    const moved = patch([child.id], ['other']);
+                    if (!moved) mount();
+                    const afterMove = snapshot();
+                    return { before, afterCreate, afterCreateConfirmation, afterMove,
+                        afterMoveConfirmation: confirmDocument() };
+                }, scope);
+                for (const [phase, snapshot] of Object.entries(result)) {
+                    assert.ok(snapshot.filtered.includes('orvr'), `${scope}/${phase}: retain the matching child's ancestor`);
+                    assert.equal(snapshot.time.hasDate, true, `${scope}/${phase}: storage dates still participate in parent timing`);
+                    assert.deepEqual(snapshot.parent, [{ column: 'time:overdue', parent: '' }], `${scope}/${phase}: retain the undated parent in overdue`);
+                    assert.deepEqual(snapshot.child, [{ column: 'time:overdue', parent: 'orvr' }]);
+                }
+            }
+        });
         await run('quadrant board keeps four columns and supports inner document grouping', async (page) => {
             const result = await page.evaluate(() => {
                 window.boardMode = 'quadrant';

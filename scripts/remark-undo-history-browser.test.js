@@ -130,7 +130,7 @@ async function checkIndent(textarea, indent, outdent, undo) {
 }
 
 async function run() {
-    const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+    const { chromium } = require('./i18n-browser-fixture');
     const browser = await chromium.launch({ headless: true,
         ...(process.env.PLAYWRIGHT_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE } : {}) });
     try {

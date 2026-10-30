@@ -6,6 +6,8 @@
 // ==/Siyuan==
 
 (async () => {
+    const __tmT = globalThis.__taskHorizonHostBridge.i18n.t;
+
     if (globalThis.__taskHorizonQuickbarLoaded) return;
     globalThis.__taskHorizonQuickbarLoaded = true;
     let quickbarDisposed = false;
@@ -17,7 +19,7 @@
         // 第一行显示的属性
         firstRow: [
             {
-                name: '状态',
+                name: __tmT("kernel.status"),
                 attrKey: 'custom-status',
                 type: 'select',
                 // 状态选项会从 SettingsStore 动态读取
@@ -25,52 +27,52 @@
                 defaultValue: 'todo'
             },
             {
-                name: '重要性',
+                name: __tmT("kernel.importance"),
                 attrKey: 'custom-priority',
                 type: 'select',
                 options: [
-                    { value: 'high', label: '高', color: '#de350b' },
-                    { value: 'medium', label: '中', color: '#ff991f' },
-                    { value: 'low', label: '低', color: '#1d7afc' },
-                    { value: 'none', label: '无', color: '#9e9e9e' }
+                    { value: 'high', label: __tmT("common.high"), color: '#de350b' },
+                    { value: 'medium', label: __tmT("common.medium"), color: '#ff991f' },
+                    { value: 'low', label: __tmT("common.low"), color: '#1d7afc' },
+                    { value: 'none', label: __tmT("common.none"), color: '#9e9e9e' }
                 ],
                 defaultValue: 'none'
             },
             {
-                name: '开始日期',
+                name: __tmT("kernel.startDate"),
                 attrKey: 'custom-start-date',
                 type: 'date',
                 defaultValue: ''
             },
             {
-                name: '截止日期',
+                name: __tmT("kernel.dueDate"),
                 attrKey: 'custom-completion-time',
                 type: 'date',
                 defaultValue: ''
             },
             {
-                name: '完成时间',
+                name: __tmT("kernel.completionTime"),
                 attrKey: 'taskCompleteAt',
                 type: 'completed-time',
                 defaultValue: '',
                 readonly: true
             },
             {
-                name: '专注/耗时',
+                name: __tmT("quickbar.focusTimeSpent"),
                 attrKey: 'custom-focus-summary',
                 type: 'focus-summary',
-                placeholder: '设置时长与番茄',
+                placeholder: __tmT("quickbar.setDurationPomodoro"),
                 defaultValue: ''
             },
             {
-                name: '预计番茄',
+                name: __tmT("quickbar.estimatedPomodoros"),
                 attrKey: 'custom-tomato-estimate-count',
                 type: 'tomato-count',
-                placeholder: '输入番茄数',
+                placeholder: __tmT("quickbar.enterPomodoroCount"),
                 defaultValue: ''
             },
             {
-                name: '实际番茄',
+                name: __tmT("task.actualPomodoros"),
                 attrKey: 'custom-tomato-count',
                 type: 'tomato-count',
                 defaultValue: '',
@@ -80,10 +82,10 @@
         // 第二行显示的属性
         secondRow: [
             {
-                name: '备注',
+                name: __tmT("kernel.note"),
                 attrKey: 'custom-remark',
                 type: 'text',
-                placeholder: '输入备注',
+                placeholder: __tmT("quickbar.enterNote"),
                 defaultValue: ''
             },
         ]
@@ -93,7 +95,7 @@
     const isEnableMoreCols = true;
     const isEnableCustomAttrsInSelectedBlock = true;
     const isEnableCompletedCheckboxCol = false;
-    const completedCheckboxColName = '优先';
+    const completedCheckboxColName = __tmT("quickbar.priority");
     const completedCheckboxCheckedValue = false;
     const isEnableTaskBlockFloatBar = false;  // 关闭原有的AV列悬浮条
     const isEnableBlockContextMenu = false;
@@ -126,10 +128,10 @@
         { attrKey: 'custom-completion-time', name: '截止日期', type: 'date' },
         { attrKey: 'remainingTime', name: '剩余时间', type: 'remaining-time', readonly: true },
         { attrKey: 'taskCompleteAt', name: '完成时间', type: 'completed-time', readonly: true },
-        { attrKey: 'custom-focus-summary', name: '专注/耗时', type: 'focus-summary', placeholder: '设置时长与番茄' },
-        { attrKey: 'custom-tomato-estimate-count', name: '预计番茄', type: 'tomato-count', placeholder: '输入番茄数' },
+        { attrKey: 'custom-focus-summary', name: '专注/耗时', type: 'focus-summary', placeholder: __tmT("quickbar.setDurationPomodoro") },
+        { attrKey: 'custom-tomato-estimate-count', name: '预计番茄', type: 'tomato-count', placeholder: __tmT("quickbar.enterPomodoroCount") },
         { attrKey: 'custom-tomato-count', name: '实际番茄', type: 'tomato-count', readonly: true },
-        { attrKey: 'custom-remark', name: '备注', type: 'text', placeholder: '输入备注' }
+        { attrKey: 'custom-remark', name: '备注', type: 'text', placeholder: __tmT("quickbar.enterNote") }
     ];
     const quickbarInlineFieldAllowSet = new Set(quickbarInlineFieldDefs.map(item => item.attrKey));
     const quickbarVisibleItemDefaults = ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-focus-summary', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
@@ -320,7 +322,7 @@
         if (!id && !name) return null;
         return {
             id: id || normalizeQuickbarCustomFieldId(name, `${fieldId || 'field'}-option-${optionIndex + 1}`),
-            name: name || id || `选项${optionIndex + 1}`,
+            name: name || id || __tmT("quickbar.option", { value1: optionIndex + 1 }),
             color: String(source.color || '#9ca3af').trim() || '#9ca3af',
             parentId: String(source.parentId || '').trim(),
             archived: source.archived === true,
@@ -335,7 +337,7 @@
             const seenAttrKeys = new Set();
             return source.map((item, index) => {
                 const sourceField = (item && typeof item === 'object') ? item : {};
-                const name = String(sourceField.name || sourceField.label || '').trim() || `自定义列${index + 1}`;
+                const name = String(sourceField.name || sourceField.label || '').trim() || __tmT("quickbar.customColumn", { value1: index + 1 });
                 let id = normalizeQuickbarCustomFieldId(sourceField.id, name || `field-${index + 1}`);
                 if (!id) id = `field-${index + 1}`;
                 let baseId = id;
@@ -548,7 +550,7 @@
 
     function formatTomatoCountDisplay(value) {
         const normalized = normalizeActualTomatoCountValue(value);
-        return normalized ? `番茄 ${normalized}` : '';
+        return normalized ? __tmT("quickbar.pomodoro", { normalized: normalized }) : '';
     }
 
     function parseQuickbarNumber(value) {
@@ -639,7 +641,7 @@
         const spent = String(source['custom-focus-spent-display'] || source.spent || '').trim();
         const actualForPlan = actual || '0';
         const durationProgress = duration ? `${spent || '0'}/${duration}` : '';
-        const tomatoPlanText = estimate ? `番茄 ${actualForPlan}/${estimate}` : '';
+        const tomatoPlanText = estimate ? __tmT("quickbar.pomodoro2", { actualForPlan: actualForPlan, estimate: estimate }) : '';
         if (duration) {
             return `${tomatoPlanText ? `${tomatoPlanText} ` : ''}${durationProgress}`.trim();
         }
@@ -3748,30 +3750,30 @@
         const inputEditor = document.createElement('div');
         inputEditor.className = 'sy-custom-props-floatbar__input-editor';
         inputEditor.innerHTML = `
-            <input type="text" class="sy-custom-props-floatbar__input" placeholder="输入内容..." />
-            <textarea class="sy-custom-props-floatbar__textarea is-hidden" placeholder="输入内容..."></textarea>
+            <input type="text" class="sy-custom-props-floatbar__input" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.enterContent")}" />
+            <textarea class="sy-custom-props-floatbar__textarea is-hidden" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.enterContent")}"></textarea>
             <div class="sy-custom-props-floatbar__input-extra" data-input-extra></div>
             <div class="sy-custom-props-floatbar__remark-toolbar" data-remark-toolbar hidden>
-                <div class="sy-custom-props-floatbar__remark-tools" role="toolbar" aria-label="备注格式">
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="undo" disabled aria-label="撤销"${buildTooltipAttrs('撤销（Ctrl / ⌘ + Z）', 'bottom')}>${renderQuickbarRemarkIcon('arrow-u-up-left')}</button>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="redo" disabled aria-label="重做"${buildTooltipAttrs('重做（Ctrl / ⌘ + Shift + Z）', 'bottom')}>${renderQuickbarRemarkIcon('arrow-u-up-right')}</button>
+                <div class="sy-custom-props-floatbar__remark-tools" role="toolbar" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.noteFormat")}">
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="undo" disabled aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.undo")}"${buildTooltipAttrs(__tmT("quickbar.undoCtrlZ"), 'bottom')}>${renderQuickbarRemarkIcon('arrow-u-up-left')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="redo" disabled aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.redo")}"${buildTooltipAttrs(__tmT("quickbar.redoCtrlShiftZ"), 'bottom')}>${renderQuickbarRemarkIcon('arrow-u-up-right')}</button>
                     <span class="sy-custom-props-floatbar__remark-separator" role="separator" aria-orientation="vertical"></span>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="outdent" aria-label="取消缩进"${buildTooltipAttrs('取消缩进（Shift + Tab）', 'bottom')}>${renderQuickbarRemarkIcon('text-outdent')}</button>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="indent" aria-label="缩进"${buildTooltipAttrs('缩进（Tab）', 'bottom')}>${renderQuickbarRemarkIcon('text-indent')}</button>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="bold"${buildTooltipAttrs('粗体', 'bottom')}>${renderQuickbarRemarkIcon('text-b')}</button>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="italic"${buildTooltipAttrs('斜体', 'bottom')}>${renderQuickbarRemarkIcon('text-italic')}</button>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="bullet"${buildTooltipAttrs('无序列表', 'bottom')}>${renderQuickbarRemarkIcon('list-bullets')}</button>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="ordered"${buildTooltipAttrs('有序列表', 'bottom')}>${renderQuickbarRemarkIcon('list-numbers')}</button>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="code"${buildTooltipAttrs('行内代码', 'bottom')}>${renderQuickbarRemarkIcon('code')}</button>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="link"${buildTooltipAttrs('链接', 'bottom')}>${renderQuickbarRemarkIcon('link-simple')}</button>
-                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="quote"${buildTooltipAttrs('引用', 'bottom')}>${renderQuickbarRemarkIcon('quotes')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="outdent" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.outdent")}"${buildTooltipAttrs(__tmT("quickbar.outdentShiftTab"), 'bottom')}>${renderQuickbarRemarkIcon('text-outdent')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="indent" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.indent")}"${buildTooltipAttrs(__tmT("quickbar.indentTab"), 'bottom')}>${renderQuickbarRemarkIcon('text-indent')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="bold"${buildTooltipAttrs(__tmT("quickbar.bold"), 'bottom')}>${renderQuickbarRemarkIcon('text-b')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="italic"${buildTooltipAttrs(__tmT("quickbar.italic"), 'bottom')}>${renderQuickbarRemarkIcon('text-italic')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="bullet"${buildTooltipAttrs(__tmT("quickbar.bulletList"), 'bottom')}>${renderQuickbarRemarkIcon('list-bullets')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="ordered"${buildTooltipAttrs(__tmT("quickbar.numberedList"), 'bottom')}>${renderQuickbarRemarkIcon('list-numbers')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="code"${buildTooltipAttrs(__tmT("quickbar.inlineCode"), 'bottom')}>${renderQuickbarRemarkIcon('code')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="link"${buildTooltipAttrs(__tmT("quickbar.link"), 'bottom')}>${renderQuickbarRemarkIcon('link-simple')}</button>
+                    <button type="button" class="sy-custom-props-floatbar__remark-tool" data-remark-tool="quote"${buildTooltipAttrs(__tmT("quickbar.quote"), 'bottom')}>${renderQuickbarRemarkIcon('quotes')}</button>
                 </div>
-                <button type="button" class="sy-custom-props-floatbar__remark-close" data-action="remark-close"${buildTooltipAttrs('关闭备注编辑', 'bottom')}>${renderQuickbarRemarkIcon('x', 14)}</button>
+                <button type="button" class="sy-custom-props-floatbar__remark-close" data-action="remark-close"${buildTooltipAttrs(__tmT("quickbar.closeNoteEditing"), 'bottom')}>${renderQuickbarRemarkIcon('x', 14)}</button>
             </div>
             <div class="sy-custom-props-floatbar__input-actions">
-                <span class="sy-custom-props-floatbar__remark-shortcut">Ctrl / ⌘ + Enter 保存</span>
-                <button class="sy-custom-props-floatbar__btn" data-action="cancel">取消</button>
-                <button class="sy-custom-props-floatbar__btn" data-action="save">确定</button>
+                <span class="sy-custom-props-floatbar__remark-shortcut">${__tmT("quickbar.ctrlEnterSave")}</span>
+                <button class="sy-custom-props-floatbar__btn" data-action="cancel">${__tmT("common.cancel")}</button>
+                <button class="sy-custom-props-floatbar__btn" data-action="save">${__tmT("common.ok")}</button>
             </div>
         `.trim();
         document.body.appendChild(inputEditor);
@@ -4013,9 +4015,9 @@
             const remarkToolbar = inputEditor.querySelector('[data-remark-toolbar]');
             const extraPanel = inputEditor.querySelector('[data-input-extra]');
             const cancelBtn = inputEditor.querySelector('[data-action="cancel"]');
-            if (cancelBtn instanceof HTMLButtonElement) cancelBtn.textContent = '取消';
+            if (cancelBtn instanceof HTMLButtonElement) cancelBtn.textContent = __tmT("common.cancel");
             const saveBtn = inputEditor.querySelector('[data-action="save"]');
-            if (saveBtn instanceof HTMLButtonElement) saveBtn.textContent = useTextarea ? '保存' : '确定';
+            if (saveBtn instanceof HTMLButtonElement) saveBtn.textContent = useTextarea ? __tmT("common.save") : __tmT("common.ok");
             if (input instanceof HTMLInputElement) {
                 input.classList.toggle('is-hidden', useTextarea);
                 input.disabled = useTextarea;
@@ -4267,12 +4269,12 @@
 
         function normalizeReminderTaskName(value) {
             try {
-                const presentation = globalThis.__tmGetTaskTitlePresentation?.(value, '任务');
+                const presentation = globalThis.__tmGetTaskTitlePresentation?.(value, __tmT("kernel.task"));
                 if (presentation && typeof presentation.text === 'string' && presentation.text.trim()) {
                     return presentation.text.trim();
                 }
             } catch (e) {}
-            return String(value || '').trim() || '任务';
+            return String(value || '').trim() || __tmT("kernel.task");
         }
 
         async function openReminderDialogForCurrentTask() {
@@ -4281,16 +4283,16 @@
                 if (typeof window.tmReminder === 'function') {
                     const fallbackTaskId = String(resolveCurrentTaskId() || currentBlockId || '').trim();
                     if (!fallbackTaskId) {
-                        showMessage('未找到任务', true, 1800);
+                        showMessage(__tmT("kernel.noTaskFound"), true, 1800);
                         return;
                     }
                     Promise.resolve(window.tmReminder(fallbackTaskId)).catch(() => {
-                        showMessage('未检测到底栏番茄钟插件，请前往集市安装底栏番茄钟插件', true, 2000);
+                        showMessage(__tmT("quickbar.bottomBarPomodoroPluginNotDetectedInstallItFrom"), true, 2000);
                     });
                     scheduleCurrentReminderSnapshotRefresh(true);
                     return;
                 }
-                showMessage('未检测到底栏番茄钟插件，请前往集市安装底栏番茄钟插件', true, 2000);
+                showMessage(__tmT("quickbar.bottomBarPomodoroPluginNotDetectedInstallItFrom"), true, 2000);
                 return;
             }
 
@@ -4319,14 +4321,14 @@
             pushCandidateId(currentBlockEl?.dataset?.nodeId);
 
             if (!candidateIds.length) {
-                showMessage('未找到任务', true, 1800);
+                showMessage(__tmT("kernel.noTaskFound"), true, 1800);
                 return;
             }
 
             const candidateNameMap = new Map();
             const normalizedTaskLikeName = normalizeReminderTaskName(taskLike?.content || taskLike?.raw_content || '');
             candidateIds.forEach((id) => {
-                candidateNameMap.set(id, normalizedTaskLikeName || fallbackName || '任务');
+                candidateNameMap.set(id, normalizedTaskLikeName || fallbackName || __tmT("kernel.task"));
             });
             if (fallbackId && fallbackName) candidateNameMap.set(fallbackId, fallbackName);
 
@@ -4339,7 +4341,7 @@
             } catch (e) {}
 
             for (const candidateId of candidateIds) {
-                const name = String(candidateNameMap.get(candidateId) || fallbackName || '任务').trim() || '任务';
+                const name = String(candidateNameMap.get(candidateId) || fallbackName || __tmT("kernel.task")).trim() || __tmT("kernel.task");
                 for (let attempt = 0; attempt < 2; attempt += 1) {
                     try { showDialog(candidateId, name); } catch (e) {}
                     await wait(attempt === 0 ? 120 : 180);
@@ -4350,13 +4352,13 @@
                 }
             }
 
-            showMessage('未能打开提醒设置，请确认任务块与番茄钟插件状态', true, 2400);
+            showMessage(__tmT("quickbar.cannotOpenReminderSettingsCheckTheTaskBlockAnd"), true, 2400);
         }
 
         async function openRepeatDialogForCurrentTask() {
             const openRepeat = globalThis.tmEditTaskRepeatRule;
             if (typeof openRepeat !== 'function') {
-                showMessage('未检测到任务循环功能，请确认任务管理器已启用', true, 2000);
+                showMessage(__tmT("quickbar.taskRecurrenceFeatureNotDetectedMakeSureTheTask"), true, 2000);
                 return null;
             }
             const candidateIds = [
@@ -4369,7 +4371,7 @@
             ].map((id) => String(id || '').trim()).filter(Boolean);
             const uniqIds = Array.from(new Set(candidateIds));
             if (!uniqIds.length) {
-                showMessage('未找到任务', true, 1800);
+                showMessage(__tmT("kernel.noTaskFound"), true, 1800);
                 return null;
             }
             for (const candidateId of uniqIds) {
@@ -4378,7 +4380,7 @@
                     if (result !== null) return { candidateId, result };
                 } catch (e) {}
             }
-            showMessage('未能打开循环设置，请确认任务块状态', true, 2200);
+            showMessage(__tmT("quickbar.cannotOpenRecurrenceSettingsCheckTheTaskBlockStatus"), true, 2200);
             return null;
         }
 
@@ -4413,7 +4415,7 @@
             if (statusConfig) {
                 statusConfig.options = statusOptions.map(o => ({
                     value: o.id,
-                    label: o.name,
+                    label: globalThis.__taskHorizonHostBridge.i18n.builtinName('status', o),
                     color: o.color
                 }));
                 statusConfig.defaultValue = getDefaultUndoneStatusId(statusOptions);
@@ -4693,7 +4695,7 @@
                 taskId: apiTaskId || id,
                 requestedTaskId: id,
                 value: normalizedValue == null ? '' : String(normalizedValue),
-                error: String(error?.message || error || '任务写入服务未就绪'),
+                error: String(error?.message || error || __tmT("quickbar.taskWriteServiceIsNotReady")),
             });
             if (displayKey === 'custom-status') {
                 const applier = sharedApi?.applyTaskAttrUpdateWithUndo;
@@ -4703,7 +4705,7 @@
                     suppressTaskHorizonMobileTopbarOpen();
                     const apiResult = await applier(apiTaskId, displayKey, nextStatus, {
                         source: 'quickbar-status',
-                        label: String(options?.label || '状态'),
+                        label: String(options?.label || __tmT("kernel.status")),
                         background: true,
                         wait: false,
                         skipInteractionGate: true,
@@ -4845,10 +4847,10 @@
 
         function getPriorityJiraInfo(value) {
             const p = String(value || '').trim().toLowerCase();
-            if (p === 'high') return { key: 'high', label: '高', iconType: 'high', color: '#de350b', bg: 'rgba(222,53,11,0.14)', border: 'rgba(222,53,11,0.34)' };
-            if (p === 'medium') return { key: 'medium', label: '中', iconType: 'medium', color: '#ff991f', bg: 'rgba(255,153,31,0.14)', border: 'rgba(255,153,31,0.34)' };
-            if (p === 'low') return { key: 'low', label: '低', iconType: 'low', color: '#1d7afc', bg: 'rgba(29,122,252,0.14)', border: 'rgba(29,122,252,0.32)' };
-            return { key: 'none', label: '无', iconType: 'none', color: '#9e9e9e', bg: 'rgba(158,158,158,0.12)', border: 'rgba(158,158,158,0.3)' };
+            if (p === 'high') return { key: 'high', label: __tmT("common.high"), iconType: 'high', color: '#de350b', bg: 'rgba(222,53,11,0.14)', border: 'rgba(222,53,11,0.34)' };
+            if (p === 'medium') return { key: 'medium', label: __tmT("common.medium"), iconType: 'medium', color: '#ff991f', bg: 'rgba(255,153,31,0.14)', border: 'rgba(255,153,31,0.34)' };
+            if (p === 'low') return { key: 'low', label: __tmT("common.low"), iconType: 'low', color: '#1d7afc', bg: 'rgba(29,122,252,0.14)', border: 'rgba(29,122,252,0.32)' };
+            return { key: 'none', label: __tmT("common.none"), iconType: 'none', color: '#9e9e9e', bg: 'rgba(158,158,158,0.12)', border: 'rgba(158,158,158,0.3)' };
         }
 
         function getPriorityIconStyle() {
@@ -4903,7 +4905,7 @@
             const resolvedValue = String(value || '').trim() || getDefaultUndoneStatusId(statusOptions);
             const option = statusOptions.find(o => o.id === resolvedValue);
             return {
-                name: option ? option.name : resolvedValue,
+                name: option ? globalThis.__taskHorizonHostBridge.i18n.builtinName('status', option) : resolvedValue,
                 color: option ? option.color : '#757575'
             };
         }
@@ -5015,7 +5017,7 @@
                         silent: true,
                         attrTargetId: attrTargetHintId,
                     });
-                if (apiResult === false) throw new Error('任务字段未写入');
+                if (apiResult === false) throw new Error(__tmT("quickbar.taskFieldsWereNotWritten"));
                 return {
                     success: true,
                     viaSharedApi: true,
@@ -5030,7 +5032,7 @@
                     taskId: apiTaskId,
                     requestedTaskId: id,
                     value: rawValue,
-                    error: String(error?.message || error || '任务字段写入失败'),
+                    error: String(error?.message || error || __tmT("quickbar.taskFieldWriteFailed")),
                 };
             }
         }
@@ -5129,7 +5131,7 @@
             return values.map((value) => {
                 const option = findQuickbarCustomFieldOption(config, value);
                 if (option) return option;
-                return { value, label: value || '未命名', color: '#9ca3af', missing: true };
+                return { value, label: value || __tmT("quickbar.untitled"), color: '#9ca3af', missing: true };
             });
         }
 
@@ -5148,7 +5150,7 @@
             const max = Math.max(1, Number(maxTags) || 2);
             const shown = selected.slice(0, max);
             const chips = shown.map((option) => `
-                <span class="sy-custom-props-floatbar__option-label sy-custom-props-floatbar__option-label--status${option?.missing ? ' is-missing' : ''}" style="${buildStatusChipStyle(option?.color || '#9ca3af')}">${esc(String(option?.label || option?.value || '').trim() || '未命名')}</span>
+                <span class="sy-custom-props-floatbar__option-label sy-custom-props-floatbar__option-label--status${option?.missing ? ' is-missing' : ''}" style="${buildStatusChipStyle(option?.color || '#9ca3af')}">${esc(String(option?.label || option?.value || '').trim() || __tmT("quickbar.untitled"))}</span>
             `.trim()).join('');
             const remain = selected.length - shown.length;
             const remainHtml = remain > 0
@@ -5621,7 +5623,7 @@
             if (!/^\d{4}-\d{2}-\d{2}$/.test(full)) return full;
             const year = Number(full.slice(0, 4));
             return year === new Date().getFullYear()
-                ? `${Number(full.slice(5, 7))}月${Number(full.slice(8, 10))}日`
+                ? __tmT("date.monthDayNumbers", { value1: Number(full.slice(5, 7)), value2: Number(full.slice(8, 10)) })
                 : full;
         }
 
@@ -5739,7 +5741,7 @@
                 const remaining = Math.max(0, stats.total - stats.completed);
                 const displayValue = cfg.subtaskCountUnfinishedOnly ? String(remaining) : `${stats.completed}/${stats.total}`;
                 const escapedDisplayValue = esc(displayValue).replace(/"/g, '&quot;');
-                const escapedTitle = esc(`子任务数量：共${stats.total}个，已完成${stats.completed}个，未完成${remaining}个`).replace(/"/g, '&quot;');
+                const escapedTitle = esc(__tmT("quickbar.subtasksTotalDoneRemaining", { total: stats.total, completed: stats.completed, remaining: remaining })).replace(/"/g, '&quot;');
                 return `
                     <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--subtask-count" data-inline-attr="${escapedAttr}" data-inline-type="readonly" data-inline-name="${escapedName}" data-inline-value="${escapedDisplayValue}" title="${escapedTitle}">
                         <span class="sy-custom-props-inline-chip-value">${esc(displayValue)}</span>
@@ -6140,7 +6142,7 @@
             const displayValue = getQuickbarInlineSettings().subtaskCountUnfinishedOnly
                 ? String(remaining)
                 : `${completed}/${total}`;
-            const title = `子任务数量：共${total}个，已完成${completed}个，未完成${remaining}个`;
+            const title = __tmT("quickbar.subtasksTotalDoneRemaining", { total: total, completed: completed, remaining: remaining });
             let touched = false;
             queryInlineMetaHostsInObservedRoots('.sy-custom-props-inline-host').forEach((host) => {
                 if (!(host instanceof HTMLElement)) return;
@@ -6292,14 +6294,14 @@
                     mainProps.push(renderPropElement(config, currentProps[config.attrKey]));
                 });
             if (isAiFeatureEnabled() && visibleSet.has('action-ai-title')) {
-                mainProps.push(`<button class="sy-custom-props-floatbar__action" data-action="ai-title"${buildTooltipAttrs('AI 优化任务名称')}><span class="qb-icon">${renderPhosphorBoldIcon('sparkle')}</span></button>`);
+                mainProps.push(`<button class="sy-custom-props-floatbar__action" data-action="ai-title"${buildTooltipAttrs(__tmT("ai.aiOptimizeTaskName"))}><span class="qb-icon">${renderPhosphorBoldIcon('sparkle')}</span></button>`);
             }
             if (visibleSet.has('action-reminder')) {
                 const hasReminder = !!(currentReminderSnapshot?.hasReminder || String(currentProps?.bookmark || '').includes('⏰'));
                 const reminderText = hasReminder ? String(currentReminderSnapshot?.displayText || '').trim() : '';
                 const reminderTooltip = hasReminder
-                    ? (String(currentReminderSnapshot?.tooltip || '').trim() || '已添加提醒')
-                    : '添加提醒';
+                    ? (String(currentReminderSnapshot?.tooltip || '').trim() || __tmT("quickbar.reminderAdded"))
+                    : __tmT("quickbar.addReminder");
                 mainProps.push(`
                     <button class="sy-custom-props-floatbar__action ${hasReminder ? 'is-active' : ''} ${reminderText ? 'is-wide' : ''}" data-action="reminder"${buildTooltipAttrs(reminderTooltip)}>
                         <span class="qb-icon">${renderPhosphorBoldIcon('alarm-clock')}</span>${reminderText ? `<span class="sy-custom-props-floatbar__action-text">${esc(reminderText)}</span>` : ''}
@@ -6307,7 +6309,7 @@
                 `.trim());
             }
             if (visibleSet.has('action-more')) {
-                mainProps.push(`<button class="sy-custom-props-floatbar__action" data-action="more"${buildTooltipAttrs('更多')}><span class="qb-icon">${renderPhosphorBoldIcon('dots-three')}</span></button>`);
+                mainProps.push(`<button class="sy-custom-props-floatbar__action" data-action="more"${buildTooltipAttrs(__tmT("quickbar.more"))}><span class="qb-icon">${renderPhosphorBoldIcon('dots-three')}</span></button>`);
             }
             if (mainProps.length) {
                 rows.push(`<div class="sy-custom-props-floatbar__row sy-custom-props-floatbar__row--main">${mainProps.join('')}</div>`);
@@ -6449,12 +6451,12 @@
                     if (action === 'ai-title') {
                         try {
                             if (!isAiFeatureEnabled()) {
-                                showMessage('AI 功能已关闭', true, 1800);
+                                showMessage(__tmT("quickbar.aiFeatureIsOff"), true, 1800);
                                 return;
                             }
                             const taskIdForAi = await resolveCurrentTaskIdForAi();
                             if (!taskIdForAi) {
-                                showMessage('未找到任务', true, 1800);
+                                showMessage(__tmT("kernel.noTaskFound"), true, 1800);
                                 return;
                             }
                             if (typeof globalThis.tmAiOptimizeTaskName !== 'function') {
@@ -6463,10 +6465,10 @@
                             if (typeof globalThis.tmAiOptimizeTaskName === 'function') {
                                 await globalThis.tmAiOptimizeTaskName(taskIdForAi);
                             } else {
-                                showMessage('AI 模块尚未加载', true, 1800);
+                                showMessage(__tmT("quickbar.aiModuleIsNotLoadedYet"), true, 1800);
                             }
                         } catch (err) {
-                            showMessage(String(err?.message || err || 'AI 执行失败'), true, 2200);
+                            showMessage(String(err?.message || err || __tmT("quickbar.aiExecutionFailed")), true, 2200);
                         }
                         return;
                     }
@@ -6475,7 +6477,7 @@
                         const detailId = resolveCurrentTaskId();
                         // 确保 ID 有效
                         if (!detailId) {
-                            showMessage('无法获取任务ID', true, 1800);
+                            showMessage(__tmT("quickbar.cannotGetTheTaskId"), true, 1800);
                             return;
                         }
                         if (typeof openTaskDetail === 'function') {
@@ -6501,7 +6503,7 @@
                         } else {
                             console.warn('[Quickbar] tmOpenTaskDetail函数未找到，请确保任务管理器插件已加载');
                         }
-                        showMessage('打开任务详情失败', true, 1800);
+                        showMessage(__tmT("quickbar.failedToOpenTaskDetails"), true, 1800);
                     }
                     return;
                 }
@@ -6611,14 +6613,14 @@
                 if (isCustomFieldSelect) {
                     const displayLabel = historical || search?.query
                         ? String(opt?.pathLabel || opt?.label || value || '').trim() || value
-                        : String(opt?.label || value || '').trim() || '未命名';
+                        : String(opt?.label || value || '').trim() || __tmT("quickbar.untitled");
                     return `
                         <button type="button" class="${optionCls}${historical ? ' is-historical' : ''}"
                                 data-value="${esc(value).replace(/"/g, '&quot;')}"
                                 data-label="${escapedValue}"
                                 data-menu-label="${esc(menuLabel).replace(/"/g, '&quot;')}"
                                 ${historical ? '' : `data-tm-custom-field-choice="${esc(value).replace(/"/g, '&quot;')}"`}
-                                title="${historical ? '移除此历史值：' : ''}${esc(displayLabel)}"
+                                title="${historical ? __tmT("quickbar.removeThisHistoricalValue") : ''}${esc(displayLabel)}"
                                 ${historical ? 'data-historical="1"' : ''}>
                             <span class="sy-custom-props-floatbar__option-label sy-custom-props-floatbar__option-label--status" style="${buildStatusChipStyle(opt?.color || '#9ca3af')}">${esc(displayLabel)}</span>
                             <span class="sy-custom-props-floatbar__option-check${!historical && selectedCustomValues.has(value) ? ' tm-selection-check' : ''}" aria-hidden="true">${historical ? '×' : ''}</span>
@@ -6644,14 +6646,14 @@
                     const value = String(option?.value || '').trim();
                     const children = activeChildrenByParentId.get(value) || [];
                     const expanded = children.length > 0 && expandedCustomOptionIds.has(value);
-                    const label = String(option?.label || value || '').trim() || '未命名';
+                    const label = String(option?.label || value || '').trim() || __tmT("quickbar.untitled");
                     const expandHtml = children.length
                         ? `<button type="button"
                                    class="sy-custom-props-floatbar__custom-expand${expanded ? ' is-expanded' : ''}"
                                    data-expand-option-id="${esc(value).replace(/"/g, '&quot;')}"
-                                   aria-label="${expanded ? '收起' : '展开'}${esc(label)}的子项"
+                                   aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.childrenOf", { value1: expanded ? __tmT("ai.collapse") : __tmT("quickbar.expand"), label: label })}"
                                    aria-expanded="${expanded ? 'true' : 'false'}"
-                                   title="${expanded ? '收起子项' : '展开子项'}">${renderPhosphorBoldIcon('caret-right', 12)}</button>`
+                                   title="${expanded ? __tmT("quickbar.collapseChildItems") : __tmT("quickbar.expandChildItems")}">${renderPhosphorBoldIcon('caret-right', 12)}</button>`
                         : '<span class="sy-custom-props-floatbar__custom-expand-spacer" aria-hidden="true"></span>';
                     const childHtml = expanded ? renderCustomTreeNodes(value, depth + 1) : '';
                     return `<div class="sy-custom-props-floatbar__custom-tree-row" style="--qb-tree-indent:${Math.min(2, depth) * 14}px;">${renderOptionHtml(option, false)}${expandHtml}</div>${childHtml}`;
@@ -6663,8 +6665,8 @@
                         <button type="button" class="sy-custom-props-floatbar__option is-clear"
                                 data-value=""
                                 data-label=""
-                                data-clear="1">清空</button>
-                        ${isCustomFieldMulti ? `<button type="button" class="sy-custom-props-floatbar__option is-done" data-done="1">完成</button>` : ''}
+                                data-clear="1">${__tmT("common.clear")}</button>
+                        ${isCustomFieldMulti ? `<button type="button" class="sy-custom-props-floatbar__option is-done" data-done="1">${__tmT("quickbar.done")}</button>` : ''}
                     </div>
                 `.trim()
                 : '';
@@ -6678,8 +6680,8 @@
                         : renderCustomTreeNodes())
                     : activeOptions.map((option) => renderOptionHtml(option, false)).join('');
                 const historicalOptionHtml = getHistoricalOptions().map((option) => renderOptionHtml(option, true)).join('');
-                const historicalHtml = historicalOptionHtml ? `<div class="sy-custom-props-floatbar__select-section">已归档或历史值</div>${historicalOptionHtml}` : '';
-                const activeHtml = activeOptionHtml || `<div class="sy-custom-props-floatbar__select-section">${search?.query ? '没有匹配的选项' : '当前字段没有可选项'}</div>`;
+                const historicalHtml = historicalOptionHtml ? `<div class="sy-custom-props-floatbar__select-section">${__tmT("quickbar.archivedOrHistoricalValues")}</div>${historicalOptionHtml}` : '';
+                const activeHtml = activeOptionHtml || `<div class="sy-custom-props-floatbar__select-section">${search?.query ? __tmT("quickbar.noMatchingOptions") : __tmT("quickbar.noOptionsForThisField")}</div>`;
                 const optionHtml = isCustomFieldSelect
                     ? (search?.query ? `${activeHtml}${historicalHtml}` : `${historicalHtml}${activeHtml}`)
                     : activeOptionHtml;
@@ -6795,7 +6797,7 @@
                         skipNoopCheck: isCustomFieldSelect && saveValue === '',
                     });
                 } catch (error) {
-                    showMessage('更新失败', true, 2000);
+                    showMessage(__tmT("quickbar.updateFailed"), true, 2000);
                     return;
                 } finally {
                     if (isCustomFieldSelect) {
@@ -6844,13 +6846,13 @@
                     } catch (e) {}
                     patchInlineMetaCache(targetBlockId, inlinePatch);
                     refreshInlineMetaByTaskId(targetBlockId, false);
-                    showMessage(didClearCustomValue ? `已清空${config.name}` : `已更新${config.name}`, false, 1500);
+                    showMessage(didClearCustomValue ? __tmT("quickbar.cleared", { name: config.name }) : __tmT("quickbar.updated", { name: config.name }), false, 1500);
                     dispatchTaskAttrUpdated(targetBlockId, config.attrKey, saveValue, {
                         taskId: dispatchTaskId,
                         requestedTaskId: dispatchRequestedTaskId,
                     });
                 } else {
-                    showMessage('更新失败', true, 2000);
+                    showMessage(__tmT("quickbar.updateFailed"), true, 2000);
                 }
 
                 if (!isCustomFieldMulti && session === selectMenuSession && (result.success || !isCustomFieldSelect)) closeSelectMenu();
@@ -6868,7 +6870,7 @@
         function showDateEditor(anchorEl, config, currentValue) {
             const blockIdAtOpen = String(currentBlockId || '').trim();
             if (!blockIdAtOpen) {
-                showMessage('无法获取任务ID', true, 1800);
+                showMessage(__tmT("quickbar.cannotGetTheTaskId"), true, 1800);
                 return;
             }
             const attrKey = String(config?.attrKey || '').trim();
@@ -6908,7 +6910,7 @@
                         });
                     },
                 })).catch((err) => {
-                    showMessage(String(err?.message || err || '打开时间设置失败'), true, 1800);
+                    showMessage(String(err?.message || err || __tmT("quickbar.failedToOpenTimeSettings")), true, 1800);
                 });
                 return;
             }
@@ -6928,28 +6930,28 @@
                     }
                     patchInlineMetaCache(blockIdAtOpen, { [config.attrKey]: newValue });
                     refreshInlineMetaByTaskId(blockIdAtOpen, false);
-                    showMessage(`已更新${config.name}`, false, 1500);
+                    showMessage(__tmT("quickbar.updated", { name: config.name }), false, 1500);
                     dispatchTaskAttrUpdated(blockIdAtOpen, config.attrKey, newValue, {
                         taskId: dispatchTaskId,
                         requestedTaskId: dispatchRequestedTaskId,
                     });
                 } else {
-                    showMessage('更新失败', true, 2000);
+                    showMessage(__tmT("quickbar.updateFailed"), true, 2000);
                 }
             };
             const renderRepeatExtras = async () => {
                 if (!isCompletionDate || !(extraPanel instanceof HTMLElement)) return;
                 const repeatRule = await getRepeatRuleForTask(blockIdAtOpen);
-                const repeatSummary = String(repeatRule?.summary || '').trim() || '不重复';
+                const repeatSummary = String(repeatRule?.summary || '').trim() || __tmT("quickbar.noRepeat");
                 const untilSummary = (repeatRule && repeatRule.enabled)
-                    ? (String(repeatRule.until || '').trim() ? `结束于 ${String(repeatRule.until || '').trim()}` : '永不结束')
-                    : '未设置';
+                    ? (String(repeatRule.until || '').trim() ? __tmT("quickbar.ends", { value1: String(repeatRule.until || '').trim() }) : __tmT("quickbar.neverEnds"))
+                    : __tmT("common.notSet");
                 extraPanel.innerHTML = `
                     <button type="button" class="sy-custom-props-floatbar__input-extra-row" data-repeat-row="rule">
                         <span class="sy-custom-props-floatbar__input-extra-main">
                             <span class="sy-custom-props-floatbar__input-extra-icon">${renderPhosphorBoldIcon('repeat', 14)}</span>
                             <span class="sy-custom-props-floatbar__input-extra-text">
-                                <span class="sy-custom-props-floatbar__input-extra-title">循环</span>
+                                <span class="sy-custom-props-floatbar__input-extra-title">${__tmT("quickbar.repeat")}</span>
                                 <span class="sy-custom-props-floatbar__input-extra-desc">${esc(repeatSummary)}</span>
                             </span>
                         </span>
@@ -6959,7 +6961,7 @@
                         <span class="sy-custom-props-floatbar__input-extra-main">
                             <span class="sy-custom-props-floatbar__input-extra-icon">${renderPhosphorBoldIcon('calendar-check', 14)}</span>
                             <span class="sy-custom-props-floatbar__input-extra-text">
-                                <span class="sy-custom-props-floatbar__input-extra-title">结束方式</span>
+                                <span class="sy-custom-props-floatbar__input-extra-title">${__tmT("quickbar.endMode")}</span>
                                 <span class="sy-custom-props-floatbar__input-extra-desc">${esc(untilSummary)}</span>
                             </span>
                         </span>
@@ -7097,14 +7099,14 @@
                         tomatoEstimateCount: nextEstimate,
                     }, {
                         source: 'quickbar-focus-summary',
-                        label: String(options?.label || '时长与番茄'),
+                        label: String(options?.label || __tmT("quickbar.durationPomodoro")),
                         background: true,
                         wait: false,
                         skipInteractionGate: true,
                         renderOptimistic: true,
                         silent: true,
                     });
-                if (result === false) throw new Error('任务字段未写入');
+                if (result === false) throw new Error(__tmT("quickbar.taskFieldsWereNotWritten"));
                 return {
                     success: true,
                     viaSharedApi: true,
@@ -7117,7 +7119,7 @@
                     viaSharedApi: true,
                     taskId: id,
                     requestedTaskId: id,
-                    error: String(error?.message || error || '任务字段写入失败'),
+                    error: String(error?.message || error || __tmT("quickbar.taskFieldWriteFailed")),
                 };
             }
         }
@@ -7148,7 +7150,7 @@
         function showFocusSummaryEditor(anchorEl, config) {
             const blockIdAtOpen = String(currentBlockId || '').trim();
             if (!blockIdAtOpen) {
-                showMessage('无法获取任务ID', true, 1800);
+                showMessage(__tmT("quickbar.cannotGetTheTaskId"), true, 1800);
                 return;
             }
             if (anchorEl.closest?.('.sy-custom-props-inline-host')) {
@@ -7176,7 +7178,7 @@
             inputEditor.classList.add('is-focus-summary');
             input.type = 'text';
             input.value = String(currentProps['custom-duration'] || '');
-            input.placeholder = '例如：30 或 30m';
+            input.placeholder = __tmT("quickbar.eGOrM");
             input.removeAttribute('min');
             input.removeAttribute('step');
             input.removeAttribute('inputmode');
@@ -7192,10 +7194,10 @@
             tabs.className = 'sy-custom-props-floatbar__focus-tabs';
             tabs.setAttribute('data-focus-summary-tabs', 'true');
             tabs.setAttribute('role', 'tablist');
-            tabs.setAttribute('aria-label', '时长与番茄');
+            tabs.setAttribute('aria-label', __tmT("quickbar.durationPomodoro"));
             tabs.innerHTML = `
-                <button type="button" data-focus-summary-tab="duration" role="tab">预计时长</button>
-                <button type="button" data-focus-summary-tab="tomato" role="tab">预计番茄</button>
+                <button type="button" data-focus-summary-tab="duration" role="tab">${__tmT("quickbar.estimatedDuration")}</button>
+                <button type="button" data-focus-summary-tab="tomato" role="tab">${__tmT("quickbar.estimatedPomodoros")}</button>
             `;
             inputEditor.insertBefore(tabs, input);
 
@@ -7225,7 +7227,7 @@
             estimateInput.step = '1';
             estimateInput.inputMode = 'numeric';
             estimateInput.value = currentEstimateValue;
-            estimateInput.placeholder = '空或整数';
+            estimateInput.placeholder = __tmT("quickbar.emptyOrWholeNumber");
 
             if (extraPanel instanceof HTMLElement) {
                 const presetUnit = globalThis.__tmDuration?.getUnit?.()
@@ -7252,7 +7254,7 @@
             const estimateField = document.createElement('label');
             estimateField.className = 'sy-custom-props-floatbar__focus-field';
             estimateField.setAttribute('data-focus-summary-estimate-field', 'true');
-            estimateField.innerHTML = '<span>预计番茄</span>';
+            estimateField.innerHTML = `<span>${__tmT("quickbar.estimatedPomodoros")}</span>`;
             estimateField.appendChild(estimateInput);
             const actions = inputEditor.querySelector('.sy-custom-props-floatbar__input-actions');
             if (actions instanceof HTMLElement) inputEditor.insertBefore(estimateField, actions);
@@ -7264,13 +7266,13 @@
             readonly.className = 'sy-custom-props-floatbar__focus-readonly';
             readonly.setAttribute('data-focus-summary-readonly', 'true');
             readonly.innerHTML = `
-                <span>实际 <b class="sy-custom-props-focus-actual">${esc(currentProps['custom-tomato-count'] || '0')}</b></span>
-                <span>耗时 <b>${esc(currentProps['custom-focus-spent-display'] || '0m')}</b></span>
+                <span>${__tmT("quickbar.actual")}<b class="sy-custom-props-focus-actual">${esc(currentProps['custom-tomato-count'] || '0')}</b></span>
+                <span>${__tmT("quickbar.spent")}<b>${esc(currentProps['custom-focus-spent-display'] || '0m')}</b></span>
             `;
             if (actions instanceof HTMLElement) inputEditor.insertBefore(readonly, actions);
             else inputEditor.appendChild(readonly);
 
-            if (cancelBtn instanceof HTMLButtonElement) cancelBtn.textContent = '清空';
+            if (cancelBtn instanceof HTMLButtonElement) cancelBtn.textContent = __tmT("common.clear");
             const repositionEditor = () => positionPopupNearAnchor(inputEditor, anchorEl, { gap: 4, viewportMargin: 6 });
             const setFocusSummaryMode = (nextMode, options = {}) => {
                 focusSummaryMode = nextMode === 'tomato' ? 'tomato' : 'duration';
@@ -7326,14 +7328,14 @@
                     duration: String(patch?.duration || '').trim(),
                     tomatoEstimateCount: normalizeTomatoCountValue(patch?.tomatoEstimateCount || ''),
                 };
-                const result = await saveFocusSummaryWithUndo(blockIdAtOpen, nextPatch, { label: config?.name || '专注/耗时' });
+                const result = await saveFocusSummaryWithUndo(blockIdAtOpen, nextPatch, { label: config?.name || __tmT("quickbar.focusTimeSpent") });
                 if (!result.success) {
-                    showMessage('更新失败', true, 2000);
+                    showMessage(__tmT("quickbar.updateFailed"), true, 2000);
                     return;
                 }
                 applyFocusSummarySaveResult(blockIdAtOpen, nextPatch, result);
                 inputEditor.classList.remove('is-visible');
-                showMessage(nextPatch.duration || nextPatch.tomatoEstimateCount ? '已更新专注/耗时' : '已清除专注/耗时', false, 1500);
+                showMessage(nextPatch.duration || nextPatch.tomatoEstimateCount ? __tmT("quickbar.focusTimeSpentUpdated") : __tmT("quickbar.focusTimeSpentCleared"), false, 1500);
             };
             const submit = () => {
                 const durationDraft = String(input.value || '').trim();
@@ -7416,12 +7418,12 @@
             cleanupFocusSummaryEditorScaffold();
             if (isDuration) inputEditor.classList.add('is-duration');
             if (cancelBtn instanceof HTMLButtonElement) {
-                cancelBtn.textContent = isDuration ? '清空' : '取消';
+                cancelBtn.textContent = isDuration ? __tmT("common.clear") : __tmT("common.cancel");
             }
             if (input instanceof HTMLInputElement) {
                 input.type = isTomatoCount ? 'number' : 'text';
                 input.value = isTomatoCount ? normalizeTomatoCountValue(currentValue) : (currentValue || '');
-                input.placeholder = config.placeholder || '输入内容...';
+                input.placeholder = config.placeholder || __tmT("quickbar.enterContent");
                 if (isTomatoCount) {
                     input.min = '0';
                     input.step = '1';
@@ -7435,7 +7437,7 @@
             }
             if (textarea instanceof HTMLTextAreaElement) {
                 textarea.value = currentValue || '';
-                textarea.placeholder = config.placeholder || '输入内容...';
+                textarea.placeholder = config.placeholder || __tmT("quickbar.enterContent");
                 try { textarea.dataset.savedValue = isRemark ? normalizeRemarkMarkdown(currentValue || '') : ''; } catch (e) {}
                 try { delete textarea.dataset.dirty; } catch (e) {}
                 try { delete textarea.dataset.composing; } catch (e) {}
@@ -7457,15 +7459,15 @@
                     }
                     patchInlineMetaCache(blockIdAtOpen, { [config.attrKey]: newValue });
                     refreshInlineMetaByTaskId(blockIdAtOpen, false);
-                    if (newValue) showMessage(`已更新${config.name}`, false, 1500);
-                    else showMessage(`已清除${config.name}`, false, 1500);
+                    if (newValue) showMessage(__tmT("quickbar.updated", { name: config.name }), false, 1500);
+                    else showMessage(__tmT("quickbar.cleared2", { name: config.name }), false, 1500);
                     dispatchTaskAttrUpdated(blockIdAtOpen, config.attrKey, newValue, {
                         taskId: dispatchTaskId,
                         requestedTaskId: dispatchRequestedTaskId,
                     });
                     return true;
                 }
-                showMessage('更新失败', true, 2000);
+                showMessage(__tmT("quickbar.updateFailed"), true, 2000);
                 return false;
             };
 
@@ -7482,7 +7484,7 @@
             if (extraPanel instanceof HTMLElement) {
                 if (isDuration && durationPresetOptions.length) {
                     extraPanel.innerHTML = `
-                        <div class="sy-custom-props-floatbar__duration-helper">选预设或直接输入</div>
+                        <div class="sy-custom-props-floatbar__duration-helper">${__tmT("quickbar.pickAPresetOrTypeAValue")}</div>
                         ${durationPresetOptions.map((value) => {
                             const label = globalThis.__tmDuration?.formatPresetLabel?.(value, durationPresetUnit) || value;
                             return `

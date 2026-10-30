@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'task-horizon', 'main', '10-stores-rules-and-cache.js'),

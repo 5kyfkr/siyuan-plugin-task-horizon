@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const {execFileSync} = require('node:child_process');
-const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const {chromium} = require('./i18n-browser-fixture');
 const root = path.join(__dirname, '..');
 execFileSync(process.execPath,[path.join(__dirname,'shortcut-sidebar-browser-fixture.js')],{cwd:root});
 const read = file => fs.readFileSync(path.join(root,file),'utf8');

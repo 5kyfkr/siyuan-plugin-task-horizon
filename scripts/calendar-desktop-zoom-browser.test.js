@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = require('./i18n-browser-fixture');
 const { setup, readFunction, tapMinute, resizeEdge, gesturePath } = require('./calendar-click-draft-browser.test.js');
 const storageKey = 'tm_calendar_desktop_timeline_scale';
 const source = fs.readFileSync(path.resolve(__dirname, '../calendar-view.js'), 'utf8');

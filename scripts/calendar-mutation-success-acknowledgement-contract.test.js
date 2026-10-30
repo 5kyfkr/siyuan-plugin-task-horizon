@@ -1,9 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const fs = require('./i18n-source-fixture');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const root = path.resolve(__dirname, '..');
 const calendar = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');

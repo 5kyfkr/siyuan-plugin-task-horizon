@@ -21,16 +21,16 @@
         columnOrder.forEach((columnKey) => {
             switch (columnKey) {
                 case 'pinned':
-                    html += `<td style="${getCellStyle('pinned', 'text-align:center;')}"><input type="checkbox" ${task.pinned ? 'checked' : ''} onchange="tmSetPinned('${task.id}', this.checked, event)" title="置顶"></td>`;
+                    html += `<td style="${getCellStyle('pinned', 'text-align:center;')}"><input type="checkbox" ${task.pinned ? 'checked' : ''} onchange="tmSetPinned('${task.id}', this.checked, event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.pin")}"></td>`;
                     break;
                 case 'content':
                     html += `<td class="tm-task-content-cell" style="${getCellStyle('content')}">${String(opts.contentHtml || '')}</td>`;
                     break;
                 case 'doc':
-                    html += `<td class="tm-cell-editable tm-task-meta-cell" style="${getCellStyle('doc')}" title="点击移动到当前分组其他文档" onclick="tmPickTaskDocInline('${task.id}', this, event)">${esc(task.docName || '')}</td>`;
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" style="${getCellStyle('doc')}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clickToMoveToAnotherDocumentInThisGroup")}" onclick="tmPickTaskDocInline('${task.id}', this, event)">${esc(task.docName || '')}</td>`;
                     break;
                 case 'h2':
-                    html += `<td class="tm-cell-editable tm-task-meta-cell" style="${getCellStyle('h2')}" title="点击切换标题" onclick="tmPickHeadingInline('${task.id}', this, event)">${esc(__tmNormalizeHeadingText(task.h2) || '无')}</td>`;
+                    html += `<td class="tm-cell-editable tm-task-meta-cell" style="${getCellStyle('h2')}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clickToSwitchHeading")}" onclick="tmPickHeadingInline('${task.id}', this, event)">${esc(__tmNormalizeHeadingText(task.h2) || __tmT("common.none"))}</td>`;
                     break;
                 case 'score':
                     html += `<td class="tm-task-meta-cell" data-tm-field="score" style="${getCellStyle('score', 'text-align:center;font-variant-numeric:inherit;')}">${Math.round(__tmEnsureTaskPriorityScore(task))}</td>`;
@@ -348,7 +348,7 @@
                             ${toggle}
                         </span>
                         <span class="tm-task-text ${taskDone ? 'tm-task-done' : ''}" data-level="${row.depth}">
-                            <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${task.id}', event, { surface: 'timeline' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, task.content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                            <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${task.id}', event, { surface: 'timeline' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, task.content || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                         </span>
                     </div>`;
                 const taskId = String(task.id || '').trim();
@@ -429,7 +429,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                ${leftRowsHtml || `<tr><td colspan="${timelineColumnCount}" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`}
+                                ${leftRowsHtml || `<tr><td colspan="${timelineColumnCount}" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">${__tmT("calendar.noTasks")}</td></tr>`}
                             </tbody>
                         </table>
                     </div>
@@ -463,7 +463,7 @@
                 <div class="tm-body tm-body--timeline${bodyAnimClass}">
                     <div class="tm-timeline-split${splitClass}">
                         ${timelineLeftHtml}
-                        <div class="tm-timeline-splitter" role="separator" aria-label="调整任务表格宽度" aria-orientation="vertical" aria-valuemin="${leftPaneLayout.minWidth}" aria-valuemax="${leftPaneLayout.maxWidth}" aria-valuenow="${leftWidth}" tabindex="0" onmousedown="tmStartTimelineSplitResize(event)" onkeydown="tmTimelineSplitResizeKeydown(event)" title="拖拽调整宽度"></div>
+                        <div class="tm-timeline-splitter" role="separator" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.resizeTaskTable")}" aria-orientation="vertical" aria-valuemin="${leftPaneLayout.minWidth}" aria-valuemax="${leftPaneLayout.maxWidth}" aria-valuenow="${leftWidth}" tabindex="0" onmousedown="tmStartTimelineSplitResize(event)" onkeydown="tmTimelineSplitResizeKeydown(event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.dragToResize")}"></div>
                         ${timelineRightHtml}
                     </div>
                     ${timelineScrollbarHtml}
@@ -851,7 +851,7 @@
                         if (!statusId || seen.has(statusId)) return;
                         const display = __tmResolveTaskStatusDisplayOption(columnTask, statusOptions, {
                             fallbackColor: isKanbanTaskCompleted(columnTask) ? '#9e9e9e' : '#757575',
-                            fallbackName: isKanbanTaskCompleted(columnTask) ? '完成' : '待办',
+                            fallbackName: isKanbanTaskCompleted(columnTask) ? __tmT("quickbar.done") : __tmT("homepage.toDo"),
                         });
                         push({
                             id: statusId,
@@ -945,7 +945,7 @@
                     if (!groups.has(key)) {
                         groups.set(key, {
                             id: key,
-                            name: String(info?.label || '').trim() || '待定',
+                            name: String(info?.label || '').trim() || __tmT("task.unscheduled"),
                             labelHtml: String(info?.labelHtml || '').trim(),
                             color: getTimeGroupLabelColor(info),
                             kind: 'time',
@@ -962,16 +962,16 @@
             };
             const buildQuadrantBoardCols = () => {
                 const fallbackNames = {
-                    'urgent-important': '重要紧急',
-                    'not-urgent-important': '重要不紧急',
-                    'urgent-not-important': '不重要紧急',
-                    'not-urgent-not-important': '不重要不紧急',
+                    'urgent-important': __tmT("calendar.importantUrgent"),
+                    'not-urgent-important': __tmT("calendar.importantNotUrgent"),
+                    'urgent-not-important': __tmT("calendar.notImportantUrgent"),
+                    'not-urgent-not-important': __tmT("calendar.notImportantNotUrgent"),
                 };
                 return quadrantOrder.map((id) => {
                     const rule = quadrantRules.find((item) => String(item?.id || '').trim() === id) || {};
                     return {
                         id,
-                        name: String(rule.name || fallbackNames[id] || id).trim(),
+                        name: globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule) || fallbackNames[id] || id,
                         color: quadrantColorMap[String(rule.color || '').trim()] || 'var(--tm-text-color)',
                         kind: 'quadrant',
                     };
@@ -981,8 +981,8 @@
             const docRank = new Map(docsInOrder.map((id, idx) => [id, idx]));
 
             const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
-            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-            const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+            const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+            const noHeadingLabel = __tmT("calendar.no", { value1: headingLabelMap[headingLevel] || __tmT("calendar.title") });
             const tomatoFocusTaskId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
             const tomatoFocusModeEnabled = tomatoFocusTaskId ? __tmIsTomatoFocusModeEnabled() : false;
             const tomatoFocusDescendantMemo = new Map();
@@ -1050,14 +1050,14 @@
                 const list = Array.isArray(items) ? items : [];
                 if (list.length <= 1) return '';
                 const buttons = list.map((item, index) => {
-                    const label = String(item?.label || '').trim() || `看板 ${index + 1}`;
+                    const label = String(item?.label || '').trim() || __tmT("calendar.board", { value1: index + 1 });
                     const title = String(item?.title || label).trim() || label;
                     const color = String(item?.color || '').trim();
                     const style = color ? ` style="--tm-kanban-board-nav-color:${esc(color)};"` : '';
                     return `<button type="button" class="tm-kanban-board-nav__item" data-tm-kanban-nav-index="${index}" data-tm-kanban-col-key="${esc(String(item?.key || ''))}" role="tab" aria-selected="false" title="${esc(title)}"${style} onclick="tmKanbanBoardNavJump(event, ${index})">${esc(label)}</button>`;
                 }).join('');
                 return `
-                    <nav class="tm-kanban-board-nav" role="tablist" aria-label="看板导航" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation()">
+                    <nav class="tm-kanban-board-nav" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.boardNavigation")}" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation()">
                         <div class="tm-kanban-board-nav__inner">
                             <span class="tm-kanban-board-nav__indicator" aria-hidden="true"></span>
                             ${buttons}
@@ -1097,7 +1097,7 @@
                     });
                     const headingCols = ordered.map((docId) => ({
                         id: docId,
-                        name: docNameById.get(docId) || '未知文档',
+                        name: docNameById.get(docId) || __tmT("task.unknownDocument"),
                         color: pickDocColor(docId),
                         kind: 'doc',
                         docId: docId,
@@ -1114,8 +1114,8 @@
                 });
 
                 const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
-                const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-                const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+                const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+                const noHeadingLabel = __tmT("calendar.no", { value1: headingLabelMap[headingLevel] || __tmT("calendar.title") });
                 const hasNoHeadingTasks = docTasks.some((task) => {
                     const bucket = __tmGetDocHeadingBucket(task, noHeadingLabel);
                     return String(bucket?.label || '').trim() === noHeadingLabel || String(bucket?.id || '').trim() === '__none__';
@@ -1157,7 +1157,7 @@
                         cols0.push({
                             bucketKey,
                             headingId: String(b?.id || '').trim(),
-                            name: String(b?.label || '').trim() || '(空标题)',
+                            name: String(b?.label || '').trim() || __tmT("homepage.untitledHeading"),
                             color: pickDocColor(docId),
                             kind: 'heading',
                             docId,
@@ -1174,7 +1174,7 @@
                         cols0.push({
                             bucketKey: String(key || '').trim() || `label:${noHeadingLabel}`,
                             headingId: String(grouped.get(key)?.id || '').trim(),
-                            name: String(grouped.get(key)?.label || '').trim() || '(空标题)',
+                            name: String(grouped.get(key)?.label || '').trim() || __tmT("homepage.untitledHeading"),
                             color: pickDocColor(docId),
                             kind: 'heading',
                             docId,
@@ -1193,7 +1193,7 @@
                         cols0.push({
                             bucketKey: key,
                             headingId: hid,
-                            name: String(h?.content || '').trim() || '(空标题)',
+                            name: String(h?.content || '').trim() || __tmT("homepage.untitledHeading"),
                             color: pickDocColor(docId),
                             kind: 'heading',
                             docId,
@@ -1298,7 +1298,7 @@
                 const docName = docNameById.get(docId) || '';
                 const opt = __tmResolveTaskStatusDisplayOption(task, statusOptions, {
                     fallbackColor: taskDone ? '#9e9e9e' : '#757575',
-                    fallbackName: taskDone ? '完成' : (defaultUndoneOpt?.name || '待办'),
+                    fallbackName: taskDone ? __tmT("quickbar.done") : (defaultUndoneOpt?.name || __tmT("homepage.toDo")),
                 });
                 const timeTxt = __tmGetTaskCardDateValue(task);
                 const dateTxt = timeTxt ? __tmFormatTaskCardDateValue(task) : '';
@@ -1310,7 +1310,7 @@
                 if (!taskDone) {
                     statusChip = `<span class="tm-status-tag" style="${statusChipStyle}" onclick="tmKanbanOpenStatusSelect('${id}', this, event)">${esc(opt.name || '')}</span>`;
                 } else if (keepCompletedStatusChip) {
-                    statusChip = `<span class="tm-status-tag" style="${statusChipStyle};cursor:default;">${esc(opt.name || '完成')}</span>`;
+                    statusChip = `<span class="tm-status-tag" style="${statusChipStyle};cursor:default;">${esc(opt.name || __tmT("quickbar.done"))}</span>`;
                 }
                 const priorityChipStyle = __tmBuildPriorityChipStyle(task?.priority);
                 const priorityChip = `<span class="tm-kanban-priority-chip" style="${priorityChipStyle}" onclick="tmPickPriority('${id}', this, event)">${__tmRenderPriorityJira(task?.priority, false)}</span>`;
@@ -1319,7 +1319,7 @@
                 if (kanbanCardFields.has('status') && __tmShouldRenderTaskCardStatus(task) && statusChip) metaParts.push(statusChip);
                 if (kanbanCardFields.has('date') && __tmShouldRenderTaskCardDate(task)) {
                     const dateChipClass = `${timeTxt ? ' tm-kanban-chip--date-has-value' : ' tm-kanban-chip--date-empty'}${isTaskOverdue ? ' tm-kanban-chip--date-overdue' : ''}`;
-                    metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">${esc(dateTxt || '日期')}</span>`);
+                    metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${id}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clickToPickADate")}">${esc(dateTxt || __tmT("calendar.date"))}</span>`);
                 }
                 if (kanbanCardFields.has('scheduleTime')) {
                     const scheduleTime = __tmRenderTaskScheduleTimeHtml(task);
@@ -1332,7 +1332,7 @@
                 }
                 if (kanbanCardFields.has('tomatoSummary')) {
                     const text = __tmGetTaskTomatoSummaryText(task);
-                    if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoSummary" onclick="tmEditFocusSummaryInline('${id}', this)" title="时长与番茄">${__tmGetTaskTomatoSummaryHtml(task)}</span>`);
+                    if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoSummary" onclick="tmEditFocusSummaryInline('${id}', this)" title="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.durationPomodoro")}">${__tmGetTaskTomatoSummaryHtml(task)}</span>`);
                 }
                 if (kanbanCardFields.has('tomatoEstimateCount')) {
                     const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task));
@@ -1387,14 +1387,14 @@
                     extraClass: isGloballyLocked ? 'tm-operating' : '',
                     collapsed: !!(isParent && totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant),
                 });
-                const taskTitleHtml = API.renderTaskContentHtml(task.markdown, content || '(无内容)');
+                const taskTitleHtml = API.renderTaskContentHtml(task.markdown, content || __tmT("kernel.noContent"));
                 const titleInnerHtml = `${taskTitleHtml}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
-                const titleAttrs = `onclick="tmTaskTitleClick('${id}', event, { surface: 'kanban' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
+                const titleAttrs = `onclick="tmTaskTitleClick('${id}', event, { surface: 'kanban' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, content || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
                 const parentTaskTitleCls = !isSub ? ' tm-parent-task-title' : '';
                 const cardMetaParts = docChipHtml ? [...metaParts, docChipHtml] : metaParts;
                 const cardMetaHtml = cardMetaParts.length ? `<div class="tm-kanban-card-meta">${cardMetaParts.join('')}</div>` : '';
                 const subtaskMetaHtml = metaParts.length ? `<div class="tm-kanban-subtask-meta">${metaParts.join('')}</div>` : '';
-                const subtaskToggleTitle = isChildrenCollapsed ? '展开子任务' : '折叠子任务';
+                const subtaskToggleTitle = isChildrenCollapsed ? __tmT("calendar.expandSubtasks") : __tmT("calendar.collapseSubtasks");
                 const subtaskCountButtonHtml = `<button class="tm-badge tm-badge--count tm-kanban-subtasks-count" type="button" data-tm-kanban-collapse-owner="${id}" data-tm-subtask-count-owner="${id}" aria-expanded="${isChildrenCollapsed ? 'false' : 'true'}" onclick="tmKanbanToggleCollapse('${id}', event)" title="${subtaskToggleTitle}">${completedChildren}/${totalChildren}</button>`;
                 const subtaskToggleControlHtml = toggleHtml
                     ? `<span class="tm-kanban-subtask-toggle-control">${subtaskCountButtonHtml}${toggleHtml}</span>`
@@ -1416,7 +1416,7 @@
                                     ${subtaskMetaHtml}
                                 </div>
                                 <div class="tm-kanban-subtask-actions">
-                                    <button class="tm-kanban-more tm-kanban-subtask-more" onclick="tmOpenTaskDetail('${id}', event)" title="任务详情">${__tmRenderLucideIcon('dots-three')}</button>
+                                    <button class="tm-kanban-more tm-kanban-subtask-more" onclick="tmOpenTaskDetail('${id}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.taskDetails")}">${__tmRenderLucideIcon('dots-three')}</button>
                                     ${subtaskToggleControlHtml}
                                 </div>
                             </div>
@@ -1429,9 +1429,9 @@
                 const childrenCollapsed = !!(isParent && isChildrenCollapsed);
                 const subtasksSectionHtml = isParent && totalChildren > 0
                     ? `
-                        <section class="tm-kanban-subtasks" data-tm-kanban-subtasks-owner="${id}" aria-label="子任务">
-                            <button class="tm-kanban-subtasks-head" type="button" data-tm-kanban-collapse-owner="${id}" aria-expanded="${childrenCollapsed ? 'false' : 'true'}" onclick="tmKanbanToggleCollapse('${id}', event)" title="${childrenCollapsed ? '展开子任务' : '折叠子任务'}">
-                                <span class="tm-kanban-subtasks-label">${__tmRenderBadgeIcon('clipboard-list', 14)}<span>子任务</span></span>
+                        <section class="tm-kanban-subtasks" data-tm-kanban-subtasks-owner="${id}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.subtasks")}">
+                            <button class="tm-kanban-subtasks-head" type="button" data-tm-kanban-collapse-owner="${id}" aria-expanded="${childrenCollapsed ? 'false' : 'true'}" onclick="tmKanbanToggleCollapse('${id}', event)" title="${childrenCollapsed ? __tmT("calendar.expandSubtasks") : __tmT("calendar.collapseSubtasks")}">
+                                <span class="tm-kanban-subtasks-label">${__tmRenderBadgeIcon('clipboard-list', 14)}<span>${__tmT("calendar.subtasks")}</span></span>
                                 <span class="tm-badge tm-badge--count" data-tm-subtask-count-owner="${id}">${completedChildren}/${totalChildren}</span>
                                 <span class="tm-kanban-subtasks-chevron" aria-hidden="true"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:rotate(${childrenCollapsed ? '0deg' : '90deg'});"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                             </button>
@@ -1452,9 +1452,9 @@
                                     ${cardMetaHtml}
                                 </div>
                             </div>
-                            <button class="tm-kanban-more" onclick="tmOpenTaskDetail('${id}', event)" title="任务详情">${__tmRenderLucideIcon('dots-three')}</button>
+                            <button class="tm-kanban-more" onclick="tmOpenTaskDetail('${id}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.taskDetails")}">${__tmRenderLucideIcon('dots-three')}</button>
                         </div>
-                        ${parentTxt ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentTxt)}"><span>父任务：</span><span style="font-weight:${SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800'};color:var(--card-foreground);">${esc(parentTxt)}</span></div>` : ''}
+                        ${parentTxt ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentTxt)}"><span>${__tmT("calendar.parentTask")}</span><span style="font-weight:${SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800'};color:var(--card-foreground);">${esc(parentTxt)}</span></div>` : ''}
                         ${remarkHtml}
                         ${subtasksSectionHtml}
                     </div>
@@ -1601,7 +1601,7 @@
                     const childList = (childrenByParent.get(id) || []).filter((child) => __tmShouldKeepChildTaskVisible(task, child, inheritedHideCompleted));
                     const collapsed = childList.length ? (__tmKanbanGetCollapsedSet().has(id) && !hasTomatoFocusDescendant(id)) : false;
                     const toggleHtml = childList.length
-                        ? `<button class="tm-kanban-subtask-toggle tm-kanban-subtasks-chevron" data-tm-kanban-collapse-owner="${id}" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="tmKanbanToggleCollapse('${id}', event)" title="${collapsed ? '展开子任务' : '折叠子任务'}"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:rotate(${collapsed ? '0deg' : '90deg'});"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+                        ? `<button class="tm-kanban-subtask-toggle tm-kanban-subtasks-chevron" data-tm-kanban-collapse-owner="${id}" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="tmKanbanToggleCollapse('${id}', event)" title="${collapsed ? __tmT("calendar.expandSubtasks") : __tmT("calendar.collapseSubtasks")}"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:rotate(${collapsed ? '0deg' : '90deg'});"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
                         : '';
                     const childrenHtml = childList.length
                         ? childList.map(ch => renderTree(
@@ -1637,8 +1637,8 @@
                     return `
                         <button class="tm-group-create-btn tm-kanban-create-btn tm-kanban-group-add"
                                 type="button"
-                                title="在该标题下新建任务"
-                                aria-label="在该标题下新建任务"
+                                title="${globalThis.__taskHorizonHostBridge.i18n.html("task.newTaskUnderThisHeading")}"
+                                aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.newTaskUnderThisHeading")}"
                                 onpointerdown="event.stopPropagation()"
                                 onclick="event.preventDefault();event.stopPropagation();tmCreateTaskForHeadingGroup('${escSq(did)}','${escSq(hid)}', event)">
                             ${__tmRenderLucideIcon('plus')}
@@ -1676,7 +1676,7 @@
                     `;
                 };
 
-                const pinnedGroupLabelHtml = `<span style="display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--tm-pinned-color);"><span class="tm-checklist-group-pin-icon" style="transform:translateY(-1px);">${__tmRenderBadgeIcon('pin', 14)}</span><span>置顶</span></span>`;
+                const pinnedGroupLabelHtml = `<span style="display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--tm-pinned-color);"><span class="tm-checklist-group-pin-icon" style="transform:translateY(-1px);">${__tmRenderBadgeIcon('pin', 14)}</span><span>${__tmT("kernel.pin")}</span></span>`;
                 const renderPinnedGroupTitle = (groupKey, count) => {
                     const isCollapsed = state.collapsedGroups?.has(groupKey);
                     return `
@@ -1706,7 +1706,7 @@
                     if (!completedTailGroupEnabled || completedRoots.length === 0) return '';
                     const doneGroupKey = __tmBuildCompletedRootGroupKey(`kanban:${String(c.id || '').trim() || 'col'}`);
                     const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
-                    const doneTitle = `<span style="color:var(--tm-secondary-text);">已完成任务</span>`;
+                    const doneTitle = `<span style="color:var(--tm-secondary-text);">${__tmT("calendar.completedTasks")}</span>`;
                     const doneBody = renderKanbanGroupItems(renderCompletedTaskGroups(completedRoots, doneGroupKey), doneCollapsed);
                     return `<div class="tm-kanban-group">${renderGroupTitle(doneGroupKey, doneTitle, completedRoots.length, 'var(--tm-secondary-text)', { collapsed: doneCollapsed })}${doneBody}</div>`;
                 };
@@ -1774,7 +1774,7 @@
                         const items = rootByDoc.get(docId) || [];
                         const groupKey = `kanban_${c.id}_doc_${docId}`;
                         const isCollapsed = showDocTitle && state.collapsedGroups?.has(groupKey);
-                        const docName = docNameById.get(docId) || '未知文档';
+                        const docName = docNameById.get(docId) || __tmT("task.unknownDocument");
                         const labelColor = docId === '__unknown__' ? 'var(--tm-secondary-text)' : (__tmGetDocColorHex(docId, isDark) || 'var(--tm-group-doc-label-color)');
                         const title = `<span style="display:inline-flex;align-items:center;gap:6px;color:${labelColor};">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${esc(docName)}</span></span>`;
                         // 在标题看板模式下，即使设置中没有启用 docH2SubgroupEnabled，也启用二级标题分组
@@ -1786,8 +1786,8 @@
                             body = groupItems.length ? renderKanbanGroupItems(groupItems.map(t => renderTree(t, 0)).join(''), isCollapsed) : '';
                         } else {
                             const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
-                            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-                            const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+                            const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+                            const noHeadingLabel = __tmT("calendar.no", { value1: headingLabelMap[headingLevel] || __tmT("calendar.title") });
                             const buckets = __tmBuildDocHeadingBuckets(items, noHeadingLabel);
                             const grouped = new Map();
                             items.forEach((task) => {
@@ -1927,7 +1927,7 @@
                             const groupKey = `kanban_${c.id}_quadrant_${String(rule.id || k)}`;
                             const isCollapsed = state.collapsedGroups?.has(groupKey);
                             const color = quadrantColorMap[String(rule.color || '')] || 'var(--tm-text-color)';
-                            const title = `<span style="color:${color};">${esc(String(rule.name || k))}</span>`;
+                            const title = `<span style="color:${color};">${esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule) || k)}</span>`;
                             const items = sortKanbanGroupItems((Array.isArray(g.items) ? g.items : []).slice(), needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
                             const body = renderKanbanGroupItems(items.map(t => renderTree(t, 0)).join(''), isCollapsed);
                             return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, items.length, color)}${body}</div>`;
@@ -2169,7 +2169,7 @@
                             if (!(body instanceof HTMLElement)) return { done: false, retry: true };
                             const patchResult = globalThis.__tmPatchKanbanProgressiveColumn?.(
                                 body,
-                                nextColumnRender.html || `<div class="tm-kanban-empty">空</div>`
+                                nextColumnRender.html || `<div class="tm-kanban-empty">${__tmT("ai.empty")}</div>`
                             );
                             if (!patchResult?.ok) return { done: false, retry: true };
                             progressiveColumnLimit = nextLimit;
@@ -2197,14 +2197,14 @@
                     if (!renderThisColumn) return '';
                 }
                 const title = isDoneCol
-                    ? '✅ 已完成'
+                    ? __tmT("calendar.done")
                     : (quadrantBoardMode
                     ? c.name
                     : (timeBoardMode
                     ? c.name
                     : (headingMode
                     ? (kind === 'doc' ? `📄 ${c.name}` : c.name)
-                    : (c.id === '__done__' ? '✅ 已完成' : c.id === 'todo' ? `🗂️ ${c.name}` : c.name))));
+                    : (c.id === '__done__' ? __tmT("calendar.done") : c.id === 'todo' ? `🗂️ ${c.name}` : c.name))));
                 const dataAttrs = isDoneCol
                     ? `data-kind="status" data-status="__done__"`
                     : (quadrantBoardMode
@@ -2237,9 +2237,9 @@
                 const columnProgress = progressByColumn.get(String(c.id)) || { total: 0, done: 0 };
                 const progressDocId = showColumnProgress && kind === 'doc' ? String(c.id) : '';
                 const progressPercent = showColumnProgress ? __tmGetProjectProgressPercent(columnProgress, progressDocId) : 0;
-                const progressLabel = columnProgress.total ? `项目进度 ${progressPercent}%` : '暂无任务';
+                const progressLabel = columnProgress.total ? __tmT("calendar.projectProgress", { progressPercent: progressPercent }) : __tmT("calendar.noTasks");
                 const progressTextHtml = showColumnProgress ? `<span class="tm-kanban-col-completion" title="${esc(progressLabel)}">${progressPercent}%</span>` : '';
-                const progressBarHtml = showColumnProgress ? `<div class="tm-kanban-col-progress" data-progress-doc="${esc(progressDocId)}" data-progress-key="${esc(c.id)}" data-progress-total="${columnProgress.total}" data-progress-done="${columnProgress.done}" data-progress-none-label="${esc(noHeadingLabel)}" role="progressbar" aria-label="${esc(c.name)}完成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" aria-valuetext="${esc(progressLabel)}" title="${esc(progressLabel)}" style="--tm-kanban-completion:${progressPercent / 100}"><span></span></div>` : '';
+                const progressBarHtml = showColumnProgress ? `<div class="tm-kanban-col-progress" data-progress-doc="${esc(progressDocId)}" data-progress-key="${esc(c.id)}" data-progress-total="${columnProgress.total}" data-progress-done="${columnProgress.done}" data-progress-none-label="${esc(noHeadingLabel)}" role="progressbar" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.doneprogress", { name: c.name })}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" aria-valuetext="${esc(progressLabel)}" title="${esc(progressLabel)}" style="--tm-kanban-completion:${progressPercent / 100}"><span></span></div>` : '';
                 const docIdForTitle = String(c?.docId || c?.id || '').trim();
                 const headingDocId = String(c?.docId || '').trim();
                 const headingIdForCreate = String(c?.headingId || '__none__').trim() || '__none__';
@@ -2267,9 +2267,9 @@
                         ? `${__tmRenderHeadingLevelInlineIcon(c?.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })}<span>${esc(String(c?.name || ''))}</span>`
                         : esc(title)));
                 const titleTextHtml = canOpenDocFromTitle
-                    ? `<button type="button" class="tm-kanban-col-title-text tm-kanban-col-title-text--link" title="点击跳转至文档：${esc(c.name)}" onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(docIdForTitle)}');">${titleContentHtml}</button>`
+                    ? `<button type="button" class="tm-kanban-col-title-text tm-kanban-col-title-text--link" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.goToDocument", { name: c.name })}" onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(docIdForTitle)}');">${titleContentHtml}</button>`
                     : `<span class="tm-kanban-col-title-text" title="${esc(c.name)}">${titleContentHtml}</span>`;
-                const navLabel = String(isDoneCol ? '已完成' : (c?.name || title || '')).trim();
+                const navLabel = String(isDoneCol ? __tmT("ai.completed") : (c?.name || title || '')).trim();
                 kanbanBoardNavItems.push({
                     key: columnKey,
                     label: navLabel,
@@ -2283,8 +2283,8 @@
                         ${canQuickAddToDoc
                             ? `<button class="tm-group-create-btn tm-kanban-create-btn tm-kanban-col-add"
                                        type="button"
-                                       title="新建任务"
-                                       aria-label="新建任务"
+                                       title="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}"
+                                       aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}"
                                        onpointerdown="event.stopPropagation()"
                                        onclick="event.preventDefault();event.stopPropagation();tmQuickAddOpenForDoc('${escSq(docIdForTitle)}');">
                                     ${__tmRenderLucideIcon('plus')}
@@ -2293,8 +2293,8 @@
                         ${canQuickAddToStatus
                             ? `<button class="tm-group-create-btn tm-kanban-create-btn tm-kanban-col-add"
                                        type="button"
-                                       title="新建任务"
-                                       aria-label="新建任务"
+                                       title="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}"
+                                       aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}"
                                        onpointerdown="event.stopPropagation()"
                                        onclick="event.preventDefault();event.stopPropagation();tmQuickAddOpenForPreset('${escSq(statusDocIdForCreate)}','${escSq(statusIdForCreate)}');">
                                     ${__tmRenderLucideIcon('plus')}
@@ -2303,8 +2303,8 @@
                         ${canQuickAddToTimeDate
                             ? `<button class="tm-group-create-btn tm-kanban-create-btn tm-kanban-col-add"
                                        type="button"
-                                       title="新建任务"
-                                       aria-label="新建任务"
+                                       title="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}"
+                                       aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}"
                                        onpointerdown="event.stopPropagation()"
                                        onclick="event.preventDefault();event.stopPropagation();tmQuickAddOpenForPreset('${escSq(timeDocIdForCreate)}','', '${escSq(timeDateForCreate)}');">
                                     ${__tmRenderLucideIcon('plus')}
@@ -2313,8 +2313,8 @@
                         ${canCreateInHeading
                             ? `<button class="tm-group-create-btn tm-kanban-create-btn tm-kanban-col-add"
                                        type="button"
-                                       title="在该标题下新建任务"
-                                       aria-label="在该标题下新建任务"
+                                       title="${globalThis.__taskHorizonHostBridge.i18n.html("task.newTaskUnderThisHeading")}"
+                                       aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.newTaskUnderThisHeading")}"
                                        onpointerdown="event.stopPropagation()"
                                        onclick="event.preventDefault();event.stopPropagation();tmCreateTaskForHeadingGroup('${escSq(headingDocId)}','${escSq(headingIdForCreate)}', event)">
                                     ${__tmRenderLucideIcon('plus')}
@@ -2326,8 +2326,8 @@
                         })() : ''}
                         <button class="tm-kanban-col-collapse"
                                 type="button"
-                                title="折叠看板列"
-                                aria-label="折叠看板列：${esc(c.name)}"
+                                title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.collapseBoardColumn")}"
+                                aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.collapseBoardColumn2", { name: c.name })}"
                                 onclick="tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)">
                             ${__tmRenderLucideIcon('arrows-in-line-horizontal')}
                         </button>
@@ -2340,7 +2340,7 @@
                         ${headerActionsHtml}
                     </div>
                 `;
-                const collapsedTitle = isDoneCol ? '已完成' : String(c?.name || title || '').trim();
+                const collapsedTitle = isDoneCol ? __tmT("ai.completed") : String(c?.name || title || '').trim();
                 const collapsedIconInnerHtml = headingMode && !isDoneCol && kind === 'doc'
                     ? __tmRenderDocIcon(docIdForTitle, { fallbackText: '📄', size: 14 })
                     : '';
@@ -2359,10 +2359,10 @@
                         <div class="tm-kanban-col-header tm-kanban-col-header--collapsed"
                              data-tm-kanban-column-collapsed-content${isColumnCollapsed ? '' : ' hidden'}${headingContextMenuAttrs}
                              style="color:${esc(colTitleColor)};"
-                             title="展开看板列：${esc(collapsedTitle)}"
+                             title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.expandBoardColumn", { collapsedTitle: collapsedTitle })}"
                              role="button"
                              tabindex="0"
-                             aria-label="展开看板列：${esc(collapsedTitle)}"
+                             aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.expandBoardColumn", { collapsedTitle: collapsedTitle })}"
                              onclick="tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)"
                              onkeydown="if(event.key==='Enter'||event.key===' '){tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)}">
                             <div class="tm-kanban-col-collapsed-label">
@@ -2373,14 +2373,14 @@
                             </div>
                             <button class="tm-kanban-col-collapse tm-kanban-col-collapse--expand"
                                     type="button"
-                                    title="展开看板列"
-                                    aria-label="展开看板列：${esc(collapsedTitle)}"
+                                    title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.expandBoardColumn2")}"
+                                    aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.expandBoardColumn", { collapsedTitle: collapsedTitle })}"
                                     onclick="tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)">
                                 ${__tmRenderLucideIcon('arrows-out-line-horizontal')}
                             </button>
                         </div>
                         <div class="tm-kanban-col-body" data-tm-kanban-column-expanded-content${isColumnCollapsed ? ' hidden' : ''} ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
-                            ${listHtml || deferredColumnPlaceholder || `<div class="tm-kanban-empty">空</div>`}
+                            ${listHtml || deferredColumnPlaceholder || `<div class="tm-kanban-empty">${__tmT("ai.empty")}</div>`}
                         </div>
                     </div>
                 `;

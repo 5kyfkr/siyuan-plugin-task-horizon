@@ -1,7 +1,7 @@
     function __tmExcelSanitizeFileName(name) {
         const raw = String(name || '').trim();
         const safe = raw.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, ' ').trim();
-        return safe || '任务管理器_表格导出';
+        return safe || __tmT("settings.taskManagerTableExport");
     }
 
     function __tmExcelDateStamp() {
@@ -16,25 +16,25 @@
             const docName = String(__tmGetDocDisplayName(activeDocId, '') || '').trim();
             if (docName) return docName;
         }
-        return '任务管理器';
+        return __tmT("common.taskManager");
     }
 
     function __tmExcelGetNoHeadingLabel() {
         const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
-        const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-        return `无${headingLabelMap[headingLevel] || '标题'}`;
+        const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+        return __tmT("calendar.no", { value1: headingLabelMap[headingLevel] || __tmT("calendar.title") });
     }
 
     const TM_SETTINGS_EXPORT_SCHEMA = 'task-horizon-settings-export';
     const TM_SETTINGS_EXPORT_VERSION = 1;
     const TM_SETTINGS_EXPORT_MODULES = Object.freeze([
-        { id: 'settings', label: '常规设置', desc: '常规、外观、规则、状态、自定义字段、视图布局、白板、重要性与优先级分值等。', defaultChecked: true },
-        { id: 'docGroups', label: '文档分组', desc: '文档分组、默认文档、隐藏文档页签、文档颜色、页签排序/钉住等。', defaultChecked: true },
-        { id: 'ai', label: 'AI 接入设置', desc: 'AI 供应商、API Key、Base URL、模型、上下文与排期窗口。', defaultChecked: false },
-        { id: 'aiData', label: 'AI 数据', desc: '智能体自定义预设与安排规则；旧版模式下为提示词和会话记录。', defaultChecked: false },
-        { id: 'scheduledEvents', label: '定时事件', desc: '仅导出事件定义，不包含执行状态和最近结果。', defaultChecked: true },
-        { id: 'calendar', label: '日历设置/日程', desc: '日历配置与用户自建日程。', defaultChecked: true },
-        { id: 'calendarOffline', label: '节假日/农历缓存', desc: '去年、今年、明年范围内真实可用的节假日/农历缓存。', defaultChecked: true },
+        { id: 'settings', label: __tmT("settings.general"), desc: __tmT("settings.generalAppearanceFiltersStatusesCustomFieldsViewsWhiteboardImportance"), defaultChecked: true },
+        { id: 'docGroups', label: __tmT("calendar.documentGroups"), desc: __tmT("settings.documentGroupsDefaultDocumentsHiddenDocumentTabsDocumentColors"), defaultChecked: true },
+        { id: 'ai', label: __tmT("settings.aiAccessSettings"), desc: __tmT("settings.aiProviderApiKeyBaseUrlModelContextAnd"), defaultChecked: false },
+        { id: 'aiData', label: __tmT("settings.aiData"), desc: __tmT("settings.agentCustomPresetsAndSchedulingRulesPromptsAndConversation"), defaultChecked: false },
+        { id: 'scheduledEvents', label: __tmT("settings.scheduledEvents"), desc: __tmT("settings.exportsEventDefinitionsOnlyWithoutExecutionStateOrRecent"), defaultChecked: true },
+        { id: 'calendar', label: __tmT("settings.calendarSettingsSchedules"), desc: __tmT("settings.calendarConfigurationAndUserCreatedSchedules"), defaultChecked: true },
+        { id: 'calendarOffline', label: __tmT("settings.holidayLunarCache"), desc: __tmT("settings.realHolidayLunarCachesAvailableForLastYearThis"), defaultChecked: true },
     ]);
     const TM_DOC_GROUP_SETTING_KEYS = Object.freeze([
         'selectedDocIds',
@@ -242,7 +242,7 @@
             const merged = __tmMergeArrayById(SettingsStore.data.customStatusOptions, patch.customStatusOptions);
             const rules = globalThis.__tmTaskStatusRules;
             const conflicts = rules.conflicts(rules.normalizeOptions(merged));
-            if (conflicts.length) throw new Error('状态语法标记重复（只有空格可以重复）：' + conflicts.map((item) => item.marker).join('、'));
+            if (conflicts.length) throw new Error(__tmT("settings.duplicateStatusMarkersOnlySpaceCanRepeat") + conflicts.map((item) => item.marker).join('、'));
         }
         Object.entries(patch).forEach(([key, value]) => {
             if (!key) return;
@@ -315,10 +315,10 @@
 
     function __tmSettingsMigrationStatusText(status) {
         const s = String(status || '').trim();
-        if (s === 'refreshed') return '已刷新';
-        if (s === 'cached') return '已缓存';
-        if (s === 'missing') return '缺失';
-        return s || '未知';
+        if (s === 'refreshed') return __tmT("settings.refreshed");
+        if (s === 'cached') return __tmT("settings.cached");
+        if (s === 'missing') return __tmT("settings.missing");
+        return s || __tmT("calendar.unknown");
     }
 
     function __tmDownloadTextFile(filename, content, mimeType = 'application/json') {
@@ -340,7 +340,7 @@
             : (String(SettingsStore.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent');
         const currentMode = globalThis.__tmAI?.runtimeKind === 'agent' ? 'agent' : (globalThis.__tmAI?.loaded ? 'legacy' : '');
         if (currentMode !== targetMode) {
-            if (globalThis.__tmAI?.isBusy?.() === true) throw new Error('请先停止当前 AI 请求再导入');
+            if (globalThis.__tmAI?.isBusy?.() === true) throw new Error(__tmT("settings.stopTheCurrentAiRequestBeforeImporting"));
             if (typeof globalThis.__taskHorizonSetAiExperienceMode === 'function') {
                 const ready = await globalThis.__taskHorizonSetAiExperienceMode(targetMode);
                 if (!ready) return false;
@@ -359,7 +359,7 @@
 
     async function __tmBuildSettingsMigrationPackage(selectedModules) {
         const selected = new Set(Array.isArray(selectedModules) ? selectedModules : []);
-        if (!selected.size) throw new Error('请至少选择一个导出模块');
+        if (!selected.size) throw new Error(__tmT("settings.selectAtLeastOneExportModule"));
         if (typeof __tmEnsureSettingsLoaded === 'function') {
             try { await __tmEnsureSettingsLoaded(false); } catch (e) {}
         }
@@ -426,7 +426,7 @@
         return TM_SETTINGS_EXPORT_MODULES.map((mod) => {
             const checked = selected ? selected.has(mod.id) : mod.defaultChecked;
             const warning = mod.id === 'ai'
-                ? '<div style="font-size:12px;color:var(--tm-danger-color);line-height:1.5;margin-top:3px;">包含 API Key，设置包为明文 JSON。</div>'
+                ? `<div style="font-size:12px;color:var(--tm-danger-color);line-height:1.5;margin-top:3px;">${__tmT("settings.includesApiKeysTheSettingsPackageIsPlainText")}</div>`
                 : '';
             return `
                 <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-card-bg);cursor:pointer;">
@@ -453,16 +453,16 @@
         const holidayStatuses = Array.isArray(summary.holidayStatuses) ? summary.holidayStatuses : [];
         const holidayText = holidayStatuses.length
             ? holidayStatuses.map((it) => `${it.year}:${__tmSettingsMigrationStatusText(it.status)}`).join('，')
-            : '无';
+            : __tmT("common.none");
         return `
             <div style="padding:10px 12px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-card-bg);font-size:12px;line-height:1.8;color:var(--tm-secondary-text);">
-                <div style="color:var(--tm-text-color);font-weight:600;margin-bottom:4px;">设置包摘要</div>
-                <div>导出时间：${esc(String(payload?.exportedAt || '未知'))}</div>
-                <div>模块：${labels || '无'}</div>
-                <div>文档分组：${Number(summary.docGroups || 0)} 个 · AI 模式：${esc(summary.aiMode === 'agent' ? '思源智能体' : (summary.aiMode === 'legacy' ? '旧版 AI' : '未包含'))}</div>
-                <div>智能体预设：${Number(summary.agentCustomPresets || 0)} 个 · 安排规则：${summary.agentPolicyIncluded ? '已包含' : '未包含'} · 旧会话：${Number(summary.aiConversations || 0)} 个 · 旧提示词：${Number(summary.aiPromptTemplates || 0)} 个</div>
-                <div>定时事件：${Number(summary.scheduledEvents || 0)} 条 · 日程：${Number(summary.schedules || 0)} 条 · 节假日年份：${Number(summary.holidayYears || 0)} 个（${esc(holidayText)}）</div>
-                <div style="margin-top:4px;color:var(--tm-warning-color, #f9ab00);">节假日调休通常只有最近一年较可靠，缺失年份不会生成空数据。</div>
+                <div style="color:var(--tm-text-color);font-weight:600;margin-bottom:4px;">${__tmT("settings.settingsPackageSummary")}</div>
+                <div>${__tmT("settings.exportedAt", { value1: esc(String(payload?.exportedAt || __tmT("calendar.unknown"))) })}</div>
+                <div>${__tmT("settings.modules", { value1: labels || __tmT("common.none") })}</div>
+                <div>${__tmT("settings.documentGroupsAiMode", { value1: Number(summary.docGroups || 0), value2: esc(summary.aiMode === 'agent' ? __tmT("plugin.siyuanAgent") : (summary.aiMode === 'legacy' ? __tmT("plugin.legacyAi") : __tmT("settings.notIncluded"))) })}</div>
+                <div>${__tmT("settings.agentPresetsSchedulingRulesLegacyConversationsLegacyPrompts", { value1: Number(summary.agentCustomPresets || 0), value2: summary.agentPolicyIncluded ? __tmT("settings.included") : __tmT("settings.notIncluded"), value3: Number(summary.aiConversations || 0), value4: Number(summary.aiPromptTemplates || 0) })}</div>
+                <div>${__tmT("settings.scheduledEventsSchedulesHolidayYears", { value1: Number(summary.scheduledEvents || 0), value2: Number(summary.schedules || 0), value3: Number(summary.holidayYears || 0), holidayText: esc(holidayText) })}</div>
+                <div style="margin-top:4px;color:var(--tm-warning-color, #f9ab00);">${__tmT("settings.holidayMakeUpSchedulesAreUsuallyReliableOnlyFor")}</div>
             </div>
         `;
     }
@@ -472,20 +472,16 @@
         modal.className = 'tm-prompt-modal';
         modal.innerHTML = `
             <div class="tm-prompt-box" style="max-width:640px;width:min(92vw,640px);">
-                <h3 style="margin-bottom:8px;">导出设置包</h3>
-                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-bottom:12px;">
-                    选择要导出的内容。设置包是明文 JSON；勾选 AI 接入设置时会包含 API Key。
-                </div>
+                <h3 style="margin-bottom:8px;">${__tmT("task.exportSettingsPackage")}</h3>
+                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-bottom:12px;">${__tmT("settings.chooseWhatToExportTheSettingsPackageIsPlain")}</div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-bottom:12px;">
                     ${__tmRenderMigrationModuleOptions('export')}
                 </div>
-                <div style="padding:10px 12px;border:1px solid rgba(249,171,0,0.35);background:rgba(249,171,0,0.10);border-radius:8px;font-size:12px;line-height:1.7;color:var(--tm-text-color);">
-                    节假日/农历会检查去年、今年、明年；只导出已有缓存或成功刷新到的真实数据。
-                </div>
+                <div style="padding:10px 12px;border:1px solid rgba(249,171,0,0.35);background:rgba(249,171,0,0.10);border-radius:8px;font-size:12px;line-height:1.7;color:var(--tm-text-color);">${__tmT("settings.holidaysLunarDataAreCheckedForLastYearThis")}</div>
                 <div data-tm-migration-export-summary style="display:none;margin-top:12px;"></div>
                 <div class="tm-prompt-buttons" style="margin-top:14px;">
-                    <button class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-migration-cancel>取消</button>
-                    <button class="tm-prompt-btn tm-prompt-btn-primary" data-tm-migration-export>导出</button>
+                    <button class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-migration-cancel>${__tmT("common.cancel")}</button>
+                    <button class="tm-prompt-btn tm-prompt-btn-primary" data-tm-migration-export>${__tmT("settings.export")}</button>
                 </div>
             </div>
         `;
@@ -509,7 +505,7 @@
                 .filter(Boolean);
             try {
                 btn.disabled = true;
-                btn.textContent = '正在导出...';
+                btn.textContent = __tmT("settings.exporting");
                 const payload = await __tmBuildSettingsMigrationPackage(selected);
                 const stamp = new Date().toISOString().slice(0, 10);
                 __tmDownloadTextFile(`task-horizon-settings-${stamp}.json`, JSON.stringify(payload, null, 2), 'application/json');
@@ -518,15 +514,15 @@
                     summaryEl.style.display = '';
                     summaryEl.innerHTML = __tmRenderMigrationSummary(payload, new Set(selected));
                 }
-                hint('✅ 设置包已导出', 'success');
+                hint(__tmT("settings.settingsPackageExported"), 'success');
                 btn.disabled = false;
-                btn.textContent = '再次导出';
+                btn.textContent = __tmT("settings.exportAgain");
                 const cancelBtn = modal.querySelector('[data-tm-migration-cancel]');
-                if (cancelBtn) cancelBtn.textContent = '关闭';
+                if (cancelBtn) cancelBtn.textContent = __tmT("common.close");
             } catch (e) {
-                hint(`❌ 导出失败：${String(e?.message || e || '')}`, 'error');
+                hint(__tmT("settings.exportFailed", { value1: String(e?.message || e || '') }), 'error');
                 btn.disabled = false;
-                btn.textContent = '导出';
+                btn.textContent = __tmT("settings.export");
             }
         });
     };
@@ -536,9 +532,9 @@
             const reader = new FileReader();
             reader.onload = () => {
                 try { resolve(JSON.parse(String(reader.result || ''))); }
-                catch (e) { reject(new Error('设置包不是合法 JSON')); }
+                catch (e) { reject(new Error(__tmT("settings.theSettingsPackageIsNotValidJson"))); }
             };
-            reader.onerror = () => reject(new Error('读取文件失败'));
+            reader.onerror = () => reject(new Error(__tmT("settings.readingTheFileFailed")));
             reader.readAsText(file, 'utf-8');
         });
     }
@@ -551,7 +547,7 @@
         if (selected.has('ai')) __tmApplyMigrationSettingsPatch(modules.ai?.settings, 'ai');
         if (selected.has('scheduledEvents') && Array.isArray(modules.scheduledEvents?.events)) {
             const scheduledEvents = globalThis['siyuan-plugin-task-horizon']?.scheduledEvents;
-            if (!scheduledEvents?.importDefinitions) throw new Error('定时事件服务尚未就绪，请稍后重试');
+            if (!scheduledEvents?.importDefinitions) throw new Error(__tmT("settings.theScheduledEventsServiceIsNotReadyTryAgain"));
             await scheduledEvents.importDefinitions(modules.scheduledEvents.events);
         }
         if (selected.has('calendar')) {
@@ -596,10 +592,10 @@
             try {
                 payload = await __tmParseSettingsImportFile(file);
                 if (!payload || payload.schema !== TM_SETTINGS_EXPORT_SCHEMA || !payload.modules || typeof payload.modules !== 'object') {
-                    throw new Error('这不是任务管理器设置包');
+                    throw new Error(__tmT("settings.thisIsNotATaskManagerSettingsPackage"));
                 }
             } catch (e) {
-                hint(`❌ 读取失败：${String(e?.message || e || '')}`, 'error');
+                hint(__tmT("settings.readFailed", { value1: String(e?.message || e || '') }), 'error');
                 return;
             }
             const moduleIds = Object.keys(payload.modules || {});
@@ -608,10 +604,8 @@
             modal.className = 'tm-prompt-modal';
             modal.innerHTML = `
                 <div class="tm-prompt-box" style="max-width:680px;width:min(92vw,680px);">
-                    <h3 style="margin-bottom:8px;">导入设置包</h3>
-                    <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-bottom:12px;">
-                        先确认要导入的模块。导入会与当前配置合并；同 ID 的分组、日程、提示词和会话以设置包为准。
-                    </div>
+                    <h3 style="margin-bottom:8px;">${__tmT("task.importSettingsPackage")}</h3>
+                    <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-bottom:12px;">${__tmT("settings.firstConfirmTheModulesToImportImportingMergesWith")}</div>
                     <div data-tm-migration-summary style="margin-bottom:12px;">${__tmRenderMigrationSummary(payload, selected)}</div>
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-bottom:12px;">
                         ${TM_SETTINGS_EXPORT_MODULES.filter((mod) => moduleIds.includes(mod.id)).map((mod) => `
@@ -625,8 +619,8 @@
                         `).join('')}
                     </div>
                     <div class="tm-prompt-buttons" style="margin-top:14px;">
-                        <button class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-migration-cancel>取消</button>
-                        <button class="tm-prompt-btn tm-prompt-btn-primary" data-tm-migration-import>确认导入</button>
+                        <button class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-migration-cancel>${__tmT("common.cancel")}</button>
+                        <button class="tm-prompt-btn tm-prompt-btn-primary" data-tm-migration-import>${__tmT("settings.confirmImport")}</button>
                     </div>
                 </div>
             `;
@@ -655,19 +649,19 @@
                     .map((el) => String(el.getAttribute('data-tm-migration-module') || '').trim())
                     .filter(Boolean);
                 if (!selectedModules.length) {
-                    hint('⚠ 请至少选择一个导入模块', 'warning');
+                    hint(__tmT("settings.selectAtLeastOneImportModule"), 'warning');
                     return;
                 }
                 try {
                     btn.disabled = true;
-                    btn.textContent = '正在导入...';
+                    btn.textContent = __tmT("settings.importing2");
                     await __tmApplySettingsMigrationPackage(payload, selectedModules);
-                    hint('✅ 设置包已导入', 'success');
+                    hint(__tmT("settings.settingsPackageImported"), 'success');
                     close();
                 } catch (e) {
-                    hint(`❌ 导入失败：${String(e?.message || e || '')}`, 'error');
+                    hint(__tmT("settings.importFailed2", { value1: String(e?.message || e || '') }), 'error');
                     btn.disabled = false;
-                    btn.textContent = '确认导入';
+                    btn.textContent = __tmT("settings.confirmImport");
                 }
             });
         };
@@ -793,7 +787,7 @@
             ? calcWorkdayDiff(targetDayStartTs)
             : calcDayDiff(targetDayStartTs);
         const makeInfo = (label, color, sortPrefix, emphasis = false) => ({
-            label: String(label || '').trim() || '待定',
+            label: String(label || '').trim() || __tmT("task.unscheduled"),
             color: String(color || 'var(--tm-secondary-text)').trim() || 'var(--tm-secondary-text)',
             sortPrefix: String(sortPrefix || '8').trim() || '8',
             emphasis: !!emphasis,
@@ -811,15 +805,15 @@
         const taskDone = typeof __tmIsTaskDoneEffective === 'function'
             ? __tmIsTaskDoneEffective(task)
             : task?.done === true;
-        if (__tmIsTaskCanceled(task)) return makeInfo('放弃', colors.waiting, '9');
+        if (__tmIsTaskCanceled(task)) return makeInfo(__tmT("settings.abandoned"), colors.waiting, '9');
         if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
             const today = __tmNormalizeDateOnly(new Date(todayStartTs));
-            if (__tmIsTaskCheckinChecked(task, today)) return makeInfo('今日已打卡', colors.done, '9');
+            if (__tmIsTaskCheckinChecked(task, today)) return makeInfo(__tmT("settings.checkedInToday"), colors.done, '9');
             const date = __tmGetTaskCheckinCurrentDate(task, today);
-            if (!date) return makeInfo('打卡计划已结束', colors.pending, '8');
+            if (!date) return makeInfo(__tmT("settings.checkInScheduleEnded"), colors.pending, '8');
             const days = calcDayDiff(parseToLocalDayBoundaryTs(date, 'start'));
-            if (days === 0) return makeInfo('今日待打卡', colors.activeStrong, '1', true);
-            return makeInfo(`下次打卡 ${days}天后`, colors.waiting, '4');
+            if (days === 0) return makeInfo(__tmT("settings.checkInDueToday"), colors.activeStrong, '1', true);
+            return makeInfo(__tmT("settings.nextCheckInInDays", { days: days }), colors.waiting, '4');
         }
         if (taskDone) {
             const completionRaw = typeof __tmResolveTaskCompletedAtRaw === 'function'
@@ -830,10 +824,10 @@
             const dueStartTs = parseToLocalDayBoundaryTs(dueDate, 'start');
             if (completionStartTs > 0 && dueStartTs > 0) {
                 const completedDeltaDays = Math.round((dueStartTs - completionStartTs) / DAY_MS);
-                if (completedDeltaDays > 0) return makeInfo(`提前${completedDeltaDays}天`, colors.done, '9', true);
-                if (completedDeltaDays < 0) return makeInfo(`延期${Math.abs(completedDeltaDays)}天`, colors.overdue, '9', true);
+                if (completedDeltaDays > 0) return makeInfo(__tmT("settings.daysEarly", { completedDeltaDays: completedDeltaDays }), colors.done, '9', true);
+                if (completedDeltaDays < 0) return makeInfo(__tmT("settings.daysLate", { value1: Math.abs(completedDeltaDays) }), colors.overdue, '9', true);
             }
-            return makeInfo('完成', colors.done, '9');
+            return makeInfo(__tmT("quickbar.done"), colors.done, '9');
         }
 
         const startStartTs = parseToLocalDayBoundaryTs(task?.startDate, 'start');
@@ -846,35 +840,35 @@
         if (hasEnd) {
             if (hasStart && nowTs < startStartTs) {
                 const daysUntilStart = getRemainingDayDiff(startStartTs);
-                if (daysUntilStart <= 0) return makeInfo('开始', colors.active, '2', true);
-                if (daysUntilStart === 1) return makeInfo('明天→', colors.waiting, '4');
-                if (daysUntilStart === 2) return makeInfo('后天→', colors.waiting, '5');
-                if (daysUntilStart <= 7) return makeInfo(`${daysUntilStart}天后→`, colors.waiting, '6');
-                return makeInfo(`${daysUntilStart}天后→`, colors.waiting, '7');
+                if (daysUntilStart <= 0) return makeInfo(__tmT("calendar.start"), colors.active, '2', true);
+                if (daysUntilStart === 1) return makeInfo(__tmT("settings.tomorrow"), colors.waiting, '4');
+                if (daysUntilStart === 2) return makeInfo(__tmT("settings.dayAfterTomorrow"), colors.waiting, '5');
+                if (daysUntilStart <= 7) return makeInfo(__tmT("settings.inDays", { daysUntilStart: daysUntilStart }), colors.waiting, '6');
+                return makeInfo(__tmT("settings.inDays", { daysUntilStart: daysUntilStart }), colors.waiting, '7');
             }
             const remainingDays = getRemainingDayDiff(endStartTs);
-            if (remainingDays < 0 || nowTs > endEndTs) return makeInfo('过期', colors.overdue, '1', true);
-            if (remainingDays === 0) return makeInfo('今天', colors.activeStrong, '1', true);
-            if (remainingDays <= 7) return makeInfo(`余${remainingDays}天`, colors.active, '1', true);
-            return makeInfo(`余${remainingDays}天`, colors.active, '1');
+            if (remainingDays < 0 || nowTs > endEndTs) return makeInfo(__tmT("settings.expired"), colors.overdue, '1', true);
+            if (remainingDays === 0) return makeInfo(__tmT("common.today"), colors.activeStrong, '1', true);
+            if (remainingDays <= 7) return makeInfo(__tmT("settings.daysLeft2", { remainingDays: remainingDays }), colors.active, '1', true);
+            return makeInfo(__tmT("settings.daysLeft2", { remainingDays: remainingDays }), colors.active, '1');
         }
 
         if (hasStart) {
-            if (nowTs > startEndTs) return makeInfo('开始', colors.active, '2', true);
+            if (nowTs > startEndTs) return makeInfo(__tmT("calendar.start"), colors.active, '2', true);
             const daysUntilStart = getRemainingDayDiff(startStartTs);
-            if (daysUntilStart <= 0) return makeInfo('今天', colors.activeStrong, '1', true);
-            if (daysUntilStart === 1) return makeInfo('明天→', colors.waiting, '4');
-            if (daysUntilStart === 2) return makeInfo('后天→', colors.waiting, '5');
-            if (daysUntilStart <= 7) return makeInfo(`${daysUntilStart}天后→`, colors.waiting, '6');
-            return makeInfo(`${daysUntilStart}天后→`, colors.waiting, '7');
+            if (daysUntilStart <= 0) return makeInfo(__tmT("common.today"), colors.activeStrong, '1', true);
+            if (daysUntilStart === 1) return makeInfo(__tmT("settings.tomorrow"), colors.waiting, '4');
+            if (daysUntilStart === 2) return makeInfo(__tmT("settings.dayAfterTomorrow"), colors.waiting, '5');
+            if (daysUntilStart <= 7) return makeInfo(__tmT("settings.inDays", { daysUntilStart: daysUntilStart }), colors.waiting, '6');
+            return makeInfo(__tmT("settings.inDays", { daysUntilStart: daysUntilStart }), colors.waiting, '7');
         }
 
-        return makeInfo('待定', colors.pending, '8');
+        return makeInfo(__tmT("task.unscheduled"), colors.pending, '8');
     }
 
     function __tmRenderTaskRemainingTimeInfoHtml(info) {
         const item = (info && typeof info === 'object') ? info : null;
-        const label = String(item?.label || '待定').trim() || '待定';
+        const label = String(item?.label || __tmT("task.unscheduled")).trim() || __tmT("task.unscheduled");
         const color = String(item?.color || 'var(--tm-secondary-text)').trim() || 'var(--tm-secondary-text)';
         const sortPrefix = String(item?.sortPrefix || '8').trim() || '8';
         const weight = item?.emphasis ? '700' : '500';
@@ -892,13 +886,13 @@
     function __tmExcelGetTimeGroupLabel(task) {
         const info = __tmGetTaskTimePriorityInfo(task);
         const diffDays = Number(info?.diffDays);
-        if (!Number.isFinite(diffDays)) return '待定';
-        if (diffDays < 0) return '已过期';
-        if (diffDays === 0) return '今天';
-        if (diffDays === 1) return '明天';
-        if (diffDays === 2) return '后天';
-        if (diffDays >= 16) return '更远';
-        return `余${diffDays}天`;
+        if (!Number.isFinite(diffDays)) return __tmT("task.unscheduled");
+        if (diffDays < 0) return __tmT("homepage.overdue3");
+        if (diffDays === 0) return __tmT("common.today");
+        if (diffDays === 1) return __tmT("calendar.tomorrow");
+        if (diffDays === 2) return __tmT("task.dayAfterTomorrow");
+        if (diffDays >= 16) return __tmT("task.later");
+        return __tmT("task.daysLeft2", { diffDays: diffDays });
     }
 
     function __tmExcelGetQuadrantGroupLabel(task) {
@@ -926,7 +920,7 @@
                     }
                 }
             }
-            if (importanceMatch && timeRangeMatch) return String(rule?.name || '').trim();
+            if (importanceMatch && timeRangeMatch) return globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule);
         }
         return '';
     }
@@ -935,7 +929,7 @@
         const root = rootTask || task;
         if (!root) return '';
         if (state.groupByDocName) {
-            const labels = [String(root.docName || root.rawDocName || '').trim() || '未命名文档'];
+            const labels = [String(root.docName || root.rawDocName || '').trim() || __tmT("kernel.untitledDocument")];
             if (SettingsStore.data.docH2SubgroupEnabled !== false) {
                 const bucket = __tmGetDocHeadingBucket(root, __tmExcelGetNoHeadingLabel());
                 const headingLabel = String(bucket?.label || '').trim();
@@ -946,12 +940,12 @@
         if (state.groupByTime) return __tmExcelGetTimeGroupLabel(root);
         if (state.quadrantEnabled) return __tmExcelGetQuadrantGroupLabel(root);
         if (state.groupByTaskName) return String(root.content || '').trim();
-        return root?.pinned ? '置顶' : '';
+        return root?.pinned ? __tmT("kernel.pin") : '';
     }
 
     function __tmExcelGetExportColumnDefs() {
         const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
-        const headingLabels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+        const headingLabels = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
         const seenColumnKeys = new Set();
         const columnOrder = [];
         const knownColumnKeys = typeof __tmGetKnownColumnKeys === 'function' ? __tmGetKnownColumnKeys() : null;
@@ -974,87 +968,87 @@
         const defs = {
             pinned: {
                 key: 'pinned',
-                label: '置顶',
+                label: __tmT("kernel.pin"),
                 wch: 6,
-                value: (task) => task?.pinned ? '是' : ''
+                value: (task) => task?.pinned ? __tmT("task.yes") : ''
             },
             content: {
                 key: 'content',
-                label: '任务内容',
+                label: __tmT("task.taskContent"),
                 wch: pxToWch(widthMap.content, 36),
                 value: (task) => String(task?.content || '').trim()
             },
             status: {
                 key: 'status',
-                label: '状态',
+                label: __tmT("kernel.status"),
                 wch: pxToWch(widthMap.status, 12),
                 value: (task) => __tmExcelResolveStatusName(task)
             },
             score: {
                 key: 'score',
-                label: '优先级分值',
+                label: __tmT("task.priorityScore"),
                 wch: pxToWch(widthMap.score, 12),
                 value: (task) => Math.round(__tmEnsureTaskPriorityScore(task))
             },
             doc: {
                 key: 'doc',
-                label: '文档',
+                label: __tmT("kernel.documents"),
                 wch: pxToWch(widthMap.doc, 22),
                 value: (task) => String(task?.docName || task?.rawDocName || '').trim()
             },
             h2: {
                 key: 'h2',
-                label: headingLabels[headingLevel] || '标题',
+                label: headingLabels[headingLevel] || __tmT("calendar.title"),
                 wch: pxToWch(widthMap.h2, 22),
                 value: (task) => __tmNormalizeHeadingText(task?.h2)
             },
             priority: {
                 key: 'priority',
-                label: '重要性',
+                label: __tmT("kernel.importance"),
                 wch: pxToWch(widthMap.priority, 10),
                 value: (task) => String(__tmGetPriorityJiraInfo(task?.priority)?.label || '').trim()
             },
             startDate: {
                 key: 'startDate',
-                label: '开始日期',
+                label: __tmT("kernel.startDate"),
                 kind: 'date',
                 wch: pxToWch(widthMap.startDate, 14),
                 value: (task) => String(task?.startDate || '').trim()
             },
             completionTime: {
                 key: 'completionTime',
-                label: '截止日期',
+                label: __tmT("kernel.dueDate"),
                 kind: 'date',
                 wch: pxToWch(widthMap.completionTime, 14),
                 value: (task) => String(task?.completionTime || '').trim()
             },
             taskCompleteAt: {
                 key: 'taskCompleteAt',
-                label: '完成时间',
+                label: __tmT("kernel.completionTime"),
                 wch: pxToWch(widthMap.taskCompleteAt, 18),
                 value: (task) => __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task))
             },
             remainingTime: {
                 key: 'remainingTime',
-                label: '剩余时间',
+                label: __tmT("task.remainingTime"),
                 wch: pxToWch(widthMap.remainingTime, 14),
                 value: (task) => __tmGetTaskRemainingTimeLabel(task)
             },
             duration: {
                 key: 'duration',
-                label: '时长',
+                label: __tmT("task.duration"),
                 wch: pxToWch(widthMap.duration, 12),
                 value: (task) => String(task?.duration || '').trim()
             },
             tomatoSummary: {
                 key: 'tomatoSummary',
-                label: '专注',
+                label: __tmT("calendar.focus"),
                 wch: pxToWch(widthMap.tomatoSummary, 16),
                 value: (task) => __tmGetTaskTomatoSummaryText(task)
             },
             spent: {
                 key: 'spent',
-                label: '耗时',
+                label: __tmT("settings.timeSpent"),
                 wch: pxToWch(widthMap.spent, 12),
                 value: (task) => {
                     const mode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() || 'minutes';
@@ -1065,13 +1059,13 @@
             },
             remark: {
                 key: 'remark',
-                label: '备注',
+                label: __tmT("kernel.note"),
                 wch: pxToWch(widthMap.remark, 30),
                 value: (task) => String(task?.remark || '').trim()
             },
             attachments: {
                 key: 'attachments',
-                label: '附件',
+                label: __tmT("task.attachment"),
                 wch: pxToWch(widthMap.attachments, 32),
                 value: (task) => __tmBuildTaskAttachmentEntries(__tmGetTaskAttachmentPaths(task))[0]?.name || ''
             }
@@ -1142,9 +1136,9 @@
             return true;
         });
         const fixedColumns = [
-            { key: '__group', label: '当前分组', wch: 10, value: (_, ctx) => ctx.groupLabel || '' },
-            { key: '__depth', label: '层级', wch: 6, value: (_, ctx) => ctx.depth },
-            { key: '__done', label: '完成状态', wch: 10, value: (task) => task?.done ? '已完成' : '未完成' },
+            { key: '__group', label: __tmT("task.currentGroup"), wch: 10, value: (_, ctx) => ctx.groupLabel || '' },
+            { key: '__depth', label: __tmT("settings.level2"), wch: 6, value: (_, ctx) => ctx.depth },
+            { key: '__done', label: __tmT("task.completionStatus"), wch: 10, value: (task) => task?.done ? __tmT("ai.completed") : __tmT("ai.notDone") },
         ];
         const visibleColumns = __tmExcelGetExportColumnDefs();
         const rows = orderedTaskRows.map((row) => {
@@ -1171,7 +1165,7 @@
         const missing = rows.filter((row) => !__tmHasTaskAttachmentAttrSnapshot(row.task));
         if (!missing.length) return;
         const result = await __tmQueryAttachmentLibraryAttachmentAttrRows(missing.map((row) => row.id));
-        if (!result.ok) throw new Error('读取任务附件失败，请刷新后重试');
+        if (!result.ok) throw new Error(__tmT("settings.failedToReadTheTaskAttachmentRefreshAndTry"));
         missing.forEach((row) => {
             const attrs = result.rowMap.get(row.id) || {};
             // Export hydration is isolated from the task store and pending edits.
@@ -1196,23 +1190,23 @@
                     try {
                         if (entry.isBlockRef) {
                             item.target = `siyuan://blocks/${entry.blockId}`;
-                            item.status = '思源引用（需思源打开）';
+                            item.status = __tmT("settings.siyuanReferenceRequiresSiyuanToBeOpen");
                         } else if (/^https?:/i.test(source)) {
                             item.target = source;
-                            item.status = '网络链接（未打包）';
+                            item.status = __tmT("settings.webLinkNotPackaged");
                         } else {
                             let data;
                             let outputParts = [];
                             if (entry.isLocalPath) {
                                 const readLocal = globalThis.__taskHorizonReadLocalAttachmentFile;
-                                if (typeof readLocal !== 'function') throw new Error('当前环境无法读取本地文件');
+                                if (typeof readLocal !== 'function') throw new Error(__tmT("plugin.theCurrentEnvironmentCannotReadLocalFiles"));
                                 const local = await readLocal(source);
                                 if (local.isDirectory) {
                                     item.target = source;
-                                    item.status = '本地目录链接（未打包）';
+                                    item.status = __tmT("settings.localFolderLinkNotPackaged");
                                 } else {
                                     data = local.data;
-                                    outputParts = ['本地', entry.name];
+                                    outputParts = [__tmT("settings.local"), entry.name];
                                 }
                             } else {
                                 const assetPath = source.split(/[?#]/)[0];
@@ -1220,23 +1214,23 @@
                                 if (!/^assets\//i.test(assetPath) || segments.some((part) => {
                                     const decoded = decodeURIComponent(part);
                                     return !decoded || decoded === '.' || decoded === '..' || /[\\/]/.test(decoded);
-                                })) throw new Error('不支持的附件路径');
+                                })) throw new Error(__tmT("settings.unsupportedAttachmentPath"));
                                 outputParts = segments.slice(1).map((part) => decodeURIComponent(part));
                                 const response = await fetch(__tmResolveTaskAttachmentHref(assetPath));
-                                if (!response.ok) throw new Error(`读取失败（HTTP ${response.status}）`);
+                                if (!response.ok) throw new Error(__tmT("settings.readFailedHttp", { status: response.status }));
                                 data = new Uint8Array(await response.arrayBuffer());
                             }
                             if (data) {
                                 const safeParts = outputParts.map((part) => {
                                     let safe = __tmExcelSanitizeFileName(part)
-                                        .replace(/[\u0000-\u001f\u007f#%]/g, '_').replace(/[. ]+$/g, '') || '附件';
+                                        .replace(/[\u0000-\u001f\u007f#%]/g, '_').replace(/[. ]+$/g, '') || __tmT("task.attachment");
                                     if (/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(safe)) safe = `_${safe}`;
                                     const extension = safe.match(/\.[^.]{1,16}$/)?.[0] || '';
                                     return safe.length > 120
                                         ? Array.from(safe).slice(0, 120 - extension.length).join('') + extension
                                         : safe;
                                 });
-                                const originalPath = `附件/${safeParts.join('/')}`;
+                                const originalPath = __tmT("settings.attachments", { value1: safeParts.join('/') });
                                 let path = originalPath;
                                 let suffix = 2;
                                 while (fileOwners.has(path.toLowerCase()) && fileOwners.get(path.toLowerCase()) !== source) {
@@ -1248,11 +1242,11 @@
                                 // Excel treats percent-encoded UTF-8 local paths as literal filenames.
                                 item.target = path;
                                 item.name = path.slice(path.lastIndexOf('/') + 1);
-                                item.status = '已导出';
+                                item.status = __tmT("settings.exported");
                             }
                         }
                     } catch (error) {
-                        item.status = `未导出：${String(error?.message || error || '读取失败')}`;
+                        item.status = __tmT("settings.notExported", { value1: String(error?.message || error || __tmT("settings.readFailed2")) });
                         failedCount += 1;
                     }
                     resolved.set(source, item);
@@ -1273,7 +1267,7 @@
         const attachmentColumns = Array.from({ length: maxItems }, (_, attachmentIndex) => ({
             ...firstColumn,
             key: attachmentIndex === 0 ? 'attachments' : `__tmAttachment${attachmentIndex + 1}`,
-            label: attachmentIndex === 0 ? '附件' : `附件 ${attachmentIndex + 1}`,
+            label: attachmentIndex === 0 ? __tmT("task.attachment") : __tmT("settings.attachment", { value1: attachmentIndex + 1 }),
             value: (_, row) => {
                 const item = rowItems.get(row.id)?.[attachmentIndex];
                 return item ? `${item.name}${item.status.startsWith('未导出：') ? `（${item.status}）` : ''}` : '';
@@ -1301,7 +1295,7 @@
         await globalThis.__taskHorizonEnsureZipModuleLoaded?.();
         const Zip = [globalThis.JSZip, globalThis.module?.exports, globalThis.exports]
             .find((candidate) => typeof candidate === 'function' && typeof candidate.prototype?.generateAsync === 'function');
-        if (!Zip) throw new Error('附件打包组件未加载');
+        if (!Zip) throw new Error(__tmT("settings.attachmentPackagingComponentNotLoaded"));
         const zip = new Zip();
         zip.file(filename, XLSX.write(wb, { type: 'array', bookType: 'xlsx', compression: true, cellStyles: true }));
         files.forEach((file) => zip.file(file.path, file.data));
@@ -1319,30 +1313,30 @@
 
     async function __tmExportCurrentTableExcel() {
         if (String(state.viewMode || '').trim() !== 'list') {
-            hint('⚠️ 仅表格视图支持导出 Excel', 'warning');
+            hint(__tmT("settings.excelExportIsAvailableOnlyInTheTableView"), 'warning');
             return;
         }
         const cachedXlsx = __tmResolveXlsxRuntime();
-        if (!cachedXlsx) hint('⏳ 正在准备 Excel 导出组件...', 'info');
+        if (!cachedXlsx) hint(__tmT("settings.preparingTheExcelExportComponent"), 'info');
         const XLSX = cachedXlsx || await __tmEnsureXlsxRuntimeLoaded();
         if (!XLSX || !XLSX.utils) {
-            hint('❌ Excel 导出组件未加载', 'error');
+            hint(__tmT("settings.theExcelExportComponentIsNotLoaded"), 'error');
             return;
         }
         const model = __tmBuildCurrentTableExcelExportModel();
         if (!Array.isArray(model.rows) || model.rows.length === 0) {
-            hint('⚠️ 当前没有可导出的任务', 'warning');
+            hint(__tmT("settings.noTasksToExportRightNow"), 'warning');
             return;
         }
         const columns = Array.isArray(model.columns) ? model.columns : [];
         if (!columns.length) {
-            hint('❌ 导出列配置为空', 'error');
+            hint(__tmT("settings.theExportColumnConfigurationIsEmpty"), 'error');
             return;
         }
         const hasAttachmentColumn = columns.some((col) => col.key === 'attachments');
         let attachments = null;
         if (hasAttachmentColumn) {
-            hint('⏳ 正在整理任务附件...', 'info');
+            hint(__tmT("settings.preparingTaskAttachments"), 'info');
             await __tmExcelHydrateAttachments(model.rows);
             attachments = await __tmExcelCollectAttachments(model.rows);
             __tmExcelAddAttachmentColumns(columns, model.rows, attachments);
@@ -1377,21 +1371,21 @@
             }
         });
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, '任务导出');
+        XLSX.utils.book_append_sheet(wb, ws, __tmT("settings.taskExport"));
         if (attachments) __tmExcelAddAttachmentLinks(XLSX, ws, columns, model.rows, attachments);
         const fileBaseName = __tmExcelResolveExportFileBaseName();
-        const filename = __tmExcelSanitizeFileName(`${fileBaseName}_表格导出_${__tmExcelDateStamp()}.xlsx`);
+        const filename = __tmExcelSanitizeFileName(__tmT("settings.tableExportXlsx", { fileBaseName: fileBaseName, value2: __tmExcelDateStamp() }));
         if (attachments?.files.length) {
             await __tmExcelDownloadAttachmentBundle(XLSX, wb, filename, attachments.files);
-            const failures = attachments.failedCount ? `，${attachments.failedCount} 个附件未导出，原因见附件单元格` : '';
-            hint(`✅ 已导出 ${model.rows.length} 条任务、${attachments.files.length} 个附件，请解压后打开 Excel${failures}`,
+            const failures = attachments.failedCount ? __tmT("settings.attachmentsWereNotExportedSeeTheAttachmentCellFor", { failedCount: attachments.failedCount }) : '';
+            hint(__tmT("settings.exportedTasksAndAttachmentsUnzipTheArchiveToOpen", { length: model.rows.length, length2: attachments.files.length, failures: failures }),
                 attachments.failedCount ? 'warning' : 'success');
             return;
         }
         if (typeof XLSX.writeFileXLSX === 'function') XLSX.writeFileXLSX(wb, filename, { compression: true, cellStyles: true });
         else XLSX.writeFile(wb, filename, { bookType: 'xlsx', compression: true, cellStyles: true });
-        const failures = attachments?.failedCount ? `，${attachments.failedCount} 个附件未导出，原因见附件单元格` : '';
-        hint(`✅ 已导出 Excel（${model.rows.length} 条任务）${failures}`, attachments?.failedCount ? 'warning' : 'success');
+        const failures = attachments?.failedCount ? __tmT("settings.attachmentsWereNotExportedSeeTheAttachmentCellFor", { failedCount: attachments.failedCount }) : '';
+        hint(__tmT("settings.exportedExcelTasks", { length: model.rows.length, failures: failures }), attachments?.failedCount ? 'warning' : 'success');
     }
 
     let __tmExcelExportPending = false;
@@ -1402,7 +1396,7 @@
             await __tmExportCurrentTableExcel();
         } catch (error) {
             console.error('[task-horizon] Excel export failed', error);
-            hint(`❌ 导出失败：${String(error?.message || error || '')}`, 'error');
+            hint(__tmT("settings.exportFailed", { value1: String(error?.message || error || '') }), 'error');
         } finally {
             __tmExcelExportPending = false;
         }
@@ -1413,7 +1407,7 @@
         const currentId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
 
         if (currentId === 'all') {
-            hint('⚠️ 请先选择一个分组进行导出', 'error');
+            hint(__tmT("settings.selectAGroupToExportFirst"), 'error');
             return;
         }
 
@@ -1423,7 +1417,7 @@
         const flatTasks = state.flatTasks || {};
 
         if (!Array.isArray(state.taskTree) || state.taskTree.length === 0) {
-            hint('⚠️ 当前没有显示的文档', 'error');
+            hint(__tmT("settings.noDocumentsAreVisibleRightNow"), 'error');
             return;
         }
 
@@ -1431,7 +1425,7 @@
         state.taskTree.forEach(doc => {
             const docId = String(doc?.id || '').trim();
             if (!docId) return;
-            docNames[docId] = doc.name || '未命名文档';
+            docNames[docId] = doc.name || __tmT("kernel.untitledDocument");
         });
 
         // 直接从 flatTasks 获取所有任务（包括子任务）
@@ -1496,14 +1490,14 @@
         });
 
         if (totalTasks === 0) {
-            hint('⚠️ 当前分组没有任务可导出', 'error');
+            hint(__tmT("settings.noTasksToExportInTheCurrentGroup"), 'error');
             return;
         }
 
         // 获取当前分组名称
         const groups = SettingsStore.data.docGroups || [];
         const group = groups.find(g => g.id === currentId);
-        const groupName = group ? __tmResolveDocGroupName(group) : '当前分组';
+        const groupName = group ? __tmResolveDocGroupName(group) : __tmT("task.currentGroup");
 
         // 显示导出设置对话框
         __tmShowExportDialog(groupName, tasksByDoc, docNames);
@@ -1527,39 +1521,37 @@
 
         dialog.innerHTML = `
             <div class="tm-header" style="padding: 16px 20px; border-bottom: 1px solid var(--tm-border-color); flex-shrink: 0;">
-                <div style="font-size: 16px; font-weight: 600;">导出任务 - ${esc(groupName)}</div>
+                <div style="font-size: 16px; font-weight: 600;">${__tmT("settings.exportTasks", { groupName: esc(groupName) })}</div>
                 <button class="tm-btn tm-btn-gray" data-tm-action="closeExportDialog" style="padding: 4px 8px; font-size: 12px;">✕</button>
             </div>
             <div class="tm-body" style="padding: 20px; flex: 1; overflow-y: auto;">
                 <div style="margin-bottom: 16px;">
-                    <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">导出格式</div>
+                    <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">${__tmT("settings.exportFormat")}</div>
                     <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;">
                         <input type="radio" name="exportFormat" value="markdown" checked>
-                        <span style="font-size: 13px;">Markdown (推荐 AI 阅读)</span>
+                        <span style="font-size: 13px;">${__tmT("settings.markdownRecommendedForAiReading")}</span>
                     </label>
                     <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;">
                         <input type="radio" name="exportFormat" value="json">
-                        <span style="font-size: 13px;">JSON (结构化数据)</span>
+                        <span style="font-size: 13px;">${__tmT("settings.jsonStructuredData")}</span>
                     </label>
                 </div>
                 <div style="margin-bottom: 16px;">
-                    <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">文件名</div>
+                    <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">${__tmT("settings.fileName")}</div>
                     <input type="text" id="exportFilename" value="${esc(groupName)}_任务导出"
                            style="width: 100%; padding: 8px 12px; border: 1px solid var(--tm-input-border); border-radius: 6px; background: var(--tm-input-bg); color: var(--tm-text-color); font-size: 13px; box-sizing: border-box;">
                 </div>
                 <div style="margin-bottom: 16px;">
                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <input type="checkbox" id="exportIncludeDone" checked>
-                        <span style="font-size: 13px;">包含已完成任务</span>
+                        <span style="font-size: 13px;">${__tmT("settings.includeCompletedTasks")}</span>
                     </label>
                 </div>
-                <div style="font-size: 12px; color: var(--tm-secondary-text);">
-                    共 ${Object.keys(tasksByDoc).length} 个文档，${Object.values(tasksByDoc).reduce((sum, tasks) => sum + tasks.length, 0)} 个任务
-                </div>
+                <div style="font-size: 12px; color: var(--tm-secondary-text);">${__tmT("settings.acrossDocumentsTasks", { length: Object.keys(tasksByDoc).length, value2: Object.values(tasksByDoc).reduce((sum, tasks) => sum + tasks.length, 0) })}</div>
             </div>
             <div class="tm-header" style="padding: 16px 20px; border-top: 1px solid var(--tm-border-color); justify-content: flex-end; gap: 10px; flex-shrink: 0;">
-                <button class="tm-btn tm-btn-secondary" data-tm-action="closeExportDialog" style="padding: 8px 16px;">取消</button>
-                <button class="tm-btn tm-btn-primary" data-tm-action="confirmExport" style="padding: 8px 16px;">导出</button>
+                <button class="tm-btn tm-btn-secondary" data-tm-action="closeExportDialog" style="padding: 8px 16px;">${__tmT("common.cancel")}</button>
+                <button class="tm-btn tm-btn-primary" data-tm-action="confirmExport" style="padding: 8px 16px;">${__tmT("settings.export")}</button>
             </div>
         `;
 
@@ -1617,7 +1609,7 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        hint('✅ 任务导出成功', 'success');
+        hint(__tmT("settings.tasksExported"), 'success');
     }
 
     // 生成 Markdown 格式导出
@@ -1625,9 +1617,9 @@
         const lines = [];
         const now = new Date().toISOString().split('T')[0];
 
-        lines.push(`# ${groupName} - 任务导出`);
+        lines.push(__tmT("settings.taskExport2", { groupName: groupName }));
         lines.push('');
-        lines.push(`> 导出时间：${now}`);
+        lines.push(__tmT("settings.exportedAt2", { now: now }));
         lines.push('');
 
         // 按文档分组
@@ -1640,7 +1632,7 @@
 
             if (filteredTasks.length === 0) return;
 
-            const docName = docNames[docId] || '未命名文档';
+            const docName = docNames[docId] || __tmT("kernel.untitledDocument");
             lines.push(`## 📄 ${docName}`);
             lines.push('');
 
@@ -1648,7 +1640,7 @@
             const tasksByH2 = {};
             filteredTasks.forEach(task => {
                 const h2Key = task.h2Id || '__no_h2__';
-                const h2Name = task.h2Name || '无二级标题';
+                const h2Name = task.h2Name || __tmT("homepage.noHeading");
                 if (!tasksByH2[h2Key]) {
                     tasksByH2[h2Key] = {
                         name: h2Name,
@@ -1673,25 +1665,25 @@
                     const indent = '  '.repeat(level + 1); // 顶级任务2空格，子任务4空格
 
                     // 任务内容行
-                    let line = `${indent}- ${checkbox} ${task.content || '无内容'}`;
+                    let line = `${indent}- ${checkbox} ${task.content || __tmT("settings.noContent")}`;
 
                     // 添加标签信息
                     const tags = [];
                     if (task.priority) {
-                        const priorityText = task.priority === 'high' ? '高' : task.priority === 'medium' ? '中' : task.priority === 'low' ? '低' : task.priority;
-                        tags.push(`**重要性：${priorityText}**`);
+                        const priorityText = task.priority === 'high' ? __tmT("common.high") : task.priority === 'medium' ? __tmT("common.medium") : task.priority === 'low' ? __tmT("common.low") : task.priority;
+                        tags.push(__tmT("settings.priority2", { priorityText: priorityText }));
                     }
                     if (task.startDate) {
-                        tags.push(`📅 开始：${task.startDate}`);
+                        tags.push(__tmT("settings.start", { startDate: task.startDate }));
                     }
                     if (task.completionTime) {
-                        tags.push(`🎯 截止：${task.completionTime}`);
+                        tags.push(__tmT("settings.due", { completionTime: task.completionTime }));
                     }
                     if (task.done && task.completionTime) {
-                        tags.push(`✨ 已完成：${task.completionTime}`);
+                        tags.push(__tmT("settings.completed2", { completionTime: task.completionTime }));
                     }
                     if (task.status) {
-                        tags.push(`📌 状态：${task.status}`);
+                        tags.push(__tmT("settings.status", { status: task.status }));
                     }
 
                     if (tags.length > 0) {
@@ -1702,7 +1694,7 @@
 
                     // 添加备注（如果存在）
                     if (task.remark) {
-                        lines.push(`${indent}  > 备注：${task.remark}`);
+                        lines.push(__tmT("settings.remark", { indent: indent, remark: task.remark }));
                     }
                 });
 
@@ -1717,12 +1709,12 @@
 
         lines.push('---');
         lines.push('');
-        lines.push('## 📊 汇总统计');
+        lines.push(__tmT("settings.summaryStatistics"));
         lines.push('');
-        lines.push(`- 总任务数：${totalTasks}`);
-        lines.push(`- 已完成：${doneTasks}`);
-        lines.push(`- 待完成：${pendingTasks}`);
-        lines.push(`- 完成率：${totalTasks > 0 ? Math.round(doneTasks / totalTasks * 100) : 0}%`);
+        lines.push(__tmT("settings.totalTasks", { totalTasks: totalTasks }));
+        lines.push(__tmT("settings.completed3", { doneTasks: doneTasks }));
+        lines.push(__tmT("settings.pending", { pendingTasks: pendingTasks }));
+        lines.push(__tmT("settings.completionRate", { value1: totalTasks > 0 ? Math.round(doneTasks / totalTasks * 100) : 0 }));
         lines.push('');
 
         return lines.join('\n');
@@ -1745,7 +1737,7 @@
 
             const docData = {
                 docId: docId,
-                docName: docNames[docId] || '未命名文档',
+                docName: docNames[docId] || __tmT("kernel.untitledDocument"),
                 tasks: filteredTasks.map(task => ({
                     content: task.content || '',
                     done: !!task.done,

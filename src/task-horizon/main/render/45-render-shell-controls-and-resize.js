@@ -71,7 +71,7 @@
         return [
             {
                 value: 'all',
-                label: '全部文档',
+                label: __tmT("task.allDocuments"),
                 selected: currentGroupId === 'all',
                 action: `tmSwitchDocGroup('all')`
             },
@@ -100,7 +100,7 @@
 
     function __tmGetDocGroupSelectLabel(groupId) {
         const gid = String(groupId || 'all').trim() || 'all';
-        if (gid === 'all') return '全部文档';
+        if (gid === 'all') return __tmT("task.allDocuments");
         const group = (Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [])
             .find((item) => String(item?.id || '').trim() === gid);
         return String(__tmResolveDocGroupName(group) || gid).trim() || gid;
@@ -239,7 +239,7 @@
         return [
             {
                 value: '',
-                label: '全部',
+                label: __tmT("calendar.all"),
                 selected: !state.currentRule,
                 action: `applyFilterRule('')`
             },
@@ -249,7 +249,7 @@
                     const ruleId = String(rule?.id || '').trim();
                     return {
                         value: ruleId,
-                        label: String(rule?.name || '').trim() || '未命名规则',
+                        label: globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule) || __tmT("task.untitledRule"),
                         selected: state.currentRule === rule.id,
                         action: `applyFilterRule('${escSq(ruleId)}')`
                     };
@@ -272,7 +272,7 @@
             const summaryRule = summary?.querySelector('b:last-of-type');
             if (summaryRule) {
                 summaryRule.textContent = label;
-                summary.title = `分组 ${summary.querySelector('b')?.textContent || '不分组'} · 规则 ${label}`;
+                summary.title = __tmT("task.groupRule", { value1: summary.querySelector('b')?.textContent || __tmT("task.noGrouping"), label: label });
             }
             if (root.dataset.open === 'true') {
                 const floating = document.getElementById('tmTopbarFloatingMenu');
@@ -287,25 +287,25 @@
         const options = [
             {
                 value: 'none',
-                label: '不分组',
+                label: __tmT("task.noGrouping"),
                 selected: (!state.groupByDocName && !state.groupByTaskName && !state.groupByTime && (!state.quadrantEnabled || quadrantBoardMode)),
                 action: `tmSwitchGroupMode('none')`
             },
             {
                 value: 'doc',
-                label: '按文档',
+                label: __tmT("task.byDocument"),
                 selected: state.groupByDocName,
                 action: `tmSwitchGroupMode('doc')`
             },
             {
                 value: 'time',
-                label: '按时间',
+                label: __tmT("task.byTime"),
                 selected: state.groupByTime,
                 action: `tmSwitchGroupMode('time')`
             },
             ...(hasTaskModeOption ? [{
                 value: 'task',
-                label: '按任务名',
+                label: __tmT("task.byTaskName"),
                 selected: state.groupByTaskName,
                 action: `tmSwitchGroupMode('task')`
             }] : [])
@@ -313,7 +313,7 @@
         if (!quadrantBoardMode) {
             options.splice(3, 0, {
                 value: 'quadrant',
-                label: '四象限',
+                label: __tmT("task.quadrants"),
                 selected: state.quadrantEnabled,
                 action: `tmSwitchGroupMode('quadrant')`
             });
@@ -323,7 +323,7 @@
 
     function __tmBuildKanbanModeMenuOptions() {
         const mode = __tmGetKanbanBoardMode();
-        return [['status', '状态'], ['heading', '标题'], ['time', '时间'], ['quadrant', '四象限']].map(([value, label]) => ({
+        return [['status', __tmT("kernel.status")], ['heading', __tmT("calendar.title")], ['time', __tmT("task.time")], ['quadrant', __tmT("task.quadrants")]].map(([value, label]) => ({
             value, label, selected: mode === value, action: `tmSetKanbanBoardMode('${value}')`,
         }));
     }
@@ -331,7 +331,7 @@
     function __tmBuildWhiteboardLayoutMenuOptions(modeValue, fromMobileMenu = false) {
         const mode = __tmNormalizeWhiteboardAllTabsLayoutMode(modeValue);
         const action = fromMobileMenu ? 'tmSetWhiteboardLayoutModeFromMobileMenu' : 'tmSetWhiteboardAllTabsLayoutMode';
-        return [['global', '全局白板'], ['board', '单文档总览'], ['stream', '卡片流']].map(([value, label]) => ({
+        return [['global', __tmT("task.globalWhiteboard")], ['board', __tmT("task.documentOverview")], ['stream', __tmT("task.cardStream")]].map(([value, label]) => ({
             value, label, selected: mode === value, action: `${action}('${value}')`,
         }));
     }
@@ -381,43 +381,43 @@
             <div class="tm-topbar-menu__body">
                 ${opts.showViews ? `
                 <div class="tm-topbar-menu__views">
-                    <div class="tm-view-segmented bc-tabs-list tm-mobile-view-switcher" role="tablist" aria-label="视图"
+                    <div class="tm-view-segmented bc-tabs-list tm-mobile-view-switcher" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.views")}"
                         style="--tm-menu-view-count:${Math.max(1, __tmGetEnabledViews().length)}">
                         ${__tmRenderViewSwitcherButtons({ compact: true })}
                     </div>
                 </div>` : ''}
-                ${mobile && viewMode === 'kanban' ? renderField('KanbanModeSelect', '看板模式', __tmBuildKanbanModeMenuOptions()) : ''}
-                ${mobile && viewMode === 'whiteboard' ? renderField('WhiteboardLayoutSelect', '白板模式', __tmBuildWhiteboardLayoutMenuOptions(whiteboardMenuLayoutMode, true)) : ''}
+                ${mobile && viewMode === 'kanban' ? renderField('KanbanModeSelect', __tmT("task.kanbanMode"), __tmBuildKanbanModeMenuOptions()) : ''}
+                ${mobile && viewMode === 'whiteboard' ? renderField('WhiteboardLayoutSelect', __tmT("task.whiteboardMode"), __tmBuildWhiteboardLayoutMenuOptions(whiteboardMenuLayoutMode, true)) : ''}
                 ${opts.showSelectors !== false ? `
                 <details class="tm-topbar-menu__disclosure">
                     <summary>
-                        <span class="tm-topbar-menu__summary-text" title="${__tmEscAttr(`分组 ${selectedLabel(groupOptions, '不分组')} · 规则 ${selectedLabel(ruleOptions, '全部')}`)}">分组 <b>${esc(selectedLabel(groupOptions, '不分组'))}</b><span class="tm-topbar-menu__summary-sep">·</span>规则 <b>${esc(selectedLabel(ruleOptions, '全部'))}</b></span>
+                        <span class="tm-topbar-menu__summary-text" title="${__tmEscAttr(__tmT("task.groupRule2", { value1: selectedLabel(groupOptions, __tmT("task.noGrouping")), value2: selectedLabel(ruleOptions, __tmT("calendar.all")) }))}">${__tmT("task.group2")}<b>${esc(selectedLabel(groupOptions, __tmT("task.noGrouping")))}</b><span class="tm-topbar-menu__summary-sep">·</span>${__tmT("task.rule")}<b>${esc(selectedLabel(ruleOptions, __tmT("calendar.all")))}</b></span>
                         ${__tmRenderLucideIcon('caret-down')}
                     </summary>
                     <div class="tm-topbar-menu__fields">
-                        ${opts.showDoc !== false ? renderField('DocSelect', '文档', docOptions) : ''}
-                        ${renderField('GroupModeSelect', '分组', groupOptions)}
-                        ${renderField('RuleSelect', '筛选与排序规则', ruleOptions)}
+                        ${opts.showDoc !== false ? renderField('DocSelect', __tmT("kernel.documents"), docOptions) : ''}
+                        ${renderField('GroupModeSelect', __tmT("task.group"), groupOptions)}
+                        ${renderField('RuleSelect', __tmT("task.filterSortRules"), ruleOptions)}
                     </div>
                 </details>` : ''}
-                <div class="tm-topbar-menu__commands" role="group" aria-label="任务操作">
-                    ${renderCommand(keyword ? `搜索（${keyword}）` : '搜索', 'search', 'tmShowSearchModal()')}
-                    ${renderCommand('摘要', 'file-text', 'tmShowSummaryModal()')}
-                    ${renderCommand(state.attachmentLibraryOpen ? '返回工作区' : '附件库', 'paperclip', 'tmToggleAttachmentLibrary()')}
-                    ${__tmIsAiFeatureEnabled() ? renderCommand('AI 工作台', 'bot', 'tmToggleAiSidebar()', aiWorkbenchOpen ? 'is-active' : '', aiWorkbenchOpen) : ''}
-                    ${viewMode === 'list' ? renderCommand('导出 Excel', 'chart-column', 'tmExportCurrentTableExcel()') : ''}
-                    ${keyword ? renderCommand('清除搜索', 'x', "tmSearch('')", 'tm-topbar-menu__command--clear') : ''}
+                <div class="tm-topbar-menu__commands" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.taskactions")}">
+                    ${renderCommand(keyword ? __tmT("task.search3", { keyword: keyword }) : __tmT("task.search"), 'search', 'tmShowSearchModal()')}
+                    ${renderCommand(__tmT("ai.summary3"), 'file-text', 'tmShowSummaryModal()')}
+                    ${renderCommand(state.attachmentLibraryOpen ? __tmT("task.backToWorkspace") : __tmT("task.attachmentLibrary"), 'paperclip', 'tmToggleAttachmentLibrary()')}
+                    ${__tmIsAiFeatureEnabled() ? renderCommand(__tmT("ai.aiWorkbench"), 'bot', 'tmToggleAiSidebar()', aiWorkbenchOpen ? 'is-active' : '', aiWorkbenchOpen) : ''}
+                    ${viewMode === 'list' ? renderCommand(__tmT("task.exportExcel"), 'chart-column', 'tmExportCurrentTableExcel()') : ''}
+                    ${keyword ? renderCommand(__tmT("task.clearSearch"), 'x', "tmSearch('')", 'tm-topbar-menu__command--clear') : ''}
                 </div>
-                <div class="tm-topbar-menu__preferences" role="group" aria-label="显示与交互">
-                    ${renderToggle('多选模式', !!state.multiSelectModeEnabled, 'tmToggleMultiSelectMode(this.checked)')}
-                    ${renderToggle('显示已完成任务', !!state.showCompletedTasks, 'tmToggleShowCompletedTasks(this.checked)')}
-                    ${renderToggle('已完成任务不分组', !!SettingsStore.data.completedTasksInlineInGroups, 'tmToggleCompletedTasksInlineInGroups(this.checked)')}
-                    ${opts.showCalendarSideDock ? renderToggle('日历侧边栏', !!SettingsStore.data.calendarSideDockEnabled, 'tmToggleCalendarSideDock(this.checked)') : ''}
-                    ${renderToggle('白板顺序模式', !!SettingsStore.data.whiteboardSequenceMode, 'tmToggleWhiteboardSequenceMode(this.checked)')}
+                <div class="tm-topbar-menu__preferences" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.displayAndInteraction")}">
+                    ${renderToggle(__tmT("task.multiSelectMode"), !!state.multiSelectModeEnabled, 'tmToggleMultiSelectMode(this.checked)')}
+                    ${renderToggle(__tmT("task.showCompletedTasks"), !!state.showCompletedTasks, 'tmToggleShowCompletedTasks(this.checked)')}
+                    ${renderToggle(__tmT("task.donTGroupCompletedTasks"), !!SettingsStore.data.completedTasksInlineInGroups, 'tmToggleCompletedTasksInlineInGroups(this.checked)')}
+                    ${opts.showCalendarSideDock ? renderToggle(__tmT("task.calendarSidebar"), !!SettingsStore.data.calendarSideDockEnabled, 'tmToggleCalendarSideDock(this.checked)') : ''}
+                    ${renderToggle(__tmT("task.whiteboardOrderMode"), !!SettingsStore.data.whiteboardSequenceMode, 'tmToggleWhiteboardSequenceMode(this.checked)')}
                 </div>
-                <div class="tm-topbar-menu__commands tm-topbar-menu__tree-actions" role="group" aria-label="任务展开状态">
-                    ${renderCommand('全部折叠', 'chevrons-down-up', 'tmCollapseAllTasks()')}
-                    ${renderCommand('全部展开', 'chevrons-up-down', 'tmExpandAllTasks()')}
+                <div class="tm-topbar-menu__commands tm-topbar-menu__tree-actions" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.taskexpandstatus")}">
+                    ${renderCommand(__tmT("task.collapseAll"), 'chevrons-down-up', 'tmCollapseAllTasks()')}
+                    ${renderCommand(__tmT("task.expandAll"), 'chevrons-up-down', 'tmExpandAllTasks()')}
                 </div>
             </div>`;
     }
@@ -446,7 +446,7 @@
         menu.id = 'tmDesktopMenu';
         menu.className = 'tm-popup-menu bc-dropdown-menu tm-topbar-menu tm-topbar-menu--desktop';
         menu.setAttribute('role', 'dialog');
-        menu.setAttribute('aria-label', '任务管理器菜单');
+        menu.setAttribute('aria-label', __tmT("task.taskManagerMenu"));
         menu.style.cssText = `
             position: fixed;
             background: var(--tm-ui-popover);

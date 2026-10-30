@@ -47,7 +47,7 @@
             const group = groups.get(notebookId);
             if (group.nodesById.has(id)) return;
             const path = __tmNormalizeSettingsDocPickerPath(doc?.path || doc?.hpath);
-            const fallbackName = path.split('/').filter(Boolean).pop() || '未命名文档';
+            const fallbackName = path.split('/').filter(Boolean).pop() || __tmT("kernel.untitledDocument");
             group.nodesById.set(id, {
                 id,
                 notebookId,
@@ -98,7 +98,7 @@
         const renderNode = (node, depth = 0) => {
             const docId = String(node?.id || '').trim();
             if (!docId) return '';
-            const displayName = __tmGetDocDisplayName(node.doc, node.name || '未命名文档');
+            const displayName = __tmGetDocDisplayName(node.doc, node.name || __tmT("kernel.untitledDocument"));
             const alreadyAdded = disabledIds.has(docId);
             const checked = alreadyAdded || selectedIds.has(docId);
             const hasChildren = Array.isArray(node.children) && node.children.length > 0;
@@ -118,7 +118,7 @@
                             ${singleSelect ? '' : `onchange="tmToggleSettingsDocPickerSelection('${escSq(docId)}', this.checked)"`}>
                         <span class="tm-doc-group-manager__picker-doc-icon">${icon('file-text', 14)}</span>
                         <span class="tm-doc-group-manager__picker-name" title="${esc(node.path || displayName)}">${esc(displayName)}</span>
-                        ${alreadyAdded ? '<span class="tm-doc-group-manager__picker-status">已添加</span>' : ''}
+                        ${alreadyAdded ? `<span class="tm-doc-group-manager__picker-status">${__tmT("settings.added")}</span>` : ''}
                     </label>
                 </${rowTag}>
             `;
@@ -162,79 +162,79 @@
         else __tmAgentMcpExpandedToolGroups.delete(id);
     };
     const TM_SETTINGS_SEARCH_TAB_LABELS = Object.freeze({
-        docs: '文档分组',
-        main: '常规设置',
-        appearance: '外观',
-        calendar: '日历',
+        docs: __tmT("calendar.documentGroups"),
+        main: __tmT("settings.general"),
+        appearance: __tmT("settings.appearance"),
+        calendar: __tmT("calendar.calendar"),
         ai: 'AI',
-        rules: '规则管理',
-        quadrant: '四象限',
-        priority: '优先级分值',
-        benefits: '功能权益',
-        about: '关于'
+        rules: __tmT("settings.rules"),
+        quadrant: __tmT("task.quadrants"),
+        priority: __tmT("task.priorityScore"),
+        benefits: __tmT("task.featureBenefits"),
+        about: __tmT("settings.about")
     });
     const TM_SETTINGS_SEARCH_INDEX_TABS = Object.freeze(Object.keys(TM_SETTINGS_SEARCH_TAB_LABELS));
     // Shared with the settings controls so the native Agent never maintains a second copy of their text.
     const __tmSettingsQueryDefinitions = {
         fontSize: {
-            title: '字体大小', description: '设置桌面端任务管理器的基础字号。',
-            page: 'appearance', sub: 'l-density', scope: '桌面端', aliases: ['字号', '字太小', '电脑', 'font'],
+            title: __tmT("settings.fontSize"), description: __tmT("settings.setsTheBaseFontSizeOfTheDesktopTask"),
+            page: 'appearance', sub: 'l-density', scope: __tmT("calendar.desktop"), aliases: [__tmT("settings.fontSize2"), __tmT("settings.textTooSmall"), __tmT("settings.desktop"), 'font'],
             read: data => Number(data.fontSize),
         },
         fontSizeMobile: {
-            title: '移动端字体', description: '单独设置移动端字号，未设置时跟随桌面端。',
-            page: 'appearance', sub: 'l-density', scope: '移动端', aliases: ['手机', '字号', '字太小', 'mobile'],
+            title: __tmT("settings.mobileFont"), description: __tmT("settings.setsTheMobileFontSizeSeparatelyFollowsTheDesktop"),
+            page: 'appearance', sub: 'l-density', scope: __tmT("calendar.mobile"), aliases: [__tmT("settings.mobile"), __tmT("settings.fontSize2"), __tmT("settings.textTooSmall"), 'mobile'],
             read: data => Number(data.fontSizeMobile || data.fontSize),
         },
         rowHeightMode: {
-            title: '行高模式', description: '控制任务行整体密度。',
-            page: 'appearance', sub: 'l-density', scope: '全局', aliases: ['行间距', '密度', '太挤', '紧凑', '宽松'],
+            title: __tmT("settings.rowHeightMode"), description: __tmT("settings.controlsTheOverallDensityOfTaskRows"),
+            page: 'appearance', sub: 'l-density', scope: __tmT("settings.global"), aliases: [__tmT("settings.lineSpacing"), __tmT("settings.density"), __tmT("settings.tooCramped"), __tmT("settings.compact"), __tmT("settings.relaxed")],
             read: data => String(data.rowHeightMode || 'auto'),
         },
         taskAutoWrapEnabled: {
-            title: '自动换行', description: '任务内容、备注、看板和白板中的任务内容自动换行显示。',
-            page: 'appearance', sub: 'l-density', scope: '全局', aliases: ['标题太长', '截断', '显示不全', '折行'],
+            title: __tmT("settings.wordWrap"), description: __tmT("settings.wrapsTaskContentRemarksAndTaskContentInKanban"),
+            page: 'appearance', sub: 'l-density', scope: __tmT("settings.global"), aliases: [__tmT("settings.titleTooLong"), __tmT("settings.truncated"), __tmT("settings.notFullyShown"), __tmT("settings.wrapping")],
             read: data => data.taskAutoWrapEnabled !== false,
         },
         taskContentWrapMaxLines: {
-            title: '桌面端内容行数', description: '限制桌面端任务内容最多显示的行数。',
-            page: 'appearance', sub: 'l-density', scope: '桌面端', aliases: ['标题太长', '显示不全', '换行', '电脑'],
+            title: __tmT("settings.desktopContentLines"), description: __tmT("settings.limitsTheMaximumNumberOfLinesShownForTask"),
+            page: 'appearance', sub: 'l-density', scope: __tmT("calendar.desktop"), aliases: [__tmT("settings.titleTooLong"), __tmT("settings.notFullyShown"), __tmT("settings.lineBreak"), __tmT("settings.desktop")],
             read: data => Math.max(1, Math.min(10, Number(data.taskContentWrapMaxLines) || 2)),
         },
         taskContentWrapMaxLinesMobile: {
-            title: '移动端与 Dock 内容行数', description: '限制移动端和 Dock 侧边栏任务内容最多显示的行数。',
-            page: 'appearance', sub: 'l-density', scope: '移动端与 Dock', aliases: ['手机', '侧栏', '标题太长', '显示不全', '换行'],
+            title: __tmT("settings.mobileDockContentLines"), description: __tmT("settings.limitsTheMaximumNumberOfLinesShownForTask2"),
+            page: 'appearance', sub: 'l-density', scope: __tmT("settings.mobileDock"), aliases: [__tmT("settings.mobile"), __tmT("settings.sidebar"), __tmT("settings.titleTooLong"), __tmT("settings.notFullyShown"), __tmT("settings.lineBreak")],
             read: data => Math.max(1, Math.min(10, Number(data.taskContentWrapMaxLinesMobile) || 2)),
         },
         remainingTimeUseWorkdays: {
-            title: '剩余时间按工作日计算', description: '开启后，剩余时间显示会跳过周六和周日；显示文案保持不变。时间分组、四象限和排序不受影响。',
-            page: 'docs', sub: 't-review', scope: '全局', aliases: ['周末', '倒计时', '剩余天数'],
+            title: __tmT("settings.countRemainingTimeInWorkdays"), description: __tmT("settings.whenEnabledRemainingTimeDisplaysSkipSaturdaysAndSundays"),
+            page: 'docs', sub: 't-review', scope: __tmT("settings.global"), aliases: [__tmT("settings.weekend"), __tmT("task.countdown"), __tmT("settings.daysRemaining")],
             read: data => !!data.remainingTimeUseWorkdays,
         },
         taskDoneDelightEnabled: {
-            title: '完成反馈', description: '勾选完成后播放轻微动画并显示趣味提示；关闭后恢复为普通完成提示。',
-            page: 'docs', sub: 't-done', scope: '全局', aliases: ['完成动画', '庆祝', '趣味提示'],
+            title: __tmT("settings.completionFeedback"), description: __tmT("settings.playsASubtleAnimationAndShowsAPlayfulMessage"),
+            page: 'docs', sub: 't-done', scope: __tmT("settings.global"), aliases: [__tmT("settings.completionAnimation"), __tmT("settings.celebration"), __tmT("settings.funMessage")],
             read: data => data.taskDoneDelightEnabled !== false,
         },
         checklistCompactMode: {
-            title: '清单紧凑模式', description: '开启时字段显示在任务右侧，窄屏下自动换行；关闭时字段始终显示在任务名称下方。',
-            page: 'view', sub: 'v-table', scope: '清单视图', aliases: ['右边', '右侧', '下方', '字段太挤', '布局'],
+            title: __tmT("settings.checklistCompactMode"), description: __tmT("settings.whenOnFieldsAppearToTheRightOfTasks"),
+            page: 'view', sub: 'v-table', scope: __tmT("task.checklistView"), aliases: [__tmT("settings.rightSide"), __tmT("settings.right"), __tmT("settings.below"), __tmT("settings.fieldsTooCramped"), __tmT("settings.layout")],
             read: data => !!data.checklistCompactMode,
         },
         showCompletedTasks: {
-            title: '显示已完成任务', description: '按当前文档分组单独记忆，包含“全部文档”。关闭时仅在视图中隐藏已完成任务，任务仍会进入本地索引。',
-            page: 'docs', sub: 't-done', scope: '当前文档分组', aliases: ['完成后消失', '消失', '看不到', '隐藏完成'],
-            note: '实际显示还受当前筛选规则和“已完成分组仅显示今天完成”等设置影响。',
+            title: __tmT("task.showCompletedTasks"), description: __tmT("settings.rememberedSeparatelyPerDocumentGroupIncludingAllDocumentsWhen"),
+            page: 'docs', sub: 't-done', scope: __tmT("settings.currentDocumentGroup"), aliases: [__tmT("settings.disappearWhenDone"), __tmT("settings.disappear"), __tmT("settings.canTSee"), __tmT("settings.hideCompleted")],
+            note: __tmT("settings.actualVisibilityIsAlsoAffectedByTheCurrentFilters"),
             read: data => __tmGetShowCompletedTasksFromSettings(data),
         },
         completedTasksTodayOnly: {
-            title: '已完成分组仅显示今天完成', description: '开启后，“已完成任务”尾部分组只保留完成日期为今天的任务；任务标题旁仍会用“今天”标签标识今天完成的任务。',
-            page: 'docs', sub: 't-done', scope: '全局', aliases: ['昨天完成', '历史完成', '今天'],
+            title: __tmT("settings.completedGroupOnlyToday"), description: __tmT("settings.whenEnabledTheTrailingCompletedTasksGroupKeepsOnly"),
+            page: 'docs', sub: 't-done', scope: __tmT("settings.global"), aliases: [__tmT("settings.completedYesterday"), __tmT("settings.completedEarlier"), __tmT("common.today")],
             read: data => !!data.completedTasksTodayOnly,
         },
         completedTasksInlineInGroups: {
-            title: '已完成任务不单独分组', description: '开启后，已完成任务跟随当前文档、时间、四象限或任务名分组显示；看板中也不再显示单独已完成列或列底部已完成分组。',
-            page: 'docs', sub: 't-done', scope: '全局', aliases: ['已完成列', '完成分组', '混合显示'],
+            title: __tmT("settings.donTGroupCompletedTasksSeparately"), description: __tmT("settings.whenEnabledCompletedTasksFollowTheCurrentDocumentTime"),
+            page: 'docs', sub: 't-done', scope: __tmT("settings.global"), aliases: [__tmT("settings.completedColumn"), __tmT("settings.completedGroup"), __tmT("settings.mixedDisplay")],
             read: data => !!data.completedTasksInlineInGroups,
         },
     };
@@ -245,14 +245,14 @@
     }
 
     __tmNs.querySettings = async function(args = {}) {
-        if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('设置查询参数必须是对象');
-        if (args.query != null && typeof args.query !== 'string') throw new Error('设置查询关键词必须是文本');
+        if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error(__tmT("settings.settingsQueryParametersMustBeAnObject"));
+        if (args.query != null && typeof args.query !== 'string') throw new Error(__tmT("settings.theSettingsQueryKeywordMustBeText"));
         const query = String(args.query || '').trim();
-        if (query.length > 200) throw new Error('设置查询关键词不能超过 200 字');
+        if (query.length > 200) throw new Error(__tmT("settings.theSettingsQueryKeywordCannotExceedCharacters"));
         const limit = args.limit == null ? 12 : args.limit;
-        if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('设置查询数量必须是 1–20 的整数');
+        if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error(__tmT("settings.theSettingsQueryLimitMustBeAnIntegerFrom"));
         if (!SettingsStore.loaded) await __tmEnsureSettingsLoaded(false);
-        if (!SettingsStore.loaded) throw new Error('设置尚未加载，请稍后重试');
+        if (!SettingsStore.loaded) throw new Error(__tmT("settings.settingsAreNotLoadedYetTryAgainShortly"));
 
         const normalized = query.toLowerCase();
         const terms = normalized.split(/\s+/).filter(Boolean);
@@ -268,7 +268,7 @@
         const data = SettingsStore.data;
         return {
             readOnly: true,
-            coverage: '仅覆盖常用显示、完成行为与清单设置；未匹配时可省略 query 查看支持的设置，不代表插件没有其他设置。',
+            coverage: __tmT("settings.coversCommonDisplayCompletionBehaviorAndChecklistSettingsOnly"),
             total: matches.length,
             items: matches.slice(0, limit).map(({ id, item }) => ({
                 id, title: item.title, description: item.description,
@@ -492,7 +492,7 @@
     function __tmGetSettingsSearchEntries() {
         const map = new Map();
         Object.entries(TM_SETTINGS_SEARCH_TAB_LABELS).forEach(([tab, title]) => {
-            const entry = __tmCreateSettingsSearchEntry({ tab, title, desc: '设置页' });
+            const entry = __tmCreateSettingsSearchEntry({ tab, title, desc: __tmT("settings.settings") });
             if (!entry) return;
             map.set(`${entry.tab}:${entry.key}`, entry);
         });
@@ -555,7 +555,7 @@
         if (__tmSettingsSearchIndexBuilding) return '';
         const results = __tmGetSettingsSearchResults(q, activeTab);
         if (!results.length) {
-            return '<div class="tm-settings-search-empty">未找到设置项</div>';
+            return `<div class="tm-settings-search-empty">${__tmT("settings.noMatchingSettings")}</div>`;
         }
         const activeIndex = Math.max(0, Math.min(results.length - 1, Number(state.settingsSearchActiveIndex) || 0));
         state.settingsSearchActiveIndex = activeIndex;
@@ -582,8 +582,8 @@
             <div class="tm-settings-search${hasQuery ? ' has-query' : ''}" data-tm-settings-search-root>
                 <div class="tm-settings-search-input-wrap">
                     <span class="tm-settings-search-icon" aria-hidden="true">🔎</span>
-                    <input class="tm-settings-search-input" type="search" value="${esc(query)}" placeholder="搜索设置项" autocomplete="off" spellcheck="false" aria-label="搜索设置项" data-tm-settings-search-input aria-expanded="${hasQuery && state.settingsSearchResultsOpen !== false ? 'true' : 'false'}">
-                    <button class="tm-settings-search-clear" type="button" data-tm-action="tmClearSettingsSearch" title="清空搜索" aria-label="清空搜索"${hasQuery ? '' : ' hidden'}>×</button>
+                    <input class="tm-settings-search-input" type="search" value="${esc(query)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.searchSettings")}" autocomplete="off" spellcheck="false" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.searchSettings")}" data-tm-settings-search-input aria-expanded="${hasQuery && state.settingsSearchResultsOpen !== false ? 'true' : 'false'}">
+                    <button class="tm-settings-search-clear" type="button" data-tm-action="tmClearSettingsSearch" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearSearch2")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearSearch2")}"${hasQuery ? '' : ' hidden'}>×</button>
                 </div>
                 <div class="tm-settings-search-results" data-tm-settings-search-results${hasQuery && state.settingsSearchResultsOpen !== false ? '' : ' hidden'}>
                     ${__tmRenderSettingsSearchResultsHtml(query, activeTab)}
@@ -874,7 +874,7 @@
         if (container instanceof HTMLElement) {
             container.innerHTML = `
                 <div class="tm-calendar-settings-panel">
-                    <div class="tm-settings-section-desc">日历设置加载中...</div>
+                    <div class="tm-settings-section-desc">${__tmT("settings.loadingCalendarSettings")}</div>
                 </div>
             `;
         }
@@ -882,7 +882,7 @@
             if (container instanceof HTMLElement) {
                 container.innerHTML = `
                     <div class="tm-calendar-settings-panel">
-                        <div class="tm-settings-section-desc">日历模块尚未加载，请重新打开设置。</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.theCalendarModuleIsNotLoadedYetReopenThe")}</div>
                     </div>
                 `;
             }
@@ -915,7 +915,7 @@
             if (container instanceof HTMLElement) {
                 container.innerHTML = `
                     <div class="tm-calendar-settings-panel">
-                        <div class="tm-settings-section-desc">日历模块加载失败，请稍后重试。</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.failedToLoadTheCalendarModuleTryAgainLater")}</div>
                     </div>
                 `;
             }
@@ -1133,13 +1133,13 @@
         currentDocs = Array.from(seenDocs.values());
 
         const resolveDocName = (docId) => {
-            if (!docId) return '未知文档';
+            if (!docId) return __tmT("task.unknownDocument");
             let doc = state.allDocuments.find(d => d.id === docId);
             if (!doc) {
                 const docEntry = state.taskTree.find(d => d.id === docId);
                 if (docEntry) doc = { id: docId, name: docEntry.name };
             }
-            return doc ? __tmGetDocDisplayName(doc, doc.name || '未知文档') : '未知文档';
+            return doc ? __tmGetDocDisplayName(doc, doc.name || __tmT("task.unknownDocument")) : __tmT("task.unknownDocument");
         };
         /* 来源行副标题：优先显示父路径（同名文档可区分），ID 收进 title */
         const resolveDocPathLabel = (docId, doc = null) => {
@@ -1155,7 +1155,7 @@
                 if (notebookId) text = __tmGetNotebookDisplayName(notebookId, '');
             }
             if (!text) text = id;
-            const title = rawPath ? `${rawPath} · 文档 ID ${id}` : `文档 ID ${id}`;
+            const title = rawPath ? __tmT("settings.documentId", { rawPath: rawPath, id: id }) : __tmT("settings.documentId2", { id: id });
             return { text, title };
         };
 
@@ -1165,7 +1165,7 @@
             const searchQuery = searchEnabled ? String(state.settingsDocGroupQuery || '').trim().toLowerCase() : '';
             const isAllDocs = currentGroupId === 'all';
             const isNotebookGroup = !!String(currentGroup?.notebookId || '').trim();
-            const currentGroupName = isAllDocs ? '全部文档' : (__tmResolveDocGroupName(currentGroup) || '未命名分组');
+            const currentGroupName = isAllDocs ? __tmT("task.allDocuments") : (__tmResolveDocGroupName(currentGroup) || __tmT("kernel.untitledGroup"));
             const currentGroupIndex = isAllDocs
                 ? -1
                 : groups.findIndex((group) => String(group?.id || '').trim() === currentGroupId);
@@ -1182,7 +1182,7 @@
             const renderGroupButton = (group) => {
                 const gid = String(group?.id || '').trim();
                 if (!gid) return '';
-                const name = __tmResolveDocGroupName(group) || '未命名分组';
+                const name = __tmResolveDocGroupName(group) || __tmT("kernel.untitledGroup");
                 const selected = gid === currentGroupId;
                 const notebook = !!String(group?.notebookId || '').trim();
                 const sourceCount = sourceCountForGroup(group);
@@ -1199,7 +1199,7 @@
                         <span class="tm-doc-group-manager__group-icon">${icon(notebook ? 'archive' : 'file', 15)}</span>
                         <span class="tm-doc-group-manager__group-copy">
                             <span class="tm-doc-group-manager__group-name">${esc(name)}</span>
-                            <span class="tm-doc-group-manager__group-meta">${notebook ? '笔记本' : '自定义'} · ${sourceCount} 项来源</span>
+                            <span class="tm-doc-group-manager__group-meta">${__tmT("settings.sources", { value1: notebook ? __tmT("settings.notebook") : __tmT("settings.custom"), sourceCount: sourceCount })}</span>
                         </span>
                     </button>
                 `;
@@ -1216,7 +1216,7 @@
             const docPickerTree = __tmBuildSettingsDocPickerTree(state.allDocuments, state.notebooks);
             const renderSourceRows = () => {
                 if (!currentDocs.length) {
-                    return '<div class="tm-doc-group-manager__empty">暂无文档来源。可在上方添加文档，或从思源文档菜单加入当前分组。</div>';
+                    return `<div class="tm-doc-group-manager__empty">${__tmT("settings.noDocumentSourcesYetAddDocumentsAboveOrAdd")}</div>`;
                 }
                 return `
                     <div class="tm-doc-group-manager__source-list">
@@ -1239,10 +1239,10 @@
                             }
                             const fallbackOtherBlockDocName = String((typeof docItem === 'object' ? docItem?.docName : '') || '').trim();
                             const docName = isNotebook
-                                ? __tmGetNotebookDisplayName(docId, '未知笔记本')
-                                : (doc ? __tmGetDocDisplayName(doc, doc.name || '未知文档') : (fallbackOtherBlockDocName || '未知文档'));
+                                ? __tmGetNotebookDisplayName(docId, __tmT("settings.unknownNotebook"))
+                                : (doc ? __tmGetDocDisplayName(doc, doc.name || __tmT("task.unknownDocument")) : (fallbackOtherBlockDocName || __tmT("task.unknownDocument")));
                             const pathLabel = isNotebook ? { text: '', title: '' } : resolveDocPathLabel(docId, doc);
-                            const otherBlockBadgeTitle = `${sourceGroupName ? `${sourceGroupName}：` : ''}其他块页签来源${otherBlockCount > 0 ? `，${otherBlockCount} 个块` : ''}`;
+                            const otherBlockBadgeTitle = __tmT("settings.otherBlockTabSources", { value1: sourceGroupName ? `${sourceGroupName}：` : '', value2: otherBlockCount > 0 ? __tmT("settings.blockS", { otherBlockCount: otherBlockCount }) : '' });
                             const directRemoveAction = isAllDocs
                                 ? `removeDocFromAll('${escSq(docId)}')`
                                 : `removeDocFromGroupById('${escSq(docId)}')`;
@@ -1252,17 +1252,17 @@
                                     <div class="tm-doc-group-manager__source-copy">
                                         <div class="tm-doc-group-manager__source-top">
                                             <div class="tm-doc-group-manager__source-name" title="${esc(docName)}">${esc(docName)}</div>
-                                            ${isNotebook ? '<span class="tm-doc-group-manager__badge">笔记本</span>' : ''}
-                                            ${isRecursive ? '<span class="tm-doc-group-manager__badge">连同子文档</span>' : ''}
-                                            ${hasOtherBlockSource ? `<span class="tm-doc-group-manager__badge tm-doc-group-manager__badge--warning" title="${esc(otherBlockBadgeTitle)}">其他块${otherBlockCount > 1 ? ` ${otherBlockCount}` : ''}</span>` : ''}
+                                            ${isNotebook ? `<span class="tm-doc-group-manager__badge">${__tmT("settings.notebook")}</span>` : ''}
+                                            ${isRecursive ? `<span class="tm-doc-group-manager__badge">${__tmT("settings.withSubdocuments")}</span>` : ''}
+                                            ${hasOtherBlockSource ? `<span class="tm-doc-group-manager__badge tm-doc-group-manager__badge--warning" title="${esc(otherBlockBadgeTitle)}">${__tmT("settings.otherBlocks", { value1: otherBlockCount > 1 ? ` ${otherBlockCount}` : '' })}</span>` : ''}
                                         </div>
                                         ${isNotebook ? '' : `<div class="tm-doc-group-manager__source-meta"><span class="tm-doc-group-manager__source-path" title="${esc(pathLabel.title)}">${esc(pathLabel.text)}</span></div>`}
                                     </div>
                                     <div class="tm-doc-group-manager__source-actions">
                                         ${isNotebook
-                                            ? `<span class="tm-doc-group-manager__row-note">${isAllDocs ? '来自笔记本分组' : '在更多操作中解除关联'}</span>`
-                                            : `${hasDirectDocSource ? `<button type="button" class="tm-doc-group-manager__text-action" onclick="${directRemoveAction}">${icon('trash-2', 13)}<span>移除</span></button>` : ''}
-                                               ${hasOtherBlockSource ? `<button type="button" class="tm-doc-group-manager__text-action" onclick="removeOtherBlockSourceDocFromGroup('${escSq(docId)}', '${escSq(sourceGroupId)}')">${icon('trash-2', 13)}<span>移除其他块</span></button>` : ''}`}
+                                            ? `<span class="tm-doc-group-manager__row-note">${isAllDocs ? __tmT("settings.fromANotebookGroup") : __tmT("settings.unlinkInMoreActions")}</span>`
+                                            : `${hasDirectDocSource ? `<button type="button" class="tm-doc-group-manager__text-action" onclick="${directRemoveAction}">${icon('trash-2', 13)}<span>${__tmT("task.remove")}</span></button>` : ''}
+                                               ${hasOtherBlockSource ? `<button type="button" class="tm-doc-group-manager__text-action" onclick="removeOtherBlockSourceDocFromGroup('${escSq(docId)}', '${escSq(sourceGroupId)}')">${icon('trash-2', 13)}<span>${__tmT("settings.removeOtherBlocks")}</span></button>` : ''}`}
                                     </div>
                                 </div>
                             `;
@@ -1275,8 +1275,8 @@
                     <div class="tm-doc-group-manager__notice">
                         ${icon('archive', 16)}
                         <div>
-                            <strong>来源由笔记本同步</strong>
-                            <span>自动搜索该笔记本内包含任务的文档，名称跟随笔记本显示名。</span>
+                            <strong>${__tmT("settings.sourceSyncedFromNotebook")}</strong>
+                            <span>${__tmT("settings.automaticallySearchesTheNotebookForDocumentsContainingTasksThe")}</span>
                         </div>
                     </div>
                 ` : '';
@@ -1286,9 +1286,9 @@
                         onclick="if (event.target === this) tmCloseSettingsDocPicker()">
                         <section class="tm-doc-group-manager__picker-dialog-box" role="dialog" aria-modal="true" aria-labelledby="tmSettingsDocPickerTitle">
                             <header class="tm-doc-group-manager__picker-dialog-head">
-                                <h3 id="tmSettingsDocPickerTitle">选择文档</h3>
+                                <h3 id="tmSettingsDocPickerTitle">${__tmT("task.selectDocument")}</h3>
                                 <button type="button" class="tm-doc-group-manager__picker-dialog-close"
-                                    data-tm-action="tmCloseSettingsDocPicker" title="关闭" aria-label="关闭">
+                                    data-tm-action="tmCloseSettingsDocPicker" title="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}">
                                     ${icon('x', 17)}
                                 </button>
                             </header>
@@ -1296,35 +1296,35 @@
                         <div class="tm-doc-group-manager__picker-toolbar">
                             <div class="tm-doc-group-manager__picker-search">
                                 <span aria-hidden="true">${icon('search', 14)}</span>
-                                <input type="search" placeholder="搜索文档名称、路径或 ID" aria-label="搜索文档"
+                                <input type="search" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.searchDocumentNamePathOrId")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.searchDocuments")}"
                                     autocomplete="off" spellcheck="false" data-tm-doc-picker-search-input data-tm-call="tmFilterSettingsDocPicker">
-                                <button type="button" data-tm-action="tmClearSettingsDocPickerSearch" title="清除搜索" aria-label="清除搜索" hidden>${icon('x', 14)}</button>
+                                <button type="button" data-tm-action="tmClearSettingsDocPickerSearch" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearSearch")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearSearch")}" hidden>${icon('x', 14)}</button>
                             </div>
                             <button type="button" class="tm-doc-group-manager__picker-refresh" data-tm-action="tmRefreshSettingsDocPicker"
-                                title="刷新文档列表" aria-label="刷新文档列表">${icon('refresh-cw', 15)}</button>
+                                title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.refreshTheDocumentList")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.refreshTheDocumentList")}">${icon('refresh-cw', 15)}</button>
                         </div>
                         <div class="tm-doc-group-manager__picker-tree" data-tm-doc-picker-tree aria-busy="${state.settingsDocPickerDocumentsLoading ? 'true' : 'false'}">
                             ${state.settingsDocPickerDocumentsLoading && !docPickerTree.length ? `
-                                <div class="tm-doc-group-manager__picker-skeleton" aria-label="正在加载文档">
+                                <div class="tm-doc-group-manager__picker-skeleton" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.loadingDocuments")}">
                                     <span></span><span></span><span></span>
                                 </div>
                             ` : docPickerTree.length
                                 ? __tmRenderDocPickerTree(docPickerTree, { selectedIds: docPickerDraft, disabledIds: currentDocIdSet })
-                                : '<div class="tm-doc-group-manager__picker-empty">没有可选择的文档</div>'}
-                            <div class="tm-doc-group-manager__picker-empty" data-tm-doc-picker-empty hidden>没有匹配的文档</div>
+                                : `<div class="tm-doc-group-manager__picker-empty">${__tmT("settings.noSelectableDocuments")}</div>`}
+                            <div class="tm-doc-group-manager__picker-empty" data-tm-doc-picker-empty hidden>${__tmT("calendar.noMatchingDocuments")}</div>
                         </div>
                         <div class="tm-doc-group-manager__picker-footer">
                             ${isAllDocs ? '<span></span>' : `
                                 <label class="tm-doc-group-manager__recursive">
                                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-doc-picker-recursive>
-                                    <span>包含子文档</span>
+                                    <span>${__tmT("settings.includeSubdocuments")}</span>
                                 </label>
                             `}
                             <div class="tm-doc-group-manager__picker-actions">
-                                <span class="tm-doc-group-manager__picker-selected" data-tm-doc-picker-selected-count>已选择 ${docPickerDraft.size} 项</span>
+                                <span class="tm-doc-group-manager__picker-selected" data-tm-doc-picker-selected-count>${__tmT("settings.selected", { size: docPickerDraft.size })}</span>
                                 <button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__add-button"
                                     data-tm-action="tmAddSelectedSettingsDocs"${docPickerDraft.size ? '' : ' disabled'}>
-                                    ${icon('plus', 15)}<span>添加所选</span>
+                                    ${icon('plus', 15)}<span>${__tmT("settings.addSelected")}</span>
                                 </button>
                             </div>
                         </div>
@@ -1337,11 +1337,11 @@
             };
             const renderExcludedPane = () => {
                 if (!currentGroupExcludedDocIds.length) {
-                    return '<div class="tm-doc-group-manager__empty">暂无隐藏的文档页签。右击任务管理器中的文档页签可以快速隐藏。</div>';
+                    return `<div class="tm-doc-group-manager__empty">${__tmT("settings.noHiddenDocumentTabsRightClickADocumentTab")}</div>`;
                 }
                 return `
                     <div class="tm-doc-group-manager__pane-intro">
-                        ${isAllDocs ? '这里只影响“全部文档”视图。' : '恢复后，文档会重新出现在当前分组中。'}
+                        ${isAllDocs ? __tmT("settings.thisAffectsOnlyTheAllDocumentsView") : __tmT("settings.afterRestoringTheDocumentReappearsInTheCurrentGroup")}
                     </div>
                     <div class="tm-doc-group-manager__source-list">
                         ${currentGroupExcludedDocIds.map((docId) => {
@@ -1354,7 +1354,7 @@
                                         <div class="tm-doc-group-manager__source-name" title="${esc(docName)}">${esc(docName)}</div>
                                         <div class="tm-doc-group-manager__source-meta"><span class="tm-doc-group-manager__source-path" title="${esc(excludedPathLabel.title)}">${esc(excludedPathLabel.text)}</span></div>
                                     </div>
-                                    <div class="tm-doc-group-manager__source-actions"><button type="button" class="tm-doc-group-manager__restore" onclick="removeExcludedDocFromCurrentGroup('${escSq(docId)}')">恢复显示</button></div>
+                                    <div class="tm-doc-group-manager__source-actions"><button type="button" class="tm-doc-group-manager__restore" onclick="removeExcludedDocFromCurrentGroup('${escSq(docId)}')">${__tmT("settings.showAgain")}</button></div>
                                 </div>
                             `;
                         }).join('')}
@@ -1362,24 +1362,22 @@
                 `;
             };
             const renderOptimizationPane = () => `
-                <div class="tm-doc-group-manager__pane-intro">
-                    适合以日记文档为主的分组，也可用于限制普通分组的任务搜索范围。
-                </div>
+                <div class="tm-doc-group-manager__pane-intro">${__tmT("settings.suitedToGroupsBuiltAroundDailyNotesCanAlso")}</div>
                 ${renderSingleSwitchSetting(
-                    '启用日记分组优化搜索',
-                    '仅对当前分组生效，默认关闭以保持原有行为。',
+                    __tmT("settings.enableDailyNoteGroupSearchOptimization"),
+                    __tmT("settings.appliesToTheCurrentGroupOnlyOffByDefault"),
                     `<input class="b3-switch fn__flex-center" type="checkbox" ${currentGroupCalendarOptimization.enabled ? 'checked' : ''} onchange="updateCurrentGroupCalendarSearchOptimizationEnabled(this.checked)">`
                 )}
                 <div class="tm-doc-group-manager__optimization-days${currentGroupCalendarOptimization.enabled ? '' : ' is-disabled'}">
                     ${renderSingleFieldSetting(
-                        '搜索窗口',
-                        '只搜索最近多少天内可识别为日记文档的任务。',
+                        __tmT("settings.searchWindow"),
+                        __tmT("settings.onlySearchTasksThatCanBeRecognizedAsDaily"),
                         `<select class="b3-select tm-doc-group-manager__days-select" ${currentGroupCalendarOptimization.enabled ? '' : 'disabled'} onchange="updateCurrentGroupCalendarSearchOptimizationDays(this.value)">
-                            <option value="7" ${Number(currentGroupCalendarOptimization.days) === 7 ? 'selected' : ''}>最近 7 天</option>
-                            <option value="30" ${Number(currentGroupCalendarOptimization.days) === 30 ? 'selected' : ''}>最近 30 天</option>
-                            <option value="60" ${Number(currentGroupCalendarOptimization.days) === 60 ? 'selected' : ''}>最近 60 天</option>
-                            <option value="90" ${Number(currentGroupCalendarOptimization.days) === 90 ? 'selected' : ''}>最近 90 天</option>
-                            <option value="120" ${Number(currentGroupCalendarOptimization.days) === 120 ? 'selected' : ''}>最近 120 天</option>
+                            <option value="7" ${Number(currentGroupCalendarOptimization.days) === 7 ? 'selected' : ''}>${__tmT("settings.lastDays")}</option>
+                            <option value="30" ${Number(currentGroupCalendarOptimization.days) === 30 ? 'selected' : ''}>${__tmT("settings.lastDays2")}</option>
+                            <option value="60" ${Number(currentGroupCalendarOptimization.days) === 60 ? 'selected' : ''}>${__tmT("settings.lastDays3")}</option>
+                            <option value="90" ${Number(currentGroupCalendarOptimization.days) === 90 ? 'selected' : ''}>${__tmT("settings.lastDays4")}</option>
+                            <option value="120" ${Number(currentGroupCalendarOptimization.days) === 120 ? 'selected' : ''}>${__tmT("settings.lastDays5")}</option>
                         </select>`
                     )}
                 </div>
@@ -1392,83 +1390,81 @@
                 const canMoveDown = currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1;
                 return `
                     <div class="tm-doc-group-manager__detail-actions">
-                        ${!isNotebookGroup ? `<button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__picker-trigger" data-tm-action="tmOpenSettingsDocPicker">${icon('plus', 14)}<span>选择文档</span></button>` : ''}
+                        ${!isNotebookGroup ? `<button type="button" class="tm-btn tm-btn-primary tm-doc-group-manager__picker-trigger" data-tm-action="tmOpenSettingsDocPicker">${icon('plus', 14)}<span>${__tmT("task.selectDocument")}</span></button>` : ''}
                         <button type="button" class="tm-btn tm-btn-secondary tm-doc-group-manager__export" data-tm-action="exportCurrentGroup">
-                            ${icon('download', 15)}<span>导出</span>
+                            ${icon('download', 15)}<span>${__tmT("settings.export")}</span>
                         </button>
                         <details class="tm-doc-group-manager__more">
-                            <summary class="tm-doc-group-manager__icon-button" title="更多操作" aria-label="更多操作">${icon('dots-three', 17)}</summary>
+                            <summary class="tm-doc-group-manager__icon-button" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.moreActions")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.moreActions")}">${icon('dots-three', 17)}</summary>
                             <div class="tm-doc-group-manager__more-menu" role="menu">
-                                <button type="button" role="menuitem" data-tm-call="tmMoveCurrentDocGroup" data-tm-args='${esc(JSON.stringify([-1]))}' title="${currentGroupIndex > 0 ? '上移分组' : '已是第一个分组'}"${currentGroupIndex > 0 ? '' : ' disabled'}>${icon('arrow-up', 15)}<span>上移分组</span></button>
-                                <button type="button" role="menuitem" data-tm-call="tmMoveCurrentDocGroup" data-tm-args='${esc(JSON.stringify([1]))}' title="${currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1 ? '下移分组' : '已是最后一个分组'}"${currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1 ? '' : ' disabled'}>${icon('arrow-down', 15)}<span>下移分组</span></button>
-                                ${canRename ? `<button type="button" data-tm-action="renameCurrentGroup" role="menuitem">${icon('pencil', 15)}<span>重命名</span></button>` : ''}
-                                ${canClear ? `<button type="button" data-tm-action="clearCurrentGroupDocs" role="menuitem">${icon(isNotebookGroup ? 'archive' : 'trash-2', 15)}<span>${isNotebookGroup ? '解除笔记本关联' : '清空手动文档'}</span></button>` : ''}
-                                <button type="button" class="is-danger" data-tm-action="deleteCurrentGroup" role="menuitem">${icon('trash-2', 15)}<span>删除分组</span></button>
+                                <button type="button" role="menuitem" data-tm-call="tmMoveCurrentDocGroup" data-tm-args='${esc(JSON.stringify([-1]))}' title="${currentGroupIndex > 0 ? __tmT("settings.moveUp") : __tmT("settings.alreadyTheFirstGroup")}"${currentGroupIndex > 0 ? '' : ' disabled'}>${icon('arrow-up', 15)}<span>${__tmT("settings.moveUp")}</span></button>
+                                <button type="button" role="menuitem" data-tm-call="tmMoveCurrentDocGroup" data-tm-args='${esc(JSON.stringify([1]))}' title="${currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1 ? __tmT("settings.moveDown") : __tmT("settings.alreadyTheLastGroup")}"${currentGroupIndex >= 0 && currentGroupIndex < groups.length - 1 ? '' : ' disabled'}>${icon('arrow-down', 15)}<span>${__tmT("settings.moveDown")}</span></button>
+                                ${canRename ? `<button type="button" data-tm-action="renameCurrentGroup" role="menuitem">${icon('pencil', 15)}<span>${__tmT("settings.rename")}</span></button>` : ''}
+                                ${canClear ? `<button type="button" data-tm-action="clearCurrentGroupDocs" role="menuitem">${icon(isNotebookGroup ? 'archive' : 'trash-2', 15)}<span>${isNotebookGroup ? __tmT("settings.unlinkNotebook") : __tmT("settings.clearManualDocuments")}</span></button>` : ''}
+                                <button type="button" class="is-danger" data-tm-action="deleteCurrentGroup" role="menuitem">${icon('trash-2', 15)}<span>${__tmT("settings.deleteGroup")}</span></button>
                             </div>
                         </details>
                     </div>
                 `;
             };
             return `
-                <section class="tm-settings-panel tm-doc-group-manager" ${__tmSettingsSearchAttrs('docs', '文档分组与管理', '常驻分组列表、文档来源、隐藏文档页签和搜索优化')}>
+                <section class="tm-settings-panel tm-doc-group-manager" ${__tmSettingsSearchAttrs('docs', __tmT("settings.documentGroupsManagement"), __tmT("settings.persistentGroupListDocumentSourcesHiddenDocumentTabsAnd"))}>
                     <div class="tm-doc-group-manager__heading">
                         <div>
-                            <div class="tm-settings-section-title">${icon('list-bullets', 18)}<span>文档分组与管理</span></div>
-                            <div class="tm-settings-section-desc">选择分组后管理来源、排除范围与搜索优化。</div>
+                            <div class="tm-settings-section-title">${icon('list-bullets', 18)}<span>${__tmT("settings.documentGroupsManagement")}</span></div>
+                            <div class="tm-settings-section-desc">${__tmT("settings.afterSelectingAGroupManageSourcesExclusionsAndSearch")}</div>
                         </div>
                     </div>
                     <div class="tm-doc-group-manager__workspace" aria-busy="false">
-                        <aside class="tm-doc-group-manager__nav" aria-label="文档分组">
+                        <aside class="tm-doc-group-manager__nav" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.documentGroups")}">
                             <div class="tm-doc-group-manager__nav-head">
-                                <span>文档范围</span>
-                                <span>${groups.length} 个分组</span>
+                                <span>${__tmT("kernel.documentScope")}</span>
+                                <span>${__tmT("settings.groups", { length: groups.length })}</span>
                             </div>
                             ${searchEnabled ? `
                                 <div class="tm-doc-group-manager__search">
                                     <span>${icon('search', 14)}</span>
-                                    <input type="search" value="${esc(String(state.settingsDocGroupQuery || ''))}" placeholder="搜索分组" aria-label="搜索文档分组" data-tm-call="tmUpdateDocGroupSettingsQuery">
-                                    <button type="button" data-tm-action="tmClearDocGroupSettingsQuery" title="清除搜索" aria-label="清除搜索"${searchQuery ? '' : ' hidden'}>${icon('x', 14)}</button>
+                                    <input type="search" value="${esc(String(state.settingsDocGroupQuery || ''))}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.searchGrouping")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.searchDocumentsgroup")}" data-tm-call="tmUpdateDocGroupSettingsQuery">
+                                    <button type="button" data-tm-action="tmClearDocGroupSettingsQuery" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearSearch")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearSearch")}"${searchQuery ? '' : ' hidden'}>${icon('x', 14)}</button>
                                 </div>
                             ` : ''}
                             <div class="tm-doc-group-manager__all">
                                 <button type="button" class="tm-doc-group-manager__group${isAllDocs ? ' is-active' : ''}"
                                     data-tm-call="tmSwitchSettingsDocGroup" data-tm-args='${esc(JSON.stringify(['all']))}'
-                                    aria-selected="${isAllDocs ? 'true' : 'false'}" title="全部文档">
+                                    aria-selected="${isAllDocs ? 'true' : 'false'}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.allDocuments")}">
                                     <span class="tm-doc-group-manager__group-icon">${icon('list-bullets', 15)}</span>
                                     <span class="tm-doc-group-manager__group-copy">
-                                        <span class="tm-doc-group-manager__group-name">全部文档</span>
-                                        <span class="tm-doc-group-manager__group-meta">汇总所有分组</span>
+                                        <span class="tm-doc-group-manager__group-name">${__tmT("task.allDocuments")}</span>
+                                        <span class="tm-doc-group-manager__group-meta">${__tmT("settings.aggregatesAllGroups")}</span>
                                     </span>
                                 </button>
                             </div>
                             <div class="tm-doc-group-manager__group-list" role="listbox">
                                 ${groups.map(renderGroupButton).join('')}
-                                <div class="tm-doc-group-manager__search-empty"${visibleGroupCount > 0 ? ' hidden' : ''}>没有匹配的分组</div>
+                                <div class="tm-doc-group-manager__search-empty"${visibleGroupCount > 0 ? ' hidden' : ''}>${__tmT("settings.noMatchingGroups")}</div>
                             </div>
                             <div class="tm-doc-group-manager__create">
-                                <button type="button" class="tm-btn tm-btn-primary" data-tm-action="createNotebookGroup">${icon('plus', 14)}<span>笔记本</span></button>
-                                <button type="button" class="tm-btn tm-btn-primary" data-tm-action="createCustomGroup">${icon('plus', 14)}<span>自定义</span></button>
+                                <button type="button" class="tm-btn tm-btn-primary" data-tm-action="createNotebookGroup">${icon('plus', 14)}<span>${__tmT("settings.notebook")}</span></button>
+                                <button type="button" class="tm-btn tm-btn-primary" data-tm-action="createCustomGroup">${icon('plus', 14)}<span>${__tmT("settings.custom")}</span></button>
                             </div>
                         </aside>
                         <div class="tm-doc-group-manager__detail">
                             <div class="tm-doc-group-manager__detail-head">
                                 <div class="tm-doc-group-manager__detail-title-wrap">
                                     <div class="tm-doc-group-manager__detail-title" title="${esc(currentGroupName)}">${esc(currentGroupName)}</div>
-                                    <div class="tm-doc-group-manager__detail-meta">
-                                        ${isAllDocs ? '汇总视图' : (isNotebookGroup ? '笔记本分组' : '自定义分组')} · ${currentDocs.length} 项来源
-                                    </div>
+                                    <div class="tm-doc-group-manager__detail-meta">${__tmT("settings.sources2", { value1: isAllDocs ? __tmT("settings.summaryView") : (isNotebookGroup ? __tmT("settings.notebookGroup") : __tmT("settings.customGroup")), length: currentDocs.length })}</div>
                                 </div>
                                 ${renderDetailActions()}
                             </div>
                             <div class="tm-doc-group-manager__pane">
                                 ${renderSourcePane()}
                                 <details class="tm-doc-group-manager__fold">
-                                    <summary>已隐藏的文档页签 <span class="tm-doc-group-manager__fold-count">${currentGroupExcludedDocIds.length}</span></summary>
+                                    <summary>${__tmT("settings.hiddenDocumentTabs")}<span class="tm-doc-group-manager__fold-count">${currentGroupExcludedDocIds.length}</span></summary>
                                     ${renderExcludedPane()}
                                 </details>
                                 ${isAllDocs ? '' : `
                                 <details class="tm-doc-group-manager__fold">
-                                    <summary>搜索优化 ${currentGroupCalendarOptimization.enabled ? `<span class="tm-doc-group-manager__fold-count">已启用 · 最近 ${Number(currentGroupCalendarOptimization.days) || 30} 天</span>` : ''}</summary>
+                                    <summary>${__tmT("settings.searchOptimization", { value1: currentGroupCalendarOptimization.enabled ? `<span class="tm-doc-group-manager__fold-count">${__tmT("settings.enabledLastDays", { value1: Number(currentGroupCalendarOptimization.days) || 30 })}</span>` : '' })}</summary>
                                     ${renderOptimizationPane()}
                                 </details>
                                 `}
@@ -1490,36 +1486,34 @@
         const renderDocTabCustomGroupSettings = () => {
             const groupsForTabs = __tmNormalizeDocTabCustomGroups(docTabCustomGroups);
             return `
-                <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;" ${__tmSettingsSearchAttrs('docs', '页签自定义分组', '右击页签加入分组，手动选择是否包含子文档，只影响页签栏显示')}>
+                <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;" ${__tmSettingsSearchAttrs('docs', __tmT("settings.customTabGroups"), __tmT("settings.rightClickATabToAddItToA"))}>
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
-                        <div style="font-weight:600;">📑 页签自定义分组</div>
-                        <button class="tm-btn tm-btn-info" data-tm-action="tmCreateDocTabCustomGroupFromSettings" style="padding: 6px 12px; font-size: 12px;">+ 新建页签组</button>
+                        <div style="font-weight:600;">${__tmT("settings.customTabGroups2")}</div>
+                        <button class="tm-btn tm-btn-info" data-tm-action="tmCreateDocTabCustomGroupFromSettings" style="padding: 6px 12px; font-size: 12px;">${__tmT("settings.newTabGroup")}</button>
                     </div>
-                    <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-bottom:10px;">
-                        自定义页签组只折叠页签栏，不改变任务搜索范围和文档分组。父子文档不会自动成组；只有直接成员开启“包含子文档”后，子文档页签才会被收进该页签组。
-                    </div>
+                    <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-bottom:10px;">${__tmT("settings.customTabGroupsOnlyCollapseTheTabBarThey")}</div>
                     ${groupsForTabs.length ? `
                         <div style="display:flex;flex-direction:column;gap:10px;">
                             ${groupsForTabs.map((group) => {
                                 const gid = String(group?.id || '').trim();
-                                const groupName = String(group?.name || '').trim() || '未命名页签组';
+                                const groupName = String(group?.name || '').trim() || __tmT("task.untitledTabGroup");
                                 const entries = Array.isArray(group?.entries) ? group.entries : [];
                                 return `
                                     <div style="border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-card-bg);padding:10px;">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
                                             <div style="min-width:0;">
                                                 <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(groupName)}</div>
-                                                <div style="font-size:11px;color:var(--tm-secondary-text);margin-top:2px;">${entries.length} 个直接成员</div>
+                                                <div style="font-size:11px;color:var(--tm-secondary-text);margin-top:2px;">${__tmT("settings.directMembers", { length: entries.length })}</div>
                                             </div>
                                             <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-                                                <button class="tm-btn tm-btn-secondary" onclick="tmRenameDocTabCustomGroup('${escSq(gid)}')" style="padding:3px 8px;font-size:11px;">重命名</button>
-                                                <button class="tm-btn tm-btn-danger" onclick="tmDeleteDocTabCustomGroup('${escSq(gid)}')" style="padding:3px 8px;font-size:11px;">删除</button>
+                                                <button class="tm-btn tm-btn-secondary" onclick="tmRenameDocTabCustomGroup('${escSq(gid)}')" style="padding:3px 8px;font-size:11px;">${__tmT("settings.rename")}</button>
+                                                <button class="tm-btn tm-btn-danger" onclick="tmDeleteDocTabCustomGroup('${escSq(gid)}')" style="padding:3px 8px;font-size:11px;">${__tmT("common.delete")}</button>
                                             </div>
                                         </div>
                                         <div style="display:flex;gap:8px;margin-bottom:8px;">
-                                            <input data-tm-doc-tab-group-entry-input type="text" placeholder="输入文档 ID"
+                                            <input data-tm-doc-tab-group-entry-input type="text" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.enterDocumentId")}"
                                                 style="flex:1;min-width:0;padding:6px 8px;border:1px solid var(--tm-input-border);background:var(--tm-input-bg);color:var(--tm-text-color);border-radius:4px;font-size:12px;">
-                                            <button class="tm-btn tm-btn-primary" onclick="tmAddDocTabCustomGroupEntryFromInput('${escSq(gid)}', this)" style="padding:4px 10px;font-size:12px;">添加</button>
+                                            <button class="tm-btn tm-btn-primary" onclick="tmAddDocTabCustomGroupEntryFromInput('${escSq(gid)}', this)" style="padding:4px 10px;font-size:12px;">${__tmT("settings.add")}</button>
                                         </div>
                                         ${entries.length ? `
                                             <div style="display:flex;flex-direction:column;gap:6px;">
@@ -1543,35 +1537,33 @@
                                                                 </div>
                                                                 <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
                                                                     <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;user-select:none;">
-                                                                        <input class="b3-switch fn__flex-center" type="checkbox" ${includeChildren ? 'checked' : ''} onchange="tmToggleDocTabCustomGroupEntryChildren('${escSq(gid)}', '${escSq(docId)}', this.checked)">
-                                                                        包含子文档
-                                                                    </label>
-                                                                    <button class="tm-btn tm-btn-danger" onclick="tmRemoveDocFromDocTabCustomGroup('${escSq(gid)}', '${escSq(docId)}')" style="padding:2px 7px;font-size:11px;">移除</button>
+                                                                        <input class="b3-switch fn__flex-center" type="checkbox" ${includeChildren ? 'checked' : ''} onchange="tmToggleDocTabCustomGroupEntryChildren('${escSq(gid)}', '${escSq(docId)}', this.checked)">${__tmT("settings.includeSubdocuments2")}</label>
+                                                                    <button class="tm-btn tm-btn-danger" onclick="tmRemoveDocFromDocTabCustomGroup('${escSq(gid)}', '${escSq(docId)}')" style="padding:2px 7px;font-size:11px;">${__tmT("task.remove")}</button>
                                                                 </div>
                                                             </div>
                                                             <div style="margin-top:7px;font-size:12px;color:var(--tm-secondary-text);line-height:1.7;">
                                                                 ${childDocs.length ? `
-                                                                    <div style="margin-bottom:2px;">检测到 ${childDocs.length} 个子文档${includeChildren ? '，符合页签显示条件时会收入页签组' : ''}</div>
+                                                                    <div style="margin-bottom:2px;">${__tmT("settings.detectedSubdocuments", { length: childDocs.length, value2: includeChildren ? __tmT("settings.andWillBeCollectedIntoTheTabGroupWhen") : '' })}</div>
                                                                     <div style="display:flex;flex-direction:column;gap:2px;">
                                                                         ${childPreview.map((child) => {
                                                                             const depth = Math.max(1, Number(child?.depth) || 1);
-                                                                            const childName = __tmGetDocDisplayName(child, child.name || '未命名文档');
+                                                                            const childName = __tmGetDocDisplayName(child, child.name || __tmT("kernel.untitledDocument"));
                                                                             return `<div style="padding-left:${Math.min(28, depth * 10)}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">↳ ${esc(childName)}</div>`;
                                                                         }).join('')}
-                                                                        ${childDocs.length > childPreview.length ? `<div style="padding-left:10px;">还有 ${childDocs.length - childPreview.length} 个...</div>` : ''}
+                                                                        ${childDocs.length > childPreview.length ? `<div style="padding-left:10px;">${__tmT("settings.andMore", { length: childDocs.length - childPreview.length })}</div>` : ''}
                                                                     </div>
-                                                                ` : '当前未检测到子文档。开启后，后续符合父子路径的子文档也会收入页签组。'}
+                                                                ` : __tmT("settings.noSubdocumentsDetectedCurrentlyOnceEnabledFutureSubdocumentsMatching")}
                                                             </div>
                                                         </div>
                                                     `;
                                                 }).join('')}
                                             </div>
-                                        ` : '<div style="color: var(--tm-secondary-text); font-size: 12px; padding: 8px; background: var(--tm-rule-group-bg); border-radius: 6px;">暂无成员。可以右击文档页签加入，或在上方输入文档 ID。</div>'}
+                                        ` : `<div style="color: var(--tm-secondary-text); font-size: 12px; padding: 8px; background: var(--tm-rule-group-bg); border-radius: 6px;">${__tmT("settings.noMembersYetRightClickADocumentTabTo")}</div>`}
                                     </div>
                                 `;
                             }).join('')}
                         </div>
-                    ` : '<div style="color: var(--tm-secondary-text); font-size: 13px; padding: 10px; background: var(--tm-rule-group-bg); border-radius: 8px;">暂无页签组。右击任意文档页签可快速新建并加入。</div>'}
+                    ` : `<div style="color: var(--tm-secondary-text); font-size: 13px; padding: 10px; background: var(--tm-rule-group-bg); border-radius: 8px;">${__tmT("settings.noTabGroupsYetRightClickAnyDocumentTab")}</div>`}
                 </div>
             `;
         };
@@ -1582,7 +1574,7 @@
         const defaultDocId = String((currentGroupId === 'all' ? SettingsStore.data.defaultDocId : defaultDocIdByGroup[currentGroupId]) || '').trim();
         const currentDocIds = currentDocs.map(d => (typeof d === 'object' ? d.id : d));
         const defaultDocOptions = [
-            `<option value="" ${defaultDocId ? '' : 'selected'}>跟随当前/第一个文档</option>`
+            `<option value="" ${defaultDocId ? '' : 'selected'}>${__tmT("settings.followTheCurrentFirstDocument")}</option>`
         ];
         currentDocs.forEach(docItem => {
             const docId = typeof docItem === 'object' ? docItem.id : docItem;
@@ -1591,13 +1583,13 @@
         });
         if (defaultDocId && !currentDocIds.includes(defaultDocId)) {
             const fallbackName = resolveDocName(defaultDocId);
-            defaultDocOptions.push(`<option value="${defaultDocId}" selected>${esc(fallbackName)} (不在当前列表)</option>`);
+            defaultDocOptions.push(`<option value="${defaultDocId}" selected>${__tmT("settings.notInTheCurrentList", { fallbackName: esc(fallbackName) })}</option>`);
         }
         const newTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         const newTaskLocationMode = __tmNormalizeNewTaskDefaultLocationMode(SettingsStore.data.newTaskDefaultLocationMode);
         const newTaskDailyNoteNotebookId = String(SettingsStore.data.newTaskDailyNoteNotebookId || '').trim();
         const dailyNoteNotebookOptions = [
-            `<option value="" ${newTaskDailyNoteNotebookId ? '' : 'selected'}>跟随当前文档所属笔记本</option>`
+            `<option value="" ${newTaskDailyNoteNotebookId ? '' : 'selected'}>${__tmT("settings.followTheCurrentDocumentSNotebook")}</option>`
         ];
         (Array.isArray(state.notebooks) ? state.notebooks : []).forEach((notebook) => {
             const notebookId = String(notebook?.id || notebook?.box || '').trim();
@@ -1606,7 +1598,7 @@
             dailyNoteNotebookOptions.push(`<option value="${notebookId}" ${newTaskDailyNoteNotebookId === notebookId ? 'selected' : ''}>${esc(notebookName)}</option>`);
         });
         if (newTaskDailyNoteNotebookId && !(Array.isArray(state.notebooks) ? state.notebooks : []).some((item) => String(item?.id || item?.box || '').trim() === newTaskDailyNoteNotebookId)) {
-            dailyNoteNotebookOptions.push(`<option value="${newTaskDailyNoteNotebookId}" selected>${esc(__tmGetNotebookDisplayName(newTaskDailyNoteNotebookId, newTaskDailyNoteNotebookId))} (不在当前列表)</option>`);
+            dailyNoteNotebookOptions.push(`<option value="${newTaskDailyNoteNotebookId}" selected>${__tmT("settings.notInTheCurrentList2", { value1: esc(__tmGetNotebookDisplayName(newTaskDailyNoteNotebookId, newTaskDailyNoteNotebookId)) })}</option>`);
         }
         if (activeTab === 'main' || activeTab === 'docs') {
             try {
@@ -1703,27 +1695,27 @@
             const hasFullFeature = typeof window.tmLicenseHasFeature === 'function' && window.tmLicenseHasFeature('pro');
             const selected = __tmNormalizeEntryIconPreset(registry?.getActivePreset?.() || SettingsStore.data.entryIconPreset);
             return `
-                <div class="tm-entry-icon-picker" role="radiogroup" aria-label="任务管理器插件图标">
+                <div class="tm-entry-icon-picker" role="radiogroup" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.taskManagerpluginIcon")}">
                     ${presets.map((preset, index) => {
                         const id = String(preset?.id || '').trim();
                         const label = String(preset?.label || id).trim() || id;
                         const symbolId = String(preset?.symbolId || '').trim();
                         const active = id === selected;
                         const locked = id !== 'classic' && !hasFullFeature;
-                        const orderLabel = id === 'classic' ? '默认' : String(index).padStart(2, '0');
+                        const orderLabel = id === 'classic' ? __tmT("settings.default") : String(index).padStart(2, '0');
                         return `
                             <button
                                 type="button"
                                 class="tm-entry-icon-option${active ? ' is-active' : ''}${locked ? ' is-locked' : ''}"
                                 role="radio"
                                 aria-checked="${active ? 'true' : 'false'}"
-                                aria-label="${esc(label)}${locked ? '，全功能权益' : ''}"
-                                title="${esc(label)}${locked ? ' · 全功能权益' : ''}"
+                                aria-label="${esc(label)}${locked ? __tmT("settings.fullFeatureBenefits") : ''}"
+                                title="${esc(label)}${locked ? __tmT("settings.fullFeatureBenefits2") : ''}"
                                 onclick="tmUpdateEntryIconPreset('${escSq(id)}')"
                             >
                                 <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${esc(symbolId)}" xlink:href="#${esc(symbolId)}"></use></svg>
                                 <span>${orderLabel} ${esc(label)}</span>
-                                ${locked ? '<small>全功能</small>' : ''}
+                                ${locked ? `<small>${__tmT("settings.fullVersion")}</small>` : ''}
                             </button>
                         `;
                     }).join('')}
@@ -1733,11 +1725,11 @@
         const __tmBuildSettingsCustomFieldChipItem = (field) => {
             const fieldId = String(field?.id || '').trim();
             if (!fieldId) return null;
-            const fieldLabel = String(field?.name || fieldId || '').trim() || '未命名';
+            const fieldLabel = String(field?.name || fieldId || '').trim() || __tmT("quickbar.untitled");
             return {
                 key: `customField:${fieldId}`,
-                label: `${fieldLabel}（自定义）`,
-                title: `自定义列：${fieldLabel}`
+                label: __tmT("settings.custom2", { fieldLabel: fieldLabel }),
+                title: __tmT("settings.customColumn", { fieldLabel: fieldLabel })
             };
         };
         const __tmBuildSettingsCustomFieldChipItems = () => __tmGetCustomFieldDefs()
@@ -1806,7 +1798,7 @@
                             ${title ? `<div class="tm-settings-chip-group-title">${esc(title)}</div>` : ''}
                             ${descHtml}
                         </div>
-                        <div class="tm-settings-chip-group-count">已选 ${selectedCount}/${totalCount}</div>
+                        <div class="tm-settings-chip-group-count">${__tmT("settings.selected2", { selectedCount: selectedCount, totalCount: totalCount })}</div>
                     </div>
             ` : '';
             return `
@@ -1865,7 +1857,7 @@
         };
         const __tmFieldPreviewPriorityChip = () => {
             try { return `<span class="tm-kanban-priority-chip" style="${__tmBuildPriorityChipStyle('high')}">${__tmRenderPriorityJira('high', false)}</span>`; }
-            catch (e) { return `<span class="tm-kanban-priority-chip">高</span>`; }
+            catch (e) { return `<span class="tm-kanban-priority-chip">${__tmT("common.high")}</span>`; }
         };
         const __tmFieldPreviewCheckbox = () => {
             try {
@@ -1884,20 +1876,20 @@
         };
         const __tmFieldPreviewListMetaChip = (key) => {
             switch (key) {
-                case 'docName': return `<span class="tm-checklist-meta-compact-doc">周报</span>`;
-                case 'h2': return `<span class="tm-checklist-meta-compact-h2" title="本周">本周</span>`;
-                case 'startDate': return `<span class="tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start">9月20日 09:00</span>`;
-                case 'completionTime': return `<span class="tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion">9月25日</span>`;
-                case 'scheduleTime': return `<span class="tm-checklist-meta-compact-time tm-task-schedule-time--today" title="今日日程开始时间">8:00</span>`;
-                case 'remainingTime': return `<span class="tm-checklist-meta-compact-remaining" title="还剩 2 天">还剩 2 天</span>`;
+                case 'docName': return `<span class="tm-checklist-meta-compact-doc">${__tmT("kernel.weeklyReport")}</span>`;
+                case 'h2': return `<span class="tm-checklist-meta-compact-h2" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.thisWeek")}">${__tmT("task.thisWeek")}</span>`;
+                case 'startDate': return `<span class="tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start">${__tmT("settings.sep")}</span>`;
+                case 'completionTime': return `<span class="tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion">${__tmT("settings.sep2")}</span>`;
+                case 'scheduleTime': return `<span class="tm-checklist-meta-compact-time tm-task-schedule-time--today" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.todaySScheduleStartTime")}">8:00</span>`;
+                case 'remainingTime': return `<span class="tm-checklist-meta-compact-remaining" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.daysLeft")}">${__tmT("settings.daysLeft")}</span>`;
                 case 'duration': return `<span class="tm-checklist-meta-compact-duration">1.5h</span>`;
-                case 'tomatoSummary': return `<span class="tm-checklist-meta-compact-duration">45 分钟</span>`;
-                case 'tomatoEstimateCount': return `<span class="tm-checklist-meta-compact-duration">预计 3</span>`;
-                case 'tomatoCount': return `<span class="tm-checklist-meta-compact-duration">实际 2</span>`;
-                case 'status': return __tmFieldPreviewStatusTag('进行中', '#2f9e77');
+                case 'tomatoSummary': return `<span class="tm-checklist-meta-compact-duration">${__tmT("settings.min")}</span>`;
+                case 'tomatoEstimateCount': return `<span class="tm-checklist-meta-compact-duration">${__tmT("settings.est")}</span>`;
+                case 'tomatoCount': return `<span class="tm-checklist-meta-compact-duration">${__tmT("settings.actual")}</span>`;
+                case 'status': return __tmFieldPreviewStatusTag(__tmT("ai.inProgress"), '#2f9e77');
                 default: {
                     const name = __tmFieldPreviewCustomFieldName(key);
-                    return name ? `<span class="tm-checklist-meta-compact-custom-field" title="${esc(name)}">${esc(name)}·示例</span>` : '';
+                    return name ? `<span class="tm-checklist-meta-compact-custom-field" title="${esc(name)}">${__tmT("settings.example", { name: esc(name) })}</span>` : '';
                 }
             }
         };
@@ -1905,7 +1897,7 @@
             const selected = new Set(Array.isArray(keys) ? keys : []);
             const metaParts = __tmGetChecklistCompactMetaFieldOrder().filter((key) => selected.has(key)).map((key) => __tmFieldPreviewListMetaChip(key)).filter(Boolean);
             const metaHtml = metaParts.length ? `<div class="tm-checklist-meta-compact">${metaParts.join('')}</div>` : '';
-            const emptyHint = !metaHtml ? '<span class="tm-field-preview__empty">右侧不显示字段</span>' : '';
+            const emptyHint = !metaHtml ? `<span class="tm-field-preview__empty">${__tmT("settings.noFieldsShownOnTheRight")}</span>` : '';
             return `
                 <div class="tm-checklist-pane tm-checklist-pane--compact${SettingsStore.data.checklistCompactMode ? '' : ' tm-checklist-pane--fields-below'} tm-field-preview__list-host">
                 <div class="tm-checklist-group-card tm-field-preview__group-card">
@@ -1914,7 +1906,7 @@
                     <div class="tm-checklist-leading"><span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>${__tmFieldPreviewCheckbox()}</div>
                     <div class="tm-checklist-item-main">
                         <div class="tm-checklist-title-row${metaHtml ? ' tm-checklist-title-row--has-compact-meta' : ''}">
-                            <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span>写周报</span></span></div></div>
+                            <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span>${__tmT("settings.writeWeeklyReport")}</span></span></div></div>
                             ${metaHtml}${emptyHint}
                         </div>
                     </div>
@@ -1926,17 +1918,17 @@
         const __tmFieldPreviewCardChip = (key) => {
             switch (key) {
                 case 'priority': return __tmFieldPreviewPriorityChip();
-                case 'status': return __tmFieldPreviewStatusTag('进行中', '#2f9e77');
-                case 'date': return `<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date tm-kanban-chip--date-has-value">9月25日</span>`;
-                case 'scheduleTime': return `<span class="tm-kanban-chip tm-task-schedule-time--today" title="今日日程开始时间">8:00</span>`;
-                case 'remainingTime': return `<span class="tm-kanban-chip tm-kanban-chip--muted" title="还剩 2 天">还剩 2 天</span>`;
-                case 'tomatoSummary': return `<span class="tm-kanban-chip tm-kanban-chip--muted">45 分钟</span>`;
-                case 'tomatoEstimateCount': return `<span class="tm-kanban-chip tm-kanban-chip--muted">预计 3</span>`;
-                case 'tomatoCount': return `<span class="tm-kanban-chip tm-kanban-chip--muted">实际 2</span>`;
+                case 'status': return __tmFieldPreviewStatusTag(__tmT("ai.inProgress"), '#2f9e77');
+                case 'date': return `<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date tm-kanban-chip--date-has-value">${__tmT("settings.sep2")}</span>`;
+                case 'scheduleTime': return `<span class="tm-kanban-chip tm-task-schedule-time--today" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.todaySScheduleStartTime")}">8:00</span>`;
+                case 'remainingTime': return `<span class="tm-kanban-chip tm-kanban-chip--muted" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.daysLeft")}">${__tmT("settings.daysLeft")}</span>`;
+                case 'tomatoSummary': return `<span class="tm-kanban-chip tm-kanban-chip--muted">${__tmT("settings.min")}</span>`;
+                case 'tomatoEstimateCount': return `<span class="tm-kanban-chip tm-kanban-chip--muted">${__tmT("settings.est")}</span>`;
+                case 'tomatoCount': return `<span class="tm-kanban-chip tm-kanban-chip--muted">${__tmT("settings.actual")}</span>`;
                 case 'remark': return '';
                 default: {
                     const name = __tmFieldPreviewCustomFieldName(key);
-                    return name ? `<span class="tm-kanban-chip tm-kanban-chip--muted" title="${esc(name)}">${esc(name)}·示例</span>` : '';
+                    return name ? `<span class="tm-kanban-chip tm-kanban-chip--muted" title="${esc(name)}">${__tmT("settings.example", { name: esc(name) })}</span>` : '';
                 }
             }
         };
@@ -1945,7 +1937,7 @@
                 <div class="tm-kanban-card-top tm-kanban-card-main">
                     <div class="tm-kanban-card-head">
                         ${__tmFieldPreviewCheckbox()}
-                        <div class="tm-kanban-card-text"><span class="tm-kanban-card-title-inline tm-task-content-clickable">写周报</span></div>
+                        <div class="tm-kanban-card-text"><span class="tm-kanban-card-title-inline tm-task-content-clickable">${__tmT("settings.writeWeeklyReport")}</span></div>
                     </div>
                 </div>
                 ${metaHtml ? `<div class="tm-kanban-card-meta">${metaHtml}</div>` : ''}
@@ -1954,12 +1946,12 @@
         const __tmFieldPreviewCard = (keys) => {
             const list = Array.isArray(keys) ? keys : [];
             const metaHtml = list.map((key) => __tmFieldPreviewCardChip(key)).filter(Boolean).join('');
-            const remarkHtml = list.includes('remark') ? '<div class="tm-task-card-remark">等对方回复</div>' : '';
-            const emptyHint = (!metaHtml && !remarkHtml) ? '<span class="tm-field-preview__empty">卡片上只显示标题</span>' : '';
+            const remarkHtml = list.includes('remark') ? `<div class="tm-task-card-remark">${__tmT("settings.waitingForAReply")}</div>` : '';
+            const emptyHint = (!metaHtml && !remarkHtml) ? `<span class="tm-field-preview__empty">${__tmT("settings.onlyTheTitleIsShownOnTheCard")}</span>` : '';
             return __tmFieldPreviewCardFrame(metaHtml, remarkHtml) + emptyHint;
         };
         const __tmFieldPreviewStickyCard = (keys) => {
-            const labels = { priority: '重要性', status: '状态', date: '日期' };
+            const labels = { priority: __tmT("kernel.importance"), status: __tmT("kernel.status"), date: __tmT("calendar.date") };
             const chips = (Array.isArray(keys) ? keys : [])
                 .map((key) => labels[key] ? `<span class="tm-kanban-chip tm-kanban-chip--muted tm-field-preview__chip--empty">${labels[key]} —</span>` : '')
                 .filter(Boolean).join('');
@@ -1967,10 +1959,10 @@
         };
         const __tmFieldPreviewTimelineBar = (keys) => {
             const list = Array.isArray(keys) ? keys : [];
-            const titleHtml = list.includes('title') ? '<span class="tm-gantt-bar__title">写周报</span>' : '';
-            const statusHtml = list.includes('status') ? `<span class="tm-gantt-bar__status">${__tmFieldPreviewStatusTag('进行中', '#2f9e77')}</span>` : '';
-            const completeAtHtml = list.includes('taskCompleteAt') ? '<span class="tm-gantt-bar__complete-time" title="完成时间"><span class="tm-gantt-bar__complete-time-value">09-22 18:30</span></span>' : '';
-            const emptyHint = (!titleHtml && !statusHtml && !completeAtHtml) ? '<span class="tm-field-preview__empty">甘特条上不显示内容</span>' : '';
+            const titleHtml = list.includes('title') ? `<span class="tm-gantt-bar__title">${__tmT("settings.writeWeeklyReport")}</span>` : '';
+            const statusHtml = list.includes('status') ? `<span class="tm-gantt-bar__status">${__tmFieldPreviewStatusTag(__tmT("ai.inProgress"), '#2f9e77')}</span>` : '';
+            const completeAtHtml = list.includes('taskCompleteAt') ? `<span class="tm-gantt-bar__complete-time" title="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.completionTime")}"><span class="tm-gantt-bar__complete-time-value">09-22 18:30</span></span>` : '';
+            const emptyHint = (!titleHtml && !statusHtml && !completeAtHtml) ? `<span class="tm-field-preview__empty">${__tmT("settings.noContentIsShownOnTheGanttBar")}</span>` : '';
             return `
                 <div class="tm-field-preview__gantt-host">
                     <div class="tm-gantt-bar tm-field-preview__gantt" style="--tm-gantt-bar-fill: var(--tm-primary-color);">
@@ -1984,94 +1976,94 @@
             `<span class="sy-custom-props-floatbar__prop sy-custom-props-floatbar__prop--core" data-attr="${esc(attrKey)}"${extraStyle ? ` style="${extraStyle}"` : ''}><span class="sy-custom-props-floatbar__prop-value">${esc(value)}</span></span>`;
         const __tmFieldPreviewQuickbarItem = (key) => {
             switch (key) {
-                case 'custom-status': return `<span class="sy-custom-props-floatbar__prop" data-attr="custom-status" style="background:#2f9e7720;border-color:#2f9e77;color:#2f9e77;"><span class="sy-custom-props-floatbar__prop-value">进行中</span></span>`;
-                case 'custom-priority': return __tmFieldPreviewQuickbarProp('custom-priority', '高');
-                case 'custom-start-date': return __tmFieldPreviewQuickbarProp('custom-start-date', '9月20日');
-                case 'custom-completion-time': return __tmFieldPreviewQuickbarProp('custom-completion-time', '9月25日');
+                case 'custom-status': return `<span class="sy-custom-props-floatbar__prop" data-attr="custom-status" style="background:#2f9e7720;border-color:#2f9e77;color:#2f9e77;"><span class="sy-custom-props-floatbar__prop-value">${__tmT("ai.inProgress")}</span></span>`;
+                case 'custom-priority': return __tmFieldPreviewQuickbarProp('custom-priority', __tmT("common.high"));
+                case 'custom-start-date': return __tmFieldPreviewQuickbarProp('custom-start-date', __tmT("settings.sep3"));
+                case 'custom-completion-time': return __tmFieldPreviewQuickbarProp('custom-completion-time', __tmT("settings.sep2"));
                 case 'taskCompleteAt': return __tmFieldPreviewQuickbarProp('taskCompleteAt', '09-22 18:30');
-                case 'custom-focus-summary': return __tmFieldPreviewQuickbarProp('custom-focus-summary', '45 分钟');
-                case 'custom-remark': return __tmFieldPreviewQuickbarProp('custom-remark', '等对方回复');
-                case 'action-ai-title': return '<span class="sy-custom-props-floatbar__action" data-action="ai-title" title="AI 优化任务名称"><span class="qb-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z"/></svg></span></span>';
-                case 'action-reminder': return '<span class="sy-custom-props-floatbar__action" data-action="reminder" title="提醒"><span class="qb-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="7"/><path d="M12 9.5V13l2.5 2.5M4.5 3.5L2.8 5.2m18.4-1.7l1.7 1.7"/></svg></span></span>';
-                case 'action-more': return '<span class="sy-custom-props-floatbar__action" data-action="more" title="更多"><span class="qb-icon"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></span></span>';
+                case 'custom-focus-summary': return __tmFieldPreviewQuickbarProp('custom-focus-summary', __tmT("settings.min"));
+                case 'custom-remark': return __tmFieldPreviewQuickbarProp('custom-remark', __tmT("settings.waitingForAReply"));
+                case 'action-ai-title': return `<span class="sy-custom-props-floatbar__action" data-action="ai-title" title="${globalThis.__taskHorizonHostBridge.i18n.html("ai.aiOptimizeTaskName")}"><span class="qb-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z"/></svg></span></span>`;
+                case 'action-reminder': return `<span class="sy-custom-props-floatbar__action" data-action="reminder" title="${globalThis.__taskHorizonHostBridge.i18n.html("ai.warnings")}"><span class="qb-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="7"/><path d="M12 9.5V13l2.5 2.5M4.5 3.5L2.8 5.2m18.4-1.7l1.7 1.7"/></svg></span></span>`;
+                case 'action-more': return `<span class="sy-custom-props-floatbar__action" data-action="more" title="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.more")}"><span class="qb-icon"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></span></span>`;
                 default: {
                     const name = __tmFieldPreviewCustomFieldName(key);
-                    return name ? __tmFieldPreviewQuickbarProp(key, `${name}·示例`) : '';
+                    return name ? __tmFieldPreviewQuickbarProp(key, __tmT("settings.example", { name: name })) : '';
                 }
             }
         };
         const __tmFieldPreviewQuickbar = (keys) => {
             const items = (Array.isArray(keys) ? keys : []).map((key) => __tmFieldPreviewQuickbarItem(key)).filter(Boolean).join('');
-            const mainRow = `<div class="sy-custom-props-floatbar__row sy-custom-props-floatbar__row--main">${items || '<span class="tm-field-preview__empty">悬浮条不显示字段</span>'}</div>`;
+            const mainRow = `<div class="sy-custom-props-floatbar__row sy-custom-props-floatbar__row--main">${items || `<span class="tm-field-preview__empty">${__tmT("settings.noFieldsShownInTheQuickbar")}</span>`}</div>`;
             return `<div class="sy-custom-props-floatbar tm-field-preview__floatbar">${mainRow}</div>`;
         };
         const __tmFieldPreviewInlineChip = (key) => {
             const chip = (cls, label, value) => `<span class="sy-custom-props-inline-chip${cls ? ` ${cls}` : ''}"><span class="sy-custom-props-inline-chip-label">${esc(label)}</span><span class="sy-custom-props-inline-chip-value">${esc(value)}</span></span>`;
             switch (key) {
-                case 'subtask-count': return chip('', '子任务', '2/5');
-                case 'custom-status': return chip('sy-custom-props-inline-chip--status', '状态', '进行中');
-                case 'custom-priority': return chip('', '重要性', '高');
-                case 'custom-start-date': return chip('sy-custom-props-inline-chip--time', '开始', '9月20日');
-                case 'custom-completion-time': return chip('sy-custom-props-inline-chip--time', '截止', '9月25日');
-                case 'remainingTime': return chip('', '剩余', '还剩 2 天');
-                case 'taskCompleteAt': return chip('sy-custom-props-inline-chip--time', '完成', '09-22 18:30');
-                case 'custom-focus-summary': return chip('', '专注', '45 分钟');
-                case 'custom-remark': return chip('', '备注', '等对方回复');
+                case 'subtask-count': return chip('', __tmT("calendar.subtasks"), '2/5');
+                case 'custom-status': return chip('sy-custom-props-inline-chip--status', __tmT("kernel.status"), __tmT("ai.inProgress"));
+                case 'custom-priority': return chip('', __tmT("kernel.importance"), __tmT("common.high"));
+                case 'custom-start-date': return chip('sy-custom-props-inline-chip--time', __tmT("calendar.start"), __tmT("settings.sep3"));
+                case 'custom-completion-time': return chip('sy-custom-props-inline-chip--time', __tmT("calendar.due"), __tmT("settings.sep2"));
+                case 'remainingTime': return chip('', __tmT("settings.remaining"), __tmT("settings.daysLeft"));
+                case 'taskCompleteAt': return chip('sy-custom-props-inline-chip--time', __tmT("quickbar.done"), '09-22 18:30');
+                case 'custom-focus-summary': return chip('', __tmT("calendar.focus"), __tmT("settings.min"));
+                case 'custom-remark': return chip('', __tmT("kernel.note"), __tmT("settings.waitingForAReply"));
                 default: {
                     const name = __tmFieldPreviewCustomFieldName(key);
-                    return name ? chip('', name, '示例') : '';
+                    return name ? chip('', name, __tmT("settings.example2")) : '';
                 }
             }
         };
         const __tmFieldPreviewInlineRow = (keys) => {
             const chips = (Array.isArray(keys) ? keys : []).map((key) => __tmFieldPreviewInlineChip(key)).filter(Boolean).join('');
-            return `<div class="tm-field-preview__docline"><span class="tm-field-preview__docline-text">☐ 写周报</span>${chips || '<span class="tm-field-preview__empty">行末不显示字段</span>'}</div>`;
+            return `<div class="tm-field-preview__docline"><span class="tm-field-preview__docline-text">${__tmT("settings.writeWeeklyReport2")}</span>${chips || `<span class="tm-field-preview__empty">${__tmT("settings.noFieldsShownAtTheEndOfTheRow")}</span>`}</div>`;
         };
         const __tmRenderSettingsFieldPreview = (type) => {
-            let caption = '效果预览';
+            let caption = __tmT("settings.preview");
             let stage = '';
             let note = '';
             try {
                 const data = SettingsStore.data || {};
                 switch (String(type || '').trim()) {
                     case 'list-desktop':
-                        caption = '清单 · 桌面端紧凑模式：任务右侧字段排列';
+                        caption = __tmT("settings.checklistDesktopCompactModeFieldsArrangedToTheRight");
                         stage = __tmFieldPreviewListRow(__tmNormalizeCompactChecklistMetaFields(data.desktopChecklistCompactMetaFields), false);
                         break;
                     case 'list-dock':
-                        caption = '清单 · Dock / 移动端：窄屏右侧字段';
+                        caption = __tmT("settings.checklistDockMobileFieldsOnTheRightOnNarrow");
                         stage = __tmFieldPreviewListRow(__tmNormalizeCompactChecklistMetaFields(data.dockChecklistCompactMetaFields), true);
                         break;
                     case 'timeline':
-                        caption = '时间轴 · 甘特条卡片';
+                        caption = __tmT("settings.timelineGanttBarCard");
                         stage = __tmFieldPreviewTimelineBar(__tmNormalizeTimelineCardFields(data.timelineCardFields));
                         break;
                     case 'kanban':
-                        caption = '看板卡片';
+                        caption = __tmT("settings.kanbanCard");
                         stage = __tmFieldPreviewCard(__tmGetTaskCardFieldList('kanban'));
                         break;
                     case 'whiteboard':
-                        caption = '白板卡片';
+                        caption = __tmT("settings.whiteboardCard");
                         stage = __tmFieldPreviewCard(__tmGetTaskCardFieldList('whiteboard'));
                         break;
                     case 'sticky':
-                        caption = '看板 / 白板卡片：空值字段留位';
+                        caption = __tmT("settings.kanbanWhiteboardCardsReserveSpaceForEmptyFields");
                         stage = __tmFieldPreviewStickyCard(__tmGetTaskCardAlwaysShowFieldList());
-                        note = '<div class="tm-field-preview__note">选中的字段没有值时也保留位置（虚线示意），卡片高度更整齐。</div>';
+                        note = `<div class="tm-field-preview__note">${__tmT("settings.selectedFieldsKeepTheirPlaceEvenWhenEmptyDashed")}</div>`;
                         break;
                     case 'quickbar':
-                        caption = '任务悬浮条：直接显示的字段与动作';
+                        caption = __tmT("settings.taskQuickbarFieldsAndActionsShownDirectly");
                         stage = __tmFieldPreviewQuickbar((Array.isArray(data.quickbarVisibleItems) ? data.quickbarVisibleItems : []).map((value) => String(value || '').trim()).filter(Boolean));
                         break;
                     case 'quickbar-inline':
-                        caption = '文档任务行末尾：常驻字段';
+                        caption = __tmT("settings.endOfDocumentTaskRowsPersistentFields");
                         stage = __tmFieldPreviewInlineRow((Array.isArray(data.quickbarInlineFields) ? data.quickbarInlineFields : []).map((value) => String(value || '').trim()).filter(Boolean));
                         break;
                     default:
                         break;
                 }
             } catch (e) {}
-            return `<span class="tm-field-preview__cap">${caption}</span><div class="tm-field-preview__stage">${stage || '<span class="tm-field-preview__empty">未选择字段</span>'}</div>${note}`;
+            return `<span class="tm-field-preview__cap">${caption}</span><div class="tm-field-preview__stage">${stage || `<span class="tm-field-preview__empty">${__tmT("settings.noFieldsSelected")}</span>`}</div>${note}`;
         };
         const __tmRefreshSettingsFieldPreviews = (root) => {
             const modal = root || state.settingsModal;
@@ -2099,7 +2091,7 @@
                     if (chip) chip.classList.toggle('is-selected', !!input.checked);
                 });
                 const countEl = section.querySelector('.tm-settings-chip-group-count');
-                if (countEl) countEl.textContent = `已选 ${inputs.filter((input) => input.checked).length}/${inputs.length}`;
+                if (countEl) countEl.textContent = __tmT("settings.selected3", { length: inputs.filter((input) => input.checked).length, length2: inputs.length });
             });
             try { __tmRefreshSettingsFieldPreviews(modal); } catch (e) {}
         };
@@ -2115,7 +2107,7 @@
                 if (!Array.isArray(groups) || !groups.length) {
                     return `
                         <div class="tm-agent-tool-settings is-disabled">
-                            <div class="tm-agent-tool-settings__summary">正在读取工具列表…</div>
+                            <div class="tm-agent-tool-settings__summary">${__tmT("settings.readingTheToolList")}</div>
                         </div>
                     `;
                 }
@@ -2125,8 +2117,8 @@
                 return `
                     <div class="tm-agent-tool-settings${toolsEnabled ? '' : ' is-disabled'}">
                         <div class="tm-agent-tool-settings__summary">
-                            <span>按需要保留工具；关闭后会从下一次智能体对话中移除，可减少模型上下文占用，不影响任务管理器界面。这里的开关会同步思源智能体能力设置。</span>
-                            <span class="tm-agent-tool-settings__count">${enabledCount}/${totalCount} 可用${deniedCount ? ` · 思源关闭 ${deniedCount}` : ''}</span>
+                            <span>${__tmT("settings.keepOnlyTheToolsYouNeedDisablingATool")}</span>
+                            <span class="tm-agent-tool-settings__count">${__tmT("settings.available", { enabledCount: enabledCount, totalCount: totalCount, value3: deniedCount ? __tmT("settings.disabledInSiyuan", { deniedCount: deniedCount }) : '' })}</span>
                         </div>
                         ${groups.map((group) => {
                             const tools = Array.isArray(group?.tools) ? group.tools : [];
@@ -2144,8 +2136,8 @@
                                             <div class="tm-agent-tool-group__desc">${esc(String(group?.description || ''))}</div>
                                         </div>
                                         <div class="tm-agent-tool-group__control">
-                                            <span>${groupEnabledCount}/${tools.length}${groupDeniedCount ? ` · 思源关闭 ${groupDeniedCount}` : ''}</span>
-                                            <input class="b3-switch fn__flex-center" type="checkbox" ${allEnabled ? 'checked' : ''} ${toolsEnabled ? '' : 'disabled'} aria-label="${allEnabled ? '关闭' : '启用'}${esc(String(group?.label || groupID))}分组" onclick="event.stopPropagation()" onchange="tmUpdateAgentMcpGroup('${escSq(groupID)}', this.checked)">
+                                            <span>${groupEnabledCount}/${tools.length}${groupDeniedCount ? __tmT("settings.disabledInSiyuan2", { groupDeniedCount: groupDeniedCount }) : ''}</span>
+                                            <input class="b3-switch fn__flex-center" type="checkbox" ${allEnabled ? 'checked' : ''} ${toolsEnabled ? '' : 'disabled'} aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.group", { value1: allEnabled ? __tmT("common.close") : __tmT("settings.enable"), value2: String(group?.label || groupID) })}" onclick="event.stopPropagation()" onchange="tmUpdateAgentMcpGroup('${escSq(groupID)}', this.checked)">
                                             <svg class="tm-agent-tool-group__chevron" aria-hidden="true"><use xlink:href="#iconDown"></use></svg>
                                         </div>
                                     </summary>
@@ -2154,8 +2146,8 @@
                                             const name = String(tool?.name || '').trim();
                                             const agentDenied = tool?.enabled === true && tool?.agentAllowed === false;
                                             return `
-                                                <label class="tm-agent-tool-item${agentDenied ? ' is-agent-denied' : ''}" title="${esc(agentDenied ? `${name}：已在思源智能体能力设置中关闭` : name)}">
-                                                    <span>${esc(String(tool?.label || name))}${agentDenied ? '<small>思源已关闭</small>' : ''}</span>
+                                                <label class="tm-agent-tool-item${agentDenied ? ' is-agent-denied' : ''}" title="${esc(agentDenied ? __tmT("settings.turnedOffInTheSiyuanAgentCapabilitySettings", { name: name }) : name)}">
+                                                    <span>${esc(String(tool?.label || name))}${agentDenied ? `<small>${__tmT("settings.disabledInSiyuan3")}</small>` : ''}</span>
                                                     <input class="b3-switch fn__flex-center" type="checkbox" ${tool?.effectiveEnabled === true ? 'checked' : ''} ${toolsEnabled ? '' : 'disabled'} onchange="tmUpdateAgentMcpTool('${escSq(name)}', this.checked)">
                                                 </label>
                                             `;
@@ -2171,22 +2163,22 @@
                 ? Math.max(12, Math.min(22, Math.round(Number(SettingsStore.data.aiConversationFontSize))))
                 : 14;
             const modePanel = `
-                <div class="tm-settings-panel" data-tm-settings-section="ai-mode" ${__tmSettingsSearchAttrs('ai', 'AI 工作方式', '思源智能体或旧版 AI')}>
-                    <div class="tm-settings-section-title">AI 工作方式</div>
-                    <div class="tm-settings-section-desc">默认使用思源智能体；旧版会话和设置保持独立，不会迁移或混合。</div>
+                <div class="tm-settings-panel" data-tm-settings-section="ai-mode" ${__tmSettingsSearchAttrs('ai', __tmT("settings.aiWorkflow"), __tmT("settings.siyuanAgentOrLegacyAi"))}>
+                    <div class="tm-settings-section-title">${__tmT("settings.aiWorkflow")}</div>
+                    <div class="tm-settings-section-desc">${__tmT("settings.siyuanAgentIsTheDefaultLegacySessionsAndSettings")}</div>
                     ${renderSingleFieldSetting(
-                        '当前模式',
+                        __tmT("ai.currentMode"),
                         experienceMode === 'agent'
-                            ? '使用思源智能体的文档处理、会话和工具能力，插件补充任务界面与上下文。'
-                            : '继续使用插件原有模型供应商、提示词和会话。',
+                            ? __tmT("settings.usesTheSiyuanAgentSDocumentProcessingSessionsAnd")
+                            : __tmT("settings.keepsUsingThePluginSOriginalModelProvidersPrompts"),
                         `<select class="b3-select" onchange="tmUpdateAiExperienceMode(this.value)" style="width:220px;">
-                            <option value="agent" ${experienceMode === 'agent' ? 'selected' : ''}>思源智能体（默认）</option>
-                            <option value="legacy" ${experienceMode === 'legacy' ? 'selected' : ''}>旧版插件 AI</option>
+                            <option value="agent" ${experienceMode === 'agent' ? 'selected' : ''}>${__tmT("settings.siyuanAgentDefault")}</option>
+                            <option value="legacy" ${experienceMode === 'legacy' ? 'selected' : ''}>${__tmT("settings.legacyPluginAi")}</option>
                         </select>`
                     )}
                     ${renderSingleFieldSetting(
-                        '对话字体大小',
-                        '调整用户和助手的对话正文，不影响输入框、工具卡片及其他界面。',
+                        __tmT("settings.chatFontSize"),
+                        __tmT("settings.adjustsTheChatBodyTextOfUserAndAssistant"),
                         `<label style="display:flex;align-items:center;gap:6px;">
                             <input class="b3-text-field" type="number" min="12" max="22" step="1" value="${conversationFontSize}" onchange="tmUpdateAiConversationFontSize(this.value)" style="width:72px;">
                             <span class="tm-setting-field-unit">px</span>
@@ -2197,29 +2189,29 @@
             if (experienceMode === 'agent') {
                 const hasFullFeature = typeof window.tmLicenseHasFeature === 'function' && window.tmLicenseHasFeature('pro');
                 return `${modePanel}
-                    <div class="tm-settings-panel" data-tm-settings-section="ai-agent" ${__tmSettingsSearchAttrs('ai', '思源智能体', '任务、日程、提醒、安排规则和统计工具')}>
-                        <div class="tm-settings-section-title">思源智能体</div>
-                        <div class="tm-settings-section-desc">模型、密钥、通用工具和会话由思源统一管理；任务管理器只补充任务上下文与领域操作。</div>
+                    <div class="tm-settings-panel" data-tm-settings-section="ai-agent" ${__tmSettingsSearchAttrs('ai', __tmT("plugin.siyuanAgent"), __tmT("settings.taskScheduleReminderSchedulingRuleAndStatisticsTools"))}>
+                        <div class="tm-settings-section-title">${__tmT("plugin.siyuanAgent")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.modelsKeysCommonToolsAndSessionsAreManagedBy")}</div>
                         ${renderSingleSwitchSetting(
-                            '启用 AI 功能',
-                            '关闭后隐藏任务管理器内的 AI 入口，不影响思源自身的智能体。',
+                            __tmT("settings.enableAiFeatures"),
+                            __tmT("settings.hidesAiEntriesInsideTheTaskManagerWhenOff"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiEnabled ? 'checked' : ''} onchange="tmUpdateAiEnabled(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '启用任务 MCP 工具',
+                            __tmT("settings.enableTaskMcpTools"),
                             hasFullFeature
-                                ? '开启后，Task Horizon 会把所选任务、日程、提醒、安排规则和统计能力注册到思源智能体。思源主智能体、插件工作台及其他使用同一智能体运行时的入口都可以调用；普通写入会确认，删除需要先预览。'
-                                : '免费版保持关闭，仍可使用思源智能体的文档对话；升级全功能后可启用这些任务 MCP 工具。',
+                                ? __tmT("settings.whenEnabledTaskHorizonRegistersTheSelectedTaskSchedule")
+                                : __tmT("settings.staysOffOnTheFreeVersionTheSiyuanAgent"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${hasFullFeature && SettingsStore.data.agentMcpEnabled ? 'checked' : ''} ${hasFullFeature ? '' : 'disabled'} onchange="tmUpdateAgentMcpEnabled(this.checked)">`
                         )}
                         ${hasFullFeature ? renderAgentToolSettings(hasFullFeature) : ''}
                         ${renderSingleFieldSetting(
-                            '工作流程',
-                            '任务收集、计划、复盘和模板四类流程会按可用能力逐步启用。',
-                            `<span class="tm-setting-field-unit">任务收集 · 任务计划 · 任务复盘 · 场景模板</span>`
+                            __tmT("settings.workflows"),
+                            __tmT("settings.theFourWorkflowTypesCapturePlanningReviewAndTemplates"),
+                            `<span class="tm-setting-field-unit">${__tmT("settings.capturePlanningReviewTemplates")}</span>`
                         )}
                         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
-                            <button class="tm-btn tm-btn-secondary" onclick="tmAiTestConnection()">检查智能体</button>
+                            <button class="tm-btn tm-btn-secondary" onclick="tmAiTestConnection()">${__tmT("settings.checkAgent")}</button>
                         </div>
                     </div>
                     ${hasFullFeature ? policyPanel : ''}
@@ -2236,8 +2228,8 @@
             const providerLabel = provider === 'deepseek'
                 ? 'DeepSeek'
                 : (provider === 'openai'
-                    ? 'OpenAI 兼容'
-                    : (provider === 'anthropic' ? 'Anthropic 兼容' : 'MiniMax'));
+                    ? __tmT("settings.openaiCompatible")
+                    : (provider === 'anthropic' ? __tmT("settings.anthropicCompatible") : 'MiniMax'));
             const model = provider === 'deepseek'
                 ? (String(SettingsStore.data.aiDeepSeekModel || 'deepseek-v4-flash').trim() || 'deepseek-v4-flash')
                 : (provider === 'openai'
@@ -2266,56 +2258,56 @@
                         ? String(SettingsStore.data.aiAnthropicApiKey || '')
                         : String(SettingsStore.data.aiMiniMaxApiKey || ''))));
             return `${modePanel}
-                <div class="tm-settings-panel" data-tm-settings-section="ai-connection" ${__tmSettingsSearchAttrs('ai', 'AI 接入', '供应商、API Key、Base URL、模型、温度、超时和上下文模式')}>
-                    <div class="tm-settings-section-title">🤖 AI 接入</div>
-                    <div class="tm-settings-section-desc">可在 MiniMax、DeepSeek、OpenAI 兼容和 Anthropic 兼容之间切换，用于任务命名优化、自然语言字段编辑和 SMART 分析。</div>
+                <div class="tm-settings-panel" data-tm-settings-section="ai-connection" ${__tmSettingsSearchAttrs('ai', __tmT("settings.aiAccess"), __tmT("settings.providerApiKeyBaseUrlModelTemperatureTimeoutAnd"))}>
+                    <div class="tm-settings-section-title">${__tmT("settings.aiAccess2")}</div>
+                    <div class="tm-settings-section-desc">${__tmT("settings.switchBetweenMinimaxDeepseekOpenaiCompatibleAndAnthropicCompatible")}</div>
                     ${renderSingleSwitchSetting(
-                        '启用 AI 功能',
-                        '关闭后会隐藏所有 AI 相关入口、菜单和 quickbar 图标。',
+                        __tmT("settings.enableAiFeatures"),
+                        __tmT("settings.turningItOffHidesAllAiEntriesMenusAnd"),
                         `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiEnabled ? 'checked' : ''} onchange="tmUpdateAiEnabled(this.checked)">`
                     )}
                     ${renderSingleFieldSetting(
-                        '供应商',
-                        '切换当前使用的 AI 供应商，分别记忆各自的 API Key / Base URL / 模型。',
+                        __tmT("settings.provider"),
+                        __tmT("settings.switchTheActiveAiProviderApiKeysBaseUrls"),
                         `<select class="b3-select" onchange="tmUpdateAiProvider(this.value)" style="width:220px;">
                             <option value="minimax" ${provider === 'minimax' ? 'selected' : ''}>MiniMax</option>
                             <option value="deepseek" ${provider === 'deepseek' ? 'selected' : ''}>DeepSeek</option>
-                            <option value="openai" ${provider === 'openai' ? 'selected' : ''}>OpenAI 兼容</option>
-                            <option value="anthropic" ${provider === 'anthropic' ? 'selected' : ''}>Anthropic 兼容</option>
+                            <option value="openai" ${provider === 'openai' ? 'selected' : ''}>${__tmT("settings.openaiCompatible")}</option>
+                            <option value="anthropic" ${provider === 'anthropic' ? 'selected' : ''}>${__tmT("settings.anthropicCompatible")}</option>
                         </select>`,
                         { style: 'margin-top:10px;' }
                     )}
                     ${renderSingleFieldSetting(
                         'API Key',
                         provider === 'deepseek'
-                            ? 'DeepSeek 控制台创建的 API Key，会随插件设置保存。'
+                            ? __tmT("settings.anApiKeyCreatedInTheDeepseekConsoleStored")
                             : (provider === 'openai'
-                                ? 'OpenAI 控制台创建的 API Key（sk-...），会随插件设置保存。'
+                                ? __tmT("settings.anApiKeyCreatedInTheOpenaiConsoleSk")
                                 : (provider === 'anthropic'
-                                    ? 'Anthropic 控制台创建的 API Key（sk-ant-...），会随插件设置保存。'
-                                    : 'MiniMax 控制台创建的 API Key，会随插件设置保存。')),
-                        `<input class="b3-text-field" type="password" value="${apiKey}" placeholder="请输入 ${providerLabel} API Key" onchange="tmUpdateAiApiKey(this.value)" style="width:100%;">`
+                                    ? __tmT("settings.anApiKeyCreatedInTheAnthropicConsoleSk")
+                                    : __tmT("settings.anApiKeyCreatedInTheMinimaxConsoleStored"))),
+                        `<input class="b3-text-field" type="password" value="${apiKey}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.enterApiKey", { providerLabel: providerLabel })}" onchange="tmUpdateAiApiKey(this.value)" style="width:100%;">`
                     )}
                     ${renderSingleFieldSetting(
                         'Base URL',
                         provider === 'deepseek'
-                            ? '默认走 DeepSeek OpenAI 兼容接口。'
+                            ? __tmT("settings.usesTheDeepseekOpenaiCompatibleEndpointByDefault")
                             : (provider === 'openai'
-                                ? '默认走 OpenAI 官方 /v1 接口；可改为 Azure / 兼容代理地址。'
+                                ? __tmT("settings.usesTheOfficialOpenaiV1EndpointByDefaultCan")
                                 : (provider === 'anthropic'
-                                    ? '默认走 Anthropic 官方 /v1/messages 接口；可改为兼容代理地址。'
-                                    : '默认走 MiniMax Anthropic 兼容接口。')),
+                                    ? __tmT("settings.usesTheOfficialAnthropicV1MessagesEndpointByDefault")
+                                    : __tmT("settings.usesTheMinimaxAnthropicCompatibleEndpointByDefault"))),
                         `<input class="b3-text-field" type="text" value="${baseUrl}" onchange="tmUpdateAiBaseUrl(this.value)" style="width:100%;">`
                     )}
                     ${renderSingleFieldSetting(
-                        '模型',
+                        __tmT("settings.model"),
                         provider === 'deepseek'
-                            ? '默认 deepseek-v4-flash，可手填 deepseek-v4-pro 等模型名。'
+                            ? __tmT("settings.defaultsToDeepseekV4FlashEnterAnotherModelName")
                             : (provider === 'openai'
-                                ? '默认 gpt-5.4-mini，可手填 gpt-5.5 / gpt-5.4 等模型名。'
+                                ? __tmT("settings.defaultsToGptMiniEnterAnotherModelNameSuch")
                                 : (provider === 'anthropic'
-                                    ? '默认 claude-sonnet-4-5，可手填其它 Claude 或兼容模型名。'
-                                    : '默认 MiniMax-M2.7-highspeed，可手填 MiniMax-M2.7 等模型名。')),
+                                    ? __tmT("settings.defaultsToClaudeSonnetEnterAnotherClaudeOrCompatible")
+                                    : __tmT("settings.defaultsToMinimaxM2HighspeedEnterAnotherModelName"))),
                         provider === 'deepseek'
                             ? `<input class="b3-text-field" type="text" value="${esc(model)}" placeholder="deepseek-v4-flash" onchange="tmUpdateAiModel(this.value)" style="width:220px;">`
                             : (provider === 'openai'
@@ -2325,36 +2317,36 @@
                                     : `<input class="b3-text-field" type="text" value="${esc(model)}" placeholder="MiniMax-M2.7-highspeed" onchange="tmUpdateAiModel(this.value)" style="width:220px;">`))
                     )}
                     ${provider === 'openai' ? '' : renderSingleFieldSetting(
-                        '温度',
-                        '数值越低越稳定，越高越发散。',
+                        __tmT("settings.temperature"),
+                        __tmT("settings.lowerValuesAreMoreStableHigherValuesAreMore"),
                         `<input class="b3-text-field" type="number" step="0.1" min="0" max="1.5" value="${temperature}" onchange="tmUpdateAiTemperature(this.value)" style="width:88px;">`
                     )}
                     ${renderSingleFieldSetting(
-                        '最大输出 tokens',
-                        '控制模型最大返回长度。',
+                        __tmT("settings.maxOutputTokens"),
+                        __tmT("settings.capsTheModelSMaximumResponseLength"),
                         `<input class="b3-text-field" type="number" min="256" max="8192" value="${maxTokens}" onchange="tmUpdateAiMaxTokens(this.value)" style="width:100px;">`
                     )}
                     ${renderSingleFieldSetting(
-                        '超时时间',
-                        'AI 请求超时时间，单位毫秒。',
+                        __tmT("settings.timeout"),
+                        __tmT("settings.aiRequestTimeoutInMilliseconds"),
                         `<input class="b3-text-field" type="number" min="5000" max="180000" value="${timeoutMs}" onchange="tmUpdateAiTimeoutMs(this.value)" style="width:100px;">
                          <span class="tm-setting-field-unit">ms</span>`
                     )}
                     ${renderSingleFieldSetting(
-                        '默认上下文模式',
-                        '邻近上下文更省 token，带全文更适合 SMART 分析。',
+                        __tmT("settings.defaultContextMode"),
+                        __tmT("settings.nearbyContextSavesTokensFullTextSuitsSmartAnalysis"),
                         `<select class="b3-select" onchange="tmUpdateAiDefaultContextMode(this.value)" style="width:180px;">
-                            <option value="nearby" ${contextMode === 'nearby' ? 'selected' : ''}>邻近上下文</option>
-                            <option value="fulltext" ${contextMode === 'fulltext' ? 'selected' : ''}>带全文</option>
+                            <option value="nearby" ${contextMode === 'nearby' ? 'selected' : ''}>${__tmT("settings.nearbyContext")}</option>
+                            <option value="fulltext" ${contextMode === 'fulltext' ? 'selected' : ''}>${__tmT("settings.withFullText")}</option>
                         </select>`
                     )}
                     ${renderSingleFieldSetting(
-                        '排期时间段',
-                        '支持多段时间。每行一个时间段，例如 09:00-12:00 和 14:00-18:00，AI 排期只能落在这些时间段内。',
+                        __tmT("settings.schedulingTimeSlots"),
+                        __tmT("settings.multipleRangesAreSupportedOnePerLineEG"),
                         `<textarea class="b3-text-field" onchange="tmUpdateAiScheduleWindows(this.value)" style="width:260px;min-height:88px;resize:vertical;">${esc(scheduleWindows)}</textarea>`
                     )}
                     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
-                        <button class="tm-btn tm-btn-secondary" onclick="tmAiTestConnection()">测试连接</button>
+                        <button class="tm-btn tm-btn-secondary" onclick="tmAiTestConnection()">${__tmT("settings.testConnection")}</button>
                     </div>
                 </div>
                 ${scheduledEventsPanel}
@@ -2368,18 +2360,18 @@
                         ${settingsSearchEnabled ? __tmRenderSettingsSearchBox(activeTab) : ''}
                         <div class="tm-settings-tabs">
                             ${activeTab !== 'rule_editor' ? `
-                            <button class="tm-settings-nav-btn ${activeTab === 'docs' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="docs">📂 文档分组</button>
-                            <button class="tm-settings-nav-btn ${activeTab === 'main' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="main">🧩 常规设置</button>
-                            <button class="tm-settings-nav-btn ${activeTab === 'appearance' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="appearance">🎨 外观</button>
-                            <button class="tm-settings-nav-btn ${activeTab === 'calendar' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="calendar">🗓️ 日历</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'docs' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="docs">${__tmT("settings.documentGroups")}</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'main' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="main">${__tmT("settings.general2")}</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'appearance' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="appearance">${__tmT("settings.appearance2")}</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'calendar' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="calendar">${__tmT("settings.calendar")}</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'ai' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="ai">🤖 AI</button>
-                            <button class="tm-settings-nav-btn ${activeTab === 'rules' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="rules">📋 规则管理</button>
-                            <button class="tm-settings-nav-btn ${activeTab === 'quadrant' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="quadrant">📊 四象限</button>
-                            <button class="tm-settings-nav-btn ${activeTab === 'priority' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="priority">⚙️ 优先级分值</button>
-                            <button class="tm-settings-nav-btn ${activeTab === 'benefits' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="benefits">💎 功能权益</button>
-                            <button class="tm-settings-nav-btn ${activeTab === 'about' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="about">ℹ️ 关于</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'rules' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="rules">${__tmT("settings.rules2")}</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'quadrant' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="quadrant">${__tmT("settings.quadrants")}</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'priority' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="priority">${__tmT("task.priorityScore3")}</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'benefits' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="benefits">${__tmT("settings.featureBenefits")}</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'about' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="about">${__tmT("settings.about2")}</button>
                             ` : `
-                            <button class="tm-settings-nav-btn is-active">${state.editingRule ? '✏️ 编辑规则' : '🆕 新建规则'}</button>
+                            <button class="tm-settings-nav-btn is-active">${state.editingRule ? __tmT("settings.editRule") : __tmT("settings.newRule")}</button>
                             `}
                         </div>
                         ${renderSettingsActions('tm-settings-actions--desktop')}
@@ -2388,82 +2380,82 @@
                         <div class="tm-settings-content">
                     ${activeTab === 'appearance' ? `
                         ${renderSettingsSubtabs()}
-                        <div class="tm-settings-panel tm-width-settings" data-tm-settings-section="columns" ${__tmSettingsSearchAttrs('appearance', '表格列设置', '显示、排序、宽度和自定义列')}>
-                            <div style="font-weight: 600; margin-bottom: 12px;">📏 表格列设置 (显示/排序/宽度)</div>
+                        <div class="tm-settings-panel tm-width-settings" data-tm-settings-section="columns" ${__tmSettingsSearchAttrs('appearance', __tmT("settings.tableColumns"), __tmT("settings.showOrderWidthAndCustomColumns"))}>
+                            <div style="font-weight: 600; margin-bottom: 12px;">${__tmT("settings.tableColumnsShowOrderWidth")}</div>
                             ${renderColumnWidthSettings()}
                             ${renderSingleFieldSetting(
-                                '高级：内置字段属性名与迁移',
-                                '自定义开始日期、截止日期、重要性、状态、完成时间等内置字段的属性名，并按字段选择是否迁移旧值。',
-                                `<button class="tm-btn tm-btn-secondary" onclick="tmOpenTaskMetaAttrMigrationDialog()">打开高级设置</button>`,
+                                __tmT("settings.advancedBuiltInFieldAttributeNamesMigration"),
+                                __tmT("settings.customizeTheAttributeNamesOfBuiltInFieldsSuch"),
+                                `<button class="tm-btn tm-btn-secondary" onclick="tmOpenTaskMetaAttrMigrationDialog()">${__tmT("settings.openAdvancedSettings")}</button>`,
                                 { style: 'margin-top:12px;', section: 'columns', key: 'appearance-task-meta-attr-migration' }
                             )}
                         </div>
-                        <div class="tm-settings-panel" data-tm-settings-section="icons" ${__tmSettingsSearchAttrs('appearance', '插件图标', '统一更换顶栏、文档栏、页签、Dock 侧栏和插件顶栏左上角图标')}>
-                            <div style="font-weight: 600; margin-bottom: 6px;">插件图标</div>
-                            <div style="font-size:13px;color:var(--tm-secondary-text);line-height:1.6;margin-bottom:12px;">统一应用于思源窗口顶栏、文档栏、插件页签、Dock 侧栏和插件顶栏左上角。经典图标免费可用，其余预设属于全功能权益。</div>
+                        <div class="tm-settings-panel" data-tm-settings-section="icons" ${__tmSettingsSearchAttrs('appearance', __tmT("settings.pluginIcon"), __tmT("settings.changesTheIconInTheSiyuanTopBarDocument"))}>
+                            <div style="font-weight: 600; margin-bottom: 6px;">${__tmT("settings.pluginIcon")}</div>
+                            <div style="font-size:13px;color:var(--tm-secondary-text);line-height:1.6;margin-bottom:12px;">${__tmT("settings.appliedToTheSiyuanTopBarDocumentBarPlugin")}</div>
                             ${renderEntryIconPresetSetting()}
                         </div>
                         ${__tmRenderTaskCountBadgeSettings(renderSingleSwitchSetting, renderSingleFieldSetting)}
-                        <div class="tm-settings-panel" data-tm-settings-section="tabs" ${__tmSettingsSearchAttrs('appearance', '页签栏', '手动控制归档 归档入口位置', { section: 'tabs' })}>
-                            <div style="font-weight: 600; margin-bottom: 12px;">📑 页签栏</div>
+                        <div class="tm-settings-panel" data-tm-settings-section="tabs" ${__tmSettingsSearchAttrs('appearance', __tmT("settings.tabBar"), __tmT("settings.manualArchiveControlArchiveEntryPosition"), { section: 'tabs' })}>
+                            <div style="font-weight: 600; margin-bottom: 12px;">${__tmT("settings.tabBar2")}</div>
                             ${renderSingleSwitchSetting(
-                                '手动控制归档',
-                                '开启后，任务全部完成不会自动把文档页签移入归档区；仅通过页签菜单执行归档。',
+                                __tmT("settings.manualArchiveControl"),
+                                __tmT("settings.whenEnabledDocumentTabsAreNotMovedToThe"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTabsManualArchiveOnly ? 'checked' : ''} onchange="updateDocTabsManualArchiveOnly(this.checked)">`,
                                 { section: 'tabs' }
                             )}
                             ${renderSingleFieldSetting(
-                                '归档入口位置',
-                                '控制页签栏里归档按钮显示在“全部”页签前，或保留在文档页签后。',
+                                __tmT("settings.archiveEntryPosition"),
+                                __tmT("settings.controlsWhetherTheArchiveButtonAppearsBeforeTheAll"),
                                 `<select class="b3-select" onchange="updateDocTabsArchiveButtonPosition(this.value)" style="width:180px;">
-                                    <option value="before-all" ${String(SettingsStore.data.docTabsArchiveButtonPosition || '') === 'before-all' ? 'selected' : ''}>全部页签前左侧</option>
-                                    <option value="after-docs" ${String(SettingsStore.data.docTabsArchiveButtonPosition || '') === 'before-all' ? '' : 'selected'}>文档页签后</option>
+                                    <option value="before-all" ${String(SettingsStore.data.docTabsArchiveButtonPosition || '') === 'before-all' ? 'selected' : ''}>${__tmT("settings.beforeTheAllTabLeft")}</option>
+                                    <option value="after-docs" ${String(SettingsStore.data.docTabsArchiveButtonPosition || '') === 'before-all' ? '' : 'selected'}>${__tmT("settings.afterTheDocumentTabs")}</option>
                                 </select>`
                             )}
                         </div>
-                        <div class="tm-settings-panel" data-tm-settings-section="topbar" ${__tmSettingsSearchAttrs('appearance', '顶栏按钮', '控制新建、搜索、刷新、日历侧边栏和 AI 工作台按钮的显示')}>
-                            <div style="font-weight: 600; margin-bottom: 12px;">🔘 顶栏按钮</div>
+                        <div class="tm-settings-panel" data-tm-settings-section="topbar" ${__tmSettingsSearchAttrs('appearance', __tmT("settings.topBarButton"), __tmT("settings.controlsTheVisibilityOfTheNewSearchRefreshCalendar"))}>
+                            <div style="font-weight: 600; margin-bottom: 12px;">${__tmT("settings.topBarButton2")}</div>
                             ${renderSingleSwitchSetting(
-                                '新建任务按钮',
-                                '在桌面宽屏和紧凑顶栏显示新建任务入口。',
+                                __tmT("settings.newTaskButton"),
+                                __tmT("settings.showsTheNewTaskEntryInTheDesktopWide"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('add') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('add', this.checked)">`
                             )}
                             ${renderSingleSwitchSetting(
-                                '搜索按钮',
-                                '在桌面宽屏和紧凑顶栏显示任务搜索入口。',
+                                __tmT("settings.searchButton"),
+                                __tmT("settings.showsTheTaskSearchEntryInTheDesktopWide"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('search') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('search', this.checked)">`
                             )}
                             ${renderSingleSwitchSetting(
-                                '刷新按钮',
-                                '在桌面宽屏和紧凑顶栏显示手动刷新入口。',
+                                __tmT("settings.refreshButton"),
+                                __tmT("settings.showsTheManualRefreshEntryInTheDesktopWide"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('refresh') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('refresh', this.checked)">`
                             )}
                             ${renderSingleSwitchSetting(
-                                '日历侧边栏按钮',
-                                '在非日历桌面视图顶栏显示展开或关闭日历侧边栏的按钮。',
+                                __tmT("settings.calendarSidebarButton"),
+                                __tmT("settings.showsAButtonInNonCalendarDesktopViewTop"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('calendarSidebar') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('calendarSidebar', this.checked)">`
                             )}
                             ${renderSingleSwitchSetting(
-                                'AI 工作台按钮',
-                                '仅在 AI 功能启用时显示，关闭 AI 后仍保留此偏好。',
+                                __tmT("settings.aiWorkbenchButton"),
+                                __tmT("settings.onlyVisibleWhileAiFeaturesAreEnabledThePreference"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmIsTopbarButtonVisible('ai') ? 'checked' : ''} onchange="tmUpdateTopbarButtonVisibility('ai', this.checked)">`
                             )}
                         </div>
-                        <div class="tm-settings-panel" data-tm-settings-section="checkbox" ${__tmSettingsSearchAttrs('appearance', '任务复选框', '使用圆形任务复选框样式，按重要性上色')}>
-                            <div style="font-weight: 600; margin-bottom: 12px;">☑️ 任务复选框</div>
+                        <div class="tm-settings-panel" data-tm-settings-section="checkbox" ${__tmSettingsSearchAttrs('appearance', __tmT("settings.taskCheckboxes"), __tmT("settings.roundedTaskCheckboxesColoredByPriority"))}>
+                            <div style="font-weight: 600; margin-bottom: 12px;">${__tmT("settings.taskCheckboxes2")}</div>
                             ${renderSingleSwitchSetting(
-                                '圆形任务复选框',
-                                '使用圆形任务复选框样式',
+                                __tmT("settings.roundedTaskCheckboxes"),
+                                __tmT("settings.useTheRoundedTaskCheckboxStyle"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskCheckboxCircleStyleEnabled ? 'checked' : ''} onchange="updateTaskCheckboxCircleStyleEnabled(this.checked)">`
                             )}
                             ${renderSingleSwitchSetting(
-                                '按重要性给文档任务复选框上色',
-                                '根据任务重要性属性为文档内任务复选框着色',
+                                __tmT("settings.colorDocumentTaskCheckboxesByPriority"),
+                                __tmT("settings.colorsTaskCheckboxesInDocumentsAccordingToTheTask"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskCheckboxPriorityColorEnabled !== false ? 'checked' : ''} onchange="updateTaskCheckboxPriorityColorEnabled(this.checked)">`
                             )}
                         </div>
-                        <div class="tm-settings-panel" data-tm-settings-section="colors" style="margin-bottom:0;" ${__tmSettingsSearchAttrs('appearance', '配色', '调整主题、看板、时间轴和顶栏颜色')}>
-                            <div style="font-weight: 600; margin-bottom: 12px;">🎨 配色</div>
+                        <div class="tm-settings-panel" data-tm-settings-section="colors" style="margin-bottom:0;" ${__tmSettingsSearchAttrs('appearance', __tmT("settings.colors"), __tmT("settings.adjustThemeKanbanTimelineAndTopBarColors"))}>
+                            <div style="font-weight: 600; margin-bottom: 12px;">${__tmT("settings.colors2")}</div>
                             ${renderAppearanceColorSettings()}
                         </div>
                     ` : ''}
@@ -2476,29 +2468,27 @@
                     ${activeTab === 'ai' ? `${renderSettingsSubtabs()}${renderAiSettingsPanel()}` : ''}
 
                     ${activeTab === 'rules' ? `
-                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('rules', '筛选规则管理', '新建、编辑、应用和删除筛选规则')}>
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('rules', __tmT("settings.filterRules"), __tmT("settings.createEditApplyAndDeleteFilterRules"))}>
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                                <div style="font-weight: 600;">📋 筛选规则管理</div>
+                                <div style="font-weight: 600;">${__tmT("settings.filterRules2")}</div>
                                 <div style="display:flex;gap:8px;align-items:center;">
-                                    <button class="tm-btn tm-btn-primary" data-tm-action="addNewRule" style="padding: 4px 10px; font-size: 12px;">+ 新建规则</button>
-                                    <button class="tm-btn tm-btn-secondary" data-tm-action="tmRestoreRecommendedRules" style="padding: 4px 10px; font-size: 12px;">恢复推荐规则</button>
+                                    <button class="tm-btn tm-btn-primary" data-tm-action="addNewRule" style="padding: 4px 10px; font-size: 12px;">${__tmT("settings.newRule2")}</button>
+                                    <button class="tm-btn tm-btn-secondary" data-tm-action="tmRestoreRecommendedRules" style="padding: 4px 10px; font-size: 12px;">${__tmT("task.restoreRecommendedFilters")}</button>
                                 </div>
                             </div>
-                            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--tm-border-color); border-radius:8px; background: var(--tm-card-bg); margin-bottom: 12px;" ${__tmSettingsSearchAttrs('rules', '时间轴强制按截止日期排序', '时间轴规则排序行为')}>
-                                <div style="font-size:13px; color: var(--tm-text-color);">时间轴强制按截止日期排序（越近今天越靠前）</div>
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--tm-border-color); border-radius:8px; background: var(--tm-card-bg); margin-bottom: 12px;" ${__tmSettingsSearchAttrs('rules', __tmT("settings.forceTimelineSortByDueDate"), __tmT("settings.timelineRuleSortingBehavior"))}>
+                                <div style="font-size:13px; color: var(--tm-text-color);">${__tmT("task.forceTimelineSortByDueDateCloserToToday")}</div>
                                 <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.timelineForceSortByCompletionNearToday ? 'checked' : ''} onchange="tmToggleTimelineForceSortByCompletionNearToday(this.checked)">
                             </div>
                             <div id="tm-rules-list" style="display: flex; flex-direction: column; gap: 8px;">
                                 ${renderRulesList()}
                             </div>
-                            <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--tm-border-color);">
-                                规则说明：支持多条件组合筛选，可设置“包含/不包含”关键词、“重要性”、“状态”等条件。
-                            </div>
+                            <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--tm-border-color);">${__tmT("settings.combineKeywordInclusionExclusionImportanceStatusAndOtherConditions")}</div>
                         </div>
                     ` : ''}
 
                     ${activeTab === 'priority' ? `
-                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('priority', '优先级分值', '配置优先级分值的权重和规则')}>
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('priority', __tmT("task.priorityScore"), __tmT("settings.configurePriorityScoreWeightsAndRules"))}>
                             <div id="tm-priority-settings">
                                 ${__tmRenderPriorityScoreSettings(true)}
                             </div>
@@ -2514,11 +2504,9 @@
                     ` : ''}
 
                     ${activeTab === 'quadrant' ? `
-                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('quadrant', '四象限分组规则', '按重要性和截止日期自动分配象限')}>
-                            <div style="font-weight: 600; margin-bottom: 12px;">📊 四象限分组规则</div>
-                            <div style="font-size: 12px; color: var(--tm-secondary-text); margin-bottom: 12px;">
-                                根据任务的「重要性」和「截止日期」自动将任务分配到四个象限。
-                            </div>
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('quadrant', __tmT("settings.quadrantGroupingRules"), __tmT("settings.automaticallyAssignsQuadrantsByPriorityAndDueDate"))}>
+                            <div style="font-weight: 600; margin-bottom: 12px;">${__tmT("settings.quadrantGroupingRules2")}</div>
+                            <div style="font-size: 12px; color: var(--tm-secondary-text); margin-bottom: 12px;">${__tmT("settings.automaticallyAssignsTasksToTheFourQuadrantsBasedOn")}</div>
                             ${renderQuadrantSettings()}
                         </div>
                     ` : ''}
@@ -2531,10 +2519,20 @@
 
                     ${activeTab === 'main' ? `
                     ${renderSettingsSubtabs()}
-                    ${(settingsSearchCurrentSection = 'display', '')}
+                    ${settingsSearchCurrentSection = 'display', ''}
                     <div class="tm-settings-panel" data-tm-settings-section="display">
-                        <div class="tm-settings-section-title">🖥️ 基础显示</div>
-                        <div class="tm-settings-section-desc">调整常规字号、行高和文本展示方式。</div>
+                        <div class="tm-settings-section-title">${__tmT("settings.basicDisplay")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.adjustRegularFontSizesRowHeightAndTextPresentation")}</div>
+                        ${renderSingleFieldSetting(
+                            __tmT('settings.uiLanguage'),
+                            __tmT('settings.uiLanguageDescription'),
+                            `<select class="b3-select" data-tm-ui-language onchange="tmUpdateLanguagePreference(this.value)" style="max-width:100%;">
+                                <option value="system" ${!['en', 'zh-CN'].includes(SettingsStore.data.uiLanguage) ? 'selected' : ''}>${esc(__tmT('settings.followSiyuan'))}</option>
+                                <option value="zh-CN" ${SettingsStore.data.uiLanguage === 'zh-CN' ? 'selected' : ''}>简体中文</option>
+                                <option value="en" ${SettingsStore.data.uiLanguage === 'en' ? 'selected' : ''}>English</option>
+                            </select>
+                            <button type="button" class="tm-btn tm-btn-secondary" data-tm-call="tmReloadLanguage">${esc(__tmT('settings.reloadLanguage'))}</button>`
+                        )}
                         ${renderSingleFieldSetting(
                             ...__tmSettingsQueryText('fontSize'),
                             `<input class="b3-text-field" type="number" value="${SettingsStore.data.fontSize}" min="10" max="30" onchange="updateFontSize(this.value)" style="width:88px;">
@@ -2548,25 +2546,25 @@
                         ${renderSingleFieldSetting(
                             ...__tmSettingsQueryText('rowHeightMode'),
                             `<select class="b3-select" onchange="updateRowHeightMode(this.value)" style="width:180px;">
-                                <option value="auto" ${String(SettingsStore.data.rowHeightMode || 'auto') === 'auto' ? 'selected' : ''}>自动</option>
-                                <option value="compact" ${String(SettingsStore.data.rowHeightMode || '') === 'compact' ? 'selected' : ''}>紧凑</option>
-                                <option value="normal" ${String(SettingsStore.data.rowHeightMode || '') === 'normal' ? 'selected' : ''}>标准</option>
-                                <option value="comfortable" ${String(SettingsStore.data.rowHeightMode || '') === 'comfortable' ? 'selected' : ''}>宽松</option>
+                                <option value="auto" ${String(SettingsStore.data.rowHeightMode || 'auto') === 'auto' ? 'selected' : ''}>${__tmT("settings.auto")}</option>
+                                <option value="compact" ${String(SettingsStore.data.rowHeightMode || '') === 'compact' ? 'selected' : ''}>${__tmT("settings.compact")}</option>
+                                <option value="normal" ${String(SettingsStore.data.rowHeightMode || '') === 'normal' ? 'selected' : ''}>${__tmT("calendar.standard")}</option>
+                                <option value="comfortable" ${String(SettingsStore.data.rowHeightMode || '') === 'comfortable' ? 'selected' : ''}>${__tmT("settings.relaxed")}</option>
                             </select>`
                         )}
                         ${renderSingleFieldSetting(
-                            '行高(px)',
-                            '设置具体像素值，0 表示跟随行高模式。',
+                            __tmT("settings.rowHeightPx"),
+                            __tmT("settings.setsASpecificPixelValueFollowsTheRowHeight"),
                             `<input class="b3-text-field" type="number" value="${Number(SettingsStore.data.rowHeightPx) || 0}" min="0" max="120" onchange="updateRowHeightPx(this.value)" style="width:88px;">
-                             <span class="tm-setting-field-unit">(0=跟随)</span>`
+                             <span class="tm-setting-field-unit">${__tmT("settings.follow")}</span>`
                         )}
                         ${renderSingleSwitchSetting(
                             ...__tmSettingsQueryText('remainingTimeUseWorkdays'),
                             '<input class="b3-switch fn__flex-center" type="checkbox" ' + (SettingsStore.data.remainingTimeUseWorkdays ? 'checked' : '') + ' onchange="updateRemainingTimeUseWorkdays(this.checked)">'
                         )}
                         ${renderSingleSwitchSetting(
-                            '父任务名称加粗',
-                            '开启后父任务名称保持加粗显示；关闭后任务名称使用普通字重。',
+                            __tmT("settings.boldParentTaskNames"),
+                            __tmT("settings.parentTaskNamesStayBoldWhenEnabledTaskNames"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.parentTaskNameBoldEnabled !== false ? 'checked' : ''} onchange="updateParentTaskNameBoldEnabled(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
@@ -2578,7 +2576,7 @@
                             `<input class="b3-text-field" type="number" value="${Math.max(1, Math.min(10, Number(SettingsStore.data.taskContentWrapMaxLines) || 2))}" min="1" max="10"
                                    ${SettingsStore.data.taskAutoWrapEnabled !== false ? '' : 'disabled'}
                                    onchange="updateTaskContentWrapMaxLines(this.value)" style="width:88px;opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};">
-                             <span class="tm-setting-field-unit">行</span>`,
+                             <span class="tm-setting-field-unit">${__tmT("settings.lines")}</span>`,
                             { style: `opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};` }
                         )}
                         ${renderSingleFieldSetting(
@@ -2586,28 +2584,28 @@
                             `<input class="b3-text-field" type="number" value="${Math.max(1, Math.min(10, Number(SettingsStore.data.taskContentWrapMaxLinesMobile) || 2))}" min="1" max="10"
                                    ${SettingsStore.data.taskAutoWrapEnabled !== false ? '' : 'disabled'}
                                    onchange="updateTaskContentWrapMaxLinesMobile(this.value)" style="width:88px;opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};">
-                             <span class="tm-setting-field-unit">行</span>`,
+                             <span class="tm-setting-field-unit">${__tmT("settings.lines")}</span>`,
                             { style: `opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};` }
                         )}
                         ${renderSingleFieldSetting(
-                            '备注行数',
-                            '限制备注最多显示的行数。',
+                            __tmT("settings.remarkLines"),
+                            __tmT("settings.limitsTheMaximumNumberOfLinesShownForRemarks"),
                             `<input class="b3-text-field" type="number" value="${Math.max(1, Math.min(10, Number(SettingsStore.data.taskRemarkWrapMaxLines) || 2))}" min="1" max="10"
                                    ${SettingsStore.data.taskAutoWrapEnabled !== false ? '' : 'disabled'}
                                    onchange="updateTaskRemarkWrapMaxLines(this.value)" style="width:88px;opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};">
-                             <span class="tm-setting-field-unit">行</span>`,
+                             <span class="tm-setting-field-unit">${__tmT("settings.lines")}</span>`,
                             { style: `opacity:${SettingsStore.data.taskAutoWrapEnabled !== false ? 1 : 0.6};` }
                         )}
                         ${renderSingleFieldSetting(
-                            '任务标题级别',
-                            '选择 H1–H6 标题层级，用于任务所属标题分组；右击清单、表格或看板中的标题分组可修改名称。',
+                            __tmT("settings.taskHeadingLevel"),
+                            __tmT("settings.chooseTheH1H6HeadingLevelUsedForTask"),
                             `<select class="b3-select" onchange="updateTaskHeadingLevel(this.value)" style="width:180px;">
-                                <option value="h1" ${SettingsStore.data.taskHeadingLevel === 'h1' ? 'selected' : ''}>H1 一级标题</option>
-                                <option value="h2" ${SettingsStore.data.taskHeadingLevel === 'h2' ? 'selected' : ''}>H2 二级标题</option>
-                                <option value="h3" ${SettingsStore.data.taskHeadingLevel === 'h3' ? 'selected' : ''}>H3 三级标题</option>
-                                <option value="h4" ${SettingsStore.data.taskHeadingLevel === 'h4' ? 'selected' : ''}>H4 四级标题</option>
-                                <option value="h5" ${SettingsStore.data.taskHeadingLevel === 'h5' ? 'selected' : ''}>H5 五级标题</option>
-                                <option value="h6" ${SettingsStore.data.taskHeadingLevel === 'h6' ? 'selected' : ''}>H6 六级标题</option>
+                                <option value="h1" ${SettingsStore.data.taskHeadingLevel === 'h1' ? 'selected' : ''}>${__tmT("settings.h1Heading")}</option>
+                                <option value="h2" ${SettingsStore.data.taskHeadingLevel === 'h2' ? 'selected' : ''}>${__tmT("settings.h2Heading")}</option>
+                                <option value="h3" ${SettingsStore.data.taskHeadingLevel === 'h3' ? 'selected' : ''}>${__tmT("settings.h3Heading")}</option>
+                                <option value="h4" ${SettingsStore.data.taskHeadingLevel === 'h4' ? 'selected' : ''}>${__tmT("settings.h4Heading")}</option>
+                                <option value="h5" ${SettingsStore.data.taskHeadingLevel === 'h5' ? 'selected' : ''}>${__tmT("settings.h5Heading")}</option>
+                                <option value="h6" ${SettingsStore.data.taskHeadingLevel === 'h6' ? 'selected' : ''}>${__tmT("settings.h6Heading")}</option>
                             </select>`
                         )}
                         ${renderSingleSwitchSetting(
@@ -2616,49 +2614,49 @@
                             { style: 'margin-top:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '文档名称显示',
-                            '控制插件默认显示文档原名还是思源别名；当首选项为空时会自动回退到另一项。',
+                            __tmT("settings.documentNameDisplay"),
+                            __tmT("settings.controlsWhetherThePluginShowsTheOriginalDocumentName"),
                             `<select class="b3-select" onchange="updateDocDisplayNameMode(this.value)" style="width:180px;">
-                                <option value="name" ${__tmGetDocDisplayNameMode() === 'name' ? 'selected' : ''}>优先文档名</option>
-                                <option value="alias" ${__tmGetDocDisplayNameMode() === 'alias' ? 'selected' : ''}>优先别名</option>
+                                <option value="name" ${__tmGetDocDisplayNameMode() === 'name' ? 'selected' : ''}>${__tmT("settings.preferDocumentName")}</option>
+                                <option value="alias" ${__tmGetDocDisplayNameMode() === 'alias' ? 'selected' : ''}>${__tmT("settings.preferAlias")}</option>
                             </select>`
                         )}
                     </div>
 
-                    ${(settingsSearchCurrentSection = 'new-task', '')}
+                    ${settingsSearchCurrentSection = 'new-task', ''}
                     <div class="tm-settings-panel" data-tm-settings-section="new-task">
-                        <div class="tm-settings-section-title">📍 新建/归档</div>
-                        <div class="tm-settings-section-desc">设置新建任务的默认位置，以及删除和完成任务后的归档方式。</div>
+                        <div class="tm-settings-section-title">${__tmT("settings.newArchive")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.setTheDefaultLocationForNewTasksAndHow")}</div>
                         ${renderSingleFieldSetting(
-                            '收集箱文档',
-                            '固定的自定义新建文档 ID；快速新建中临时选择其他位置不会修改这里。',
+                            __tmT("settings.inboxDocument"),
+                            __tmT("settings.aFixedCustomTargetDocumentIdForNewTasks"),
                             `<div style="display:flex; gap:8px; align-items:center;">
-                                <input class="b3-text-field" type="text" readonly aria-label="已选择的收集箱文档"
-                                       value="${esc(newTaskDocId)}" placeholder="尚未选择收集箱文档" title="${esc(newTaskDocId)}" style="flex:1;">
+                                <input class="b3-text-field" type="text" readonly aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.selectedInboxDocument")}"
+                                       value="${esc(newTaskDocId)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.noInboxDocumentSelected")}" title="${esc(newTaskDocId)}" style="flex:1;">
                                 <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenNewTaskDocSearch(this)" style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;">
-                                    ${typeof __tmRenderLucideIcon === 'function' ? __tmRenderLucideIcon('search', '', { size: 14 }) : ''}<span>搜索文档</span>
+                                    ${typeof __tmRenderLucideIcon === 'function' ? __tmRenderLucideIcon('search', '', { size: 14 }) : ''}<span>${__tmT("calendar.searchDocuments")}</span>
                                 </button>
                             </div>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '收集箱仅在独立页签显示',
-                            '开启后，自定义文档分组的“全部”页签不显示收集箱文档中的任务；点击页签栏中的收集箱文档查看。“全部文档”分组的“全部”页签仍会显示收集箱任务。',
+                            __tmT("settings.inboxIsShownOnlyOnItsDedicatedTab"),
+                            __tmT("settings.whenEnabledTheAllTabOfCustomDocumentGroups"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.hideInboxFromAllTab === true ? 'checked' : ''} onchange="updateHideInboxFromAllTab(this.checked)">`
                         )}
                         ${renderSingleFieldSetting(
-                            '新建位置',
-                            '控制快速新建任务实际使用的位置；选择“上次选择”后会随每次手动选择变化，但不会改动上面的收集箱文档 ID。',
+                            __tmT("settings.newTaskLocation"),
+                            __tmT("settings.controlsTheLocationActuallyUsedByQuickTaskCreation"),
                             `<select class="b3-select" onchange="updateNewTaskLocationMode(this.value)" style="width:100%;">
-                                <option value="configured" ${newTaskLocationMode === 'configured' ? 'selected' : ''}>收集箱文档</option>
-                                <option value="dailyNote" ${newTaskLocationMode === 'dailyNote' ? 'selected' : ''}>今天日记</option>
-                                <option value="lastSelected" ${newTaskLocationMode === 'lastSelected' ? 'selected' : ''}>上次选择</option>
+                                <option value="configured" ${newTaskLocationMode === 'configured' ? 'selected' : ''}>${__tmT("settings.inboxDocument")}</option>
+                                <option value="dailyNote" ${newTaskLocationMode === 'dailyNote' ? 'selected' : ''}>${__tmT("settings.todaySDailyNote")}</option>
+                                <option value="lastSelected" ${newTaskLocationMode === 'lastSelected' ? 'selected' : ''}>${__tmT("settings.lastChoice")}</option>
                             </select>`
                         )}
                         <div style="margin-top:10px;">
                             ${renderSingleFieldSetting(
-                                '今天日记默认笔记本',
-                                '当收集箱文档或快速新建目标选择“今天日记”时，优先在这里指定的笔记本下创建/写入今天日记；留空则继续跟随当前文档所属笔记本。',
+                                __tmT("settings.defaultNotebookForTodaySDailyNote"),
+                                __tmT("settings.whenTheInboxDocumentOrQuickAddTargetIs"),
                                 `<select class="b3-select" onchange="updateNewTaskDailyNoteNotebookId(this.value)" style="width:100%;">
                                     ${dailyNoteNotebookOptions.join('')}
                                 </select>`
@@ -2666,78 +2664,78 @@
                         </div>
                         <div style="margin-top:10px;">
                             ${renderSingleFieldSetting(
-                                '今天日记目标标题',
-                                '配置后，新建任务到今天日记时会追加到同名标题分节末尾；标题不存在时自动创建。留空则继续使用日记默认位置规则。',
+                                __tmT("settings.targetHeadingInTodaySDailyNote"),
+                                __tmT("settings.whenConfiguredTasksCreatedInTodaySDailyNote"),
                                 `<input class="b3-text-field" type="text"
                                        value="${esc(SettingsStore.data.newTaskDailyNoteTargetHeadingText || '')}"
-                                       placeholder="例如：任务"
+                                       placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.forExampleTasks")}"
                                        onchange="updateNewTaskDailyNoteTargetHeadingText(this.value)"
                                        style="width:100%;">`
                             )}
                         </div>
                         <div style="margin-top:10px;">
                             ${renderSingleSwitchSetting(
-                                '启用“移动内容至今天日记”',
-                                '开启后，在块图标菜单和正文右键菜单中显示该入口，可将当前块或所选块直接移动到今天日记；日记笔记本跟随上面的“今天日记默认笔记本”设置。',
+                                __tmT("settings.enableMoveContentToTodaySDailyNote"),
+                                __tmT("settings.whenEnabledTheEntryAppearsInTheBlockIcon"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enableMoveBlockToDailyNote ? 'checked' : ''} onchange="updateEnableMoveBlockToDailyNote(this.checked)">`
                             )}
                         </div>
                         <div style="margin-top:10px;">
                             ${renderSingleSwitchSetting(
-                                '日记追加到底部',
-                                '当目标为“今天日记”时（包括快速新建任务、移动内容至今天日记），内容追加到日记文档底部，而不是插入顶部。',
+                                __tmT("settings.appendToTheBottomOfTheDailyNote"),
+                                __tmT("settings.whenTheTargetIsTodaySDailyNoteIncluding"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.newTaskDailyNoteAppendToBottom ? 'checked' : ''} onchange="updateNewTaskDailyNoteAppendToBottom(this.checked)">`
                             )}
                         </div>
                         <div style="margin-top:10px;">
                             ${renderSingleSwitchSetting(
-                                '标题分组追加到内容末尾',
-                                '文档分组里的标题分组行点击“新建任务”时，插入到该标题内容末尾；若后面还存在任何下一个标题，则插入到那个标题前。',
+                                __tmT("settings.appendHeadingGroupsToTheEndOfTheContent"),
+                                __tmT("settings.whenClickingNewTaskOnAHeadingGroupRow"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.headingGroupCreateAtSectionEnd ? 'checked' : ''} onchange="updateHeadingGroupCreateAtSectionEnd(this.checked)">`
                             )}
                         </div>
                         <div style="margin-top:10px;">
                             ${renderSingleSwitchSetting(
-                                '新建任务默认置顶',
-                                '快速新建任务时默认勾选“置顶”。',
+                                __tmT("settings.pinNewTasksByDefault"),
+                                __tmT("settings.checksPinByDefaultWhenCreatingTasksInQuick"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pinNewTasksByDefault ? 'checked' : ''} onchange="updatePinNewTasksByDefault(this.checked)">`
                             )}
                         </div>
                         <div style="margin-top:10px;">
                             ${renderSingleSwitchSetting(
-                                '快速新建默认截止日期为今天',
-                                '开启后，打开快速新建时预先选中今天；提交前可修改或清空，多行任务会统一应用。',
+                                __tmT("settings.defaultDueDateForQuickAddToday"),
+                                __tmT("settings.whenEnabledQuickAddPreselectsTodayYouCanChange"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.quickAddDefaultCompletionToday ? 'checked' : ''} onchange="updateQuickAddDefaultCompletionToday(this.checked)">`
                             )}
                         </div>
                         <div style="margin-top:10px;">
                         ${renderSingleFieldSetting(
-                            '子任务继承父任务字段',
-                            '新建子任务时，仅继承父任务中已经填写的字段。默认不继承任何字段。',
+                            __tmT("settings.subtasksInheritParentTaskFields"),
+                            __tmT("settings.whenCreatingASubtaskOnlyFieldsAlreadyFilledIn"),
                             renderSettingsChipSetting('', '', [
-                                __tmBuildSettingsChipGroup('字段', __TM_SUBTASK_INHERIT_FIELD_OPTIONS.concat(__tmBuildSettingsCustomFieldChipItems()), {
+                                __tmBuildSettingsChipGroup(__tmT("settings.field"), __TM_SUBTASK_INHERIT_FIELD_OPTIONS.concat(__tmBuildSettingsCustomFieldChipItems()), {
                                     selectedSet: new Set(__tmNormalizeSubtaskInheritedFields(SettingsStore.data.subtaskInheritedFields)),
                                     onToggle: (item) => `updateSubtaskInheritedField('${escSq(String(item?.key || '').trim())}', this.checked)`
                                 })
                             ])
                         )}
                     </div>
-                        <div class="tm-settings-section-title" style="margin-top:20px;">任务归档</div>
-                        <div class="tm-settings-section-desc">统一设置删除任务和完成顶层任务后的移动方式。</div>
+                        <div class="tm-settings-section-title" style="margin-top:20px;">${__tmT("task.taskArchive")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.configureInOnePlaceHowTasksMoveAfterDeletion")}</div>
                         ${renderSingleFieldSetting(
-                            '删除任务时',
-                            '永久删除仍会二次确认；移入回收站后可从提示中撤销。',
+                            __tmT("settings.whenDeletingTasks"),
+                            __tmT("settings.permanentDeletionStillAsksForConfirmationRecycleBinDeletions"),
                             `<select class="b3-select" onchange="updateTaskDeleteMode(this.value)" style="width:220px;max-width:100%;">
-                                <option value="permanent" ${__tmNormalizeTaskDeleteMode(SettingsStore.data.taskDeleteMode) === 'permanent' ? 'selected' : ''}>永久删除</option>
-                                <option value="recycle" ${__tmNormalizeTaskDeleteMode(SettingsStore.data.taskDeleteMode) === 'recycle' ? 'selected' : ''}>移入回收站</option>
+                                <option value="permanent" ${__tmNormalizeTaskDeleteMode(SettingsStore.data.taskDeleteMode) === 'permanent' ? 'selected' : ''}>${__tmT("settings.permanentlyDelete")}</option>
+                                <option value="recycle" ${__tmNormalizeTaskDeleteMode(SettingsStore.data.taskDeleteMode) === 'recycle' ? 'selected' : ''}>${__tmT("task.moveToTheRecycleBin")}</option>
                             </select>`
                         )}
                         ${renderSingleFieldSetting(
-                            '回收站文档 ID',
-                            '仅在删除方式为“移入回收站”时使用；清空表示未设置。',
+                            __tmT("settings.recycleBinDocumentId"),
+                            __tmT("settings.usedOnlyWhenTheDeleteMethodIsMoveTo"),
                             `<input class="b3-text-field" type="text"
                                     value="${esc(SettingsStore.data.taskRecycleDocId || '')}"
-                                    placeholder="输入回收站文档 ID"
+                                    placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.enterRecycleBinDocumentId")}"
                                     autocomplete="off" spellcheck="false"
                                     onchange="updateTaskRecycleDocId(this.value)"
                                     style="width:100%;"
@@ -2745,100 +2743,98 @@
                             { style: 'margin-top:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '完成顶层任务后',
-                            '子任务和循环任务不会自动移动。两种归档位置互斥。',
+                            __tmT("settings.afterCompletingATopLevelTask"),
+                            __tmT("settings.subtasksAndRecurringTasksAreNotMovedAutomaticallyThe"),
                             `<select class="b3-select" onchange="updateTaskCompletionArchiveMode(this.value)" style="width:260px;max-width:100%;">
-                                <option value="none" ${__tmNormalizeTaskCompletionArchiveMode(SettingsStore.data.taskCompletionArchiveMode) === 'none' ? 'selected' : ''}>不移动</option>
-                                <option value="document" ${__tmNormalizeTaskCompletionArchiveMode(SettingsStore.data.taskCompletionArchiveMode) === 'document' ? 'selected' : ''}>移入指定归档文档</option>
-                                <option value="heading" ${__tmNormalizeTaskCompletionArchiveMode(SettingsStore.data.taskCompletionArchiveMode) === 'heading' ? 'selected' : ''}>移到当前文档“已完成”标题下</option>
+                                <option value="none" ${__tmNormalizeTaskCompletionArchiveMode(SettingsStore.data.taskCompletionArchiveMode) === 'none' ? 'selected' : ''}>${__tmT("settings.doNotMove")}</option>
+                                <option value="document" ${__tmNormalizeTaskCompletionArchiveMode(SettingsStore.data.taskCompletionArchiveMode) === 'document' ? 'selected' : ''}>${__tmT("settings.moveToASpecifiedArchiveDocument")}</option>
+                                <option value="heading" ${__tmNormalizeTaskCompletionArchiveMode(SettingsStore.data.taskCompletionArchiveMode) === 'heading' ? 'selected' : ''}>${__tmT("settings.moveUnderACompletedHeadingInTheCurrentDocument")}</option>
                             </select>`,
                             { style: 'margin-top:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '完成归档文档 ID',
-                            '仅在完成后选择“移入指定归档文档”时使用；清空表示未设置。',
+                            __tmT("settings.completionArchiveDocumentId"),
+                            __tmT("settings.usedOnlyWhenMoveToASpecifiedArchiveDocument"),
                             `<input class="b3-text-field" type="text"
                                     value="${esc(SettingsStore.data.taskCompletionArchiveDocId || '')}"
-                                    placeholder="输入完成归档文档 ID"
+                                    placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.enterCompletedTaskArchiveDocumentId")}"
                                     autocomplete="off" spellcheck="false"
                                     onchange="updateTaskCompletionArchiveDocId(this.value)"
                                     style="width:100%;"
                                     ${__tmNormalizeTaskCompletionArchiveMode(SettingsStore.data.taskCompletionArchiveMode) === 'document' ? '' : 'disabled'}>`,
                             { style: 'margin-top:10px;' }
                         )}
-                        <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.5;margin-top:8px;">
-                            创建“已完成”标题时使用基础显示中的任务标题级别；已有标题保留原等级。取消完成后，任务回到来源文档当前的默认新建位置。撤销回收会恢复任务块及属性，不恢复已清理的日程和白板关联。
-                        </div>
+                        <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.5;margin-top:8px;">${__tmT("settings.theCompletedHeadingIsCreatedUsingTheTaskHeading")}</div>
                     </div>
 
-                    ${(settingsSearchCurrentSection = 'status', '')}
+                    ${settingsSearchCurrentSection = 'status', ''}
                     <div class="tm-settings-panel" style="margin-bottom: 16px;" data-tm-settings-section="status">
-                        <div class="tm-settings-section-title">🏷️ 状态选项</div>
-                        <div class="tm-settings-section-desc">${SettingsStore.data.legacyWin7CompatMode ? '维护任务状态列表；兼容旧版 Win7 思源时，任务方括号内仅使用空格和 X，未完成状态统一写为空格，已完成状态写为 X。' : '维护任务状态列表；语法标记会写入任务 <code>- [ ]</code> 的方括号中，空格和 / 为未完成，X 为已完成，- 为放弃；除空格外，语法标记不能重复。'}</div>
-                        <div ${__tmSettingsSearchAttrs('main', '状态列表', '新增、编辑、排序和删除任务状态，设置状态颜色、属性名与语法标记。', { section: 'status', key: 'main-status-options-list' })}>
+                        <div class="tm-settings-section-title">${__tmT("settings.statusOptions")}</div>
+                        <div class="tm-settings-section-desc">${SettingsStore.data.legacyWin7CompatMode ? __tmT("settings.maintainTheTaskStatusListForCompatibilityWithLegacy") : `${__tmT("settings.maintainTheTaskStatusListMarkersAreWrittenInto")}<code>- [ ]</code>${__tmT("settings.spaceAndAreUnfinishedXIsFinishedAndIs")}`}</div>
+                        <div ${__tmSettingsSearchAttrs('main', __tmT("settings.statusList"), __tmT("settings.addEditReorderAndDeleteTaskStatusesSetTheir"), { section: 'status', key: 'main-status-options-list' })}>
                         <div id="tm-status-options-list">
                             ${renderStatusOptionsList()}
                         </div>
-                        <button class="tm-btn tm-btn-primary" data-tm-action="addStatusOption" style="margin-top: 8px; margin-bottom: 10px; font-size: 12px;">+ 添加状态</button>
+                        <button class="tm-btn tm-btn-primary" data-tm-action="addStatusOption" style="margin-top: 8px; margin-bottom: 10px; font-size: 12px;">${__tmT("settings.addStatus")}</button>
                         </div>
                         ${renderSingleFieldSetting(
-                            '勾选完成时状态',
-                            '任务复选框被勾选为完成时，自动切换到这里设置的状态。',
+                            __tmT("settings.statusWhenCheckedComplete"),
+                            __tmT("settings.whenATaskCheckboxIsCheckedToCompleteIt"),
                             `<select class="b3-select" onchange="updateCheckboxStatusBinding('done', this.value)" style="width:180px;">
                                 ${__tmRenderCheckboxStatusBindingOptionsHtml(SettingsStore.data.checkboxDoneStatusId)}
                             </select>`,
                             { style: 'margin-bottom:8px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '未完成状态默认状态',
-                            '未完成任务在取消勾选回退、快速新建默认状态、以及空状态显示回退时，统一使用这里设置的状态。',
+                            __tmT("settings.defaultUnfinishedStatus"),
+                            __tmT("settings.unfinishedTasksUseTheStatusSetHereForCheckbox"),
                             `<select class="b3-select" onchange="updateCheckboxStatusBinding('undone', this.value)" style="width:180px;">
                                 ${__tmRenderCheckboxStatusBindingOptionsHtml(SettingsStore.data.checkboxUndoneStatusId, { done: false })}
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '子任务状态自动同步父任务',
-                            '开启后，所有直接子任务都完成时自动完成父任务；任一直接子任务恢复未完成时，父任务也会恢复为未完成。',
+                            __tmT("settings.autoSyncParentStatusFromSubtasks"),
+                            __tmT("settings.whenEnabledCompletingAllDirectSubtasksCompletesTheParent"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.autoCompleteParentOnSubtasksDone ? 'checked' : ''} onchange="updateAutoCompleteParentOnSubtasksDone(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '循环任务完成后，在笔记中保持勾选',
-                            '开启后，本次完成会在笔记中保持勾选；插件仍推进到下一次，并在下一次循环日期当天恢复为未完成。',
+                            __tmT("settings.keepRecurringTasksCheckedInNotesAfterCompletion"),
+                            __tmT("settings.whenEnabledThisCompletionStaysCheckedInTheNote"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.recurringTaskKeepNativeDoneUntilNextOccurrence === true ? 'checked' : ''} onchange="updateRecurringTaskKeepNativeDoneUntilNextOccurrence(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);">
-                            <div class="tm-settings-section-title">FSRS 间隔重复</div>
-                            <div class="tm-settings-section-desc">FSRS 根据实际复习反馈安排下一次日期；参数修改只影响后续评分。</div>
+                            <div class="tm-settings-section-title">${__tmT("task.fsrsSpacedRepetition")}</div>
+                            <div class="tm-settings-section-desc">${__tmT("settings.fsrsSchedulesTheNextDateFromActualReviewFeedback")}</div>
                             ${renderSingleFieldSetting(
-                                '目标记忆率',
-                                '越高会安排得越频繁，推荐保持 90%。',
+                                __tmT("settings.targetRetention"),
+                                __tmT("settings.higherValuesScheduleMoreFrequentReviewsIsRecommended"),
                                 `<input class="b3-text-field" type="number" value="${Math.round((Number(SettingsStore.data.fsrsDesiredRetention) || 0.9) * 100)}" min="80" max="97" step="1" onchange="updateFsrsDesiredRetentionPercent(this.value)" style="width:88px;">
                                  <span class="tm-setting-field-unit">%</span>`
                             )}
                             ${renderSingleFieldSetting(
-                                '最大复习间隔',
-                                '限制一次排期最多向后延伸的天数。',
+                                __tmT("settings.maximumReviewInterval"),
+                                __tmT("settings.limitsHowManyDaysASingleSchedulingStepCan"),
                                 `<input class="b3-text-field" type="number" value="${Math.max(30, Math.min(3650, Number(SettingsStore.data.fsrsMaximumIntervalDays) || 3650))}" min="30" max="3650" step="1" onchange="updateFsrsMaximumIntervalDays(this.value)" style="width:88px;">
-                                 <span class="tm-setting-field-unit">天</span>`
+                                 <span class="tm-setting-field-unit">${__tmT("homepage.days2")}</span>`
                             )}
                             ${renderSingleSwitchSetting(
-                                '分散复习日期',
-                                '为较长间隔加入少量随机扰动，减少大量任务集中在同一天。',
+                                __tmT("settings.spreadReviewDates"),
+                                __tmT("settings.addsALittleRandomnessToLongerIntervalsSoFewer"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.fsrsEnableFuzz === true ? 'checked' : ''} onchange="updateFsrsEnableFuzz(this.checked)">`
                             )}
                         </div>
                     </div>
 
-                    ${(settingsSearchCurrentSection = 'layout', '')}
+                    ${settingsSearchCurrentSection = 'layout', ''}
                     <div class="tm-settings-panel" data-tm-settings-section="layout">
-                        <div class="tm-settings-section-title">🪟 视图与布局</div>
-                        <div class="tm-settings-section-desc">控制默认视图、紧凑模式和各类展示布局。</div>
+                        <div class="tm-settings-section-title">${__tmT("settings.viewsLayout")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.controlsTheDefaultViewCompactModesAndDisplayLayouts")}</div>
                         ${renderSingleFieldSetting(
-                            '默认视图',
-                            '桌面端首次打开任务管理器时默认进入的视图。',
+                            __tmT("settings.defaultView"),
+                            __tmT("settings.theViewOpenedByDefaultOnDesktopWhenThe"),
                             `<select class="b3-select" onchange="updateDefaultViewMode(this.value)" style="width:180px;">
                                 ${__tmGetEnabledViews().map((viewId) => {
                                     const view = __TM_ALL_VIEWS.find(v => v.id === viewId);
@@ -2848,8 +2844,8 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '移动端默认',
-                            '移动端首次打开时使用的默认视图。',
+                            __tmT("settings.mobileDefault"),
+                            __tmT("settings.theDefaultViewUsedOnFirstOpenOnMobile"),
                             `<select class="b3-select" onchange="updateDefaultViewModeMobile(this.value)" style="width:180px;">
                                 ${__tmGetEnabledViews().map((viewId) => {
                                     const view = __TM_ALL_VIEWS.find(v => v.id === viewId);
@@ -2859,36 +2855,36 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '移动端启动时自动打开任务管理器',
-                            '仅在 Android、iOS 和 HarmonyOS 思源 App 冷启动后生效。启动同步仍在进行时先显示本地数据，数据合并完成后自动刷新。',
+                            __tmT("settings.openTheTaskManagerOnMobileStartup"),
+                            __tmT("settings.onlyAppliesAfterAColdStartOfTheSiyuan"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.mobileAutoOpenOnStartup === true ? 'checked' : ''} onchange="updateMobileAutoOpenOnStartup(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '自动隐藏页签栏',
-                            '开启后文档页签栏默认收起；桌面端和 Dock 鼠标移入顶栏展开，移出顶栏和页签区域收起；移动端支持轻触、下滑展开，上滑或点击外部区域收起。',
+                            __tmT("settings.autoHideTheTabBar"),
+                            __tmT("settings.whenEnabledTheDocumentTabBarStartsCollapsedOn"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTabsAutoHideEnabled ? 'checked' : ''} onchange="updateDocTabsAutoHideEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '页签拖延值上色',
-                            '开启后文档页签会按拖延值轻微染红；关闭后只取消页签背景上色，不影响主页拖延值和页签提示。',
+                            __tmT("settings.tintTabsByDelayScore"),
+                            __tmT("settings.whenEnabledDocumentTabsAreTintedRedSlightlyBy"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTabProcrastinationTintEnabled !== false ? 'checked' : ''} onchange="updateDocTabProcrastinationTintEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${!__tmIsRuntimeMobileClient() ? `
                         ${renderSingleSwitchSetting(
-                            '启用 Dock 侧边栏',
-                            '桌面端新增一个类似番茄钟的任务 Dock，界面跟随移动端布局。',
+                            __tmT("settings.enableTheDockSidebar"),
+                            __tmT("settings.addsATaskDockOnDesktopSimilarToThe"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.dockSidebarEnabled !== false ? 'checked' : ''} onchange="updateDockSidebarEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         <div style="margin-bottom:10px;opacity:${SettingsStore.data.dockSidebarEnabled !== false ? 1 : 0.6};">
                             ${renderSingleFieldSetting(
-                                'Dock 默认视图',
-                                '仅用于任务 Dock 侧边栏，默认跟随移动端默认视图。',
+                                __tmT("settings.dockDefaultView"),
+                                __tmT("settings.usedOnlyByTheTaskDockSidebarFollowsThe"),
                                 `<select class="b3-select" onchange="updateDockDefaultViewMode(this.value)" ${SettingsStore.data.dockSidebarEnabled !== false ? '' : 'disabled'} style="width:180px;">
-                                    <option value="follow-mobile" ${__tmGetDockDefaultViewValue() === 'follow-mobile' ? 'selected' : ''}>跟随移动端默认</option>
+                                    <option value="follow-mobile" ${__tmGetDockDefaultViewValue() === 'follow-mobile' ? 'selected' : ''}>${__tmT("settings.followMobileDefault")}</option>
                                     ${__tmGetEnabledViews().map((viewId) => {
                                         const view = __TM_ALL_VIEWS.find(v => v.id === viewId);
                                         return view ? `<option value="${view.id}" ${__tmGetDockDefaultViewValue() === view.id ? 'selected' : ''}>${view.longLabel}</option>` : '';
@@ -2897,47 +2893,47 @@
                             )}
                         </div>
                         ${renderSingleSwitchSetting(
-                            'Dock侧边栏跟随当前文档',
-                            '开启后，当 Dock 侧边栏正在显示且任务管理器页签未激活时，切换思源文档会同步切换到 Dock 中对应的文档页签；当前文档不在 Dock 当前分组内时保持原视图。',
+                            __tmT("settings.dockSidebarFollowsTheCurrentDocument"),
+                            __tmT("settings.whenEnabledWhileTheDockSidebarIsVisibleAnd"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.dockSidebarFollowCurrentDocument ? 'checked' : ''} ${SettingsStore.data.dockSidebarEnabled !== false ? '' : 'disabled'} onchange="updateDockSidebarFollowCurrentDocument(this.checked)">`,
                             { style: `margin-bottom:10px;opacity:${SettingsStore.data.dockSidebarEnabled !== false ? 1 : 0.6};` }
                         )}
                         ` : ''}
-                        <div class="tm-settings-section-title" style="margin-top:20px;">任务标题点击</div>
-          <div class="tm-settings-section-desc">统一控制全部任务视图中的标题点击行为。按住 Ctrl（macOS 为 Cmd）点击标题，会在“跳转任务”和“打开详情”之间临时反转。</div>
+                        <div class="tm-settings-section-title" style="margin-top:20px;">${__tmT("settings.taskTitleClick")}</div>
+          <div class="tm-settings-section-desc">${__tmT("settings.controlsTitleClickBehaviorAcrossAllTaskViewsHolding")}</div>
                         ${renderSingleFieldSetting(
-                            '默认动作',
-                            '桌面主界面中的任务标题默认执行此动作。',
+                            __tmT("settings.defaultAction"),
+                            __tmT("settings.clickingATaskTitleInTheDesktopMainUi"),
                             `<select class="b3-select" onchange="updateTaskTitleClickAction(this.value)" style="width:180px;">
-                                <option value="jump" ${__tmNormalizeTaskTitleClickAction(SettingsStore.data.taskTitleClickAction) === 'jump' ? 'selected' : ''}>跳转任务</option>
-                                <option value="detail" ${__tmNormalizeTaskTitleClickAction(SettingsStore.data.taskTitleClickAction) === 'detail' ? 'selected' : ''}>打开详情</option>
+                                <option value="jump" ${__tmNormalizeTaskTitleClickAction(SettingsStore.data.taskTitleClickAction) === 'jump' ? 'selected' : ''}>${__tmT("calendar.openTask")}</option>
+                                <option value="detail" ${__tmNormalizeTaskTitleClickAction(SettingsStore.data.taskTitleClickAction) === 'detail' ? 'selected' : ''}>${__tmT("settings.openDetails")}</option>
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${!__tmIsRuntimeMobileClient() ? renderSingleFieldSetting(
                             'Dock',
-                            '任务 Dock 可跟随默认动作，或使用独立动作。',
+                            __tmT("settings.theTaskDockCanFollowTheDefaultActionOr"),
                             `<select class="b3-select" onchange="updateDockTaskTitleClickAction(this.value)" style="width:180px;">
-                                <option value="inherit" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.dockTaskTitleClickAction) === 'inherit' ? 'selected' : ''}>跟随默认</option>
-                                <option value="jump" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.dockTaskTitleClickAction) === 'jump' ? 'selected' : ''}>跳转任务</option>
-                                <option value="detail" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.dockTaskTitleClickAction) === 'detail' ? 'selected' : ''}>打开详情</option>
+                                <option value="inherit" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.dockTaskTitleClickAction) === 'inherit' ? 'selected' : ''}>${__tmT("settings.followDefault")}</option>
+                                <option value="jump" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.dockTaskTitleClickAction) === 'jump' ? 'selected' : ''}>${__tmT("calendar.openTask")}</option>
+                                <option value="detail" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.dockTaskTitleClickAction) === 'detail' ? 'selected' : ''}>${__tmT("settings.openDetails")}</option>
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         ) : ''}
                         ${renderSingleFieldSetting(
-                            '移动端',
-                            '移动端可跟随默认动作，或使用独立动作。',
+                            __tmT("calendar.mobile"),
+                            __tmT("settings.mobileCanFollowTheDefaultActionOrUseIts"),
                             `<select class="b3-select" onchange="updateMobileTaskTitleClickAction(this.value)" style="width:180px;">
-                                <option value="inherit" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.mobileTaskTitleClickAction) === 'inherit' ? 'selected' : ''}>跟随默认</option>
-                                <option value="jump" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.mobileTaskTitleClickAction) === 'jump' ? 'selected' : ''}>跳转任务</option>
-                                <option value="detail" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.mobileTaskTitleClickAction) === 'detail' ? 'selected' : ''}>打开详情</option>
+                                <option value="inherit" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.mobileTaskTitleClickAction) === 'inherit' ? 'selected' : ''}>${__tmT("settings.followDefault")}</option>
+                                <option value="jump" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.mobileTaskTitleClickAction) === 'jump' ? 'selected' : ''}>${__tmT("calendar.openTask")}</option>
+                                <option value="detail" ${__tmNormalizeTaskTitleClickOverride(SettingsStore.data.mobileTaskTitleClickAction) === 'detail' ? 'selected' : ''}>${__tmT("settings.openDetails")}</option>
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         <div style="margin-bottom:10px;">
                             ${renderSingleFieldSetting(
-                                'Dock 及移动端紧凑右侧字段',
-                                '控制 Dock 侧边栏、移动端清单紧凑视图，以及日历视图侧边栏任务清单里任务右侧显示哪些信息。默认显示截止日期、日程时间和状态标签，文档名仅在全部页签下显示，二级标题仅在任务有所属标题时显示。',
+                                __tmT("settings.dockMobileCompactRightSideFields"),
+                                __tmT("settings.controlsWhichInfoAppearsToTheRightOfTasks"),
                                 (() => {
                                     const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.dockChecklistCompactMetaFields));
                                     const customFieldOptions = __tmGetCustomFieldDefs()
@@ -2946,7 +2942,7 @@
                                         .filter((item) => item && __tmParseCustomFieldColumnKey(item.key));
                                     const options = __TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.concat(customFieldOptions);
                                 return renderSettingsChipSetting('', '', [
-                                    __tmBuildSettingsChipGroup('字段', options, {
+                                    __tmBuildSettingsChipGroup(__tmT("settings.field"), options, {
                                         selectedSet: selected,
                                         onToggle: (item) => `updateChecklistCompactMetaFieldVisibility('dock', '${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
@@ -2955,8 +2951,8 @@
                             )}
                         </div>
                         ${renderSingleFieldSetting(
-                            '桌面端紧凑右侧字段',
-                            '控制桌面端清单紧凑视图里任务右侧显示哪些信息。默认显示截止日期、日程时间和状态标签，文档名仅在全部页签下显示，二级标题仅在任务有所属标题时显示。',
+                            __tmT("settings.desktopCompactRightSideFields"),
+                            __tmT("settings.controlsWhichInfoAppearsToTheRightOfTasks2"),
                             (() => {
                                 const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.desktopChecklistCompactMetaFields));
                                     const customFieldOptions = __tmGetCustomFieldDefs()
@@ -2965,7 +2961,7 @@
                                         .filter((item) => item && __tmParseCustomFieldColumnKey(item.key));
                                 const options = __TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.concat(customFieldOptions);
                                 return renderSettingsChipSetting('', '', [
-                                    __tmBuildSettingsChipGroup('字段', options, {
+                                    __tmBuildSettingsChipGroup(__tmT("settings.field"), options, {
                                         selectedSet: selected,
                                         onToggle: (item) => `updateChecklistCompactMetaFieldVisibility('desktop', '${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
@@ -2974,20 +2970,20 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '紧凑右侧字体',
-                            '控制清单紧凑视图右侧字段的字体大小，状态标签会随之一起缩放。',
+                            __tmT("settings.compactRightSideFont"),
+                            __tmT("settings.controlsTheFontSizeOfTheCompactChecklistRight"),
                             `<select class="b3-select" onchange="updateChecklistCompactRightFontSize(this.value)" style="width:140px;">
                                 ${__TM_CHECKLIST_COMPACT_RIGHT_FONT_SIZE_OPTIONS.map((item) => `<option value="${item.key}" ${__tmGetChecklistCompactRightFontSize() === item.key ? 'selected' : ''}>${item.label}</option>`).join('')}
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '时间轴卡片字段',
-                            '控制时间轴卡片显示任务名称、状态标签和完成时间。完成时间仅在已完成且有记录时显示；所有字段关闭时，前导图标会自动隐藏。',
+                            __tmT("settings.timelineCardFields"),
+                            __tmT("settings.controlsWhetherTimelineCardsShowTheTaskNameStatus"),
                             (() => {
                                 const selected = new Set(__tmNormalizeTimelineCardFields(SettingsStore.data.timelineCardFields));
                                 return renderSettingsChipSetting('', '', [
-                                    __tmBuildSettingsChipGroup('字段', __TM_TIMELINE_CARD_FIELD_OPTIONS, {
+                                    __tmBuildSettingsChipGroup(__tmT("settings.field"), __TM_TIMELINE_CARD_FIELD_OPTIONS, {
                                         selectedSet: selected,
                                         onToggle: (item) => `updateTimelineCardFieldVisibility('${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
@@ -2996,16 +2992,16 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '汇总时间轴连线来源',
-                            '文档分组和页签组的汇总时间轴共用此设置，单文档使用本文件连线。未进入页签组时，“页签组全局白板”使用文档分组全局白板。',
+                            __tmT("settings.summaryTimelineLinkSource"),
+                            __tmT("settings.theSummaryTimelinesOfDocumentGroupsAndTabGroups"),
                             `<select class="b3-select" onchange="tmUpdateTimelineDependencyScope(this.value)" style="width:220px;max-width:100%;">
                                 ${__tmGetWhiteboardLinkSourceOptions('local').map((option) => `<option value="${option.value}" ${__tmNormalizeTimelineDependencyScope(SettingsStore.data.timelineDependencyScope) === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
                             </select>`,
                             { style: 'margin-bottom:10px;', controlMode: 'stack' }
                         )}
-                        <div style="margin-bottom:10px;" ${__tmSettingsSearchAttrs('main', '显示视图', '选择启用表格、清单、时间轴、看板、日历和白板视图，至少保留一个。', { section: 'layout', key: 'main-enabled-views' })}>
+                        <div style="margin-bottom:10px;" ${__tmSettingsSearchAttrs('main', __tmT("settings.visibleViews"), __tmT("settings.chooseWhichViewsAreEnabledAmongTableChecklistTimeline"), { section: 'layout', key: 'main-enabled-views' })}>
                             ${renderSettingsChipSetting('', '', [
-                                __tmBuildSettingsChipGroup('显示视图', __TM_ALL_VIEWS.map((view) => {
+                                __tmBuildSettingsChipGroup(__tmT("settings.visibleViews"), __TM_ALL_VIEWS.map((view) => {
                                     const enabledViews = __tmGetEnabledViews();
                                     const checked = enabledViews.includes(view.id);
                                     const disabled = checked && enabledViews.length <= 1;
@@ -3020,27 +3016,27 @@
                                     onToggle: (item) => `updateEnabledView('${escSq(String(item?.key || '').trim())}', this.checked)`
                                 })
                             ])}
-                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:6px;">顶栏和移动端视图切换会同步隐藏这里关闭的视图，至少保留一个。</div>
+                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:6px;">${__tmT("settings.theTopBarAndMobileViewSwitcherHideViews")}</div>
                         </div>
                         ${renderSingleSwitchSetting(
-                            '看板紧凑模式',
-                            '更窄更矮，显示更多卡片。',
+                            __tmT("settings.kanbanCompactMode"),
+                            __tmT("settings.narrowerAndShorterFitsMoreCards"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanCompactMode ? 'checked' : ''} onchange="updateKanbanCompactMode(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '看板外观',
-                            '卡片样式保留圆角分组；竖向分区使用柔和底色，标题看板显示项目进度。',
-                            `<select class="b3-select" aria-label="看板外观" onchange="updateKanbanAppearance(this.value)">
-                                <option value="lanes" ${SettingsStore.data.kanbanAppearance !== 'classic' ? 'selected' : ''}>竖向分区</option>
-                                <option value="classic" ${SettingsStore.data.kanbanAppearance === 'classic' ? 'selected' : ''}>卡片样式</option>
+                            __tmT("settings.kanbanAppearance"),
+                            __tmT("settings.cardStyleKeepsRoundedCornersVerticalLanesUseSoft"),
+                            `<select class="b3-select" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.kanbanAppearance")}" onchange="updateKanbanAppearance(this.value)">
+                                <option value="lanes" ${SettingsStore.data.kanbanAppearance !== 'classic' ? 'selected' : ''}>${__tmT("settings.verticalLanes")}</option>
+                                <option value="classic" ${SettingsStore.data.kanbanAppearance === 'classic' ? 'selected' : ''}>${__tmT("settings.cardStyle")}</option>
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${SettingsStore.data.kanbanAppearance !== 'classic' ? renderSingleFieldSetting(
-                            '分区颜色浓度',
-                            '调整竖向分区底色的深浅。',
-                            `<input type="range" aria-label="分区颜色浓度" min="6" max="30" step="1" value="${__tmNormalizeKanbanLaneColorStrength(SettingsStore.data.kanbanLaneColorStrength)}" oninput="updateKanbanLaneColorStrength(this.value,false);this.nextElementSibling.textContent=this.value+'%';" onchange="updateKanbanLaneColorStrength(this.value)" style="max-width:180px;">
+                            __tmT("settings.laneColorIntensity"),
+                            __tmT("settings.adjustsTheDepthOfVerticalLaneBackgroundColors"),
+                            `<input type="range" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.laneColorIntensity")}" min="6" max="30" step="1" value="${__tmNormalizeKanbanLaneColorStrength(SettingsStore.data.kanbanLaneColorStrength)}" oninput="updateKanbanLaneColorStrength(this.value,false);this.nextElementSibling.textContent=this.value+'%';" onchange="updateKanbanLaneColorStrength(this.value)" style="max-width:180px;">
                              <span class="tm-setting-field-unit" style="min-width:42px;text-align:right;">${__tmNormalizeKanbanLaneColorStrength(SettingsStore.data.kanbanLaneColorStrength)}%</span>`,
                             { style: 'margin-bottom:10px;' }
                         ) : ''}
@@ -3050,31 +3046,31 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '清单紧凑层级线',
-                            '开启后在清单中显示子任务层级竖线。',
+                            __tmT("settings.checklistCompactHierarchyLines"),
+                            __tmT("settings.showsVerticalHierarchyLinesForSubtasksInTheChecklist"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactTreeGuides ? 'checked' : ''} onchange="updateChecklistCompactTreeGuides(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '看板宽度',
-                            '调整看板列宽，适合不同信息密度。',
+                            __tmT("settings.kanbanWidth"),
+                            __tmT("settings.adjustsKanbanColumnWidthForDifferentInformationDensities"),
                             `<input type="range" min="220" max="520" step="10" value="${Number(SettingsStore.data.kanbanColumnWidth) || 320}" onchange="updateKanbanColumnWidth(this.value)" style="max-width:180px;">
                              <span class="tm-setting-field-unit" style="min-width:52px;text-align:right;">${Math.max(220, Math.min(520, Number(SettingsStore.data.kanbanColumnWidth) || 320))}px</span>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '表格和看板宽度填满窗口',
-                            '窗口宽于所有表格列或看板列总宽时，按当前列宽比例自动拉伸填满；窗口较窄时仍保持固定列宽横向滚动。',
+                            __tmT("settings.stretchTableAndKanbanWidthsToFillTheWindow"),
+                            __tmT("settings.whenTheWindowIsWiderThanTheTotalColumn"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanFillColumns ? 'checked' : ''} onchange="updateKanbanFillColumns(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '看板卡片字段',
-                            '控制看板卡片中显示哪些任务字段。自定义列支持单选、多选，点击卡片上的字段即可编辑；未设置时显示字段名。',
+                            __tmT("settings.kanbanCardFields"),
+                            __tmT("settings.controlsWhichTaskFieldsAppearOnKanbanCardsSingle"),
                             (() => {
                                 const selected = new Set(__tmGetTaskCardFieldList('kanban'));
                                 return renderSettingsChipSetting('', '', [
-                                    __tmBuildSettingsChipGroup('字段', __TM_TASK_CARD_FIELD_OPTIONS.concat(__tmBuildSettingsCustomFieldChipItems()), {
+                                    __tmBuildSettingsChipGroup(__tmT("settings.field"), __TM_TASK_CARD_FIELD_OPTIONS.concat(__tmBuildSettingsCustomFieldChipItems()), {
                                         selectedSet: selected,
                                         onToggle: (item) => `updateTaskCardFieldVisibility('kanban', '${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
@@ -3083,12 +3079,12 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '白板卡片字段',
-                            '控制白板卡片中显示哪些任务字段。自定义列支持单选、多选，点击卡片上的字段即可编辑；未设置时显示字段名。',
+                            __tmT("settings.whiteboardCardFields"),
+                            __tmT("settings.controlsWhichTaskFieldsAppearOnWhiteboardCardsSingle"),
                             (() => {
                                 const selected = new Set(__tmGetTaskCardFieldList('whiteboard'));
                                 return renderSettingsChipSetting('', '', [
-                                    __tmBuildSettingsChipGroup('字段', __TM_TASK_CARD_FIELD_OPTIONS.concat(__tmBuildSettingsCustomFieldChipItems()), {
+                                    __tmBuildSettingsChipGroup(__tmT("settings.field"), __TM_TASK_CARD_FIELD_OPTIONS.concat(__tmBuildSettingsCustomFieldChipItems()), {
                                         selectedSet: selected,
                                         onToggle: (item) => `updateTaskCardFieldVisibility('whiteboard', '${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
@@ -3097,33 +3093,33 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '删除任务同步删除白板卡片',
-                            '开启后，删除任务本体时同步移除白板上的对应卡片、快照和手动连线；关闭后保留白板卡片作为历史记录。',
+                            __tmT("settings.deleteWhiteboardCardsWithTasks"),
+                            __tmT("settings.whenEnabledDeletingATaskAlsoRemovesItsCard"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.deleteTaskRemovesWhiteboardCards !== false ? 'checked' : ''} onchange="updateDeleteTaskRemovesWhiteboardCards(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '白板顺序依据',
-                            '开启“白板顺序模式”后，按所选白板的连线显示当前步骤的任务。未进入页签组时，“页签组全局白板”使用文档分组全局白板。',
+                            __tmT("settings.whiteboardOrderSource"),
+                            __tmT("settings.withWhiteboardOrderModeEnabledTasksForTheCurrent"),
                             `<select class="b3-select" onchange="updateWhiteboardSequenceScope(this.value)" style="width:180px;">
                                 ${__tmGetWhiteboardLinkSourceOptions().map((option) => `<option value="${option.value}" ${__tmNormalizeWhiteboardSequenceScope(SettingsStore.data.whiteboardSequenceScope) === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
                             </select>`,
                             { style: 'margin-bottom:10px;', controlMode: 'stack' }
                         )}
                         ${renderSingleFieldSetting(
-                            '白板文字默认字号',
-                            '文字模式中新建文字的默认字号；已创建的文字不受影响。',
+                            __tmT("settings.defaultWhiteboardTextSize"),
+                            __tmT("settings.theDefaultFontSizeForTextCreatedInText"),
                             `<input class="b3-text-field" type="number" min="10" max="40" step="1" value="${Math.max(10, Math.min(40, Math.round(Number(SettingsStore.data.whiteboardNoteDefaultFontSize) || 20)))}" onchange="updateWhiteboardNoteDefaultFontSize(this.value)" style="width:88px;">
                              <span class="tm-setting-field-unit">px</span>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '卡片字段常驻显示',
-                            '控制看板和白板卡片中的空值或默认字段是否也固定展示。',
+                            __tmT("settings.alwaysShowCardFields"),
+                            __tmT("settings.controlsWhetherEmptyOrDefaultFieldsOnKanbanAnd"),
                             (() => {
                                 const selected = new Set(__tmGetTaskCardAlwaysShowFieldList());
                                 return renderSettingsChipSetting('', '', [
-                                    __tmBuildSettingsChipGroup('常驻字段', __TM_TASK_CARD_ALWAYS_SHOW_FIELD_OPTIONS, {
+                                    __tmBuildSettingsChipGroup(__tmT("settings.persistentFields"), __TM_TASK_CARD_ALWAYS_SHOW_FIELD_OPTIONS, {
                                         selectedSet: selected,
                                         onToggle: (item) => `updateTaskCardAlwaysShowField('${escSq(String(item?.key || '').trim())}', this.checked)`
                                     })
@@ -3132,101 +3128,98 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '卡片流最小宽度',
-                            '用于白板“全部页签”的卡片流。会按最小宽度自动在 1 到 4 栏之间切换。',
+                            __tmT("settings.cardStreamMinimumWidth"),
+                            __tmT("settings.forTheCardStreamOnTheWhiteboardAllTabs"),
                             `<input type="range" min="220" max="520" step="10" value="${Number(SettingsStore.data.whiteboardAllTabsCardMinWidth) || 320}" onchange="updateWhiteboardAllTabsCardMinWidth(this.value)" style="max-width:180px;">
                              <span class="tm-setting-field-unit" style="min-width:52px;text-align:right;">${Math.max(220, Math.min(520, Number(SettingsStore.data.whiteboardAllTabsCardMinWidth) || 320))}px</span>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '移动端卡片流双栏',
-                            '用于白板“全部页签”的卡片流。关闭后移动端改为单栏显示，默认开启。',
+                            __tmT("settings.twoColumnCardStreamOnMobile"),
+                            __tmT("settings.forTheCardStreamOnTheWhiteboardAllTabs2"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.whiteboardStreamMobileTwoColumns !== false ? 'checked' : ''} onchange="updateWhiteboardStreamMobileTwoColumns(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '单独已完成看板列',
-                            '在“已完成任务不单独分组”关闭时生效。开启后，标题看板和日期看板使用单独的“已完成”列；关闭时，已完成任务收纳到各列底部折叠分组。',
+                            __tmT("settings.separateCompletedKanbanColumn"),
+                            __tmT("settings.appliesWhenDonTGroupCompletedTasksIsOff"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanShowDoneColumn ? 'checked' : ''} onchange="updateKanbanShowDoneColumn(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '看板拖动父任务时同步更改子任务状态',
-                            '拖动父任务切换状态时，子任务同步更新。',
+                            __tmT("settings.syncSubtaskStatusWhenDraggingParentTasksOnThe"),
+                            __tmT("settings.draggingAParentTaskToChangeStatusUpdatesIts"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanDragSyncSubtasks ? 'checked' : ''} onchange="updateKanbanDragSyncSubtasks(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '看板内子任务不与父任务分离',
-                            '开启后子任务始终跟随父任务显示，状态、日期、标题或完成列不同也不会单独拆出。',
+                            __tmT("settings.keepSubtasksWithTheirParentOnTheKanban"),
+                            __tmT("settings.whenEnabledSubtasksAlwaysFollowTheirParentTaskDiffering"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanPreventSubtaskSeparation ? 'checked' : ''} onchange="updateKanbanPreventSubtaskSeparation(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '时长单位',
-                            '决定任务时长和预设数字按小时还是分钟解释。切换不会换算历史数字，已有值会按新单位重新解释。',
+                            __tmT("settings.durationUnit"),
+                            __tmT("settings.controlsWhetherTaskDurationsAndPresetNumbersAreInterpreted"),
                             `<select class="b3-select" onchange="updateDurationFormat(this.value)" style="width:180px;">
-                                <option value="hours" ${String(SettingsStore.data.durationFormat || 'hours') === 'hours' ? 'selected' : ''}>小时（1.5 = 90 分钟）</option>
-                                <option value="minutes" ${String(SettingsStore.data.durationFormat || '') === 'minutes' ? 'selected' : ''}>分钟（90 = 1.5 小时）</option>
+                                <option value="hours" ${String(SettingsStore.data.durationFormat || 'hours') === 'hours' ? 'selected' : ''}>${__tmT("settings.hoursMin")}</option>
+                                <option value="minutes" ${String(SettingsStore.data.durationFormat || '') === 'minutes' ? 'selected' : ''}>${__tmT("settings.minutesH")}</option>
                             </select>`
                         )}
-                        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);" ${__tmSettingsSearchAttrs('main', '时长预设', '用于任务详情、悬浮条和表格的时长快捷选择，支持新增、修改、排序和删除预设。', { section: 'layout', key: 'main-duration-presets' })}>
-                            <div style="font-size:13px;font-weight:600;margin-bottom:6px;">时长预设</div>
-                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">用于任务详情、悬浮条和表格视图的时长快捷选择。预设保存的是当前单位的数字；编辑时会按当前单位显示（小时模式如 0.5h，分钟模式如 30m）。仍支持直接填写自定义数值；如果这里不添加任何预设，就继续使用当前的自由输入方式。</div>
+                        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);" ${__tmSettingsSearchAttrs('main', __tmT("settings.durationPresets"), __tmT("settings.quickDurationChoicesForTaskDetailsTheQuickbarAnd"), { section: 'layout', key: 'main-duration-presets' })}>
+                            <div style="font-size:13px;font-weight:600;margin-bottom:6px;">${__tmT("settings.durationPresets")}</div>
+                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">${__tmT("settings.quickDurationChoicesForTaskDetailsTheQuickbarAnd2")}</div>
                             <div id="tm-duration-options-list">
                                 ${renderDurationOptionsList()}
                             </div>
-                            <button class="tm-btn tm-btn-primary" data-tm-action="addDurationOption" style="margin-top: 8px; font-size: 12px;">+ 添加时长预设</button>
+                            <button class="tm-btn tm-btn-primary" data-tm-action="addDurationOption" style="margin-top: 8px; font-size: 12px;">${__tmT("settings.addDurationPreset")}</button>
                         </div>
                         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);opacity:${SettingsStore.data.enableTomatoIntegration ? 1 : 0.6};">
-                            <div style="font-size:13px;font-weight:600;margin-bottom:6px;">时长与番茄属性</div>
-                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">用于“时长与番茄”弹窗、专注列和常驻字段。关闭耗时评估后，实际番茄读取 Dock Tomato 完成倒计时累计的属性。</div>
+                            <div style="font-size:13px;font-weight:600;margin-bottom:6px;">${__tmT("settings.durationPomodoroAttributes")}</div>
+                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">${__tmT("settings.usedByTheDurationPomodoroDialogTheFocusColumn")}</div>
                             ${renderSingleFieldSetting(
-                                '实际番茄数属性名',
-                                'Dock Tomato 单次完成累计 1 个番茄，例如 custom-tomato-count。',
+                                __tmT("settings.actualPomodoroCountAttribute"),
+                                __tmT("settings.oneCompletedPomodoroInDockTomatoCountsAsE"),
                                 `<input class="b3-text-field" type="text" value="${esc(String(SettingsStore.data.tomatoCountAttrKey || 'custom-tomato-count'))}" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoCountAttrKey(this.value)" style="width:100%;">`,
                                 { style: 'margin-bottom:10px;' }
                             )}
                             ${renderSingleFieldSetting(
-                                '预计番茄数属性名',
-                                '用于给任务填写预计番茄数量，例如 custom-tomato-estimate-count。',
+                                __tmT("settings.estimatedPomodoroCountAttribute"),
+                                __tmT("settings.usedToFillInTheEstimatedPomodoroCountFor"),
                                 `<input class="b3-text-field" type="text" value="${esc(String(SettingsStore.data.tomatoEstimateAttrKey || 'custom-tomato-estimate-count'))}" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoEstimateAttrKey(this.value)" style="width:100%;">`
                             )}
                         </div>
                     </div>
 
-                    ${(settingsSearchCurrentSection = 'search', '')}
+                    ${settingsSearchCurrentSection = 'search', ''}
                     <div class="tm-settings-panel" data-tm-settings-section="search">
-                        <div class="tm-settings-section-title">🔎 搜索与分组</div>
-                        <div class="tm-settings-section-desc">任务检索由本地索引、快照和增量刷新自动优化；这里仅控制文档范围与分组行为。</div>
+                        <div class="tm-settings-section-title">${__tmT("settings.searchGrouping2")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.taskRetrievalIsOptimizedAutomaticallyByTheLocalIndex")}</div>
                         ${renderSingleFieldSetting(
-                            '递归文档数上限',
-                            '限制每个笔记本或“包含子文档”来源展开的文档数量，不是任务条数。超过上限的文档不会纳入该来源；全量任务加载也受此范围约束。',
+                            __tmT("settings.recursiveDocumentLimit"),
+                            __tmT("settings.limitsTheNumberOfDocumentsExpandedPerNotebookOr"),
                             `<input class="b3-text-field" type="number" value="${state.recursiveDocLimit}" onchange="updateRecursiveDocLimit(this.value)" style="width:96px;">
-                             <span class="tm-setting-field-unit">个文档</span>`,
+                             <span class="tm-setting-field-unit">${__tmT("settings.documents")}</span>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '兼容旧版 Win7 思源',
-                            '默认关闭。仅在 win7-dev1 等旧版内核中开启，3.6.4 以前版本思源请打开此开关；开启后使用旧版任务块 SQL 和旧版可用的任务状态更新方式。',
+                            __tmT("settings.legacyWin7SiyuanCompatibility"),
+                            __tmT("settings.offByDefaultEnableItOnlyOnLegacyKernels"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.legacyWin7CompatMode ? 'checked' : ''} onchange="updateLegacyWin7CompatMode(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '父任务回溯层数',
-                            '仅影响父子任务识别，不限制扫描文档或任务数量。跨普通列表查找父任务时可调大；0 仅关闭额外回溯，仍保留直接父子关系。',
+                            __tmT("settings.parentLookupDepth"),
+                            __tmT("settings.affectsOnlyParentChildTaskRecognitionNotHowMany"),
                             `<input class="b3-text-field" type="number" min="0" max="${TM_TASK_PARENT_LOOKUP_DEPTH_MAX}" value="${__tmNormalizeTaskParentLookupDepth(SettingsStore.data.taskParentLookupDepth)}" onchange="updateTaskParentLookupDepth(this.value)" style="width:96px;">
-                             <span class="tm-setting-field-unit">层</span>`,
+                             <span class="tm-setting-field-unit">${__tmT("settings.levels")}</span>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
                             ...__tmSettingsQueryText('showCompletedTasks'),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmGetShowCompletedTasksFromSettings(SettingsStore.data) ? 'checked' : ''} onchange="updateShowCompletedTasks(this.checked)">`
                         )}
-                        <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px; margin-bottom: 12px;">
-                            默认开启，避免完成任务后从列表中消失。未单独设置的分组沿用原有选择；开启下方限制后仅显示今天完成。
-                            <br>规则设置中将「完成状态」设为「所有状态」或「是」时，也会显示对应已完成任务。
-                        </div>
+                        <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px; margin-bottom: 12px;">${__tmT("settings.onByDefaultSoCompletedTasksDoNotVanish")}<br>${__tmT("settings.whenARuleSetsCompletionStatusToAllStatuses")}</div>
                         ${renderSingleSwitchSetting(
                             ...__tmSettingsQueryText('completedTasksTodayOnly'),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.completedTasksTodayOnly ? 'checked' : ''} onchange="updateCompletedTasksTodayOnly(this.checked)">`,
@@ -3238,174 +3231,174 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '已完成任务分组',
-                            '用于已完成任务分组和看板独立已完成列，与顶栏主分组及排序规则独立。默认按实际完成日期分组；按文档与标题时，全部页签先按文档分组，再按文档中的标题分组。组内任务仍按现有完成时间排序。',
+                            __tmT("settings.completedTaskGrouping"),
+                            __tmT("settings.usedForCompletedTaskGroupingAndTheKanbanS"),
                             `<select class="b3-select" onchange="updateCompletedTasksGroupBy(this.value)">
-                                <option value="date" ${__tmNormalizeCompletedTasksGroupBy(SettingsStore.data.completedTasksGroupBy) === 'date' ? 'selected' : ''}>按日期</option>
-                                <option value="title" ${__tmNormalizeCompletedTasksGroupBy(SettingsStore.data.completedTasksGroupBy) === 'title' ? 'selected' : ''}>按文档与标题</option>
+                                <option value="date" ${__tmNormalizeCompletedTasksGroupBy(SettingsStore.data.completedTasksGroupBy) === 'date' ? 'selected' : ''}>${__tmT("calendar.byDate")}</option>
+                                <option value="title" ${__tmNormalizeCompletedTasksGroupBy(SettingsStore.data.completedTasksGroupBy) === 'title' ? 'selected' : ''}>${__tmT("settings.byDocumentHeading")}</option>
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '文档分组下按任务标题级别子分组',
-                            '按照“任务标题级别”设置（H1-H6）对子分组，用于时间轴、表格、文档流和日历侧边栏。',
+                            __tmT("settings.subGroupByTaskHeadingLevelUnderDocumentGroups"),
+                            __tmT("settings.subGroupsByTheTaskHeadingLevelSettingH1"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docH2SubgroupEnabled !== false ? 'checked' : ''} onchange="updateDocH2SubgroupEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '有任务的标题分组始终显示',
-                            '开启后，在按文档分组时，只要当前“任务标题级别”下的标题包含任务，就始终保留标题分组行，不受任务完成状态或“显示已完成任务”开关影响。',
+                            __tmT("settings.alwaysShowHeadingGroupsThatContainTasks"),
+                            __tmT("settings.whenEnabledAndGroupingByDocumentAHeadingGroup"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.alwaysShowTaskDocHeadingGroups ? 'checked' : ''} ${SettingsStore.data.docH2SubgroupEnabled !== false ? '' : 'disabled'} onchange="updateAlwaysShowTaskDocHeadingGroups(this.checked)">`,
                             { style: `margin-bottom:10px;opacity:${SettingsStore.data.docH2SubgroupEnabled !== false ? 1 : 0.6};` }
                         )}
                         ${renderSingleSwitchSetting(
-                            '分组模式增加“按任务名分组”',
-                            '开启后，顶部“分组”下拉里会出现“按任务名”选项，用于把相同任务内容分为一组。',
+                            __tmT("settings.addGroupByTaskNameToGroupingModes"),
+                            __tmT("settings.whenEnabledAByTaskNameOptionAppearsIn"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.groupByTaskName || SettingsStore.data.groupMode === 'task' ? 'checked' : ''} onchange="updateGroupByTaskName(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '分组内置顶任务',
-                            '开启后，表格、清单、看板和白板任务池在按文档、时间、四象限或任务名分组时，置顶任务留在所属分组内并排在组内最前。',
+                            __tmT("settings.keepPinnedTasksInsideGroups"),
+                            __tmT("settings.whenEnabledPinnedTasksStayInsideTheirGroupAnd"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pinTasksWithinGroups ? 'checked' : ''} onchange="updatePinTasksWithinGroups(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '自动识别语义日期',
-                            '开启后，新建或修改任务名称并保存后，只识别当前任务。离开输入区后确认，普通任务详情关闭后再弹出；清单常驻侧栏无需关闭。默认开启。',
+                            __tmT("settings.autoDetectDatesInTaskNames"),
+                            __tmT("settings.whenEnabledAfterCreatingOrRenamingATaskAnd"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.semanticDateAutoPromptEnabled ? 'checked' : ''} onchange="updateSemanticDateAutoPromptEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
-                            '语义截止默认提醒时间',
-                            '当识别到“7月10日截止”这类仅日期截止时，自动按这个时间写入一次任务提醒。',
+                            __tmT("settings.defaultReminderTimeForSemanticDueDates"),
+                            __tmT("settings.whenADateOnlyDueExpressionLikeDueJuly"),
                             `<input type="time" value="${esc(String(SettingsStore.data.semanticDateDefaultReminderTime || '08:00'))}" onchange="updateSemanticDateDefaultReminderTime(this.value)" style="width:128px;padding:6px 8px;border:1px solid var(--tm-border-color);border-radius:6px;background:var(--tm-bg-color);color:var(--tm-text-color);">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '父任务按子任务时间参与时间相关排序',
-                            '按时间/四象限分组，以及截止日期、优先级分值排序时：已过期远 > 已过期近 > 未过期近 > 未过期远。',
+                            __tmT("settings.parentTasksUseSubtaskDatesInTimeRelatedSorting"),
+                            __tmT("settings.whenGroupingByTimeOrQuadrantOrSortingBy"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant ? 'checked' : ''} onchange="updateGroupSortByBestSubtaskTimeInTimeQuadrant(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '全部折叠展开包含分组',
-                            '开启后，顶部和右上角菜单里的“全部折叠/展开”会连同当前视图里的分组一起处理。',
+                            __tmT("settings.collapseExpandAllIncludesGroups"),
+                            __tmT("settings.whenEnabledCollapseAllExpandAllInTheTop"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.collapseAllIncludesGroups ? 'checked' : ''} onchange="updateCollapseAllIncludesGroups(this.checked)">`,
                             { style: 'margin-top:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '手动刷新时同步伺服共享设置',
-                            '默认关闭。开启后点击顶部刷新按钮时，会额外从伺服重载共享设置、任务补充元数据、白板数据和语义识别记录；平时不做后台轮询，不增加常驻性能开销。',
+                            __tmT("settings.syncServerSharedSettingsOnManualRefresh"),
+                            __tmT("settings.offByDefaultWhenEnabledClickingTheTopRefresh"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.serverSyncOnManualRefresh ? 'checked' : ''} onchange="updateServerSyncOnManualRefresh(this.checked)">`,
                             { style: 'margin-top:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '手动刷新时同步当前分组/规则等会话状态',
-                            '默认关闭。仅在上方开关开启时生效。开启后，手动刷新会一并套用另一端保存的当前分组、当前规则、折叠状态等会话类状态；关闭则保留本端当前界面上下文。',
+                            __tmT("settings.syncSessionStateGroupRuleOnManualRefresh"),
+                            __tmT("settings.offByDefaultOnlyAppliesWhileTheToggleAbove"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.serverSyncSessionStateOnManualRefresh ? 'checked' : ''} ${SettingsStore.data.serverSyncOnManualRefresh ? '' : 'disabled'} onchange="updateServerSyncSessionStateOnManualRefresh(this.checked)">`,
                             { style: `margin-top:10px;opacity:${SettingsStore.data.serverSyncOnManualRefresh ? 1 : 0.6};` }
                         )}
                     </div>
 
-                    ${(settingsSearchCurrentSection = 'shortcuts', '')}
+                    ${settingsSearchCurrentSection = 'shortcuts', ''}
                     <div class="tm-settings-panel" data-tm-settings-section="shortcuts">
-                        <div class="tm-settings-section-title">快捷方式侧边栏</div>
+                        <div class="tm-settings-section-title">${__tmT("settings.shortcutSidebar")}</div>
                         ${renderSingleSwitchSetting(
-                            '快捷方式侧边栏',
-                            '显示快捷项侧栏和侧边展开按钮。关闭后保留已有快捷项配置。',
+                            __tmT("settings.shortcutSidebar"),
+                            __tmT("settings.showsTheShortcutSidebarAndTheSideExpandButton"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.shortcutSidebarEnabled !== false ? 'checked' : ''} onchange="updateShortcutSidebarEnabled(this.checked)">`
                         )}
                     </div>
 
-                        ${(settingsSearchCurrentSection = 'topbar', '')}
+                        ${settingsSearchCurrentSection = 'topbar', ''}
                     <div class="tm-settings-panel" data-tm-settings-section="topbar">
-                        <div class="tm-settings-section-title">🔘 顶栏入口</div>
-                        <div class="tm-settings-section-desc">分别控制文档顶栏按钮、思源窗口顶栏图标与移动端侧栏入口的显示。</div>
+                        <div class="tm-settings-section-title">${__tmT("settings.topBarEntry")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.controlsTheDocumentTopBarButtonTheSiyuanWindow")}</div>
                         ${renderSingleSwitchSetting(
-                            '移动端任务侧栏',
-                            '在思源移动端侧栏注册任务管理器，点击侧栏图标即可打开任务清单；默认关闭，可单独开启，不影响移动端顶栏入口。',
+                            __tmT("settings.mobileTaskSidebar"),
+                            __tmT("settings.registersTheTaskManagerInTheSiyuanMobileSidebar"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.mobileSidebarEnabled === true ? 'checked' : ''} onchange="updateMobileSidebarEnabled(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '思源窗口顶栏图标(桌面)',
-                            '控制桌面端思源窗口顶栏中的任务管理入口。',
+                            __tmT("settings.siyuanWindowTopBarIconDesktop"),
+                            __tmT("settings.controlsTheTaskManagerEntryInTheDesktopSiyuan"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.windowTopbarIconDesktop !== false ? 'checked' : ''} onchange="updateWindowTopbarIconDesktop(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '思源窗口顶栏图标(移动)',
-                            '控制移动端思源窗口顶栏中的任务管理入口；在移动端会出现在右侧抽屉菜单中。',
+                            __tmT("settings.siyuanWindowTopBarIconMobile"),
+                            __tmT("settings.controlsTheTaskManagerEntryInTheMobileSiyuan"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.windowTopbarIconMobile !== false ? 'checked' : ''} onchange="updateWindowTopbarIconMobile(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '文档顶栏按钮(桌面)',
-                            '控制桌面端文档顶栏中的任务管理按钮。',
+                            __tmT("settings.documentTopBarButtonDesktop"),
+                            __tmT("settings.controlsTheTaskManagerButtonInTheDesktopDocument"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonDesktop !== false ? 'checked' : ''} onchange="updateDocTopbarButtonDesktop(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '文档顶栏按钮(移动)',
-                            '控制移动端文档顶栏中的任务管理按钮。',
+                            __tmT("settings.documentTopBarButtonMobile"),
+                            __tmT("settings.controlsTheTaskManagerButtonInTheMobileDocument"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonMobile !== false ? 'checked' : ''} onchange="updateDocTopbarButtonMobile(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '对调文档顶栏长短按',
-                            '开启后，文档顶栏插件按钮会改为短按打开任务管理器，长按快速新建任务；默认关闭。',
+                            __tmT("settings.swapLongShortPressOnTheDocumentTopBar"),
+                            __tmT("settings.whenEnabledTheDocumentTopBarPluginButtonBecomes"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonSwapPressActions ? 'checked' : ''} onchange="updateDocTopbarButtonSwapPressActions(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '打开时定位当前文档',
-                            '开启后，文档顶栏按钮在执行“打开任务管理器”时，会优先跳转到当前文档所在分组并切到该文档页签；若当前文档没有任务块或未加入分组，则保持原行为。之后从思源窗口顶栏打开时，会返回定位前分组的“全部”页签。',
+                            __tmT("settings.locateTheCurrentDocumentOnOpen"),
+                            __tmT("settings.whenEnabledOpeningTheTaskManagerFromTheDocument"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonLocateCurrentDocTab ? 'checked' : ''} onchange="updateDocTopbarButtonLocateCurrentDocTab(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '笔记内右上角分组专注标识',
-                            '开启后，在属于任务管理器分组的笔记右上角显示分组和专注时长标识。',
+                            __tmT("settings.groupFocusBadgeInTheNoteSTopRight"),
+                            __tmT("settings.whenEnabledNotesThatBelongToATaskManager"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTitleGroupFocusEnabled !== false ? 'checked' : ''} onchange="updateDocTitleGroupFocusEnabled(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '统计嵌入待办专注时长',
-                            '开启后，任务管理器范围内的待办通过嵌入块显示在其他文档中时，也会在该文档右上角汇总显示专注时长。',
+                            __tmT("settings.includeEmbeddedToDoFocusTime"),
+                            __tmT("settings.whenEnabledToDosInTaskManagerScopeShown"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTitleEmbeddedTaskFocusEnabled ? 'checked' : ''} ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateDocTitleEmbeddedTaskFocusEnabled(this.checked)">`
                         )}
                     </div>
 
-                    ${(settingsSearchCurrentSection = 'quickbar', '')}
+                    ${settingsSearchCurrentSection = 'quickbar', ''}
                     <div class="tm-settings-panel" data-tm-settings-section="quickbar">
-                        <div class="tm-settings-section-title">🧷 任务悬浮条</div>
-                        <div class="tm-settings-section-desc">控制任务块点击后的悬浮条与任务行末尾常驻字段显示。</div>
+                        <div class="tm-settings-section-title">${__tmT("settings.taskQuickbar")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.controlsTheQuickbarOnTaskBlockClickAndThe")}</div>
                         ${renderSingleSwitchSetting(
-                            '启用任务悬浮条',
-                            '点击任务块显示自定义字段。关闭后将不再弹出悬浮条，也不会拦截点击/长按事件。',
+                            __tmT("settings.enableTheTaskQuickbar"),
+                            __tmT("settings.clickingATaskBlockShowsCustomFieldsWhenOff"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enableQuickbar ? 'checked' : ''} onchange="updateEnableQuickbar(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
-                            '文档任务行末尾常驻显示',
-                            '在笔记中的任务行尾部常驻显示选定字段，点击后可直接编辑。',
+                            __tmT("settings.persistentFieldsAtTheEndOfDocumentTaskRows"),
+                            __tmT("settings.alwaysShowsTheSelectedFieldsAtTheEndOf"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enableQuickbarInlineMeta ? 'checked' : ''} onchange="updateEnableQuickbarInlineMeta(this.checked)">`,
                             { style: 'margin-top:8px;' }
                         )}
                         <div style="margin-top:10px;opacity:${SettingsStore.data.enableQuickbar ? 1 : 0.6};">
                             ${renderSingleFieldSetting(
-                                '悬浮条显示图标',
-                                '控制任务悬浮条里显示哪些字段和动作图标；取消勾选后对应按钮会隐藏。',
+                                __tmT("settings.iconsShownInTheQuickbar"),
+                                __tmT("settings.controlsWhichFieldAndActionIconsAppearInThe"),
                                 renderSettingsChipSetting('', '', [
-                                    __tmBuildSettingsChipGroup('字段', [
-                                        { key: 'custom-status', label: '状态' },
-                                        { key: 'custom-priority', label: '重要性' },
-                                        { key: 'custom-start-date', label: '开始日期' },
-                                        { key: 'custom-completion-time', label: '截止日期' },
-                                        { key: 'taskCompleteAt', label: '完成时间' },
-                                        { key: 'custom-focus-summary', label: '专注/耗时' },
-                                        { key: 'custom-remark', label: '备注' },
+                                    __tmBuildSettingsChipGroup(__tmT("settings.field"), [
+                                        { key: 'custom-status', label: __tmT("kernel.status") },
+                                        { key: 'custom-priority', label: __tmT("kernel.importance") },
+                                        { key: 'custom-start-date', label: __tmT("kernel.startDate") },
+                                        { key: 'custom-completion-time', label: __tmT("kernel.dueDate") },
+                                        { key: 'taskCompleteAt', label: __tmT("kernel.completionTime") },
+                                        { key: 'custom-focus-summary', label: __tmT("quickbar.focusTimeSpent") },
+                                        { key: 'custom-remark', label: __tmT("kernel.note") },
                                         ...__tmBuildSettingsCustomFieldChipItems(),
                                     ], {
                                         selectedSet: new Set((SettingsStore.data.quickbarVisibleItems || []).map((value) => String(value || '').trim()).filter(Boolean)),
                                         disabled: !SettingsStore.data.enableQuickbar,
                                         onToggle: (item) => `updateQuickbarVisibleItem('${escSq(String(item?.key || '').trim())}', this.checked)`
                                     }),
-                                    __tmBuildSettingsChipGroup('动作', [
-                                        { key: 'action-ai-title', label: 'AI 优化' },
-                                        { key: 'action-reminder', label: '提醒' },
-                                        { key: 'action-more', label: '更多' }
+                                    __tmBuildSettingsChipGroup(__tmT("settings.actions"), [
+                                        { key: 'action-ai-title', label: __tmT("settings.aiOptimize") },
+                                        { key: 'action-reminder', label: __tmT("ai.warnings") },
+                                        { key: 'action-more', label: __tmT("quickbar.more") }
                                     ], {
                                         selectedSet: new Set((SettingsStore.data.quickbarVisibleItems || []).map((value) => String(value || '').trim()).filter(Boolean)),
                                         disabled: !SettingsStore.data.enableQuickbar,
@@ -3417,19 +3410,19 @@
                         </div>
                         <div style="margin-top:10px;opacity:${SettingsStore.data.enableQuickbarInlineMeta ? 1 : 0.6};">
                             ${renderSingleFieldSetting(
-                                '常驻显示字段',
-                                '默认显示状态和截止日期；剩余时间规则与桌面端紧凑右侧字段一致。字段越多越容易挤占任务正文空间。',
+                                __tmT("settings.persistentDisplayFields"),
+                                __tmT("settings.showsStatusAndDueDateByDefaultRemainingTime"),
                                 renderSettingsChipSetting('', '', [
-                                    __tmBuildSettingsChipGroup('字段', [
-                                        { key: 'subtask-count', label: '子任务数量' },
-                                        { key: 'custom-status', label: '状态' },
-                                        { key: 'custom-priority', label: '重要性' },
-                                        { key: 'custom-start-date', label: '开始日期' },
-                                        { key: 'custom-completion-time', label: '截止日期' },
-                                        { key: 'remainingTime', label: '剩余时间' },
-                                        { key: 'taskCompleteAt', label: '完成时间' },
-                                        { key: 'custom-focus-summary', label: '专注/耗时' },
-                                        { key: 'custom-remark', label: '备注' },
+                                    __tmBuildSettingsChipGroup(__tmT("settings.field"), [
+                                        { key: 'subtask-count', label: __tmT("settings.subtaskCount") },
+                                        { key: 'custom-status', label: __tmT("kernel.status") },
+                                        { key: 'custom-priority', label: __tmT("kernel.importance") },
+                                        { key: 'custom-start-date', label: __tmT("kernel.startDate") },
+                                        { key: 'custom-completion-time', label: __tmT("kernel.dueDate") },
+                                        { key: 'remainingTime', label: __tmT("task.remainingTime") },
+                                        { key: 'taskCompleteAt', label: __tmT("kernel.completionTime") },
+                                        { key: 'custom-focus-summary', label: __tmT("quickbar.focusTimeSpent") },
+                                        { key: 'custom-remark', label: __tmT("kernel.note") },
                                         ...__tmBuildSettingsCustomFieldChipItems()
                                     ], {
                                         selectedSet: new Set((SettingsStore.data.quickbarInlineFields || []).map((value) => String(value || '').trim()).filter(Boolean)),
@@ -3440,70 +3433,70 @@
                                 { style: 'margin-bottom:10px;' }
                             )}
                             ${renderSingleSwitchSetting(
-                                '子任务数量显示未完成数',
-                                '开启后，子任务数量常驻标签显示未完成子任务数量；关闭时显示已完成/总数。',
+                                __tmT("settings.subtaskCountShowsUnfinished"),
+                                __tmT("settings.whenOnThePersistentSubtaskCountLabelShowsThe"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.quickbarSubtaskCountUnfinishedOnly ? 'checked' : ''} ${SettingsStore.data.enableQuickbarInlineMeta ? '' : 'disabled'} onchange="updateQuickbarSubtaskCountUnfinishedOnly(this.checked)">`
                             )}
                             ${renderSingleSwitchSetting(
-                                '移动端启用常驻显示',
-                                '移动端屏幕较窄，关闭时仅保留原悬浮条交互。',
+                                __tmT("settings.enablePersistentDisplayOnMobile"),
+                                __tmT("settings.mobileScreensAreNarrowWhenOffOnlyTheOriginal"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.quickbarInlineShowOnMobile ? 'checked' : ''} ${SettingsStore.data.enableQuickbarInlineMeta ? '' : 'disabled'} onchange="updateQuickbarInlineShowOnMobile(this.checked)">`
                             )}
                         </div>
                     </div>
 
-                    ${(settingsSearchCurrentSection = 'tomato', '')}
+                    ${settingsSearchCurrentSection = 'tomato', ''}
                     <div class="tm-settings-panel" data-tm-settings-section="tomato">
-                        <div class="tm-settings-section-title">🍅 番茄钟与插件联动</div>
-                        <div class="tm-settings-section-desc">管理底栏番茄钟、任务耗时属性，以及其他插件的任务完成联动。</div>
+                        <div class="tm-settings-section-title">${__tmT("settings.pomodoroPluginIntegrations")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.manageTheBottomBarPomodoroTaskTimeSpentAttributes")}</div>
                         ${renderSingleSwitchSetting(
-                            '启用底栏番茄钟相关功能',
-                            '包含计时、提醒和耗时列。',
+                            __tmT("settings.enableBottomBarPomodoroFeatures"),
+                            __tmT("settings.includesTimingRemindersAndTheTimeSpentColumn"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enableTomatoIntegration ? 'checked' : ''} onchange="updateEnableTomatoIntegration(this.checked)">`
                         )}
                         <div style="margin-top:10px;opacity:${SettingsStore.data.enableTomatoIntegration ? 1 : 0.6};">
                             ${renderSingleSwitchSetting(
-                                '按专注耗时评估实际番茄数',
-                                '按总专注耗时除以 Dock Tomato 默认番茄时长计算，正计时耗时也会计入。',
+                                __tmT("settings.estimateActualPomodorosFromFocusTime"),
+                                __tmT("settings.computesTotalFocusTimeDividedByTheDockTomato"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.tomatoActualCountBySpentEnabled !== false ? 'checked' : ''} ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoActualCountBySpentEnabled(this.checked)">`
                             )}
                             ${renderSingleFieldSetting(
-                                '耗时读取模式',
-                                '选择从分钟属性还是小时属性读取任务耗时。',
+                                __tmT("settings.timeSpentReadMode"),
+                                __tmT("settings.chooseWhetherTaskTimeSpentIsReadFromThe"),
                                 `<select class="b3-select" onchange="updateTomatoSpentAttrMode(this.value)" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} style="width:180px;">
-                                    <option value="minutes" ${String(SettingsStore.data.tomatoSpentAttrMode || 'minutes') === 'minutes' ? 'selected' : ''}>分钟属性</option>
-                                    <option value="hours" ${String(SettingsStore.data.tomatoSpentAttrMode || '') === 'hours' ? 'selected' : ''}>小时属性</option>
+                                    <option value="minutes" ${String(SettingsStore.data.tomatoSpentAttrMode || 'minutes') === 'minutes' ? 'selected' : ''}>${__tmT("settings.minuteAttribute")}</option>
+                                    <option value="hours" ${String(SettingsStore.data.tomatoSpentAttrMode || '') === 'hours' ? 'selected' : ''}>${__tmT("settings.hourAttribute")}</option>
                                 </select>`,
                                 { style: 'margin-bottom:10px;' }
                             )}
                             ${renderSingleFieldSetting(
-                                '分钟属性名',
-                                '思源区块属性名，例如 custom-tomato-minutes。',
+                                __tmT("settings.minuteAttributeName"),
+                                __tmT("settings.aSiyuanBlockAttributeNameEGCustomTomato"),
                                 `<input class="b3-text-field" type="text" value="${esc(String(SettingsStore.data.tomatoSpentAttrKeyMinutes || 'custom-tomato-minutes'))}" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoSpentAttrKeyMinutes(this.value)" style="width:100%;">`,
                                 { style: 'margin-bottom:10px;' }
                             )}
                             ${renderSingleFieldSetting(
-                                '小时属性名',
-                                '思源区块属性名，例如 custom-tomato-time。',
+                                __tmT("settings.hourAttributeName"),
+                                __tmT("settings.aSiyuanBlockAttributeNameEGCustomTomato2"),
                                 `<input class="b3-text-field" type="text" value="${esc(String(SettingsStore.data.tomatoSpentAttrKeyHours || 'custom-tomato-time'))}" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoSpentAttrKeyHours(this.value)" style="width:100%;">`,
                                 { style: 'margin-bottom:10px;' }
                             )}
                         </div>
                         ${renderSingleSwitchSetting(
-                            '启用凡人修仙传:打卡插件联动',
-                            '开启后，任务完成时会向凡人修仙传:打卡插件发送任务ID、标题和完成前的优先级分值；凡人修仙传:打卡插件仍需单独开启任务管理器联动。',
+                            __tmT("settings.enableTheMortalSJourneyCheckInPluginIntegration"),
+                            __tmT("settings.whenEnabledCompletingATaskSendsTheTaskId"),
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enablePointsRewardIntegration ? 'checked' : ''} onchange="updateEnablePointsRewardIntegration(this.checked)">`
                         )}
                         <div style="margin-top:10px;opacity:${SettingsStore.data.enablePointsRewardIntegration ? 1 : 0.6};">
                             ${renderSingleFieldSetting(
-                                '不联动的文档分组',
-                                '所选文档分组中的任务完成后，不会触发凡人修仙传:打卡插件奖励。',
+                                __tmT("settings.groupsExcludedFromTheIntegration"),
+                                __tmT("settings.tasksInTheSelectedDocumentGroupsDoNotTrigger"),
                                 (() => {
                                     const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
                                     const selected = new Set((Array.isArray(SettingsStore.data.pointsRewardExcludedGroupIds) ? SettingsStore.data.pointsRewardExcludedGroupIds : []).map((id) => String(id || '').trim()).filter(Boolean));
-                                    if (!groups.length) return `<span class="tm-setting-field-unit">暂无文档分组</span>`;
+                                    if (!groups.length) return `<span class="tm-setting-field-unit">${__tmT("settings.noDocumentGroups")}</span>`;
                                     return renderSettingsChipSetting('', '', [
-                                        __tmBuildSettingsChipGroup('文档分组', groups.map((group) => {
+                                        __tmBuildSettingsChipGroup(__tmT("calendar.documentGroups"), groups.map((group) => {
                                             const gid = String(group?.id || '').trim();
                                             if (!gid) return null;
                                             return {
@@ -3521,40 +3514,40 @@
                                 { style: 'margin-bottom:10px;' }
                             )}
                             ${renderSingleSwitchSetting(
-                                '启用任务逾期扣分',
-                                '按设定时间检查未完成任务，支持截止日期和日程两类扣分。',
+                                __tmT("settings.enableOverdueTaskPenalties"),
+                                __tmT("settings.checksUnfinishedTasksAtTheConfiguredTimesSupportsDue"),
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enablePointsPenaltyIntegration ? 'checked' : ''} ${SettingsStore.data.enablePointsRewardIntegration ? '' : 'disabled'} onchange="updateEnablePointsPenaltyIntegration(this.checked)">`
                             )}
                             <div style="margin-top:10px;opacity:${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration) ? 1 : 0.6};">
                                 ${renderSingleFieldSetting(
-                                    '截止日过期扣分',
-                                    '任务截止日期已过且未完成时触发扣分；同一截止日期只扣一次，修改截止日期后重新计算（父任务已完成的子任务不扣）。',
+                                    __tmT("settings.dueDateOverduePenalty"),
+                                    __tmT("settings.triggersWhenTheDueDateHasPassedAndThe"),
                                     `<div style="display:flex;align-items:center;gap:8px;">
                                         <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pointsPenaltyDeadlineEnabled ? 'checked' : ''} ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration) ? '' : 'disabled'} onchange="updatePointsPenaltyDeadlineEnabled(this.checked)">
                                         <input class="b3-text-field" type="number" min="0" max="9999" value="${Math.max(0, Math.min(9999, Math.round(Number(SettingsStore.data.pointsPenaltyDeadlineAmount) || 0)))}" ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration && SettingsStore.data.pointsPenaltyDeadlineEnabled) ? '' : 'disabled'} onchange="updatePointsPenaltyDeadlineAmount(this.value)" style="width:88px;">
-                                        <span class="tm-setting-field-unit">分/次</span>
+                                        <span class="tm-setting-field-unit">${__tmT("settings.ptsEach")}</span>
                                     </div>`,
                                     { style: 'margin-bottom:10px;' }
                                 )}
                                 ${renderSingleFieldSetting(
-                                    '日程过期扣分',
-                                    '同一任务当天若有多个日程，只按当天最后一个日程判断是否扣分（每任务每天最多一次，父任务已完成的子任务不扣）。',
+                                    __tmT("settings.scheduleOverduePenalty"),
+                                    __tmT("settings.whenATaskHasMultipleSchedulesOnTheSame"),
                                     `<div style="display:flex;align-items:center;gap:8px;">
                                         <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pointsPenaltyScheduleEnabled ? 'checked' : ''} ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration) ? '' : 'disabled'} onchange="updatePointsPenaltyScheduleEnabled(this.checked)">
                                         <input class="b3-text-field" type="number" min="0" max="9999" value="${Math.max(0, Math.min(9999, Math.round(Number(SettingsStore.data.pointsPenaltyScheduleAmount) || 0)))}" ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration && SettingsStore.data.pointsPenaltyScheduleEnabled) ? '' : 'disabled'} onchange="updatePointsPenaltyScheduleAmount(this.value)" style="width:88px;">
-                                        <span class="tm-setting-field-unit">分/次</span>
+                                        <span class="tm-setting-field-unit">${__tmT("settings.ptsEach")}</span>
                                     </div>`,
                                     { style: 'margin-bottom:10px;' }
                                 )}
                                 ${renderSingleFieldSetting(
-                                    '检查时间',
-                                    '每行一个时间；支持 HH:mm（当天）和 +1 HH:mm（次日检查前一天）。',
+                                    __tmT("settings.checkTimes"),
+                                    __tmT("settings.oneTimePerLineSupportsHhMmSameDay"),
                                     `<textarea class="b3-text-field" ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration) ? '' : 'disabled'} onchange="updatePointsPenaltyCheckTimes(this.value)" style="width:220px;min-height:72px;resize:vertical;">${esc((Array.isArray(SettingsStore.data.pointsPenaltyCheckTimes) && SettingsStore.data.pointsPenaltyCheckTimes.length ? SettingsStore.data.pointsPenaltyCheckTimes : ['23:00', '+1 08:00']).map(v => String(v || '').trim()).filter(Boolean).join('\n'))}</textarea>`,
                                     { style: 'margin-bottom:10px;' }
                                 )}
                                 ${renderSingleSwitchSetting(
-                                    '弹窗确认扣分',
-                                    '开启后先弹窗确认，可在弹窗中标记完成、免扣或修改时间。',
+                                    __tmT("settings.confirmPenaltiesWithADialog"),
+                                    __tmT("settings.whenEnabledADialogAsksForConfirmationFirstWhere"),
                                     `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pointsPenaltyConfirmModalEnabled !== false ? 'checked' : ''} ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration) ? '' : 'disabled'} onchange="updatePointsPenaltyConfirmModalEnabled(this.checked)">`
                                 )}
                             </div>
@@ -3564,26 +3557,24 @@
                     ` : ''}
 
                     ${activeTab === 'docs' ? `
-                    <div class="tm-settings-panel" data-tm-settings-section="import" style="margin-bottom: 16px;" ${__tmSettingsSearchAttrs('docs', '数据导入', '导入滴答 CSV，自动创建文档、二级标题和任务块')}>
-                        <div class="tm-settings-section-title">📥 数据导入</div>
-                        <div class="tm-settings-section-desc">支持导入滴答清单导出的 CSV，并自动创建文档、二级标题和任务块。滴答清单 CSV 获取路径：网页版头像 → 设置 → 账户与安全 → 备份与还原 → 生成备份。</div>
+                    <div class="tm-settings-panel" data-tm-settings-section="import" style="margin-bottom: 16px;" ${__tmSettingsSearchAttrs('docs', __tmT("settings.dataImport"), __tmT("settings.importTicktickCsvCreatesDocumentsHeadingsAndTaskBlocks"))}>
+                        <div class="tm-settings-section-title">${__tmT("settings.dataImport2")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("settings.supportsImportingCsvExportedFromTicktickAndAutomaticallyCreating")}</div>
                         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-                            <button class="tm-btn tm-btn-primary" onclick="tmOpenTickTickImportDialog()" style="padding:6px 12px;font-size:12px;">导入滴答 CSV</button>
-                            <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">
-                                支持按需导入 Status=0/1/2 任务；Status=1 已完成、Status=2 已归档会自动勾选完成，不同文档会并行写入以提升速度。
-                            </div>
+                            <button class="tm-btn tm-btn-primary" onclick="tmOpenTickTickImportDialog()" style="padding:6px 12px;font-size:12px;">${__tmT("settings.importTicktickCsv")}</button>
+                            <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">${__tmT("settings.importsStatusTasksOnDemandStatusCompletedAndStatus")}</div>
                         </div>
                     </div>
 
                     ${renderDocumentGroupManager()}
 
-                    <div class="tm-setting-field-row" ${__tmSettingsSearchAttrs('docs', '页签自定义分组', '独立弹窗管理页签组，勾选当前文档分组页签并选择是否包含子文档')}>
+                    <div class="tm-setting-field-row" ${__tmSettingsSearchAttrs('docs', __tmT("settings.customTabGroups"), __tmT("settings.manageTabGroupsInASeparateDialogCheckDocument"))}>
                         <div class="tm-setting-field-copy">
-                            <div class="tm-setting-field-title">页签分组</div>
-                            <div class="tm-setting-field-desc">右击页签可快速加入；完整勾选、包含子文档和重命名请在独立弹窗中管理。</div>
+                            <div class="tm-setting-field-title">${__tmT("task.tabGroups")}</div>
+                            <div class="tm-setting-field-desc">${__tmT("settings.rightClickATabToAddItQuicklyFull")}</div>
                         </div>
                         <div class="tm-setting-field-control">
-                            <button class="tm-btn tm-btn-secondary" onclick="tmOpenDocTabCustomGroupSettings()">管理页签分组</button>
+                            <button class="tm-btn tm-btn-secondary" onclick="tmOpenDocTabCustomGroupSettings()">${__tmT("task.manageTabGroups2")}</button>
                         </div>
                     </div>
 

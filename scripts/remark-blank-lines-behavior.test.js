@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');

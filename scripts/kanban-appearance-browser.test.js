@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const assert = require('node:assert/strict');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = require('./i18n-browser-fixture');
 const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const manifest = JSON.parse(read('src/task-horizon/manifest.main.json'));
@@ -45,10 +45,11 @@ runtime = runtime.slice(0, startup) + `
         invalidateProgress: __tmInvalidateDocProgressCache,
         nativePatch: __tmApplyNativeDocCheckboxTaskStorePatch,
         taskMarkdown: __tmBuildTaskMarkdownWithMarker,
+        syncBottomNav: __tmSyncKanbanBottomNavAvoidance,
     };
     SettingsStore.loaded = true;
     SettingsStore.save = async () => SettingsStore.syncToLocal();
-    window.__taskHorizonHostBridge = {};
+    window.__taskHorizonHostBridge = { i18n: globalThis.__taskHorizonHostBridge?.i18n,};
 })();`;
 
 (async () => {
@@ -493,6 +494,59 @@ runtime = runtime.slice(0, startup) + `
                     assert.equal(sample.pixel[3],255,`${hostMode} ${attempt}: background is painted on mount`);
                     assert.notEqual(`rgb(${sample.pixel.slice(0,3).join(', ')})`,sample.base,`${hostMode} ${attempt}: mounted columns retain their tint`);
                 }
+            }
+        }
+        for (const appearance of ['lanes','classic']) {
+            for (const hostMode of ['mobile','dock','dock-host','tab']) {
+                const avoidance = await page.evaluate(({appearance,hostMode}) => {
+                    kanbanTest.cleanup();
+                    kanbanTest.state.modal?.remove();
+                    const host = document.querySelector('#manager');
+                    host.dataset.tmHostMode = hostMode === 'dock-host' ? 'dock' : 'tab';
+                    const modal = document.createElement('main');
+                    modal.className = 'tm-modal' + (['mobile','dock'].includes(hostMode) ? ' tm-modal--' + hostMode : '');
+                    modal.style.cssText = 'position:relative;width:100%;height:500px;--tm-view-bottom-inset:62px';
+                    modal.innerHTML = '<div class="tm-body tm-body--kanban" data-kanban-appearance="' + appearance + '" style="height:440px;flex:none;padding:0">'
+                        + '<div class="tm-kanban" style="height:100%"><section class="tm-kanban-col" style="height:100%;box-sizing:border-box">'
+                        + '<header class="tm-kanban-col-header">任务分组</header><div class="tm-kanban-col-body">'
+                        + '<article class="tm-kanban-card tm-kanban-card--parent" style="flex:none"><div>父任务</div><div id="subtasks" style="display:none;height:900px">子任务</div></article>'
+                        + '</div></section></div></div><div class="tm-mobile-bottom-viewbar" style="position:absolute;bottom:10px;width:100%;height:52px">视图切换</div>';
+                    host.append(modal); kanbanTest.state.modal = modal;
+                    const column = modal.querySelector('.tm-kanban-col-body');
+                    const subtasks = modal.querySelector('#subtasks');
+                    const bar = modal.querySelector('.tm-mobile-bottom-viewbar');
+                    const sample = () => {
+                        kanbanTest.syncBottomNav(modal);
+                        return {active:column.classList.contains('tm-kanban-col-body--bottom-nav-inset'),
+                            padding:parseFloat(getComputedStyle(column).paddingBottom),
+                            overflowing:column.scrollHeight > column.clientHeight + 1};
+                    };
+                    const short = sample();
+                    subtasks.style.display = 'block';
+                    const expanded = sample();
+                    column.scrollTop = 100;
+                    const scrollTop = column.scrollTop;
+                    const repeated = sample();
+                    const scrollPreserved = column.scrollTop === scrollTop;
+                    column.scrollTop = 0;
+                    subtasks.style.display = 'none';
+                    const collapsed = sample();
+                    bar.style.display = 'none';
+                    const hidden = sample();
+                    bar.style.display = 'block';
+                    const restored = sample();
+                    return {short,expanded,repeated,scrollPreserved,collapsed,hidden,restored};
+                },{appearance,hostMode});
+                const enabled = hostMode !== 'tab';
+                assert.equal(avoidance.short.overflowing,false,`${hostMode}/${appearance}: collapsed subtasks fit the column`);
+                assert.equal(avoidance.expanded.overflowing,true,`${hostMode}/${appearance}: expanded subtasks overflow the column`);
+                for (const phase of ['short','expanded','repeated','collapsed','restored']) {
+                    assert.equal(avoidance[phase].active,enabled,`${hostMode}/${appearance}/${phase}: bottom-nav space is independent of task height`);
+                    assert.equal(avoidance[phase].padding,enabled ? 80 : 10,`${hostMode}/${appearance}/${phase}: bottom padding stays stable`);
+                }
+                assert.equal(avoidance.scrollPreserved,true,`${hostMode}/${appearance}: syncing the inset preserves column scrolling`);
+                assert.equal(avoidance.hidden.active,false,`${hostMode}/${appearance}: a hidden view bar releases its inset`);
+                assert.equal(avoidance.hidden.padding,10,`${hostMode}/${appearance}: hiding the view bar restores base padding`);
             }
         }
         assert.deepEqual(errors,[]);

@@ -93,11 +93,11 @@ function __tmCreateTaskCardGroupingContext(isDark = false) {
     };
     const getTimeGroup = (task) => {
         const diffDays = Number(__tmGetTaskTimePriorityInfo(task, { memo: timePriorityMemo })?.diffDays);
-        if (!Number.isFinite(diffDays)) return { key: 'pending', label: '待定', labelHtml: '待定', sortValue: Infinity };
-        if (diffDays < 0) return { key: 'overdue', label: '已过期', labelHtml: '已过期', sortValue: diffDays };
-        if (diffDays >= 16) return { key: 'farther', label: '更远', labelHtml: '更远', sortValue: 16 };
+        if (!Number.isFinite(diffDays)) return { key: 'pending', label: __tmT("task.unscheduled"), labelHtml: __tmT("task.unscheduled"), sortValue: Infinity };
+        if (diffDays < 0) return { key: 'overdue', label: __tmT("homepage.overdue3"), labelHtml: __tmT("homepage.overdue3"), sortValue: diffDays };
+        if (diffDays >= 16) return { key: 'farther', label: __tmT("task.later"), labelHtml: __tmT("task.later"), sortValue: 16 };
         const key = diffDays === 0 ? 'today' : diffDays === 1 ? 'tomorrow' : diffDays === 2 ? 'after_tomorrow' : `days_${diffDays}`;
-        const label = diffDays === 0 ? '今天' : diffDays === 1 ? '明天' : diffDays === 2 ? '后天' : `余${diffDays}天`;
+        const label = diffDays === 0 ? __tmT("common.today") : diffDays === 1 ? __tmT("calendar.tomorrow") : diffDays === 2 ? __tmT("task.dayAfterTomorrow") : __tmT("task.daysLeft2", { diffDays: diffDays });
         return { key, label, labelHtml: buildTimeGroupLabelHtml(label, diffDays), sortValue: diffDays };
     };
     const quadrantRules = Array.isArray(SettingsStore.data.quadrantConfig?.rules) ? SettingsStore.data.quadrantConfig.rules : [];
@@ -110,9 +110,9 @@ function __tmCreateTaskCardGroupingContext(isDark = false) {
     };
     const resolveQuadrantRule = (task) => {
         const priority = String(task?.priority || '').toLowerCase();
-        const importance = ['a', '高', 'high'].includes(priority) ? 'high'
-            : ['b', '中', 'medium'].includes(priority) ? 'medium'
-                : ['c', '低', 'low'].includes(priority) ? 'low' : 'none';
+        const importance = ['a', "高", 'high'].includes(priority) ? 'high'
+            : ['b', "中", 'medium'].includes(priority) ? 'medium'
+                : ['c', "低", 'low'].includes(priority) ? 'low' : 'none';
         const timeStr = __tmIsCheckinTask(task) ? __tmGetTaskCheckinCurrentDate(task) : String(task?.completionTime || '').trim();
         const taskDate = timeStr ? new Date(timeStr) : null;
         let taskDays = Infinity;

@@ -45,7 +45,7 @@
             ? (SettingsStore.data.filterRules || []).find((item) => item?.id === cfg.ruleId)
             : { id: '', name: '全部', conditions: [], enabled: true };
         const isEnabled = (cfg) => cfg.enabled && (cfg.topbar || cfg.dock);
-        const labelFor = () => String(rule?.name || '任务数量');
+        const labelFor = () => String(rule?.name || __tmT("task.taskCount"));
         const yieldWork = () => new Promise((resolve) => setTimeout(resolve, 0));
         const eligible = (task) => {
             if (!task || !scopeIds.has(String(task.root_id || task.docId || ''))) return false;
@@ -65,7 +65,7 @@
                 task.content = parsed.content;
             }
             MetaStore.applyToTask(task);
-            normalizeTaskFields(task, String(task.docName || task.doc_name || '未命名文档'));
+            normalizeTaskFields(task, String(task.docName || task.doc_name || __tmT("kernel.untitledDocument")));
             const projected = globalThis.__tmTaskStore?.projectRead?.(task) || task;
             if (Array.isArray(children)) projected.children = children;
             return projected;
@@ -112,23 +112,23 @@
                     el.classList.add('tm-task-count-badge-host');
                 }
                 const text = result.count > 99 ? '99+' : String(result.count);
-                const tooltip = `${result.label}：${usable ? result.count + ' 项' : result.message}${result.status === 'partial' ? '（统计不完整）' : ''}`;
+                const tooltip = `${result.label}：${usable ? result.count + __tmT("task.items") : result.message}${result.status === 'partial' ? __tmT("task.incompleteStatistics") : ''}`;
                 if (badge) {
                     if (badge.textContent !== text) badge.textContent = text;
                     badge.hidden = !visible;
                     badge.title = tooltip;
                 }
                 if (el.dataset.tmTaskCountOriginalLabel === undefined) {
-                    el.dataset.tmTaskCountOriginalLabel = el.getAttribute('aria-label') || el.getAttribute('title') || '任务管理器';
+                    el.dataset.tmTaskCountOriginalLabel = el.getAttribute('aria-label') || el.getAttribute('title') || __tmT("common.taskManager");
                 }
                 el.setAttribute('aria-label', `${el.dataset.tmTaskCountOriginalLabel}，${tooltip}`);
-                if (el.dataset.tmTaskCountOriginalTitle === undefined) el.dataset.tmTaskCountOriginalTitle = el.getAttribute('title') || '任务管理器';
+                if (el.dataset.tmTaskCountOriginalTitle === undefined) el.dataset.tmTaskCountOriginalTitle = el.getAttribute('title') || __tmT("common.taskManager");
                 el.setAttribute('title', `${el.dataset.tmTaskCountOriginalTitle}，${tooltip}`);
             }
             document.querySelectorAll('[data-tm-task-count-status]').forEach((el) => {
-                el.textContent = result.status === 'disabled' ? '角标已关闭'
-                    : result.status === 'ready' ? `${result.label}：${result.count} 项`
-                    : result.status === 'partial' ? `${result.label}：至少 ${result.count} 项，统计不完整`
+                el.textContent = result.status === 'disabled' ? __tmT("task.badgeIsDisabled")
+                    : result.status === 'ready' ? __tmT("task.items2", { label: result.label, count: result.count })
+                    : result.status === 'partial' ? __tmT("task.atLeastItemsIncompleteStatistics", { label: result.label, count: result.count })
                     : result.message;
             });
             if (active && mountAttempts < 5 && ((config.topbar && !topbars.some((el) => el.isConnected)) || (config.dock && !dockIcons.length))) {
@@ -146,7 +146,7 @@
         };
         const resolveScope = async () => {
             if (config.scope === 'group' && !(SettingsStore.data.docGroups || []).some((group) => group.id === config.groupId)) {
-                throw new Error('所选文档分组已失效，请重新选择');
+                throw new Error(__tmT("task.theSelectedDocumentGroupIsNoLongerValidSelect"));
             }
             return resolveDocIdsFromGroups({ groupId: config.scope === 'group' ? config.groupId : 'all', includeQuickAddDoc: false });
         };
@@ -163,7 +163,7 @@
             dirtyDocs.clear();
             const current = () => active && generation === currentGeneration;
             try {
-                if (!rule || rule.enabled === false) throw new Error('所选统计规则已失效，请重新选择');
+                if (!rule || rule.enabled === false) throw new Error(__tmT("task.theSelectedStatisticsRuleIsNoLongerValidSelect"));
                 const docIds = full ? await resolveScope() : docs.filter((id) => scopeIds.has(id));
                 if (!current()) return;
                 if (full) scopeIds = new Set(docIds);
@@ -182,7 +182,7 @@
                     // check runs after startup, never in the first-paint await chain.
                     if (full) {
                         const freshness = await API.getTaskFreshnessByDocuments(chunk);
-                        if (freshness.readFailure || freshness.unavailable) throw new Error('任务统计暂时不可用，请重试');
+                        if (freshness.readFailure || freshness.unavailable) throw new Error(__tmT("task.taskStatisticsAreTemporarilyUnavailableTryAgain"));
                         const updated = new Map(Array.from(freshness.map, ([id, meta]) => [id, meta.docUpdated]));
                         const expected = new Map(Array.from(freshness.map, ([id, meta]) => [id, meta.taskCount]));
                         const cached = await globalThis.__tmTaskSnapshotService.readTaskIndex({
@@ -197,7 +197,7 @@
                     }
                     if (missing.length) {
                         const read = await API.getTasksByDocuments(missing, __TM_TASK_INDEX_QUERY_LIMIT, { ignoreExcludeCompleted: true });
-                        if (read?.readFailure || !Array.isArray(read?.tasks)) throw new Error('任务统计暂时不可用，请重试');
+                        if (read?.readFailure || !Array.isArray(read?.tasks)) throw new Error(__tmT("task.taskStatisticsAreTemporarilyUnavailableTryAgain"));
                         (read.limitReachedDocIds || []).forEach((id) => nextIncomplete.add(id));
                         if (read.limitReached && !read.limitReachedDocIds?.length) missing.forEach((id) => nextIncomplete.add(id));
                         tasks.push(...read.tasks);
@@ -234,7 +234,7 @@
                 lastVerifiedAt = Date.now();
                 publish(incompleteDocs.size ? 'partial' : 'ready');
             } catch (error) {
-                if (current()) publish('error', String(error?.message || '任务统计暂时不可用，请重试'));
+                if (current()) publish('error', String(error?.message || __tmT("task.taskStatisticsAreTemporarilyUnavailableTryAgain")));
             } finally {
                 running = false;
                 if (active && (pendingFull || dirtyDocs.size)) schedule(150);
@@ -345,7 +345,7 @@
             if (!isEnabled(config)) return;
             active = true;
             mountAttempts = 0;
-            publish('loading', '正在统计任务…');
+            publish('loading', __tmT("task.countingTasks"));
             unsubscribe = globalThis.__tmTaskMutationBus.subscribe(onMutation);
             const wake = () => {
                 if (document.visibilityState === 'hidden') return;

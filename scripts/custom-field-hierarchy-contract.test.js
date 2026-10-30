@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const root = path.join(__dirname, '..');
 const source = fs.readFileSync(
@@ -224,10 +224,10 @@ assert.equal(aiBreakdown.items.find((item) => item.key === '未设置').count, 1
 
 assert.match(settingsSource, /tm-custom-field-option-tree[\s\S]*data-tm-custom-field-option-drag[\s\S]*__tmMoveCustomFieldOptionSubtree/, 'settings must expose one tree editor backed by the shared subtree move helper');
 assert.match(settingsSource, /'indent', 'text-indent'[\s\S]*'promote', 'text-outdent'/, 'tree indent controls must use the Phosphor Bold text indent icons');
-assert.match(settingsSource, /children\.length \? '有子项时不能删除'[\s\S]*children\.length > 0/, 'parents with children must not be deletable');
+assert.match(settingsSource, /children\.length \? __tmT\("settings.cannotDeleteWhileItHasChildOptions"\)[\s\S]*children\.length > 0/, 'parents with children must not be deletable');
 assert.match(settingsSource, /__tmRefreshSettingsProjectionView\('custom-field-def-change'\)/, 'definition changes must immediately refresh filtering and sorting');
 assert.match(settingsSource, /parentId:[\s\S]*archived:/, 'settings save must preserve hierarchy and archive metadata');
-assert.match(pickerSource, /function __tmRenderCustomFieldOptionTreePicker[\s\S]*已归档或历史值/, 'the main picker must render current historical values separately');
+assert.match(pickerSource, /function __tmRenderCustomFieldOptionTreePicker[\s\S]*quickbar.archivedOrHistoricalValues/, 'the main picker must render current historical values separately');
 assert.match(pickerSource, /function __tmGetDefaultExpandedCustomFieldOptionIds[\s\S]*hasActiveChildren[\s\S]*expandedIds\.add\(optionId\)/, 'the main picker must default every active parent branch to expanded');
 assert.match(pickerSource, /max-height:min\(300px,50vh\);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain/, 'the shared custom-field option list must scroll independently like the status picker');
 assert.doesNotMatch(pickerSource, /appendSectionLabel\('可选项'\)/, 'the main custom-field picker must not add a redundant active-options heading');
@@ -242,7 +242,7 @@ assert.match(batchSource, /function __tmShowCustomFieldValuePrompt[\s\S]*__tmRen
 assert.match(bridgeSource, /getCustomFieldSelectModel\(fieldId\)[\s\S]*pathLabel:[\s\S]*effectiveArchived:/, 'Quickbar must consume a read-only selection model from the main runtime');
 assert.match(quickbarSource, /parentId: String\(source\.parentId[\s\S]*archived: source\.archived === true/, 'Quickbar fallback parsing must retain hierarchy metadata');
 assert.match(quickbarSource, /activeOptions[\s\S]*option\?\.effectiveArchived !== true/, 'Quickbar must exclude effectively archived options from active choices');
-assert.match(quickbarSource, /getHistoricalOptions[\s\S]*已归档或历史值/, 'Quickbar must keep selected historical values removable');
+assert.match(quickbarSource, /getHistoricalOptions[\s\S]*quickbar.archivedOrHistoricalValues/, 'Quickbar must keep selected historical values removable');
 assert.doesNotMatch(quickbarSource, /select-section">可选项/, 'Quickbar must not add a redundant active-options heading');
 assert.match(quickbarSource, /activeChildrenByParentId[\s\S]*renderCustomTreeNodes[\s\S]*renderCustomTreeNodes\(value, depth \+ 1\)/, 'Quickbar must render active custom-field options recursively from parent groups');
 assert.match(quickbarSource, /activeChildrenByParentId\.forEach\(\(children, parentId\)[\s\S]*expandedCustomOptionIds\.add\(parentId\)/, 'Quickbar must open with every active parent branch expanded');
@@ -256,7 +256,7 @@ assert.match(quickbarSource, /alignToAnchorRight[\s\S]*anchorRect\.right - menuW
 assert.match(source, /remoteCustomFieldDefsVersion === loadedCustomFieldDefsVersion[\s\S]*__tmMergeSameVersionCustomFieldDefs/, 'settings save must reconcile same-version flat and hierarchical device caches');
 assert.match(source, /resolvedCustomFieldSchema\.repairRemote === true[\s\S]*this\.save\(\{ suppressMobileCloseSyncDirty: true \}\)/, 'settings load must repair flattened cloud hierarchy metadata');
 assert.match(kernelSource, /taskHorizonGetCustomFieldDefinitions[\s\S]*customFieldDefinitions\(await getFieldRegistry\(\)\)/, 'Kernel must expose the shared hierarchy serializer through a read-only RPC');
-assert.match(kernelSource, /aggregate_task_stats[\s\S]*hierarchyItems[\s\S]*directCount\/totalCount/, 'the stats tool must document direct and ancestor rollups for AI');
+assert.match(kernelSource, /aggregate_task_stats[\s\S]*kernel.aggregateTaskCompletionStatisticsCustomTagsAlsoReturnDirectly/, 'the stats tool must document direct and ancestor rollups for AI');
 assert.match(workbenchSource, /customFieldHierarchyInstruction[\s\S]*taskHorizonGetCustomFieldDefinitions[\s\S]*ancestorIDs[\s\S]*hierarchyItems\.totalCount/, 'the AI prompt must receive live hierarchy and aggregation semantics from Kernel');
 assert.match(workbenchSource, /只有实际改选标签时才写任务 patch/, 'definition metadata must not enter the task patch chain');
 

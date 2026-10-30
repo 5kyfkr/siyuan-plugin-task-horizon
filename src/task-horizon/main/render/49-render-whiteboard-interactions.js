@@ -34,9 +34,9 @@
     function __tmBuildWhiteboardTraversalButtonHtml(taskId) {
         const id = String(taskId || '').trim();
         const active = state.whiteboardTraversal?.taskId === id;
-        const label = active ? '退出遍历' : '遍历关联';
+        const label = active ? __tmT("task.exitTraversal") : __tmT("task.traverseLinks");
         const jsId = id.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        return `<button type="button" class="tm-btn tm-btn-info" data-tm-whiteboard-traverse="${esc(id)}" style="padding:2px 8px;font-size:12px;" aria-pressed="${active}" onclick="tmWhiteboardToggleTraversal('${esc(jsId)}', event)" title="${active ? '退出关联遍历（Esc）' : '查看此卡片的所有前置和后续链路'}">${label}</button>`;
+        return `<button type="button" class="tm-btn tm-btn-info" data-tm-whiteboard-traverse="${esc(id)}" style="padding:2px 8px;font-size:12px;" aria-pressed="${active}" onclick="tmWhiteboardToggleTraversal('${esc(jsId)}', event)" title="${active ? __tmT("task.exitLinkTraversalEsc") : __tmT("task.viewAllPredecessorAndSuccessorLinksOfThisCard")}">${label}</button>`;
     }
 
     function __tmApplyWhiteboardTraversalDom(body) {
@@ -97,9 +97,9 @@
         if (exit) exit.hidden = !model;
         body.querySelectorAll('[data-tm-whiteboard-traverse]').forEach((button) => {
             const active = !!model && button.dataset.tmWhiteboardTraverse === traversal.taskId;
-            button.textContent = active ? '退出遍历' : '遍历关联';
+            button.textContent = active ? __tmT("task.exitTraversal") : __tmT("task.traverseLinks");
             button.setAttribute('aria-pressed', String(active));
-            button.title = active ? '退出关联遍历（Esc）' : '查看此卡片的所有前置和后续链路';
+            button.title = active ? __tmT("task.exitLinkTraversalEsc") : __tmT("task.viewAllPredecessorAndSuccessorLinksOfThisCard");
         });
         return model;
     }
@@ -124,7 +124,7 @@
         const model = __tmApplyWhiteboardTraversalDom(body);
         if (model && !model.linkKeys.size) {
             window.tmWhiteboardExitTraversal(ev);
-            hint('此卡片暂无关联', 'info');
+            hint(__tmT("task.thisCardHasNoLinks"), 'info');
         }
         __tmScheduleWhiteboardEdgeRedraw();
     };
@@ -228,7 +228,7 @@
     function __tmNormalizeWhiteboardFrameNameLocal(value) {
         if (typeof __tmNormalizeWhiteboardFrameName === 'function') return __tmNormalizeWhiteboardFrameName(value);
         const s = String(value || '').trim();
-        return (s || '分组').slice(0, 48);
+        return (s || __tmT("task.group")).slice(0, 48);
     }
 
     function __tmNormalizeWhiteboardFrameBackgroundColorLocal(value) {
@@ -549,19 +549,19 @@
 
     function __tmRequireWhiteboardFrameFeature() {
         return typeof window.tmRequireFullFeature === 'function'
-            && window.tmRequireFullFeature('whiteboard-frame', '白板分组框');
+            && window.tmRequireFullFeature('whiteboard-frame', __tmT("task.whiteboardGroupFrame"));
     }
 
     function __tmRequireWhiteboardCreateFeature(tool) {
         if (tool === 'text') return true;
         if (tool === 'frame') return __tmRequireWhiteboardFrameFeature();
         return tool === 'sticky' && typeof window.tmRequireFullFeature === 'function'
-            && window.tmRequireFullFeature('whiteboard-sticky', '白板便签工具');
+            && window.tmRequireFullFeature('whiteboard-sticky', __tmT("task.whiteboardNoteTools"));
     }
 
     function __tmRequireWhiteboardDrawingFeature() {
         return typeof window.tmRequireFullFeature !== 'function'
-            || window.tmRequireFullFeature('whiteboard-drawing', '白板手写工具');
+            || window.tmRequireFullFeature('whiteboard-drawing', __tmT("task.whiteboardHandwritingTools"));
     }
 
     function __tmIsWhiteboardDrawingEnabled() {
@@ -1039,7 +1039,7 @@
     async function __tmResolveWhiteboardGlobalCreateTarget() {
         const configured = String(SettingsStore.data.newTaskDocId || '').trim();
         if (!configured) {
-            try { hint('⚠ 请前往常规设置配置默认新建文档', 'warning'); } catch (e) {}
+            try { hint(__tmT("task.setADefaultNewTaskDocumentInTheGeneral"), 'warning'); } catch (e) {}
             return null;
         }
         if (configured !== '__dailyNote__') return { mode: 'doc', docId: configured };
@@ -1049,7 +1049,7 @@
             notebook = String(SettingsStore.data.newTaskDailyNoteNotebookId || '').trim();
         }
         if (!notebook) {
-            try { hint('⚠ 请前往常规设置配置今天日记默认笔记本', 'warning'); } catch (e) {}
+            try { hint(__tmT("task.setTheDefaultNotebookForTodaySJournalIn"), 'warning'); } catch (e) {}
             return null;
         }
         return { mode: 'dailyNote', notebook };
@@ -1062,7 +1062,7 @@
         if (!tid) return false;
         if (typeof window.tmSetDone !== 'function') {
             try { if (checkbox) checkbox.checked = !checked; } catch (e) {}
-            try { hint('❌ 完成状态写入入口未就绪', 'error'); } catch (e) {}
+            try { hint(__tmT("task.completionWriteEntryIsNotReady"), 'error'); } catch (e) {}
             return false;
         }
         return Promise.resolve(window.tmSetDone(tid, !!checked, ev, {
@@ -1070,7 +1070,7 @@
             skipInteractionGate: true,
         })).catch((error) => {
             try { if (checkbox) checkbox.checked = !checked; } catch (e) {}
-            try { hint(`❌ 操作失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
+            try { hint(__tmT("task.operationFailed2", { value1: error?.message || String(error) }), 'error'); } catch (e) {}
             return false;
         });
     };
@@ -1533,7 +1533,7 @@
                     const did = String(card.getAttribute('data-doc-id') || '').trim();
                     if (tid && did) {
                         const isGhost = !state.flatTasks?.[tid] && !!__tmGetWhiteboardCardSnapshot(tid);
-                        const deleteTitle = isGhost ? '移除快照卡片并彻底移除记录（不进入侧边栏）' : '移除卡片并回到侧栏';
+                        const deleteTitle = isGhost ? __tmT("task.removeTheSnapshotCardAndDeleteItsRecordEntirely") : __tmT("task.removeTheCardAndReturnItToTheSidebar");
                         const parentId = __tmResolveWhiteboardTaskParentId(tid);
                         const detachedOrDetachedLike = !!parentId && (
                             __tmIsWhiteboardChildDetached(tid)
@@ -1545,8 +1545,8 @@
                         tools.setAttribute('data-tm-wb-dyn', '1');
                         tools.innerHTML = `
                             ${__tmBuildWhiteboardTraversalButtonHtml(tid)}
-                            <button class="tm-btn tm-btn-danger" data-tm-wb-action="delete" style="padding:2px 8px;font-size:12px;" title="${esc(deleteTitle)}">移除</button>
-                            ${canMoveBack ? `<button class="tm-btn tm-btn-info" data-tm-wb-action="moveBack" style="padding:2px 8px;font-size:12px;" title="移回父任务">移回父任务</button>` : ''}
+                            <button class="tm-btn tm-btn-danger" data-tm-wb-action="delete" style="padding:2px 8px;font-size:12px;" title="${esc(deleteTitle)}">${__tmT("task.remove")}</button>
+                            ${canMoveBack ? `<button class="tm-btn tm-btn-info" data-tm-wb-action="moveBack" style="padding:2px 8px;font-size:12px;" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.moveBackToParentTask")}">${__tmT("task.moveBackToParentTask")}</button>` : ''}
                         `;
                         const deleteBtn = tools.querySelector('button[data-tm-wb-action="delete"]');
                         if (deleteBtn instanceof HTMLButtonElement) {
@@ -1617,13 +1617,13 @@
         const id = String(taskId || '').trim();
         if (!id) return false;
         if (typeof __tmIsOptimisticTempTaskId === 'function' && __tmIsOptimisticTempTaskId(id)) {
-            try { hint('⏳ 任务正在写入，完成后可跳转到白板', 'info'); } catch (e) {}
+            try { hint(__tmT("task.theTaskIsBeingWrittenYouCanJumpTo"), 'info'); } catch (e) {}
             return false;
         }
         const opts = (options && typeof options === 'object') ? options : {};
         const location = __tmResolveWhiteboardTaskLocation(id, { scope: opts.scope });
         if (!location) {
-            try { hint('⚠ 该任务不在白板上', 'warning'); } catch (e) {}
+            try { hint(__tmT("task.theTaskIsNotOnTheWhiteboard"), 'warning'); } catch (e) {}
             return false;
         }
         const docId = String(location.docId || '').trim();
@@ -1703,13 +1703,13 @@
                     try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
                     try { __tmScheduleWhiteboardNavigatorUpdate(); } catch (e) {}
                     if (centered) {
-                        try { hint('✅ 已跳转到白板卡片', 'success'); } catch (e) {}
+                        try { hint(__tmT("task.jumpedToTheWhiteboardCard"), 'success'); } catch (e) {}
                         resolve(true);
                         return;
                     }
                 }
                 if ((Date.now() - startedAt) >= maxWaitMs || tries >= 90) {
-                    try { hint('⚠ 未找到白板卡片位置', 'warning'); } catch (e) {}
+                    try { hint(__tmT("task.whiteboardCardPositionNotFound"), 'warning'); } catch (e) {}
                     resolve(false);
                     return;
                 }
@@ -1807,7 +1807,7 @@
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
         const next = !state.whiteboardPoolSearchOpen;
-        if (next && typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', '白板任务池搜索')) return;
+        if (next && typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', __tmT("task.whiteboardTaskPoolSearch"))) return;
         state.whiteboardPoolSearchOpen = next;
         __tmClearWhiteboardPoolSearchRenderTimer();
         if (!next) {
@@ -1822,7 +1822,7 @@
 
     window.tmWhiteboardPoolSearchInput = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
-        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', '白板任务池搜索')) {
+        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', __tmT("task.whiteboardTaskPoolSearch"))) {
             try { if (ev?.target instanceof HTMLInputElement) ev.target.value = ''; } catch (e) {}
             return;
         }
@@ -1844,7 +1844,7 @@
 
     window.tmWhiteboardPoolSearchCompositionStart = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
-        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', '白板任务池搜索')) return;
+        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', __tmT("task.whiteboardTaskPoolSearch"))) return;
         __tmClearWhiteboardPoolSearchRenderTimer();
         state.whiteboardPoolSearchComposing = true;
         state.whiteboardPoolSearchLastInputAt = Date.now();
@@ -1852,7 +1852,7 @@
 
     window.tmWhiteboardPoolSearchCompositionEnd = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
-        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', '白板任务池搜索')) {
+        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-pool-search', __tmT("task.whiteboardTaskPoolSearch"))) {
             try { if (ev?.target instanceof HTMLInputElement) ev.target.value = ''; } catch (e) {}
             return;
         }
@@ -1896,7 +1896,7 @@
         if (directNode) {
             const ok = __tmFocusWhiteboardTaskNode(directNode, id);
             if (ok) {
-                try { hint('✅ 已跳转到白板卡片', 'success'); } catch (e) {}
+                try { hint(__tmT("task.jumpedToTheWhiteboardCard"), 'success'); } catch (e) {}
                 return true;
             }
         }
@@ -1957,7 +1957,7 @@
         section.classList.toggle('tm-whiteboard-pool-doc--collapsed', collapsed);
         head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
         const label = String(head.getAttribute('data-pool-section-label') || '').trim();
-        head.title = `${collapsed ? '展开' : '折叠'}${label || '分组'}`;
+        head.title = `${collapsed ? __tmT("quickbar.expand") : __tmT("task.collapse")}${label || __tmT("task.group")}`;
         try {
             __tmCollapseMotion.setDisclosure(list, !collapsed, {
                 forceMode: motionMode,
@@ -2576,7 +2576,7 @@
             .filter(Boolean);
         if (!clearIds.length) return;
         let ok = true;
-        try { ok = window.confirm ? window.confirm('清空当前白板手写？') : true; } catch (e) { ok = true; }
+        try { ok = window.confirm ? window.confirm(__tmT("task.clearTheCurrentWhiteboardHandwriting")) : true; } catch (e) { ok = true; }
         if (!ok) return;
         __tmClearWhiteboardStrokeSelection();
         __tmDeleteWhiteboardStrokesByIds(clearIds, { render: true, persist: true });
@@ -2671,7 +2671,7 @@
         const edge = mobile ? 4096 : 8192;
         const pixels = mobile ? 4000000 : 16000000;
         const scale = Math.min(2, edge / width, edge / height, Math.sqrt(pixels / (width * height)));
-        if (!Number.isFinite(scale) || scale < 0.1) throw new Error('白板内容跨度过大，请将内容靠拢后重试');
+        if (!Number.isFinite(scale) || scale < 0.1) throw new Error(__tmT("task.theWhiteboardContentSpansTooMuchSpaceBringThe"));
         return { width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)), scale };
     }
 
@@ -2769,11 +2769,11 @@
         const tabGroup = scope.tabGroupId ? __tmFindDocTabCustomGroupById(scope.tabGroupId, { currentGroupId: scope.docGroupId }) : null;
         const doc = scope.docId ? (state.taskTree || []).find(item => String(item.id) === scope.docId) : null;
         const group = (SettingsStore.data.docGroups || []).find(item => String(item.id) === scope.docGroupId);
-        const name = String(doc?.name || tabGroup?.name || group?.name || '白板').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').slice(0, 80) || '白板';
+        const name = String(doc?.name || tabGroup?.name || group?.name || __tmT("task.whiteboard")).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').slice(0, 80) || __tmT("task.whiteboard");
         const now = new Date();
         const pad = value => String(value).padStart(2, '0');
         const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-        return `${name}_白板_${stamp}.png`;
+        return __tmT("task.whiteboardPng", { name: name, stamp: stamp });
     }
 
     window.tmWhiteboardExportPng = async function(ev) {
@@ -2797,16 +2797,16 @@
             __tmRenderWhiteboardEdges();
             snapshot = __tmCreateWhiteboardPngSnapshot(world);
             if (!snapshot) {
-                hint('当前白板没有可导出的内容', 'warning');
+                hint(__tmT("task.theCurrentWhiteboardHasNothingToExport"), 'warning');
                 return;
             }
             const filename = __tmWhiteboardPngFilename();
-            hint('正在生成 PNG…', 'info');
+            hint(__tmT("task.generatingPng"), 'info');
             const blob = await __tmGetWhiteboardPngRenderer()(snapshot.node, {
                 width: snapshot.width, height: snapshot.height, pixelRatio: 1,
                 skipAutoScale: true, includeQueryParams: true,
             });
-            if (!blob?.size) throw new Error('未能生成 PNG 图片');
+            if (!blob?.size) throw new Error(__tmT("task.failedToGenerateThePngImage"));
             const url = URL.createObjectURL(blob);
             try {
                 const link = document.createElement('a');
@@ -2817,10 +2817,10 @@
             } finally {
                 setTimeout(() => URL.revokeObjectURL(url), 30000);
             }
-            hint(`PNG 已导出（${snapshot.width} × ${snapshot.height}${snapshot.scale < 2 ? '，已适配大画布' : ''}）`, 'success');
+            hint(__tmT("task.pngExported", { width: snapshot.width, height: snapshot.height, value3: snapshot.scale < 2 ? __tmT("task.adaptedForALargeCanvas") : '' }), 'success');
         } catch (error) {
             console.error('[task-horizon] Whiteboard PNG export failed', error);
-            hint(`导出 PNG 失败：${String(error?.message || error || '请重试')}`, 'error');
+            hint(__tmT("task.failedToExportPng", { value1: String(error?.message || error || __tmT("task.tryAgain")) }), 'error');
         } finally {
             snapshot?.host.remove();
             state.whiteboardPngExportPending = false;
@@ -2828,7 +2828,7 @@
             if (button) {
                 button.disabled = false;
                 const label = button.querySelector('span');
-                if (label) label.textContent = '导出 PNG';
+                if (label) label.textContent = __tmT("task.exportPng");
             }
         }
     };
@@ -2991,8 +2991,8 @@
         tools.style.left = `${left}px`;
         tools.style.top = `${top}px`;
         tools.innerHTML = `
-            <button class="tm-btn tm-btn-info" style="padding:2px 8px;font-size:12px;" title="按行自动连线">自动连线</button>
-            <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" title="移除框选对象">移除(${total})</button>
+            <button class="tm-btn tm-btn-info" style="padding:2px 8px;font-size:12px;" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.automaticallyConnectRows")}">${__tmT("task.autoConnect")}</button>
+            <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.removeSelectedObjects")}">${__tmT("task.remove2", { total: total })}</button>
         `;
         const connectBtn = tools.querySelector('button.tm-btn-info');
         if (connectBtn instanceof HTMLButtonElement) {
@@ -3052,7 +3052,7 @@
         tools.className = 'tm-whiteboard-multi-tools tm-whiteboard-stroke-tools';
         tools.style.left = `${left}px`;
         tools.style.top = `${top}px`;
-        tools.innerHTML = `<button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" title="移除选中笔画">移除</button>`;
+        tools.innerHTML = `<button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.removeSelectedStrokes")}">${__tmT("task.remove")}</button>`;
         const btn = tools.querySelector('button');
         if (btn instanceof HTMLButtonElement) {
             btn.addEventListener('click', (ev) => {
@@ -3238,7 +3238,7 @@
         draft.style.width = '1px';
         draft.style.height = '1px';
         draft.style.setProperty('--tm-whiteboard-frame-bg', '#dbeafe');
-        draft.innerHTML = '<div class="tm-whiteboard-frame-title">分组</div>';
+        draft.innerHTML = `<div class="tm-whiteboard-frame-title">${__tmT("task.group")}</div>`;
         try { docBody.appendChild(draft); } catch (e) {}
         const allowNegativeRect = singleDocCanvas || __tmIsWhiteboardGlobalElement(docBody);
         const resolveRect = (clientX, clientY, opts = {}) => {
@@ -4851,7 +4851,7 @@
             return __tmIsWhiteboardChildDetached(id);
         });
         if (eligibleTaskIds.length < 2) {
-            try { hint('ℹ 自动连线仅处理最高层卡片（已拖出的子任务除外）', 'info'); } catch (e) {}
+            try { hint(__tmT("task.autoConnectOnlyHandlesTopLevelCardsExceptDragged"), 'info'); } catch (e) {}
             return;
         }
         const items = eligibleTaskIds.map((id) => {
@@ -4932,13 +4932,13 @@
                 added++;
             }
             if (!added) {
-                try { hint('ℹ 未新增连线（可能已存在）', 'info'); } catch (e) {}
+                try { hint(__tmT("task.noNewConnectionsTheyMayAlreadyExist"), 'info'); } catch (e) {}
                 return;
             }
             __tmPushWhiteboardHistorySnapshot('auto-connect-links');
             __tmSetWhiteboardGlobalTaskLinks(manual, __tmGetWhiteboardActiveBoardKey(), { keepEmpty: true });
             try { await SettingsStore.save(); } catch (e) {}
-            try { hint(`✅ 已新增 ${added} 条连线${skipped ? `（跳过 ${skipped} 条）` : ''}`, 'success'); } catch (e) {}
+            try { hint(__tmT("task.addedConnections", { added: added, value2: skipped ? __tmT("task.skipItems", { skipped: skipped }) : '' }), 'success'); } catch (e) {}
             __tmScheduleWhiteboardEdgeRedraw();
             render();
             return;
@@ -4980,13 +4980,13 @@
             }
         });
         if (!added) {
-            try { hint('ℹ 未新增连线（可能已存在或跨文档）', 'info'); } catch (e) {}
+            try { hint(__tmT("task.noNewConnectionsAlreadyExistOrCrossDocument"), 'info'); } catch (e) {}
             return;
         }
         __tmPushWhiteboardHistorySnapshot('auto-connect-links');
         __tmSetManualTaskLinks(manual);
         try { await SettingsStore.save(); } catch (e) {}
-        try { hint(`✅ 已新增 ${added} 条连线${skipped ? `（跳过 ${skipped} 条）` : ''}`, 'success'); } catch (e) {}
+        try { hint(__tmT("task.addedConnections", { added: added, value2: skipped ? __tmT("task.skipItems", { skipped: skipped }) : '' }), 'success'); } catch (e) {}
         __tmScheduleWhiteboardEdgeRedraw();
         render();
     };
@@ -5567,7 +5567,7 @@
         if (c0) input.style.color = c0;
         input.style.fontSize = '16px';
         input.style.fontWeight = bd0 ? '700' : '400';
-        input.placeholder = '输入文字，Enter保存，Esc取消';
+        input.placeholder = __tmT("task.typeTextEnterToSaveEscToCancel");
         input.value = initialText;
         input.addEventListener('mousedown', (e) => {
             try { e.stopPropagation(); } catch (err) {}
@@ -5632,14 +5632,14 @@
         editor.style.width = `${editorWidth}px`;
         editor.innerHTML = `
             <div class="tm-whiteboard-sticky-editor-head">
-                <input class="tm-whiteboard-sticky-title-input" data-tm-sticky-title type="text" placeholder="便利贴标题">
+                <input class="tm-whiteboard-sticky-title-input" data-tm-sticky-title type="text" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.stickyNotetitle")}">
             </div>
             <div class="tm-whiteboard-sticky-editor-toolbar" data-tm-whiteboard-sticky-toolbar>${__tmBuildRemarkMarkdownToolbarHtml({
                 toolAttribute: 'data-tm-whiteboard-sticky-tool',
                 buttonClass: 'bc-btn bc-btn--sm tm-whiteboard-sticky-editor-toolbar-btn',
                 tooltipSide: 'top',
             })}</div>
-            <textarea class="tm-whiteboard-sticky-textarea" data-tm-sticky-text rows="4" placeholder="输入正文，支持 Markdown"></textarea>
+            <textarea class="tm-whiteboard-sticky-textarea" data-tm-sticky-text rows="4" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.enterTextMarkdownSupported")}"></textarea>
         `;
         const titleInput = editor.querySelector('[data-tm-sticky-title]');
         const textArea = editor.querySelector('[data-tm-sticky-text]');
@@ -5842,7 +5842,7 @@
                 preview = document.createElement('div');
                 const baseClass = tool === 'frame' ? 'tm-whiteboard-frame tm-whiteboard-frame--draft' : (tool === 'sticky' ? 'tm-whiteboard-note tm-whiteboard-sticky' : '');
                 preview.className = `${baseClass} tm-whiteboard-tool-preview`;
-                preview.textContent = tool === 'frame' ? '分组' : (tool === 'sticky' ? '便利贴' : '文字');
+                preview.textContent = tool === 'frame' ? __tmT("task.group") : (tool === 'sticky' ? __tmT("task.stickyNote") : __tmT("task.text2"));
                 preview.setAttribute('aria-hidden', 'true');
             }
             preview.style.left = `${rect.x}px`;
@@ -6013,7 +6013,7 @@
                 did = String(state.activeDocId || '').trim();
             }
         } catch (e) {
-            try { hint(`❌ 新建失败: ${e?.message || String(e)}`, 'error'); } catch (e2) {}
+            try { hint(__tmT("task.createFailed", { value1: e?.message || String(e) }), 'error'); } catch (e2) {}
             return;
         }
         if (!isGlobalCanvas && (!did || did === 'all')) return;
@@ -6045,7 +6045,7 @@
                     editor.style.padding = '8px';
                     const input = document.createElement('input');
                     input.type = 'text';
-                    input.placeholder = '输入任务名称（留空取消）';
+                    input.placeholder = __tmT("task.enterATaskNameLeaveEmptyToCancel");
                     input.value = '';
                     input.style.width = '100%';
                     editor.appendChild(input);
@@ -6058,7 +6058,7 @@
                         finish('', true);
                         close();
                     };
-                    const { wrap } = __tmBuildActions('创建', commit, cancel);
+                    const { wrap } = __tmBuildActions(__tmT("task.create"), commit, cancel);
                     editor.appendChild(wrap);
                     input.onkeydown = (e) => {
                         if (e.key === 'Enter') commit();
@@ -6075,14 +6075,14 @@
             if (isGlobalCanvas) {
                 if (globalCreateTarget?.mode === 'dailyNote') {
                     did = String(await API.createDailyNote(globalCreateTarget.notebook) || '').trim();
-                    if (!did) throw new Error('获取日记文档失败');
+                    if (!did) throw new Error(__tmT("task.failedToGetTheDailyNoteDocument"));
                 } else {
                     did = String(globalCreateTarget?.docId || '').trim();
                 }
-                if (!did || did === 'all') throw new Error('默认新建文档无效');
+                if (!did || did === 'all') throw new Error(__tmT("task.invalidDefaultNewTaskDocument"));
             }
             const createTaskInDoc = globalThis.__tmRequireTaskMutation?.('createTaskInDoc');
-            if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪: createTaskInDoc');
+            if (typeof createTaskInDoc !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyCreatetaskindoc"));
             const fallbackAppendToBottom = isGlobalCanvas
                 && globalCreateTarget?.mode === 'dailyNote'
                 && SettingsStore.data.newTaskDailyNoteAppendToBottom === true;
@@ -6096,7 +6096,7 @@
                 ...createInsertOptions,
                 wait: false,
             }, { wait: false });
-            if (!createdTaskId) throw new Error('任务创建失败');
+            if (!createdTaskId) throw new Error(__tmT("task.taskCreationFailed"));
             if (headingPatch && typeof __tmApplyHeadingPatchToTaskLocal === 'function') {
                 try { __tmApplyHeadingPatchToTaskLocal(createdTaskId, headingPatch, 'whiteboard-default-heading'); } catch (e) {}
             }
@@ -6132,7 +6132,7 @@
                 try { __tmScheduleRender({ withFilters: false, reason: 'whiteboard-create-task' }); } catch (e2) {}
             }
         } catch (e) {
-            try { hint(`❌ 新建失败，已撤销: ${e?.message || String(e)}`, 'error'); } catch (e2) {}
+            try { hint(__tmT("task.createFailedAndWasRolledBack", { value1: e?.message || String(e) }), 'error'); } catch (e2) {}
         }
     };
 
@@ -6381,7 +6381,7 @@
             more.style.marginTop = '6px';
             more.style.fontSize = '12px';
             more.style.color = 'var(--tm-secondary-text)';
-            more.textContent = `... 还有 ${ids.length - maxPreview} 项`;
+            more.textContent = __tmT("task.andMore", { value1: ids.length - maxPreview });
             wrap.appendChild(more);
         }
         try { document.body.appendChild(wrap); } catch (e) {}
@@ -6824,19 +6824,19 @@
                 if (!sourceIsInbox && !sourceIsGlobalCollect) continue;
                 try {
                     const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
-                    if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
+                    if (typeof moveTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyMovetask"));
                     moveTask(taskId, {
                         targetDocId: docId,
                         mode: 'docTop',
                     }, {
                         wait: false,
                         onError: (e) => {
-                            try { hint(`❌ 移动任务失败: ${e?.message || String(e)}`, 'error'); } catch (err) {}
+                            try { hint(__tmT("task.failedToMoveTheTask", { value1: e?.message || String(e) }), 'error'); } catch (err) {}
                         },
                     });
                     movedAcrossDoc = true;
                 } catch (e) {
-                    try { hint(`❌ 移动任务失败: ${e?.message || String(e)}`, 'error'); } catch (err) {}
+                    try { hint(__tmT("task.failedToMoveTheTask", { value1: e?.message || String(e) }), 'error'); } catch (err) {}
                     continue;
                 }
             }
@@ -7832,7 +7832,7 @@
                     tools.setAttribute('data-tm-wb-dyn', '1');
                     tools.style.left = `${Math.round(selectedToolPos.x - 56)}px`;
                     tools.style.top = `${Math.round(selectedToolPos.y - 42)}px`;
-                    tools.innerHTML = `<button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" title="移除该连线">移除连线</button>`;
+                    tools.innerHTML = `<button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.removeThisConnection")}">${__tmT("task.removeConnection")}</button>`;
                     const btn = tools.querySelector('button');
                     if (btn) {
                         btn.addEventListener('click', (ev) => {
@@ -8291,7 +8291,7 @@
                 const manual = __tmGetWhiteboardScopeLinks(timelineDependencyScope);
                 const exists = manual.some((x) => String(x?.from || '') === fromId && String(x?.to || '') === toId);
                 if (exists) {
-                    hint('ℹ 该连线已存在', 'info');
+                    hint(__tmT("task.thisConnectionAlreadyExists"), 'info');
                     resetAfterDrop();
                     return;
                 }
@@ -8328,7 +8328,7 @@
                     const manual = __tmGetWhiteboardGlobalTaskLinks(whiteboardBoardKey);
                     const exists = manual.some(x => String(x?.from || '') === fromId && String(x?.to || '') === toId);
                     if (exists) {
-                        hint('ℹ 该连线已存在', 'info');
+                        hint(__tmT("task.thisConnectionAlreadyExists"), 'info');
                         resetAfterDrop();
                         return;
                     }
@@ -8359,7 +8359,7 @@
             const manual = __tmGetManualTaskLinks();
             const exists = manual.some(x => String(x?.from || '') === fromId && String(x?.to || '') === toId && String(x?.docId || '') === docId);
             if (exists) {
-                hint('ℹ 该连线已存在', 'info');
+                hint(__tmT("task.thisConnectionAlreadyExists"), 'info');
                 resetAfterDrop();
                 return;
             }
@@ -8493,7 +8493,7 @@
         if (btn) {
             try {
                 btn.textContent = next ? '☰' : '⟨';
-                btn.title = next ? '展开侧栏' : '折叠侧栏';
+                btn.title = next ? __tmT("task.expandSidebar") : __tmT("task.collapseSidebar2");
             } catch (e) {}
         }
         const deferredPool = !next ? body?.querySelector?.('[data-tm-whiteboard-pool-deferred="1"]') : null;
@@ -8775,19 +8775,19 @@
     window.tmWhiteboardToggleAutoConnect = async function(enabled) {
         SettingsStore.data.whiteboardAutoConnectByCreated = false;
         try { await SettingsStore.save(); } catch (e) {}
-        hint('ℹ 已移除默认时间连线功能', 'info');
+        hint(__tmT("task.theDefaultTimelineConnectionFeatureWasRemoved"), 'info');
     };
 
     window.tmWhiteboardToggleAutoLayout = async function(enabled) {
         SettingsStore.data.whiteboardAutoLayout = false;
         try { await SettingsStore.save(); } catch (e) {}
-        hint('ℹ 已移除自动排布功能', 'info');
+        hint(__tmT("task.theAutoLayoutFeatureWasRemoved"), 'info');
     };
 
     window.tmWhiteboardClearLinks = async function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         state.whiteboardBottomMoreOpen = false;
-        const ok = confirm('确认清空所有手动连线？');
+        const ok = confirm(__tmT("task.clearAllManualConnections"));
         if (!ok) {
             render();
             return;

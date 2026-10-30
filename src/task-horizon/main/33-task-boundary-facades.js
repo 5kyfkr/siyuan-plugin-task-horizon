@@ -97,9 +97,9 @@
         const fail = (code, message) => { throw Object.assign(new Error(message), { code }); };
         const ready = async () => {
             const current = facade;
-            if (!owner) fail('UNAVAILABLE', 'Task Horizon 已卸载');
+            if (!owner) fail('UNAVAILABLE', __tmT("task.taskHorizonHasBeenUnloaded"));
             await __tmEnsureSettingsLoaded();
-            if (!owner || current !== facade) fail('UNAVAILABLE', 'Task Horizon 已卸载');
+            if (!owner || current !== facade) fail('UNAVAILABLE', __tmT("task.taskHorizonHasBeenUnloaded"));
         };
         const tagsFor = (task) => Array.from(new Set([
             ...(Array.isArray(task.tags) ? task.tags.filter((tag) => typeof tag === 'string') : []),
@@ -123,32 +123,32 @@
         async function queryTasks(options = {}) {
             const current = facade;
             await ready();
-            if (current !== facade) fail('UNAVAILABLE', 'Task Horizon 已卸载');
-            if (!options || typeof options !== 'object' || Array.isArray(options)) fail('INVALID_ARGUMENT', '查询参数必须是对象');
+            if (current !== facade) fail('UNAVAILABLE', __tmT("task.taskHorizonHasBeenUnloaded"));
+            if (!options || typeof options !== 'object' || Array.isArray(options)) fail('INVALID_ARGUMENT', __tmT("task.queryParametersMustBeAnObject"));
             const { date, scope = 'current', limit = 50, includeCompleted = false } = options;
             if (!['current', 'all'].includes(scope) || !Number.isInteger(limit) || limit < 1 || limit > 100
-                || typeof includeCompleted !== 'boolean') fail('INVALID_ARGUMENT', '任务范围或数量无效（limit: 1–100）');
+                || typeof includeCompleted !== 'boolean') fail('INVALID_ARGUMENT', __tmT("task.invalidTaskScopeOrCountLimit"));
             let now = new Date();
             if (date !== undefined && date !== 'today') {
-                if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) fail('INVALID_ARGUMENT', '日期格式应为 YYYY-MM-DD');
+                if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) fail('INVALID_ARGUMENT', __tmT("task.dateFormatMustBeYyyyMmDd"));
                 const [year, month, day] = date.split('-').map(Number);
                 now = new Date(year, month - 1, day);
-                if (now.getFullYear() !== year || now.getMonth() !== month - 1 || now.getDate() !== day) fail('INVALID_ARGUMENT', '日期无效');
+                if (now.getFullYear() !== year || now.getMonth() !== month - 1 || now.getDate() !== day) fail('INVALID_ARGUMENT', __tmT("task.invalidDate"));
             }
             const groupId = scope === 'all' ? 'all' : String(SettingsStore.data.currentGroupId || 'all');
             const key = JSON.stringify([groupId, date ?? '', now.toDateString(), limit, includeCompleted]);
             if (reads.has(key)) return reads.get(key).then((result) => structuredClone(result));
             const request = (async () => {
                 const docIds = await resolveDocIdsFromGroups({ groupId });
-                if (!owner || current !== facade) fail('UNAVAILABLE', 'Task Horizon 已卸载');
+                if (!owner || current !== facade) fail('UNAVAILABLE', __tmT("task.taskHorizonHasBeenUnloaded"));
                 const tasks = new Map();
                 let partial = false;
                 for (let offset = 0; offset < docIds.length; offset += 12) {
                     const result = await API.getTasksByDocuments(docIds.slice(offset, offset + 12), __TM_TASK_INDEX_QUERY_LIMIT, {
                         ignoreExcludeCompleted: true, customFieldIds: [],
                     });
-                    if (!owner || current !== facade) fail('UNAVAILABLE', 'Task Horizon 已卸载');
-                    if (result?.readFailure || !Array.isArray(result?.tasks)) fail('READ_FAILED', '任务读取失败');
+                    if (!owner || current !== facade) fail('UNAVAILABLE', __tmT("task.taskHorizonHasBeenUnloaded"));
+                    if (result?.readFailure || !Array.isArray(result?.tasks)) fail('READ_FAILED', __tmT("task.failedToReadTasks"));
                     partial ||= result.limitReached === true;
                     for (const row of result.tasks) {
                         const task = { ...row };
@@ -159,7 +159,7 @@
                         if (projected && !globalThis.__tmProjectVisibility?.isTaskHidden(projected)) tasks.set(projected.id, projected);
                     }
                 }
-                if (!owner || current !== facade) fail('UNAVAILABLE', 'Task Horizon 已卸载');
+                if (!owner || current !== facade) fail('UNAVAILABLE', __tmT("task.taskHorizonHasBeenUnloaded"));
                 const rule = {
                     conditions: date === undefined ? [] : [{ field: 'taskDate', operator: 'range_overlap_today', value: '' }],
                     sort: [{ field: 'priority', order: 'desc' }, { field: 'completionTime', order: 'asc' }],
@@ -178,32 +178,32 @@
         async function setTaskStatus(blockId, status) {
             const current = facade;
             await ready();
-            if (current !== facade) fail('UNAVAILABLE', 'Task Horizon 已卸载');
-            if (typeof blockId !== 'string' || !/^\d{14}-[a-z0-9]{7}$/i.test(blockId)) fail('INVALID_ARGUMENT', '任务块 ID 无效');
+            if (current !== facade) fail('UNAVAILABLE', __tmT("task.taskHorizonHasBeenUnloaded"));
+            if (typeof blockId !== 'string' || !/^\d{14}-[a-z0-9]{7}$/i.test(blockId)) fail('INVALID_ARGUMENT', __tmT("task.invalidTaskBlockId"));
             const option = typeof status === 'string' ? __tmFindStatusOptionById(status) : null;
-            if (!option) fail('INVALID_ARGUMENT', '未知的任务状态');
+            if (!option) fail('INVALID_ARGUMENT', __tmT("task.unknownTaskStatus"));
             const task = await __tmEnsureTaskInStateById(blockId);
-            if (!owner || current !== facade) fail('UNAVAILABLE', 'Task Horizon 已卸载');
-            if (!task) fail('NOT_FOUND', '未找到任务');
+            if (!owner || current !== facade) fail('UNAVAILABLE', __tmT("task.taskHorizonHasBeenUnloaded"));
+            if (!task) fail('NOT_FOUND', __tmT("kernel.noTaskFound"));
             const opts = { wait: true, source: 'public-api', fsrsRating: 3, statusPatch: { customStatus: option.id } };
             const done = __tmDoesStatusIdResolveToDone(option.id);
             const checkboxState = done || option.marker === ' ';
             const mutation = globalThis.__tmRequireTaskMutation(checkboxState ? 'setDone' : 'setStatus');
             const result = await mutation(blockId, checkboxState ? done : option.id, opts);
-            if (!result) fail('WRITE_FAILED', '任务状态未保存');
+            if (!result) fail('WRITE_FAILED', __tmT("task.taskStatusWasNotSaved"));
             return true;
         }
 
         async function openView(viewType = 'list') {
             const current = facade;
             await ready();
-            if (current !== facade) fail('UNAVAILABLE', 'Task Horizon 已卸载');
-            if (!['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard'].includes(viewType)) fail('INVALID_ARGUMENT', '未知的任务视图');
-            if (!__tmIsViewEnabled(viewType)) fail('INVALID_ARGUMENT', '该任务视图已停用');
+            if (current !== facade) fail('UNAVAILABLE', __tmT("task.taskHorizonHasBeenUnloaded"));
+            if (!['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard'].includes(viewType)) fail('INVALID_ARGUMENT', __tmT("task.unknownTaskView"));
+            if (!__tmIsViewEnabled(viewType)) fail('INVALID_ARGUMENT', __tmT("task.thisTaskViewIsDisabled"));
             if (await globalThis.__taskHorizonOpenManagerFromTopbarEntry({ awaitInitialLoad: true, source: 'public-api' }) === false) {
-                fail('UNAVAILABLE', '任务视界暂时无法打开');
+                fail('UNAVAILABLE', __tmT("task.taskHorizonCannotBeOpenedRightNow"));
             }
-            if (!owner || current !== facade) fail('UNAVAILABLE', 'Task Horizon 已卸载');
+            if (!owner || current !== facade) fail('UNAVAILABLE', __tmT("task.taskHorizonHasBeenUnloaded"));
             await window.tmSwitchViewMode(viewType);
             return true;
         }
@@ -221,15 +221,15 @@
             const api = facade;
             try {
                 const unregister = host.registerHomeModule({
-                    moduleId: 'task-horizon-today', title: 'Task Horizon 今日任务', icon: 'iconTaskHorizon',
-                    description: '当前任务分组中覆盖今天的待办，点击打开原生任务块',
+                    moduleId: 'task-horizon-today', title: __tmT("task.taskHorizonTodaySTasks"), icon: 'iconTaskHorizon',
+                    description: __tmT("task.toDosInTheCurrentTaskGroupThatCover"),
                     supportedDevices: ['desktop', 'sidebar', 'mobile'], sizes: ['small', 'medium', 'tall'],
                     source: { pluginId: 'siyuan-plugin-task-horizon', name: 'Task Horizon' },
                     timeoutMs: 5000, cacheTtlMs: 1000,
                     read: async () => {
                         const result = await api.queryTasks({ date: 'today', limit: 5 });
                         return {
-                            title: '今日任务', stat: { value: `${result.partial ? '≥' : ''}${result.total}`, label: '待办' },
+                            title: __tmT("calendar.todaySTasks"), stat: { value: `${result.partial ? '≥' : ''}${result.total}`, label: __tmT("homepage.toDo") },
                             items: result.tasks.map((task) => ({ label: task.title, value: task.id, secondary: task.completionTime })),
                             updatedAt: Date.now(),
                         };
@@ -262,7 +262,7 @@
             if (window.TaskHorizon) return false;
             owner = plugin;
             const current = () => owner === plugin && window.TaskHorizon === api;
-            const call = (fn, ...args) => current() ? fn(...args) : Promise.reject(Object.assign(new Error('Task Horizon 已卸载'), { code: 'UNAVAILABLE' }));
+            const call = (fn, ...args) => current() ? fn(...args) : Promise.reject(Object.assign(new Error(__tmT("task.taskHorizonHasBeenUnloaded")), { code: 'UNAVAILABLE' }));
             const api = Object.freeze({
                 protocol: 'task-horizon', apiVersion: 1,
                 get version() { return String(globalThis.__taskHorizonPluginManifest?.version || plugin.manifest?.version || ''); },

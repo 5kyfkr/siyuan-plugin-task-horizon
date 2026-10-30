@@ -11,7 +11,7 @@ description: 为出差、晚间安排、周计划、发布流程或其他重复�
    先调用 `get_task_view_context`，默认不传 `scope`：当前活动页签是任务管理器时使用其当前视图，是思源笔记时使用该文档的完整任务范围。默认使用 `scopeToken`；用户要求当前界面以外的时间、完成状态、优先级或状态范围时改用 `containerScopeToken`，并使用 `done`、`dateRange`、`overdue`、`priorities`、`customStatuses`、`includeVirtual` 等结构化筛选，不把完整 ID 列表放进对话。只有用户明确指定不同容器时才用 `scope: "current_view"` 或 `scope: "focused_document"` 覆盖自动识别；后者可同时传 `documentID`。
    范围中的 `virtualTask: true` 是只读循环记录：虚拟任务本体不能更新、移动、删除或配置任务提醒，但可以成为日程的关联目标。为某次记录排期时使用它的 `repeatinst:` ID 作为 `taskId`，并在 `create_schedule`、重新关联它的 `update_schedule`，以及 `batch_schedules` / `apply_task_operation_plan` 中对应的日程操作内传入本轮 `scopeToken`；修改来源任务时才改用 `sourceTaskID`。
 2. 读取相关任务策略与现有日程，再决定分类和时间；缺少外部数据时标记假设，不编造事实。
-   模板预览使用 `customStatusName`、`priorityName` 展示中文名称；保存操作仍使用 definitions 中对应的状态和重要性 ID。
+   模板预览使用 `customStatusName`、`priorityName` 展示本轮提供的名称；保存操作仍使用 definitions 中对应的状态和重要性 ID。回答语言跟随本轮请求或用户明确要求，不强制中文。
 3. 生成任务与日程预览，区分必选、可选和假设项。
 4. 最多使用 `apply_task_operation_plan` 应用 50 个非删除操作。需要替换或删除时改用专用删除工具和预览令牌。
 5. 返回逐项回执，只为失败项生成新的重试预览。

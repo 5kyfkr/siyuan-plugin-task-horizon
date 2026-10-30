@@ -1,9 +1,9 @@
     // V3 changes presentation only: production renderers and save handlers remain authoritative.
     const TM_SETTINGS_V2_PAGES = [
-        ['docs', '任务', '任务', 'check-circle-2'], ['view', '视图', '界面', 'sidebar'],
-        ['calendar', '时间', '时间', 'calendar-blank'], ['appearance', '外观', '界面', 'palette'],
-        ['ai', '智能', '智能', 'sparkle'], ['algo', '规则', '规则', 'list-numbers'],
-        ['about', '数据', '数据', 'cloud'], ['benefits', '授权', '授权', 'lock'],
+        ['docs', __tmT("kernel.task"), __tmT("kernel.task"), 'check-circle-2'], ['view', __tmT("calendar.views"), __tmT("settings.interface"), 'sidebar'],
+        ['calendar', __tmT("task.time"), __tmT("task.time"), 'calendar-blank'], ['appearance', __tmT("settings.appearance"), __tmT("settings.interface"), 'palette'],
+        ['ai', __tmT("settings.ai"), __tmT("settings.ai"), 'sparkle'], ['algo', __tmT("task.rules"), __tmT("task.rules"), 'list-numbers'],
+        ['about', __tmT("settings.data"), __tmT("settings.data"), 'cloud'], ['benefits', __tmT("settings.license"), __tmT("settings.license"), 'lock'],
     ];
     // Exact navigation glyphs from the approved v3 prototype, independent of the global icon set.
     const TM_SETTINGS_V3_NAV_ICONS = {
@@ -20,13 +20,13 @@
         return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" data-settings-icon="${page}">${TM_SETTINGS_V3_NAV_ICONS[page]}</svg>`;
     }
     const TM_SETTINGS_V3_SUBPAGES = {
-        docs: [['t-src', '文档与来源'], ['t-new', '新建任务'], ['t-status', '状态列表'], ['t-done', '完成与归档'], ['t-review', '复习与日期']],
-        view: [['v-start', '启动与入口'], ['v-float', '悬浮条与交互'], ['v-fields', '字段与分组'], ['v-table', '表格 / 清单'], ['v-tl', '时间轴 / 看板 / 白板']],
-        calendar: [['c-cal', '日历'], ['c-content', '日程与显示'], ['c-remind', '提醒通知'], ['c-ics', 'ICS 订阅'], ['c-focus', '专注与联动']],
-        appearance: [['l-density', '字号与密度'], ['l-icon', '图标与复选框'], ['l-color', '配色'], ['l-top', '顶栏控件']],
-        ai: [['a-mode', '工作方式'], ['a-agent', '智能体'], ['a-legacy', '旧版接入'], ['a-policy', '安排规则']],
-        algo: [['r-rules', '筛选与排序'], ['r-priority', '优先级分值'], ['r-quadrant', '四象限']],
-        about: [['d-io', '导入导出'], ['d-sync', '同步与设备'], ['d-about', '版本与帮助']],
+        docs: [['t-src', __tmT("settings.documentsSources")], ['t-new', __tmT("common.newTask")], ['t-status', __tmT("settings.statusList")], ['t-done', __tmT("settings.completionArchiving")], ['t-review', __tmT("settings.reviewDates")]],
+        view: [['v-start', __tmT("settings.startupEntries")], ['v-float', __tmT("settings.quickbarInteraction")], ['v-fields', __tmT("settings.fieldsGrouping")], ['v-table', __tmT("settings.tableChecklist")], ['v-tl', __tmT("settings.timelineKanbanWhiteboard")]],
+        calendar: [['c-cal', __tmT("calendar.calendar")], ['c-content', __tmT("settings.scheduleDisplay")], ['c-remind', __tmT("settings.remindersNotifications")], ['c-ics', __tmT("settings.icsSubscription")], ['c-focus', __tmT("settings.focusIntegrations")]],
+        appearance: [['l-density', __tmT("settings.fontSizeDensity")], ['l-icon', __tmT("settings.iconsCheckboxes")], ['l-color', __tmT("settings.colors")], ['l-top', __tmT("settings.topBarControls")]],
+        ai: [['a-mode', __tmT("settings.workflow")], ['a-agent', __tmT("settings.agent")], ['a-legacy', __tmT("settings.legacyAccess")], ['a-policy', __tmT("kernel.schedulingRules")]],
+        algo: [['r-rules', __tmT("settings.filteringSorting")], ['r-priority', __tmT("task.priorityScore")], ['r-quadrant', __tmT("task.quadrants")]],
+        about: [['d-io', __tmT("settings.importExport")], ['d-sync', __tmT("settings.syncDevices")], ['d-about', __tmT("settings.versionHelp")]],
         benefits: [],
     };
     const __tmSettingsV2Sources = {
@@ -35,24 +35,24 @@
         algo: ['rules', 'priority', 'quadrant'], about: ['about', 'docs', 'main', 'appearance'], benefits: ['benefits'],
     };
     const __tmSettingsV3GroupNames = {
-        't-src:docs': '文档分组与来源', 't-src:tabs': '页签与归档入口', 't-src:search': '扫描范围',
-        't-new:new-task': '新建位置与继承', 't-new:display': '任务标题',
-        't-status:status': '状态与完成联动', 't-done:new-task': '删除与归档',
-        't-done:display': '完成反馈', 't-done:search': '已完成任务显示',
-        't-review:status': '间隔复习', 't-review:search': '语义日期', 't-review:display': '工作日计算',
-        'v-start:layout': '启动与默认视图', 'v-start:topbar': '思源入口', 'v-start:appearance-topbar': '插件顶栏入口',
-        'v-start:shortcuts': '快捷方式侧边栏',
-        'v-float:layout': '任务点击行为', 'v-float:quickbar': '任务悬浮条',
-        'v-fields:layout': '紧凑字段', 'v-fields:search': '任务分组与排序',
-        'v-table:columns': '表格列设置', 'v-table:layout': '清单布局',
-        'v-tl:timeline': '时间轴', 'v-tl:kanban': '看板', 'v-tl:whiteboard': '白板', 'v-tl:cards': '卡片通用',
-        'l-density:display': '字号与阅读密度', 'l-density:layout': '紧凑字段字号',
-        'l-icon:icons': '插件图标', 'l-icon:checkbox': '任务复选框', 'l-icon:colors': '重要性图标',
-        'l-icon:task-count-badge': '任务数量角标',
-        'l-color:colors': '主题与配色', 'l-top:colors': '顶栏控件细节',
-        'c-focus:layout': '时长与番茄属性', 'c-focus:topbar': '嵌入待办统计', 'c-focus:tomato': '番茄钟与打卡联动',
-        'd-io:import': '任务数据导入', 'd-io:backup': '设置备份与迁移',
-        'd-sync:device': '设备识别与诊断', 'd-sync:search': '兼容与同步', 'd-about:version': '版本与帮助',
+        't-src:docs': __tmT("settings.documentGroupsSources"), 't-src:tabs': __tmT("settings.tabsArchiveEntry"), 't-src:search': __tmT("settings.scanScope"),
+        't-new:new-task': __tmT("settings.newTaskLocationInheritance"), 't-new:display': __tmT("kernel.taskHeading"),
+        't-status:status': __tmT("settings.statusCompletionLinks"), 't-done:new-task': __tmT("settings.deletionArchiving"),
+        't-done:display': __tmT("settings.completionFeedback"), 't-done:search': __tmT("settings.completedTaskDisplay"),
+        't-review:status': __tmT("settings.spacedReview"), 't-review:search': __tmT("task.semanticDates"), 't-review:display': __tmT("settings.workdayCalculation"),
+        'v-start:layout': __tmT("settings.startupDefaultView"), 'v-start:topbar': __tmT("settings.siyuanEntry"), 'v-start:appearance-topbar': __tmT("settings.pluginTopBarEntry"),
+        'v-start:shortcuts': __tmT("settings.shortcutSidebar"),
+        'v-float:layout': __tmT("settings.taskClickBehavior"), 'v-float:quickbar': __tmT("settings.taskQuickbar2"),
+        'v-fields:layout': __tmT("settings.compactFields"), 'v-fields:search': __tmT("settings.taskGroupingSorting"),
+        'v-table:columns': __tmT("settings.tableColumns"), 'v-table:layout': __tmT("settings.checklistLayout"),
+        'v-tl:timeline': __tmT("task.timeline"), 'v-tl:kanban': __tmT("task.kanban"), 'v-tl:whiteboard': __tmT("task.whiteboard"), 'v-tl:cards': __tmT("settings.commonCardSettings"),
+        'l-density:display': __tmT("settings.fontSizeReadingDensity"), 'l-density:layout': __tmT("settings.compactFieldFontSize"),
+        'l-icon:icons': __tmT("settings.pluginIcon"), 'l-icon:checkbox': __tmT("settings.taskCheckboxes"), 'l-icon:colors': __tmT("settings.priorityIcon"),
+        'l-icon:task-count-badge': __tmT("settings.taskCountBadge"),
+        'l-color:colors': __tmT("settings.themeColors"), 'l-top:colors': __tmT("settings.topBarControlDetails"),
+        'c-focus:layout': __tmT("settings.durationPomodoroAttributes"), 'c-focus:topbar': __tmT("settings.embeddedToDoStatistics"), 'c-focus:tomato': __tmT("settings.pomodoroCheckInIntegration"),
+        'd-io:import': __tmT("settings.taskDataImport"), 'd-io:backup': __tmT("task.settingsBackupMigration"),
+        'd-sync:device': __tmT("settings.deviceRecognitionDiagnostics"), 'd-sync:search': __tmT("settings.compatibilitySync"), 'd-about:version': __tmT("settings.versionHelp"),
     };
     function __tmSettingsV3Handlers(node) {
         if (!node) return '';
@@ -155,7 +155,7 @@
                 panel.dataset.tmSettingsSubpage = route.sub;
                 panel.dataset.tmSettingsSection = `${source}-${groupSection}-${page}-${route.sub}`;
                 panel.dataset.tmSettingsLegacySection = section;
-                const title = (source === 'docs' ? __tmSettingsV2Title(node) : '') || __tmSettingsV3GroupNames[groupKey] || TM_SETTINGS_V3_SUBPAGES[page].find(x => x[0] === route.sub)?.[1] || '设置';
+                const title = (source === 'docs' ? __tmSettingsV2Title(node) : '') || __tmSettingsV3GroupNames[groupKey] || TM_SETTINGS_V3_SUBPAGES[page].find(x => x[0] === route.sub)?.[1] || __tmT("common.settings");
                 panel.innerHTML = `<div class="tm-settings-section-title">${esc(title)}</div>`;
                 fragment.append(panel);
                 groups.set(groupKey, panel);
@@ -204,7 +204,7 @@
                 if (fragment.querySelector(`[data-tm-settings-subpage="${sub}"]`)) continue;
                 const note = document.createElement('div');
                 note.className = 'tm-settings-v3-empty';
-                note.innerHTML = `<p>${sub === 'a-policy' ? '安排规则需要启用思源智能体并具备对应功能权益。' : `当前工作方式未启用${esc(label)}，可在工作方式中切换。`}</p><button type="button" class="tm-btn" data-tm-call="tmOpenSettingsV3Subpage" data-tm-args='["a-mode"]'>查看工作方式</button>`;
+                note.innerHTML = `<p>${sub === 'a-policy' ? __tmT("settings.schedulingRulesRequireTheSiyuanAgentToBeEnabled") : __tmT("settings.theCurrentWorkflowDoesNotEnableSwitchItUnder", { label: esc(label) })}</p><button type="button" class="tm-btn" data-tm-call="tmOpenSettingsV3Subpage" data-tm-args='["a-mode"]'>${__tmT("settings.viewWorkflow")}</button>`;
                 appendGroup(note, 'ai', sub, { page: 'ai', sub });
             }
         }
@@ -212,31 +212,31 @@
         root.classList.add('tm-settings-v2', 'tm-settings-v3');
         root.classList.remove('tm-settings-modal--mobile');
         root.dataset.settingsPage = page;
-        root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); root.setAttribute('aria-label', '任务管理器设置');
+        root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); root.setAttribute('aria-label', __tmT("settings.taskManagerSettings"));
         const sidebar = root.querySelector('.tm-settings-sidebar');
         const search = sidebar.querySelector('[data-tm-settings-search-root]');
         const main = root.querySelector('.tm-settings-main');
         if (search) {
             main.prepend(search);
             search.querySelector('.tm-settings-search-icon').innerHTML = __tmRenderLucideIcon('search', '', { size: 16 });
-            search.querySelector('input').placeholder = '搜索设置项，按 / 聚焦';
+            search.querySelector('input').placeholder = __tmT("settings.searchSettingsPressToFocus");
         }
         sidebar.querySelector('.tm-settings-tabs').innerHTML = TM_SETTINGS_V2_PAGES.map(([id, label]) =>
             `<button type="button" class="tm-settings-nav-btn${id === page ? ' is-active' : ''}" data-tm-call="tmOpenSettingsV2Page" data-tm-args='${esc(JSON.stringify([id]))}' ${id === page ? 'aria-current="page"' : ''} title="${esc(label)}">${__tmSettingsV3NavIcon(id)}<span>${esc(label)}</span></button>`).join('');
         const searchButton = document.createElement('button');
         searchButton.type = 'button'; searchButton.className = 'tm-settings-v3-rail-search';
-        searchButton.setAttribute('aria-label', '搜索设置'); searchButton.title = '搜索设置（/）';
+        searchButton.setAttribute('aria-label', __tmT("settings.searchSettings2")); searchButton.title = __tmT("settings.searchSettings3");
         searchButton.innerHTML = __tmRenderLucideIcon('search', '', { size: 18 });
         searchButton.addEventListener('click', () => __tmToggleSettingsV3Search(root));
         sidebar.prepend(searchButton);
         root.querySelectorAll('.tm-settings-actions').forEach(node => node.remove());
         const header = document.createElement('div');
         header.className = 'tm-settings-v2-header';
-        header.innerHTML = `<div><h2>${esc(TM_SETTINGS_V2_PAGES.find(item => item[0] === page)?.[1] || '设置')}</h2></div><button type="button" class="tm-settings-v3-search-toggle" aria-label="搜索设置">${__tmRenderLucideIcon('search', '', { size: 18 })}</button><button type="button" class="bc-btn bc-btn--ghost tm-settings-v2-close" data-tm-action="closeSettings" aria-label="关闭设置">${__tmRenderLucideIcon('x', '', { size: 20 })}</button>`;
+        header.innerHTML = `<div><h2>${esc(TM_SETTINGS_V2_PAGES.find(item => item[0] === page)?.[1] || __tmT("common.settings"))}</h2></div><button type="button" class="tm-settings-v3-search-toggle" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.searchSettings2")}">${__tmRenderLucideIcon('search', '', { size: 18 })}</button><button type="button" class="bc-btn bc-btn--ghost tm-settings-v2-close" data-tm-action="closeSettings" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.offsettings")}">${__tmRenderLucideIcon('x', '', { size: 20 })}</button>`;
         header.querySelector('.tm-settings-v3-search-toggle').addEventListener('click', () => __tmToggleSettingsV3Search(root));
         main.prepend(header);
         const sections = document.createElement('nav');
-        sections.className = 'tm-settings-v3-sections'; sections.setAttribute('aria-label', '设置子分类');
+        sections.className = 'tm-settings-v3-sections'; sections.setAttribute('aria-label', __tmT("settings.settingsSubcategory"));
         sections.innerHTML = TM_SETTINGS_V3_SUBPAGES[page].map(([id, label]) => `<button type="button" data-tm-call="tmOpenSettingsV3Subpage" data-tm-args='${esc(JSON.stringify([id]))}' data-settings-subpage="${id}">${esc(label)}</button>`).join('');
         sections.hidden = !sections.childElementCount;
         main.insertBefore(sections, content);
@@ -321,7 +321,7 @@
         });
         __tmDecorateSettingsChoices(root); __tmObserveSettingsChoices(root);
         const content = root.querySelector('.tm-settings-content');
-        const calendarLabels = { 'calendar-general': '基础视图', 'calendar-layout': '日历布局', 'calendar-content': '日程与显示', 'calendar-reminders': '提醒通知', 'calendar-subscription': '日历订阅' };
+        const calendarLabels = { 'calendar-general': __tmT("settings.basicViews"), 'calendar-layout': __tmT("settings.calendarLayout"), 'calendar-content': __tmT("settings.scheduleDisplay"), 'calendar-reminders': __tmT("settings.remindersNotifications"), 'calendar-subscription': __tmT("settings.calendarSubscription") };
         const sections = Array.from(content.querySelectorAll('.tm-settings-panel[data-tm-settings-section]'));
         sections.forEach(panel => {
             const id = panel.dataset.tmSettingsSection;
@@ -333,9 +333,9 @@
             if (!heading) heading = panel.querySelector(':scope > div[style*="font-weight"],:scope > div > div[style*="font-weight"]');
             if (!heading) {
                 heading = document.createElement('div'); panel.prepend(heading);
-                heading.textContent = TM_SETTINGS_V3_SUBPAGES[root.dataset.settingsPage]?.find(item => item[0] === panel.dataset.tmSettingsSubpage)?.[1] || '设置';
+                heading.textContent = TM_SETTINGS_V3_SUBPAGES[root.dataset.settingsPage]?.find(item => item[0] === panel.dataset.tmSettingsSubpage)?.[1] || __tmT("common.settings");
             }
-            const label = (calendarLabels[id] || (panel.dataset.tmSettingsLegacySection === 'device' ? '设备识别与诊断' : '') || heading.textContent.trim()).replace(/^[^\p{Script=Han}A-Za-z0-9]+/u, '').trim();
+            const label = (calendarLabels[id] || (panel.dataset.tmSettingsLegacySection === 'device' ? __tmT("settings.deviceRecognitionDiagnostics") : '') || heading.textContent.trim()).replace(/^[^\p{Script=Han}A-Za-z0-9]+/u, '').trim();
             panel.dataset.tmSettingsSectionLabel = label;
             heading.classList.add('tm-settings-section-title'); heading.textContent = label;
             __tmLayoutSettingsV2Section(panel, heading);
@@ -427,7 +427,7 @@
                 const row = select.closest('[data-tm-settings-search-title],.tm-calendar-settings-row,.tm-agent-policy-group,label');
                 const label = select.getAttribute('aria-label') || row?.dataset.tmSettingsSearchTitle
                     || row?.querySelector('.tm-calendar-settings-label,.tm-agent-policy-group__title,span')?.textContent?.trim()
-                    || select.closest('[data-tm-settings-search-title]')?.dataset.tmSettingsSearchTitle || '选项';
+                    || select.closest('[data-tm-settings-search-title]')?.dataset.tmSettingsSearchTitle || __tmT("settings.options");
                 group.setAttribute('aria-label', label);
             }
             options.forEach((option) => {
@@ -534,7 +534,7 @@
                         __tmSettingsSaveJobs.set(key, job);
                     }
                     job.failed = { snapshot: null, write: () => original.apply(this, args) };
-                    __tmSettingsSaveFeedback(key, `未生效：${String(error?.message || error)}`);
+                    __tmSettingsSaveFeedback(key, __tmT("settings.notApplied", { value1: String(error?.message || error) }));
                     return false;
                 };
                 try {
@@ -663,7 +663,7 @@
                 const retry = document.createElement('button');
                 retry.type = 'button';
                 retry.className = 'bc-btn bc-btn--ghost';
-                retry.textContent = '重试';
+                retry.textContent = __tmT("common.retry");
                 retry.addEventListener('click', () => {
                     const job = __tmSettingsSaveJobs.get(key);
                     if (!job?.failed) return;
@@ -704,7 +704,7 @@
                         __tmSettingsSaveFeedback(key);
                     } catch (error) {
                         job.failed = error?.code === 'STALE_REVISION' ? null : next;
-                        __tmSettingsSaveFeedback(key, `未生效：${String(error?.message || error)}`);
+                        __tmSettingsSaveFeedback(key, __tmT("settings.notApplied", { value1: String(error?.message || error) }));
                     }
                 }
             } finally { job.running = false; }
@@ -744,7 +744,7 @@
         __tmRerenderRulesManagerUI();
     }
     async function __tmPersistEditingRule(rule) {
-        if (!String(rule.name || '').trim()) throw new Error('规则名称不能为空');
+        if (!String(rule.name || '').trim()) throw new Error(__tmT("settings.ruleNameCannotBeEmpty"));
         __tmNormalizeRuleSortConfigForCustomOrder(rule);
         const fields = RuleManager.getAvailableFields();
         (rule.conditions || []).forEach((condition) => {
@@ -768,9 +768,9 @@
     async function __tmPersistScheduledSetting(draft) {
         const error = __tmScheduledValidate(draft);
         if (error) throw new Error(error);
-        if (!__tmScheduledSettingsSupported()) throw new Error('定时事件需要思源 3.7.3 或更高版本');
+        if (!__tmScheduledSettingsSupported()) throw new Error(__tmT("settings.scheduledEventsRequireSiyuanOrLater"));
         const api = __tmScheduledSettingsApi();
-        if (typeof api?.save !== 'function') throw new Error('定时事件服务尚未就绪，请稍后重试');
+        if (typeof api?.save !== 'function') throw new Error(__tmT("settings.theScheduledEventsServiceIsNotReadyTryAgain"));
         // Execution records belong to the scheduler, never overwrite them with an editor snapshot.
         const current = api.list().find((item) => item.id === draft.id);
         if (current) ['lastRun', 'lastOccurrence', 'conversationId', 'conversationUpdatedAt', 'conversationTitle'].forEach((key) => { draft[key] = current[key]; });
@@ -805,7 +805,7 @@
                 if (job) job.pending = null;
                 await __tmLoadAgentPolicySettings(true);
                 __tmAgentPolicyRerender();
-                throw Object.assign(new Error('安排规则已在其他位置发生变化，已重新读取最新设置，请重新修改'), { code: 'STALE_REVISION' });
+                throw Object.assign(new Error(__tmT("settings.theSchedulingRulesChangedElsewhereTheLatestSettingsWere2")), { code: 'STALE_REVISION' });
             }
             throw error2;
         }

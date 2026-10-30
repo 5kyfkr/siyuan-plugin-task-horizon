@@ -37,6 +37,9 @@ Write-Host ("Verifying {0}: {1} test files" -f $Suite, $tests.Count)
 & node (Join-Path $root 'scripts/check-runtime-syntax.js')
 if ($LASTEXITCODE -ne 0) { throw 'Runtime syntax or manifest check failed' }
 
+& node (Join-Path $root 'scripts/check-i18n.js')
+if ($LASTEXITCODE -ne 0) { throw 'Language dictionary or README check failed' }
+
 & node (Join-Path $root 'scripts/check-task-writer-boundary.js') --strict
 if ($LASTEXITCODE -ne 0) { throw 'Task writer boundary check failed' }
 

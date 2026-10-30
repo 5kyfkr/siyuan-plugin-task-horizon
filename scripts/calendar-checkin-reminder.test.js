@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const source = fs.readFileSync(process.env.CALENDAR_TEST_SOURCE || path.resolve(__dirname, '../calendar-view.js'), 'utf8');
 class Clock extends Date { constructor(...args) { super(...(args.length ? args : ['2026-09-30T12:00:00'])); } }
 const key = date => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');

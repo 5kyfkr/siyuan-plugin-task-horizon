@@ -1,4 +1,6 @@
 (function () {
+    const __tmT = globalThis.__taskHorizonHostBridge.i18n.t;
+
     if (globalThis.__tmAI && globalThis.__tmAI.loaded) return;
     const NS_KEY = 'siyuan-plugin-task-horizon';
     const HISTORY_PREFIX = 'tm-ai-history:';
@@ -17,23 +19,23 @@
     const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-5';
     const AI_UI_REV = 'ui-rev-2026-03-17-3';
     const AI_SCENE_LABELS = {
-        chat: 'AI 对话',
-        smart: 'SMART 分析',
-        schedule: '日程排期',
-        summary: '摘要总结',
+        chat: __tmT("ai.aiChat"),
+        smart: __tmT("ai.smartAnalysis"),
+        schedule: __tmT("ai.schedulePlanning"),
+        summary: __tmT("ai.summary"),
     };
     const AI_CONTEXT_SCOPE_LABELS = {
-        none: '纯对话',
-        current_doc: '当前文档',
-        current_task: '当前任务',
-        current_group: '当前分区',
-        current_view: '当前视图前5',
-        manual: '手动任务',
+        none: __tmT("ai.chatOnly"),
+        current_doc: __tmT("ai.currentDocument"),
+        current_task: __tmT("ai.currentTask"),
+        current_group: __tmT("ai.currentGroup"),
+        current_view: __tmT("ai.topOfCurrentView"),
+        manual: __tmT("ai.manualTasks"),
     };
     const AI_CONTEXT_MODE_LABELS = {
-        none: '无上下文',
-        nearby: '附近上下文',
-        fulltext: '全文上下文',
+        none: __tmT("ai.noContext"),
+        nearby: __tmT("ai.nearbyContext"),
+        fulltext: __tmT("ai.fullTextContext"),
     };
     const AI_DEFAULT_PLANNER_OPTIONS = {
         planDate: '',
@@ -130,8 +132,8 @@
     }
 
     const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    const getTaskTitlePresentation = (source, fallback = '任务') => {
-        const fallbackText = String(fallback || '').trim() || '任务';
+    const getTaskTitlePresentation = (source, fallback = __tmT("kernel.task")) => {
+        const fallbackText = String(fallback || '').trim() || __tmT("kernel.task");
         try {
             const presentation = globalThis.__tmGetTaskTitlePresentation?.(source, fallbackText);
             if (presentation && typeof presentation.html === 'string' && typeof presentation.text === 'string') {
@@ -370,7 +372,7 @@
         const to = normalizeDateKey(summary.dateTo || summary.dateFrom || '');
         const finalFrom = from || todayKey();
         const finalTo = to || finalFrom;
-        const presetLabel = summary.preset === 'weekly' ? '周报' : (summary.preset === 'custom' ? '自定义摘要' : '日报');
+        const presetLabel = summary.preset === 'weekly' ? __tmT("kernel.weeklyReport") : (summary.preset === 'custom' ? __tmT("ai.customSummary") : __tmT("ai.dailyReport"));
         return {
             ...summary,
             dateFrom: finalFrom,
@@ -418,7 +420,7 @@
             : String(template?.content || '');
         return {
             id: String(template?.id || uid('prompt')).trim(),
-            name: String(template?.name || '').trim() || '未命名提示词',
+            name: String(template?.name || '').trim() || __tmT("ai.untitledPrompt"),
             content,
             createdAt,
             updatedAt,
@@ -441,7 +443,7 @@
         const updatedAt = Number(conversation?.updatedAt || createdAt || Date.now());
         return {
             id: String(conversation?.id || uid('conv')).trim(),
-            title: String(conversation?.title || '').trim() || `${AI_SCENE_LABELS[type] || 'AI 会话'} ${new Date(updatedAt).toLocaleDateString()}`,
+            title: String(conversation?.title || '').trim() || `${AI_SCENE_LABELS[type] || __tmT("ai.aiConversation")} ${new Date(updatedAt).toLocaleDateString()}`,
             type,
             contextScope,
             contextMode,
@@ -519,7 +521,7 @@
         const lastTs = Number(baseMessages[baseMessages.length - 1]?.ts || Date.now());
         return normalizeConversation({
             id: uid('legacy'),
-            title: `${historyKindLabel(k)} · ${did || '历史记录'}`,
+            title: `${historyKindLabel(k)} · ${did || __tmT("ai.history")}`,
             type,
             contextScope,
             selectedDocIds,
@@ -651,7 +653,7 @@
     async function createPromptTemplate(input = {}) {
         const next = await PromptTemplateStore.upsert({
             id: uid('prompt'),
-            name: String(input?.name || '').trim() || '未命名提示词',
+            name: String(input?.name || '').trim() || __tmT("ai.untitledPrompt"),
             content: String(input?.content || ''),
             createdAt: Date.now(),
             updatedAt: Date.now(),
@@ -688,12 +690,12 @@
             const modal = setModal(title, `
                 ${hint ? `<div class="tm-ai-hint">${esc(hint)}</div>` : ''}
                 <label class="tm-ai-label">
-                    <span>名称</span>
-                    <input class="tm-input" data-ai-template-input="name" value="${esc(defaultValue)}" placeholder="例如：周报总结 / 风险排查 / 下一步建议">
+                    <span>${__tmT("ai.name")}</span>
+                    <input class="tm-input" data-ai-template-input="name" value="${esc(defaultValue)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("ai.forExampleWeeklyReviewInvestigateRisksSuggestNextSteps")}">
                 </label>
                 <div class="tm-ai-actions">
-                    <button class="tm-btn tm-btn-primary" data-ai-template-action="submit">确定</button>
-                    <button class="tm-btn tm-btn-secondary" data-ai-template-action="cancel">取消</button>
+                    <button class="tm-btn tm-btn-primary" data-ai-template-action="submit">${__tmT("common.ok")}</button>
+                    <button class="tm-btn tm-btn-secondary" data-ai-template-action="cancel">${__tmT("common.cancel")}</button>
                 </div>
             `);
             const body = modal.querySelector('.tm-ai-modal__body');
@@ -773,7 +775,7 @@
             ...base,
             updatedAt: Date.now(),
             createdAt: Date.now(),
-            title: String(base.title || '').trim() || `${AI_SCENE_LABELS[base.type] || 'AI 会话'} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+            title: String(base.title || '').trim() || `${AI_SCENE_LABELS[base.type] || __tmT("ai.aiConversation")} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
         });
         await ConversationStore.upsert(next);
         ConversationStore.data.activeId = next.id;
@@ -826,8 +828,8 @@
         const selectedTaskIds = Array.from(new Set(current.selectedTaskIds.concat(Array.isArray(patch?.selectedTaskIds) ? patch.selectedTaskIds : []).map((it) => String(it || '').trim()).filter(Boolean)));
         const selectedDocIds = Array.from(new Set(current.selectedDocIds.concat(Array.isArray(patch?.selectedDocIds) ? patch.selectedDocIds : []).map((it) => String(it || '').trim()).filter(Boolean)));
         const contextMessage = [];
-        if (selectedTaskIds.length) contextMessage.push(`已追加任务上下文 ${selectedTaskIds.length} 项`);
-        if (selectedDocIds.length) contextMessage.push(`已追加文档上下文 ${selectedDocIds.length} 项`);
+        if (selectedTaskIds.length) contextMessage.push(__tmT("ai.taskContextAppendedItems", { length: selectedTaskIds.length }));
+        if (selectedDocIds.length) contextMessage.push(__tmT("ai.documentContextAppendedItems", { length: selectedDocIds.length }));
         const next = await updateConversation(id, {
             selectedTaskIds,
             selectedDocIds,
@@ -844,9 +846,9 @@
         if (!list.length) return '';
         return `
             <div class="tm-ai-box">
-                <h4>对话记录</h4>
+                <h4>${__tmT("ai.conversationLog")}</h4>
                 <div class="tm-ai-list">
-                    ${list.map((it) => `<div class="tm-ai-item"><div class="tm-ai-hint" style="margin-bottom:6px;">${it.role === 'user' ? '你' : 'AI'}</div><div>${esc(it.content)}</div></div>`).join('')}
+                    ${list.map((it) => `<div class="tm-ai-item"><div class="tm-ai-hint" style="margin-bottom:6px;">${it.role === 'user' ? __tmT("ai.you") : 'AI'}</div><div>${esc(it.content)}</div></div>`).join('')}
                 </div>
             </div>
         `;
@@ -855,16 +857,16 @@
     async function openHistoryEntry(entry, filterId) {
         if (!entry) return;
         const history = await loadHistory(entry.kind, entry.id);
-        const modal = setModal(`${historyKindLabel(entry.kind)} 记录`, `
+        const modal = setModal(__tmT("ai.record", { value1: historyKindLabel(entry.kind) }), `
             <div class="tm-ai-box">
-                <h4>记录详情</h4>
-                <div class="tm-ai-hint">ID: ${esc(entry.id)}${entry.updatedAt ? ` · ${esc(formatTs(entry.updatedAt))}` : ''} · ${entry.count} 条</div>
+                <h4>${__tmT("ai.recordDetails")}</h4>
+                <div class="tm-ai-hint">${__tmT("ai.idItems", { id: esc(entry.id), value2: entry.updatedAt ? ` · ${esc(formatTs(entry.updatedAt))}` : '', count: entry.count })}</div>
             </div>
-            ${renderHistory(history) || `<div class="tm-ai-box"><div class="tm-ai-hint">暂无记录内容</div></div>`}
+            ${renderHistory(history) || `<div class="tm-ai-box"><div class="tm-ai-hint">${__tmT("ai.noRecordContent")}</div></div>`}
             <div class="tm-ai-actions">
-                <button class="tm-btn tm-btn-secondary" data-ai-action="back-history">返回列表</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="continue-entry">继续</button>
-                <button class="tm-btn tm-btn-success" data-ai-action="close">关闭</button>
+                <button class="tm-btn tm-btn-secondary" data-ai-action="back-history">${__tmT("ai.backToList")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="continue-entry">${__tmT("ai.continue")}</button>
+                <button class="tm-btn tm-btn-success" data-ai-action="close">${__tmT("common.close")}</button>
             </div>
         `);
         const body = modal.querySelector('.tm-ai-modal__body');
@@ -894,13 +896,13 @@
 
     function historyKindLabel(kind) {
         const key = String(kind || '').trim();
-        if (key === 'doc-chat') return '文档对话';
-        if (key === 'doc-smart') return 'SMART 分析';
-        if (key === 'doc-schedule') return '文档排期';
-        if (key === 'task-title') return '任务命名';
-        if (key === 'task-edit') return '任务字段编辑';
-        if (key === 'task-schedule') return '任务排期';
-        return 'AI 记录';
+        if (key === 'doc-chat') return __tmT("ai.documentChat");
+        if (key === 'doc-smart') return __tmT("ai.smartAnalysis");
+        if (key === 'doc-schedule') return __tmT("ai.documentScheduling");
+        if (key === 'task-title') return __tmT("ai.taskNaming");
+        if (key === 'task-edit') return __tmT("ai.taskFieldEditing");
+        if (key === 'task-schedule') return __tmT("ai.taskScheduling");
+        return __tmT("ai.aiRecords");
     }
 
     async function listHistoryEntries(filterId) {
@@ -1042,7 +1044,7 @@
 
     function formatConfiguredStatusPrompt(options) {
         const list = Array.isArray(options) ? options.filter((it) => it.id || it.name) : [];
-        if (!list.length) return '当前没有可用的状态配置。';
+        if (!list.length) return __tmT("ai.noStatusConfigurationIsAvailable");
         return list.map((it) => `${String(it.name || it.id || '').trim()} -> ${String(it.id || '').trim()}`).join('；');
     }
 
@@ -1055,8 +1057,8 @@
 
     function assertReady(allowDisabled) {
         const cfg = getConfig();
-        if (!cfg.apiKey) throw new Error(`请先在 AI 设置中填写 ${providerLabel(cfg.provider)} API Key`);
-        if (!allowDisabled && !cfg.enabled) throw new Error('请先启用 AI 功能');
+        if (!cfg.apiKey) throw new Error(__tmT("ai.fillInTheApiKeyInAiSettingsFirst", { value1: providerLabel(cfg.provider) }));
+        if (!allowDisabled && !cfg.enabled) throw new Error(__tmT("ai.enableTheAiFeatureFirst"));
         return cfg;
     }
 
@@ -1068,9 +1070,9 @@
 
     function normalizeAiErrorMessage(message, provider) {
         const raw = String(message || '').trim();
-        if (!raw) return `${provider} 请求失败`;
-        if (/failed to fetch/i.test(raw)) return 'AI 请求未连通。移动端会优先走思源代理转发，请检查 baseUrl、代理和网络权限。';
-        if (/network/i.test(raw)) return `网络请求失败：${raw}`;
+        if (!raw) return __tmT("ai.requestFailed", { provider: provider });
+        if (/failed to fetch/i.test(raw)) return __tmT("ai.theAiRequestCouldNotConnectOnMobileThe");
+        if (/network/i.test(raw)) return __tmT("ai.networkRequestFailed", { raw: raw });
         return raw;
     }
 
@@ -1169,11 +1171,11 @@
                 }),
             });
             const raw = await res.text();
-            if (!res.ok) throw new Error(`代理请求失败 HTTP ${res.status}`);
+            if (!res.ok) throw new Error(__tmT("ai.proxyRequestFailedHttp", { status: res.status }));
             let json = {};
             try { json = raw ? JSON.parse(raw) : {}; } catch (e) {}
             if (Number(json?.code || 0) !== 0) {
-                const errMsg = String(json?.msg || '代理请求失败');
+                const errMsg = String(json?.msg || __tmT("ai.proxyRequestFailed"));
                 if (shouldRetryDirectFromMobileProxy(errMsg)) {
                     try { return await doDirectFetch(); } catch (e) {}
                 }
@@ -1240,7 +1242,7 @@
                 if (!res.ok) throw new Error(parseHttpError(raw, res.status));
                 const json = JSON.parse(raw);
                 const text = String(json?.choices?.[0]?.message?.content || '').trim();
-                if (!text) throw new Error('DeepSeek 返回为空');
+                if (!text) throw new Error(__tmT("ai.deepseekReturnedAnEmptyResponse"));
                 return text;
             }
             if (cfg.provider === 'anthropic') {
@@ -1273,7 +1275,7 @@
                 const text = Array.isArray(json?.content)
                     ? json.content.filter((it) => it?.type === 'text').map((it) => String(it?.text || '')).join('\n').trim()
                     : '';
-                if (!text) throw new Error('Anthropic 返回为空');
+                if (!text) throw new Error(__tmT("ai.anthropicReturnedAnEmptyResponse"));
                 return text;
             }
             if (cfg.provider === 'openai') {
@@ -1313,7 +1315,7 @@
                 if (!res.ok) throw new Error(parseHttpError(raw, res.status));
                 const json = JSON.parse(raw);
                 const text = extractOpenAiMessageText(json?.choices?.[0]?.message?.content);
-                if (!text) throw new Error('OpenAI 返回为空');
+                if (!text) throw new Error(__tmT("ai.openaiReturnedAnEmptyResponse"));
                 return text;
             }
             const messages = history.map((item) => ({
@@ -1344,7 +1346,7 @@
                 const text = Array.isArray(json?.content)
                     ? json.content.filter((it) => it?.type === 'text').map((it) => String(it?.text || '')).join('\n').trim()
                     : '';
-                if (!text) throw new Error('MiniMax 返回为空');
+                if (!text) throw new Error(__tmT("ai.minimaxReturnedAnEmptyResponse"));
                 return text;
             };
             const requestMiniMaxOpenAi = async () => {
@@ -1366,7 +1368,7 @@
                 if (!res.ok) throw new Error(parseHttpError(raw, res.status));
                 const json = JSON.parse(raw);
                 const text = extractOpenAiMessageText(json?.choices?.[0]?.message?.content);
-                if (!text) throw new Error('MiniMax(OpenAI 兼容) 返回为空');
+                if (!text) throw new Error(__tmT("ai.minimaxOpenaiCompatibleReturnedAnEmptyResponse"));
                 return text;
             };
             try {
@@ -1382,14 +1384,14 @@
                     return await requestMiniMaxOpenAi();
                 } catch (openAiError) {
                     const fallbackMsg = String(openAiError?.message || openAiError || '').trim();
-                    throw new Error(fallbackMsg || anthroMsg || 'MiniMax 请求失败');
+                    throw new Error(fallbackMsg || anthroMsg || __tmT("ai.minimaxRequestFailed"));
                 }
             }
         } catch (e) {
             const msg = String(e?.message || e || '').trim();
             if (e?.name === 'AbortError' || /aborted|abort|signal/i.test(msg)) {
-                const mode = String(opt.contextMode || '').trim() === 'fulltext' ? '全文模式' : '当前模式';
-                throw new Error(`${mode}请求超时，已中止。建议重试，或在 AI 设置里调大超时时间。`);
+                const mode = String(opt.contextMode || '').trim() === 'fulltext' ? __tmT("ai.fullTextMode") : __tmT("ai.currentMode");
+                throw new Error(__tmT("ai.requestTimedOutAndWasAbortedRetryOrIncrease", { mode: mode }));
             }
             throw new Error(normalizeAiErrorMessage(msg, providerLabel(cfg.provider)));
         } finally {
@@ -1527,7 +1529,7 @@
                 }
             }
         }
-        throw new Error(String(lastError?.message || 'AI 返回格式不是合法 JSON'));
+        throw new Error(String(lastError?.message || __tmT("ai.theAiResponseIsNotValidJson")));
     }
 
     function normalizeSchemaResult(parsed, expectedSchema) {
@@ -1612,7 +1614,7 @@
             const repairModel = String(opt.repairModel || defaultRepairModel);
             try {
                 repaired = await callMiniMax(
-                    '你是 JSON 修复助手。请把用户提供的内容修复为唯一且合法的 JSON。不要解释，不要补充说明，不要输出 Markdown，只输出 JSON 本身。',
+                    __tmT("ai.youAreAJsonRepairAssistantFixTheContent"),
                     {
                         expected: String(opt.expectedSchema || '').trim(),
                         brokenJson: raw,
@@ -1630,7 +1632,7 @@
             } catch (repairError) {
                 try {
                     rebuilt = await callMiniMax(
-                        '你是结构化数据重建助手。请根据用户提供的原始文本，重新输出一个合法 JSON，严格匹配 expectedSchema 所描述的结构。允许你概括、压缩、重写字段内容，但必须只输出合法 JSON，不要解释，不要 Markdown。',
+                        __tmT("ai.youAreAStructuredDataRebuildAssistantBasedOn"),
                         {
                             expectedSchema: String(opt.expectedSchema || '').trim(),
                             sourceText: repaired || raw,
@@ -1834,7 +1836,7 @@
             <div class="tm-ai-modal__dialog">
                 <div class="tm-ai-modal__header">
                     <div class="tm-ai-modal__title">AI</div>
-                    <button class="tm-btn tm-btn-gray" data-ai-action="close">关闭</button>
+                    <button class="tm-btn tm-btn-gray" data-ai-action="close">${__tmT("common.close")}</button>
                 </div>
                 <div class="tm-ai-modal__body"></div>
             </div>
@@ -1861,12 +1863,12 @@
         if (!list.length) return '';
         return `
             <div class="tm-ai-box">
-                <h4>进度</h4>
+                <h4>${__tmT("ai.progress")}</h4>
                 <div class="tm-ai-list">
                     ${list.map((step, idx) => {
                         const active = idx === currentStep;
                         const done = idx < currentStep;
-                        const mark = done ? '已完成' : (active ? '进行中' : '等待中');
+                        const mark = done ? __tmT("ai.completed") : (active ? __tmT("ai.inProgress") : __tmT("ai.waiting"));
                         const opacity = done ? '1' : (active ? '1' : '.62');
                         return `<div class="tm-ai-item" style="opacity:${opacity};"><div style="font-weight:600;">${done ? '<span class="tm-selection-check" aria-hidden="true"></span>' : (active ? '…' : '○')} ${esc(step)}</div><div class="tm-ai-hint" style="margin-top:4px;">${mark}</div></div>`;
                     }).join('')}
@@ -1879,8 +1881,8 @@
         return setModal(title, `
             ${renderProgressSteps(steps, currentStep)}
             <div class="tm-ai-box">
-                <h4>处理中</h4>
-                <div class="tm-ai-hint">${esc(hintText || '正在处理...')}</div>
+                <h4>${__tmT("ai.processing2")}</h4>
+                <div class="tm-ai-hint">${esc(hintText || __tmT("ai.processing"))}</div>
             </div>
         `);
     }
@@ -1897,17 +1899,15 @@
             const modal = setModal(title, `
                 ${historyHtml}
                 <div>
-                    <div class="tm-ai-label">补充说明</div>
+                    <div class="tm-ai-label">${__tmT("ai.additionalNotes")}</div>
                     <textarea class="tm-ai-textarea" data-ai-input="instruction" placeholder="${esc(placeholder || '')}">${esc(String(opt.defaultInstruction || ''))}</textarea>
                     <div class="tm-ai-hint">${esc(hint || '')}</div>
                 </div>
                 <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-ai-input="fulltext" ${cfg.contextMode === 'fulltext' ? 'checked' : ''}>
-                    带全文分析
-                </label>
+                    <input class="b3-switch fn__flex-center" type="checkbox" data-ai-input="fulltext" ${cfg.contextMode === 'fulltext' ? 'checked' : ''}>${__tmT("ai.includeFullText")}</label>
                 <div class="tm-ai-actions">
-                    <button class="tm-btn tm-btn-secondary" data-ai-action="cancel">取消</button>
-                    <button class="tm-btn tm-btn-success" data-ai-action="run">继续</button>
+                    <button class="tm-btn tm-btn-secondary" data-ai-action="cancel">${__tmT("common.cancel")}</button>
+                    <button class="tm-btn tm-btn-success" data-ai-action="run">${__tmT("ai.continue")}</button>
                 </div>
             `);
             const body = modal.querySelector('.tm-ai-modal__body');
@@ -1972,10 +1972,10 @@
         const cleanPriority = (v) => {
             const t = String(v || '').trim().toLowerCase();
             if (!t) return '';
-            if (['high', 'h', 'a', '高', '高重要性', '高优先级', '紧急'].includes(t)) return 'high';
-            if (['medium', 'm', 'b', '中', '中重要性', '中优先级', '普通'].includes(t)) return 'medium';
-            if (['low', 'l', 'c', '低', '低重要性', '低优先级'].includes(t)) return 'low';
-            if (['none', '无', '未设置'].includes(t)) return 'none';
+            if (['high', 'h', 'a', "高", "高重要性", "高优先级", "紧急"].includes(t)) return 'high';
+            if (['medium', 'm', 'b', "中", "中重要性", "中优先级", "普通"].includes(t)) return 'medium';
+            if (['low', 'l', 'c', "低", "低重要性", "低优先级"].includes(t)) return 'low';
+            if (['none', "无", "未设置"].includes(t)) return 'none';
             return String(v || '').trim();
         };
         const title = pick('title', 'content', 'name');
@@ -2035,36 +2035,36 @@
 
     function describeTaskFieldPatch(patch = {}) {
         const parts = [];
-        if (Object.prototype.hasOwnProperty.call(patch, 'title')) parts.push(`标题改为“${String(patch.title || '').trim() || '空'}”`);
-        if (Object.prototype.hasOwnProperty.call(patch, 'done')) parts.push(`完成状态设为${patch.done ? '已完成' : '未完成'}`);
+        if (Object.prototype.hasOwnProperty.call(patch, 'title')) parts.push(__tmT("ai.titleChangedTo", { value1: String(patch.title || '').trim() || __tmT("ai.empty") }));
+        if (Object.prototype.hasOwnProperty.call(patch, 'done')) parts.push(__tmT("ai.completionSetTo", { value1: patch.done ? __tmT("ai.completed") : __tmT("ai.notDone") }));
         if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
             const p = String(patch.priority || '').trim();
-            const label = p === 'high' ? '高' : (p === 'medium' ? '中' : (p === 'low' ? '低' : (p === 'none' ? '无' : p || '空')));
-            parts.push(`重要性设为${label}`);
+            const label = p === 'high' ? __tmT("common.high") : (p === 'medium' ? __tmT("common.medium") : (p === 'low' ? __tmT("common.low") : (p === 'none' ? __tmT("common.none") : p || __tmT("ai.empty"))));
+            parts.push(__tmT("ai.setImportanceTo", { label: label }));
         }
         if (Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
             const matched = resolveConfiguredStatusOption(patch.customStatus, getConfig().statusOptions);
-            parts.push(`状态设为${String(matched?.name || patch.customStatus || '').trim() || '空'}`);
+            parts.push(__tmT("ai.statusSetTo", { value1: String(matched?.name || patch.customStatus || '').trim() || __tmT("ai.empty") }));
         }
-        if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) parts.push(`开始日期设为${String(patch.startDate || '').trim() || '空'}`);
-        if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) parts.push(`完成日期设为${String(patch.completionTime || '').trim() || '空'}`);
-        if (Object.prototype.hasOwnProperty.call(patch, 'duration')) parts.push(`时长设为${String(patch.duration || '').trim() || '空'}`);
-        if (Object.prototype.hasOwnProperty.call(patch, 'remark')) parts.push(`备注设为${String(patch.remark || '').trim() || '空'}`);
-        if (Object.prototype.hasOwnProperty.call(patch, 'pinned')) parts.push(`${patch.pinned ? '设为置顶' : '取消置顶'}`);
-        if (Object.prototype.hasOwnProperty.call(patch, 'milestone')) parts.push(`${patch.milestone ? '设为里程碑' : '取消里程碑'}`);
+        if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) parts.push(__tmT("ai.startDateSetTo", { value1: String(patch.startDate || '').trim() || __tmT("ai.empty") }));
+        if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) parts.push(__tmT("ai.completionDateSetTo", { value1: String(patch.completionTime || '').trim() || __tmT("ai.empty") }));
+        if (Object.prototype.hasOwnProperty.call(patch, 'duration')) parts.push(__tmT("ai.durationSetTo", { value1: String(patch.duration || '').trim() || __tmT("ai.empty") }));
+        if (Object.prototype.hasOwnProperty.call(patch, 'remark')) parts.push(__tmT("ai.noteSetTo", { value1: String(patch.remark || '').trim() || __tmT("ai.empty") }));
+        if (Object.prototype.hasOwnProperty.call(patch, 'pinned')) parts.push(`${patch.pinned ? __tmT("ai.pinTask") : __tmT("ai.unpin")}`);
+        if (Object.prototype.hasOwnProperty.call(patch, 'milestone')) parts.push(`${patch.milestone ? __tmT("ai.setAsMilestone") : __tmT("ai.cancelmilestone")}`);
         return parts.join('，');
     }
 
     function describeChatCreateAction(item = {}) {
         const target = String(item?.targetLabel || '').trim();
-        if (item?.isSubtask) return target ? `在“${target}”下新建子任务` : '新建子任务';
-        return target ? `在“${target}”中新建任务` : '新建任务';
+        if (item?.isSubtask) return target ? __tmT("ai.createASubtaskUnder", { target: target }) : __tmT("ai.newSubtask");
+        return target ? __tmT("ai.createATaskIn", { target: target }) : __tmT("common.newTask");
     }
 
     function buildChatSystemPrompt() {
         const cfg = getConfig();
         const statusGuide = formatConfiguredStatusPrompt(cfg.statusOptions);
-        return `你是任务与项目管理助手。请只输出 JSON：{"answer":"","highlights":[],"nextActions":[],"warnings":[],"taskOperations":[{"taskId":"","patch":{},"reason":""}],"createOperations":[{"content":"","docId":"","parentTaskId":"","patch":{},"reason":""}]}。taskOperations 仅在用户明确要求修改已有任务时返回；patch 只能包含 title、done、priority、customStatus、startDate、completionTime、duration、remark、pinned、milestone。createOperations 仅在用户明确要求新建任务/子任务时返回；创建顶级任务时填写 docId，创建子任务时填写 parentTaskId；docId 必须来自 document.id 或 tasks[].docId，parentTaskId 必须来自输入 tasks；一次可以返回多个 createOperations。状态请写入 customStatus，但要优先使用“状态设置第一列的中文名称”而不是英文 id；系统会自动把中文名称映射为真实状态 id。当前可用状态：${statusGuide}。开始时间写入 startDate；备注写入 remark。重要：不要在 answer 中声称“已经修改成功/已经创建完成”，真实执行结果由系统完成并反馈。`;
+        return __tmT("ai.youAreATaskAndProjectManagementAssistantOutput", { statusGuide: statusGuide });
     }
 
     async function applyChatTaskOperations(operations, taskPool = []) {
@@ -2085,7 +2085,7 @@
                     patch,
                     patchDesc,
                     reason: item.reason,
-                    error: '任务不在当前 AI 对话上下文中',
+                    error: __tmT("ai.theTaskIsNotInTheCurrentAiConversation"),
                 });
                 continue;
             }
@@ -2099,7 +2099,7 @@
                     patch,
                     patchDesc,
                     reason: item.reason,
-                    error: '未找到任务',
+                    error: __tmT("kernel.noTaskFound"),
                 });
                 continue;
             }
@@ -2114,7 +2114,7 @@
                     patch,
                     patchDesc,
                     reason: item.reason,
-                    error: ok ? '' : '字段保存未完全生效',
+                    error: ok ? '' : __tmT("ai.theFieldPatchDidNotFullyApply"),
                 });
             } catch (e) {
                 results.push({
@@ -2125,7 +2125,7 @@
                     patch,
                     patchDesc,
                     reason: item.reason,
-                    error: String(e?.message || e || '修改失败'),
+                    error: String(e?.message || e || __tmT("ai.modificationFailed")),
                 });
             }
         }
@@ -2170,7 +2170,7 @@
                     patch,
                     patchDesc,
                     reason: item.reason,
-                    error: '当前版本未开放任务创建能力',
+                    error: __tmT("ai.taskCreationIsNotAvailableInThisVersion"),
                 });
                 continue;
             }
@@ -2188,7 +2188,7 @@
                         patch,
                         patchDesc,
                         reason: item.reason,
-                        error: '父任务不在当前 AI 对话上下文中',
+                        error: __tmT("ai.theParentTaskIsNotInTheCurrentAi"),
                     });
                     continue;
                 }
@@ -2206,7 +2206,7 @@
                         patch,
                         patchDesc,
                         reason: item.reason,
-                        error: '未找到父任务',
+                        error: __tmT("ai.parentTaskNotFound"),
                     });
                     continue;
                 }
@@ -2224,7 +2224,7 @@
                         patch,
                         patchDesc,
                         reason: item.reason,
-                        error: '未找到可创建任务的文档',
+                        error: __tmT("ai.noDocumentAvailableForTaskCreation"),
                     });
                     continue;
                 }
@@ -2238,7 +2238,7 @@
                         patch,
                         patchDesc,
                         reason: item.reason,
-                        error: '目标文档不在当前 AI 对话上下文中',
+                        error: __tmT("ai.theTargetDocumentIsNotInTheCurrentAi"),
                     });
                     continue;
                 }
@@ -2274,7 +2274,7 @@
                     patch,
                     patchDesc,
                     reason: item.reason,
-                    error: String(e?.message || e || '创建失败'),
+                    error: String(e?.message || e || __tmT("ai.creationFailed")),
                 });
             }
         }
@@ -2287,7 +2287,7 @@
         const rawAnswer = String(fallbackAnswer || '').trim();
         if (!taskList.length && !createList.length) {
             if (/(已将任务|已把任务|已设置|已修改|已更新|已完成|已创建|已新建|已新增|已添加)/.test(rawAnswer)) {
-                return `未检测到实际任务创建或写入，本轮仅生成了文本建议：\n${rawAnswer}`;
+                return __tmT("ai.noTasksWereCreatedOrUpdatedThisResponseContains", { rawAnswer: rawAnswer });
             }
             return rawAnswer;
         }
@@ -2297,16 +2297,16 @@
         const failedCreate = createList.filter((it) => !it?.ok);
         const lines = [];
         if (successCreate.length) {
-            lines.push(...successCreate.map((it) => `${describeChatCreateAction(it)}“${it.title || it.taskId || '任务'}”${it.patchDesc ? `，并已设置${it.patchDesc}` : ''}`));
+            lines.push(...successCreate.map((it) => `${describeChatCreateAction(it)}“${it.title || it.taskId || __tmT("kernel.task")}”${it.patchDesc ? __tmT("ai.with", { patchDesc: it.patchDesc }) : ''}`));
         }
         if (successTask.length) {
-            lines.push(...successTask.map((it) => `已将任务“${it.title || it.taskId}”${it.patchDesc ? `的${it.patchDesc}` : '完成修改'}`));
+            lines.push(...successTask.map((it) => __tmT("ai.task", { taskId: it.title || it.taskId, value2: it.patchDesc ? __tmT("ai.s", { patchDesc: it.patchDesc }) : __tmT("ai.finishEditing") })));
         }
         if (failedCreate.length) {
-            lines.push(...failedCreate.map((it) => `未能${describeChatCreateAction(it)}“${it.title || '任务'}”：${it.error || '未知错误'}`));
+            lines.push(...failedCreate.map((it) => __tmT("ai.failed", { value1: describeChatCreateAction(it), value2: it.title || __tmT("kernel.task"), value3: it.error || __tmT("plugin.unknownError") })));
         }
         if (failedTask.length) {
-            lines.push(...failedTask.map((it) => `未能修改任务“${it.title || it.taskId}”：${it.error || '未知错误'}`));
+            lines.push(...failedTask.map((it) => __tmT("ai.failedToModifyTask", { taskId: it.title || it.taskId, value2: it.error || __tmT("plugin.unknownError") })));
         }
         if (!successTask.length && !failedTask.length && !successCreate.length && !failedCreate.length && rawAnswer) lines.push(rawAnswer);
         return lines.filter(Boolean).join('\n');
@@ -2389,11 +2389,11 @@
     }
 
     function buildChatSkillPlannerPrompt() {
-        return `你是任务管理器里的 AI 执行规划器。请只输出 JSON：{"plan":[],"skillCalls":[{"id":"","skill":"","input":{},"reason":""}],"done":false,"warnings":[],"reason":""}。规则：1. 系统同时提供读取 skill 和写入 skill，若事实不足优先调用读取 skill；2. 当用户明确要求创建、修改、拆分、安排任务时，可以调用写入 skill，不要假设系统只有只读能力；3. 一轮最多调用 ${AI_CHAT_SKILL_MAX_CALLS_PER_ROUND} 个 skill，优先最少必要调用；4. 不要调用 availableReadSkills 和 availableWriteSkills 之外的 skill；5. 不要声称已经完成写入，真实执行由系统完成；6. 如果当前信息已经足够，返回 done=true 且 skillCalls=[]；7. input 必须是对象。`;
+        return __tmT("ai.youAreTheAiExecutionPlannerInsideTheTask", { AI_CHAT_SKILL_MAX_CALLS_PER_ROUND: AI_CHAT_SKILL_MAX_CALLS_PER_ROUND });
     }
 
     function buildChatSkillFinalPrompt() {
-        return '你是任务管理器助手。请只输出 JSON：{"answer":"","highlights":[],"nextActions":[],"warnings":[]}。必须严格基于用户指令、执行计划与真实 skill 结果来回答。不要编造未执行的修改；如果某个写操作失败，要明确说明失败原因。answer 控制在 220 字以内，先给结论，再给必要提醒。';
+        return __tmT("ai.youAreTheTaskManagerAssistantOutputOnlyJson");
     }
 
     async function buildChatSkillTurnContext(session, instruction) {
@@ -2441,24 +2441,24 @@
         const primaryDocId = String(ctx?.doc?.id || '').trim();
         const assertScopedTask = async (taskId) => {
             const rawId = String(taskId || '').trim();
-            if (!rawId) throw new Error('缺少 taskId');
+            if (!rawId) throw new Error(__tmT("ai.missingTaskid"));
             let resolvedId = rawId;
             try { resolvedId = String(await b?.resolveTaskId?.(rawId) || rawId).trim() || rawId; } catch (e) {}
-            if (allowedTaskIds.size && !allowedTaskIds.has(resolvedId)) throw new Error('任务不在当前 AI 对话上下文中');
+            if (allowedTaskIds.size && !allowedTaskIds.has(resolvedId)) throw new Error(__tmT("ai.theTaskIsNotInTheCurrentAiConversation"));
             const task = await b?.getTaskSnapshot?.(resolvedId, { forceFresh: true });
-            if (!task) throw new Error('未找到任务');
+            if (!task) throw new Error(__tmT("kernel.noTaskFound"));
             return task;
         };
         const assertScopedDocId = async (docId) => {
             const resolved = String(docId || primaryDocId || '').trim();
-            if (!resolved) throw new Error('缺少 docId');
-            if (allowedDocIds.size && !allowedDocIds.has(resolved)) throw new Error('文档不在当前 AI 对话上下文中');
+            if (!resolved) throw new Error(__tmT("ai.missingDocid"));
+            if (allowedDocIds.size && !allowedDocIds.has(resolved)) throw new Error(__tmT("ai.theDocumentIsNotInTheCurrentAiConversation"));
             return resolved;
         };
         return {
             read_current_view_tasks: {
                 name: 'read_current_view_tasks',
-                description: '读取当前视图内可见任务',
+                description: __tmT("ai.readVisibleTasksInTheCurrentView"),
                 inputHint: '{ limit?: 1-50 }',
                 readOnly: true,
                 confirmPolicy: 'never',
@@ -2468,12 +2468,12 @@
                     return { total: Array.isArray(list) ? list.length : 0, tasks: (Array.isArray(list) ? list : []).slice(0, limit).map(taskLite) };
                 },
                 summarize(result = {}) {
-                    return `已读取当前视图任务 ${Number(result?.total || 0)} 条`;
+                    return __tmT("ai.readTasksFromTheCurrentView", { value1: Number(result?.total || 0) });
                 },
             },
             read_current_group_tasks: {
                 name: 'read_current_group_tasks',
-                description: '读取当前分区内任务',
+                description: __tmT("ai.readTasksInTheCurrentGroup"),
                 inputHint: '{ limit?: 1-80 }',
                 readOnly: true,
                 confirmPolicy: 'never',
@@ -2484,12 +2484,12 @@
                     return { total: Array.isArray(list) ? list.length : 0, tasks };
                 },
                 summarize(result = {}) {
-                    return `已读取当前分区任务 ${Number(result?.total || 0)} 条`;
+                    return __tmT("ai.readTasksFromTheCurrentGroup", { value1: Number(result?.total || 0) });
                 },
             },
             read_document_snapshot: {
                 name: 'read_document_snapshot',
-                description: '读取当前上下文文档摘要、正文节选与任务列表',
+                description: __tmT("ai.readTheCurrentContextDocumentSummaryBodyExcerptAnd"),
                 inputHint: '{ docId?: string, limit?: 1-40 }',
                 readOnly: true,
                 confirmPolicy: 'never',
@@ -2497,7 +2497,7 @@
                     const docId = await assertScopedDocId(input?.docId);
                     const limit = Math.max(1, Math.min(40, Math.round(Number(input?.limit || 20) || 20)));
                     const doc = await b?.getDocumentSnapshot?.(docId, { limit: 1400 });
-                    if (!doc) throw new Error('未找到文档');
+                    if (!doc) throw new Error(__tmT("ai.documentNotFound"));
                     const excerpt = buildDocExcerpt(doc, '', ctx?.session?.contextMode);
                     return {
                         document: {
@@ -2515,12 +2515,12 @@
                 },
                 summarize(result = {}) {
                     const doc = result?.document || {};
-                    return `已读取文档“${doc.name || doc.id || '未命名文档'}”及其任务摘要`;
+                    return __tmT("ai.readDocumentAndItsTaskSummary", { value1: doc.name || doc.id || __tmT("kernel.untitledDocument") });
                 },
             },
             read_task_snapshot: {
                 name: 'read_task_snapshot',
-                description: '读取单个任务详情',
+                description: __tmT("ai.readDetailsOfASingleTask"),
                 inputHint: '{ taskId: string }',
                 readOnly: true,
                 confirmPolicy: 'never',
@@ -2529,18 +2529,18 @@
                     return { task: taskLite(task) };
                 },
                 summarize(result = {}) {
-                    return `已读取任务“${result?.task?.content || result?.task?.id || '任务'}”详情`;
+                    return __tmT("ai.readDetailsOfTask", { value1: result?.task?.content || result?.task?.id || __tmT("kernel.task") });
                 },
             },
             search_tasks: {
                 name: 'search_tasks',
-                description: '在当前上下文任务池中按关键词搜索任务',
+                description: __tmT("ai.searchTasksByKeywordInTheCurrentContextTask"),
                 inputHint: '{ query: string, limit?: 1-20 }',
                 readOnly: true,
                 confirmPolicy: 'never',
                 async run(input = {}) {
                     const query = String(input?.query || '').trim().toLowerCase();
-                    if (!query) throw new Error('缺少 query');
+                    if (!query) throw new Error(__tmT("ai.missingQuery"));
                     const limit = Math.max(1, Math.min(20, Math.round(Number(input?.limit || 8) || 8)));
                     const pool = mergeSummaryTasks(scopeTasks, ctx.taskSnapshots, Array.isArray(ctx?.doc?.tasks) ? ctx.doc.tasks : []);
                     const score = (task) => {
@@ -2566,12 +2566,12 @@
                     return { query, total: tasks.length, tasks };
                 },
                 summarize(result = {}) {
-                    return `已按“${result?.query || ''}”搜索到 ${Number(result?.total || 0)} 条任务`;
+                    return __tmT("ai.searchedTasksFound", { value1: result?.query || '', value2: Number(result?.total || 0) });
                 },
             },
             update_task: {
                 name: 'update_task',
-                description: '修改当前上下文内的单个任务字段',
+                description: __tmT("ai.modifyASingleTaskFieldWithinTheCurrentContext"),
                 inputHint: '{ taskId: string, patch: { title?, done?, priority?, customStatus?, startDate?, completionTime?, duration?, remark?, pinned?, milestone? } }',
                 readOnly: false,
                 confirmPolicy: 'ask',
@@ -2584,13 +2584,13 @@
                 summarize(result = {}) {
                     const op = result?.operation || {};
                     return op?.ok
-                        ? `已修改任务“${op.title || op.taskId || '任务'}”`
-                        : `修改任务失败：${op?.error || '未知错误'}`;
+                        ? __tmT("ai.modifiedTask", { value1: op.title || op.taskId || __tmT("kernel.task") })
+                        : __tmT("ai.failedToModifyTask2", { value1: op?.error || __tmT("plugin.unknownError") });
                 },
             },
             create_task: {
                 name: 'create_task',
-                description: '在当前上下文文档或父任务下创建任务',
+                description: __tmT("ai.createATaskUnderTheCurrentContextDocumentOr"),
                 inputHint: '{ content: string, docId?: string, parentTaskId?: string, patch?: {...} }',
                 readOnly: false,
                 confirmPolicy: 'ask',
@@ -2607,19 +2607,19 @@
                 summarize(result = {}) {
                     const op = result?.operation || {};
                     return op?.ok
-                        ? `${describeChatCreateAction(op)}“${op.title || op.taskId || '任务'}”已完成`
-                        : `创建任务失败：${op?.error || '未知错误'}`;
+                        ? __tmT("ai.done", { value1: describeChatCreateAction(op), value2: op.title || op.taskId || __tmT("kernel.task") })
+                        : __tmT("ai.failedToCreateTask", { value1: op?.error || __tmT("plugin.unknownError") });
                 },
             },
             create_subtask: {
                 name: 'create_subtask',
-                description: '在当前上下文任务下创建子任务',
+                description: __tmT("ai.createASubtaskUnderTheCurrentContextTask"),
                 inputHint: '{ parentTaskId: string, content: string, patch?: {...} }',
                 readOnly: false,
                 confirmPolicy: 'ask',
                 async run(input = {}) {
                     const parentTaskId = String(input?.parentTaskId || '').trim();
-                    if (!parentTaskId) throw new Error('缺少 parentTaskId');
+                    if (!parentTaskId) throw new Error(__tmT("ai.missingParenttaskid"));
                     const [result] = await applyChatCreateOperations([{
                         content: String(input?.content || '').trim(),
                         docId: '',
@@ -2632,21 +2632,21 @@
                 summarize(result = {}) {
                     const op = result?.operation || {};
                     return op?.ok
-                        ? `已在“${op.targetLabel || op.parentTaskId || '父任务'}”下创建子任务“${op.title || op.taskId || '任务'}”`
-                        : `创建子任务失败：${op?.error || '未知错误'}`;
+                        ? __tmT("ai.createdSubtaskUnder", { value1: op.targetLabel || op.parentTaskId || __tmT("kernel.parentTask"), value2: op.title || op.taskId || __tmT("kernel.task") })
+                        : __tmT("ai.failedToCreateSubtask", { value1: op?.error || __tmT("plugin.unknownError") });
                 },
             },
             create_task_suggestion: {
                 name: 'create_task_suggestion',
-                description: '将一条建议任务快速写入文档',
+                description: __tmT("ai.quicklyWriteASuggestedTaskIntoADocument"),
                 inputHint: '{ content: string, docId?: string }',
                 readOnly: false,
                 confirmPolicy: 'ask',
                 async run(input = {}) {
                     const content = String(input?.content || '').trim();
-                    if (!content) throw new Error('缺少 content');
+                    if (!content) throw new Error(__tmT("ai.missingContent"));
                     const docId = await assertScopedDocId(input?.docId);
-                    if (typeof b?.createTaskSuggestion !== 'function') throw new Error('当前版本未开放建议任务创建能力');
+                    if (typeof b?.createTaskSuggestion !== 'function') throw new Error(__tmT("ai.suggestedTaskCreationIsNotAvailableInThisVersion"));
                     await b.createTaskSuggestion(docId, content);
                     return {
                         ok: true,
@@ -2656,12 +2656,12 @@
                     };
                 },
                 summarize(result = {}) {
-                    return `已将建议任务“${result?.content || '任务'}”写入文档“${result?.docName || result?.docId || '文档'}”`;
+                    return __tmT("ai.wroteSuggestedTaskIntoDocument", { value1: result?.content || __tmT("kernel.task"), value2: result?.docName || result?.docId || __tmT("kernel.documents") });
                 },
             },
             list_configured_docs: {
                 name: 'list_configured_docs',
-                description: '读取任务管理器已配置的文档列表',
+                description: __tmT("ai.readTheDocumentListConfiguredInTheTaskManager"),
                 inputHint: '{ limit?: 1-30 }',
                 readOnly: true,
                 confirmPolicy: 'never',
@@ -2677,12 +2677,12 @@
                     return { total: Array.isArray(ids) ? ids.length : 0, docs };
                 },
                 summarize(result = {}) {
-                    return `已读取已配置文档 ${Number(result?.total || 0)} 个`;
+                    return __tmT("ai.readConfiguredDocuments", { value1: Number(result?.total || 0) });
                 },
             },
             read_summary_tasks_by_doc_ids: {
                 name: 'read_summary_tasks_by_doc_ids',
-                description: '按文档读取摘要候选任务',
+                description: __tmT("ai.readSummaryCandidateTasksByDocument"),
                 inputHint: '{ docIds?: string[], limit?: 1-80 }',
                 readOnly: true,
                 confirmPolicy: 'never',
@@ -2692,7 +2692,7 @@
                         .map((item) => String(item || '').trim())
                         .filter(Boolean)
                         .filter((item) => !allowedDocIds.size || allowedDocIds.has(item));
-                    if (!docIds.length) throw new Error('当前上下文没有可读取的文档');
+                    if (!docIds.length) throw new Error(__tmT("ai.noReadableDocumentsInTheCurrentContext"));
                     const limit = Math.max(1, Math.min(80, Math.round(Number(input?.limit || 24) || 24)));
                     const list = await b?.getSummaryTasksByDocIds?.(docIds, { ignoreExcludeCompleted: true }) || [];
                     return {
@@ -2702,12 +2702,12 @@
                     };
                 },
                 summarize(result = {}) {
-                    return `已读取 ${Array.isArray(result?.docIds) ? result.docIds.length : 0} 个文档的摘要任务，共 ${Number(result?.total || 0)} 条`;
+                    return __tmT("ai.readSummaryTasksFromDocumentsInTotal", { value1: Array.isArray(result?.docIds) ? result.docIds.length : 0, value2: Number(result?.total || 0) });
                 },
             },
             read_existing_schedules: {
                 name: 'read_existing_schedules',
-                description: '读取某天或某个日期范围内已有日程',
+                description: __tmT("ai.readExistingSchedulesForADayOrADate"),
                 inputHint: '{ date?: \"YYYY-MM-DD\", dateTo?: \"YYYY-MM-DD\" }',
                 readOnly: true,
                 confirmPolicy: 'never',
@@ -2732,12 +2732,12 @@
                 summarize(result = {}) {
                     const from = String(result?.date || '').trim();
                     const to = String(result?.dateTo || from).trim();
-                    return `已读取 ${from === to ? from : `${from} ~ ${to}`} 的日程 ${Number(result?.total || 0)} 条`;
+                    return __tmT("ai.readSchedulesFor", { value1: from === to ? from : `${from} ~ ${to}`, value2: Number(result?.total || 0) });
                 },
             },
             write_schedule_to_calendar: {
                 name: 'write_schedule_to_calendar',
-                description: '为任务直接写入一条日程到日历',
+                description: __tmT("ai.writeAScheduleDirectlyToTheCalendarForA"),
                 inputHint: '{ taskId: string, start: \"YYYY-MM-DD HH:mm\", end: \"YYYY-MM-DD HH:mm\", title?: string, allDay?: boolean }',
                 readOnly: false,
                 confirmPolicy: 'ask',
@@ -2745,11 +2745,11 @@
                     const task = await assertScopedTask(input?.taskId);
                     const start = parseDateTimeLoose(input?.start);
                     const end = parseDateTimeLoose(input?.end);
-                    if (!(start instanceof Date) || Number.isNaN(start.getTime())) throw new Error('start 非法');
-                    if (!(end instanceof Date) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) throw new Error('end 非法');
+                    if (!(start instanceof Date) || Number.isNaN(start.getTime())) throw new Error(__tmT("ai.invalidStart"));
+                    if (!(end instanceof Date) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) throw new Error(__tmT("ai.invalidEnd"));
                     const cal = globalThis.__tmCalendar;
-                    if (!cal?.addTaskSchedule) throw new Error('日历模块未加载');
-                    const title = String(input?.title || task?.content || task?.id || '任务').trim();
+                    if (!cal?.addTaskSchedule) throw new Error(__tmT("ai.calendarModuleIsNotLoaded"));
+                    const title = String(input?.title || task?.content || task?.id || __tmT("kernel.task")).trim();
                     const item = await cal.addTaskSchedule({
                         taskId: String(task?.id || '').trim(),
                         title,
@@ -2783,27 +2783,27 @@
                     };
                 },
                 summarize(result = {}) {
-                    return `已为任务“${result?.title || result?.taskId || '任务'}”写入日程 ${result?.start || ''} ~ ${result?.end || ''}`.trim();
+                    return __tmT("ai.wroteScheduleForTask", { value1: result?.title || result?.taskId || __tmT("kernel.task"), value2: result?.start || '', value3: result?.end || '' }).trim();
                 },
             },
             delete_schedule: {
                 name: 'delete_schedule',
-                description: '按日程 ID 删除一条已有日程',
+                description: __tmT("ai.deleteAnExistingScheduleByItsScheduleId"),
                 inputHint: '{ scheduleId: string }',
                 readOnly: false,
                 confirmPolicy: 'ask',
                 async run(input = {}) {
                     const scheduleId = String(input?.scheduleId || '').trim();
-                    if (!scheduleId) throw new Error('缺少 scheduleId');
+                    if (!scheduleId) throw new Error(__tmT("ai.missingScheduleid"));
                     const cal = globalThis.__tmCalendar;
-                    if (!cal?.deleteScheduleById) throw new Error('日历模块未加载');
+                    if (!cal?.deleteScheduleById) throw new Error(__tmT("ai.calendarModuleIsNotLoaded"));
                     const ok = await cal.deleteScheduleById(scheduleId, { closeModal: false });
-                    if (!ok) throw new Error('删除日程失败');
+                    if (!ok) throw new Error(__tmT("ai.failedToDeleteTheSchedule"));
                     try { await cal.refreshInPlace?.({ silent: false }); } catch (e) {}
                     return { scheduleId, ok: true };
                 },
                 summarize(result = {}) {
-                    return `已删除日程 ${result?.scheduleId || ''}`.trim();
+                    return __tmT("ai.scheduleDeleted", { value1: result?.scheduleId || '' }).trim();
                 },
             },
         };
@@ -2834,8 +2834,8 @@
             ok: false,
             readOnly: false,
             durationMs: 0,
-            summary: String(error || 'Skill 调用失败').trim(),
-            error: String(error || 'Skill 调用失败').trim(),
+            summary: String(error || __tmT("ai.skillCallFailed")).trim(),
+            error: String(error || __tmT("ai.skillCallFailed")).trim(),
             data: null,
         };
     }
@@ -2845,7 +2845,7 @@
         if (!result.ok) {
             return {
                 ok: false,
-                error: String(result.error || result.summary || '失败').trim(),
+                error: String(result.error || result.summary || __tmT("ai.failed2")).trim(),
             };
         }
         const data = result.data && typeof result.data === 'object' ? result.data : {};
@@ -2906,7 +2906,7 @@
         for (const call of calls.slice(0, AI_CHAT_SKILL_MAX_CALLS_PER_ROUND)) {
             const spec = registry?.[String(call?.skill || '').trim()];
             if (!spec || typeof spec.run !== 'function') {
-                out.push(createChatSkillErrorResult(call, `未知 skill：${String(call?.skill || '').trim() || '空'}`));
+                out.push(createChatSkillErrorResult(call, __tmT("ai.unknownSkill", { value1: String(call?.skill || '').trim() || __tmT("ai.empty") })));
                 continue;
             }
             const startedAt = Date.now();
@@ -2919,7 +2919,7 @@
                     ok: true,
                     readOnly: !!spec.readOnly,
                     durationMs,
-                    summary: String(spec.summarize?.(data, call) || `${spec.name} 执行成功`).trim(),
+                    summary: String(spec.summarize?.(data, call) || __tmT("ai.executedSuccessfully", { name: spec.name })).trim(),
                     error: '',
                     data: data && typeof data === 'object' ? clone(data) : data,
                 });
@@ -2931,8 +2931,8 @@
                     ok: false,
                     readOnly: !!spec.readOnly,
                     durationMs,
-                    summary: String(e?.message || e || `${spec.name} 执行失败`).trim(),
-                    error: String(e?.message || e || `${spec.name} 执行失败`).trim(),
+                    summary: String(e?.message || e || __tmT("ai.executionFailed", { name: spec.name })).trim(),
+                    error: String(e?.message || e || __tmT("ai.executionFailed", { name: spec.name })).trim(),
                     data: null,
                 });
             }
@@ -3120,16 +3120,16 @@
     async function optimizeTitle(taskId) {
         const b = bridge();
         const task = await b.getTaskSnapshot(taskId);
-        if (!task) throw new Error('未找到任务');
+        if (!task) throw new Error(__tmT("kernel.noTaskFound"));
         const hKey = ['task-title', String(taskId || '').trim()];
         const history = await loadHistory(hKey[0], hKey[1]);
-        const input = await promptInput('AI 优化任务名称', '例如：更短、更行动导向、突出交付结果', 'AI 会结合任务和文档上下文生成标题建议。', { history });
+        const input = await promptInput(__tmT("ai.aiOptimizeTaskName"), __tmT("ai.eGShorterMoreActionOrientedHighlightDeliverables"), __tmT("ai.theAiGeneratesTitleSuggestionsFromTaskAndDocument"), { history });
         if (!input) return;
-        setModal('AI 优化任务名称', `<div class="tm-ai-box"><h4>处理中</h4><div class="tm-ai-hint">正在生成标题建议...</div></div>`);
+        setModal(__tmT("ai.aiOptimizeTaskName"), `<div class="tm-ai-box"><h4>${__tmT("ai.processing2")}</h4><div class="tm-ai-hint">${__tmT("ai.generatingTitleSuggestions")}</div></div>`);
         const doc = await b.getDocumentSnapshot(String(task.docId || task.root_id || '').trim(), { limit: 500 });
         const excerpt = buildDocExcerpt(doc, task.id, input.mode);
         const result = await callMiniMaxJson(
-            '你是任务管理专家。请只输出 JSON：{"suggestedTitle":"","alternatives":[],"reason":"","missingInfo":[]}',
+            __tmT("ai.youAreATaskManagementExpertOutputOnlyJson"),
             {
                 task: taskLite(task),
                 document: { id: doc?.id, name: doc?.name, path: doc?.path, ...excerpt },
@@ -3139,26 +3139,26 @@
             { history, contextMode: input.mode, expectedSchema: 'optimize_title' }
         );
         const titles = Array.from(new Set([String(result?.suggestedTitle || '').trim(), ...(Array.isArray(result?.alternatives) ? result.alternatives.map((it) => String(it || '').trim()) : [])].filter(Boolean)));
-        if (!titles.length) throw new Error('AI 没有生成可用标题');
+        if (!titles.length) throw new Error(__tmT("ai.theAiDidNotGenerateAUsableTitle"));
         const reason = String(result?.reason || '').trim();
         const missing = Array.isArray(result?.missingInfo) ? result.missingInfo.map((it) => String(it || '').trim()).filter(Boolean) : [];
-        await appendHistory(hKey[0], hKey[1], 'user', input.instruction || '请优化当前任务名称');
+        await appendHistory(hKey[0], hKey[1], 'user', input.instruction || __tmT("ai.optimizeTheCurrentTaskName"));
         await appendHistory(hKey[0], hKey[1], 'assistant', [
-            `建议标题：${titles[0]}`,
-            titles.length > 1 ? `备选标题：${titles.slice(1).join('；')}` : '',
-            reason ? `原因：${reason}` : '',
-            missing.length ? `缺失信息：${missing.join('；')}` : '',
+            __tmT("ai.suggestedTitle", { value1: titles[0] }),
+            titles.length > 1 ? __tmT("ai.alternativeTitles", { value1: titles.slice(1).join('；') }) : '',
+            reason ? __tmT("ai.reason", { reason: reason }) : '',
+            missing.length ? __tmT("ai.missingInfo", { value1: missing.join('；') }) : '',
         ].filter(Boolean).join('\n'));
-        const modal = setModal('AI 优化任务名称', `
-            <div class="tm-ai-box"><h4>当前任务</h4><div>${getTaskTitlePresentation(task.markdown || task.content, '(无内容)').html}</div></div>
-            <div class="tm-ai-box"><h4>建议标题</h4><div class="tm-ai-list">${titles.map((title, index) => `<label class="tm-ai-item"><input type="radio" name="tm-ai-title" value="${esc(title)}" ${index === 0 ? 'checked' : ''}> ${esc(title)}</label>`).join('')}</div></div>
-            ${reason ? `<div class="tm-ai-box"><h4>原因</h4><div>${esc(reason)}</div></div>` : ''}
-            ${missing.length ? `<div class="tm-ai-box"><h4>缺失信息</h4><div class="tm-ai-list">${missing.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+        const modal = setModal(__tmT("ai.aiOptimizeTaskName"), `
+            <div class="tm-ai-box"><h4>${__tmT("ai.currentTask")}</h4><div>${getTaskTitlePresentation(task.markdown || task.content, __tmT("kernel.noContent")).html}</div></div>
+            <div class="tm-ai-box"><h4>${__tmT("ai.suggestedTitles")}</h4><div class="tm-ai-list">${titles.map((title, index) => `<label class="tm-ai-item"><input type="radio" name="tm-ai-title" value="${esc(title)}" ${index === 0 ? 'checked' : ''}> ${esc(title)}</label>`).join('')}</div></div>
+            ${reason ? `<div class="tm-ai-box"><h4>${__tmT("ai.reason2")}</h4><div>${esc(reason)}</div></div>` : ''}
+            ${missing.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.missingInformation")}</h4><div class="tm-ai-list">${missing.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
             <div class="tm-ai-actions">
-                <button class="tm-btn tm-btn-secondary" data-ai-action="close">关闭</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="copy">复制首选标题</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="continue">继续对话</button>
-                <button class="tm-btn tm-btn-success" data-ai-action="apply">应用标题</button>
+                <button class="tm-btn tm-btn-secondary" data-ai-action="close">${__tmT("common.close")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="copy">${__tmT("ai.copyPrimaryTitle")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="continue">${__tmT("ai.continueChat")}</button>
+                <button class="tm-btn tm-btn-success" data-ai-action="apply">${__tmT("ai.applyTitle")}</button>
             </div>
         `);
         const body = modal.querySelector('.tm-ai-modal__body');
@@ -3168,16 +3168,16 @@
             if (action === 'copy') {
                 try {
                     await navigator.clipboard.writeText(titles[0]);
-                    toast('✅ 已复制标题', 'success');
+                    toast(__tmT("ai.titleCopied"), 'success');
                 } catch (e) {
-                    toast('❌ 复制失败', 'error');
+                    toast(__tmT("ai.copyFailed"), 'error');
                 }
             } else if (action === 'continue') {
                 await optimizeTitle(taskId);
             } else if (action === 'apply') {
                 const selected = String(body.querySelector('input[name="tm-ai-title"]:checked')?.value || titles[0] || '').trim();
                 await b.applyTaskPatch(taskId, { title: selected });
-                toast('✅ 已更新任务标题', 'success');
+                toast(__tmT("ai.updatedtaskHeading"), 'success');
                 closeModal();
             }
         });
@@ -3186,17 +3186,17 @@
     async function editTask(taskId) {
         const b = bridge();
         const task = await b.getTaskSnapshot(taskId);
-        if (!task) throw new Error('未找到任务');
+        if (!task) throw new Error(__tmT("kernel.noTaskFound"));
         const hKey = ['task-edit', String(taskId || '').trim()];
         const history = await loadHistory(hKey[0], hKey[1]);
-        const input = await promptInput('AI 编辑字段', '例如：重要性改为高，状态设为进行中，明天下午3点截止，备注加上等设计稿', 'AI 会把自然语言翻译成字段 patch，并先展示预览。', { history });
+        const input = await promptInput(__tmT("ai.aiEditFields"), __tmT("ai.forExampleSetImportanceToHighStatusToIn"), __tmT("ai.theAiTranslatesNaturalLanguageIntoAFieldPatch"), { history });
         if (!input) return;
-        if (!input.instruction) throw new Error('请输入编辑指令');
-        setModal('AI 编辑字段', `<div class="tm-ai-box"><h4>处理中</h4><div class="tm-ai-hint">正在生成字段 patch...</div></div>`);
+        if (!input.instruction) throw new Error(__tmT("ai.enterAnEditInstruction"));
+        setModal(__tmT("ai.aiEditFields"), `<div class="tm-ai-box"><h4>${__tmT("ai.processing2")}</h4><div class="tm-ai-hint">${__tmT("ai.generatingFieldPatch")}</div></div>`);
         const doc = await b.getDocumentSnapshot(String(task.docId || task.root_id || '').trim(), { limit: 500 });
         const excerpt = buildDocExcerpt(doc, task.id, input.mode);
         const result = await callMiniMaxJson(
-            '你是任务字段编辑助手。请只输出 JSON：{"patch":{},"reason":"","warnings":[]}. patch 只能包含 title、done、priority、customStatus、startDate、completionTime、duration、remark、pinned、milestone。',
+            __tmT("ai.youAreATaskFieldEditingAssistantOutputOnly"),
             {
                 task: taskLite(task),
                 document: { id: doc?.id, name: doc?.name, path: doc?.path, ...excerpt },
@@ -3205,25 +3205,25 @@
             { history, contextMode: input.mode, expectedSchema: 'edit_task_fields' }
         );
         const patch = normalizeTaskFieldPatch(clone(result?.patch || {}));
-        if (!patch || typeof patch !== 'object' || !Object.keys(patch).length) throw new Error('AI 没有生成可应用 patch');
+        if (!patch || typeof patch !== 'object' || !Object.keys(patch).length) throw new Error(__tmT("ai.theAiDidNotGenerateAnApplicablePatch"));
         const warnings = Array.isArray(result?.warnings) ? result.warnings.map((it) => String(it || '').trim()).filter(Boolean) : [];
         const reason = String(result?.reason || '').trim();
         await appendHistory(hKey[0], hKey[1], 'user', input.instruction);
         await appendHistory(hKey[0], hKey[1], 'assistant', [
-            '字段建议：',
+            __tmT("ai.fieldSuggestions"),
             JSON.stringify(patch, null, 2),
-            reason ? `原因：${reason}` : '',
-            warnings.length ? `提醒：${warnings.join('；')}` : '',
+            reason ? __tmT("ai.reason", { reason: reason }) : '',
+            warnings.length ? __tmT("ai.reminder", { value1: warnings.join('；') }) : '',
         ].filter(Boolean).join('\n'));
-        const modal = setModal('AI 编辑字段', `
-            <div class="tm-ai-box"><h4>字段预览</h4><div class="tm-ai-code">${esc(JSON.stringify(patch, null, 2))}</div></div>
-            ${reason ? `<div class="tm-ai-box"><h4>原因</h4><div>${esc(reason)}</div></div>` : ''}
-            ${warnings.length ? `<div class="tm-ai-box"><h4>提醒</h4><div class="tm-ai-list">${warnings.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+        const modal = setModal(__tmT("ai.aiEditFields"), `
+            <div class="tm-ai-box"><h4>${__tmT("ai.fieldPreview")}</h4><div class="tm-ai-code">${esc(JSON.stringify(patch, null, 2))}</div></div>
+            ${reason ? `<div class="tm-ai-box"><h4>${__tmT("ai.reason2")}</h4><div>${esc(reason)}</div></div>` : ''}
+            ${warnings.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.warnings")}</h4><div class="tm-ai-list">${warnings.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
             <div class="tm-ai-actions">
-                <button class="tm-btn tm-btn-secondary" data-ai-action="close">关闭</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="copy">复制 JSON</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="continue">继续对话</button>
-                <button class="tm-btn tm-btn-success" data-ai-action="apply">应用 patch</button>
+                <button class="tm-btn tm-btn-secondary" data-ai-action="close">${__tmT("common.close")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="copy">${__tmT("ai.copyJson")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="continue">${__tmT("ai.continueChat")}</button>
+                <button class="tm-btn tm-btn-success" data-ai-action="apply">${__tmT("ai.applyPatch")}</button>
             </div>
         `);
         const body = modal.querySelector('.tm-ai-modal__body');
@@ -3233,16 +3233,16 @@
             if (action === 'copy') {
                 try {
                     await navigator.clipboard.writeText(JSON.stringify(patch, null, 2));
-                    toast('✅ 已复制 patch', 'success');
+                    toast(__tmT("ai.copiedPatch"), 'success');
                 } catch (e) {
-                    toast('❌ 复制失败', 'error');
+                    toast(__tmT("ai.copyFailed"), 'error');
                 }
             } else if (action === 'continue') {
                 await editTask(taskId);
             } else if (action === 'apply') {
                 const nextTask = await b.applyTaskPatch(taskId, patch);
-                if (!verifyTaskPatchApplied(nextTask, patch)) throw new Error('字段保存未完全生效，请检查字段格式后重试');
-                toast('✅ 已应用字段 patch', 'success');
+                if (!verifyTaskPatchApplied(nextTask, patch)) throw new Error(__tmT("ai.theFieldPatchDidNotFullyApplyCheckThe"));
+                toast(__tmT("ai.fieldPatchApplied"), 'success');
                 closeModal();
             }
         });
@@ -3253,27 +3253,27 @@
         const d = s.byDimension || {};
         const section = (title, items) => Array.isArray(items) && items.length ? `## ${title}\n${items.map((it) => `- ${it}`).join('\n')}\n` : '';
         const renameSection = Array.isArray(result.taskRenameSuggestions) && result.taskRenameSuggestions.length
-            ? `## 任务名称修改建议\n${result.taskRenameSuggestions.map((it) => `- ${it.currentTitle || '未命名任务'} -> ${it.suggestedTitle || '未提供建议'}${it.reason ? `（${it.reason}）` : ''}`).join('\n')}\n`
+            ? __tmT("ai.taskRenameSuggestions", { value1: result.taskRenameSuggestions.map((it) => `- ${it.currentTitle || __tmT("kernel.untitledTask")} -> ${it.suggestedTitle || __tmT("ai.noSuggestionsProvided")}${it.reason ? `（${it.reason}）` : ''}`).join('\n') })
             : '';
         return [
-            `# ${doc?.name || '文档'} SMART 分析报告`,
+            __tmT("ai.smartAnalysisReport", { value1: doc?.name || __tmT("kernel.documents") }),
             '',
             String(result.summary || ''),
             '',
-            `- 总分：${Number(s.overall) || 0}/100`,
+            __tmT("ai.overall", { value1: Number(s.overall) || 0 }),
             `- Specific：${Number(d.specific) || 0}/100`,
             `- Measurable：${Number(d.measurable) || 0}/100`,
             `- Achievable：${Number(d.achievable) || 0}/100`,
             `- Relevant：${Number(d.relevant) || 0}/100`,
             `- TimeBound：${Number(d.timeBound) || 0}/100`,
             '',
-            section('优势', result.strengths),
-            section('问题', result.issues),
-            section('缺失信息', result.missingInfo),
-            section('建议任务', result.taskSuggestions),
+            section(__tmT("ai.strengths"), result.strengths),
+            section(__tmT("ai.issues"), result.issues),
+            section(__tmT("ai.missingInformation"), result.missingInfo),
+            section(__tmT("ai.suggestedTasks"), result.taskSuggestions),
             renameSection,
-            section('建议里程碑', result.milestoneSuggestions),
-            section('排期提示', result.scheduleHints),
+            section(__tmT("ai.suggestedMilestones"), result.milestoneSuggestions),
+            section(__tmT("ai.schedulingHints"), result.scheduleHints),
         ].join('\n').trim();
     }
 
@@ -3281,12 +3281,12 @@
         if (!Array.isArray(structuredTasks) || !structuredTasks.length) return [];
         const excerpt = buildDocExcerpt(doc, '', input.mode);
         const result = await callMiniMaxJson(
-            '你是任务命名优化助手。请只输出 JSON：{"taskRenameSuggestions":[{"taskId":"","currentTitle":"","suggestedTitle":"","reason":""}]}。必须基于输入 tasks 数组给出 1 到 8 条任务名称修改建议；只返回真正需要改名的任务；suggestedTitle 必须更具体、更可执行；reason 请控制在 30 个字以内。',
+            __tmT("ai.youAreATaskNamingOptimizationAssistantOutputOnly"),
             {
                 document: { id: doc.id, name: doc.name, path: doc.path, ...excerpt },
                 taskCount: structuredTasks.length,
                 tasks: structuredTasks.slice(0, 40).map(taskLite),
-                userInstruction: input.instruction || '请补充任务名称优化建议',
+                userInstruction: input.instruction || __tmT("ai.addTaskNamingOptimizationSuggestions"),
             },
             { maxTokens: Math.min(1400, Math.max(900, getConfig().maxTokens)), contextMode: input.mode, timeoutMs: 45000, expectedSchema: 'task_rename_suggestions' }
         );
@@ -3301,27 +3301,27 @@
     async function analyzeSmart(docId) {
         const b = bridge();
         const did = String(docId || b.getCurrentDocId?.() || '').trim();
-        if (!did) throw new Error('未找到当前文档');
+        if (!did) throw new Error(__tmT("ai.currentDocumentNotFound"));
         const hKey = ['doc-smart', did];
         const history = await loadHistory(hKey[0], hKey[1]);
-        const input = await promptInput('AI SMART 分析', '例如：重点检查可量化目标和时间约束', '默认分析当前文档；勾选带全文后会读取更多正文。', { history });
+        const input = await promptInput(__tmT("ai.aiSmartAnalysis"), __tmT("ai.eGFocusOnMeasurableGoalsAndTimeConstraints"), __tmT("ai.analyzesTheCurrentDocumentByDefaultCheckingFullText"), { history });
         if (!input) return;
-        const smartSteps = ['读取文档', '提取任务', '请求 SMART 分析', '整理分析结果'];
-        setProgressModal('AI SMART 分析', smartSteps, 0, '正在读取当前文档...');
+        const smartSteps = [__tmT("ai.readDocument"), __tmT("ai.extractTasks"), __tmT("ai.requestSmartAnalysis"), __tmT("ai.organizeAnalysisResults")];
+        setProgressModal(__tmT("ai.aiSmartAnalysis"), smartSteps, 0, __tmT("ai.readingTheCurrentDocument"));
         const doc = await b.getDocumentSnapshot(did, { limit: 1200 });
-        if (!doc) throw new Error('读取文档失败');
-        setProgressModal('AI SMART 分析', smartSteps, 1, '正在提取任务与正文上下文...');
+        if (!doc) throw new Error(__tmT("ai.failedToReadTheDocument"));
+        setProgressModal(__tmT("ai.aiSmartAnalysis"), smartSteps, 1, __tmT("ai.extractingTasksAndBodyContext"));
         const excerpt = buildDocExcerpt(doc, '', input.mode);
         const docTasks = Array.isArray(doc.tasks) ? doc.tasks : [];
         const extractedTasks = extractTasksFromKramdown(doc);
         const structuredTasks = docTasks.length ? docTasks : extractedTasks;
         const docTextLength = String(doc?.kramdown || '').trim().length;
         const contextChars = Number(excerpt?.contextChars || 0);
-        setProgressModal('AI SMART 分析', smartSteps, 2, `正在请求 SMART 分析... 文档 ${doc.name || '未命名文档'}；结构化任务 ${structuredTasks.length} 条；原文 ${docTextLength} 字；发送上下文 ${contextChars} 字`);
+        setProgressModal(__tmT("ai.aiSmartAnalysis"), smartSteps, 2, __tmT("ai.requestingSmartAnalysisDocumentStructuredTasksCharactersOfSource", { value1: doc.name || __tmT("kernel.untitledDocument"), length: structuredTasks.length, docTextLength: docTextLength, contextChars: contextChars }));
         let result;
         try {
             result = await callMiniMaxJson(
-                '你是项目管理顾问。请只输出 JSON：{"summary":"","smartScore":{"overall":0,"byDimension":{"specific":0,"measurable":0,"achievable":0,"relevant":0,"timeBound":0}},"strengths":[],"issues":[],"missingInfo":[],"taskSuggestions":[],"milestoneSuggestions":[],"scheduleHints":[]}。如果输入里的 tasks 数组非空，就必须把它视为正式任务列表来分析，不能声称文档中没有正式任务列表结构。summary 请控制在 180 字以内；strengths/issues/missingInfo/taskSuggestions/milestoneSuggestions/scheduleHints 每个数组最多 5 条，每条控制在 30 字以内。',
+                __tmT("ai.youAreAProjectManagementConsultantOutputOnlyJson"),
                 {
                     document: { id: doc.id, name: doc.name, path: doc.path, ...excerpt },
                     taskCount: structuredTasks.length,
@@ -3331,11 +3331,11 @@
                 { maxTokens: Math.min(1800, Math.max(1200, getConfig().maxTokens)), contextMode: input.mode, timeoutMs: 45000, expectedSchema: 'smart_analysis' }
             );
         } catch (e) {
-            const msg = String(e?.message || e || 'SMART 分析失败');
-            setProgressModal('AI SMART 分析', smartSteps, 2, `请求 SMART 分析失败：${msg}`);
+            const msg = String(e?.message || e || __tmT("ai.smartAnalysisFailed"));
+            setProgressModal(__tmT("ai.aiSmartAnalysis"), smartSteps, 2, __tmT("ai.smartAnalysisRequestFailed", { msg: msg }));
             throw e;
         }
-        setProgressModal('AI SMART 分析', smartSteps, 3, '正在整理分析结果...');
+        setProgressModal(__tmT("ai.aiSmartAnalysis"), smartSteps, 3, __tmT("ai.organizingAnalysisResults"));
         const report = {
             summary: String(result?.summary || '').trim(),
             smartScore: {
@@ -3362,42 +3362,42 @@
         }
         const dims = report.smartScore.byDimension;
         const markdown = smartMd(doc, report);
-        await appendHistory(hKey[0], hKey[1], 'user', input.instruction || '请分析当前文档 SMART 程度');
+        await appendHistory(hKey[0], hKey[1], 'user', input.instruction || __tmT("ai.analyzeHowSmartTheCurrentDocumentIs"));
         await appendHistory(hKey[0], hKey[1], 'assistant', markdown);
-        const renderSmartResult = () => setModal('AI SMART 分析', `
-            <div class="tm-ai-box"><h4>分析输入</h4><div class="tm-ai-hint">文档 ${esc(doc.name || '未命名文档')}（${esc(doc.id || '')}）</div><div class="tm-ai-hint">上下文模式 ${esc(input.mode)}；结构化任务 ${docTasks.length} 条；全文提取 ${extractedTasks.length} 条；本次分析使用 ${structuredTasks.length} 条；文档原文 ${String(doc?.kramdown || '').trim().length} 字；发送上下文 ${Number(excerpt?.contextChars || 0)} 字</div></div>
-            <div class="tm-ai-box"><h4>总结</h4><div>${esc(report.summary || '未返回总结')}</div></div>
+        const renderSmartResult = () => setModal(__tmT("ai.aiSmartAnalysis"), `
+            <div class="tm-ai-box"><h4>${__tmT("ai.analysisInput")}</h4><div class="tm-ai-hint">${__tmT("ai.documents", { value1: esc(doc.name || __tmT("kernel.untitledDocument")), value2: esc(doc.id || '') })}</div><div class="tm-ai-hint">${__tmT("ai.contextModeStructuredTasksFullTextExtractionUsedIn", { mode: esc(input.mode), length: docTasks.length, length2: extractedTasks.length, length3: structuredTasks.length, length4: String(doc?.kramdown || '').trim().length, value6: Number(excerpt?.contextChars || 0) })}</div></div>
+            <div class="tm-ai-box"><h4>${__tmT("ai.summary2")}</h4><div>${esc(report.summary || __tmT("ai.noSummaryReturned"))}</div></div>
             <div class="tm-ai-grid">
-                <div class="tm-ai-score"><b>${report.smartScore.overall}/100</b><div>总分</div></div>
+                <div class="tm-ai-score"><b>${report.smartScore.overall}/100</b><div>${__tmT("ai.overall2")}</div></div>
                 <div class="tm-ai-score"><b>${dims.specific}/100</b><div>Specific</div></div>
                 <div class="tm-ai-score"><b>${dims.measurable}/100</b><div>Measurable</div></div>
                 <div class="tm-ai-score"><b>${dims.achievable}/100</b><div>Achievable</div></div>
                 <div class="tm-ai-score"><b>${dims.relevant}/100</b><div>Relevant</div></div>
             </div>
             <div class="tm-ai-score"><b>${dims.timeBound}/100</b><div>TimeBound</div></div>
-            ${report.strengths.length ? `<div class="tm-ai-box"><h4>优势</h4><div class="tm-ai-list">${report.strengths.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
-            ${report.issues.length ? `<div class="tm-ai-box"><h4>问题</h4><div class="tm-ai-list">${report.issues.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
-            ${report.missingInfo.length ? `<div class="tm-ai-box"><h4>缺失信息</h4><div class="tm-ai-list">${report.missingInfo.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
-            ${report.taskSuggestions.length ? `<div class="tm-ai-box"><h4>建议任务</h4><div class="tm-ai-list">${report.taskSuggestions.map((it, idx) => `<div class="tm-ai-item"><div>${esc(it)}</div><div class="tm-ai-actions" style="margin-top:8px;justify-content:flex-start;"><button class="tm-btn tm-btn-secondary" data-ai-action="create-task" data-ai-index="${idx}">转为新任务</button></div></div>`).join('')}</div></div>` : ''}
-            ${report.taskRenameSuggestions.length ? `<div class="tm-ai-box"><h4>任务名称修改建议</h4><div class="tm-ai-list">${report.taskRenameSuggestions.map((it, idx) => `
+            ${report.strengths.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.strengths")}</h4><div class="tm-ai-list">${report.strengths.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+            ${report.issues.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.issues")}</h4><div class="tm-ai-list">${report.issues.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+            ${report.missingInfo.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.missingInformation")}</h4><div class="tm-ai-list">${report.missingInfo.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+            ${report.taskSuggestions.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.suggestedTasks")}</h4><div class="tm-ai-list">${report.taskSuggestions.map((it, idx) => `<div class="tm-ai-item"><div>${esc(it)}</div><div class="tm-ai-actions" style="margin-top:8px;justify-content:flex-start;"><button class="tm-btn tm-btn-secondary" data-ai-action="create-task" data-ai-index="${idx}">${__tmT("ai.convertToNewTask")}</button></div></div>`).join('')}</div></div>` : ''}
+            ${report.taskRenameSuggestions.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.taskRenameSuggestions2")}</h4><div class="tm-ai-list">${report.taskRenameSuggestions.map((it, idx) => `
                 <div class="tm-ai-item">
-                    <div class="tm-ai-hint" style="margin-bottom:6px;">当前任务</div>
+                    <div class="tm-ai-hint" style="margin-bottom:6px;">${__tmT("ai.currentTask")}</div>
                     <div>${esc(it.currentTitle || it.taskId)}</div>
-                    <div class="tm-ai-hint" style="margin:8px 0 6px;">建议名称</div>
+                    <div class="tm-ai-hint" style="margin:8px 0 6px;">${__tmT("ai.suggestedName")}</div>
                     <textarea class="tm-ai-textarea" data-ai-rename-input="${idx}" style="min-height:60px;">${esc(it.suggestedTitle)}</textarea>
                     ${it.reason ? `<div class="tm-ai-hint" style="margin-top:8px;">${esc(it.reason)}</div>` : ''}
                     <div class="tm-ai-actions" style="margin-top:8px;justify-content:flex-start;">
-                        <button class="tm-btn tm-btn-success" data-ai-action="apply-rename" data-ai-index="${idx}">应用到任务</button>
+                        <button class="tm-btn tm-btn-success" data-ai-action="apply-rename" data-ai-index="${idx}">${__tmT("ai.applyToTask")}</button>
                     </div>
                 </div>
-            `).join('')}</div></div>` : (structuredTasks.length ? `<div class="tm-ai-box"><h4>任务名称修改建议</h4><div class="tm-ai-hint">当前报告还没有逐条改名建议，可以单独生成。</div><div class="tm-ai-actions" style="margin-top:10px;justify-content:flex-start;"><button class="tm-btn tm-btn-secondary" data-ai-action="generate-renames">生成任务名称修改建议</button></div></div>` : '')}
-            ${report.milestoneSuggestions.length ? `<div class="tm-ai-box"><h4>建议里程碑</h4><div class="tm-ai-list">${report.milestoneSuggestions.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
-            ${report.scheduleHints.length ? `<div class="tm-ai-box"><h4>排期提示</h4><div class="tm-ai-list">${report.scheduleHints.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+            `).join('')}</div></div>` : (structuredTasks.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.taskRenameSuggestions2")}</h4><div class="tm-ai-hint">${__tmT("ai.thisReportHasNoPerTaskRenameSuggestionsYet")}</div><div class="tm-ai-actions" style="margin-top:10px;justify-content:flex-start;"><button class="tm-btn tm-btn-secondary" data-ai-action="generate-renames">${__tmT("ai.generateTaskRenameSuggestions")}</button></div></div>` : '')}
+            ${report.milestoneSuggestions.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.suggestedMilestones")}</h4><div class="tm-ai-list">${report.milestoneSuggestions.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+            ${report.scheduleHints.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.schedulingHints")}</h4><div class="tm-ai-list">${report.scheduleHints.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
             <div class="tm-ai-actions">
-                <button class="tm-btn tm-btn-secondary" data-ai-action="close">关闭</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="copy-report">复制报告</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="download-report">导出 Markdown</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="continue">继续对话</button>
+                <button class="tm-btn tm-btn-secondary" data-ai-action="close">${__tmT("common.close")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="copy-report">${__tmT("ai.copyReport")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="download-report">${__tmT("ai.exportMarkdown")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="continue">${__tmT("ai.continueChat")}</button>
             </div>
         `);
         const modal = renderSmartResult();
@@ -3408,9 +3408,9 @@
             if (action === 'copy-report') {
                 try {
                     await navigator.clipboard.writeText(markdown);
-                    toast('✅ 已复制 SMART 报告', 'success');
+                    toast(__tmT("ai.smartReportCopied"), 'success');
                 } catch (e) {
-                    toast('❌ 复制失败', 'error');
+                    toast(__tmT("ai.copyFailed"), 'error');
                 }
             } else if (action === 'download-report') {
                 const name = `${String(doc?.name || 'smart-report').replace(/[\\/:*?"<>|]+/g, '_')}-smart-report.md`;
@@ -3423,19 +3423,19 @@
                     try { URL.revokeObjectURL(a.href); } catch (e) {}
                     try { a.remove(); } catch (e) {}
                 }, 0);
-                toast('✅ 已导出 Markdown 报告', 'success');
+                toast(__tmT("ai.markdownReportExported"), 'success');
             } else if (action === 'continue') {
                 await analyzeSmart(did);
             } else if (action === 'generate-renames') {
-                const renameSteps = ['读取当前分析结果', '请求改名建议', '整理建议列表'];
-                setProgressModal('AI SMART 分析', renameSteps, 0, '正在准备任务名称修改建议...');
+                const renameSteps = [__tmT("ai.readCurrentAnalysisResults"), __tmT("ai.requestRenameSuggestions"), __tmT("ai.organizeSuggestionList")];
+                setProgressModal(__tmT("ai.aiSmartAnalysis"), renameSteps, 0, __tmT("ai.preparingTaskRenameSuggestions"));
                 try {
-                    setProgressModal('AI SMART 分析', renameSteps, 1, `正在生成任务名称修改建议... 当前任务 ${structuredTasks.length} 条`);
+                    setProgressModal(__tmT("ai.aiSmartAnalysis"), renameSteps, 1, __tmT("ai.generatingTaskRenameSuggestionsCurrentTasks", { length: structuredTasks.length }));
                     report.taskRenameSuggestions = await generateTaskRenameSuggestions(doc, structuredTasks, input, history);
                     smartRenameCache.set(did, report.taskRenameSuggestions.map((it) => ({ ...it })));
-                    setProgressModal('AI SMART 分析', renameSteps, 2, '正在整理建议列表...');
+                    setProgressModal(__tmT("ai.aiSmartAnalysis"), renameSteps, 2, __tmT("ai.organizingSuggestionList"));
                 } catch (e) {
-                    toast(`❌ ${String(e?.message || e || '生成失败')}`, 'error');
+                    toast(`❌ ${String(e?.message || e || __tmT("ai.generationFailed"))}`, 'error');
                     report.taskRenameSuggestions = [];
                 }
                 renderSmartResult();
@@ -3444,7 +3444,7 @@
                 const suggestion = report.taskSuggestions[idx];
                 if (!suggestion) return;
                 await b.createTaskSuggestion(did, suggestion);
-                toast('✅ 已创建建议任务', 'success');
+                toast(__tmT("ai.suggestedTaskCreated"), 'success');
             } else if (action === 'apply-rename') {
                 const idx = Number(event.target?.dataset?.aiIndex);
                 const suggestion = report.taskRenameSuggestions[idx];
@@ -3452,15 +3452,15 @@
                 const inputEl = body.querySelector(`[data-ai-rename-input="${idx}"]`);
                 const nextTitle = String(inputEl?.value || suggestion.suggestedTitle || '').trim();
                 if (!nextTitle) {
-                    toast('❌ 建议名称不能为空', 'error');
+                    toast(__tmT("ai.suggestedNameCannotBeEmpty"), 'error');
                     return;
                 }
                 await b.applyTaskPatch(suggestion.taskId, { title: nextTitle });
                 suggestion.currentTitle = nextTitle;
                 suggestion.suggestedTitle = nextTitle;
                 if (inputEl) inputEl.value = nextTitle;
-                try { event.target.textContent = '已应用'; } catch (e) {}
-                toast('✅ 已应用任务名称修改', 'success');
+                try { event.target.textContent = __tmT("ai.applied"); } catch (e) {}
+                toast(__tmT("ai.taskNameChangeApplied"), 'success');
             }
         });
     }
@@ -3468,15 +3468,15 @@
     async function openDocChat(docId) {
         const b = bridge();
         const did = String(docId || b.getCurrentDocId?.() || '').trim();
-        if (!did) throw new Error('未找到当前文档');
+        if (!did) throw new Error(__tmT("ai.currentDocumentNotFound"));
         const hKey = ['doc-chat', did];
         const history = await loadHistory(hKey[0], hKey[1]);
-        const input = await promptInput('AI 对话', '例如：根据当前文档给我下一步建议，或帮我梳理关键风险', '会结合当前文档任务和说明块回答。', { history });
+        const input = await promptInput(__tmT("ai.aiChat"), __tmT("ai.eGSuggestNextStepsFromTheCurrentDocument"), __tmT("ai.answersUsingTheCurrentDocumentTasksAndNoteBlocks"), { history });
         if (!input) return;
-        if (!input.instruction) throw new Error('请输入对话内容');
-        setModal('AI 对话', `<div class="tm-ai-box"><h4>处理中</h4><div class="tm-ai-hint">正在整理当前文档上下文...</div></div>`);
+        if (!input.instruction) throw new Error(__tmT("ai.enterAChatMessage"));
+        setModal(__tmT("ai.aiChat"), `<div class="tm-ai-box"><h4>${__tmT("ai.processing2")}</h4><div class="tm-ai-hint">${__tmT("ai.preparingTheCurrentDocumentContext")}</div></div>`);
         const doc = await b.getDocumentSnapshot(did, { limit: 1200 });
-        if (!doc) throw new Error('读取文档失败');
+        if (!doc) throw new Error(__tmT("ai.failedToReadTheDocument"));
         const excerpt = buildDocExcerpt(doc, '', input.mode);
         const docTasks = Array.isArray(doc?.tasks) ? doc.tasks.slice(0, 120) : [];
         const result = await callMiniMaxJson(
@@ -3494,29 +3494,29 @@
         const highlights = Array.isArray(result?.highlights) ? result.highlights.map((it) => String(it || '').trim()).filter(Boolean) : [];
         const nextActions = Array.isArray(result?.nextActions) ? result.nextActions.map((it) => String(it || '').trim()).filter(Boolean) : [];
         const warnings = Array.isArray(result?.warnings) ? result.warnings.map((it) => String(it || '').trim()).filter(Boolean) : [];
-        opResults.filter((it) => !it.ok && it.error).forEach((it) => warnings.push(`任务“${it.title || it.taskId}”：${it.error}`));
-        createResults.filter((it) => !it.ok && it.error).forEach((it) => warnings.push(`${describeChatCreateAction(it)}“${it.title || '任务'}”：${it.error}`));
+        opResults.filter((it) => !it.ok && it.error).forEach((it) => warnings.push(__tmT("ai.task2", { taskId: it.title || it.taskId, error: it.error })));
+        createResults.filter((it) => !it.ok && it.error).forEach((it) => warnings.push(`${describeChatCreateAction(it)}“${it.title || __tmT("kernel.task")}”：${it.error}`));
         await appendHistory(hKey[0], hKey[1], 'user', input.instruction);
         await appendHistory(hKey[0], hKey[1], 'assistant', [
-            answer || '已生成对话回复',
-            highlights.length ? `要点：${highlights.join('；')}` : '',
-            nextActions.length ? `下一步：${nextActions.join('；')}` : '',
-            warnings.length ? `提醒：${warnings.join('；')}` : '',
+            answer || __tmT("ai.chatReplyGenerated"),
+            highlights.length ? __tmT("ai.highlights", { value1: highlights.join('；') }) : '',
+            nextActions.length ? __tmT("ai.nextSteps", { value1: nextActions.join('；') }) : '',
+            warnings.length ? __tmT("ai.reminder", { value1: warnings.join('；') }) : '',
         ].filter(Boolean).join('\n\n'));
-        const modal = setModal('AI 对话', `
-            <div class="tm-ai-box"><h4>回复</h4><div>${esc(answer || 'AI 没有返回正文')}</div></div>
-            ${(createResults.length || opResults.length) ? `<div class="tm-ai-box"><h4>执行结果</h4><div class="tm-ai-list">
-                ${createResults.map((it) => `<div class="tm-ai-item">${esc(`${it.ok ? '成功' : '失败'}｜${describeChatCreateAction(it)}｜${it.title || it.taskId || '任务'}${it.patchDesc ? `｜${it.patchDesc}` : ''}${it.error ? `｜${it.error}` : ''}`)}</div>`).join('')}
-                ${opResults.map((it) => `<div class="tm-ai-item">${esc(`${it.ok ? '成功' : '失败'}｜${it.title || it.taskId}${it.patchDesc ? `｜${it.patchDesc}` : ''}${it.error ? `｜${it.error}` : ''}`)}</div>`).join('')}
+        const modal = setModal(__tmT("ai.aiChat"), `
+            <div class="tm-ai-box"><h4>${__tmT("kernel.reply")}</h4><div>${esc(answer || __tmT("ai.theAiReturnedNoContent"))}</div></div>
+            ${(createResults.length || opResults.length) ? `<div class="tm-ai-box"><h4>${__tmT("ai.executionResults")}</h4><div class="tm-ai-list">
+                ${createResults.map((it) => `<div class="tm-ai-item">${esc(`${it.ok ? __tmT("ai.success") : __tmT("ai.failed2")}｜${describeChatCreateAction(it)}｜${it.title || it.taskId || __tmT("kernel.task")}${it.patchDesc ? `｜${it.patchDesc}` : ''}${it.error ? `｜${it.error}` : ''}`)}</div>`).join('')}
+                ${opResults.map((it) => `<div class="tm-ai-item">${esc(`${it.ok ? __tmT("ai.success") : __tmT("ai.failed2")}｜${it.title || it.taskId}${it.patchDesc ? `｜${it.patchDesc}` : ''}${it.error ? `｜${it.error}` : ''}`)}</div>`).join('')}
             </div></div>` : ''}
-            ${highlights.length ? `<div class="tm-ai-box"><h4>要点</h4><div class="tm-ai-list">${highlights.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
-            ${nextActions.length ? `<div class="tm-ai-box"><h4>下一步建议</h4><div class="tm-ai-list">${nextActions.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
-            ${warnings.length ? `<div class="tm-ai-box"><h4>提醒</h4><div class="tm-ai-list">${warnings.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+            ${highlights.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.highlights2")}</h4><div class="tm-ai-list">${highlights.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+            ${nextActions.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.nextStepSuggestions")}</h4><div class="tm-ai-list">${nextActions.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+            ${warnings.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.warnings")}</h4><div class="tm-ai-list">${warnings.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
             <div class="tm-ai-actions">
-                <button class="tm-btn tm-btn-secondary" data-ai-action="close">关闭</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="copy-answer">复制回复</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="open-history">查看记录</button>
-                <button class="tm-btn tm-btn-success" data-ai-action="continue">继续对话</button>
+                <button class="tm-btn tm-btn-secondary" data-ai-action="close">${__tmT("common.close")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="copy-answer">${__tmT("ai.copyReply")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="open-history">${__tmT("ai.viewRecords")}</button>
+                <button class="tm-btn tm-btn-success" data-ai-action="continue">${__tmT("ai.continueChat")}</button>
             </div>
         `);
         const body = modal.querySelector('.tm-ai-modal__body');
@@ -3526,9 +3526,9 @@
             if (action === 'copy-answer') {
                 try {
                     await navigator.clipboard.writeText(answer || '');
-                    toast('✅ 已复制 AI 回复', 'success');
+                    toast(__tmT("ai.aiReplyCopied"), 'success');
                 } catch (e) {
-                    toast('❌ 复制失败', 'error');
+                    toast(__tmT("ai.copyFailed"), 'error');
                 }
             } else if (action === 'open-history') {
                 await showHistory(did);
@@ -3541,23 +3541,23 @@
     async function showHistory(filterId) {
         const entries = await listHistoryEntries(filterId);
         const currentDocId = String(filterId || bridge()?.getCurrentDocId?.() || '').trim();
-        const title = currentDocId ? 'AI 记录（当前文档）' : 'AI 记录';
-        const emptyHint = currentDocId ? '当前文档还没有 AI 对话记录。' : '还没有任何 AI 对话记录。';
+        const title = currentDocId ? __tmT("ai.aiRecordsCurrentDocument") : __tmT("ai.aiRecords");
+        const emptyHint = currentDocId ? __tmT("ai.theCurrentDocumentHasNoAiChatRecordsYet") : __tmT("ai.noAiChatRecordsYet");
         const modal = setModal(title, `
             <div class="tm-ai-box">
-                <h4>记录列表</h4>
+                <h4>${__tmT("ai.recordList")}</h4>
                 ${entries.length ? `<div class="tm-ai-list">
                     ${entries.map((it, idx) => `
                         <div class="tm-ai-item">
                             <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
                                 <div style="flex:1;min-width:0;">
                                     <div style="font-weight:600;">${esc(historyKindLabel(it.kind))}</div>
-                                    <div class="tm-ai-hint">ID: ${esc(it.id)}${it.updatedAt ? ` · ${esc(formatTs(it.updatedAt))}` : ''} · ${it.count} 条</div>
+                                    <div class="tm-ai-hint">${__tmT("ai.idItems", { id: esc(it.id), value2: it.updatedAt ? ` · ${esc(formatTs(it.updatedAt))}` : '', count: it.count })}</div>
                                     ${it.preview ? `<div style="margin-top:6px;">${esc(it.preview)}</div>` : ''}
                                 </div>
                                 <div class="tm-ai-actions" style="justify-content:flex-start;">
-                                    <button class="tm-btn tm-btn-secondary" data-ai-action="history-open" data-ai-index="${idx}">打开</button>
-                                    <button class="tm-btn tm-btn-secondary" data-ai-action="history-delete" data-ai-index="${idx}">删除</button>
+                                    <button class="tm-btn tm-btn-secondary" data-ai-action="history-open" data-ai-index="${idx}">${__tmT("plugin.open")}</button>
+                                    <button class="tm-btn tm-btn-secondary" data-ai-action="history-delete" data-ai-index="${idx}">${__tmT("common.delete")}</button>
                                 </div>
                             </div>
                         </div>
@@ -3565,9 +3565,9 @@
                 </div>` : `<div class="tm-ai-hint">${esc(emptyHint)}</div>`}
             </div>
             <div class="tm-ai-actions">
-                <button class="tm-btn tm-btn-secondary" data-ai-action="close">关闭</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="refresh-history">刷新</button>
-                <button class="tm-btn tm-btn-success" data-ai-action="open-chat">AI 对话</button>
+                <button class="tm-btn tm-btn-secondary" data-ai-action="close">${__tmT("common.close")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="refresh-history">${__tmT("ai.refresh")}</button>
+                <button class="tm-btn tm-btn-success" data-ai-action="open-chat">${__tmT("ai.aiChat")}</button>
             </div>
         `);
         const body = modal.querySelector('.tm-ai-modal__body');
@@ -3587,7 +3587,7 @@
             if (!entry) return;
             if (action === 'history-delete') {
                 await removeHistory(entry.kind, entry.id);
-                toast('✅ 已删除 AI 记录', 'success');
+                toast(__tmT("ai.aiRecordDeleted"), 'success');
                 await showHistory(filterId);
                 return;
             }
@@ -3605,14 +3605,14 @@
             const task = await b.getTaskSnapshot(targetTaskId);
             docId = String(task?.docId || task?.root_id || '').trim();
         }
-        if (!docId) throw new Error('未找到排期目标文档');
+        if (!docId) throw new Error(__tmT("ai.schedulingTargetDocumentNotFound"));
         const hKey = ['doc-schedule', targetTaskId || docId];
         const history = await loadHistory(hKey[0], hKey[1]);
-        const input = await promptInput('AI 日程排期', '例如：根据现在的情况安排今天任务到日历，我要摸鱼2小时，任务间隔半小时', '会结合当前文档任务和当天已有日程生成计划。', { history });
+        const input = await promptInput(__tmT("ai.aiScheduling"), __tmT("ai.eGScheduleTodaySTasksIntoTheCalendar"), __tmT("ai.plansUsingTheCurrentDocumentTasksAndTheDay"), { history });
         if (!input) return;
-        setModal('AI 日程排期', `<div class="tm-ai-box"><h4>处理中</h4><div class="tm-ai-hint">正在生成日程计划，候选任务最多取当前视图前 5 个...</div></div>`);
+        setModal(__tmT("ai.aiScheduling"), `<div class="tm-ai-box"><h4>${__tmT("ai.processing2")}</h4><div class="tm-ai-hint">${__tmT("ai.generatingTheSchedulePlanUpToTheFirstTasks")}</div></div>`);
         const doc = await b.getDocumentSnapshot(docId, { limit: 1200 });
-        if (!doc) throw new Error('读取文档失败');
+        if (!doc) throw new Error(__tmT("ai.failedToReadTheDocument"));
         const dayKey = todayKey();
         const scheduleApi = globalThis.__tmCalendar || null;
         const existing = scheduleApi?.listTaskSchedulesByDay ? await scheduleApi.listTaskSchedulesByDay(dayKey) : [];
@@ -3664,7 +3664,7 @@
         }
         const excerpt = buildDocExcerpt(doc, targetTaskId, input.mode);
         const result = await callMiniMaxJson(
-            '你是任务排期助手。请只输出 JSON：{"planDate":"YYYY-MM-DD","timeBlocks":[{"taskId":"","title":"","start":"YYYY-MM-DD HH:mm","end":"YYYY-MM-DD HH:mm","allDay":false,"reason":""}],"unscheduledTasks":[],"conflicts":[],"assumptions":[]}。必须优先安排 focusTaskId 相关任务；如果 allowedWindows 非空，所有 timeBlocks 都必须严格落在这些时间段内，不允许日程跨时间段。',
+            __tmT("ai.youAreATaskSchedulingAssistantOutputOnlyJson"),
             {
                 document: { id: doc.id, name: doc.name, path: doc.path, ...excerpt },
                 focusTaskId: targetTaskId,
@@ -3698,35 +3698,35 @@
             const end = parseDateTimeLoose(item.end);
             if (!(start instanceof Date) || !(end instanceof Date) || end.getTime() <= start.getTime()) return;
             if (!isBlockWithinWindows(start, end, allowedWindows)) {
-                outOfWindow.push(`${item.title || item.taskId || '任务'}：${item.start} ~ ${item.end}`);
+                outOfWindow.push(`${item.title || item.taskId || __tmT("kernel.task")}：${item.start} ~ ${item.end}`);
                 return;
             }
             timeBlocks.push(item);
         });
-        if (!timeBlocks.length) throw new Error('AI 没有生成可用排期');
+        if (!timeBlocks.length) throw new Error(__tmT("ai.theAiDidNotGenerateAUsableSchedule"));
         const unscheduled = Array.isArray(result?.unscheduledTasks) ? result.unscheduledTasks.map((it) => String(it || '').trim()).filter(Boolean) : [];
         const conflicts = Array.isArray(result?.conflicts) ? result.conflicts.map((it) => String(it || '').trim()).filter(Boolean) : [];
-        if (outOfWindow.length) conflicts.push(`以下日程超出允许时间段，已自动忽略：${outOfWindow.join('；')}`);
+        if (outOfWindow.length) conflicts.push(__tmT("ai.schedulesOutsideTheAllowedTimeWindowsWereIgnoredAutomatically", { value1: outOfWindow.join('；') }));
         const assumptions = Array.isArray(result?.assumptions) ? result.assumptions.map((it) => String(it || '').trim()).filter(Boolean) : [];
-        await appendHistory(hKey[0], hKey[1], 'user', input.instruction || '请为当前任务生成日程排期');
+        await appendHistory(hKey[0], hKey[1], 'user', input.instruction || __tmT("ai.generateASchedulePlanForTheCurrentTasks"));
         await appendHistory(hKey[0], hKey[1], 'assistant', [
-            `计划日期：${planDate}`,
-            '日程建议：',
-            ...timeBlocks.map((it) => `- ${it.title || it.taskId || '任务'}：${it.start} ~ ${it.end}${it.reason ? `；${it.reason}` : ''}`),
-            unscheduled.length ? `未排入：${unscheduled.join('；')}` : '',
-            conflicts.length ? `冲突：${conflicts.join('；')}` : '',
-            assumptions.length ? `假设：${assumptions.join('；')}` : '',
+            __tmT("ai.planDate", { planDate: planDate }),
+            __tmT("ai.scheduleSuggestions"),
+            ...timeBlocks.map((it) => `- ${it.title || it.taskId || __tmT("kernel.task")}：${it.start} ~ ${it.end}${it.reason ? `；${it.reason}` : ''}`),
+            unscheduled.length ? __tmT("ai.notScheduled", { value1: unscheduled.join('；') }) : '',
+            conflicts.length ? __tmT("ai.conflicts", { value1: conflicts.join('；') }) : '',
+            assumptions.length ? __tmT("ai.assumptions", { value1: assumptions.join('；') }) : '',
         ].filter(Boolean).join('\n'));
-        const modal = setModal('AI 日程排期', `
-            <div class="tm-ai-box"><h4>计划日期</h4><div>${esc(planDate)}</div><div class="tm-ai-hint" style="margin-top:6px;">允许排期时间段：${esc(allowedWindows.map((win) => win.label).join(' / '))}</div></div>
-            <div class="tm-ai-box"><h4>日程建议</h4><div class="tm-ai-list">${timeBlocks.map((it) => `<div class="tm-ai-item"><div><b>${esc(it.title || it.taskId || '任务')}</b></div><div class="tm-ai-hint">${esc(it.start)} ~ ${esc(it.end)}${it.reason ? `；${esc(it.reason)}` : ''}</div></div>`).join('')}</div></div>
-            ${unscheduled.length ? `<div class="tm-ai-box"><h4>未排入任务</h4><div class="tm-ai-list">${unscheduled.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
-            ${conflicts.length ? `<div class="tm-ai-box"><h4>冲突提示</h4><div class="tm-ai-list">${conflicts.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
-            ${assumptions.length ? `<div class="tm-ai-box"><h4>假设</h4><div class="tm-ai-list">${assumptions.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+        const modal = setModal(__tmT("ai.aiScheduling"), `
+            <div class="tm-ai-box"><h4>${__tmT("ai.planDate2")}</h4><div>${esc(planDate)}</div><div class="tm-ai-hint" style="margin-top:6px;">${__tmT("ai.allowedSchedulingWindows", { value1: esc(allowedWindows.map((win) => win.label).join(' / ')) })}</div></div>
+            <div class="tm-ai-box"><h4>${__tmT("ai.scheduleSuggestions2")}</h4><div class="tm-ai-list">${timeBlocks.map((it) => `<div class="tm-ai-item"><div><b>${esc(it.title || it.taskId || __tmT("kernel.task"))}</b></div><div class="tm-ai-hint">${esc(it.start)} ~ ${esc(it.end)}${it.reason ? `；${esc(it.reason)}` : ''}</div></div>`).join('')}</div></div>
+            ${unscheduled.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.unscheduledTasks")}</h4><div class="tm-ai-list">${unscheduled.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+            ${conflicts.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.conflicts2")}</h4><div class="tm-ai-list">${conflicts.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
+            ${assumptions.length ? `<div class="tm-ai-box"><h4>${__tmT("ai.assumptions2")}</h4><div class="tm-ai-list">${assumptions.map((it) => `<div class="tm-ai-item">${esc(it)}</div>`).join('')}</div></div>` : ''}
             <div class="tm-ai-actions">
-                <button class="tm-btn tm-btn-secondary" data-ai-action="close">关闭</button>
-                <button class="tm-btn tm-btn-primary" data-ai-action="continue">继续对话</button>
-                <button class="tm-btn tm-btn-success" data-ai-action="apply-schedule">写入日历</button>
+                <button class="tm-btn tm-btn-secondary" data-ai-action="close">${__tmT("common.close")}</button>
+                <button class="tm-btn tm-btn-primary" data-ai-action="continue">${__tmT("ai.continueChat")}</button>
+                <button class="tm-btn tm-btn-success" data-ai-action="apply-schedule">${__tmT("ai.writeToCalendar")}</button>
             </div>
         `);
         const body = modal.querySelector('.tm-ai-modal__body');
@@ -3739,14 +3739,14 @@
             }
             if (action !== 'apply-schedule') return;
             const cal = globalThis.__tmCalendar;
-            if (!cal?.addTaskSchedule) throw new Error('日历模块未加载');
+            if (!cal?.addTaskSchedule) throw new Error(__tmT("ai.calendarModuleIsNotLoaded"));
             for (const item of timeBlocks) {
                 const start = parseDateTimeLoose(item.start);
                 const end = parseDateTimeLoose(item.end);
                 if (!(start instanceof Date) || !(end instanceof Date) || end.getTime() <= start.getTime()) continue;
                 await cal.addTaskSchedule({
                     taskId: item.taskId,
-                    title: item.title || item.taskId || '任务',
+                    title: item.title || item.taskId || __tmT("kernel.task"),
                     start,
                     end,
                     calendarId: 'default',
@@ -3767,7 +3767,7 @@
                     await cal.refreshInPlace?.({ silent: false });
                 }
             } catch (e) {}
-            toast('✅ 已写入日历', 'success');
+            toast(__tmT("ai.writtenToCalendar"), 'success');
             closeModal();
         });
     }
@@ -3787,18 +3787,18 @@
             <div class="tm-ai-sidebar__promptbar">
                 <div class="tm-ai-sidebar__promptbar-row">
                     <select class="tm-rule-select tm-ai-sidebar__promptbar-select" data-ai-sidebar-field="chatPromptTemplate">
-                        <option value="">选择提示词模板...</option>
+                        <option value="">${__tmT("ai.selectAPromptTemplate")}</option>
                         ${templates.map((item) => `<option value="${esc(item.id)}" ${item.id === activeId ? 'selected' : ''}>${esc(item.name)}</option>`).join('')}
                     </select>
-                    <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="new-prompt-template">新建</button>
-                    <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="save-prompt-template">保存</button>
-                    <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="rename-prompt-template" ${active ? '' : 'disabled'}>命名</button>
-                    <button class="tm-btn tm-btn-gray" data-ai-sidebar-action="delete-prompt-template" ${active ? '' : 'disabled'}>删除</button>
+                    <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="new-prompt-template">${__tmT("ai.new")}</button>
+                    <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="save-prompt-template">${__tmT("common.save")}</button>
+                    <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="rename-prompt-template" ${active ? '' : 'disabled'}>${__tmT("ai.rename")}</button>
+                    <button class="tm-btn tm-btn-gray" data-ai-sidebar-action="delete-prompt-template" ${active ? '' : 'disabled'}>${__tmT("common.delete")}</button>
                 </div>
                 <div class="tm-ai-sidebar__promptbar-meta">
                     ${active
-                        ? `当前模板：${esc(active.name)}`
-                        : `当前未绑定模板。可先输入内容，再点“新建”或“保存”生成模板。`}
+                        ? __tmT("ai.currentTemplate", { name: esc(active.name) })
+                        : __tmT("ai.noTemplateBoundYetEnterContentFirstThenClick")}
                 </div>
             </div>
         `;
@@ -3810,7 +3810,7 @@
         const breakHours = Number(value.breakHours || 0);
         const gapMinutes = Number(value.gapMinutes || 0);
         const maxTasks = Number(value.maxTasks || 0);
-        return `${dateLabel} · 摸鱼${breakHours}h · 间隔${gapMinutes}m · 最多${maxTasks}项`;
+        return __tmT("ai.hDowntimeMGapsMax", { dateLabel: dateLabel, breakHours: breakHours, gapMinutes: gapMinutes, maxTasks: maxTasks });
     }
 
     async function applyChatPromptTemplateToConversation(conversationId, templateId) {
@@ -3821,7 +3821,7 @@
         const draft = getConversationDraft(current.id);
         if (template) {
             draft.chat = String(template.content || '');
-            toast(`✅ 已载入提示词：${template.name}`, 'success');
+            toast(__tmT("ai.promptLoaded", { name: template.name }), 'success');
         }
         return template || null;
     }
@@ -4077,17 +4077,17 @@
         const report = (result && typeof result === 'object') ? result : {};
         const lines = [];
         if (report?.summary) lines.push(String(report.summary).trim());
-        if (Array.isArray(report?.taskAnalyses) && report.taskAnalyses.length) lines.push(`逐任务建议 ${report.taskAnalyses.length} 条`);
-        if (Array.isArray(report?.taskSuggestions) && report.taskSuggestions.length) lines.push(`新增建议任务 ${report.taskSuggestions.length} 条`);
+        if (Array.isArray(report?.taskAnalyses) && report.taskAnalyses.length) lines.push(__tmT("ai.perTaskSuggestions", { length: report.taskAnalyses.length }));
+        if (Array.isArray(report?.taskSuggestions) && report.taskSuggestions.length) lines.push(__tmT("ai.newSuggestedTasks", { length: report.taskSuggestions.length }));
         return lines.filter(Boolean).join('\n');
     }
 
     function summarizeScheduleResult(result) {
         const plan = (result && typeof result === 'object') ? result : {};
         const blocks = Array.isArray(plan?.timeBlocks) ? plan.timeBlocks : [];
-        if (!blocks.length) return 'AI 没有生成可用排期';
+        if (!blocks.length) return __tmT("ai.theAiDidNotGenerateAUsableSchedule");
         const dateLabel = formatPlannerDateRange(plan.planDate || todayKey(), plan.planDateTo || plan.planDate || todayKey());
-        return [`计划范围：${dateLabel}`, ...blocks.map((it) => `- ${it.title || it.taskId || '任务'}：${it.start} ~ ${it.end}`)].join('\n');
+        return [__tmT("ai.planRange", { dateLabel: dateLabel }), ...blocks.map((it) => `- ${it.title || it.taskId || __tmT("kernel.task")}：${it.start} ~ ${it.end}`)].join('\n');
     }
 
     async function buildSummaryCandidateTasks(conversation) {
@@ -4148,7 +4148,7 @@
         if (report?.title) lines.push(String(report.title).trim());
         if (report?.rangeLabel) lines.push(report.rangeLabel);
         if (report?.summary) lines.push(String(report.summary).trim());
-        if (report?.stats?.included) lines.push(`纳入任务 ${report.stats.included} 项`);
+        if (report?.stats?.included) lines.push(__tmT("ai.includedTasks", { included: report.stats.included }));
         return lines.filter(Boolean).join('\n');
     }
 
@@ -4160,16 +4160,16 @@
             const updatedRaw = String(task?.updated || task?.updatedAt || task?.updateTime || task?.update_time || '').trim();
             const updatedKey = resolveTaskUpdatedDateKey(task);
             const hit = taskTouchesSummaryRange(task, range);
-            return `${String(task?.content || task?.id || '任务').trim() || '任务'} | done=${task?.done ? '1' : '0'} | updated=${updatedRaw || '-'} | parsed=${updatedKey || '-'} | hit=${hit ? '1' : '0'}`;
+            return `${String(task?.content || task?.id || __tmT("kernel.task")).trim() || __tmT("kernel.task")} | done=${task?.done ? '1' : '0'} | updated=${updatedRaw || '-'} | parsed=${updatedKey || '-'} | hit=${hit ? '1' : '0'}`;
         });
         return [
-            '当前范围没有可摘要的任务',
-            `范围=${range.dateFrom}~${range.dateTo}`,
-            `候选=${list.length}`,
-            `命中=${ranged.length}`,
-            extra?.contextScope ? `上下文=${extra.contextScope}` : '',
-            extra?.docCount !== undefined ? `文档数=${extra.docCount}` : '',
-            samples.length ? `样本=${samples.join(' || ')}` : '样本=无',
+            __tmT("ai.noSummarizableTasksInTheCurrentRange"),
+            __tmT("ai.range", { dateFrom: range.dateFrom, dateTo: range.dateTo }),
+            __tmT("ai.candidates", { length: list.length }),
+            __tmT("ai.matched", { length: ranged.length }),
+            extra?.contextScope ? __tmT("ai.context", { contextScope: extra.contextScope }) : '',
+            extra?.docCount !== undefined ? __tmT("ai.documents2", { docCount: extra.docCount }) : '',
+            samples.length ? __tmT("ai.samples", { value1: samples.join(' || ') }) : __tmT("ai.samplesNone"),
         ].filter(Boolean).join('；');
     }
 
@@ -4187,7 +4187,7 @@
 
     async function runSummaryConversation(conversationId) {
         const session0 = await getConversation(conversationId);
-        if (!session0) throw new Error('未找到会话');
+        if (!session0) throw new Error(__tmT("ai.conversationNotFound"));
         const draft = getConversationDraft(session0.id);
         let session = await ensureConversationDefaults(session0);
         const { summary, allTasks, rangedTasks, selectedTasks } = await buildSummaryCandidateTasks(session);
@@ -4206,10 +4206,10 @@
         }
         const doc = await getPrimaryDocumentSnapshot(session, { taskId: selectedTasks[0]?.id || allTasks[0]?.id || '' });
         const excerpt = buildDocExcerpt(doc, selectedTasks[0]?.id || '', session.contextMode);
-        const presetLabel = summary.preset === 'weekly' ? '周报' : (summary.preset === 'custom' ? '摘要' : '日报');
-        const instruction = String(draft.summary || '').trim() || `请生成${presetLabel}，自动筛选 ${summary.dateFrom}${summary.dateFrom === summary.dateTo ? '' : ` 到 ${summary.dateTo}`} 范围内相关任务。已完成任务请以“当前状态为已完成且任务更新时间落在范围内”为准，不要把 completionTime 当成完成发生日；同时补充进行中、阻塞项和下一步。`;
+        const presetLabel = summary.preset === 'weekly' ? __tmT("kernel.weeklyReport") : (summary.preset === 'custom' ? __tmT("ai.summary3") : __tmT("ai.dailyReport"));
+        const instruction = String(draft.summary || '').trim() || __tmT("ai.generateAutomaticallySelectRelevantTasksWithinTreatATask", { presetLabel: presetLabel, dateFrom: summary.dateFrom, value3: summary.dateFrom === summary.dateTo ? '' : __tmT("ai.to", { dateTo: summary.dateTo }) });
         const result = await callMiniMaxJson(
-            '你是工作复盘与汇报助手。请先根据 reportPreset、dateRange 和 tasks 自动筛选 relevant tasks，再输出 JSON：{"title":"","summary":"","completedHighlights":[],"progressHighlights":[],"risks":[],"nextSteps":[],"notes":[],"includedTaskIds":[],"excludedTaskIds":[],"stats":{"candidate":0,"included":0,"done":0,"todo":0},"reportMarkdown":""}。日报默认优先汇总当天完成任务并补充推进项；周报默认汇总本周完成、推进、风险与下周计划；自定义摘要严格围绕给定 dateRange。判定“范围内完成”的标准是：任务当前 done=true，且任务 updated/updatedAt 落在 dateRange 内；不要把 completionTime 直接当作完成发生时间。includedTaskIds 只能来自输入 tasks[].id。',
+            __tmT("ai.youAreAWorkReviewAndReportingAssistantFirst"),
             {
                 conversationType: session.type,
                 contextScope: session.contextScope,
@@ -4266,15 +4266,15 @@
 
     async function runChatConversation(conversationId) {
         const session0 = await getConversation(conversationId);
-        if (!session0) throw new Error('未找到会话');
+        if (!session0) throw new Error(__tmT("ai.conversationNotFound"));
         const draft = getConversationDraft(session0.id);
         const instruction = String(draft.chat || '').trim();
-        if (!instruction) throw new Error('请输入对话内容');
+        if (!instruction) throw new Error(__tmT("ai.enterAChatMessage"));
         let session = await ensureConversationDefaults(session0);
         const turnContext = await buildChatSkillTurnContext(session, instruction);
         const loopResult = await runChatSkillLoop(turnContext);
         const finalResult = await synthesizeChatSkillLoopResult(turnContext, loopResult);
-        const answer = String(finalResult?.answer || '').trim() || 'AI 未返回正文';
+        const answer = String(finalResult?.answer || '').trim() || __tmT("ai.theAiReturnedNoContent2");
         const highlights = Array.isArray(finalResult?.highlights) ? finalResult.highlights : [];
         const nextActions = Array.isArray(finalResult?.nextActions) ? finalResult.nextActions : [];
         const warnings = Array.isArray(finalResult?.warnings) ? finalResult.warnings.slice() : [];
@@ -4288,14 +4288,14 @@
         session = await appendConversationMessage(session.id, 'user', instruction, { scene: 'chat' });
         session = await appendConversationMessage(session.id, 'assistant', [
             answer,
-            Array.isArray(loopResult?.plan) && loopResult.plan.length ? `执行计划：${loopResult.plan.join('；')}` : '',
-            highlights.length ? `要点：${highlights.join('；')}` : '',
-            nextActions.length ? `下一步：${nextActions.join('；')}` : '',
-            dedupWarnings.length ? `提醒：${dedupWarnings.join('；')}` : '',
+            Array.isArray(loopResult?.plan) && loopResult.plan.length ? __tmT("ai.executionPlan", { value1: loopResult.plan.join('；') }) : '',
+            highlights.length ? __tmT("ai.highlights", { value1: highlights.join('；') }) : '',
+            nextActions.length ? __tmT("ai.nextSteps", { value1: nextActions.join('；') }) : '',
+            dedupWarnings.length ? __tmT("ai.reminder", { value1: dedupWarnings.join('；') }) : '',
         ].filter(Boolean).join('\n\n'), { scene: 'chat', answer, highlights, nextActions, warnings: dedupWarnings });
         draft.chat = '';
         await updateConversation(session.id, {
-            title: String(session0.title || '').trim() || `${AI_SCENE_LABELS.chat} · ${turnContext?.doc?.name || '未命名文档'}`,
+            title: String(session0.title || '').trim() || `${AI_SCENE_LABELS.chat} · ${turnContext?.doc?.name || __tmT("kernel.untitledDocument")}`,
             lastResult: {
                 type: 'chat',
                 answer,
@@ -4338,18 +4338,18 @@
 
     async function runSmartConversation(conversationId) {
         const session0 = await getConversation(conversationId);
-        if (!session0) throw new Error('未找到会话');
+        if (!session0) throw new Error(__tmT("ai.conversationNotFound"));
         const draft = getConversationDraft(session0.id);
-        const instruction = String(draft.smart || '').trim() || '请检查当前项目和任务是否符合 SMART 原则，并给出逐任务修改建议';
+        const instruction = String(draft.smart || '').trim() || __tmT("ai.checkWhetherTheCurrentProjectAndTasksFollowThe");
         let session = await ensureConversationDefaults(session0);
         const doc = await getPrimaryDocumentSnapshot(session);
-        if (!doc) throw new Error('未找到要分析的文档');
+        if (!doc) throw new Error(__tmT("ai.documentToAnalyzeNotFound"));
         const docTasks = Array.isArray(doc.tasks) ? doc.tasks : [];
         const extractedTasks = extractTasksFromKramdown(doc);
         const structuredTasks = (docTasks.length ? docTasks : extractedTasks).slice(0, 60);
         const excerpt = buildDocExcerpt(doc, '', session.contextMode);
         const result = await callMiniMaxJson(
-            '你是项目管理顾问。请只输出 JSON：{"summary":"","smartScore":{"overall":0,"byDimension":{"specific":0,"measurable":0,"achievable":0,"relevant":0,"timeBound":0}},"strengths":[],"issues":[],"missingInfo":[],"taskSuggestions":[],"milestoneSuggestions":[],"scheduleHints":[],"taskAnalyses":[{"taskId":"","currentTitle":"","scores":{"overall":0,"byDimension":{"specific":0,"measurable":0,"achievable":0,"relevant":0,"timeBound":0}},"issues":[],"suggestions":[],"suggestedTitle":"","newTaskSuggestion":""}]}。必须基于输入 tasks 输出逐任务检查表，taskAnalyses 最多返回 30 条。',
+            __tmT("ai.youAreAProjectManagementConsultantOutputOnlyJson2"),
             {
                 document: { id: doc.id, name: doc.name, path: doc.path, ...excerpt },
                 tasks: structuredTasks.map(taskLite),
@@ -4390,7 +4390,7 @@
         session = await appendConversationMessage(session.id, 'assistant', summarizeSmartResult(report), { scene: 'smart', report });
         draft.smart = '';
         await updateConversation(session.id, {
-            title: String(session0.title || '').trim() || `${AI_SCENE_LABELS.smart} · ${doc.name || '未命名文档'}`,
+            title: String(session0.title || '').trim() || `${AI_SCENE_LABELS.smart} · ${doc.name || __tmT("kernel.untitledDocument")}`,
             lastResult: report,
         });
         return await getConversation(session.id);
@@ -4427,12 +4427,12 @@
 
     async function runScheduleConversation(conversationId) {
         const session0 = await getConversation(conversationId);
-        if (!session0) throw new Error('未找到会话');
+        if (!session0) throw new Error(__tmT("ai.conversationNotFound"));
         const draft = getConversationDraft(session0.id);
         let session = await ensureConversationDefaults(session0);
         const planner = normalizePlannerOptions(session.plannerOptions);
         const { selectedTaskIds, selectedTasks } = await buildScheduleCandidateTasks(session);
-        if (!selectedTaskIds.length || !selectedTasks.length) throw new Error('请先选择要排期的任务');
+        if (!selectedTaskIds.length || !selectedTasks.length) throw new Error(__tmT("ai.selectTasksToScheduleFirst"));
         const dayKey = normalizeDateKey(planner.planDate || todayKey()) || todayKey();
         const dayKeyTo = normalizeDateKey(planner.planDateTo || planner.planDate || dayKey) || dayKey;
         const planDays = listDateKeysBetween(dayKey, dayKeyTo);
@@ -4441,9 +4441,9 @@
         const existing = await loadExistingSchedulesByRange(dayKey, dayKeyTo);
         const cfg = getConfig();
         const allowedWindows = Array.isArray(cfg.scheduleWindows) && cfg.scheduleWindows.length ? cfg.scheduleWindows : [{ start: '09:00', end: '18:00', label: '09:00-18:00' }];
-        const userInstruction = [String(draft.schedule || '').trim(), planDays.length > 1 ? `请在 ${planDays.length} 天内完成安排` : '', planner.breakHours > 0 ? `我这段时间要摸鱼 ${planner.breakHours} 小时` : '', planner.gapMinutes > 0 ? `任务之间间隔 ${planner.gapMinutes} 分钟` : '', planner.note ? planner.note : ''].filter(Boolean).join('，');
+        const userInstruction = [String(draft.schedule || '').trim(), planDays.length > 1 ? __tmT("ai.finishThePlanWithinDays", { length: planDays.length }) : '', planner.breakHours > 0 ? __tmT("ai.iWantHoursOfDowntimeInThisPeriod", { breakHours: planner.breakHours }) : '', planner.gapMinutes > 0 ? __tmT("ai.gapsBetweenTasksMinutes", { gapMinutes: planner.gapMinutes }) : '', planner.note ? planner.note : ''].filter(Boolean).join('，');
         const result = await callMiniMaxJson(
-            '你是任务排期助手。请只输出 JSON：{"planDate":"YYYY-MM-DD","planDateTo":"YYYY-MM-DD","timeBlocks":[{"taskId":"","title":"","start":"YYYY-MM-DD HH:mm","end":"YYYY-MM-DD HH:mm","allDay":false,"reason":""}],"unscheduledTasks":[],"conflicts":[],"assumptions":[]}。必须只安排 selectedTasks 中的任务；如果给出了 planDateTo，则可以在 planDate 到 planDateTo 之间任意一天安排任务；如果 allowedWindows 非空，所有 timeBlocks 必须严格落在这些时间段内；需要显式考虑 breakHours 和 gapMinutes 约束。',
+            __tmT("ai.youAreATaskSchedulingAssistantOutputOnlyJson2"),
             {
                 conversationType: session.type,
                 contextScope: session.contextScope,
@@ -4476,11 +4476,11 @@
             const end = parseDateTimeLoose(it?.end);
             if (!(start instanceof Date) || !(end instanceof Date) || end.getTime() <= start.getTime()) return;
             if (!isDateWithinRange(start, dayKey, dayKeyTo) || !isDateWithinRange(end, dayKey, dayKeyTo)) {
-                conflicts.push(`${it?.title || it?.taskId || '任务'} 超出计划日期范围，已忽略`);
+                conflicts.push(__tmT("ai.isOutsideThePlannedDateRangeAndWasIgnored", { value1: it?.title || it?.taskId || __tmT("kernel.task") }));
                 return;
             }
             if (!isBlockWithinWindows(start, end, allowedWindows)) {
-                conflicts.push(`${it?.title || it?.taskId || '任务'} 超出允许时间段，已忽略`);
+                conflicts.push(__tmT("ai.isOutsideTheAllowedTimeWindowsAndWasIgnored", { value1: it?.title || it?.taskId || __tmT("kernel.task") }));
                 return;
             }
             timeBlocks.push({
@@ -4492,7 +4492,7 @@
                 reason: String(it?.reason || '').trim(),
             });
         });
-        if (!timeBlocks.length) throw new Error('AI 没有生成可写入日历的排期结果');
+        if (!timeBlocks.length) throw new Error(__tmT("ai.theAiDidNotGenerateASchedulableResultFor"));
         const normalizedPlanWindow = normalizePlannerOptions({ planDate: String(result?.planDate || dayKey).trim(), planDateTo: String(result?.planDateTo || dayKeyTo).trim() });
         const plan = {
             conversationId: session.id,
@@ -4507,11 +4507,11 @@
             existingSchedules: await loadExistingSchedulesByRange(normalizedPlanWindow.planDate || dayKey, normalizedPlanWindow.planDateTo || dayKeyTo),
         };
         session = await updateConversation(session.id, { selectedTaskIds, plannerOptions: planner });
-        session = await appendConversationMessage(session.id, 'user', userInstruction || '请生成排期', { scene: 'schedule' });
+        session = await appendConversationMessage(session.id, 'user', userInstruction || __tmT("ai.generateASchedulePlan"), { scene: 'schedule' });
         session = await appendConversationMessage(session.id, 'assistant', summarizeScheduleResult(plan), { scene: 'schedule', plan });
         draft.schedule = '';
         await updateConversation(session.id, {
-            title: String(session0.title || '').trim() || `${AI_SCENE_LABELS.schedule} · ${doc?.name || '当前视图'}`,
+            title: String(session0.title || '').trim() || `${AI_SCENE_LABELS.schedule} · ${doc?.name || __tmT("ai.currentView")}`,
             lastResult: plan,
         });
         return await getConversation(session.id);
@@ -4545,16 +4545,16 @@
         const session = await getConversation(conversationId);
         const plan = session?.lastResult;
         const blocks = Array.isArray(plan?.timeBlocks) ? plan.timeBlocks : [];
-        if (!blocks.length) throw new Error('当前会话没有可写入的排期结果');
+        if (!blocks.length) throw new Error(__tmT("ai.noSchedulableResultInTheCurrentConversation"));
         const cal = globalThis.__tmCalendar;
-        if (!cal?.addTaskSchedule) throw new Error('日历模块未加载');
+        if (!cal?.addTaskSchedule) throw new Error(__tmT("ai.calendarModuleIsNotLoaded"));
         for (const item of blocks) {
             const start = parseDateTimeLoose(item.start);
             const end = parseDateTimeLoose(item.end);
             if (!(start instanceof Date) || !(end instanceof Date) || end.getTime() <= start.getTime()) continue;
             await cal.addTaskSchedule({
                 taskId: item.taskId,
-                title: item.title || item.taskId || '任务',
+                title: item.title || item.taskId || __tmT("kernel.task"),
                 start,
                 end,
                 calendarId: 'default',
@@ -4577,13 +4577,13 @@
         } catch (e) {}
         const refreshed = await loadExistingSchedulesByRange(plan?.planDate || todayKey(), plan?.planDateTo || plan?.planDate || todayKey());
         await updateConversation(session.id, { lastResult: { ...(session.lastResult || {}), existingSchedules: refreshed } });
-        toast('✅ 已写入日历', 'success');
+        toast(__tmT("ai.writtenToCalendar"), 'success');
         return true;
     }
 
     function renderSelectionChips(ids, cache, removeAction, emptyText, richTaskTitle = false) {
         const arr = Array.isArray(ids) ? ids : [];
-        if (!arr.length) return `<div class="tm-ai-sidebar__meta">${esc(emptyText || '当前还没有手动附加上下文。')}</div>`;
+        if (!arr.length) return `<div class="tm-ai-sidebar__meta">${esc(emptyText || __tmT("ai.noManuallyAttachedContextYet"))}</div>`;
         return `<div class="tm-ai-sidebar__chips">${arr.map((id) => {
             const label = String(cache.get(id) || id).trim() || id;
             const title = richTaskTitle ? getTaskTitlePresentation(label, id) : { html: esc(label), text: label };
@@ -4598,9 +4598,9 @@
 
     function renderConversationMessages(messages) {
         const list = Array.isArray(messages) ? messages : [];
-        if (!list.length) return `<div class="tm-ai-sidebar__empty">还没有消息。可以先发起对话、跑 SMART 分析，或生成排期。</div>`;
+        if (!list.length) return `<div class="tm-ai-sidebar__empty">${__tmT("ai.noMessagesYetStartAChatRunASmart")}</div>`;
         return list.map((item) => {
-            const role = item.role === 'user' ? '你' : (item.role === 'context' ? '上下文' : 'AI');
+            const role = item.role === 'user' ? __tmT("ai.you") : (item.role === 'context' ? __tmT("ai.context2") : 'AI');
             const cls = item.role === 'user' ? ' tm-ai-sidebar__message--user' : (item.role === 'context' ? ' tm-ai-sidebar__message--context' : '');
             return `
                 <div class="tm-ai-sidebar__message${cls}">
@@ -4616,7 +4616,7 @@
         if (!plan.length) return '';
         return `
             <div class="tm-ai-sidebar__result-block">
-                <div class="tm-ai-sidebar__result-title">执行计划</div>
+                <div class="tm-ai-sidebar__result-title">${__tmT("ai.executionPlan2")}</div>
                 <div class="tm-ai-sidebar__plan-list">${plan.map((item, index) => `
                     <div class="tm-ai-sidebar__plan-item">
                         <span class="tm-ai-sidebar__plan-index">${index + 1}</span>
@@ -4632,25 +4632,25 @@
         if (!rounds.length) return '';
         return `
             <div class="tm-ai-sidebar__result-block">
-                <div class="tm-ai-sidebar__result-title">Skill 轨迹</div>
+                <div class="tm-ai-sidebar__result-title">${__tmT("ai.skillTrace")}</div>
                 ${rounds.map((round) => {
                     const calls = Array.isArray(round?.results) ? round.results : [];
                     return `
                         <div class="tm-ai-sidebar__trace-round">
                             <div class="tm-ai-sidebar__trace-round-head">
-                                <div>第 ${Number(round?.round || 0) || 1} 轮</div>
-                                <div class="tm-ai-sidebar__trace-round-meta">${esc(String(round?.reason || '').trim() || (calls.length ? `调用 ${calls.length} 个 skill` : '无需调用'))}</div>
+                                <div>${__tmT("ai.round", { value1: Number(round?.round || 0) || 1 })}</div>
+                                <div class="tm-ai-sidebar__trace-round-meta">${esc(String(round?.reason || '').trim() || (calls.length ? __tmT("ai.calledSkills", { length: calls.length }) : __tmT("ai.noCallsNeeded")))}</div>
                             </div>
                             ${calls.length ? calls.map((call) => `
                                 <div class="tm-ai-sidebar__trace-call">
                                     <div class="tm-ai-sidebar__trace-call-head">
                                         <div>${esc(call?.skill || 'skill')}</div>
-                                        <span class="tm-ai-sidebar__trace-chip ${call?.ok ? 'is-success' : 'is-fail'}">${call?.ok ? '成功' : '失败'}</span>
+                                        <span class="tm-ai-sidebar__trace-chip ${call?.ok ? 'is-success' : 'is-fail'}">${call?.ok ? __tmT("ai.success") : __tmT("ai.failed2")}</span>
                                     </div>
                                     ${call?.summary ? `<div class="tm-ai-sidebar__trace-call-body">${esc(call.summary)}</div>` : ''}
-                                    ${call?.error && !call?.ok ? `<div class="tm-ai-sidebar__meta">原因：${esc(call.error)}</div>` : ''}
+                                    ${call?.error && !call?.ok ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.reason3", { error: esc(call.error) })}</div>` : ''}
                                 </div>
-                            `).join('') : `<div class="tm-ai-sidebar__meta" style="margin-top:6px;">本轮没有执行 skill。</div>`}
+                            `).join('') : `<div class="tm-ai-sidebar__meta" style="margin-top:6px;">${__tmT("ai.noSkillsWereExecutedThisRound")}</div>`}
                         </div>
                     `;
                 }).join('')}
@@ -4672,8 +4672,8 @@
             `;
         };
         return [
-            renderGroup(`读取技能 ${readSkills.length} 个`, readSkills, ''),
-            renderGroup(`写入技能 ${writeSkills.length} 个`, writeSkills, ''),
+            renderGroup(__tmT("ai.readSkills", { length: readSkills.length }), readSkills, ''),
+            renderGroup(__tmT("ai.writeSkills", { length: writeSkills.length }), writeSkills, ''),
         ].filter(Boolean).join('');
     }
 
@@ -4687,14 +4687,14 @@
                 const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
                 return `
                     <div class="tm-ai-sidebar__result">
-                        <div class="tm-ai-sidebar__result-title">本轮结果</div>
+                        <div class="tm-ai-sidebar__result-title">${__tmT("ai.thisRoundSResults")}</div>
                         <div class="tm-ai-sidebar__result-body">${esc(result.answer || '')}</div>
                         ${renderChatSkillCatalog(result)}
                         ${renderChatSkillPlan(result)}
                         ${renderChatSkillTrace(result)}
                         ${highlights.length ? `<div class="tm-ai-sidebar__result-tags">${highlights.map((it) => `<span>${esc(it)}</span>`).join('')}</div>` : ''}
-                        ${nextActions.length ? `<div class="tm-ai-sidebar__meta">下一步：${esc(nextActions.join('；'))}</div>` : ''}
-                        ${warnings.length ? `<div class="tm-ai-sidebar__meta">提醒：${esc(warnings.join('；'))}</div>` : ''}
+                        ${nextActions.length ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.nextSteps", { value1: esc(nextActions.join('；')) })}</div>` : ''}
+                        ${warnings.length ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.reminder", { value1: esc(warnings.join('；')) })}</div>` : ''}
                     </div>
                 `;
             }
@@ -4705,34 +4705,34 @@
             const createOperations = Array.isArray(result?.createOperations) ? result.createOperations : [];
             return `
                 <div class="tm-ai-sidebar__result">
-                    <div class="tm-ai-sidebar__result-title">本轮结果</div>
+                    <div class="tm-ai-sidebar__result-title">${__tmT("ai.thisRoundSResults")}</div>
                     <div class="tm-ai-sidebar__result-body">${esc(result.answer || '')}</div>
                     ${(createOperations.length || taskOperations.length) ? `<div class="tm-ai-sidebar__smart-list">
                         ${createOperations.map((it) => `
                         <div class="tm-ai-sidebar__smart-item">
                             <div class="tm-ai-sidebar__smart-head">
-                                <div>${esc(it.title || it.taskId || '任务')}</div>
-                                <span>${it.ok ? '已创建' : '失败'}</span>
+                                <div>${esc(it.title || it.taskId || __tmT("kernel.task"))}</div>
+                                <span>${it.ok ? __tmT("ai.created") : __tmT("ai.failed2")}</span>
                             </div>
-                            ${it.targetLabel ? `<div class="tm-ai-sidebar__meta">${esc(`${it.isSubtask ? '父任务' : '文档'}：${it.targetLabel}`)}</div>` : ''}
+                            ${it.targetLabel ? `<div class="tm-ai-sidebar__meta">${esc(`${it.isSubtask ? __tmT("kernel.parentTask") : __tmT("kernel.documents")}：${it.targetLabel}`)}</div>` : ''}
                             ${it.patchDesc ? `<div class="tm-ai-sidebar__meta">${esc(it.patchDesc)}</div>` : ''}
-                            ${it.error ? `<div class="tm-ai-sidebar__meta">原因：${esc(it.error)}</div>` : ''}
+                            ${it.error ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.reason3", { error: esc(it.error) })}</div>` : ''}
                         </div>
                         `).join('')}
                         ${taskOperations.map((it) => `
                         <div class="tm-ai-sidebar__smart-item">
                             <div class="tm-ai-sidebar__smart-head">
-                                <div>${esc(it.title || it.taskId || '任务')}</div>
-                                <span>${it.ok ? '已执行' : '失败'}</span>
+                                <div>${esc(it.title || it.taskId || __tmT("kernel.task"))}</div>
+                                <span>${it.ok ? __tmT("ai.executed") : __tmT("ai.failed2")}</span>
                             </div>
                             ${it.patchDesc ? `<div class="tm-ai-sidebar__meta">${esc(it.patchDesc)}</div>` : ''}
-                            ${it.error ? `<div class="tm-ai-sidebar__meta">原因：${esc(it.error)}</div>` : ''}
+                            ${it.error ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.reason3", { error: esc(it.error) })}</div>` : ''}
                         </div>
                         `).join('')}
                     </div>` : ''}
                     ${highlights.length ? `<div class="tm-ai-sidebar__result-tags">${highlights.map((it) => `<span>${esc(it)}</span>`).join('')}</div>` : ''}
-                    ${nextActions.length ? `<div class="tm-ai-sidebar__meta">下一步：${esc(nextActions.join('；'))}</div>` : ''}
-                    ${warnings.length ? `<div class="tm-ai-sidebar__meta">提醒：${esc(warnings.join('；'))}</div>` : ''}
+                    ${nextActions.length ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.nextSteps", { value1: esc(nextActions.join('；')) })}</div>` : ''}
+                    ${warnings.length ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.reminder", { value1: esc(warnings.join('；')) })}</div>` : ''}
                 </div>
             `;
         }
@@ -4741,24 +4741,24 @@
             const rows = Array.isArray(result?.taskAnalyses) ? result.taskAnalyses : [];
             return `
                 <div class="tm-ai-sidebar__result">
-                    <div class="tm-ai-sidebar__result-title">SMART 总评</div>
+                    <div class="tm-ai-sidebar__result-title">${__tmT("ai.smartOverview")}</div>
                     <div class="tm-ai-sidebar__result-score">${clamp(result?.smartScore?.overall || 0, 0, 100)}/100</div>
                     <div class="tm-ai-sidebar__meta">S ${clamp(dims.specific || 0, 0, 100)} · M ${clamp(dims.measurable || 0, 0, 100)} · A ${clamp(dims.achievable || 0, 0, 100)} · R ${clamp(dims.relevant || 0, 0, 100)} · T ${clamp(dims.timeBound || 0, 0, 100)}</div>
                     ${result?.summary ? `<div class="tm-ai-sidebar__result-body" style="margin-top:8px;">${esc(result.summary)}</div>` : ''}
                     ${rows.length ? `<div class="tm-ai-sidebar__smart-list">${rows.map((item, index) => {
-                        const currentTitle = getTaskTitlePresentation(item.currentTitle || item.taskId || '任务', item.taskId || '任务');
+                        const currentTitle = getTaskTitlePresentation(item.currentTitle || item.taskId || __tmT("kernel.task"), item.taskId || __tmT("kernel.task"));
                         return `
                         <div class="tm-ai-sidebar__smart-item">
                             <div class="tm-ai-sidebar__smart-head">
                                 <div title="${esc(currentTitle.text)}">${currentTitle.html}</div>
                                 <span>${clamp(item?.score?.overall || 0, 0, 100)}/100</span>
                             </div>
-                            ${item.suggestedTitle ? `<div class="tm-ai-sidebar__meta">建议标题：${esc(item.suggestedTitle)}</div>` : ''}
-                            ${item.issues.length ? `<div class="tm-ai-sidebar__meta">问题：${esc(item.issues.join('；'))}</div>` : ''}
-                            ${item.suggestions.length ? `<div class="tm-ai-sidebar__meta">建议：${esc(item.suggestions.join('；'))}</div>` : ''}
+                            ${item.suggestedTitle ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.suggestedTitle2", { suggestedTitle: esc(item.suggestedTitle) })}</div>` : ''}
+                            ${item.issues.length ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.issues2", { value1: esc(item.issues.join('；')) })}</div>` : ''}
+                            ${item.suggestions.length ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.suggestions", { value1: esc(item.suggestions.join('；')) })}</div>` : ''}
                             <div class="tm-ai-sidebar__actions">
-                                ${item.suggestedTitle && item.taskId ? `<button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="apply-smart-rename" data-ai-index="${index}">应用标题</button>` : ''}
-                                ${item.newTaskSuggestion ? `<button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="create-smart-task" data-ai-index="${index}">创建建议任务</button>` : ''}
+                                ${item.suggestedTitle && item.taskId ? `<button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="apply-smart-rename" data-ai-index="${index}">${__tmT("ai.applyTitle")}</button>` : ''}
+                                ${item.newTaskSuggestion ? `<button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="create-smart-task" data-ai-index="${index}">${__tmT("ai.createSuggestedTask")}</button>` : ''}
                             </div>
                         </div>
                     `;
@@ -4772,23 +4772,23 @@
             const dateLabel = formatPlannerDateRange(result?.planDate || todayKey(), result?.planDateTo || result?.planDate || todayKey());
             return `
                 <div class="tm-ai-sidebar__result">
-                    <div class="tm-ai-sidebar__result-title">排期结果</div>
-                    <div class="tm-ai-sidebar__meta">计划范围：${esc(dateLabel)}</div>
+                    <div class="tm-ai-sidebar__result-title">${__tmT("ai.scheduleResults")}</div>
+                    <div class="tm-ai-sidebar__meta">${__tmT("ai.planRange", { dateLabel: esc(dateLabel) })}</div>
                     <div class="tm-ai-sidebar__smart-list">${blocks.map((item) => `
                         <div class="tm-ai-sidebar__smart-item">
                             <div class="tm-ai-sidebar__smart-head">
-                                <div>${esc(item.title || item.taskId || '任务')}</div>
+                                <div>${esc(item.title || item.taskId || __tmT("kernel.task"))}</div>
                                 <span>${esc(`${item.start} ~ ${item.end}`)}</span>
                             </div>
                             ${item.reason ? `<div class="tm-ai-sidebar__meta">${esc(item.reason)}</div>` : ''}
-                            ${item.taskId ? `<div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="edit-task-schedule" data-ai-task-id="${esc(item.taskId)}">调整/删除该任务日程</button></div>` : ''}
+                            ${item.taskId ? `<div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="edit-task-schedule" data-ai-task-id="${esc(item.taskId)}">${__tmT("ai.adjustDeleteThisTaskSSchedule")}</button></div>` : ''}
                         </div>
                     `).join('')}</div>
-                    ${existing.length ? `<div class="tm-ai-sidebar__meta" style="margin-top:8px;">范围内已有日程（可调整/删除）：</div><div class="tm-ai-sidebar__smart-list">${existing.map((item) => `<div class="tm-ai-sidebar__smart-item"><div class="tm-ai-sidebar__smart-head"><div>${esc(item.title || item.taskId || '日程')}</div><span>${esc(`${item.start} ~ ${item.end}`)}</span></div>${item.dayKey ? `<div class="tm-ai-sidebar__meta">${esc(item.dayKey)}</div>` : ''}<div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="edit-schedule" data-ai-id="${esc(item.id || '')}" ${item.id ? '' : 'disabled'}>调整/删除</button></div></div>`).join('')}</div>` : ''}
-                    ${Array.isArray(result?.conflicts) && result.conflicts.length ? `<div class="tm-ai-sidebar__meta">冲突：${esc(result.conflicts.join('；'))}</div>` : ''}
+                    ${existing.length ? `<div class="tm-ai-sidebar__meta" style="margin-top:8px;">${__tmT("ai.existingSchedulesInRangeAdjustableDeletable")}</div><div class="tm-ai-sidebar__smart-list">${existing.map((item) => `<div class="tm-ai-sidebar__smart-item"><div class="tm-ai-sidebar__smart-head"><div>${esc(item.title || item.taskId || __tmT("kernel.schedule"))}</div><span>${esc(`${item.start} ~ ${item.end}`)}</span></div>${item.dayKey ? `<div class="tm-ai-sidebar__meta">${esc(item.dayKey)}</div>` : ''}<div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="edit-schedule" data-ai-id="${esc(item.id || '')}" ${item.id ? '' : 'disabled'}>${__tmT("ai.adjustDelete")}</button></div></div>`).join('')}</div>` : ''}
+                    ${Array.isArray(result?.conflicts) && result.conflicts.length ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.conflicts", { value1: esc(result.conflicts.join('；')) })}</div>` : ''}
                     <div class="tm-ai-sidebar__actions">
-                        <button class="tm-btn tm-btn-success" data-ai-sidebar-action="apply-schedule">写入日历</button>
-                        <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="reload-existing-schedules">刷新范围日程</button>
+                        <button class="tm-btn tm-btn-success" data-ai-sidebar-action="apply-schedule">${__tmT("ai.writeToCalendar")}</button>
+                        <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="reload-existing-schedules">${__tmT("ai.refreshRangeSchedules")}</button>
                     </div>
                 </div>
             `;
@@ -4801,18 +4801,18 @@
             const notes = Array.isArray(result?.notes) ? result.notes : [];
             return `
                 <div class="tm-ai-sidebar__result">
-                    <div class="tm-ai-sidebar__result-title">摘要结果</div>
+                    <div class="tm-ai-sidebar__result-title">${__tmT("ai.summaryResult")}</div>
                     ${result?.title ? `<div class="tm-ai-sidebar__smart-head"><div>${esc(result.title)}</div><span>${esc(result.rangeLabel || '')}</span></div>` : ''}
                     ${result?.summary ? `<div class="tm-ai-sidebar__result-body" style="margin-top:8px;">${esc(result.summary)}</div>` : ''}
-                    <div class="tm-ai-sidebar__meta">纳入任务 ${esc(String(result?.stats?.included || 0))} 项 · 已完成 ${esc(String(result?.stats?.done || 0))} 项 · 未完成 ${esc(String(result?.stats?.todo || 0))} 项</div>
-                    ${completed.length ? `<div class="tm-ai-sidebar__meta" style="margin-top:8px;">完成：${esc(completed.join('；'))}</div>` : ''}
-                    ${progress.length ? `<div class="tm-ai-sidebar__meta">推进：${esc(progress.join('；'))}</div>` : ''}
-                    ${risks.length ? `<div class="tm-ai-sidebar__meta">风险：${esc(risks.join('；'))}</div>` : ''}
-                    ${nextSteps.length ? `<div class="tm-ai-sidebar__meta">下一步：${esc(nextSteps.join('；'))}</div>` : ''}
-                    ${notes.length ? `<div class="tm-ai-sidebar__meta">补充：${esc(notes.join('；'))}</div>` : ''}
+                    <div class="tm-ai-sidebar__meta">${__tmT("ai.includedDoneUnfinishedItems", { value1: esc(String(result?.stats?.included || 0)), value2: esc(String(result?.stats?.done || 0)), value3: esc(String(result?.stats?.todo || 0)) })}</div>
+                    ${completed.length ? `<div class="tm-ai-sidebar__meta" style="margin-top:8px;">${__tmT("ai.completed2", { value1: esc(completed.join('；')) })}</div>` : ''}
+                    ${progress.length ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.progress2", { value1: esc(progress.join('；')) })}</div>` : ''}
+                    ${risks.length ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.risks", { value1: esc(risks.join('；')) })}</div>` : ''}
+                    ${nextSteps.length ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.nextSteps", { value1: esc(nextSteps.join('；')) })}</div>` : ''}
+                    ${notes.length ? `<div class="tm-ai-sidebar__meta">${__tmT("ai.notes", { value1: esc(notes.join('；')) })}</div>` : ''}
                     ${result?.reportMarkdown ? `<div class="tm-ai-sidebar__message-body" style="margin-top:8px;">${esc(result.reportMarkdown)}</div>` : ''}
                     <div class="tm-ai-sidebar__actions">
-                        <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="copy-summary">复制摘要</button>
+                        <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="copy-summary">${__tmT("ai.copySummary")}</button>
                     </div>
                 </div>
             `;
@@ -4842,28 +4842,28 @@
             <div class="tm-ai-sidebar${aiRuntime.mobile ? ' tm-ai-sidebar--mobile' : ''}" style="--tm-ai-conversation-font-size:${Number((conversationFontSize / 16).toFixed(4))}rem;">
                 <div class="tm-ai-sidebar__head">
                     <div class="tm-ai-sidebar__title-row">
-                        <div class="tm-ai-sidebar__title">AI 工作台</div>
-                        <button class="tm-ai-sidebar__title-toggle" data-ai-sidebar-action="toggle-setup" title="${aiRuntime.setupCollapsed ? '展开顶部设置区' : '折叠顶部设置区'}" aria-label="${aiRuntime.setupCollapsed ? '展开顶部设置区' : '折叠顶部设置区'}" aria-expanded="${aiRuntime.setupCollapsed ? 'false' : 'true'}">
+                        <div class="tm-ai-sidebar__title">${__tmT("ai.aiWorkbench")}</div>
+                        <button class="tm-ai-sidebar__title-toggle" data-ai-sidebar-action="toggle-setup" title="${aiRuntime.setupCollapsed ? __tmT("ai.expandTopSettings") : __tmT("ai.collapseTopSettings")}" aria-label="${aiRuntime.setupCollapsed ? __tmT("ai.expandTopSettings") : __tmT("ai.collapseTopSettings")}" aria-expanded="${aiRuntime.setupCollapsed ? 'false' : 'true'}">
                             <svg class="tm-ai-sidebar__title-toggle-icon" viewBox="0 0 24 24" width="16" height="16" style="transform:rotate(${aiRuntime.setupCollapsed ? '0deg' : '90deg'});" aria-hidden="true">
                                 <path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.45" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                         </button>
                     </div>
                     <div class="tm-ai-sidebar__head-title">
-                        <input class="tm-ai-sidebar__title-input" data-ai-sidebar-field="title" value="${esc(session.title)}" placeholder="会话标题">
+                        <input class="tm-ai-sidebar__title-input" data-ai-sidebar-field="title" value="${esc(session.title)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("ai.conversationtitle")}">
                     </div>
                     <div class="tm-ai-sidebar__head-actions">
-                        <button class="tm-btn tm-btn-info" data-ai-sidebar-action="toggle-history">${aiRuntime.historyOpen ? '隐藏' : '会话'}</button>
-                        <button class="tm-btn tm-btn-info" data-ai-sidebar-action="new-conversation">新建</button>
-                        <button class="tm-btn tm-btn-gray" data-ai-sidebar-action="close-panel">${aiRuntime.mobile ? '关闭' : '收起'}</button>
+                        <button class="tm-btn tm-btn-info" data-ai-sidebar-action="toggle-history">${aiRuntime.historyOpen ? __tmT("ai.hide") : __tmT("ai.conversation")}</button>
+                        <button class="tm-btn tm-btn-info" data-ai-sidebar-action="new-conversation">${__tmT("ai.new")}</button>
+                        <button class="tm-btn tm-btn-gray" data-ai-sidebar-action="close-panel">${aiRuntime.mobile ? __tmT("common.close") : __tmT("ai.collapse")}</button>
                     </div>
                 </div>
                 <div class="tm-ai-sidebar__history${aiRuntime.historyOpen ? "" : " is-hidden"}">
                         ${(Array.isArray(conversations) ? conversations : []).map((item) => `
                             <button class="tm-ai-sidebar__history-item${item.id === session.id ? ' is-active' : ''}" data-ai-sidebar-action="select-conversation" data-ai-id="${esc(item.id)}">
                                 <span class="tm-ai-sidebar__history-item-head">
-                                    <span class="tm-ai-sidebar__history-item-title">${esc(item.title || AI_SCENE_LABELS[item.type] || 'AI 会话')}</span>
-                                    <span class="tm-ai-sidebar__history-delete" data-ai-sidebar-action="delete-conversation" data-ai-id="${esc(item.id)}">删除</span>
+                                    <span class="tm-ai-sidebar__history-item-title">${esc(item.title || AI_SCENE_LABELS[item.type] || __tmT("ai.aiConversation"))}</span>
+                                    <span class="tm-ai-sidebar__history-delete" data-ai-sidebar-action="delete-conversation" data-ai-id="${esc(item.id)}">${__tmT("common.delete")}</span>
                                 </span>
                                 <small>${esc(AI_SCENE_LABELS[item.type] || item.type)} · ${esc(AI_CONTEXT_SCOPE_LABELS[item.contextScope] || item.contextScope)}</small>
                             </button>
@@ -4873,38 +4873,38 @@
                     ${aiRuntime.setupCollapsed ? '' : `
                         <div class="tm-ai-sidebar__setup">
                             <div class="tm-ai-sidebar__setup-row">
-                                <span>场景</span>
-                                <div class="tm-ai-sidebar__segmented" role="tablist" aria-label="AI 场景">
-                                    <button class="tm-ai-sidebar__seg-btn${session.type === 'chat' ? ' is-active' : ''}" type="button" data-ai-sidebar-action="set-scene" data-ai-value="chat" role="tab" aria-selected="${session.type === 'chat' ? 'true' : 'false'}">AI 对话</button>
-                                    <button class="tm-ai-sidebar__seg-btn${session.type === 'smart' ? ' is-active' : ''}" type="button" data-ai-sidebar-action="set-scene" data-ai-value="smart" role="tab" aria-selected="${session.type === 'smart' ? 'true' : 'false'}">SMART 分析</button>
-                                    <button class="tm-ai-sidebar__seg-btn${session.type === 'schedule' ? ' is-active' : ''}" type="button" data-ai-sidebar-action="set-scene" data-ai-value="schedule" role="tab" aria-selected="${session.type === 'schedule' ? 'true' : 'false'}">日程排期</button>
-                                    <button class="tm-ai-sidebar__seg-btn${session.type === 'summary' ? ' is-active' : ''}" type="button" data-ai-sidebar-action="set-scene" data-ai-value="summary" role="tab" aria-selected="${session.type === 'summary' ? 'true' : 'false'}">摘要总结</button>
+                                <span>${__tmT("ai.scene")}</span>
+                                <div class="tm-ai-sidebar__segmented" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.aiScene")}">
+                                    <button class="tm-ai-sidebar__seg-btn${session.type === 'chat' ? ' is-active' : ''}" type="button" data-ai-sidebar-action="set-scene" data-ai-value="chat" role="tab" aria-selected="${session.type === 'chat' ? 'true' : 'false'}">${__tmT("ai.aiChat")}</button>
+                                    <button class="tm-ai-sidebar__seg-btn${session.type === 'smart' ? ' is-active' : ''}" type="button" data-ai-sidebar-action="set-scene" data-ai-value="smart" role="tab" aria-selected="${session.type === 'smart' ? 'true' : 'false'}">${__tmT("ai.smartAnalysis")}</button>
+                                    <button class="tm-ai-sidebar__seg-btn${session.type === 'schedule' ? ' is-active' : ''}" type="button" data-ai-sidebar-action="set-scene" data-ai-value="schedule" role="tab" aria-selected="${session.type === 'schedule' ? 'true' : 'false'}">${__tmT("ai.schedulePlanning")}</button>
+                                    <button class="tm-ai-sidebar__seg-btn${session.type === 'summary' ? ' is-active' : ''}" type="button" data-ai-sidebar-action="set-scene" data-ai-value="summary" role="tab" aria-selected="${session.type === 'summary' ? 'true' : 'false'}">${__tmT("ai.summary")}</button>
                                 </div>
                             </div>
                             <div class="tm-ai-sidebar__grid">
-                                <label><span>范围</span><select class="tm-rule-select" data-ai-sidebar-field="contextScope"><option value="none" ${session.contextScope === 'none' ? 'selected' : ''}>纯对话</option><option value="current_doc" ${session.contextScope === 'current_doc' ? 'selected' : ''}>当前文档</option><option value="current_task" ${session.contextScope === 'current_task' ? 'selected' : ''}>当前任务</option><option value="current_group" ${session.contextScope === 'current_group' ? 'selected' : ''}>当前分区</option><option value="current_view" ${session.contextScope === 'current_view' ? 'selected' : ''}>当前视图前5</option><option value="manual" ${session.contextScope === 'manual' ? 'selected' : ''}>手动任务</option></select></label>
-                                <label><span>上下文</span><select class="tm-rule-select" data-ai-sidebar-field="contextMode"><option value="none" ${session.contextMode === 'none' ? 'selected' : ''}>无上下文</option><option value="nearby" ${session.contextMode === 'nearby' ? 'selected' : ''}>附近上下文</option><option value="fulltext" ${session.contextMode === 'fulltext' ? 'selected' : ''}>全文上下文</option></select></label>
+                                <label><span>${__tmT("ai.scope")}</span><select class="tm-rule-select" data-ai-sidebar-field="contextScope"><option value="none" ${session.contextScope === 'none' ? 'selected' : ''}>${__tmT("ai.chatOnly")}</option><option value="current_doc" ${session.contextScope === 'current_doc' ? 'selected' : ''}>${__tmT("ai.currentDocument")}</option><option value="current_task" ${session.contextScope === 'current_task' ? 'selected' : ''}>${__tmT("ai.currentTask")}</option><option value="current_group" ${session.contextScope === 'current_group' ? 'selected' : ''}>${__tmT("ai.currentGroup")}</option><option value="current_view" ${session.contextScope === 'current_view' ? 'selected' : ''}>${__tmT("ai.topOfCurrentView")}</option><option value="manual" ${session.contextScope === 'manual' ? 'selected' : ''}>${__tmT("ai.manualTasks")}</option></select></label>
+                                <label><span>${__tmT("ai.context2")}</span><select class="tm-rule-select" data-ai-sidebar-field="contextMode"><option value="none" ${session.contextMode === 'none' ? 'selected' : ''}>${__tmT("ai.noContext")}</option><option value="nearby" ${session.contextMode === 'nearby' ? 'selected' : ''}>${__tmT("ai.nearbyContext")}</option><option value="fulltext" ${session.contextMode === 'fulltext' ? 'selected' : ''}>${__tmT("ai.fullTextContext")}</option></select></label>
                             </div>
                             <div class="tm-ai-sidebar__context">
                                 <div class="tm-ai-sidebar__section-head">
-                                    <div class="tm-ai-sidebar__section-title">上下文</div>
+                                    <div class="tm-ai-sidebar__section-title">${__tmT("ai.context2")}</div>
                                     <div class="tm-ai-sidebar__section-tools">
-                                        <button class="tm-btn tm-btn-secondary tm-ai-sidebar__mini-action" data-ai-sidebar-action="refresh-context" title="按当前范围重新获取上下文" ${canRefreshContext ? '' : 'disabled'}>刷新</button>
-                                        <button class="tm-btn tm-btn-secondary tm-ai-sidebar__mini-action" data-ai-sidebar-action="clear-context" ${hasContextSelection ? '' : 'disabled'}>清空</button>
+                                        <button class="tm-btn tm-btn-secondary tm-ai-sidebar__mini-action" data-ai-sidebar-action="refresh-context" title="${globalThis.__taskHorizonHostBridge.i18n.html("ai.refreshContextFromTheCurrentScope")}" ${canRefreshContext ? '' : 'disabled'}>${__tmT("ai.refresh")}</button>
+                                        <button class="tm-btn tm-btn-secondary tm-ai-sidebar__mini-action" data-ai-sidebar-action="clear-context" ${hasContextSelection ? '' : 'disabled'}>${__tmT("common.clear")}</button>
                                     </div>
                                 </div>
-                                <div class="tm-ai-sidebar__meta">文档</div>
+                                <div class="tm-ai-sidebar__meta">${__tmT("kernel.documents")}</div>
                                 ${renderSelectionChips(session.selectedDocIds, aiRuntime.labelCache.doc, 'remove-doc')}
-                                <div class="tm-ai-sidebar__meta" style="margin-top:8px;">任务</div>
+                                <div class="tm-ai-sidebar__meta" style="margin-top:8px;">${__tmT("kernel.task")}</div>
                                 ${isCurrentGroupScope
-                                    ? `<div class="tm-ai-sidebar__empty">当前分区模式将自动包含本分区内全部未完成任务。</div>`
-                                    : renderSelectionChips(session.selectedTaskIds, aiRuntime.labelCache.task, 'remove-task', '当前还没有手动附加上下文。可拖拽任务添加', true)}
+                                    ? `<div class="tm-ai-sidebar__empty">${__tmT("ai.inCurrentGroupModeAllUnfinishedTasksInThe")}</div>`
+                                    : renderSelectionChips(session.selectedTaskIds, aiRuntime.labelCache.task, 'remove-task', __tmT("ai.noManuallyAttachedContextYetDragTasksInTo"), true)}
                             </div>
                             ${showTaskPicker ? `
                                 <div class="tm-ai-sidebar__context">
                                     <div class="tm-ai-sidebar__section-head">
-                                        <div class="tm-ai-sidebar__section-title">候选任务</div>
-                                        <button class="tm-ai-sidebar__section-toggle" data-ai-sidebar-action="toggle-task-picker" title="${aiRuntime.taskPickerCollapsed ? '展开候选任务' : '折叠候选任务'}" aria-label="${aiRuntime.taskPickerCollapsed ? '展开候选任务' : '折叠候选任务'}" aria-expanded="${aiRuntime.taskPickerCollapsed ? 'false' : 'true'}">
+                                        <div class="tm-ai-sidebar__section-title">${__tmT("ai.candidateTasks")}</div>
+                                        <button class="tm-ai-sidebar__section-toggle" data-ai-sidebar-action="toggle-task-picker" title="${aiRuntime.taskPickerCollapsed ? __tmT("ai.expandCandidateTasks") : __tmT("ai.collapseCandidateTasks")}" aria-label="${aiRuntime.taskPickerCollapsed ? __tmT("ai.expandCandidateTasks") : __tmT("ai.collapseCandidateTasks")}" aria-expanded="${aiRuntime.taskPickerCollapsed ? 'false' : 'true'}">
                                             <svg class="tm-ai-sidebar__section-toggle-icon" viewBox="0 0 24 24" width="16" height="16" style="transform:rotate(${aiRuntime.taskPickerCollapsed ? '0deg' : '90deg'});" aria-hidden="true">
                                                 <path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.45" stroke-linecap="round" stroke-linejoin="round"></path>
                                             </svg>
@@ -4918,7 +4918,7 @@
                                                 const checked = session.selectedTaskIds.includes(tid) ? 'checked' : '';
                                                 const title = getTaskTitlePresentation(task?.markdown || task?.content || tid, tid);
                                                 return `<label class="tm-ai-sidebar__task-row"><input type="checkbox" data-ai-sidebar-field="pickedTask" value="${esc(tid)}" ${checked}> <span title="${esc(title.text)}">${title.html}</span></label>`;
-                                            }).join('') || `<div class="tm-ai-sidebar__empty">${session.contextScope === 'current_group' ? '当前分区没有可选任务。' : '当前视图没有可选任务。'}</div>`}
+                                            }).join('') || `<div class="tm-ai-sidebar__empty">${session.contextScope === 'current_group' ? __tmT("ai.noSelectableTasksInTheCurrentGroup") : __tmT("ai.noSelectableTasksInTheCurrentView")}</div>`}
                                         </div>
                                     `}
                                 </div>
@@ -4930,9 +4930,9 @@
                     ${session.type === 'schedule' ? `
                         <div class="tm-ai-sidebar__composer tm-ai-sidebar__composer--schedule">
                             <div class="tm-ai-sidebar__composer-shell">
-                                <button class="tm-ai-sidebar__composer-toggle" data-ai-sidebar-action="toggle-schedule-planner" aria-expanded="${aiRuntime.schedulePlannerCollapsed ? 'false' : 'true'}" title="${aiRuntime.schedulePlannerCollapsed ? '展开排期参数' : '折叠排期参数'}">
+                                <button class="tm-ai-sidebar__composer-toggle" data-ai-sidebar-action="toggle-schedule-planner" aria-expanded="${aiRuntime.schedulePlannerCollapsed ? 'false' : 'true'}" title="${aiRuntime.schedulePlannerCollapsed ? __tmT("ai.expandSchedulingParameters") : __tmT("ai.collapseSchedulingParameters")}">
                                     <span class="tm-ai-sidebar__composer-toggle-main">
-                                        <span class="tm-ai-sidebar__composer-toggle-title">排期参数</span>
+                                        <span class="tm-ai-sidebar__composer-toggle-title">${__tmT("ai.schedulingParameters")}</span>
                                         <span class="tm-ai-sidebar__composer-toggle-summary">${esc(plannerSummary)}</span>
                                     </span>
                                     <svg class="tm-ai-sidebar__composer-toggle-icon" viewBox="0 0 24 24" width="16" height="16" style="transform:rotate(${aiRuntime.schedulePlannerCollapsed ? '0deg' : '90deg'});" aria-hidden="true">
@@ -4941,47 +4941,47 @@
                                 </button>
                                 ${aiRuntime.schedulePlannerCollapsed ? '' : `
                                     <div class="tm-ai-sidebar__compact-grid">
-                                        <label class="tm-ai-sidebar__compact-field"><span>开始日期</span><input class="tm-input" type="date" data-ai-sidebar-field="planDate" value="${esc(planner.planDate || todayKey())}"></label>
-                                        <label class="tm-ai-sidebar__compact-field"><span>结束日期</span><input class="tm-input" type="date" data-ai-sidebar-field="planDateTo" value="${esc(planner.planDateTo || planner.planDate || todayKey())}"></label>
-                                        <label class="tm-ai-sidebar__compact-field"><span>摸鱼时长</span><input class="tm-input" type="number" min="0" max="12" step="0.5" data-ai-sidebar-field="breakHours" value="${esc(planner.breakHours)}"></label>
-                                        <label class="tm-ai-sidebar__compact-field"><span>任务间隔</span><input class="tm-input" type="number" min="0" max="240" step="5" data-ai-sidebar-field="gapMinutes" value="${esc(planner.gapMinutes)}"></label>
-                                        <label class="tm-ai-sidebar__compact-field"><span>最大任务数</span><input class="tm-input" type="number" min="1" max="30" step="1" data-ai-sidebar-field="maxTasks" value="${esc(planner.maxTasks)}"></label>
+                                        <label class="tm-ai-sidebar__compact-field"><span>${__tmT("kernel.startDate")}</span><input class="tm-input" type="date" data-ai-sidebar-field="planDate" value="${esc(planner.planDate || todayKey())}"></label>
+                                        <label class="tm-ai-sidebar__compact-field"><span>${__tmT("ai.endDate")}</span><input class="tm-input" type="date" data-ai-sidebar-field="planDateTo" value="${esc(planner.planDateTo || planner.planDate || todayKey())}"></label>
+                                        <label class="tm-ai-sidebar__compact-field"><span>${__tmT("ai.downtime")}</span><input class="tm-input" type="number" min="0" max="12" step="0.5" data-ai-sidebar-field="breakHours" value="${esc(planner.breakHours)}"></label>
+                                        <label class="tm-ai-sidebar__compact-field"><span>${__tmT("ai.taskGap")}</span><input class="tm-input" type="number" min="0" max="240" step="5" data-ai-sidebar-field="gapMinutes" value="${esc(planner.gapMinutes)}"></label>
+                                        <label class="tm-ai-sidebar__compact-field"><span>${__tmT("ai.maxTasks")}</span><input class="tm-input" type="number" min="1" max="30" step="1" data-ai-sidebar-field="maxTasks" value="${esc(planner.maxTasks)}"></label>
                                     </div>
                                 `}
-                                <textarea class="tm-ai-textarea" data-ai-sidebar-draft="schedule" placeholder="补充约束，例如优先上午安排高能量任务，或在这一周内均匀分配">${esc(draft.schedule || planner.note || '')}</textarea>
+                                <textarea class="tm-ai-textarea" data-ai-sidebar-draft="schedule" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("ai.addConstraintsSuchAsSchedulingDemandingTasksInThe")}">${esc(draft.schedule || planner.note || '')}</textarea>
                                 <div class="tm-ai-sidebar__composer-foot">
-                                    <div class="tm-ai-sidebar__composer-note">排期参数已集成到输入区，补充一句偏好后可直接生成。</div>
-                                    <button class="tm-btn tm-btn-primary" data-ai-sidebar-action="run-scene" ${aiRuntime.busy ? 'disabled' : ''}>${aiRuntime.busy ? '处理中...' : '生成排期'}</button>
+                                    <div class="tm-ai-sidebar__composer-note">${__tmT("ai.schedulingParametersAreIntegratedIntoTheInputAreaAdd")}</div>
+                                    <button class="tm-btn tm-btn-primary" data-ai-sidebar-action="run-scene" ${aiRuntime.busy ? 'disabled' : ''}>${aiRuntime.busy ? __tmT("ai.processing3") : __tmT("ai.generateSchedule")}</button>
                                 </div>
                             </div>
-                            ${aiRuntime.busy ? "<div class=\"tm-ai-sidebar__hint\">AI 正在处理，请稍候...</div>" : ""}
+                            ${aiRuntime.busy ? `<div class="tm-ai-sidebar__hint">${__tmT("ai.theAiIsWorkingPleaseWait")}</div>` : ""}
                         </div>
                     ` : session.type === 'smart' ? `
                         <div class="tm-ai-sidebar__composer">
-                            <textarea class="tm-ai-textarea" data-ai-sidebar-draft="smart" placeholder="补充关注点，例如重点看可量化目标和时间约束">${esc(draft.smart || '')}</textarea>
-                            <div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-primary" data-ai-sidebar-action="run-scene" ${aiRuntime.busy ? 'disabled' : ''}>${aiRuntime.busy ? '处理中...' : '开始分析'}</button></div>
-                            ${aiRuntime.busy ? "<div class=\"tm-ai-sidebar__hint\">AI 正在处理，请稍候...</div>" : ""}
+                            <textarea class="tm-ai-textarea" data-ai-sidebar-draft="smart" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("ai.addReviewCriteriaSuchAsMeasurableGoalsAndDeadlines")}">${esc(draft.smart || '')}</textarea>
+                            <div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-primary" data-ai-sidebar-action="run-scene" ${aiRuntime.busy ? 'disabled' : ''}>${aiRuntime.busy ? __tmT("ai.processing3") : __tmT("ai.startAnalysis")}</button></div>
+                            ${aiRuntime.busy ? `<div class="tm-ai-sidebar__hint">${__tmT("ai.theAiIsWorkingPleaseWait")}</div>` : ""}
                         </div>
                     ` : session.type === 'summary' ? `
                         <div class="tm-ai-sidebar__composer">
                             <div class="tm-ai-sidebar__grid tm-ai-sidebar__grid--planner">
-                                <label><span>摘要类型</span><select class="tm-rule-select" data-ai-sidebar-field="summaryPreset"><option value="daily" ${summary.preset === 'daily' ? 'selected' : ''}>每日日报</option><option value="weekly" ${summary.preset === 'weekly' ? 'selected' : ''}>每周周报</option><option value="custom" ${summary.preset === 'custom' ? 'selected' : ''}>自定义摘要</option></select></label>
-                                <label><span>最大任务数</span><input class="tm-input" type="number" min="5" max="200" step="5" data-ai-sidebar-field="summaryMaxTasks" value="${esc(summary.maxTasks)}"></label>
-                                <label><span>开始日期</span><input class="tm-input" type="date" data-ai-sidebar-field="summaryDateFrom" value="${esc(summary.dateFrom)}"></label>
-                                <label><span>结束日期</span><input class="tm-input" type="date" data-ai-sidebar-field="summaryDateTo" value="${esc(summary.dateTo)}"></label>
+                                <label><span>${__tmT("ai.summaryType")}</span><select class="tm-rule-select" data-ai-sidebar-field="summaryPreset"><option value="daily" ${summary.preset === 'daily' ? 'selected' : ''}>${__tmT("ai.dailyReport2")}</option><option value="weekly" ${summary.preset === 'weekly' ? 'selected' : ''}>${__tmT("ai.weeklyReport")}</option><option value="custom" ${summary.preset === 'custom' ? 'selected' : ''}>${__tmT("ai.customSummary")}</option></select></label>
+                                <label><span>${__tmT("ai.maxTasks")}</span><input class="tm-input" type="number" min="5" max="200" step="5" data-ai-sidebar-field="summaryMaxTasks" value="${esc(summary.maxTasks)}"></label>
+                                <label><span>${__tmT("kernel.startDate")}</span><input class="tm-input" type="date" data-ai-sidebar-field="summaryDateFrom" value="${esc(summary.dateFrom)}"></label>
+                                <label><span>${__tmT("ai.endDate")}</span><input class="tm-input" type="date" data-ai-sidebar-field="summaryDateTo" value="${esc(summary.dateTo)}"></label>
                             </div>
-                            <textarea class="tm-ai-textarea" data-ai-sidebar-draft="summary" placeholder="补充摘要重点，例如突出已完成、阻塞项和明日计划">${esc(draft.summary || '')}</textarea>
-                            <div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-primary" data-ai-sidebar-action="run-scene" ${aiRuntime.busy ? 'disabled' : ''}>${aiRuntime.busy ? '处理中...' : '生成摘要'}</button></div>
-                            ${aiRuntime.busy ? "<div class=\"tm-ai-sidebar__hint\">AI 正在处理，请稍候...</div>" : ""}
+                            <textarea class="tm-ai-textarea" data-ai-sidebar-draft="summary" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("ai.addAFocusSuchAsCompletedTasksBlockersAnd")}">${esc(draft.summary || '')}</textarea>
+                            <div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-primary" data-ai-sidebar-action="run-scene" ${aiRuntime.busy ? 'disabled' : ''}>${aiRuntime.busy ? __tmT("ai.processing3") : __tmT("ai.generateSummary")}</button></div>
+                            ${aiRuntime.busy ? `<div class="tm-ai-sidebar__hint">${__tmT("ai.theAiIsWorkingPleaseWait")}</div>` : ""}
                         </div>
                     ` : `
                         <div class="tm-ai-sidebar__composer">
                             ${renderChatPromptTemplateBar()}
                             <div class="tm-ai-sidebar__composer-row">
-                                <textarea class="tm-ai-textarea" data-ai-sidebar-draft="chat" placeholder="例如：根据当前文档给我下一步建议（Enter 发送，Shift+Enter 换行）">${esc(draft.chat || '')}</textarea>
-                                <button class="tm-btn tm-btn-primary tm-ai-sidebar__send" data-ai-sidebar-action="run-scene" ${aiRuntime.busy ? 'disabled' : ''}>${aiRuntime.busy ? '处理中...' : '发送'}</button>
+                                <textarea class="tm-ai-textarea" data-ai-sidebar-draft="chat" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("ai.askForNextStepsBasedOnThisDocumentEnter")}">${esc(draft.chat || '')}</textarea>
+                                <button class="tm-btn tm-btn-primary tm-ai-sidebar__send" data-ai-sidebar-action="run-scene" ${aiRuntime.busy ? 'disabled' : ''}>${aiRuntime.busy ? __tmT("ai.processing3") : __tmT("ai.send")}</button>
                             </div>
-                            ${aiRuntime.busy ? "<div class=\"tm-ai-sidebar__hint\">AI 正在处理，请稍候...</div>" : ""}
+                            ${aiRuntime.busy ? `<div class="tm-ai-sidebar__hint">${__tmT("ai.theAiIsWorkingPleaseWait")}</div>` : ""}
                         </div>
                     `}
                 </div>
@@ -5054,11 +5054,11 @@
                 if (action === 'new-prompt-template') {
                     if (!current || current.type !== 'chat') return;
                     const draft = getConversationDraft(current.id);
-                    const name = await promptTemplateNameDialog('新建提示词模板', '', '会使用当前输入框内容作为模板内容。');
+                    const name = await promptTemplateNameDialog(__tmT("ai.newPromptTemplate"), '', __tmT("ai.usesTheCurrentInputBoxContentAsTheTemplate"));
                     if (!name) return;
                     const created = await createPromptTemplate({ name, content: String(draft.chat || '') });
                     setActiveChatPromptTemplateId(created.id);
-                    toast('✅ 已新建提示词模板', 'success');
+                    toast(__tmT("ai.promptTemplateCreated"), 'success');
                     await refreshSidebar({ activeConversationId: current.id });
                     return;
                 }
@@ -5067,41 +5067,41 @@
                     const draft = getConversationDraft(current.id);
                     let template = PromptTemplateStore.get(aiRuntime.chatPromptTemplateId);
                     if (!template) {
-                        const name = await promptTemplateNameDialog('保存为提示词模板', '', '当前还没有选中的模板，保存时会新建一个。');
+                        const name = await promptTemplateNameDialog(__tmT("ai.saveAsPromptTemplate"), '', __tmT("ai.noTemplateSelectedYetSavingWillCreateANew"));
                         if (!name) return;
                         template = await createPromptTemplate({ name, content: String(draft.chat || '') });
                         setActiveChatPromptTemplateId(template.id);
                     } else {
                         template = await updatePromptTemplate(template.id, { content: String(draft.chat || '') });
                     }
-                    toast('✅ 提示词模板已保存', 'success');
+                    toast(__tmT("ai.promptTemplateSaved"), 'success');
                     await refreshSidebar({ activeConversationId: current.id });
                     return;
                 }
                 if (action === 'rename-prompt-template') {
                     const template = PromptTemplateStore.get(aiRuntime.chatPromptTemplateId);
                     if (!template) {
-                        toast('⚠ 请先选择一个提示词模板', 'warning');
+                        toast(__tmT("ai.selectAPromptTemplateFirst"), 'warning');
                         return;
                     }
-                    const name = await promptTemplateNameDialog('重命名提示词模板', template.name);
+                    const name = await promptTemplateNameDialog(__tmT("ai.renamePromptTemplate"), template.name);
                     if (!name) return;
                     await updatePromptTemplate(template.id, { name });
-                    toast('✅ 已更新模板名称', 'success');
+                    toast(__tmT("ai.templateNameUpdated"), 'success');
                     await refreshSidebar({ activeConversationId: current?.id || aiRuntime.activeConversationId });
                     return;
                 }
                 if (action === 'delete-prompt-template') {
                     const template = PromptTemplateStore.get(aiRuntime.chatPromptTemplateId);
                     if (!template) {
-                        toast('⚠ 请先选择一个提示词模板', 'warning');
+                        toast(__tmT("ai.selectAPromptTemplateFirst"), 'warning');
                         return;
                     }
-                    const confirmed = window.confirm(`确认删除提示词模板“${template.name}”？`);
+                    const confirmed = window.confirm(__tmT("ai.deletePromptTemplate", { name: template.name }));
                     if (!confirmed) return;
                     await deletePromptTemplate(template.id);
                     setActiveChatPromptTemplateId('');
-                    toast('✅ 已删除提示词模板', 'success');
+                    toast(__tmT("ai.promptTemplateDeleted"), 'success');
                     await refreshSidebar({ activeConversationId: current?.id || aiRuntime.activeConversationId });
                     return;
                 }
@@ -5163,11 +5163,11 @@
                 }
                 if (action === 'refresh-context') {
                     if (current.contextScope === 'manual' || current.contextScope === 'none') {
-                        toast(current.contextScope === 'none' ? '⚠ 纯对话范围没有可刷新的自动上下文' : '⚠ 手动任务范围没有可刷新的自动上下文', 'warning');
+                        toast(current.contextScope === 'none' ? __tmT("ai.chatOnlyScopeHasNoAutomaticContextToRefresh") : __tmT("ai.manualTasksScopeHasNoAutomaticContextToRefresh"), 'warning');
                         return;
                     }
                     const next = await ensureConversationDefaults(current, { force: true, refreshView: true });
-                    toast('✅ 已按当前范围刷新上下文', 'success');
+                    toast(__tmT("ai.contextRefreshedForTheCurrentScope"), 'success');
                     await refreshSidebar({ activeConversationId: next?.id || current.id });
                     return;
                 }
@@ -5199,7 +5199,7 @@
                         else if (current.type === 'schedule') await runScheduleConversation(current.id);
                         else if (current.type === 'summary') await runSummaryConversation(current.id);
                         else await runChatConversation(current.id);
-                        toast('✅ 已更新 AI 结果', 'success');
+                        toast(__tmT("ai.aiResultUpdated"), 'success');
                     } catch (e) {
                         toast(`❌ ${String(e?.message || e)}`, 'error');
                     } finally {
@@ -5219,9 +5219,9 @@
                 if (action === 'edit-schedule') {
                     try {
                         const sid = String(id || '').trim();
-                        if (!sid) throw new Error('缺少日程 ID');
+                        if (!sid) throw new Error(__tmT("kernel.missingScheduleId"));
                         const ok = await globalThis.__tmCalendar?.openScheduleEditorById?.(sid);
-                        if (!ok) throw new Error('未能打开日程编辑器');
+                        if (!ok) throw new Error(__tmT("ai.failedToOpenTheScheduleEditor"));
                     } catch (e) {
                         toast(`❌ ${String(e?.message || e)}`, 'error');
                     }
@@ -5230,9 +5230,9 @@
                 if (action === 'edit-task-schedule') {
                     try {
                         const tid = String(actionEl.getAttribute('data-ai-task-id') || '').trim();
-                        if (!tid) throw new Error('缺少任务 ID');
+                        if (!tid) throw new Error(__tmT("plugin.missingTaskId"));
                         const ok = await globalThis.__tmCalendar?.openScheduleEditorByTaskId?.(tid);
-                        if (!ok) throw new Error('该任务暂无可调整日程');
+                        if (!ok) throw new Error(__tmT("ai.thisTaskHasNoAdjustableSchedule"));
                     } catch (e) {
                         toast(`❌ ${String(e?.message || e)}`, 'error');
                     }
@@ -5246,7 +5246,7 @@
                     const item = Array.isArray(current?.lastResult?.taskAnalyses) ? current.lastResult.taskAnalyses[index] : null;
                     if (!item?.taskId || !item?.suggestedTitle) return;
                     await bridge()?.applyTaskPatch?.(item.taskId, { title: item.suggestedTitle });
-                    toast('✅ 已应用任务标题', 'success');
+                    toast(__tmT("ai.taskTitleApplied"), 'success');
                     return;
                 }
                 if (action === 'create-smart-task') {
@@ -5254,7 +5254,7 @@
                     const docId = String(current?.lastResult?.document?.id || current?.selectedDocIds?.[0] || '').trim();
                     if (!docId || !item?.newTaskSuggestion) return;
                     await bridge()?.createTaskSuggestion?.(docId, item.newTaskSuggestion);
-                    toast('✅ 已创建建议任务', 'success');
+                    toast(__tmT("ai.suggestedTaskCreated"), 'success');
                     return;
                 }
                 if (action === 'copy-summary') {
@@ -5262,9 +5262,9 @@
                     if (!text) return;
                     try {
                         await navigator.clipboard.writeText(text);
-                        toast('✅ 已复制摘要', 'success');
+                        toast(__tmT("ai.summaryCopied"), 'success');
                     } catch (e) {
-                        toast('❌ 复制失败', 'error');
+                        toast(__tmT("ai.copyFailed"), 'error');
                     }
                 }
             });
@@ -5375,7 +5375,7 @@
                 const current = await getConversation(aiRuntime.activeConversationId || ConversationStore.data?.activeId);
                 if (!current || !taskId) return;
                 await appendConversationContext(current.id, { selectedTaskIds: [taskId], contextScope: 'manual' });
-                toast('✅ 已把任务加入当前会话上下文', 'success');
+                toast(__tmT("ai.taskAddedToTheCurrentConversationContext"), 'success');
                 await refreshSidebar({ activeConversationId: current.id });
             });
         }
@@ -5446,9 +5446,9 @@
     async function testConnection() {
         const cfg = assertReady(true);
         const label = providerLabel(cfg.provider);
-        toast(`⏳ 正在测试 ${label} 连接...`, 'info');
-        await callMiniMax('你是测试助手。请只输出 JSON：{"ping":"pong"}', { ping: 'pong' }, { maxTokens: 256, temperature: 0 });
-        toast(`✅ ${label} 连接成功`, 'success');
+        toast(__tmT("ai.testingConnection", { label: label }), 'info');
+        await callMiniMax(__tmT("ai.youAreATestAssistantOutputOnlyJsonPing"), { ping: 'pong' }, { maxTokens: 256, temperature: 0 });
+        toast(__tmT("ai.connectionSucceeded", { label: label }), 'success');
     }
 
     async function exportMigrationData() {

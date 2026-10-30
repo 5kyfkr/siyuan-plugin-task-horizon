@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const fs = require('./i18n-source-fixture');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
@@ -14,14 +14,14 @@ const commandStart = indexSource.indexOf('langKey: COMMAND_OPEN_TASK_HORIZON');
 const commandEnd = indexSource.indexOf('});', commandStart);
 assert.notEqual(commandStart, -1, 'the task manager command must be registered');
 const commandSource = indexSource.slice(commandStart, commandEnd + 3);
-assert.match(commandSource, /langText: "打开任务管理器"/, 'the command must have a visible SiYuan shortcut label');
+assert.match(commandSource, /langText: ['"]打开任务管理器['"]/, 'the command must have a visible SiYuan shortcut label');
 assert.match(commandSource, /hotkey: ""/, 'the command must leave its default shortcut unassigned');
 assert.match(commandSource, /this\.openTaskHorizonTab\(\)/, 'the command must reuse the existing tab opener');
 
 const quickAddCommandStart = indexSource.indexOf('langKey: COMMAND_OPEN_QUICK_ADD_TASK_WINDOW');
 assert.notEqual(quickAddCommandStart, -1, 'the quick-add command must be registered');
 const quickAddCommandSource = indexSource.slice(quickAddCommandStart, indexSource.indexOf('this.addCommand(quickAddCommand)', quickAddCommandStart));
-assert.match(quickAddCommandSource, /langText: "新建任务窗口"/, 'the quick-add command must have a visible SiYuan shortcut label');
+assert.match(quickAddCommandSource, /langText: ['"]新建任务窗口['"]/, 'the quick-add command must have a visible SiYuan shortcut label');
 assert.match(quickAddCommandSource, /hotkey: ""/, 'the quick-add command must leave its default shortcut unassigned');
 assert.match(indexSource, /globalCallback[\s\S]*openQuickAddFromMainWindow/, 'desktop quick-add must use SiYuan global shortcuts');
 assert.doesNotMatch(indexSource, /\[task-horizon:quick-add(?::renderer)?\]/, 'temporary quick-add diagnostics must not be emitted');

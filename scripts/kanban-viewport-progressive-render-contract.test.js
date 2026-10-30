@@ -47,7 +47,7 @@ assert.doesNotMatch(bottomNavAvoidance, /colBody\.scrollTop\s*=/, 'bottom-nav av
 assert.match(dialogs, /mode !== 'list' && mode !== 'checklist' && mode !== 'timeline'/, 'table, checklist, and timeline must share one near-bottom loader');
 assert.match(dialogs, /remainingPx <= preloadThresholdPx/, 'list-like views must wait until the shared scrollport is near its tail');
 assert.match(dialogs, /appendOnly: true/, 'list-like continuation must preserve mounted rows');
-assert.match(renderRuntime, /return Math\.max\(0, Math\.ceil\(\(Number\(colBody\.scrollHeight\)/, 'mobile bottom-nav measurement must avoid per-card layout reads');
+assert.doesNotMatch(bottomNavAvoidance, /scrollHeight|clientHeight|getBoundingClientRect|__tmMeasureKanbanBottomNav/, 'mobile and dock bottom-nav avoidance must not depend on column content measurements');
 assert.match(styles, /\.tm-kanban-deferred\s*\{[\s\S]*min-height: 48px;/, 'deferred columns must reserve a stable visible loading area');
 assert.match(styles, /\.tm-modal\.tm-modal--mobile \.tm-body\.tm-body--kanban \.tm-kanban-card\.tm-kanban-card--parent,[\s\S]*?content-visibility: visible;[\s\S]*?contain-intrinsic-size: none;/, 'mobile parent cards with progressively loaded subtasks must retain their live height');
 

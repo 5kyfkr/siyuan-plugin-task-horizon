@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const main = path.join(__dirname, '..', 'src/task-horizon/main');
 const read = file => fs.readFileSync(path.join(main, file), 'utf8');

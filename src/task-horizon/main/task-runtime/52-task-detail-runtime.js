@@ -3,8 +3,8 @@
         const text = __tmFormatTaskCompletedAtTime(rawValue);
         if (!text) return '';
         const tipAttr = typeof detailTip === 'function'
-            ? detailTip(`完成时间：${text}`, { ariaLabel: false })
-            : ` title="完成时间：${esc(text)}" data-tm-floating-tooltip-label="完成时间：${esc(text)}"`;
+            ? detailTip(__tmT("task.completionTime2", { text: text }), { ariaLabel: false })
+            : ` title="${esc(__tmT('task.completionTime2', { text }))}" data-tm-floating-tooltip-label="${esc(__tmT('task.completionTime2', { text }))}"`;
         return `<div class="bc-btn bc-btn--sm tm-task-detail-core-chip tm-task-detail-core-chip--static has-value" data-tm-detail-complete-at-chip${tipAttr}>
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="taskCompleteAt">${__tmBuildTaskDetailCoreChipFace('taskCompleteAt', rawValue)}</span>
                         </div>`;
@@ -40,12 +40,12 @@
     function __tmRenderTaskTimeHubQuickDatesHtml(activeValue = '') {
         const current = __tmNormalizeDateOnly(activeValue);
         const shortcuts = [
-            ['today', '今天', 'sun'],
-            ['tomorrow', '明天', 'sun-horizon'],
-            ['next-week', '下周', 'calendar-plus'],
-            ['next-month', '下月', 'calendar-star'],
+            ['today', __tmT("common.today"), 'sun'],
+            ['tomorrow', __tmT("calendar.tomorrow"), 'sun-horizon'],
+            ['next-week', __tmT("calendar.nextWeek2"), 'calendar-plus'],
+            ['next-month', __tmT("calendar.nextMonth"), 'calendar-star'],
         ];
-        return `<div class="tm-task-time-hub__quick-dates" role="toolbar" aria-label="快速设置日期">
+        return `<div class="tm-task-time-hub__quick-dates" role="toolbar" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.quickDateSettings")}">
             ${shortcuts.map(([key, label, icon]) => {
                 const value = __tmTaskTimeHubShortcutDate(key);
                 const active = current && value === current;
@@ -124,18 +124,18 @@
             return `<button type="button" class="tm-task-time-hub__choice ${selected ? 'is-selected' : ''}" ${custom ? `data-tm-time-hub-repeat-custom="${type}" aria-haspopup="dialog"` : `data-tm-time-hub-repeat="${type}"`} aria-pressed="${selected}"><span>${esc(label)}</span>${selected ? '<span class="tm-task-time-hub__choice-mark" aria-hidden="true">✓</span>' : ''}</button>`;
         };
         return `<div class="tm-task-time-hub__subpanel tm-task-time-hub__subpanel--repeat" data-tm-time-hub-editor-panel>
-            <div class="tm-task-time-hub__subpanel-title">循环</div>
-            ${renderChoice('none', '不循环')}
-            ${renderChoice('fsrs', 'FSRS 间隔重复')}
-            <div class="tm-task-time-hub__repeat-group" role="group" aria-label="自定义循环">
-                <div class="tm-task-time-hub__repeat-group-title">自定义循环</div>
-                ${renderChoice('due', '到期后重复', true)}
-                ${renderChoice('complete', '完成后重复', true)}
-                ${renderChoice('checkin', '按计划打卡', true)}
+            <div class="tm-task-time-hub__subpanel-title">${__tmT("quickbar.repeat")}</div>
+            ${renderChoice('none', __tmT("calendar.noRepeat"))}
+            ${renderChoice('fsrs', __tmT("task.fsrsSpacedRepetition"))}
+            <div class="tm-task-time-hub__repeat-group" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.customRepeat")}">
+                <div class="tm-task-time-hub__repeat-group-title">${__tmT("task.customRepeat")}</div>
+                ${renderChoice('due', __tmT("task.repeatAfterDueDate"), true)}
+                ${renderChoice('complete', __tmT("task.repeatAfterCompletion"), true)}
+                ${renderChoice('checkin', __tmT("task.checkInOnSchedule"), true)}
             </div>
-            <div class="tm-task-time-hub__repeat-group" role="group" aria-label="快速周期">
-                <div class="tm-task-time-hub__repeat-group-title">快速周期</div>
-                ${[['daily', '每天'], ['workday', '工作日'], ['weekly', '每周'], ['monthly', '每月'], ['yearly', '每年'], ['lunar-monthly', '农历每月'], ['lunar-yearly', '农历每年']].map(([type, label]) => renderChoice(type, label)).join('')}
+            <div class="tm-task-time-hub__repeat-group" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.quickCycle")}">
+                <div class="tm-task-time-hub__repeat-group-title">${__tmT("task.quickCycle")}</div>
+                ${[['daily', __tmT("calendar.daily")], ['workday', __tmT("calendar.workdays")], ['weekly', __tmT("calendar.weekly")], ['monthly', __tmT("calendar.monthly2")], ['yearly', __tmT("calendar.yearly")], ['lunar-monthly', __tmT("calendar.lunarMonthly")], ['lunar-yearly', __tmT("calendar.lunarYearly")]].map(([type, label]) => renderChoice(type, label)).join('')}
             </div>
         </div>`;
     }
@@ -171,7 +171,7 @@
 
     function __tmRenderTaskTimeHubUntilControlHtml(value = '') {
         const normalized = __tmNormalizeDateOnly(value);
-        return `<input class="tm-input tm-task-time-hub__until-date${normalized ? ' has-value' : ''}" type="date" value="${esc(normalized)}" data-tm-time-hub-repeat-until-input aria-label="循环结束日期">`;
+        return `<input class="tm-input tm-task-time-hub__until-date${normalized ? ' has-value' : ''}" type="date" value="${esc(normalized)}" data-tm-time-hub-repeat-until-input aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.repeatendDate")}">`;
     }
 
     function __tmRenderTaskTimeHubRepeatEndEditorHtml(ruleInput, stateInput = {}) {
@@ -183,20 +183,20 @@
         const untilValue = __tmNormalizeDateOnly(state.untilDraft || rule.until || '');
         const countValue = __tmNormalizeTaskRepeatMaxOccurrences(state.repeatEndCountDraft || rule.maxOccurrences || 1) || 1;
         return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
-            <div class="tm-task-time-hub__subpanel-title">结束</div>
-            <button type="button" class="tm-task-time-hub__choice ${mode === 'never' ? 'is-selected' : ''}" data-tm-time-hub-repeat-end-mode="never">永不结束</button>
-            <button type="button" class="tm-task-time-hub__choice ${mode === 'date' ? 'is-selected' : ''}" data-tm-time-hub-repeat-end-mode="date">按日期结束</button>
+            <div class="tm-task-time-hub__subpanel-title">${__tmT("calendar.end")}</div>
+            <button type="button" class="tm-task-time-hub__choice ${mode === 'never' ? 'is-selected' : ''}" data-tm-time-hub-repeat-end-mode="never">${__tmT("quickbar.neverEnds")}</button>
+            <button type="button" class="tm-task-time-hub__choice ${mode === 'date' ? 'is-selected' : ''}" data-tm-time-hub-repeat-end-mode="date">${__tmT("task.endsOnDate")}</button>
             ${mode === 'date' ? `<div class="tm-task-time-hub__until-row">
                 ${__tmRenderTaskTimeHubUntilControlHtml(untilValue)}
-                <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-until-apply>应用</button>
+                <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-until-apply>${__tmT("common.apply")}</button>
             </div>` : ''}
-            <button type="button" class="tm-task-time-hub__choice ${mode === 'count' ? 'is-selected' : ''}" data-tm-time-hub-repeat-end-mode="count">按次数结束</button>
+            <button type="button" class="tm-task-time-hub__choice ${mode === 'count' ? 'is-selected' : ''}" data-tm-time-hub-repeat-end-mode="count">${__tmT("task.endsAfterCount")}</button>
             ${mode === 'count' ? `<div class="tm-task-time-hub__until-row">
                 <label class="tm-task-time-hub__count-field">
-                    <input class="tm-input tm-task-time-hub__until-date" type="number" min="1" max="200" step="1" value="${esc(String(countValue))}" data-tm-time-hub-repeat-count-input aria-label="循环总次数">
-                    <span>次</span>
+                    <input class="tm-input tm-task-time-hub__until-date" type="number" min="1" max="200" step="1" value="${esc(String(countValue))}" data-tm-time-hub-repeat-count-input aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.totalRepeatOccurrences")}">
+                    <span>${__tmT("calendar.times")}</span>
                 </label>
-                <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-count-apply>应用</button>
+                <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-count-apply>${__tmT("common.apply")}</button>
             </div>` : ''}
         </div>`;
     }
@@ -344,7 +344,7 @@
         return `
                 <div class="tm-task-detail-footer" data-tm-detail-footer${createdAtText ? '' : ' hidden'}>
                     <span class="tm-task-detail-footer__item" data-tm-detail-created-at>
-                        <span class="tm-task-detail-footer__label">创建于</span>
+                        <span class="tm-task-detail-footer__label">${__tmT("task.created")}</span>
                         <span class="tm-task-detail-footer__value" data-tm-detail-created-at-value>${esc(createdAtText)}</span>
                     </span>
                 </div>
@@ -369,7 +369,7 @@
             const text = stripTaskSyntax(item);
             if (text) return text;
         }
-        return '任务';
+        return __tmT("kernel.task");
     }
 
     function __tmIsTaskDetailRecurringInstance(task, rawId = '') {
@@ -603,7 +603,7 @@
         if (!docId || !content) return null;
         const doc = (Array.isArray(state.taskTree) ? state.taskTree : [])
             .find((item) => String(item?.id || '').trim() === docId);
-        const docName = String(doc?.name || '').trim() || '未命名文档';
+        const docName = String(doc?.name || '').trim() || __tmT("kernel.untitledDocument");
         const done = !!snap.done;
         return {
             id,
@@ -1082,7 +1082,7 @@
         const title = String(parentInfo.title || '').trim();
         const titleHtml = String(parentInfo.titleHtml || esc(title));
         const nameWeight = SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800';
-        return `<button type="button" class="tm-task-detail-parent-line tm-kanban-parent-line" data-tm-detail-parent-task="${esc(parentTaskId)}" style="display:block;width:fit-content;max-width:100%;border:0;background:transparent;padding:0;font:inherit;font-size:12px;color:var(--tm-secondary-text);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;cursor:pointer;" title="${esc(title)}" aria-label="打开父任务详情：${esc(title)}"><span>父任务：</span><span style="font-weight:${nameWeight};color:var(--card-foreground);">${titleHtml}</span></button>`;
+        return `<button type="button" class="tm-task-detail-parent-line tm-kanban-parent-line" data-tm-detail-parent-task="${esc(parentTaskId)}" style="display:block;width:fit-content;max-width:100%;border:0;background:transparent;padding:0;font:inherit;font-size:12px;color:var(--tm-secondary-text);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;cursor:pointer;" title="${esc(title)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.openParentTaskDetails", { title: title })}"><span>${__tmT("calendar.parentTask")}</span><span style="font-weight:${nameWeight};color:var(--card-foreground);">${titleHtml}</span></button>`;
     }
 
     async function __tmEnsureTaskDetailFieldAttrs(taskLike, options = {}) {
@@ -1165,7 +1165,7 @@
             try {
                 if (typeof __tmCacheTaskInState === 'function') {
                     resolvedTask = __tmCacheTaskInState(task, {
-                        docNameFallback: task.doc_name || task.docName || '未命名文档',
+                        docNameFallback: task.doc_name || task.docName || __tmT("kernel.untitledDocument"),
                     }) || task;
                 }
             } catch (e) {}
@@ -1445,7 +1445,7 @@
         popover.style.maxHeight = `${Math.min(maxHeight, availableHeight)}px`;
     }
 
-    function __tmFormatTaskDetailShortDate(value, emptyText = '未设置') {
+    function __tmFormatTaskDetailShortDate(value, emptyText = __tmT("common.notSet")) {
         const key = __tmNormalizeDateOnly(value);
         if (!key) return emptyText;
         const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
@@ -1453,7 +1453,7 @@
         const year = Number(m[1]);
         const now = new Date();
         return year === now.getFullYear()
-            ? `${Number(m[2])}月${Number(m[3])}日`
+            ? __tmT("date.monthDayNumbers", { value1: Number(m[2]), value2: Number(m[3]) })
             : key;
     }
 
@@ -1479,7 +1479,7 @@
     }
 
     function __tmGetTaskTimeHubWeekdayLabels(firstDay = __tmGetTaskTimeHubCalendarFirstDay()) {
-        const labels = ['日', '一', '二', '三', '四', '五', '六'];
+        const labels = [__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')];
         const start = Number(firstDay) === 0 ? 0 : 1;
         return labels.slice(start).concat(labels.slice(0, start));
     }
@@ -1492,8 +1492,8 @@
         return gridStart;
     }
 
-    function __tmNormalizeTaskTimeHubTitle(value, fallback = '任务') {
-        const backup = String(fallback || '').trim() || '任务';
+    function __tmNormalizeTaskTimeHubTitle(value, fallback = __tmT("kernel.task")) {
+        const backup = String(fallback || '').trim() || __tmT("kernel.task");
         return API.getTaskTitlePresentation(value, backup).text || backup;
     }
 
@@ -1508,9 +1508,9 @@
         const parts = [];
         if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(source)) parts.push(__tmFormatTaskCardDateValue(source));
         else if (endValue) parts.push(__tmFormatTaskDetailShortDate(endValue));
-        else if (startValue) parts.push(`开始 ${__tmFormatTaskDetailShortDate(startValue)}`);
+        else if (startValue) parts.push(__tmT("task.start", { value1: __tmFormatTaskDetailShortDate(startValue) }));
         if (scheduleText) parts.push(scheduleText);
-        if (hasReminder) parts.push(reminderText || '已提醒');
+        if (hasReminder) parts.push(reminderText || __tmT("task.reminded"));
         return parts;
     }
 
@@ -1526,7 +1526,7 @@
     function __tmGetTaskDetailTimeHubLabel(task, options = {}) {
         const text = __tmGetTaskDetailTimeHubParts(task, options).join(' · ');
         if (text) return text;
-        return __tmTaskDetailTimeHubHasRepeat(options) ? '循环' : '截止日期';
+        return __tmTaskDetailTimeHubHasRepeat(options) ? __tmT("quickbar.repeat") : __tmT("kernel.dueDate");
     }
 
     function __tmBuildTaskDetailTimeHubFace(task, options = {}) {
@@ -1542,18 +1542,18 @@
 
     function __tmRenderTaskTimeHubCheckinDateCardHtml(task) {
         const date = __tmGetTaskCheckinCurrentDate(task);
-        const label = date === __tmNormalizeDateOnly(new Date()) ? '今日打卡' : '下次打卡';
+        const label = date === __tmNormalizeDateOnly(new Date()) ? __tmT("task.todaySCheckIn") : __tmT("task.nextCheckIn2");
         return `<div class="tm-task-time-hub__date-card tm-task-time-hub__checkin-card">
-            <span>${date ? label : '打卡日期'}</span>
-            <strong>${esc(date ? __tmFormatTaskDetailShortDate(date) : '计划已结束')}</strong>
-            <span>日期由循环计划决定 · 在「循环」中调整</span>
+            <span>${date ? label : __tmT("task.checkInDates")}</span>
+            <strong>${esc(date ? __tmFormatTaskDetailShortDate(date) : __tmT("task.scheduleEnded"))}</strong>
+            <span>${__tmT("task.datesAreDeterminedByTheRepeatScheduleAdjustThem")}</span>
         </div>`;
     }
 
     function __tmRenderTaskTimeHubCheckinDayHtml(key, day, classes, checked, planned, today, readOnly = false) {
-        const status = checked ? '已打卡' : (planned ? (key < today ? '未打卡' : '计划打卡') : (key < today ? '可补打卡' : (key === today ? '可额外打卡' : '无打卡计划')));
+        const status = checked ? __tmT("task.checkedIn2") : (planned ? (key < today ? __tmT("task.notCheckedIn") : __tmT("task.plannedCheckIn")) : (key < today ? __tmT("task.canCatchUp") : (key === today ? __tmT("task.extraCheckInAvailable") : __tmT("task.noCheckInSchedule"))));
         const enabled = !readOnly && key <= today;
-        const title = `${key} ${status}${enabled ? (checked ? '，点击取消打卡' : '，点击打卡') : ''}`;
+        const title = `${key} ${status}${enabled ? (checked ? __tmT("task.clickToUncheck") : __tmT("task.clickToCheckIn")) : ''}`;
         return `<button type="button" class="${classes} tm-task-time-hub__checkin-day${checked ? ' is-checkin-checked' : ''}" data-tm-checkin-date="${esc(key)}" title="${esc(title)}" aria-label="${esc(title)}" aria-pressed="${checked ? 'true' : 'false'}"${enabled ? '' : ' disabled'}>${day}${checked ? '<span class="tm-task-time-hub__checkin-mark" aria-hidden="true"></span>' : ''}</button>`;
     }
 
@@ -1662,13 +1662,13 @@
         const rollup = globalThis.__tmIsTaskDateRollup?.(task) === true;
         const next = rollup ? 'manual' : 'rollup';
         const inverted = rollup && task?.startDate && task?.completionTime && task.startDate > task.completionTime;
-        const label = `日期模式：${rollup ? '子任务汇总，点击切换为手动设置' : '手动设置，点击切换为子任务汇总'}`;
-        const description = inverted ? '子任务的开始晚于截止，请检查子任务日期。'
-            : (rollup ? '开始取最早，截止取最晚；新子任务不继承日期。' : '独立设置开始和截止日期。');
+        const label = __tmT("task.dateMode", { value1: rollup ? __tmT("task.subtaskRollUpClickToSwitchToManualDates") : __tmT("task.manualDatesClickToSwitchToSubtaskRollUp") });
+        const description = inverted ? __tmT("task.theSubtaskStartsAfterItsDueDateCheckThe")
+            : (rollup ? __tmT("task.startsUseTheEarliestDateAndDueDatesThe") : __tmT("task.setStartAndDueDatesIndependently"));
         return `<button type="button" class="tm-task-time-hub__setting tm-task-time-hub__date-mode${rollup ? ' is-rollup' : ''}${inverted ? ' is-warning' : ''}"
             data-tm-time-hub-date-mode="${next}" aria-pressed="${rollup}" aria-label="${esc(label)}" title="${esc(`${label}。${description}`)}" ${disabled ? 'disabled' : ''}>
             <span class="tm-task-time-hub__setting-icon">${__tmTaskDetailTimeHubIcon(inverted ? 'flag' : (rollup ? 'stack-simple' : 'hand'), 'tm-task-time-hub__icon-svg', 16)}</span>
-            <span class="tm-task-time-hub__setting-text"><span>日期模式</span><strong>${rollup ? '子任务' : '手动'}</strong></span>
+            <span class="tm-task-time-hub__setting-text"><span>${__tmT("kernel.dateMode")}</span><strong>${rollup ? __tmT("calendar.subtasks") : __tmT("task.manual")}</strong></span>
         </button>`;
     }
 
@@ -1690,7 +1690,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const trigger = __tmTaskTimeHubAnchorFromInput(anchorOrEvent, opts);
         if (!(trigger instanceof HTMLElement)) {
-            hint('⚠ 未找到时间设置入口', 'warning');
+            hint(__tmT("task.timeSettingsEntryNotFound"), 'warning');
             return null;
         }
         if (__tmStandaloneTaskTimeHub?.trigger === trigger) {
@@ -1704,7 +1704,7 @@
         if (!task && draftMode && opts.task && typeof opts.task === 'object') task = opts.task;
         const taskId = String(task?.id || taskIdOrBlockId || (draftMode ? '__tm_quick_add_draft__' : '')).trim();
         if (!taskId) {
-            hint('⚠ 未找到任务', 'warning');
+            hint(__tmT("task.noTaskFound"), 'warning');
             return null;
         }
         const getEffectiveTaskId = () => {
@@ -1721,7 +1721,7 @@
         const hideSchedule = opts.hideSchedule === true || draftMode;
         const hideRepeat = opts.hideRepeat === true;
         const updateDates = typeof opts.onUpdateDates === 'function' ? opts.onUpdateDates : null;
-        const scheduleTabLabel = String(opts.scheduleTabLabel || '日程').trim() || '日程';
+        const scheduleTabLabel = String(opts.scheduleTabLabel || __tmT("kernel.schedule")).trim() || __tmT("kernel.schedule");
 
         const todayKey = __tmNormalizeDateOnly(new Date());
         const pad2 = (n) => String(n).padStart(2, '0');
@@ -1741,7 +1741,7 @@
         const normalizeDate = (value) => value ? __tmNormalizeDateOnly(value) : '';
         const getTaskTitle = () => {
             const source = task && typeof task === 'object' ? task : {};
-            return __tmNormalizeTaskTimeHubTitle(source.content || source.raw_content || source.markdown || '', '任务');
+            return __tmNormalizeTaskTimeHubTitle(source.content || source.raw_content || source.markdown || '', __tmT("kernel.task"));
         };
         const readTaskDate = (field) => {
             const source = task && typeof task === 'object' ? task : {};
@@ -1839,7 +1839,7 @@
         const readReminderDisplayValue = () => {
             if (draftMode) {
                 if (!readReminderValue()) return '';
-                return String(opts.reminderDraftLabel || '提交后设置').trim() || '提交后设置';
+                return String(opts.reminderDraftLabel || __tmT("task.setAfterSubmitting")).trim() || __tmT("task.setAfterSubmitting");
             }
             return __tmFormatTaskDetailReminderText(task, readReminderSnapshot());
         };
@@ -1857,9 +1857,9 @@
                 const value = typeof opts.getReminderDisabledReason === 'function'
                     ? opts.getReminderDisabledReason({ task })
                     : opts.reminderDisabledReason;
-                return String(value || '提醒暂不可用').trim() || '提醒暂不可用';
+                return String(value || __tmT("task.remindersAreTemporarilyUnavailable")).trim() || __tmT("task.remindersAreTemporarilyUnavailable");
             } catch (e) {
-                return '提醒暂不可用';
+                return __tmT("task.remindersAreTemporarilyUnavailable");
             }
         };
         const sortDateRange = (left, right) => {
@@ -1926,7 +1926,7 @@
         const popover = document.createElement('div');
         popover.className = `tm-task-detail-inline-popover tm-task-time-hub-popover${draftMode ? ' tm-task-time-hub-popover--draft' : ''}${hideSchedule ? ' tm-task-time-hub-popover--date-only' : ''}${opts.contextDate === true ? ' tm-task-time-hub-popover--context-date' : ''}${opts.groupRange === true ? ' tm-task-time-hub-popover--group-range' : ''}`;
         popover.setAttribute('role', 'dialog');
-        popover.setAttribute('aria-label', String(opts.ariaLabel || '任务时间中心').trim() || '任务时间中心');
+        popover.setAttribute('aria-label', String(opts.ariaLabel || __tmT("task.taskTimeHub")).trim() || __tmT("task.taskTimeHub"));
         let lastTriggerRect = null;
         const abort = new AbortController();
         const on = (target, type, handler, opt = {}) => {
@@ -1945,7 +1945,7 @@
         if (externalClose) {
             externalClose.type = 'button';
             externalClose.className = 'tm-task-time-hub__external-close';
-            externalClose.setAttribute('aria-label', '关闭日期设置');
+            externalClose.setAttribute('aria-label', __tmT("task.closeDateSettings"));
             externalClose.innerHTML = __tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 18);
             const cleanupFocus = __tmBindQuickAddPickerInputFocus(externalClose, trigger);
             abort.signal.addEventListener('abort', () => { cleanupFocus(); externalClose.remove(); }, { once: true });
@@ -2040,7 +2040,7 @@
             if (!dates.length) return '';
             return `
                 <div class="tm-task-time-hub__preview">
-                    <span>下次循环</span>
+                    <span>${__tmT("task.nextRepeat")}</span>
                     <div>${dates.map((d) => `<span>${esc(__tmFormatTaskDetailShortDate(d, String(d || '')))}</span>`).join('')}</div>
                 </div>
             `;
@@ -2048,14 +2048,14 @@
         const renderDateCards = () => {
             if (isCheckin()) return __tmRenderTaskTimeHubCheckinDateCardHtml(task);
             const cards = [
-                ['startDate', '开始', readTaskDate('startDate')],
-                ['completionTime', '截止', readTaskDate('completionTime')],
+                ['startDate', __tmT("calendar.start"), readTaskDate('startDate')],
+                ['completionTime', __tmT("calendar.due"), readTaskDate('completionTime')],
             ];
             return cards.map(([field, label, value]) => `
                 <div class="tm-task-time-hub__date-card ${hubState.activeField === field ? 'is-active' : ''}" role="button" tabindex="0" data-tm-time-hub-date-card="${field}">
                     <span>${esc(label)}</span>
                     <strong>${esc(__tmFormatTaskDetailShortDate(value))}</strong>
-                    ${value ? `<button type="button" class="tm-task-time-hub__date-clear" data-tm-time-hub-clear-date="${field}" aria-label="清除${esc(label)}日期">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 13)}</button>` : ''}
+                    ${value ? `<button type="button" class="tm-task-time-hub__date-clear" data-tm-time-hub-clear-date="${field}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clearDate", { label: label })}">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 13)}</button>` : ''}
                 </div>
             `).join('');
         };
@@ -2104,13 +2104,13 @@
             }
             return `
                 <div class="tm-task-time-hub__calendar-head">
-                    <button type="button" class="tm-task-time-hub__calendar-title${hubState.editor === 'month' ? ' is-active' : ''}" data-tm-time-hub-month-open aria-haspopup="dialog" aria-expanded="${hubState.editor === 'month' ? 'true' : 'false'}" title="选择年月">
-                        <strong>${month.getFullYear()}年${month.getMonth() + 1}月</strong>
+                    <button type="button" class="tm-task-time-hub__calendar-title${hubState.editor === 'month' ? ' is-active' : ''}" data-tm-time-hub-month-open aria-haspopup="dialog" aria-expanded="${hubState.editor === 'month' ? 'true' : 'false'}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.selectYearAndMonth")}">
+                        <strong>${__tmT("date.yearMonthNumbers", { value1: month.getFullYear(), value2: month.getMonth() + 1 })}</strong>
                     </button>
                     <div class="tm-task-time-hub__month-actions">
-                        <button type="button" data-tm-time-hub-month="-1" aria-label="上个月">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
-                        <button type="button" data-tm-time-hub-month="0" aria-label="回到本月">今</button>
-                        <button type="button" data-tm-time-hub-month="1" aria-label="下个月">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
+                        <button type="button" data-tm-time-hub-month="-1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousMonth")}">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
+                        <button type="button" data-tm-time-hub-month="0" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentMonth")}">${__tmT("calendar.today")}</button>
+                        <button type="button" data-tm-time-hub-month="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextMonth2")}">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
                     </div>
                 </div>
                 <div class="tm-task-time-hub__weekdays">
@@ -2125,37 +2125,37 @@
             const year = month.getFullYear();
             const currentMonthIndex = month.getMonth();
             const today = new Date();
-            const monthLabels = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+            const monthLabels = [__tmT("task.jan"), __tmT("task.feb"), __tmT("task.mar"), __tmT("task.apr"), __tmT("task.may"), __tmT("task.jun"), __tmT("task.jul"), __tmT("task.aug"), __tmT("task.sep"), __tmT("task.oct"), __tmT("task.nov"), __tmT("task.dec")];
             return `<div class="tm-task-time-hub__subpanel tm-task-time-hub__subpanel--month" data-tm-time-hub-editor-panel>
                 <div class="tm-task-time-hub__month-year-row">
-                    <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="-1" aria-label="上一年">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
-                    <input class="tm-input tm-task-time-hub__month-year-input" type="text" inputmode="numeric" autocomplete="off" maxlength="4" value="${esc(String(year))}" aria-label="年份" data-tm-time-hub-year-input>
-                    <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="1" aria-label="下一年">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
+                    <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="-1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousYear")}">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
+                    <input class="tm-input tm-task-time-hub__month-year-input" type="text" inputmode="numeric" autocomplete="off" maxlength="4" value="${esc(String(year))}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.year")}" data-tm-time-hub-year-input>
+                    <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextYear")}">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
                 </div>
                 <div class="tm-task-time-hub__month-grid">
                     ${monthLabels.map((label, index) => `
-                        <button type="button" class="tm-task-time-hub__month-btn${index === currentMonthIndex ? ' is-active' : ''}${year === today.getFullYear() && index === today.getMonth() ? ' is-current' : ''}" data-tm-time-hub-month-pick="${index}" aria-label="跳转到${esc(label)}">${esc(label)}</button>
+                        <button type="button" class="tm-task-time-hub__month-btn${index === currentMonthIndex ? ' is-active' : ''}${year === today.getFullYear() && index === today.getMonth() ? ' is-current' : ''}" data-tm-time-hub-month-pick="${index}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.goTo2", { label: label })}">${esc(label)}</button>
                     `).join('')}
                 </div>
             </div>`;
         };
         const renderSettingCards = () => {
             const disabled = hubState.activeField === 'startDate' && !isCheckin();
-            const reminderText = readReminderValue() ? (readReminderDisplayValue() || '已提醒') : '不提醒';
-            const repeatText = getRepeatSummary() || '不循环';
+            const reminderText = readReminderValue() ? (readReminderDisplayValue() || __tmT("task.reminded")) : __tmT("task.noReminder");
+            const repeatText = getRepeatSummary() || __tmT("calendar.noRepeat");
             const rule = getRepeatRule();
             const repeatTask = task || {};
             const endText = rule?.enabled
-                ? (rule.maxOccurrences > 0 ? __tmGetTaskRepeatProgressText(repeatTask, rule) : (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束'))
-                : '未设置';
-            const currentOccurrenceText = `第 ${__tmNormalizeTaskRepeatState(repeatTask?.repeatState || repeatTask?.repeat_state).occurrenceCount} 次`;
+                ? (rule.maxOccurrences > 0 ? __tmGetTaskRepeatProgressText(repeatTask, rule) : (rule.until ? __tmT("task.until3", { value1: __tmFormatTaskDetailShortDate(rule.until) }) : __tmT("quickbar.neverEnds")))
+                : __tmT("common.notSet");
+            const currentOccurrenceText = __tmT("task.occurrence", { occurrenceCount: __tmNormalizeTaskRepeatState(repeatTask?.repeatState || repeatTask?.repeat_state).occurrenceCount });
             const cards = [];
             if (!hideRepeat) {
-                cards.push(['repeat', 'repeat', '循环', repeatText]);
-                if (rule.type === 'fsrs') cards.push(['progress', 'hash', '当前轮次', currentOccurrenceText, true]);
-                else cards.push(['end', 'calendar-check', '结束', endText]);
+                cards.push(['repeat', 'repeat', __tmT("quickbar.repeat"), repeatText]);
+                if (rule.type === 'fsrs') cards.push(['progress', 'hash', __tmT("task.currentCycle"), currentOccurrenceText, true]);
+                else cards.push(['end', 'calendar-check', __tmT("calendar.end"), endText]);
             }
-            if (!hideReminder) cards.push(['reminder', 'alarm-clock', '提醒', reminderText]);
+            if (!hideReminder) cards.push(['reminder', 'alarm-clock', __tmT("ai.warnings"), reminderText]);
             if (!cards.length) return '';
             return cards.map(([key, icon, label, value, isStatic]) => {
                 const tag = isStatic ? 'div' : 'button';
@@ -2174,20 +2174,20 @@
             }).join('');
         };
         const renderScheduleList = () => {
-            if (hubState.schedulesLoading) return '<div class="tm-task-time-hub__empty">正在读取日程...</div>';
+            if (hubState.schedulesLoading) return `<div class="tm-task-time-hub__empty">${__tmT("task.loadingSchedules")}</div>`;
             const list = Array.isArray(hubState.schedules) ? hubState.schedules : [];
-            if (!list.length) return '<div class="tm-task-time-hub__empty">暂无日程</div>';
+            if (!list.length) return `<div class="tm-task-time-hub__empty">${__tmT("task.noSchedules")}</div>`;
             const visible = hubState.scheduleExpanded ? list : list.slice(0, 5);
             return visible.map((item) => {
                 const id = String(item?.id || '').trim();
                 const start = new Date(item?.start);
                 const end = new Date(item?.end);
                 const isAllDay = item?.allDay === true;
-                const dateText = formatScheduleDate(item?.start) || '未定日期';
-                const timeText = isAllDay ? '全天' : `${formatTime(start)}${formatTime(end) ? `-${formatTime(end)}` : ''}`;
-                const calendarName = String(item?.calendarName || item?.calendarTitle || item?.calendarId || '日程').trim();
+                const dateText = formatScheduleDate(item?.start) || __tmT("task.unscheduled2");
+                const timeText = isAllDay ? __tmT("calendar.allDay") : `${formatTime(start)}${formatTime(end) ? `-${formatTime(end)}` : ''}`;
+                const calendarName = String(item?.calendarName || item?.calendarTitle || item?.calendarId || __tmT("kernel.schedule")).trim();
                 const repeatText = String(item?.repeatText || item?.repeatType || item?.rrule || '').trim();
-                const reminderText = item?.reminderMode === 'inherit' ? '跟随任务' : (item?.reminderEnabled === true ? '已提醒' : '不提醒');
+                const reminderText = item?.reminderMode === 'inherit' ? __tmT("task.followTask") : (item?.reminderEnabled === true ? __tmT("task.reminded") : __tmT("task.noReminder"));
                 return `
                     <div class="tm-task-time-hub__schedule-item" data-tm-time-hub-schedule-id="${esc(id)}">
                         <div class="tm-task-time-hub__schedule-main">
@@ -2195,8 +2195,8 @@
                             <span>${esc(calendarName)} · ${esc(reminderText)}${repeatText ? ` · ${esc(repeatText)}` : ''}</span>
                         </div>
                         <div class="tm-task-time-hub__schedule-actions">
-                            <button type="button" data-tm-time-hub-edit-schedule="${esc(id)}">编辑</button>
-                            <button type="button" data-tm-time-hub-delete-schedule="${esc(id)}">删除</button>
+                            <button type="button" data-tm-time-hub-edit-schedule="${esc(id)}">${__tmT("calendar.edit")}</button>
+                            <button type="button" data-tm-time-hub-delete-schedule="${esc(id)}">${__tmT("common.delete")}</button>
                         </div>
                     </div>
                 `;
@@ -2208,9 +2208,9 @@
             if (editor === 'reminder') {
                 if (hideReminder) return '';
                 return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
-                    <div class="tm-task-time-hub__subpanel-title">提醒</div>
-                    <button type="button" class="tm-task-time-hub__choice ${!readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>不提醒</button>
-                    <button type="button" class="tm-task-time-hub__choice ${readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>打开提醒设置</button>
+                    <div class="tm-task-time-hub__subpanel-title">${__tmT("ai.warnings")}</div>
+                    <button type="button" class="tm-task-time-hub__choice ${!readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>${__tmT("task.noReminder")}</button>
+                    <button type="button" class="tm-task-time-hub__choice ${readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>${__tmT("task.openReminderSettings")}</button>
                 </div>`;
             }
             if (editor === 'repeat') {
@@ -2227,15 +2227,15 @@
         const render = () => {
             popover.innerHTML = `
                 ${draftMode ? '' : `<div class="tm-task-time-hub__top">
-                    <div class="tm-task-time-hub__tabs" role="tablist" aria-label="时间中心">
-                        <button type="button" class="${hubState.tab === 'date' ? 'is-active' : ''}" data-tm-time-hub-tab="date" role="tab" aria-selected="${hubState.tab === 'date' ? 'true' : 'false'}">日期</button>
+                    <div class="tm-task-time-hub__tabs" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.timeHub")}">
+                        <button type="button" class="${hubState.tab === 'date' ? 'is-active' : ''}" data-tm-time-hub-tab="date" role="tab" aria-selected="${hubState.tab === 'date' ? 'true' : 'false'}">${__tmT("calendar.date")}</button>
                         ${hideSchedule ? '' : `<button type="button" class="${hubState.tab === 'schedule' ? 'is-active' : ''}" data-tm-time-hub-tab="schedule" role="tab" aria-selected="${hubState.tab === 'schedule' ? 'true' : 'false'}">${esc(scheduleTabLabel)}</button>`}
                     </div>
-                    <button type="button" class="tm-task-time-hub__close" data-tm-time-hub-close aria-label="关闭">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 16)}</button>
+                    <button type="button" class="tm-task-time-hub__close" data-tm-time-hub-close aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 16)}</button>
                 </div>`}
                 ${hubState.tab === 'date' ? `
                     <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
-                        <fieldset class="tm-task-time-hub__date-fields" ${isDateRollup() ? 'disabled aria-label="子任务汇总日期"' : ''}>
+                        <fieldset class="tm-task-time-hub__date-fields" ${isDateRollup() ? `disabled aria-label="${esc(__tmT('task.rollupDateFields'))}"` : ''}>
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
                         ${isCheckin() && hubState.editor !== 'end' ? '' : __tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' && hubState.repeatEndMode === 'date' ? hubState.untilDraft : readTaskDate(hubState.activeField))}
                         ${renderCalendarHtml()}
@@ -2252,8 +2252,8 @@
                 ` : `
                     <div class="tm-task-time-hub__panel tm-task-time-hub__panel--schedule">
                         <div class="tm-task-time-hub__schedule-toolbar">
-                            <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-add-schedule>${__tmTaskDetailTimeHubIcon('plus', 'tm-task-time-hub__small-icon', 14)}新增日程</button>
-                            <button type="button" class="tm-btn tm-btn-secondary" data-tm-time-hub-toggle-schedules>${hubState.scheduleExpanded ? '收起' : '展开全部'}</button>
+                            <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-add-schedule>${__tmT("task.newSchedule", { value1: __tmTaskDetailTimeHubIcon('plus', 'tm-task-time-hub__small-icon', 14) })}</button>
+                            <button type="button" class="tm-btn tm-btn-secondary" data-tm-time-hub-toggle-schedules>${hubState.scheduleExpanded ? __tmT("ai.collapse") : __tmT("task.expandAll2")}</button>
                         </div>
                         <div class="tm-task-time-hub__schedule-list">${renderScheduleList()}</div>
                     </div>
@@ -2289,7 +2289,7 @@
                     return (Number.isFinite(ta) ? ta : 0) - (Number.isFinite(tb) ? tb : 0);
                 });
                 const first = __tmGetTaskTimeHubUnexpiredSchedule(hubState.schedules);
-                scheduleText = first ? (first.allDay === true ? '全天' : formatTime(first.start)) : '';
+                scheduleText = first ? (first.allDay === true ? __tmT("calendar.allDay") : formatTime(first.start)) : '';
                 hubState.schedulesLoaded = true;
             } catch (e) {
                 hubState.schedules = [];
@@ -2332,7 +2332,7 @@
                 await notifyChange(nextPatch, { kind: 'date', draft: true, source });
                 return nextPatch;
             }
-            if (!window.tmUpdateTaskDates) throw new Error('日期更新接口未就绪');
+            if (!window.tmUpdateTaskDates) throw new Error(__tmT("task.dateUpdateInterfaceIsNotReady"));
             const backgroundDateCommit = opts.wait !== true && opts.background !== false;
             if (!backgroundDateCommit) setBusy(true);
             try {
@@ -2355,8 +2355,8 @@
             }
         };
         const reportDateUpdateError = (error) => {
-            const label = String(opts.dateUpdateLabel || '日期').trim() || '日期';
-            try { hint(`❌ ${label}更新失败: ${error?.message || error}`, 'error'); } catch (e) {}
+            const label = String(opts.dateUpdateLabel || __tmT("calendar.date")).trim() || __tmT("calendar.date");
+            try { hint(__tmT("task.updateFailed2", { label: label, value2: error?.message || error }), 'error'); } catch (e) {}
         };
         const updateDateField = async (field, value) => {
             if (isDateRollup()) return false;
@@ -2400,7 +2400,7 @@
                         repeatState: __tmNormalizeTaskRepeatState(candidate.repeatState),
                     };
             } catch (e) {
-                hint(`❌ 循环设置失败: ${e.message || e}`, 'error');
+                hint(__tmT("task.failedToSetUpTheRepeat", { value1: e.message || e }), 'error');
                 return null;
             }
             writeTaskRepeatLocal(patch || {});
@@ -2440,7 +2440,7 @@
                 hubState.editor = '';
                 render();
             } catch (e) {
-                hint(`❌ 循环更新失败: ${e.message}`, 'error');
+                hint(__tmT("task.repeatUpdateFailed", { message: e.message }), 'error');
             } finally {
                 setBusy(false);
             }
@@ -2449,14 +2449,14 @@
             if (hideRepeat) return;
             const current = getRepeatRule();
             if (!current?.enabled || current.type === 'none') {
-                hint('⚠ 请先设置循环规则', 'warning');
+                hint(__tmT("task.setUpARepeatRuleFirst"), 'warning');
                 return;
             }
             const mode = modeInput === 'date' || modeInput === 'count' ? modeInput : 'never';
             const until = mode === 'date' ? normalizeDate(valueInput) : '';
             const maxOccurrences = mode === 'count' ? (__tmNormalizeTaskRepeatMaxOccurrences(valueInput) || 1) : 0;
             if (mode === 'date' && !until) {
-                hint('⚠ 请选择循环结束日期', 'warning');
+                hint(__tmT("task.chooseTheRepeatEndDate"), 'warning');
                 return;
             }
             if (draftMode) {
@@ -2481,7 +2481,7 @@
                 hubState.editor = '';
                 render();
             } catch (e) {
-                hint(`❌ 结束规则更新失败: ${e.message}`, 'error');
+                hint(__tmT("task.endRuleUpdateFailed", { message: e.message }), 'error');
             } finally {
                 setBusy(false);
             }
@@ -2506,7 +2506,7 @@
                 });
                 await loadHubSchedules(true);
             } else {
-                hint('⚠ 日历模块未就绪', 'warning');
+                hint(__tmT("task.calendarModuleIsNotReady"), 'warning');
             }
         };
 
@@ -2533,7 +2533,7 @@
                 try {
                     task = await __tmToggleTaskTimeHubCheckin(task, checkinBtn.getAttribute('data-tm-checkin-date'));
                     await notifyChange({ repeatState: task.repeatState }, { kind: 'checkin' });
-                } catch (error) { hint(`打卡失败：${error.message || error}`, 'error'); }
+                } catch (error) { hint(__tmT("task.checkInFailed2", { value1: error.message || error }), 'error'); }
                 finally { setBusy(false); render(); }
                 return;
             }
@@ -2720,7 +2720,7 @@
                         const result = await window.tmEditTaskRepeatRule?.(getEffectiveTaskId() || taskId, {
                             task,
                             draft: true,
-                            title: '自定义循环',
+                            title: __tmT("task.customRepeat"),
                             initialTrigger,
                             customOnly: true,
                         });
@@ -2728,7 +2728,7 @@
                     }
                     return;
                 }
-                const result = await window.tmEditTaskRepeatRule?.(getEffectiveTaskId() || taskId, { task, title: '自定义循环', initialTrigger, customOnly: true });
+                const result = await window.tmEditTaskRepeatRule?.(getEffectiveTaskId() || taskId, { task, title: __tmT("task.customRepeat"), initialTrigger, customOnly: true });
                 if (result) {
                     await refreshTask();
                     await notifyChange({}, { kind: 'repeat' });
@@ -2939,8 +2939,8 @@
             });
         const total = Math.max(0, Number(item.stats?.total || item.nodes.length) || 0);
         const done = Math.max(0, Math.min(total, Number(item.stats?.done || 0) || 0));
-        const outlineLabel = '\u767d\u677f\u8def\u5f84';
-        const doneLabel = '\u5df2\u5b8c\u6210';
+        const outlineLabel = __tmT("task.whiteboardPath");
+        const doneLabel = __tmT("ai.completed");
         const open = !!(options && typeof options === 'object' && options.open === true);
         const label = total ? `${done}/${total}` : '';
         return `
@@ -2970,7 +2970,7 @@
                 side: 'bottom',
                 ...((tipOpts && typeof tipOpts === 'object') ? tipOpts : {}),
             });
-        const titlePresentation = API.getTaskTitlePresentation(item.markdown || item.title, '\u4efb\u52a1');
+        const titlePresentation = API.getTaskTitlePresentation(item.markdown || item.title, __tmT("kernel.task"));
         const title = titlePresentation.text;
         const x = Number(item.x) || 0;
         const y = Number(item.y) || 0;
@@ -2991,7 +2991,7 @@
             stopMouseDown: true,
             stopPointerDown: true,
             stopClick: true,
-            title: item.snapshot === true ? '\u5feb\u7167\u4efb\u52a1\uff0c\u5f53\u524d\u4e0d\u53ef\u76f4\u63a5\u52fe\u9009' : '\u5b8c\u6210\u72b6\u6001',
+            title: item.snapshot === true ? __tmT("task.snapshotTaskCannotBeCheckedDirectly") : __tmT("task.completionStatus"),
             onchange: "this.dispatchEvent(new CustomEvent('tm-outline-done-change', { bubbles: true, detail: { checked: this.checked } }))",
         });
         return `
@@ -3002,7 +3002,7 @@
                 data-tm-detail-whiteboard-outline-node
                 data-task-id="${esc(id)}"
                 data-doc-id="${esc(docId)}"
-                aria-label="${esc(`\u8df3\u8f6c\u81f3\u767d\u677f:${title}`)}"
+                aria-label="${esc(__tmT("task.goToWhiteboard", { title: title }))}"
                 style="left:${x.toFixed(2)}px;top:${y.toFixed(2)}px;width:${w.toFixed(2)}px;height:${h.toFixed(2)}px;"
                 ${tip(title, { ariaLabel: false })}>
                 <span class="tm-task-detail-whiteboard-outline-node__check" data-tm-detail-whiteboard-outline-check onpointerdown="event.stopPropagation()" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">${checkboxHtml}</span>
@@ -3042,11 +3042,11 @@
         const currentLabel = String(currentItem?.label || currentItem?.value || current || '').trim();
         return `
             <div class="tm-task-detail-whiteboard-outline-scope-select" data-tm-detail-whiteboard-outline-scope-select data-value="${esc(current)}">
-                <button type="button" class="bc-btn bc-btn--sm tm-task-detail-whiteboard-outline-scope-trigger" data-tm-detail-whiteboard-outline-scope-trigger aria-haspopup="listbox" aria-expanded="false" title="切换白板路径">
+                <button type="button" class="bc-btn bc-btn--sm tm-task-detail-whiteboard-outline-scope-trigger" data-tm-detail-whiteboard-outline-scope-trigger aria-haspopup="listbox" aria-expanded="false" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.switchWhiteboardPath")}">
                     <span class="tm-task-detail-whiteboard-outline-scope-trigger__label" data-tm-detail-whiteboard-outline-scope-label>${esc(currentLabel)}</span>
                     <span class="tm-task-detail-whiteboard-outline-scope-trigger__chevron" aria-hidden="true">${__tmRenderLucideIcon('caret-down', '', { size: 12 })}</span>
                 </button>
-                <div class="bc-select-menu tm-task-detail-whiteboard-outline-scope-menu" data-tm-detail-whiteboard-outline-scope-menu role="listbox" aria-label="切换白板路径" hidden>
+                <div class="bc-select-menu tm-task-detail-whiteboard-outline-scope-menu" data-tm-detail-whiteboard-outline-scope-menu role="listbox" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.switchWhiteboardPath")}" hidden>
                     ${items.map((item) => {
                     const value = String(item?.value || '').trim();
                     const label = String(item?.label || value).trim();
@@ -3065,7 +3065,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const total = Math.max(0, Number(item.stats?.total || item.nodes.length) || 0);
         const done = Math.max(0, Math.min(total, Number(item.stats?.done || 0) || 0));
-        const outlineLabel = '\u767d\u677f\u8def\u5f84';
+        const outlineLabel = __tmT("task.whiteboardPath");
         const activeScope = String(item.scope || item.location?.scope || '').trim() || 'board';
         const scopeSelectHtml = __tmBuildTaskDetailWhiteboardOutlineScopeSelectHtml(opts.scopeOptions, activeScope);
         return `
@@ -3149,27 +3149,27 @@
 
     function __tmFormatTaskDetailFocusDuration(seconds) {
         const minutes = Math.max(0, Math.round((Number(seconds) || 0) / 60));
-        if (minutes < 60) return `${minutes} 分钟`;
+        if (minutes < 60) return __tmT("task.min2", { minutes: minutes });
         const hours = Math.floor(minutes / 60);
         const rest = minutes % 60;
-        return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+        return rest ? __tmT("task.hMin", { hours: hours, rest: rest }) : __tmT("calendar.h", { hours: hours });
     }
 
     function __tmFormatTaskDetailFocusDayLabel(dateKey) {
         const key = String(dateKey || '').trim().slice(0, 10);
         const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
-        if (!matched) return key || '日期未知';
+        if (!matched) return key || __tmT("homepage.dateUnknown");
         const today = new Date();
         const pad = (value) => String(value).padStart(2, '0');
         const todayKey = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
         const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
         const yesterdayKey = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`;
-        if (key === todayKey) return '今天';
-        if (key === yesterdayKey) return '昨天';
+        if (key === todayKey) return __tmT("common.today");
+        if (key === yesterdayKey) return __tmT("task.yesterday");
         const year = Number(matched[1]);
         const month = Number(matched[2]);
         const day = Number(matched[3]);
-        return year === today.getFullYear() ? `${month}月${day}日` : `${year}年${month}月${day}日`;
+        return year === today.getFullYear() ? __tmT("date.monthDay", { month: month, day: day }) : __tmT("date.fullDate", { year: year, month: month, day: day });
     }
 
     function __tmBuildTaskDetailFocusRecordRows(buckets) {
@@ -3192,12 +3192,12 @@
 
     function __tmRenderTaskDetailFocusRecordRows(rows) {
         const list = Array.isArray(rows) ? rows : [];
-        if (!list.length) return '<div class="tm-focus-records-empty">暂无专注记录</div>';
+        if (!list.length) return `<div class="tm-focus-records-empty">${__tmT("task.noFocusRecordsYet")}</div>`;
         return list.map((row) => {
             const counts = [];
-            if (row.countdownCount > 0) counts.push(`${row.countdownCount} 个番茄`);
-            if (row.stopwatchCount > 0) counts.push(`${row.stopwatchCount} 次正计时`);
-            if (!counts.length && row.focusSessionCount > 0) counts.push(`${row.focusSessionCount} 次专注`);
+            if (row.countdownCount > 0) counts.push(__tmT("task.pomodoros", { countdownCount: row.countdownCount }));
+            if (row.stopwatchCount > 0) counts.push(__tmT("task.stopwatchSessions", { stopwatchCount: row.stopwatchCount }));
+            if (!counts.length && row.focusSessionCount > 0) counts.push(__tmT("task.focusSessions", { focusSessionCount: row.focusSessionCount }));
             return `
                 <div class="tm-focus-records-row">
                     <span class="tm-focus-records-day">
@@ -3230,9 +3230,9 @@
         const expanded = section.querySelector('[data-tm-detail-section-toggle]')?.getAttribute('aria-expanded') !== 'false';
         const taskId = String(detail?.taskID || section.dataset?.taskId || '').trim();
         const items = [
-            ['自身', self.focusSec],
-            ['子任务', descendants.focusSec],
-            ['合计', combinedFocusSec],
+            [__tmT("task.self"), self.focusSec],
+            [__tmT("calendar.subtasks"), descendants.focusSec],
+            [__tmT("task.total2"), combinedFocusSec],
         ];
         const statsHtml = items.map(([label, seconds], index) => {
             const numericSeconds = Math.max(0, Number(seconds) || 0);
@@ -3240,14 +3240,14 @@
             const head = `<span class="tm-task-detail-focus-stat-head"><span class="tm-task-detail-focus-stat-label">${esc(label)}</span>${interactive ? '<span class="tm-task-detail-focus-stat-chevron" aria-hidden="true">›</span>' : ''}</span>`;
             const value = `<span class="tm-task-detail-focus-stat-value">${esc(__tmFormatTaskDetailFocusDuration(numericSeconds))}</span>`;
             if (interactive) {
-                return `<button type="button" class="tm-task-detail-focus-stat tm-task-detail-focus-stat--records" data-tm-detail-focus-records="${esc(taskId)}" data-tm-detail-focus-records-target="${Math.round(numericSeconds)}" aria-haspopup="dialog" aria-expanded="false" title="查看专注记录">${head}${value}</button>`;
+                return `<button type="button" class="tm-task-detail-focus-stat tm-task-detail-focus-stat--records" data-tm-detail-focus-records="${esc(taskId)}" data-tm-detail-focus-records-target="${Math.round(numericSeconds)}" aria-haspopup="dialog" aria-expanded="false" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.viewFocusRecords")}">${head}${value}</button>`;
             }
             return `<div class="tm-task-detail-focus-stat">${head}${value}</div>`;
         }).join('');
         section.innerHTML = `
             <div class="tm-task-detail-section-head">
                 <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="${expanded ? 'true' : 'false'}">
-                    <span class="tm-task-detail-section-title">专注统计</span>
+                    <span class="tm-task-detail-section-title">${__tmT("kernel.focusStatistics")}</span>
                     <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
                 </button>
             </div>
@@ -3373,7 +3373,7 @@
             const headingLevel = String(task?.headingLevel || SettingsStore?.data?.taskHeadingLevel || 'h2').trim() || 'h2';
             const headingName = __tmNormalizeHeadingText(task?.h2 || task?.h2Name);
             const headingRawText = String(task?.h2 || task?.h2Name || '').trim();
-            headingChip.innerHTML = __tmRenderHeadingLevelIconLabel(headingRawText || headingName || '无', headingLevel, { size: 14 });
+            headingChip.innerHTML = __tmRenderHeadingLevelIconLabel(headingRawText || headingName || __tmT("common.none"), headingLevel, { size: 14 });
         } else if (!showHeadingLocation && headingChip instanceof HTMLElement) {
             headingChip.remove();
         } else if (showHeadingLocation) {
@@ -3399,7 +3399,7 @@
         const isSnapshotTask = __tmIsTaskDetailWhiteboardSnapshotTask(task);
         const statusOptions = __tmGetTaskDetailStatusOptions();
         const curStatus = __tmResolveTaskStatusId(task, statusOptions);
-        const curStatusOption = statusOptions.find((o) => o.id === curStatus) || { id: curStatus, name: curStatus || '待办', color: '#757575' };
+        const curStatusOption = statusOptions.find((o) => o.id === curStatus) || { id: curStatus, name: curStatus || __tmT("homepage.toDo"), color: '#757575' };
         const curPriority = String(task?.priority || '').trim().toLowerCase();
         const curPinned = !!task?.pinned;
         const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
@@ -3471,8 +3471,8 @@
         })();
         const titleReadonly = isOtherBlock || isSnapshotTask;
         const titleReadonlyTip = isOtherBlock
-            ? '其他块内容请回原文档编辑'
-            : (isSnapshotTask ? '快照任务，源任务已删除' : '');
+            ? __tmT("task.editOtherBlockContentInTheOriginalDocument")
+            : (isSnapshotTask ? __tmT("task.snapshotTaskTheSourceTaskWasDeleted") : '');
         const fsrsReviewHtml = (() => {
             if (titleReadonly || task?.done === true || !curRepeatRule.enabled || curRepeatRule.type !== 'fsrs') return '';
             if (__tmIsRecurringInstanceTask(task)) return '';
@@ -3483,13 +3483,13 @@
             return `
                 <div class="tm-task-detail-fsrs" data-tm-detail-fsrs-review>
                     <div class="tm-task-detail-fsrs__meta">
-                        <span>复习反馈</span>
-                        <span>默认良好 · 下次 <strong>${esc(goodDate)}</strong></span>
+                        <span>${__tmT("task.reviewFeedback")}</span>
+                        <span>${__tmT("task.goodByDefaultNext")}<strong>${esc(goodDate)}</strong></span>
                     </div>
-                    <div class="tm-task-detail-fsrs__row" role="group" aria-label="FSRS 复习反馈">
+                    <div class="tm-task-detail-fsrs__row" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.fsrsReviewFeedback")}">
                         ${options.map((option) => {
                             const dateText = __tmFormatFsrsPreviewDate(option.completionTime, reviewedAt);
-                            return `<button type="button" class="tm-task-detail-fsrs__btn tm-task-detail-fsrs__btn--${esc(option.tone)}${option.rating === 3 ? ' is-default' : ''}" data-tm-detail-fsrs-rating="${option.rating}" aria-label="${esc(`${option.label}，预计下次 ${option.completionTime || dateText}`)}" title="${esc(`${option.label} · 预计 ${option.completionTime || dateText}`)}">
+                            return `<button type="button" class="tm-task-detail-fsrs__btn tm-task-detail-fsrs__btn--${esc(option.tone)}${option.rating === 3 ? ' is-default' : ''}" data-tm-detail-fsrs-rating="${option.rating}" aria-label="${esc(__tmT("task.nextDue", { label: option.label, value2: option.completionTime || dateText }))}" title="${esc(__tmT("task.due2", { label: option.label, value2: option.completionTime || dateText }))}">
                                 <span class="tm-task-detail-fsrs__label">${esc(option.label)}</span>
                                 <span class="tm-task-detail-fsrs__due">${esc(dateText)}</span>
                             </button>`;
@@ -3536,10 +3536,10 @@
         const visibleOptionCustomFieldDefs = visibleCustomFieldDefs.filter((field) => String(field?.type || '').trim() !== 'text');
         const visibleTextCustomFieldDefs = visibleCustomFieldDefs.filter((field) => String(field?.type || '').trim() === 'text');
         const priorityOptions = [
-            { value: '', label: '无' },
-            { value: 'low', label: '低' },
-            { value: 'medium', label: '中' },
-            { value: 'high', label: '高' },
+            { value: '', label: __tmT("common.none") },
+            { value: 'low', label: __tmT("common.low") },
+            { value: 'medium', label: __tmT("common.medium") },
+            { value: 'high', label: __tmT("common.high") },
         ];
         const customFieldsHtml = visibleOptionCustomFieldDefs.length
             ? `
@@ -3551,7 +3551,7 @@
                             <div class="tm-task-detail-custom-field">
                                 <span class="tm-task-detail-custom-field-label">${esc(String(field?.name || fieldId).trim() || fieldId)}</span>
                                 <button type="button" class="tm-task-detail-custom-field-btn" data-tm-custom-field-anchor data-tm-detail-custom-field="${esc(fieldId)}">
-                                    <span class="tm-task-detail-custom-field-value">${__tmBuildCustomFieldDisplayHtml(field, __tmGetTaskCustomFieldValue(task, fieldId), { emptyText: '未设置', maxTags: String(field?.type || '').trim() === 'multi' ? 3 : 1 })}</span>
+                                    <span class="tm-task-detail-custom-field-value">${__tmBuildCustomFieldDisplayHtml(field, __tmGetTaskCustomFieldValue(task, fieldId), { emptyText: __tmT("common.notSet"), maxTags: String(field?.type || '').trim() === 'multi' ? 3 : 1 })}</span>
                                 </button>
                             </div>
                         `;
@@ -3588,18 +3588,18 @@
         const locationItems = [];
         if (docName) {
             locationItems.push(isOtherBlock
-                ? `<span class="tm-checklist-meta-chip" title="来源文档">${__tmRenderLucideIcon('file-text')} ${esc(docName)}</span>`
-                : `<button type="button" class="tm-checklist-meta-chip tm-task-detail-location-chip" data-tm-detail="location-doc"${detailTip('点击切换文档', { ariaLabel: false })}>${__tmRenderLucideIcon('file-text')} ${esc(docName)}</button>`);
+                ? `<span class="tm-checklist-meta-chip" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.sourceDocument")}">${__tmRenderLucideIcon('file-text')} ${esc(docName)}</span>`
+                : `<button type="button" class="tm-checklist-meta-chip tm-task-detail-location-chip" data-tm-detail="location-doc"${detailTip(__tmT("task.clickToSwitchDocument"), { ariaLabel: false })}>${__tmRenderLucideIcon('file-text')} ${esc(docName)}</button>`);
         }
         if (showHeadingLocation) {
             const headingLevel = String(task?.headingLevel || SettingsStore?.data?.taskHeadingLevel || 'h2').trim() || 'h2';
             const headingRawText = String(task?.h2 || task?.h2Name || '').trim();
             const headingLabelHtml = (text) => __tmRenderHeadingLevelIconLabel(text, headingLevel, { size: 14 });
             locationItems.push(isOtherBlock
-                ? `<span class="tm-checklist-meta-chip" title="来源位置">${headingLabelHtml(headingRawText || headingName || task?.otherBlockTypeLabel || '无')}</span>`
-                : `<button type="button" class="tm-checklist-meta-chip tm-task-detail-location-chip" data-tm-detail="location-heading"${detailTip('点击切换标题', { ariaLabel: false })}>${headingLabelHtml(headingRawText || headingName || '无')}</button>`);
+                ? `<span class="tm-checklist-meta-chip" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.sourceLocation")}">${headingLabelHtml(headingRawText || headingName || task?.otherBlockTypeLabel || __tmT("common.none"))}</span>`
+                : `<button type="button" class="tm-checklist-meta-chip tm-task-detail-location-chip" data-tm-detail="location-heading"${detailTip(__tmT("calendar.clickToSwitchHeading"), { ariaLabel: false })}>${headingLabelHtml(headingRawText || headingName || __tmT("common.none"))}</button>`);
         }
-        locationItems.push(`<button type="button" class="tm-checklist-meta-chip tm-task-detail-location-chip" data-tm-detail="jump"${detailTip('跳转到任务', { ariaLabel: false })}>${__tmRenderLucideIcon('map-pin')} 跳转</button>`);
+        locationItems.push(`<button type="button" class="tm-checklist-meta-chip tm-task-detail-location-chip" data-tm-detail="jump"${detailTip(__tmT("task.goToTask"), { ariaLabel: false })}>${__tmT("task.go", { value1: __tmRenderLucideIcon('map-pin') })}</button>`);
         const locationHtml = `
                 <div class="tm-task-detail-location">
                     ${locationItems.join('')}
@@ -3607,10 +3607,10 @@
             `;
         const headerActionsHtml = `
                 <div class="tm-task-detail-header-actions">
-                    <button class="bc-btn bc-btn--sm tm-task-detail-icon-btn tm-task-detail-note-view-btn" type="button" data-tm-detail="note-view"${detailTip('笔记内视图', { ariaLabel: '打开笔记内视图' })}>${__tmRenderTaskDetailPhosphorIcon('book-open-text')}</button>
-                    <button class="bc-btn bc-btn--sm tm-task-detail-icon-btn" type="button" data-tm-detail="more"${detailTip('更多操作', { ariaLabel: '更多任务操作' })}>${__tmRenderLucideIcon('dots-three')}</button>
-                    ${useCompactHeaderActions ? '' : `<button class="bc-btn bc-btn--sm tm-task-detail-icon-btn" type="button" data-tm-detail="save"${detailTip('保存', { ariaLabel: '保存任务详情' })}>${__tmRenderLucideIcon('save')}</button>`}
-                    ${useCompactHeaderActions ? '' : ((floating || closeable || !embedded) ? `<button class="bc-btn bc-btn--sm tm-task-detail-close-btn tm-task-detail-icon-btn" type="button" data-tm-detail="close"${detailTip('关闭', { ariaLabel: '关闭任务详情' })}>${__tmRenderLucideIcon('x')}</button>` : '')}
+                    <button class="bc-btn bc-btn--sm tm-task-detail-icon-btn tm-task-detail-note-view-btn" type="button" data-tm-detail="note-view"${detailTip(__tmT("task.inNoteView"), { ariaLabel: __tmT("task.openInNoteView") })}>${__tmRenderTaskDetailPhosphorIcon('book-open-text')}</button>
+                    <button class="bc-btn bc-btn--sm tm-task-detail-icon-btn" type="button" data-tm-detail="more"${detailTip(__tmT("settings.moreActions"), { ariaLabel: __tmT("task.moreTaskActions") })}>${__tmRenderLucideIcon('dots-three')}</button>
+                    ${useCompactHeaderActions ? '' : `<button class="bc-btn bc-btn--sm tm-task-detail-icon-btn" type="button" data-tm-detail="save"${detailTip(__tmT("common.save"), { ariaLabel: __tmT("task.saveTaskDetails") })}>${__tmRenderLucideIcon('save')}</button>`}
+                    ${useCompactHeaderActions ? '' : ((floating || closeable || !embedded) ? `<button class="bc-btn bc-btn--sm tm-task-detail-close-btn tm-task-detail-icon-btn" type="button" data-tm-detail="close"${detailTip(__tmT("common.close"), { ariaLabel: __tmT("task.closeTaskDetails") })}>${__tmRenderLucideIcon('x')}</button>` : '')}
                 </div>
             `;
         return `
@@ -3630,10 +3630,10 @@
                 <div class="tm-task-detail-core">
                     <input type="hidden" data-tm-detail="priority" value="${esc(curPriority)}">
                     <div class="tm-task-detail-priority-select" data-tm-detail-priority-select>
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-icon-btn tm-task-detail-priority-trigger" data-tm-detail-priority-trigger aria-haspopup="listbox" aria-expanded="false"${detailTip('重要性', { ariaLabel: false })} style="${__tmBuildPriorityChipStyle(curPriority || 'none')}">
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-icon-btn tm-task-detail-priority-trigger" data-tm-detail-priority-trigger aria-haspopup="listbox" aria-expanded="false"${detailTip(__tmT("kernel.importance"), { ariaLabel: false })} style="${__tmBuildPriorityChipStyle(curPriority || 'none')}">
                             <span class="tm-task-detail-priority-trigger__value">${__tmRenderPriorityJira(curPriority || 'none', false)}</span>
                         </button>
-                        <div class="tm-task-detail-priority-menu" data-tm-detail-priority-menu role="listbox" aria-label="重要性" hidden>
+                        <div class="tm-task-detail-priority-menu" data-tm-detail-priority-menu role="listbox" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.importance")}" hidden>
                             ${priorityOptions.map((opt) => {
                                 const optValue = String(opt.value || '').trim();
                                 const selected = String(curPriority || '') === optValue;
@@ -3644,19 +3644,20 @@
                     </div>
                     <div class="tm-task-detail-status-select" data-tm-detail-status-select>
                         <input type="hidden" data-tm-detail="status" value="${esc(curStatusOption.id)}">
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-status-trigger" data-tm-detail-status-trigger aria-haspopup="listbox" aria-expanded="false"${detailTip('状态', { ariaLabel: false })} style="${__tmBuildStatusChipStyle(curStatusOption.color)}">
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-status-trigger" data-tm-detail-status-trigger aria-haspopup="listbox" aria-expanded="false"${detailTip(__tmT("kernel.status"), { ariaLabel: false })} style="${__tmBuildStatusChipStyle(curStatusOption.color)}">
                             <span class="tm-task-detail-status-trigger__value">${esc(curStatusOption.name || curStatusOption.id)}</span>
                         </button>
-                        <div class="bc-select-menu tm-task-detail-status-menu" data-tm-detail-status-menu role="listbox" aria-label="状态" hidden>
+                        <div class="bc-select-menu tm-task-detail-status-menu" data-tm-detail-status-menu role="listbox" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.status")}" hidden>
                             ${statusOptions.map((o) => {
                                 const selected = o.id === curStatusOption.id;
-                                return `<button class="bc-select-option tm-task-detail-status-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-detail-status-option data-value="${esc(o.id)}" data-label="${esc(o.name || o.id)}" data-color="${esc(o.color)}"><span class="tm-status-tag" style="${__tmBuildStatusChipStyle(o.color)}">${esc(o.name || o.id)}</span><span class="bc-select-option__check tm-selection-check" aria-hidden="true"></span></button>`;
+                                const label = globalThis.__taskHorizonHostBridge.i18n.builtinName('status', o);
+                                return `<button class="bc-select-option tm-task-detail-status-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-detail-status-option data-value="${esc(o.id)}" data-label="${esc(label)}" data-color="${esc(o.color)}"><span class="tm-status-tag" style="${__tmBuildStatusChipStyle(o.color)}">${esc(label)}</span><span class="bc-select-option__check tm-selection-check" aria-hidden="true"></span></button>`;
                             }).join('')}
                         </div>
                     </div>
                     <div class="tm-task-detail-core-meta">
                         <input type="hidden" data-tm-detail="startDate" value="${esc(startValue)}">
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${startValue ? 'has-value' : ''}" data-tm-detail-date-trigger="startDate"${detailTip('开始日期', { ariaLabel: false })}${typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task) ? ' style="display:none"' : ''}>
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${startValue ? 'has-value' : ''}" data-tm-detail-date-trigger="startDate"${detailTip(__tmT("kernel.startDate"), { ariaLabel: false })}${typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task) ? ' style="display:none"' : ''}>
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="startDate">${__tmBuildTaskDetailCoreChipFace('startDate', startValue)}</span>
                         </button>
                         <input type="hidden" data-tm-detail="completionTime" value="${esc(endValue)}">
@@ -3666,7 +3667,7 @@
                         ${__tmBuildTaskCompleteAtDetailChipHtml(task, detailTip)}
                         <input type="hidden" data-tm-detail="duration" value="${esc(durationValue)}">
                         <input type="hidden" data-tm-detail="tomatoEstimateCount" value="${esc(tomatoEstimateValue)}">
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${focusSummaryValue ? 'has-value' : ''}" data-tm-detail-focus-summary-trigger${detailTip('时长与番茄', { ariaLabel: false })}>
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${focusSummaryValue ? 'has-value' : ''}" data-tm-detail-focus-summary-trigger${detailTip(__tmT("quickbar.durationPomodoro"), { ariaLabel: false })}>
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="tomatoSummary">${__tmBuildTaskDetailCoreChipFace('tomatoSummary', task)}</span>
                         </button>
                         ${whiteboardOutlineChipHtml}
@@ -3678,7 +3679,7 @@
                 <section class="tm-task-detail-section tm-task-detail-section--subtasks ${children.length ? '' : 'tm-task-detail-section--subtasks-empty'}" data-tm-detail-collapsible-section>
                     <div class="tm-task-detail-section-head">
                         <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="true">
-                            <span class="tm-task-detail-section-title">子任务</span>
+                            <span class="tm-task-detail-section-title">${__tmT("calendar.subtasks")}</span>
                             <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
                         </button>
                         <div class="tm-task-detail-section-tools">
@@ -3687,7 +3688,7 @@
                     </div>
                     <div class="tm-task-detail-subtasks" data-tm-detail-subtasks>${__tmBuildTaskDetailSubtasksHtml(task)}</div>
                     <div class="tm-task-detail-subtask-footer">
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-subtask-add-btn" data-tm-detail="create-subtask"${detailTip('添加子任务', { ariaLabel: false })}>${__tmRenderLucideIcon('plus')}<span>添加子任务</span></button>
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-subtask-add-btn" data-tm-detail="create-subtask"${detailTip(__tmT("task.addSubtask"), { ariaLabel: false })}>${__tmRenderLucideIcon('plus')}<span>${__tmT("task.addSubtask")}</span></button>
                     </div>
                 </section>
 
@@ -3719,12 +3720,12 @@
         const showHeadingLocation = !!__tmDocHasAnyHeading(docId) || !!headingName;
         const locationItems = [];
         if (docName) {
-            locationItems.push(`<span class="tm-checklist-meta-chip" title="来源文档">${__tmRenderLucideIcon('file-text')} ${esc(docName)}</span>`);
+            locationItems.push(`<span class="tm-checklist-meta-chip" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.sourceDocument")}">${__tmRenderLucideIcon('file-text')} ${esc(docName)}</span>`);
         }
         if (showHeadingLocation) {
             const headingLevel = String(task?.headingLevel || SettingsStore?.data?.taskHeadingLevel || 'h2').trim() || 'h2';
             const headingRawText = String(task?.h2 || task?.h2Name || '').trim();
-            locationItems.push(`<span class="tm-checklist-meta-chip" title="来源位置">${__tmRenderHeadingLevelIconLabel(headingRawText || headingName || '无', headingLevel, { size: 14 })}</span>`);
+            locationItems.push(`<span class="tm-checklist-meta-chip" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.sourceLocation")}">${__tmRenderHeadingLevelIconLabel(headingRawText || headingName || __tmT("common.none"), headingLevel, { size: 14 })}</span>`);
         }
         const locationHtml = `
                 <div class="tm-task-detail-location">
@@ -3733,8 +3734,8 @@
             `;
         const headerActionsHtml = `
                 <div class="tm-task-detail-header-actions">
-                    <button class="bc-btn bc-btn--sm tm-task-detail-icon-btn tm-task-detail-note-back-btn" type="button" data-tm-detail="detail-view"${detailTip('返回详情页', { ariaLabel: '返回任务详情页' })}>${__tmRenderTaskDetailPhosphorIcon('arrow-left')}</button>
-                    ${useCompactHeaderActions ? '' : ((floating || closeable || !embedded) ? `<button class="bc-btn bc-btn--sm tm-task-detail-close-btn tm-task-detail-icon-btn" type="button" data-tm-detail="close"${detailTip('关闭', { ariaLabel: '关闭任务详情' })}>${__tmRenderLucideIcon('x')}</button>` : '')}
+                    <button class="bc-btn bc-btn--sm tm-task-detail-icon-btn tm-task-detail-note-back-btn" type="button" data-tm-detail="detail-view"${detailTip(__tmT("task.backToDetails"), { ariaLabel: __tmT("task.backToTaskDetails") })}>${__tmRenderTaskDetailPhosphorIcon('arrow-left')}</button>
+                    ${useCompactHeaderActions ? '' : ((floating || closeable || !embedded) ? `<button class="bc-btn bc-btn--sm tm-task-detail-close-btn tm-task-detail-icon-btn" type="button" data-tm-detail="close"${detailTip(__tmT("common.close"), { ariaLabel: __tmT("task.closeTaskDetails") })}>${__tmRenderLucideIcon('x')}</button>` : '')}
                 </div>
             `;
         return `
@@ -3747,7 +3748,7 @@
                 </div>
                 <div class="tm-task-detail-note-view" data-tm-detail-note-view>
                     <div class="tm-task-detail-note-mount" data-tm-detail-note-mount>
-                        <div class="tm-task-detail-note-loading">正在载入...</div>
+                        <div class="tm-task-detail-note-loading">${__tmT("task.loading2")}</div>
                     </div>
                 </div>
             </div>
@@ -4203,7 +4204,7 @@
             }, (error) => {
                 pendingDetailCommitPromises.delete(promise);
                 if (mutationOpId) pendingDetailCommitOpIds.delete(mutationOpId);
-                const normalizedError = error instanceof Error ? error : new Error(String(error || '任务写入失败'));
+                const normalizedError = error instanceof Error ? error : new Error(String(error || __tmT("task.taskWriteFailed")));
                 keys.forEach((key) => {
                     if (pendingDetailCommitGenerations.get(key) !== generation) return;
                     pendingDetailCommitErrors.set(key, normalizedError);
@@ -4285,7 +4286,7 @@
                         return fallback;
                     }
                     const rebound = __tmCacheTaskInState(fallback, {
-                        docNameFallback: fallback.doc_name || fallback.docName || '未命名文档'
+                        docNameFallback: fallback.doc_name || fallback.docName || __tmT("kernel.untitledDocument")
                     }) || fallback;
                     try { root.__tmTaskDetailTask = rebound; } catch (e) {}
                     return rebound;
@@ -4315,7 +4316,7 @@
             const showCompletedSubtasks = typeof __tmShouldShowCompletedSubtasksForTask === 'function'
                 ? __tmShouldShowCompletedSubtasksForTask(getBoundTaskId() || taskId)
                 : true;
-            const action = showCompletedSubtasks ? '隐藏已完成任务' : '显示已完成任务';
+            const action = showCompletedSubtasks ? __tmT("task.hideCompletedTasks") : __tmT("task.showCompletedTasks");
             if (!(btn instanceof HTMLButtonElement)) {
                 btn = document.createElement('button');
                 btn.type = 'button';
@@ -4401,7 +4402,7 @@
             const toggleBtn = section.querySelector('[data-tm-detail-attachment-toggle]');
             if (toggleBtn instanceof HTMLButtonElement) {
                 const hiddenCount = Math.max(0, attachmentCount - __TM_TASK_ATTACHMENT_DETAIL_COLLAPSE_COUNT);
-                toggleBtn.textContent = nextExpanded ? '收起' : `展开 ${hiddenCount} 个`;
+                toggleBtn.textContent = nextExpanded ? __tmT("ai.collapse") : __tmT("task.showMore", { hiddenCount: hiddenCount });
             }
             return true;
         };
@@ -4432,8 +4433,8 @@
         };
         const readReminderTooltipValue = () => {
             const cached = __tmPeekTaskReminderSnapshotByAnyId(getBoundTask() || taskId);
-            if (cached && cached.hasReminder === true) return String(cached.tooltip || '').trim() || '已添加提醒';
-            return readReminderValue() ? '已添加提醒' : '提醒';
+            if (cached && cached.hasReminder === true) return String(cached.tooltip || '').trim() || __tmT("quickbar.reminderAdded");
+            return readReminderValue() ? __tmT("quickbar.reminderAdded") : __tmT("ai.warnings");
         };
         const readRepeatSummaryValue = () => {
             const task = getBoundTask();
@@ -4451,7 +4452,7 @@
             const start = new Date(startMs);
             const pad = (n) => String(n).padStart(2, '0');
             const dateKey = __tmNormalizeDateOnly(start);
-            const timeText = item.allDay === true ? '全天' : `${pad(start.getHours())}:${pad(start.getMinutes())}`;
+            const timeText = item.allDay === true ? __tmT("calendar.allDay") : `${pad(start.getHours())}:${pad(start.getMinutes())}`;
             const taskDate = readHiddenInputValue('completionTime') || readHiddenInputValue('startDate');
             if (dateKey && taskDate && dateKey === taskDate) return timeText;
             const dateText = __tmFormatTaskDetailShortDate(dateKey, '');
@@ -4515,7 +4516,7 @@
             const repeatBtn = root.querySelector('[data-tm-detail-repeat-trigger]');
             if (repeatBtn instanceof HTMLElement) {
                 repeatBtn.classList.toggle('has-value', !!summary);
-                const label = summary || '循环';
+                const label = summary || __tmT("quickbar.repeat");
                 try { __tmApplyTooltipAttrsToElement(repeatBtn, label, { side: 'bottom' }); } catch (e) {}
                 try { repeatBtn.setAttribute('aria-label', label); } catch (e) {}
                 try { repeatBtn.removeAttribute('title'); } catch (e) {}
@@ -4529,7 +4530,7 @@
             if (reminderFace instanceof HTMLElement) reminderFace.innerHTML = __tmBuildTaskDetailCoreChipFace('reminder', reminderText);
             const reminderBtn = root.querySelector('[data-tm-detail-reminder-toggle]');
             if (reminderBtn instanceof HTMLElement) {
-                const label = reminder ? readReminderTooltipValue() : '提醒';
+                const label = reminder ? readReminderTooltipValue() : __tmT("ai.warnings");
                 reminderBtn.classList.toggle('is-active', reminder);
                 reminderBtn.classList.toggle('has-value', !!reminderText);
                 reminderBtn.classList.toggle('tm-task-detail-core-chip--icon', !reminderText);
@@ -4654,7 +4655,7 @@
             try { __tmRestoreTaskFlatMap(task); } catch (e) {}
             try {
                 return __tmCacheTaskInState(task, {
-                    docNameFallback: task.doc_name || task.docName || '未命名文档'
+                    docNameFallback: task.doc_name || task.docName || __tmT("kernel.untitledDocument")
                 }) || task;
             } catch (e) {
                 return task;
@@ -4719,7 +4720,7 @@
                 const remarkDraftSnapshot = captureRemarkDraftSnapshot(requestedId);
                 const nextTask = await resolveDetailNavigationTask(requestedId);
                 if (!nextTask || !isSessionActive()) {
-                    try { hint('⚠️ 未找到任务数据，无法打开详情', 'warning'); } catch (e) {}
+                    try { hint(__tmT("task.taskDataNotFoundCannotOpenDetails"), 'warning'); } catch (e) {}
                     return;
                 }
                 const nextId = String(nextTask.id || requestedId).trim() || requestedId;
@@ -4758,7 +4759,7 @@
                 restoreRemarkDraftSnapshot(remarkDraftSnapshot);
                 try { __tmBindFloatingTooltips(root); } catch (e) {}
             } catch (e) {
-                try { hint(`❌ 打开任务详情失败: ${e.message}`, 'error'); } catch (err) {}
+                try { hint(__tmT("task.failedToOpenTaskDetails", { message: e.message }), 'error'); } catch (err) {}
             }
         };
         const rerenderChecklistPreserveScroll = () => {
@@ -4859,8 +4860,8 @@
             const pinnedBtn = root.querySelector('[data-tm-detail-pinned-toggle]');
             if (pinnedBtn instanceof HTMLElement) {
                 pinnedBtn.classList.toggle('is-active', pinned);
-                try { __tmApplyTooltipAttrsToElement(pinnedBtn, pinned ? '取消置顶' : '置顶', { side: 'bottom' }); } catch (e) {}
-                try { pinnedBtn.setAttribute('aria-label', pinned ? '取消置顶' : '置顶'); } catch (e) {}
+                try { __tmApplyTooltipAttrsToElement(pinnedBtn, pinned ? __tmT("ai.unpin") : __tmT("kernel.pin"), { side: 'bottom' }); } catch (e) {}
+                try { pinnedBtn.setAttribute('aria-label', pinned ? __tmT("ai.unpin") : __tmT("kernel.pin")); } catch (e) {}
                 try { pinnedBtn.removeAttribute('title'); } catch (e) {}
             }
             syncWhiteboardOutline();
@@ -4975,7 +4976,7 @@
                     }
                 });
                 nextTask = __tmCacheTaskInState(nextTask, {
-                    docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                    docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                 }) || nextTask;
                 if (taskMetaField === 'customStatus') {
                     const input = root.querySelector('input[type="hidden"][data-tm-detail="status"]');
@@ -5027,7 +5028,7 @@
                     nextTask.custom_status = value;
                     nextTask.customStatus = value;
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     {
                         const input = root.querySelector('input[type="hidden"][data-tm-detail="status"]');
@@ -5041,7 +5042,7 @@
                     nextTask.custom_priority = value;
                     nextTask.priority = value;
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     {
                         const input = root.querySelector('input[type="hidden"][data-tm-detail="priority"]');
@@ -5055,7 +5056,7 @@
                     nextTask.start_date = value;
                     nextTask.startDate = value;
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     setHiddenInputValue('startDate', String(nextTask.startDate || '').trim());
                     __tmClearReminderSnapshotCache(String(nextTask.id || taskId || '').trim());
@@ -5066,7 +5067,7 @@
                     nextTask.completion_time = value;
                     nextTask.completionTime = value;
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     setHiddenInputValue('completionTime', String(nextTask.completionTime || '').trim());
                     __tmClearReminderSnapshotCache(String(nextTask.id || taskId || '').trim());
@@ -5076,7 +5077,7 @@
                 case 'custom-duration':
                     nextTask.duration = value;
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     setHiddenInputValue('duration', String(nextTask.duration || '').trim());
                     syncMetaChipFaces();
@@ -5086,7 +5087,7 @@
                     nextTask.tomatoEstimateCount = __tmNormalizeTomatoCountValue(value);
                     nextTask.tomato_estimate_count = nextTask.tomatoEstimateCount;
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     setHiddenInputValue('tomatoEstimateCount', nextTask.tomatoEstimateCount);
                     syncMetaChipFaces();
@@ -5096,7 +5097,7 @@
                     nextTask.tomatoCount = __tmNormalizeTomatoCountValue(value);
                     nextTask.tomato_count = nextTask.tomatoCount;
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     syncMetaChipFaces();
                     try {
@@ -5112,7 +5113,7 @@
                     });
                     nextTask.repeat_rule = nextTask.repeatRule;
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     __tmClearReminderSnapshotCache(String(nextTask.id || taskId || '').trim());
                     syncMetaChipFaces();
@@ -5122,7 +5123,7 @@
                     nextTask.repeatState = __tmNormalizeTaskRepeatState(value);
                     nextTask.repeat_state = nextTask.repeatState;
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     __tmClearReminderSnapshotCache(String(nextTask.id || taskId || '').trim());
                     syncMetaChipFaces();
@@ -5135,7 +5136,7 @@
                 case 'custom-remark':
                     nextTask.remark = __tmNormalizeRemarkMarkdown(value);
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     const normalizedRemarkValue = __tmNormalizeRemarkMarkdown(nextTask.remark || '');
                     {
@@ -5163,7 +5164,7 @@
                     nextTask.custom_pinned = value;
                     nextTask.pinned = value;
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     setHiddenInputValue('pinned', nextTask.pinned ? '1' : '');
                     syncMetaChipFaces();
@@ -5171,7 +5172,7 @@
                 case 'bookmark':
                     nextTask.bookmark = value;
                     nextTask = __tmCacheTaskInState(nextTask, {
-                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                        docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     __tmClearReminderSnapshotCache(String(nextTask.id || taskId || '').trim());
                     syncReminderChipFace();
@@ -5184,7 +5185,7 @@
                         if (customField) {
                             __tmApplyTaskCustomFieldValueLocally(nextTask, customField, value);
                             nextTask = __tmCacheTaskInState(nextTask, {
-                                docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                                docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                             }) || nextTask;
                             if (String(customField?.type || '').trim() === 'text') {
                                 const textarea = root.querySelector(`textarea[data-tm-detail-custom-text-field="${customFieldId}"]`);
@@ -5199,7 +5200,7 @@
                                 const valueWrap = root.querySelector(`[data-tm-detail-custom-field="${customFieldId}"] .tm-task-detail-custom-field-value`);
                                 if (valueWrap instanceof HTMLElement) {
                                     valueWrap.innerHTML = __tmBuildCustomFieldDisplayHtml(customField, __tmGetTaskCustomFieldValue(nextTask, customFieldId), {
-                                        emptyText: '未设置',
+                                        emptyText: __tmT("common.notSet"),
                                         maxTags: String(customField?.type || '').trim() === 'multi' ? 3 : 1
                                     });
                                 }
@@ -5244,7 +5245,7 @@
             if (toggle instanceof HTMLElement && root.contains(toggle)) {
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
-                if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-detail-locate', '任务详情白板反向定位')) return;
+                if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-detail-locate', __tmT("task.taskDetailsWhiteboardBackLink"))) return;
                 openWhiteboardOutlinePopover(toggle);
                 return;
             }
@@ -5253,7 +5254,7 @@
             if (isWhiteboardOutlineCheckboxTarget(target)) return;
             try { ev.preventDefault(); } catch (e) {}
             try { ev.stopPropagation(); } catch (e) {}
-            if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-detail-locate', '任务详情白板反向定位')) return;
+            if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-detail-locate', __tmT("task.taskDetailsWhiteboardBackLink"))) return;
             const nodeTaskId = String(node.getAttribute('data-task-id') || '').trim();
             const jumped = await window.tmJumpToWhiteboardTask?.(nodeTaskId || getBoundTaskId() || taskId, ev);
             const keepChecklistSideDetailOpen = embedded && String(root.id || '').trim() === 'tmChecklistDetailPanel';
@@ -5267,7 +5268,7 @@
             try {
                 const boundTaskId = String(getBoundTask()?.id || taskId || '').trim();
                 if (typeof __tmIsOptimisticTempTaskId === 'function' && __tmIsOptimisticTempTaskId(boundTaskId)) {
-                    try { hint('⏳ 任务正在写入，完成后可跳转到原文档', 'info'); } catch (e) {}
+                    try { hint(__tmT("task.theTaskIsBeingWrittenYouCanJumpTo2"), 'info'); } catch (e) {}
                     return;
                 }
                 const jumped = await tmJumpToTask(boundTaskId || taskId, ev);
@@ -5445,7 +5446,7 @@
                 try {
 
                 } catch (e) {}
-                if (showHint) hint('⚠️ 任务已切换，未保存不匹配的数据', 'warning');
+                if (showHint) hint(__tmT("task.theTaskChangedDataThatDoesNotMatchWas"), 'warning');
                 return false;
             }
             const {
@@ -5465,7 +5466,7 @@
                 try {
 
                 } catch (e) {}
-                if (showHint) hint('⚠️ 未找到任务数据，无法保存', 'warning');
+                if (showHint) hint(__tmT("task.taskDataNotFoundCannotSave"), 'warning');
                 return false;
             }
             if (formState.hasContentEditor === false) {
@@ -5478,7 +5479,7 @@
                 try {
 
                 } catch (e) {}
-                if (showHint) hint('⚠️ 任务内容不能为空', 'warning');
+                if (showHint) hint(__tmT("task.taskContentCannotBeEmpty"), 'warning');
                 return false;
             }
             const serialized = serializeFormState(formState);
@@ -5522,7 +5523,7 @@
 
                     } catch (e) {}
                     const patchContent = globalThis.__tmRequireTaskMutation?.('patchContent');
-                    if (typeof patchContent !== 'function') throw new Error('任务写入队列未就绪: patchContent');
+                    if (typeof patchContent !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchcontent"));
                     const contentSavePromise = patchContent(task.id, nextContent, {
                         background: !waitForCommit,
                         wait: waitForCommit,
@@ -5542,7 +5543,7 @@
 
                             } catch (e2) {}
                             if (showHint) {
-                                try { hint(`❌ 内容保存失败: ${e.message}`, 'error'); } catch (e2) {}
+                                try { hint(__tmT("task.failedToSaveTheContent", { message: e.message }), 'error'); } catch (e2) {}
                             }
                         });
                     }
@@ -5557,10 +5558,10 @@
 
                     } catch (e) {}
                     const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                    if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                    if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                     const fieldSavePromise = patchTask(task.id, fieldPatch, {
                         source: 'detail',
-                        label: '任务字段',
+                        label: __tmT("task.taskFields"),
                         background: !waitForCommit,
                         wait: waitForCommit,
                         defer: false,
@@ -5581,7 +5582,7 @@
                     });
                     if (waitForCommit) {
                         const fieldResult = await fieldSavePromise;
-                        if (fieldResult === false) throw new Error('任务字段写入未完成');
+                        if (fieldResult === false) throw new Error(__tmT("task.taskFieldWritesAreNotFinished"));
                     } else {
                         Promise.resolve(fieldSavePromise).then((result) => {
                             if (result !== false) return;
@@ -5593,7 +5594,7 @@
 
                             } catch (e2) {}
                             if (showHint) {
-                                try { hint(`❌ 任务字段保存失败: ${e.message}`, 'error'); } catch (e2) {}
+                                try { hint(__tmT("task.failedToSaveTheTaskFields", { message: e.message }), 'error'); } catch (e2) {}
                             }
                         });
                     }
@@ -5615,14 +5616,14 @@
                 try {
 
                 } catch (e) {}
-                if (showHint) hint('✅ 已保存', 'success');
+                if (showHint) hint(__tmT("calendar.saved"), 'success');
                 if (!embedded && closeAfterSave) close();
                 return true;
             } catch (e) {
                 try {
 
                 } catch (e2) {}
-                if (showHint) hint(`❌ 保存失败: ${e.message}`, 'error');
+                if (showHint) hint(__tmT("task.saveFailed2", { message: e.message }), 'error');
                 return false;
             } finally {
                 try {
@@ -5663,7 +5664,7 @@
                     return await doSave(nextOptions, nextFormState);
                 }
                 if (!needsFollowUpSave) {
-                    if (result && requestOptions.showHint) hint('✅ 已保存', 'success');
+                    if (result && requestOptions.showHint) hint(__tmT("calendar.saved"), 'success');
                     if (result && !embedded && requestOptions.closeAfterSave) {
                         try { await close(); } catch (e) {}
                     }
@@ -6021,7 +6022,7 @@
             try { ev?.stopPropagation?.(); } catch (e) {}
             const requestedId = String(getBoundTaskId() || getBoundTask()?.id || taskId || '').trim();
             if (typeof __tmIsOptimisticTempTaskId === 'function' && __tmIsOptimisticTempTaskId(requestedId)) {
-                try { hint('⏳ 任务正在写入，完成后可打开笔记内视图', 'info'); } catch (e) {}
+                try { hint(__tmT("task.theTaskIsBeingWrittenYouCanOpenThe"), 'info'); } catch (e) {}
                 return;
             }
             await flushAutoSaveNow({ showHint: false, closeAfterSave: false, preserveFocus: true, skipRerender: true });
@@ -6029,7 +6030,7 @@
             const currentTaskForNoteView = getBoundTask();
             const recurringSourceTaskId = __tmGetTaskDetailRecurringSourceTaskId(currentTaskForNoteView, requestedId);
             if (recurringSourceTaskId) {
-                try { hint('循环记录将打开原任务所在文档', 'info'); } catch (e) {}
+                try { hint(__tmT("task.forRecurringRecordsTheDocumentOfTheOriginalTask"), 'info'); } catch (e) {}
                 try { await tmJumpToTask(recurringSourceTaskId, ev); } catch (e) {}
                 return;
             }
@@ -6038,13 +6039,13 @@
             if (!isNoteViewCandidate(noteTask) || !blockId) {
                 const boundTask = currentTaskForNoteView || getBoundTask();
                 const isRecurringInstance = __tmIsTaskDetailRecurringInstance(boundTask, requestedId);
-                try { hint((isRecurringInstance || noteTask?.isVirtual) ? '⚠ 未找到循环任务原始块' : '⚠ 当前任务没有可嵌入的思源块', 'warning'); } catch (e) {}
+                try { hint((isRecurringInstance || noteTask?.isVirtual) ? __tmT("task.originalBlockOfTheRecurringTaskNotFound") : __tmT("task.theCurrentTaskHasNoSiyuanBlockThatCan"), 'warning'); } catch (e) {}
                 return;
             }
             const ProtyleCtor = globalThis.__tmHost?.getProtyleCtor?.();
             const app = globalThis.__tmHost?.getApp?.();
             if (typeof ProtyleCtor !== 'function' || !app) {
-                try { hint('⚠ 笔记内视图不可用，已跳转到原文档', 'warning'); } catch (e) {}
+                try { hint(__tmT("task.theInNoteViewIsUnavailableJumpedToThe"), 'warning'); } catch (e) {}
                 try { await tmJumpToTask(String(noteTask.id || requestedId || blockId).trim(), ev); } catch (e) {}
                 return;
             }
@@ -6054,7 +6055,7 @@
             try { destroyTaskDetailNoteView('enter'); } catch (e) {}
             root.innerHTML = __tmBuildTaskDetailNoteViewInnerHtml(noteTask, opts);
             if (!await mountTaskDetailNoteView(noteTask, blockId, 'note-view-enter')) {
-                try { hint('⚠ 笔记内视图打开失败，已跳转到原文档', 'warning'); } catch (e2) {}
+                try { hint(__tmT("task.failedToOpenTheInNoteViewJumpedTo"), 'warning'); } catch (e2) {}
                 try { await tmJumpToTask(String(noteTask.id || requestedId || blockId).trim(), ev); } catch (e2) {}
             }
         };
@@ -6080,24 +6081,24 @@
                     try { opts.onFailure(error); } catch (e) {}
                 }
                 if (opts.showErrorHint !== false) {
-                    try { globalThis.__tmReportTaskMutationFailure?.(error, { action: '更新' }); } catch (e) {}
+                    try { globalThis.__tmReportTaskMutationFailure?.(error, { action: __tmT("task.update") }); } catch (e) {}
                 }
                 return Promise.reject(error);
             }
             if (typeof patchTask !== 'function') {
-                const error = new Error('任务写入队列未就绪: patchTask');
+                const error = new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                 if (typeof opts.onFailure === 'function') {
                     try { opts.onFailure(error); } catch (e) {}
                 }
                 if (opts.showErrorHint !== false) {
-                    try { globalThis.__tmReportTaskMutationFailure?.(error, { action: '更新' }); } catch (e) {}
+                    try { globalThis.__tmReportTaskMutationFailure?.(error, { action: __tmT("task.update") }); } catch (e) {}
                 }
                 return Promise.reject(error);
             }
             const request = patchTask(tid, nextPatch, {
                 ...opts,
                 source: String(opts.source || 'detail-field').trim() || 'detail-field',
-                label: String(opts.label || '任务字段').trim() || '任务字段',
+                label: String(opts.label || __tmT("task.taskFields")).trim() || __tmT("task.taskFields"),
                 background: true,
                 wait: false,
                 defer: false,
@@ -6120,7 +6121,7 @@
             Promise.resolve(request).then((result) => {
                 if (result !== false) return;
                 if (typeof opts.onFailure === 'function') {
-                    try { opts.onFailure(new Error('任务字段未写入')); } catch (e) {}
+                    try { opts.onFailure(new Error(__tmT("quickbar.taskFieldsWereNotWritten"))); } catch (e) {}
                 }
             }).catch((error) => {
                 try {
@@ -6130,7 +6131,7 @@
                     try { opts.onFailure(error); } catch (e) {}
                 }
                 if (opts.showErrorHint !== false) {
-                    try { hint(`❌ 更新失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
+                    try { hint(__tmT("task.updateFailed3", { value1: error?.message || String(error) }), 'error'); } catch (e) {}
                 }
             });
             return request;
@@ -6212,7 +6213,7 @@
             if (clearBtn instanceof HTMLButtonElement) clearBtn.disabled = !!busy;
             if (applyBtn instanceof HTMLButtonElement) {
                 applyBtn.disabled = !!busy;
-                applyBtn.textContent = busy ? '保存中...' : '确定';
+                applyBtn.textContent = busy ? __tmT("task.saving") : __tmT("common.ok");
             }
         };
         const closeInlinePopover = (force = false, reason = '') => {
@@ -6317,13 +6318,13 @@
                         <div class="tm-duration-preset-list tm-duration-preset-list--compact">
                             ${__tmBuildDurationPresetOptionsHtml(value, durationPresets)}
                         </div>
-                        <div class="tm-duration-preset-helper">选预设或直接输入</div>
+                        <div class="tm-duration-preset-helper">${__tmT("quickbar.pickAPresetOrTypeAValue")}</div>
                     </div>
                 ` : ''}
                 ${isFocusSummary ? `
-                    <div class="tm-focus-summary-editor__tabs" role="tablist" aria-label="时长与番茄">
-                        <button type="button" class="${focusSummaryMode === 'duration' ? 'is-active' : ''}" data-tm-focus-summary-tab="duration" role="tab" aria-selected="${focusSummaryMode === 'duration' ? 'true' : 'false'}">预计时长</button>
-                        <button type="button" class="${focusSummaryMode === 'tomato' ? 'is-active' : ''}" data-tm-focus-summary-tab="tomato" role="tab" aria-selected="${focusSummaryMode === 'tomato' ? 'true' : 'false'}">预计番茄</button>
+                    <div class="tm-focus-summary-editor__tabs" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.durationPomodoro")}">
+                        <button type="button" class="${focusSummaryMode === 'duration' ? 'is-active' : ''}" data-tm-focus-summary-tab="duration" role="tab" aria-selected="${focusSummaryMode === 'duration' ? 'true' : 'false'}">${__tmT("quickbar.estimatedDuration")}</button>
+                        <button type="button" class="${focusSummaryMode === 'tomato' ? 'is-active' : ''}" data-tm-focus-summary-tab="tomato" role="tab" aria-selected="${focusSummaryMode === 'tomato' ? 'true' : 'false'}">${__tmT("quickbar.estimatedPomodoros")}</button>
                     </div>
                     <div class="tm-focus-summary-editor__panel" data-tm-focus-summary-panel="duration" ${focusSummaryMode === 'duration' ? '' : 'hidden'}>
                         ${durationPresets.length ? `
@@ -6333,19 +6334,19 @@
                                 </div>
                             </div>
                         ` : ''}
-                        <div class="tm-focus-summary-editor__field"><span>预计时长</span><div data-tm-duration-picker-slot></div></div>
+                        <div class="tm-focus-summary-editor__field"><span>${__tmT("quickbar.estimatedDuration")}</span><div data-tm-duration-picker-slot></div></div>
                     </div>
                     <div class="tm-focus-summary-editor__panel" data-tm-focus-summary-panel="tomato" ${focusSummaryMode === 'tomato' ? '' : 'hidden'}>
-                        <label class="tm-focus-summary-editor__field"><span>预计番茄</span><input class="bc-input tm-task-detail-inline-popover__input" data-tm-focus-estimate type="number" min="0" step="1" inputmode="numeric" value="${esc(tomatoEstimateValue)}" placeholder="空或整数"></label>
+                        <label class="tm-focus-summary-editor__field"><span>${__tmT("quickbar.estimatedPomodoros")}</span><input class="bc-input tm-task-detail-inline-popover__input" data-tm-focus-estimate type="number" min="0" step="1" inputmode="numeric" value="${esc(tomatoEstimateValue)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.emptyOrWholeNumber")}"></label>
                     </div>
                     <div class="tm-focus-summary-editor__readonly">
-                        <span>实际番茄 <b class="tm-focus-summary-actual">${esc(actualTomatoValue || '0')}</b></span>
-                        <span>实际耗时 <b>${esc(spentValue || '0m')}</b></span>
+                        <span>${__tmT("task.actualPomodoros2")}<b class="tm-focus-summary-actual">${esc(actualTomatoValue || '0')}</b></span>
+                        <span>${__tmT("task.actualTimeSpent")}<b>${esc(spentValue || '0m')}</b></span>
                     </div>
                 ` : `<input class="tm-input tm-task-detail-inline-popover__input${mode === 'duration' ? ' tm-duration-editor-input' : ''}" data-tm-detail-inline-popover-input type="${mode === 'date' ? 'date' : 'text'}" value="${esc(value)}" ${placeholder ? `placeholder="${esc(placeholder)}"` : ''}>`}
                 <div class="tm-task-detail-inline-popover__actions">
-                    <button type="button" class="tm-btn tm-btn-secondary" data-tm-detail-inline-popover-clear>清空</button>
-                    <button type="button" class="tm-btn tm-btn-primary" data-tm-detail-inline-popover-apply>确定</button>
+                    <button type="button" class="tm-btn tm-btn-secondary" data-tm-detail-inline-popover-clear>${__tmT("common.clear")}</button>
+                    <button type="button" class="tm-btn tm-btn-primary" data-tm-detail-inline-popover-apply>${__tmT("common.ok")}</button>
                 </div>
             `;
             document.body.appendChild(popover);
@@ -6373,7 +6374,7 @@
                         });
                         durationSlot.appendChild(picker.root);
                     } else {
-                        durationSlot.innerHTML = `<input class="bc-input tm-task-detail-inline-popover__input tm-duration-editor-input" data-tm-detail-inline-popover-input data-tm-focus-duration type="text" value="${esc(value)}" placeholder="例如：30 或 30m">`;
+                        durationSlot.innerHTML = `<input class="bc-input tm-task-detail-inline-popover__input tm-duration-editor-input" data-tm-detail-inline-popover-input data-tm-focus-duration type="text" value="${esc(value)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.eGOrM")}">`;
                     }
                     try { positionInlinePopover(); } catch (e) {}
                 }
@@ -6468,7 +6469,7 @@
                     const commitResult = await commitResultPromise;
                     if (commitResult === false) return;
                 } catch (e) {
-                    hint(`❌ 更新失败: ${e.message}`, 'error');
+                    hint(__tmT("task.updateFailed", { message: e.message }), 'error');
                 } finally {
                     setInlinePopoverBusyState(false, popover);
                 }
@@ -6601,15 +6602,15 @@
                 const model = __tmBuildWhiteboardTaskOutlineModel(id, { scope, maxNodes: 4 });
                 if (model) out.push({ value: scope, label });
             };
-            add('global', '文档分组全局白板');
-            add('board', '单文档总览');
+            add('global', __tmT("task.documentGroupGlobalWhiteboard"));
+            add('board', __tmT("task.documentOverview"));
             __tmGetDocTabCustomGroupsForDocGroup().forEach((group) => {
-                add(__tmBuildDocTabCustomGroupActiveId(group.id), `页签组全局白板 · ${group.name}`);
+                add(__tmBuildDocTabCustomGroupActiveId(group.id), __tmT("task.tabGroupGlobalWhiteboard2", { name: group.name }));
             });
             const current = String(activeScope || '').trim();
             if (current && !out.some((item) => item.value === current)) {
                 out.unshift({ value: current, label: __tmIsDocTabCustomGroupActiveId(current)
-                    ? '页签组全局白板' : (current === 'global' ? '文档分组全局白板' : '单文档总览') });
+                    ? __tmT("task.tabGroupGlobalWhiteboard") : (current === 'global' ? __tmT("task.documentGroupGlobalWhiteboard") : __tmT("task.documentOverview")) });
             }
             return out;
         };
@@ -6734,14 +6735,14 @@
             let model = buildWhiteboardOutlineModelForPopover(tid, null);
             if (!model) {
                 syncWhiteboardOutline();
-                try { hint('\u26a0 \u8be5\u4efb\u52a1\u6ca1\u6709\u767d\u677f\u8def\u5f84', 'warning'); } catch (e) {}
+                try { hint(__tmT("task.thisTaskHasNoWhiteboardPath"), 'warning'); } catch (e) {}
                 return false;
             }
             closeInlinePopover(false, 'replace-before-whiteboard-outline');
             const popover = document.createElement('div');
             popover.className = 'tm-task-detail-inline-popover tm-task-detail-inline-popover--whiteboard-outline';
             popover.setAttribute('role', 'dialog');
-            popover.setAttribute('aria-label', '\u767d\u677f\u8def\u5f84');
+            popover.setAttribute('aria-label', __tmT("task.whiteboardPath"));
             popover.setAttribute('data-tm-whiteboard-outline-popover-for', tid);
             popover.setAttribute('data-tm-whiteboard-outline-scope', String(model?.scope || model?.location?.scope || '').trim() || 'board');
             popover.innerHTML = renderWhiteboardOutlineHtmlForPopover(model, tid);
@@ -6845,7 +6846,7 @@
                 }
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
-                if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-detail-locate', '任务详情白板反向定位')) return;
+                if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('whiteboard-detail-locate', __tmT("task.taskDetailsWhiteboardBackLink"))) return;
                 const nodeTaskId = String(node.getAttribute('data-task-id') || '').trim();
                 const scope = String(popover.getAttribute('data-tm-whiteboard-outline-scope') || '').trim();
                 const jumped = await window.tmJumpToWhiteboardTask?.(nodeTaskId || getBoundTaskId() || taskId, ev, { scope });
@@ -6891,7 +6892,7 @@
             closeInlinePopover(false, 'replace-before-date-sheet');
             const popover = document.createElement('div');
             popover.className = 'tm-task-detail-inline-popover tm-task-detail-inline-popover--date-sheet';
-            const title = field === 'startDate' ? '开始日期' : '截止日期';
+            const title = field === 'startDate' ? __tmT("kernel.startDate") : __tmT("kernel.dueDate");
             const currentValue = readHiddenInputValue(field);
             const task = getBoundTask();
             const renderRepeatSummary = () => {
@@ -6900,16 +6901,16 @@
                     startDate: boundTask?.startDate,
                     completionTime: boundTask?.completionTime,
                 });
-                return summary || '不重复';
+                return summary || __tmT("quickbar.noRepeat");
             };
             const renderRepeatUntilSummary = () => {
                 const boundTask = getBoundTask() || task || {};
                 const rule = __tmGetTaskRepeatRule(boundTask);
-                if (!rule.enabled || rule.type === 'none') return '未设置';
+                if (!rule.enabled || rule.type === 'none') return __tmT("common.notSet");
                 if (rule.maxOccurrences > 0) {
                     return __tmGetTaskRepeatProgressText(boundTask, rule);
                 }
-                return rule.until ? `结束于 ${rule.until}` : '永不结束';
+                return rule.until ? __tmT("task.ends2", { until: rule.until }) : __tmT("quickbar.neverEnds");
             };
             const renderRepeatPreviewHtml = () => {
                 const boundTask = getBoundTask() || task || {};
@@ -6917,7 +6918,7 @@
                     limit: 5,
                     fromDateKey: __tmNormalizeDateOnly(new Date()),
                 });
-                if (!list.length) return '<span class="tm-task-detail-inline-popover__preview-chip">未设置循环</span>';
+                if (!list.length) return `<span class="tm-task-detail-inline-popover__preview-chip">${__tmT("task.noRepeatSet")}</span>`;
                 return list.map((item) => `<span class="tm-task-detail-inline-popover__preview-chip">${esc(__tmFormatTaskTimeCompact(item))}</span>`).join('');
             };
             popover.innerHTML = `
@@ -6931,7 +6932,7 @@
                             <span class="tm-task-detail-inline-popover__row-main">
                                 <span class="tm-task-detail-inline-popover__row-icon">${__tmRenderLucideIcon('repeat')}</span>
                                 <span class="tm-task-detail-inline-popover__row-text">
-                                    <span class="tm-task-detail-inline-popover__row-title">循环</span>
+                                    <span class="tm-task-detail-inline-popover__row-title">${__tmT("quickbar.repeat")}</span>
                                     <span class="tm-task-detail-inline-popover__row-desc" data-tm-detail-date-repeat-summary>${esc(renderRepeatSummary())}</span>
                                 </span>
                             </span>
@@ -6941,7 +6942,7 @@
                             <span class="tm-task-detail-inline-popover__row-main">
                                 <span class="tm-task-detail-inline-popover__row-icon">${__tmRenderLucideIcon('calendar-check')}</span>
                                 <span class="tm-task-detail-inline-popover__row-text">
-                                    <span class="tm-task-detail-inline-popover__row-title">结束方式</span>
+                                    <span class="tm-task-detail-inline-popover__row-title">${__tmT("quickbar.endMode")}</span>
                                     <span class="tm-task-detail-inline-popover__row-desc" data-tm-detail-date-repeat-until>${esc(renderRepeatUntilSummary())}</span>
                                 </span>
                             </span>
@@ -6951,8 +6952,8 @@
                     </div>
                 ` : ''}
                 <div class="tm-task-detail-inline-popover__actions">
-                    <button type="button" class="tm-btn tm-btn-secondary" data-tm-detail-inline-popover-clear>清空</button>
-                    <button type="button" class="tm-btn tm-btn-primary" data-tm-detail-inline-popover-apply>确定</button>
+                    <button type="button" class="tm-btn tm-btn-secondary" data-tm-detail-inline-popover-clear>${__tmT("common.clear")}</button>
+                    <button type="button" class="tm-btn tm-btn-primary" data-tm-detail-inline-popover-apply>${__tmT("common.ok")}</button>
                 </div>
             `;
             document.body.appendChild(popover);
@@ -7011,7 +7012,7 @@
                         commitDetailFieldPatch(patch, {
                             source: 'detail-date-sheet',
                             reason: 'detail-date-sheet',
-                            label: '日期',
+                            label: __tmT("calendar.date"),
                             onFailure: () => {
                                 setHiddenInputValue(field, prevValue);
                                 syncMetaChipFaces();
@@ -7021,7 +7022,7 @@
                     closeInlinePopover(true, 'date-sheet-commit-start');
                     try { trigger.focus(); } catch (e) {}
                 } catch (e) {
-                    hint(`❌ 更新失败: ${e.message}`, 'error');
+                    hint(__tmT("task.updateFailed", { message: e.message }), 'error');
                 } finally {
                     setInlinePopoverBusyState(false, popover);
                 }
@@ -7081,12 +7082,12 @@
                 const currentTask = getBoundTask();
                 const currentRule = __tmGetTaskRepeatRule(currentTask);
                 if (!currentRule.enabled || currentRule.type === 'none') {
-                    hint('⚠ 请先设置循环规则', 'warning');
+                    hint(__tmT("task.setUpARepeatRuleFirst"), 'warning');
                     return;
                 }
                 const result = await window.tmEditTaskRepeatRule?.(getBoundTaskId() || taskId, {
                     task: currentTask,
-                    title: '循环结束设置',
+                    title: __tmT("task.repeatEndSettings"),
                 });
                 if (!result) return;
                 const refreshedTask = await __tmResolveTaskForRepeat(getBoundTaskId() || taskId);
@@ -7140,7 +7141,7 @@
             const formatScheduleDate = (value) => __tmFormatTaskDetailShortDate(__tmNormalizeDateOnly(value), '');
             const getTaskTitle = () => {
                 const task = getBoundTask() || {};
-                return __tmNormalizeTaskTimeHubTitle(task.content || task.raw_content || task.markdown || '', '任务');
+                return __tmNormalizeTaskTimeHubTitle(task.content || task.raw_content || task.markdown || '', __tmT("kernel.task"));
             };
             const getTimeFromSchedules = () => {
                 const item = Array.isArray(hubState.schedules) ? hubState.schedules.find((it) => it && it.allDay !== true) : null;
@@ -7154,7 +7155,7 @@
             const popover = document.createElement('div');
             popover.className = 'tm-task-detail-inline-popover tm-task-time-hub-popover';
             popover.setAttribute('role', 'dialog');
-            popover.setAttribute('aria-label', '任务时间中心');
+            popover.setAttribute('aria-label', __tmT("task.taskTimeHub"));
             const hideReminder = options?.hideReminder === true;
             const hideSchedule = options?.hideSchedule === true;
             const hideRepeat = options?.hideRepeat === true;
@@ -7233,7 +7234,7 @@
                 if (!dates.length) return '';
                 return `
                     <div class="tm-task-time-hub__preview">
-                        <span>下次循环</span>
+                        <span>${__tmT("task.nextRepeat")}</span>
                         <div>${dates.map((d) => `<span>${esc(__tmFormatTaskDetailShortDate(d, String(d || '')))}</span>`).join('')}</div>
                     </div>
                 `;
@@ -7241,14 +7242,14 @@
             const renderDateCards = () => {
                 if (isCheckin()) return __tmRenderTaskTimeHubCheckinDateCardHtml(getBoundTask());
                 const cards = [
-                    ['startDate', '开始', readHiddenInputValue('startDate')],
-                    ['completionTime', '截止', readHiddenInputValue('completionTime')],
+                    ['startDate', __tmT("calendar.start"), readHiddenInputValue('startDate')],
+                    ['completionTime', __tmT("calendar.due"), readHiddenInputValue('completionTime')],
                 ];
                 return cards.map(([field, label, value]) => `
                     <div class="tm-task-time-hub__date-card ${hubState.activeField === field ? 'is-active' : ''}" role="button" tabindex="0" data-tm-time-hub-date-card="${field}">
                         <span>${esc(label)}</span>
                         <strong>${esc(__tmFormatTaskDetailShortDate(value))}</strong>
-                        ${value ? `<button type="button" class="tm-task-time-hub__date-clear" data-tm-time-hub-clear-date="${field}" aria-label="清除${esc(label)}日期">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 13)}</button>` : ''}
+                        ${value ? `<button type="button" class="tm-task-time-hub__date-clear" data-tm-time-hub-clear-date="${field}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clearDate", { label: label })}">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 13)}</button>` : ''}
                     </div>
                 `).join('');
             };
@@ -7299,13 +7300,13 @@
                 }
                 return `
                     <div class="tm-task-time-hub__calendar-head">
-                        <button type="button" class="tm-task-time-hub__calendar-title${hubState.editor === 'month' ? ' is-active' : ''}" data-tm-time-hub-month-open aria-haspopup="dialog" aria-expanded="${hubState.editor === 'month' ? 'true' : 'false'}" title="选择年月">
-                            <strong>${month.getFullYear()}年${month.getMonth() + 1}月</strong>
+                        <button type="button" class="tm-task-time-hub__calendar-title${hubState.editor === 'month' ? ' is-active' : ''}" data-tm-time-hub-month-open aria-haspopup="dialog" aria-expanded="${hubState.editor === 'month' ? 'true' : 'false'}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.selectYearAndMonth")}">
+                            <strong>${__tmT("date.yearMonthNumbers", { value1: month.getFullYear(), value2: month.getMonth() + 1 })}</strong>
                         </button>
                         <div class="tm-task-time-hub__month-actions">
-                            <button type="button" data-tm-time-hub-month="-1" aria-label="上个月">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
-                            <button type="button" data-tm-time-hub-month="0" aria-label="回到本月">今</button>
-                            <button type="button" data-tm-time-hub-month="1" aria-label="下个月">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
+                            <button type="button" data-tm-time-hub-month="-1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousMonth")}">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
+                            <button type="button" data-tm-time-hub-month="0" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentMonth")}">${__tmT("calendar.today")}</button>
+                            <button type="button" data-tm-time-hub-month="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextMonth2")}">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
                         </div>
                     </div>
                     <div class="tm-task-time-hub__weekdays">
@@ -7320,37 +7321,37 @@
                 const year = month.getFullYear();
                 const currentMonthIndex = month.getMonth();
                 const today = new Date();
-                const monthLabels = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+                const monthLabels = [__tmT("task.jan"), __tmT("task.feb"), __tmT("task.mar"), __tmT("task.apr"), __tmT("task.may"), __tmT("task.jun"), __tmT("task.jul"), __tmT("task.aug"), __tmT("task.sep"), __tmT("task.oct"), __tmT("task.nov"), __tmT("task.dec")];
                 return `<div class="tm-task-time-hub__subpanel tm-task-time-hub__subpanel--month" data-tm-time-hub-editor-panel>
                     <div class="tm-task-time-hub__month-year-row">
-                        <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="-1" aria-label="上一年">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
-                        <input class="tm-input tm-task-time-hub__month-year-input" type="text" inputmode="numeric" autocomplete="off" maxlength="4" value="${esc(String(year))}" aria-label="年份" data-tm-time-hub-year-input>
-                        <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="1" aria-label="下一年">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
+                        <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="-1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousYear")}">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
+                        <input class="tm-input tm-task-time-hub__month-year-input" type="text" inputmode="numeric" autocomplete="off" maxlength="4" value="${esc(String(year))}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.year")}" data-tm-time-hub-year-input>
+                        <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextYear")}">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
                     </div>
                     <div class="tm-task-time-hub__month-grid">
                         ${monthLabels.map((label, index) => `
-                            <button type="button" class="tm-task-time-hub__month-btn${index === currentMonthIndex ? ' is-active' : ''}${year === today.getFullYear() && index === today.getMonth() ? ' is-current' : ''}" data-tm-time-hub-month-pick="${index}" aria-label="跳转到${esc(label)}">${esc(label)}</button>
+                            <button type="button" class="tm-task-time-hub__month-btn${index === currentMonthIndex ? ' is-active' : ''}${year === today.getFullYear() && index === today.getMonth() ? ' is-current' : ''}" data-tm-time-hub-month-pick="${index}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.goTo2", { label: label })}">${esc(label)}</button>
                         `).join('')}
                     </div>
                 </div>`;
             };
             const renderSettingCards = () => {
                 const disabled = hubState.activeField === 'startDate' && !isCheckin();
-                const reminderText = readReminderValue() ? (readReminderDisplayValue() || '已提醒') : '不提醒';
-                const repeatText = getRepeatSummary() || '不循环';
+                const reminderText = readReminderValue() ? (readReminderDisplayValue() || __tmT("task.reminded")) : __tmT("task.noReminder");
+                const repeatText = getRepeatSummary() || __tmT("calendar.noRepeat");
                 const rule = getRepeatRule();
             const repeatTask = getBoundTask() || task || {};
             const endText = rule?.enabled
-                ? (rule.maxOccurrences > 0 ? __tmGetTaskRepeatProgressText(repeatTask, rule) : (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束'))
-                : '未设置';
-            const currentOccurrenceText = `第 ${__tmNormalizeTaskRepeatState(repeatTask?.repeatState || repeatTask?.repeat_state).occurrenceCount} 次`;
+                ? (rule.maxOccurrences > 0 ? __tmGetTaskRepeatProgressText(repeatTask, rule) : (rule.until ? __tmT("task.until3", { value1: __tmFormatTaskDetailShortDate(rule.until) }) : __tmT("quickbar.neverEnds")))
+                : __tmT("common.notSet");
+            const currentOccurrenceText = __tmT("task.occurrence", { occurrenceCount: __tmNormalizeTaskRepeatState(repeatTask?.repeatState || repeatTask?.repeat_state).occurrenceCount });
             const cards = [];
             if (!hideRepeat) {
-                cards.push(['repeat', 'repeat', '循环', repeatText]);
-                if (rule.type === 'fsrs') cards.push(['progress', 'hash', '当前轮次', currentOccurrenceText, true]);
-                else cards.push(['end', 'calendar-check', '结束', endText]);
+                cards.push(['repeat', 'repeat', __tmT("quickbar.repeat"), repeatText]);
+                if (rule.type === 'fsrs') cards.push(['progress', 'hash', __tmT("task.currentCycle"), currentOccurrenceText, true]);
+                else cards.push(['end', 'calendar-check', __tmT("calendar.end"), endText]);
             }
-            if (!hideReminder) cards.push(['reminder', 'alarm-clock', '提醒', reminderText]);
+            if (!hideReminder) cards.push(['reminder', 'alarm-clock', __tmT("ai.warnings"), reminderText]);
             if (!cards.length) return '';
             return cards.map(([key, icon, label, value, isStatic]) => {
                 const tag = isStatic ? 'div' : 'button';
@@ -7370,22 +7371,22 @@
             }).join('');
             };
             const renderScheduleList = () => {
-                if (hubState.schedulesLoading) return '<div class="tm-task-time-hub__empty">正在读取日程...</div>';
+                if (hubState.schedulesLoading) return `<div class="tm-task-time-hub__empty">${__tmT("task.loadingSchedules")}</div>`;
                 const list = Array.isArray(hubState.schedules) ? hubState.schedules : [];
-                if (!list.length) return '<div class="tm-task-time-hub__empty">暂无日程</div>';
+                if (!list.length) return `<div class="tm-task-time-hub__empty">${__tmT("task.noSchedules")}</div>`;
                 const visible = hubState.scheduleExpanded ? list : list.slice(0, 5);
                 return visible.map((item) => {
                     const id = String(item?.id || '').trim();
                     const start = new Date(item?.start);
                     const end = new Date(item?.end);
                     const isAllDay = item?.allDay === true;
-                    const dateText = formatScheduleDate(item?.start) || '未定日期';
-                    const timeText = isAllDay ? '全天' : `${formatTime(start)}${formatTime(end) ? `-${formatTime(end)}` : ''}`;
-                    const calendarName = String(item?.calendarName || item?.calendarTitle || item?.calendarId || '日程').trim();
+                    const dateText = formatScheduleDate(item?.start) || __tmT("task.unscheduled2");
+                    const timeText = isAllDay ? __tmT("calendar.allDay") : `${formatTime(start)}${formatTime(end) ? `-${formatTime(end)}` : ''}`;
+                    const calendarName = String(item?.calendarName || item?.calendarTitle || item?.calendarId || __tmT("kernel.schedule")).trim();
                     const repeatText = String(item?.repeatText || item?.repeatType || item?.rrule || '').trim();
                     const reminderText = item?.reminderMode === 'inherit'
-                        ? '跟随任务'
-                        : (item?.reminderEnabled === true ? '已提醒' : '不提醒');
+                        ? __tmT("task.followTask")
+                        : (item?.reminderEnabled === true ? __tmT("task.reminded") : __tmT("task.noReminder"));
                     return `
                         <div class="tm-task-time-hub__schedule-item" data-tm-time-hub-schedule-id="${esc(id)}">
                             <div class="tm-task-time-hub__schedule-main">
@@ -7393,8 +7394,8 @@
                                 <span>${esc(calendarName)} · ${esc(reminderText)}${repeatText ? ` · ${esc(repeatText)}` : ''}</span>
                             </div>
                             <div class="tm-task-time-hub__schedule-actions">
-                                <button type="button" data-tm-time-hub-edit-schedule="${esc(id)}">编辑</button>
-                                <button type="button" data-tm-time-hub-delete-schedule="${esc(id)}">删除</button>
+                                <button type="button" data-tm-time-hub-edit-schedule="${esc(id)}">${__tmT("calendar.edit")}</button>
+                                <button type="button" data-tm-time-hub-delete-schedule="${esc(id)}">${__tmT("common.delete")}</button>
                             </div>
                         </div>
                     `;
@@ -7406,9 +7407,9 @@
             if (editor === 'reminder') {
                 if (hideReminder) return '';
                 return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
-                        <div class="tm-task-time-hub__subpanel-title">提醒</div>
-                        <button type="button" class="tm-task-time-hub__choice ${!readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>不提醒</button>
-                        <button type="button" class="tm-task-time-hub__choice ${readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>打开提醒设置</button>
+                        <div class="tm-task-time-hub__subpanel-title">${__tmT("ai.warnings")}</div>
+                        <button type="button" class="tm-task-time-hub__choice ${!readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>${__tmT("task.noReminder")}</button>
+                        <button type="button" class="tm-task-time-hub__choice ${readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>${__tmT("task.openReminderSettings")}</button>
                     </div>`;
             }
             if (editor === 'repeat') {
@@ -7425,15 +7426,15 @@
             const render = () => {
                 popover.innerHTML = `
                     <div class="tm-task-time-hub__top">
-                    <div class="tm-task-time-hub__tabs" role="tablist" aria-label="时间中心">
-                        <button type="button" class="${hubState.tab === 'date' ? 'is-active' : ''}" data-tm-time-hub-tab="date" role="tab" aria-selected="${hubState.tab === 'date' ? 'true' : 'false'}">日期</button>
-                        ${hideSchedule ? '' : `<button type="button" class="${hubState.tab === 'schedule' ? 'is-active' : ''}" data-tm-time-hub-tab="schedule" role="tab" aria-selected="${hubState.tab === 'schedule' ? 'true' : 'false'}">日程</button>`}
+                    <div class="tm-task-time-hub__tabs" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.timeHub")}">
+                        <button type="button" class="${hubState.tab === 'date' ? 'is-active' : ''}" data-tm-time-hub-tab="date" role="tab" aria-selected="${hubState.tab === 'date' ? 'true' : 'false'}">${__tmT("calendar.date")}</button>
+                        ${hideSchedule ? '' : `<button type="button" class="${hubState.tab === 'schedule' ? 'is-active' : ''}" data-tm-time-hub-tab="schedule" role="tab" aria-selected="${hubState.tab === 'schedule' ? 'true' : 'false'}">${__tmT("kernel.schedule")}</button>`}
                         </div>
-                        <button type="button" class="tm-task-time-hub__close" data-tm-time-hub-close aria-label="关闭">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 16)}</button>
+                        <button type="button" class="tm-task-time-hub__close" data-tm-time-hub-close aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 16)}</button>
                     </div>
                     ${hubState.tab === 'date' ? `
                         <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
-                        <fieldset class="tm-task-time-hub__date-fields" ${isDateRollup() ? 'disabled aria-label="子任务汇总日期"' : ''}>
+                        <fieldset class="tm-task-time-hub__date-fields" ${isDateRollup() ? `disabled aria-label="${esc(__tmT('task.rollupDateFields'))}"` : ''}>
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
                         ${isCheckin() && hubState.editor !== 'end' ? '' : __tmRenderTaskTimeHubQuickDatesHtml(hubState.editor === 'end' && hubState.repeatEndMode === 'date' ? hubState.untilDraft : readHiddenInputValue(hubState.activeField))}
                         ${renderCalendarHtml()}
@@ -7450,8 +7451,8 @@
                     ` : `
                         <div class="tm-task-time-hub__panel tm-task-time-hub__panel--schedule">
                             <div class="tm-task-time-hub__schedule-toolbar">
-                                <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-add-schedule>${__tmTaskDetailTimeHubIcon('plus', 'tm-task-time-hub__small-icon', 14)}新增日程</button>
-                                <button type="button" class="tm-btn tm-btn-secondary" data-tm-time-hub-toggle-schedules>${hubState.scheduleExpanded ? '收起' : '展开全部'}</button>
+                                <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-add-schedule>${__tmT("task.newSchedule", { value1: __tmTaskDetailTimeHubIcon('plus', 'tm-task-time-hub__small-icon', 14) })}</button>
+                                <button type="button" class="tm-btn tm-btn-secondary" data-tm-time-hub-toggle-schedules>${hubState.scheduleExpanded ? __tmT("ai.collapse") : __tmT("task.expandAll2")}</button>
                             </div>
                             <div class="tm-task-time-hub__schedule-list">${renderScheduleList()}</div>
                         </div>
@@ -7540,7 +7541,7 @@
                     });
                     Promise.resolve(commitPromise)
                         .then(() => { void refreshTimeHubScheduleSummary(); })
-                        .catch((e) => { try { hint(`❌ 日期更新失败: ${e.message}`, 'error'); } catch (err) {} });
+                        .catch((e) => { try { hint(__tmT("task.dateUpdateFailed", { message: e.message }), 'error'); } catch (err) {} });
                 } else {
                     flushAutoSaveNow({
                         showHint: false,
@@ -7574,7 +7575,7 @@
                     });
                     Promise.resolve(commitPromise)
                         .then(() => { void refreshTimeHubScheduleSummary(); })
-                        .catch((e) => { try { hint(`❌ 日期范围更新失败: ${e.message}`, 'error'); } catch (err) {} });
+                        .catch((e) => { try { hint(__tmT("task.dateRangeUpdateFailed", { message: e.message }), 'error'); } catch (err) {} });
                 } else {
                     flushAutoSaveNow({
                         showHint: false,
@@ -7648,7 +7649,7 @@
                     hubState.editor = '';
                     render();
                 } catch (e) {
-                    hint(`❌ 循环更新失败: ${e.message}`, 'error');
+                    hint(__tmT("task.repeatUpdateFailed", { message: e.message }), 'error');
                 } finally {
                     setInlinePopoverBusyState(false, popover);
                 }
@@ -7656,14 +7657,14 @@
             const applyRepeatEnd = async (modeInput, valueInput = '') => {
                 const current = getRepeatRule();
                 if (!current?.enabled || current.type === 'none') {
-                    hint('⚠ 请先设置循环规则', 'warning');
+                    hint(__tmT("task.setUpARepeatRuleFirst"), 'warning');
                     return;
                 }
                 const mode = modeInput === 'date' || modeInput === 'count' ? modeInput : 'never';
                 const until = mode === 'date' ? __tmNormalizeDateOnly(valueInput) : '';
                 const maxOccurrences = mode === 'count' ? (__tmNormalizeTaskRepeatMaxOccurrences(valueInput) || 1) : 0;
                 if (mode === 'date' && !until) {
-                    hint('⚠ 请选择循环结束日期', 'warning');
+                    hint(__tmT("task.chooseTheRepeatEndDate"), 'warning');
                     return;
                 }
                 try {
@@ -7683,7 +7684,7 @@
                     hubState.editor = '';
                     render();
                 } catch (e) {
-                    hint(`❌ 结束规则更新失败: ${e.message}`, 'error');
+                    hint(__tmT("task.endRuleUpdateFailed", { message: e.message }), 'error');
                 } finally {
                     setInlinePopoverBusyState(false, popover);
                 }
@@ -7707,7 +7708,7 @@
                     });
                     await loadHubSchedules(true);
                 } else {
-                    hint('⚠ 日历模块未就绪', 'warning');
+                    hint(__tmT("task.calendarModuleIsNotReady"), 'warning');
                 }
             };
 
@@ -7734,7 +7735,7 @@
                         root.__tmTaskDetailTask = await __tmToggleTaskTimeHubCheckin(getBoundTask(), checkinBtn.getAttribute('data-tm-checkin-date'));
                         syncMetaChipFaces();
                         syncSerializedSnapshot();
-                    } catch (error) { hint(`打卡失败：${error.message || error}`, 'error'); }
+                    } catch (error) { hint(__tmT("task.checkInFailed2", { value1: error.message || error }), 'error'); }
                     finally {
                         checkinBusy = false;
                         setInlinePopoverBusyState(false, popover);
@@ -7761,7 +7762,7 @@
                         ['startDate', 'completionTime'].forEach(field => setHiddenInputValue(field, updated[field] || ''));
                         hubState.rangeDrag = null;
                         syncMetaChipFaces();
-                    } catch (error) { hint(`日期模式切换失败：${error.message}`, 'error'); }
+                    } catch (error) { hint(__tmT("task.failedToSwitchDateMode", { message: error.message }), 'error'); }
                     finally { inlinePopoverCommitting = false; render(); }
                     return;
                 }
@@ -7906,7 +7907,7 @@
                 if (customRepeatBtn) {
                     try { ev.preventDefault(); } catch (e) {}
                     const initialTrigger = customRepeatBtn.getAttribute('data-tm-time-hub-repeat-custom');
-                    const result = await window.tmEditTaskRepeatRule?.(getBoundTaskId() || taskId, { task: getBoundTask(), title: '自定义循环', initialTrigger, customOnly: true });
+                    const result = await window.tmEditTaskRepeatRule?.(getBoundTaskId() || taskId, { task: getBoundTask(), title: __tmT("task.customRepeat"), initialTrigger, customOnly: true });
                     if (result) {
                         const refreshed = await __tmResolveTaskForRepeat(getBoundTaskId() || taskId);
                         if (refreshed) {
@@ -8211,7 +8212,7 @@
             if (!nextValue) {
                 textarea.value = savedValue;
                 syncAutoHeight(textarea, subtaskTextareaMinHeight);
-                if (options.showHint !== false) hint('⚠️ 子任务内容不能为空', 'warning');
+                if (options.showHint !== false) hint(__tmT("task.subtaskContentCannotBeEmpty"), 'warning');
                 return false;
             }
             if (nextValue === savedValue) {
@@ -8226,7 +8227,7 @@
             setSubtaskContentBusy(true, 1800);
             try {
                 const patchContent = globalThis.__tmRequireTaskMutation?.('patchContent');
-                if (typeof patchContent !== 'function') throw new Error('任务写入队列未就绪: patchContent');
+                if (typeof patchContent !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchcontent"));
                 const savePromise = patchContent(tid, nextValue, {
                     background: true,
                     skipInteractionGate: true,
@@ -8241,7 +8242,7 @@
                             textarea.value = savedValue;
                             textarea.dataset.savedValue = savedValue;
                             syncAutoHeight(textarea, subtaskTextareaMinHeight);
-                            if (options.showHint !== false) hint(`❌ 子任务更新失败: ${error.message}`, 'error');
+                            if (options.showHint !== false) hint(__tmT("task.subtaskUpdateFailed", { message: error.message }), 'error');
                         });
                     },
                 });
@@ -8249,7 +8250,7 @@
                     textarea.value = savedValue;
                     textarea.dataset.savedValue = savedValue;
                     syncAutoHeight(textarea, subtaskTextareaMinHeight);
-                    if (options.showHint !== false) hint(`❌ 子任务更新失败: ${e.message}`, 'error');
+                    if (options.showHint !== false) hint(__tmT("task.subtaskUpdateFailed", { message: e.message }), 'error');
                 });
                 try { __tmInvalidateTasksQueryCacheByDocId(task.root_id || task.docId); } catch (e) {}
                 textarea.dataset.savedValue = nextValue;
@@ -8259,7 +8260,7 @@
             } catch (e) {
                 textarea.value = savedValue;
                 syncAutoHeight(textarea, subtaskTextareaMinHeight);
-                if (options.showHint !== false) hint(`❌ 子任务更新失败: ${e.message}`, 'error');
+                if (options.showHint !== false) hint(__tmT("task.subtaskUpdateFailed", { message: e.message }), 'error');
                 return false;
             } finally {
                 try { delete textarea.dataset.saving; } catch (e) {}
@@ -8423,7 +8424,7 @@
             const submitDraft = () => {
                 const taskLines = __tmSplitTaskInputLines(input.value || '');
                 if (taskLines.length === 0) {
-                    hint('⚠️ 请输入子任务内容', 'warning');
+                    hint(__tmT("task.enterTheSubtaskContent"), 'warning');
                     try { input.focus(); } catch (e) {}
                     return;
                 }
@@ -8439,7 +8440,7 @@
                         try { restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true }); } catch (e) {}
                     };
                     const createSubtask = globalThis.__tmRequireTaskMutation?.('createSubtask');
-                    if (typeof createSubtask !== 'function') throw new Error('任务写入队列未就绪: createSubtask');
+                    if (typeof createSubtask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyCreatesubtask"));
                     taskLines.forEach((line) => createSubtask(parentForCreate, line, {
                         silent: true,
                         wait: false,
@@ -8449,7 +8450,7 @@
                         },
                         onError: (err) => {
                             removeDraft('create-error');
-                            hint(`❌ 新建子任务失败: ${err?.message || err || '未知错误'}`, 'error');
+                            hint(__tmT("task.failedToCreateSubtask", { value1: err?.message || err || __tmT("plugin.unknownError") }), 'error');
                         },
                         onSuccess: (realId, meta) => {
                             restoreDetailAfterSubtaskCommit(realId, meta);
@@ -8457,9 +8458,9 @@
                     }));
                     removeDraft('submitted');
                     restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
-                    hint(taskLines.length > 1 ? `✅ 已新增 ${taskLines.length} 个子任务` : '✅ 已新增', 'success');
+                    hint(taskLines.length > 1 ? __tmT("task.addedSubtasks", { length: taskLines.length }) : __tmT("task.added2"), 'success');
                 } catch (e) {
-                    hint(`❌ 新建子任务失败: ${e.message}`, 'error');
+                    hint(__tmT("task.failedToCreateSubtask2", { message: e.message }), 'error');
                     removeDraft('submit-error');
                 }
             };
@@ -8525,12 +8526,12 @@
                 <div class="tm-task-detail-subtask-row">
                     <div class="tm-task-detail-subtask-main">
                         <span class="tm-task-detail-subtask-draft-marker" aria-hidden="true"></span>
-                        <textarea class="tm-task-detail-subtask-title" data-tm-detail-subtask-draft-input rows="2" placeholder="每行一个子任务；回车换行，Ctrl + 回车提交" enterkeyhint="enter"></textarea>
+                        <textarea class="tm-task-detail-subtask-title" data-tm-detail-subtask-draft-input rows="2" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.oneSubtaskPerLineEnterForANewLine")}" enterkeyhint="enter"></textarea>
                     </div>
                     <div class="tm-task-detail-subtask-trailing">
                         <div class="tm-task-detail-subtask-actions">
-                            <button type="button" class="bc-btn bc-btn--sm tm-task-detail-subtask-action" data-tm-detail-subtask-draft-save${__tmBuildTooltipAttrs('创建子任务', { side: 'bottom' })}>${__tmRenderLucideIcon('check-circle-2')}</button>
-                            <button type="button" class="bc-btn bc-btn--sm tm-task-detail-subtask-action" data-tm-detail-subtask-draft-cancel${__tmBuildTooltipAttrs('取消', { side: 'bottom' })}>${__tmRenderLucideIcon('x')}</button>
+                            <button type="button" class="bc-btn bc-btn--sm tm-task-detail-subtask-action" data-tm-detail-subtask-draft-save${__tmBuildTooltipAttrs(__tmT("task.createSubtask"), { side: 'bottom' })}>${__tmRenderLucideIcon('check-circle-2')}</button>
+                            <button type="button" class="bc-btn bc-btn--sm tm-task-detail-subtask-action" data-tm-detail-subtask-draft-cancel${__tmBuildTooltipAttrs(__tmT("common.cancel"), { side: 'bottom' })}>${__tmRenderLucideIcon('x')}</button>
                         </div>
                     </div>
                 </div>
@@ -8893,11 +8894,11 @@
                     commitDetailFieldPatch({ customStatus: nextValue }, {
                         source: 'detail-status',
                         reason: 'detail-status',
-                        label: '状态',
+                        label: __tmT("kernel.status"),
                         onFailure: () => {
                             hiddenInput.value = prevValue;
                             syncStatusUi();
-                            try { hint('❌ 状态更新失败', 'error'); } catch (e) {}
+                            try { hint(__tmT("task.statusUpdateFailed2"), 'error'); } catch (e) {}
                         },
                     });
                 });
@@ -8987,11 +8988,11 @@
                     commitDetailFieldPatch({ priority: nextValue }, {
                         source: 'detail-priority',
                         reason: 'detail-priority',
-                        label: '重要性',
+                        label: __tmT("kernel.importance"),
                         onFailure: () => {
                             hiddenInput.value = prevValue;
                             syncPriorityUi();
-                            try { hint('❌ 重要性更新失败', 'error'); } catch (e) {}
+                            try { hint(__tmT("task.priorityUpdateFailed"), 'error'); } catch (e) {}
                         },
                     });
                 });
@@ -9011,7 +9012,7 @@
         const setFocusRecordsError = (popover, message) => {
             const body = popover?.querySelector?.('[data-tm-focus-records-body]');
             if (!(body instanceof HTMLElement)) return;
-            body.innerHTML = `<div class="tm-focus-records-empty">${esc(message)}<button type="button" class="tm-focus-records-retry" data-tm-focus-records-retry>重试</button></div>`;
+            body.innerHTML = `<div class="tm-focus-records-empty">${esc(message)}<button type="button" class="tm-focus-records-retry" data-tm-focus-records-retry>${__tmT("common.retry")}</button></div>`;
             positionInlinePopover();
         };
         const renderFocusRecords = (popover, data, rows, targetSec) => {
@@ -9021,13 +9022,13 @@
             const totalSec = Math.max(0, Number(data?.totals?.focusSec) || rows.reduce((sum, row) => sum + row.focusSec, 0));
             if (summary instanceof HTMLElement) {
                 summary.hidden = rows.length === 0;
-                summary.textContent = rows.length ? `${rows.length} 天 · ${__tmFormatTaskDetailFocusDuration(totalSec)}` : '';
+                summary.textContent = rows.length ? __tmT("task.days4", { length: rows.length, value2: __tmFormatTaskDetailFocusDuration(totalSec) }) : '';
             }
             body.innerHTML = __tmRenderTaskDetailFocusRecordRows(rows);
             if (targetSec > 5 && totalSec + 5 < targetSec) {
                 const note = document.createElement('div');
                 note.className = 'tm-focus-records-note';
-                note.textContent = '更早的记录不在当前时间范围内';
+                note.textContent = __tmT("task.olderRecordsAreOutsideTheCurrentTimeRange");
                 body.appendChild(note);
             }
             positionInlinePopover();
@@ -9037,7 +9038,7 @@
             popover.__tmFocusRecordsToken = token;
             let lookbackDays = FOCUS_RECORDS_INITIAL_LOOKBACK_DAYS;
             while (activeInlinePopover === popover && popover.__tmFocusRecordsToken === token) {
-                setFocusRecordsLoading(popover, lookbackDays > FOCUS_RECORDS_INITIAL_LOOKBACK_DAYS ? '正在读取更早的专注记录…' : '正在读取专注记录…');
+                setFocusRecordsLoading(popover, lookbackDays > FOCUS_RECORDS_INITIAL_LOOKBACK_DAYS ? __tmT("task.loadingEarlierFocusRecords") : __tmT("task.loadingFocusRecords"));
                 let gateway = null;
                 try {
                     gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonQueryFocusStatistics', {
@@ -9051,12 +9052,12 @@
                     });
                 } catch (e) {
                     if (activeInlinePopover !== popover || popover.__tmFocusRecordsToken !== token) return;
-                    setFocusRecordsError(popover, '专注记录读取失败');
+                    setFocusRecordsError(popover, __tmT("task.failedToLoadFocusRecords"));
                     return;
                 }
                 if (activeInlinePopover !== popover || popover.__tmFocusRecordsToken !== token) return;
                 if (!gateway?.available) {
-                    setFocusRecordsError(popover, '番茄统计服务暂不可用');
+                    setFocusRecordsError(popover, __tmT("task.pomodoroStatisticsAreTemporarilyUnavailable"));
                     return;
                 }
                 const data = gateway.data || {};
@@ -9072,7 +9073,7 @@
         const openFocusRecordsPopover = (trigger, tid) => {
             if (!(trigger instanceof HTMLElement) || !tid) return;
             if (!__tmIsTaskDetailFocusStatisticsAvailable()) {
-                try { hint('⚠ 番茄统计服务暂不可用', 'warning'); } catch (e) {}
+                try { hint(__tmT("task.pomodoroStatisticsAreTemporarilyUnavailable2"), 'warning'); } catch (e) {}
                 return;
             }
             if (activeInlinePopover && activeInlinePopoverTrigger === trigger) {
@@ -9084,17 +9085,17 @@
             const popover = document.createElement('div');
             popover.className = 'tm-task-detail-inline-popover tm-task-detail-inline-popover--focus-records';
             popover.setAttribute('role', 'dialog');
-            popover.setAttribute('aria-label', '专注记录');
+            popover.setAttribute('aria-label', __tmT("task.focusRecords"));
             popover.innerHTML = `
                 <div class="tm-focus-records-head">
                     <div class="tm-focus-records-head-main">
-                        <span class="tm-focus-records-title">专注记录</span>
+                        <span class="tm-focus-records-title">${__tmT("task.focusRecords")}</span>
                         <span class="tm-focus-records-summary" data-tm-focus-records-summary hidden></span>
                     </div>
-                    <button type="button" class="tm-focus-records-close" data-tm-focus-records-close aria-label="关闭专注记录">&times;</button>
+                    <button type="button" class="tm-focus-records-close" data-tm-focus-records-close aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.offfocusRecords")}">&times;</button>
                 </div>
                 <div class="tm-focus-records-body" data-tm-focus-records-body>
-                    <div class="tm-focus-records-loading">正在读取专注记录…</div>
+                    <div class="tm-focus-records-loading">${__tmT("task.loadingFocusRecords")}</div>
                 </div>
             `;
             document.body.appendChild(popover);
@@ -9150,7 +9151,7 @@
                 try { ev.stopPropagation(); } catch (e) {}
                 openInlinePopover(ev.currentTarget, {
                     mode: 'focus-summary',
-                    title: '时长与番茄',
+                    title: __tmT("quickbar.durationPomodoro"),
                     value: readHiddenInputValue('duration'),
                     tomatoEstimateValue: readHiddenInputValue('tomatoEstimateCount'),
                     actualTomatoValue: __tmGetTaskTomatoCount(getBoundTask()),
@@ -9165,7 +9166,7 @@
                         commitDetailFieldPatch(nextPatch, {
                             source: 'detail-focus-summary',
                             reason: 'detail-focus-summary',
-                            label: '时长与番茄',
+                            label: __tmT("quickbar.durationPomodoro"),
                             onFailure: () => {
                                 setHiddenInputValue('duration', prevDuration);
                                 setHiddenInputValue('tomatoEstimateCount', prevTomatoEstimateCount);
@@ -9195,11 +9196,11 @@
                 commitDetailFieldPatch({ pinned: nextValue }, {
                     source: 'detail-pinned',
                     reason: 'detail-pinned',
-                    label: '置顶状态',
+                    label: __tmT("task.pinned2"),
                     onFailure: () => {
                         setHiddenInputValue('pinned', prevValue);
                         syncMetaChipFaces();
-                        try { hint('❌ 置顶状态更新失败', 'error'); } catch (e) {}
+                        try { hint(__tmT("task.failedToUpdateThePinState"), 'error'); } catch (e) {}
                     },
                 });
             });
@@ -9250,7 +9251,7 @@
                                 more.insertAdjacentHTML('beforebegin', __tmBuildTaskRepeatHistorySectionHtml(current, { offset: Number(more.dataset.tmRepeatHistoryMore), itemsOnly: true }));
                                 more.remove();
                             }
-                        } catch (error) { hint(`加载记录失败：${error?.message || error}`, 'warning'); }
+                        } catch (error) { hint(__tmT("task.failedToLoadRecords", { value1: error?.message || error }), 'warning'); }
                         finally { more.disabled = false; }
                         return;
                     }
@@ -9260,7 +9261,7 @@
                     try { ev.stopPropagation(); } catch (e) {}
                     const completedAt = String(btn.getAttribute('data-tm-detail-repeat-history-delete') || '').trim();
                     if (!completedAt) return;
-                    const ok = await showConfirm('删除循环记录', '仅删除这条历史记录，不回退当前日期和轮次。撤销完成请取消对应记录的勾选。是否继续？');
+                    const ok = await showConfirm(__tmT("task.deleteRepeatRecords"), __tmT("task.deleteOnlyThisHistoryEntryWithoutRevertingTheCurrent"));
                     if (!ok) return;
                     try {
                         await __tmDeleteTaskRepeatHistoryEntry(getBoundTaskId() || taskId, completedAt, { source: 'detail-repeat-history-delete' });
@@ -9269,9 +9270,9 @@
                             try { root.__tmTaskDetailTask = refreshedTask; } catch (e) {}
                         }
                         refreshBoundDetail(getBoundTaskId() || taskId);
-                        try { hint('✅ 已删除循环记录', 'success'); } catch (e) {}
+                        try { hint(__tmT("task.recurringRecordDeleted"), 'success'); } catch (e) {}
                     } catch (e) {
-                        try { hint(`❌ 删除失败: ${String(e?.message || e || '')}`, 'error'); } catch (e2) {}
+                        try { hint(__tmT("task.deleteFailed3", { value1: String(e?.message || e || '') }), 'error'); } catch (e2) {}
                     }
             });
             root.querySelectorAll('[data-tm-detail-checkin-toggle]').forEach((btn) => {
@@ -9284,9 +9285,9 @@
                     try {
                         await window.tmSetTaskCheckin(getBoundTaskId() || taskId, dateKey, false, { source: 'detail-checkin-undo' });
                         refreshBoundDetail(getBoundTaskId() || taskId);
-                        try { hint('✅ 已取消该日打卡', 'success'); } catch (e) {}
+                        try { hint(__tmT("task.checkInForThatDayCancelled"), 'success'); } catch (e) {}
                     } catch (e) {
-                        try { hint(`❌ 取消打卡失败: ${String(e?.message || e || '')}`, 'error'); } catch (e2) {}
+                        try { hint(__tmT("task.failedToCancelTheCheckIn", { value1: String(e?.message || e || '') }), 'error'); } catch (e2) {}
                     }
                 });
             });
@@ -9381,14 +9382,14 @@
                     const latestPaths = getCurrentAttachmentPaths(task);
                     const nextPaths = __tmNormalizeTaskAttachmentPaths(latestPaths.concat(resolvedPaths));
                     if (JSON.stringify(nextPaths) === JSON.stringify(latestPaths)) {
-                        try { hint('⚠ 剪贴板里的内容已经在当前任务附件中', 'warning'); } catch (e) {}
+                        try { hint(__tmT("task.theClipboardContentIsAlreadyInThisTaskS"), 'warning'); } catch (e) {}
                         return;
                     }
                     await __tmUpdateTaskAttachmentsField(task.id, nextPaths, { source: 'detail-attachment-paste' });
                     syncAttachmentSectionPaths(task, nextPaths);
-                    try { hint(`✅ 已添加 ${nextPaths.length - latestPaths.length} 个附件`, 'success'); } catch (e) {}
+                    try { hint(__tmT("task.addedAttachmentS", { length: nextPaths.length - latestPaths.length }), 'success'); } catch (e) {}
                 } catch (e) {
-                    try { hint(`❌ 粘贴添加附件失败: ${String(e?.message || e || '')}`, 'error'); } catch (e2) {}
+                    try { hint(__tmT("task.failedToAddAttachmentsFromTheClipboard", { value1: String(e?.message || e || '') }), 'error'); } catch (e2) {}
                 } finally {
                     attachmentActionPending = false;
                 }
@@ -9422,9 +9423,9 @@
                     if (JSON.stringify(nextPaths) === JSON.stringify(latestPaths)) return;
                     await __tmUpdateTaskAttachmentsField(task.id, nextPaths, { source: 'detail-attachment-drop' });
                     syncAttachmentSectionPaths(task, nextPaths);
-                    try { hint(`✅ 已添加 ${nextPaths.length - latestPaths.length} 个附件`, 'success'); } catch (e) {}
+                    try { hint(__tmT("task.addedAttachmentS", { length: nextPaths.length - latestPaths.length }), 'success'); } catch (e) {}
                 } catch (e) {
-                    try { hint(`❌ 拖拽添加附件失败: ${String(e?.message || e || '')}`, 'error'); } catch (e2) {}
+                    try { hint(__tmT("task.failedToAddAttachmentsByDragDrop", { value1: String(e?.message || e || '') }), 'error'); } catch (e2) {}
                 } finally {
                     attachmentActionPending = false;
                 }
@@ -9477,9 +9478,9 @@
                         if (JSON.stringify(nextPaths) === JSON.stringify(currentPaths)) return;
                         await __tmUpdateTaskAttachmentsField(task.id, nextPaths, { source: 'detail-attachment-add' });
                         syncAttachmentSectionPaths(task, nextPaths);
-                        try { hint(`✅ 已添加 ${nextPaths.length - currentPaths.length} 个附件`, 'success'); } catch (e) {}
+                        try { hint(__tmT("task.addedAttachmentS", { length: nextPaths.length - currentPaths.length }), 'success'); } catch (e) {}
                     } catch (e) {
-                        try { hint(`❌ 添加附件失败: ${String(e?.message || e || '')}`, 'error'); } catch (e2) {}
+                        try { hint(__tmT("task.failedToAddAttachments", { value1: String(e?.message || e || '') }), 'error'); } catch (e2) {}
                     } finally {
                         attachmentActionPending = false;
                     }
@@ -9494,9 +9495,9 @@
                         nextPaths.splice(index, 1);
                         await __tmUpdateTaskAttachmentsField(task.id, nextPaths, { source: 'detail-attachment-remove' });
                         syncAttachmentSectionPaths(task, nextPaths);
-                        try { hint('✅ 已移除附件', 'success'); } catch (e) {}
+                        try { hint(__tmT("task.attachmentRemoved"), 'success'); } catch (e) {}
                     } catch (e) {
-                        try { hint(`❌ 移除附件失败: ${String(e?.message || e || '')}`, 'error'); } catch (e2) {}
+                        try { hint(__tmT("task.failedToRemoveTheAttachment", { value1: String(e?.message || e || '') }), 'error'); } catch (e2) {}
                     } finally {
                         attachmentActionPending = false;
                     }
@@ -9514,7 +9515,7 @@
                         await __tmUpdateTaskAttachmentsField(task.id, nextPaths, { source: 'detail-attachment-move' });
                         syncAttachmentSectionPaths(task, nextPaths);
                     } catch (e) {
-                        try { hint(`❌ 排序附件失败: ${String(e?.message || e || '')}`, 'error'); } catch (e2) {}
+                        try { hint(__tmT("task.failedToSortAttachments", { value1: String(e?.message || e || '') }), 'error'); } catch (e2) {}
                     } finally {
                         attachmentActionPending = false;
                     }
@@ -9586,13 +9587,13 @@
                     if (item instanceof HTMLButtonElement) item.disabled = true;
                 });
                 try {
-                    if (typeof window.tmReviewFsrsTask !== 'function') throw new Error('FSRS 反馈功能未就绪');
+                    if (typeof window.tmReviewFsrsTask !== 'function') throw new Error(__tmT("task.fsrsFeedbackFeatureIsNotReady"));
                     await window.tmReviewFsrsTask(taskId, rating, { source: 'task-detail-inline-fsrs-review' });
                 } catch (error) {
                     fsrsReviewButtons.forEach((item) => {
                         if (item instanceof HTMLButtonElement) item.disabled = false;
                     });
-                    hint(`FSRS 反馈失败：${error?.message || String(error)}`, 'error');
+                    hint(__tmT("task.fsrsFeedbackFailed", { value1: error?.message || String(error) }), 'error');
                 }
             });
         });
@@ -9775,7 +9776,7 @@
                     taskId: currentTaskId,
                     source: 'detail-remark',
                     reason: 'detail-remark',
-                    label: '备注',
+                    label: __tmT("kernel.note"),
                     onPending: (promise) => {
                         pendingPromise = Promise.resolve(promise);
                     },
@@ -9784,7 +9785,7 @@
                 const run = async () => {
                     try {
                         const result = await persistence;
-                        if (result === false) throw new Error('备注未写入');
+                        if (result === false) throw new Error(__tmT("task.remarkWasNotWritten"));
                         syncRemarkSavedState(nextValue, currentTaskId);
                         return true;
                     } catch (error) {
@@ -10093,7 +10094,7 @@
                     taskId: currentTaskId,
                     source: 'detail-custom-text',
                     reason: 'detail-custom-text',
-                    label: '自定义字段',
+                    label: __tmT("task.customFields"),
                     onFailure: () => {
                         textarea.value = prevValue;
                         syncTextHeight();
@@ -10400,7 +10401,7 @@ return true;
                 ? (renderNoteView
                     ? __tmBuildTaskDetailNoteViewInnerHtml(task, { embedded: true, closeable: true })
                     : __tmBuildTaskDetailInnerHtml(task, { embedded: true, closeable: true }))
-                : `<div class="tm-checklist-empty-detail">选择左侧任务后，这里会显示可编辑的详情。</div>`;
+                : `<div class="tm-checklist-empty-detail">${__tmT("task.selectATaskOnTheLeftToSeeEditable")}</div>`;
             try { panel.__tmTaskDetailTask = task || null; } catch (e) {}
             try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
             try {
@@ -10615,7 +10616,7 @@ return true;
                 ? (renderNoteView
                     ? __tmBuildTaskDetailNoteViewInnerHtml(task, { embedded: true, closeable: true })
                     : __tmBuildTaskDetailInnerHtml(task, { embedded: true, closeable: true }))
-                : `<div class="tm-checklist-empty-detail">选择任务后，这里会显示可编辑的详情。</div>`;
+                : `<div class="tm-checklist-empty-detail">${__tmT("task.selectATaskToSeeEditableDetailsHere")}</div>`;
             try { panel.__tmTaskDetailTask = task || null; } catch (e) {}
             try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
             try {
@@ -10817,7 +10818,7 @@ return true;
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus') || Object.prototype.hasOwnProperty.call(nextPatch, 'done')) {
             const statusOpt = __tmResolveTaskStatusDisplayOption(task, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
                 fallbackColor: task?.done ? '#9e9e9e' : '#757575',
-                fallbackName: task?.done ? '完成' : '待办',
+                fallbackName: task?.done ? __tmT("quickbar.done") : __tmT("homepage.toDo"),
             });
             const statusInput = panel.querySelector('input[type="hidden"][data-tm-detail="status"]');
             if (statusInput instanceof HTMLInputElement) statusInput.value = String(statusOpt.id || '').trim();
@@ -10884,8 +10885,8 @@ return true;
             if (existing instanceof HTMLElement) {
                 const face = existing.querySelector('[data-tm-detail-chip-face="taskCompleteAt"]');
                 if (face instanceof HTMLElement) face.innerHTML = __tmBuildTaskDetailCoreChipFace('taskCompleteAt', rawValue);
-                existing.setAttribute('title', `完成时间：${text}`);
-                existing.setAttribute('data-tm-floating-tooltip-label', `完成时间：${text}`);
+                existing.setAttribute('title', __tmT("task.completionTime2", { text: text }));
+                existing.setAttribute('data-tm-floating-tooltip-label', __tmT("task.completionTime2", { text: text }));
                 touched = true;
                 return;
             }
@@ -10996,7 +10997,7 @@ return true;
                 const valueWrap = panel.querySelector(`[data-tm-detail-custom-field="${fid}"] .tm-task-detail-custom-field-value`);
                 if (valueWrap instanceof HTMLElement) {
                     valueWrap.innerHTML = __tmBuildCustomFieldDisplayHtml(field, __tmGetTaskCustomFieldValue(task, fid), {
-                        emptyText: '未设置',
+                        emptyText: __tmT("common.notSet"),
                         maxTags: String(field?.type || '').trim() === 'multi' ? 2 : 1,
                     });
                     touched = true;

@@ -35,7 +35,7 @@
         return true;
     }
 
-    const __TM_SCHEDULED_DESKTOP_ONLY_ERROR = 'AI 定时事件仅在电脑端执行';
+    const __TM_SCHEDULED_DESKTOP_ONLY_ERROR = __tmT("settings.aiScheduledEventsRunOnDesktopOnly");
 
     function __tmScheduledCoreSupported() {
         const raw = String(window.siyuan?.config?.system?.kernelVersion || window.siyuan?.config?.system?.version || '').trim().replace(/^v/i, '');
@@ -80,12 +80,12 @@
             .replace(/(^|\n)([ \t]*(?:[-*+]|\d+[.)]))[ \t]+\[[ xX]\][ \t]+/g, '$1$2 ');
     }
 
-    function __tmScheduledOutputTitle(value, fallback = '定时事件结果') {
+    function __tmScheduledOutputTitle(value, fallback = __tmT("settings.scheduledEventResult")) {
         const clean = __tmScheduledSanitizeOutput(value)
             .replace(/^#{1,6}\s+/, '')
             .replace(/[*_`]/g, '')
             .trim();
-        return (clean || String(fallback || '定时事件结果').trim() || '定时事件结果').slice(0, 500);
+        return (clean || String(fallback || __tmT("settings.scheduledEventResult")).trim() || __tmT("settings.scheduledEventResult")).slice(0, 500);
     }
 
     function __tmScheduledExtractActionPrompt(value) {
@@ -169,7 +169,7 @@
         const validKinds = new Set(['once', 'daily', 'weekdays', 'weekly']);
         const kind = validKinds.has(String(scheduleInput.kind || '')) ? String(scheduleInput.kind) : 'daily';
         const weekday = Math.max(0, Math.min(6, Math.round(Number(scheduleInput.weekday) || 0)));
-        const name = String(value.name || '').trim().slice(0, 120) || '未命名定时事件';
+        const name = String(value.name || '').trim().slice(0, 120) || __tmT("settings.untitledScheduledEvent");
         const rawPrompt = String(value.prompt || '').trim().slice(0, 20000);
         const prompt = __tmScheduledShouldExtractPrompt(rawPrompt, name)
             ? __tmScheduledExtractActionPrompt(rawPrompt)
@@ -274,11 +274,11 @@
     }
 
     function __tmScheduledValidate(event) {
-        if (!event?.name || !event?.prompt) return '名称和提示词不能为空';
-        if (!['once', 'daily', 'weekdays', 'weekly'].includes(event?.schedule?.kind)) return '重复规则无效';
-        if (!__tmScheduledParseTime(event?.schedule?.time, '')) return '运行时间无效';
-        if (event.schedule.kind === 'once' && !__tmScheduledAt(event.schedule.date, event.schedule.time)) return '单次事件日期无效';
-        if (event.output?.mode === 'document' && !String(event.output.documentId || '').trim()) return '请选择目标文档或输入文档 ID';
+        if (!event?.name || !event?.prompt) return __tmT("settings.nameAndPromptCannotBeEmpty");
+        if (!['once', 'daily', 'weekdays', 'weekly'].includes(event?.schedule?.kind)) return __tmT("settings.invalidRepeatRule");
+        if (!__tmScheduledParseTime(event?.schedule?.time, '')) return __tmT("settings.invalidRunTime");
+        if (event.schedule.kind === 'once' && !__tmScheduledAt(event.schedule.date, event.schedule.time)) return __tmT("settings.invalidOneTimeEventDate");
+        if (event.output?.mode === 'document' && !String(event.output.documentId || '').trim()) return __tmT("settings.selectATargetDocumentOrEnterADocumentId");
         return '';
     }
 
@@ -357,8 +357,8 @@
 
     function __tmScheduledFocusInstruction(occurrence) {
         const range = __tmScheduledFocusRange(occurrence);
-        const rangeText = range ? `，时间范围为 from=${range.from}、to=${range.to}` : '';
-        return `\n\n专注数据口径（必须遵守）：本次总结涉及专注时长或番茄时，必须从本轮 tool definitions 中选择 Task Horizon MCP 的“专注统计” capability（内部标识 query_focus_statistics），并传 action=query、bucket=none、groupBy=task${rangeText}；实际函数名必须使用当前列表中带 plugin__siyuan_plugin_task_horizon__ 前缀及校验后缀的完整名称，不要直接调用裸的 query_focus_statistics。如提示词附带任务，才将这些任务的 id 作为 taskIDs，否则不要传空的 taskIDs，直接按时间范围查询。需要预估、日程与实际对比时，从本轮 tool definitions 中选择“时间投入统计” capability（内部标识 aggregate_time_usage），同样使用列表中的完整名称，不要直接调用裸的 aggregate_time_usage。禁止使用 sql.query 读取任何 custom-tomato-* 属性，尤其 custom-tomato-applied-records，它是 Dock Tomato 内部去重账本，不是专注数据。MCP 无数据时明确写“暂无专注数据”，不要用其他字段替代或推算。`;
+        const rangeText = range ? __tmT("settings.timeRangeFromTo", { from: range.from, to: range.to }) : '';
+        return __tmT("settings.focusDataRulesMandatoryWhenThisSummaryInvolvesFocus", { rangeText: rangeText });
     }
 
     function __tmScheduledNotificationSummary(markdown) {
@@ -407,9 +407,9 @@
             parentDocumentID: documentId,
             month,
         });
-        if (!gateway.available) throw new Error('任务内核不可用，无法创建月度子文档');
+        if (!gateway.available) throw new Error(__tmT("settings.theTaskKernelIsUnavailableCannotCreateTheMonthly"));
         const resolvedId = String(gateway.data?.documentID || gateway.data?.documentId || '').trim();
-        if (!resolvedId) throw new Error('任务内核未返回月度子文档 ID');
+        if (!resolvedId) throw new Error(__tmT("settings.theTaskKernelDidNotReturnTheMonthlySubdocument"));
         return resolvedId;
     }
 
@@ -449,10 +449,10 @@
             notebook = String(notebooks[0]?.id || notebooks[0]?.box || '').trim();
         }
         if (!notebook || typeof runtimeApi?.createDailyNote !== 'function') {
-            throw new Error('无法确定今天日记所属笔记本');
+            throw new Error(__tmT("settings.unableToDetermineTheNotebookOfTodaySDaily"));
         }
         const documentId = String(await runtimeApi.createDailyNote(notebook) || '').trim();
-        if (!documentId) throw new Error('获取今天日记文档失败');
+        if (!documentId) throw new Error(__tmT("settings.failedToGetTodaySDailyNoteDocument"));
         return documentId;
     }
 
@@ -468,8 +468,8 @@
     }
 
     async function __tmScheduledDeliver(event, result, occurrence) {
-        const resultTitle = __tmScheduledOutputTitle(result?.title, event.name || '定时事件');
-        const title = `定时事件完成：${String(event.name || '未命名定时事件').trim()}`;
+        const resultTitle = __tmScheduledOutputTitle(result?.title, event.name || __tmT("settings.scheduledEvents"));
+        const title = __tmT("settings.scheduledEventComplete", { value1: String(event.name || __tmT("settings.untitledScheduledEvent")).trim() });
         const markdown = __tmScheduledSanitizeOutput(result?.markdown);
         const documentMarkdown = event.output.mode === 'document' || event.output.mode === 'daily_note'
             ? __tmScheduledNeutralizeTaskMarkers(markdown)
@@ -488,11 +488,11 @@
         }
         const summary = __tmScheduledNotificationSummary(outputMarkdown) || title;
         const conversationNote = event.conversationId
-            ? `已追加到任务智能体对话“定时：${event.name}”`
+            ? __tmT("settings.appendedToTheTaskAgentConversationScheduled", { name: event.name })
             : '';
         const body = [resultTitle, conversationNote, summary].filter(Boolean).join('\n');
         const calendarNotifier = globalThis.__tmCalendar?.showSystemNotification;
-        let notificationResult = { ok: false, error: '未获取到可用的系统通知接口' };
+        let notificationResult = { ok: false, error: __tmT("settings.noUsableSystemNotificationInterfaceWasObtained") };
         if (typeof calendarNotifier === 'function') {
             try {
                 notificationResult = await calendarNotifier(title, body, {
@@ -500,7 +500,7 @@
                     delayInSeconds: 0,
                 });
             } catch (e) {
-                notificationResult = { ok: false, error: String(e?.message || e || '系统通知发送失败') };
+                notificationResult = { ok: false, error: String(e?.message || e || __tmT("settings.failedToSendTheSystemNotification")) };
             }
         } else {
             try {
@@ -509,15 +509,15 @@
                     const id = await utils.sendNotification({ channel: 'task-horizon-scheduled-events', title, body, delayInSeconds: 0, timeoutType: 'never' });
                     notificationResult = Number(id) >= 0
                         ? { ok: true, id: Number(id) }
-                        : { ok: false, error: '思源通知接口未返回有效通知 ID' };
+                        : { ok: false, error: __tmT("calendar.theSiyuanNotificationInterfaceDidNotReturnAValid") };
                 }
             } catch (e) {
-                notificationResult = { ok: false, error: String(e?.message || e || '系统通知发送失败') };
+                notificationResult = { ok: false, error: String(e?.message || e || __tmT("settings.failedToSendTheSystemNotification")) };
             }
         }
         const notificationOk = notificationResult === true || notificationResult?.ok === true;
-        const notificationError = notificationOk ? '' : String(notificationResult?.error || '系统通知发送失败').trim();
-        if (!notificationOk) hint(`${title}\n${body}\n\n系统通知未发送：${notificationError}`, 'warning');
+        const notificationError = notificationOk ? '' : String(notificationResult?.error || __tmT("settings.failedToSendTheSystemNotification")).trim();
+        if (!notificationOk) hint(__tmT("settings.theSystemNotificationWasNotSent", { title: title, body: body, notificationError: notificationError }), 'warning');
         return { blockId, notificationDelivered: notificationOk, notificationError };
     }
 
@@ -532,9 +532,9 @@
         if (manual || !event) return;
         const current = __tmScheduledEventById(event.id) || event;
         if (status === 'failed' && Number(current.lastOccurrence?.attempts) < 3) return;
-        const name = String(current.name || '未命名定时事件').trim();
-        const reason = String(error || current.lastRun?.error || '未知错误').trim().slice(0, 500);
-        const title = `定时事件执行失败：${name}`;
+        const name = String(current.name || __tmT("settings.untitledScheduledEvent")).trim();
+        const reason = String(error || current.lastRun?.error || __tmT("plugin.unknownError")).trim().slice(0, 500);
+        const title = __tmT("settings.scheduledEventFailed", { name: name });
         let delivered = false;
         try {
             const utils = globalThis.__taskHorizonPlatformUtils;
@@ -561,7 +561,7 @@
     async function __tmScheduledKernelRpc(name, ...args) {
         const active = __tmScheduledRuntime.kernelRpcInFlight;
         if (active) {
-            const error = new Error(`任务内核仍在处理上一次调用：${active.name}`);
+            const error = new Error(__tmT("settings.theTaskKernelIsStillProcessingThePreviousCall", { name: active.name }));
             error.code = 'TM_KERNEL_RPC_BUSY';
             __tmScheduledRuntime.kernelBackoffUntil = Date.now() + __TM_SCHEDULED_KERNEL_TIMEOUT_BACKOFF_MS;
             throw error;
@@ -580,7 +580,7 @@
                 pending,
                 new Promise((_, reject) => {
                     timeoutID = setTimeout(() => {
-                        const error = new Error(`任务内核调用超时：${name}`);
+                        const error = new Error(__tmT("settings.taskKernelCallTimedOut", { name: name }));
                         error.code = 'TM_KERNEL_RPC_TIMEOUT';
                         reject(error);
                     }, __TM_SCHEDULED_KERNEL_RPC_TIMEOUT_MS);
@@ -616,7 +616,7 @@
             }
             return true;
         }
-        const error = new Error('任务内核不可用，定时事件未写入');
+        const error = new Error(__tmT("settings.theTaskKernelIsUnavailableTheScheduledEventWas"));
         error.code = 'TM_KERNEL_UNAVAILABLE';
         throw error;
     }
@@ -729,12 +729,12 @@
             manual: manual === true,
             preserveResult: preserveResult === true,
         });
-        if (!gateway.available) throw new Error('任务内核不可用，无法安全执行定时事件');
+        if (!gateway.available) throw new Error(__tmT("settings.theTaskKernelIsUnavailableCannotSafelyRunThe"));
         const result = gateway.data || {};
         if (result.event) __tmScheduledApplyKernelEvent(result.event);
         if (result.claimed !== true) return null;
         const event = __tmScheduledApplyKernelEvent(result.event);
-        if (!event) throw new Error('任务内核未返回定时事件状态');
+        if (!event) throw new Error(__tmT("settings.theTaskKernelDidNotReturnTheScheduledEvent"));
         return { event, ownerId: String(result.ownerID || result.ownerId || '').trim() };
     }
 
@@ -749,7 +749,7 @@
             patch,
             manual: manual === true,
         });
-        if (!gateway.available) throw new Error('任务内核不可用，无法完成定时事件');
+        if (!gateway.available) throw new Error(__tmT("settings.theTaskKernelIsUnavailableCannotCompleteTheScheduled"));
         return __tmScheduledApplyKernelEvent(gateway.data);
     }
 
@@ -768,7 +768,7 @@
                 if (['CONFLICT', 'NOT_FOUND', 'TM_KERNEL_RPC_TIMEOUT'].includes(String(error?.code || ''))) throw error;
             }
         }
-        throw lastError || new Error('定时事件完成状态写入失败');
+        throw lastError || new Error(__tmT("settings.failedToWriteTheScheduledEventCompletionStatus"));
     }
 
     async function __tmScheduledRenewLease(claim, occurrenceKey, manual = false) {
@@ -778,7 +778,7 @@
             occurrenceKey,
             ownerID: String(claim.ownerId).trim(),
         });
-        if (!gateway.available) throw new Error('任务内核不可用，无法续租定时事件');
+        if (!gateway.available) throw new Error(__tmT("settings.theTaskKernelIsUnavailableCannotRenewTheScheduled"));
         const event = __tmScheduledApplyKernelEvent(gateway.data?.event);
         if (event) claim.event = event;
         return gateway.data || null;
@@ -836,7 +836,7 @@
 
     async function __tmScheduledDeliverAndCommit(claim, event, occurrenceKey, cached, occurrence, manual, heartbeat, deliveryOnly = false) {
         if (heartbeat?.lost) {
-            const error = new Error('定时事件执行权已失效');
+            const error = new Error(__tmT("settings.theScheduledEventSExecutionLeaseHasExpired"));
             error.code = 'CONFLICT';
             throw error;
         }
@@ -850,9 +850,9 @@
                 deliveryPending: true,
                 deliveryCompleted: false,
                 manual: manual === true,
-                error: String(deliveryError?.message || deliveryError || '投递失败'),
+                error: String(deliveryError?.message || deliveryError || __tmT("settings.deliveryFailed")),
             }, manual);
-            await __tmScheduledNotifyTerminalFailure(event, 'failed', deliveryError?.message || deliveryError || '投递失败', manual);
+            await __tmScheduledNotifyTerminalFailure(event, 'failed', deliveryError?.message || deliveryError || __tmT("settings.deliveryFailed"), manual);
             return { status: 'failed', deliveryOnly, deliveryPending: true, error: String(deliveryError?.message || deliveryError || '') };
         }
         const checkpoint = await __tmScheduledCheckpointDelivery(event, occurrenceKey, cached, delivery, manual);
@@ -895,13 +895,13 @@
         const id = String(session?.sessionID || '').trim();
         if (!id) return;
         const current = __tmScheduledEventById(event.id);
-        if (!current) throw new Error('定时事件已被删除');
+        if (!current) throw new Error(__tmT("settings.theScheduledEventWasDeleted"));
         if ([event.conversationId, current.conversationId].some((bound) => bound && bound !== id)) {
-            throw new Error('定时事件的会话绑定与当前设备不一致，请完成思源数据同步后重试');
+            throw new Error(__tmT("settings.theScheduledEventSConversationBindingDoesNotMatch"));
         }
         const knownUpdatedAt = Math.max(event.conversationUpdatedAt || 0, current.conversationUpdatedAt || 0);
         if (Number(session.sessionUpdatedAt) > 0 && Number(session.sessionUpdatedAt) < knownUpdatedAt) {
-            throw new Error('会话保存版本落后于已记录版本，请完成思源数据同步后重试');
+            throw new Error(__tmT("settings.theConversationSaveVersionIsBehindTheRecordedVersion"));
         }
         const updatedAt = Math.max(knownUpdatedAt, Number(session.sessionUpdatedAt) || 0);
         const title = String(session.sessionTitle || current.conversationTitle || event.conversationTitle || '').trim();
@@ -911,10 +911,10 @@
         await __tmScheduledPersist();
         const persisted = __tmScheduledEventById(event.id);
         if (persisted?.conversationId !== id) {
-            throw new Error('定时事件的会话绑定已变化，请完成思源数据同步后重试');
+            throw new Error(__tmT("settings.theScheduledEventSConversationBindingHasChangedComplete"));
         }
         if (Number(session.sessionUpdatedAt) > 0 && persisted.conversationUpdatedAt > Number(session.sessionUpdatedAt)) {
-            throw new Error('会话保存期间发现更新的同步版本，请完成思源数据同步后重试');
+            throw new Error(__tmT("settings.aNewerSyncVersionAppearedWhileSavingTheConversation"));
         }
     }
 
@@ -924,7 +924,7 @@
             return { status: 'desktop_only', error: __TM_SCHEDULED_DESKTOP_ONLY_ERROR };
         }
         let event = __tmScheduledEventById(eventId);
-        if (!event) throw new Error('定时事件不存在');
+        if (!event) throw new Error(__tmT("settings.theScheduledEventDoesNotExist"));
         const occurrence = options.occurrence instanceof Date ? options.occurrence : new Date();
         const occurrenceKey = manual
             ? `${event.id}:manual:${Date.now()}`
@@ -956,11 +956,11 @@
                 try { await globalThis.__taskHorizonEnsureAiModuleLoaded?.(); } catch (e) {}
             }
             if (!globalThis.__tmAI || typeof globalThis.__tmAI.runAutomation !== 'function') {
-                throw new Error('定时事件需要思源 3.7.3 或更高版本，并启用可用的智能体模型');
+                throw new Error(__tmT("settings.scheduledEventsRequireSiyuanOrLaterAndAnEnabled"));
             }
             const conversationId = String(event.conversationId || '').trim();
             const completedTaskContext = completedTasks.length
-                ? `\n\n以下是 ${__tmScheduledLocalDateKey(occurrence)} 当天实际完成的任务（完成日期只按 taskCompleteAt 计算）：\n${JSON.stringify(completedTasks.slice(0, 300), null, 2)}`
+                ? __tmT("settings.tasksActuallyCompletedOnCompletionDatesAreCountedOnly", { value1: __tmScheduledLocalDateKey(occurrence), value2: JSON.stringify(completedTasks.slice(0, 300), null, 2) })
                 : '';
             const includeInternalPrompt = event.includeInternalPrompt !== false;
             const context = `${completedTaskContext}${includeInternalPrompt ? __tmScheduledFocusInstruction(occurrence) : ''}`;
@@ -970,7 +970,7 @@
                 occurrenceKey,
                 sessionID: conversationId,
                 sessionUpdatedAt: event.conversationUpdatedAt,
-                sessionTitle: `定时：${event.name}`,
+                sessionTitle: __tmT("settings.scheduled", { name: event.name }),
                 onSessionSaved: (session) => __tmScheduledRecordConversation(event, session),
                 persistSession: true,
                 includeInternalPrompt,
@@ -978,7 +978,7 @@
             });
             await __tmScheduledRecordConversation(event, result);
             const markdown = __tmScheduledSanitizeOutput(result?.markdown).slice(0, __TM_SCHEDULED_EVENT_MAX_RESULT);
-            if (!markdown) throw new Error('智能体未返回内容');
+            if (!markdown) throw new Error(__tmT("settings.theAgentReturnedNoContent"));
             const cached = {
                 title: __tmScheduledOutputTitle(result?.title, event.name),
                 markdown,
@@ -995,7 +995,7 @@
             return { conversationId: event.conversationId, ...outcome };
         } catch (error) {
             if (heartbeat.lost || ['CONFLICT', 'NOT_FOUND'].includes(String(error?.code || ''))) {
-                return { status: 'deduplicated', error: '定时事件执行权已转移，本次结果未投递' };
+                return { status: 'deduplicated', error: __tmT("settings.theScheduledEventSExecutionLeaseMovedElsewhereThis") };
             }
             if (error?.sessionID) {
                 try { await __tmScheduledRecordConversation(event, error); }
@@ -1188,7 +1188,7 @@
         },
         async runNow(id) {
             const generation = __tmScheduledRuntime.generation;
-            if (!__tmScheduledCoreSupported()) return { status: 'config_error', error: '定时事件需要思源 3.7.3 或更高版本' };
+            if (!__tmScheduledCoreSupported()) return { status: 'config_error', error: __tmT("settings.scheduledEventsRequireSiyuanOrLater") };
             try {
                 return await __tmScheduledEnqueue(() => __tmScheduledRun(id, { manual: true, occurrence: new Date() }));
             } finally {

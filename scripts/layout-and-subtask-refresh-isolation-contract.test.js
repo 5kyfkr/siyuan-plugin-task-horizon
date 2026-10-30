@@ -84,8 +84,8 @@ assert.match(
 const kanbanBottomNavAvoidance = segment(renderRuntime, 'function __tmSyncKanbanBottomNavAvoidance', 'function __tmScheduleKanbanBottomNavAvoidance');
 assert.match(
     kanbanBottomNavAvoidance,
-    /currentAvoidanceInset[\s\S]*paddingBottom - basePadding[\s\S]*availableHeightWithoutAvoidance = Math\.max\(0, availableHeight - currentAvoidanceInset\)[\s\S]*contentHeight > availableHeightWithoutAvoidance \+ 1/,
-    'bottom-nav avoidance measurements must exclude their own padding to prevent resize feedback loops',
+    /const applyAvoidance = navState\.active \|\| keepWhilePending/,
+    'mobile and dock columns must reserve bottom-nav space regardless of content height',
 );
 
 const queueRowMove = segment(uiFoundation, 'async function __tmQueueTaskRowMove', 'async function __tmHandleTaskRowDropCore');

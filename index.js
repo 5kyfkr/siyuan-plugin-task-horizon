@@ -1,3 +1,7 @@
+function __tmT(key, params) {
+    return globalThis.__taskHorizonHostBridge.i18n.t(key, params);
+}
+
 const { Plugin, Protyle, openTab, openMobileFileById, platformUtils, getFrontend, Dialog, openEmoji, Menu, confirm, openSetting } = require("siyuan");
 
 const PLUGIN_ID = "siyuan-plugin-task-horizon";
@@ -28,7 +32,7 @@ const CALENDAR_VIEW_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/calendar-view.js`;
 const CALENDAR_VIEW_CSS_PATH = `/data/plugins/${PLUGIN_ID}/calendar-view.css`;
 const PLUGIN_MANIFEST_PATH = `/data/plugins/${PLUGIN_ID}/plugin.json`;
 const TAB_TYPE = "task-horizon";
-const TAB_TITLE = "任务管理器";
+let TAB_TITLE = "";
 const COMMAND_OPEN_TASK_HORIZON = "openTaskHorizon";
 const COMMAND_OPEN_QUICK_ADD_TASK_WINDOW = "openQuickAddTaskWindow";
 const ICON_ID = "iconTaskHorizon";
@@ -42,12 +46,12 @@ const CALENDAR_SUBSCRIPTION_TOPBAR_ELEMENT_ID = "plugin_siyuan-plugin-task-horiz
 const SIYUAN_UNPINNED_TOPBAR_STORAGE_KEY = "local-plugintopunpin";
 const CUSTOM_TAB_ID = PLUGIN_ID + TAB_TYPE;
 const TASK_DOCK_TYPE = "::task-horizon-dock";
-const TASK_DOCK_TITLE = "任务侧栏";
+let TASK_DOCK_TITLE = "";
 // 移动端底部导航栏（思源「导航栏」设置）只认插件 Dock，因此额外注册一个只做入口的
 // Dock：图标可被用户挑进底部栏，点开即收起侧边面板并打开全屏任务管理器。它不渲染
 // 第二份管理器，只在需要时把同一个实例搬到全屏宿主，和「任务侧栏」共用一份状态。
 const TASK_FULLSCREEN_DOCK_TYPE = "::task-horizon-fullscreen";
-const TASK_FULLSCREEN_DOCK_TITLE = "全屏打开";
+let TASK_FULLSCREEN_DOCK_TITLE = "";
 const TASK_FULLSCREEN_DOCK_ID = "fullscreen";
 // 与任务管理器共用同一个入口图标：符号由 buildEntryIconSymbols 注册，跟随「入口图标」设置。
 const TASK_FULLSCREEN_DOCK_ICON = ICON_ID;
@@ -128,7 +132,7 @@ const notifyTaskHorizonHostLifecycle = (phase, element) => {
 const ENTRY_ICON_PRESETS = Object.freeze([
     {
         id: "classic",
-        label: "经典图标",
+        get label() { return __tmT("plugin.classic"); },
         symbolId: "iconTaskHorizonPresetClassic",
         viewBox: "0 0 24 24",
         body: `<g transform="translate(12 12) scale(1.25) translate(-12 -12)" fill="none" stroke="currentColor">
@@ -141,7 +145,7 @@ const ENTRY_ICON_PRESETS = Object.freeze([
     },
     {
         id: "inbox",
-        label: "任务收件箱",
+        get label() { return __tmT("plugin.taskInbox"); },
         symbolId: "iconTaskHorizonPresetInbox",
         viewBox: "1.5 1.5 21 21",
         body: `<path d="M5.25 4.25h13.5l1.5 9.25v5.25H3.75V13.5l1.5-9.25Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
@@ -149,7 +153,7 @@ const ENTRY_ICON_PRESETS = Object.freeze([
     },
     {
         id: "complete",
-        label: "任务完成",
+        get label() { return __tmT("plugin.taskCheck"); },
         symbolId: "iconTaskHorizonPresetComplete",
         viewBox: "1.5 1.5 21 21",
         body: `<rect x="4.25" y="4.25" width="15.5" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"></rect>
@@ -157,7 +161,7 @@ const ENTRY_ICON_PRESETS = Object.freeze([
     },
     {
         id: "list",
-        label: "任务列表",
+        get label() { return __tmT("kernel.taskList"); },
         symbolId: "iconTaskHorizonPresetList",
         viewBox: "1.5 1.5 21 21",
         body: `<circle cx="5" cy="6" r="1.35" fill="currentColor"></circle>
@@ -167,7 +171,7 @@ const ENTRY_ICON_PRESETS = Object.freeze([
     },
     {
         id: "calendar",
-        label: "日程任务",
+        get label() { return __tmT("plugin.scheduledTasks"); },
         symbolId: "iconTaskHorizonPresetCalendar",
         viewBox: "1.5 1.5 21 21",
         body: `<rect x="3.5" y="4.5" width="17" height="16" rx="2.75" fill="none" stroke="currentColor" stroke-width="1.8"></rect>
@@ -176,7 +180,7 @@ const ENTRY_ICON_PRESETS = Object.freeze([
     },
     {
         id: "focus",
-        label: "聚焦完成",
+        get label() { return __tmT("plugin.focusComplete"); },
         symbolId: "iconTaskHorizonPresetFocus",
         viewBox: "1.5 1.5 21 21",
         body: `<circle cx="12" cy="12" r="8.25" fill="none" stroke="currentColor" stroke-width="1.8"></circle>
@@ -621,6 +625,7 @@ const loadPluginManifest = async (pluginInstance) => {
 
 const createTaskHorizonHostBridge = (pluginInstance) => ({
     plugin: pluginInstance || null,
+    i18n: pluginInstance?._taskI18n || null,
     kernel: pluginInstance?.kernel || null,
     app: pluginInstance?.app || null,
     eventBus: pluginInstance?.eventBus || null,
@@ -798,14 +803,14 @@ const openTaskHorizonAssetWithSystem = async (assetPath) => {
 
 const readTaskHorizonLocalAttachmentFile = async (fileUri) => {
     const localPath = normalizeTaskHorizonLocalSystemPath(fileUri);
-    if (!localPath) throw new Error("无效的本地文件路径");
+    if (!localPath) throw new Error(__tmT("plugin.invalidLocalFilePath"));
     let fs;
     try { fs = require("fs").promises; } catch (e) {
-        throw new Error("当前环境无法读取本地文件");
+        throw new Error(__tmT("plugin.theCurrentEnvironmentCannotReadLocalFiles"));
     }
     const stat = await fs.stat(localPath);
     if (stat.isDirectory()) return { isDirectory: true };
-    if (!stat.isFile()) throw new Error("附件不是普通文件");
+    if (!stat.isFile()) throw new Error(__tmT("plugin.attachmentIsNotARegularFile"));
     return { data: new Uint8Array(await fs.readFile(localPath)) };
 };
 
@@ -1164,9 +1169,38 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._entryIconDesiredPreset = null;
     }
 
+    async initializeTaskLanguage() {
+        const bridge = globalThis.__taskHorizonHostBridge;
+        const loaded = await loadScriptText('/data/plugins/' + PLUGIN_ID + '/src/i18n/runtime.js', 'i18n/runtime.js');
+        if (!loaded || !bridge.i18nRuntime) throw new Error('Unable to load Task Horizon language runtime');
+        let settings = null;
+        try { settings = await this.loadData('task-settings.json'); } catch (e) {}
+        const preference = bridge.i18nRuntime.normalizePreference(settings?.uiLanguage);
+        const hostLanguage = globalThis.siyuan?.config?.appearance?.lang || globalThis.siyuan?.config?.lang || 'en';
+        const locale = preference === 'system' ? bridge.i18nRuntime.normalizeLanguage(hostLanguage) : preference;
+        let messages = this.i18n || {};
+        if (messages.__locale !== locale) {
+            const source = await fetchPluginResourceText('/data/plugins/' + PLUGIN_ID + '/i18n/' + locale + '.json');
+            messages = JSON.parse(source);
+        }
+        this._taskI18n = bridge.i18nRuntime.createI18n(messages, { locale, preference });
+        this.i18n = messages;
+        bridge.i18n = this._taskI18n;
+        document.documentElement.style.setProperty('--tm-i18n-restore-sidebar', JSON.stringify(this._taskI18n.t('task.restoreSidebar')));
+        document.documentElement.style.setProperty('--tm-i18n-restore-tab', JSON.stringify(this._taskI18n.t('task.restoreTab')));
+        document.documentElement.style.setProperty('--tm-i18n-drop-attachment', JSON.stringify(this._taskI18n.t('task.dropAttachment')));
+        document.documentElement.style.setProperty('--tm-i18n-drop-siyuan-attachment', JSON.stringify(this._taskI18n.t('task.dropSiyuanAttachment')));
+        document.documentElement.style.setProperty('--tm-i18n-today', JSON.stringify(this._taskI18n.t('date.todayCompact')));
+    }
+
     async onload() {
         this._taskCountBadgeStartupReady = false;
         clearPluginResourceTextCache();
+        globalThis.__taskHorizonHostBridge = createTaskHorizonHostBridge(this);
+        await this.initializeTaskLanguage();
+        TAB_TITLE = __tmT('common.taskManager');
+        TASK_DOCK_TITLE = __tmT('common.taskDock');
+        TASK_FULLSCREEN_DOCK_TITLE = __tmT('common.openFullscreen');
         try { delete globalThis.__taskHorizonExplicitWindowExportKeys; } catch (e) {}
         const mountToken = String(Date.now());
         const runtimeMobile = this.isRuntimeMobileClient();
@@ -1198,7 +1232,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._taskMobileStartupWaitResolve = null;
         this._taskWindowTopBarLayoutReady = false;
         this._taskCalendarSubscriptionTopBarElement = null;
-        this._taskCalendarSubscriptionTopBarMeta = { enabled: false, running: false, title: "立即上传日历 ICS" };
+        this._taskCalendarSubscriptionTopBarMeta = { enabled: false, running: false, title: __tmT("plugin.uploadCalendarIcsNow") };
         globalThis.__taskHorizonPluginApp = this.app;
         globalThis.__taskHorizonPluginInstance = this;
         globalThis.__taskHorizonEnsureCalendarAssets = () => this.loadTaskHorizonCalendarAssets();
@@ -1238,7 +1272,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             try { delete globalThis.__tmAI; } catch (e) {}
             try {
                 const ready = await ensureAiExperienceRuntime(normalized);
-                if (!ready) throw new Error(`无法加载${normalized === "agent" ? "思源智能体" : "旧版 AI"}运行时`);
+                if (!ready) throw new Error(__tmT("plugin.failedToLoadRuntime", { value1: normalized === "agent" ? __tmT("plugin.siyuanAgent") : __tmT("plugin.legacyAi") }));
                 persistAiExperienceMode(normalized);
                 try {
                     window.dispatchEvent(new CustomEvent("tm:task-horizon-ai-mode-changed", { detail: { mode: normalized } }));
@@ -1335,8 +1369,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     publishSiyuanSyncStatus(status) {
         const normalizedStatus = status === "syncing" || status === "failed" ? status : "synced";
         const message = normalizedStatus === "syncing"
-            ? "思源数据正在同步"
-            : (normalizedStatus === "failed" ? "同步失败" : "已同步");
+            ? __tmT("plugin.syncingSiyuanData")
+            : (normalizedStatus === "failed" ? __tmT("plugin.syncFailed") : __tmT("plugin.synced"));
         const detail = { status: normalizedStatus, message, timestamp: Date.now() };
         globalThis.__taskHorizonSiyuanSyncStatus = detail;
         try { window.dispatchEvent(new CustomEvent(SIYUAN_SYNC_STATUS_EVENT, { detail })); } catch (e) {}
@@ -1567,7 +1601,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         if (this._commandsRegistered) return;
         this.addCommand({
             langKey: COMMAND_OPEN_TASK_HORIZON,
-            langText: "打开任务管理器",
+            langText: __tmT("plugin.openTaskManager"),
             hotkey: "",
             callback: () => {
                 this.openTaskHorizonTab();
@@ -1579,7 +1613,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         }
         const quickAddCommand = {
             langKey: COMMAND_OPEN_QUICK_ADD_TASK_WINDOW,
-            langText: "新建任务窗口",
+            langText: __tmT("plugin.newTaskWindow"),
             hotkey: "",
             callback: () => {
                 void this.openQuickAddFromMainWindow();
@@ -1651,7 +1685,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             return fullName;
         };
         const descriptors = [
-            register("open_task_manager", "打开任务管理器", "打开任务管理器的指定视图、任务或功能面板", {
+            register("open_task_manager", __tmT("plugin.openTaskManager"), __tmT("plugin.openASpecificViewTaskOrPanelInThe"), {
                 type: "object",
                 properties: {
                     view: { type: "string" },
@@ -1673,27 +1707,27 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                     }
                     return { result: JSON.stringify({ opened: true, view, taskID, panel }) };
                 } catch (e) {
-                    return { error: String(e?.message || e || "打开任务管理器失败") };
+                    return { error: String(e?.message || e || __tmT("plugin.failedToOpenTheTaskManager")) };
                 }
             }),
-            register("focus_task", "聚焦任务", "在任务管理器中定位并聚焦一个任务", {
+            register("focus_task", __tmT("plugin.focusTask"), __tmT("plugin.locateAndFocusATaskInTheTaskManager"), {
                 type: "object",
                 properties: { taskID: { type: "string" } },
                 required: ["taskID"],
                 additionalProperties: false,
             }, { localRead: true }, async (args = {}) => {
                 const taskID = String(args.taskID || args.taskId || "").trim();
-                if (!taskID) return { error: "缺少任务 ID" };
+                if (!taskID) return { error: __tmT("plugin.missingTaskId") };
                 try {
                     this.openTaskHorizonTab();
                     if (typeof globalThis.tmJumpToTask === "function") await globalThis.tmJumpToTask(taskID);
                     else if (typeof globalThis.tmOpenTaskDetail === "function") await globalThis.tmOpenTaskDetail(taskID, null, { source: "agent-focus" });
                     return { result: JSON.stringify({ focused: true, taskID }) };
                 } catch (e) {
-                    return { error: String(e?.message || e || "定位任务失败") };
+                    return { error: String(e?.message || e || __tmT("plugin.failedToLocateTheTask")) };
                 }
             }),
-            register("get_task_view_context", "读取任务视图上下文", "按活动页签注册任务范围；返回当前视图 scopeToken 和可重新筛选的 containerScopeToken；scope 可显式覆盖", {
+            register("get_task_view_context", __tmT("plugin.readTaskViewContext"), __tmT("plugin.registerATaskScopeForTheActiveTabReturns"), {
                 type: "object",
                 properties: {
                     scope: { type: "string", enum: ["current_view", "focused_document"] },
@@ -1703,17 +1737,17 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             }, { localRead: true }, async (args = {}) => {
                 try {
                     const taskBridge = globalThis[PLUGIN_ID]?.aiBridge;
-                    if (!taskBridge) throw new Error("任务上下文服务尚未就绪");
+                    if (!taskBridge) throw new Error(__tmT("plugin.taskContextServiceIsNotReady"));
                     const registerScope = this.kernel?.rpc?.call?.taskHorizonRegisterTaskScope;
-                    if (typeof registerScope !== "function") throw new Error("任务范围注册服务尚未就绪");
+                    if (typeof registerScope !== "function") throw new Error(__tmT("plugin.taskScopeRegistrationServiceIsNotReady"));
                     const explicitScope = String(args.scope || args.mode || "").trim();
                     const explicitDocumentID = String(args.documentID || args.documentId || "").trim();
                     const activeScope = this.resolveActiveAgentTaskScope();
                     const requestedScope = explicitScope || (explicitDocumentID ? "focused_document" : activeScope.scope);
                     if (requestedScope === "focused_document") {
                         const documentID = explicitDocumentID || (activeScope.scope === "focused_document" ? activeScope.documentID : "");
-                        if (!/^[0-9]{14}-[A-Za-z0-9]+$/.test(documentID)) throw new Error("无法确定当前思源文档");
-                        if (typeof taskBridge?.getDocumentTaskReadScope !== "function") throw new Error("文档任务范围服务尚未就绪");
+                        if (!/^[0-9]{14}-[A-Za-z0-9]+$/.test(documentID)) throw new Error(__tmT("plugin.unableToDetermineTheCurrentSiyuanDocument"));
+                        if (typeof taskBridge?.getDocumentTaskReadScope !== "function") throw new Error(__tmT("plugin.documentTaskScopeServiceIsNotReady"));
                         const documentScope = await taskBridge.getDocumentTaskReadScope([documentID]);
                         const registeredDocument = await registerScope({
                             scopeID: String(documentScope?.scopeID || `documents:${documentID}`).trim(),
@@ -1723,7 +1757,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                             taskValues: Array.isArray(documentScope?.taskValues) ? documentScope.taskValues : [],
                             virtualTasks: Array.isArray(documentScope?.virtualTasks) ? documentScope.virtualTasks : [],
                         });
-                        if (!registeredDocument || registeredDocument.ok !== true) throw new Error(String(registeredDocument?.error?.message || "文档任务范围注册失败"));
+                        if (!registeredDocument || registeredDocument.ok !== true) throw new Error(String(registeredDocument?.error?.message || __tmT("plugin.failedToRegisterTheDocumentTaskScope")));
                         return { result: JSON.stringify({
                             source: (explicitScope || explicitDocumentID) ? "focused_document" : activeScope.source,
                             scopeToken: registeredDocument.data?.scopeToken,
@@ -1739,8 +1773,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                             documentCount: 1,
                         }) };
                     }
-                    if (requestedScope !== "current_view") throw new Error("当前活动页签不是任务管理器或思源笔记");
-                    if (typeof taskBridge.getCurrentViewContext !== "function") throw new Error("任务视图范围服务尚未就绪");
+                    if (requestedScope !== "current_view") throw new Error(__tmT("plugin.theActiveTabIsNotTheTaskManagerOr"));
+                    if (typeof taskBridge.getCurrentViewContext !== "function") throw new Error(__tmT("plugin.taskViewScopeServiceIsNotReady"));
                     const context = await taskBridge.getCurrentViewContext();
                     const registered = await registerScope({
                         scopeID: String(context?.scopeID || "").trim(),
@@ -1749,11 +1783,11 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                         taskValues: Array.isArray(context?.taskValues) ? context.taskValues : [],
                         virtualTasks: Array.isArray(context?.virtualTasks) ? context.virtualTasks : [],
                     });
-                    if (!registered || registered.ok !== true) throw new Error(String(registered?.error?.message || "任务范围注册失败"));
+                    if (!registered || registered.ok !== true) throw new Error(String(registered?.error?.message || __tmT("plugin.failedToRegisterTheTaskScope")));
                     const containerDocumentIDs = Array.from(new Set((Array.isArray(context?.documentIDs) ? context.documentIDs : []).map((id) => String(id || "").trim()).filter(Boolean)));
                     let containerRegistered = registered;
                     if (containerDocumentIDs.length) {
-                        if (typeof taskBridge?.getDocumentTaskReadScope !== "function") throw new Error("文档任务范围服务尚未就绪");
+                        if (typeof taskBridge?.getDocumentTaskReadScope !== "function") throw new Error(__tmT("plugin.documentTaskScopeServiceIsNotReady"));
                         const containerScope = await taskBridge.getDocumentTaskReadScope(containerDocumentIDs);
                         containerRegistered = await registerScope({
                             scopeID: `${String(context?.groupID || "all").trim()}|${String(context?.activeDocID || "all").trim()}|container`,
@@ -1763,7 +1797,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                             taskValues: Array.isArray(containerScope?.taskValues) ? containerScope.taskValues : [],
                             virtualTasks: Array.isArray(containerScope?.virtualTasks) ? containerScope.virtualTasks : [],
                         });
-                        if (!containerRegistered || containerRegistered.ok !== true) throw new Error(String(containerRegistered?.error?.message || "任务容器范围注册失败"));
+                        if (!containerRegistered || containerRegistered.ok !== true) throw new Error(String(containerRegistered?.error?.message || __tmT("plugin.failedToRegisterTheTaskContainerScope")));
                     }
                     const selectedTaskIDs = Array.isArray(context?.selectedTaskIDs) ? context.selectedTaskIDs : [];
                     const selectedVirtualTasks = Array.isArray(context?.selectedVirtualTasks) ? context.selectedVirtualTasks : [];
@@ -1776,7 +1810,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                             taskValues: (Array.isArray(context?.taskValues) ? context.taskValues : []).filter((item) => selectedTaskIDs.includes(String(item?.id || "").trim())),
                             virtualTasks: selectedVirtualTasks,
                         });
-                        if (!selectedRegistered || selectedRegistered.ok !== true) throw new Error(String(selectedRegistered?.error?.message || "已选任务范围注册失败"));
+                        if (!selectedRegistered || selectedRegistered.ok !== true) throw new Error(String(selectedRegistered?.error?.message || __tmT("plugin.failedToRegisterTheSelectedTaskScope")));
                     }
                     return { result: JSON.stringify({
                         source: explicitScope ? "current_view" : activeScope.source,
@@ -1806,31 +1840,31 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                         selectedTasksTruncated: selectedTaskIDs.length + selectedVirtualTasks.length > 20,
                     }) };
                 } catch (e) {
-                    return { error: String(e?.message || e || "读取任务视图失败") };
+                    return { error: String(e?.message || e || __tmT("plugin.failedToReadTheTaskView")) };
                 }
             }),
-            register("query_plugin_settings", "查询任务管理器设置", "查询 Task Horizon 常用设置的用途、设置路径及当前值，供用户选择设置；可省略 query 获取支持的设置目录，再按用户描述推荐。仅查询，不修改设置或任务。", {
+            register("query_plugin_settings", __tmT("plugin.queryTaskHorizonSettings"), __tmT("plugin.queryThePurposeSettingsPathAndCurrentValueOf"), {
                 type: "object",
                 properties: {
-                    query: { type: "string", maxLength: 200, description: "设置名称、关键词或用户需求；省略时返回常用设置目录" },
-                    limit: { type: "integer", minimum: 1, maximum: 20, description: "最多返回的设置项数，默认 12" },
+                    query: { type: "string", maxLength: 200, description: __tmT("plugin.settingNameKeywordOrUserNeedOmitToReturn") },
+                    limit: { type: "integer", minimum: 1, maximum: 20, description: __tmT("plugin.maximumNumberOfSettingsToReturnDefaultsTo") },
                 },
                 additionalProperties: false,
             }, { localRead: true }, async (args = {}) => {
                 try {
                     if (typeof globalThis[PLUGIN_ID]?.querySettings !== "function") await ensureTaskMainLoaded();
                     const querySettings = globalThis[PLUGIN_ID]?.querySettings;
-                    if (typeof querySettings !== "function") throw new Error("设置查询服务尚未就绪，请重载插件后重试");
+                    if (typeof querySettings !== "function") throw new Error(__tmT("plugin.theSettingsQueryServiceIsNotReadyReloadThe"));
                     return { result: JSON.stringify(await querySettings(args)) };
                 } catch (e) {
-                    return { error: String(e?.message || e || "查询设置失败") };
+                    return { error: String(e?.message || e || __tmT("plugin.failedToQuerySettings")) };
                 }
             }),
         ];
         globalThis.__taskHorizonFrontendCapabilityDescriptors = frontendDescriptors;
         globalThis.__taskHorizonInvokeAgentAction = async (name, args = {}) => {
             const handler = handlers.get(String(name || "").trim());
-            if (typeof handler !== "function") return { error: `未知前端动作: ${String(name || "")}` };
+            if (typeof handler !== "function") return { error: __tmT("plugin.unknownFrontendAction", { value1: String(name || "") }) };
             return await handler(args, this.app);
         };
         void descriptors;
@@ -2423,7 +2457,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     markCalendarSubscriptionTopBarElement(element) {
         if (!(element instanceof HTMLElement)) return null;
         const meta = this._taskCalendarSubscriptionTopBarMeta || {};
-        const title = String(meta.title || "立即上传日历 ICS");
+        const title = String(meta.title || __tmT("plugin.uploadCalendarIcsNow"));
         try { element.setAttribute(CALENDAR_SUBSCRIPTION_TOPBAR_ATTR, "1"); } catch (e) {}
         try { element.setAttribute("title", title); } catch (e) {}
         try { element.setAttribute("aria-label", title); } catch (e) {}
@@ -2462,7 +2496,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try {
             this._taskCalendarSubscriptionTopBarElement = this.addTopBar({
                 icon: CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID,
-                title: String(this._taskCalendarSubscriptionTopBarMeta?.title || "立即上传日历 ICS"),
+                title: String(this._taskCalendarSubscriptionTopBarMeta?.title || __tmT("plugin.uploadCalendarIcsNow")),
                 position: "right",
                 callback: () => {
                     if (this._taskCalendarSubscriptionTopBarMeta?.running === true) return;
@@ -2797,7 +2831,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         if (!this.isRuntimeMobileClient()) return false;
         try {
             if (element instanceof HTMLElement && !element.querySelector("[data-tm-fullscreen-placeholder]")) {
-                element.innerHTML = `<div data-tm-fullscreen-placeholder style="height:100%;display:flex;align-items:center;justify-content:center;font-size:13px;opacity:.6;">正在打开任务管理器…</div>`;
+                element.innerHTML = `<div data-tm-fullscreen-placeholder style="height:100%;display:flex;align-items:center;justify-content:center;font-size:13px;opacity:.6;">${__tmT("plugin.openingTaskManager")}</div>`;
             }
         } catch (e) {}
         // openDock 先把面板滑进来再派发点击；这里同步收回，避免用户看到面板闪一下。
@@ -2850,7 +2884,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             // 运行时始终没就绪：给一次可见反馈，避免点了图标没动静。
             try {
                 fetchText("/api/notification/pushMsg", {
-                    msg: "任务管理器正在加载，请稍后再点一次",
+                    msg: __tmT("plugin.taskManagerIsLoadingClickAgainInAMoment"),
                     timeout: 4000,
                 }).catch(() => {});
             } catch (e) {}
@@ -3133,7 +3167,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 if (!action || typeof action.onClick !== "function") return;
                 const btn = document.createElement("button");
                 btn.type = "button";
-                btn.textContent = action.label || "打开";
+                btn.textContent = action.label || __tmT("plugin.open");
                 btn.style.cssText = "flex:1 1 120px;height:34px;border:none;border-radius:10px;background:var(--b3-theme-primary, #4285f4);color:#fff;font-size:13px;cursor:pointer;";
                 btn.addEventListener("click", action.onClick);
                 row.appendChild(btn);
@@ -3223,11 +3257,11 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         if (!settings.enabled) {
             this.renderTaskDockNotice(
                 element,
-                "任务 Dock 已关闭",
-                "可以在任务管理器设置里的“视图与布局”重新开启这个侧边栏。",
+                __tmT("plugin.taskDockIsTurnedOff"),
+                __tmT("plugin.reEnableThisSidebarUnderViewsLayoutInThe"),
                 [
                     {
-                        label: "打开任务管理器",
+                        label: __tmT("plugin.openTaskManager"),
                         onClick: () => this.openTaskHorizonTab(),
                     },
                 ],
@@ -3256,7 +3290,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         }
         const mountFn = globalThis.__taskHorizonMount;
         if (typeof mountFn !== "function") {
-            this.renderTaskDockNotice(element, "任务 Dock 加载中", "正在等待任务管理器入口挂载。");
+            this.renderTaskDockNotice(element, __tmT("plugin.taskDockIsLoading"), __tmT("plugin.waitingForTheTaskManagerEntryToMount"));
             this.scheduleTaskMainRuntimeRecovery(String(options?.reason || "mount-waiting"), { delayMs: 180 });
             if (!fromRecovery) {
                 this.scheduleTaskDockRecovery(String(options?.reason || "mount-waiting"));
@@ -3273,15 +3307,15 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             console.error("[task-horizon] native dock mount failed", e);
             this.renderTaskDockNotice(
                 element,
-                "任务 Dock 加载失败",
-                String(e?.message || e || "未知错误"),
+                __tmT("plugin.failedToLoadTheTaskDock"),
+                String(e?.message || e || __tmT("plugin.unknownError")),
                 [
                     {
-                        label: "重试",
+                        label: __tmT("common.retry"),
                         onClick: () => this.reloadTaskDockFrame(),
                     },
                     {
-                        label: "打开任务管理器",
+                        label: __tmT("plugin.openTaskManager"),
                         onClick: () => this.openTaskHorizonTab(),
                     },
                 ],

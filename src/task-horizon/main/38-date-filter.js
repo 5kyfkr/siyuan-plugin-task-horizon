@@ -21,13 +21,13 @@
         const supported = () => !state.homepageOpen && !state.attachmentLibraryOpen;
         const active = () => supported() && !!range();
         const signature = () => active() ? `${range().from}:${range().to}` : '';
-        const shortDate = value => `${parse(value).getMonth() + 1}月${parse(value).getDate()}日`;
+        const shortDate = value => __tmT("date.monthDayNumbers", { value1: parse(value).getMonth() + 1, value2: parse(value).getDate() });
         const label = () => {
             const selected = range();
             if (!selected) return '';
             if (selected.from === selected.to) return shortDate(selected.from);
             const acrossYears = selected.from.slice(0, 4) !== selected.to.slice(0, 4);
-            const format = value => `${acrossYears ? value.slice(0, 4) + '年' : ''}${shortDate(value)}`;
+            const format = value => `${acrossYears ? value.slice(0, 4) + __tmT("date.yearLabel") : ''}${shortDate(value)}`;
             return `${format(selected.from)}-${format(selected.to)}`;
         };
         const svg = name => __tmRenderLucideIcon(name);
@@ -152,7 +152,7 @@
             syncSelectionBar();
             if (trigger) {
                 trigger.classList.toggle('is-active', active());
-                trigger.title = active() ? `日期筛选：${label()}` : '日期筛选';
+                trigger.title = active() ? __tmT("task.dateFilter", { value1: label() }) : __tmT("task.dateFilter2");
                 trigger.setAttribute('aria-label', trigger.title);
             }
             if (!panel || (drag && !force)) return;
@@ -169,15 +169,15 @@
             if (slideDirection || !samePage) stopPageAnimation();
             const departingPage = slideDirection && pageLayer.isConnected
                 && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? pageLayer.cloneNode(true) : null;
-            panel.querySelector('[data-tm-filter-month]').textContent = `${date.getFullYear()}年${date.getMonth() + 1}月`;
+            panel.querySelector('[data-tm-filter-month]').textContent = __tmT("date.yearMonthNumbers", { value1: date.getFullYear(), value2: date.getMonth() + 1 });
             const toggle = panel.querySelector('[data-tm-filter-action="view"]');
             toggle.innerHTML = svg('caret-down');
-            toggle.title = week ? '展开整月' : '折叠为单周';
+            toggle.title = week ? __tmT("task.expandToFullMonth") : __tmT("task.collapseToOneWeek");
             toggle.setAttribute('aria-label', toggle.title);toggle.setAttribute('aria-expanded', String(!week));
-            pageLayer.querySelector('[data-tm-filter-weekdays]').innerHTML = Array.from({ length: 7 }, (_, i) => `<span>${'日一二三四五六'[(firstDay + i) % 7]}</span>`).join('');
+            pageLayer.querySelector('[data-tm-filter-weekdays]').innerHTML = Array.from({ length: 7 }, (_, i) => `<span>${__tmT('date.weekday.short.' + ((firstDay + i) % 7))}</span>`).join('');
             dateGrid.innerHTML = days.map(value => {
                 const busy = liveCandidates.some(task => matches(task, { from: value, to: value }));
-                return `<button type="button" class="tm-date-filter-day${parse(value).getMonth() !== date.getMonth() ? ' is-other' : ''}${value === today() ? ' is-today' : ''}" data-tm-filter-date="${value}" tabindex="${value === focus ? '0' : '-1'}" aria-label="${value}${busy ? '，有任务' : ''}" aria-pressed="false"${value === today() ? ' aria-current="date"' : ''}><span class="tm-date-filter-number">${parse(value).getDate()}${busy ? '<i class="tm-date-filter-dot" aria-hidden="true"></i>' : ''}</span></button>`;
+                return `<button type="button" class="tm-date-filter-day${parse(value).getMonth() !== date.getMonth() ? ' is-other' : ''}${value === today() ? ' is-today' : ''}" data-tm-filter-date="${value}" tabindex="${value === focus ? '0' : '-1'}" aria-label="${value}${busy ? __tmT("task.hasTasks") : ''}" aria-pressed="false"${value === today() ? ' aria-current="date"' : ''}><span class="tm-date-filter-number">${parse(value).getDate()}${busy ? '<i class="tm-date-filter-dot" aria-hidden="true"></i>' : ''}</span></button>`;
             }).join('');
             paintSelection();positionPopup();
             animatePage(departingPage, slideDirection);
@@ -297,10 +297,10 @@
             if (!panel) {
                 controller = new AbortController();const signal = controller.signal;
                 viewDate = range()?.to || today();focusDate = viewDate;
-                panel = document.createElement('section');panel.className = 'tm-date-filter-calendar';panel.setAttribute('aria-label', '日期筛选日历');
-                panel.innerHTML = `<div class="tm-date-filter-header"><div class="tm-date-filter-month"><button type="button" data-tm-filter-action="view"></button><span data-tm-filter-month aria-live="polite"></span></div><div class="tm-date-filter-navigation"><button type="button" data-tm-filter-action="prev" aria-label="上一月或周" title="上一月或周">${svg('chevron-left')}</button><button type="button" data-tm-filter-action="today" title="定位今天">今天</button><button type="button" data-tm-filter-action="next" aria-label="下一月或周" title="下一月或周">${svg('caret-right')}</button></div></div><div class="tm-date-filter-page" data-tm-filter-page><div class="tm-date-filter-weekdays" data-tm-filter-weekdays aria-hidden="true"></div><div class="tm-date-filter-days" data-tm-filter-days role="group" aria-label="选择日期"></div></div>`;
+                panel = document.createElement('section');panel.className = 'tm-date-filter-calendar';panel.setAttribute('aria-label', __tmT("task.dateFilterCalendar"));
+                panel.innerHTML = `<div class="tm-date-filter-header"><div class="tm-date-filter-month"><button type="button" data-tm-filter-action="view"></button><span data-tm-filter-month aria-live="polite"></span></div><div class="tm-date-filter-navigation"><button type="button" data-tm-filter-action="prev" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.previousMonthOrWeek")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.previousMonthOrWeek")}">${svg('chevron-left')}</button><button type="button" data-tm-filter-action="today" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.goToToday")}">${__tmT("common.today")}</button><button type="button" data-tm-filter-action="next" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.nextMonthOrWeek")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.nextMonthOrWeek")}">${svg('caret-right')}</button></div></div><div class="tm-date-filter-page" data-tm-filter-page><div class="tm-date-filter-weekdays" data-tm-filter-weekdays aria-hidden="true"></div><div class="tm-date-filter-days" data-tm-filter-days role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.selectDate")}"></div></div>`;
                 pageLayer = panel.querySelector('[data-tm-filter-page]');
-                panel.insertAdjacentHTML('afterbegin', `<div class="tm-date-filter-selection" data-tm-filter-selection hidden><span data-tm-filter-selection-label aria-live="polite"></span><button type="button" data-tm-filter-action="clear" aria-label="清除日期筛选" title="清除日期筛选">${svg('x')}</button></div>`);
+                panel.insertAdjacentHTML('afterbegin', `<div class="tm-date-filter-selection" data-tm-filter-selection hidden><span data-tm-filter-selection-label aria-live="polite"></span><button type="button" data-tm-filter-action="clear" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearDateFilter")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearDateFilter")}">${svg('x')}</button></div>`);
                 dateGrid = pageLayer.querySelector('[data-tm-filter-days]');
                 pageViewport = document.createElement('div');pageViewport.className = 'tm-date-filter-page-viewport';
                 pageLayer.replaceWith(pageViewport);pageViewport.append(pageLayer);
@@ -310,7 +310,7 @@
                 trigger.innerHTML = svg('calendar-blank');trigger.setAttribute('aria-expanded', 'false');trigger.setAttribute('aria-haspopup', 'dialog');
                 sidebar.querySelector('footer').prepend(trigger);
                 popup = document.createElement('div');popup.className = 'tm-date-filter-flyout';popup.hidden = true;
-                popup.setAttribute('role', 'dialog');popup.setAttribute('aria-label', '日期筛选');document.body.append(popup);
+                popup.setAttribute('role', 'dialog');popup.setAttribute('aria-label', __tmT("task.dateFilter2"));document.body.append(popup);
                 trigger.addEventListener('click', () => popup.hidden ? openPopup() : closePopup(true), { signal });
                 panel.addEventListener('click', event => {
                     const action = event.target.closest('[data-tm-filter-action]')?.dataset.tmFilterAction;

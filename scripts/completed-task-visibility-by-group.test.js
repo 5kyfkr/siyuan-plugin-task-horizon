@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const test = require('node:test');
 
 const root = path.resolve(__dirname, '..');
@@ -291,7 +291,9 @@ test('group switches and loader restore visibility before any asynchronous first
     const switchCode = between(dialogSource, '    window.tmSwitchDocGroup =', '        state.openToken =');
     assert.match(switchCode, /SettingsStore\.data\.currentGroupId = nextGroupId;\s*__tmApplyCompletedVisibilityToRuntime\(\);/);
     const loader = read('task-runtime/53c-document-loader-runtime.js');
-    assert.match(loader, /async function loadSelectedDocuments\(options = \{\}\) \{\s*__tmApplyCompletedVisibilityToRuntime\(\);/);
+    const loaderStart = loader.indexOf('async function loadSelectedDocuments(options = {}) {');
+    assert.ok(loaderStart >= 0);
+    assert.ok(loader.indexOf('__tmApplyCompletedVisibilityToRuntime();', loaderStart) < loader.indexOf('await ', loaderStart));
     assert.doesNotMatch(loader, /state\.showCompletedTasks = !!SettingsStore\.data\.showCompletedTasks/);
     assert.match(storeSource, /showCompleted: __tmGetShowCompletedTasksFromSettings\(data, opts\.groupId\)/);
 });

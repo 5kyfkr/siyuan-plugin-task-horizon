@@ -13,7 +13,7 @@
         const fromTree = (Array.isArray(state.taskTree) ? state.taskTree : [])
             .find((doc) => String(doc?.id || '').trim() === id);
         const fb = (fallback && typeof fallback === 'object') ? fallback : null;
-        const name = String(fromAll?.name || fromTree?.name || fb?.name || '').trim() || '未命名文档';
+        const name = String(fromAll?.name || fromTree?.name || fb?.name || '').trim() || __tmT("kernel.untitledDocument");
         const path = String(fromAll?.path || fromTree?.path || fb?.path || '').trim();
         return { id, name, path };
     }
@@ -44,7 +44,7 @@
 
     function __tmResolveQuickAddDocName(docId) {
         const id = String(docId || '').trim();
-        if (!id) return '未知文档';
+        if (!id) return __tmT("task.unknownDocument");
         const loaded = (Array.isArray(state.allDocuments) ? state.allDocuments : [])
             .find((doc) => String(doc?.id || '').trim() === id)
             || (Array.isArray(state.taskTree) ? state.taskTree : [])
@@ -53,7 +53,7 @@
         if (loadedName) return loadedName;
         const recent = __tmGetQuickAddRecentDocs()
             .find((doc) => String(doc?.id || '').trim() === id);
-        return String(recent?.name || '').trim() || '未知文档';
+        return String(recent?.name || '').trim() || __tmT("task.unknownDocument");
     }
 
     function __tmRememberQuickAddLocation(mode, docId = '') {
@@ -193,9 +193,9 @@
         if (!currentId && resolveId) {
             currentId = String(await resolveId() || '').trim();
         }
-        if (!currentId) throw new Error('未找到任务块');
+        if (!currentId) throw new Error(__tmT("task.taskBlockNotFound"));
         const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-        if (typeof patchTask !== 'function') throw new Error('任务写入服务未就绪: patchTask');
+        if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteServiceIsNotReadyPatchtask"));
         const write = patchTask(currentId, payload, {
             ...opts,
             source: String(opts.source || 'create-task-attrs').trim() || 'create-task-attrs',
@@ -495,7 +495,7 @@
             || sourceTask.docName
             || sourceTask.doc_name
             || ''
-        ).trim() || '未命名文档';
+        ).trim() || __tmT("kernel.untitledDocument");
         const doc = {
             id: did,
             name: docName,
@@ -1060,7 +1060,7 @@
                 status: 'optimistic',
             });
         } catch (e) {}
-        const docName = state.allDocuments.find((d) => String(d?.id || '').trim() === docId)?.name || '未知文档';
+        const docName = state.allDocuments.find((d) => String(d?.id || '').trim() === docId)?.name || __tmT("task.unknownDocument");
         const pr0 = String(payload.priority ?? '').trim();
         const prMap = { '高': 'high', '中': 'medium', '低': 'low', '无': '', 'none': '' };
         const priority = Object.prototype.hasOwnProperty.call(prMap, pr0) ? prMap[pr0] : pr0;
@@ -1295,7 +1295,7 @@
                 if (task[key] == null || String(task[key] || '').trim() === '') task[key] = local[key];
             });
         }
-        try { normalizeTaskFields(task, task.docName || local?.docName || '未命名文档'); } catch (e) {}
+        try { normalizeTaskFields(task, task.docName || local?.docName || __tmT("kernel.untitledDocument")); } catch (e) {}
         try { task.priorityScore = __tmEnsureTaskPriorityScore(task, { force: true }); } catch (e) {}
         let upserted = false;
         try {
@@ -2223,8 +2223,8 @@
         const parentDocId = String(docId || '').trim();
         let targetParentId = String(insertParentId || parentDocId).trim() || parentDocId;
         const text = String(content || '').trim();
-        if (!parentDocId) throw new Error('未设置文档');
-        if (!text) throw new Error('请输入任务内容');
+        if (!parentDocId) throw new Error(__tmT("task.noDocumentSet"));
+        if (!text) throw new Error(__tmT("task.enterTheTaskContent"));
         const statusOptions = __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
         const requestedStatusId = String(customStatus || '').trim();
         const requestedStatusOption = requestedStatusId ? __tmFindStatusOptionById(requestedStatusId, statusOptions) : null;
@@ -2346,7 +2346,7 @@
         }
         try { __tmInvalidateTasksQueryCacheByDocId(parentDocId); } catch (e) {}
 
-        const docName = state.allDocuments.find(d => d.id === parentDocId)?.name || '未知文档';
+        const docName = state.allDocuments.find(d => d.id === parentDocId)?.name || __tmT("task.unknownDocument");
         const newTask = {
             id: taskId,
             done: __tmIsTaskMarkerDone(initialMarker),
@@ -2413,7 +2413,7 @@
         return taskId;
     }
 
-    function __tmBuildHeadingGroupCreateBtnHtml(docId, headingId, title = '新建任务') {
+    function __tmBuildHeadingGroupCreateBtnHtml(docId, headingId, title = __tmT("common.newTask")) {
         const did = String(docId || '').trim();
         if (!did) return '';
         const hid = String(headingId || '').trim();
@@ -2433,7 +2433,7 @@
         `;
     }
 
-    function __tmBuildDocGroupQuickAddBtnHtml(docId, title = '新建任务') {
+    function __tmBuildDocGroupQuickAddBtnHtml(docId, title = __tmT("common.newTask")) {
         const did = String(docId || '').trim();
         if (!did || did === '__unknown__') return '';
         return `
@@ -2459,7 +2459,7 @@
         const did = String(docId || '').trim();
         const hid = String(headingId || '').trim();
         if (!did) {
-            hint('❌ 未找到文档', 'error');
+            hint(__tmT("task.documentNotFound"), 'error');
             return;
         }
         return await window.tmQuickAddOpenForDoc(did, hid || '__none__');
@@ -2469,8 +2469,8 @@
         const targetParentId = String(parentId || '').trim();
         const blockData = String(data || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
-        if (!targetParentId) throw new Error('未找到目标块');
-        if (!blockData) throw new Error('内容为空');
+        if (!targetParentId) throw new Error(__tmT("task.targetBlockNotFound"));
+        if (!blockData) throw new Error(__tmT("task.contentIsEmpty"));
         return await __tmBackendAdapter.appendBlock(targetParentId, blockData, {
             dataType: opts.dataType,
             requestedID: opts.requestedID,
@@ -2481,8 +2481,8 @@
         const targetParentId = String(parentId || '').trim();
         const blockData = String(data || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
-        if (!targetParentId) throw new Error('未找到目标块');
-        if (!blockData) throw new Error('内容为空');
+        if (!targetParentId) throw new Error(__tmT("task.targetBlockNotFound"));
+        if (!blockData) throw new Error(__tmT("task.contentIsEmpty"));
         return await __tmBackendAdapter.insertBlock(targetParentId, blockData, placement, {
             dataType: opts.dataType,
             requestedID: opts.requestedID,
@@ -2519,7 +2519,7 @@
         const requestedTaskId = String(opts.requestedTaskId || '').trim();
         const requestedContainerId = String(opts.requestedContainerId || '').trim();
         let wrapperID = '';
-        if (!parentID || !hid) throw new Error('未找到超级块目标标题');
+        if (!parentID || !hid) throw new Error(__tmT("task.targetHeadingForTheSuperblockNotFound"));
         try {
             if (requestedContainerId) {
                 try {
@@ -2543,7 +2543,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                         ...(requestedContainerId ? { dataType: 'dom', requestedID: requestedContainerId } : {}),
                     }
                 ) || '').trim();
-                if (!insertedID) throw new Error('创建超级块列容器失败');
+                if (!insertedID) throw new Error(__tmT("task.failedToCreateTheSuperblockColumnContainer"));
                 wrapperID = requestedContainerId || insertedID;
             }
             try {
@@ -2560,7 +2560,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 firstChildID = String((Array.isArray(children) ? children : []).find((child) => String(child?.id || '').trim())?.id || '').trim();
                 if (firstChildID) break;
             }
-            if (!firstChildID) throw new Error('未找到超级块列内的新任务');
+            if (!firstChildID) throw new Error(__tmT("task.newTaskInsideTheSuperblockColumnNotFound"));
             let headingMoved = false;
             try {
                 const rows = await API.getBlocksByIds([hid]);
@@ -2599,9 +2599,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 }
             } catch (e) {}
         }
-        if (!pid || !parentTask) throw new Error('未找到父任务');
+        if (!pid || !parentTask) throw new Error(__tmT("ai.parentTaskNotFound"));
         const text = String(content || '').trim();
-        if (!text) throw new Error('请输入子任务内容');
+        if (!text) throw new Error(__tmT("task.enterTheSubtaskContent2"));
         const opts = (options && typeof options === 'object') ? options : {};
         const inheritedPatch = Object.prototype.hasOwnProperty.call(opts, 'inheritedPatch')
             ? __tmNormalizeSubtaskInheritedPatch(opts.inheritedPatch)
@@ -2636,7 +2636,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 attrs: opts.initialAttrs,
             });
             const createSubtask = __tmBackendAdapter?.createSubtask;
-            if (typeof createSubtask !== 'function') throw new Error('内核子任务写入服务未就绪');
+            if (typeof createSubtask !== 'function') throw new Error(__tmT("task.kernelSubtaskWriteServiceIsNotReady"));
             const result = await createSubtask(
                 pid,
                 stableTaskId,
@@ -2677,11 +2677,11 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 }
                 : {};
             const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-            if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+            if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
             const persistPromise = patchTask(taskId, attrPatch, {
                 ...persistOptions,
                 source: 'create-subtask-attrs',
-                label: '子任务属性',
+                label: __tmT("task.subtaskAttributes"),
                 wait: opts.backgroundAttrs === true ? false : true,
             });
             if (opts.backgroundAttrs === true) {
@@ -2768,14 +2768,14 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             || __tmResolveOptimisticTaskForLocalUse(sourceTaskId).task
             || authoritativeSourceTask
             || null;
-        if (!sourceTaskId || !currentTask) throw new Error('未找到当前任务');
+        if (!sourceTaskId || !currentTask) throw new Error(__tmT("task.currentTaskNotFound"));
         const text = String(content || '').trim();
-        if (!text) throw new Error('请输入任务内容');
+        if (!text) throw new Error(__tmT("task.enterTheTaskContent"));
         const opts = (options && typeof options === 'object') ? options : {};
         const stableTaskId = String(opts.requestedTaskId || '').trim();
 
         const listId = await __tmResolveTaskListBlockId(sourceTaskId);
-        if (!listId) throw new Error('未找到当前任务所在的任务列表');
+        if (!listId) throw new Error(__tmT("task.couldNotFindTheTaskListContainingTheCurrent"));
 
         const currentDocId = String(currentTask.docId || currentTask.root_id || '').trim();
         const alreadyInserted = stableTaskId && await __tmIsTaskListItemBlockId(stableTaskId);
@@ -2840,10 +2840,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     function __tmNewTaskBlockId() {
         const createId = globalThis.Lute?.NewNodeID || globalThis.window?.Lute?.NewNodeID;
         if (typeof createId !== 'function') {
-            throw new Error('当前思源版本不支持预生成块 ID，任务创建已暂停');
+            throw new Error(__tmT("task.thisSiyuanVersionDoesNotSupportPreGeneratedBlock"));
         }
         const id = String(createId.call(globalThis.Lute || globalThis.window?.Lute) || '').trim();
-        if (!/^\d{14}-[a-z0-9]{7}$/i.test(id)) throw new Error('思源返回的预生成块 ID 无效');
+        if (!/^\d{14}-[a-z0-9]{7}$/i.test(id)) throw new Error(__tmT("task.siyuanReturnedAnInvalidPreGeneratedBlockId"));
         return id;
     }
 
@@ -2852,10 +2852,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const parentInfo = __tmResolveOptimisticTaskForLocalUse(rawPid);
         const pid = String(parentInfo.id || parentInfo.resolvedId || rawPid).trim();
         const text = String(content || '').trim();
-        if (!rawPid || !pid) throw new Error('未找到父任务');
-        if (!text) throw new Error('请输入子任务内容');
+        if (!rawPid || !pid) throw new Error(__tmT("ai.parentTaskNotFound"));
+        if (!text) throw new Error(__tmT("task.enterTheSubtaskContent2"));
         if (typeof __tmIsMutationTaskPendingDeleted === 'function' && (__tmIsMutationTaskPendingDeleted(rawPid) || __tmIsMutationTaskPendingDeleted(pid))) {
-            throw new Error('父任务正在删除，无法新建子任务');
+            throw new Error(__tmT("task.theParentTaskIsBeingDeletedCannotCreateA"));
         }
         const hooks = (options && typeof options === 'object') ? options : {};
         const parentTask = parentInfo.task;
@@ -2920,10 +2920,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     result,
                 });
             } catch (e) {}
-            if (hooks.silent !== true) hint('✅ 已新增', 'success');
+            if (hooks.silent !== true) hint(__tmT("task.added2"), 'success');
         }).catch((e) => {
             try { hooks.onError?.(e); } catch (e2) {}
-            if (hooks.silent !== true) hint(`❌ 新建子任务失败: ${e.message}`, 'error');
+            if (hooks.silent !== true) hint(__tmT("task.failedToCreateSubtask2", { message: e.message }), 'error');
         }).finally(() => {
             try { hooks.onFinally?.(); } catch (e) {}
         });
@@ -2998,7 +2998,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             h2Id: parentTask.h2Id || '',
         };
         if (inheritedPatchInput) __tmApplyQueuedTaskFieldPatchToTask(nextTask, inheritedPatchInput);
-        try { normalizeTaskFields(nextTask, nextTask.docName || '未知文档'); } catch (e) {}
+        try { normalizeTaskFields(nextTask, nextTask.docName || __tmT("task.unknownDocument")); } catch (e) {}
 
         try { __tmAttachOptimisticChildToParentCandidates(parentTask, rawPid || pid, nextTask); } catch (e) {}
         try { __tmAttachOptimisticChildToParentCandidates(parentTask, pid, nextTask); } catch (e) {}
@@ -3071,7 +3071,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             h2Id: sourceTask.h2Id || '',
         };
         if (opts.initialPatch) __tmApplyQueuedTaskFieldPatchToTask(nextTask, opts.initialPatch);
-        try { normalizeTaskFields(nextTask, nextTask.docName || '未知文档'); } catch (e) {}
+        try { normalizeTaskFields(nextTask, nextTask.docName || __tmT("task.unknownDocument")); } catch (e) {}
         try {
             const sourceDocSeq = Number(sourceTask?.docSeq);
             if (Number.isFinite(sourceDocSeq)) nextTask.docSeq = sourceDocSeq + 0.5;
@@ -3126,8 +3126,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const hooks = (queueOptions && typeof queueOptions === 'object') ? queueOptions : {};
         const docId = String(opts.docId || '').trim();
         const content = String(opts.content || '').trim();
-        if (!docId) throw new Error('未设置文档');
-        if (!content) throw new Error('请输入任务内容');
+        if (!docId) throw new Error(__tmT("task.noDocumentSet"));
+        if (!content) throw new Error(__tmT("task.enterTheTaskContent"));
         const requestedTaskId = __tmNewTaskBlockId();
         const tempId = requestedTaskId;
         const requestedContainerId = __tmNewTaskBlockId();
@@ -3191,14 +3191,14 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const text = String(content || '').trim();
         const hooks = (options && typeof options === 'object') ? options : {};
         const currentTask = sourceInfo.task;
-        if (!tid || !currentTask) throw new Error('未找到当前任务');
-        if (!text) throw new Error('请输入任务内容');
+        if (!tid || !currentTask) throw new Error(__tmT("task.currentTaskNotFound"));
+        if (!text) throw new Error(__tmT("task.enterTheTaskContent"));
         if (typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(tid)) {
-            throw new Error('当前任务正在删除，无法新建同级任务');
+            throw new Error(__tmT("task.theCurrentTaskIsBeingDeletedCannotCreateA"));
         }
         const parentTaskId = String(currentTask.parentTaskId || '').trim();
         if (parentTaskId && typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(parentTaskId)) {
-            throw new Error('父任务正在删除，无法新建同级任务');
+            throw new Error(__tmT("task.theParentTaskIsBeingDeletedCannotCreateA2"));
         }
         const requestedTaskId = __tmNewTaskBlockId();
         const tempId = requestedTaskId;
@@ -3239,10 +3239,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         settlePromise.then((result) => {
             const realId = String(result?.realId || tempId).trim() || tempId;
             try { hooks.onSuccess?.(realId); } catch (e) {}
-            if (hooks.silent !== true) hint('✅ 同级任务已创建', 'success');
+            if (hooks.silent !== true) hint(__tmT("task.siblingTaskCreated"), 'success');
         }).catch((e) => {
             try { hooks.onError?.(e); } catch (e2) {}
-            if (hooks.silent !== true) hint(`❌ 新建同级任务失败: ${e.message}`, 'error');
+            if (hooks.silent !== true) hint(__tmT("task.failedToCreateSiblingTask", { message: e.message }), 'error');
         }).finally(() => {
             try { hooks.onFinally?.(); } catch (e) {}
         });
@@ -3261,10 +3261,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const pid = parentInfo.id;
         const parentTask = parentInfo.task;
         if (!pid || !parentTask) {
-            hint('❌ 未找到父任务', 'error');
+            hint(__tmT("task.parentTaskNotFound"), 'error');
             return;
         }
-        if (!__tmEnsureEditableTaskLike(parentTask, '新建子任务')) return;
+        if (!__tmEnsureEditableTaskLike(parentTask, __tmT("ai.newSubtask"))) return;
 
         return await window.tmQuickAddOpen({
             relation: 'subtask',
@@ -3283,10 +3283,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const tid = sourceInfo.id;
         const currentTask = sourceInfo.task;
         if (!tid || !currentTask) {
-            hint('❌ 未找到当前任务', 'error');
+            hint(__tmT("task.currentTaskNotFound2"), 'error');
             return;
         }
-        if (!__tmEnsureEditableTaskLike(currentTask, '新建同级任务')) return;
+        if (!__tmEnsureEditableTaskLike(currentTask, __tmT("task.newSiblingTask"))) return;
 
         return await window.tmQuickAddOpen({
             relation: 'sibling',
@@ -3425,10 +3425,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const qa = state.quickAdd;
         if (!qa) return [];
         return [
-            ...(!qa.relation ? [{ id: 'doc', name: '文档', icon: 'file-text', target: '.tm-quick-add-doc' }] : []),
-            { id: 'date', name: '日期', icon: 'calendar-check', target: '.tm-quick-add-date-wrap' },
-            { id: 'priority', name: '重要性', icon: 'flag', target: '#tmQuickAddPriorityBtn' },
-            { id: 'status', name: '状态', icon: 'check-circle-2', target: '#tmQuickAddStatusBtn' },
+            ...(!qa.relation ? [{ id: 'doc', name: __tmT('task.document'), icon: 'file-text', target: '.tm-quick-add-doc' }] : []),
+            { id: 'date', name: __tmT('calendar.date'), icon: 'calendar-check', target: '.tm-quick-add-date-wrap' },
+            { id: 'priority', name: __tmT('kernel.importance'), icon: 'flag', target: '#tmQuickAddPriorityBtn' },
+            { id: 'status', name: __tmT('kernel.status'), icon: 'check-circle-2', target: '#tmQuickAddStatusBtn' },
             ...__tmGetQuickAddVisibleOptionCustomFieldDefs().map(field => ({
                 id: `custom:${field.id}`, name: String(field.name || field.id), icon: 'tag', field,
             })),
@@ -3450,14 +3450,17 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
 
     function __tmGetQuickAddFieldValueLabel(entry) {
         const qa = state.quickAdd || {};
-        if (entry.id === 'doc') return qa.docMode === 'dailyNote' ? '今天日记' : __tmResolveQuickAddDocName(qa.docId);
-        if (entry.id === 'date') return document.getElementById('tmQuickAddDateLabel')?.parentElement?.title || '未设置';
-        if (entry.id === 'priority') return { high: '高', medium: '中', low: '低' }[qa.priority] || '无';
-        if (entry.id === 'status') return (SettingsStore.data.customStatusOptions || []).find(option => option.id === qa.customStatus)?.name || '待办';
+        if (entry.id === 'doc') return qa.docMode === 'dailyNote' ? __tmT("settings.todaySDailyNote") : __tmResolveQuickAddDocName(qa.docId);
+        if (entry.id === 'date') return document.getElementById('tmQuickAddDateLabel')?.parentElement?.title || __tmT("common.notSet");
+        if (entry.id === 'priority') return { high: __tmT("common.high"), medium: __tmT("common.medium"), low: __tmT("common.low") }[qa.priority] || __tmT("common.none");
+        if (entry.id === 'status') {
+            const option = (SettingsStore.data.customStatusOptions || []).find(option => option.id === qa.customStatus);
+            return option ? globalThis.__taskHorizonHostBridge.i18n.builtinName('status', option) : __tmT("homepage.toDo");
+        }
         const value = __tmNormalizeCustomFieldValue(entry.field, qa.customFieldValues?.[entry.field.id]);
-        if (entry.field.type === 'text') return value || '未设置';
+        if (entry.field.type === 'text') return value || __tmT("common.notSet");
         const values = Array.isArray(value) ? value : value ? [value] : [];
-        return values.map(id => __tmFindCustomFieldOption(entry.field, id)?.name || id).join('、') || '未设置';
+        return values.map(id => __tmFindCustomFieldOption(entry.field, id)?.name || id).join('、') || __tmT("common.notSet");
     }
 
     function __tmApplyQuickAddFieldVisibility() {
@@ -3475,12 +3478,12 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         if (!menu || !state.quickAdd) return;
         const hiddenFields = __tmGetQuickAddFieldEntries().filter(entry => !__tmIsQuickAddFieldVisible(entry));
         menu.innerHTML = `
-            <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-action="image">${__tmRenderLucideIcon('image')}<span>添加图片</span></button>
+            <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-action="image">${__tmRenderLucideIcon('image')}<span>${__tmT("task.addImage")}</span></button>
             ${hiddenFields.length ? `<div class="tm-quick-add-menu-fields">${hiddenFields.map(entry => `
-                <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-field="${esc(entry.id)}" aria-label="设置${esc(entry.name)}：${esc(__tmGetQuickAddFieldValueLabel(entry))}">
+                <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-field="${esc(entry.id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.settings", { name: entry.name, value2: __tmGetQuickAddFieldValueLabel(entry) })}">
                     ${__tmRenderLucideIcon(entry.icon)}<span>${esc(entry.name)}</span><span class="tm-quick-add-menu-value">${esc(__tmGetQuickAddFieldValueLabel(entry))}</span>
                 </button>`).join('')}</div>` : ''}
-            <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-action="fields">${__tmRenderLucideIcon('settings')}<span>显示字段设置</span></button>`;
+            <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-action="fields">${__tmRenderLucideIcon('settings')}<span>${__tmT("task.fieldSettings")}</span></button>`;
     }
 
     window.tmQuickAddOpenMoreMenu = function(event) {
@@ -3494,7 +3497,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             editor.classList.add('tm-quick-add-more-menu');
             editor.id = 'tmQuickAddMoreMenu';
             editor.setAttribute('role', 'menu');
-            editor.setAttribute('aria-label', '新建任务更多操作');
+            editor.setAttribute('aria-label', __tmT("task.moreNewTaskActions"));
             anchor.setAttribute('aria-expanded', 'true');
             onCleanup(() => anchor.setAttribute('aria-expanded', 'false'));
             __tmRenderQuickAddMoreMenu();
@@ -3544,14 +3547,14 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const entries = __tmGetQuickAddFieldEntries().filter(entry => !entry.field);
         const renderRows = rows => rows.map(entry => `<label class="tm-quick-add-field-setting">
             ${__tmRenderLucideIcon(entry.icon)}<span>${esc(entry.name)}</span>
-            <input class="b3-switch" type="checkbox" data-quick-add-visibility="${esc(entry.id)}" aria-label="在工具栏显示${esc(entry.name)}" ${__tmIsQuickAddFieldVisible(entry) ? 'checked' : ''}>
+            <input class="b3-switch" type="checkbox" data-quick-add-visibility="${esc(entry.id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.showInToolbar", { name: entry.name })}" ${__tmIsQuickAddFieldVisible(entry) ? 'checked' : ''}>
         </label>`).join('');
         panel.innerHTML = `<div class="tm-quick-add-settings-head">
-            <button type="button" class="tm-quick-add-settings-back" onclick="tmQuickAddCloseFieldSettings()" aria-label="返回新建任务">${__tmRenderLucideIcon('arrow-left')}</button>
-            <strong>显示字段设置</strong><button type="button" class="tm-btn tm-btn-secondary" onclick="tmQuickAddCloseFieldSettings()">完成</button>
-        </div><p class="tm-quick-add-settings-description">仅设置${platform === 'mobile' ? '移动端' : '桌面端'}。关闭后收进更多菜单，已填写的值会保留。</p>
+            <button type="button" class="tm-quick-add-settings-back" onclick="tmQuickAddCloseFieldSettings()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.backnewTask")}">${__tmRenderLucideIcon('arrow-left')}</button>
+            <strong>${__tmT("task.fieldSettings")}</strong><button type="button" class="tm-btn tm-btn-secondary" onclick="tmQuickAddCloseFieldSettings()">${__tmT("quickbar.done")}</button>
+        </div><p class="tm-quick-add-settings-description">${__tmT("task.configuresOnlyWhenClosedItMovesIntoTheMore", { value1: platform === 'mobile' ? __tmT("calendar.mobile") : __tmT("calendar.desktop") })}</p>
         <div class="tm-quick-add-settings-list">${renderRows(entries)}
-            <div class="tm-quick-add-settings-group">具体列跟随文档分组的显示设置</div>
+            <div class="tm-quick-add-settings-group">${__tmT("task.specificColumnsFollowTheDocumentGroupSDisplaySettings")}</div>
             ${renderRows([{ id: 'customFields', name: '自定义列', icon: 'tag' }])}
         </div>`;
         panel.onchange = async event => {
@@ -3562,7 +3565,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             SettingsStore.data[key] = { ...__tmNormalizeQuickAddFieldVisibility(SettingsStore.data[key]), [id]: input.checked };
             __tmRenderQuickAddCustomFields();
             __tmApplyQuickAddFieldVisibility();
-            try { await SettingsStore.save(); } catch (e) { hint('⚠ 字段显示设置保存失败，请重试', 'warning'); }
+            try { await SettingsStore.save(); } catch (e) { hint(__tmT("task.failedToSaveTheFieldDisplaySettingsTryAgain"), 'warning'); }
         };
         modal.querySelector('.tm-quick-add-compose-view').hidden = true;
         panel.hidden = false;
@@ -3578,8 +3581,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         if (!qa || !strip) return;
         strip.hidden = !qa.images.length;
         strip.innerHTML = qa.images.map(image => `<div class="tm-quick-add-image">
-            <button type="button" class="tm-quick-add-image-preview" data-quick-add-preview="${esc(image.id)}" aria-label="预览 ${esc(image.file.name)}"><img src="${esc(image.url)}" alt="${esc(image.file.name)}"></button>
-            <button type="button" class="tm-quick-add-image-remove" data-quick-add-remove="${esc(image.id)}" aria-label="移除 ${esc(image.file.name)}">${__tmRenderLucideIcon('x')}</button>
+            <button type="button" class="tm-quick-add-image-preview" data-quick-add-preview="${esc(image.id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.preview2", { name: image.file.name })}"><img src="${esc(image.url)}" alt="${esc(image.file.name)}"></button>
+            <button type="button" class="tm-quick-add-image-remove" data-quick-add-remove="${esc(image.id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.remove3", { name: image.file.name })}">${__tmRenderLucideIcon('x')}</button>
         </div>`).join('');
         __tmRefreshQuickAddInputLayout(state.quickAddModal);
     }
@@ -3633,7 +3636,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             img.alt = image.file.name;
             const close = document.createElement('button');
             close.type = 'button';
-            close.textContent = '关闭';
+            close.textContent = __tmT("common.close");
             close.onclick = () => preview.close();
             preview.append(img, close);
             modal.appendChild(preview);
@@ -3648,7 +3651,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         for (const image of qa.images || []) {
             if (image.path) continue;
             const paths = await __tmUploadTaskAttachmentFiles([image.file], { assetsDirPath: '/assets/' });
-            if (paths.length !== 1) throw new Error(`图片上传失败：${image.file.name}`);
+            if (paths.length !== 1) throw new Error(__tmT("task.imageUploadFailed", { name: image.file.name }));
             image.path = paths[0];
         }
         return (qa.images || []).map(image => image.path);
@@ -3673,7 +3676,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const fieldName = String(field?.name || fieldId).trim() || fieldId;
         const isMulti = String(field?.type || '').trim() === 'multi';
         const displayHtml = __tmBuildCustomFieldDisplayHtml(field, value, {
-            emptyText: '未设置',
+            emptyText: __tmT("common.notSet"),
             maxTags: isMulti ? 2 : 1,
         });
         return `
@@ -3736,7 +3739,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 const done = document.createElement('button');
                 done.type = 'button';
                 done.className = 'tm-btn tm-btn-primary';
-                done.textContent = '完成';
+                done.textContent = __tmT("quickbar.done");
                 done.onclick = () => close();
                 editor.append(input, done);
                 onCleanup(__tmBindCustomFieldPickerViewport(editor, btn));
@@ -3778,7 +3781,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             wrap.style.width = '100%';
             const title = document.createElement('div');
             title.style.cssText = 'font-size:12px;color:var(--tm-secondary-text);padding:0 2px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-            title.textContent = String(field?.name || fid || '自定义列').trim() || '自定义列';
+            title.textContent = String(field?.name || fid || __tmT("task.customColumn")).trim() || __tmT("task.customColumn");
             wrap.appendChild(title);
             const list = document.createElement('div');
             list.className = 'tm-custom-field-inline-list';
@@ -3817,7 +3820,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             clearBtn.type = 'button';
             clearBtn.className = 'tm-btn tm-btn-gray';
             clearBtn.style.cssText = 'padding:3px 8px;font-size:12px;';
-            clearBtn.textContent = '清空';
+            clearBtn.textContent = __tmT("common.clear");
             clearBtn.onclick = () => {
                 draft.clear();
                 syncQuickAddValue();
@@ -3830,7 +3833,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 doneBtn.type = 'button';
                 doneBtn.className = 'tm-btn tm-btn-primary';
                 doneBtn.style.cssText = 'padding:3px 8px;font-size:12px;';
-                doneBtn.textContent = '完成';
+                doneBtn.textContent = __tmT("quickbar.done");
                 doneBtn.onclick = () => close();
                 actions.appendChild(doneBtn);
             }
@@ -3847,20 +3850,20 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const count = __tmSplitTaskInputLines(input?.value || '').length;
         const submit = modal.querySelector('#tmQuickAddSubmitBtn');
         if (submit) {
-            submit.textContent = count > 1 ? `添加 ${count} 个` : '添加';
-            if (state.quickAdd?.uploadingImages) submit.textContent = '上传中…';
+            submit.textContent = count > 1 ? __tmT("task.add2", { count: count }) : __tmT("settings.add");
+            if (state.quickAdd?.uploadingImages) submit.textContent = __tmT("task.uploading2");
             submit.disabled = count === 0 || !!state.quickAdd?.initializing || !!state.quickAdd?.uploadingImages;
         }
         const hint = modal.querySelector('#tmQuickAddBatchHint');
         if (hint) {
             hint.hidden = count < 2;
             hint.textContent = state.quickAdd?.images?.length
-                ? `共 ${count} 个任务，备注和图片仅用于第一个任务`
-                : `共 ${count} 个任务，备注仅用于第一个任务`;
+                ? __tmT("task.totalTasksTheRemarkAndImagesApplyToThe", { count: count })
+                : __tmT("task.totalTasksTheRemarkAppliesToTheFirstTask", { count: count });
         }
         if (remark) {
-            remark.placeholder = '备注';
-            remark.setAttribute('aria-label', count > 1 ? '备注，仅用于第一个任务' : '备注');
+            remark.placeholder = __tmT("kernel.note");
+            remark.setAttribute('aria-label', count > 1 ? __tmT("task.remarkAppliesToTheFirstTaskOnly") : __tmT("kernel.note"));
         }
         [input, remark].forEach((el) => {
             if (!el) return;
@@ -3941,7 +3944,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     window.tmQuickAddOpen = async function(options = {}) {
         const relation = options.relation === 'subtask' || options.relation === 'sibling' ? options.relation : '';
         const sourceTaskId = relation ? String(options.sourceTaskId || '').trim() : '';
-        const dialogTitle = relation === 'subtask' ? '新建子任务' : relation === 'sibling' ? '新建同级任务' : '新建任务';
+        const dialogTitle = relation === 'subtask' ? __tmT("ai.newSubtask") : relation === 'sibling' ? __tmT("task.newSiblingTask") : __tmT("common.newTask");
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
         if (state.quickAddModal) window.tmQuickAddClose?.();
         state.__quickAddViewportCleanup?.();
@@ -3994,37 +3997,37 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
 
         modal.innerHTML = `
             <div class="tm-prompt-box tm-quick-add-box" role="dialog" aria-modal="true" aria-label="${dialogTitle}">
-                <button type="button" class="tm-quick-add-close" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" aria-label="关闭${dialogTitle}">${__tmRenderLucideIcon('x')}</button>
+                <button type="button" class="tm-quick-add-close" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.off", { dialogTitle: dialogTitle })}">${__tmRenderLucideIcon('x')}</button>
                 <div class="tm-quick-add-compose-view">
                 <div class="tm-quick-add-fields">
-                    <textarea id="tmQuickAddInput" class="tm-prompt-input tm-quick-add-title-input" placeholder="准备做什么？" aria-label="任务内容，每行一个任务" enterkeyhint="enter" rows="1"></textarea>
-                    <textarea id="tmQuickAddRemark" class="tm-prompt-input tm-quick-add-remark-input" placeholder="备注" aria-label="备注" enterkeyhint="enter" rows="1"></textarea>
-                    <div id="tmQuickAddImages" class="tm-quick-add-images" aria-label="任务图片" hidden></div>
+                    <textarea id="tmQuickAddInput" class="tm-prompt-input tm-quick-add-title-input" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.whatNeedsDoing")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.taskContentOneTaskPerLine")}" enterkeyhint="enter" rows="1"></textarea>
+                    <textarea id="tmQuickAddRemark" class="tm-prompt-input tm-quick-add-remark-input" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.note")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.note")}" enterkeyhint="enter" rows="1"></textarea>
+                    <div id="tmQuickAddImages" class="tm-quick-add-images" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.taskimage")}" hidden></div>
                     <div id="tmQuickAddBatchHint" class="tm-quick-add-batch-hint" aria-live="polite" hidden></div>
                 </div>
                 <div class="tm-quick-add-toolbar">
                     <div class="tm-quick-add-tools" inert aria-busy="true">
-                        ${relation ? '' : `<button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-doc" onclick="tmQuickAddOpenDocPicker()" aria-label="选择文档">
-                            ${__tmRenderLucideIcon('file-text')}<span id="tmQuickAddDocName">文档</span>
+                        ${relation ? '' : `<button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-doc" onclick="tmQuickAddOpenDocPicker()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.selectDocument")}">
+                            ${__tmRenderLucideIcon('file-text')}<span id="tmQuickAddDocName">${__tmT("kernel.documents")}</span>
                         </button>`}
                         <div class="tm-quick-add-date-wrap">
-                            <button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-date" onclick="tmQuickAddOpenDatePicker()" aria-label="设置日期" title="日期、循环和提醒">
-                                ${__tmRenderLucideIcon('calendar-check')}<span id="tmQuickAddDateLabel">日期</span>
+                            <button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-date" onclick="tmQuickAddOpenDatePicker()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.setDate2")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.datesRepeatsAndReminders")}">
+                                ${__tmRenderLucideIcon('calendar-check')}<span id="tmQuickAddDateLabel">${__tmT("calendar.date")}</span>
                             </button>
                             <input type="date" id="tmQuickAddDateInput" class="tm-quick-add-native-date" tabindex="-1" aria-hidden="true" oninput="tmQuickAddDateChanged(this.value)" onchange="tmQuickAddDateChanged(this.value)">
                         </div>
-                        <button type="button" id="tmQuickAddPriorityBtn" class="tm-btn tm-btn-secondary tm-quick-add-tool" onclick="tmQuickAddOpenPriorityPicker(event)" aria-label="设置重要性" aria-haspopup="listbox">
+                        <button type="button" id="tmQuickAddPriorityBtn" class="tm-btn tm-btn-secondary tm-quick-add-tool" onclick="tmQuickAddOpenPriorityPicker(event)" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.settingsimportance")}" aria-haspopup="listbox">
                             ${__tmRenderPriorityJira('none', false)}
                         </button>
-                        <button type="button" id="tmQuickAddStatusBtn" class="tm-btn tm-btn-secondary tm-quick-add-tool" onclick="tmQuickAddOpenStatusPicker()" aria-label="设置状态" aria-haspopup="listbox">状态</button>
+                        <button type="button" id="tmQuickAddStatusBtn" class="tm-btn tm-btn-secondary tm-quick-add-tool" onclick="tmQuickAddOpenStatusPicker()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.settingsstatus")}" aria-haspopup="listbox">${__tmT("kernel.status")}</button>
                         <div id="tmQuickAddCustomFields" class="tm-quick-add-custom-fields"></div>
                     </div>
-                    <button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-more" id="tmQuickAddMoreBtn" onclick="tmQuickAddOpenMoreMenu(event)" aria-label="更多" aria-haspopup="menu" aria-expanded="false" aria-controls="tmQuickAddMoreMenu" disabled>${__tmRenderLucideIcon('dots-three')}</button>
-                    <button type="button" class="tm-btn tm-btn-primary tm-quick-add-submit" id="tmQuickAddSubmitBtn" onclick="tmQuickAddSubmit()" disabled>添加</button>
+                    <button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-more" id="tmQuickAddMoreBtn" onclick="tmQuickAddOpenMoreMenu(event)" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.more")}" aria-haspopup="menu" aria-expanded="false" aria-controls="tmQuickAddMoreMenu" disabled>${__tmRenderLucideIcon('dots-three')}</button>
+                    <button type="button" class="tm-btn tm-btn-primary tm-quick-add-submit" id="tmQuickAddSubmitBtn" onclick="tmQuickAddSubmit()" disabled>${__tmT("settings.add")}</button>
                 </div>
-                <div class="tm-quick-add-keyboard-hint">每行一个任务<span>Ctrl / ⌘ + Enter 添加</span></div>
+                <div class="tm-quick-add-keyboard-hint">${__tmT("task.oneTaskPerLine")}<span>${__tmT("task.ctrlEnterToAdd")}</span></div>
                 </div>
-                <section id="tmQuickAddFieldSettings" class="tm-quick-add-field-settings" aria-label="显示字段设置" hidden></section>
+                <section id="tmQuickAddFieldSettings" class="tm-quick-add-field-settings" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.fieldSettings")}" hidden></section>
                 <input type="file" id="tmQuickAddImageInput" accept="image/*" multiple hidden>
             </div>
         `;
@@ -4072,7 +4075,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 const lines = __tmSplitTaskInputLines(input.value || '');
                 if (lines.length > 1 && state.quickAdd?.reminderDraft) {
                     state.quickAdd.reminderDraft = null;
-                    hint('⚠ 多条任务不会保留前置提醒设置', 'warning');
+                    hint(__tmT("task.multipleTasksWillNotKeepThePreSetReminder"), 'warning');
                     window.tmQuickAddRenderMeta?.();
                 }
             });
@@ -4130,7 +4133,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             const docId = String(initialLocation?.docId || '').trim();
             if (!docId && initialLocation?.mode !== 'dailyNote') {
                 window.tmQuickAddClose?.();
-                hint('⚠ 请先在设置中选择文档', 'warning');
+                hint(__tmT("task.selectADocumentInTheSettingsFirst"), 'warning');
                 showSettings();
                 return;
             }
@@ -4152,7 +4155,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         } catch (e) {
             if (state.quickAdd !== qa || !modal.isConnected) return;
             window.tmQuickAddClose?.();
-            hint('⚠ 新建任务加载失败，草稿已保留，请重试', 'warning');
+            hint(__tmT("task.failedToLoadTheNewTaskViewYourDraft"), 'warning');
         }
     };
 
@@ -4214,13 +4217,13 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
 
             // 更新文档按钮文字
             const docName = qa.docMode === 'dailyNote'
-                ? '今天日记'
+                ? __tmT("settings.todaySDailyNote")
                 : __tmResolveQuickAddDocName(qa.docId);
             const docBtn = document.getElementById('tmQuickAddDocName');
             if (docBtn) {
                 docBtn.textContent = docName;
-                docBtn.parentElement.title = `添加到：${docName}`;
-                docBtn.parentElement.setAttribute('aria-label', `添加到：${docName}`);
+                docBtn.parentElement.title = __tmT("task.addTo", { docName: docName });
+                docBtn.parentElement.setAttribute('aria-label', __tmT("task.addTo", { docName: docName }));
             }
 
             // 更新优先级按钮样式（Jira 风格）
@@ -4231,8 +4234,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 prBtn.style.color = '';
                 prBtn.style.borderColor = '';
                 prBtn.style.background = '';
-                const label = { high: '高', medium: '中', low: '低', none: '无' }[pr] || '无';
-                prBtn.title = `重要性：${label}`;
+                const label = { high: __tmT("common.high"), medium: __tmT("common.medium"), low: __tmT("common.low"), none: __tmT("common.none") }[pr] || __tmT("common.none");
+                prBtn.title = __tmT("task.priority", { label: label });
                 prBtn.setAttribute('aria-label', prBtn.title);
             }
 
@@ -4241,11 +4244,11 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             if (stBtn) {
                 const options = SettingsStore.data.customStatusOptions || [];
                 const id = __tmResolveUndoneStatusValue(qa.customStatus, options);
-                const opt = options.find(o => o && o.id === id) || { id, name: id || '待办', color: '#757575' };
+                const opt = options.find(o => o && o.id === id) || { id, name: id || __tmT("homepage.toDo"), color: '#757575' };
                 const chipStyle = __tmBuildStatusChipStyle(opt.color);
-                const name = String(opt?.name || opt?.id || '待办');
+                const name = globalThis.__taskHorizonHostBridge.i18n.builtinName('status', opt) || __tmT("homepage.toDo");
                 stBtn.innerHTML = `<span class="tm-status-tag" style="${chipStyle};cursor:default;">${esc(name)}</span>`;
-                stBtn.title = `状态：${name}`;
+                stBtn.title = __tmT("task.status", { name: name });
                 stBtn.setAttribute('aria-label', stBtn.title);
             }
 
@@ -4257,13 +4260,13 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 const ctValue = String(qa.completionTime || '').trim();
                 const ct = ctValue
                     ? (sd && sd !== ctValue ? `${__tmFormatTaskTimeCompact(sd)}-${__tmFormatTaskTimeCompact(ctValue)}` : __tmFormatTaskTime(ctValue))
-                    : (sd ? `开始 ${__tmFormatTaskTimeCompact(sd)}` : (qa.dateMode === 'rollup' ? '子任务汇总' : '日期'));
+                    : (sd ? __tmT("task.start", { value1: __tmFormatTaskTimeCompact(sd) }) : (qa.dateMode === 'rollup' ? __tmT("task.subtaskRollUp") : __tmT("calendar.date")));
                 const meta = [ct];
                 try {
                     const rule = __tmGetTaskRepeatRule({ repeatRule: qa.repeatRule, repeatState: qa.repeatState, startDate: sd, completionTime: ctValue });
-                    if (rule?.enabled && rule.type !== 'none') meta.push(`循环: ${__tmGetTaskRepeatSummary(rule, { startDate: sd, completionTime: ctValue }) || '已设置'}`);
+                    if (rule?.enabled && rule.type !== 'none') meta.push(__tmT("task.repeat", { value1: __tmGetTaskRepeatSummary(rule, { startDate: sd, completionTime: ctValue }) || __tmT("task.set") }));
                 } catch (e) {}
-                if (qa.reminderDraft) meta.push('提醒已设置');
+                if (qa.reminderDraft) meta.push(__tmT("task.reminderSet"));
                 dateLabel.textContent = ct;
                 dateLabel.hidden = !sd && !ctValue && qa.dateMode !== 'rollup' && __tmGetQuickAddDisplayPlatform() === 'mobile';
                 dateInput.value = qa.completionTime ? __tmNormalizeDateOnly(qa.completionTime) : '';
@@ -4271,7 +4274,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 const btn = document.getElementById('tmQuickAddDateLabel')?.parentElement;
                 if (btn) {
                     btn.title = meta.join(' · ');
-                    btn.setAttribute('aria-label', `日期：${btn.title}`);
+                    btn.setAttribute('aria-label', __tmT("task.date2", { title: btn.title }));
                     btn.classList.toggle('has-extra', meta.length > 1);
                     if (qa.startDate || qa.completionTime || qa.reminderDraft || qa.repeatRule?.enabled) {
                         btn.style.color = 'var(--tm-primary-color)';
@@ -4303,7 +4306,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         if (!Array.isArray(options) || options.length === 0) return;
         __tmOpenInlineEditor(btn, ({ editor, close, onCleanup }) => {
             editor.classList.add('tm-quick-add-status-picker');
-            const maxLen = options.reduce((m, o) => Math.max(m, String(o?.name || o?.id || '').length), 0);
+            const maxLen = options.reduce((m, o) => Math.max(m, globalThis.__taskHorizonHostBridge.i18n.builtinName('status', o).length), 0);
             const w = Math.min(220, Math.max(98, maxLen * 12 + 24));
             // 快速添加弹窗 z-index 为 100010，内联编辑器需要更高层级避免被遮挡
             editor.style.zIndex = '100020';
@@ -4324,7 +4327,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 const chip = document.createElement('span');
                 chip.className = 'tm-status-tag';
                 chip.style.cssText = __tmBuildStatusChipStyle(opt?.color);
-                chip.textContent = String(opt?.name || id);
+                chip.textContent = globalThis.__taskHorizonHostBridge.i18n.builtinName('status', opt);
                 b.appendChild(chip);
                 b.onclick = () => {
                     window.tmQuickAddStatusChanged(id);
@@ -4373,7 +4376,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 hideSchedule: true,
                 task: {
                     id: '__tm_quick_add_draft__',
-                    content: __tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '')[0] || '新建任务',
+                    content: __tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '')[0] || __tmT("common.newTask"),
                     startDate: String(qa.startDate || '').trim(),
                     start_date: String(qa.startDate || '').trim(),
                     completionTime: String(qa.completionTime || '').trim(),
@@ -4407,7 +4410,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     window.tmQuickAddRenderMeta?.();
                 },
                 getReminderDraft: () => !!qa.reminderDraft,
-                reminderDraftLabel: '已设置',
+                reminderDraftLabel: __tmT("task.set"),
                 isReminderDisabled: () => !SettingsStore.data.enableTomatoIntegration
                     || __tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '').length > 1
                     || globalThis.__tomatoReminder?.capabilities?.draftDialog !== true
@@ -4415,13 +4418,13 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     || typeof globalThis.__tomatoReminder?.showDialog !== 'function'
                     || typeof globalThis.__tomatoReminder?.upsertDraft !== 'function',
                 getReminderDisabledReason: () => !SettingsStore.data.enableTomatoIntegration
-                    ? '番茄钟联动未启用'
+                    ? __tmT("task.pomodoroIntegrationIsNotEnabled")
                     : (__tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '').length > 1
-                        ? '多条任务请创建后分别设置提醒'
-                        : '提醒桥接未就绪，请稍后重试'),
+                        ? __tmT("task.forMultipleTasksSetRemindersAfterCreation")
+                        : __tmT("task.reminderBridgeIsNotReadyTryAgainLater")),
                 onReminderDraftToggle: async ({ enabled } = {}) => {
                     if (!SettingsStore.data.enableTomatoIntegration) {
-                        hint('⚠ 番茄钟联动已关闭', 'warning');
+                        hint(__tmT("task.pomodoroIntegrationIsTurnedOff"), 'warning');
                         return;
                     }
                     const bridge = globalThis.__tomatoReminder;
@@ -4429,19 +4432,19 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                         || bridge?.capabilities?.upsertDraft !== true
                         || typeof bridge?.showDialog !== 'function'
                         || typeof bridge?.upsertDraft !== 'function') {
-                        hint('⚠ 番茄钟提醒桥接未就绪', 'warning');
+                        hint(__tmT("task.pomodoroReminderBridgeIsNotReady"), 'warning');
                         return;
                     }
                     const lines = __tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '');
                     if (lines.length > 1) {
-                        hint('⚠ 多条任务请创建后分别设置提醒', 'warning');
+                        hint(__tmT("task.forMultipleTasksSetRemindersAfterCreation2"), 'warning');
                         return;
                     }
                     if (qa.reminderDraftOpening) return;
                     qa.reminderDraftOpening = true;
                     window.tmQuickAddRenderMeta?.();
                     try {
-                        const result = await bridge.showDialog('', lines[0] || '新建任务', {
+                        const result = await bridge.showDialog('', lines[0] || __tmT("common.newTask"), {
                             draft: true,
                             draftReminder: qa.reminderDraft,
                             taskOwned: true,
@@ -4459,7 +4462,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                             qa.reminderDraft = null;
                         }
                     } catch (e) {
-                        hint(`⚠ 提醒设置未保存: ${e?.message || e || '未知错误'}`, 'warning');
+                        hint(__tmT("task.reminderSettingsWereNotSaved", { value1: e?.message || e || __tmT("plugin.unknownError") }), 'warning');
                     } finally {
                         qa.reminderDraftOpening = false;
                         window.tmQuickAddRenderMeta?.();
@@ -4501,7 +4504,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     window.tmQuickAddPickCompletion = async function() {
         const qa = state.quickAdd;
         if (!qa) return;
-        const v = await showPrompt('截止日期', '输入日期，如 2026-02-07（留空清除）', String(qa.completionTime || ''));
+        const v = await showPrompt(__tmT("kernel.dueDate"), __tmT("task.enterADateEGLeaveEmptyToClear"), String(qa.completionTime || ''));
         if (v === null) return;
         qa.completionTime = String(v || '').trim();
         qa.inheritedDateFields = (qa.inheritedDateFields || []).filter(field => field !== 'completionTime');
@@ -4526,21 +4529,21 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const defaultDocIsDailyNote = defaultLocation?.mode === 'dailyNote';
         const defaultDocId = String(defaultLocation?.docId || '').trim();
         const defaultDocName = defaultDocIsDailyNote
-            ? '今天日记'
-            : (defaultDocId ? resolveDocName(defaultDocId) : '未设置');
+            ? __tmT("settings.todaySDailyNote")
+            : (defaultDocId ? resolveDocName(defaultDocId) : __tmT("common.notSet"));
         const defaultDocReady = defaultDocIsDailyNote || !!defaultDocId;
         const defaultLocationLabel = defaultUsesLastSelection
-            ? `上次选择：${defaultDocName}`
-            : `收集箱文档：${defaultDocName}`;
+            ? __tmT("task.lastChoice", { defaultDocName: defaultDocName })
+            : __tmT("task.inboxDocument", { defaultDocName: defaultDocName });
         const recentDocs = __tmGetQuickAddRecentDocs();
         const recentSectionHtml = recentDocs.length > 0 ? `
                 <div style="border:1px solid var(--tm-border-color);border-radius:8px;margin-bottom:8px;overflow:hidden;">
-                    <div style="padding:8px 10px;background:var(--tm-header-bg);font-weight:600;">最近选择</div>
+                    <div style="padding:8px 10px;background:var(--tm-header-bg);font-weight:600;">${__tmT("task.recent")}</div>
                     <div style="padding:6px 10px;">
                         ${recentDocs.map((doc) => {
                             const id = String(doc?.id || '').trim();
                             const checked = qa.docMode !== 'dailyNote' && qa.docId === id;
-                            const name = esc(String(doc?.name || resolveDocName(id) || '未命名文档'));
+                            const name = esc(String(doc?.name || resolveDocName(id) || __tmT("kernel.untitledDocument")));
                             const path = String(doc?.path || '').trim();
                             return `
                                 <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:pointer;" onclick="tmQuickAddSelectDoc('${escSq(id)}')">
@@ -4562,14 +4565,14 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         picker.innerHTML = `
             <div class="tm-prompt-box" style="width:min(92vw,520px);max-height:70vh;overflow:auto;">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
-                    <div class="tm-prompt-title" style="margin:0;">选择文档</div>
-                    <button class="tm-btn tm-btn-gray" id="tmQuickAddDocPickerCloseBtn" onclick="tmQuickAddCloseDocPicker()" style="padding: 6px 12px; font-size: 13px;">关闭</button>
+                    <div class="tm-prompt-title" style="margin:0;">${__tmT("task.selectDocument")}</div>
+                    <button class="tm-btn tm-btn-gray" id="tmQuickAddDocPickerCloseBtn" onclick="tmQuickAddCloseDocPicker()" style="padding: 6px 12px; font-size: 13px;">${__tmT("common.close")}</button>
                 </div>
                 <div style="border:1px solid var(--tm-border-color);border-radius:8px;margin-bottom:8px;overflow:hidden;">
-                    <div style="padding:8px 10px;background:var(--tm-header-bg);font-weight:600;">快捷</div>
+                    <div style="padding:8px 10px;background:var(--tm-header-bg);font-weight:600;">${__tmT("task.quick")}</div>
                     <div style="padding:6px 10px;">
                         <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:pointer;" onclick="tmQuickAddUseTodayDiary();tmQuickAddCloseDocPicker();">
-                            <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">今天日记</div>
+                            <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${__tmT("settings.todaySDailyNote")}</div>
                             <div style="margin-left:10px;">${qa.docMode === 'dailyNote' ? '<span class="tm-selection-check" aria-hidden="true"></span>' : '◻️'}</div>
                         </div>
                         <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:${defaultDocReady ? 'pointer' : 'not-allowed'};opacity:${defaultDocReady ? 1 : 0.6};" onclick="${defaultDocReady ? `tmQuickAddUseDefaultDoc();tmQuickAddCloseDocPicker();` : ''}">
@@ -4608,7 +4611,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             const renderDocs = (docList) => {
                 body.innerHTML = '';
                 if (docList.length === 0) {
-                    body.innerHTML = '<div style="color:var(--tm-secondary-text);padding:8px 0;font-size:13px;">暂无文档</div>';
+                    body.innerHTML = `<div style="color:var(--tm-secondary-text);padding:8px 0;font-size:13px;">${__tmT("task.noDocuments")}</div>`;
                     return;
                 }
                 docList.forEach(d => {
@@ -4641,7 +4644,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     // 动态查询该分组下所有包含任务的文档
                     if (groupKey) {
                         // 显示加载中状态
-                        body.innerHTML = '<div style="color:var(--tm-secondary-text);padding:8px 0;font-size:13px;">🔄 加载文档中...</div>';
+                        body.innerHTML = `<div style="color:var(--tm-secondary-text);padding:8px 0;font-size:13px;">${__tmT("task.loadingDocuments")}</div>`;
                         try {
                             // 使用 SQL 查询：假设 docGroups 配置的是根文档或目录
                             // 但 docGroups 配置的是文档列表。
@@ -4798,7 +4801,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         }
         const id = String(location?.docId || '').trim();
         if (!id) {
-            hint('⚠ 未设置收集箱文档', 'warning');
+            hint(__tmT("task.noInboxDocumentSet"), 'warning');
             return;
         }
         qa.docId = id;
@@ -4827,7 +4830,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const did = String(docId || '').trim();
         const targetText = __tmGetDailyNoteTargetHeadingText();
         if (!did || !targetText) return null;
-        if (typeof __tmParseHeadingBlocksFromKramdown !== 'function') throw new Error('标题解析器未就绪');
+        if (typeof __tmParseHeadingBlocksFromKramdown !== 'function') throw new Error(__tmT("task.headingResolverIsNotReady"));
         const km = await API.getBlockKramdown(did);
         const parsedHeadings = __tmParseHeadingBlocksFromKramdown(km);
         const headingList = Array.isArray(parsedHeadings) ? parsedHeadings : [];
@@ -4875,7 +4878,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const headingLevel = __tmNormalizeDailyNoteCreateHeadingLevel();
         const levelNum = Number((headingLevel.match(/^h([1-6])$/) || [])[1]) || 2;
         const headingId = String(await __tmAppendBlockOnce(did, `${'#'.repeat(levelNum)} ${targetText}`) || '').trim();
-        if (!headingId) throw new Error('创建日记目标标题失败');
+        if (!headingId) throw new Error(__tmT("task.failedToCreateTheDailyNoteTargetHeading"));
         const headingPatch = __tmBuildHeadingPatchFromPlacement({
             heading: {
                 id: headingId,
@@ -4921,7 +4924,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     return result;
                 }
             } catch (e) {
-                try { hint('⚠ 今天日记目标标题定位失败，已改用默认新建位置', 'warning'); } catch (e2) {}
+                try { hint(__tmT("task.couldNotLocateTheDailyNoteTargetHeadingFalling"), 'warning'); } catch (e2) {}
             }
         }
         const appendToBottom = mode === 'dailyNote' && SettingsStore.data.newTaskDailyNoteAppendToBottom === true;
@@ -4952,7 +4955,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                         result.insertAfterId = String(placement.insertAfterID || configuredHeading.headingId || '').trim();
                     }
                 } else if (headingId) {
-                    throw new Error(placement?.checked === true ? '目标标题已不存在，请重新选择新建位置' : '无法定位目标标题，请重试');
+                    throw new Error(placement?.checked === true ? __tmT("task.theTargetHeadingNoLongerExistsChooseANew") : __tmT("task.couldNotLocateTheTargetHeadingTryAgain"));
                 } else if (placement?.checked === true) {
                     staleConfiguredHeading = true;
                 }
@@ -4973,7 +4976,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     await SettingsStore.save();
                 }
             } catch (e) {}
-            try { hint('⚠ 默认新建标题已不存在，已改用默认新建位置', 'warning'); } catch (e) {}
+            try { hint(__tmT("task.theDefaultTargetHeadingNoLongerExistsFallingBack"), 'warning'); } catch (e) {}
             result.headingPatch = null;
             result.insertParentId = '';
             result.insertBeforeId = '';
@@ -5014,11 +5017,11 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     // while retaining regular task insertion and diary-heading rules.
     window.__tmCreateTaskForCalendarSchedule = async function(title, options = {}) {
         const content = String(title || '').trim();
-        if (!content) throw new Error('任务标题不能为空');
+        if (!content) throw new Error(__tmT("kernel.taskTitleCannotBeEmpty"));
         const opts = (options && typeof options === 'object') ? options : {};
         const configuredLocation = String(SettingsStore?.data?.calendarIndependentScheduleTaskLocation || '').trim();
         if (!configuredLocation || configuredLocation === '__lastSelected__') {
-            throw new Error('请先在日历设置中选择固定任务位置');
+            throw new Error(__tmT("task.selectAFixedTaskLocationInTheCalendarSettings"));
         }
         const mode = configuredLocation === '__dailyNote__' ? 'dailyNote' : 'doc';
         let targetDocId = mode === 'doc' ? configuredLocation : '';
@@ -5035,16 +5038,16 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     try { notebook = await API.getDocNotebook(fallbackDocId); } catch (e) {}
                 }
             }
-            if (!notebook) throw new Error('无法确定日记所属笔记本');
+            if (!notebook) throw new Error(__tmT("task.unableToDetermineTheDailyNoteSNotebook"));
             targetDocId = String(await API.createDailyNote(notebook) || '').trim();
-            if (!targetDocId) throw new Error('获取日记文档失败');
+            if (!targetDocId) throw new Error(__tmT("task.failedToGetTheDailyNoteDocument"));
         }
 
-        if (!targetDocId) throw new Error('请先在日历设置中选择固定任务位置');
+        if (!targetDocId) throw new Error(__tmT("task.selectAFixedTaskLocationInTheCalendarSettings"));
         const insertOptions = await __tmResolveDefaultNewTaskInsertOptions(targetDocId, mode, { contentCount: 1 });
         const { headingPatch, ...createInsertOptions } = (insertOptions && typeof insertOptions === 'object') ? insertOptions : {};
         const createTaskInDoc = globalThis.__tmRequireTaskMutation?.('createTaskInDoc');
-        if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪');
+        if (typeof createTaskInDoc !== 'function') throw new Error(__tmT("calendar.taskWriteQueueIsNotReady"));
 
         const taskId = String(await createTaskInDoc({
             docId: targetDocId,
@@ -5058,7 +5061,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             showErrorHint: false,
             suppressHint: true,
         }) || '').trim();
-        if (!taskId) throw new Error('任务创建失败');
+        if (!taskId) throw new Error(__tmT("task.taskCreationFailed"));
 
         if (headingPatch) {
             try { __tmApplyHeadingPatchToTaskLocal(taskId, headingPatch, 'calendar-linked-task-create'); } catch (e) {}
@@ -5071,7 +5074,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         if (!qa || qa.initializing) return;
         if (state.quickAddSubmitting) return;
         if (qa.reminderDraftOpening) {
-            hint('⚠ 请先完成提醒设置', 'warning');
+            hint(__tmT("task.finishSettingUpTheReminderFirst"), 'warning');
             return;
         }
         const input = document.getElementById('tmQuickAddInput');
@@ -5093,7 +5096,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 attachments = await __tmUploadQuickAddImages(qa);
                 if (state.quickAdd !== qa) return;
             } catch (e) {
-                if (state.quickAdd === qa) hint(`⚠ ${e?.message || '图片上传失败'}，草稿已保留，请重试`, 'warning');
+                if (state.quickAdd === qa) hint(__tmT("task.yourDraftWasKeptTryAgain", { value1: e?.message || __tmT("task.imageUploadFailed2") }), 'warning');
                 return;
             } finally {
                 qa.uploadingImages = false;
@@ -5143,7 +5146,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             attachments,
         };
         if (hasReminderDraft && !canPersistReminder) {
-            hint('⚠ 番茄钟提醒桥接未就绪，任务将创建但提醒不会写入', 'warning');
+            hint(__tmT("task.pomodoroReminderBridgeIsNotReadyTheTaskWill"), 'warning');
         }
         window.tmQuickAddClose?.();
         state.quickAddSubmitting = false;
@@ -5157,16 +5160,16 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                         notebook = __tmResolveConfiguredDailyNoteNotebookId();
                     }
                     if (!notebook) notebook = await API.getDocNotebook(payload.docId);
-                    if (!notebook) throw new Error('无法确定日记所属笔记本');
+                    if (!notebook) throw new Error(__tmT("task.unableToDetermineTheDailyNoteSNotebook"));
                     targetDocId = await API.createDailyNote(notebook);
-                    if (!String(targetDocId || '').trim()) throw new Error('获取日记文档失败');
+                    if (!String(targetDocId || '').trim()) throw new Error(__tmT("task.failedToGetTheDailyNoteDocument"));
                 }
                 const createdTaskIds = [];
                 let reminderTaskId = '';
                 const mutationName = payload.relation === 'subtask' ? 'createSubtask'
                     : payload.relation === 'sibling' ? 'createSibling' : 'createTaskInDoc';
                 const createTask = globalThis.__tmRequireTaskMutation?.(mutationName);
-                if (typeof createTask !== 'function') throw new Error(`任务写入队列未就绪: ${mutationName}`);
+                if (typeof createTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReady3", { mutationName: mutationName }));
                 const insertOptionsTimeoutMs = 1800;
                 const resolveInsertOptions = () => __tmResolveDefaultNewTaskInsertOptions(targetDocId, payload.docMode, {
                     contentCount: payload.contents.length,
@@ -5229,15 +5232,15 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 if (createFailures.length > 0) {
                     const firstError = createFailures[0]?.reason;
                     if (createdTaskIds.length === 0) {
-                        throw firstError instanceof Error ? firstError : new Error(String(firstError || '任务创建失败'));
+                        throw firstError instanceof Error ? firstError : new Error(String(firstError || __tmT("task.taskCreationFailed")));
                     }
                     const message = String(firstError?.message || firstError || '').trim();
-                    hint(`⚠ 已创建 ${createdTaskIds.length} 个任务，${createFailures.length} 个失败${message ? `: ${message}` : ''}`, 'warning');
+                    hint(__tmT("task.createdTasksFailed", { length: createdTaskIds.length, length2: createFailures.length, value3: message ? `: ${message}` : '' }), 'warning');
                     return;
                 }
                 try { __tmClearQuickAddDraft?.(submittedDraft); } catch (e) {}
                 if (submittedImages.length) __tmClearSubmittedQuickAddImages(qa.draftScope, submittedImages);
-                hint(payload.contents.length > 1 ? `✅ 已创建 ${payload.contents.length} 个任务` : '✅ 任务已创建', 'success');
+                hint(payload.contents.length > 1 ? __tmT("task.createdTasks", { length: payload.contents.length }) : __tmT("task.taskCreated"), 'success');
                 const createdTaskId = reminderTaskId || '';
                 if (payload.reminderDraft && createdTaskId) {
                     const draft = {
@@ -5253,13 +5256,13 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                         followsTask = draft.repeatMode === 'followTaskRepeat' || draft.repeatMode === 'follow-task';
                     }
                     if (followsTask && !payload.completionTime) {
-                        hint('⚠ 任务已创建，但跟随任务提醒需要先设置截止日期', 'warning');
+                        hint(__tmT("task.taskCreatedButFollowTaskRemindersRequireADue"), 'warning');
                         return;
                     }
                     if (followsTask) {
                         const mutation = globalThis.__tmTaskMutations;
                         if (typeof mutation?.waitForTaskWrites !== 'function') {
-                            hint('⚠ 任务已创建，但任务字段写入屏障未就绪，提醒未写入', 'warning');
+                            hint(__tmT("task.taskCreatedButTheTaskFieldWriteBarrierIs"), 'warning');
                             return;
                         }
                         const writeBarrier = await mutation.waitForTaskWrites(createdTaskId, {
@@ -5272,7 +5275,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                             timeoutMs: 4000,
                         });
                         if (!writeBarrier?.ok) {
-                            hint('⚠ 任务已创建，但任务日期/循环字段仍未确认，提醒未写入', 'warning');
+                            hint(__tmT("task.taskCreatedButTheTaskDateRepeatFieldsAre"), 'warning');
                             return;
                         }
                     }
@@ -5285,17 +5288,17 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                             source: 'task-horizon-quick-add-draft',
                         });
                         if (!result?.ok) {
-                            hint(`⚠ 任务已创建，但提醒写入失败: ${result?.message || '请稍后补设'}`, 'warning');
+                            hint(__tmT("task.taskCreatedButWritingTheReminderFailed", { value1: result?.message || __tmT("task.setItUpLater") }), 'warning');
                         }
                     } catch (e) {
-                        hint(`⚠ 任务已创建，但提醒写入失败: ${e?.message || e || '请稍后补设'}`, 'warning');
+                        hint(__tmT("task.taskCreatedButWritingTheReminderFailed", { value1: e?.message || e || __tmT("task.setItUpLater") }), 'warning');
                     }
                 } else if (hasReminderDraft) {
-                    hint('⚠ 任务已创建，但等待真实任务 ID 超时，提醒未写入', 'warning');
+                    hint(__tmT("task.taskCreatedButWaitingForTheRealTaskId"), 'warning');
                 }
                 return true;
             } catch (e) {
-                hint(`❌ 创建失败: ${e.message}`, 'error');
+                hint(__tmT("task.creationFailed2", { message: e.message }), 'error');
                 return false;
             }
         })();

@@ -1,5 +1,5 @@
 const assert = require('assert');
-const fs = require('fs');
+const fs = require('./i18n-source-fixture');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');

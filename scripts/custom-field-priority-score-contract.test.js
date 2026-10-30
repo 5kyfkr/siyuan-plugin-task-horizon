@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const root = path.join(__dirname, '..');
 const storesSource = fs.readFileSync(
@@ -279,7 +279,7 @@ assert.match(
     'the in-place score cell refresh must force recomputation after a score-affecting patch',
 );
 
-assert.match(dialogsSource, /自定义列加减分/);
+assert.match(dialogsSource, /task.customColumnScoreAdjustments/);
 assert.match(dialogsSource, /class="b3-text-field tm-priority-number-input"/);
 assert.match(dialogsSource, /window\.tmSetPriorityCustomField = function/);
 assert.match(cssSource, /\.tm-priority-field-row\s*\{/);

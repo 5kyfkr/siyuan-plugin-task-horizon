@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const { execFileSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 execFileSync(process.execPath, [path.join(__dirname, 'sync-kernel-recurrence.js'), '--check']);

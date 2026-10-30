@@ -161,8 +161,8 @@
             '#tomato-breadcrumb-btn',
             '[id*="tomato"][class*="breadcrumb"]',
             '[class*="tomato"][class*="breadcrumb"]',
-            '[aria-label*="番茄"]',
-            '[title*="番茄"]',
+            __tmT("task.ariaLabelPomodoro"),
+            __tmT("task.titlePomodoro"),
             '[aria-label*="Tomato"]',
             '[title*="Tomato"]',
         ];
@@ -287,8 +287,8 @@
     function __tmMarkManagedTopBarEntry(el) {
         if (!(el instanceof HTMLElement)) return null;
         try { el.setAttribute(__TM_TOPBAR_ENTRY_ATTR, '1'); } catch (e) {}
-        try { if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', '任务管理器'); } catch (e) {}
-        try { if (!el.getAttribute('title')) el.setAttribute('title', '任务管理器'); } catch (e) {}
+        try { if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', __tmT("common.taskManager")); } catch (e) {}
+        try { if (!el.getAttribute('title')) el.setAttribute('title', __tmT("common.taskManager")); } catch (e) {}
         try { __tmSetUseIcon(el, 'iconTaskHorizon'); } catch (e) {}
         try { globalThis.__taskHorizonApplyWindowTopBarIdentity?.(el); } catch (e) {}
         try { globalThis.__tmTaskCountBadge?.render?.(); } catch (e) {}
@@ -439,8 +439,8 @@
     function __tmGetManagedTopBarLookupSelector() {
         const markedSelector = `[${__TM_TOPBAR_ENTRY_ATTR}="1"]`;
         return __tmIsMobileTopBarRegistrationHost()
-            ? `${markedSelector}, [aria-label="任务管理器"], [aria-label="任务管理"], [title="任务管理器"], [title="任务管理"]`
-            : `${markedSelector}, [aria-label="任务管理器"], [aria-label="任务管理"]`;
+            ? `${markedSelector}, [aria-label="${globalThis.__taskHorizonHostBridge.i18n.html('common.taskManager')}"], [aria-label="任务管理器"], [aria-label="任务管理"], [title="${globalThis.__taskHorizonHostBridge.i18n.html('common.taskManager')}"], [title="任务管理器"], [title="任务管理"]`
+            : `${markedSelector}, [aria-label="${globalThis.__taskHorizonHostBridge.i18n.html('common.taskManager')}"], [aria-label="任务管理器"], [aria-label="任务管理"]`;
     }
 
     function __tmIsManagedTopBarEntry(el) {
@@ -604,7 +604,7 @@
 
             const topBarEl = pluginInstance.addTopBar({
                 icon: "iconTaskHorizon",
-                title: "任务管理器",
+                title: __tmT("common.taskManager"),
                 position: "right",
                 callback: () => {
                     try { __tmOpenManagerFromTopbarEntry(); } catch (e) {}
@@ -904,7 +904,7 @@
         const groupId = String(target.groupId || '').trim();
         const groupName = groupId === 'all'
             ? ''
-            : (String(__tmResolveDocGroupName(target.group) || '').trim() || '未命名分组');
+            : (String(__tmResolveDocGroupName(target.group) || '').trim() || __tmT("kernel.untitledGroup"));
         const duration = String(durationText || '').trim();
         const pluginOnly = !title.classList.contains('protyle-wysiwyg--attr');
         attr.classList.add('tm-doc-title-attr');
@@ -951,10 +951,10 @@
             durationEl.hidden = !duration;
         }
         const label = target?.matchedBy === 'embedded'
-            ? (duration ? `任务管理器范围内的嵌入待办，专注 ${duration}` : '任务管理器范围内的嵌入待办')
+            ? (duration ? __tmT("task.embeddedToDoInTheTaskManagerScopeFocus", { duration: duration }) : __tmT("task.embeddedToDoInTheTaskManagerScope"))
             : groupName
-            ? (duration ? `任务管理器分组：${groupName}，专注 ${duration}` : `任务管理器分组：${groupName}`)
-            : (duration ? `任务管理器，专注 ${duration}` : '任务管理器');
+            ? (duration ? __tmT("task.taskManagerGroupFocus", { groupName: groupName, duration: duration }) : __tmT("task.taskManagerGroup", { groupName: groupName }))
+            : (duration ? __tmT("task.taskManagerFocus", { duration: duration }) : __tmT("common.taskManager"));
         marker.setAttribute('aria-label', label);
 
         const refcount = Array.from(attr.children || []).find((child) => child?.classList?.contains?.('protyle-attr--refcount')) || null;
@@ -1506,12 +1506,12 @@
     async function __tmAddOtherBlocksToSourceDocGroupFromMenu(blockIdsInput, options = {}) {
         const blockIds = __tmNormalizeOtherBlockRefs(Array.isArray(blockIdsInput) ? blockIdsInput : [blockIdsInput]).map((item) => item.id);
         if (!blockIds.length) {
-            hint('⚠ 未找到当前块', 'warning');
+            hint(__tmT("settings.currentBlockNotFound"), 'warning');
             return null;
         }
         const addOtherBlock = window.tmAutoAddOtherBlocksToSourceDocGroup;
         if (typeof addOtherBlock !== 'function') {
-            hint('⚠ 其他块页签功能尚未加载完成', 'warning');
+            hint(__tmT("task.otherBlockTabFeaturesAreNotFullyLoadedYet"), 'warning');
             return null;
         }
         const result = await addOtherBlock(blockIds, {
@@ -1525,9 +1525,9 @@
                 return result;
             }
             if (reason === 'no-source-group' || reason === 'no-doc') {
-                hint('⚠ 当前文档不在任何文档分组中，无法自动添加到其他块页签', 'warning');
+                hint(__tmT("task.theCurrentDocumentIsNotInAnyDocumentGroup"), 'warning');
             } else if (reason !== 'empty' && reason !== 'no-groups') {
-                hint('⚠ 未找到可添加的文档分组', 'warning');
+                hint(__tmT("task.noDocumentGroupAvailableToAddTo"), 'warning');
             }
             return result || null;
         }
@@ -1536,11 +1536,11 @@
         const groupName = __tmResolveDocGroupName(result.group);
         if (result.existed > 0) {
             hint(blockIds.length > 1
-                ? `✅ 已添加 ${result.added} 个块到“${groupName}”，${result.existed} 个已存在`
-                : `✅ 已添加到“${groupName}”，该分组中已有 ${result.existed} 个重复块`, 'success');
+                ? __tmT("settings.addedBlocksToAlreadyExisted", { added: result.added, groupName: groupName, existed: result.existed })
+                : __tmT("settings.addedToDuplicateBlockSAlreadyInTheGroup", { groupName: groupName, existed: result.existed }), 'success');
             return result;
         }
-        hint(blockIds.length > 1 ? `✅ 已将 ${result.added} 个块添加到“${groupName}”` : `✅ 已添加到“${groupName}”`, 'success');
+        hint(blockIds.length > 1 ? __tmT("settings.addedBlocksTo", { added: result.added, groupName: groupName }) : __tmT("settings.addedTo", { groupName: groupName }), 'success');
         return result;
     }
 
@@ -1578,26 +1578,26 @@
             if (!docId) return;
             menu.addItem({
                 icon: 'iconTaskHorizon',
-                label: '添加到任务管理器分组',
+                label: __tmT("settings.addToATaskManagerGroup"),
                 click: () => {
                     try { window.tmOpenAddDocToGroupDialog?.(docId); } catch (e) {}
                 }
             });
             menu.addItem({
                 icon: 'iconTaskHorizon',
-                label: '添加到其他块页签',
+                label: __tmT("settings.addToOtherBlockTabs"),
                 click: async () => {
                     try {
                         await __tmAddOtherBlocksToSourceDocGroupFromMenu([docId], { docId });
                     } catch (e) {
-                        hint(`❌ 添加失败: ${e.message}`, 'error');
+                        hint(__tmT("task.addFailed", { message: e.message }), 'error');
                     }
                 }
             });
             if (__tmIsAiFeatureEnabled()) {
                 menu.addItem({
                     icon: 'iconTaskHorizon',
-                    label: 'AI SMART 分析',
+                    label: __tmT("ai.aiSmartAnalysis"),
                     click: async () => {
                         if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
                         try { await window.tmAiAnalyzeDocumentSmart?.(docId); } catch (e) {}
@@ -1605,7 +1605,7 @@
                 });
                 menu.addItem({
                     icon: 'iconTaskHorizon',
-                    label: 'AI 日程排期',
+                    label: __tmT("ai.aiScheduling"),
                     click: async () => {
                         if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
                         try { await window.tmAiPlanDocumentSchedule?.(docId); } catch (e) {}
@@ -1624,7 +1624,7 @@
             if (!docIds.length) return;
             menu.addItem({
                 icon: 'iconTaskHorizon',
-                label: docIds.length > 1 ? '添加所选文档到任务管理器分组' : '添加到任务管理器分组',
+                label: docIds.length > 1 ? __tmT("task.addTheSelectedDocumentToATaskManagerGroup") : __tmT("settings.addToATaskManagerGroup"),
                 click: () => {
                     try { window.tmOpenAddDocToGroupDialog?.(docIds); } catch (e) {}
                 }
@@ -1634,7 +1634,7 @@
                 if (docId) {
                     menu.addItem({
                         icon: 'iconTaskHorizon',
-                        label: 'AI SMART 分析',
+                        label: __tmT("ai.aiSmartAnalysis"),
                         click: async () => {
                             if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
                             try { await window.tmAiAnalyzeDocumentSmart?.(docId); } catch (e) {}
@@ -1642,7 +1642,7 @@
                     });
                     menu.addItem({
                         icon: 'iconTaskHorizon',
-                        label: 'AI 日程排期',
+                        label: __tmT("ai.aiScheduling"),
                         click: async () => {
                             if (typeof __tmEnsureAiRuntimeLoaded === 'function' && !await __tmEnsureAiRuntimeLoaded()) return;
                             try { await window.tmAiPlanDocumentSchedule?.(docId); } catch (e) {}
@@ -1706,7 +1706,7 @@
                 if (scheduleBlockId) {
                     menu.addItem({
                         icon: 'iconTaskHorizon',
-                        label: '添加至今天日程',
+                        label: __tmT("task.addToTodaySSchedule"),
                         click: async () => {
                             await __tmAddBlockToTodaySchedule(scheduleBlockId, scheduleBlockElement);
                         }
@@ -1728,12 +1728,12 @@
             if (!blockIds.length) return;
             menu.addItem({
                 icon: 'iconTaskHorizon',
-                label: blockIds.length > 1 ? '添加所选块到其他块页签' : '添加到其他块页签',
+                label: blockIds.length > 1 ? __tmT("task.addTheSelectedBlocksToOtherBlockTabs") : __tmT("settings.addToOtherBlockTabs"),
                 click: async () => {
                     try {
                         await __tmAddOtherBlocksToSourceDocGroupFromMenu(blockIds);
                     } catch (e) {
-                        hint(`❌ 添加失败: ${e.message}`, 'error');
+                        hint(__tmT("task.addFailed", { message: e.message }), 'error');
                     }
                 }
             });
@@ -2368,7 +2368,7 @@
         if (domDone !== done || (opts.marker && __tmReadNativeDocTaskMarkerFromDom(rawId) !== opts.marker) || (statusMatchedBefore && completeAtMatchedBefore && repeatStateMatchedBefore)) return false;
         if (expectedStatus) __tmMirrorNativeDocTaskStatusAttr([rawId, tid, attrTargetId], expectedStatus);
         const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-        if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+        if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
         await patchTask(tid, attrPatch, {
             background: true,
             wait: false,
@@ -2376,7 +2376,7 @@
             skipInteractionGate: true,
             source: 'native-doc-checkbox-reconcile',
             reason: 'native-doc-checkbox-reconcile',
-            label: '文档任务状态',
+            label: __tmT("task.documentTaskStatus"),
             saveMetaNow: false,
             attrTargetId,
             mirrorTaskAttrs: false,
@@ -2667,12 +2667,12 @@
                 const saved = await window.tmSetTaskCheckin(taskId, day, done, {
                     source: 'native-doc-checkbox-checkin', projectNative: false,
                 });
-                if (saved !== true) throw new Error('打卡记录未保存');
+                if (saved !== true) throw new Error(__tmT("task.checkInRecordWasNotSaved"));
                 if (__tmReadNativeDocTaskMarkerFromDom(rawId) === marker) __tmProjectNativeDocCheckinCheckbox(rawId, done);
                 return true;
             } catch (error) {
                 if (__tmReadNativeDocTaskMarkerFromDom(rawId) === marker) __tmProjectNativeDocCheckinCheckbox(rawId, __tmIsTaskCheckinChecked(task, day));
-                hint(`打卡失败：${error.message}`, 'error');
+                hint(__tmT("task.checkInFailed", { message: error.message }), 'error');
                 return false;
             }
         }
@@ -2708,7 +2708,7 @@
             fsrsRating: 3, recordUndo: previous.userInitiated === true,
             skipInteractionGate: true,
         });
-        if (result === false) throw new Error('文档任务状态未保存');
+        if (result === false) throw new Error(__tmT("task.theDocumentTaskStateWasNotSaved"));
         const current = __tmReadNativeDocTaskMarkerFromDom(rawId);
         if (current === marker) __tmMarkNativeDocCheckboxSyncedState([rawId, taskId], done);
         else __tmScheduleNativeDocCheckboxStatusSync(rawId);
@@ -2731,7 +2731,7 @@
                     } catch (e) {}
                     try {
                         await __tmSyncNativeDocCheckboxLinkedStatus(nextBlockId);
-                    } catch (e) { try { globalThis.__tmReportTaskMutationFailure?.(e, { action: '同步文档任务状态' }); } catch (reportError) {} }
+                    } catch (e) { try { globalThis.__tmReportTaskMutationFailure?.(e, { action: __tmT("task.syncDocumentTaskStatus") }); } catch (reportError) {} }
                     finally {
                         let shouldRerun = false;
                         try {

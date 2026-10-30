@@ -213,13 +213,13 @@
                 notebook, path, markdown,
                 ...(parentID ? { parentID } : {}),
             });
-            if (res.code !== 0) throw new Error(res.msg || '创建文档失败');
+            if (res.code !== 0) throw new Error(res.msg || __tmT("task.failedToCreateTheDocument"));
             return res.data;
         },
 
         async createDocByParent(notebook, parentID, title, markdown, options = {}) {
             const id = String(options?.id || '').trim();
-            if (!id) throw new Error('缺少新文档 ID');
+            if (!id) throw new Error(__tmT("task.missingNewDocumentId"));
             // 旧版未知端点可能返回 HTTP 200 空正文，先用只读请求识别，避免重试结果不明的写入。
             const probe = await this.call('/api/filetree/getDocPaths', { notebook, ids: [parentID] });
             const legacyHost = (probe?.code === -1 && probe.msg === 'HTTP 404')
@@ -227,7 +227,7 @@
             if (legacyHost && options?.legacyPath) {
                 return await this.createDocWithMd(notebook, options.legacyPath, markdown, { parentID });
             }
-            if (probe?.code !== 0) throw new Error(probe?.msg || '无法确认文档创建位置');
+            if (probe?.code !== 0) throw new Error(probe?.msg || __tmT("task.cannotConfirmTheDocumentCreationLocation"));
             const res = await this.call('/api/filetree/createDocByParent', {
                 notebook, parentID, id,
                 title: { format: 'plain', text: title },
@@ -238,7 +238,7 @@
                 return await this.createDocWithMd(notebook, options.legacyPath, markdown, { parentID });
             }
             if (res.code !== 0) {
-                throw Object.assign(new Error(res.msg || '创建文档失败'), {
+                throw Object.assign(new Error(res.msg || __tmT("task.failedToCreateTheDocument")), {
                     reason: res.data?.reason,
                     commitState: res.data?.commitState,
                     documentID: res.data?.id,
@@ -249,16 +249,16 @@
 
         async createDailyNote(notebook) {
             const box = String(notebook || '').trim();
-            if (!box) throw new Error('未指定笔记本');
+            if (!box) throw new Error(__tmT("task.notebookNotSpecified"));
             const res = await this.call('/api/filetree/createDailyNote', { notebook: box });
-            if (res.code !== 0) throw new Error(res.msg || '创建日记失败');
+            if (res.code !== 0) throw new Error(res.msg || __tmT("task.failedToCreateTheDailyNote"));
             const data = res.data;
             if (typeof data === 'string') return data;
             if (data && typeof data === 'object') {
                 const id = data.id || data.ID || data.docId || data.docID || data.docid;
                 if (id) return id;
             }
-            throw new Error('创建日记失败');
+            throw new Error(__tmT("task.failedToCreateTheDailyNote"));
         },
 
         async getDocNotebook(docId) {
@@ -285,7 +285,7 @@
             const pathSql = `SELECT path, box FROM blocks WHERE id = '${escapedDid}' AND type = 'd' LIMIT 1`;
             const pathRes = await this.call('/api/query/sql', { stmt: pathSql });
             if (pathRes.code !== 0 || !Array.isArray(pathRes.data)) {
-                throw Object.assign(new Error(pathRes.msg || '获取文档路径失败'), { readFailure: true });
+                throw Object.assign(new Error(pathRes.msg || __tmT("task.failedToGetTheDocumentPath")), { readFailure: true });
             }
             if (pathRes.data.length === 0) return [];
 
@@ -309,7 +309,7 @@
             if (res.code === 0 && Array.isArray(res.data)) {
                 return res.data.map(d => d.id);
             }
-            throw Object.assign(new Error(res.msg || '获取子文档失败'), { readFailure: true });
+            throw Object.assign(new Error(res.msg || __tmT("task.failedToGetChildDocuments")), { readFailure: true });
         },
 
         async readDir(path) {
@@ -317,7 +317,7 @@
             if (!p) return [];
             const res = await this.call('/api/file/readDir', { path: p });
             if (res.code !== 0 || !Array.isArray(res.data)) {
-                throw Object.assign(new Error(res.msg || '读取文档目录失败'), { readFailure: true });
+                throw Object.assign(new Error(res.msg || __tmT("task.failedToReadTheDocumentTree")), { readFailure: true });
             }
             return res.data;
         },
@@ -342,7 +342,7 @@
                     const row = res.data[0] || {};
                     return {
                         id: did,
-                        name: String(row?.content || '').trim() || '未命名文档',
+                        name: String(row?.content || '').trim() || __tmT("kernel.untitledDocument"),
                         path: String(row?.hpath || '').trim(),
                         notebook: String(row?.box || '').trim()
                     };
@@ -416,7 +416,7 @@
             return out.map((doc) => {
                 const meta = metaMap.get(doc.id) || {};
                 const path = String(meta.path || '').trim();
-                const name = String(meta.name || '').trim() || path.split('/').filter(Boolean).pop() || doc.name || '未命名文档';
+                const name = String(meta.name || '').trim() || path.split('/').filter(Boolean).pop() || doc.name || __tmT("kernel.untitledDocument");
                 return { id: doc.id, name, path };
             });
         },
@@ -456,7 +456,7 @@
                 const docs = res.data.map((row) => {
                     const id = String(row?.id || '').trim();
                     const path = String(row?.hpath || '').trim();
-                    const name = path.split('/').filter(Boolean).pop() || id || '未命名文档';
+                    const name = path.split('/').filter(Boolean).pop() || id || __tmT("kernel.untitledDocument");
                     return { id, name, path };
                 }).filter((row) => row.id);
                 return docs;
@@ -482,11 +482,11 @@
                     scopeReadSucceeded = true;
                     return res.data.map((row) => ({
                         id: String(row?.id || '').trim(),
-                        name: String(row?.content || '').trim() || '未命名文档',
+                        name: String(row?.content || '').trim() || __tmT("kernel.untitledDocument"),
                         path: String(row?.hpath || '').trim()
                     })).filter((row) => row.id);
                 }
-                readError = Object.assign(new Error(res.msg || '查询笔记本文档失败'), { readFailure: true });
+                readError = Object.assign(new Error(res.msg || __tmT("task.failedToQueryNotebookDocuments")), { readFailure: true });
                 return null;
             };
             try {
@@ -513,7 +513,7 @@
 
         async getBlockKramdown(id) {
             const res = await this.call('/api/block/getBlockKramdown', { id });
-            if (res.code !== 0) throw Object.assign(new Error(res.msg || '获取块内容失败'), { readFailure: res.readFailure === true });
+            if (res.code !== 0) throw Object.assign(new Error(res.msg || __tmT("task.failedToGetBlockContent")), { readFailure: res.readFailure === true });
             const data = res.data;
             if (typeof data === 'string') return data;
             return data?.kramdown || data?.content || '';
@@ -521,7 +521,7 @@
 
         async getBlockDOM(id) {
             const res = await this.call('/api/block/getBlockDOM', { id });
-            if (res.code !== 0) throw Object.assign(new Error(res.msg || '获取块DOM失败'), { readFailure: res.readFailure === true });
+            if (res.code !== 0) throw Object.assign(new Error(res.msg || __tmT("task.failedToGetTheBlockDom")), { readFailure: res.readFailure === true });
             const data = res.data;
             if (typeof data === 'string') return data;
             return data?.dom || data?.content || '';
@@ -920,7 +920,7 @@
             if (cached !== undefined) return cached;
             const html = __tmRenderTaskContentInlineHtml(source);
             if (!html) {
-                const plain = this.normalizeTaskContent(source || fallback) || '(无内容)';
+                const plain = this.normalizeTaskContent(source || fallback) || __tmT("kernel.noContent");
                 const fallbackHtml = esc(plain);
                 __tmRememberTaskContentHtml(source, fallbackHtml);
                 return fallbackHtml;
@@ -985,7 +985,7 @@
                 if (res.code === 0 && res.data) {
                     return res.data.map(doc => ({
                         id: doc.id,
-                        name: doc.name || '未命名文档',
+                        name: doc.name || __tmT("kernel.untitledDocument"),
                         alias: __tmNormalizeDocAliasValue(doc.alias),
                         icon: __tmNormalizeDocIconValue(__tmReadIalAttrValue(doc.ial, 'icon')),
                         path: doc.path || '',
@@ -1289,7 +1289,7 @@
             let queryTime = Date.now() - startTime;
             if (res.code !== 0) {
                 console.error(`[查询] 文档 ${did.slice(0, 8)} 查询失败:`, res.msg);
-                if (res.readFailure) throw Object.assign(new Error(res.msg || '文档读取失败'), { readFailure: true });
+                if (res.readFailure) throw Object.assign(new Error(res.msg || __tmT("task.failedToReadTheDocument")), { readFailure: true });
                 return { tasks: [], queryTime };
             }
             const tasks = __tmDedupeTaskQueryRowsById(Array.isArray(res.data) ? res.data : []).map((row) => ({ ...row }));
@@ -1711,7 +1711,7 @@
             const queryTime = Date.now() - startTime;
             if (res.code !== 0) {
                 console.error(`[查询] 批量查询失败:`, res.msg);
-                if (res.readFailure) throw Object.assign(new Error(res.msg || '批量读取失败'), { readFailure: true });
+                if (res.readFailure) throw Object.assign(new Error(res.msg || __tmT("task.batchReadFailed")), { readFailure: true });
                 try {
                     const fallbackStart = Date.now();
                     const results = await __tmMapReadLimited(safeDocIds, id => this.getTasksByDocument(id, perDocLimit, options));
@@ -1884,7 +1884,7 @@
                 `;
                 const res = await this.call('/api/query/sql', { stmt: sql });
                 if (res.code !== 0 || !Array.isArray(res.data)) {
-                    throw new Error(res?.msg || '批量读取嵌入任务失败');
+                    throw new Error(res?.msg || __tmT("task.failedToReadEmbeddedTasksInBatch"));
                 }
                 rows.push(...res.data.map((row) => ({ ...row })));
             }
@@ -1970,36 +1970,7 @@
 
             const idList = taskIds.map(id => `'${id}'`).join(',');
             const totalLimit = Math.max(1, Math.min(5000, taskIds.length));
-            const sql = `
-                WITH RECURSIVE task_tree AS (
-                    -- 起始：所有指定任务
-                    SELECT
-                        id,
-                        parent_id,
-                        0 as level,
-                        id as original_id
-                    FROM blocks
-                    WHERE id IN (${idList})
-
-                    UNION ALL
-
-                    -- 递归：向上查找父列表
-                    SELECT
-                        b.id,
-                        b.parent_id,
-                        tt.level + 1,
-                        tt.original_id
-                    FROM blocks b
-                    INNER JOIN task_tree tt ON b.id = tt.parent_id
-                    WHERE b.type = 'l' AND tt.level < 5
-                )
-                SELECT
-                    original_id as task_id,
-                    MAX(level) as depth
-                FROM task_tree
-                GROUP BY original_id
-                LIMIT ${totalLimit}
-            `;
+            const sql = __tmT("task.withRecursiveTaskTreeAsAnchorAllSpecifiedTasks", { idList: idList, totalLimit: totalLimit });
 
             const res = await this.call('/api/query/sql', { stmt: sql });
             if (res.code === 0 && res.data) {
@@ -2091,146 +2062,7 @@
                         } catch (e) {}
                     }
                 }
-                const sql = `
-                    WITH RECURSIVE task_roots AS (
-                        SELECT id AS task_id, root_id
-                        FROM blocks
-                        WHERE id IN (${idList})
-                    ),
-                    doc_roots AS (
-                        SELECT DISTINCT task_roots.root_id AS doc_root_id
-                        FROM task_roots
-                    ),
-                    doc_tree AS (
-                        SELECT
-                            d.id,
-                            d.id AS root_id,
-                            0 AS depth,
-                            '' AS order_key
-                        FROM blocks d
-                        WHERE d.id IN (SELECT doc_root_id FROM doc_roots)
-
-                        UNION ALL
-
-                        SELECT
-                            b.id,
-                            t.root_id,
-                            t.depth + 1 AS depth,
-                            (t.order_key || '/' ||
-                                CASE
-                                    WHEN TRIM(CAST(b.sort AS TEXT)) GLOB '[0-9]*' AND TRIM(CAST(b.sort AS TEXT)) != ''
-                                        THEN ('0:' || printf('%020d', CAST(TRIM(CAST(b.sort AS TEXT)) AS INTEGER)))
-                                    ELSE ('1:' || COALESCE(NULLIF(TRIM(CAST(b.sort AS TEXT)), ''), ''))
-                                END
-                                || ':' || b.id) AS order_key
-                        FROM blocks b
-                        INNER JOIN doc_tree t ON b.parent_id = t.id
-                        WHERE t.depth < 128
-                    ),
-                    headings AS (
-                        SELECT
-                            b.id,
-                            b.root_id,
-                            b.path,
-                            b.sort,
-                            b.created,
-                            COALESCE(dt.order_key, '') AS heading_order_key,
-                            ROW_NUMBER() OVER (
-                                PARTITION BY b.root_id
-                                ORDER BY COALESCE(dt.order_key, ''), b.created, b.id
-                            ) AS heading_rank
-                        FROM blocks b
-                        LEFT JOIN doc_tree dt ON dt.id = b.id
-                        WHERE b.type = 'h'
-                          AND b.subtype = '${SettingsStore.data.taskHeadingLevel || 'h2'}'
-                          AND b.root_id IN (SELECT DISTINCT task_roots.root_id FROM task_roots)
-                    ),
-                    -- 获取任务的父块信息（包括类型）
-                    task_parents AS (
-                        SELECT
-                            tr.task_id,
-                            tr.root_id,
-                            b.parent_id AS immediate_parent_id,
-                            b.type AS task_type,
-                            b.subtype AS task_subtype
-                        FROM task_roots tr
-                        LEFT JOIN blocks b ON b.id = tr.task_id
-                    ),
-                    -- 递归查找最外层的列表块或文档块的order_key
-                    task_order_keys AS (
-                        -- 基础情况：直接父块
-                        SELECT
-                            tp.task_id,
-                            tp.root_id,
-                            tp.immediate_parent_id AS current_parent_id,
-                            dt_parent.order_key AS parent_order_key,
-                            0 AS depth
-                        FROM task_parents tp
-                        LEFT JOIN doc_tree dt_parent ON dt_parent.id = tp.immediate_parent_id
-
-                        UNION ALL
-
-                        -- 递归情况：父块是任务块，继续向上查找
-                        SELECT
-                            tok.task_id,
-                            tok.root_id,
-                            b.parent_id AS current_parent_id,
-                            dt_parent.order_key AS parent_order_key,
-                            tok.depth + 1 AS depth
-                        FROM task_order_keys tok
-                        LEFT JOIN blocks b ON b.id = tok.current_parent_id
-                        LEFT JOIN doc_tree dt_parent ON dt_parent.id = b.parent_id
-                        WHERE tok.depth < 10
-                          AND b.type IN ('i', 't', 's') -- 继续向上查找（包含超级块's'）
-                    ),
-                    -- 获取最终的order_key（最外层非任务块的order_key）
-                    task_orders AS (
-                        SELECT
-                            tok.task_id AS task_id,
-                            tok.root_id AS task_root_id,
-                            COALESCE(
-                                (SELECT parent_order_key FROM task_order_keys tok2
-                                 WHERE tok2.task_id = tok.task_id AND tok2.parent_order_key != ''
-                                 ORDER BY tok2.depth DESC LIMIT 1),
-                                dt_task.order_key,
-                                ''
-                            ) AS task_order_key
-                        FROM task_order_keys tok
-                        LEFT JOIN doc_tree dt_task ON dt_task.id = tok.task_id
-                        GROUP BY tok.task_id, tok.root_id
-                    ),
-                    matched AS (
-                        SELECT
-                            t.task_id,
-                            t.task_root_id,
-                            h.id AS heading_id,
-                            h.path AS heading_path,
-                            h.sort AS heading_sort,
-                            h.created AS heading_created,
-                            h.heading_rank,
-                            ROW_NUMBER() OVER (
-                                PARTITION BY t.task_id
-                                ORDER BY h.heading_order_key DESC, h.heading_rank DESC
-                            ) AS rn
-                        FROM task_orders t
-                        LEFT JOIN headings h
-                            ON h.root_id = t.task_root_id
-                           AND h.heading_order_key <= t.task_order_key
-                    )
-                    SELECT
-                        m.task_id,
-                        m.task_root_id AS root_id,
-                        m.heading_id,
-                        hb.content,
-                        m.heading_path,
-                        m.heading_sort,
-                        m.heading_created,
-                        m.heading_rank
-                    FROM matched m
-                    LEFT JOIN blocks hb ON hb.id = m.heading_id
-                    WHERE m.rn = 1
-                    LIMIT ${batchLimit}
-                `;
+                const sql = __tmT("task.withRecursiveTaskRootsAsSelectIdAsTask", { idList: idList, value2: SettingsStore.data.taskHeadingLevel || 'h2', batchLimit: batchLimit });
                 try {
                     const res = await this.call('/api/query/sql', { stmt: sql });
                     if (res.code === 0 && res.data) {
@@ -2555,7 +2387,7 @@
                 id: id,
                 attrs: { [attrKey]: String(val) }
             });
-            if (res.code !== 0) throw new Error(res.msg || '保存属性失败');
+            if (res.code !== 0) throw new Error(res.msg || __tmT("task.failedToSaveAttributes"));
             return true;
         },
 
@@ -2568,7 +2400,7 @@
                 });
             } catch (e) {}
             const res = await this.call('/api/attr/setBlockAttrs', { id, attrs: payload });
-            if (res.code !== 0) throw new Error(res.msg || '保存属性失败');
+            if (res.code !== 0) throw new Error(res.msg || __tmT("task.failedToSaveAttributes"));
             return true;
         },
 
@@ -2581,7 +2413,7 @@
             for (let i = 0; i < normalizedIds.length; i += size) {
                 const chunk = normalizedIds.slice(i, i + size);
                 const res = await this.call('/api/attr/batchGetBlockAttrs', { ids: chunk });
-                if (res.code !== 0) throw new Error(res.msg || '批量读取属性失败');
+                if (res.code !== 0) throw new Error(res.msg || __tmT("task.failedToReadAttributesInBatch"));
                 Object.entries((res.data && typeof res.data === 'object') ? res.data : {}).forEach(([id, attrs]) => {
                     out[String(id)] = (attrs && typeof attrs === 'object') ? attrs : {};
                 });
@@ -2601,7 +2433,7 @@
             }).filter(Boolean);
             if (!blockAttrs.length) return true;
             const res = await this.call('/api/attr/batchSetBlockAttrs', { blockAttrs });
-            if (res.code !== 0) throw new Error(res.msg || '批量保存属性失败');
+            if (res.code !== 0) throw new Error(res.msg || __tmT("task.failedToSaveAttributesInBatch"));
             return true;
         },
 
@@ -2613,7 +2445,7 @@
                 ? opts.exts.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
                 : [];
             const res = await this.call('/api/search/searchAsset', { k: query, exts });
-            if (res.code !== 0) throw new Error(res.msg || '搜索附件失败');
+            if (res.code !== 0) throw new Error(res.msg || __tmT("task.failedToSearchAttachments"));
             const limit = Number.isFinite(Number(opts.limit))
                 ? Math.max(1, Math.min(200, Math.floor(Number(opts.limit))))
                 : 60;
@@ -2644,7 +2476,7 @@
             const formatRows = (rows) => (Array.isArray(rows) ? rows : []).map((row) => {
                 const id = String(row?.id || '').trim();
                 if (!id) return null;
-                const name = String(row?.content || '').trim() || '未命名文档';
+                const name = String(row?.content || '').trim() || __tmT("kernel.untitledDocument");
                 const displayPath = String(row?.hpath || row?.hPath || '').trim() || name;
                 try {
                     __tmPrimeTaskAttachmentBlockMeta({
@@ -2704,7 +2536,7 @@
                 LIMIT ${limit}
             `;
             const docRes = await this.call('/api/query/sql', { stmt: sql });
-            if (docRes.code !== 0) throw new Error(docRes.msg || '搜索文档失败');
+            if (docRes.code !== 0) throw new Error(docRes.msg || __tmT("task.failedToSearchDocuments"));
             return formatRows(docRes.data);
         },
 
@@ -2729,7 +2561,7 @@
                 throw new Error(`HTTP ${res.status}`);
             }
             if (!res.ok || Number(json?.code) !== 0) {
-                throw new Error(String(json?.msg || `HTTP ${res.status}` || '上传附件失败'));
+                throw new Error(String(json?.msg || `HTTP ${res.status}` || __tmT("task.failedToUploadTheAttachment")));
             }
             const succMap = (json?.data?.succMap && typeof json.data.succMap === 'object') ? json.data.succMap : {};
             return list
@@ -2740,10 +2572,10 @@
         async writeAssetFilePathToClipboard(path) {
             const normalizedPath = __tmNormalizeTaskAttachmentPath(path);
             if (!normalizedPath || !/^assets\//i.test(normalizedPath)) {
-                throw new Error('仅支持复制 assets 目录附件');
+                throw new Error(__tmT("task.onlyAttachmentsUnderTheAssetsDirectoryCanBeCopied"));
             }
             const res = await this.call('/api/clipboard/writeFilePath', { path: normalizedPath });
-            if (res.code !== 0) throw new Error(res.msg || '复制附件失败');
+            if (res.code !== 0) throw new Error(res.msg || __tmT("task.failedToCopyTheAttachment"));
             return true;
         },
 
@@ -2755,9 +2587,9 @@
             });
             if (res.code !== 0) {
                 if (res.msg?.includes('not found')) {
-                    throw new Error(`块 ${id.slice(-6)} 不存在`);
+                    throw new Error(__tmT("task.blockDoesNotExist", { value1: id.slice(-6) }));
                 }
-                throw new Error(res.msg || '更新块失败');
+                throw new Error(res.msg || __tmT("task.failedToUpdateTheBlock"));
             }
             const opId = this._getInsertedId(res);
             return { res, id: opId || id };
@@ -2769,7 +2601,7 @@
                 marker: __tmNormalizeTaskStatusMarker(marker, ' '),
             };
             const res = await this.call('/api/block/updateTaskListItemMarker', payload);
-            if (res.code !== 0) throw new Error(res.msg || '更新任务状态标记失败');
+            if (res.code !== 0) throw new Error(res.msg || __tmT("task.failedToUpdateTheTaskStatusMarker"));
             return res.data;
         },
 
@@ -2782,7 +2614,7 @@
                 .filter((item) => item.id);
             if (!payloadItems.length) return [];
             const res = await this.call('/api/block/batchUpdateTaskListItemMarker', { items: payloadItems });
-            if (res.code !== 0) throw new Error(res.msg || '批量更新任务状态标记失败');
+            if (res.code !== 0) throw new Error(res.msg || __tmT("task.failedToUpdateTaskStatusMarkersInBatch"));
             return res.data;
         },
 
@@ -2794,11 +2626,11 @@
             const itemOnly = opts.itemOnly === true;
             const createLute = globalThis.Lute?.New || globalThis.window?.Lute?.New;
             if (!/^\d{14}-[a-z0-9]{7}$/i.test(taskId) || typeof createLute !== 'function') {
-                throw new Error('当前思源版本不支持稳定任务 DOM');
+                throw new Error(__tmT("task.thisSiyuanVersionDoesNotSupportStableTaskDom"));
             }
             const lute = createLute.call(globalThis.Lute || globalThis.window?.Lute);
             if (!lute || typeof lute.Md2BlockDOM !== 'function') {
-                throw new Error('思源 Lute 任务 DOM 服务不可用');
+                throw new Error(__tmT("task.theSiyuanLuteTaskDomServiceIsUnavailable"));
             }
             [
                 ['SetProtyleWYSIWYG', true],
@@ -2807,12 +2639,12 @@
                 ['SetArbitraryTaskListItemMarker', true],
                 ['SetEnsureListItemParagraph', true],
             ].forEach(([method, value]) => {
-                if (typeof lute[method] !== 'function') throw new Error(`思源 Lute 缺少任务解析能力: ${method}`);
+                if (typeof lute[method] !== 'function') throw new Error(__tmT("task.siyuanLuteIsMissingTheTaskParsingCapability", { method: method }));
                 lute[method](value);
             });
             const markdown = `- [${done ? 'x' : ' '}] ${String(content || '')}`;
             const standardDom = String(lute.Md2BlockDOM(markdown) || '').trim();
-            if (!standardDom) throw new Error('生成任务 DOM 失败');
+            if (!standardDom) throw new Error(__tmT("task.failedToGenerateTheTaskDom"));
             const host = document.createElement('div');
             host.innerHTML = standardDom;
             const taskElements = Array.from(host.querySelectorAll('[data-type="NodeListItem"]')).filter((element) => (
@@ -2820,13 +2652,13 @@
                 || element.hasAttribute('data-task')
             ));
             if (taskElements.length !== 1) {
-                throw new Error('任务内容必须解析为单个任务列表项');
+                throw new Error(__tmT("task.taskContentMustParseIntoASingleTaskList"));
             }
             const taskElement = taskElements[0] || null;
-            if (!(taskElement instanceof Element)) throw new Error('思源未生成任务列表项');
+            if (!(taskElement instanceof Element)) throw new Error(__tmT("task.siyuanDidNotGenerateATaskListItem"));
             if (!taskElement.hasAttribute('data-task')
                 || !(taskElement.querySelector(':scope > .protyle-action--task') instanceof Element)) {
-                throw new Error('思源 Lute 未生成标准任务结构');
+                throw new Error(__tmT("task.siyuanLuteDidNotGenerateAStandardTaskStructure"));
             }
             taskElement.setAttribute('data-node-id', taskId);
             const attrs = (opts.attrs && typeof opts.attrs === 'object') ? opts.attrs : {};
@@ -2839,7 +2671,7 @@
                 const listElement = taskElement.parentElement;
                 if (!(listElement instanceof Element)
                     || String(listElement.getAttribute('data-type') || '').trim() !== 'NodeList') {
-                    throw new Error('思源未生成任务列表容器');
+                    throw new Error(__tmT("task.siyuanDidNotGenerateATaskListContainer"));
                 }
                 listElement.setAttribute('data-node-id', listId);
             }
@@ -2874,7 +2706,7 @@
             const res = await this.call('/api/block/insertBlock', payload);
             if (res.code !== 0) throw new Error(res.msg);
             const id = this._getInsertedId(res);
-            if (!id) throw new Error('插入失败');
+            if (!id) throw new Error(__tmT("task.insertFailed"));
             return id;
         },
 
@@ -2884,7 +2716,7 @@
             const res = await this.call('/api/block/appendBlock', { parentID: parentId, data, dataType });
             if (res.code !== 0) throw new Error(res.msg);
             const id = this._getInsertedId(res);
-            if (!id) throw new Error('追加失败');
+            if (!id) throw new Error(__tmT("task.appendFailed"));
             return id;
         },
 
@@ -2894,7 +2726,7 @@
             const res = await this.call('/api/block/prependBlock', { parentID: parentId, data, dataType });
             if (res.code !== 0) throw new Error(res.msg);
             const id = this._getInsertedId(res);
-            if (!id) throw new Error('前置插入失败');
+            if (!id) throw new Error(__tmT("task.prependFailed"));
             return id;
         },
 
@@ -2902,13 +2734,13 @@
             const pid = String(previousID || '');
             const par = String(parentID || '');
             const nid = String(nextID || '');
-            if (!pid && !par && !nid) throw new Error('移动失败：缺少目标位置');
+            if (!pid && !par && !nid) throw new Error(__tmT("task.moveFailedMissingTargetPosition"));
             const payload = { id };
             if (pid) payload.previousID = pid;
             if (par) payload.parentID = par;
             if (nid) payload.nextID = nid;
             const res = await this.call('/api/block/moveBlock', payload);
-            if (res.code !== 0) throw new Error(res.msg || '移动块失败');
+            if (res.code !== 0) throw new Error(res.msg || __tmT("task.failedToMoveTheBlock"));
             return true;
         },
 
@@ -3248,7 +3080,7 @@
             `;
             const res = await this.call('/api/query/sql', { stmt: sql });
             if (res.code !== 0 || !Array.isArray(res.data)) {
-                throw new Error(res?.msg || '批量解析任务变更失败');
+                throw new Error(res?.msg || __tmT("task.failedToParseTaskChangesInBatch"));
             }
             const impactMap = new Map();
             res.data.forEach((row) => {
@@ -3647,7 +3479,7 @@
             || globalThis.__taskHorizonHostBridge?.plugin?.app?.appId
             || ''
         ).trim();
-        if (!appID) throw new Error('缺少当前窗口标识，无法安全重启任务工具内核');
+        if (!appID) throw new Error(__tmT("task.missingTheCurrentWindowIdentityCannotSafelyRestartThe"));
         const now = Date.now();
         const recentRecovery = __tmReadKernelRecoveryTime();
         if (recentRecovery && now >= recentRecovery && now - recentRecovery < __TM_KERNEL_RECOVERY_COOLDOWN_MS) {
@@ -3669,7 +3501,7 @@
             let payload = null;
             try { payload = await response.json(); } catch (e) {}
             if (!response.ok || !payload || Number(payload.code) !== 0) {
-                throw new Error(String(payload?.msg || payload?.message || `任务工具内核重启失败 (${response.status})`));
+                throw new Error(String(payload?.msg || payload?.message || __tmT("task.taskToolKernelRestartFailed", { status: response.status })));
             }
             return true;
         } catch (error) {
@@ -3695,8 +3527,8 @@
 
     function __tmRequireKernelGatewayForTaskMutation(gateway, operation = '') {
         if (gateway?.available === true) return gateway;
-        const label = String(operation || '任务写入').trim() || '任务写入';
-        throw new Error(`${label}失败：任务内核暂不可用`);
+        const label = String(operation || __tmT("task.taskWrite")).trim() || __tmT("task.taskWrite");
+        throw new Error(__tmT("task.failedTheTaskKernelIsTemporarilyUnavailable", { label: label }));
     }
 
     function __tmGetActiveTaskMutationLaneId(fallback = '') {
@@ -3717,7 +3549,7 @@
                 action: 'blockOperation',
                 operation: { action: 'setAttrs', id, attrs },
                 laneID: __tmGetActiveTaskMutationLaneId(id),
-            }, '任务属性写入');
+            }, __tmT("task.taskAttributeWrite"));
             return receipt.value;
         }),
         batchSetAttrs: __tmGuardBackendWrite('batchSetAttrs', async function(entries) {
@@ -3725,7 +3557,7 @@
                 action: 'blockOperation',
                 operation: { action: 'batchSetAttrs', entries },
                 laneID: __tmGetActiveTaskMutationLaneId(entries?.[0]?.id),
-            }, '批量任务属性写入');
+            }, __tmT("task.batchTaskAttributeWrite"));
             return receipt.value;
         }),
         updateBlock: __tmGuardBackendWrite('updateBlock', async function(id, md, dataType = 'markdown') {
@@ -3733,7 +3565,7 @@
                 action: 'blockOperation',
                 operation: { action: 'updateBlock', id, data: md, dataType },
                 laneID: __tmGetActiveTaskMutationLaneId(id),
-            }, '任务块更新');
+            }, __tmT("task.taskBlockUpdate"));
             return { res: null, id: String(receipt.value?.id || id).trim() || id };
         }),
         insertBlock: __tmGuardBackendWrite('insertBlock', async function(parentId, data, placement, options = {}) {
@@ -3752,7 +3584,7 @@
                     requestedID: String(opts.requestedID || '').trim(),
                 },
                 laneID: __tmGetActiveTaskMutationLaneId(parentId),
-            }, '任务块插入');
+            }, __tmT("task.taskBlockInsert"));
             return String(receipt.value?.id || '').trim();
         }),
         appendBlock: __tmGuardBackendWrite('appendBlock', async function(parentId, data, options = {}) {
@@ -3768,7 +3600,7 @@
                     requestedID: String(opts.requestedID || '').trim(),
                 },
                 laneID: __tmGetActiveTaskMutationLaneId(parentId),
-            }, '任务块追加');
+            }, __tmT("task.taskBlockAppend"));
             return String(receipt.value?.id || '').trim();
         }),
         prependBlock: __tmGuardBackendWrite('prependBlock', async function(parentId, data, options = {}) {
@@ -3784,7 +3616,7 @@
                     requestedID: String(opts.requestedID || '').trim(),
                 },
                 laneID: __tmGetActiveTaskMutationLaneId(parentId),
-            }, '任务块前置插入');
+            }, __tmT("task.taskBlockPrepend"));
             return String(receipt.value?.id || '').trim();
         }),
         createSubtask: __tmGuardBackendWrite('createSubtask', async function(parentTaskId, taskId, listId, listData, itemData, options = {}) {
@@ -3800,7 +3632,7 @@
                     ...((options && typeof options === 'object') ? options : {}),
                 },
                 laneID: __tmGetActiveTaskMutationLaneId(parentTaskId),
-            }, '子任务写入');
+            }, __tmT("task.subtaskWrite"));
             return receipt.value;
         }),
         moveBlock: __tmGuardBackendWrite('moveBlock', async function(id, placement = {}) {
@@ -3808,7 +3640,7 @@
                 action: 'blockOperation',
                 operation: { action: 'moveBlock', id, ...(placement || {}) },
                 laneID: __tmGetActiveTaskMutationLaneId(id),
-            }, '任务移动');
+            }, __tmT("task.taskMove"));
             return true;
         }),
         deleteBlock: __tmGuardBackendWrite('deleteBlock', async function(id) {
@@ -3816,7 +3648,7 @@
                 action: 'blockOperation',
                 operation: { action: 'deleteBlock', id },
                 laneID: __tmGetActiveTaskMutationLaneId(id),
-            }, '任务删除');
+            }, __tmT("task.taskDelete"));
             return receipt.value;
         }),
         flushTransaction() {
@@ -3837,11 +3669,11 @@
         try {
             await __tmRecoverTaskHorizonKernelSession();
         } catch (recoveryError) {
-            const failure = new Error(`任务工具会话失效，自动恢复失败：${String(recoveryError?.message || recoveryError || '未知错误')}`);
+            const failure = new Error(__tmT("task.theTaskToolSessionExpiredAndAutomaticRecoveryFailed", { value1: String(recoveryError?.message || recoveryError || __tmT("plugin.unknownError")) }));
             failure.code = 'KERNEL_SESSION_RECOVERY_FAILED';
             throw failure;
         }
-        const recovered = new Error('任务工具会话已恢复，请重试刚才的操作');
+        const recovered = new Error(__tmT("task.theTaskToolSessionRecoveredRetryTheLastAction"));
         recovered.code = 'KERNEL_SESSION_RECOVERED';
         recovered.details = { call: String(callName || '').trim() };
         throw recovered;
@@ -3855,7 +3687,7 @@
             if (typeof method !== 'function') return { available: false, data: null };
             const result = await method(...args);
             if (!result || result.ok !== true) {
-                const error = new Error(String(result?.error?.message || '任务内核服务调用失败'));
+                const error = new Error(String(result?.error?.message || __tmT("task.taskKernelServiceCallFailed")));
                 error.code = String(result?.error?.code || 'STORAGE_ERROR');
                 error.details = result?.error?.details || null;
                 throw error;
@@ -3871,7 +3703,7 @@
                 try {
                     await __tmRecoverTaskHorizonKernelSession();
                 } catch (recoveryError) {
-                    const failure = new Error(`任务工具会话失效，自动恢复失败：${String(recoveryError?.message || recoveryError || '未知错误')}`);
+                    const failure = new Error(__tmT("task.theTaskToolSessionExpiredAndAutomaticRecoveryFailed", { value1: String(recoveryError?.message || recoveryError || __tmT("plugin.unknownError")) }));
                     failure.code = 'KERNEL_SESSION_RECOVERY_FAILED';
                     throw failure;
                 }
@@ -3882,13 +3714,13 @@
         }
     }
 
-    async function __tmExecuteTaskCommandGateway(input, label = '任务写入') {
+    async function __tmExecuteTaskCommandGateway(input, label = __tmT("task.taskWrite")) {
         const command = (input && typeof input === 'object') ? input : {};
         const gateway = await __tmCallTaskHorizonKernelRpc('taskHorizonMutateTask', command);
         __tmRequireKernelGatewayForTaskMutation(gateway, label);
         const receipt = gateway?.data && typeof gateway.data === 'object' ? gateway.data : null;
         if (!receipt || receipt.outcome !== 'committed') {
-            const error = new Error(String(receipt?.error?.message || `${label}未提交`));
+            const error = new Error(String(receipt?.error?.message || __tmT("task.wasNotSubmitted", { label: label })));
             error.code = String(receipt?.error?.code || receipt?.outcome || 'UNKNOWN');
             error.details = receipt?.error?.details || null;
             error.outcome = String(receipt?.outcome || 'unknown');
@@ -3911,7 +3743,7 @@
             taskIDs: ids,
             laneID: ids[0],
             source: String(options?.source || 'attr-host-reconcile').trim() || 'attr-host-reconcile',
-        }, '任务属性宿主对账');
+        }, __tmT("task.taskAttributeHostReconciliation"));
         return receipt.value || { taskIDs: ids, reconciled: 0, writtenHosts: [] };
     }
 
@@ -4040,7 +3872,7 @@
 
     function __tmFormatStatusMarkerText(marker) {
         const normalized = __tmNormalizeTaskStatusMarker(marker, ' ');
-        return normalized === ' ' ? '空格' : normalized;
+        return normalized === ' ' ? __tmT("task.space") : normalized;
     }
 
     function __tmGuessStatusOptionDefaultMarker(optionLike, fallback = ' ') {
@@ -4514,11 +4346,11 @@
         }
         const done = __tmIsTaskMarkerDone(marker);
         const fallbackColor = String(opts.fallbackColor || (done ? '#9e9e9e' : '#757575')).trim() || (done ? '#9e9e9e' : '#757575');
-        const fallbackName = String(opts.fallbackName || (done ? '完成' : '待办')).trim() || (done ? '完成' : '待办');
+        const fallbackName = String(opts.fallbackName || (done ? __tmT("quickbar.done") : __tmT("homepage.toDo"))).trim() || (done ? __tmT("quickbar.done") : __tmT("homepage.toDo"));
         if (matched) {
             return {
                 id: String(matched.id || resolvedId || '').trim(),
-                name: String(matched.name || matched.id || fallbackName).trim() || fallbackName,
+                name: globalThis.__taskHorizonHostBridge.i18n.builtinName('status', matched) || fallbackName,
                 color: String(matched.color || fallbackColor).trim() || fallbackColor,
             };
         }
@@ -4565,7 +4397,7 @@
         const statusOptions = Array.isArray(SettingsStore?.data?.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
         const rows = statusOptions.filter((item) => __tmNormalizeCompatTaskStatusMarker(item.marker) === (done ? 'X' : ' ')).map((item) => ({
             id: String(item?.id || '').trim(),
-            name: String(item?.name || item?.id || '').trim() || String(item?.id || '').trim()
+            name: globalThis.__taskHorizonHostBridge.i18n.builtinName('status', item)
         })).filter((item) => item.id);
         if (normalizedSelected && !rows.some((item) => item.id === normalizedSelected)) {
             rows.push({ id: normalizedSelected, name: `当前值已删除：${normalizedSelected}` });
@@ -4761,7 +4593,7 @@
             taskID: taskId,
             attrs,
             laneID: __tmGetActiveTaskMutationLaneId(taskId),
-        }, '任务属性写入');
+        }, __tmT("task.taskAttributeWrite"));
         if (receipt) {
             return {
                 acknowledged: true,
@@ -5313,7 +5145,7 @@
                 entropy = '';
             }
         }
-        if (!entropy) throw new Error('无法安全生成任务写入操作 ID，任务写入已暂停');
+        if (!entropy) throw new Error(__tmT("task.couldNotSafelyGenerateATaskWriteOperationId"));
         return `tmop_${Date.now()}_${String(sequence).padStart(8, '0')}_${entropy}`;
     }
 
@@ -5906,7 +5738,7 @@
         const statusId = String(nextPatch.customStatus || '').trim()
             || __tmGetDefaultUndoneStatusId(__tmGetStatusOptions());
         const statusOption = __tmFindStatusOptionById(statusId);
-        if (!tid || !statusOption) throw new Error('状态不存在，请先在设置中配置');
+        if (!tid || !statusOption) throw new Error(__tmT("task.statusDoesNotExistConfigureItInTheSettings"));
 
         const task = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         const statusBefore = (data.statusBefore && typeof data.statusBefore === 'object') ? data.statusBefore : {};
@@ -5919,7 +5751,7 @@
         );
         if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask({ ...task, ...nextPatch })
             && __tmIsTaskMarkerClosed(nextMarker)) {
-            throw new Error('打卡模式没有永久完成状态；请先切换循环方式或关闭循环');
+            throw new Error(__tmT("task.checkInModeHasNoPermanentCompletedStateSwitch"));
         }
         nextPatch.customStatus = String(statusOption.id || statusId).trim();
         nextPatch.done = __tmIsTaskMarkerDone(nextMarker);
@@ -5960,7 +5792,7 @@
                     inversePatch: (data.inversePatch && typeof data.inversePatch === 'object')
                         ? data.inversePatch
                         : {},
-                    label: String(data.label || '状态').trim() || '状态',
+                    label: String(data.label || __tmT("kernel.status")).trim() || __tmT("kernel.status"),
                     source: String(data.source || 'task-status').trim() || 'task-status',
                 });
             } catch (e) {}
@@ -6025,7 +5857,7 @@
                     options: { allowSystem: true, inheritedDateFields: op?.data?.inheritedDateFields || [] },
                     recordUndo: op?.data?.recordUndo !== false,
                     laneID: __tmGetActiveTaskMutationLaneId(taskId),
-                }, '任务字段写入');
+                }, __tmT("task.taskFieldWrite"));
             } catch (error) {
                 throw error;
             }
@@ -6052,7 +5884,7 @@
         if (type === 'createTaskInDoc') {
             const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
             const requestedTaskId = String(payload.requestedTaskId || '').trim();
-            if (!requestedTaskId) throw new Error('新建任务缺少稳定块 ID');
+            if (!requestedTaskId) throw new Error(__tmT("task.newTaskIsMissingAStableBlockId"));
             const realId = await __tmCreateTaskInDocKernel({
                 ...payload,
                 requestedTaskId,
@@ -6072,7 +5904,7 @@
         if (type === 'createSubtask') {
             const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
             const requestedTaskId = String(payload.requestedTaskId || '').trim();
-            if (!requestedTaskId) throw new Error('新建子任务缺少稳定块 ID');
+            if (!requestedTaskId) throw new Error(__tmT("task.newSubtaskIsMissingAStableBlockId"));
             let inheritedPatch = (payload.inheritedPatch && typeof payload.inheritedPatch === 'object')
                 ? payload.inheritedPatch
                 : {};
@@ -6098,7 +5930,7 @@
         if (type === 'createSibling') {
             const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
             const requestedTaskId = String(payload.requestedTaskId || '').trim();
-            if (!requestedTaskId) throw new Error('新建同级任务缺少稳定块 ID');
+            if (!requestedTaskId) throw new Error(__tmT("task.newSiblingTaskIsMissingAStableBlockId"));
             const realId = await __tmCreateSiblingTaskForTaskKernel(payload.sourceTaskId, payload.content, {
                 requestedTaskId,
                 initialAttrs: __tmBuildAtomicCreateAttrs(requestedTaskId, payload.initialPatch),
@@ -6130,15 +5962,15 @@
         }
         if (type === 'taskLifecycle') {
             const lifecycle = globalThis.__tmTaskLifecycle;
-            if (!lifecycle || typeof lifecycle.execute !== 'function') throw new Error('任务归档服务未就绪');
+            if (!lifecycle || typeof lifecycle.execute !== 'function') throw new Error(__tmT("task.taskArchiveServiceIsNotReady"));
             const result = await lifecycle.execute(op?.data || {});
             if (String(op?.data?.action || '').trim() === 'archiveDeleted' && result?.ok !== true) {
                 const reason = String(result?.reason || '').trim();
-                throw new Error(reason ? `任务未移入回收站: ${reason}` : '任务未移入回收站');
+                throw new Error(reason ? __tmT("task.taskWasNotMovedToTheTrash", { reason: reason }) : __tmT("task.taskWasNotMovedToTheTrash2"));
             }
             if (String(op?.data?.action || '').trim() === 'restoreDeleted' && result?.ok !== true) {
                 const reason = String(result?.reason || '').trim();
-                throw new Error(reason ? `任务未恢复: ${reason}` : '任务未恢复');
+                throw new Error(reason ? __tmT("task.taskNotRestored", { reason: reason }) : __tmT("task.taskNotRestored2"));
             }
             return result;
         }
@@ -6167,12 +5999,12 @@
                 rewardPriorityScore: data.rewardPriorityScore,
                 source: String(data.source || 'set-done').trim() || 'set-done',
             });
-            if (ok !== true) throw new Error('任务完成状态写入失败');
+            if (ok !== true) throw new Error(__tmT("task.failedToWriteTheTaskCompletionStatus"));
             return { task: globalThis.__tmTaskBoundary?.getTask?.(taskId) || null, authoritative: true };
         }
         if (type === 'setDoneEffects') {
             const runner = globalThis.__tmRunCommittedSetDoneEffects;
-            if (typeof runner !== 'function') throw new Error('任务完成后的关联处理尚未就绪');
+            if (typeof runner !== 'function') throw new Error(__tmT("task.postCompletionLinkHandlingIsNotReadyYet"));
             return await runner(op?.data?.taskId, op?.data || {});
         }
         if (type === 'moveTask') {
@@ -6206,7 +6038,7 @@
             const taskIds = Array.from(new Set((Array.isArray(payload.taskIds) ? payload.taskIds : [])
                 .map((id) => String(id || '').trim())
                 .filter(Boolean)));
-            if (taskIds.length < 2) throw new Error('批量移动至少需要两个任务');
+            if (taskIds.length < 2) throw new Error(__tmT("kernel.batchMoveNeedsAtLeastTwoTasks"));
             try {
                 if (typeof __tmResolveOptimisticTaskId === 'function') {
                     payload.taskIds = taskIds.map((id) => String(__tmResolveOptimisticTaskId(id) || id).trim() || id);
@@ -6224,11 +6056,11 @@
                 recordUndo: false,
                 authoritative: true,
                 laneID: String(payload.targetTaskId || payload.taskIds[0] || '').trim(),
-            }, '批量移动任务');
+            }, __tmT("task.batchMoveTasks"));
             const rawResult = receipt.value && typeof receipt.value === 'object' ? receipt.value : null;
             const rawItems = Array.isArray(rawResult?.results) ? rawResult.results : [];
             if (!rawResult || rawItems.length !== payload.taskIds.length) {
-                throw new Error('批量移动失败：内核未返回完整确认结果');
+                throw new Error(__tmT("task.batchMoveFailedTheKernelDidNotReturnA"));
             }
             const results = rawItems.map((item, index) => {
                 const taskId = String(payload.taskIds[index] || '').trim();
@@ -6261,7 +6093,7 @@
                 authoritative: true,
             };
         }
-        throw new Error(`未支持的队列操作: ${type || 'unknown'}`);
+        throw new Error(__tmT("task.unsupportedQueueOperation", { value1: type || 'unknown' }));
     }
 
     function __tmGetQueuedTaskPatchForVerification(op) {
@@ -6430,14 +6262,14 @@
     function __tmRequireQueuedMoveResult(result, taskId) {
         const tid = String(taskId || '').trim();
         if (!result || typeof result !== 'object' || Array.isArray(result)) {
-            throw new Error('任务移动失败：内核未返回确认结果');
+            throw new Error(__tmT("task.taskMoveFailedTheKernelDidNotReturnA"));
         }
         const placement = __tmNormalizeQueuedTaskPlacement(result.placement || result.task || null, tid);
         if (!placement
             || placement.taskId !== tid
             || !placement.documentId
             || !placement.parentListId) {
-            throw new Error('任务移动失败：内核返回的位置无效');
+            throw new Error(__tmT("task.taskMoveFailedTheKernelReturnedAnInvalidPosition"));
         }
         return {
             ...result,
@@ -6452,7 +6284,7 @@
         const payload = (data && typeof data === 'object') ? data : {};
         const taskId = String(payload.taskId || '').trim();
         const mode = String(payload.mode || 'docTop').trim() || 'docTop';
-        if (!taskId) throw new Error('任务移动缺少任务 ID');
+        if (!taskId) throw new Error(__tmT("task.taskMoveIsMissingTheTaskId"));
         const input = {
             taskID: taskId,
             mode,
@@ -6480,7 +6312,7 @@
             ...input,
             action: 'move',
             commandID: String(op?.id || '').trim(),
-        }, '任务移动');
+        }, __tmT("task.taskMove"));
         const result = __tmRequireQueuedMoveResult(receipt.value, taskId);
         result.changeSet = receipt.changeSet;
         if ((mode === 'child' || mode === 'child-top')
@@ -6499,7 +6331,7 @@
         const moveIndependentList = opts.moveIndependentList === true;
         const moveToRecycleDocument = opts.moveToRecycleDocument === true;
         const moveToIndependentDocument = opts.moveToIndependentDocument === true;
-        if (!tid) throw new Error('任务移动缺少任务 ID');
+        if (!tid) throw new Error(__tmT("task.taskMoveIsMissingTheTaskId"));
         if (headingId) {
             const moveData = {
                 taskId: tid,
@@ -6542,7 +6374,7 @@
         command.targetListID = String(target.parentListID || target.parentListId || target.parentID || '').trim();
         let receipt;
         try {
-            receipt = await __tmExecuteTaskCommandGateway(command, '任务移动');
+            receipt = await __tmExecuteTaskCommandGateway(command, __tmT("task.taskMove"));
         } catch (error) {
             throw error;
         }
@@ -6571,9 +6403,9 @@
 
     function __tmCreateQueuedMoveScaffoldId() {
         const createId = globalThis.Lute?.NewNodeID || globalThis.window?.Lute?.NewNodeID;
-        if (typeof createId !== 'function') throw new Error('当前思源版本不支持生成稳定块 ID');
+        if (typeof createId !== 'function') throw new Error(__tmT("task.thisSiyuanVersionDoesNotSupportGeneratingStableBlock"));
         const id = String(createId.call(globalThis.Lute || globalThis.window?.Lute) || '').trim();
-        if (!/^\d{14}-[a-z0-9]{7}$/.test(id)) throw new Error('思源生成的块 ID 无效');
+        if (!/^\d{14}-[a-z0-9]{7}$/.test(id)) throw new Error(__tmT("task.siyuanGeneratedAnInvalidBlockId"));
         return id;
     }
 
@@ -6581,7 +6413,7 @@
         const payload = (data && typeof data === 'object') ? data : {};
         const targetTaskId = String(payload.targetTaskId || '').trim();
         const targetDocId = String(payload.targetDocId || '').trim();
-        if (!targetTaskId || !targetDocId) throw new Error('移动任务缺少子任务目标');
+        if (!targetTaskId || !targetDocId) throw new Error(__tmT("task.moveTaskIsMissingTheSubtaskTarget"));
 
         const suppliedListId = String(payload.targetChildListId || '').trim();
         if (suppliedListId) {
@@ -6609,13 +6441,13 @@
         const payload = (op?.data && typeof op.data === 'object') ? op.data : null;
         if (!payload || payload.resolveOutdent !== true || payload.outdentResolved === true) return payload;
         const taskId = String(payload.taskId || '').trim();
-        if (!taskId) throw new Error('移出子任务缺少任务 ID');
+        if (!taskId) throw new Error(__tmT("task.moveOutOfParentmissingTaskId"));
         const taskPlacement = await __tmReadQueuedTaskPlacement(taskId);
-        if (!taskPlacement) throw new Error('无法读取任务当前父子结构');
+        if (!taskPlacement) throw new Error(__tmT("task.couldNotReadTheTaskSCurrentParentChild"));
         const parentTaskId = String(taskPlacement.parentTaskId || '').trim();
-        if (!parentTaskId || parentTaskId === taskId) throw new Error('任务当前已不是子任务');
+        if (!parentTaskId || parentTaskId === taskId) throw new Error(__tmT("task.theTaskIsNoLongerASubtask"));
         const parentPlacement = await __tmReadQueuedTaskPlacement(parentTaskId);
-        if (!parentPlacement) throw new Error('无法读取父任务位置');
+        if (!parentPlacement) throw new Error(__tmT("task.couldNotReadTheParentTaskPosition"));
         payload.targetTaskId = parentTaskId;
         payload.targetParentTaskId = String(parentPlacement.parentTaskId || '').trim();
         payload.targetListId = String(parentPlacement.parentListId || '').trim();
@@ -6650,9 +6482,9 @@
         const data = (op?.data && typeof op.data === 'object') ? op.data : {};
         if (data.previousStatePrepared === true) return;
         const taskId = String(data.taskId || '').trim();
-        if (!taskId) throw new Error('完成状态队列缺少任务 ID');
+        if (!taskId) throw new Error(__tmT("task.completionStatusQueueIsMissingTheTaskId"));
         const task = await __tmReadTaskMutationBaseline(taskId);
-        if (!task) throw new Error('无法读取任务完成状态基线');
+        if (!task) throw new Error(__tmT("task.couldNotReadTheTaskCompletionStatusBaseline"));
         data.baseline = task;
 
         const kernelPreviousDone = task.done === true || task.done === 1 || task.done === '1';
@@ -7240,7 +7072,7 @@
     function __tmRefreshQueuedStructuralProjection(op, detail = {}) {
         const reportFailure = (error) => {
             try { console.warn('[task-horizon] structural-reconcile-failed', error); } catch (e) {}
-            try { hint('任务回滚后的视图校正失败，请手动刷新', 'warning'); } catch (e) {}
+            try { hint(__tmT("task.viewCorrectionAfterTaskRollbackFailedRefreshManually"), 'warning'); } catch (e) {}
         };
         try {
             if (typeof __tmRefreshAffectedDocsIncrementally !== 'function') return false;
@@ -7734,8 +7566,8 @@
         const followUpOps = Array.isArray(result?.followUpOps) ? result.followUpOps : [];
         followUpOps.forEach((definition) => {
             if (!(definition && typeof definition === 'object')) return;
-            const action = String(definition.data?.label || __tmDescribeMutationOpType(definition.type) || '关联任务写入').trim();
-            const failureAction = `完成状态已保存，但${action}`;
+            const action = String(definition.data?.label || __tmDescribeMutationOpType(definition.type) || __tmT("task.linkedTaskWrite")).trim();
+            const failureAction = __tmT("task.completionStatusSavedBut", { action: action });
             const followUpDefinition = {
                 ...definition,
                 data: {
@@ -7868,7 +7700,7 @@
             const taskIds = Array.isArray(op?.data?.taskIds) ? op.data.taskIds : [];
             const results = Array.isArray(result?.results) ? result.results : [];
             if (taskIds.length < 2 || results.length !== taskIds.length) {
-                throw new Error('批量移动失败：无法应用完整的内核确认位置');
+                throw new Error(__tmT("task.batchMoveFailedCouldNotApplyTheCompleteKernel"));
             }
             return results.every((item, index) => __tmAcknowledgeSimpleMutationResult({
                 type: 'moveTask',
@@ -7879,7 +7711,7 @@
             const taskId = String(op?.data?.taskId || '').trim();
             const placement = __tmNormalizeQueuedTaskPlacement(result?.placement || result?.task || null, taskId);
             if (!taskId || !placement || placement.taskId !== taskId) {
-                throw new Error('任务移动失败：无法应用内核确认位置');
+                throw new Error(__tmT("task.taskMoveFailedCouldNotApplyTheKernelConfirmed"));
             }
             const patch = {
                 root_id: placement.documentId,
@@ -7986,7 +7818,7 @@
                     if (requiresPlacementAcknowledgement) throw error;
                 }
                 if (requiresPlacementAcknowledgement && !acknowledged) {
-                    throw new Error('任务移动失败：内核未返回可确认的位置');
+                    throw new Error(__tmT("task.taskMoveFailedTheKernelDidNotReturnA2"));
                 }
                 try { __tmCommitQueuedOp(op, result); } catch (e) {}
                 const opType = String(op.type || '').trim();
@@ -8007,7 +7839,7 @@
                             );
                             if (effectsResult?.linkage?.ok === false && result?.completion) {
                                 result.completion.linkage = effectsResult.linkage;
-                                __tmReportTaskMutationFailure(new Error(effectsResult.linkage.message), { action: '任务已保存，但关联同步' });
+                                __tmReportTaskMutationFailure(new Error(effectsResult.linkage.message), { action: __tmT("task.taskSavedButLinkedSync") });
                             }
                             __tmEnqueueMutationFollowUpOps(effectsResult);
                         } catch (effectsError) {
@@ -8015,7 +7847,7 @@
                             try { console.warn('[task-horizon] set-done-effects-failed', effectsError); } catch (e) {}
                             try {
                                 __tmReportTaskMutationFailure(effectsError, {
-                                    action: '完成状态已保存，但关联处理',
+                                    action: __tmT("task.completionStatusSavedButLinkHandling"),
                                 });
                             } catch (e) {}
                         }
@@ -8032,12 +7864,12 @@
                 }
                 op.status = 'failed';
                 op.settledAt = Date.now();
-                op.errorMessage = String(error?.message || error || '任务写入失败');
+                op.errorMessage = String(error?.message || error || __tmT("task.taskWriteFailed"));
                 try {
                     const data = (op?.data && typeof op.data === 'object') ? op.data : {};
                     if (data.showErrorHint !== false && data.suppressHint !== true) {
                         __tmReportTaskMutationFailure(error, {
-                            action: String(data.label || __tmDescribeMutationOpType(op.type) || '任务写入').trim(),
+                            action: String(data.label || __tmDescribeMutationOpType(op.type) || __tmT("task.taskWrite")).trim(),
                         });
                     }
                 } catch (e) {}
@@ -8193,7 +8025,7 @@
             && __tmIsMutationTaskPendingDeleted(primaryTaskId)
             && !__tmCanMutationRunDuringPendingDelete(op)) {
             return options.wait
-                ? Promise.reject(new Error('任务已删除，写入已取消'))
+                ? Promise.reject(new Error(__tmT("task.theTaskWasDeletedTheWriteWasCancelled")))
                 : Promise.resolve({
                     skipped: true,
                     reason: 'pending-delete',
@@ -8206,7 +8038,7 @@
         if (__tmShouldUseSimpleMutationService(op)) {
             return __tmEnqueueSimpleMutation(op, options);
         }
-        const unsupportedError = new Error(`未支持的一次性任务操作: ${op.type || 'unknown'}`);
+        const unsupportedError = new Error(__tmT("task.unsupportedOneShotTaskOperation", { value1: op.type || 'unknown' }));
         const rejected = Promise.reject(unsupportedError);
         try { options.onPending?.(rejected, op); } catch (e) {}
         if (options.wait !== true) rejected.catch(() => null);
@@ -8338,7 +8170,7 @@
 
     async function __tmWaitForPendingTaskWrites(taskId, options = {}) {
         const tid = String(taskId || '').trim();
-        if (!tid) return { ok: false, code: 'INVALID_ARGUMENT', message: '任务 ID 为空' };
+        if (!tid) return { ok: false, code: 'INVALID_ARGUMENT', message: __tmT("task.taskIdIsEmpty") };
         const opts = (options && typeof options === 'object') ? options : {};
         const timeoutMs = Math.max(200, Math.min(10000, Number(opts.timeoutMs) || 4000));
         const ids = __tmTaskWriteIds(tid);
@@ -8352,18 +8184,18 @@
                 new Promise((resolve) => setTimeout(() => resolve(null), remainingMs)),
             ]);
             if (settled === null) {
-                return { ok: false, code: 'TASK_WRITE_TIMEOUT', message: '任务写入超时' };
+                return { ok: false, code: 'TASK_WRITE_TIMEOUT', message: __tmT("task.taskWriteTimedOut") };
             }
             const failure = settled.find((result) => result.status === 'rejected');
             if (failure) {
                 return {
                     ok: false,
                     code: 'TASK_WRITE_FAILED',
-                    message: String(failure.reason?.message || failure.reason || '任务写入失败'),
+                    message: String(failure.reason?.message || failure.reason || __tmT("task.taskWriteFailed")),
                 };
             }
         }
-        return { ok: false, code: 'TASK_WRITE_TIMEOUT', message: '任务写入超时' };
+        return { ok: false, code: 'TASK_WRITE_TIMEOUT', message: __tmT("task.taskWriteTimedOut") };
     }
 
     try {
@@ -8392,7 +8224,7 @@
 
     async function __tmWaitForTaskWrites(taskId, options = {}) {
         const tid = String(taskId || '').trim();
-        if (!tid) return { ok: false, code: 'INVALID_ARGUMENT', message: '任务 ID 为空' };
+        if (!tid) return { ok: false, code: 'INVALID_ARGUMENT', message: __tmT("task.taskIdIsEmpty") };
         const opts = (options && typeof options === 'object') ? options : {};
         const expected = (opts.expected && typeof opts.expected === 'object') ? opts.expected : {};
         const types = new Set((Array.isArray(opts.types) && opts.types.length ? opts.types : ['taskPatch', 'contentPatch', 'setDone'])
@@ -8417,7 +8249,7 @@
                 return {
                     ok: false,
                     code: 'TASK_WRITE_MISMATCH',
-                    message: '任务写入结果与预期不一致',
+                    message: __tmT("task.taskWriteResultDoesNotMatchExpectations"),
                     task: task || null,
                 };
             }
@@ -8435,14 +8267,14 @@
                 return {
                     ok: false,
                     code: 'TASK_WRITE_FAILED',
-                    message: String(failure.reason?.message || failure.reason || '任务写入失败'),
+                    message: String(failure.reason?.message || failure.reason || __tmT("task.taskWriteFailed")),
                 };
             }
         }
         return {
             ok: false,
             code: 'TASK_WRITE_TIMEOUT',
-            message: '任务写入超时',
+            message: __tmT("task.taskWriteTimedOut"),
         };
     }
 
@@ -8568,7 +8400,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
         if (typeof __tmQueueTaskFieldPatch !== 'function') {
-            return Promise.reject(new Error('任务字段写入队列未就绪'));
+            return Promise.reject(new Error(__tmT("task.taskFieldWriteQueueIsNotReady")));
         }
         return __tmQueueTaskFieldPatch(tid, nextPatch, {
             ...opts,
@@ -8586,7 +8418,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         if (!tid) return Promise.resolve(false);
         if (typeof __tmQueueTaskContentPatch !== 'function') {
-            return Promise.reject(new Error('任务内容写入队列未就绪'));
+            return Promise.reject(new Error(__tmT("task.taskContentWriteQueueIsNotReady")));
         }
         return __tmQueueTaskContentPatch(tid, content, {
             ...opts,
@@ -8614,10 +8446,10 @@
         const tid = String(taskId || '').trim();
         if (!tid) return Promise.resolve(false);
         if (typeof __tmQueueSetDoneTask !== 'function') {
-            return Promise.reject(new Error('任务完成状态写入队列未就绪'));
+            return Promise.reject(new Error(__tmT("task.taskCompletionStatusWriteQueueIsNotReady")));
         }
         const initialTask = __tmMutationGetTask(tid, { includePending: true, preferPending: true });
-        if (!initialTask) return Promise.reject(new Error('未找到任务'));
+        if (!initialTask) return Promise.reject(new Error(__tmT("kernel.noTaskFound")));
         const capturedOptions = { ...options,
             occurrenceId: options.occurrenceId || (typeof __tmGetTaskOccurrenceId === 'function' ? __tmGetTaskOccurrenceId(initialTask) : ''),
             timerContext: options.timerContext || globalThis.__tomatoTimerV2?.getSettlementContext?.() || null,
@@ -8633,7 +8465,7 @@
         if (typeof waitForPendingTaskWrites !== 'function') return enqueue();
         const request = Promise.resolve(waitForPendingTaskWrites(tid)).then((result) => {
             if (result?.ok !== true) {
-                throw new Error(result?.message || '任务字段写入仍在进行中，请稍后重试');
+                throw new Error(result?.message || __tmT("task.taskFieldWritesAreStillInProgressTryAgain"));
             }
             return enqueue();
         });
@@ -8643,44 +8475,44 @@
 
     function __tmMutationCreateTaskInDoc(options = {}, queueOptions = {}) {
         if (typeof __tmQueueCreateTaskInDoc !== 'function') {
-            return Promise.reject(new Error('任务创建队列未就绪'));
+            return Promise.reject(new Error(__tmT("task.taskCreationQueueIsNotReady")));
         }
         return __tmQueueCreateTaskInDoc(options, queueOptions);
     }
 
     function __tmMutationCreateSubtask(parentTaskId, content, options = {}) {
         if (typeof __tmQueueCreateSubtask !== 'function') {
-            return Promise.reject(new Error('任务创建队列未就绪'));
+            return Promise.reject(new Error(__tmT("task.taskCreationQueueIsNotReady")));
         }
         return __tmQueueCreateSubtask(parentTaskId, content, options);
     }
 
     function __tmMutationCreateSibling(taskId, content, options = {}) {
         if (typeof __tmQueueCreateSiblingTask !== 'function') {
-            return Promise.reject(new Error('任务创建队列未就绪'));
+            return Promise.reject(new Error(__tmT("task.taskCreationQueueIsNotReady")));
         }
         return __tmQueueCreateSiblingTask(taskId, content, options);
     }
 
     function __tmMutationMoveTask(taskId, payload = {}, options = {}) {
         if (typeof __tmQueueMoveTask !== 'function') {
-            return Promise.reject(new Error('任务移动队列未就绪'));
+            return Promise.reject(new Error(__tmT("task.taskMoveQueueIsNotReady")));
         }
         return __tmQueueMoveTask(taskId, payload, options);
     }
 
     function __tmMutationBatchMoveTasks(taskIds, payload = {}, options = {}) {
         if (typeof __tmQueueBatchMoveTasks !== 'function') {
-            return Promise.reject(new Error('批量任务移动队列未就绪'));
+            return Promise.reject(new Error(__tmT("task.batchTaskMoveQueueIsNotReady")));
         }
         return __tmQueueBatchMoveTasks(taskIds, payload, options);
     }
 
     function __tmMutationDeleteTask(taskId, options = {}) {
         const tid = String(taskId || '').trim();
-        if (!tid) return Promise.reject(new Error('未找到任务'));
+        if (!tid) return Promise.reject(new Error(__tmT("kernel.noTaskFound")));
         if (typeof __tmEnqueueQueuedOp !== 'function') {
-            return Promise.reject(new Error('任务删除队列未就绪'));
+            return Promise.reject(new Error(__tmT("task.taskDeleteQueueIsNotReady")));
         }
         const opts = (options && typeof options === 'object') ? options : {};
         const task = __tmMutationGetTask(tid, { includePending: true, preferPending: true });
@@ -8739,33 +8571,33 @@
         const method = String(methodName || '').trim();
         const mutation = globalThis.__tmTaskMutations || null;
         if (!mutation || typeof mutation !== 'object') {
-            throw new Error('任务写入队列未就绪');
+            throw new Error(__tmT("calendar.taskWriteQueueIsNotReady"));
         }
         if (method && typeof mutation[method] !== 'function') {
-            throw new Error(`任务写入队列未就绪: ${method}`);
+            throw new Error(__tmT("task.taskWriteQueueIsNotReady", { method: method }));
         }
         return method ? mutation[method].bind(mutation) : mutation;
     }
 
     function __tmReportTaskMutationFailure(error, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        const action = String(opts.action || opts.label || '更新').trim() || '更新';
-        const message = String(error?.message || error || '未知错误').trim() || '未知错误';
-        try { hint(`❌ ${action}失败: ${message}`, 'error'); } catch (e) {}
+        const action = String(opts.action || opts.label || __tmT("task.update")).trim() || __tmT("task.update");
+        const message = String(error?.message || error || __tmT("plugin.unknownError")).trim() || __tmT("plugin.unknownError");
+        try { hint(__tmT("task.failed", { action: action, message: message }), 'error'); } catch (e) {}
         return false;
     }
 
     function __tmDescribeMutationOpType(type) {
         const key = String(type || '').trim();
-        if (key === 'createTaskInDoc' || key === 'createSubtask' || key === 'createSibling') return '创建任务';
-        if (key === 'moveTask' || key === 'batchMoveTasks') return '移动任务';
-        if (key === 'deleteTask') return '删除任务';
-        if (key === 'taskLifecycle') return '任务归档';
-        if (key === 'contentPatch') return '任务内容';
-        if (key === 'setDone') return '完成状态';
-        if (key === 'setDoneEffects') return '完成后的关联处理';
-        if (key === 'taskPatch') return '任务字段';
-        return '任务写入';
+        if (key === 'createTaskInDoc' || key === 'createSubtask' || key === 'createSibling') return __tmT("task.createTask");
+        if (key === 'moveTask' || key === 'batchMoveTasks') return __tmT("kernel.moveTask");
+        if (key === 'deleteTask') return __tmT("kernel.deleteTask");
+        if (key === 'taskLifecycle') return __tmT("task.taskArchive");
+        if (key === 'contentPatch') return __tmT("task.taskContent");
+        if (key === 'setDone') return __tmT("task.completionStatus");
+        if (key === 'setDoneEffects') return __tmT("task.postCompletionLinkHandling");
+        if (key === 'taskPatch') return __tmT("task.taskFields");
+        return __tmT("task.taskWrite");
     }
 
     try {
@@ -9216,14 +9048,14 @@
     function __tmBuildInlineLoadingSkeletonMarkup() {
         const mode = String(state.viewMode || 'list').trim() || 'list';
         const titleMap = {
-            list: '正在准备任务列表',
-            checklist: '正在准备清单视图',
-            timeline: '正在准备时间线',
-            kanban: '正在准备看板视图',
-            calendar: '正在准备日历视图',
-            whiteboard: '正在准备白板视图',
+            list: __tmT("task.preparingTheTaskList"),
+            checklist: __tmT("task.preparingTheChecklistView"),
+            timeline: __tmT("task.preparingTheTimeline"),
+            kanban: __tmT("task.preparingTheKanbanView"),
+            calendar: __tmT("task.preparingTheCalendarView"),
+            whiteboard: __tmT("task.preparingTheWhiteboardView"),
         };
-        const title = titleMap[mode] || '正在准备任务视图';
+        const title = titleMap[mode] || __tmT("task.preparingTheTaskView");
         const listRows = [84, 72, 66, 78, 61, 74]
             .map((width, index) => `
                 <div class="tm-inline-loading-list-row">
@@ -9309,7 +9141,7 @@
             <div class="tm-inline-loading-topbar-shell">
                 <div class="tm-inline-loading-topbar-badge">
                     <span class="tm-inline-loading-spinner" aria-hidden="true"></span>
-                    <span class="tm-inline-loading-topbar-text">加载中</span>
+                    <span class="tm-inline-loading-topbar-text">${__tmT("task.loading")}</span>
                 </div>
             </div>
         `;
@@ -10391,7 +10223,7 @@
     function __tmExtractSemanticTaskDateSuggestion(task, baseDate) {
         const target = (task && typeof task === 'object') ? task : null;
         const sources = [
-            { key: 'content', label: '任务内容', text: String(target?.content || '').trim() },
+            { key: 'content', label: __tmT("task.taskContent"), text: String(target?.content || '').trim() },
         ].filter((item) => item.text);
         for (const source of sources) {
             if (__tmSemanticHasRepeatExpression(source.text)) {
@@ -10521,7 +10353,7 @@
         } catch (e) {}
         try { MetaStore.applyToTask(task); } catch (e) {}
         try {
-            const docName = String(task.docName || task.doc_name || '未命名文档').trim() || '未命名文档';
+            const docName = String(task.docName || task.doc_name || __tmT("kernel.untitledDocument")).trim() || __tmT("kernel.untitledDocument");
             normalizeTaskFields(task, docName);
         } catch (e) {}
         return task;
@@ -10535,7 +10367,7 @@
         }
         const writes = [];
         if (item?.repeatRule?.enabled) {
-            writes.push({ id: 'repeatRule', label: '写入循环日期', value: `${item.repeatSummary} · 首次 ${item.repeatCompletionValue}`, checked: true });
+            writes.push({ id: 'repeatRule', label: __tmT("task.writeRepeatDate"), value: `${item.repeatSummary} · 首次 ${item.repeatCompletionValue}`, checked: true });
         }
         if (String(item?.startDateValue || '').trim()) {
             writes.push({ id: 'startDate', checked: true });
@@ -10597,7 +10429,7 @@
             let itemApplied = false;
             if (wantsRepeat) {
                 try {
-                    if (typeof __tmApplyTaskRepeatRule !== 'function') throw new Error('循环任务接口未就绪');
+                    if (typeof __tmApplyTaskRepeatRule !== 'function') throw new Error(__tmT("task.theRecurringTaskApiIsNotReady"));
                     await __tmApplyTaskRepeatRule(taskId, item.repeatRule, {
                         datePatch: { completionTime: item.repeatCompletionValue }, source: 'semantic-date-suggestion',
                         refresh: false, refreshCalendar: false, withFilters: false,
@@ -10609,7 +10441,7 @@
                     itemApplied = true;
                     touchedDocIds.add(String(item?.docId || task?.root_id || task?.docId || '').trim());
                 } catch (e) {
-                    failures.push(`${taskTitle}：循环日期写入失败，未创建提醒（${String(e?.message || e || '未知错误')}）`);
+                    failures.push(__tmT("task.failedToWriteTheRepeatDateNoReminderWas", { taskTitle: taskTitle, value2: String(e?.message || e || __tmT("plugin.unknownError")) }));
                 }
             }
             if (startDateValue || completionValue) {
@@ -10618,11 +10450,11 @@
                     if (startDateValue) patch.startDate = startDateValue;
                     if (completionValue) patch.completionTime = completionValue;
                     const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                    if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                    if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                     await patchTask(taskId, patch, {
                         source: 'semantic-date-suggestion',
                         reason: 'semantic-date-suggestion',
-                        label: '语义日期',
+                        label: __tmT("task.semanticDates"),
                         background: true,
                         wait: false,
                         skipInteractionGate: true,
@@ -10637,14 +10469,14 @@
                     if (completionValue) completionApplied += 1;
                     itemApplied = true;
                 } catch (e) {
-                    failures.push(`${taskTitle}：日期写入失败（${String(e?.message || e || '未知错误')}）`);
+                    failures.push(__tmT("task.dateWriteFailed", { taskTitle: taskTitle, value2: String(e?.message || e || __tmT("plugin.unknownError")) }));
                 }
             }
             if (wantsCalendar) {
                 try {
-                    if (!(item?.start instanceof Date) || Number.isNaN(item.start.getTime())) throw new Error('日历时间无效');
+                    if (!(item?.start instanceof Date) || Number.isNaN(item.start.getTime())) throw new Error(__tmT("task.invalidCalendarTime"));
                     const calendar = globalThis.__tmCalendar;
-                    if (!calendar?.addTaskSchedule) throw new Error('日历模块未加载');
+                    if (!calendar?.addTaskSchedule) throw new Error(__tmT("ai.calendarModuleIsNotLoaded"));
                     const durationMin = 60;
                     const end = new Date(item.start.getTime() + durationMin * 60000);
                     const taskDocId = String(item?.docId || task?.root_id || task?.docId || '').trim();
@@ -10668,11 +10500,11 @@
                     calendarApplied += 1;
                     itemApplied = true;
                 } catch (e) {
-                    failures.push(`${taskTitle}：日历写入失败（${String(e?.message || e || '未知错误')}）`);
+                    failures.push(__tmT("task.calendarWriteFailed", { taskTitle: taskTitle, value2: String(e?.message || e || __tmT("plugin.unknownError")) }));
                 }
             }
             if (wantsReminder && item.repeatRule && !wantsRepeat) {
-                failures.push(`${taskTitle}：循环提醒需要同时应用循环日期`);
+                failures.push(__tmT("task.aRecurringReminderRequiresApplyingTheRepeatDateToo", { taskTitle: taskTitle }));
             }
             if (wantsReminder && (!item.repeatRule || repeatSucceeded)) {
                 try {
@@ -10695,7 +10527,7 @@
                     itemApplied = true;
                     touchedDocIds.add(String(item?.docId || task?.root_id || task?.docId || '').trim());
                 } catch (e) {
-                    failures.push(`${taskTitle}：提醒写入失败（${String(e?.message || e || '未知错误')}）`);
+                    failures.push(__tmT("task.reminderWriteFailed", { taskTitle: taskTitle, value2: String(e?.message || e || __tmT("plugin.unknownError")) }));
                 }
             }
             if (itemApplied) {
@@ -10731,24 +10563,24 @@
             writes: __tmGetSemanticSuggestionWrites(item),
         }));
         const writePresentation = {
-            startDate: { label: '开始', icon: 'calendar-plus-2' },
-            completionTime: { label: '截止', icon: 'calendar-check' },
-            calendarSchedule: { label: '日程', icon: 'calendar-days' },
-            reminder: { label: '提醒', icon: 'alarm-clock' },
-            repeatRule: { label: '循环', icon: 'repeat' },
+            startDate: { label: __tmT("calendar.start"), icon: 'calendar-plus-2' },
+            completionTime: { label: __tmT("calendar.due"), icon: 'calendar-check' },
+            calendarSchedule: { label: __tmT("kernel.schedule"), icon: 'calendar-days' },
+            reminder: { label: __tmT("ai.warnings"), icon: 'alarm-clock' },
+            repeatRule: { label: __tmT("quickbar.repeat"), icon: 'repeat' },
         };
         const currentYear = String(new Date().getFullYear());
         const formatWriteValue = (item, write) => {
             let value = String(write.value || '').trim();
-            if (write.id === 'repeatRule') value = `${item.repeatSummary} · 首次 ${item.repeatCompletionValue}`;
+            if (write.id === 'repeatRule') value = __tmT("task.first", { repeatSummary: item.repeatSummary, repeatCompletionValue: item.repeatCompletionValue });
             if (write.id === 'calendarSchedule' && item.start instanceof Date && !Number.isNaN(item.start.getTime())) {
                 const end = new Date(item.start.getTime() + 60 * 60000);
                 value += `–${__tmSemanticPad2(end.getHours())}:${__tmSemanticPad2(end.getMinutes())}`;
-                if (__tmSemanticFormatDateKey(end) !== __tmSemanticFormatDateKey(item.start)) value += ' 次日';
+                if (__tmSemanticFormatDateKey(end) !== __tmSemanticFormatDateKey(item.start)) value += __tmT("task.nextDay");
             }
             value = value.replace(/\b(\d{4})-(\d{2})-(\d{2})/g, (_, year, month, day) =>
                 `${year === currentYear ? '' : `${year}/`}${Number(month)}/${Number(day)}`);
-            if (write.id === 'reminder' && !item.hasTime) value += ' 默认';
+            if (write.id === 'reminder' && !item.hasTime) value += __tmT("task.default");
             return value;
         };
         const modal = document.createElement('div');
@@ -10763,25 +10595,25 @@
         const box = document.createElement('div');
         box.className = 'tm-box tm-semantic-date-confirm-box';
         box.setAttribute('role', 'dialog');
-        box.setAttribute('aria-label', '确认语义识别结果');
+        box.setAttribute('aria-label', __tmT("task.confirmDetectedDates"));
         box.innerHTML = `
             <div class="tm-semantic-date-confirm-header">
-                <div class="tm-semantic-date-confirm-title">${__tmPhosphorBoldSvg('sparkle', { size: 18 })}<span>确认语义识别结果</span></div>
-                <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost tm-semantic-date-confirm-close" data-tm-semantic-action="close" aria-label="关闭">${__tmRenderLucideIcon('x', '', { size: 16 })}</button>
+                <div class="tm-semantic-date-confirm-title">${__tmPhosphorBoldSvg('sparkle', { size: 18 })}<span>${__tmT("task.confirmDetectedDates")}</span></div>
+                <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost tm-semantic-date-confirm-close" data-tm-semantic-action="close" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}">${__tmRenderLucideIcon('x', '', { size: 16 })}</button>
             </div>
             <div class="tm-semantic-date-confirm-body">
                 <div class="tm-semantic-date-confirm-columns tm-semantic-date-confirm-row">
-                    <span>任务</span>
+                    <span>${__tmT("kernel.task")}</span>
                     <div class="tm-semantic-date-confirm-write-heading">
-                        <span>将应用的设置</span>
+                        <span>${__tmT("task.settingsToApply")}</span>
                         <div class="tm-semantic-date-confirm-bulk">
-                            <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost" data-tm-semantic-action="select-all">全选</button>
-                            <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost" data-tm-semantic-action="clear-all">全不选</button>
+                            <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost" data-tm-semantic-action="select-all">${__tmT("task.selectAll")}</button>
+                            <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost" data-tm-semantic-action="clear-all">${__tmT("task.selectNone")}</button>
                         </div>
                     </div>
                 </div>
                 ${modalItems.map((item, index) => {
-                    const titlePresentation = API.getTaskTitlePresentation(item.content, '未命名任务');
+                    const titlePresentation = API.getTaskTitlePresentation(item.content, __tmT("kernel.untitledTask"));
                     const docName = String(item.docName || globalThis.__tmTaskBoundary?.getTask?.(item.taskId)?.docName || '').trim();
                     return `
                     <div class="tm-semantic-date-confirm-task tm-semantic-date-confirm-row">
@@ -10792,7 +10624,7 @@
                         <div class="tm-semantic-date-confirm-writes">
                             ${item.writes.map((write) => {
                                 const presentation = writePresentation[write.id];
-                                const label = presentation?.label || write.label || '写入';
+                                const label = presentation?.label || write.label || __tmT("task.write");
                                 return `<label class="bc-btn bc-btn--sm bc-btn--ghost tm-semantic-date-confirm-write" title="${esc(`${label}：${write.value || ''}`)}">
                                     <input type="checkbox" data-tm-semantic-index="${index}" data-tm-semantic-write-id="${esc(write.id || '')}" aria-label="${esc(`${label}：${write.value || ''}，${titlePresentation.text}`)}" ${write.checked === false ? '' : 'checked'}>
                                     ${presentation ? __tmPhosphorBoldSvg(presentation.icon, { size: 14, className: 'tm-semantic-date-confirm-write-icon' }) : ''}
@@ -10806,11 +10638,11 @@
             <div class="tm-semantic-date-confirm-footer">
                 <div class="tm-semantic-date-confirm-summary">
                     <span data-tm-semantic-summary aria-live="polite"></span>
-                    ${batchCount > 1 ? `<span class="tm-semantic-date-confirm-batch">第 ${batchIndex} / ${batchCount} 批 · 本批 ${list.length} 个任务</span>` : ''}
+                    ${batchCount > 1 ? `<span class="tm-semantic-date-confirm-batch">${__tmT("task.batchTasksInThisBatch", { batchIndex: batchIndex, batchCount: batchCount, length: list.length })}</span>` : ''}
                 </div>
                 <div class="tm-semantic-date-confirm-actions">
-                    <button type="button" class="bc-btn bc-btn--ghost" data-tm-semantic-action="close">忽略</button>
-                    <button type="button" class="bc-btn bc-btn--primary" data-tm-semantic-action="apply">应用选中项</button>
+                    <button type="button" class="bc-btn bc-btn--ghost" data-tm-semantic-action="close">${__tmT("task.ignore")}</button>
+                    <button type="button" class="bc-btn bc-btn--primary" data-tm-semantic-action="apply">${__tmT("task.applySelected")}</button>
                 </div>
             </div>
         `;
@@ -10823,24 +10655,24 @@
                 if (reminder) {
                     reminder.disabled = !repeat?.checked;
                     if (reminder.disabled) reminder.checked = false;
-                    reminder.parentElement.title = reminder.disabled ? '请先选择循环日期，提醒将跟随任务循环' : `提醒：${item.reminderAt}`;
+                    reminder.parentElement.title = reminder.disabled ? __tmT("task.selectARepeatDateFirstTheReminderWillFollow") : __tmT("task.reminder", { reminderAt: item.reminderAt });
                 }
             });
             const selected = Array.from(modal.querySelectorAll('input[data-tm-semantic-write-id]')).filter((input) => input.checked);
             const taskCount = new Set(selected.map((input) => input.dataset.tmSemanticIndex)).size;
             const count = (ids) => selected.filter((input) => ids.includes(input.dataset.tmSemanticWriteId)).length;
             const summaryParts = [
-                [taskCount, '个任务'],
-                [count(['startDate', 'completionTime']), '项日期'],
-                [count(['repeatRule']), '个循环'],
-                [count(['calendarSchedule']), '个日程'],
-                [count(['reminder']), '个提醒'],
+                [taskCount, __tmT("task.tasks")],
+                [count(['startDate', 'completionTime']), __tmT("task.dates")],
+                [count(['repeatRule']), __tmT("task.repeats")],
+                [count(['calendarSchedule']), __tmT("task.schedules")],
+                [count(['reminder']), __tmT("task.reminders")],
             ].filter(([value]) => value > 0).map(([value, unit]) => `${value} ${unit}`);
             const summary = modal.querySelector('[data-tm-semantic-summary]');
-            summary.textContent = summaryParts.length ? `已选 ${summaryParts.join(' · ')}` : '';
+            summary.textContent = summaryParts.length ? __tmT("task.selected", { value1: summaryParts.join(' · ') }) : '';
             summary.hidden = !summaryParts.length;
             if (!state.semanticDateAutoApplying) {
-                modal.querySelector('[data-tm-semantic-action="apply"]').textContent = taskCount ? `应用到 ${taskCount} 个任务` : '应用选中项';
+                modal.querySelector('[data-tm-semantic-action="apply"]').textContent = taskCount ? __tmT("task.applyToTasks", { taskCount: taskCount }) : __tmT("task.applySelected");
             }
         };
         updateSelectionSummary();
@@ -10876,26 +10708,26 @@
                 return { ...item, selectedWriteIds };
             }).filter(Boolean);
             if (!chosen.length) {
-                hint('⚠️ 请至少勾选一个写入项', 'warning');
+                hint(__tmT("task.selectAtLeastOneItemToWrite"), 'warning');
                 return;
             }
             state.semanticDateAutoApplying = true;
             const allButtons = Array.from(modal.querySelectorAll('[data-tm-semantic-action]'));
             allButtons.forEach((btn) => { btn.disabled = true; });
             const applyBtn = target instanceof HTMLButtonElement ? target : modal.querySelector('[data-tm-semantic-action="apply"]');
-            const prevText = applyBtn?.textContent || '应用勾选项';
-            if (applyBtn) applyBtn.textContent = '应用中...';
+            const prevText = applyBtn?.textContent || __tmT("task.applySelected2");
+            if (applyBtn) applyBtn.textContent = __tmT("task.applying");
             try {
                 const result = await __tmApplySemanticDateSuggestions(chosen);
                 if (Array.isArray(result.appliedItems) && result.appliedItems.length > 0) {
                     __tmMarkSemanticDateSuggestionsRecognized(result.appliedItems);
                 }
                 if (result.startApplied > 0 || result.completionApplied > 0 || result.calendarApplied > 0 || result.reminderApplied > 0) {
-                    hint(`✅ 已写入 ${result.startApplied || 0} 条开始日期、${result.completionApplied || 0} 条截止日期${result.repeatApplied > 0 ? `，设置 ${result.repeatApplied} 个循环` : ''}${result.reminderApplied > 0 ? `，新增 ${result.reminderApplied} 条提醒` : ''}${result.calendarApplied > 0 ? `，新增 ${result.calendarApplied} 条日历` : ''}`, 'success');
+                    hint(__tmT("task.wroteStartDateSDueDateS", { value1: result.startApplied || 0, value2: result.completionApplied || 0, value3: result.repeatApplied > 0 ? __tmT("task.repeatRulesSet", { repeatApplied: result.repeatApplied }) : '', value4: result.reminderApplied > 0 ? __tmT("task.addedReminderS", { reminderApplied: result.reminderApplied }) : '', value5: result.calendarApplied > 0 ? __tmT("task.addedCalendarScheduleS", { calendarApplied: result.calendarApplied }) : '' }), 'success');
                 }
                 if (result.failures.length > 0) {
                     try { console.warn('[task-horizon] semantic date apply failures:', result.failures); } catch (e2) {}
-                    hint(`⚠️ ${result.failures.length} 条处理失败，请查看控制台`, 'warning');
+                    hint(__tmT("task.itemSFailedToProcessCheckTheConsole", { length: result.failures.length }), 'warning');
                 }
                 __tmCloseSemanticDateConfirmModal();
                 if (remainingItems.length > 0) {
@@ -10929,7 +10761,7 @@
                 allButtons.forEach((btn) => { btn.disabled = false; });
                 if (applyBtn) applyBtn.textContent = prevText;
                 state.semanticDateAutoApplying = false;
-                hint(`❌ ${String(err?.message || err || '应用失败')}`, 'error');
+                hint(`❌ ${String(err?.message || err || __tmT("task.applyFailed"))}`, 'error');
             }
         });
         try { host.appendChild(modal); } catch (e) { document.body.appendChild(modal); }
@@ -11784,7 +11616,7 @@
         const suffix = end < remark.length ? '...' : '';
         const snippet = `${prefix}${remark.slice(start, end).trim()}${suffix}`;
         if (!snippet) return '';
-        const label = __tmGetTaskSearchFieldOptions().find((field) => field.id === fieldKey)?.name || '文本列';
+        const label = __tmGetTaskSearchFieldOptions().find((field) => field.id === fieldKey)?.name || __tmT("task.textColumns");
         return `<span class="tm-task-search-remark-snippet" title="${esc(remark)}"><span class="tm-task-search-remark-snippet__label">${esc(label)}</span><span class="tm-task-search-remark-snippet__text">${esc(snippet)}</span></span>`;
     }
 
@@ -13130,7 +12962,7 @@
         const pad = (n) => String(n).padStart(2, '0');
         const now = new Date();
         const datePart = dt.getFullYear() === now.getFullYear()
-            ? `${dt.getMonth() + 1}月${dt.getDate()}日`
+            ? __tmT("date.monthDayNumbers", { value1: dt.getMonth() + 1, value2: dt.getDate() })
             : `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
         return `${datePart} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
     }
@@ -13155,8 +12987,8 @@
             isOverdue,
             kind: nextAt ? 'next' : (lastAt ? 'last' : (hasReminder ? 'set' : 'none')),
             tooltip: hasReminder
-                ? (displayText ? `${isOverdue ? '最近一次提醒' : '提醒'}：${displayText}` : '已添加提醒')
-                : '提醒',
+                ? (displayText ? `${isOverdue ? __tmT("task.latestReminder") : __tmT("ai.warnings")}：${displayText}` : __tmT("quickbar.reminderAdded"))
+                : __tmT("ai.warnings"),
             reminder: hasReminder ? normalizedReminder : null,
         };
     }
@@ -13344,12 +13176,12 @@
     async function __tmSaveTaskReminderForTask(task, reminderAt, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const requestedId = String(opts.taskId || task?.id || task?.taskId || task?.task_id || '').trim();
-        if (!requestedId) throw new Error('任务 ID 为空');
+        if (!requestedId) throw new Error(__tmT("task.taskIdIsEmpty"));
         const reminderDate = reminderAt instanceof Date ? new Date(reminderAt.getTime()) : __tmReminderToDateSafe(reminderAt);
-        if (!(reminderDate instanceof Date) || Number.isNaN(reminderDate.getTime())) throw new Error('提醒时间无效');
+        if (!(reminderDate instanceof Date) || Number.isNaN(reminderDate.getTime())) throw new Error(__tmT("task.invalidReminderTime"));
         const dateKey = __tmNormalizeReminderDateKey(reminderDate);
         const timeKey = __tmParseReminderTime(`${String(reminderDate.getHours()).padStart(2, '0')}:${String(reminderDate.getMinutes()).padStart(2, '0')}`)?.key;
-        if (!dateKey || !timeKey) throw new Error('提醒时间无效');
+        if (!dateKey || !timeKey) throw new Error(__tmT("task.invalidReminderTime"));
 
         let taskId = requestedId;
         let attrHostId = String(opts.attrHostId || '').trim();
@@ -13373,7 +13205,7 @@
         if (!attrHostId) attrHostId = taskId || requestedId;
 
         const nowIso = new Date().toISOString();
-        const taskName = String(opts.blockName || taskObj?.content || taskObj?.raw_content || taskObj?.rawContent || taskObj?.markdown || '任务').trim() || '任务';
+        const taskName = String(opts.blockName || taskObj?.content || taskObj?.raw_content || taskObj?.rawContent || taskObj?.markdown || __tmT("kernel.task")).trim() || __tmT("kernel.task");
         const rootId = String(taskObj?.root_id || taskObj?.docId || taskObj?.rootId || opts.docId || '').trim();
         const taskStartDate = __tmNormalizeReminderDateKey(opts.startDate || taskObj?.startDate || taskObj?.start_date || '');
         const taskCompletionTime = dateKey;
@@ -13390,12 +13222,12 @@
         }
         const repeatEnabled = !!(repeatRule?.enabled && repeatRule.type !== 'none');
         const reminderBridge = __tmGetTomatoReminderBridgeV1();
-        if (!reminderBridge) throw new Error('Dock Tomato 提醒桥接未就绪');
+        if (!reminderBridge) throw new Error(__tmT("calendar.dockTomatoReminderBridgeIsNotReady"));
         if (opts.overwrite !== true && typeof reminderBridge.get === 'function') {
             const existingResult = await reminderBridge.get(requestedId, { preferDirect: false });
-            if (existingResult?.hasReminder) throw new Error('已有提醒，已跳过');
+            if (existingResult?.hasReminder) throw new Error(__tmT("task.aReminderAlreadyExistsSkipped"));
         }
-        if (typeof __tmApplyFollowReminderDraft !== 'function') throw new Error('任务提醒联动接口未就绪');
+        if (typeof __tmApplyFollowReminderDraft !== 'function') throw new Error(__tmT("task.taskReminderIntegrationInterfaceIsNotReady"));
         const canonicalTask = await __tmApplyFollowReminderDraft({
             taskId,
             attrHostId,
@@ -13431,8 +13263,8 @@
             source: String(opts.source || 'task-horizon-reminder').trim() || 'task-horizon-reminder',
         });
         if (!result?.ok) {
-            if (String(result?.code || '').trim() === 'REMINDER_EXISTS') throw new Error('已有提醒，已跳过');
-            throw new Error(result?.message || '保存提醒失败');
+            if (String(result?.code || '').trim() === 'REMINDER_EXISTS') throw new Error(__tmT("task.aReminderAlreadyExistsSkipped"));
+            throw new Error(result?.message || __tmT("task.failedToSaveTheReminder"));
         }
         attrHostId = String(result.attrHostId || attrHostId || taskId).trim() || taskId;
         const savedReminder = result.reminder && typeof result.reminder === 'object'
@@ -13775,11 +13607,11 @@
                 if (!(badge instanceof HTMLElement)) {
                     badge = document.createElement('span');
                     badge.className = 'tm-task-reminder-emoji';
-                    badge.title = '已添加提醒';
+                    badge.title = __tmT("quickbar.reminderAdded");
                     try {
                         badge.innerHTML = __tmLucideIconSvg('alarm-clock', { size: 13, className: 'tm-task-reminder-emoji__svg' });
                     } catch (e) {
-                        badge.textContent = '提醒';
+                        badge.textContent = __tmT("ai.warnings");
                     }
                     contentEl.appendChild(badge);
                 }
@@ -14378,7 +14210,7 @@
             state.checklistDetailSheetOpen = false;
             state.checklistDetailSheetFullscreen = false;
         } else if (!__tmIsMultiSelectSupportedView()) {
-            try { hint('ℹ 当前仅清单、表格、时间轴、看板和卡片流支持多选模式', 'info'); } catch (e) {}
+            try { hint(__tmT("task.multiSelectModeIsCurrentlySupportedInChecklistTable"), 'info'); } catch (e) {}
         }
         if (options.render !== false && state.modal && document.body.contains(state.modal)) {
             try { render(); } catch (e) {
@@ -14477,26 +14309,26 @@
         return record;
     }
 
-    function __tmGetUndoLabel(label, fallback = '最近一次修改') {
+    function __tmGetUndoLabel(label, fallback = __tmT("task.lastModified")) {
         const text = String(label || '').trim();
-        return text || String(fallback || '最近一次修改').trim() || '最近一次修改';
+        return text || String(fallback || __tmT("task.lastModified")).trim() || __tmT("task.lastModified");
     }
 
     function __tmBuildAttrUndoLabel(attrKey, fallbackName = '') {
         const key = String(attrKey || '').trim();
         const named = String(fallbackName || '').trim();
         if (named) return named;
-        if (__tmIsTaskAttachmentAttrKey(key)) return '附件';
-        if (typeof __tmIsTaskAttachmentMetaAttrKey === 'function' && __tmIsTaskAttachmentMetaAttrKey(key)) return '附件';
+        if (__tmIsTaskAttachmentAttrKey(key)) return __tmT("task.attachment");
+        if (typeof __tmIsTaskAttachmentMetaAttrKey === 'function' && __tmIsTaskAttachmentMetaAttrKey(key)) return __tmT("task.attachment");
         const taskMetaLabel = typeof __tmGetTaskMetaAttrLabel === 'function' ? __tmGetTaskMetaAttrLabel(key) : '';
         if (taskMetaLabel) return taskMetaLabel;
-        if (key === __tmGetTomatoEstimateAttrKey()) return '预计番茄';
-        if (key === __tmGetTomatoCountAttrKey()) return '实际番茄';
-        if (key === __TM_TASK_REPEAT_RULE_ATTR) return '循环规则';
-        if (key === __TM_TASK_REPEAT_STATE_ATTR) return '循环状态';
+        if (key === __tmGetTomatoEstimateAttrKey()) return __tmT("quickbar.estimatedPomodoros");
+        if (key === __tmGetTomatoCountAttrKey()) return __tmT("task.actualPomodoros");
+        if (key === __TM_TASK_REPEAT_RULE_ATTR) return __tmT("task.repeatRule");
+        if (key === __TM_TASK_REPEAT_STATE_ATTR) return __tmT("task.repeatState");
         const field = __tmGetCustomFieldDefByAttrStorageKey(key);
         const fieldName = String(field?.name || '').trim();
-        return fieldName || '任务字段';
+        return fieldName || __tmT("task.taskFields");
     }
 
     function __tmExtractUndoEligibleMetaPatch(patch) {
@@ -14508,25 +14340,25 @@
         return out;
     }
 
-    function __tmBuildUndoLabelFromMetaPatch(patch, fallback = '任务字段') {
+    function __tmBuildUndoLabelFromMetaPatch(patch, fallback = __tmT("task.taskFields")) {
         const nextPatch = __tmExtractUndoEligibleMetaPatch(patch);
         const keys = Object.keys(nextPatch);
         if (keys.length === 1) {
             const key = keys[0];
-            if (key === 'customStatus') return '状态';
-            if (key === 'startDate') return '开始日期';
-            if (key === 'completionTime') return '截止日期';
-            if (key === 'taskDateColor') return '任务日期颜色';
-            if (key === 'duration') return '时长';
-            if (key === 'tomatoEstimateCount') return '预计番茄';
-            if (key === 'tomatoCount') return '实际番茄';
-            if (key === 'remark') return '备注';
-            if (key === 'attachments') return '附件';
-            if (key === 'repeatRule') return '循环规则';
-            if (key === 'repeatState') return '循环状态';
+            if (key === 'customStatus') return __tmT("kernel.status");
+            if (key === 'startDate') return __tmT("kernel.startDate");
+            if (key === 'completionTime') return __tmT("kernel.dueDate");
+            if (key === 'taskDateColor') return __tmT("kernel.taskDateColor");
+            if (key === 'duration') return __tmT("task.duration");
+            if (key === 'tomatoEstimateCount') return __tmT("quickbar.estimatedPomodoros");
+            if (key === 'tomatoCount') return __tmT("task.actualPomodoros");
+            if (key === 'remark') return __tmT("kernel.note");
+            if (key === 'attachments') return __tmT("task.attachment");
+            if (key === 'repeatRule') return __tmT("task.repeatRule");
+            if (key === 'repeatState') return __tmT("task.repeatState");
         }
-        if (keys.length === 2 && keys.includes('startDate') && keys.includes('completionTime')) return '日期';
-        return String(fallback || '任务字段').trim() || '任务字段';
+        if (keys.length === 2 && keys.includes('startDate') && keys.includes('completionTime')) return __tmT("calendar.date");
+        return String(fallback || __tmT("task.taskFields")).trim() || __tmT("task.taskFields");
     }
 
     function __tmBuildMetaPatchFromAttrUpdate(attrKey, attrValue, taskLike = null) {
@@ -15502,10 +15334,10 @@
 
     function __tmGetProcrastinationLevel(score) {
         const value = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
-        if (value >= 75) return { key: 'critical', label: '爆红' };
-        if (value >= 50) return { key: 'high', label: '高风险' };
-        if (value >= 25) return { key: 'attention', label: '注意' };
-        return { key: 'healthy', label: '健康' };
+        if (value >= 75) return { key: 'critical', label: __tmT("homepage.critical") };
+        if (value >= 50) return { key: 'high', label: __tmT("homepage.highRisk") };
+        if (value >= 25) return { key: 'attention', label: __tmT("homepage.watch") };
+        return { key: 'healthy', label: __tmT("homepage.healthy") };
     }
 
     function __tmIsProcrastinationPenaltyEnabled() {
@@ -15596,13 +15428,13 @@
     function __tmFormatProcrastinationTip(metrics) {
         const m = (metrics && typeof metrics === 'object') ? metrics : {};
         const score = Math.max(0, Math.min(100, Math.round(Number(m.score) || 0)));
-        const penaltyText = m.penaltyEnabled === false ? '' : `，扣分 ${Number(m.penaltyCount) || 0}`;
+        const penaltyText = m.penaltyEnabled === false ? '' : __tmT("task.deducted", { value1: Number(m.penaltyCount) || 0 });
         const dueTaskCount = Math.max(0, Math.round(Number(m.dueTaskCount) || 0));
         const overdueCount = Math.max(0, Math.round(Number(m.overdueCount) || 0));
         const overduePercent = dueTaskCount > 0
             ? Math.max(0, Math.min(100, Math.round(Number(m.overduePercent) || (overdueCount / dueTaskCount) * 100)))
             : 0;
-        return `拖延值 ${score}/100 · ${String(m.levelLabel || __tmGetProcrastinationLevel(score).label || '')}（逾期 ${overduePercent}%（${overdueCount}/${dueTaskCount}）${penaltyText}，推迟 ${Number(m.rescheduleCount) || 0}）`;
+        return __tmT("task.delayScoreOverduePostponed", { score: score, value2: String(m.levelLabel || __tmGetProcrastinationLevel(score).label || ''), overduePercent: overduePercent, overdueCount: overdueCount, dueTaskCount: dueTaskCount, penaltyText: penaltyText, value7: Number(m.rescheduleCount) || 0 });
     }
 
     function __tmHandleProcrastinationScheduleUpdated(event) {
@@ -15813,7 +15645,7 @@
         const dueTs = Number(opt.dueTs);
         const amount = Number(opt.amount);
         if (!Number.isFinite(amount) || amount <= 0) return null;
-        const title = __tmNormalizeTaskRewardContent(task, { content: opt.title }) || String(opt.title || '').trim() || '未命名任务';
+        const title = __tmNormalizeTaskRewardContent(task, { content: opt.title }) || String(opt.title || '').trim() || __tmT("kernel.untitledTask");
         return {
             id: __tmBuildPointsPenaltyRecordKey(type, taskId, dayKey),
             type: String(type || '').trim(),
@@ -15932,9 +15764,9 @@
     function __tmBuildPointsPenaltyReason(candidate) {
         const item = (candidate && typeof candidate === 'object') ? candidate : {};
         const type = String(item.type || '').trim();
-        const title = String(item.title || '未命名任务').trim() || '未命名任务';
-        if (type === 'schedule') return `任务日程逾期扣分：${title}`;
-        return `任务截止日逾期扣分：${title}`;
+        const title = String(item.title || __tmT("kernel.untitledTask")).trim() || __tmT("kernel.untitledTask");
+        if (type === 'schedule') return __tmT("task.scheduleOverduePenalty", { title: title });
+        return __tmT("task.dueDateOverduePenalty", { title: title });
     }
 
     function __tmDispatchPointsPenaltyEvent(amount, reason, detail = {}) {
@@ -15944,7 +15776,7 @@
             window.dispatchEvent(new CustomEvent('siyuan-points-reward-add-points', {
                 detail: {
                     amount: n,
-                    reason: String(reason || '').trim() || '任务逾期扣分',
+                    reason: String(reason || '').trim() || __tmT("task.taskOverduePenalty"),
                     skipEncouragement: true,
                     source: 'task-horizon-points-penalty',
                     ...((detail && typeof detail === 'object') ? detail : {}),
@@ -15958,7 +15790,7 @@
 
     function __tmCreatePointsPenaltyRecordWaiter(amount, reason, timeoutMs = 8000) {
         const n = Number(amount);
-        const reasonText = String(reason || '').trim() || '任务逾期扣分';
+        const reasonText = String(reason || '').trim() || __tmT("task.taskOverduePenalty");
         const fallback = { promise: Promise.resolve(false), cancel: () => {} };
         if (!Number.isFinite(n) || n === 0) return fallback;
         if (typeof window?.addEventListener !== 'function' || typeof window?.removeEventListener !== 'function') return fallback;
@@ -16022,7 +15854,7 @@
             reason,
         });
         if (options?.silent !== true) {
-            hint(`⚠ 已扣 ${amount} 分：${item.title}`, 'warning');
+            hint(__tmT("task.deductedPoints", { amount: amount, title: item.title }), 'warning');
         }
         return true;
     }
@@ -16077,7 +15909,7 @@
                     task: {
                         ...(task && typeof task === 'object' ? task : {}),
                         id: draftTaskId,
-                        content: String(task?.content || task?.raw_content || item.title || '任务').trim() || '任务',
+                        content: String(task?.content || task?.raw_content || item.title || __tmT("kernel.task")).trim() || __tmT("kernel.task"),
                         startDate: String(task?.startDate || task?.start_date || '').trim(),
                         start_date: String(task?.startDate || task?.start_date || '').trim(),
                         completionTime: current,
@@ -16102,13 +15934,13 @@
                                     });
                                 } else {
                                     const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                                    if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                                    if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                                     await patchTask(item.taskId, { completionTime: savedDeadline }, {
                                         background: true,
                                         wait: false,
                                         skipInteractionGate: true,
                                         source: 'points-penalty-edit-deadline',
-                                        label: '截止日期',
+                                        label: __tmT("kernel.dueDate"),
                                     });
                                 }
                                 item.deadlineText = savedDeadline;
@@ -16118,9 +15950,9 @@
                                 __tmPointsPenaltyPendingCandidates = (Array.isArray(__tmPointsPenaltyPendingCandidates) ? __tmPointsPenaltyPendingCandidates : [])
                                     .filter((candidate0) => String(candidate0?.id || '').trim() !== String(item.id || '').trim());
                                 if (__tmPointsPenaltyConfirmModal && document.body.contains(__tmPointsPenaltyConfirmModal)) __tmRenderPointsPenaltyConfirmModal();
-                                hint(`✅ 已更新截止日期：${item.title}`, 'success');
+                                hint(__tmT("task.dueDateUpdated", { title: item.title }), 'success');
                             } catch (e) {
-                                hint(`❌ 截止日期更新失败：${String(e?.message || e || '')}`, 'error');
+                                hint(__tmT("task.dueDateUpdateFailed", { value1: String(e?.message || e || '') }), 'error');
                             }
                         })();
                     },
@@ -16131,7 +15963,7 @@
         let next = null;
         if (typeof showPrompt === 'function') {
             try {
-                next = await showPrompt('截止日期', '输入日期，如 2026-02-07', current || '', {
+                next = await showPrompt(__tmT("kernel.dueDate"), __tmT("task.enterADateEG"), current || '', {
                     inputType: 'date',
                     selectOnFocus: false,
                     openPickerOnFocus: true,
@@ -16142,7 +15974,7 @@
         }
         if (next == null) {
             try {
-                next = prompt('设置新的截止日期（YYYY-MM-DD）', current || '');
+                next = prompt(__tmT("task.setANewDueDateYyyyMmDd"), current || '');
             } catch (e) {
                 next = null;
             }
@@ -16150,7 +15982,7 @@
         if (next == null) return false;
         const normalized = __tmNormalizeDateOnly(String(next || '').trim());
         if (!normalized) {
-            hint('⚠ 日期格式无效，请使用 YYYY-MM-DD', 'warning');
+            hint(__tmT("task.invalidDateFormatUseYyyyMmDd"), 'warning');
             return false;
         }
         try {
@@ -16162,17 +15994,17 @@
             });
         } else {
             const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-            if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+            if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
             await patchTask(item.taskId, { completionTime: normalized }, {
                 background: true,
                 wait: false,
                 skipInteractionGate: true,
                 source: 'points-penalty-edit-deadline',
-                label: '截止日期',
+                label: __tmT("kernel.dueDate"),
             });
         }
         } catch (e) {
-            hint(`❌ 截止日期更新失败：${String(e?.message || e || '')}`, 'error');
+            hint(__tmT("task.dueDateUpdateFailed", { value1: String(e?.message || e || '') }), 'error');
             return false;
         }
         __tmMarkPointsPenaltyExempt(item, 'edited-deadline');
@@ -16303,9 +16135,9 @@
         const list = Array.isArray(__tmPointsPenaltyPendingCandidates) ? __tmPointsPenaltyPendingCandidates : [];
         const rows = list.length
             ? list.map((item) => {
-                const typeLabel = item.type === 'schedule' ? '日程' : '截止日';
+                const typeLabel = item.type === 'schedule' ? __tmT("kernel.schedule") : __tmT("task.dueDate");
                 const dueText = item.dueText || item.deadlineText || '-';
-                const titlePresentation = API.getTaskTitlePresentation(item.title, '未命名任务');
+                const titlePresentation = API.getTaskTitlePresentation(item.title, __tmT("kernel.untitledTask"));
                 return `
                     <tr data-tm-penalty-row="${esc(item.id)}">
                         <td class="tm-points-penalty-cell-type" style="padding:6px 8px;font-size:12px;">${esc(typeLabel)}</td>
@@ -16316,10 +16148,10 @@
                         <td class="tm-points-penalty-cell-amount" style="padding:6px 8px;font-size:12px;white-space:nowrap;">-${Math.max(0, Math.round(Number(item.amount) || 0))}</td>
                         <td class="tm-points-penalty-cell-actions" style="padding:6px 8px;">
                             <div class="tm-points-penalty-actions">
-                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="penalize" data-candidate-id="${esc(item.id)}">扣分</button>
-                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="done" data-candidate-id="${esc(item.id)}">已完成免扣</button>
-                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="edit" data-candidate-id="${esc(item.id)}">改时间</button>
-                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="exempt" data-candidate-id="${esc(item.id)}">忽略</button>
+                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="penalize" data-candidate-id="${esc(item.id)}">${__tmT("task.points")}</button>
+                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="done" data-candidate-id="${esc(item.id)}">${__tmT("task.completedNoPenalty")}</button>
+                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="edit" data-candidate-id="${esc(item.id)}">${__tmT("task.reschedule")}</button>
+                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="exempt" data-candidate-id="${esc(item.id)}">${__tmT("task.ignore")}</button>
                             </div>
                         </td>
                     </tr>
@@ -16327,35 +16159,31 @@
             }).join('')
             : `
                 <tr>
-                    <td colspan="5" style="padding:16px 8px;text-align:center;color:var(--tm-secondary-text);font-size:12px;">
-                        暂无待处理扣分项
-                    </td>
+                    <td colspan="5" style="padding:16px 8px;text-align:center;color:var(--tm-secondary-text);font-size:12px;">${__tmT("task.noPendingPenaltyItems")}</td>
                 </tr>
             `;
         modal.innerHTML = `
             <div class="tm-prompt-box tm-points-penalty-box" style="width:min(920px,94vw);max-height:84vh;overflow:auto;">
-                <div style="font-size:16px;font-weight:600;margin-bottom:10px;">逾期任务扣分确认</div>
-                <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">
-                    可逐项处理；父任务已完成的子任务不会进入扣分列表；日程按天处理一次，截止日按当前截止日期处理一次（修改截止日后会重新计算）。
-                </div>
+                <div style="font-size:16px;font-weight:600;margin-bottom:10px;">${__tmT("task.overdueTaskPenalties")}</div>
+                <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">${__tmT("task.handleItemsOneByOneSubtasksWhoseParentIs")}</div>
                 <div class="tm-points-penalty-table-wrap" style="overflow:auto;max-height:56vh;border:1px solid var(--tm-border-color);border-radius:8px;">
                     <table class="tm-table tm-points-penalty-table" style="width:100%;table-layout:fixed;">
                         <thead>
                             <tr>
-                                <th class="tm-points-penalty-col-type" style="width:64px;">类型</th>
-                                <th>任务</th>
-                                <th class="tm-points-penalty-col-due" style="width:148px;">到期时间</th>
-                                <th class="tm-points-penalty-col-amount" style="width:72px;">扣分</th>
-                                <th class="tm-points-penalty-col-actions" style="width:268px;">处理</th>
+                                <th class="tm-points-penalty-col-type" style="width:64px;">${__tmT("task.type")}</th>
+                                <th>${__tmT("kernel.task")}</th>
+                                <th class="tm-points-penalty-col-due" style="width:148px;">${__tmT("task.dueTime")}</th>
+                                <th class="tm-points-penalty-col-amount" style="width:72px;">${__tmT("task.points")}</th>
+                                <th class="tm-points-penalty-col-actions" style="width:268px;">${__tmT("task.action")}</th>
                             </tr>
                         </thead>
                         <tbody>${rows}</tbody>
                     </table>
                 </div>
                 <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
-                    <button class="tm-btn tm-btn-primary" data-tm-penalty-action="penalize-all" ${list.length ? '' : 'disabled'}>全部扣分</button>
-                    <button class="tm-btn tm-btn-secondary" data-tm-penalty-action="exempt-all" ${list.length ? '' : 'disabled'}>全部忽略</button>
-                    <button class="tm-btn tm-btn-gray" data-tm-penalty-action="close">${list.length ? '稍后处理' : '关闭'}</button>
+                    <button class="tm-btn tm-btn-primary" data-tm-penalty-action="penalize-all" ${list.length ? '' : 'disabled'}>${__tmT("task.deductAll")}</button>
+                    <button class="tm-btn tm-btn-secondary" data-tm-penalty-action="exempt-all" ${list.length ? '' : 'disabled'}>${__tmT("task.ignoreAll")}</button>
+                    <button class="tm-btn tm-btn-gray" data-tm-penalty-action="close">${list.length ? __tmT("task.handleLater") : __tmT("common.close")}</button>
                 </div>
             </div>
         `;
@@ -16419,11 +16247,11 @@
                             __tmRenderPointsPenaltyConfirmModal();
                         }
                         if (count > 0 && remainingCount > 0) {
-                            hint(`⚠ 已扣分 ${count} 项，${remainingCount} 项未确认入账`, 'warning');
+                            hint(__tmT("task.deductedForItemsNotYetConfirmed", { count: count, remainingCount: remainingCount }), 'warning');
                         } else if (count > 0) {
-                            hint(`⚠ 已扣分 ${count} 项`, 'warning');
+                            hint(__tmT("task.deductedPointsForItemS", { count: count }), 'warning');
                         } else {
-                            hint('⚠ 未确认扣分入账，请确认打卡插件状态', 'warning');
+                            hint(__tmT("task.pointDeductionWasNotConfirmedCheckTheCheckIn"), 'warning');
                         }
                         return;
                     }
@@ -16438,7 +16266,7 @@
                         }
                         __tmPointsPenaltyPendingCandidates = [];
                         __tmClosePointsPenaltyConfirmModal();
-                        if (count > 0) hint(`✅ 已忽略 ${count} 项`, 'success');
+                        if (count > 0) hint(__tmT("task.ignoredItemS", { count: count }), 'success');
                         return;
                     }
                     const candidate = findCandidate(candidateId);
@@ -16450,19 +16278,19 @@
                     } else if (action === 'done') {
                         await __tmMarkPointsPenaltyDoneAndExempt(candidate);
                         removeCandidate(candidate.id);
-                        hint(`✅ 已标记完成：${candidate.title}`, 'success');
+                        hint(__tmT("task.markedComplete", { title: candidate.title }), 'success');
                     } else if (action === 'exempt') {
                         __tmMarkPointsPenaltyExempt(candidate, 'manual-exempt');
                         removeCandidate(candidate.id);
-                        hint(`✅ 已忽略：${candidate.title}`, 'success');
+                        hint(__tmT("task.ignored", { title: candidate.title }), 'success');
                     } else if (action === 'edit') {
                         if (candidate.type === 'schedule') {
                             const ok = await __tmEditPointsPenaltySchedule(candidate);
                             if (ok) {
-                                hint(`✅ 已打开日程编辑（保存后自动重判）：${candidate.title}`, 'success');
+                                hint(__tmT("task.scheduleEditorOpenedReEvaluatedAfterSaving", { title: candidate.title }), 'success');
                                 __tmQueueRefreshPointsPenaltyPendingSchedules(260);
                             } else {
-                                hint('⚠ 当前无法打开日程编辑器', 'warning');
+                                hint(__tmT("task.cannotOpenTheScheduleEditorRightNow"), 'warning');
                             }
                         } else {
                             const ok = await __tmEditPointsPenaltyDeadline(candidate);
@@ -16471,9 +16299,9 @@
                             }
                             if (ok) {
                                 removeCandidate(candidate.id);
-                                hint(`✅ 已更新截止日期：${candidate.title}`, 'success');
+                                hint(__tmT("task.dueDateUpdated", { title: candidate.title }), 'success');
                             } else {
-                                hint('⚠ 未更新截止日期', 'warning');
+                                hint(__tmT("task.dueDateNotUpdated"), 'warning');
                             }
                         }
                     }
@@ -16592,7 +16420,7 @@
                     if (ok) doneCount += 1;
                 } catch (e) {}
             }
-            if (isCurrent() && doneCount > 0) hint(`⚠ 已自动扣分 ${doneCount} 项`, 'warning');
+            if (isCurrent() && doneCount > 0) hint(__tmT("task.automaticallyDeductedPointsForItemS", { doneCount: doneCount }), 'warning');
             return { checked: true, count: doneCount };
         } finally {
             if (generation === __tmPointsPenaltyLifecycleGeneration) __tmPointsPenaltyCheckRunning = false;
@@ -16713,7 +16541,7 @@
         if (task && typeof task === 'object') {
             try {
                 task = __tmCacheTaskInState(task, {
-                    docNameFallback: task.doc_name || task.docName || '未命名文档'
+                    docNameFallback: task.doc_name || task.docName || __tmT("kernel.untitledDocument")
                 }) || task;
             } catch (e) {}
         }
@@ -16799,7 +16627,7 @@ if (opts.refresh === false) return;
             throw e;
         }
         if (!context?.persistId) {
-            throw new Error('未找到任务');
+            throw new Error(__tmT("kernel.noTaskFound"));
         }
         const inversePatch = __tmCaptureTaskPatchInverse(context.persistId, nextPatch);
         let effectiveAttrTargetId = explicitAttrTargetId || context.attrHostId;
@@ -16869,11 +16697,11 @@ if (opts.refresh === false) return;
                 await __tmPersistMetaAndAttrsKernel(context.persistId, nextPatch, persistOptions);
             } else {
                 const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                 const shouldWait = opts.wait === true || (opts.wait !== false && opts.background !== true);
                 await patchTask(context.persistId, nextPatch, {
                     source: String(opts.source || 'attr-patch').trim() || 'attr-patch',
-                    label: __tmGetUndoLabel(opts.label, '任务字段'),
+                    label: __tmGetUndoLabel(opts.label, __tmT("task.taskFields")),
                     background: !shouldWait,
                     wait: shouldWait,
                     skipInteractionGate: opts.skipInteractionGate === true || !shouldWait,
@@ -16913,7 +16741,7 @@ if (opts.refresh === false) return;
                         requestedTaskId: context.requestedId,
                         patch: nextPatch,
                         inversePatch: settledInversePatch,
-                        label: __tmGetUndoLabel(opts.label, '任务字段'),
+                        label: __tmGetUndoLabel(opts.label, __tmT("task.taskFields")),
                         source: String(opts.source || '').trim(),
                     });
                 }
@@ -16983,7 +16811,7 @@ if (opts.refresh === false) return;
                     requestedTaskId: context.requestedId,
                     patch: nextPatch,
                     inversePatch: settledInversePatch,
-                    label: __tmGetUndoLabel(opts.label, '任务字段'),
+                    label: __tmGetUndoLabel(opts.label, __tmT("task.taskFields")),
                     source: String(opts.source || '').trim(),
                 });
             }
@@ -17013,7 +16841,7 @@ if (opts.refresh === false) return;
         const key = String(attrKey || '').trim();
         const task = globalThis.__tmTaskBoundary?.getTask?.(taskId) || null;
         const meta = __tmBuildMetaPatchFromAttrUpdate(key, attrValue, task);
-        if (!meta || !meta.patch) throw new Error('未找到可更新字段');
+        if (!meta || !meta.patch) throw new Error(__tmT("task.noUpdatableFieldFound"));
         const opts = (options && typeof options === 'object') ? options : {};
         const result = await __tmApplyTaskMetaPatchWithUndo(taskId, meta.patch, {
             ...opts,
@@ -17066,7 +16894,7 @@ if (opts.refresh === false) return;
 
     function __tmBuildStaleTaskBlockError(taskId, cause = null) {
         const tid = String(taskId || '').trim();
-        const err = new Error('\u4efb\u52a1\u5757\u5df2\u53d8\u5316\u6216\u7f13\u5b58\u8fc7\u671f\uff0c\u8bf7\u5237\u65b0\u4efb\u52a1\u7ba1\u7406\u5668\u540e\u91cd\u8bd5');
+        const err = new Error(__tmT("task.theTaskChangedOrTheCacheExpiredRefreshTask"));
         err.code = 'TM_TASK_BLOCK_NOT_TASK_ITEM';
         err.taskId = tid;
         if (cause) err.cause = cause;
@@ -17075,7 +16903,7 @@ if (opts.refresh === false) return;
 
     async function __tmVerifyTaskListItemMarkerPersisted(taskId, marker, options = {}) {
         const tid = String(taskId || '').trim();
-        if (!tid) throw new Error('缺少任务 ID');
+        if (!tid) throw new Error(__tmT("plugin.missingTaskId"));
         const expectedMarker = __tmNormalizeTaskStatusMarker(marker, ' ');
         const opts = (options && typeof options === 'object') ? options : {};
         const delays = Array.isArray(opts.delays) ? opts.delays : [0, 80, 160];
@@ -17085,7 +16913,7 @@ if (opts.refresh === false) return;
             if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
             try {
                 const markdown = String(await API.getBlockKramdown(tid) || '');
-                if (!__tmIsTaskListItemMarkdown(markdown)) throw new Error('目标块不是任务列表项');
+                if (!__tmIsTaskListItemMarkdown(markdown)) throw new Error(__tmT("task.theTargetBlockIsNotATaskListItem"));
                 const parsed = API.parseTaskStatus(markdown);
                 const actualMarker = __tmNormalizeTaskStatusMarker(parsed?.marker, '');
                 const checkboxMarkerMatches = String(expectedMarker || '').toUpperCase() === 'X'
@@ -17093,12 +16921,12 @@ if (opts.refresh === false) return;
                 if (actualMarker === expectedMarker || checkboxMarkerMatches) {
                     return { id: tid, marker: actualMarker, markdown, attempt: index + 1 };
                 }
-                lastError = new Error(`任务 marker 回读不一致: expected=${expectedMarker}, actual=${actualMarker}`);
+                lastError = new Error(__tmT("task.taskMarkerReadBackMismatchExpectedActual", { expectedMarker: expectedMarker, actualMarker: actualMarker }));
             } catch (error) {
-                lastError = error instanceof Error ? error : new Error(String(error || '任务 marker 回读失败'));
+                lastError = error instanceof Error ? error : new Error(String(error || __tmT("task.taskMarkerReadBackFailed")));
             }
         }
-        const error = new Error('任务 marker 写入后未能通过回读确认');
+        const error = new Error(__tmT("task.theTaskMarkerWriteCouldNotBeConfirmedBy"));
         error.code = 'TASK_MARKER_VERIFY_FAILED';
         error.taskId = tid;
         error.marker = expectedMarker;
@@ -17144,7 +16972,7 @@ if (opts.refresh === false) return;
 
     async function __tmUpdateTaskListItemMarkerWithFallback(taskId, marker) {
         const tid = String(taskId || '').trim();
-        if (!tid) throw new Error('缺少任务 ID');
+        if (!tid) throw new Error(__tmT("plugin.missingTaskId"));
         const nextMarker = __tmNormalizeTaskStatusMarker(marker, ' ');
         const taskForRetention = globalThis.__tmTaskBoundary?.getTask?.(tid) || null;
         try { __tmProtectMarkdownMutationTaskFields?.(tid, taskForRetention, { source: 'marker-update' }); } catch (e) {}
@@ -17154,7 +16982,7 @@ if (opts.refresh === false) return;
                 action: 'reconcileAttrs',
                 taskIDs: [tid],
                 laneID: __tmGetActiveTaskMutationLaneId(tid),
-            }, '任务结构校正');
+            }, __tmT("task.taskStructureCorrection"));
             let kramdown = '';
             try { kramdown = await API.getBlockKramdown(tid); } catch (e) { kramdown = ''; }
             const nextMarkdown = __tmIsTaskListItemMarkdown(kramdown)
@@ -17172,7 +17000,7 @@ if (opts.refresh === false) return;
                     throw staleError;
                 }
                 if (errorForFallback) throw errorForFallback;
-                throw new Error('\u65e0\u6cd5\u89e3\u6790\u4efb\u52a1 Markdown');
+                throw new Error(__tmT("task.unableToParseTaskMarkdown"));
             }
             const updateResult = await __tmBackendAdapter.updateBlock(tid, nextMarkdown);
             const nextId = String(updateResult?.id || tid).trim() || tid;
@@ -17188,7 +17016,7 @@ if (opts.refresh === false) return;
                 action: 'blockOperation',
                 operation: { action: 'updateMarker', id: tid, marker: nextMarker },
                 laneID: __tmGetActiveTaskMutationLaneId(tid),
-            }, '任务状态写入');
+            }, __tmT("task.taskStatusWrite"));
             const acknowledged = receipt?.value && typeof receipt.value === 'object'
                 && receipt.value.verified === true;
             if (acknowledged) {
@@ -17244,7 +17072,7 @@ if (opts.refresh === false) return;
                 } catch (e) {
                     failures.push({
                         id: item.id,
-                        error: e instanceof Error ? e : new Error(String(e || '更新任务状态标记失败')),
+                        error: e instanceof Error ? e : new Error(String(e || __tmT("task.failedToUpdateTheTaskStatusMarker"))),
                     });
                 }
             }
@@ -17259,7 +17087,7 @@ if (opts.refresh === false) return;
                 action: 'blockOperation',
                 operation: { action: 'batchUpdateMarker', items: payload },
                 laneID: __tmGetActiveTaskMutationLaneId(payload?.[0]?.id),
-            }, '批量任务状态写入');
+            }, __tmT("task.batchTaskStatusWrite"));
             payload.forEach((item) => {
                 successMap.set(item.id, {
                     id: item.id,
@@ -17273,7 +17101,7 @@ if (opts.refresh === false) return;
         } catch (batchErr) {
             payload.forEach((item) => failures.push({
                 id: item.id,
-                error: batchErr instanceof Error ? batchErr : new Error(String(batchErr || '批量更新任务状态失败')),
+                error: batchErr instanceof Error ? batchErr : new Error(String(batchErr || __tmT("task.failedToUpdateTaskStatusesInBatch"))),
             }));
             return { successMap, failures };
         }
@@ -17357,12 +17185,12 @@ if (opts.refresh === false) return;
         const fallbackStatusId = __tmGetDefaultUndoneStatusId(statusOptions);
         const requestedStatusId = String(statusId || '').trim() || fallbackStatusId;
         const statusOption = __tmFindStatusOptionById(requestedStatusId, statusOptions);
-        if (!statusOption) throw new Error('状态不存在，请先在设置中配置');
+        if (!statusOption) throw new Error(__tmT("task.statusDoesNotExistConfigureItInTheSettings"));
         const nextStatusId = String(statusOption.id || requestedStatusId).trim();
         const backgroundBatch = opts.forceImmediate !== true && opts.wait !== true && opts.background !== false;
         return await __tmMutationEngine.requestTaskPatchBatch(ids, { customStatus: nextStatusId }, {
             source: String(opts.source || 'task-status-batch').trim() || 'task-status-batch',
-            label: __tmGetUndoLabel(opts.label, '状态'),
+            label: __tmGetUndoLabel(opts.label, __tmT("kernel.status")),
             reason: String(opts.source || 'task-status-batch').trim() || 'task-status-batch',
             background: backgroundBatch ? true : opts.background,
             wait: backgroundBatch ? false : opts.wait,
@@ -17375,7 +17203,7 @@ if (opts.refresh === false) return;
         if (__tmUndoState.applying) return false;
         const record = __tmUndoState.undoStack.pop();
         if (!record) {
-            if (opts.silentEmpty !== true) hint('ℹ 当前没有可撤销的修改', 'info');
+            if (opts.silentEmpty !== true) hint(__tmT("task.thereAreNoChangesToUndo"), 'info');
             return false;
         }
         __tmUndoState.applying = true;
@@ -17441,7 +17269,7 @@ if (opts.refresh === false) return;
                 }
             } else if (record.type === 'taskStatus') {
                 const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                if (typeof patchTask !== 'function') throw new Error('任务状态撤销队列未就绪');
+                if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskStatusUndoQueueIsNotReady"));
                 await patchTask(record.taskId || record.requestedTaskId, record.inversePatch || {}, {
                     recordUndo: false,
                     background: false,
@@ -17451,14 +17279,14 @@ if (opts.refresh === false) return;
                     skipInteractionGate: true,
                 });
             } else {
-                throw new Error(`未支持的撤销类型: ${record.type || 'unknown'}`);
+                throw new Error(__tmT("task.unsupportedUndoType", { value1: record.type || 'unknown' }));
             }
             __tmUndoState.redoStack.push(__tmCreateUndoRecord(record));
-            hint(`✅ 已撤销${__tmGetUndoLabel(record.label) ? `：${__tmGetUndoLabel(record.label)}` : ''}`, 'success');
+            hint(__tmT("task.undid", { value1: __tmGetUndoLabel(record.label) ? `：${__tmGetUndoLabel(record.label)}` : '' }), 'success');
             return true;
         } catch (e) {
             __tmUndoState.undoStack.push(record);
-            if (opts.silentError !== true) hint(`❌ 撤销失败: ${e?.message || String(e)}`, 'error');
+            if (opts.silentError !== true) hint(__tmT("task.undoFailed", { value1: e?.message || String(e) }), 'error');
             return false;
         } finally {
             __tmUndoState.applying = false;
@@ -17968,7 +17796,7 @@ if (opts.refresh === false) return;
             await openManager({ preserveViewMode: true });
         } catch (e) {
             try { console.error(`[OpenManager:${String(reason || '')}]`, e); } catch (e2) {}
-            try { hint(`❌ 加载失败: ${e?.message || String(e)}`, 'error'); } catch (e3) {}
+            try { hint(__tmT("task.failedToLoad", { value1: e?.message || String(e) }), 'error'); } catch (e3) {}
         }
     }
 
@@ -18154,7 +17982,7 @@ if (opts.refresh === false) return;
                     const key = h2Id || `name:${h2Name}`;
                     if (!h2Agg.has(docId)) h2Agg.set(docId, new Map());
                     const bucket = h2Agg.get(docId);
-                    if (!bucket.has(key)) bucket.set(key, { key, h2Id, name: h2Name || '(空标题)', ...createAgg() });
+                    if (!bucket.has(key)) bucket.set(key, { key, h2Id, name: h2Name || __tmT("homepage.untitledHeading"), ...createAgg() });
                     addTaskToAgg(bucket.get(key), task);
                 } else {
                     if (!noH2Agg.has(docId)) noH2Agg.set(docId, createAgg());
@@ -18186,7 +18014,7 @@ if (opts.refresh === false) return;
                 const deadline = String(meta?.deadline || '').trim();
                 return {
                     id,
-                    name: String(docEntry?.name || '').trim() || '未命名文档',
+                    name: String(docEntry?.name || '').trim() || __tmT("kernel.untitledDocument"),
                     color: __tmGetDocColorHex(id, isDark),
                     total: agg.total,
                     done: agg.done,
@@ -18214,7 +18042,7 @@ if (opts.refresh === false) return;
                 return {
                     key: String(entry?.key || '').trim(),
                     h2Id,
-                    name: String(entry?.name || '').trim() || '(空标题)',
+                    name: String(entry?.name || '').trim() || __tmT("homepage.untitledHeading"),
                     index,
                     total,
                     done,
@@ -18307,7 +18135,7 @@ if (opts.refresh === false) return;
                         .filter(Boolean);
                     sections.push({
                         key: `group:${customGroupId}`,
-                        label: String(activeGroup?.name || '').trim() || '页签分组',
+                        label: String(activeGroup?.name || '').trim() || __tmT("task.tabGroups"),
                         color: activeGroup ? __tmGetDocTabCustomGroupColor(activeGroup.group) : '',
                         cards,
                         agg: buildSectionAgg(cards),
@@ -18321,7 +18149,7 @@ if (opts.refresh === false) return;
                         if (!cards.length) return;
                         sections.push({
                             key: `group:${String(group?.id || '').trim()}`,
-                            label: String(group?.name || '').trim() || '未命名页签组',
+                            label: String(group?.name || '').trim() || __tmT("task.untitledTabGroup"),
                             color: __tmGetDocTabCustomGroupColor(group?.group),
                             cards,
                             agg: buildSectionAgg(cards),
@@ -18333,7 +18161,7 @@ if (opts.refresh === false) return;
                     if (normalCards.length) {
                         sections.push({
                             key: 'ungrouped',
-                            label: '未分组',
+                            label: __tmT("homepage.ungrouped"),
                             color: '',
                             cards: normalCards,
                             agg: buildSectionAgg(normalCards),
@@ -18414,7 +18242,7 @@ if (opts.refresh === false) return;
             tasks: homepageTasks,
             stats: { ...(state.stats || {}) },
             currentGroupId,
-            currentGroupName: currentGroupId === 'all' ? '全部文档' : __tmResolveDocGroupName(currentGroup),
+            currentGroupName: currentGroupId === 'all' ? __tmT("task.allDocuments") : __tmResolveDocGroupName(currentGroup),
             currentRuleId: String(currentRule?.id || '').trim(),
             currentRuleName: String(currentRule?.name || '').trim(),
             currentDocId: activeDocId,
@@ -18475,7 +18303,7 @@ if (!state.homepageOpen) return;
             return false;
         }
         if (!ready || !globalThis.__tmHomepage || typeof globalThis.__tmHomepage.mount !== 'function') {
-            root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">主页模块未加载。</div>`;
+            root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">${__tmT("task.theHomepageModuleIsNotLoaded")}</div>`;
             return false;
         }
         return !!globalThis.__tmHomepage.mount(root, __tmBuildHomepageCtx(root));
@@ -20185,7 +20013,7 @@ if (!state.homepageOpen) return;
                             occurrenceId: opts.occurrenceId || '', operationId: opts.operationId || opts.effectId || '',
                         });
                     if (result?.reason && /(?:settle|complete|reset|finishBreak)-failed$/.test(result.reason)) {
-                        throw new Error('番茄计时结算失败，请确认计时状态后重试');
+                        throw new Error(__tmT("task.pomodoroSettlementFailedCheckTheTimerStateAndTry"));
                     }
                     const settled = result === true || (result && typeof result === 'object'
                         ? ('ok' in result
@@ -20372,7 +20200,7 @@ if (!state.homepageOpen) return;
         const id = String(blockId || '').trim();
         if (!id) return String(labelHtml || '').trim();
         const label = String(labelHtml || '').trim() || esc(id);
-        return `<a class="tm-task-detail-remark-link tm-task-detail-remark-block-ref" role="link" tabindex="0" data-tm-remark-block-id="${esc(id)}" title="跳转到块 ${esc(id)}">${label}</a>`;
+        return `<a class="tm-task-detail-remark-link tm-task-detail-remark-block-ref" role="link" tabindex="0" data-tm-remark-block-id="${esc(id)}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.jumpToBlock", { id: id })}">${label}</a>`;
     }
 
     // 纯文本里的 siyuan://blocks/<id> 与裸块 ID 都渲染成可跳转的块引用。
@@ -20530,7 +20358,7 @@ if (!state.homepageOpen) return;
         const blockRefs = !!(options && typeof options === 'object' && options.blockRefs === true);
         const renderOptions = blockRefs ? { blockRefs: true } : { blockRefs: false };
         const source = __tmNormalizeRemarkMarkdown(input);
-        if (!source) return '<div class="tm-task-detail-remark-empty">点击添加备注</div>';
+        if (!source) return `<div class="tm-task-detail-remark-empty">${__tmT("task.clickToAddARemark")}</div>`;
         const cacheKey = `${blockRefs ? 'refs' : 'text'}|${source}`;
         const cached = __tmRemarkRenderCache.get(cacheKey);
         if (cached) return cached;
@@ -20605,7 +20433,7 @@ if (!state.homepageOpen) return;
         flushQuote();
         flushList();
 
-        const html = blocks.join('') || '<div class="tm-task-detail-remark-empty">点击添加备注</div>';
+        const html = blocks.join('') || `<div class="tm-task-detail-remark-empty">${__tmT("task.clickToAddARemark")}</div>`;
         if (__tmRemarkRenderCache.size > 400) __tmRemarkRenderCache.clear();
         if (__tmRemarkLute) __tmRemarkRenderCache.set(cacheKey, html);
         return html;
@@ -20932,7 +20760,7 @@ if (!state.homepageOpen) return;
         if (!(textarea instanceof HTMLTextAreaElement)) return false;
         const { start, end, value } = __tmGetTextareaSelectionRange(textarea);
         const selected = value.slice(start, end);
-        const fallback = prefix === '`' ? '代码' : '文本';
+        const fallback = prefix === '`' ? __tmT("task.code") : __tmT("task.text");
         const nextInner = selected || fallback;
         const nextValue = `${value.slice(0, start)}${prefix}${nextInner}${suffix}${value.slice(end)}`;
         const selectionStart = start + prefix.length;
@@ -21024,7 +20852,7 @@ if (!state.homepageOpen) return;
         const selected = value.slice(start, end);
         const selectedText = String(selected || '').trim();
         const selectedIsHref = __tmIsRemarkLinkHref(selectedText);
-        const label = __tmEscapeRemarkLinkLabel(selectedIsHref ? selectedText : (selected || '链接文本'));
+        const label = __tmEscapeRemarkLinkLabel(selectedIsHref ? selectedText : (selected || __tmT("task.linkText")));
         const href = selectedIsHref ? __tmEscapeRemarkLinkHref(selectedText) : 'https://';
         const template = `[${label}](${href})`;
         const nextValue = `${value.slice(0, start)}${template}${value.slice(end)}`;
@@ -21362,7 +21190,7 @@ if (!state.homepageOpen) return;
     }
 
     function __tmGetDocHeadingBucket(task, noHeadingLabel) {
-        const noneLabel = String(noHeadingLabel || '').trim() || '无标题';
+        const noneLabel = String(noHeadingLabel || '').trim() || __tmT("task.untitled");
         const raw = __tmNormalizeHeadingText(task?.h2);
         const label = raw || noneLabel;
         const hid = String(task?.h2Id || '').trim();
@@ -21794,7 +21622,7 @@ if (!state.homepageOpen) return;
                 if (text) return text;
             } catch (e) {}
         }
-        return String(fallback || '').replace(/\s+/g, ' ').trim() || '(无内容)';
+        return String(fallback || '').replace(/\s+/g, ' ').trim() || __tmT("kernel.noContent");
     }
 
     function __tmResolveTaskContentRenderSource(markdownSource, fallbackSource) {
@@ -22102,13 +21930,13 @@ if (!state.homepageOpen) return;
         const kernelIsMobile = __TM_MOBILE_RUNTIME_CONTAINERS.has(String(backend || '').trim().toLowerCase());
         const client = String(clientKind || '').trim();
         if (kernelIsMobile) {
-            if (client === 'desktop-browser') return '移动端本体 -> 桌面浏览器伺服访问';
-            if (client === 'mobile-browser') return '移动端本体 -> 手机浏览器伺服访问';
-            return '移动端本体 -> 原生移动客户端';
+            if (client === 'desktop-browser') return __tmT("task.mobileAppDesktopBrowserAccess");
+            if (client === 'mobile-browser') return __tmT("task.mobileAppPhoneBrowserAccess");
+            return __tmT("task.mobileAppNativeMobileClient");
         }
-        if (client === 'desktop-browser') return '桌面端本体 -> 桌面访问';
-        if (client === 'mobile-browser') return '桌面端本体 -> 手机浏览器访问';
-        return '桌面端本体 -> 原生移动客户端访问';
+        if (client === 'desktop-browser') return __tmT("task.desktopAppDesktopAccess");
+        if (client === 'mobile-browser') return __tmT("task.desktopAppPhoneBrowserAccess");
+        return __tmT("task.desktopAppNativeMobileClientAccess");
     };
 
     const __tmFormatDiagnosticValue = (value) => {
@@ -22229,24 +22057,24 @@ if (!state.homepageOpen) return;
             return {
                 price: 98,
                 originalPrice: 0,
-                tag: '永久买断',
-                description: '一次付费获得当前插件全功能永久授权，适合把本插件作为主力任务系统的用户。',
-                summary: '扫码转账 98 元后，付款时请提供以下用户名；无法在付款备注提供时，请通过 QQ 群或邮件提供付款信息。',
+                tag: __tmT("task.lifetimePurchase"),
+                description: __tmT("task.onePaymentGrantsALifetimeFullFeatureLicenseFor"),
+                summary: __tmT("task.afterTransferringCnyByQrCodeProvideTheUsername"),
             };
         }
         return {
             price: 50,
             originalPrice: 98,
-            tag: '早鸟推荐',
-            description: '限时早鸟至 2026年7月31日，一次付费获得当前插件全功能永久授权，适合把本插件作为主力任务系统的用户。已捐助达到 50 元可直接联系获取激活码，未达到的补齐差额即可。',
-            summary: '限时早鸟至 2026年7月31日。已捐助达到 50 元可直接联系获取激活码，未达到的补齐差额即可；付款时请提供以下用户名。',
+            tag: __tmT("task.earlyBirdOffer"),
+            description: __tmT("task.earlyBirdOfferUntilJulyOnePaymentGrantsA"),
+            summary: __tmT("task.earlyBirdOfferUntilJulyIfYouHaveAlready"),
         };
     }
 
     function __tmRenderBenefitsLifetimePrice(offer) {
         const price = Math.max(0, Number(offer?.price) || 0);
         const originalPrice = Math.max(0, Number(offer?.originalPrice) || 0);
-        return `${originalPrice ? `<del><strong>${originalPrice}</strong><span>元</span></del>` : ''}<strong>${price}</strong><span>元</span>`;
+        return `${originalPrice ? `<del><strong>${originalPrice}</strong><span>${__tmT("task.cny")}</span></del>` : ''}<strong>${price}</strong><span>${__tmT("task.cny")}</span>`;
     }
 
     function __tmScheduleBenefitsLifetimeRefresh() {
@@ -22305,33 +22133,33 @@ if (!state.homepageOpen) return;
         const lifetimeOffer = __tmGetBenefitsLifetimeOffer();
         __tmScheduleBenefitsLifetimeRefresh();
         const subject = String(auth?.subject || license?.currentSubject || '').trim();
-        const accountText = subject || '未读取到';
-        const accountKindText = auth?.loggedIn ? '用户名' : (String(auth?.kind || '') === 'device' ? '设备码' : '用户名/设备码');
-        const statusText = license?.statusText || license?.label || '免费版';
+        const accountText = subject || __tmT("task.notDetected");
+        const accountKindText = auth?.loggedIn ? __tmT("task.username") : (String(auth?.kind || '') === 'device' ? __tmT("task.deviceCode") : __tmT("task.usernameDeviceCode"));
+        const statusText = license?.statusText || license?.label || __tmT("task.free");
         const active = license?.active === true;
         const statusColor = active ? 'var(--tm-success-color)' : 'var(--tm-secondary-text)';
         const expiryText = license?.plan === 'lifetime'
-            ? '永久'
-            : (String(license?.expiresAt || '').trim() || (active ? '未读取到' : '未激活'));
+            ? __tmT("task.lifetime")
+            : (String(license?.expiresAt || '').trim() || (active ? __tmT("task.notDetected") : __tmT("task.notActivated")));
         const benefitsDetailsOpenAttr = active ? '' : ' open';
-        const benefitsSummaryTitle = active ? '套餐、价格和功能说明已收起' : '套餐、价格和功能说明';
+        const benefitsSummaryTitle = active ? __tmT("task.plansPricingFeaturesCollapsed") : __tmT("task.plansPricingFeatures");
         const benefitsSummaryDesc = active
-            ? '已激活全功能版，展开可查看套餐、功能区别和付款流程。'
-            : '试用、年付、永久授权、功能区别和发码流程。';
+            ? __tmT("task.fullVersionActivatedExpandToSeePlansFeatureComparison")
+            : __tmT("task.trialYearlyLifetimeLicenseFeatureComparisonAndActivationCode");
         const featureRows = [
-            ['清单、看板、表格、日历、时间轴', '完整可用', '完整可用'],
-            ['基础任务创建、编辑、筛选', '完整可用', '完整可用'],
-            ['插件图标预设', '仅经典图标', '全部预设'],
-            ['白板基础与全局白板', '完整可用', '完整可用'],
-            ['白板手写、分组框、便签', '不包含', '可用'],
-            ['白板任务池搜索/详情定位', '不包含', '可用'],
-            ['AI 工作台与任务 AI 操作', '不包含', '可用'],
-            ['离线激活', '不需要', '用户名或设备'],
-            ['维护支持', '常规', '优先响应'],
+            [__tmT("task.checklistKanbanTableCalendarTimeline"), __tmT("task.fullyAvailable"), __tmT("task.fullyAvailable")],
+            [__tmT("task.basicTaskCreationEditingAndFiltering"), __tmT("task.fullyAvailable"), __tmT("task.fullyAvailable")],
+            [__tmT("task.pluginIconPresets"), __tmT("task.classicIconOnly"), __tmT("task.allPresets")],
+            [__tmT("task.whiteboardBasicsGlobalWhiteboard"), __tmT("task.fullyAvailable"), __tmT("task.fullyAvailable")],
+            [__tmT("task.whiteboardHandwritingGroupFramesStickyNotes"), __tmT("task.notIncluded"), __tmT("task.available")],
+            [__tmT("task.whiteboardTaskPoolSearchDetailLocating"), __tmT("task.notIncluded"), __tmT("task.available")],
+            [__tmT("task.aiWorkbenchTaskAiActions"), __tmT("task.notIncluded"), __tmT("task.available")],
+            [__tmT("task.offlineActivation"), __tmT("task.notRequired"), __tmT("task.usernameOrDevice")],
+            [__tmT("task.maintenanceSupport"), __tmT("task.standard"), __tmT("task.priorityResponse")],
         ];
         const advancedItems = [
-            ['白板增强', '全局白板基础能力继续可用；免费版不包含手写、分组框、便签工具、任务详情白板反向定位和任务池搜索。'],
-            ['AI 辅助', 'AI 设置页可见可配置。全功能限制 AI 工作台和任务 AI 操作，包含优化任务名称、编辑字段、安排日程等能力。'],
+            [__tmT("task.whiteboardEnhancements"), __tmT("task.basicGlobalWhiteboardFeaturesRemainAvailableTheFreeVersion")],
+            [__tmT("task.aiAssistance"), __tmT("task.theAiSettingsPageIsVisibleAndConfigurableThe")],
         ];
         return `
             <style>
@@ -22436,23 +22264,23 @@ if (!state.homepageOpen) return;
                 }
             </style>
             <div class="tm-benefits-wrap">
-                <div class="tm-benefits-license${active ? ' is-active' : ''}" ${__tmSettingsSearchAttrs ? __tmSettingsSearchAttrs('benefits', '功能权益', '查看授权状态、套餐和付款说明') : ''}>
+                <div class="tm-benefits-license${active ? ' is-active' : ''}" ${__tmSettingsSearchAttrs ? __tmSettingsSearchAttrs('benefits', __tmT("task.featureBenefits"), __tmT("task.viewLicenseStatusPlansAndPaymentInstructions")) : ''}>
                     <div>
-                        <div class="tm-benefits-label">当前授权</div>
+                        <div class="tm-benefits-label">${__tmT("task.currentLicense")}</div>
                         <strong class="tm-benefits-status-value">${esc(statusText)}</strong>
-                        <div style="margin-top:6px;font-size:12px;color:var(--tm-secondary-text);">到期：${esc(expiryText)}</div>
+                        <div style="margin-top:6px;font-size:12px;color:var(--tm-secondary-text);">${__tmT("task.expires2", { expiryText: esc(expiryText) })}</div>
                     </div>
                     <div>
-                        <div class="tm-benefits-label">${esc(active ? '授权用户名' : '付款时请提供以下用户名')}</div>
+                        <div class="tm-benefits-label">${esc(active ? __tmT("task.licensedUsername") : __tmT("task.provideTheFollowingUsernameWhenPaying"))}</div>
                         <div class="tm-benefits-account">
                             <code id="tmBenefitsAccountValue">${esc(accountText)}</code>
-                            <button class="tm-btn tm-btn-secondary" type="button" onclick="tmCopyBenefitsSubject()">复制</button>
+                            <button class="tm-btn tm-btn-secondary" type="button" onclick="tmCopyBenefitsSubject()">${__tmT("task.copy")}</button>
                         </div>
-                        ${active ? '' : `<div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-top:6px;">无法在付款备注提供时，可将${esc(accountKindText)}和付款截图发送至 729373125@qq.com。</div>`}
+                        ${active ? '' : `<div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-top:6px;">${__tmT("task.ifYouCannotAddItToThePaymentNote", { accountKindText: esc(accountKindText) })}</div>`}
                     </div>
                     <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">
-                        <span class="tm-benefits-badge">${esc(active ? '已激活' : '未激活')}</span>
-                        <button class="tm-btn tm-btn-primary" type="button" onclick="tmOpenBenefitsActivationDialog()">输入激活码</button>
+                        <span class="tm-benefits-badge">${esc(active ? __tmT("task.activated") : __tmT("task.notActivated"))}</span>
+                        <button class="tm-btn tm-btn-primary" type="button" onclick="tmOpenBenefitsActivationDialog()">${__tmT("task.activationCode")}</button>
                     </div>
                 </div>
 
@@ -22468,53 +22296,53 @@ if (!state.homepageOpen) return;
                             <div class="tm-benefits-plan">
                                 <div>
                                     <div class="tm-benefits-plan-head">
-                                        <h3>全功能试用</h3>
-                                        <span class="tm-benefits-tag">30 天</span>
+                                        <h3>${__tmT("task.fullFeatureTrial")}</h3>
+                                        <span class="tm-benefits-tag">${__tmT("task.days")}</span>
                                     </div>
-                                    <div class="tm-benefits-price"><strong>免费</strong><span>领取试用码</span></div>
-                                    <p>无需付款，用于确认账号绑定、离线激活和高级能力是否适合你的工作流。</p>
+                                    <div class="tm-benefits-price"><strong>${__tmT("task.free2")}</strong><span>${__tmT("task.getATrialCode")}</span></div>
+                                    <p>${__tmT("task.noPaymentRequiredUseItToConfirmAccountBinding")}</p>
                                 </div>
-                                <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenBenefitsPaymentDialog('trial')">领取试用</button>
+                                <button class="tm-btn tm-btn-secondary" type="button" onclick="tmOpenBenefitsPaymentDialog('trial')">${__tmT("task.getTrial")}</button>
                             </div>
                             <div class="tm-benefits-plan">
                                 <div>
                                     <div class="tm-benefits-plan-head">
-                                        <h3>全功能年付</h3>
-                                        <span class="tm-benefits-tag">可补差价升级永久</span>
+                                        <h3>${__tmT("task.fullFeatureYearly")}</h3>
+                                        <span class="tm-benefits-tag">${__tmT("task.upgradeToLifetimeByPayingTheDifference")}</span>
                                     </div>
-                                    <div class="tm-benefits-price"><strong>38</strong><span>元 / 年</span></div>
-                                    <p>38 元解锁一年全功能。后续想长期使用，只需再补 60 元即可升级永久版，本次年费全额抵扣。</p>
+                                    <div class="tm-benefits-price"><strong>38</strong><span>${__tmT("task.cnyYear")}</span></div>
+                                    <p>${__tmT("task.cnyUnlocksOneYearOfTheFullFeatureSet")}</p>
                                 </div>
-                                <button class="tm-btn tm-btn-secondary" type="button" aria-label="年度授权：扫码付款" onclick="tmOpenBenefitsPaymentDialog('yearly')">扫码付款</button>
+                                <button class="tm-btn tm-btn-secondary" type="button" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.annualLicenseScanToPay")}" onclick="tmOpenBenefitsPaymentDialog('yearly')">${__tmT("task.scanToPay")}</button>
                             </div>
                             <div class="tm-benefits-plan is-featured" data-tm-benefits-lifetime-plan>
                                 <div>
                                     <div class="tm-benefits-plan-head">
-                                        <h3>全功能永久</h3>
+                                        <h3>${__tmT("task.fullFeatureLifetime")}</h3>
                                         <span class="tm-benefits-tag" data-tm-benefits-lifetime-tag>${esc(lifetimeOffer.tag)}</span>
                                     </div>
                                     <div class="tm-benefits-price" data-tm-benefits-lifetime-price>${__tmRenderBenefitsLifetimePrice(lifetimeOffer)}</div>
                                     <p data-tm-benefits-lifetime-description>${esc(lifetimeOffer.description)}</p>
                                 </div>
-                                <button class="tm-btn tm-btn-primary" type="button" aria-label="永久授权：扫码付款" onclick="tmOpenBenefitsPaymentDialog('lifetime')">扫码付款</button>
+                                <button class="tm-btn tm-btn-primary" type="button" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.lifetimelicenseScanToPay")}" onclick="tmOpenBenefitsPaymentDialog('lifetime')">${__tmT("task.scanToPay")}</button>
                             </div>
                         </div>
 
                         <div class="tm-benefits-matrix">
                             <div class="tm-benefits-section-title">
-                                <h3>功能区别</h3>
-                                <p>年付和永久授权包含相同的全功能权益，区别仅在授权期限。</p>
+                                <h3>${__tmT("task.featureComparison")}</h3>
+                                <p>${__tmT("task.yearlyAndLifetimeLicensesIncludeTheSameFullFeature")}</p>
                             </div>
-                            <div class="tm-benefits-grid" role="table" aria-label="功能权益">
+                            <div class="tm-benefits-grid" role="table" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.featureBenefits")}">
                                 <div class="tm-benefits-row is-head" role="row">
-                                    <div class="tm-benefits-cell tm-benefits-feature" role="columnheader">功能</div>
-                                    <div class="tm-benefits-cell" role="columnheader">免费版</div>
-                                    <div class="tm-benefits-cell" role="columnheader">全功能版（年付 / 永久）</div>
+                                    <div class="tm-benefits-cell tm-benefits-feature" role="columnheader">${__tmT("task.feature")}</div>
+                                    <div class="tm-benefits-cell" role="columnheader">${__tmT("task.free")}</div>
+                                    <div class="tm-benefits-cell" role="columnheader">${__tmT("task.fullVersionYearlyLifetime")}</div>
                                 </div>
                                 ${__tmRenderBenefitsFeatureRows(featureRows)}
                             </div>
                             <div class="tm-benefits-advanced">
-                                <h4>付费高级能力示例</h4>
+                                <h4>${__tmT("task.examplesOfPaidAdvancedFeatures")}</h4>
                                 <div class="tm-benefits-advanced-list">
                                     ${advancedItems.map(([title, desc]) => `
                                         <div class="tm-benefits-advanced-item">
@@ -22527,12 +22355,12 @@ if (!state.homepageOpen) return;
                         </div>
 
                         <div class="tm-benefits-flow">
-                            <h3>付款和发码流程</h3>
+                            <h3>${__tmT("task.paymentActivationCodeFlow")}</h3>
                             <div class="tm-benefits-steps">
-                                <div class="tm-benefits-step"><strong>1. 选择方案</strong><p>点击全功能年付或全功能永久，弹出微信和支付宝收款码。</p></div>
-                                <div class="tm-benefits-step"><strong>2. 扫码转账</strong><p>付款时请提供上方用户名，无法在付款备注提供时保留截图。</p></div>
-                                <div class="tm-benefits-step"><strong>3. 提供信息</strong><p>加入 QQ 群 758666272，或发送邮件至 729373125@qq.com，提供用户名和付款截图。</p></div>
-                                <div class="tm-benefits-step"><strong>4. 获取激活码</strong><p>收到激活码后回到本页粘贴激活。</p></div>
+                                <div class="tm-benefits-step"><strong>${__tmT("task.chooseAPlan")}</strong><p>${__tmT("task.clickFullFeatureYearlyOrFullFeatureLifetimeTo")}</p></div>
+                                <div class="tm-benefits-step"><strong>${__tmT("task.scanToPay2")}</strong><p>${__tmT("task.provideTheUsernameAboveWhenPayingIfYouCannot")}</p></div>
+                                <div class="tm-benefits-step"><strong>${__tmT("task.provideTheInfo")}</strong><p>${__tmT("task.joinTheQqGroupOrEmailQqComWith")}</p></div>
+                                <div class="tm-benefits-step"><strong>${__tmT("task.getTheActivationCode")}</strong><p>${__tmT("task.onceYouReceiveTheActivationCodeComeBackTo")}</p></div>
                             </div>
                         </div>
                     </div>
@@ -22542,43 +22370,43 @@ if (!state.homepageOpen) return;
             <dialog class="tm-benefits-dialog" id="tmBenefitsActivationDialog" aria-labelledby="tmBenefitsActivationTitle">
                 <div class="tm-benefits-dialog-body is-single">
                     <div>
-                        <h3 id="tmBenefitsActivationTitle">输入激活码</h3>
-                        <p>粘贴收到的激活码后点击激活。</p>
+                        <h3 id="tmBenefitsActivationTitle">${__tmT("task.activationCode")}</h3>
+                        <p>${__tmT("task.pasteTheActivationCodeYouReceivedAndClickActivate")}</p>
                         <textarea id="tmLicenseCodeInput" class="tm-benefits-license-input" rows="5" spellcheck="false"></textarea>
                     </div>
                 </div>
                 <div class="tm-benefits-dialog-actions">
-                    <button class="tm-btn tm-btn-secondary" type="button" onclick="tmClearBenefitsActivationInput()">清空</button>
-                    <button class="tm-btn tm-btn-primary" type="button" onclick="tmActivateBenefitsLicense()">激活</button>
-                    ${active ? '<button class="tm-btn tm-btn-danger" type="button" onclick="tmClearBenefitsLicense()">清除授权</button>' : ''}
-                    <button class="tm-btn tm-btn-gray" type="button" onclick="tmCloseBenefitsActivationDialog()">关闭</button>
+                    <button class="tm-btn tm-btn-secondary" type="button" onclick="tmClearBenefitsActivationInput()">${__tmT("common.clear")}</button>
+                    <button class="tm-btn tm-btn-primary" type="button" onclick="tmActivateBenefitsLicense()">${__tmT("task.activate")}</button>
+                    ${active ? `<button class="tm-btn tm-btn-danger" type="button" onclick="tmClearBenefitsLicense()">${__tmT("task.clearLicense")}</button>` : ''}
+                    <button class="tm-btn tm-btn-gray" type="button" onclick="tmCloseBenefitsActivationDialog()">${__tmT("common.close")}</button>
                 </div>
             </dialog>
 
             <dialog class="tm-benefits-dialog" id="tmBenefitsPaymentDialog" aria-labelledby="tmBenefitsPaymentTitle">
                 <div class="tm-benefits-dialog-body">
                     <div>
-                        <h3 id="tmBenefitsPaymentTitle">全功能年付授权</h3>
-                        <p id="tmBenefitsPaymentSummary">扫码转账后，付款时请提供以下用户名；无法在付款备注提供时，请通过 QQ 群或邮件提供付款信息。</p>
+                        <h3 id="tmBenefitsPaymentTitle">${__tmT("task.fullFeatureYearlyLicense")}</h3>
+                        <p id="tmBenefitsPaymentSummary">${__tmT("task.afterPayingByQrCodeProvideTheUsernameBelow")}</p>
                         <div class="tm-benefits-note" id="tmBenefitsPaymentNote">
-                            <span class="tm-benefits-label">付款时请提供以下用户名</span>
+                            <span class="tm-benefits-label">${__tmT("task.provideTheFollowingUsernameWhenPaying")}</span>
                             <code id="tmBenefitsPaymentAccount">${esc(accountText)}</code>
-                            <span id="tmBenefitsPaymentInstruction" style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;">付款时提供用户名，或发送邮件至 729373125@qq.com（用户名 + 付款截图）；仅提供用户名且未发邮件时，激活码将通过链滴论坛私信发送。</span>
+                            <span id="tmBenefitsPaymentInstruction" style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;">${__tmT("task.provideTheUsernameWhenPayingOrEmailQqCom")}</span>
                         </div>
                     </div>
                     <div class="tm-benefits-qr" id="tmBenefitsPaymentQr">
-                        <div class="tm-benefits-pay-tabs" role="tablist" aria-label="付款方式">
-                            <button class="tm-benefits-pay-tab is-active" type="button" onclick="tmSwitchBenefitsPaymentMethod('wechat')">微信</button>
-                            <button class="tm-benefits-pay-tab" type="button" onclick="tmSwitchBenefitsPaymentMethod('alipay')">支付宝</button>
+                        <div class="tm-benefits-pay-tabs" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.paymentMethod")}">
+                            <button class="tm-benefits-pay-tab is-active" type="button" onclick="tmSwitchBenefitsPaymentMethod('wechat')">${__tmT("task.wechat")}</button>
+                            <button class="tm-benefits-pay-tab" type="button" onclick="tmSwitchBenefitsPaymentMethod('alipay')">${__tmT("task.alipay")}</button>
                         </div>
                         <div class="tm-benefits-qr-box">
-                            <img id="tmBenefitsPaymentQrImage" alt="微信收款码">
+                            <img id="tmBenefitsPaymentQrImage" alt="${globalThis.__taskHorizonHostBridge.i18n.html("task.wechatPaymentQrCode")}">
                         </div>
                     </div>
                 </div>
                 <div class="tm-benefits-dialog-actions">
-                    <button class="tm-btn tm-btn-secondary" type="button" onclick="tmCopyBenefitsSubject()">复制用户名</button>
-                    <button class="tm-btn tm-btn-gray" type="button" onclick="tmCloseBenefitsPaymentDialog()">关闭</button>
+                    <button class="tm-btn tm-btn-secondary" type="button" onclick="tmCopyBenefitsSubject()">${__tmT("task.copyUsername")}</button>
+                    <button class="tm-btn tm-btn-gray" type="button" onclick="tmCloseBenefitsPaymentDialog()">${__tmT("common.close")}</button>
                 </div>
             </dialog>
         `;
@@ -22616,7 +22444,7 @@ if (!state.homepageOpen) return;
         const image = document.getElementById('tmBenefitsPaymentQrImage');
         if (!(image instanceof HTMLImageElement)) return false;
         const seq = ++__tmBenefitsQrLoadSeq;
-        image.alt = payMethod === 'alipay' ? '支付宝收款码' : '微信收款码';
+        image.alt = payMethod === 'alipay' ? __tmT("task.alipayPaymentQrCode") : __tmT("task.wechatPaymentQrCode");
         image.style.opacity = '0.45';
         try {
             const res = await fetch('/api/file/getFile', {
@@ -22641,7 +22469,7 @@ if (!state.homepageOpen) return;
             if (seq === __tmBenefitsQrLoadSeq) {
                 image.removeAttribute('src');
                 image.style.opacity = '';
-                image.alt = `${payMethod === 'alipay' ? '支付宝' : '微信'}收款码加载失败`;
+                image.alt = __tmT("task.paymentQrCodeFailedToLoad", { value1: payMethod === 'alipay' ? __tmT("task.alipay") : __tmT("task.wechat") });
                 try { console.warn('[task-horizon] load payment QR failed', path, e); } catch (e2) {}
             }
             return false;
@@ -22652,7 +22480,7 @@ if (!state.homepageOpen) return;
         const auth = __tmGetBenefitsAuthInfo();
         const value = String(auth?.subject || document.getElementById('tmBenefitsAccountValue')?.textContent || '').trim();
         const ok = await __tmCopyBenefitsText(value);
-        try { hint(ok ? '✅ 用户名/设备码已复制' : '⚠️ 未读取到可复制内容', ok ? 'success' : 'warning'); } catch (e) {}
+        try { hint(ok ? __tmT("task.usernameDeviceCodeCopied") : __tmT("task.noCopyableContentFound"), ok ? 'success' : 'warning'); } catch (e) {}
         return ok;
     };
 
@@ -22692,7 +22520,7 @@ if (!state.homepageOpen) return;
 
     window.tmActivateBenefitsLicense = async function() {
         if (typeof window.tmActivateLicenseFromSettings !== 'function') {
-            try { hint('⚠️ 当前环境未加载激活逻辑', 'warning'); } catch (e) {}
+            try { hint(__tmT("task.theActivationLogicIsNotLoadedInThisEnvironment"), 'warning'); } catch (e) {}
             return false;
         }
         const ok = await window.tmActivateLicenseFromSettings();
@@ -22704,7 +22532,7 @@ if (!state.homepageOpen) return;
 
     window.tmClearBenefitsLicense = async function() {
         if (typeof window.tmClearLicenseFromSettings !== 'function') {
-            try { hint('⚠️ 当前环境未加载授权清除逻辑', 'warning'); } catch (e) {}
+            try { hint(__tmT("task.theLicenseClearingLogicIsNotLoadedInThis"), 'warning'); } catch (e) {}
             return false;
         }
         const ok = await window.tmClearLicenseFromSettings();
@@ -22728,27 +22556,27 @@ if (!state.homepageOpen) return;
     window.tmOpenBenefitsPaymentDialog = function(plan) {
         const planKey = String(plan || '').trim();
         const auth = __tmGetBenefitsAuthInfo();
-        const account = String(auth?.subject || document.getElementById('tmBenefitsAccountValue')?.textContent || '当前用户名').trim();
+        const account = String(auth?.subject || document.getElementById('tmBenefitsAccountValue')?.textContent || __tmT("task.currentUsername")).trim();
         const lifetimeOffer = __tmGetBenefitsLifetimeOffer();
         const plans = {
             trial: {
-                title: '全功能试用授权',
-                summary: '试用码无需付款，请加入 QQ 群 758666272，或发送邮件至 729373125@qq.com 领取。',
-                instruction: '发送：用户名 + 全功能试用',
+                title: __tmT("task.fullFeatureTrialLicense"),
+                summary: __tmT("task.theTrialCodeIsFreeJoinTheQqGroup"),
+                instruction: __tmT("task.sendUsernameFullFeatureTrial"),
                 hideQr: true,
                 hideNote: true,
             },
             yearly: {
-                title: '全功能年付授权',
-                summary: '扫码转账 38 元后，付款时请提供以下用户名；无法在付款备注提供时，请通过 QQ 群或邮件提供付款信息。',
-                instruction: '付款时提供用户名，或发送邮件至 729373125@qq.com（用户名 + 付款截图）；仅提供用户名且未发邮件时，激活码将通过链滴论坛私信发送。',
+                title: __tmT("task.fullFeatureYearlyLicense"),
+                summary: __tmT("task.afterTransferringCnyByQrCodeProvideTheUsername2"),
+                instruction: __tmT("task.provideTheUsernameWhenPayingOrEmailQqCom"),
                 hideQr: false,
                 hideNote: false,
             },
             lifetime: {
-                title: '全功能永久授权',
+                title: __tmT("task.fullFeatureLifetimeLicense"),
                 summary: lifetimeOffer.summary,
-                instruction: '付款时提供用户名，或发送邮件至 729373125@qq.com（用户名 + 付款截图）；仅提供用户名且未发邮件时，激活码将通过链滴论坛私信发送。',
+                instruction: __tmT("task.provideTheUsernameWhenPayingOrEmailQqCom"),
                 hideQr: false,
                 hideNote: false,
             },
@@ -22765,7 +22593,7 @@ if (!state.homepageOpen) return;
         const qr = document.getElementById('tmBenefitsPaymentQr');
         if (title) title.textContent = meta.title;
         if (summary) summary.textContent = meta.summary;
-        if (accountEl) accountEl.textContent = account || '当前用户名';
+        if (accountEl) accountEl.textContent = account || __tmT("task.currentUsername");
         if (instruction) instruction.textContent = meta.instruction;
         if (note instanceof HTMLElement) note.hidden = !!meta.hideNote;
         if (qr instanceof HTMLElement) qr.hidden = !!meta.hideQr;
@@ -22810,10 +22638,10 @@ if (!state.homepageOpen) return;
     function __tmRenderAboutSettingsPanel() {
         const snapshot = __tmBuildDeviceRecognitionSnapshot();
         const summaryCards = [
-            ['当前插件 UI 判定', snapshot.current.uiMode === 'mobile' ? '移动端' : '桌面端'],
-            ['参考 UI 判定', snapshot.reference.uiMode === 'mobile' ? '移动端' : '桌面端'],
-            ['参考客户端类型', snapshot.reference.clientKind],
-            ['访问场景推断', snapshot.reference.scenario],
+            [__tmT("task.currentPluginUiDetection"), snapshot.current.uiMode === 'mobile' ? __tmT("calendar.mobile") : __tmT("calendar.desktop")],
+            [__tmT("task.referenceUiDetection"), snapshot.reference.uiMode === 'mobile' ? __tmT("calendar.mobile") : __tmT("calendar.desktop")],
+            [__tmT("task.referenceClientType"), snapshot.reference.clientKind],
+            [__tmT("task.accessScenarioInference"), snapshot.reference.scenario],
         ];
         const runtimeRows = [
             ['SDK getFrontend()', snapshot.runtime.frontend],
@@ -22823,13 +22651,13 @@ if (!state.homepageOpen) return;
             ['networkServe', snapshot.runtime.networkServe],
             ['config.isMobile', snapshot.runtime.configIsMobile],
             ['window.siyuan.mobile', snapshot.runtime.siyuanMobileObject],
-            ['挂载宿主模式', snapshot.current.hostMode || '—'],
-            ['挂载宿主移动 UI', snapshot.current.hostUsesMobileUI],
-            ['当前 runtimeMobileClient()', snapshot.current.runtimeMobileClient],
-            ['当前 nativeMobileClient()', snapshot.current.nativeMobileClient],
-            ['当前 isMobileDevice()', snapshot.current.mobileDevice],
-            ['入口层 __taskHorizonPluginIsMobile', snapshot.current.pluginIsMobileFlag],
-            ['入口层 __taskHorizonPluginIsNativeMobile', snapshot.current.pluginIsNativeMobileFlag],
+            [__tmT("task.mountHostMode"), snapshot.current.hostMode || '—'],
+            [__tmT("task.mountHostMobileUi"), snapshot.current.hostUsesMobileUI],
+            [__tmT("task.currentRuntimemobileclient"), snapshot.current.runtimeMobileClient],
+            [__tmT("task.currentNativemobileclient"), snapshot.current.nativeMobileClient],
+            [__tmT("task.currentIsmobiledevice"), snapshot.current.mobileDevice],
+            [__tmT("task.entryLayerTaskhorizonpluginismobile"), snapshot.current.pluginIsMobileFlag],
+            [__tmT("task.entryLayerTaskhorizonpluginisnativemobile"), snapshot.current.pluginIsNativeMobileFlag],
         ];
         const browserRows = [
             ['userAgentData.mobile', snapshot.browser.uaDataMobile],
@@ -22849,42 +22677,42 @@ if (!state.homepageOpen) return;
             ['__tomatoPluginIsMobile', snapshot.relatedPlugins.tomatoPluginIsMobile],
         ];
         const pluginRows = [
-            ['插件名称', snapshot.plugin.name],
-            ['插件版本', snapshot.plugin.version],
+            [__tmT("task.pluginName"), snapshot.plugin.name],
+            [__tmT("task.pluginVersion"), snapshot.plugin.version],
             ['plugin.json frontends', snapshot.plugin.frontends],
             ['plugin.json backends', snapshot.plugin.backends],
         ];
         return `
             <div class="tm-settings-panel" data-tm-settings-section="backup">
-                <div class="tm-settings-section-title">设置备份与迁移</div>
+                <div class="tm-settings-section-title">${__tmT("task.settingsBackupMigration")}</div>
                 <div class="tm-setting-field-row">
                     <div class="tm-setting-field-copy">
-                        <div class="tm-setting-field-title">导出设置包</div>
-                        <div class="tm-setting-field-desc">按模块备份当前配置。AI 接入设置包含 API Key，请妥善保管导出的文件。</div>
+                        <div class="tm-setting-field-title">${__tmT("task.exportSettingsPackage")}</div>
+                        <div class="tm-setting-field-desc">${__tmT("task.backsUpTheCurrentConfigurationByModuleAiAccess")}</div>
                     </div>
                     <div class="tm-setting-field-control">
-                        <button class="tm-btn tm-btn-primary" data-tm-action="tmOpenSettingsExportDialog">导出设置包</button>
+                        <button class="tm-btn tm-btn-primary" data-tm-action="tmOpenSettingsExportDialog">${__tmT("task.exportSettingsPackage")}</button>
                     </div>
                 </div>
                 <div class="tm-setting-field-row">
                     <div class="tm-setting-field-copy">
-                        <div class="tm-setting-field-title">导入设置包</div>
-                        <div class="tm-setting-field-desc">选择需要迁移的模块；节假日与农历只迁移已有或成功刷新的真实缓存。</div>
+                        <div class="tm-setting-field-title">${__tmT("task.importSettingsPackage")}</div>
+                        <div class="tm-setting-field-desc">${__tmT("task.chooseTheModulesToMigrateHolidaysAndLunarData")}</div>
                     </div>
                     <div class="tm-setting-field-control">
-                        <button class="tm-btn tm-btn-secondary" data-tm-action="tmOpenSettingsImportDialog">导入设置包</button>
+                        <button class="tm-btn tm-btn-secondary" data-tm-action="tmOpenSettingsImportDialog">${__tmT("task.importSettingsPackage")}</button>
                     </div>
                 </div>
             </div>
             <div class="tm-settings-panel tm-settings-device" data-tm-settings-section="device">
                 <div class="tm-settings-device-heading" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
                     <div>
-                        <div class="tm-settings-section-title">关于与设备识别</div>
-                        <div class="tm-settings-section-desc">查看当前设备与插件信息，排查桌面端或移动端识别异常。</div>
+                        <div class="tm-settings-section-title">${__tmT("task.aboutDeviceRecognition")}</div>
+                        <div class="tm-settings-section-desc">${__tmT("task.viewCurrentDeviceAndPluginInfoToTroubleshootDesktop")}</div>
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                        <button class="tm-btn tm-btn-secondary" onclick="tmRefreshDeviceRecognitionStatus()">刷新检测</button>
-                        <button class="tm-btn tm-btn-primary" onclick="tmCopyDeviceRecognitionReport()">复制诊断</button>
+                        <button class="tm-btn tm-btn-secondary" onclick="tmRefreshDeviceRecognitionStatus()">${__tmT("task.refreshDetection")}</button>
+                        <button class="tm-btn tm-btn-primary" onclick="tmCopyDeviceRecognitionReport()">${__tmT("task.copyDiagnostics")}</button>
                     </div>
                 </div>
 
@@ -22898,49 +22726,47 @@ if (!state.homepageOpen) return;
                 </div>
 
                 ${snapshot.reference.differsFromCurrent ? `
-                    <div style="padding:10px 12px;border:1px solid rgba(249,171,0,0.35);background:rgba(249,171,0,0.12);border-radius:10px;color:var(--tm-text-color);font-size:12px;line-height:1.7;margin-bottom:14px;">
-                        当前插件判定与“参考判定”不一致。这通常意味着宿主内核、原生桥和当前浏览器信号之间存在冲突，建议复制下方诊断信息用于定位。
-                    </div>
+                    <div style="padding:10px 12px;border:1px solid rgba(249,171,0,0.35);background:rgba(249,171,0,0.12);border-radius:10px;color:var(--tm-text-color);font-size:12px;line-height:1.7;margin-bottom:14px;">${__tmT("task.thePluginSDetectionAndTheReferenceDetectionDo")}</div>
                 ` : ''}
 
                 <details class="tm-settings-device-details">
-                <summary>查看设备识别详情与兼容声明</summary>
+                <summary>${__tmT("task.viewDeviceRecognitionDetailsCompatibilityNotes")}</summary>
                 <div class="tm-settings-device-tables" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
                     <div style="border:1px solid var(--tm-border-color);border-radius:10px;overflow:hidden;background:var(--tm-card-bg);">
-                        <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">当前判定链路</div>
+                        <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">${__tmT("task.currentDetectionChain")}</div>
                         <div style="display:grid;grid-template-columns:132px minmax(0,1fr);">${__tmRenderDiagnosticRows(runtimeRows)}</div>
                     </div>
                     <div style="border:1px solid var(--tm-border-color);border-radius:10px;overflow:hidden;background:var(--tm-card-bg);">
-                        <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">浏览器与视口信号</div>
+                        <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">${__tmT("task.browserViewportSignals")}</div>
                         <div style="display:grid;grid-template-columns:132px minmax(0,1fr);">${__tmRenderDiagnosticRows(browserRows)}</div>
                     </div>
                     <div style="border:1px solid var(--tm-border-color);border-radius:10px;overflow:hidden;background:var(--tm-card-bg);">
-                        <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">原生桥与联动插件</div>
+                        <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">${__tmT("task.nativeBridgeIntegrationPlugins")}</div>
                         <div style="display:grid;grid-template-columns:132px minmax(0,1fr);">${__tmRenderDiagnosticRows(bridgeRows)}</div>
                     </div>
                     <div data-tm-settings-version style="border:1px solid var(--tm-border-color);border-radius:10px;overflow:hidden;background:var(--tm-card-bg);">
-                        <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">插件版本与兼容声明</div>
+                        <div style="padding:10px 12px;font-weight:600;background:var(--tm-sidebar-bg);">${__tmT("task.pluginVersionCompatibilityNotes")}</div>
                         <div style="display:grid;grid-template-columns:132px minmax(0,1fr);">${__tmRenderDiagnosticRows(pluginRows)}</div>
-                        <div style="padding:10px 12px;"><a href="https://github.com/5kyfkr/siyuan-plugin-task-horizon" target="_blank" rel="noopener noreferrer">使用说明与反馈</a></div>
+                        <div style="padding:10px 12px;"><a href="https://github.com/5kyfkr/siyuan-plugin-task-horizon" target="_blank" rel="noopener noreferrer">${__tmT("task.docsFeedback")}</a></div>
                     </div>
                 </div>
 
                 <div style="margin-top:14px;padding:12px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
-                    <div style="font-weight:600;margin-bottom:8px;">官方/SDK 参考</div>
+                    <div style="font-weight:600;margin-bottom:8px;">${__tmT("task.officialSdkReference")}</div>
                     <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.8;">
-                        <div>SDK <code>getFrontend()</code> 是当前界面类型的首要信号，不受窗口宽度和触摸屏能力影响。</div>
-                        <div><code>system.container</code> 更接近“本体内核运行环境”，不等于“当前访问页面客户端”。</div>
-                        <div>SDK <code>platformUtils</code> 来自兼容层，可用于原生能力调用。</div>
-                        <div><code>window.siyuan.mobile</code> 更偏向页面层的移动 UI/状态对象，不应单独当成原生移动桥信号。</div>
-                        <div>插件清单支持 <code>frontends</code> / <code>backends</code> 兼容声明，常见前端包括 <code>browser-desktop</code>、<code>browser-mobile</code>、<code>desktop-window</code>。</div>
+                        <div>SDK <code>getFrontend()</code>${__tmT("task.isThePrimarySignalForTheCurrentInterfaceType")}</div>
+                        <div><code>system.container</code>${__tmT("task.isCloserToTheKernelRuntimeEnvironmentAndDoes")}</div>
+                        <div>SDK <code>platformUtils</code>${__tmT("task.comesFromTheCompatibilityLayerAndCanBeUsed")}</div>
+                        <div><code>window.siyuan.mobile</code>${__tmT("task.isMoreOfAPageLevelMobileUiState")}</div>
+                        <div>${__tmT("task.thePluginManifestDeclares")}<code>frontends</code> / <code>backends</code>${__tmT("task.compatibilityDeclarationsCommonFrontendsInclude")}<code>browser-desktop</code>、<code>browser-mobile</code>、<code>desktop-window</code>。</div>
                     </div>
                 </div>
 
                 <details style="margin-top:14px;">
-                    <summary style="cursor:pointer;color:var(--tm-primary-color);font-size:12px;">展开原始诊断 JSON</summary>
+                    <summary style="cursor:pointer;color:var(--tm-primary-color);font-size:12px;">${__tmT("task.expandRawDiagnosticJson")}</summary>
                     <pre style="margin-top:10px;padding:12px;border-radius:10px;background:var(--tm-sidebar-bg);border:1px solid var(--tm-border-color);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;">${esc(__tmBuildDeviceRecognitionReportText())}</pre>
                 </details>
-                <div style="margin-top:10px;font-size:12px;color:var(--tm-secondary-text);line-height:1.7;overflow-wrap:anywhere;">浏览器 UA：${esc(snapshot.browser.ua)}</div>
+                <div style="margin-top:10px;font-size:12px;color:var(--tm-secondary-text);line-height:1.7;overflow-wrap:anywhere;">${__tmT("task.browserUa", { ua: esc(snapshot.browser.ua) })}</div>
                 </details>
             </div>
         `;
@@ -22956,14 +22782,14 @@ if (!state.homepageOpen) return;
         const swapped = __tmShouldSwapDocTopbarButtonPressActions();
         return swapped
             ? {
-                shortLabel: '打开任务管理器',
-                longLabel: '快速新建任务',
+                shortLabel: __tmT("plugin.openTaskManager"),
+                longLabel: __tmT("task.quickTaskCreation"),
                 shortRun: () => __tmOpenManagerFromDocTopbarEntry(),
                 longRun: () => window.tmQuickAddOpen?.(),
             }
             : {
-                shortLabel: '快速新建任务',
-                longLabel: '打开任务管理器',
+                shortLabel: __tmT("task.quickTaskCreation"),
+                longLabel: __tmT("plugin.openTaskManager"),
                 shortRun: () => window.tmQuickAddOpen?.(),
                 longRun: () => __tmOpenManagerFromDocTopbarEntry(),
             };
@@ -22971,7 +22797,7 @@ if (!state.homepageOpen) return;
 
     function __tmGetDocTopbarButtonTitle() {
         const meta = __tmGetDocTopbarButtonPressActionMeta();
-        return `短按${meta.shortLabel}，长按${meta.longLabel}`;
+        return __tmT("task.shortPressLongPress", { shortLabel: meta.shortLabel, longLabel: meta.longLabel });
     }
 
     const __tmShouldShowWindowTopbarIcon = () => (__tmIsMobileDevice()
@@ -22985,12 +22811,12 @@ if (!state.homepageOpen) return;
     };
 
     const __TM_ALL_VIEWS = Object.freeze([
-        { id: 'list', label: '表格', longLabel: '表格视图' },
-        { id: 'checklist', label: '清单', longLabel: '清单视图' },
-        { id: 'timeline', label: '时间轴', longLabel: '时间轴视图' },
-        { id: 'kanban', label: '看板', longLabel: '看板视图' },
-        { id: 'calendar', label: '日历', longLabel: '日历视图' },
-        { id: 'whiteboard', label: '白板', longLabel: '白板视图' },
+        { id: 'list', label: __tmT("task.table"), longLabel: __tmT("task.tableView") },
+        { id: 'checklist', label: __tmT("task.checklist"), longLabel: __tmT("task.checklistView") },
+        { id: 'timeline', label: __tmT("task.timeline"), longLabel: __tmT("task.timelineView") },
+        { id: 'kanban', label: __tmT("task.kanban"), longLabel: __tmT("task.kanbanView") },
+        { id: 'calendar', label: __tmT("calendar.calendar"), longLabel: __tmT("calendar.calendarView") },
+        { id: 'whiteboard', label: __tmT("task.whiteboard"), longLabel: __tmT("task.whiteboardView") },
     ]);
 
     const __tmNormalizeEnabledViews = (views) => {
@@ -23019,17 +22845,17 @@ if (!state.homepageOpen) return;
     };
 
     const __TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS = Object.freeze([
-        { key: 'docName', label: '文档名' },
-        { key: 'h2', label: '二级标题' },
-        { key: 'startDate', label: '开始时间' },
-        { key: 'completionTime', label: '截止日期' },
-        { key: 'scheduleTime', label: '日程时间' },
-        { key: 'remainingTime', label: '剩余时间' },
-        { key: 'duration', label: '时长' },
-        { key: 'tomatoSummary', label: '专注/耗时' },
-        { key: 'tomatoEstimateCount', label: '预计番茄' },
-        { key: 'tomatoCount', label: '实际番茄' },
-        { key: 'status', label: '状态标签' },
+        { key: 'docName', label: __tmT("task.documentName2") },
+        { key: 'h2', label: __tmT("task.heading2") },
+        { key: 'startDate', label: __tmT("calendar.startTime") },
+        { key: 'completionTime', label: __tmT("kernel.dueDate") },
+        { key: 'scheduleTime', label: __tmT("calendar.scheduleTime") },
+        { key: 'remainingTime', label: __tmT("task.remainingTime") },
+        { key: 'duration', label: __tmT("task.duration") },
+        { key: 'tomatoSummary', label: __tmT("quickbar.focusTimeSpent") },
+        { key: 'tomatoEstimateCount', label: __tmT("quickbar.estimatedPomodoros") },
+        { key: 'tomatoCount', label: __tmT("task.actualPomodoros") },
+        { key: 'status', label: __tmT("task.statusLabels") },
     ]);
 
     const __TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS = Object.freeze(['completionTime', 'scheduleTime', 'status']);
@@ -23077,9 +22903,9 @@ if (!state.homepageOpen) return;
     };
 
     const __TM_CHECKLIST_COMPACT_RIGHT_FONT_SIZE_OPTIONS = Object.freeze([
-        { key: 'large', label: '大' },
-        { key: 'medium', label: '中' },
-        { key: 'small', label: '小' },
+        { key: 'large', label: __tmT("task.large") },
+        { key: 'medium', label: __tmT("common.medium") },
+        { key: 'small', label: __tmT("task.small") },
     ]);
 
     const __tmNormalizeChecklistCompactRightFontSize = (value) => {
@@ -23092,9 +22918,9 @@ if (!state.homepageOpen) return;
         __tmNormalizeChecklistCompactRightFontSize(SettingsStore?.data?.checklistCompactRightFontSize);
 
     const __TM_TIMELINE_CARD_FIELD_OPTIONS = Object.freeze([
-        { key: 'title', label: '任务名称' },
-        { key: 'status', label: '状态标签' },
-        { key: 'taskCompleteAt', label: '完成时间' },
+        { key: 'title', label: __tmT("task.taskName") },
+        { key: 'status', label: __tmT("task.statusLabels") },
+        { key: 'taskCompleteAt', label: __tmT("kernel.completionTime") },
     ]);
 
     const __TM_TIMELINE_CARD_FIELD_DEFAULTS = Object.freeze(['title', 'status']);
@@ -24435,13 +24261,13 @@ if (!state.homepageOpen) return;
     }
 
     const __TM_DOC_COLOR_SCHEME_PRESETS = [
-        { id: 'random', label: '随机', description: '保持较高区分度，适合通用场景。' },
-        { id: 'morandi', label: '莫兰迪', description: '低饱和灰调，更安静耐看。' },
-        { id: 'natural', label: '低饱和自然', description: '偏植物和土壤感，柔和但有层次。' },
-        { id: 'warm', label: '暖复古', description: '陶土、赭石、焦糖一类暖色调。' },
-        { id: 'mist', label: '冷雾灰蓝', description: '雾蓝、灰紫、石板蓝，偏冷静。' },
-        { id: 'vivid', label: '高饱和活力', description: '更明快跳脱，区分度最高。' },
-        { id: 'custom', label: '自定义主色调', description: '围绕主色自动扩展一组文档色。' }
+        { id: 'random', label: __tmT("task.random"), description: __tmT("task.highDistinctionSuitsGeneralUse") },
+        { id: 'morandi', label: __tmT("task.morandi"), description: __tmT("task.lowSaturationGrayTonesCalmerAndEasierOnThe") },
+        { id: 'natural', label: __tmT("task.naturalLowSaturation"), description: __tmT("task.plantAndSoilTonesSoftButLayered") },
+        { id: 'warm', label: __tmT("task.warmRetro"), description: __tmT("task.warmTonesLikeTerracottaOchreAndCaramel") },
+        { id: 'mist', label: __tmT("task.coolMistyBlueGray"), description: __tmT("task.mistyBlueGrayPurpleAndSlateBlueOnThe") },
+        { id: 'vivid', label: __tmT("task.vibrant"), description: __tmT("task.brighterAndBolderTheHighestDistinction") },
+        { id: 'custom', label: __tmT("task.customPrimaryColor"), description: __tmT("task.automaticallyExpandsASetOfDocumentColorsAroundThe") }
     ];
     const __TM_DOC_COLOR_SCHEME_IDS = new Set(__TM_DOC_COLOR_SCHEME_PRESETS.map((item) => item.id));
 
@@ -24520,7 +24346,7 @@ if (!state.homepageOpen) return;
             seedFallback: Number(config?.seed) || Number(SettingsStore?.data?.docColorSeed) || 1
         });
         const preset = __tmGetDocColorSchemePreset(normalized.palette);
-        if (options?.allowInherit && normalized.inherit !== false) return `继承全局 / ${preset.label}`;
+        if (options?.allowInherit && normalized.inherit !== false) return __tmT("task.inheritGlobal", { label: preset.label });
         if (normalized.palette === 'custom') return `${preset.label} · ${String(__tmFormatColorDisplayValue(normalized.baseColor) || '').trim() || '#3B82F6'}`;
         return preset.label;
     }
@@ -24529,13 +24355,13 @@ if (!state.homepageOpen) return;
         const group = __tmGetCurrentDocGroupForColorScheme(groupId);
         const effective = __tmGetEffectiveDocColorSchemeConfig(groupId);
         const preset = __tmGetDocColorSchemePreset(effective.palette);
-        if (!group) return `当前：${preset.label}`;
+        if (!group) return __tmT("task.current", { label: preset.label });
         const groupConfig = __tmNormalizeDocColorSchemeConfig(group?.docColorConfig, {
             allowInherit: true,
             seedFallback: effective.seed
         });
-        if (groupConfig.inherit !== false) return `当前：继承全局 / ${preset.label}`;
-        return `当前：${preset.label}`;
+        if (groupConfig.inherit !== false) return __tmT("task.currentInheritGlobal", { label: preset.label });
+        return __tmT("task.current", { label: preset.label });
     }
 
     function __tmResolveHueFromBands(hash, bands) {
@@ -24812,18 +24638,18 @@ if (!state.homepageOpen) return;
         return __tmNormalizeDocAliasValue(entry?.alias || fallbackEntry?.alias);
     }
 
-    function __tmGetDocRawName(docOrId, fallback = '未命名文档') {
+    function __tmGetDocRawName(docOrId, fallback = __tmT("kernel.untitledDocument")) {
         const entry = (docOrId && typeof docOrId === 'object') ? docOrId : null;
         const fallbackEntry = entry ? __tmFindDocMetaById(entry?.id) : __tmFindDocMetaById(docOrId);
         const name = String(entry?.name || fallbackEntry?.name || '').trim();
-        return name || String(fallback || '').trim() || '未命名文档';
+        return name || String(fallback || '').trim() || __tmT("kernel.untitledDocument");
     }
 
-    function __tmGetDocDisplayName(docOrId, fallback = '未命名文档') {
+    function __tmGetDocDisplayName(docOrId, fallback = __tmT("kernel.untitledDocument")) {
         const rawName = __tmGetDocRawName(docOrId, fallback);
         const alias = __tmGetDocAliasValue(docOrId);
         if (__tmGetDocDisplayNameMode() === 'alias') return alias || rawName;
-        return rawName || alias || String(fallback || '').trim() || '未命名文档';
+        return rawName || alias || String(fallback || '').trim() || __tmT("kernel.untitledDocument");
     }
 
     function __tmRefreshTaskDocDisplayNames(options = {}) {
@@ -24835,7 +24661,7 @@ if (!state.homepageOpen) return;
             const taskDocId = String(task.docId || task.root_id || '').trim();
             if (!targetDocId || taskDocId === targetDocId) {
                 try {
-                    const fallbackName = String(task.rawDocName || task.raw_doc_name || task.doc_name || task.docName || '未命名文档').trim() || '未命名文档';
+                    const fallbackName = String(task.rawDocName || task.raw_doc_name || task.doc_name || task.docName || __tmT("kernel.untitledDocument")).trim() || __tmT("kernel.untitledDocument");
                     normalizeTaskFields(task, fallbackName);
                 } catch (e) {}
             }
@@ -25127,7 +24953,7 @@ if (!state.homepageOpen) return;
     function __tmFormatDocExpectedProgressTip(meta) {
         const normalized = __tmNormalizeDocExpectedMeta(meta);
         if (!normalized.startDate && !normalized.deadline) return '';
-        const base = `${normalized.startDate || '未设置'} → ${normalized.deadline || '未设置'}`;
+        const base = `${normalized.startDate || __tmT("common.notSet")} → ${normalized.deadline || __tmT("common.notSet")}`;
         const percent = __tmComputeDocExpectedProgressPercent(normalized);
         return percent == null ? base : `${base}（${percent}%）`;
     }
@@ -25180,7 +25006,7 @@ if (!state.homepageOpen) return;
                 entityKind: 'doc',
                 entityId,
                 headingLevel: '',
-                label: String(row?.label || '').trim() || '未命名文档',
+                label: String(row?.label || '').trim() || __tmT("kernel.untitledDocument"),
                 timelineRange: row?.timelineRange || {},
             };
         }
@@ -25191,7 +25017,7 @@ if (!state.homepageOpen) return;
                 entityKind: 'heading',
                 entityId,
                 headingLevel: __tmNormalizeHeadingLevel(row?.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2'),
-                label: String(row?.label || '').trim() || '(空标题)',
+                label: String(row?.label || '').trim() || __tmT("homepage.untitledHeading"),
                 timelineRange: row?.timelineRange || {},
             };
         }
@@ -25204,19 +25030,19 @@ if (!state.homepageOpen) return;
         const timeline = entity?.timelineRange || row?.timelineRange || {};
         const timelineState = String(timeline.state || 'empty');
         const isCollapsed = !!row?.collapsed;
-        const entityLabel = entity?.entityKind === 'heading' ? '标题' : '文档';
+        const entityLabel = entity?.entityKind === 'heading' ? __tmT("calendar.title") : __tmT("kernel.documents");
         const dateSummary = timelineState === 'invalid'
-            ? '日期范围异常：开始日期晚于截止日期'
+            ? __tmT("task.invalidDateRangeTheStartDateIsLaterThan")
             : timeline.startDate && timeline.deadline
-                ? `${timeline.startDate} 至 ${timeline.deadline}`
+                ? __tmT("task.until", { startDate: timeline.startDate, deadline: timeline.deadline })
                 : timeline.startDate
-                    ? `开始于 ${timeline.startDate}`
+                    ? __tmT("task.starts", { startDate: timeline.startDate })
                     : timeline.deadline
-                        ? `截止于 ${timeline.deadline}`
-                        : `设置${entityLabel}开始和截止日期`;
+                        ? __tmT("task.ends", { deadline: timeline.deadline })
+                        : __tmT("task.setStartAndDueDates", { entityLabel: entityLabel });
         const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;">${__tmRenderToggleIcon(16, isCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>`;
         if (!entity) {
-            const createBtnHtml = row?.kind === 'h2' ? __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务') : '';
+            const createBtnHtml = row?.kind === 'h2' ? __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, __tmT("task.newTaskUnderThisHeading")) : '';
             const labelHtml = row?.kind === 'h2'
                 ? __tmRenderHeadingLevelIconLabel(row?.label || '', row?.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2')
                 : esc(row?.label || '');
@@ -25231,9 +25057,9 @@ if (!state.homepageOpen) return;
             ? __tmRenderHeadingLevelIconLabel(entity.label, entity.headingLevel)
             : __tmRenderDocGroupLabel(entity.entityId, entity.label);
         const createBtnHtml = entity.entityKind === 'heading'
-            ? __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务')
+            ? __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, __tmT("task.newTaskUnderThisHeading"))
             : '';
-        const calendarBtn = `<button class="tm-doc-timeline-trigger tm-timeline-group-range-trigger" type="button" data-tm-group-range-trigger onclick="${openEditor}" aria-label="设置${entityLabel}日期" title="${esc(dateSummary)}">${__tmRenderLucideIcon('calendar-range', '', { size: 14 })}</button>`;
+        const calendarBtn = `<button class="tm-doc-timeline-trigger tm-timeline-group-range-trigger" type="button" data-tm-group-range-trigger onclick="${openEditor}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.setDate", { entityLabel: entityLabel })}" title="${esc(dateSummary)}">${__tmRenderLucideIcon('calendar-range', '', { size: 14 })}</button>`;
         const contextMenu = entity.entityKind === 'doc' ? ` oncontextmenu="tmShowDocTabContextMenu(event, '${esc(entity.entityId)}')"` : '';
         return `<tr class="tm-group-row tm-timeline-row${timelineState === 'invalid' ? ' tm-group-row--doc-date-warning' : ''}" data-group-kind="${esc(row?.kind || '')}" data-group-key="${esc(row?.key || '')}" data-tm-entity-kind="${entity.entityKind}" data-entity-id="${esc(entity.entityId)}"${contextMenu}><td colspan="${Number(timelineColumnCount) || 1}" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky${entity.entityKind === 'heading' ? ' tm-group-sticky--heading' : ''}">${toggle}<span class="tm-group-label tm-doc-timeline-label" style="color:${labelColor};" title="${esc(`${entity.label} · ${dateSummary}`)}">${labelHtml}</span>${calendarBtn}<span class="tm-badge tm-badge--count">${Number(row?.count) || 0}</span>${warningHtml}${createBtnHtml}</div></td></tr>`;
     }
@@ -25253,7 +25079,7 @@ if (!state.homepageOpen) return;
             deadline: hasDeadline ? input.deadline : current?.deadline,
         });
         if (__tmIsDocExpectedRangeInvalid(next)) {
-            const error = new Error('开始日期不能晚于截止日期');
+            const error = new Error(__tmT("task.theStartDateCannotBeLaterThanTheDue"));
             error.code = 'TM_INVALID_DOC_DATE_RANGE';
             throw error;
         }
@@ -25308,7 +25134,7 @@ if (!state.homepageOpen) return;
 
     async function __tmUpdateTimelineGroupDates(entityKind, entityId, patch) {
         try {
-            if (!['doc', 'heading'].includes(String(entityKind || ''))) throw new Error('不支持的分组日期实体');
+            if (!['doc', 'heading'].includes(String(entityKind || ''))) throw new Error(__tmT("task.unsupportedGroupDateEntity"));
             const saved = await __tmSaveTimelineBlockDatePatch(entityId, patch);
             try { __tmPrepareTimelineDateAnchor?.(0.5); } catch (e) {}
             const rerendered = typeof __tmRerenderTimelineInPlace === 'function'
@@ -25319,7 +25145,7 @@ if (!state.homepageOpen) return;
             }
             return saved;
         } catch (error) {
-            try { hint(`❌ 更新失败: ${error.message}`, 'error'); } catch (e) {}
+            try { hint(__tmT("task.updateFailed", { message: error.message }), 'error'); } catch (e) {}
             throw error;
         }
     }
@@ -25673,7 +25499,7 @@ if (!state.homepageOpen) return;
         {
             id: 'task-horizon-slate',
             name: 'Modern Minimal',
-            description: '克制蓝灰，适合作为默认工作主题。',
+            description: __tmT("task.restrainedBlueGrayAGoodDefaultWorkingTheme"),
             light: {
                 background: '#ffffff',
                 foreground: '#333333',
@@ -25726,7 +25552,7 @@ if (!state.homepageOpen) return;
         {
             id: 'task-horizon-warm-stone',
             name: 'Warm Stone',
-            description: '暖灰米色，阅读感更柔和。',
+            description: __tmT("task.warmGrayBeigeSofterForReading"),
             light: {
                 background: 'hsl(36 33% 97%)',
                 foreground: 'hsl(24 10% 10%)',
@@ -25779,7 +25605,7 @@ if (!state.homepageOpen) return;
         {
             id: 'task-horizon-forest',
             name: 'Forest Slate',
-            description: '森林中性，强调色偏青绿。',
+            description: __tmT("task.forestNeutralWithTealGreenAccents"),
             light: {
                 background: 'hsl(160 28% 97%)',
                 foreground: 'hsl(170 28% 12%)',
@@ -25832,7 +25658,7 @@ if (!state.homepageOpen) return;
         {
             id: 'task-horizon-graphite',
             name: 'Graphite',
-            description: '更冷静的石墨灰配蓝光强调。',
+            description: __tmT("task.calmerGraphiteGrayWithBlueHighlightAccents"),
             light: {
                 background: 'hsl(220 14% 96%)',
                 foreground: 'hsl(222 26% 14%)',
@@ -27508,7 +27334,7 @@ return true;
                         ${toggle}
                     </span>
                     <span class="tm-task-text ${taskDone ? 'tm-task-done' : ''}" data-level="${row.depth}">
-                        <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${task.id}', event, { surface: 'table' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, task.content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                        <span class="tm-task-content-clickable" onclick="tmTaskTitleClick('${task.id}', event, { surface: 'table' })"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, task.content || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                     </span>
                 </div>`;
             return `<tr class="tm-timeline-row ${finalRowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">${__tmRenderTimelineTaskCellsHtml(task, {
@@ -27575,7 +27401,7 @@ return true;
                 }
             }
         }
-        const html = leftRows.join('') || `<tr><td colspan="${timelineColumnCount}" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`;
+        const html = leftRows.join('') || `<tr><td colspan="${timelineColumnCount}" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">${__tmT("calendar.noTasks")}</td></tr>`;
         try {
             if (appendOnly) {
                 const stagingTable = document.createElement('table');
@@ -27644,7 +27470,7 @@ return true;
                             datePatch.completionTime = nextEnd;
                         }
                         try {
-                            if (typeof window.tmUpdateTaskDates !== 'function') throw new Error('日期更新接口未就绪');
+                            if (typeof window.tmUpdateTaskDates !== 'function') throw new Error(__tmT("task.dateUpdateInterfaceIsNotReady"));
                             await window.tmUpdateTaskDates(id, datePatch, {
                                 source: 'timeline-gantt-drag',
                                 wait: true,
@@ -27655,7 +27481,7 @@ return true;
                                 timelineMutation: true,
                             });
                         } catch (e) {
-                            hint(`❌ 更新失败: ${e.message}`, 'error');
+                            hint(__tmT("task.updateFailed", { message: e.message }), 'error');
                         }
                     },
                     onUpdateGroupDates: __tmUpdateTimelineGroupDates,
@@ -27669,17 +27495,17 @@ return true;
                             const task = globalThis.__tmTaskBoundary?.getTask?.(id) || null;
                             if (!task) return;
                             const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                            if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                            if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                             return await patchTask(id, { milestone: val ? '1' : '' }, {
                                 source: 'timeline-gantt-meta',
-                                label: '甘特字段',
+                                label: __tmT("task.ganttFields"),
                                 reason: 'timeline-gantt-meta',
                                 background: true,
                                 wait: false,
                                 skipInteractionGate: true,
                             });
                         }, { label: 'timeline-gantt-meta' }).catch((e) => {
-                            hint(`❌ 更新失败: ${e.message}`, 'error');
+                            hint(__tmT("task.updateFailed", { message: e.message }), 'error');
                             throw e;
                         });
                     },

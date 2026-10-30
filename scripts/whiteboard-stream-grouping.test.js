@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const read = (name) => fs.readFileSync(path.join(__dirname, '../src/task-horizon/main', name), 'utf8');
 const foundation = read('30-dialogs-and-ui-foundation.js');
 const runtime = read('20-api-and-runtime-services.js');
@@ -143,6 +143,19 @@ async function test() {
     const { fixture } = context;
     const { state, SettingsStore: store } = fixture;
     const switchMode = async (mode) => { await context.tmSwitchGroupMode(mode); return fixture.html; };
+    const storedChild = { id: 'stored-child', completion_time: fixture.date(-3) };
+    const storedParent = { id: 'stored-parent', children: [{ id: 'middle', children: [storedChild] }] };
+    const timeInfo = (task, preferChild = true) => context.__tmGetTaskTimePriorityInfo(task, { useBestSubtaskTime: preferChild });
+    assert.equal(timeInfo(storedParent).diffDays, -3, 'SQL dates in nested confirmation snapshots still determine parent timing');
+    assert.equal(timeInfo(storedParent).sourceTaskId, 'stored-child');
+    assert.equal(timeInfo(storedParent, false).hasDate, false, 'disabling child timing leaves an undated parent undated');
+    storedChild.done = true;
+    assert.equal(timeInfo(storedParent).hasDate, false, 'completed storage children do not determine active parent timing');
+    storedChild.done = false;
+    storedChild.completionTime = '';
+    assert.equal(timeInfo(storedParent).hasDate, false, 'an explicit date clear overrides an older SQL alias');
+    storedChild.completionTime = fixture.date(2);
+    assert.equal(timeInfo(storedParent).diffDays, 2, 'an updated canonical date overrides an older SQL alias');
     fixture.load([
         { id: 'root', content: '发布版本', completionTime: fixture.date(0), priority: 'a', h2: '研发' },
         { id: 'child', parentTaskId: 'root', completionTime: fixture.date(20), priority: 'c' },

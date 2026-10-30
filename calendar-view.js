@@ -1,4 +1,6 @@
 (function () {
+    const __tmT = globalThis.__taskHorizonHostBridge.i18n.t;
+
     let __tmSiyuanSdk = null;
     try {
         if (typeof require === 'function') {
@@ -80,20 +82,20 @@
     const calendarTomatoDocCache = new Map();
 
     const CALENDAR_ZH_CN_LOCALE = {
-        code: 'zh-cn',
+        code: globalThis.__taskHorizonHostBridge.i18n.locale,
         week: { dow: 1, doy: 4 },
-        prevText: '上月',
-        nextText: '下月',
-        todayText: '今天',
-        yearText: '年',
-        monthText: '月',
-        weekTextLong: '周',
-        weekTextShort: '周',
-        dayText: '日',
-        listText: '日程',
-        allDayText: '全天',
-        moreLinkText: (n) => `另外 ${n} 个`,
-        noEventsText: '没有事件显示',
+        prevText: __tmT("calendar.lastMonth"),
+        nextText: __tmT("calendar.nextMonth"),
+        todayText: __tmT("common.today"),
+        yearText: __tmT("date.yearLabel"),
+        monthText: __tmT("calendar.month"),
+        weekTextLong: __tmT("calendar.week"),
+        weekTextShort: __tmT("calendar.week"),
+        dayText: __tmT('date.day'),
+        listText: __tmT("kernel.schedule"),
+        allDayText: __tmT("calendar.allDay"),
+        moreLinkText: (n) => __tmT("calendar.more", { n: n }),
+        noEventsText: __tmT("calendar.noEventsToDisplay"),
     };
 
     const SIDE_DAY_HALF_HOUR_SLOT_HEIGHT = 29;
@@ -1349,7 +1351,7 @@
         if (!id) return null;
         const payload = buildCalendarDropPayloadFromTaskId(id, base) || {
             taskId: id,
-            title: String(base.title || id || '任务').trim() || '任务',
+            title: String(base.title || id || __tmT("kernel.task")).trim() || __tmT("kernel.task"),
             durationMin: Number(base.durationMin),
             calendarId: String(base.calendarId || '').trim(),
             startDate: String(base.startDate || '').trim(),
@@ -1364,7 +1366,7 @@
             ...base,
             taskId: id,
             id,
-            title: String(payload.title || base.title || id || '任务').trim() || '任务',
+            title: String(payload.title || base.title || id || __tmT("kernel.task")).trim() || __tmT("kernel.task"),
             durationMin: safeMin,
             calendarId,
             __tmSource: 'schedule',
@@ -2364,13 +2366,13 @@
     ]);
 
     const MAIN_CALENDAR_VIEW_OPTIONS = [
-        { value: 'timeGridDay', label: '日' },
-        { value: 'timeGrid3Day', label: '3日' },
-        { value: 'timeGridWorkdays', label: '工作日' },
-        { value: 'timeGridWeek', label: '周' },
-        { value: 'dayGridWeek', label: '周格' },
-        { value: 'dayGridMonth', label: '月' },
-        { value: 'listMonth', label: '列表' },
+        { value: 'timeGridDay', label: __tmT('date.day') },
+        { value: 'timeGrid3Day', label: __tmT("calendar.day") },
+        { value: 'timeGridWorkdays', label: __tmT("calendar.workdays") },
+        { value: 'timeGridWeek', label: __tmT("calendar.week") },
+        { value: 'dayGridWeek', label: __tmT("calendar.weekGrid") },
+        { value: 'dayGridMonth', label: __tmT("calendar.month") },
+        { value: 'listMonth', label: __tmT("calendar.list") },
     ];
 
     const MAIN_CALENDAR_VIEW_LABELS = MAIN_CALENDAR_VIEW_OPTIONS.reduce((acc, item) => {
@@ -2428,9 +2430,9 @@
             return `<option value="${esc(value)}" ${active === value ? 'selected' : ''}>${esc(item.label || value)}</option>`;
         }).join('');
     }
-    const MAIN_CALENDAR_MONTH_DAY_HEADER_LABELS = Object.freeze(['日', '一', '二', '三', '四', '五', '六']);
-    const MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS = Object.freeze(['周日', '周一', '周二', '周三', '周四', '周五', '周六']);
-    const MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS_COMPACT = Object.freeze(['日', '一', '二', '三', '四', '五', '六']);
+    const MAIN_CALENDAR_MONTH_DAY_HEADER_LABELS = Object.freeze([__tmT('date.weekday.narrow.0'), __tmT('date.weekday.narrow.1'), __tmT('date.weekday.narrow.2'), __tmT('date.weekday.narrow.3'), __tmT('date.weekday.narrow.4'), __tmT('date.weekday.narrow.5'), __tmT('date.weekday.narrow.6')]);
+    const MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS = Object.freeze([__tmT("calendar.sunday"), __tmT("calendar.monday"), __tmT("calendar.tuesday"), __tmT("calendar.wednesday"), __tmT("calendar.thursday"), __tmT("calendar.friday"), __tmT("calendar.saturday")]);
+    const MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS_COMPACT = Object.freeze([__tmT('date.weekday.narrow.0'), __tmT('date.weekday.narrow.1'), __tmT('date.weekday.narrow.2'), __tmT('date.weekday.narrow.3'), __tmT('date.weekday.narrow.4'), __tmT('date.weekday.narrow.5'), __tmT('date.weekday.narrow.6')]);
 
     function shouldUseCompactMobileWeekHeader(viewType) {
         const v = String(viewType || '').trim();
@@ -2496,7 +2498,7 @@
         buttonGroup.classList.toggle('bc-tabs-list', !!enabled);
         if (enabled) {
             buttonGroup.setAttribute('role', 'tablist');
-            buttonGroup.setAttribute('aria-label', '日历视图');
+            buttonGroup.setAttribute('aria-label', __tmT("calendar.calendarView"));
         } else {
             try { buttonGroup.removeAttribute('role'); } catch (e) {}
             try { buttonGroup.removeAttribute('aria-label'); } catch (e) {}
@@ -2513,7 +2515,7 @@
                 buttonEl.setAttribute('aria-selected', active ? 'true' : 'false');
                 buttonEl.setAttribute('data-state', active ? 'active' : 'inactive');
                 const label = String(MAIN_CALENDAR_VIEW_LABELS[viewType] || viewType || buttonEl.textContent || '').trim();
-                if (label) buttonEl.title = `切换到${label}视图`;
+                if (label) buttonEl.title = __tmT("calendar.switchToView", { label: label });
             } else {
                 try { buttonEl.removeAttribute('role'); } catch (e) {}
                 try { buttonEl.removeAttribute('aria-selected'); } catch (e) {}
@@ -2554,7 +2556,7 @@
 
     function syncMainCalendarViewSelectWidth(selectWrap, selectEl, label) {
         if (!(selectWrap instanceof HTMLElement) || !(selectEl instanceof HTMLSelectElement)) return;
-        const text = String(label || '').trim() || '视图';
+        const text = String(label || '').trim() || __tmT("calendar.views");
         let measureEl = document.getElementById('tmCalendarViewSelectMeasure');
         if (!(measureEl instanceof HTMLElement)) {
             measureEl = document.createElement('span');
@@ -2633,7 +2635,7 @@
             const select = document.createElement('select');
             select.className = 'tm-calendar-view-select';
             select.setAttribute('data-tm-cal-view-select', 'main');
-            select.setAttribute('aria-label', '切换日历视图');
+            select.setAttribute('aria-label', __tmT("calendar.switchCalendarView"));
             getMainCalendarViewOptions({ compact: isMainCalendarCompactHost() }).forEach((item) => {
                 const opt = document.createElement('option');
                 opt.value = item.value;
@@ -2681,8 +2683,8 @@
         if (MAIN_CALENDAR_ALLOWED_VIEWS.has(activeView) && selectEl.value !== activeView) {
             selectEl.value = activeView;
         }
-        const label = String(MAIN_CALENDAR_VIEW_LABELS[activeView] || activeView || '视图');
-        selectEl.title = `切换日历视图：${label}`;
+        const label = String(MAIN_CALENDAR_VIEW_LABELS[activeView] || activeView || __tmT("calendar.views"));
+        selectEl.title = __tmT("calendar.switchCalendarView2", { label: label });
         syncMainCalendarViewSelectWidth(selectWrap, selectEl, label);
     }
 
@@ -2771,7 +2773,7 @@
 
     function getAllDaySummaryText(count) {
         const n = Math.max(0, Math.floor(Number(count) || 0));
-        return n > 0 ? `+${n} 个任务` : '0 个任务';
+        return n > 0 ? __tmT("calendar.tasks", { n: n }) : __tmT("calendar.tasks2");
     }
 
     function getAllDayAxisCushions(rootEl) {
@@ -2950,8 +2952,8 @@
         try { summaryBtn.style.fontSize = '13px'; } catch (e) {}
         try { summaryBtn.style.boxSizing = 'border-box'; } catch (e) {}
         summaryBtn.textContent = getAllDaySummaryText(count);
-        summaryBtn.title = collapsed ? '展开全天任务' : '';
-        summaryBtn.setAttribute('aria-label', collapsed ? `展开全天任务，当前隐藏 ${Math.max(0, count)} 项` : '全天任务汇总');
+        summaryBtn.title = collapsed ? __tmT("calendar.expandAllDayTasks") : '';
+        summaryBtn.setAttribute('aria-label', collapsed ? __tmT("calendar.expandAllDayTasksHidden", { value1: Math.max(0, count) }) : __tmT("calendar.allDayTaskSummary"));
         clearSummaryVisibilityStyles(summaryBtn);
         summaryBtn.hidden = !collapsed;
         bindAllDayCollapseActivator(summaryBtn, rootEl, calendar);
@@ -3804,8 +3806,8 @@
         const dt = date instanceof Date ? date : null;
         if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return '';
         const omitMonth = options?.omitMonth === true;
-        const month = `${dt.getMonth() + 1}月`;
-        const day = `${dt.getDate()}日`;
+        const month = __tmT("date.monthNumber", { value1: dt.getMonth() + 1 });
+        const day = __tmT("date.dayNumber", { value1: dt.getDate() });
         return omitMonth ? day : `${month}${day}`;
     }
 
@@ -3856,7 +3858,7 @@
         if (viewType === 'timeGridDay') return formatMonthDayZh(currentDate);
         if (viewType === 'dayGridMonth') {
             if (!(currentDate instanceof Date) || Number.isNaN(currentDate.getTime())) return '';
-            return `${currentDate.getMonth() + 1}月`;
+            return __tmT("date.monthNumber", { value1: currentDate.getMonth() + 1 });
         }
         const visibleRange = getMainCalendarVisibleRange(cal);
         const start = visibleRange.start;
@@ -4802,11 +4804,11 @@
         const endDate = (end instanceof Date && !Number.isNaN(end.getTime()) && end.getTime() > startDate.getTime()) ? end : null;
         const isAllDayEvent = allDay === true || (endDate ? isAllDayRange(startDate, endDate) : false);
         if (isAllDayEvent) {
-            if (!endDate) return '全天';
+            if (!endDate) return __tmT("calendar.allDay");
             const endShown = new Date(endDate.getTime() - 86400000);
-            if (formatDateKey(startDate) === formatDateKey(endShown)) return '全天';
+            if (formatDateKey(startDate) === formatDateKey(endShown)) return __tmT("calendar.allDay");
             const includeYear = startDate.getFullYear() !== endShown.getFullYear();
-            return `${formatCalendarShortDateText(startDate, includeYear)} - ${formatCalendarShortDateText(endShown, includeYear)} 全天`;
+            return __tmT("calendar.allDay2", { value1: formatCalendarShortDateText(startDate, includeYear), value2: formatCalendarShortDateText(endShown, includeYear) });
         }
         if (!endDate) return formatCalendarClockText(startDate);
         if (formatDateKey(startDate) === formatDateKey(endDate)) {
@@ -4816,8 +4818,8 @@
         return `${formatCalendarDateTimeText(startDate, includeYear)} - ${formatCalendarDateTimeText(endDate, includeYear)}`;
     }
 
-    function resolveTaskTitlePresentation(source, fallback = '任务') {
-        const fallbackText = String(fallback || '').trim() || '任务';
+    function resolveTaskTitlePresentation(source, fallback = __tmT("kernel.task")) {
+        const fallbackText = String(fallback || '').trim() || __tmT("kernel.task");
         try {
             const presentation = globalThis.__tmGetTaskTitlePresentation?.(source, fallbackText);
             if (presentation && typeof presentation.html === 'string' && typeof presentation.text === 'string') {
@@ -4835,10 +4837,10 @@
         const titleText = document.createElement('span');
         titleText.className = 'tm-cal-task-event-title-text';
         if (options?.rich === true) {
-            const presentation = resolveTaskTitlePresentation(text, options?.fallback || '任务');
+            const presentation = resolveTaskTitlePresentation(text, options?.fallback || __tmT("kernel.task"));
             titleText.innerHTML = presentation.html;
         } else {
-            titleText.textContent = String(text || '').trim() || String(options?.fallback || '').trim() || '任务';
+            titleText.textContent = String(text || '').trim() || String(options?.fallback || '').trim() || __tmT("kernel.task");
         }
         titleText.draggable = false;
         const swallowDragStart = (ev) => {
@@ -4995,9 +4997,9 @@
                 if (useAllDayLayout) wrapEl.classList.add(taskLikeId ? 'tm-cal-task-event--allday' : 'tm-cal-schedule-stack--allday');
                 if (rangeText && taskLikeId) wrapEl.classList.add('tm-cal-task-event--stacked');
                 const { title, titleText } = buildTaskEventTitleNode(
-                    String(eventApi?.title || '').trim() || '日程',
+                    String(eventApi?.title || '').trim() || __tmT("kernel.schedule"),
                     rangeText,
-                    { rich: !!taskLikeId, fallback: '日程' }
+                    { rich: !!taskLikeId, fallback: __tmT("kernel.schedule") }
                 );
                 const leadingEl = isBlockLike ? buildCalendarEventLeadingNode('marker') : null;
                 applyTaskTitleOpacityFromTask(titleText, getTaskLikeForTitleOpacity(taskLikeId, null));
@@ -5063,13 +5065,13 @@
         pill.className = `tm-cn-holiday-pill ${isWork ? 'tm-cn-holiday-pill--work' : 'tm-cn-holiday-pill--rest'}`;
         const badge = document.createElement('span');
         badge.className = 'tm-cn-holiday-badge';
-        badge.textContent = isWork ? '班' : '休';
+        badge.textContent = isWork ? __tmT("calendar.work") : __tmT("calendar.rest");
         pill.appendChild(badge);
         const label = document.createElement('span');
         label.className = 'tm-cn-holiday-label';
         label.textContent = name;
         pill.appendChild(label);
-        pill.title = `${isWork ? '上班' : '休息'}${name ? `：${name}` : ''}`;
+        pill.title = `${isWork ? __tmT("calendar.work2") : __tmT("calendar.rest2")}${name ? `：${name}` : ''}`;
         return { domNodes: [pill] };
     }
 
@@ -5186,7 +5188,7 @@
         return String(viewType || '').trim().startsWith('list');
     }
 
-    function resolveCalendarScheduleEventTitleText(eventApi, fallback = '日程') {
+    function resolveCalendarScheduleEventTitleText(eventApi, fallback = __tmT("kernel.schedule")) {
         const ext = eventApi?.extendedProps || {};
         return normalizeCalendarScheduleTitleText(
             ext.__tmScheduleTitle
@@ -5563,7 +5565,7 @@
             cb.checked = resolveCalendarEventDoneState(ext);
             if (shouldDisableCalendarEventCheckbox(ext)) {
                 cb.disabled = true;
-                cb.title = ext?.__tmCheckin === true ? '未来计划日期暂不可打卡' : '已完成的循环实例';
+                cb.title = ext?.__tmCheckin === true ? __tmT("calendar.checkInIsNotAvailableForFuturePlannedDates") : __tmT("calendar.completedRecurringInstance");
             }
             cb.onclick = (ev) => {
                 try { ev.stopPropagation(); } catch (e) {}
@@ -5598,15 +5600,15 @@
         let rangeText = suppressAllDayRangeText
             ? ''
             : formatScheduleEventRangeText(eventApi?.start, eventApi?.end, eventApi?.allDay === true);
-        if (!rangeText && eventApi?.allDay === true) rangeText = '全天';
+        if (!rangeText && eventApi?.allDay === true) rangeText = __tmT("calendar.allDay");
         if (rangeText) {
             wrapEl.appendChild(buildCalendarListTimeNode(rangeText));
         }
 
-        const titleTextValue = resolveCalendarScheduleEventTitleText(eventApi, '日程');
+        const titleTextValue = resolveCalendarScheduleEventTitleText(eventApi, __tmT("kernel.schedule"));
         const { title, titleText } = buildTaskEventTitleNode(titleTextValue, '', {
             rich: !!taskLikeId,
-            fallback: '日程',
+            fallback: __tmT("kernel.schedule"),
         });
         title.classList.add('tm-cal-task-event-title--list');
         if (taskLikeId && typeof options.titleClick === 'function') titleText.onclick = options.titleClick(taskLikeId);
@@ -5647,7 +5649,7 @@
             const duration = formatDurationMinutes(Number(ext.durationMin));
             return duration ? `${base} · ${duration}` : base;
         })();
-        const titleTextValue = String(eventApi?.title || '').trim() || fallbackTitle || '番茄';
+        const titleTextValue = String(eventApi?.title || '').trim() || fallbackTitle || __tmT("homepage.pomodoro");
         const { title } = buildTaskEventTitleNode(titleTextValue, '');
         title.classList.add('tm-cal-task-event-title--list');
         wrapEl.appendChild(title);
@@ -5659,10 +5661,10 @@
         const el = arg?.el instanceof HTMLElement ? arg.el : null;
         const eventApi = arg?.event || null;
         if (!el || !eventApi || !isCalendarListViewType(String(arg?.view?.type || '').trim())) return false;
-        const titleText = resolveCalendarScheduleEventTitleText(eventApi, '日程');
+        const titleText = resolveCalendarScheduleEventTitleText(eventApi, __tmT("kernel.schedule"));
         const linkedTaskId = String(eventApi?.extendedProps?.__tmTaskId || eventApi?.extendedProps?.__tmBlockId || '').trim();
         const titlePresentation = linkedTaskId
-            ? resolveTaskTitlePresentation(titleText, '日程')
+            ? resolveTaskTitlePresentation(titleText, __tmT("kernel.schedule"))
             : { html: esc(titleText), text: titleText };
         let touched = false;
         const color = el.classList.contains('tm-cal-event--done')
@@ -5682,7 +5684,7 @@
             if (wrapEl instanceof HTMLElement) {
                 let titleTextEl = wrapEl.querySelector?.('.tm-cal-task-event-title-text') || null;
                 if (!(titleTextEl instanceof HTMLElement)) {
-                    const built = buildTaskEventTitleNode(titleText, '', { rich: !!linkedTaskId, fallback: '日程' });
+                    const built = buildTaskEventTitleNode(titleText, '', { rich: !!linkedTaskId, fallback: __tmT("kernel.schedule") });
                     built.title.classList.add('tm-cal-task-event-title--list');
                     wrapEl.appendChild(built.title);
                     titleTextEl = built.titleText;
@@ -5719,7 +5721,7 @@
                         const repairEl = document.createElement('span');
                         repairEl.className = 'tm-cal-schedule-stack tm-cal-schedule-stack--list tm-cal-schedule-list-content';
                         repairEl.setAttribute('data-tm-cal-list-title-repair', 'schedule');
-                        const built = buildTaskEventTitleNode(titleText, '', { rich: !!linkedTaskId, fallback: '日程' });
+                        const built = buildTaskEventTitleNode(titleText, '', { rich: !!linkedTaskId, fallback: __tmT("kernel.schedule") });
                         built.title.classList.add('tm-cal-task-event-title--list');
                         repairEl.appendChild(built.title);
                         host.appendChild(repairEl);
@@ -5815,18 +5817,18 @@
             const rangeText = !hideRangeText && source === 'schedule' && !suppressAllDayRangeText
                 ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                 : '';
-            let eventTitleText = String(ext.__tmTaskTitleMarkdown || arg?.event?.title || '').trim() || '任务';
+            let eventTitleText = String(ext.__tmTaskTitleMarkdown || arg?.event?.title || '').trim() || __tmT("kernel.task");
             const listTimeText = isCalendarListViewType(viewType)
                 ? (source === 'reminder'
                     ? getReminderListTimeText(ext)
-                    : (arg?.event?.allDay === true ? '全天' : ''))
+                    : (arg?.event?.allDay === true ? __tmT("calendar.allDay") : ''))
                 : '';
             if (source === 'reminder' && listTimeText) {
                 eventTitleText = stripReminderListTimeFromTitle(eventTitleText, listTimeText) || eventTitleText;
             }
             const { title, titleText } = buildTaskEventTitleNode(eventTitleText, rangeText, {
                 rich: true,
-                fallback: source === 'schedule' ? '日程' : '任务',
+                fallback: source === 'schedule' ? __tmT("kernel.schedule") : __tmT("kernel.task"),
             });
             if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
             if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
@@ -5844,7 +5846,7 @@
                 cb.checked = done;
                 if (shouldDisableCalendarEventCheckbox(ext)) {
                     cb.disabled = true;
-                    cb.title = ext?.__tmCheckin === true ? '未来计划日期暂不可打卡' : '已完成的循环实例';
+                    cb.title = ext?.__tmCheckin === true ? __tmT("calendar.checkInIsNotAvailableForFuturePlannedDates") : __tmT("calendar.completedRecurringInstance");
                 }
                 cb.onclick = (ev) => {
                     try { ev.stopPropagation(); } catch (e) {}
@@ -5896,7 +5898,7 @@
             if (isBlockLike) wrapEl.classList.add('tm-cal-schedule-stack--block');
             if (useAllDayLayout) wrapEl.classList.add('tm-cal-schedule-stack--allday');
             const { title } = buildTaskEventTitleNode(
-                String(arg?.event?.title || '').trim() || '日程',
+                String(arg?.event?.title || '').trim() || __tmT("kernel.schedule"),
                 hideRangeText ? '' : formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
             );
             const leadingEl = isBlockLike ? buildCalendarEventLeadingNode('marker') : null;
@@ -5917,8 +5919,8 @@
             wrapEl.className = 'tm-cal-task-event';
             const tid = String(ext.__tmReminderBlockId || '').trim();
             if (tid) wrapEl.setAttribute('data-tm-task-id', tid);
-            let reminderTitleText = String(arg?.event?.title || '').trim() || '任务提醒';
-            const reminderListTimeText = isCalendarListViewType(viewType) ? (getReminderListTimeText(ext) || '全天') : '';
+            let reminderTitleText = String(arg?.event?.title || '').trim() || __tmT("calendar.taskReminder");
+            const reminderListTimeText = isCalendarListViewType(viewType) ? (getReminderListTimeText(ext) || __tmT("calendar.allDay")) : '';
             if (reminderListTimeText) {
                 reminderTitleText = stripReminderListTimeFromTitle(reminderTitleText, reminderListTimeText) || reminderTitleText;
             }
@@ -6816,7 +6818,7 @@
         if (!svg) {
             svg = '<svg class="tm-lucide-emoji__svg" viewBox="0 0 256 256" width="13" height="13" aria-hidden="true"><path fill="currentColor" stroke="none" d="M20,128A76.08,76.08,0,0,1,96,52h99l-3.52-3.51a12,12,0,1,1,17-17l24,24a12,12,0,0,1,0,17l-24,24a12,12,0,1,1-17-17L195,76H96a52.06,52.06,0,0,0-52,52,12,12,0,0,1-24,0Zm204-12a12,12,0,0,0-12,12,52.06,52.06,0,0,1-52,52H61l3.52-3.51a12,12,0,1,0-17-17l-24,24a12,12,0,0,0,0,17l24,24a12,12,0,1,0,17-17L61,204h99a76.08,76.08,0,0,0,76-76A12,12,0,0,0,224,116Z"></path></svg>';
         }
-        return `<span class="tm-recurring-task-icon tm-proto-recurring-task-icon" data-tm-floating-tooltip-label="循环任务" data-tm-tooltip-side="bottom" aria-label="循环任务">${svg}</span>`;
+        return `<span class="tm-recurring-task-icon tm-proto-recurring-task-icon" data-tm-floating-tooltip-label="循环任务" data-tm-tooltip-side="bottom" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.recurringTask")}">${svg}</span>`;
     }
 
     function isCalendarForegroundEvent(eventApi) {
@@ -6897,7 +6899,7 @@
             const nextDay = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
             const showDate = end > nextDay;
             const label = Array.from(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([date, times]) => (
-                `${showDate ? `${date.slice(5)} ` : ''}${Array.from(times).sort().join('、') || '提醒'}`
+                `${showDate ? `${date.slice(5)} ` : ''}${Array.from(times).sort().join('、') || __tmT("ai.warnings")}`
             )).join('；');
             // Display-only projection: keep the task ID and its interactions;
             // leave reminder records intact for scheduling and later date edits.
@@ -6907,7 +6909,7 @@
 
     function buildCalendarMergedReminderMarkup(ext) {
         const label = String(ext?.__tmMergedReminderLabel || '').trim();
-        return label ? `<span class="tm-proto-reminder-time" title="${esc(`提醒时间：${label}`)}" aria-label="${esc(`提醒时间：${label}`)}">⏰ ${esc(label)}</span>` : '';
+        return label ? `<span class="tm-proto-reminder-time" title="${esc(__tmT("calendar.reminder", { label: label }))}" aria-label="${esc(__tmT("calendar.reminder", { label: label }))}">⏰ ${esc(label)}</span>` : '';
     }
 
     function buildSharedPrototypeEventMarkup(eventApi, mode = 'chip', includeTime = false, extraClass = '', settings = null, options = {}) {
@@ -6926,7 +6928,7 @@
         if (ext.__tmEventDragPreview === true) showCheck = false;
         const checkboxCircle = (settings || getSettings())?.taskCheckboxCircleStyleEnabled === true;
         const isBuiltinSchedule = isCalendarBuiltinScheduleEvent(ext);
-        const title = esc(String(eventApi?.title || ext.__tmTaskTitleMarkdown || '').trim() || '未命名事件');
+        const title = esc(String(eventApi?.title || ext.__tmTaskTitleMarkdown || '').trim() || __tmT("calendar.untitledEvent"));
         const titleVisualStyle = typeof buildTaskTitleOpacityStyleForTask === 'function'
             && typeof getCalendarEventTaskLikeForTitle === 'function'
             ? buildTaskTitleOpacityStyleForTask(getCalendarEventTaskLikeForTitle(eventApi))
@@ -6939,9 +6941,9 @@
             ? `${pad2(start.getHours())}:${pad2(start.getMinutes())}${end instanceof Date && !Number.isNaN(end.getTime()) && end > start ? ` - ${pad2(end.getHours())}:${pad2(end.getMinutes())}` : ''}`
             : '';
         const meta = [
-            source === 'taskdate' || ext.__tmTaskId || ext.__tmTaskDateEventTaskId ? '任务' : (source === 'schedule' || ext.__tmScheduleId ? '日程' : ''),
-            ext.__tmReminderTime || ext.__tmReminderDate || ext.__tmReminderOffsetMin ? '提醒' : '',
-            ext.__tmTaskDateMilestone === true ? '里程碑' : '',
+            source === 'taskdate' || ext.__tmTaskId || ext.__tmTaskDateEventTaskId ? __tmT("kernel.task") : (source === 'schedule' || ext.__tmScheduleId ? __tmT("kernel.schedule") : ''),
+            ext.__tmReminderTime || ext.__tmReminderDate || ext.__tmReminderOffsetMin ? __tmT("ai.warnings") : '',
+            ext.__tmTaskDateMilestone === true ? __tmT("kernel.milestone") : '',
         ].filter(Boolean).join(' · ');
         const rawColor = String(getCalendarEventColor(eventApi, 'var(--tm-primary-color)') || '').trim();
         const color = /^#[0-9a-f]{3,8}$/i.test(rawColor)
@@ -6968,9 +6970,9 @@
             ? buildCalendarRecurringTaskIconMarkup(ext)
             : '';
         const reminderTime = buildCalendarMergedReminderMarkup(ext);
-        const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(`${eventApi.title || ''} · 提醒时间：${ext.__tmMergedReminderLabel}`)}"` : '';
+        const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(__tmT("calendar.reminder2", { value1: eventApi.title || '', tmMergedReminderLabel: ext.__tmMergedReminderLabel }))}"` : '';
         const check = showCheck
-            ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="${isIndependentScheduleEventExt(ext) ? '完成日程' : '完成任务'}"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>`
+            ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="${isIndependentScheduleEventExt(ext) ? __tmT("calendar.completeSchedule") : __tmT("calendar.complete")}"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>`
             : '';
         if (mode === 'block') {
             return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="--tm-proto-event-color:${color}"><span class="tm-proto-event-copy"><span class="tm-proto-event-title-row">${check}<span class="tm-proto-event-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${handles}</div>`;
@@ -7101,7 +7103,8 @@
         const collapsed = options.collapsed === true;
         const extraClass = String(options.extraClass || '').trim();
         const classes = ['tm-proto-axis-label', 'tm-proto-day-panel-allday-toggle', extraClass].filter(Boolean).join(' ');
-        return `<button type="button" class="${classes}" ${actionAttr}="${esc(action)}" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${collapsed ? '展开全天' : '折叠全天'}"><span>全天</span><span class="tm-proto-day-panel-allday-chevron" aria-hidden="true"></span></button>`;
+        const label = collapsed ? __tmT("calendar.expandAllDay") : __tmT("calendar.collapseAllDay");
+        return `<button type="button" class="${classes}" ${actionAttr}="${esc(action)}" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${esc(label)}" title="${esc(label)}"><span>${__tmT("calendar.allDay")}</span></button>`;
     }
 
     function closeTrackedPrototypeMorePopover() {
@@ -7298,11 +7301,11 @@
         closeTrackedPrototypeMorePopover();
         const pop = document.createElement('div');
         pop.className = 'tm-proto-more-popover';
-        const header = `${date.getMonth() + 1}月${date.getDate()}日 周${['日', '一', '二', '三', '四', '五', '六'][date.getDay()]}${buildSharedPrototypeLunarText(dayKey, settings, state.cnHolidayMap) ? ` · ${buildSharedPrototypeLunarText(dayKey, settings, state.cnHolidayMap)}` : ''}`;
+        const header = __tmT("date.monthDayWeekdayStatus", { value1: date.getMonth() + 1, value2: date.getDate(), value3: [__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')][date.getDay()], value4: buildSharedPrototypeLunarText(dayKey, settings, state.cnHolidayMap) ? ` · ${buildSharedPrototypeLunarText(dayKey, settings, state.cnHolidayMap)}` : '' });
         pop.innerHTML = `<div class="tm-proto-more-popover-head">${esc(header)}</div>`
             + (events.length
                 ? events.map((eventApi) => `<div class="tm-proto-more-popover-event" data-tm-proto-event="${esc(String(eventApi.id || ''))}" style="--tm-proto-event-color:${getCalendarEventColor(eventApi, 'var(--tm-primary-color)')}">${buildSharedPrototypeEventMarkup(eventApi, 'chip', eventApi?.allDay !== true, '', settings, { viewType })}</div>`).join('')
-                : '<div class="tm-proto-more-popover-empty">这一天暂无安排</div>');
+                : `<div class="tm-proto-more-popover-empty">${__tmT("calendar.noPlansForThisDay")}</div>`);
         try {
             const computed = getComputedStyle(anchorEl);
             ['--tm-cal-panel', '--tm-cal-panel-2', '--tm-cal-border', '--tm-cal-text', '--tm-cal-muted', '--tm-cal-faint', '--tm-cal-primary', '--tm-cal-on-primary']
@@ -7389,7 +7392,7 @@
         });
         const segmentStart = !segment || segmentStartIndex === eventStartIndex;
         const title = (segmentStart || showContinuationTitle)
-            ? esc(String(eventApi?.title || ext.__tmTaskTitleMarkdown || '').trim() || '未命名事件')
+            ? esc(String(eventApi?.title || ext.__tmTaskTitleMarkdown || '').trim() || __tmT("calendar.untitledEvent"))
             : '&nbsp;';
         const titleVisualStyle = (segmentStart || showContinuationTitle)
             && typeof buildTaskTitleOpacityStyleForTask === 'function'
@@ -7397,7 +7400,7 @@
             ? buildTaskTitleOpacityStyleForTask(getCalendarEventTaskLikeForTitle(eventApi))
             : '';
         const recurringIcon = segmentStart ? buildCalendarRecurringTaskIconMarkup(ext) : '';
-        const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(`${eventApi.title || ''} · 提醒时间：${ext.__tmMergedReminderLabel}`)}"` : '';
+        const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(__tmT("calendar.reminder2", { value1: eventApi.title || '', tmMergedReminderLabel: ext.__tmMergedReminderLabel }))}"` : '';
         const color = String(getCalendarEventColor(eventApi, 'var(--tm-primary-color)') || 'var(--tm-primary-color)');
         const classes = [
             'tm-proto-span-bar',
@@ -7417,7 +7420,7 @@
         return `<div class="${classes}" data-tm-proto-event="${esc(id)}"${reminderTitle} style="${layoutStyle}--tm-proto-event-color:${color}">`
             + `${canResizeRange && segmentStart ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
             + `${continuesBefore ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--start" aria-hidden="true">&lt;</span>' : ''}`
-            + `${showCheck ? `<input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="${isIndependentScheduleEventExt(ext) ? '完成日程' : '完成任务'}">` : ''}`
+            + `${showCheck ? `<input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="${isIndependentScheduleEventExt(ext) ? __tmT("calendar.completeSchedule") : __tmT("calendar.complete")}">` : ''}`
             // The day panel has one card for the selected day, not the
             // repeated month/week segments. Keep the task name visible even
             // when the event continues in from the previous day.
@@ -7448,7 +7451,7 @@
         const aRank = Number(a?.extendedProps?.__tmRank) || 0;
         const bRank = Number(b?.extendedProps?.__tmRank) || 0;
         if (aRank !== bRank) return aRank - bRank;
-        const eventTitle = (eventApi) => String(eventApi?.title || eventApi?.extendedProps?.__tmTaskTitleMarkdown || '').trim() || '未命名事件';
+        const eventTitle = (eventApi) => String(eventApi?.title || eventApi?.extendedProps?.__tmTaskTitleMarkdown || '').trim() || __tmT("calendar.untitledEvent");
         const titleDelta = eventTitle(a).localeCompare(eventTitle(b), 'zh-CN');
         if (titleDelta) return titleDelta;
         return String(a?.id || '').localeCompare(String(b?.id || ''));
@@ -7618,15 +7621,15 @@
             const status = String(headerInfo.status || '').trim();
             const headerLabel = String(headerInfo.label || '').trim() || lunar;
             const statusMarkup = status
-                ? `<i class="tm-proto-holiday-status tm-proto-holiday-status--${esc(status)}" title="${status === 'work' ? '调休工作日' : '休息日'}">${status === 'work' ? '班' : '休'}</i>`
+                ? `<i class="tm-proto-holiday-status tm-proto-holiday-status--${esc(status)}" title="${status === 'work' ? __tmT("calendar.makeUpWorkday") : __tmT("calendar.restDay")}">${status === 'work' ? __tmT("calendar.work") : __tmT("calendar.rest")}</i>`
                 : '';
-            return `<div class="tm-proto-timeline-day ${today ? 'is-today' : ''}" data-tm-proto-day="${key}" data-tm-proto-all-day="1"><span>${['日', '一', '二', '三', '四', '五', '六'][date.getDay()]}</span><b>${date.getDate()}${statusMarkup}</b><small>${esc(headerLabel)}</small></div>`;
+            return `<div class="tm-proto-timeline-day ${today ? 'is-today' : ''}" data-tm-proto-day="${key}" data-tm-proto-all-day="1"><span>${[__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')][date.getDay()]}</span><b>${date.getDate()}${statusMarkup}</b><small>${esc(headerLabel)}</small></div>`;
         }).join('');
         const allDay = days.map((date, index) => {
             const key = dateKey(date);
             const collapsedCount = Number(collapsedAllDayCounts.get(key) || 0);
             const collapsedCountMarkup = allDayCollapsed && collapsedCount > 0
-                ? `<button class="tm-proto-more tm-proto-allday-collapsed-count" type="button" data-tm-proto-day="${key}" aria-label="查看当天 ${collapsedCount} 个全天日程">+${collapsedCount}</button>`
+                ? `<button class="tm-proto-more tm-proto-allday-collapsed-count" type="button" data-tm-proto-day="${key}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.viewAllDayEventsOnThisDay", { collapsedCount: collapsedCount })}">+${collapsedCount}</button>`
                 : '';
             const dayEvents = rangeEvents(date, addDays(date, 1)).filter((eventApi) => eventApi?.allDay === true);
             const spanSegments = spanByDay.get(index) || [];
@@ -7648,7 +7651,7 @@
             const regularMarkup = visibleAllDayEvents.map((eventApi) => {
                 return eventMarkup(eventApi, 'allday', false, '');
             }).join('');
-            const more = hiddenAllDayCount ? `<button class="tm-proto-more" type="button" data-tm-proto-day="${key}">+${hiddenAllDayCount} 项</button>` : '';
+            const more = hiddenAllDayCount ? `<button class="tm-proto-more" type="button" data-tm-proto-day="${key}">${__tmT("calendar.items", { hiddenAllDayCount: hiddenAllDayCount })}</button>` : '';
             return `<div class="tm-proto-allday-cell ${dateKey(date) === dateKey(new Date()) ? 'is-today' : ''}" data-tm-proto-day="${key}" data-tm-proto-all-day="1">${collapsedCountMarkup}${spanMarkupText}${spanReserve}${regularMarkup}${more}</div>`;
         }).join('');
         const isMinuteCollapsed = (minute) => !timeMetrics.expanded
@@ -7675,7 +7678,7 @@
             ? prototypeTimelineYForMinute(currentNowMinutes, timeMetrics) / canvasHeight * 100
             : null;
         const currentNowLabelMarkup = Number.isFinite(currentNowTop)
-            ? `<span class="tm-proto-now-label" data-tm-proto-minute="${currentNowMinutes}" style="top:${Math.max(0, Math.min(100, currentNowTop))}%" aria-label="当前时间 ${pad2(currentNow.getHours())}:${pad2(currentNow.getMinutes())}">${pad2(currentNow.getHours())}:${pad2(currentNow.getMinutes())}</span>`
+            ? `<span class="tm-proto-now-label" data-tm-proto-minute="${currentNowMinutes}" style="top:${Math.max(0, Math.min(100, currentNowTop))}%" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentTime", { value1: pad2(currentNow.getHours()), value2: pad2(currentNow.getMinutes()) })}">${pad2(currentNow.getHours())}:${pad2(currentNow.getMinutes())}</span>`
             : '';
         const lines = [];
         for (let minute = 0; minute <= 1440; minute += 30) {
@@ -7694,9 +7697,9 @@
             const end = prototypeTimelineYForMinute(range.end, timeMetrics);
             const height = timeMetrics.expanded ? timeMetrics.bandHeight : Math.max(24, end - top);
             const label = timeMetrics.expanded
-                ? `折叠 ${formatTimelineMinute(range.start)} - ${formatTimelineMinute(range.end)}`
-                : `展开 ${formatTimelineMinute(range.start)} - ${formatTimelineMinute(range.end)}`;
-            return `<button type="button" class="tm-proto-time-collapse${timeMetrics.expanded ? ' is-expanded' : ''}" ${actionAttr}="toggleTimeRange" data-tm-proto-collapse="${range.key}" aria-expanded="${timeMetrics.expanded ? 'true' : 'false'}" aria-label="${esc(timeMetrics.expanded ? `折叠 ${label.slice(3)}` : `展开 ${label.slice(3)}`)}" style="top:${Math.max(0, Math.min(100, top / canvasHeight * 100))}%;height:${Math.max(1, Math.min(100, height / canvasHeight * 100))}%"><span>${label}</span></button>`;
+                ? __tmT("calendar.collapse", { value1: formatTimelineMinute(range.start), value2: formatTimelineMinute(range.end) })
+                : __tmT("calendar.expand", { value1: formatTimelineMinute(range.start), value2: formatTimelineMinute(range.end) });
+            return `<button type="button" class="tm-proto-time-collapse${timeMetrics.expanded ? ' is-expanded' : ''}" ${actionAttr}="toggleTimeRange" data-tm-proto-collapse="${range.key}" aria-expanded="${timeMetrics.expanded ? 'true' : 'false'}" aria-label="${esc(timeMetrics.expanded ? __tmT("calendar.collapse2", { value1: label.slice(3) }) : __tmT("calendar.expand2", { value1: label.slice(3) }))}" style="top:${Math.max(0, Math.min(100, top / canvasHeight * 100))}%;height:${Math.max(1, Math.min(100, height / canvasHeight * 100))}%"><span>${label}</span></button>`;
         }).join('');
         const columns = days.map((date) => {
             const key = dateKey(date);
@@ -7789,7 +7792,7 @@
         const showWeekNumber = showHeader && (viewType === 'timeGridWeek' || viewType === 'timeGridWorkdays');
         const weekNumber = showWeekNumber ? getIsoWeekNumber(firstDay) : 0;
         const axisCorner = showWeekNumber
-            ? `<span class="tm-proto-axis-corner tm-proto-axis-corner--week" aria-label="第${weekNumber}周">W${String(weekNumber).padStart(2, '0')}</span>`
+            ? `<span class="tm-proto-axis-corner tm-proto-axis-corner--week" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.week2", { weekNumber: weekNumber })}">W${String(weekNumber).padStart(2, '0')}</span>`
             : '<span class="tm-proto-axis-corner"></span>';
         const headerMarkup = showHeader ? `<div class="tm-proto-timeline-head${compactHeader ? ' tm-proto-timeline-head--compact' : ''}">${axisCorner}${header}</div>` : '';
         // The docked day panel adds a second grid column for its axis label.
@@ -8403,7 +8406,7 @@
         const sameDay = formatDateKey(range.start) === formatDateKey(new Date(range.end.getTime() - 1));
         const rangeText = sameDay
             ? `${formatTime(range.start)} – ${formatDateKey(range.start) === formatDateKey(range.end) ? formatTime(range.end) : '24:00'}`
-            : `${range.start.getMonth() + 1}月${range.start.getDate()}日 ${formatTime(range.start)} – ${range.end.getMonth() + 1}月${range.end.getDate()}日 ${formatTime(range.end)}`;
+            : __tmT("date.monthDayRangeWithWeekdays", { value1: range.start.getMonth() + 1, value2: range.start.getDate(), value3: formatTime(range.start), value4: range.end.getMonth() + 1, value5: range.end.getDate(), value6: formatTime(range.end) });
         let rendered = false;
         let fragmentIndex = 0;
         // Opening the schedule editor can change the available timeline
@@ -8461,11 +8464,11 @@
                 if (!preview.firstElementChild) {
                     preview.innerHTML = `<button type="button" class="tm-proto-schedule-draft-open"${tabIndex}><svg class="tm-proto-schedule-draft-plus" aria-hidden="true" viewBox="0 0 19 19" width="19" height="19" shape-rendering="crispEdges"><path d="M2 9h15v1H2zM9 2h1v15H9z" fill="currentColor"/></svg><span class="tm-proto-schedule-draft-time"></span></button>`;
                 }
-                preview.querySelector('.tm-proto-schedule-draft-open').setAttribute('aria-label', `新建日程，${rangeText}`);
+                preview.querySelector('.tm-proto-schedule-draft-open').setAttribute('aria-label', __tmT("calendar.newSchedule", { rangeText: rangeText }));
                 preview.querySelector('.tm-proto-schedule-draft-time').textContent = rangeText;
                 for (const [edge, label, visible] of [
-                    ['start', '调整开始时间', segmentStart.getTime() === range.start.getTime() && partStart === startMinute],
-                    ['end', '调整结束时间', segmentEnd.getTime() === range.end.getTime() && partEnd === endMinute],
+                    ['start', __tmT("calendar.adjustStartTime"), segmentStart.getTime() === range.start.getTime() && partStart === startMinute],
+                    ['end', __tmT("calendar.adjustEndTime"), segmentEnd.getTime() === range.end.getTime() && partEnd === endMinute],
                 ]) {
                     const existingHandle = preview.querySelector(`[data-tm-draft-edge="${edge}"]`);
                     if (visible && !existingHandle) preview.insertAdjacentHTML('beforeend', handle(edge, label));
@@ -8502,13 +8505,13 @@
         const headerLabel = String(headerInfo.label || '').trim() || lunar;
         const status = String(headerInfo.status || '').trim();
         const statusMarkup = status
-            ? `<i class="tm-proto-holiday-status tm-proto-holiday-status--${esc(status)}" title="${status === 'work' ? '调休工作日' : '休息日'}">${status === 'work' ? '班' : '休'}</i>`
+            ? `<i class="tm-proto-holiday-status tm-proto-holiday-status--${esc(status)}" title="${status === 'work' ? __tmT("calendar.makeUpWorkday") : __tmT("calendar.restDay")}">${status === 'work' ? __tmT("calendar.work") : __tmT("calendar.rest")}</i>`
             : '';
         const panelClass = ['tm-proto-day-panel', options.panelClass || ''].filter(Boolean).join(' ');
         const prevIcon = actionIcon('chevron-left');
         const nextIcon = actionIcon('chevron-right');
         const closeIcon = actionIcon('x');
-        const header = `<header><div><b>${safeDate.getMonth() + 1}月${safeDate.getDate()}日${statusMarkup}</b><span>周${['日', '一', '二', '三', '四', '五', '六'][safeDate.getDay()]}</span><small>${esc(headerLabel)}</small></div><div class="tm-proto-day-panel-actions">${actionButton(actions.prev, 'tm-proto-icon-btn', prevIcon, '前一天')}${actionButton(actions.today, 'tm-proto-today', '今天', '今天')}${actionButton(actions.next, 'tm-proto-icon-btn', nextIcon, '后一天')}${actionButton(actions.close, 'tm-proto-icon-btn', closeIcon, '关闭')}</div></header>`;
+        const header = `<header><div><b>${__tmT("date.monthDayStatus", { value1: safeDate.getMonth() + 1, value2: safeDate.getDate(), statusMarkup: statusMarkup })}</b><span>${__tmT("date.weekdayPrefix", { value1: [__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')][safeDate.getDay()] })}</span><small>${esc(headerLabel)}</small></div><div class="tm-proto-day-panel-actions">${actionButton(actions.prev, 'tm-proto-icon-btn', prevIcon, __tmT("calendar.previousDay"))}${actionButton(actions.today, 'tm-proto-today', __tmT("common.today"), __tmT("common.today"))}${actionButton(actions.next, 'tm-proto-icon-btn', nextIcon, __tmT("calendar.nextDay"))}${actionButton(actions.close, 'tm-proto-icon-btn', closeIcon, __tmT("common.close"))}</div></header>`;
         const timeline = buildSharedPrototypeTimelineMarkup({
             ...options,
             days: [safeDate],
@@ -9345,7 +9348,7 @@
         const collapsed = getAllDayCollapsed(rootEl);
         for (const node of axisNodes) {
             if (!(node instanceof HTMLElement)) continue;
-            node.setAttribute('data-tm-cal-original-label', '全天');
+            node.setAttribute('data-tm-cal-original-label', __tmT("calendar.allDay"));
             const legacyLabel = node.querySelector('.tm-cal-allday-inline-label');
             if (legacyLabel instanceof HTMLElement) {
                 try { legacyLabel.remove(); } catch (e) {}
@@ -9360,11 +9363,11 @@
                 toggleBtn = document.createElement('button');
                 toggleBtn.type = 'button';
                 toggleBtn.className = 'tm-cal-allday-toggle bc-btn bc-btn--sm';
-                toggleBtn.innerHTML = '<span class="tm-cal-allday-toggle-text">全天</span>';
+                toggleBtn.innerHTML = `<span class="tm-cal-allday-toggle-text">${__tmT("calendar.allDay")}</span>`;
                 try { toggleBtn.style.visibility = 'hidden'; } catch (e) {}
                 node.appendChild(toggleBtn);
             } else if (!(toggleBtn.querySelector('.tm-cal-allday-toggle-text') instanceof HTMLElement)) {
-                toggleBtn.innerHTML = '<span class="tm-cal-allday-toggle-text">全天</span>';
+                toggleBtn.innerHTML = `<span class="tm-cal-allday-toggle-text">${__tmT("calendar.allDay")}</span>`;
             }
             if (toggleBtn.parentElement !== node) {
                 try { node.appendChild(toggleBtn); } catch (e) {}
@@ -9422,9 +9425,9 @@
             if (iconEl instanceof HTMLElement) {
                 try { iconEl.remove(); } catch (e) {}
             }
-            toggleBtn.setAttribute('aria-label', collapsed ? '展开全天任务' : '折叠全天任务');
+            toggleBtn.setAttribute('aria-label', collapsed ? __tmT("calendar.expandAllDayTasks") : __tmT("calendar.collapseAllDayTasks"));
             toggleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-            toggleBtn.title = collapsed ? '展开全天任务' : '折叠全天任务';
+            toggleBtn.title = collapsed ? __tmT("calendar.expandAllDayTasks") : __tmT("calendar.collapseAllDayTasks");
             try { toggleBtn.style.visibility = ''; } catch (e) {}
             bindAllDayCollapseActivator(toggleBtn, rootEl, cal);
         }
@@ -9564,7 +9567,7 @@
             icsDocGroupIds: Array.isArray(s.calendarIcsDocGroupIds) ? Array.from(new Set(s.calendarIcsDocGroupIds.map(id => String(id || '').trim()).filter(Boolean))) : [],
             icsCalendarName: (() => {
                 const value = String(s.calendarIcsCalendarName || '').trim();
-                return !value || value === 'Task Horizon' ? '任务管理器' : value;
+                return !value || value === 'Task Horizon' ? __tmT("common.taskManager") : value;
             })(),
             icsWebdavUrl: String(s.calendarIcsWebdavUrl || '').trim(),
             icsWebdavUsername: String(s.calendarIcsWebdavUsername || '').trim(),
@@ -9843,7 +9846,7 @@
             const result = await window.tmSetDone(tid, nextDone, event || null, {
                 source: 'calendar-relation-checkbox',
             });
-            if (result === false) throw new Error('任务完成状态未保存');
+            if (result === false) throw new Error(__tmT("calendar.taskCompletionStatusWasNotSaved"));
             input.classList.remove('tm-task-checkbox--canceled');
             return true;
         } catch (e) {
@@ -9891,10 +9894,10 @@
 
     function modeLabel(mode) {
         const m = String(mode || '').trim();
-        if (m === 'break' || m === 'stopwatch-break') return '休息';
-        if (m === 'stopwatch') return '正计时';
-        if (m === 'idle') return '闲置';
-        return '专注';
+        if (m === 'break' || m === 'stopwatch-break') return __tmT("calendar.rest2");
+        if (m === 'stopwatch') return __tmT("homepage.stopwatch");
+        if (m === 'idle') return __tmT("calendar.idle");
+        return __tmT("calendar.focus");
     }
 
     function shouldShowMode(mode, settings) {
@@ -9924,7 +9927,7 @@
     }
 
     function getCalendarDefs(settings) {
-        const list = [{ id: 'default', name: '未分组', color: 'var(--tm-primary-color)' }];
+        const list = [{ id: 'default', name: __tmT('task.ungrouped'), color: 'var(--tm-primary-color)' }];
         const groups = state.settingsStore?.data?.docGroups || state.sideDay?.settingsStore?.data?.docGroups;
         if (Array.isArray(groups)) {
             for (const g of groups) {
@@ -10178,7 +10181,7 @@
                 <label class="tm-calendar-nav-item">
                     <span class="tm-calendar-nav-left">
                         <span class="tm-calendar-nav-dot tm-calendar-nav-dot--reminder"></span>
-                        <span class="tm-calendar-nav-label">任务提醒</span>
+                        <span class="tm-calendar-nav-label">${__tmT("calendar.taskReminder")}</span>
                     </span>
                     <span class="tm-calendar-nav-check-wrap"><input class="tm-calendar-nav-check" type="checkbox" data-tm-cal-filter="taskReminders" ${settings.showTaskReminders ? 'checked' : ''}><span class="tm-calendar-nav-check-ui" aria-hidden="true"></span></span>
                 </label>
@@ -10188,7 +10191,7 @@
                     <label class="tm-calendar-nav-item tm-calendar-nav-item--grow">
                         <span class="tm-calendar-nav-left">
                             <span class="tm-calendar-nav-dot" style="background:${esc(taskDatesDot)};" ${taskDatesCanCustomize ? `data-tm-cal-color-kind="taskDates" data-tm-cal-color-key="taskDates" data-tm-cal-color-value="${esc(taskDatesDot)}"` : ''}></span>
-                            <span class="tm-calendar-nav-label">跨天任务</span>
+                            <span class="tm-calendar-nav-label">${__tmT("calendar.multiDayTasks")}</span>
                         </span>
                         <span class="tm-calendar-nav-check-wrap"><input class="tm-calendar-nav-check" type="checkbox" data-tm-cal-filter="taskDatesMaster" ${settings.showTaskDates ? 'checked' : ''}><span class="tm-calendar-nav-check-ui" aria-hidden="true"></span></span>
                     </label>
@@ -10198,7 +10201,7 @@
                 <label class="tm-calendar-nav-item">
                     <span class="tm-calendar-nav-left">
                         <span class="tm-calendar-nav-dot" style="background:var(--tm-secondary-text);"></span>
-                        <span class="tm-calendar-nav-label">已完成全天日程</span>
+                        <span class="tm-calendar-nav-label">${__tmT("calendar.completedAllDaySchedules")}</span>
                     </span>
                     <span class="tm-calendar-nav-check-wrap"><input class="tm-calendar-nav-check" type="checkbox" data-tm-cal-filter="completedAllDaySchedules" ${settings.showCompletedAllDaySchedules !== false ? 'checked' : ''}><span class="tm-calendar-nav-check-ui" aria-hidden="true"></span></span>
                 </label>
@@ -10207,7 +10210,7 @@
                 <label class="tm-calendar-nav-item">
                     <span class="tm-calendar-nav-left">
                         <span class="tm-calendar-nav-dot" style="background:${esc(settings.cnHolidayColor || '#ff3333')};" data-tm-cal-color-kind="cnHoliday" data-tm-cal-color-key="cnHoliday" data-tm-cal-color-value="${esc(settings.cnHolidayColor || '#ff3333')}"></span>
-                        <span class="tm-calendar-nav-label">节假日</span>
+                        <span class="tm-calendar-nav-label">${__tmT("calendar.holidays")}</span>
                     </span>
                     <span class="tm-calendar-nav-check-wrap"><input class="tm-calendar-nav-check" type="checkbox" data-tm-cal-filter="cnHoliday" ${settings.showCnHoliday ? 'checked' : ''}><span class="tm-calendar-nav-check-ui" aria-hidden="true"></span></span>
                 </label>
@@ -10217,7 +10220,7 @@
                     <label class="tm-calendar-nav-item tm-calendar-nav-item--grow">
                         <span class="tm-calendar-nav-left">
                             <span class="tm-calendar-nav-dot" style="background:${esc(settings.scheduleColor || 'var(--tm-primary-color)')};" data-tm-cal-color-kind="schedule" data-tm-cal-color-key="schedule" data-tm-cal-color-value="${esc(settings.scheduleColor || 'var(--tm-primary-color)')}"></span>
-                            <span class="tm-calendar-nav-label">文档分组</span>
+                            <span class="tm-calendar-nav-label">${__tmT("calendar.documentGroups")}</span>
                         </span>
                         <span class="tm-calendar-nav-check-wrap"><input class="tm-calendar-nav-check" type="checkbox" data-tm-cal-filter="scheduleMaster" ${showSchedule ? 'checked' : ''}><span class="tm-calendar-nav-check-ui" aria-hidden="true"></span></span>
                     </label>
@@ -10243,7 +10246,7 @@
                         const childDisabled = !showSchedule || !enabled;
                         for (const doc of docs) {
                             const docId = String(doc?.id || '').trim();
-                            const docName = String(doc?.name || docId || '未命名文档').trim() || '未命名文档';
+                            const docName = String(doc?.name || docId || __tmT("kernel.untitledDocument")).trim() || __tmT("kernel.untitledDocument");
                             if (!docId) continue;
                             const docEnabled = isCalendarDocEnabled(d.id, docId, settings);
                             const docColor = resolveCalendarDocColor(docId, d.color || 'var(--tm-primary-color)') || d.color || 'var(--tm-primary-color)';
@@ -10273,16 +10276,16 @@
                 tomatoList.innerHTML = '';
             } else {
             const items = [
-                { key: 'focus', label: '专注', color: settings.colorFocus, checked: settings.showFocus !== false },
-                { key: 'break', label: '休息', color: settings.colorBreak, checked: settings.showBreak !== false },
-                { key: 'stopwatch', label: '正计时', color: settings.colorStopwatch, checked: settings.showStopwatch !== false },
-                { key: 'idle', label: '闲置', color: settings.colorIdle, checked: !!settings.showIdle },
+                { key: 'focus', label: __tmT("calendar.focus"), color: settings.colorFocus, checked: settings.showFocus !== false },
+                { key: 'break', label: __tmT("calendar.rest2"), color: settings.colorBreak, checked: settings.showBreak !== false },
+                { key: 'stopwatch', label: __tmT("homepage.stopwatch"), color: settings.colorStopwatch, checked: settings.showStopwatch !== false },
+                { key: 'idle', label: __tmT("calendar.idle"), color: settings.colorIdle, checked: !!settings.showIdle },
             ];
             tomatoList.innerHTML = items.map((it) => `
                 <div class="tm-calendar-nav-item-row">
                     <label class="tm-calendar-nav-item tm-calendar-nav-item--grow">
                         <span class="tm-calendar-nav-left">
-                            <span class="tm-calendar-nav-dot" style="background:${esc(it.color || '#9aa0a6')};" title="${settings.tomatoColorMode === 'type' ? '计时类型颜色' : '备用颜色：无法确定所属文档时使用'}" data-tm-cal-color-kind="tomato" data-tm-cal-color-key="${esc(it.key)}" data-tm-cal-color-value="${esc(it.color || '#9aa0a6')}"></span>
+                            <span class="tm-calendar-nav-dot" style="background:${esc(it.color || '#9aa0a6')};" title="${settings.tomatoColorMode === 'type' ? __tmT("calendar.timerTypeColors") : __tmT("calendar.fallbackColorsUsedWhenTheOwningDocumentCannotBe")}" data-tm-cal-color-kind="tomato" data-tm-cal-color-key="${esc(it.key)}" data-tm-cal-color-value="${esc(it.color || '#9aa0a6')}"></span>
                             <span class="tm-calendar-nav-label">${esc(it.label)}</span>
                         </span>
                         <span class="tm-calendar-nav-check-wrap"><input class="tm-calendar-nav-check" type="checkbox" data-tm-cal-filter="${esc(it.key)}" ${it.checked ? 'checked' : ''} ${settings.showTomatoMaster ? '' : 'disabled'}><span class="tm-calendar-nav-check-ui" aria-hidden="true"></span></span>
@@ -10373,7 +10376,7 @@
         if (!el) return;
         const api = globalThis.tmQueryCalendarTasks;
         if (typeof api !== 'function') {
-            el.innerHTML = `<div class="tm-calendar-task-empty">未检测到任务数据</div>`;
+            el.innerHTML = `<div class="tm-calendar-task-empty">${__tmT("calendar.noTaskDataDetected")}</div>`;
             return;
         }
         let res = null;
@@ -10401,7 +10404,7 @@
         }
         if (tasks.length === 0) {
             try { globalThis.tmWarmCalendarTaskCacheIfStale?.({ refresh: true }); } catch (e) {}
-            el.innerHTML = `<div class="tm-calendar-task-empty">暂无任务</div>`;
+            el.innerHTML = `<div class="tm-calendar-task-empty">${__tmT("calendar.noTasks")}</div>`;
             return;
         }
         const defs = getCalendarDefs(settings);
@@ -10414,7 +10417,7 @@
             const id = String(t?.id || '').trim();
             if (!id) return '';
             const title = String(t?.title || '').trim();
-            const titlePresentation = resolveTaskTitlePresentation(t?.markdown || t?.content || title, title || '(无标题)');
+            const titlePresentation = resolveTaskTitlePresentation(t?.markdown || t?.content || title, title || __tmT("calendar.untitled"));
             const spent = String(t?.spent || '').trim();
             const durationMin = Number(t?.durationMin);
             const durationExplicit = t?.durationExplicit === true;
@@ -10441,10 +10444,10 @@
     function formatCalendarTaskDurationLabel(durationMin) {
         const mins = Number(durationMin);
         if (!Number.isFinite(mins) || mins <= 0) return '';
-        if (mins < 60) return `${Math.round(mins)} 分钟`;
+        if (mins < 60) return __tmT("calendar.min", { mins: Math.round(mins) });
         const hours = Math.floor(mins / 60);
         const rest = Math.round(mins % 60);
-        return rest > 0 ? `${hours} 小时 ${rest} 分` : `${hours} 小时`;
+        return rest > 0 ? __tmT("calendar.hMin", { hours: hours, rest: rest }) : __tmT("calendar.h", { hours: hours });
     }
 
     function renderCompactTaskPageHtml(settings) {
@@ -10487,7 +10490,7 @@
         }
         if (tasks.length === 0) {
             try { globalThis.tmWarmCalendarTaskCacheIfStale?.({ refresh: true }); } catch (e) {}
-            return `<div class="tm-calendar-task-empty">暂无任务</div>`;
+            return `<div class="tm-calendar-task-empty">${__tmT("calendar.noTasks")}</div>`;
         }
         const defs = getCalendarDefs(settings);
         const colorMap = new Map(defs.map((d) => [d.id, d.color]));
@@ -10498,7 +10501,7 @@
         const itemsHtml = tasks.map((t) => {
             const id = String(t?.id || '').trim();
             if (!id) return '';
-            const title = String(t?.title || '').trim() || '(无标题)';
+            const title = String(t?.title || '').trim() || __tmT("calendar.untitled");
             const titlePresentation = resolveTaskTitlePresentation(t?.markdown || t?.content || title, title);
             const spent = String(t?.spent || '').trim();
             const durationMin = Number(t?.durationMin);
@@ -10512,15 +10515,15 @@
                 ? `draggable="true" ondragstart="tmDragTaskStart(event, '${esc(id)}')" ondragend="tmDragTaskEnd(event)"`
                 : (useCustomTouchTitleDrag ? `onpointerdown="tmTaskTouchDragStart(event, '${esc(id)}')"` : '');
             const metaParts = [];
-            if (durationLabel) metaParts.push(`<span class="tm-checklist-meta-compact-time" title="预计时长">${esc(durationLabel)}</span>`);
-            if (spent) metaParts.push(`<span class="tm-checklist-meta-compact-time" title="已耗时">${esc(spent)}</span>`);
+            if (durationLabel) metaParts.push(`<span class="tm-checklist-meta-compact-time" title="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.estimatedDuration")}">${esc(durationLabel)}</span>`);
+            if (spent) metaParts.push(`<span class="tm-checklist-meta-compact-time" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.timeSpent")}">${esc(spent)}</span>`);
             const tooltipAttrs = ` data-tm-floating-tooltip-label="${esc(titlePresentation.text)}" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center"`;
             const titleOpacityStyle = buildTaskTitleOpacityStyleForTask(getTaskLikeForTitleOpacity(id, t));
             return `
                 <div class="tm-cal-task tm-cal-task--checklist tm-checklist-item" draggable="true" onpointerdown="tmTaskTouchDragStart(event, '${esc(id)}')" ondragstart="tmDragTaskStart(event, '${esc(id)}')" ondragend="tmDragTaskEnd(event)" data-id="${esc(id)}" data-task-id="${esc(id)}" data-task-title="${esc(titlePresentation.text)}" data-task-spent="${esc(spent)}" data-task-duration-min="${esc(String(safeDuration))}" data-task-duration-explicit="${durationExplicit ? '1' : '0'}" data-calendar-id="${esc(calendarId)}" style="--tm-checklist-accent-color:${esc(accent)};--tm-checklist-compact-indent:${Math.min(8, depth) * 14}px;">
                     <div class="tm-checklist-leading">
                         <span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>
-                        <input class="tm-task-checkbox tm-cal-task-check" type="checkbox" title="完成">
+                        <input class="tm-task-checkbox tm-cal-task-check" type="checkbox" title="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.done")}">
                     </div>
                     <div class="tm-checklist-item-main">
                         <div class="tm-checklist-title-row">
@@ -10658,14 +10661,14 @@
                         const safeMin = clampNewScheduleDurationMin(durMin, liveSettings);
                         const payload = calendarExternalDragPreviewController.begin({
                             taskId,
-                            title: title || '任务',
+                            title: title || __tmT("kernel.task"),
                             durationMin: safeMin,
                             durationExplicit,
                             calendarId,
                         }, { dragSource: 'main-task-draggable', officialCalendarEngine: true });
                         calendarExternalDragPreviewController.beginOfficialFloatingMini(payload, el);
                         return buildTaskScheduleExternalEventData(payload) || {
-                            title: payload?.title || title || '任务',
+                            title: payload?.title || title || __tmT("kernel.task"),
                             duration: toDurationStr(payload?.durationMin || safeMin),
                             editable: false,
                             startEditable: false,
@@ -10723,7 +10726,7 @@
         if (!html) {
             try { html = String(renderCompactTaskPageHtml(settings) || ''); } catch (e) { html = ''; }
         }
-        const nextHtml = html || `<div class="tm-calendar-task-empty">暂无任务</div>`;
+        const nextHtml = html || `<div class="tm-calendar-task-empty">${__tmT("calendar.noTasks")}</div>`;
         const canReuseDom = state.taskPageHost === host && String(state.taskPageHtml || '') === nextHtml;
         if (!canReuseDom) {
             host.innerHTML = nextHtml;
@@ -11364,7 +11367,7 @@
         const y = Number(m[1]);
         const mm = Number(m[2]);
         if (!Number.isFinite(y) || !Number.isFinite(mm)) return '';
-        return `${y}年${mm}月`;
+        return __tmT("date.yearMonthHeading", { y: y, mm: mm });
     }
 
     function miniMonthKeyShift(key, deltaMonths) {
@@ -11384,8 +11387,8 @@
         if (!key) return '';
         const d = parseDateOnly(key);
         if (!(d instanceof Date) || Number.isNaN(d.getTime())) return key;
-        const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-        return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${weekDays[d.getDay()] || ''}`.trim();
+        const weekDays = [__tmT("calendar.sunday"), __tmT("calendar.monday"), __tmT("calendar.tuesday"), __tmT("calendar.wednesday"), __tmT("calendar.thursday"), __tmT("calendar.friday"), __tmT("calendar.saturday")];
+        return __tmT("date.monthDayWeekdaySpaced", { value1: d.getMonth() + 1, value2: d.getDate(), value3: weekDays[d.getDay()] || '' }).trim();
     }
 
     function buildMiniCalendarModel(opts) {
@@ -11414,8 +11417,8 @@
         start.setDate(first.getDate() - firstDow);
         const todayKey = formatDateKey(new Date());
         const dows = firstDay === 0
-            ? ['日', '一', '二', '三', '四', '五', '六']
-            : ['一', '二', '三', '四', '五', '六', '日'];
+            ? [__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')]
+            : [1, 2, 3, 4, 5, 6, 0].map(day => __tmT('date.weekday.short.' + day));
         const cells = [];
 
         for (let i = 0; i < visibleCellCount; i += 1) {
@@ -11467,13 +11470,13 @@
         return `
             <div class="${rootClass}" data-tm-mini-root="1" data-tm-mini-kind="${esc(kind || 'default')}">
                 <div class="tm-mini-cal-header">
-                    <button class="tm-mini-cal-btn" type="button" data-tm-mini-action="prev" aria-label="上个月" title="上个月">${buildCalendarChromeIcon('chevron-left', 12)}</button>
+                    <button class="tm-mini-cal-btn" type="button" data-tm-mini-action="prev" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousMonth")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousMonth")}">${buildCalendarChromeIcon('chevron-left', 12)}</button>
                     ${kind === 'sidebar'
-                        ? `<button class="tm-mini-cal-title tm-mini-cal-title--button" type="button" data-tm-mini-action="month-picker" aria-label="选择年月" aria-haspopup="dialog" aria-expanded="false">${esc(String(model?.title || ''))}</button>`
+                        ? `<button class="tm-mini-cal-title tm-mini-cal-title--button" type="button" data-tm-mini-action="month-picker" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.selectYearAndMonth")}" aria-haspopup="dialog" aria-expanded="false">${esc(String(model?.title || ''))}</button>`
                         : `<div class="tm-mini-cal-title">${esc(String(model?.title || ''))}</div>`}
-                    <button class="tm-mini-cal-btn" type="button" data-tm-mini-action="next" aria-label="下个月" title="下个月">${buildCalendarChromeIcon('chevron-right', 12)}</button>
+                    <button class="tm-mini-cal-btn" type="button" data-tm-mini-action="next" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextMonth2")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextMonth2")}">${buildCalendarChromeIcon('chevron-right', 12)}</button>
                 </div>
-                ${showTargetLabel ? `<div class="tm-mini-cal-target${targetLabel ? ' is-active' : ''}" data-tm-mini-target>${esc(targetLabel || '拖到日期上修改截止日期')}</div>` : ''}
+                ${showTargetLabel ? `<div class="tm-mini-cal-target${targetLabel ? ' is-active' : ''}" data-tm-mini-target>${esc(targetLabel || __tmT("calendar.dragOntoADateToChangeTheDueDate"))}</div>` : ''}
                 <div class="tm-mini-cal-grid">
                     ${(Array.isArray(model?.dows) ? model.dows : []).map((t) => `<div class="tm-mini-cal-dow">${esc(String(t || ''))}</div>`).join('')}
                     ${cellsHtml}
@@ -11504,7 +11507,7 @@
         });
         const targetEl = container.querySelector('[data-tm-mini-target]');
         if (targetEl instanceof HTMLElement) {
-            try { targetEl.textContent = targetLabel || '拖到日期上修改截止日期'; } catch (e) {}
+            try { targetEl.textContent = targetLabel || __tmT("calendar.dragOntoADateToChangeTheDueDate"); } catch (e) {}
             try { targetEl.classList.toggle('is-active', !!targetLabel); } catch (e) {}
         }
     }
@@ -11542,7 +11545,7 @@
                 button.classList.toggle('is-active', index === month);
                 button.classList.toggle('is-current', year === today.getFullYear() && index === today.getMonth());
                 button.setAttribute('aria-pressed', String(index === month));
-                button.setAttribute('aria-label', `跳转到${year}年${index + 1}月`);
+                button.setAttribute('aria-label', __tmT("calendar.goTo", { year: year, value2: index + 1 }));
             });
         };
         trigger.addEventListener('click', () => {
@@ -11554,13 +11557,13 @@
             panel = document.createElement('div');
             panel.className = 'tm-task-time-hub__subpanel tm-task-time-hub__subpanel--month tm-mini-cal-month-picker';
             panel.setAttribute('role', 'dialog');
-            panel.setAttribute('aria-label', '选择年月');
+            panel.setAttribute('aria-label', __tmT("calendar.selectYearAndMonth"));
             panel.innerHTML = `<div class="tm-task-time-hub__month-year-row">
-                <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-mini-year-step="-1" aria-label="上一年" title="上一年">${buildCalendarChromeIcon('chevron-left', 14)}</button>
-                <input class="tm-input tm-task-time-hub__month-year-input" type="text" inputmode="numeric" autocomplete="off" maxlength="4" aria-label="年份" data-tm-mini-year-input>
-                <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-mini-year-step="1" aria-label="下一年" title="下一年">${buildCalendarChromeIcon('chevron-right', 14)}</button>
+                <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-mini-year-step="-1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousYear")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousYear")}">${buildCalendarChromeIcon('chevron-left', 14)}</button>
+                <input class="tm-input tm-task-time-hub__month-year-input" type="text" inputmode="numeric" autocomplete="off" maxlength="4" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.year")}" data-tm-mini-year-input>
+                <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-mini-year-step="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextYear")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextYear")}">${buildCalendarChromeIcon('chevron-right', 14)}</button>
             </div><div class="tm-task-time-hub__month-grid">${Array.from({ length: 12 }, (_, index) =>
-                `<button type="button" class="tm-task-time-hub__month-btn" data-tm-mini-month-pick="${index}">${index + 1}月</button>`
+                `<button type="button" class="tm-task-time-hub__month-btn" data-tm-mini-month-pick="${index}">${__tmT("date.monthNumber", { value1: index + 1 })}</button>`
             ).join('')}</div>`;
             trigger.closest('.tm-mini-cal-header').appendChild(panel);
             trigger.setAttribute('aria-expanded', 'true');
@@ -11676,10 +11679,10 @@
     }
 
     const FLOATING_MINI_PRIORITY_OPTIONS = Object.freeze([
-        { key: 'high', label: '高' },
-        { key: 'medium', label: '中' },
-        { key: 'low', label: '低' },
-        { key: 'none', label: '无' },
+        { key: 'high', label: __tmT("common.high") },
+        { key: 'medium', label: __tmT("common.medium") },
+        { key: 'low', label: __tmT("common.low") },
+        { key: 'none', label: __tmT("common.none") },
     ]);
 
     function normalizeFloatingMiniPriorityKey(value) {
@@ -11696,10 +11699,10 @@
 
     function getFloatingMiniPriorityLabel(priorityKey) {
         const key = normalizeFloatingMiniPriorityKey(priorityKey);
-        if (key === 'high') return '高';
-        if (key === 'medium') return '中';
-        if (key === 'low') return '低';
-        return '无';
+        if (key === 'high') return __tmT("common.high");
+        if (key === 'medium') return __tmT("common.medium");
+        if (key === 'low') return __tmT("common.low");
+        return __tmT("common.none");
     }
 
     function renderFloatingMiniPriorityIcon(priorityKey) {
@@ -11834,7 +11837,7 @@
                 currentKey === key ? 'is-current' : '',
                 hoverKey === key ? 'is-drop-target' : '',
             ].filter(Boolean).join(' ');
-            return `<button class="${classes}" type="button" data-tm-mini-priority="${esc(key)}" aria-label="设置重要性为${esc(item.label)}">${renderFloatingMiniPriorityIcon(key)}</button>`;
+            return `<button class="${classes}" type="button" data-tm-mini-priority="${esc(key)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.setImportanceTo", { label: item.label })}">${renderFloatingMiniPriorityIcon(key)}</button>`;
         }).join('');
         bar.querySelectorAll('[data-tm-mini-priority]').forEach((el) => {
             if (!(el instanceof HTMLElement) || el.__tmFloatingMiniPriorityTipBound) return;
@@ -11868,11 +11871,11 @@
     async function applyFloatingMiniTaskPriority(taskId, priorityKey) {
         const id = String(taskId || state.floatingMini.dragTaskId || '').trim();
         if (!id) {
-            toast('⚠ 未识别到拖拽任务', 'warning');
+            toast(__tmT("calendar.noDraggedTaskDetected"), 'warning');
             return false;
         }
         if (typeof window.tmSetTaskPriority !== 'function') {
-            toast('⚠ 未找到重要性更新接口', 'warning');
+            toast(__tmT("calendar.importanceUpdateApiIsNotAvailable"), 'warning');
             return false;
         }
         const nextKey = normalizeFloatingMiniPriorityKey(priorityKey);
@@ -11889,11 +11892,11 @@
                 try { state.floatingMini.dragPayload.priority = nextKey === 'none' ? '' : nextKey; } catch (e) {}
             }
             hideFloatingMiniPriorityTooltip(true);
-            toast(`✅ 重要性已更新为${getFloatingMiniPriorityLabel(nextKey)}`, 'success');
+            toast(__tmT("calendar.importanceUpdatedTo", { value1: getFloatingMiniPriorityLabel(nextKey) }), 'success');
             hideFloatingMiniCalendar();
             return true;
         } catch (e) {
-            toast(`❌ 更新重要性失败：${String(e?.message || e || '')}`, 'error');
+            toast(__tmT("calendar.failedToUpdateImportance", { value1: String(e?.message || e || '') }), 'error');
             return false;
         }
     }
@@ -12208,7 +12211,7 @@
             const payload = parseTaskDropPayload(e, null, null) || state.floatingMini.dragPayload || null;
             const taskId = String(payload?.taskId || state.floatingMini.dragTaskId || '').trim();
             if (!taskId) {
-                toast('⚠ 未识别到拖拽任务', 'warning');
+                toast(__tmT("calendar.noDraggedTaskDetected"), 'warning');
                 return;
             }
             if (info.action === 'priority') {
@@ -12452,7 +12455,7 @@
         const normalizedDateKey = String(dateKey || '').trim();
         if (!id || !normalizedDateKey) return false;
         if (typeof window.tmUpdateTaskDates !== 'function') {
-            toast('⚠ 未找到任务日期更新接口', 'warning');
+            toast(__tmT("calendar.taskDateUpdateApiIsNotAvailable"), 'warning');
             return false;
         }
         try {
@@ -12480,11 +12483,11 @@
             state.floatingMini.selectedDateKey = normalizedDateKey;
             state.floatingMini.sourceDateKey = normalizedDateKey;
             state.floatingMini.hoverDateKey = '';
-            toast(`✅ 截止日期已更新为 ${normalizedDateKey}`, 'success');
+            toast(__tmT("calendar.dueDateUpdatedTo", { normalizedDateKey: normalizedDateKey }), 'success');
             hideFloatingMiniCalendar();
             return true;
         } catch (e) {
-            toast(`❌ 更新任务日期失败：${String(e?.message || e || '')}`, 'error');
+            toast(__tmT("calendar.failedToUpdateTaskDate", { value1: String(e?.message || e || '') }), 'error');
             return false;
         }
     }
@@ -12780,7 +12783,7 @@
             || (!hasDurationMarker && Number.isFinite(durationMin) && durationMin > 0);
         return {
             taskId: id,
-            title: String(base.title || safeMeta.title || id || '任务').trim() || '任务',
+            title: String(base.title || safeMeta.title || id || __tmT("kernel.task")).trim() || __tmT("kernel.task"),
             durationMin: (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60,
             durationExplicit,
             calendarId: String(base.calendarId || safeMeta.calendarId || '').trim(),
@@ -12813,7 +12816,7 @@
         })) return true;
         await addTaskSchedule({
             taskId,
-            title: String(source.title || '').trim() || '任务',
+            title: String(source.title || '').trim() || __tmT("kernel.task"),
             start,
             end,
             calendarId,
@@ -12821,7 +12824,7 @@
             allDay,
             externalDropKey,
         });
-        toast('✅ 已加入日程', 'success');
+        toast(__tmT("calendar.addedToSchedule"), 'success');
         return true;
     }
 
@@ -12984,7 +12987,7 @@
         const end = allDay
             ? new Date(start.getTime() + 24 * 60 * 60000)
             : new Date(start.getTime() + safeMin * 60000);
-        const title = String(safePayload.title || '').trim() || '任务';
+        const title = String(safePayload.title || '').trim() || __tmT("kernel.task");
         const calId = String(safePayload.calendarId || '').trim() || pickDefaultCalendarId(settings);
         const color = getCalendarDefColorById(calId, settings);
         const nextKey = `${start.getTime()}|${end.getTime()}|${allDay ? 1 : 0}|${title}|${color}`;
@@ -13571,7 +13574,7 @@
     function getScheduleRepeatCore() {
         const core = globalThis.tmRepeatCore;
         if (!core || typeof core.normalizeRule !== 'function' || typeof core.iterate !== 'function') {
-            throw new Error('任务循环核心尚未加载');
+            throw new Error(__tmT("calendar.taskRecurrenceCoreIsNotLoadedYet"));
         }
         return core;
     }
@@ -13933,12 +13936,12 @@
     function getScheduleRepeatUnitLabel(repeatType, every) {
         const type = normalizeScheduleRepeatType(repeatType);
         normalizeScheduleRepeatEvery(every, type);
-        if (type === 'daily') return '天';
-        if (type === 'workday') return '个工作日';
-        if (type === 'weekly') return '周';
-        if (type === 'monthly') return '个月';
-        if (type === 'yearly') return '年';
-        return '次';
+        if (type === 'daily') return __tmT("homepage.days2");
+        if (type === 'workday') return __tmT("calendar.workdays2");
+        if (type === 'weekly') return __tmT("calendar.week");
+        if (type === 'monthly') return __tmT("calendar.months");
+        if (type === 'yearly') return __tmT("date.yearLabel");
+        return __tmT("calendar.times");
     }
 
     function getScheduleLunarDateInfo(dateLike) {
@@ -13954,11 +13957,11 @@
     function getScheduleRepeatLunarCaption(repeatType, anchorDateLike) {
         const type = normalizeScheduleRepeatType(repeatType);
         const info = getScheduleLunarDateInfo(anchorDateLike);
-        if (!info) return type === 'yearly' ? '农历每年' : '农历每月';
-        const monthText = ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月'][info.month - 1] || `${info.month}月`;
+        if (!info) return type === 'yearly' ? __tmT("calendar.lunarYearly") : __tmT("calendar.lunarMonthly");
+        const monthText = ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月'][info.month - 1] || __tmT("date.monthSuffix", { month: info.month });
         const dayText = formatScheduleLunarDay(info.day);
         const leap = info.isLeap ? '闰' : '';
-        return type === 'yearly' ? `农历每年（${leap}${monthText}${dayText}）` : `农历每月（${dayText}）`;
+        return type === 'yearly' ? __tmT("calendar.lunarYearly2", { leap: leap, monthText: monthText, dayText: dayText }) : __tmT("calendar.lunarMonthly2", { dayText: dayText });
     }
 
     function getScheduleRepeatUntil(item) {
@@ -14015,7 +14018,7 @@
         const mode = linked ? 'linked' : 'independent';
         if (getCalendarTaskCompletionMode(id) === mode) return;
         const store = state.settingsStore || state.sideDay?.settingsStore;
-        if (!store?.data || typeof store.save !== 'function') throw new Error('日历设置尚未就绪');
+        if (!store?.data || typeof store.save !== 'function') throw new Error(__tmT("calendar.calendarSettingsAreNotReadyYet"));
         const previous = store.data.calendarTaskCompletionModes;
         const next = { ...previous, [id]: mode };
         store.data.calendarTaskCompletionModes = next;
@@ -14051,7 +14054,7 @@
     function bindScheduleCompletionControl(host, resolveTaskId) {
         const row = host.querySelector('[data-tm-schedule-completion]');
         if (!row) return { sync() {}, async save() {} };
-        row.innerHTML = '<label class="tm-calendar-completion-toggle"><span>与任务完成状态联动</span><input class="b3-switch fn__flex-center" type="checkbox" data-tm-schedule-completion-linked aria-label="与任务完成状态联动"></label><small>适用于此任务的所有关联日程</small>';
+        row.innerHTML = `<label class="tm-calendar-completion-toggle"><span>${__tmT("calendar.linkWithTaskCompletion")}</span><input class="b3-switch fn__flex-center" type="checkbox" data-tm-schedule-completion-linked aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.linkWithTaskCompletion")}"></label><small>${__tmT("calendar.appliesToAllLinkedSchedulesOfThisTask")}</small>`;
         const input = row.querySelector('input');
         let boundId = '';
         let dirty = false;
@@ -14144,9 +14147,9 @@
     }
 
     function getScheduleWeekdayLabel(weekday) {
-        const labels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        const labels = [__tmT("calendar.sunday"), __tmT("calendar.monday"), __tmT("calendar.tuesday"), __tmT("calendar.wednesday"), __tmT("calendar.thursday"), __tmT("calendar.friday"), __tmT("calendar.saturday")];
         const idx = Number(weekday);
-        return labels[idx] || '周?';
+        return labels[idx] || __tmT("date.unknownWeekday");
     }
 
     function getScheduleMonthWeekOrdinal(dateLike) {
@@ -14157,8 +14160,8 @@
 
     function getScheduleMonthlyWeekPatternLabel(dateLike) {
         const dt = dateLike instanceof Date ? dateLike : new Date(dateLike);
-        if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return '第1个周一';
-        return `第${getScheduleMonthWeekOrdinal(dt)}个${getScheduleWeekdayLabel(dt.getDay())}`;
+        if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return __tmT("calendar.weekMon");
+        return __tmT("calendar.week3", { value1: getScheduleMonthWeekOrdinal(dt), value2: getScheduleWeekdayLabel(dt.getDay()) });
     }
 
     function collectScheduleOccurrencesInRange(item, rangeStart, rangeEnd, options) {
@@ -14318,7 +14321,7 @@
             try {
                 const result = await kernelLoad();
                 if (!result || result.ok !== true || !Array.isArray(result.data)) {
-                    throw new Error(String(result?.error?.message || '内核日程服务读取失败'));
+                    throw new Error(String(result?.error?.message || __tmT("calendar.kernelScheduleServiceReadFailed")));
                 }
                 const { out, changed: normalizedChanged } = normalizeScheduleList(result.data);
                 const serialized = JSON.stringify(out, null, 2);
@@ -14668,7 +14671,7 @@
             const kernelSave = getKernelScheduleRpc('taskHorizonSaveSchedules');
             if (kernelSave) {
                 const result = await kernelSave(list, opts);
-                if (!result || result.ok !== true) throw new Error(String(result?.error?.message || '内核日程服务保存失败'));
+                if (!result || result.ok !== true) throw new Error(String(result?.error?.message || __tmT("calendar.kernelScheduleServiceSaveFailed")));
                 if (Array.isArray(result.data?.items)) {
                     const { out } = normalizeScheduleList(result.data.items);
                     const canonicalOut = out.map((item) => serializeScheduleForSave(item));
@@ -14785,7 +14788,7 @@
             const list = await loadScheduleAll();
             const idx = (Array.isArray(list) ? list : []).findIndex((item) => String(item?.id || '').trim() === id);
             if (idx < 0) {
-                toast('⚠ 未找到日程', 'warning');
+                toast(__tmT("calendar.scheduleNotFound"), 'warning');
                 return false;
             }
             const prev = (list[idx] && typeof list[idx] === 'object') ? list[idx] : {};
@@ -14795,7 +14798,7 @@
                 || (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && isAllDayRange(new Date(startMs), new Date(endMs)))
                 || opt.allDay === true;
             if (!isAllDay) {
-                toast('⚠ 仅全天日程支持置底', 'warning');
+                toast(__tmT("calendar.onlyAllDaySchedulesCanBePinnedToThe"), 'warning');
                 return false;
             }
             const next = { ...prev };
@@ -14827,10 +14830,10 @@
                 rangeEnd: next.end,
                 version: Number(state.calendarMutationVersion) || 0,
             });
-            toast(`✅ 已${bottom ? '置底' : '取消置底'}全天日程`, 'success');
+            toast(__tmT("calendar.allDaySchedule", { value1: bottom ? __tmT("calendar.moveToBottom") : __tmT("calendar.removeFromBottom") }), 'success');
             return true;
         } catch (e) {
-            toast(`❌ 操作失败：${String(e?.message || e || '')}`, 'error');
+            toast(__tmT("calendar.operationFailed", { value1: String(e?.message || e || '') }), 'error');
             return false;
         }
     }
@@ -15454,15 +15457,15 @@
             || ''
         ).trim().toLowerCase();
         if (clientKind === 'mobile' || clientKind === 'android' || clientKind === 'ios' || clientKind === 'harmony') {
-            return '移动端';
+            return __tmT("calendar.mobile");
         }
         if (clientKind === 'desktop' || clientKind === 'pc') {
-            return '桌面端';
+            return __tmT("calendar.desktop");
         }
         if (safeDeviceId && safeDeviceId === String(SCHEDULE_SYNC_DEVICE_ID || '').trim()) {
-            return shouldUseOfficialMobileNotificationBackend() ? '移动端' : '桌面端';
+            return shouldUseOfficialMobileNotificationBackend() ? __tmT("calendar.mobile") : __tmT("calendar.desktop");
         }
-        return '未知端';
+        return __tmT("calendar.unknownDevice");
     }
 
     function getScheduleDeviceScheduleMap(item) {
@@ -15701,18 +15704,18 @@
     }
 
     function getScheduleMobileNotificationTitle(item, target) {
-        const title = String(item?.title || '').trim() || '日程提醒';
-        return target?.allDay ? `全天提醒: ${title}` : title;
+        const title = String(item?.title || '').trim() || __tmT("calendar.scheduleReminder");
+        return target?.allDay ? __tmT("calendar.allDayReminder", { title: title }) : title;
     }
 
     function getScheduleMobileNotificationBody(item, target) {
-        const title = String(item?.title || '').trim() || '日程';
+        const title = String(item?.title || '').trim() || __tmT("kernel.schedule");
         if (target?.allDay) return `${title}\n${String(target?.dateKey || '')} ${String(target?.timeKey || '')}`.trim();
         const offset = Number(target?.offsetMin);
         const startDt = new Date(Number(target?.startMs) || 0);
         const startText = Number.isNaN(startDt.getTime()) ? '' : `${pad2(startDt.getHours())}:${pad2(startDt.getMinutes())}`;
         if (Number.isFinite(offset) && offset > 0) {
-            const prefix = offset % 60 === 0 ? `${Math.round(offset / 60)} 小时后开始` : `${Math.round(offset)} 分钟后开始`;
+            const prefix = offset % 60 === 0 ? __tmT("calendar.startsInH", { value1: Math.round(offset / 60) }) : __tmT("calendar.startsInMin", { offset: Math.round(offset) });
             return `${prefix}${startText ? `\n${startText}` : ''}`;
         }
         return startText || title;
@@ -15820,7 +15823,7 @@
         const grouped = new Map();
         for (const item of (Array.isArray(list) ? list : [])) {
             if (!shouldIncludeAllDayScheduleInMobileSummary(item, settings)) continue;
-            const title = String(item?.title || '').trim() || '全天日程';
+            const title = String(item?.title || '').trim() || __tmT("calendar.allDaySchedule2");
             const occurrences = collectScheduleOccurrencesInRange(item, today, new Date(windowEnd), {
                 limit: getScheduleRepeatType(item) === 'none' ? 1 : SCHEDULE_ALL_DAY_MOBILE_WINDOW_DAYS + 6,
             });
@@ -15981,8 +15984,8 @@
     }
 
     async function getWechatReminderEligibility() {
-        if (Number(globalThis?.siyuan?.config?.cloudRegion) !== 0) return { ok: false, reason: '当前云端区域不支持微信提醒' };
-        if (globalThis?.siyuan?.config?.readonly === true) return { ok: false, reason: '只读模式下无法同步微信提醒' };
+        if (Number(globalThis?.siyuan?.config?.cloudRegion) !== 0) return { ok: false, reason: __tmT("calendar.wechatRemindersAreNotSupportedInTheCurrentCloud") };
+        if (globalThis?.siyuan?.config?.readonly === true) return { ok: false, reason: __tmT("calendar.cannotSyncWechatRemindersInReadOnlyMode") };
         let user = globalThis?.siyuan?.user || null;
         if (!user) {
             try {
@@ -15997,7 +16000,7 @@
         const subscribed = !!user
             && (Number(user.userSiYuanProExpireTime) === -1 || Number(user.userSiYuanProExpireTime) > 0)
             && Number(user.userSiYuanSubscriptionStatus) === 0;
-        return subscribed ? { ok: true, reason: '' } : { ok: false, reason: '微信提醒需要有效的思源订阅' };
+        return subscribed ? { ok: true, reason: '' } : { ok: false, reason: __tmT("calendar.wechatRemindersRequireAnActiveSiyuanSubscription") };
     }
 
     const wechatReminderOperationFlights = (() => {
@@ -16022,7 +16025,7 @@
             let payload = null;
             try { payload = await response.json(); } catch (e) {}
             if (!response.ok || payload?.code !== 0) {
-                throw new Error(String(payload?.msg || `HTTP ${response.status}` || '微信提醒同步失败'));
+                throw new Error(String(payload?.msg || `HTTP ${response.status}` || __tmT("calendar.wechatReminderSyncFailed")));
             }
             return true;
         })();
@@ -16046,14 +16049,14 @@
         for (const item of (Array.isArray(list) ? list : [])) {
             const scheduleId = String(item?.id || '').trim();
             if (!scheduleId) continue;
-            const title = String(item?.title || '').trim() || '日程';
+            const title = String(item?.title || '').trim() || __tmT("kernel.schedule");
             const targets = collectScheduleMobileNotificationTargets(item, effectiveSettings, { windowDays: SCHEDULE_MOBILE_WINDOW_DAYS });
             for (const entry of targets) {
                 const startText = formatWechatReminderDisplayTime(entry.startMs);
                 const offset = Number(entry.offsetMin);
-                const offsetText = Number.isFinite(offset) && offset > 0 ? `，提前${offset}分钟` : '';
+                const offsetText = Number.isFinite(offset) && offset > 0 ? __tmT("calendar.minEarly", { offset: offset }) : '';
                 const ownerKey = `schedule:${scheduleId}:${String(entry.startMs || '')}`;
-                const target = buildWechatReminderTarget('task-horizon', ownerKey, Number(entry.atMs), `日程提醒：${title}（${startText}${offsetText}）`);
+                const target = buildWechatReminderTarget('task-horizon', ownerKey, Number(entry.atMs), __tmT("calendar.scheduleReminder2", { title: title, startText: startText, offsetText: offsetText }));
                 if (target) desired.set(target.dataId, target);
             }
         }
@@ -16064,7 +16067,7 @@
                 'task-horizon',
                 ownerKey,
                 Number(summary.atMs),
-                `全天日程：${titles.join('、')}（${String(summary.dateKey || '')} ${String(summary.timeKey || '')}）`,
+                __tmT("calendar.allDaySchedule3", { value1: titles.join('、'), value2: String(summary.dateKey || ''), value3: String(summary.timeKey || '') }),
             );
             if (target) desired.set(target.dataId, target);
         }
@@ -16203,9 +16206,9 @@
             const scheduleSaveReason = reasonText.startsWith('schedule-save:');
             if (errors.length > 0) {
                 console.warn('[task-horizon] 微信提醒同步失败', errors);
-                if (interactive || scheduleSaveReason) toast(`微信提醒同步失败：${errors[0]}`, 'warning');
+                if (interactive || scheduleSaveReason) toast(__tmT("calendar.wechatReminderSyncFailed2", { value1: errors[0] }), 'warning');
             } else if (interactive) {
-                toast(`微信提醒已同步 ${upserts.length} 项，取消 ${removals.length} 项`, 'success');
+                toast(__tmT("calendar.wechatRemindersSyncedRemoved", { length: upserts.length, length2: removals.length }), 'success');
             }
             });
         } finally {
@@ -16296,7 +16299,7 @@
         const nextEntries = [];
         for (const target of targets) {
             const delayInSeconds = Math.max(1, Math.ceil((Number(target.atMs) - Date.now()) / 1000));
-            const title = `全天日程提醒 ${String(target.timeKey || '')}`.trim();
+            const title = __tmT("calendar.allDayScheduleReminder", { value1: String(target.timeKey || '') }).trim();
             const body = (target.titles || []).map((t) => `• ${t}`).join('\n');
             const notificationId = await sendDeviceNotificationCompat(title, body, { channel: DEVICE_NOTIFICATION_CHANNEL, delayInSeconds });
             const id = normalizeNotificationId(notificationId);
@@ -16655,7 +16658,7 @@
             const host = ensureScheduleReminderToastHost();
             const toastEl = document.createElement('div');
             toastEl.className = 'tm-calendar-reminder-toast';
-            toastEl.innerHTML = `<div class="tm-calendar-reminder-head"><div class="tm-calendar-reminder-title">${esc(String(title || '日程提醒'))}</div><button class="tm-calendar-reminder-close" type="button" aria-label="关闭">×</button></div><div class="tm-calendar-reminder-body">${esc(String(body || ''))}</div>`;
+            toastEl.innerHTML = `<div class="tm-calendar-reminder-head"><div class="tm-calendar-reminder-title">${esc(String(title || __tmT("calendar.scheduleReminder")))}</div><button class="tm-calendar-reminder-close" type="button" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}">×</button></div><div class="tm-calendar-reminder-body">${esc(String(body || ''))}</div>`;
             host.appendChild(toastEl);
             requestAnimationFrame(() => { try { toastEl.classList.add('is-in'); } catch (e) {} });
             const close = () => {
@@ -16684,16 +16687,16 @@
 
     function describeDeviceNotificationFailureReason(reason) {
         const key = String(reason || '').trim();
-        if (!key) return '未知原因';
-        if (key === 'platform-utils-unavailable') return '未获取到思源通知接口';
-        if (key === 'send-returned-minus-one') return '思源通知接口返回了 -1';
-        if (key === 'send-no-numeric-return') return '思源通知接口未返回有效通知 ID';
-        if (key === 'platform-utils-send-error') return '调用思源通知接口时抛错';
+        if (!key) return __tmT("calendar.unknownReason");
+        if (key === 'platform-utils-unavailable') return __tmT("calendar.siyuanNotificationInterfaceUnavailable");
+        if (key === 'send-returned-minus-one') return __tmT("calendar.theSiyuanNotificationInterfaceReturned");
+        if (key === 'send-no-numeric-return') return __tmT("calendar.theSiyuanNotificationInterfaceDidNotReturnAValid");
+        if (key === 'platform-utils-send-error') return __tmT("calendar.errorWhileCallingTheSiyuanNotificationInterface");
         return key;
     }
 
     async function showScheduleSystemNotification(title, body, options = {}) {
-        const safeTitle = String(title || '日程提醒');
+        const safeTitle = String(title || __tmT("calendar.scheduleReminder"));
         const safeBody = String(body || '');
         try {
             const value = await sendDeviceNotificationCompat(safeTitle, safeBody, { ...options, timeoutType: 'never' });
@@ -16701,20 +16704,20 @@
             if (id !== null && id >= 0) return { ok: true, id };
             const reason = describeDeviceNotificationFailureReason(sendDeviceNotificationCompat._lastFailureReason);
             if (options.showFailureToast !== false) {
-                showScheduleReminderToast(safeTitle, `${safeBody}\n\n系统提醒失败：${reason}`);
+                showScheduleReminderToast(safeTitle, __tmT("calendar.systemNotificationFailed", { safeBody: safeBody, reason: reason }));
             }
             return { ok: false, id: -1, error: reason };
         } catch (e) {
             const reason = describeDeviceNotificationFailureReason(sendDeviceNotificationCompat._lastFailureReason);
             if (options.showFailureToast !== false) {
-                showScheduleReminderToast(safeTitle, `${safeBody}\n\n系统提醒失败：${reason}`);
+                showScheduleReminderToast(safeTitle, __tmT("calendar.systemNotificationFailed", { safeBody: safeBody, reason: reason }));
             }
             return { ok: false, id: -1, error: reason };
         }
     }
 
     async function showScheduleCompletionNotification(title, body, options = {}) {
-        const safeTitle = String(title || '日程提醒');
+        const safeTitle = String(title || __tmT("calendar.scheduleReminder"));
         const safeBody = String(body || '');
         showScheduleReminderToast(safeTitle, safeBody);
         return showScheduleSystemNotification(safeTitle, safeBody, {
@@ -16877,7 +16880,7 @@
                             const fired = loadScheduleReminderFiredSet(dateKey);
                             const key = buildScheduleReminderKey(id, atMs);
                             if (!fired.has(key)) {
-                                desired.set(key, { kind: 'schedule', atMs, scheduleId: id, title: normalizeCalendarScheduleTitleText(it.title, '日程'), allDay: true, dateKey });
+                                desired.set(key, { kind: 'schedule', atMs, scheduleId: id, title: normalizeCalendarScheduleTitleText(it.title, __tmT("kernel.schedule")), allDay: true, dateKey });
                             }
                         }
                         dayMs += 86400000;
@@ -16908,7 +16911,7 @@
                 const fired = loadScheduleReminderFiredSet(dateKey);
                 const key = buildScheduleReminderKey(id, atMs);
                 if (fired.has(key)) continue;
-                desired.set(key, { kind: 'schedule', atMs, startMs: occurrenceStartMs, scheduleId: id, title: normalizeCalendarScheduleTitleText(it.title, '日程'), allDay: false, dateKey, offsetMin });
+                desired.set(key, { kind: 'schedule', atMs, startMs: occurrenceStartMs, scheduleId: id, title: normalizeCalendarScheduleTitleText(it.title, __tmT("kernel.schedule")), allDay: false, dateKey, offsetMin });
             }
         }
 
@@ -16920,7 +16923,7 @@
                 const items = await Promise.resolve().then(() => window.tmQueryCalendarTaskDateEvents(today0, queryEnd)).catch(() => []);
                 for (const it of (Array.isArray(items) ? items : [])) {
                     const tid = String(it?.id || '').trim();
-                    const title = String(it?.title || '').trim() || '任务';
+                    const title = String(it?.title || '').trim() || __tmT("kernel.task");
                     const startKey = String(it?.start || '').trim();
                     const endExKey = String(it?.endExclusive || it?.end || '').trim();
                     if (!tid || !startKey || !endExKey) continue;
@@ -16978,7 +16981,7 @@
                             if (!r || r.enabled === false) continue;
                             if (!doesReminderOccurOnDate(r, dateKey)) continue;
                             const blockId = String(r.blockId || r.block_id || r.taskBlockId || r.task_block_id || r.targetBlockId || r.target_block_id || r.id || '').trim();
-                            const titleBase = String(r.blockName || r.blockContent || r.title || '').trim() || '任务提醒';
+                            const titleBase = String(r.blockName || r.blockContent || r.title || '').trim() || __tmT("calendar.taskReminder");
                             const times = getReminderTimes(r);
                             const completedSet = getReminderCompletedSet(r);
                             const done = isReminderDateCompleted(r, dateKey, times, completedSet);
@@ -17070,13 +17073,13 @@
                             if (fired.has(k0)) continue;
                             fired.add(k0);
                             firedAny.push(k0);
-                            const t0 = String(m0.title || '').trim() || '全天事件';
+                            const t0 = String(m0.title || '').trim() || __tmT("calendar.allDayEvent");
                             titles.push(t0);
                         }
                         if (firedAny.length === 0) return;
                         if (!tryAcquireScheduleReminderDispatchLock(`allday:${dateKey0}:${String(atMs0)}`)) return;
                         saveScheduleReminderFiredSet(dateKey0, fired);
-                        const title = `全天提醒 ${timeText}`;
+                        const title = __tmT("calendar.allDayReminder2", { timeText: timeText });
                         const body = titles.map((x) => `• ${x}`).join('\n');
                         showScheduleReminderToast(title, body);
                         if (shouldShowImmediateScheduleSystemNotification()) {
@@ -17103,9 +17106,9 @@
                         if (!Number.isFinite(offset) || offset <= 0) return '';
                         if (offset % 60 === 0) {
                             const h = Math.round(offset / 60);
-                            return `${h}小时后`;
+                            return __tmT("calendar.hFromNow", { h: h });
                         }
-                        return `${Math.round(offset)}分钟后`;
+                        return __tmT("calendar.minFromNow", { offset: Math.round(offset) });
                     })();
                     const bodyInApp = (meta.allDay === true) ? `${startText}` : (afterText ? `${startText}（${afterText}）` : `${startText}`);
                     showScheduleReminderToast(meta.title, bodyInApp);
@@ -17430,7 +17433,7 @@
         const end = new Date(endMs);
         const settings = getSettings();
         const calendarId = String(base.calendarId || '').trim() || pickDefaultCalendarId(settings);
-        const title = normalizeCalendarScheduleTitleText(base.title, '任务');
+        const title = normalizeCalendarScheduleTitleText(base.title, __tmT("kernel.task"));
         const calendarDefs = getCalendarDefs(settings);
         const color = isScheduleColorExplicit(base, settings, docId, calendarId)
             ? String(base.color || '').trim()
@@ -17576,7 +17579,7 @@
         const calendarId = String(base.calendarId || prev.calendarId || '').trim() || pickDefaultCalendarId(getSettings());
         const nextItem = {
             ...prev,
-            title: String(base.title || prev.title || '').trim() || '任务',
+            title: String(base.title || prev.title || '').trim() || __tmT("kernel.task"),
             start: safeISO(start),
             end: safeISO(end),
             allDay: false,
@@ -17699,7 +17702,7 @@
         await state.scheduleWriteTail;
         const list = await loadScheduleAll();
         const idx = list.findIndex((item) => String(item?.id || '').trim() === sid);
-        if (idx < 0) throw new Error('未找到日程');
+        if (idx < 0) throw new Error(__tmT("kernel.scheduleNotFound"));
         const prevItem = (list[idx] && typeof list[idx] === 'object') ? list[idx] : {};
         const opt = (options && typeof options === 'object') ? options : {};
         const completionIndependent = isScheduleCompletionIndependent(prevItem);
@@ -17840,18 +17843,18 @@
             modal.id = 'tm-calendar-recurring-scope-dialog';
             modal.className = 'tm-calendar-edit-modal';
             modal.style.zIndex = String(getOverlayZIndex(state.modalEl, 200000) + 4);
-            const title = String(opt.title || '修改循环日程').trim() || '修改循环日程';
-            const message = String(opt.message || '这是一个循环重复的日程。请选择本次修改的范围。').trim() || '这是一个循环重复的日程。请选择本次修改的范围。';
+            const title = String(opt.title || __tmT("calendar.editRecurringSchedule")).trim() || __tmT("calendar.editRecurringSchedule");
+            const message = String(opt.message || __tmT("calendar.thisIsARecurringScheduleChooseTheScopeOf")).trim() || __tmT("calendar.thisIsARecurringScheduleChooseTheScopeOf");
             modal.innerHTML = `
                 <div class="tm-calendar-edit-box" role="dialog" aria-modal="true" aria-label="${esc(title)}">
                     <div class="tm-calendar-edit-title">${esc(title)}</div>
                     <div class="tm-calendar-edit-value" style="white-space:normal;line-height:1.55;margin-bottom:12px;">${esc(message)}</div>
                     <div class="tm-calendar-edit-actions" style="flex-wrap:wrap;">
-                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-scope="cancel">取消</button>
+                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-scope="cancel">${__tmT("common.cancel")}</button>
                         <div style="flex:1;"></div>
-                        <button class="tm-btn tm-btn-primary" type="button" data-tm-recurring-scope="one">${opt.taskDate ? '仅本轮改期' : '仅当前这一次'}</button>
-                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-scope="future">${opt.taskDate ? '修改后续规则' : '当前及以后'}</button>
-                        ${opt.taskDate ? (opt.allowDetach ? '<button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-scope="detach">拆出本次为独立日程</button>' : '') : '<button class="tm-btn tm-btn-success" type="button" data-tm-recurring-scope="all">全部日程</button>'}
+                        <button class="tm-btn tm-btn-primary" type="button" data-tm-recurring-scope="one">${opt.taskDate ? __tmT("calendar.shiftThisOccurrenceOnly") : __tmT("calendar.onlyThisOccurrence")}</button>
+                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-scope="future">${opt.taskDate ? __tmT("calendar.editFollowingRules") : __tmT("calendar.thisAndFuture")}</button>
+                        ${opt.taskDate ? (opt.allowDetach ? `<button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-scope="detach">${__tmT("calendar.detachThisOccurrenceAsAStandaloneSchedule")}</button>` : '') : `<button class="tm-btn tm-btn-success" type="button" data-tm-recurring-scope="all">${__tmT("calendar.allSchedules")}</button>`}
                     </div>
                 </div>
             `;
@@ -17898,17 +17901,17 @@
             modal.id = 'tm-calendar-recurring-delete-scope-dialog';
             modal.className = 'tm-calendar-edit-modal';
             modal.style.zIndex = String(getOverlayZIndex(state.modalEl, 200000) + 4);
-            const title = String(opt.title || '删除循环日程').trim() || '删除循环日程';
-            const message = String(opt.message || '这是一个循环重复的日程。请选择删除范围。').trim() || '这是一个循环重复的日程。请选择删除范围。';
+            const title = String(opt.title || __tmT("calendar.deleteRecurringSchedule")).trim() || __tmT("calendar.deleteRecurringSchedule");
+            const message = String(opt.message || __tmT("calendar.thisIsARecurringScheduleChooseTheDeletionScope")).trim() || __tmT("calendar.thisIsARecurringScheduleChooseTheDeletionScope");
             modal.innerHTML = `
                 <div class="tm-calendar-edit-box" role="dialog" aria-modal="true" aria-label="${esc(title)}">
                     <div class="tm-calendar-edit-title">${esc(title)}</div>
                     <div class="tm-calendar-edit-value" style="white-space:normal;line-height:1.55;margin-bottom:12px;">${esc(message)}</div>
                     <div class="tm-calendar-edit-actions" style="flex-wrap:wrap;">
-                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-delete-scope="cancel">取消</button>
+                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-delete-scope="cancel">${__tmT("common.cancel")}</button>
                         <div style="flex:1;"></div>
-                        <button class="tm-btn tm-btn-primary" type="button" data-tm-recurring-delete-scope="one">仅当前这一次</button>
-                        <button class="tm-btn tm-btn-danger" type="button" data-tm-recurring-delete-scope="future">当前及以后</button>
+                        <button class="tm-btn tm-btn-primary" type="button" data-tm-recurring-delete-scope="one">${__tmT("calendar.onlyThisOccurrence")}</button>
+                        <button class="tm-btn tm-btn-danger" type="button" data-tm-recurring-delete-scope="future">${__tmT("calendar.thisAndFuture")}</button>
                     </div>
                 </div>
             `;
@@ -18613,7 +18616,7 @@
             }
         }
         if (failed && opt.toast !== false) {
-            try { toast('⚠ 日程已保存，但任务日期同步失败', 'warning'); } catch (e) {}
+            try { toast(__tmT("calendar.scheduleSavedButTaskDateSyncFailed"), 'warning'); } catch (e) {}
         }
         return { synced, failed };
     }
@@ -18650,7 +18653,7 @@
         let mutationResult;
         if (repeatType !== 'none') {
             const scope = await showScheduleRecurringEditScopeDialog({
-                message: '这是一个循环重复的日程。要把这次拖拽/调整应用到全部日程，还是只改当前这一次？',
+                message: __tmT("calendar.thisIsARecurringScheduleApplyThisDragAdjustment"),
             });
             if (!scope) return { cancelled: true };
             mutationResult = applyScheduleRecurringScopeMutation(list, idx, draftItem, scope, {
@@ -18739,7 +18742,7 @@
         return text;
     }
 
-    function normalizeCalendarScheduleTitleText(value, fallback = '日程') {
+    function normalizeCalendarScheduleTitleText(value, fallback = __tmT("kernel.schedule")) {
         const fb = String(fallback || '').trim();
         const text = stripCalendarTaskListStatusPrefix(value)
             .split(/\r?\n/, 1)[0]
@@ -18748,8 +18751,8 @@
         return text || fb;
     }
 
-    function normalizeCalendarTaskTitleText(value, fallback = '任务') {
-        const fb = String(fallback || '').trim() || '任务';
+    function normalizeCalendarTaskTitleText(value, fallback = __tmT("kernel.task")) {
+        const fb = String(fallback || '').trim() || __tmT("kernel.task");
         return resolveTaskTitlePresentation(value, fb).text || fb;
     }
 
@@ -18808,7 +18811,7 @@
         // when it already has a start/deadline pair. Only a concrete time
         // slot may create an internal schedule event.
         if (typeof window.tmUpdateTaskDates !== 'function') {
-            toast('⚠ 未找到任务日期更新接口', 'warning');
+            toast(__tmT("calendar.taskDateUpdateApiIsNotAvailable"), 'warning');
             return true;
         }
         try {
@@ -18832,9 +18835,9 @@
                     allowAdd: true,
                 });
             } catch (e) {}
-            toast(`✅ 截止日期已更新为 ${dateKey}`, 'success');
+            toast(__tmT("calendar.dueDateUpdatedTo2", { dateKey: dateKey }), 'success');
         } catch (e) {
-            toast(`❌ 更新截止日期失败：${String(e?.message || e || '')}`, 'error');
+            toast(__tmT("calendar.failedToUpdateDueDate", { value1: String(e?.message || e || '') }), 'error');
         }
         return true;
     }
@@ -19204,25 +19207,25 @@
         const times = (Array.isArray(timeKeys) ? timeKeys : [timeKeys])
             .map((it) => String(it || '').trim())
             .filter(Boolean);
-        if (!id || !day) throw new Error('提醒实例信息不完整');
+        if (!id || !day) throw new Error(__tmT("calendar.reminderOccurrenceInformationIsIncomplete"));
         const api = globalThis.__tomatoReminder || null;
         if (times.length && typeof api?.setOccurrenceDone === 'function') {
             for (const timeKey of times) {
                 const result = await api.setOccurrenceDone(id, day, timeKey, done !== false, options);
-                if (result === false) throw new Error('提醒完成接口返回失败');
+                if (result === false) throw new Error(__tmT("calendar.reminderCompletionApiReturnedAFailure"));
             }
         } else if (times.length && done !== false && typeof api?.completeOccurrence === 'function') {
             for (const timeKey of times) {
                 const result = await api.completeOccurrence(id, day, timeKey, options);
-                if (result === false) throw new Error('提醒完成接口返回失败');
+                if (result === false) throw new Error(__tmT("calendar.reminderCompletionApiReturnedAFailure"));
             }
         } else if (times.length && done === false && typeof api?.uncompleteOccurrence === 'function') {
             for (const timeKey of times) {
                 const result = await api.uncompleteOccurrence(id, day, timeKey, options);
-                if (result === false) throw new Error('提醒撤销接口返回失败');
+                if (result === false) throw new Error(__tmT("calendar.reminderUndoApiReturnedAFailure"));
             }
         } else {
-            throw new Error('Dock Tomato 提醒桥接未就绪');
+            throw new Error(__tmT("calendar.dockTomatoReminderBridgeIsNotReady"));
         }
         try { clearReminderCalendarCache(); } catch (e) {}
         try { scheduleReminderCalendarRefetch(); } catch (e) {}
@@ -19261,7 +19264,7 @@
         if (opt.jsEvent) opt.jsEvent.__tmCalendarCheckboxHandled = true;
         if (ext?.__tmCheckin === true) {
             const day = String(ext?.__tmCheckinDate || '').trim();
-            if (!tid || typeof window.tmSetTaskCheckin !== 'function') throw new Error('打卡接口不可用');
+            if (!tid || typeof window.tmSetTaskCheckin !== 'function') throw new Error(__tmT("calendar.checkInApiIsNotAvailable"));
             try {
                 await window.tmSetTaskCheckin(tid, day, nextDone, { source: 'calendar-checkin', refresh: false });
                 ext.__tmTaskDone = nextDone;
@@ -19286,7 +19289,7 @@
                     source: 'calendar-undo-completion', restoreCompletionId: ext.__tmCompletionId,
                     force: true, wait: true,
                 });
-                if (result === false) throw new Error('任务完成记录未撤销');
+                if (result === false) throw new Error(__tmT("calendar.taskCompletionRecordWasNotReverted"));
                 applied = true;
                 return true;
             }
@@ -19305,14 +19308,14 @@
                 const occurrenceStartMs = Number(ext?.__tmOccurrenceStartMs);
                 const setter = globalThis.__tmCalendar?.setScheduleOccurrenceDone;
                 if (!scheduleId || !Number.isFinite(occurrenceStartMs) || typeof setter !== 'function') {
-                    throw new Error('日程实例状态接口不可用');
+                    throw new Error(__tmT("calendar.scheduleOccurrenceStatusApiIsNotAvailable"));
                 }
                 const result = await setter(scheduleId, occurrenceStartMs, nextDone, {
                     source: 'calendar-checkbox',
                     detachedTaskOccurrence: isDetachedTaskOccurrenceEventExt(ext),
                     detachedScheduleOccurrence: isDetachedScheduleOccurrenceEventExt(ext),
                 });
-                if (result === false) throw new Error('日程状态未保存');
+                if (result === false) throw new Error(__tmT("calendar.scheduleStatusWasNotSaved"));
                 try { ext.__tmScheduleOccurrenceDone = nextDone; } catch (e) {}
                 applied = true;
                 return true;
@@ -19322,34 +19325,34 @@
                 const occurrenceStartMs = Number(ext?.__tmOccurrenceStartMs);
                 const setter = globalThis.__tmCalendar?.setScheduleOccurrenceDone;
                 if (!scheduleId || !Number.isFinite(occurrenceStartMs) || typeof setter !== 'function') {
-                    throw new Error('日程实例状态接口不可用');
+                    throw new Error(__tmT("calendar.scheduleOccurrenceStatusApiIsNotAvailable"));
                 }
                 const result = await setter(scheduleId, occurrenceStartMs, nextDone, {
                     source: 'calendar-checkbox',
                 });
-                if (result === false) throw new Error('循环实例状态未保存');
+                if (result === false) throw new Error(__tmT("calendar.recurringOccurrenceStatusWasNotSaved"));
                 applied = true;
                 return true;
             }
             if (source === 'taskdate' && isRecurringTaskDateReadOnlyOccurrence(ext) && !nextDone) {
                 const completedAt = String(ext?.__tmRecurringCompletedAt || '').trim();
                 if (!tid || !completedAt || typeof window.tmSetDetachedTaskRepeatHistoryEntry !== 'function') {
-                    throw new Error('循环记录撤销接口不可用');
+                    throw new Error(__tmT("calendar.recurringRecordUndoApiIsNotAvailable"));
                 }
                 const result = await window.tmSetDone(tid, false, null, { source: 'calendar-recurring-instance-uncomplete', restoreCompletionId: completedAt, wait: true, force: true });
-                if (result === false) throw new Error('循环实例状态未保存');
+                if (result === false) throw new Error(__tmT("calendar.recurringOccurrenceStatusWasNotSaved"));
                 applied = true;
                 return true;
             }
             if (!tid || typeof window.tmSetDone !== 'function') {
-                throw new Error('任务完成接口不可用');
+                throw new Error(__tmT("calendar.taskCompletionApiIsNotAvailable"));
             }
             const scheduleId = source === 'schedule'
                 ? String(ext?.__tmScheduleId || '').trim()
                 : '';
             const result = await window.tmSetDone(tid, nextDone, null, { source: 'calendar', scheduleId, wait: true, fsrsRating: 3, occurrenceId: ext?.__tmTaskOccurrenceId,
                 origin: scheduleId ? { scheduleId, occurrenceStartMs: ext.__tmOccurrenceStartMs } : null });
-            if (result === false) throw new Error('任务完成状态未保存');
+            if (result === false) throw new Error(__tmT("calendar.taskCompletionStatusWasNotSaved"));
             applied = true;
             return true;
         } catch (e) {
@@ -20457,7 +20460,7 @@
         const end = allDay
             ? new Date(start.getTime() + 24 * 60 * 60000)
             : new Date(start.getTime() + safeMin * 60000);
-        const title = String(payload.title || '').trim() || '任务';
+        const title = String(payload.title || '').trim() || __tmT("kernel.task");
         const calId = String(payload.calendarId || '').trim() || pickDefaultCalendarId(settings);
         const defs = getCalendarDefs(settings);
         const color = String(defs.find((d) => String(d?.id || '').trim() === calId)?.color || 'var(--tm-primary-color)').trim() || 'var(--tm-primary-color)';
@@ -20819,7 +20822,7 @@
                         || ''
                     ).trim();
                     const task = resolver ? resolver(id) : null;
-                    let title = resolveTaskDisplayTitleForDrag(task, id) || id || '任务';
+                    let title = resolveTaskDisplayTitleForDrag(task, id) || id || __tmT("kernel.task");
                     let safeMin = parseTaskDurationMinutes(task?.duration);
                     let durationExplicit = Number.isFinite(Number(safeMin)) && Number(safeMin) > 0;
                     let calendarId = String(el?.getAttribute?.('data-calendar-id') || '').trim();
@@ -22107,7 +22110,7 @@
                     } else {
                         end = new Date(start.getTime() + durMin * 60000);
                     }
-                    const title = String(payload?.title || info?.event?.title || '').trim() || '任务';
+                    const title = String(payload?.title || info?.event?.title || '').trim() || __tmT("kernel.task");
                     const calendarId = String(ext.calendarId || payload?.calendarId || '').trim() || pickDefaultCalendarId(settings);
                     if (await maybeUpdateEmptyTaskDueDateFromAllDayDrop({ ...(payload || {}), taskId }, start, allDay, {
                         source: 'side-calendar-receive-task-due-date',
@@ -22130,10 +22133,10 @@
                         dragSource: payload?.dragSource,
                     });
                     try { info?.event?.remove?.(); } catch (e2) {}
-                    toast('✅ 已加入日程', 'success');
+                    toast(__tmT("calendar.addedToSchedule"), 'success');
                 } catch (e) {
                     try { info?.event?.remove?.(); } catch (e2) {}
-                    toast(`❌ 加入日程失败：${String(e?.message || e || '')}`, 'error');
+                    toast(__tmT("calendar.failedToAddToSchedule", { value1: String(e?.message || e || '') }), 'error');
                 } finally {
                     calendarExternalDragPreviewController.clear({ stopPointerMonitor: true });
                 }
@@ -22415,7 +22418,7 @@
                             notificationSchedules: sanitizeScheduleNotificationSchedules(ext.__tmNotificationSchedules),
                         });
                     } catch (e2) {
-                        toast(`❌ 打开编辑窗失败：${String(e2?.message || e2 || '')}`, 'error');
+                        toast(__tmT("calendar.failedToOpenTheEditDialog", { value1: String(e2?.message || e2 || '') }), 'error');
                     }
                 }
             },
@@ -22432,11 +22435,11 @@
                             return;
                         }
                         settleSidePrototypeCommittedDrag(arg);
-                        if (!result?.dateFollowFailed) toast('✅ 已更新日程', 'success');
+                        if (!result?.dateFollowFailed) toast(__tmT("calendar.scheduleUpdated"), 'success');
                     } catch (e) {
                         clearSidePrototypeCommittedDrag(arg?.event?.id, Number(arg?.jsEvent?.__tmSidePrototypeCommitToken) || 0);
                         try { arg.revert(); } catch (e2) {}
-                        toast(`❌ 更新日程失败：${String(e?.message || e || '')}`, 'error');
+                        toast(__tmT("calendar.failedToUpdateTheSchedule", { value1: String(e?.message || e || '') }), 'error');
                     }
                     return;
                 }
@@ -22444,7 +22447,7 @@
                     try {
                         if (shouldCreateScheduleFromTaskDateDrop(arg)) {
                             await createScheduleFromTaskDateDrop(arg);
-                            toast('✅ 已加入日程', 'success');
+                            toast(__tmT("calendar.addedToSchedule"), 'success');
                             return;
                         }
                         const result = await persistTaskDateEventChange(arg, { background: true, calendar: cal });
@@ -22453,11 +22456,11 @@
                             try { arg.revert(); } catch (e) {}
                             return;
                         }
-                        toast(result?.scope === 'one' ? '✅ 已新增本次例外日程' : '✅ 已更新任务日期', 'success');
+                        toast(result?.scope === 'one' ? __tmT("calendar.exceptionOccurrenceAdded") : __tmT("calendar.taskDatesUpdated"), 'success');
                     } catch (e) {
                         forgetPendingTaskDateEventPatch(ext.__tmTaskId);
                         try { arg.revert(); } catch (e2) {}
-                        toast(`❌ 更新任务日期失败：${String(e?.message || e || '')}`, 'error');
+                        toast(__tmT("calendar.failedToUpdateTaskDate", { value1: String(e?.message || e || '') }), 'error');
                     }
                     return;
                 }
@@ -22474,11 +22477,11 @@
                             try { arg.revert(); } catch (e) {}
                             return;
                         }
-                        toast(result?.scope === 'one' ? '✅ 已新增本次例外日程' : '✅ 已更新任务日期', 'success');
+                        toast(result?.scope === 'one' ? __tmT("calendar.exceptionOccurrenceAdded") : __tmT("calendar.taskDatesUpdated"), 'success');
                     } catch (e) {
                         forgetPendingTaskDateEventPatch(ext.__tmTaskId);
                         try { arg.revert(); } catch (e2) {}
-                        toast(`❌ 更新任务日期失败：${String(e?.message || e || '')}`, 'error');
+                        toast(__tmT("calendar.failedToUpdateTaskDate", { value1: String(e?.message || e || '') }), 'error');
                     }
                     return;
                 }
@@ -22494,11 +22497,11 @@
                         return;
                     }
                     settleSidePrototypeCommittedDrag(arg);
-                    if (!result?.dateFollowFailed) toast('✅ 已更新日程', 'success');
+                    if (!result?.dateFollowFailed) toast(__tmT("calendar.scheduleUpdated"), 'success');
                 } catch (e) {
                     clearSidePrototypeCommittedDrag(arg?.event?.id, Number(arg?.jsEvent?.__tmSidePrototypeCommitToken) || 0);
                     try { arg.revert(); } catch (e2) {}
-                    toast(`❌ 更新日程失败：${String(e?.message || e || '')}`, 'error');
+                    toast(__tmT("calendar.failedToUpdateTheSchedule", { value1: String(e?.message || e || '') }), 'error');
                 }
             },
             dateClick: (info) => {
@@ -22767,7 +22770,7 @@
             const def = calendarDefs.find((d) => String(d?.id || '').trim() === calendarId);
             return {
                 ...it,
-                calendarName: String(def?.name || calendarId || '日程').trim(),
+                calendarName: String(def?.name || calendarId || __tmT("kernel.schedule")).trim(),
                 calendarColor: String(def?.color || it?.color || '').trim(),
             };
         }).sort((a, b) => {
@@ -23030,7 +23033,7 @@
             const linkedTitle = (linkedTaskTitleMap instanceof Map)
                 ? String((taskId ? linkedTaskTitleMap.get(taskId) : '') || (blockId ? linkedTaskTitleMap.get(blockId) : '') || '').trim()
                 : '';
-            const titleBase = normalizeCalendarScheduleTitleText(it?.title || linkedTitle, '日程');
+            const titleBase = normalizeCalendarScheduleTitleText(it?.title || linkedTitle, __tmT("kernel.schedule"));
             const calendarId = String(it?.calendarId || 'default');
             if (!isCalendarEnabled(calendarId, settings)) continue;
             const calColor = defMap.get(calendarId)?.color || 'var(--tm-primary-color)';
@@ -23516,7 +23519,7 @@
                 return;
             }
             try {
-                eventApi.setProp?.('title', String(nextEvent.title || '').trim() || '日程');
+                eventApi.setProp?.('title', String(nextEvent.title || '').trim() || __tmT("kernel.schedule"));
                 setCalendarEventColor(eventApi, getCalendarEventInputColor(nextEvent, 'var(--tm-primary-color)'));
                 if ((Array.isArray(nextEvent.classNames) || nextEvent.className) && typeof eventApi.setProp === 'function') {
                     setCalendarEventClassName(eventApi, nextEvent.className || nextEvent.classNames);
@@ -23890,7 +23893,7 @@
             } catch (e) {}
             const sourceTaskId = String(it?.sourceTaskId || it?.recurringSourceTaskId || '').trim();
             const actionTaskId = linkedTaskId || sourceTaskId || taskId;
-            const title = String(it?.title || '').trim() || '任务';
+            const title = String(it?.title || '').trim() || __tmT("kernel.task");
             const titleMarkdown = String(it?.titleMarkdown || it?.markdown || title).trim() || title;
             const taskSnapshot = (() => {
                 try { return getCalendarTaskSnapshotById(linkedTaskId || sourceTaskId || taskId); } catch (e) { return null; }
@@ -24037,7 +24040,7 @@
         state.mainCalendarStatus = next;
         const statusEl = state.wrapEl?.querySelector?.('[data-tm-cal-role="status"]');
         if (statusEl instanceof HTMLElement) {
-            statusEl.textContent = `事件: ${next.total}（番茄:${next.records} 文档:${next.schedules} 跨天:${next.taskDates} 节假:${next.holidays} 提醒:${next.reminders} 原始:${next.rawTotal} 异常:${next.bad} 范围:${next.minTxt}~${next.maxTxt}）`;
+            statusEl.textContent = __tmT("calendar.eventsPomodoroDocsMultiDayHolidaysRemindersRawBad", { total: next.total, records: next.records, schedules: next.schedules, taskDates: next.taskDates, holidays: next.holidays, reminders: next.reminders, rawTotal: next.rawTotal, bad: next.bad, minTxt: next.minTxt, maxTxt: next.maxTxt });
         }
         return next;
     }
@@ -24316,7 +24319,7 @@
         const ext = (nextEvent && typeof nextEvent === 'object' && nextEvent.extendedProps && typeof nextEvent.extendedProps === 'object')
             ? nextEvent.extendedProps
             : {};
-        try { eventApi.setProp?.('title', String(nextEvent.title || '').trim() || '任务'); } catch (e) {}
+        try { eventApi.setProp?.('title', String(nextEvent.title || '').trim() || __tmT("kernel.task")); } catch (e) {}
         try { setCalendarEventColor(eventApi, getCalendarEventInputColor(nextEvent, '#6b7280')); } catch (e) {}
         try { eventApi.setProp?.('contrastColor', String(nextEvent.contrastColor || nextEvent.textColor || '#fff')); } catch (e) {}
         try {
@@ -24458,7 +24461,7 @@
             || ''
         ).trim();
         return {
-            title: normalizeCalendarTaskTitleText(title, '任务'),
+            title: normalizeCalendarTaskTitleText(title, __tmT("kernel.task")),
             titleMarkdown: titleMarkdown || title,
             docId,
             milestone,
@@ -24492,7 +24495,7 @@
         const sourceCompletionKey = String(hasPatchCompletion ? p.completionTime : (fallbackExt.__tmTaskDateSourceCompletionKey || '')).trim();
         const meta = resolveTaskDateLocalEventMeta(tid, fallbackEvent);
         const title = Object.prototype.hasOwnProperty.call(p, 'content')
-            ? normalizeCalendarTaskTitleText(String(p.content || '').trim(), meta.title || '任务')
+            ? normalizeCalendarTaskTitleText(String(p.content || '').trim(), meta.title || __tmT("kernel.task"))
             : meta.title;
         const titleMarkdown = String(
             (Object.prototype.hasOwnProperty.call(p, 'markdown') ? p.markdown : '')
@@ -24601,7 +24604,7 @@
             handled: true,
             event: {
                 id: String(event.id || `taskdate:${tid}`).trim() || `taskdate:${tid}`,
-                title: String(event.title || '').trim() || '任务',
+                title: String(event.title || '').trim() || __tmT("kernel.task"),
                 start,
                 end,
                 allDay: true,
@@ -24999,7 +25002,7 @@
         const taskId = String(ext.__tmTaskId || '').trim();
         const start = eventApi?.start instanceof Date ? eventApi.start : null;
         if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) return null;
-        if (eventApi?.allDay !== true) throw new Error('任务日期事件仅支持按天调整');
+        if (eventApi?.allDay !== true) throw new Error(__tmT("calendar.taskDateEventsCanOnlyBeAdjustedByDay"));
         const startKey = toLocalDateKey(start);
         if (!startKey) return null;
         const end0 = eventApi?.end instanceof Date ? eventApi.end : null;
@@ -25358,7 +25361,7 @@
         const taskId = String(ext.__tmTaskId || '').trim();
         const start = eventApi?.start instanceof Date ? eventApi.start : null;
         if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) {
-            throw new Error('无效的任务日期事件');
+            throw new Error(__tmT("calendar.invalidTaskDateEvent"));
         }
         const end0 = eventApi?.end instanceof Date ? eventApi.end : null;
         const end = (end0 instanceof Date && !Number.isNaN(end0.getTime()) && end0.getTime() > start.getTime())
@@ -25371,7 +25374,7 @@
                 ? window.tmCalendarGetTaskDragMeta(taskId)
                 : null;
         } catch (e) {}
-        const title = String(eventApi?.title || dragMeta?.title || '').trim() || '任务';
+        const title = String(eventApi?.title || dragMeta?.title || '').trim() || __tmT("kernel.task");
         const calendarId = String(dragMeta?.calendarId || ext.calendarId || '').trim() || pickDefaultCalendarId(settings);
         const defs = getCalendarDefs(settings);
         const sourceColor = getCalendarEventColor(eventApi, defs.find((d) => String(d?.id || '').trim() === calendarId)?.color || '');
@@ -25394,7 +25397,7 @@
 
     async function persistTaskDateRecurringSingleOccurrenceChange(arg, patch) {
         if (typeof window.tmSkipRecurringTaskOccurrence !== 'function') {
-            throw new Error('未检测到循环任务跳过接口');
+            throw new Error(__tmT("calendar.recurringTaskSkipApiNotDetected"));
         }
         const created = await createAllDayScheduleFromTaskDateEvent(arg, { refresh: false });
         try {
@@ -25431,24 +25434,24 @@
         const opt = (options && typeof options === 'object') ? options : {};
         const backgroundWrite = opt.background === true;
         const patch = buildTaskDatePatchFromEvent(arg?.event);
-        if (!patch) throw new Error('无效的任务日期事件');
+        if (!patch) throw new Error(__tmT("calendar.invalidTaskDateEvent"));
         rememberPendingTaskDateEventPatch(patch.taskId, patch);
-        if (typeof window.tmUpdateTaskDates !== 'function') throw new Error('未检测到任务日期更新接口');
+        if (typeof window.tmUpdateTaskDates !== 'function') throw new Error(__tmT("calendar.taskDateUpdateApiNotDetected"));
         const repeatRule = isAllDayTaskDateEvent(arg?.event)
             ? await getTaskDateEventRepeatRule(arg?.event)
             : null;
         let repeatScope = 'one';
         if (repeatRule) {
             const scope = await showScheduleRecurringEditScopeDialog({
-                title: '修改循环任务日期',
+                title: __tmT("calendar.editRecurringTaskDates"),
                 taskDate: true, allowDetach: repeatRule.trigger === 'due' && repeatRule.type !== 'fsrs',
-                message: '仅本轮改期不消耗次数；修改后续规则会调整计划基准。拆出独立日程后，主任务继续下一轮。',
+                message: __tmT("calendar.shiftingOnlyThisOccurrenceDoesNotConsumeACount"),
             });
             if (!scope) return { cancelled: true };
             if (scope === 'detach') return await persistTaskDateRecurringSingleOccurrenceChange(arg, patch);
             repeatScope = scope;
             if (scope !== 'one' && ((repeatRule.weekdays?.length || 0) > 1 || (repeatRule.monthDays?.length || 0) > 1)) {
-                throw new Error('请在循环设置中修改多日期规则，或选择仅本轮改期');
+                throw new Error(__tmT("calendar.editTheMultiDateRuleInRepeatSettingsOr"));
             }
         }
         const taskDateUpdatePatch = {};
@@ -25479,7 +25482,7 @@
                             patchExistingTaskDateEventsAfterDrag(previousPatch.taskId, previousPatch, null);
                         }
                     } catch (e) {}
-                    try { toast(`❌ 更新任务日期失败：${String(error?.message || error || '')}`, 'error'); } catch (e) {}
+                    try { toast(__tmT("calendar.failedToUpdateTaskDate", { value1: String(error?.message || error || '') }), 'error'); } catch (e) {}
                 },
             } : {}),
             skipFlush: true,
@@ -25550,9 +25553,9 @@
         });
         try {
             await createScheduleFromTaskDateDrop({ event });
-            toast('✅ 已加入日程', 'success');
+            toast(__tmT("calendar.addedToSchedule"), 'success');
         } catch (e) {
-            toast(`❌ 加入日程失败：${String(e?.message || e || '')}`, 'error');
+            toast(__tmT("calendar.failedToAddToSchedule", { value1: String(e?.message || e || '') }), 'error');
         }
     }
 
@@ -25574,7 +25577,7 @@
         const taskId = String(ext.__tmTaskId || '').trim();
         const start = eventApi?.start instanceof Date ? eventApi.start : null;
         if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) {
-            throw new Error('无效的任务日期事件');
+            throw new Error(__tmT("calendar.invalidTaskDateEvent"));
         }
         const settings = getSettings();
         let dragMeta = null;
@@ -25588,7 +25591,7 @@
         const end = (end0 instanceof Date && !Number.isNaN(end0.getTime()) && end0.getTime() > start.getTime())
             ? end0
             : new Date(start.getTime() + durationMin * 60000);
-        const title = String(eventApi?.title || dragMeta?.title || '').trim() || '任务';
+        const title = String(eventApi?.title || dragMeta?.title || '').trim() || __tmT("kernel.task");
         const calendarId = String(dragMeta?.calendarId || ext.calendarId || '').trim() || pickDefaultCalendarId(settings);
         const defs = getCalendarDefs(settings);
         const sourceColor = getCalendarEventColor(eventApi, defs.find((d) => String(d?.id || '').trim() === calendarId)?.color || '');
@@ -26168,7 +26171,7 @@
             ).trim();
             const taskId = String(r.taskId || r.task_id || '').trim();
             const reminderTaskId = taskId || blockId;
-            const titleBase = String(r.blockName || r.blockContent || r.title || '').trim() || '任务提醒';
+            const titleBase = String(r.blockName || r.blockContent || r.title || '').trim() || __tmT("calendar.taskReminder");
             const times = getReminderTimes(r);
             const completedSet = getReminderCompletedSet(r);
             for (let ts = start.getTime(); ts < end.getTime(); ts += dayMs) {
@@ -26232,7 +26235,7 @@
     }
 
     function getCalendarCustomHolidayFallbackName(type) {
-        return String(type || '').trim() === 'work' ? '个人调休工作日' : '个人休息日';
+        return String(type || '').trim() === 'work' ? __tmT("calendar.customWorkingDay") : __tmT("calendar.customDayOff");
     }
 
     function getCalendarCustomHolidaySignature(overrides) {
@@ -26282,16 +26285,16 @@
         while (day < end) {
             const key = formatDateKey(day);
             const lunar = formatCnLunarDateKey(key);
-            if (day.getMonth() === 0 && day.getDate() === 1) add(day, '元旦');
-            if (day.getMonth() === 4 && day.getDate() === 1) add(day, '劳动节');
-            if (day.getMonth() === 9 && day.getDate() === 1) add(day, '国庆节');
-            if (getCnSolarTermName(key) === '清明') add(day, '清明节');
-            if (lunar === '正月初一') add(day, '春节');
-            if (lunar === '五月初五') add(day, '端午节');
-            if (lunar === '八月十五') add(day, '中秋节');
+            if (day.getMonth() === 0 && day.getDate() === 1) add(day, __tmT("calendar.newYearSDay"));
+            if (day.getMonth() === 4 && day.getDate() === 1) add(day, __tmT("calendar.labourDay"));
+            if (day.getMonth() === 9 && day.getDate() === 1) add(day, __tmT("calendar.nationalDay"));
+            if (getCnSolarTermName(key) === '清明') add(day, __tmT("calendar.qingmingFestival"));
+            if (lunar === '正月初一') add(day, __tmT("calendar.springFestival"));
+            if (lunar === '五月初五') add(day, __tmT("calendar.dragonBoatFestival"));
+            if (lunar === '八月十五') add(day, __tmT("calendar.midAutumnFestival"));
             const next = new Date(day.getTime());
             next.setDate(next.getDate() + 1);
-            if (next < end && formatCnLunarDateKey(formatDateKey(next)) === '正月初一') add(day, '除夕');
+            if (next < end && formatCnLunarDateKey(formatDateKey(next)) === '正月初一') add(day, __tmT("calendar.lunarNewYearSEve"));
             day.setDate(day.getDate() + 1);
         }
         return out.sort((left, right) => left.date.localeCompare(right.date));
@@ -26394,7 +26397,7 @@
                     out.push({
                         date,
                         type,
-                        name: String(it.name || '').trim() || (type === 4 ? '调休（班）' : '节假日（休）'),
+                        name: String(it.name || '').trim() || (type === 4 ? __tmT("calendar.adjustedWorkingDay") : __tmT("calendar.publicHoliday")),
                         lunar: String(it.lunar || '').trim(),
                         extra_info: String(it.extra_info || '').trim(),
                     });
@@ -26417,7 +26420,7 @@
                 out.push({
                     date,
                     type,
-                    name: name || (type === 4 ? '调休（班）' : '节假日（休）'),
+                    name: name || (type === 4 ? __tmT("calendar.adjustedWorkingDay") : __tmT("calendar.publicHoliday")),
                     lunar: '',
                     extra_info: '',
                 });
@@ -26644,8 +26647,8 @@
             const dot = document.createElement('span');
             const isWork = type === 4;
             dot.className = `tm-cn-holiday-dot ${isWork ? 'tm-cn-holiday-dot--work' : 'tm-cn-holiday-dot--rest'}`;
-            dot.textContent = isWork ? '班' : '休';
-            dot.title = `${isWork ? '上班' : '休息'}${it.name ? `：${it.name}` : ''}`;
+            dot.textContent = isWork ? __tmT("calendar.work") : __tmT("calendar.rest");
+            dot.title = `${isWork ? __tmT("calendar.work2") : __tmT("calendar.rest2")}${it.name ? `：${it.name}` : ''}`;
             try {
                 const host = isWeek ? ensureWeekHead(labelEl) : labelEl;
                 const first = host.firstChild;
@@ -26863,15 +26866,15 @@
         const n = String(name || '').trim();
         if (!n) return false;
         const set = new Set([
-            '元旦',
-            '除夕',
-            '春节',
-            '元宵节',
-            '清明节',
-            '劳动节',
-            '端午节',
-            '中秋节',
-            '国庆节',
+            __tmT("calendar.newYearSDay"),
+            __tmT("calendar.lunarNewYearSEve"),
+            __tmT("calendar.springFestival"),
+            __tmT("calendar.lanternFestival"),
+            __tmT("calendar.qingmingFestival"),
+            __tmT("calendar.labourDay"),
+            __tmT("calendar.dragonBoatFestival"),
+            __tmT("calendar.midAutumnFestival"),
+            __tmT("calendar.nationalDay"),
         ]);
         if (set.has(n)) return true;
         if (n.includes('节')) return true;
@@ -26880,20 +26883,20 @@
 
     function canonicalCnFestivalName(rawName) {
         const set = new Set([
-            '元旦',
-            '除夕',
-            '春节',
-            '元宵节',
-            '清明节',
-            '劳动节',
-            '端午节',
-            '中秋节',
-            '国庆节',
+            __tmT("calendar.newYearSDay"),
+            __tmT("calendar.lunarNewYearSEve"),
+            __tmT("calendar.springFestival"),
+            __tmT("calendar.lanternFestival"),
+            __tmT("calendar.qingmingFestival"),
+            __tmT("calendar.labourDay"),
+            __tmT("calendar.dragonBoatFestival"),
+            __tmT("calendar.midAutumnFestival"),
+            __tmT("calendar.nationalDay"),
         ]);
         let n = normalizeCnHolidayName(String(rawName || '').trim());
         if (!n) return '';
         if (n.endsWith('假期')) n = n.slice(0, -2);
-        if (n === '清明') return '清明节';
+        if (n === '清明') return __tmT("calendar.qingmingFestival");
         if (set.has(n)) return n;
         if (n.endsWith('节')) {
             const n2 = n.slice(0, -1);
@@ -26926,9 +26929,9 @@
     }
 
     const CN_SOLAR_TERM_NAMES = [
-        '小寒', '大寒', '立春', '雨水', '惊蛰', '春分', '清明', '谷雨',
-        '立夏', '小满', '芒种', '夏至', '小暑', '大暑', '立秋', '处暑',
-        '白露', '秋分', '寒露', '霜降', '立冬', '小雪', '大雪', '冬至',
+        __tmT("calendar.minorCold"), __tmT("calendar.majorCold"), __tmT("calendar.startOfSpring"), __tmT("calendar.rainWater"), __tmT("calendar.awakeningOfInsects"), __tmT("calendar.springEquinox"), __tmT("calendar.qingming"), __tmT("calendar.grainRain"),
+        __tmT("calendar.startOfSummer"), __tmT("calendar.grainBuds"), __tmT("calendar.grainInEar"), __tmT("calendar.summerSolstice"), __tmT("calendar.minorHeat"), __tmT("calendar.majorHeat"), __tmT("calendar.startOfAutumn"), __tmT("calendar.endOfHeat"),
+        __tmT("calendar.whiteDew"), __tmT("calendar.autumnEquinox"), __tmT("calendar.coldDew"), __tmT("calendar.frostSDescent"), __tmT("calendar.startOfWinter"), __tmT("calendar.minorSnow"), __tmT("calendar.majorSnow"), __tmT("calendar.winterSolstice"),
     ];
     const cnSolarTermCache = new Map();
 
@@ -26974,7 +26977,7 @@
         const officialName = String(source.officialName || (!source.custom ? name : '')).trim();
         const lunar = formatCnLunarDateKey(dateKey) || String(source.lunar || '').trim();
         const solarTerm = getCnSolarTermName(dateKey);
-        const festivalNames = ['元旦', '除夕', '春节', '元宵节', '清明节', '劳动节', '端午节', '中秋节', '国庆节']
+        const festivalNames = [__tmT("calendar.newYearSDay"), __tmT("calendar.lunarNewYearSEve"), __tmT("calendar.springFestival"), __tmT("calendar.lanternFestival"), __tmT("calendar.qingmingFestival"), __tmT("calendar.labourDay"), __tmT("calendar.dragonBoatFestival"), __tmT("calendar.midAutumnFestival"), __tmT("calendar.nationalDay")]
             .filter((festival) => (officialName.includes(festival) || canonicalCnFestivalName(officialName) === festival
                 || (festival === '除夕' && officialName.includes('春节')))
                 && cnFestivalBonus(festival, dateKey, lunar) >= 200);
@@ -27306,13 +27309,13 @@
     function getScheduleCurrentDeviceNotificationSummary(item) {
         const current = buildScheduleNotificationSchedulesView(item)[String(SCHEDULE_SYNC_DEVICE_ID || '').trim()];
         const entries = sanitizeScheduleNotificationEntries(current?.entries);
-        if (entries.length === 0) return '当前设备暂无已预约提醒';
+        if (entries.length === 0) return __tmT("calendar.noRemindersScheduledOnThisDevice");
         const sorted = entries.slice().sort((a, b) => Number(a?.atMs || 0) - Number(b?.atMs || 0));
         const first = sorted[0];
         const dt = new Date(Number(first?.atMs) || 0);
         const when = Number.isNaN(dt.getTime()) ? '' : `${formatDateKey(dt)} ${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`;
         const noIdCount = sorted.filter((it) => String(it?.status || '') === 'scheduled-no-id').length;
-        return `当前设备已预约 ${sorted.length} 条${when ? `，最近一条 ${when}` : ''}${noIdCount > 0 ? `；其中 ${noIdCount} 条未返回通知ID` : ''}`;
+        return __tmT("calendar.thisDeviceHasScheduled", { length: sorted.length, value2: when ? __tmT("calendar.latest", { when: when }) : '', value3: noIdCount > 0 ? __tmT("calendar.returnedNoNotificationId", { noIdCount: noIdCount }) : '' });
     }
 
     function showScheduleDeviceScheduleDialog(item, options) {
@@ -27336,20 +27339,20 @@
             const lines = [];
             for (const group of groups.sort((a, b) => String(a.deviceId || '').localeCompare(String(b.deviceId || '')))) {
                 const clientLabel = getScheduleNotificationClientLabel(group?.deviceId, group?.schedule);
-                lines.push(`设备: ${String(group.deviceId || '').trim() || 'unknown'}（${clientLabel}）`);
+                lines.push(__tmT("calendar.device", { value1: String(group.deviceId || '').trim() || 'unknown', clientLabel: clientLabel }));
                 const entries = group.entries.slice().sort((a, b) => Number(a?.atMs || 0) - Number(b?.atMs || 0));
                 for (const entry of entries) {
                     const dt = new Date(Number(entry?.atMs) || 0);
                     const label = Number.isNaN(dt.getTime())
                         ? `${String(entry?.dateKey || '')} ${String(entry?.timeKey || '')}`.trim()
                         : `${formatDateKey(dt)} ${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`;
-                    const idLabel = Number(entry?.id) >= 0 ? String(entry?.id ?? '') : '未返回';
-                    const extra = String(entry?.status || '') === 'scheduled-no-id' ? '\n状态: 已尝试预约，但接口未返回通知ID' : '';
+                    const idLabel = Number(entry?.id) >= 0 ? String(entry?.id ?? '') : __tmT("calendar.notReturned");
+                    const extra = String(entry?.status || '') === 'scheduled-no-id' ? __tmT("calendar.statusSchedulingRequestedButNoNotificationIdWasReturned") : '';
                     lines.push(`${label}\nid: ${idLabel}${extra}`);
                 }
                 lines.push('');
             }
-            const detailText = lines.length > 0 ? lines.join('\n') : '当前设备暂无已预约提醒';
+            const detailText = lines.length > 0 ? lines.join('\n') : __tmT("calendar.noRemindersScheduledOnThisDevice");
             const statusStyle = actionStatusKind === 'error'
                 ? 'color:#d23f31;'
                 : (actionStatusKind === 'success'
@@ -27357,13 +27360,13 @@
                     : 'color:var(--b3-theme-primary);');
             modal.innerHTML = `
                 <div class="tm-calendar-edit-box">
-                    <div class="tm-calendar-edit-title">当前设备预约</div>
+                    <div class="tm-calendar-edit-title">${__tmT("calendar.deviceReminders")}</div>
                     <div class="tm-calendar-edit-row" style="display:block;">
-                        <div class="tm-calendar-edit-label" style="margin-bottom:8px;white-space:nowrap;">当前设备</div>
+                        <div class="tm-calendar-edit-label" style="margin-bottom:8px;white-space:nowrap;">${__tmT("calendar.thisDevice")}</div>
                         <div class="tm-calendar-edit-value" style="line-height:1.5;">${esc(currentSummary)}</div>
                     </div>
                     <div class="tm-calendar-edit-row" style="display:block;">
-                        <div class="tm-calendar-edit-label" style="margin-bottom:8px;white-space:nowrap;">已下发通知</div>
+                        <div class="tm-calendar-edit-label" style="margin-bottom:8px;white-space:nowrap;">${__tmT("calendar.sentReminders")}</div>
                         <div class="tm-calendar-edit-value" style="white-space:pre-line;line-height:1.5;max-height:50vh;overflow:auto;">${esc(detailText)}</div>
                     </div>
                     ${actionStatusText ? `
@@ -27372,10 +27375,10 @@
                     </div>
                     ` : ''}
                     <div class="tm-calendar-edit-actions">
-                        ${scheduleId ? `<button class="tm-btn tm-btn-secondary" data-tm-cal-action="refreshDeviceSchedule">更新预约</button>` : ''}
-                        ${scheduleId ? `<button class="tm-btn tm-btn-danger" data-tm-cal-action="clearDeviceSchedule">清除当前设备预约</button>` : ''}
+                        ${scheduleId ? `<button class="tm-btn tm-btn-secondary" data-tm-cal-action="refreshDeviceSchedule">${__tmT("calendar.updateReminders")}</button>` : ''}
+                        ${scheduleId ? `<button class="tm-btn tm-btn-danger" data-tm-cal-action="clearDeviceSchedule">${__tmT("calendar.clearDeviceReminders")}</button>` : ''}
                         <div style="flex:1;"></div>
-                        <button class="tm-btn tm-btn-secondary" data-tm-cal-action="closeDeviceSchedule">关闭</button>
+                        <button class="tm-btn tm-btn-secondary" data-tm-cal-action="closeDeviceSchedule">${__tmT("common.close")}</button>
                     </div>
                 </div>
             `;
@@ -27393,7 +27396,7 @@
             if (!action) return;
             if (action === 'refreshDeviceSchedule') {
                 actionStatusKind = 'pending';
-                actionStatusText = '正在更新当前设备预约...';
+                actionStatusText = __tmT("calendar.updatingDeviceReminders");
                 render();
                 try {
                     const nextItem = (typeof opts.resolveLatestItem === 'function')
@@ -27408,13 +27411,13 @@
                             .flatMap((group) => Array.isArray(group?.entries) ? group.entries : []);
                         if (currentEntries.length > 0) {
                             actionStatusKind = 'success';
-                            actionStatusText = `已更新当前设备预约，共 ${currentEntries.length} 条`;
+                            actionStatusText = __tmT("calendar.deviceRemindersUpdated", { length: currentEntries.length });
                         } else if (currentTargets.length > 0) {
                             actionStatusKind = 'error';
-                            actionStatusText = `已保存当前修改，但通知发送失败：${describeDeviceNotificationFailureReason(sendDeviceNotificationCompat._lastFailureReason)}`;
+                            actionStatusText = __tmT("calendar.changesSavedButSendingNotificationsFailed", { value1: describeDeviceNotificationFailureReason(sendDeviceNotificationCompat._lastFailureReason) });
                         } else {
                             actionStatusKind = 'pending';
-                            actionStatusText = '已保存当前修改，但当前条件下没有可预约提醒';
+                            actionStatusText = __tmT("calendar.changesSavedButNoRemindersCanBeScheduledUnder");
                         }
                         render();
                         try {
@@ -27425,49 +27428,49 @@
                             });
                         } catch (e2) {}
                         if (currentEntries.length > 0) {
-                            toast('✅ 已更新当前设备预约', 'success');
+                            toast(__tmT("calendar.deviceRemindersUpdated2"), 'success');
                         } else if (currentTargets.length > 0) {
-                            toast('❌ 当前设备预约发送失败', 'error');
+                            toast(__tmT("calendar.failedToSendDeviceReminders"), 'error');
                         } else {
-                            toast('ℹ 当前没有可预约提醒', 'warning');
+                            toast(__tmT("calendar.noRemindersToSchedule"), 'warning');
                         }
                     } else {
                         actionStatusKind = 'error';
-                        actionStatusText = '更新失败：未返回最新预约结果';
+                        actionStatusText = __tmT("calendar.updateFailedNoUpdatedReminderResultWasReturned");
                         render();
-                        toast('❌ 更新失败', 'error');
+                        toast(__tmT("calendar.updateFailed"), 'error');
                     }
                 } catch (err) {
                     actionStatusKind = 'error';
-                    actionStatusText = `更新失败：${String(err?.message || err || '未知错误')}`;
+                    actionStatusText = __tmT("calendar.updateFailed2", { value1: String(err?.message || err || __tmT("plugin.unknownError")) });
                     render();
-                    toast('❌ 更新失败', 'error');
+                    toast(__tmT("calendar.updateFailed"), 'error');
                 }
                 return;
             }
             if (action === 'clearDeviceSchedule') {
                 actionStatusKind = 'pending';
-                actionStatusText = '正在清除当前设备预约...';
+                actionStatusText = __tmT("calendar.clearingDeviceReminders");
                 render();
                 try {
                     const nextItem = await clearScheduleCurrentDeviceNotificationById(scheduleId);
                     if (nextItem) {
                         currentItem = { ...nextItem };
                         actionStatusKind = 'success';
-                        actionStatusText = '已清除当前设备预约';
+                        actionStatusText = __tmT("calendar.deviceRemindersCleared");
                         render();
-                        toast('✅ 已清除当前设备预约', 'success');
+                        toast(__tmT("calendar.deviceRemindersCleared2"), 'success');
                     } else {
                         actionStatusKind = 'error';
-                        actionStatusText = '清除失败：未找到可更新的预约状态';
+                        actionStatusText = __tmT("calendar.clearFailedNoUpdatableReminderStateWasFound");
                         render();
-                        toast('❌ 清除失败', 'error');
+                        toast(__tmT("calendar.clearFailed"), 'error');
                     }
                 } catch (err) {
                     actionStatusKind = 'error';
-                    actionStatusText = `清除失败：${String(err?.message || err || '未知错误')}`;
+                    actionStatusText = __tmT("calendar.clearFailed2", { value1: String(err?.message || err || __tmT("plugin.unknownError")) });
                     render();
-                    toast('❌ 清除失败', 'error');
+                    toast(__tmT("calendar.clearFailed"), 'error');
                 }
                 return;
             }
@@ -27800,28 +27803,28 @@
         modal.className = 'tm-calendar-edit-modal';
         modal.innerHTML = `
             <div class="tm-calendar-edit-box">
-                <div class="tm-calendar-edit-title">🍅 计时记录</div>
+                <div class="tm-calendar-edit-title">${__tmT("calendar.timerRecords")}</div>
                 <div class="tm-calendar-edit-row">
-                    <div class="tm-calendar-edit-label">任务</div>
-                    <div class="tm-calendar-edit-value">${esc(taskBlockName || '(未关联任务)')}</div>
+                    <div class="tm-calendar-edit-label">${__tmT("kernel.task")}</div>
+                    <div class="tm-calendar-edit-value">${esc(taskBlockName || __tmT("calendar.noLinkedTask"))}</div>
                 </div>
                 <div class="tm-calendar-edit-row">
-                    <div class="tm-calendar-edit-label">模式</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.mode")}</div>
                     <div class="tm-calendar-edit-value">${esc(mode || '-')}</div>
                 </div>
                 <div class="tm-calendar-edit-row">
-                    <div class="tm-calendar-edit-label">开始</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.start")}</div>
                     <input class="tm-calendar-edit-input" type="datetime-local" value="${esc(startLocal)}" data-tm-cal-field="start">
                 </div>
                 <div class="tm-calendar-edit-row">
-                    <div class="tm-calendar-edit-label">结束</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.end")}</div>
                     <input class="tm-calendar-edit-input" type="datetime-local" value="${esc(endLocal)}" data-tm-cal-field="end">
                 </div>
                 <div class="tm-calendar-edit-actions">
-                    ${taskBlockId ? `<button class="tm-btn tm-btn-secondary" data-tm-cal-action="jumpTask">跳转任务</button>` : ''}
+                    ${taskBlockId ? `<button class="tm-btn tm-btn-secondary" data-tm-cal-action="jumpTask">${__tmT("calendar.openTask")}</button>` : ''}
                     <div style="flex:1;"></div>
-                    <button class="tm-btn tm-btn-danger" data-tm-cal-action="delete">删除</button>
-                    <button class="tm-btn tm-btn-success" data-tm-cal-action="save">保存</button>
+                    <button class="tm-btn tm-btn-danger" data-tm-cal-action="delete">${__tmT("common.delete")}</button>
+                    <button class="tm-btn tm-btn-success" data-tm-cal-action="save">${__tmT("common.save")}</button>
                 </div>
             </div>
         `;
@@ -27880,20 +27883,20 @@
                 return (Number.isFinite(n) && allowed.has(n)) ? n : 0;
             })();
             if (!s0 || !e0) {
-                toast('⚠ 开始/结束不能为空', 'warning');
+                toast(__tmT("calendar.startEndCannotBeEmpty"), 'warning');
                 return null;
             }
             const nextStart = new Date(s0);
             const nextEnd = new Date(e0);
             if (Number.isNaN(nextStart.getTime()) || Number.isNaN(nextEnd.getTime()) || nextEnd.getTime() <= nextStart.getTime()) {
-                toast('⚠ 时间不合法', 'warning');
+                toast(__tmT("calendar.invalidTime"), 'warning');
                 return null;
             }
             const allDay = isAllDayRange(nextStart, nextEnd) || (initAllDay && isAllDayRange(nextStart, nextEnd));
             const list = await loadScheduleAll();
             const idx = list.findIndex((x) => String(x?.id || '') === scheduleId);
             if (idx < 0) {
-                toast('⚠ 未找到日程', 'warning');
+                toast(__tmT("calendar.scheduleNotFound"), 'warning');
                 return null;
             }
             const prevItem = list[idx] || {};
@@ -27902,7 +27905,7 @@
             return {
                 ...prevItem,
                 id: scheduleId,
-                title: title || '日程',
+                title: title || __tmT("kernel.schedule"),
                 start: safeISO(nextStart),
                 end: safeISO(nextEnd),
                 allDay,
@@ -27924,7 +27927,7 @@
             const nextList = cloneScheduleList(list);
             const idx = nextList.findIndex((x) => String(x?.id || '') === scheduleId);
             if (idx < 0) {
-                toast('⚠ 未找到日程', 'warning');
+                toast(__tmT("calendar.scheduleNotFound"), 'warning');
                 return null;
             }
             nextList[idx] = {
@@ -27969,24 +27972,24 @@
                 if (dock && typeof dock.openHistory === 'function') {
                     dock.openHistory(dateKey || 'today');
                 } else {
-                    toast('⚠ 未检测到番茄钟插件', 'warning');
+                    toast(__tmT("calendar.dockTomatoPluginNotDetected"), 'warning');
                 }
                 return;
             }
             if (action === 'jumpTask') {
                 const jumped = taskBlockId ? await openCalendarLinkedTask(taskBlockId, e) : false;
                 if (jumped !== false) closeModal();
-                else toast('⚠ 无法跳转任务块', 'warning');
+                else toast(__tmT("calendar.cannotJumpToTheTaskBlock"), 'warning');
                 return;
             }
             if (!recordKey) {
-                toast('⚠ 记录标识缺失', 'warning');
+                toast(__tmT("calendar.missingRecordIdentifier"), 'warning');
                 return;
             }
             const dock = globalThis.__dockTomato;
             const history = dock?.history;
             if (!history || typeof history.updateTime !== 'function' || typeof history.delete !== 'function') {
-                toast('⚠ 未检测到番茄钟历史编辑接口', 'warning');
+                toast(__tmT("calendar.dockTomatoHistoryEditApiNotDetected"), 'warning');
                 return;
             }
             if (action === 'delete') {
@@ -27994,9 +27997,9 @@
                 if (ok) {
                     closeModal();
                     __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux);
-                    toast('✅ 已删除', 'success');
+                    toast(__tmT("calendar.deleted"), 'success');
                 } else {
-                    toast('❌ 删除失败', 'error');
+                    toast(__tmT("calendar.deleteFailed"), 'error');
                 }
                 return;
             }
@@ -28004,22 +28007,22 @@
                 const s0 = getInputValue('start');
                 const e0 = getInputValue('end');
                 if (!s0 || !e0) {
-                    toast('⚠ 开始/结束不能为空', 'warning');
+                    toast(__tmT("calendar.startEndCannotBeEmpty"), 'warning');
                     return;
                 }
                 const nextStart = new Date(s0);
                 const nextEnd = new Date(e0);
                 if (Number.isNaN(nextStart.getTime()) || Number.isNaN(nextEnd.getTime()) || nextEnd.getTime() <= nextStart.getTime()) {
-                    toast('⚠ 时间不合法', 'warning');
+                    toast(__tmT("calendar.invalidTime"), 'warning');
                     return;
                 }
                 const ok = await history.updateTime(recordKey, { start: nextStart.toISOString(), end: nextEnd.toISOString() });
                 if (ok) {
                     closeModal();
                     __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux);
-                    toast('✅ 已保存', 'success');
+                    toast(__tmT("calendar.saved"), 'success');
                 } else {
-                    toast('❌ 保存失败', 'error');
+                    toast(__tmT("calendar.saveFailed"), 'error');
                 }
             }
         }, { signal: abort.signal });
@@ -28121,28 +28124,28 @@
                 const relationMeta = getCalendarTaskRelationMeta(task);
                 return !keyword || `${title} ${relationMeta}`.toLocaleLowerCase('zh-CN').includes(keyword);
             });
-            if (!matches.length) return '<div class="tm-calendar-edit-relation-empty">没有找到匹配任务</div>';
+            if (!matches.length) return `<div class="tm-calendar-edit-relation-empty">${__tmT("calendar.noMatchingTaskFound")}</div>`;
             return matches.slice(0, 8).map((task) => {
                 const id = String(task?.id || '').trim();
-                const title = taskDisplayTitle(task, '') || '未命名任务';
+                const title = taskDisplayTitle(task, '') || __tmT("kernel.untitledTask");
                 const meta = getCalendarTaskRelationMeta(task);
                 const selected = id && id === String(linkedTaskIdDraft || linkedBlockIdDraft || '').trim();
-                return `<button type="button" class="tm-calendar-edit-relation-result${selected ? ' is-selected' : ''}" data-tm-cal-relation-result="${esc(id)}"><span class="tm-calendar-edit-relation-dot"></span><span class="tm-calendar-edit-relation-copy"><b>${esc(title)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</span>${selected ? '<span class="tm-calendar-edit-relation-mark">已关联</span>' : ''}</button>`;
+                return `<button type="button" class="tm-calendar-edit-relation-result${selected ? ' is-selected' : ''}" data-tm-cal-relation-result="${esc(id)}"><span class="tm-calendar-edit-relation-dot"></span><span class="tm-calendar-edit-relation-copy"><b>${esc(title)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</span>${selected ? `<span class="tm-calendar-edit-relation-mark">${__tmT("calendar.linked")}</span>` : ''}</button>`;
             }).join('');
         };
         const renderRelation = () => {
             const task = resolveDraftTask();
             const id = String(linkedTaskIdDraft || linkedBlockIdDraft || '').trim();
             if (id && !relationSearching) {
-                const title = taskDisplayTitle(task, '') || '已关联任务';
+                const title = taskDisplayTitle(task, '') || __tmT("calendar.linkedTask");
                 const meta = getCalendarTaskRelationMeta(task);
                 const shapeClass = getCalendarRelationCheckboxShapeClass();
                 const checked = isCalendarRelationTaskDone(task);
                 const canceled = globalThis.__tmCalendarKanbanCardHelpers?.isCanceled?.(task) === true;
-                return `<div class="tm-calendar-edit-relation-current"><div class="tm-calendar-edit-relation-summary"><input class="tm-task-checkbox tm-calendar-edit-relation-check ${shapeClass}${canceled ? ' tm-task-checkbox--canceled' : ''}" type="checkbox" data-tm-cal-relation-task-check="${esc(id)}" aria-label="完成关联任务"${checked ? ' checked' : ''}><span class="tm-calendar-edit-relation-copy"><b>${esc(title)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</span></div><div class="tm-calendar-edit-relation-actions"><button type="button" data-tm-cal-relation-action="open">打开任务</button><button type="button" data-tm-cal-relation-action="replace">更换</button><button type="button" data-tm-cal-relation-action="unlink" class="is-danger">解除</button></div></div>`;
+                return `<div class="tm-calendar-edit-relation-current"><div class="tm-calendar-edit-relation-summary"><input class="tm-task-checkbox tm-calendar-edit-relation-check ${shapeClass}${canceled ? ' tm-task-checkbox--canceled' : ''}" type="checkbox" data-tm-cal-relation-task-check="${esc(id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.donelinkedTask")}"${checked ? ' checked' : ''}><span class="tm-calendar-edit-relation-copy"><b>${esc(title)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</span></div><div class="tm-calendar-edit-relation-actions"><button type="button" data-tm-cal-relation-action="open">${__tmT("calendar.openTask2")}</button><button type="button" data-tm-cal-relation-action="replace">${__tmT("calendar.replace")}</button><button type="button" data-tm-cal-relation-action="unlink" class="is-danger">${__tmT("calendar.unlink")}</button></div></div>`;
             }
-            if (!relationSearching) return '<button type="button" class="tm-calendar-edit-relation-start" data-tm-cal-relation-action="search"><span aria-hidden="true">⌕</span><span>搜索任务进行关联</span></button>';
-            return `<div class="tm-calendar-edit-relation-search"><div class="tm-calendar-edit-relation-searchbox"><span aria-hidden="true">⌕</span><input type="search" value="${esc(relationQuery)}" data-tm-cal-field="taskSearch" placeholder="搜索任务名称或文档" aria-label="搜索关联任务"><button type="button" data-tm-cal-relation-action="cancel" aria-label="收起搜索">×</button></div><div class="tm-calendar-edit-relation-results" data-tm-cal-relation-results>${taskSearchResultsHtml()}</div></div>`;
+            if (!relationSearching) return `<button type="button" class="tm-calendar-edit-relation-start" data-tm-cal-relation-action="search"><span aria-hidden="true">⌕</span><span>${__tmT("calendar.searchForATaskToLink")}</span></button>`;
+            return `<div class="tm-calendar-edit-relation-search"><div class="tm-calendar-edit-relation-searchbox"><span aria-hidden="true">⌕</span><input type="search" value="${esc(relationQuery)}" data-tm-cal-field="taskSearch" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.searchTaskOrDocumentNames")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.searchlinkedTask")}"><button type="button" data-tm-cal-relation-action="cancel" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.collapsesearch")}">×</button></div><div class="tm-calendar-edit-relation-results" data-tm-cal-relation-results>${taskSearchResultsHtml()}</div></div>`;
         };
         const calendarOptions = calDefs.map((d) => `<option value="${esc(d.id)}" ${d.id === calendarId0 ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
         const colorPresetButtonsHtml = SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `
@@ -28150,14 +28153,14 @@
                 class="tm-calendar-edit-color-chip${color === colorInputValue0 ? ' is-active' : ''}"
                 type="button"
                 data-tm-cal-color-preset="${esc(color)}"
-                title="莫兰迪预设 ${esc(color)}"
-                aria-label="选择预设颜色 ${esc(color)}"
+                title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.morandipreset", { color: color })}"
+                aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.choosePresetColor", { color: color })}"
                 style="--tm-cal-color-swatch:${esc(color)};">
             </button>
         `).join('');
         const deviceSummary0 = taskDateEditor
-            ? '此事件来自任务日期，可同步修改任务日期和颜色'
-            : (isEdit ? getScheduleCurrentDeviceNotificationSummary(init) : '保存后会自动同步当前设备预约');
+            ? __tmT("calendar.thisEventComesFromATaskDateTaskDate")
+            : (isEdit ? getScheduleCurrentDeviceNotificationSummary(init) : __tmT("calendar.deviceRemindersSyncAfterSaving"));
 
         const startLocal = start ? `${formatDateKey(start)}T${pad2(start.getHours())}:${pad2(start.getMinutes())}` : '';
         const endLocal = end ? `${formatDateKey(end)}T${pad2(end.getHours())}:${pad2(end.getMinutes())}` : '';
@@ -28165,22 +28168,22 @@
         const endInputType = taskDateEditor ? 'date' : 'datetime-local';
         const startInputValue = taskDateEditor ? taskStartDate0 : startLocal;
         const endInputValue = taskDateEditor ? taskCompletionTime0 : endLocal;
-        const startLabel = taskDateEditor ? '开始日期' : '开始';
-        const endLabel = taskDateEditor ? '完成日期' : '结束';
-        const modalTitle = taskDateEditor ? '编辑任务日期' : (isEdit ? '编辑日程' : '新建日程');
+        const startLabel = taskDateEditor ? __tmT("kernel.startDate") : __tmT("calendar.start");
+        const endLabel = taskDateEditor ? __tmT("calendar.completionDate") : __tmT("calendar.end");
+        const modalTitle = taskDateEditor ? __tmT("calendar.editTaskDates") : (isEdit ? __tmT("calendar.editSchedule") : __tmT("kernel.newSchedule"));
 
         const modal = document.createElement('div');
         modal.className = 'tm-calendar-edit-modal tm-calendar-schedule-editor-modal';
         modal.innerHTML = `
             <div class="tm-calendar-edit-box">
-                <div class="tm-calendar-edit-head"><div><div class="tm-calendar-edit-kicker">${taskDateEditor ? '任务日期' : (linkedTaskIdDraft || linkedBlockIdDraft ? '关联日程' : '独立日程')}</div><div class="tm-calendar-edit-title">${modalTitle}</div></div><button type="button" class="tm-calendar-edit-close" data-tm-cal-action="cancel" aria-label="关闭">×</button></div>
+                <div class="tm-calendar-edit-head"><div><div class="tm-calendar-edit-kicker">${taskDateEditor ? __tmT("calendar.taskDate") : (linkedTaskIdDraft || linkedBlockIdDraft ? __tmT("calendar.linkedSchedule") : __tmT("calendar.standaloneSchedule"))}</div><div class="tm-calendar-edit-title">${modalTitle}</div></div><button type="button" class="tm-calendar-edit-close" data-tm-cal-action="cancel" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}">×</button></div>
                 <div class="tm-calendar-edit-body">
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--title"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">标题</div>
-                    <input class="tm-calendar-edit-input" type="text" value="${esc(title0)}" placeholder="请输入标题" data-tm-cal-field="title" ${taskDateEditor ? 'disabled' : ''}>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.title")}</div>
+                    <input class="tm-calendar-edit-input" type="text" value="${esc(title0)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.enterATitle")}" data-tm-cal-field="title" ${taskDateEditor ? 'disabled' : ''}>
                 </div>
                 <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">日历</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.calendar")}</div>
                     <select class="tm-calendar-edit-input" data-tm-cal-field="calendarId" ${taskDateEditor ? 'disabled' : ''}>${calendarOptions}</select>
                 </div>
                 <div class="tm-calendar-edit-row">
@@ -28191,102 +28194,102 @@
                     <div class="tm-calendar-edit-label">${endLabel}</div>
                     <input class="tm-calendar-edit-input" type="${endInputType}" value="${esc(endInputValue)}" data-tm-cal-field="end">
                 </div>
-                <div class="tm-calendar-edit-row${taskDateEditor ? ' is-disabled' : ''}"><div class="tm-calendar-edit-label">关联任务</div><div class="tm-calendar-edit-relation" data-tm-cal-relation>${taskDateEditor ? '<span class="tm-calendar-edit-value">任务日期事件不可更换关联任务</span>' : renderRelation()}</div></div>
-                <button type="button" class="tm-calendar-edit-more-toggle" data-tm-cal-action="toggleMore" aria-expanded="false"${taskDateEditor ? ' hidden' : ''}><span>更多设置</span><span class="tm-calendar-edit-more-chevron" aria-hidden="true">›</span></button>
+                <div class="tm-calendar-edit-row${taskDateEditor ? ' is-disabled' : ''}"><div class="tm-calendar-edit-label">${__tmT("calendar.linkedTask2")}</div><div class="tm-calendar-edit-relation" data-tm-cal-relation>${taskDateEditor ? `<span class="tm-calendar-edit-value">${__tmT("calendar.taskDateEventsCannotSwitchLinkedTasks")}</span>` : renderRelation()}</div></div>
+                <button type="button" class="tm-calendar-edit-more-toggle" data-tm-cal-action="toggleMore" aria-expanded="false"${taskDateEditor ? ' hidden' : ''}><span>${__tmT("calendar.moreSettings")}</span><span class="tm-calendar-edit-more-chevron" aria-hidden="true">›</span></button>
                 <div class="tm-calendar-edit-more" data-tm-cal-more hidden>
                 <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">提醒</div>
+                    <div class="tm-calendar-edit-label">${__tmT("ai.warnings")}</div>
                     <select class="tm-calendar-edit-input" data-tm-cal-field="reminderSelect" ${taskDateEditor ? 'disabled' : ''}>
-                        <option value="inherit" ${reminderSelect0 === 'inherit' ? 'selected' : ''}>使用全局设置</option>
-                        <option value="off" ${reminderSelect0 === 'off' ? 'selected' : ''}>关闭提醒</option>
-                        ${initAllDay ? `<option value="on" ${reminderSelect0 === 'on' ? 'selected' : ''}>开启提醒（当天统一时间）</option>` : `
-                            <option value="0" ${reminderSelect0 === '0' ? 'selected' : ''}>准时提醒</option>
-                            <option value="5" ${reminderSelect0 === '5' ? 'selected' : ''}>5 分钟前</option>
-                            <option value="10" ${reminderSelect0 === '10' ? 'selected' : ''}>10 分钟前</option>
-                            <option value="15" ${reminderSelect0 === '15' ? 'selected' : ''}>15 分钟前</option>
-                            <option value="30" ${reminderSelect0 === '30' ? 'selected' : ''}>30 分钟前</option>
-                            <option value="60" ${reminderSelect0 === '60' ? 'selected' : ''}>1 小时前</option>
+                        <option value="inherit" ${reminderSelect0 === 'inherit' ? 'selected' : ''}>${__tmT("calendar.useGlobalSetting")}</option>
+                        <option value="off" ${reminderSelect0 === 'off' ? 'selected' : ''}>${__tmT("calendar.remindersOff")}</option>
+                        ${initAllDay ? `<option value="on" ${reminderSelect0 === 'on' ? 'selected' : ''}>${__tmT("calendar.remindersOnUnifiedTimeThatDay")}</option>` : `
+                            <option value="0" ${reminderSelect0 === '0' ? 'selected' : ''}>${__tmT("calendar.onTime")}</option>
+                            <option value="5" ${reminderSelect0 === '5' ? 'selected' : ''}>${__tmT("calendar.minutesBefore")}</option>
+                            <option value="10" ${reminderSelect0 === '10' ? 'selected' : ''}>${__tmT("calendar.minutesBefore2")}</option>
+                            <option value="15" ${reminderSelect0 === '15' ? 'selected' : ''}>${__tmT("calendar.minutesBefore3")}</option>
+                            <option value="30" ${reminderSelect0 === '30' ? 'selected' : ''}>${__tmT("calendar.minutesBefore4")}</option>
+                            <option value="60" ${reminderSelect0 === '60' ? 'selected' : ''}>${__tmT("calendar.hourBefore")}</option>
                         `}
                     </select>
                 </div>
                 <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">循环</div>
+                    <div class="tm-calendar-edit-label">${__tmT("quickbar.repeat")}</div>
                     <select class="tm-calendar-edit-input" data-tm-cal-field="repeatType" ${taskDateEditor ? 'disabled' : ''}>
-                        <option value="none" ${repeatType0 === 'none' ? 'selected' : ''}>不循环</option>
-                        <option value="daily" ${repeatType0 === 'daily' ? 'selected' : ''}>每天</option>
-                        <option value="workday" ${repeatType0 === 'workday' ? 'selected' : ''}>工作日</option>
-                        <option value="weekly" ${repeatType0 === 'weekly' ? 'selected' : ''}>每周</option>
-                        <option value="monthly" ${repeatType0 === 'monthly' ? 'selected' : ''}>每月</option>
-                        <option value="yearly" ${repeatType0 === 'yearly' ? 'selected' : ''}>每年</option>
+                        <option value="none" ${repeatType0 === 'none' ? 'selected' : ''}>${__tmT("calendar.noRepeat")}</option>
+                        <option value="daily" ${repeatType0 === 'daily' ? 'selected' : ''}>${__tmT("calendar.daily")}</option>
+                        <option value="workday" ${repeatType0 === 'workday' ? 'selected' : ''}>${__tmT("calendar.workdays")}</option>
+                        <option value="weekly" ${repeatType0 === 'weekly' ? 'selected' : ''}>${__tmT("calendar.weekly")}</option>
+                        <option value="monthly" ${repeatType0 === 'monthly' ? 'selected' : ''}>${__tmT("calendar.monthly2")}</option>
+                        <option value="yearly" ${repeatType0 === 'yearly' ? 'selected' : ''}>${__tmT("calendar.yearly")}</option>
                     </select>
                 </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatWeekdays"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">星期</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.weekdays")}</div>
                     <div class="tm-calendar-repeat-weekdays" style="display:flex;gap:4px;flex-wrap:wrap;">
-                        ${[[1,'一'],[2,'二'],[3,'三'],[4,'四'],[5,'五'],[6,'六'],[0,'日']].map(([value,label]) => `<label style="display:inline-flex;align-items:center;gap:2px;"><input type="checkbox" value="${value}" data-tm-cal-weekday ${repeatWeekdays0.includes(value) ? 'checked' : ''} ${taskDateEditor ? 'disabled' : ''}><span>${label}</span></label>`).join('')}
+                        ${[1, 2, 3, 4, 5, 6, 0].map(day => [day, __tmT('date.weekday.short.' + day)]).map(([value,label]) => `<label style="display:inline-flex;align-items:center;gap:2px;"><input type="checkbox" value="${value}" data-tm-cal-weekday ${repeatWeekdays0.includes(value) ? 'checked' : ''} ${taskDateEditor ? 'disabled' : ''}><span>${label}</span></label>`).join('')}
                     </div>
                 </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatEvery"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">间隔</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.interval")}</div>
                     <input class="tm-calendar-edit-input tm-calendar-edit-input--repeat-every" type="number" min="1" step="1" value="${esc(String(repeatEvery0 || 1))}" data-tm-cal-field="repeatEvery" ${taskDateEditor ? 'disabled' : ''}>
                     <div class="tm-calendar-edit-value" data-tm-cal-field="repeatEveryUnit" style="opacity:.85;">${esc(getScheduleRepeatUnitLabel(repeatType0, repeatEvery0))}</div>
                 </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatMonthDays" style="display:none;align-items:start;">
-                    <div class="tm-calendar-edit-label">日期</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.date")}</div>
                     <div data-tm-cal-month-days style="flex:1;min-width:0;"></div>
                 </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatMonthlyMode"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">月规则</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.monthlyRule")}</div>
                     <select class="tm-calendar-edit-input tm-calendar-edit-input--repeat-monthly" data-tm-cal-field="repeatMonthlyMode" ${taskDateEditor ? 'disabled' : ''}>
-                        <option value="date" ${repeatMonthlyMode0 !== 'weekday' ? 'selected' : ''}>按日期</option>
-                        <option value="weekday" ${repeatMonthlyMode0 === 'weekday' ? 'selected' : ''}>按星期</option>
+                        <option value="date" ${repeatMonthlyMode0 !== 'weekday' ? 'selected' : ''}>${__tmT("calendar.byDate")}</option>
+                        <option value="weekday" ${repeatMonthlyMode0 === 'weekday' ? 'selected' : ''}>${__tmT("calendar.byWeekday")}</option>
                     </select>
-                    <div class="tm-calendar-edit-value" data-tm-cal-field="repeatMonthlySummary" style="opacity:.85;">${esc(start ? `每月${getScheduleMonthlyWeekPatternLabel(start)}` : '根据开始时间自动计算')}</div>
+                    <div class="tm-calendar-edit-value" data-tm-cal-field="repeatMonthlySummary" style="opacity:.85;">${esc(start ? __tmT("calendar.monthly", { value1: getScheduleMonthlyWeekPatternLabel(start) }) : __tmT("calendar.calculatedAutomaticallyFromTheStartTime"))}</div>
                 </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatCalendarMode"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">历法</div>
+                    <div class="tm-calendar-edit-label">${__tmT("kernel.calendar")}</div>
                     <select class="tm-calendar-edit-input" data-tm-cal-field="repeatCalendarMode" ${taskDateEditor ? 'disabled' : ''}>
-                        <option value="solar" ${repeatCalendarMode0 !== 'lunar' ? 'selected' : ''}>公历</option>
-                        <option value="lunar" ${repeatCalendarMode0 === 'lunar' ? 'selected' : ''}>农历</option>
+                        <option value="solar" ${repeatCalendarMode0 !== 'lunar' ? 'selected' : ''}>${__tmT("calendar.gregorian")}</option>
+                        <option value="lunar" ${repeatCalendarMode0 === 'lunar' ? 'selected' : ''}>${__tmT("calendar.lunar")}</option>
                     </select>
-                    <div class="tm-calendar-edit-value" data-tm-cal-field="repeatCalendarSummary" style="opacity:.85;">${esc(repeatCalendarMode0 === 'lunar' ? getScheduleRepeatLunarCaption(repeatType0, start || init.start || new Date()) : '按公历循环')}</div>
+                    <div class="tm-calendar-edit-value" data-tm-cal-field="repeatCalendarSummary" style="opacity:.85;">${esc(repeatCalendarMode0 === 'lunar' ? getScheduleRepeatLunarCaption(repeatType0, start || init.start || new Date()) : __tmT("calendar.gregorianCalendar"))}</div>
                 </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatEndMode"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">循环截止</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.repeatUntil")}</div>
                     <select class="tm-calendar-edit-input" data-tm-cal-field="repeatEndMode" ${taskDateEditor ? 'disabled' : ''}>
-                        <option value="never" ${!repeatUntil0 && repeatMaxOccurrences0 <= 0 ? 'selected' : ''}>永不</option>
-                        <option value="date" ${repeatUntil0 ? 'selected' : ''}>按日期</option>
-                        <option value="count" ${repeatMaxOccurrences0 > 0 ? 'selected' : ''}>按次数</option>
+                        <option value="never" ${!repeatUntil0 && repeatMaxOccurrences0 <= 0 ? 'selected' : ''}>${__tmT("calendar.never")}</option>
+                        <option value="date" ${repeatUntil0 ? 'selected' : ''}>${__tmT("calendar.byDate")}</option>
+                        <option value="count" ${repeatMaxOccurrences0 > 0 ? 'selected' : ''}>${__tmT("calendar.byCount")}</option>
                     </select>
                 </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatUntil"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">截止日期</div>
+                    <div class="tm-calendar-edit-label">${__tmT("kernel.dueDate")}</div>
                     <input class="tm-calendar-edit-input" type="date" value="${esc(repeatUntil0)}" data-tm-cal-field="repeatUntil" ${taskDateEditor ? 'disabled' : ''}>
                 </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatMaxOccurrences"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">循环次数</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.occurrences")}</div>
                     <input class="tm-calendar-edit-input" type="number" min="1" max="200" step="1" value="${repeatMaxOccurrences0 > 0 ? esc(String(repeatMaxOccurrences0)) : '1'}" data-tm-cal-field="repeatMaxOccurrences" ${taskDateEditor ? 'disabled' : ''}>
                 </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--color"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">颜色</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.color")}</div>
                     <div class="tm-calendar-edit-color-wrap">
-                        <input class="tm-calendar-edit-input tm-calendar-edit-color-input" type="color" value="${esc(colorInputValue0)}" data-tm-cal-field="color" aria-label="当前颜色">
-                        <div class="tm-calendar-edit-color-presets" data-tm-cal-color-presets aria-label="预设颜色">${colorPresetButtonsHtml}</div>
+                        <input class="tm-calendar-edit-input tm-calendar-edit-color-input" type="color" value="${esc(colorInputValue0)}" data-tm-cal-field="color" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentcolor")}">
+                        <div class="tm-calendar-edit-color-presets" data-tm-cal-color-presets aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.presetcolor")}">${colorPresetButtonsHtml}</div>
                     </div>
                 </div>
-                <div class="tm-calendar-edit-row tm-calendar-edit-row--note"${taskDateEditor ? ' style="opacity:.55;"' : ''}><div class="tm-calendar-edit-label">备注</div><textarea class="tm-calendar-edit-input tm-calendar-edit-note" data-tm-cal-field="note" placeholder="${linkedTaskIdDraft || linkedBlockIdDraft ? '备注与关联任务共用' : '添加备注'}" ${taskDateEditor ? 'disabled' : ''}>${esc(linkedTaskInitialRemark || String(init.note || init.remark || ''))}</textarea></div>
+                <div class="tm-calendar-edit-row tm-calendar-edit-row--note"${taskDateEditor ? ' style="opacity:.55;"' : ''}><div class="tm-calendar-edit-label">${__tmT("kernel.note")}</div><textarea class="tm-calendar-edit-input tm-calendar-edit-note" data-tm-cal-field="note" placeholder="${linkedTaskIdDraft || linkedBlockIdDraft ? __tmT("calendar.notesAreSharedWithTheLinkedTask") : __tmT("calendar.addNote")}" ${taskDateEditor ? 'disabled' : ''}>${esc(linkedTaskInitialRemark || String(init.note || init.remark || ''))}</textarea></div>
                 ${taskDateEditor ? '' : '<div class="tm-calendar-completion-setting" data-tm-schedule-completion></div>'}
                 <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
-                    <div class="tm-calendar-edit-label">当前设备预约</div>
+                    <div class="tm-calendar-edit-label">${__tmT("calendar.deviceReminders")}</div>
                     <div class="tm-calendar-edit-value" data-tm-cal-field="deviceScheduleSummary" style="flex:1;line-height:1.4;opacity:.85;">${esc(deviceSummary0)}</div>
-                    ${isEdit && !taskDateEditor ? `<button class="tm-btn tm-btn-secondary tm-calendar-edit-inline-action" type="button" data-tm-cal-action="viewDeviceSchedule">查看</button>` : ''}
+                    ${isEdit && !taskDateEditor ? `<button class="tm-btn tm-btn-secondary tm-calendar-edit-inline-action" type="button" data-tm-cal-action="viewDeviceSchedule">${__tmT("calendar.view")}</button>` : ''}
                 </div>
                 </div>
                 <div class="tm-calendar-edit-actions">
-                    <button class="tm-btn tm-btn-secondary" data-tm-cal-action="cancel">取消</button>
+                    <button class="tm-btn tm-btn-secondary" data-tm-cal-action="cancel">${__tmT("common.cancel")}</button>
                     <div style="flex:1;"></div>
-                    ${isEdit && !taskDateEditor ? `<button class="tm-btn tm-btn-danger" data-tm-cal-action="delete">删除</button>` : ''}
-                    <button class="tm-btn tm-btn-success" data-tm-cal-action="save">保存</button>
+                    ${isEdit && !taskDateEditor ? `<button class="tm-btn tm-btn-danger" data-tm-cal-action="delete">${__tmT("common.delete")}</button>` : ''}
+                    <button class="tm-btn tm-btn-success" data-tm-cal-action="save">${__tmT("common.save")}</button>
                 </div>
                 </div>
             </div>
@@ -28330,7 +28333,7 @@
             const s = String(raw || '').trim();
             if (!s) return '';
             const dt = parseDateOnly(s);
-            if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) throw new Error('日期格式不合法');
+            if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) throw new Error(__tmT("calendar.invalidDateFormat"));
             return formatDateKey(dt);
         };
         const getStartDraft = () => {
@@ -28404,8 +28407,8 @@
                     calendarModeEl.disabled = true;
                     calendarModeEl.style.opacity = '0.55';
                 }
-                if (monthlySummaryEl) monthlySummaryEl.textContent = '任务日期事件不可编辑循环规则';
-                if (calendarSummaryEl) calendarSummaryEl.textContent = '任务日期事件不可编辑循环规则';
+                if (monthlySummaryEl) monthlySummaryEl.textContent = __tmT("calendar.recurringRulesCannotBeEditedForTaskDateEvents");
+                if (calendarSummaryEl) calendarSummaryEl.textContent = __tmT("calendar.recurringRulesCannotBeEditedForTaskDateEvents");
                 return;
             }
             const repeatType = normalizeScheduleRepeatType(getInputValue('repeatType') || repeatType0);
@@ -28432,20 +28435,20 @@
                 calendarModeEl.style.opacity = showCalendarMode ? '1' : '0.55';
             }
             if (monthlySummaryEl) {
-                if (!isMonthly) monthlySummaryEl.textContent = '仅每月循环时生效';
-                else if (calendarMode === 'lunar') monthlySummaryEl.textContent = '农历每月按农历日期计算';
+                if (!isMonthly) monthlySummaryEl.textContent = __tmT("calendar.onlyAppliesToMonthlyRepeats");
+                else if (calendarMode === 'lunar') monthlySummaryEl.textContent = __tmT("calendar.lunarMonthlyCountedByLunarDate");
                 else if (!(startDraft instanceof Date) || Number.isNaN(startDraft.getTime())) {
-                    monthlySummaryEl.textContent = '根据开始时间确定每月日期';
+                    monthlySummaryEl.textContent = __tmT("calendar.monthlyDateDeterminedByTheStartTime");
                 } else {
                     monthlySummaryEl.textContent = normalizeScheduleRepeatMonthlyMode(monthlyModeEl.value || repeatMonthlyMode0, repeatType) === 'weekday'
-                        ? `每月${getScheduleRepeatCore().monthDates.weekdayLabel(repeatMonthWeekDraft, formatDateKey(startDraft))}`
-                        : `每月${repeatMonthDaysDraft === undefined ? startDraft.getDate() + '日' : getScheduleRepeatCore().monthDates.label(repeatMonthDaysDraft)}`;
+                        ? __tmT("calendar.monthly", { value1: getScheduleRepeatCore().monthDates.weekdayLabel(repeatMonthWeekDraft, formatDateKey(startDraft)) })
+                        : __tmT("calendar.monthly", { value1: repeatMonthDaysDraft === undefined ? startDraft.getDate() + '日' : getScheduleRepeatCore().monthDates.label(repeatMonthDaysDraft) });
                 }
             }
             if (calendarSummaryEl) {
                 calendarSummaryEl.textContent = calendarMode === 'lunar'
                     ? getScheduleRepeatLunarCaption(repeatType, startDraft || init.start || new Date())
-                    : '按公历循环';
+                    : __tmT("calendar.gregorianCalendar");
             }
         };
         const calendarSelEl = modal.querySelector('[data-tm-cal-field="calendarId"]');
@@ -28484,10 +28487,10 @@
             }
             if (repeatEveryUnitEl) {
                 repeatEveryUnitEl.textContent = taskDateEditor
-                    ? '任务日期事件不可编辑'
+                    ? __tmT("calendar.notEditableForTaskDateEvents")
                     : (disabled
-                    ? '关闭循环时忽略'
-                    : `每 ${getScheduleRepeatUnitLabel(repeatType, getInputValue('repeatEvery') || repeatEvery0)}`);
+                    ? __tmT("calendar.ignoredWhenRepeatIsOff")
+                    : __tmT("calendar.every", { value1: getScheduleRepeatUnitLabel(repeatType, getInputValue('repeatEvery') || repeatEvery0) }));
             }
             syncMonthlyModeSummary();
             untilEl.disabled = disabled;
@@ -28565,7 +28568,7 @@
                 : [];
             const startKey = nextStart instanceof Date && !Number.isNaN(nextStart.getTime()) ? formatDateKey(nextStart) : '';
             if (repeatType !== 'none' && repeatUntil && startKey && repeatUntil < startKey) {
-                throw new Error('循环截止不能早于开始日期');
+                throw new Error(__tmT("calendar.theRepeatEndDateCannotBeEarlierThanThe"));
             }
             const repeatRule = getScheduleRepeatCore().normalizeRule({
                 enabled: repeatType !== 'none',
@@ -28582,7 +28585,7 @@
                 anchorDate: startKey || getScheduleStartDateKey(init),
             }, { anchorDate: startKey || getScheduleStartDateKey(init), startDate: startKey || getScheduleStartDateKey(init), trigger: 'due' });
             if (getScheduleRepeatCore().monthDates.isExplicit(repeatRule) && !getScheduleRepeatCore().monthDates.nextDateKey(repeatRule, repeatRule.anchorDate, true)) {
-                throw new Error('请选择有效的月日期，并检查截止日期');
+                throw new Error(__tmT("calendar.pickAValidDayOfTheMonthAndCheck"));
             }
             return {
                 repeatRule,
@@ -28605,9 +28608,9 @@
             host.innerHTML = renderRelation();
             const noteEl = modal.querySelector('[data-tm-cal-field="note"]');
             if (noteEl instanceof HTMLTextAreaElement && linkedTaskIdDraft) {
-                noteEl.placeholder = '备注与关联任务共用';
+                noteEl.placeholder = __tmT("calendar.notesAreSharedWithTheLinkedTask");
             } else if (noteEl instanceof HTMLTextAreaElement) {
-                noteEl.placeholder = '添加备注';
+                noteEl.placeholder = __tmT("calendar.addNote");
             }
         };
         const beginRelationSearch = async () => {
@@ -28735,7 +28738,7 @@
                 relationExplicitlyUnlinked = false;
                 linkedTaskInitialRemark = readTaskRemark(task);
                 const titleEl = modal.querySelector('[data-tm-cal-field="title"]');
-                if (titleEl instanceof HTMLInputElement && !String(titleEl.value || '').trim()) titleEl.value = taskDisplayTitle(task, '') || '日程';
+                if (titleEl instanceof HTMLInputElement && !String(titleEl.value || '').trim()) titleEl.value = taskDisplayTitle(task, '') || __tmT("kernel.schedule");
                 const noteEl = modal.querySelector('[data-tm-cal-field="note"]');
                 if (noteEl instanceof HTMLTextAreaElement) noteEl.value = linkedTaskInitialRemark;
                 relationSearching = false;
@@ -28764,7 +28767,7 @@
                 try { e.preventDefault?.(); } catch (e2) {}
                 try { e.stopPropagation?.(); } catch (e2) {}
                 if (!scheduleId) {
-                    toast('请先保存日程后再查看', 'warning');
+                    toast(__tmT("calendar.saveTheScheduleFirstToViewIt"), 'warning');
                     return;
                 }
                 const title = normalizeCalendarScheduleTitleText(getInputValue('title'), '');
@@ -28787,7 +28790,7 @@
                 const currentViewItem = {
                     ...(init && typeof init === 'object' ? init : {}),
                     id: scheduleId,
-                    title: title || title0 || '日程',
+                    title: title || title0 || __tmT("kernel.schedule"),
                     start: canUseInputTime ? safeISO(nextStart) : (init?.start instanceof Date ? safeISO(init.start) : String(init?.start || '')),
                     end: canUseInputTime ? safeISO(nextEnd) : (init?.end instanceof Date ? safeISO(init.end) : String(init?.end || '')),
                     allDay: canUseInputTime ? isAllDayRange(nextStart, nextEnd) || (initAllDay && isAllDayRange(nextStart, nextEnd)) : !!initAllDay,
@@ -28832,12 +28835,12 @@
                             })();
                             const noteNow = String(modal.querySelector('[data-tm-cal-field="note"]')?.value || '');
                             if (!startRaw || !endRaw) {
-                                throw new Error('开始/结束不能为空');
+                                throw new Error(__tmT("calendar.startEndCannotBeEmpty2"));
                             }
                             const nextStart2 = new Date(startRaw);
                             const nextEnd2 = new Date(endRaw);
                             if (Number.isNaN(nextStart2.getTime()) || Number.isNaN(nextEnd2.getTime()) || nextEnd2.getTime() <= nextStart2.getTime()) {
-                                throw new Error('时间不合法');
+                                throw new Error(__tmT("calendar.invalidTime2"));
                             }
                             const repeatDraft2 = readRepeatRuleFromModal(nextStart2);
                             const list = await loadScheduleAll();
@@ -28850,7 +28853,7 @@
                             const draftItem = {
                                 ...prevItem,
                                 id: scheduleId,
-                                title: titleNow || '日程',
+                                title: titleNow || __tmT("kernel.schedule"),
                                 start: safeISO(nextStart2),
                                 end: safeISO(nextEnd2),
                                 allDay: isAllDayRange(nextStart2, nextEnd2) || (initAllDay && isAllDayRange(nextStart2, nextEnd2)),
@@ -28912,15 +28915,15 @@
                                     const patchTask = globalThis.__tmRequireTaskMutation('patchTask');
                                     const taskResult = await patchTask(taskMutationIdNow, { remark: noteNow }, {
                                         source: 'calendar-schedule-editor',
-                                        label: '日程备注',
+                                        label: __tmT("calendar.scheduleNote"),
                                         wait: true,
                                         background: false,
                                         skipInteractionGate: true,
                                     });
-                                    if (taskResult === false) throw new Error('任务备注写入未完成');
+                                    if (taskResult === false) throw new Error(__tmT("calendar.taskNoteWriteDidNotComplete"));
                                 } catch (e) {}
                             } else if (taskMutationIdNow && noteNow !== linkedTaskInitialRemark) {
-                                toast('⚠ 日程已保存，但任务备注写入队列未就绪', 'warning');
+                                toast(__tmT("calendar.scheduleSavedButTheTaskNoteWriteQueueIs"), 'warning');
                             }
                             await syncTaskDatesAfterScheduleMutation(draftItem, { list: nextList, refresh: false });
                             try {
@@ -28935,7 +28938,7 @@
                     });
                 } catch (err) {
                     console.error('[task-horizon] open device schedule dialog failed', err);
-                    toast('❌ 打开预约详情失败', 'error');
+                    toast(__tmT("calendar.failedToOpenReminderDetails"), 'error');
                 }
                 return;
             }
@@ -28947,14 +28950,14 @@
                     occurrenceStart: init.occurrenceStart,
                     start,
                 });
-                if (ok) toast('✅ 已删除', 'success');
+                if (ok) toast(__tmT("calendar.deleted"), 'success');
                 return;
             }
             if (action === 'save') {
                 if (taskDateEditor) {
                     const targetId = String(linkedTaskIdDraft || linkedBlockIdDraft || '').trim();
                     if (!targetId) {
-                        toast('⚠ 缺少任务标识', 'warning');
+                        toast(__tmT("calendar.missingTaskIdentifier"), 'warning');
                         return;
                     }
                     let nextStartDate = '';
@@ -28963,7 +28966,7 @@
                         nextStartDate = normalizeTaskDateInput(getInputValue('start'));
                         nextCompletionDate = normalizeTaskDateInput(getInputValue('end'));
                     } catch (err) {
-                        toast(`⚠ ${String(err?.message || err || '日期格式不合法')}`, 'warning');
+                        toast(`⚠ ${String(err?.message || err || __tmT("calendar.invalidDateFormat"))}`, 'warning');
                         return;
                     }
                     try {
@@ -28992,9 +28995,9 @@
                         if (colorChanged || resultColor) localPatch.taskDateColor = resultColor || nextColor;
                         patchVisibleTaskDateEventsFromModal(resolvedTaskId || targetId, localPatch);
                         closeModal();
-                        toast('✅ 已同步任务日期', 'success');
+                        toast(__tmT("calendar.taskDatesSynced"), 'success');
                     } catch (err) {
-                        toast(`❌ 保存失败：${String(err?.message || err || '')}`, 'error');
+                        toast(__tmT("calendar.saveFailed2", { value1: String(err?.message || err || '') }), 'error');
                     }
                     return;
                 }
@@ -29018,13 +29021,13 @@
                     return (Number.isFinite(n) && allowed.has(n)) ? n : 0;
                 })();
                 if (!s0 || !e0) {
-                    toast('⚠ 开始/结束不能为空', 'warning');
+                    toast(__tmT("calendar.startEndCannotBeEmpty"), 'warning');
                     return;
                 }
                 const nextStart = new Date(s0);
                 const nextEnd = new Date(e0);
                 if (Number.isNaN(nextStart.getTime()) || Number.isNaN(nextEnd.getTime()) || nextEnd.getTime() <= nextStart.getTime()) {
-                    toast('⚠ 时间不合法', 'warning');
+                    toast(__tmT("calendar.invalidTime"), 'warning');
                     return;
                 }
                 let repeatDraft;
@@ -29054,14 +29057,14 @@
                     && !taskIdKeep
                     && !blockIdKeep) {
                     try {
-                        createdCalendarTask = await globalThis.__tmCreateTaskForCalendarSchedule?.(title || '日程', {
+                        createdCalendarTask = await globalThis.__tmCreateTaskForCalendarSchedule?.(title || __tmT("kernel.schedule"), {
                             completionTime: taskCompletionDate,
                         });
                     } catch (error) {
-                        toast(`❌ 自动创建绑定任务失败：${String(error?.message || error || '')}`, 'error');
+                        toast(__tmT("calendar.failedToAutoCreateTheBoundTask", { value1: String(error?.message || error || '') }), 'error');
                         return;
                     }
-                    if (!createdCalendarTask?.taskId) throw new Error('自动创建绑定任务失败');
+                    if (!createdCalendarTask?.taskId) throw new Error(__tmT("calendar.failedToAutoCreateTheBoundTask2"));
                     taskIdKeep = String(createdCalendarTask.taskId).trim();
                     blockIdKeep = taskIdKeep;
                     linkedDocIdDraft = String(createdCalendarTask.docId || '').trim() || linkedDocIdDraft;
@@ -29071,7 +29074,7 @@
                 const item = {
                     ...base,
                     id,
-                    title: title || '日程',
+                    title: title || __tmT("kernel.schedule"),
                     start: safeISO(nextStart),
                     end: safeISO(nextEnd),
                     allDay,
@@ -29119,7 +29122,7 @@
                 let mutationResult = null;
                 if (isRecurringEdit) {
                     const scope = await showScheduleRecurringEditScopeDialog({
-                        message: '这是一个循环重复的日程。要把这次保存应用到全部日程，还是只改当前这一次？',
+                        message: __tmT("calendar.thisIsARecurringScheduleApplyThisSaveTo"),
                     });
                     if (!scope) return;
                     mutationResult = applyScheduleRecurringScopeMutation(list, idx, item, scope, {
@@ -29171,17 +29174,17 @@
                         const patchTask = globalThis.__tmRequireTaskMutation('patchTask');
                         const taskResult = await patchTask(taskMutationId, { remark: note }, {
                             source: 'calendar-schedule-editor',
-                            label: '日程备注',
+                            label: __tmT("calendar.scheduleNote"),
                             wait: true,
                             background: false,
                             skipInteractionGate: true,
                         });
-                        if (taskResult === false) throw new Error('任务备注写入未完成');
+                        if (taskResult === false) throw new Error(__tmT("calendar.taskNoteWriteDidNotComplete"));
                     } catch (err) {
                         taskRemarkError = err;
                     }
                 } else if (taskMutationId && note !== linkedTaskInitialRemark) {
-                    taskRemarkError = new Error('任务写入队列未就绪');
+                    taskRemarkError = new Error(__tmT("calendar.taskWriteQueueIsNotReady"));
                 }
                 await syncTaskDatesAfterScheduleMutation([mutationResult.item, mutationResult.parentItem], { list, refresh: false });
                 try {
@@ -29196,7 +29199,7 @@
                     try {
                         const addResult = await window.tmAutoAddOtherBlocksToCurrentGroup([blockIdKeep], { silent: true, forceRefresh: true });
                         if (addResult?.reason === 'no-group') {
-                            toast('⚠ 已保存日程，但未加入其他块页签，请先创建或选择文档分组', 'warning');
+                            toast(__tmT("calendar.scheduleSavedButItWasNotAddedToOther"), 'warning');
                         }
                     } catch (e2) {}
                 }
@@ -29205,7 +29208,7 @@
                     hard: String(getCalendarView(state.calendar)?.type || '').trim() === 'dayGridMonth',
                     flushTaskPanel: false,
                 });
-                toast(taskRemarkError ? '⚠ 日程已保存，但任务备注保存失败' : '✅ 已保存', taskRemarkError ? 'warning' : 'success');
+                toast(taskRemarkError ? __tmT("calendar.scheduleSavedButSavingTheTaskNoteFailed") : __tmT("calendar.saved"), taskRemarkError ? 'warning' : 'success');
             }
         }, { signal: abort.signal });
     }
@@ -29789,8 +29792,8 @@
                 <div class="tm-calendar-sidebar">
                     <div class="tm-calendar-sidebar-inner">
                         <div class="tm-calendar-side-tabs">
-                            <button class="tm-calendar-side-tab tm-calendar-side-tab--active" data-tm-cal-side-tab="calendar">日历</button>
-                            <button class="tm-calendar-side-tab" data-tm-cal-side-tab="tasks">任务</button>
+                            <button class="tm-calendar-side-tab tm-calendar-side-tab--active" data-tm-cal-side-tab="calendar">${__tmT("calendar.calendar")}</button>
+                            <button class="tm-calendar-side-tab" data-tm-cal-side-tab="tasks">${__tmT("kernel.task")}</button>
                         </div>
                         <div class="tm-calendar-side-page" data-tm-cal-side-page="calendar">
                             <div class="tm-calendar-mini"></div>
@@ -29798,7 +29801,7 @@
                                 <div class="tm-calendar-nav">
                                     <div class="tm-calendar-nav-section">
                                         <div class="tm-calendar-nav-header" data-tm-cal-collapse="calendars">
-                                            <span>我的日历</span>
+                                            <span>${__tmT("calendar.myCalendars")}</span>
                                             <span class="tm-calendar-nav-header-actions">
                                                 <span class="tm-calendar-nav-check-wrap"><input class="tm-calendar-nav-master-check" type="checkbox" data-tm-cal-master="schedule"><span class="tm-calendar-nav-check-ui" aria-hidden="true"></span></span>
                                                 <span class="tm-calendar-nav-chevron"></span>
@@ -29808,7 +29811,7 @@
                                     </div>
                                     <div class="tm-calendar-nav-section">
                                         <div class="tm-calendar-nav-header" data-tm-cal-collapse="tomato">
-                                            <span>番茄</span>
+                                            <span>${__tmT("homepage.pomodoro")}</span>
                                             <span class="tm-calendar-nav-header-actions">
                                                 <span class="tm-calendar-nav-check-wrap"><input class="tm-calendar-nav-master-check" type="checkbox" data-tm-cal-master="tomato"><span class="tm-calendar-nav-check-ui" aria-hidden="true"></span></span>
                                                 <span class="tm-calendar-nav-chevron"></span>
@@ -29830,7 +29833,7 @@
                 <div class="tm-calendar-sidebar-resizer" data-tm-cal-role="sidebar-resizer"></div>
                 <div class="tm-calendar-mobile-backdrop" data-tm-cal-action="closeSidebar"></div>
                 <div class="tm-calendar-main">
-                    <div class="tm-calendar-surface" data-tm-cal-surface${isMobileDevice || isDockHost ? ' data-prevent-swipe="true"' : ''} aria-label="日历视图"></div>
+                    <div class="tm-calendar-surface" data-tm-cal-surface${isMobileDevice || isDockHost ? ' data-prevent-swipe="true"' : ''} aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.calendarView")}"></div>
                 </div>
             </div>
         `;
@@ -30602,11 +30605,11 @@
             })).sort(protoCompareMonthEvents);
             const pop = document.createElement('div');
             pop.className = 'tm-proto-more-popover';
-            const header = `${date.getMonth() + 1}月${date.getDate()}日 周${protoWeekLabels[date.getDay()]}${protoLunarText(dayKey, getSettings()) ? ` · ${protoLunarText(dayKey, getSettings())}` : ''}`;
+            const header = __tmT("date.monthDayWeekdayStatus", { value1: date.getMonth() + 1, value2: date.getDate(), value3: protoWeekLabels[date.getDay()], value4: protoLunarText(dayKey, getSettings()) ? ` · ${protoLunarText(dayKey, getSettings())}` : '' });
             pop.innerHTML = `<div class="tm-proto-more-popover-head">${esc(header)}</div>`
                 + (events.length
                     ? events.map((eventApi) => `<div class="tm-proto-more-popover-event" data-tm-proto-event="${esc(String(eventApi.id || ''))}" style="--tm-proto-event-color:${protoEventColor(eventApi)}">${protoEventMarkup(eventApi, 'chip', eventApi?.allDay !== true, '', 'timeGridDay')}</div>`).join('')
-                    : '<div class="tm-proto-more-popover-empty">这一天暂无安排</div>');
+                    : `<div class="tm-proto-more-popover-empty">${__tmT("calendar.noPlansForThisDay")}</div>`);
             try {
                 const computed = getComputedStyle(anchorEl);
                 ['--tm-cal-panel', '--tm-cal-panel-2', '--tm-cal-border', '--tm-cal-text', '--tm-cal-muted', '--tm-cal-faint', '--tm-cal-primary', '--tm-cal-on-primary']
@@ -31412,7 +31415,7 @@
                         section.classList.toggle('is-collapsed', collapsed);
                         const toggle = section.querySelector('[data-tm-proto-list-action="toggle-subtasks"]');
                         toggle?.setAttribute('aria-expanded', String(!collapsed));
-                        toggle?.setAttribute('title', collapsed ? '展开子任务' : '折叠子任务');
+                        toggle?.setAttribute('title', collapsed ? __tmT("calendar.expandSubtasks") : __tmT("calendar.collapseSubtasks"));
                         section.querySelector('[data-tm-kanban-subtasks-list]')?.setAttribute('aria-hidden', String(collapsed));
                         updated = true;
                     });
@@ -33057,7 +33060,7 @@
             }
         }
         bindSidebarResize(wrap);
-        const protoWeekLabels = ['日', '一', '二', '三', '四', '五', '六'];
+        const protoWeekLabels = [__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')];
         const protoSafeDate = (value) => {
             const date = value instanceof Date ? new Date(value.getTime()) : new Date(value || '');
             return Number.isNaN(date.getTime()) ? null : date;
@@ -33093,9 +33096,9 @@
             return 'var(--tm-primary-color)';
         };
         const protoEventSource = (eventApi) => String(eventApi?.extendedProps?.__tmSource || '').trim();
-        const protoEventTitle = (eventApi) => String(eventApi?.title || eventApi?.extendedProps?.__tmTaskTitleMarkdown || '').trim() || '未命名事件';
+        const protoEventTitle = (eventApi) => String(eventApi?.title || eventApi?.extendedProps?.__tmTaskTitleMarkdown || '').trim() || __tmT("calendar.untitledEvent");
         const protoEventTime = (eventApi) => {
-            if (eventApi?.allDay === true) return '全天';
+            if (eventApi?.allDay === true) return __tmT("calendar.allDay");
             const start = protoSafeDate(eventApi?.start);
             const end = protoSafeDate(eventApi?.end);
             if (!start) return '';
@@ -33107,10 +33110,10 @@
             const ext = eventApi?.extendedProps || {};
             const source = protoEventSource(eventApi);
             const meta = [];
-            if (source === 'taskdate' || ext.__tmTaskId || ext.__tmTaskDateEventTaskId) meta.push('任务');
-            else if (source === 'schedule' || ext.__tmScheduleId) meta.push('日程');
-            if (ext.__tmReminderTime || ext.__tmReminderDate || ext.__tmReminderOffsetMin) meta.push('提醒');
-            if (ext.__tmTaskDateMilestone === true) meta.push('里程碑');
+            if (source === 'taskdate' || ext.__tmTaskId || ext.__tmTaskDateEventTaskId) meta.push(__tmT("kernel.task"));
+            else if (source === 'schedule' || ext.__tmScheduleId) meta.push(__tmT("kernel.schedule"));
+            if (ext.__tmReminderTime || ext.__tmReminderDate || ext.__tmReminderOffsetMin) meta.push(__tmT("ai.warnings"));
+            if (ext.__tmTaskDateMilestone === true) meta.push(__tmT("kernel.milestone"));
             return meta.join(' · ');
         };
         const protoCompareMonthEvents = compareSharedPrototypeEvents;
@@ -33226,7 +33229,7 @@
                 ? buildTaskTitleOpacityStyleForTask(getCalendarEventTaskLikeForTitle(eventApi))
                 : '';
             const recurringIcon = showSpanTitle ? buildCalendarRecurringTaskIconMarkup(ext) : '';
-            const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(`${eventApi.title || ''} · 提醒时间：${ext.__tmMergedReminderLabel}`)}"` : '';
+            const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(__tmT("calendar.reminder2", { value1: eventApi.title || '', tmMergedReminderLabel: ext.__tmMergedReminderLabel }))}"` : '';
             const done = resolveCalendarEventDoneState(ext);
             const activeViewType = String(viewType || getCalendarView(calendar)?.type || state._lastViewType || '').trim();
             const showCheck = isSegmentStart
@@ -33253,7 +33256,7 @@
             return `<div class="${classes}" data-tm-proto-event="${esc(id)}"${reminderTitle} style="${layoutStyle}--tm-proto-event-color:${protoEventColor(eventApi)}">`
                 + `${canResizeRange && !continuation ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--start" data-tm-proto-resize="start" aria-hidden="true"></span>' : ''}`
                 + `${continuesBefore ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--start" aria-hidden="true">&lt;</span>' : ''}`
-                + `${showCheck ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="${isIndependentScheduleEventExt(ext) ? '完成日程' : '完成任务'}"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>` : ''}`
+                + `${showCheck ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="${isIndependentScheduleEventExt(ext) ? __tmT("calendar.completeSchedule") : __tmT("calendar.complete")}"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>` : ''}`
                 + `<span class="tm-proto-span-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}${buildCalendarMergedReminderMarkup(ext)}`
                 + `${continuesAfter ? '<span class="tm-proto-span-continuation-marker tm-proto-span-continuation-marker--end" aria-hidden="true">&gt;</span>' : ''}`
                 + `${canResizeRange && isEventEnd ? '<span class="tm-proto-resize-handle tm-proto-resize-handle--calendar-edge tm-proto-resize-handle--end" data-tm-proto-resize="end" aria-hidden="true"></span>' : ''}</div>`;
@@ -33276,10 +33279,10 @@
         const protoDayNumberMarkup = (date, holidayInfo = null) => {
             const isMonthStart = date.getDate() === 1;
             const showMonthCue = isMonthStart && !compactMonthCell();
-            const label = showMonthCue ? `${date.getMonth() + 1}月1日` : String(date.getDate());
+            const label = showMonthCue ? __tmT("date.firstOfMonth", { value1: date.getMonth() + 1 }) : String(date.getDate());
             const status = String(holidayInfo?.status || '').trim();
             const statusMarkup = status
-                ? `<i class="tm-proto-holiday-status tm-proto-holiday-status--${esc(status)}" title="${status === 'work' ? '调休工作日' : '休息日'}">${status === 'work' ? '班' : '休'}</i>`
+                ? `<i class="tm-proto-holiday-status tm-proto-holiday-status--${esc(status)}" title="${status === 'work' ? __tmT("calendar.makeUpWorkday") : __tmT("calendar.restDay")}">${status === 'work' ? __tmT("calendar.work") : __tmT("calendar.rest")}</i>`
                 : '';
             return `<span class="tm-proto-day-number-wrap"><span class="tm-proto-day-number ${showMonthCue ? 'tm-proto-day-number--month-start' : ''}">${label}</span>${statusMarkup}</span>`;
         };
@@ -33748,7 +33751,7 @@
                     isMonthStart && column > 0 ? 'tm-proto-month-cell--month-turn' : '',
                 ].filter(Boolean).join(' ');
                 const monthBoundaryLabel = options.continuousMonth === true && isMonthStart
-                    ? `<span class="tm-proto-month-boundary-label" aria-hidden="true">${date.getFullYear()}年${date.getMonth() + 1}月</span>`
+                    ? `<span class="tm-proto-month-boundary-label" aria-hidden="true">${__tmT("date.yearMonthNumbers", { value1: date.getFullYear(), value2: date.getMonth() + 1 })}</span>`
                     : '';
                 // A weekly segment is one continuous bar. Render it only in
                 // its first cell so its width can span all covered days and
@@ -33766,7 +33769,7 @@
                 const spanReserve = reserveLanes > 0
                     ? `<span class="tm-proto-month-span-reserve" style="height:${spanReserveHeight}px !important" aria-hidden="true"></span>`
                     : '';
-                const regularStack = `<div class="tm-proto-month-regular-stack">${visibleEvents.map((eventApi) => protoEventMarkup(eventApi, 'chip', eventApi?.allDay !== true, eventApi?.allDay === true ? 'tm-proto-month-event' : '', 'dayGridMonth')).join('')}${more ? `<button class="tm-proto-more" type="button" data-tm-proto-day="${key}">+${more} 项</button>` : ''}</div>`;
+                const regularStack = `<div class="tm-proto-month-regular-stack">${visibleEvents.map((eventApi) => protoEventMarkup(eventApi, 'chip', eventApi?.allDay !== true, eventApi?.allDay === true ? 'tm-proto-month-event' : '', 'dayGridMonth')).join('')}${more ? `<button class="tm-proto-more" type="button" data-tm-proto-day="${key}">${__tmT("calendar.items2", { more: more })}</button>` : ''}</div>`;
                 return `<div class="tm-proto-month-cell ${today ? 'is-today' : ''} ${isOther ? 'is-other' : ''} ${boundaryClasses}" data-tm-proto-day="${key}" data-tm-proto-all-day="1"${monthStartAttr}>`
                     + monthBoundaryLabel
                     + `<div class="tm-proto-month-day-head">${protoDayNumberMarkup(date, holidayInfo)}${holiday ? protoMonthHolidayMarkup(holiday) : `<span class="tm-proto-date-meta">${esc(lunar)}</span>`}</div>`
@@ -33783,7 +33786,7 @@
             const monthKey = `${monthAnchor.getFullYear()}-${String(monthAnchor.getMonth() + 1).padStart(2, '0')}`;
             const monthLabel = options.showMonthLabel === false
                 ? ''
-                : `<div class="tm-proto-month-label" data-tm-proto-month-label="${monthKey}">${monthAnchor.getFullYear()}年${monthAnchor.getMonth() + 1}月</div>`;
+                : `<div class="tm-proto-month-label" data-tm-proto-month-label="${monthKey}">${__tmT("date.yearMonthNumbers", { value1: monthAnchor.getFullYear(), value2: monthAnchor.getMonth() + 1 })}</div>`;
             const headMarkup = options.includeWeekdayHead === false ? '' : `<div class="tm-proto-month-head-row">${head}</div>`;
             return `<section class="tm-proto-view tm-proto-month" data-tm-proto-month="${monthKey}" style="--tm-proto-month-rows:${rows}">${monthLabel}${headMarkup}<div class="tm-proto-month-grid" style="--tm-proto-month-min-row-height:${monthRowHeight}px">${weekRows}</div></section>`;
         };
@@ -33844,10 +33847,10 @@
             const statBars = dayStats.map((item, index) => {
                 const height = Math.max(4, Math.round((item.total / maxDayTotal) * 30));
                 const doneHeight = item.total ? Math.round((item.done / item.total) * height) : 0;
-                const label = ['一', '二', '三', '四', '五', '六', '日'][index] || '';
+                const label = [1, 2, 3, 4, 5, 6, 0].map(day => __tmT('date.weekday.short.' + day))[index] || '';
                 return `<div class="tm-proto-week-stat-day" title="${esc(`${item.key}：${item.done}/${item.total}`)}"><span class="tm-proto-week-stat-bar" style="height:${height}px"><i style="height:${doneHeight}px"></i></span><small>${label}</small></div>`;
             }).join('');
-            const stats = `<aside class="tm-proto-week-completion" aria-label="本周日程完成统计"><strong>本周日程</strong><b>${done} / ${total} <em>已完成</em></b><span class="tm-proto-week-completion-percent">${percent}%</span><div class="tm-proto-week-completion-track"><i style="width:${percent}%"></i></div><div class="tm-proto-week-stat-bars">${statBars}</div></aside>`;
+            const stats = `<aside class="tm-proto-week-completion" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.thisWeekSScheduleCompletion")}"><strong>${__tmT("calendar.thisWeek")}</strong><b>${done} / ${total} <em>${__tmT("ai.completed")}</em></b><span class="tm-proto-week-completion-percent">${percent}%</span><div class="tm-proto-week-completion-track"><i style="width:${percent}%"></i></div><div class="tm-proto-week-stat-bars">${statBars}</div></aside>`;
             const renderWeekCell = (date, visibleRegular, more, reserveLanes, spanReserveHeight) => {
                 const key = protoDateKey(date);
                 const info = protoHolidayInfo(key, settings);
@@ -33861,7 +33864,7 @@
                     eventApi?.allDay === true ? 'tm-proto-month-event' : '',
                     'dayGridWeek',
                 )).join('');
-                const moreMarkup = more ? `<button class="tm-proto-more" type="button" data-tm-proto-day="${key}">+${more} 项</button>` : '';
+                const moreMarkup = more ? `<button class="tm-proto-more" type="button" data-tm-proto-day="${key}">${__tmT("calendar.items2", { more: more })}</button>` : '';
                 // The month cell reserves the cross-day band with a spacer so
                 // chips never sit under a bar. The week grid mirrors that
                 // rhythm exactly instead of padding the container.
@@ -33934,7 +33937,7 @@
         };
         const monthTitle = (date) => {
             const value = date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
-            return value ? `${value.getFullYear()}年${value.getMonth() + 1}月` : '';
+            return value ? __tmT("date.yearMonthNumbers", { value1: value.getFullYear(), value2: value.getMonth() + 1 }) : '';
         };
         const syncPrototypeMonthTitle = (date) => {
             const titleEl = prototypeSurface?.querySelector?.('[data-tm-proto-title]');
@@ -34339,7 +34342,7 @@
             const turnColumn = weekDays.findIndex((date) => date.getDate() === 1);
             const monthBoundaryDate = turnColumn >= 0 ? weekDays[turnColumn] : null;
             const monthBoundaryLabel = monthBoundaryDate
-                ? `<span class="tm-proto-month-boundary-label${turnColumn > 0 ? ' tm-proto-month-boundary-label--lower' : ''}" aria-hidden="true">${monthBoundaryDate.getFullYear()}年${monthBoundaryDate.getMonth() + 1}月</span>`
+                ? `<span class="tm-proto-month-boundary-label${turnColumn > 0 ? ' tm-proto-month-boundary-label--lower' : ''}" aria-hidden="true">${__tmT("date.yearMonthNumbers", { value1: monthBoundaryDate.getFullYear(), value2: monthBoundaryDate.getMonth() + 1 })}</span>`
                 : '';
             const cells = weekDays.map((date, column) => {
                 const key = protoDateKey(date);
@@ -34379,7 +34382,7 @@
                 const spanReserve = reserveLanes > 0
                     ? `<span class="tm-proto-month-span-reserve" style="height:${spanReserveHeight}px !important" aria-hidden="true"></span>`
                     : '';
-                const regularStack = `<div class="tm-proto-month-regular-stack">${visibleEvents.map((eventApi) => protoEventMarkup(eventApi, 'chip', eventApi?.allDay !== true, eventApi?.allDay === true ? 'tm-proto-month-event' : '', 'dayGridMonth')).join('')}${more ? `<button class="tm-proto-more" type="button" data-tm-proto-day="${key}">+${more} 项</button>` : ''}</div>`;
+                const regularStack = `<div class="tm-proto-month-regular-stack">${visibleEvents.map((eventApi) => protoEventMarkup(eventApi, 'chip', eventApi?.allDay !== true, eventApi?.allDay === true ? 'tm-proto-month-event' : '', 'dayGridMonth')).join('')}${more ? `<button class="tm-proto-more" type="button" data-tm-proto-day="${key}">${__tmT("calendar.items2", { more: more })}</button>` : ''}</div>`;
                 return `<div class="tm-proto-month-cell ${today ? 'is-today' : ''} ${boundaryClasses}" data-tm-proto-day="${key}" data-tm-proto-all-day="1"${monthStartAttr}>`
                     + `<div class="tm-proto-month-day-head">${protoDayNumberMarkup(date, holidayInfo)}${holiday ? protoMonthHolidayMarkup(holiday) : `<span class="tm-proto-date-meta">${esc(lunar)}</span>`}</div>`
                     + `<div class="tm-proto-month-events">${spanMarkup}${spanReserve}${regularStack}</div></div>`;
@@ -34894,11 +34897,11 @@
         };
         const protoListDateLabel = (date) => {
             const value = protoSafeDate(date);
-            return value ? `${value.getMonth() + 1}月${value.getDate()}日` : '';
+            return value ? __tmT("date.monthDayNumbers", { value1: value.getMonth() + 1, value2: value.getDate() }) : '';
         };
         const protoListMonthLabel = (date) => {
             const value = protoSafeDate(date);
-            return value ? `${value.getFullYear()}年${value.getMonth() + 1}月` : '';
+            return value ? __tmT("date.yearMonthNumbers", { value1: value.getFullYear(), value2: value.getMonth() + 1 }) : '';
         };
         const protoListFirstDay = (settings) => Number(settings?.firstDay) === 0 ? 0 : 1;
         const protoListStartOfWeek = (date, firstDay) => {
@@ -34941,7 +34944,7 @@
             return dates;
         };
         const protoListWeekdayLabels = (settings) => {
-            const labels = ['日', '一', '二', '三', '四', '五', '六'];
+            const labels = [__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')];
             const firstDay = protoListFirstDay(settings);
             return Array.from({ length: 7 }, (_, index) => labels[(firstDay + index) % 7]);
         };
@@ -35025,7 +35028,7 @@
             const protoListTaskTitleHtml = (task, fallbackText = '') => {
                 const content = String(task?.content || task?.raw_content || task?.rawContent || '').trim();
                 const markdown = String(task?.markdown || '').trim();
-                const fallback = content || markdown || String(fallbackText || '').trim() || '未命名任务';
+                const fallback = content || markdown || String(fallbackText || '').trim() || __tmT("kernel.untitledTask");
                 try {
                     if (typeof API !== 'undefined' && API && typeof API.renderTaskContentHtml === 'function') {
                         const rendered = API.renderTaskContentHtml(markdown || fallback, fallback);
@@ -35150,7 +35153,7 @@
                     }
                     const done = protoListTaskDone(task);
                     const status = typeof bridge.resolveStatus === 'function'
-                        ? bridge.resolveStatus(task, { fallbackColor: done ? '#9e9e9e' : '#757575', fallbackName: done ? '完成' : '待办' })
+                        ? bridge.resolveStatus(task, { fallbackColor: done ? '#9e9e9e' : '#757575', fallbackName: done ? __tmT("quickbar.done") : __tmT("homepage.toDo") })
                         : null;
                     const shouldRenderStatus = typeof bridge.shouldRenderStatus === 'function'
                         ? bridge.shouldRenderStatus(task) === true
@@ -35163,7 +35166,7 @@
                         const statusStyle = typeof bridge.buildStatusStyle === 'function'
                             ? bridge.buildStatusStyle(status.color || '#757575')
                             : (typeof __tmBuildStatusChipStyle === 'function' ? __tmBuildStatusChipStyle(status.color || '#757575') : '');
-                        const statusName = protoListStatusLabel(status, done ? '完成' : '待办');
+                        const statusName = protoListStatusLabel(status, done ? __tmT("quickbar.done") : __tmT("homepage.toDo"));
                         if (statusName) parts.push(`<span class="tm-status-tag" style="${statusStyle};cursor:default;">${esc(statusName)}</span>`);
                     }
                     const dateValue = typeof bridge.getDateValue === 'function'
@@ -35176,7 +35179,7 @@
                         const dateText = typeof bridge.formatDate === 'function'
                             ? bridge.formatDate(task)
                             : (typeof __tmFormatTaskCardDateValue === 'function' ? __tmFormatTaskCardDateValue(task) : dateValue);
-                        parts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date" data-tm-task-time-field="date">${esc(dateText || '日期')}</span>`);
+                        parts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date" data-tm-task-time-field="date">${esc(dateText || __tmT("calendar.date"))}</span>`);
                     }
                     const hasRemainingTime = typeof bridge.shouldRenderRemainingTime === 'function'
                         ? bridge.shouldRenderRemainingTime(task) === true
@@ -35284,7 +35287,7 @@
                         : typeof __tmRenderTaskCheckboxWrap === 'function'
                             ? __tmRenderTaskCheckboxWrap(childId, child, { checked: childDone, stopMouseDown: true, stopPointerDown: true, stopClick: true })
                         : `<input class="tm-task-checkbox" type="checkbox" data-task-id="${esc(childId)}" ${childDone ? 'checked' : ''} onchange="tmSetDone('${esc(childId)}', this.checked, event)" onclick="event.stopPropagation()">`;
-                    const childContent = String(child?.content || child?.raw_content || child?.rawContent || '').trim() || '(无内容)';
+                    const childContent = String(child?.content || child?.raw_content || child?.rawContent || '').trim() || __tmT("kernel.noContent");
                     const childMarkdown = String(child?.markdown || childContent).trim();
                     const childTitle = protoListTaskTitleHtml(child, childContent);
                     const childTitleAttrs = (() => {
@@ -35317,7 +35320,7 @@
                     const childAttrs = `data-id="${esc(childId)}" draggable="true" ondragstart="tmKanbanDragStart(event, '${esc(childId)}')" ondragend="tmKanbanDragEnd(event, '${esc(childId)}')" onpointerdown="tmKanbanCardPointerDown(event, '${esc(childId)}')"${useTaskDetailClick ? ` onclick="tmOpenTaskDetail('${esc(childId)}', event)"` : ` onclick="tmKanbanCardClick('${esc(childId)}', event)"`} oncontextmenu="tmShowTaskContextMenu(event, '${esc(childId)}')" ondblclick="tmKanbanCardDblClick('${esc(childId)}', event)"`;
                     const childTitleInner = `${childTitle}${typeof __tmRenderRecurringTaskInlineIcon === 'function' ? __tmRenderRecurringTaskInlineIcon(child) : ''}`;
                     const childMeta = String(protoListTaskMetaHtml(child, false, eventApi) || '').replace('tm-kanban-card-meta', 'tm-kanban-subtask-meta');
-                    return `<div class="${childClass}"${childPinnedStyle} ${childAttrs}><div class="tm-kanban-subtask-row-main">${childCheckbox}<div class="tm-kanban-subtask-text"><span class="tm-kanban-subtask-title tm-task-content-clickable" ${childTitleAttrs}>${childTitleInner}</span>${childMeta}</div><div class="tm-kanban-subtask-actions"><button class="tm-kanban-more tm-kanban-subtask-more" onclick="tmOpenTaskDetail('${esc(childId)}', event)" title="任务详情">${typeof __tmRenderLucideIcon === 'function' ? __tmRenderLucideIcon('dots-three') : '⋯'}</button></div></div></div>`;
+                    return `<div class="${childClass}"${childPinnedStyle} ${childAttrs}><div class="tm-kanban-subtask-row-main">${childCheckbox}<div class="tm-kanban-subtask-text"><span class="tm-kanban-subtask-title tm-task-content-clickable" ${childTitleAttrs}>${childTitleInner}</span>${childMeta}</div><div class="tm-kanban-subtask-actions"><button class="tm-kanban-more tm-kanban-subtask-more" onclick="tmOpenTaskDetail('${esc(childId)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.taskDetails")}">${typeof __tmRenderLucideIcon === 'function' ? __tmRenderLucideIcon('dots-three') : '⋯'}</button></div></div></div>`;
                 }).join('');
                 const subtaskHtml = children.length
                     ? (() => {
@@ -35327,7 +35330,7 @@
                         const subtaskIcon = typeof bridge.renderBadgeIcon === 'function'
                             ? bridge.renderBadgeIcon('clipboard-list', 14)
                             : typeof __tmRenderBadgeIcon === 'function' ? __tmRenderBadgeIcon('clipboard-list', 14) : '';
-                        return `<section class="tm-kanban-subtasks tm-proto-list-subtasks tm-kanban--clean${collapsed ? ' is-collapsed' : ''}" data-tm-proto-list-subtasks-owner="${esc(id)}" aria-label="子任务"><button class="tm-kanban-subtasks-head" type="button" data-tm-proto-list-action="toggle-subtasks" data-tm-proto-list-task-id="${esc(id)}" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? '展开子任务' : '折叠子任务'}"><span class="tm-kanban-subtasks-label">${subtaskIcon}<span>子任务</span></span><span class="tm-badge tm-badge--count">${completed}/${children.length}</span><span class="tm-kanban-subtasks-chevron" aria-hidden="true"></span></button><div class="tm-kanban-subtasks-progress" role="presentation"><span style="width:${progress}%"></span></div><div class="tm-kanban-subtasks-list" data-tm-kanban-subtasks-list aria-hidden="${collapsed ? 'true' : 'false'}">${childRows}</div></section>`;
+                        return `<section class="tm-kanban-subtasks tm-proto-list-subtasks tm-kanban--clean${collapsed ? ' is-collapsed' : ''}" data-tm-proto-list-subtasks-owner="${esc(id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.subtasks")}"><button class="tm-kanban-subtasks-head" type="button" data-tm-proto-list-action="toggle-subtasks" data-tm-proto-list-task-id="${esc(id)}" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? __tmT("calendar.expandSubtasks") : __tmT("calendar.collapseSubtasks")}"><span class="tm-kanban-subtasks-label">${subtaskIcon}<span>${__tmT("calendar.subtasks")}</span></span><span class="tm-badge tm-badge--count">${completed}/${children.length}</span><span class="tm-kanban-subtasks-chevron" aria-hidden="true"></span></button><div class="tm-kanban-subtasks-progress" role="presentation"><span style="width:${progress}%"></span></div><div class="tm-kanban-subtasks-list" data-tm-kanban-subtasks-list aria-hidden="${collapsed ? 'true' : 'false'}">${childRows}</div></section>`;
                     })()
                     : '';
                 const overdueClass = options.kind === 'expired' ? ' tm-kanban-card--overdue' : '';
@@ -35338,7 +35341,7 @@
                 const pinnedStyle = pinned ? ';border-left:3px solid var(--tm-pinned-color)' : '';
                 const reminderTime = buildCalendarMergedReminderMarkup(eventProps);
                 const reminderTitle = eventProps.__tmMergedReminderLabel
-                    ? ` title="${esc(`${task.content || eventApi.title || ''} · 提醒时间：${eventProps.__tmMergedReminderLabel}`)}"` : '';
+                    ? ` title="${esc(__tmT("calendar.reminder2", { value1: task.content || eventApi.title || '', tmMergedReminderLabel: eventProps.__tmMergedReminderLabel }))}"` : '';
                 return `<div class="tm-proto-list-event tm-proto-list-task-card tm-kanban-card${done ? ' tm-kanban-card--done' : ''}${pinnedClass}${overdueClass}" data-tm-proto-event="${esc(eventId)}" data-tm-proto-list-task-id="${esc(id)}"${taskDetailClick}${reminderTitle} style="--tm-proto-event-color:${protoEventColor(eventApi)}${pinnedStyle}"><div class="tm-kanban-card-top tm-kanban-card-main"><div class="tm-kanban-card-head">${checkbox}<div class="tm-kanban-card-text"><div class="tm-proto-list-task-title"><span class="tm-kanban-card-title-inline${parentTitleClass}" style="${protoListTaskTitleStyle(task)}">${protoListTaskTitleHtml(task, eventApi?.title)}</span>${reminderTime}</div>${protoListTaskMetaHtml(task, true, eventApi)}</div></div></div>${subtaskHtml}</div>`;
             };
             const protoListEventRow = (eventApi, kind = 'regular') => {
@@ -35439,7 +35442,7 @@
             const dateSubtext = holidayShortText || (!holidayLabel && !holidayStatus ? lunarText : '');
             const dateSubtextMarkup = dateSubtext ? `<small class="tm-proto-list-date-subtext" title="${esc(holidayLabel || lunarText)}">${esc(dateSubtext)}</small>` : '';
             const metaText = holidayShortText || (!holidayLabel && !holidayStatus ? lunarText : '');
-            const statusMarkup = holidayStatus ? `<span class="tm-proto-list-date-status tm-proto-list-date-status--${esc(holidayStatus)}" title="${holidayStatus === 'work' ? '调休工作日' : '休息日'}">${holidayStatus === 'work' ? '班' : '休'}</span>` : '';
+            const statusMarkup = holidayStatus ? `<span class="tm-proto-list-date-status tm-proto-list-date-status--${esc(holidayStatus)}" title="${holidayStatus === 'work' ? __tmT("calendar.makeUpWorkday") : __tmT("calendar.restDay")}">${holidayStatus === 'work' ? __tmT("calendar.work") : __tmT("calendar.rest")}</span>` : '';
             const hasEvents = protoRangeEvents(events, date, protoAddDays(date, 1)).length > 0;
             const classes = [
                 'tm-proto-list-date-cell',
@@ -35464,7 +35467,7 @@
                 holidayStatus ? `has-holiday-status has-holiday-status--${holidayStatus}` : '',
             ].filter(Boolean).join(' ');
             const ariaMeta = holidayLabel || lunarText;
-            const ariaLabel = [protoListDateLabel(date), ariaMeta, holidayStatus === 'work' ? '调休工作日' : holidayStatus === 'rest' ? '休息日' : ''].filter(Boolean).join('，');
+            const ariaLabel = [protoListDateLabel(date), ariaMeta, holidayStatus === 'work' ? __tmT("calendar.makeUpWorkday") : holidayStatus === 'rest' ? __tmT("calendar.restDay") : ''].filter(Boolean).join('，');
             return `<button type="button" class="${classes}" data-tm-proto-list-action="select-date" data-tm-proto-list-date="${esc(key)}" aria-label="${esc(ariaLabel)}" aria-pressed="${key === protoDateKey(focusDate) ? 'true' : 'false'}"><span class="tm-proto-list-date-weekday">${protoWeekLabels[date.getDay()]}</span><span class="tm-proto-list-date-number"><strong>${date.getDate()}</strong>${dateSubtextMarkup}${statusMarkup}</span>${hasEvents ? '<i aria-hidden="true"></i>' : ''}</button>`;
         };
         const syncPrototypeListControl = (current, next) => {
@@ -35614,13 +35617,13 @@
                 const expiredEvents = Array.from(expiredByTask.values());
                 const expiredIds = new Set(expiredEvents.map((eventApi) => String(eventApi?.id || '')));
                 const regularEvents = visibleDayEvents.filter((eventApi) => !protoIsSpanEvent(eventApi) && !expiredIds.has(String(eventApi?.id || '')));
-                const specialGroups = `${protoListGroup(key, 'expired', '已过期', expiredEvents)}${protoListGroup(key, 'span', '跨天任务', spanEvents)}`;
+                const specialGroups = `${protoListGroup(key, 'expired', __tmT("homepage.overdue3"), expiredEvents)}${protoListGroup(key, 'span', __tmT("calendar.multiDayTasks"), spanEvents)}`;
                 const regularRows = protoListSortEvents(regularEvents).map((eventApi) => protoListEventRow(eventApi)).join('');
-                const regularGroup = protoListGroup(key, 'regular', '今日任务', regularEvents);
+                const regularGroup = protoListGroup(key, 'regular', __tmT("calendar.todaySTasks"), regularEvents);
                 const groups = specialGroups ? `${specialGroups}${regularGroup}` : '';
                 const rows = specialGroups ? '' : regularRows;
-                const content = groups || rows ? `${groups}${rows}` : '<div class="tm-proto-list-empty">暂无安排</div>';
-                return `<section class="tm-proto-list-day${isToday ? ' is-today' : ''}" data-tm-proto-list-day="${esc(key)}"><header><div><b>${esc(protoListDateLabel(date))}</b><span>周${protoWeekLabels[date.getDay()]}</span>${isToday ? '<em>今天</em>' : ''}</div><small>${visibleDayEvents.length ? `${visibleDayEvents.length} 项安排` : '暂无安排'}</small></header>${content}</section>`;
+                const content = groups || rows ? `${groups}${rows}` : `<div class="tm-proto-list-empty">${__tmT("calendar.nothingScheduled")}</div>`;
+                return `<section class="tm-proto-list-day${isToday ? ' is-today' : ''}" data-tm-proto-list-day="${esc(key)}"><header><div><b>${esc(protoListDateLabel(date))}</b><span>${__tmT("date.weekdayPrefix", { value1: protoWeekLabels[date.getDay()] })}</span>${isToday ? `<em>${__tmT("common.today")}</em>` : ''}</div><small>${visibleDayEvents.length ? __tmT("calendar.scheduled", { length: visibleDayEvents.length }) : __tmT("calendar.nothingScheduled")}</small></header>${content}</section>`;
             }).join('');
             protoListChildContext = null;
             const visibleEvents = events.filter(isVisibleByCompletion);
@@ -35631,7 +35634,7 @@
                 return cell.replace('tm-proto-list-date-cell', `tm-proto-list-date-cell tm-proto-list-month-cell${date.getMonth() === monthCursor.getMonth() ? '' : ' is-outside'}`);
             }).join('');
             const calendarClasses = ['tm-proto-view', 'tm-proto-list', `is-day-count-${visibleDays.length}`, prototypeListState.calendarExpanded ? 'is-calendar-expanded' : '', prototypeListState.calendarTransition ? `is-calendar-transition-${prototypeListState.calendarTransition}` : ''].filter(Boolean).join(' ');
-             return `<section class="${calendarClasses}"><section class="tm-proto-list-picker" aria-label="日期选择器"><div class="tm-proto-list-week-picker"><button type="button" class="tm-proto-list-week-nav" data-tm-proto-list-action="prev-week" aria-label="上一周" title="上一周">${buildCalendarChromeIcon('chevron-left', 18)}</button><div class="tm-proto-list-week-grid">${weekCells}</div><button type="button" class="tm-proto-list-week-nav" data-tm-proto-list-action="next-week" aria-label="下一周" title="下一周">${buildCalendarChromeIcon('chevron-right', 18)}</button></div><div class="tm-proto-list-month-picker"><div class="tm-proto-list-month-grid">${weekdayCells}${monthCells}</div></div><button type="button" class="tm-proto-list-calendar-toggle" data-tm-proto-list-action="toggle-calendar" aria-expanded="${prototypeListState.calendarExpanded ? 'true' : 'false'}" aria-label="${prototypeListState.calendarExpanded ? '收起月历' : '展开月历'}"><span aria-hidden="true"></span></button></section><div class="tm-proto-list-days">${cards}</div></section>`;
+             return `<section class="${calendarClasses}"><section class="tm-proto-list-picker" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.datePicker")}"><div class="tm-proto-list-week-picker"><button type="button" class="tm-proto-list-week-nav" data-tm-proto-list-action="prev-week" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousWeek")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousWeek")}">${buildCalendarChromeIcon('chevron-left', 18)}</button><div class="tm-proto-list-week-grid">${weekCells}</div><button type="button" class="tm-proto-list-week-nav" data-tm-proto-list-action="next-week" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextWeek")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextWeek")}">${buildCalendarChromeIcon('chevron-right', 18)}</button></div><div class="tm-proto-list-month-picker"><div class="tm-proto-list-month-grid">${weekdayCells}${monthCells}</div></div><button type="button" class="tm-proto-list-calendar-toggle" data-tm-proto-list-action="toggle-calendar" aria-expanded="${prototypeListState.calendarExpanded ? 'true' : 'false'}" aria-label="${prototypeListState.calendarExpanded ? __tmT("calendar.collapseCalendar") : __tmT("calendar.expandCalendar")}"><span aria-hidden="true"></span></button></section><div class="tm-proto-list-days">${cards}</div></section>`;
         };
         const protoRenderDayPanel = (events, settings) => {
             if (!prototypeShowDayPanel) return '';
@@ -35897,14 +35900,14 @@
                 const id = String(linkedTaskId || linkedBlockId || '').trim();
                 const task = taskForId(id);
                 if (id && !relationSearching) {
-                    const title = titleForTask(task, '') || (relationTitle && relationTitle !== id ? relationTitle : '') || '已关联任务';
+                    const title = titleForTask(task, '') || (relationTitle && relationTitle !== id ? relationTitle : '') || __tmT("calendar.linkedTask");
                     const meta = getCalendarTaskRelationMeta(task);
                     const shapeClass = getCalendarRelationCheckboxShapeClass();
                     const checked = isCalendarRelationTaskDone(task);
                     const canceled = globalThis.__tmCalendarKanbanCardHelpers?.isCanceled?.(task) === true;
-                    return `<div class="tm-proto-inline-relation-current"><div class="tm-proto-inline-relation-main"><input class="tm-task-checkbox tm-proto-inline-relation-check ${shapeClass}${canceled ? ' tm-task-checkbox--canceled' : ''}" type="checkbox" data-tm-proto-edit-relation-task-check="${esc(id)}" aria-label="完成关联任务"${checked ? ' checked' : ''}><span><b>${esc(title)}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</span></div><div class="tm-proto-inline-relation-actions"><button type="button" class="tm-proto-inline-relation-open" data-tm-proto-edit-relation="open">任务详情</button><button type="button" data-tm-proto-edit-relation="replace">更换</button><button type="button" data-tm-proto-edit-relation="unlink" class="is-danger">解除</button></div></div>`;
+                    return `<div class="tm-proto-inline-relation-current"><div class="tm-proto-inline-relation-main"><input class="tm-task-checkbox tm-proto-inline-relation-check ${shapeClass}${canceled ? ' tm-task-checkbox--canceled' : ''}" type="checkbox" data-tm-proto-edit-relation-task-check="${esc(id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.donelinkedTask")}"${checked ? ' checked' : ''}><span><b>${esc(title)}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</span></div><div class="tm-proto-inline-relation-actions"><button type="button" class="tm-proto-inline-relation-open" data-tm-proto-edit-relation="open">${__tmT("calendar.taskDetails")}</button><button type="button" data-tm-proto-edit-relation="replace">${__tmT("calendar.replace")}</button><button type="button" data-tm-proto-edit-relation="unlink" class="is-danger">${__tmT("calendar.unlink")}</button></div></div>`;
                 }
-                if (!relationSearching) return '<button type="button" class="tm-proto-inline-relation-start" data-tm-proto-edit-relation="search">⌕ <span>搜索任务进行关联</span></button>';
+                if (!relationSearching) return `<button type="button" class="tm-proto-inline-relation-start" data-tm-proto-edit-relation="search">⌕ <span>${__tmT("calendar.searchForATaskToLink")}</span></button>`;
                 const keyword = relationQuery.toLocaleLowerCase('zh-CN').trim();
                 const tasks = Array.isArray(window.__tmCalendarAllTasksCache?.tasks) ? window.__tmCalendarAllTasksCache.tasks : [];
                 const matches = tasks.filter((task) => !isCalendarRelationTaskDone(task)
@@ -35912,9 +35915,9 @@
                 const results = matches.length ? matches.slice(0, 8).map((task) => {
                     const id = String(task?.id || '').trim();
                     const meta = getCalendarTaskRelationMeta(task);
-                    return `<button type="button" class="tm-proto-inline-relation-result" data-tm-proto-edit-task="${esc(id)}"><b>${esc(titleForTask(task, '') || '未命名任务')}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</button>`;
-                }).join('') : '<div class="tm-proto-inline-relation-empty">没有找到匹配任务</div>';
-                return `<div class="tm-proto-inline-relation-search"><div class="tm-proto-inline-relation-searchbox"><span>⌕</span><input type="search" data-tm-proto-edit-field="taskSearch" value="${esc(relationQuery)}" placeholder="搜索任务名称或文档" aria-label="搜索关联任务"><button type="button" data-tm-proto-edit-relation="cancel" aria-label="收起搜索">×</button></div><div class="tm-proto-inline-relation-results">${results}</div></div>`;
+                    return `<button type="button" class="tm-proto-inline-relation-result" data-tm-proto-edit-task="${esc(id)}"><b>${esc(titleForTask(task, '') || __tmT("kernel.untitledTask"))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</button>`;
+                }).join('') : `<div class="tm-proto-inline-relation-empty">${__tmT("calendar.noMatchingTaskFound")}</div>`;
+                return `<div class="tm-proto-inline-relation-search"><div class="tm-proto-inline-relation-searchbox"><span>⌕</span><input type="search" data-tm-proto-edit-field="taskSearch" value="${esc(relationQuery)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.searchTaskOrDocumentNames")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.searchlinkedTask")}"><button type="button" data-tm-proto-edit-relation="cancel" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.collapsesearch")}">×</button></div><div class="tm-proto-inline-relation-results">${results}</div></div>`;
             };
             let timeHub = null;
             let timeHubEndpoint = 'start';
@@ -35933,8 +35936,8 @@
             let timeHubAutoSaveRequest = false;
             const hubDateText = (value) => {
                 const date = parseDateOnly(value);
-                if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '未设置';
-                return `${date.getMonth() + 1}月${date.getDate()}日`;
+                if (!(date instanceof Date) || Number.isNaN(date.getTime())) return __tmT("common.notSet");
+                return __tmT("date.monthDayNumbers", { value1: date.getMonth() + 1, value2: date.getDate() });
             };
             const hubTimeText = (value, fallback = '') => {
                 const text = String(value || '').slice(11, 16);
@@ -36014,7 +36017,7 @@
                 const monthDate = new Date(year, month - 1, 1);
                 const gridStart = startOfHubWeek(monthDate);
                 const firstDay = Number(getSettings()?.firstDay) === 0 ? 0 : 1;
-                const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+                const weekdays = [__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')];
                 const labels = Array.from({ length: 7 }, (_, index) => weekdays[(firstDay + index) % 7]).map((label) => `<span>${label}</span>`).join('');
                 const startValue = readValue('start').slice(0, 10);
                 const endValue = readValue('end').slice(0, 10);
@@ -36037,7 +36040,7 @@
                     ].filter(Boolean).join(' ');
                     days += `<button type="button" class="tm-proto-inline-hub-day ${classes}" data-tm-proto-hub-date="${key}" aria-label="${esc(hubDateText(key))}">${date.getDate()}</button>`;
                 }
-                return `<div class="tm-proto-inline-hub-calendar-head"><strong>${year}年${month}月</strong><div class="tm-proto-inline-hub-month-actions"><button type="button" data-tm-proto-hub-month="-1" aria-label="上个月" title="上个月">${buildCalendarChromeIcon('chevron-left', 12)}</button><button type="button" data-tm-proto-hub-month="0" aria-label="回到本月">今</button><button type="button" data-tm-proto-hub-month="1" aria-label="下个月" title="下个月">${buildCalendarChromeIcon('chevron-right', 12)}</button></div></div><div class="tm-proto-inline-hub-weekdays">${labels}</div><div class="tm-proto-inline-hub-calendar">${days}</div>`;
+                return `<div class="tm-proto-inline-hub-calendar-head"><strong>${__tmT("date.yearMonthTitle", { year: year, month: month })}</strong><div class="tm-proto-inline-hub-month-actions"><button type="button" data-tm-proto-hub-month="-1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousMonth")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousMonth")}">${buildCalendarChromeIcon('chevron-left', 12)}</button><button type="button" data-tm-proto-hub-month="0" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentMonth")}">${__tmT("calendar.today")}</button><button type="button" data-tm-proto-hub-month="1" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextMonth2")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextMonth2")}">${buildCalendarChromeIcon('chevron-right', 12)}</button></div></div><div class="tm-proto-inline-hub-weekdays">${labels}</div><div class="tm-proto-inline-hub-calendar">${days}</div>`;
             };
             const syncHubDateDragPreview = () => {
                 if (!(timeHub instanceof HTMLElement) || timeHubMode !== 'date') return;
@@ -36055,13 +36058,13 @@
                 const end = readValue('end');
                 pop.querySelector('[data-tm-proto-edit-date-card="start"] .tm-proto-inline-date-value')?.replaceChildren(document.createTextNode(hubDateText(start.slice(0, 10))));
                 pop.querySelector('[data-tm-proto-edit-date-card="end"] .tm-proto-inline-date-value')?.replaceChildren(document.createTextNode(hubDateText(end.slice(0, 10))));
-                pop.querySelector('[data-tm-proto-edit-time-card="start"] .tm-proto-inline-time-value')?.replaceChildren(document.createTextNode(eventApi.allDay === true ? '全天' : (hubTimeText(start, '09:00'))));
-                pop.querySelector('[data-tm-proto-edit-time-card="end"] .tm-proto-inline-time-value')?.replaceChildren(document.createTextNode(eventApi.allDay === true ? '全天' : (hubTimeText(end, '10:00'))));
+                pop.querySelector('[data-tm-proto-edit-time-card="start"] .tm-proto-inline-time-value')?.replaceChildren(document.createTextNode(eventApi.allDay === true ? __tmT("calendar.allDay") : (hubTimeText(start, '09:00'))));
+                pop.querySelector('[data-tm-proto-edit-time-card="end"] .tm-proto-inline-time-value')?.replaceChildren(document.createTextNode(eventApi.allDay === true ? __tmT("calendar.allDay") : (hubTimeText(end, '10:00'))));
                 const startDate = new Date(start);
                 const endDate = new Date(end);
                 const durationEl = pop.querySelector('[data-tm-proto-inline-duration]');
                 if (durationEl && !Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime()) && endDate > startDate) {
-                    durationEl.textContent = eventApi.allDay === true ? '全天' : `共 ${formatCalendarTaskDurationLabel((endDate.getTime() - startDate.getTime()) / 60000)}`;
+                    durationEl.textContent = eventApi.allDay === true ? __tmT("calendar.allDay") : __tmT("calendar.across", { value1: formatCalendarTaskDurationLabel((endDate.getTime() - startDate.getTime()) / 60000) });
                 }
                 if (timeHub) {
                     timeHub.querySelectorAll('[data-tm-proto-hub-endpoint]').forEach((node) => {
@@ -36176,7 +36179,7 @@
                     timeHub = document.createElement('div');
                     timeHub.className = 'tm-proto-inline-time-hub';
                     timeHub.setAttribute('role', 'dialog');
-                    timeHub.setAttribute('aria-label', '时间中心');
+                    timeHub.setAttribute('aria-label', __tmT("calendar.timeHub"));
                     try {
                         const popStyle = getComputedStyle(pop);
                         ['--tm-cal-panel', '--tm-cal-panel-2', '--tm-cal-border', '--tm-cal-text', '--tm-cal-muted', '--tm-cal-primary', '--tm-cal-on-primary', '--tm-cal-primary-soft'].forEach((name) => {
@@ -36215,7 +36218,7 @@
                             const start = field === 'start' ? next : other;
                             const end = field === 'end' ? next : other;
                             if (new Date(end).getTime() <= new Date(start).getTime()) {
-                                toast('结束时间需要晚于开始时间', 'warning');
+                                toast(__tmT("calendar.theEndTimeMustBeLaterThanTheStart"), 'warning');
                                 return;
                             }
                             if (hidden) hidden.value = next;
@@ -36272,27 +36275,27 @@
                     timeHub.addEventListener('pointerup', finishHubDateDrag);
                     timeHub.addEventListener('pointercancel', () => { hubDateDrag = null; suppressNextHubDateClick = false; syncHubDateDragPreview(); });
                 }
-                timeHub.setAttribute('aria-label', timeHubMode === 'time' ? `${timeHubEndpoint === 'end' ? '结束' : '开始'}时间选择` : '日期选择');
+                timeHub.setAttribute('aria-label', timeHubMode === 'time' ? __tmT("calendar.timePickerLabel", { value1: timeHubEndpoint === 'end' ? __tmT("calendar.end") : __tmT("calendar.start") }) : __tmT("calendar.selectDate"));
                 const endpointHtml = (() => {
                     const endpoint = (field, label) => {
                         const value = readValue(field).slice(0, 10);
                         const clear = isTaskDateEditor
-                            ? `<button type="button" class="tm-proto-inline-hub-clear" data-tm-proto-hub-clear-date="${field}" aria-label="清除${label}日期">×</button>`
+                            ? `<button type="button" class="tm-proto-inline-hub-clear" data-tm-proto-hub-clear-date="${field}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clearDate", { label: label })}">×</button>`
                             : '';
                         const button = `<button type="button" class="tm-proto-inline-hub-endpoint ${timeHubEndpoint === field ? 'active' : ''}" data-tm-proto-hub-endpoint="${field}"><span class="tm-proto-inline-hub-endpoint-label">${label}</span><strong class="tm-proto-inline-hub-endpoint-date">${esc(hubDateText(value))}</strong></button>`;
                         return isTaskDateEditor
                             ? `<div class="tm-proto-inline-hub-endpoint-wrap">${button}${clear}</div>`
                             : button;
                     };
-                    return `<div class="tm-proto-inline-hub-endpoints">${endpoint('start', '开始')}${endpoint('end', isTaskDateEditor ? '截止' : '结束')}</div>`;
+                    return `<div class="tm-proto-inline-hub-endpoints">${endpoint('start', __tmT("calendar.start"))}${endpoint('end', isTaskDateEditor ? __tmT("calendar.due") : __tmT("calendar.end"))}</div>`;
                 })();
                 if (timeHubMode === 'time') {
-                    const fieldLabel = timeHubEndpoint === 'end' ? '结束时间' : '开始时间';
+                    const fieldLabel = timeHubEndpoint === 'end' ? __tmT("calendar.endTime") : __tmT("calendar.startTime");
                     timeHub.innerHTML = `<div class="tm-proto-inline-hub-body tm-proto-inline-hub-body--time"><div class="tm-proto-inline-hub-time-title"><strong>${fieldLabel}</strong><span>${esc(hubDateText(readValue(timeHubEndpoint).slice(0, 10)))}</span></div><div class="tm-proto-inline-hub-time-list" data-tm-proto-inline-hub-time-list>${hubTimeOptionsHtml()}</div></div>`;
                 } else {
-                    const quickDates = [['今天', formatDateKey(new Date())], ['明天', formatDateKey(new Date(Date.now() + 86400000))], ['下周', formatDateKey(new Date(Date.now() + 7 * 86400000))], ['下月', formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1))]];
+                    const quickDates = [[__tmT("common.today"), formatDateKey(new Date())], [__tmT("calendar.tomorrow"), formatDateKey(new Date(Date.now() + 86400000))], [__tmT("calendar.nextWeek2"), formatDateKey(new Date(Date.now() + 7 * 86400000))], [__tmT("calendar.nextMonth"), formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1))]];
                     const quickDateHtml = quickDates.map(([label, key]) => `<button type="button" data-tm-proto-hub-date="${key}">${label}</button>`).join('');
-                    timeHub.innerHTML = `<div class="tm-proto-inline-hub-body">${endpointHtml}<div class="tm-proto-inline-hub-quick-dates" aria-label="快捷日期">${quickDateHtml}</div><div data-tm-proto-inline-hub-calendar>${hubCalendarHtml()}</div></div>`;
+                    timeHub.innerHTML = `<div class="tm-proto-inline-hub-body">${endpointHtml}<div class="tm-proto-inline-hub-quick-dates" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.quickdate")}">${quickDateHtml}</div><div data-tm-proto-inline-hub-calendar>${hubCalendarHtml()}</div></div>`;
                 }
                 syncHubCards();
                 positionTimeHub();
@@ -36453,11 +36456,11 @@
                     : [];
                 const repeatMaxOccurrences = Math.max(0, Number(ext.__tmRepeatMaxOccurrences) || 0);
                 const repeatEndMode = repeatMaxOccurrences > 0 ? 'count' : (repeatUntil ? 'date' : 'never');
-                const weekdays = [[1,'一'],[2,'二'],[3,'三'],[4,'四'],[5,'五'],[6,'六'],[0,'日']]
+                const weekdays = [1, 2, 3, 4, 5, 6, 0].map(day => [day, __tmT('date.weekday.short.' + day)])
                     .map(([value, label]) => `<label><input type="checkbox" value="${value}" data-tm-proto-repeat-weekday ${repeatWeekdays.includes(value) ? 'checked' : ''}><span>${label}</span></label>`)
                     .join('');
-                advanced.insertAdjacentHTML('beforeend', `<div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="every"><b class="quick-setting-label">间隔</b><div class="tm-proto-inline-repeat-every-control"><span class="quick-setting-value tm-proto-inline-repeat-prefix" aria-hidden="true">每</span><input class="quick-setting-control tm-calendar-edit-input--repeat-every" type="number" min="1" step="1" value="${esc(String(repeatEvery))}" data-tm-proto-edit-field="repeatEvery"><span class="quick-setting-value" data-tm-proto-repeat-unit></span></div></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="weekdays"><b class="quick-setting-label">星期</b><div class="tm-calendar-repeat-weekdays tm-proto-inline-repeat-weekdays">${weekdays}</div></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="monthlyMode"><b class="quick-setting-label">月规则</b><select class="quick-setting-control" data-tm-proto-edit-field="repeatMonthlyMode"><option value="date" ${repeatMonthlyMode !== 'weekday' ? 'selected' : ''}>按日期</option><option value="weekday" ${repeatMonthlyMode === 'weekday' ? 'selected' : ''}>按星期</option></select></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="calendarMode"><b class="quick-setting-label">历法</b><select class="quick-setting-control" data-tm-proto-edit-field="repeatCalendarMode"><option value="solar" ${repeatCalendarMode !== 'lunar' ? 'selected' : ''}>公历</option><option value="lunar" ${repeatCalendarMode === 'lunar' ? 'selected' : ''}>农历</option></select></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="endMode"><b class="quick-setting-label">循环截止</b><select class="quick-setting-control" data-tm-proto-edit-field="repeatEndMode"><option value="never" ${repeatEndMode === 'never' ? 'selected' : ''}>永不</option><option value="date" ${repeatEndMode === 'date' ? 'selected' : ''}>按日期</option><option value="count" ${repeatEndMode === 'count' ? 'selected' : ''}>按次数</option></select></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="until"><b class="quick-setting-label">截止日期</b><input class="quick-setting-control" type="date" value="${esc(repeatUntil)}" data-tm-proto-edit-field="repeatUntil"></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="maxOccurrences"><b class="quick-setting-label">循环次数</b><input class="quick-setting-control" type="number" min="1" max="200" step="1" value="${repeatMaxOccurrences > 0 ? esc(String(repeatMaxOccurrences)) : '1'}" data-tm-proto-edit-field="repeatMaxOccurrences"></div>`);
-                advanced.querySelector('[data-tm-proto-repeat-row="monthlyMode"]')?.insertAdjacentHTML('afterend', '<div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="monthDays" style="align-items:start;"><b class="quick-setting-label">日期</b><div data-tm-proto-month-days style="flex:1;min-width:0;"></div></div>');
+                advanced.insertAdjacentHTML('beforeend', `<div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="every"><b class="quick-setting-label">${__tmT("calendar.interval")}</b><div class="tm-proto-inline-repeat-every-control"><span class="quick-setting-value tm-proto-inline-repeat-prefix" aria-hidden="true">${__tmT("calendar.every2")}</span><input class="quick-setting-control tm-calendar-edit-input--repeat-every" type="number" min="1" step="1" value="${esc(String(repeatEvery))}" data-tm-proto-edit-field="repeatEvery"><span class="quick-setting-value" data-tm-proto-repeat-unit></span></div></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="weekdays"><b class="quick-setting-label">${__tmT("calendar.weekdays")}</b><div class="tm-calendar-repeat-weekdays tm-proto-inline-repeat-weekdays">${weekdays}</div></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="monthlyMode"><b class="quick-setting-label">${__tmT("calendar.monthlyRule")}</b><select class="quick-setting-control" data-tm-proto-edit-field="repeatMonthlyMode"><option value="date" ${repeatMonthlyMode !== 'weekday' ? 'selected' : ''}>${__tmT("calendar.byDate")}</option><option value="weekday" ${repeatMonthlyMode === 'weekday' ? 'selected' : ''}>${__tmT("calendar.byWeekday")}</option></select></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="calendarMode"><b class="quick-setting-label">${__tmT("kernel.calendar")}</b><select class="quick-setting-control" data-tm-proto-edit-field="repeatCalendarMode"><option value="solar" ${repeatCalendarMode !== 'lunar' ? 'selected' : ''}>${__tmT("calendar.gregorian")}</option><option value="lunar" ${repeatCalendarMode === 'lunar' ? 'selected' : ''}>${__tmT("calendar.lunar")}</option></select></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="endMode"><b class="quick-setting-label">${__tmT("calendar.repeatUntil")}</b><select class="quick-setting-control" data-tm-proto-edit-field="repeatEndMode"><option value="never" ${repeatEndMode === 'never' ? 'selected' : ''}>${__tmT("calendar.never")}</option><option value="date" ${repeatEndMode === 'date' ? 'selected' : ''}>${__tmT("calendar.byDate")}</option><option value="count" ${repeatEndMode === 'count' ? 'selected' : ''}>${__tmT("calendar.byCount")}</option></select></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="until"><b class="quick-setting-label">${__tmT("kernel.dueDate")}</b><input class="quick-setting-control" type="date" value="${esc(repeatUntil)}" data-tm-proto-edit-field="repeatUntil"></div><div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="maxOccurrences"><b class="quick-setting-label">${__tmT("calendar.occurrences")}</b><input class="quick-setting-control" type="number" min="1" max="200" step="1" value="${repeatMaxOccurrences > 0 ? esc(String(repeatMaxOccurrences)) : '1'}" data-tm-proto-edit-field="repeatMaxOccurrences"></div>`);
+                advanced.querySelector('[data-tm-proto-repeat-row="monthlyMode"]')?.insertAdjacentHTML('afterend', `<div class="quick-setting-row tm-proto-inline-edit-row tm-proto-inline-repeat-detail" data-tm-proto-repeat-row="monthDays" style="align-items:start;"><b class="quick-setting-label">${__tmT("calendar.date")}</b><div data-tm-proto-month-days style="flex:1;min-width:0;"></div></div>`);
                 const repeatRow = repeatSelect.closest?.('.quick-setting-row') || repeatSelect.parentElement;
                 if (repeatRow instanceof HTMLElement) {
                     let insertAfter = repeatRow;
@@ -36494,7 +36497,7 @@
                 const every = pop.querySelector('[data-tm-proto-edit-field="repeatEvery"]');
                 if (every instanceof HTMLInputElement) every.disabled = !show;
                 const unit = pop.querySelector('[data-tm-proto-repeat-unit]');
-                if (unit) unit.textContent = show ? getScheduleRepeatUnitLabel(type, readValue('repeatEvery') || ext.__tmRepeatEvery || 1) : '关闭循环时忽略';
+                if (unit) unit.textContent = show ? getScheduleRepeatUnitLabel(type, readValue('repeatEvery') || ext.__tmRepeatEvery || 1) : __tmT("calendar.ignoredWhenRepeatIsOff");
                 pop.querySelectorAll('[data-tm-proto-repeat-weekday]').forEach((el) => { if (el instanceof HTMLInputElement) el.disabled = !show || type !== 'weekly'; });
                 const monthly = pop.querySelector('[data-tm-proto-edit-field="repeatMonthlyMode"]');
                 if (monthly instanceof HTMLSelectElement) monthly.disabled = !rows.monthlyMode;
@@ -36549,39 +36552,39 @@
                 const linkedRemark = linkedTask ? taskRemark(linkedTask) : '';
                 const noteValue = linkedTaskId || linkedBlockId ? (linkedRemark || initialRemark) : scheduleNote;
                 const durationText = eventApi.allDay === true
-                    ? '全天'
+                    ? __tmT("calendar.allDay")
                     : formatCalendarTaskDurationLabel((currentEnd.getTime() - currentStart.getTime()) / 60000) || formatScheduleEventRangeText(currentStart, currentEnd, false);
                 pop.className = `ev-pop unified-summary quick-pop tm-proto-event-popover tm-proto-inline-schedule-editor${isNew ? ' is-new' : ''}${isTaskDateEditor ? ' is-task-date' : ''}${isMobileFullscreen ? ' is-mobile-fullscreen' : ''}`;
                 if (isMobileFullscreen) {
                     pop.setAttribute('role', 'dialog');
                     pop.setAttribute('aria-modal', 'true');
-                    pop.setAttribute('aria-label', '新建日程');
+                    pop.setAttribute('aria-label', __tmT("kernel.newSchedule"));
                 }
                 pop.style.setProperty('--tm-proto-event-color', protoEventColor(eventApi));
                 const calendarOptions = getCalendarDefs(getSettings()).map((calendar) => {
                     const id = String(calendar?.id || '').trim();
-                    const name = String(calendar?.name || id || '日历').trim();
+                    const name = String(calendar?.name || id || __tmT("calendar.calendar")).trim();
                     return `<option value="${esc(id)}" ${id === initialCalendarId ? 'selected' : ''}>${esc(name)}</option>`;
                 }).join('');
-                const calendarName = String(getCalendarDefs(getSettings()).find((calendar) => String(calendar?.id || '').trim() === initialCalendarId)?.name || initialCalendarId || '日历').trim();
-                const taskDateOwnerName = String(ext.__tmCalendarName || '').trim() || calendarName || '任务';
+                const calendarName = String(getCalendarDefs(getSettings()).find((calendar) => String(calendar?.id || '').trim() === initialCalendarId)?.name || initialCalendarId || __tmT("calendar.calendar")).trim();
+                const taskDateOwnerName = String(ext.__tmCalendarName || '').trim() || calendarName || __tmT("kernel.task");
                 const taskDateOwnerIcon = String(ext.__tmCalendarName || '').trim() && String(ext.__tmCalendarName || '').trim() !== '未分组' ? '🗂️ ' : '';
                 pop.innerHTML = `
                     <div class="hd tm-proto-event-popover-head tm-proto-inline-editor-head">
                         <div class="quick-head-row">
-                            <div class="summary-type"><span class="entity-badge ${isTaskDateEditor || linkedTaskId || linkedBlockId ? 'linked' : ''}">${isTaskDateEditor ? '任务日期' : (linkedTaskId || linkedBlockId ? '关联日程' : '独立日程')}</span></div>
-                            <button type="button" class="quick-close tm-proto-event-popover-close" aria-label="关闭">×</button>
+                            <div class="summary-type"><span class="entity-badge ${isTaskDateEditor || linkedTaskId || linkedBlockId ? 'linked' : ''}">${isTaskDateEditor ? __tmT("calendar.taskDate") : (linkedTaskId || linkedBlockId ? __tmT("calendar.linkedSchedule") : __tmT("calendar.standaloneSchedule"))}</span></div>
+                            <button type="button" class="quick-close tm-proto-event-popover-close" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}">×</button>
                         </div>
-                        <textarea class="quick-title tm-proto-inline-title${isTaskDateEditor ? ' is-readonly' : ''}" data-tm-proto-edit-field="title" rows="1" placeholder="日程标题" aria-label="日程标题"${isTaskDateEditor ? ' readonly disabled' : ''}>${esc(eventTitle)}</textarea>
-                        ${isTaskDateEditor ? `<div class="tm-proto-inline-date-time-rows tm-proto-inline-date-only-rows" role="group" aria-label="任务日期"><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">开始日期</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="start" aria-label="设置开始日期" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(taskDateStartValue))}</span></button></div><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">完成日期</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="end" aria-label="设置完成日期" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(taskDateCompletionValue))}</span></button></div></div>` : `<div class="tm-proto-inline-date-time-rows" role="group" aria-label="日程时间"><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">开始</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="start" aria-label="设置开始日期" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(toInput(currentStart).slice(0, 10)))}</span></button><button type="button" class="tm-proto-inline-time-card${eventApi.allDay === true ? ' is-disabled' : ''}" data-tm-proto-edit-time-card="start" aria-label="设置开始时间" aria-haspopup="dialog"${eventApi.allDay === true ? ' disabled aria-disabled="true"' : ''}><span class="tm-proto-inline-time-value">${eventApi.allDay === true ? '全天' : esc(toInput(currentStart).slice(11, 16))}</span></button></div><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">结束</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="end" aria-label="设置结束日期" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(toInput(currentEnd, true).slice(0, 10)))}</span></button><button type="button" class="tm-proto-inline-time-card${eventApi.allDay === true ? ' is-disabled' : ''}" data-tm-proto-edit-time-card="end" aria-label="设置结束时间" aria-haspopup="dialog"${eventApi.allDay === true ? ' disabled aria-disabled="true"' : ''}><span class="tm-proto-inline-time-value">${eventApi.allDay === true ? '全天' : esc(toInput(currentEnd, true).slice(11, 16))}</span></button></div></div>`}
+                        <textarea class="quick-title tm-proto-inline-title${isTaskDateEditor ? ' is-readonly' : ''}" data-tm-proto-edit-field="title" rows="1" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.scheduletitle")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.scheduletitle")}"${isTaskDateEditor ? ' readonly disabled' : ''}>${esc(eventTitle)}</textarea>
+                        ${isTaskDateEditor ? `<div class="tm-proto-inline-date-time-rows tm-proto-inline-date-only-rows" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.taskDate")}"><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">${__tmT("kernel.startDate")}</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="start" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.setStartDate")}" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(taskDateStartValue))}</span></button></div><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">${__tmT("calendar.completionDate")}</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="end" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.settingscompletionDate")}" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(taskDateCompletionValue))}</span></button></div></div>` : `<div class="tm-proto-inline-date-time-rows" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.scheduleTime")}"><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">${__tmT("calendar.start")}</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="start" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.setStartDate")}" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(toInput(currentStart).slice(0, 10)))}</span></button><button type="button" class="tm-proto-inline-time-card${eventApi.allDay === true ? ' is-disabled' : ''}" data-tm-proto-edit-time-card="start" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.settingsstartTime")}" aria-haspopup="dialog"${eventApi.allDay === true ? ' disabled aria-disabled="true"' : ''}><span class="tm-proto-inline-time-value">${eventApi.allDay === true ? __tmT("calendar.allDay") : esc(toInput(currentStart).slice(11, 16))}</span></button></div><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">${__tmT("calendar.end")}</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="end" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.settingsendDate")}" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(toInput(currentEnd, true).slice(0, 10)))}</span></button><button type="button" class="tm-proto-inline-time-card${eventApi.allDay === true ? ' is-disabled' : ''}" data-tm-proto-edit-time-card="end" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.settingsendTime")}" aria-haspopup="dialog"${eventApi.allDay === true ? ' disabled aria-disabled="true"' : ''}><span class="tm-proto-inline-time-value">${eventApi.allDay === true ? __tmT("calendar.allDay") : esc(toInput(currentEnd, true).slice(11, 16))}</span></button></div></div>`}
                         <input type="${type}" data-tm-proto-edit-field="start" value="${esc(toInput(currentStart))}" hidden aria-hidden="true">
                         <input type="${type}" data-tm-proto-edit-field="end" value="${esc(toInput(currentEnd, true))}" hidden aria-hidden="true">
-                        <div class="quick-range-note quick-range-summary tm-proto-event-popover-time" data-tm-proto-inline-duration>${esc(isTaskDateEditor ? '修改后同步到任务日期' : (eventApi.allDay === true ? '全天' : `共 ${durationText}`))}</div>
+                        <div class="quick-range-note quick-range-summary tm-proto-event-popover-time" data-tm-proto-inline-duration>${esc(isTaskDateEditor ? __tmT("calendar.changesSyncBackToTaskDates") : (eventApi.allDay === true ? __tmT("calendar.allDay") : __tmT("calendar.across2", { durationText: durationText })))}</div>
                     </div>
                     <div class="bd tm-proto-event-popover-body tm-proto-inline-editor-body">
-                        ${isTaskDateEditor ? `<div class="quick-setting-row tm-proto-inline-task-date-owner"><b class="quick-setting-label">归属</b><span>${esc(taskDateOwnerIcon + taskDateOwnerName)}</span></div><div class="tm-proto-event-popover-actions tm-proto-inline-task-date-actions"><button type="button" class="tm-proto-popover-open-task" data-tm-proto-task-date-action="open-task">任务详情</button><button type="button" class="tm-proto-popover-locate" data-tm-proto-task-date-action="locate">跳转笔记</button></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">颜色</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="当前颜色"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="预设颜色">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="莫兰迪预设 ${esc(color)}" aria-label="选择预设颜色 ${esc(color)}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label>` : `<div class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">关联任务</b><div data-tm-proto-inline-relation>${relationHtml()}</div></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">日历</b><select class="quick-setting-control" data-tm-proto-edit-field="calendar">${calendarOptions}</select></label><button type="button" class="quick-settings-toggle tm-proto-inline-more-toggle" data-tm-proto-edit-more aria-expanded="false"><span>更多设置</span><span class="chevron" aria-hidden="true">›</span></button><div class="quick-advanced tm-proto-inline-more" data-tm-proto-inline-more hidden><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">提醒</b><select class="quick-setting-control" data-tm-proto-edit-field="reminder"><option value="inherit" ${reminderValue === 'inherit' ? 'selected' : ''}>使用全局设置</option><option value="off" ${reminderValue === 'off' ? 'selected' : ''}>关闭提醒</option><option value="0" ${reminderValue === '0' ? 'selected' : ''}>准时提醒</option><option value="5" ${reminderValue === '5' ? 'selected' : ''}>提前 5 分钟</option><option value="15" ${reminderValue === '15' ? 'selected' : ''}>提前 15 分钟</option><option value="30" ${reminderValue === '30' ? 'selected' : ''}>提前 30 分钟</option><option value="60" ${reminderValue === '60' ? 'selected' : ''}>提前 1 小时</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">重复</b><select class="quick-setting-control" data-tm-proto-edit-field="repeat"><option value="none" ${repeatType === 'none' ? 'selected' : ''}>不循环</option><option value="daily" ${repeatType === 'daily' ? 'selected' : ''}>每天</option><option value="workday" ${repeatType === 'workday' ? 'selected' : ''}>工作日</option><option value="weekly" ${repeatType === 'weekly' ? 'selected' : ''}>每周</option><option value="monthly" ${repeatType === 'monthly' ? 'selected' : ''}>每月</option><option value="yearly" ${repeatType === 'yearly' ? 'selected' : ''}>每年</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">颜色</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="当前颜色"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="预设颜色">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="莫兰迪预设 ${esc(color)}" aria-label="选择预设颜色 ${esc(color)}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label><label class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">备注</b><textarea class="quick-setting-control quick-setting-note" data-tm-proto-edit-field="note" placeholder="${linkedTaskId || linkedBlockId ? '备注与关联任务共用' : '添加备注'}">${esc(noteValue)}</textarea></label><div class="tm-calendar-completion-setting" data-tm-schedule-completion></div>${isNew ? '' : '<div class="quick-setting-row tm-proto-inline-device-row"><span>当前设备预约</span><button type="button" data-tm-proto-edit-device>查看</button></div>'}</div>`}
+                        ${isTaskDateEditor ? `<div class="quick-setting-row tm-proto-inline-task-date-owner"><b class="quick-setting-label">${__tmT("calendar.source")}</b><span>${esc(taskDateOwnerIcon + taskDateOwnerName)}</span></div><div class="tm-proto-event-popover-actions tm-proto-inline-task-date-actions"><button type="button" class="tm-proto-popover-open-task" data-tm-proto-task-date-action="open-task">${__tmT("calendar.taskDetails")}</button><button type="button" class="tm-proto-popover-locate" data-tm-proto-task-date-action="locate">${__tmT("calendar.openNote")}</button></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.color")}</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentcolor")}"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.presetcolor")}">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.morandipreset", { color: color })}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.choosePresetColor", { color: color })}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label>` : `<div class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.linkedTask2")}</b><div data-tm-proto-inline-relation>${relationHtml()}</div></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.calendar")}</b><select class="quick-setting-control" data-tm-proto-edit-field="calendar">${calendarOptions}</select></label><button type="button" class="quick-settings-toggle tm-proto-inline-more-toggle" data-tm-proto-edit-more aria-expanded="false"><span>${__tmT("calendar.moreSettings")}</span><span class="chevron" aria-hidden="true">›</span></button><div class="quick-advanced tm-proto-inline-more" data-tm-proto-inline-more hidden><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("ai.warnings")}</b><select class="quick-setting-control" data-tm-proto-edit-field="reminder"><option value="inherit" ${reminderValue === 'inherit' ? 'selected' : ''}>${__tmT("calendar.useGlobalSetting")}</option><option value="off" ${reminderValue === 'off' ? 'selected' : ''}>${__tmT("calendar.remindersOff")}</option><option value="0" ${reminderValue === '0' ? 'selected' : ''}>${__tmT("calendar.onTime")}</option><option value="5" ${reminderValue === '5' ? 'selected' : ''}>${__tmT("calendar.minutesBefore5")}</option><option value="15" ${reminderValue === '15' ? 'selected' : ''}>${__tmT("calendar.minutesBefore6")}</option><option value="30" ${reminderValue === '30' ? 'selected' : ''}>${__tmT("calendar.minutesBefore7")}</option><option value="60" ${reminderValue === '60' ? 'selected' : ''}>${__tmT("calendar.hourBefore2")}</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.repeat")}</b><select class="quick-setting-control" data-tm-proto-edit-field="repeat"><option value="none" ${repeatType === 'none' ? 'selected' : ''}>${__tmT("calendar.noRepeat")}</option><option value="daily" ${repeatType === 'daily' ? 'selected' : ''}>${__tmT("calendar.daily")}</option><option value="workday" ${repeatType === 'workday' ? 'selected' : ''}>${__tmT("calendar.workdays")}</option><option value="weekly" ${repeatType === 'weekly' ? 'selected' : ''}>${__tmT("calendar.weekly")}</option><option value="monthly" ${repeatType === 'monthly' ? 'selected' : ''}>${__tmT("calendar.monthly2")}</option><option value="yearly" ${repeatType === 'yearly' ? 'selected' : ''}>${__tmT("calendar.yearly")}</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.color")}</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentcolor")}"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.presetcolor")}">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.morandipreset", { color: color })}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.choosePresetColor", { color: color })}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label><label class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("kernel.note")}</b><textarea class="quick-setting-control quick-setting-note" data-tm-proto-edit-field="note" placeholder="${linkedTaskId || linkedBlockId ? __tmT("calendar.notesAreSharedWithTheLinkedTask") : __tmT("calendar.addNote")}">${esc(noteValue)}</textarea></label><div class="tm-calendar-completion-setting" data-tm-schedule-completion></div>${isNew ? '' : `<div class="quick-setting-row tm-proto-inline-device-row"><span>${__tmT("calendar.deviceReminders")}</span><button type="button" data-tm-proto-edit-device>${__tmT("calendar.view")}</button></div>`}</div>`}
                     </div>
-                    <div class="ft quick-new-foot tm-proto-event-popover-actions tm-proto-inline-editor-actions">${isNew || isTaskDateEditor ? '<button type="button" class="secondary tm-proto-inline-cancel" data-tm-proto-edit-action="cancel">取消</button>' : ''}${isNew || isTaskDateEditor ? '' : '<button type="button" class="danger tm-proto-inline-delete" data-tm-proto-edit-action="delete">删除</button>'}<button type="button" class="primary tm-proto-inline-save" data-tm-proto-edit-action="save">${isNew ? '创建日程' : '保存'}</button></div>`;
+                    <div class="ft quick-new-foot tm-proto-event-popover-actions tm-proto-inline-editor-actions">${isNew || isTaskDateEditor ? `<button type="button" class="secondary tm-proto-inline-cancel" data-tm-proto-edit-action="cancel">${__tmT("common.cancel")}</button>` : ''}${isNew || isTaskDateEditor ? '' : `<button type="button" class="danger tm-proto-inline-delete" data-tm-proto-edit-action="delete">${__tmT("common.delete")}</button>`}<button type="button" class="primary tm-proto-inline-save" data-tm-proto-edit-action="save">${isNew ? __tmT("calendar.createSchedule") : __tmT("common.save")}</button></div>`;
                 const more = pop.querySelector('[data-tm-proto-inline-more]');
                 if (more) more.hidden = !moreExpanded;
                 pop.querySelector('[data-tm-proto-edit-more]')?.setAttribute('aria-expanded', moreExpanded ? 'true' : 'false');
@@ -36596,18 +36599,18 @@
                     const colorRow = pop.querySelector('[data-tm-proto-edit-field="color"]')?.closest('.quick-setting-row');
                     colorRow?.remove?.();
                     const endLabel = pop.querySelector('.tm-proto-inline-date-only-rows .tm-proto-inline-date-time-row:nth-child(2) .tm-proto-inline-date-time-label');
-                    if (endLabel) endLabel.textContent = '截止日期';
+                    if (endLabel) endLabel.textContent = __tmT("kernel.dueDate");
                     const endCard = pop.querySelector('.tm-proto-inline-date-only-rows [data-tm-proto-edit-date-card="end"]');
-                    if (endCard) endCard.setAttribute('aria-label', '设置截止日期');
+                    if (endCard) endCard.setAttribute('aria-label', __tmT("calendar.setDueDate"));
                     const openTaskButton = pop.querySelector('[data-tm-proto-task-date-action="open-task"]');
                     if (openTaskButton) {
-                        openTaskButton.textContent = '详情';
-                        openTaskButton.setAttribute('aria-label', '打开任务详情');
+                        openTaskButton.textContent = __tmT("calendar.details");
+                        openTaskButton.setAttribute('aria-label', __tmT("calendar.openTaskDetails"));
                     }
                     const locateTaskButton = pop.querySelector('[data-tm-proto-task-date-action="locate"]');
                     if (locateTaskButton) {
-                        locateTaskButton.textContent = '跳转';
-                        locateTaskButton.setAttribute('aria-label', '跳转笔记');
+                        locateTaskButton.textContent = __tmT("calendar.goTo2");
+                        locateTaskButton.setAttribute('aria-label', __tmT("calendar.openNote"));
                     }
                     const taskActions = pop.querySelector('.tm-proto-inline-task-date-actions');
                     const footer = pop.querySelector('.tm-proto-inline-editor-actions');
@@ -36699,7 +36702,7 @@
                     const task = taskForId(id) || (Array.isArray(window.__tmCalendarAllTasksCache?.tasks) ? window.__tmCalendarAllTasksCache.tasks.find((entry) => String(entry?.id || '') === id) : null);
                     linkedTaskId = id; linkedBlockId = id; linkedDocId = getCalendarTaskDocumentId(task); relationExplicitlyUnlinked = false; initialRemark = taskRemark(task); relationTitle = titleForTask(task, ''); relationSearching = false; relationQuery = '';
                     syncInlineColorToContext();
-                    const titleEl = pop.querySelector('[data-tm-proto-edit-field="title"]'); if (titleEl && !String(titleEl.value || '').trim()) { titleEl.value = relationTitle || '日程'; syncTitleFieldHeight(); }
+                    const titleEl = pop.querySelector('[data-tm-proto-edit-field="title"]'); if (titleEl && !String(titleEl.value || '').trim()) { titleEl.value = relationTitle || __tmT("kernel.schedule"); syncTitleFieldHeight(); }
                     const noteEl = pop.querySelector('[data-tm-proto-edit-field="note"]'); if (noteEl) noteEl.value = initialRemark;
                     syncRelation();
                 }));
@@ -36848,7 +36851,7 @@
                         const list = await loadScheduleAll();
                         const item = list.find((entry) => String(entry?.id || '') === scheduleId);
                         if (item) { close(); showScheduleDeviceScheduleDialog(item, {}); }
-                    } catch (e) { toast('❌ 打开预约详情失败', 'error'); }
+                    } catch (e) { toast(__tmT("calendar.failedToOpenReminderDetails"), 'error'); }
                 });
                 pop.querySelector('[data-tm-proto-edit-action="cancel"]')?.addEventListener('click', (event) => {
                     event.preventDefault(); event.stopPropagation(); close();
@@ -36885,12 +36888,12 @@
                     const task = taskForId(id) || (Array.isArray(window.__tmCalendarAllTasksCache?.tasks) ? window.__tmCalendarAllTasksCache.tasks.find((entry) => String(entry?.id || '') === id) : null);
                     linkedTaskId = id; linkedBlockId = id; linkedDocId = getCalendarTaskDocumentId(task); relationExplicitlyUnlinked = false; initialRemark = taskRemark(task); relationTitle = titleForTask(task, ''); relationSearching = false; relationQuery = '';
                     syncInlineColorToContext();
-                    const titleEl = pop.querySelector('[data-tm-proto-edit-field="title"]'); if (titleEl && !String(titleEl.value || '').trim()) { titleEl.value = relationTitle || '日程'; syncTitleFieldHeight(); }
+                    const titleEl = pop.querySelector('[data-tm-proto-edit-field="title"]'); if (titleEl && !String(titleEl.value || '').trim()) { titleEl.value = relationTitle || __tmT("kernel.schedule"); syncTitleFieldHeight(); }
                     const noteEl = pop.querySelector('[data-tm-proto-edit-field="note"]'); if (noteEl) noteEl.value = initialRemark;
                     syncRelation();
                 }));
                 pop.querySelector('[data-tm-proto-edit-field="taskSearch"]')?.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); relationSearching = false; relationQuery = ''; syncRelation(); } });
-                pop.querySelector('[data-tm-proto-edit-action="delete"]')?.addEventListener('click', async (event) => { event.preventDefault(); event.stopPropagation(); close(); try { await deleteScheduleById(scheduleId, { closeModal: false, occurrenceStartMs: ext.__tmOccurrenceStartMs, start: protoSafeDate(eventApi.start) }); toast('✅ 已删除', 'success'); } catch (e) { toast('❌ 删除失败', 'error'); } });
+                pop.querySelector('[data-tm-proto-edit-action="delete"]')?.addEventListener('click', async (event) => { event.preventDefault(); event.stopPropagation(); close(); try { await deleteScheduleById(scheduleId, { closeModal: false, occurrenceStartMs: ext.__tmOccurrenceStartMs, start: protoSafeDate(eventApi.start) }); toast(__tmT("calendar.deleted"), 'success'); } catch (e) { toast(__tmT("calendar.deleteFailed"), 'error'); } });
                 pop.querySelector('[data-tm-proto-edit-action="save"]')?.addEventListener('click', async (event) => {
                     event.preventDefault(); event.stopPropagation();
                     // Capture this synchronously before the first await. The
@@ -36903,14 +36906,14 @@
                     if (isTaskDateEditor) {
                         const targetId = String(linkedTaskId || linkedBlockId || '').trim();
                         if (!targetId) {
-                            toast('⚠ 缺少任务标识', 'warning');
+                            toast(__tmT("calendar.missingTaskIdentifier"), 'warning');
                             return;
                         }
                         const normalizeDate = (raw) => {
                             const value = String(raw || '').trim();
                             if (!value) return '';
                             const date = parseDateOnly(value);
-                            if (!(date instanceof Date) || Number.isNaN(date.getTime())) throw new Error('日期格式不合法');
+                            if (!(date instanceof Date) || Number.isNaN(date.getTime())) throw new Error(__tmT("calendar.invalidDateFormat"));
                             return formatDateKey(date);
                         };
                         let nextStartDate = '';
@@ -36919,11 +36922,11 @@
                             nextStartDate = normalizeDate(readValue('start'));
                             nextCompletionDate = normalizeDate(readValue('end'));
                         } catch (error) {
-                            toast(`⚠ ${String(error?.message || error || '日期格式不合法')}`, 'warning');
+                            toast(`⚠ ${String(error?.message || error || __tmT("calendar.invalidDateFormat"))}`, 'warning');
                             return;
                         }
                         if (nextStartDate && nextCompletionDate && nextStartDate > nextCompletionDate) {
-                            toast('⚠ 完成日期不能早于开始日期', 'warning');
+                            toast(__tmT("calendar.theCompletionDateCannotBeEarlierThanTheStart"), 'warning');
                             return;
                         }
                         try {
@@ -36952,25 +36955,25 @@
                              if (colorChanged || resultColor) localPatch.taskDateColor = resultColor || colorValue;
                              patchVisibleTaskDateEventsFromModal(resolvedTaskId || targetId, localPatch);
                              if (!keepPopoverOpen) close();
-                             toast('✅ 已同步任务日期', 'success');
+                             toast(__tmT("calendar.taskDatesSynced"), 'success');
                         } catch (error) {
-                            toast(`❌ 保存失败：${String(error?.message || error || '')}`, 'error');
+                            toast(__tmT("calendar.saveFailed2", { value1: String(error?.message || error || '') }), 'error');
                         }
                         return;
                     }
                     const titleRaw = readValue('title').trim();
                     if (isNew && !titleRaw) {
-                        toast('⚠ 请填写日程标题', 'warning');
+                        toast(__tmT("calendar.enterAScheduleTitle"), 'warning');
                         pop.querySelector('[data-tm-proto-edit-field="title"]')?.focus();
                         return;
                     }
-                    const titleValue = normalizeCalendarScheduleTitleText(titleRaw, '日程');
+                    const titleValue = normalizeCalendarScheduleTitleText(titleRaw, __tmT("kernel.schedule"));
                     const startRaw = readValue('start');
                     const endRaw = readValue('end');
                     const startValue = eventApi.allDay === true ? parseDateOnly(startRaw) : new Date(startRaw);
                     const endValue = eventApi.allDay === true ? parseDateOnly(endRaw) : new Date(endRaw);
                     if (eventApi.allDay === true && !Number.isNaN(endValue.getTime())) endValue.setDate(endValue.getDate() + 1);
-                    if (Number.isNaN(startValue.getTime()) || Number.isNaN(endValue.getTime()) || endValue.getTime() <= startValue.getTime()) { toast('⚠ 时间不合法', 'warning'); return; }
+                    if (Number.isNaN(startValue.getTime()) || Number.isNaN(endValue.getTime()) || endValue.getTime() <= startValue.getTime()) { toast(__tmT("calendar.invalidTime"), 'warning'); return; }
                     const scheduleAllDay = eventApi.allDay === true || isAllDayRange(startValue, endValue);
                     const taskCompletionDate = (() => {
                         const dueDate = new Date(endValue.getTime());
@@ -36994,7 +36997,7 @@
                         : [];
                     const repeatRule = getScheduleRepeatCore().normalizeRule({ enabled: nextRepeatType !== 'none', trigger: 'due', type: nextRepeatType, every: repeatEveryValue, weekdays: repeatWeekdaysValue, monthlyMode: repeatMonthlyModeValue, monthDays: inlineMonthDays, monthWeek: inlineMonthWeek, calendarMode: repeatCalendarModeValue, until: repeatUntilValue, maxOccurrences: repeatMaxValue, anchorDate: formatDateKey(startValue) }, { anchorDate: formatDateKey(startValue), startDate: formatDateKey(startValue), trigger: 'due' });
                     if (getScheduleRepeatCore().monthDates.isExplicit(repeatRule) && !getScheduleRepeatCore().monthDates.nextDateKey(repeatRule, repeatRule.anchorDate, true)) {
-                        toast('请选择有效的月日期，并检查截止日期', 'warning');
+                        toast(__tmT("calendar.pickAValidDayOfTheMonthAndCheck"), 'warning');
                         return;
                     }
                     const noteValue = readValue('note');
@@ -37004,7 +37007,7 @@
                     try {
                         const list = await loadScheduleAll();
                         const index = list.findIndex((entry) => String(entry?.id || '') === scheduleId);
-                        if (!isNew && index < 0) throw new Error('未找到日程');
+                        if (!isNew && index < 0) throw new Error(__tmT("kernel.scheduleNotFound"));
                         const previous = index >= 0 ? (list[index] || {}) : {};
                         let taskIdKeep = relationExplicitlyUnlinked ? '' : String(linkedTaskId || previous.taskId || previous.task_id || previous.linkedTaskId || previous.linked_task_id || '').trim();
                         let blockIdKeep = relationExplicitlyUnlinked ? '' : String(linkedBlockId || getScheduleLinkedBlockId(previous) || '').trim();
@@ -37017,7 +37020,7 @@
                             createdCalendarTask = await globalThis.__tmCreateTaskForCalendarSchedule?.(titleValue, {
                                 completionTime: taskCompletionDate,
                             });
-                            if (!createdCalendarTask?.taskId) throw new Error('自动创建绑定任务失败');
+                            if (!createdCalendarTask?.taskId) throw new Error(__tmT("calendar.failedToAutoCreateTheBoundTask2"));
                             taskIdKeep = String(createdCalendarTask.taskId).trim();
                             blockIdKeep = taskIdKeep;
                             linkedDocId = String(createdCalendarTask.docId || '').trim() || linkedDocId;
@@ -37039,7 +37042,7 @@
                         if (taskIdKeep || blockIdKeep) { delete nextItem.note; if (linkedDocId) nextItem.docId = linkedDocId; } else { delete nextItem.docId; delete nextItem.rootId; delete nextItem.root_id; delete nextItem.linkedDocId; delete nextItem.linked_doc_id; }
                         let mutation = null;
                         if (!isNew && normalizeScheduleRepeatType(getScheduleRepeatType(previous)) !== 'none') {
-                            const scope = await showScheduleRecurringEditScopeDialog({ message: '这是一个循环重复的日程。要把这次保存应用到全部日程，还是只改当前这一次？' });
+                            const scope = await showScheduleRecurringEditScopeDialog({ message: __tmT("calendar.thisIsARecurringScheduleApplyThisSaveTo") });
                             if (!scope) return;
                             mutation = applyScheduleRecurringScopeMutation(list, index, nextItem, scope, { occurrenceStartMs: ext.__tmOccurrenceStartMs, start: protoSafeDate(eventApi.start) });
                         } else {
@@ -37053,7 +37056,7 @@
                         const taskMutationId = String(taskIdKeep || blockIdKeep || '').trim();
                         if (taskMutationId && noteValue !== initialRemark) {
                             const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                            if (typeof patchTask !== 'function' || await patchTask(taskMutationId, { remark: noteValue }, { source: 'calendar-schedule-editor', label: '日程备注', wait: true, background: false, skipInteractionGate: true }) === false) throw new Error('任务备注写入未完成');
+                            if (typeof patchTask !== 'function' || await patchTask(taskMutationId, { remark: noteValue }, { source: 'calendar-schedule-editor', label: __tmT("calendar.scheduleNote"), wait: true, background: false, skipInteractionGate: true }) === false) throw new Error(__tmT("calendar.taskNoteWriteDidNotComplete"));
                             try {
                                 const liveTask = taskForId(taskMutationId);
                                 if (liveTask && typeof liveTask === 'object') {
@@ -37086,7 +37089,7 @@
                              flushTaskPanel: false,
                          });
                          if (!keepPopoverOpen) close();
-                         toast(isNew ? '✅ 日程已创建' : '✅ 已保存', 'success');
+                         toast(isNew ? __tmT("calendar.scheduleCreated") : __tmT("calendar.saved"), 'success');
                      } catch (error) {
                          if (createdCalendarTask?.taskId && !scheduleSaved) {
                              try {
@@ -37101,7 +37104,7 @@
                                  }
                              } catch (rollbackError) {}
                          }
-                         toast(`❌ 保存失败：${String(error?.message || error || '')}`, 'error');
+                         toast(__tmT("calendar.saveFailed2", { value1: String(error?.message || error || '') }), 'error');
                      } finally {
                          recurringScheduleSavePending = false;
                      }
@@ -37446,7 +37449,7 @@
             if (start) {
                 if (allDay) {
                     const endShown = end && end.getTime() > start.getTime() ? new Date(end.getTime() - 86400000) : start;
-                    rangeText = `${formatDateKey(start)}${formatDateKey(endShown) !== formatDateKey(start) ? ` - ${formatDateKey(endShown)}` : ''} 全天`;
+                    rangeText = __tmT("calendar.allDay3", { value1: formatDateKey(start), value2: formatDateKey(endShown) !== formatDateKey(start) ? ` - ${formatDateKey(endShown)}` : '' });
                 } else {
                     rangeText = formatScheduleEventRangeText(start, end, false);
                     if (rangeText && formatDateKey(start) === formatDateKey(end || start)) {
@@ -37458,33 +37461,33 @@
             const taskId = String(ext.__tmTaskId || ext.__tmBlockId || ext.__tmReminderBlockId || '').trim();
             const canEdit = source === 'tomato' || source === 'schedule' || !!taskId;
             const priorityRaw = ext.priority ?? ext.__tmPriority ?? ext.__tmTaskPriority;
-            const priorityText = ({ 1: '高', 2: '中', 3: '低', high: '高', medium: '中', low: '低' })[String(priorityRaw || '').toLowerCase()] || '';
+            const priorityText = ({ 1: __tmT("common.high"), 2: __tmT("common.medium"), 3: __tmT("common.low"), high: __tmT("common.high"), medium: __tmT("common.medium"), low: __tmT("common.low") })[String(priorityRaw || '').toLowerCase()] || '';
             const repeatRaw = String(ext.__tmRepeatType || ext.__tmRepeatCalendarMode || '').trim().toLowerCase();
             const repeatEvery = Math.max(1, Number(ext.__tmRepeatEvery) || 1);
             const repeatWeekdays = Array.isArray(ext.__tmRepeatWeekdays) ? ext.__tmRepeatWeekdays : [];
             const repeatMaxOccurrences = Math.max(0, Number(ext.__tmRepeatMaxOccurrences) || 0);
-            const repeatNames = { daily: '每日', day: '每日', weekly: '每周', week: '每周', monthly: '每月', month: '每月', yearly: '每年', year: '每年' };
+            const repeatNames = { daily: __tmT("calendar.daily2"), day: __tmT("calendar.daily2"), weekly: __tmT("calendar.weekly"), week: __tmT("calendar.weekly"), monthly: __tmT("calendar.monthly2"), month: __tmT("calendar.monthly2"), yearly: __tmT("calendar.yearly"), year: __tmT("calendar.yearly") };
             const repeatWeekdayText = repeatWeekdays.length > 0
-                ? `（${[1, 2, 3, 4, 5, 6, 0].filter((weekday) => repeatWeekdays.includes(weekday)).map((weekday) => `周${['日', '一', '二', '三', '四', '五', '六'][weekday]}`).join('、')}）`
+                ? `（${[1, 2, 3, 4, 5, 6, 0].filter((weekday) => repeatWeekdays.includes(weekday)).map((weekday) => __tmT("date.weekdayPrefix", { value1: [__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')][weekday] })).join('、')}）`
                 : '';
             const repeatText = repeatRaw && repeatRaw !== 'none'
-                ? `${repeatNames[repeatRaw] || (repeatEvery > 1 ? `每${repeatEvery}${repeatRaw === 'week' ? '周' : repeatRaw === 'month' ? '月' : '天'}` : '重复')}${repeatWeekdayText}${repeatMaxOccurrences > 0 ? `，共${repeatMaxOccurrences}次` : ''}`
+                ? `${repeatNames[repeatRaw] || (repeatEvery > 1 ? __tmT("calendar.every3", { repeatEvery: repeatEvery, value2: repeatRaw === 'week' ? __tmT("calendar.week") : repeatRaw === 'month' ? __tmT("calendar.month") : __tmT("homepage.days2") }) : __tmT("calendar.repeat"))}${repeatWeekdayText}${repeatMaxOccurrences > 0 ? __tmT("calendar.occurrences2", { repeatMaxOccurrences: repeatMaxOccurrences }) : ''}`
                 : '';
             const calendarName = String(ext.__tmCalendarName || '').trim();
             const sourceText = calendarName && calendarName !== '未分组'
                 ? calendarName
-                : (source === 'taskdate' || taskId ? '任务' : (source === 'schedule' ? '日程' : '事件'));
+                : (source === 'taskdate' || taskId ? __tmT("kernel.task") : (source === 'schedule' ? __tmT("kernel.schedule") : __tmT("calendar.event")));
             const sourceIcon = calendarName && calendarName !== '未分组' ? '🗂️ ' : '';
             const pop = document.createElement('div');
             pop.className = 'tm-proto-event-popover';
             pop.style.setProperty('--tm-proto-event-color', color);
-            pop.innerHTML = `<div class="tm-proto-event-popover-head"><div class="tm-proto-event-popover-title">${esc(title)}</div><button type="button" class="tm-proto-event-popover-close" aria-label="关闭">×</button><div class="tm-proto-event-popover-time">${esc(rangeText || protoEventTime(eventApi))}</div></div>`
+            pop.innerHTML = `<div class="tm-proto-event-popover-head"><div class="tm-proto-event-popover-title">${esc(title)}</div><button type="button" class="tm-proto-event-popover-close" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}">×</button><div class="tm-proto-event-popover-time">${esc(rangeText || protoEventTime(eventApi))}</div></div>`
                 + `<div class="tm-proto-event-popover-body">`
-                + `<div class="tm-proto-event-popover-kv"><b>归属</b><span>${sourceIcon}${esc(sourceText)}</span></div>`
-                + `${priorityText ? `<div class="tm-proto-event-popover-kv"><b>重要性</b><span class="tm-proto-popover-priority">● ${esc(priorityText)}</span></div>` : ''}`
-                + `${repeatText ? `<div class="tm-proto-event-popover-kv"><b>重复</b><span>🔄 ${esc(repeatText)}</span></div>` : ''}`
+                + `<div class="tm-proto-event-popover-kv"><b>${__tmT("calendar.source")}</b><span>${sourceIcon}${esc(sourceText)}</span></div>`
+                + `${priorityText ? `<div class="tm-proto-event-popover-kv"><b>${__tmT("kernel.importance")}</b><span class="tm-proto-popover-priority">● ${esc(priorityText)}</span></div>` : ''}`
+                + `${repeatText ? `<div class="tm-proto-event-popover-kv"><b>${__tmT("calendar.repeat")}</b><span>🔄 ${esc(repeatText)}</span></div>` : ''}`
                 + `</div>`
-                + `${canEdit ? `<div class="tm-proto-event-popover-actions">${taskId ? '<button type="button" class="tm-proto-popover-open-task">任务详情</button><button type="button" class="tm-proto-popover-locate">跳转笔记</button>' : '<button type="button" class="tm-proto-popover-edit">编辑</button>'}</div>` : ''}`;
+                + `${canEdit ? `<div class="tm-proto-event-popover-actions">${taskId ? `<button type="button" class="tm-proto-popover-open-task">${__tmT("calendar.taskDetails")}</button><button type="button" class="tm-proto-popover-locate">${__tmT("calendar.openNote")}</button>` : `<button type="button" class="tm-proto-popover-edit">${__tmT("calendar.edit")}</button>`}</div>` : ''}`;
             // Port the calendar tokens to the body-level popover so it can
             // escape the calendar's clipped scrolling surface.
             try {
@@ -37650,10 +37653,10 @@
                 : null;
             const weekScrollIndex = weekScrollState ? getSlidingWeekAnchorIndex(view) : 0;
             const weekScrollMarkup = weekScrollState
-                ? `<div class="tm-proto-week-scroll" data-tm-proto-week-scroll role="scrollbar" tabindex="0" aria-label="周视图日期范围" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="6" aria-valuenow="${weekScrollIndex}" style="--tm-proto-week-scroll-progress:${Math.round((weekScrollIndex / 6) * 100)}"><span class="tm-proto-week-scroll-thumb"></span></div>`
+                ? `<div class="tm-proto-week-scroll" data-tm-proto-week-scroll role="scrollbar" tabindex="0" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.weekDateRange")}" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="6" aria-valuenow="${weekScrollIndex}" style="--tm-proto-week-scroll-progress:${Math.round((weekScrollIndex / 6) * 100)}"><span class="tm-proto-week-scroll-thumb"></span></div>`
                 : '';
             const toolbarDate = listView ? protoListFocusDate(view) : protoSafeDate(view?.currentStart || getCalendarDate(calendar));
-            const toolbarMonth = toolbarDate ? `${toolbarDate.getMonth() + 1}月${listView ? toolbarDate.getDate() + '日' : ''}` : '';
+            const toolbarMonth = toolbarDate ? __tmT("date.monthDayCompact", { value1: toolbarDate.getMonth() + 1, value2: listView ? toolbarDate.getDate() + '日' : '' }) : '';
             const toolbarWeekNumber = viewType === 'dayGridWeek' && toolbarDate
                 ? getIsoWeekNumber(toolbarDate)
                 : 0;
@@ -37667,26 +37670,26 @@
                 const active = item.value === activeView;
                 return `<button type="button" class="tm-proto-view-btn tm-view-seg-item bc-tabs-trigger ${active ? 'is-active' : ''}" data-state="${active ? 'active' : 'inactive'}" data-tm-proto-action="view" data-tm-proto-view="${item.value}" role="tab" aria-selected="${active ? 'true' : 'false'}">${item.label}</button>`;
             }).join('');
-            const mobileViewSelect = `<label class="tm-proto-view-select-wrap"><select class="tm-proto-view-select" data-tm-proto-view-select aria-label="切换日历视图" title="切换日历视图">${toolbarViewOptions.map((item) => `<option value="${item.value}"${item.value === activeView ? ' selected' : ''}>${item.label}</option>`).join('')}</select></label>`;
+            const mobileViewSelect = `<label class="tm-proto-view-select-wrap"><select class="tm-proto-view-select" data-tm-proto-view-select aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.switchCalendarView")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.switchCalendarView")}">${toolbarViewOptions.map((item) => `<option value="${item.value}"${item.value === activeView ? ' selected' : ''}>${item.label}</option>`).join('')}</select></label>`;
             const compactMonthMarkup = compactToolbar && toolbarMonthLabel
                 ? `<span class="tm-proto-toolbar-month" data-tm-proto-toolbar-month="1">${esc(toolbarMonthLabel)}</span>`
                 : '';
-            const opacityMenu = prototypeOpenMenu === 'opacity' ? `<div class="tm-proto-pop tm-proto-opacity-pop"><h4>任务上色不透明度</h4><label><span>浅色模式</span><input type="range" min="${PROTOTYPE_OPACITY_MIN}" max="${PROTOTYPE_OPACITY_MAX}" step="0.05" value="${prototypeOpacityByTheme.light}" data-tm-proto-opacity="light"><b data-tm-proto-opacity-value="light">${Math.round(prototypeOpacityByTheme.light * 100)}%</b></label><label><span>深色模式</span><input type="range" min="${PROTOTYPE_OPACITY_MIN}" max="${PROTOTYPE_OPACITY_MAX}" step="0.05" value="${prototypeOpacityByTheme.dark}" data-tm-proto-opacity="dark"><b data-tm-proto-opacity-value="dark">${Math.round(prototypeOpacityByTheme.dark * 100)}%</b></label></div>` : '';
+            const opacityMenu = prototypeOpenMenu === 'opacity' ? `<div class="tm-proto-pop tm-proto-opacity-pop"><h4>${__tmT("calendar.taskTintOpacity")}</h4><label><span>${__tmT("calendar.lightMode")}</span><input type="range" min="${PROTOTYPE_OPACITY_MIN}" max="${PROTOTYPE_OPACITY_MAX}" step="0.05" value="${prototypeOpacityByTheme.light}" data-tm-proto-opacity="light"><b data-tm-proto-opacity-value="light">${Math.round(prototypeOpacityByTheme.light * 100)}%</b></label><label><span>${__tmT("calendar.darkMode")}</span><input type="range" min="${PROTOTYPE_OPACITY_MIN}" max="${PROTOTYPE_OPACITY_MAX}" step="0.05" value="${prototypeOpacityByTheme.dark}" data-tm-proto-opacity="dark"><b data-tm-proto-opacity-value="dark">${Math.round(prototypeOpacityByTheme.dark * 100)}%</b></label></div>` : '';
             const titleText = esc(listView && toolbarDate
-                ? `${toolbarDate.getFullYear()}年${toolbarDate.getMonth() + 1}月${toolbarDate.getDate()}日`
+                ? __tmT("date.fullDateNumbers", { value1: toolbarDate.getFullYear(), value2: toolbarDate.getMonth() + 1, value3: toolbarDate.getDate() })
                 : String(title || '').trim());
             const toolbarClass = ['tm-proto-toolbar', compactToolbar ? 'tm-proto-toolbar--dock' : ''].filter(Boolean).join(' ');
             // Mobile/Dock hosts expose a trigger in their surrounding shell;
             // a narrow desktop tab still needs the in-calendar sidebar button.
-            const sidebarToggleMarkup = (isMobileDevice || isDockHost) ? '' : `<button type="button" class="tm-proto-icon-btn tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="toggleSidebar" aria-label="筛选与迷你日历侧栏">${protoToolbarIcon('sidebar')}</button>`;
+            const sidebarToggleMarkup = (isMobileDevice || isDockHost) ? '' : `<button type="button" class="tm-proto-icon-btn tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="toggleSidebar" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.filtersAndMiniCalendar")}">${protoToolbarIcon('sidebar')}</button>`;
             return `<header class="${toolbarClass}">
                 ${sidebarToggleMarkup}
-                <div class="tm-proto-nav"><button type="button" class="tm-proto-icon-btn tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="prev" aria-label="上一个">${protoToolbarIcon('chevron-left')}</button><button type="button" class="tm-proto-today tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="today">今天</button><button type="button" class="tm-proto-icon-btn tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="next" aria-label="下一个">${protoToolbarIcon('chevron-right')}</button></div>
+                <div class="tm-proto-nav"><button type="button" class="tm-proto-icon-btn tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="prev" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previous")}">${protoToolbarIcon('chevron-left')}</button><button type="button" class="tm-proto-today tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="today">${__tmT("common.today")}</button><button type="button" class="tm-proto-icon-btn tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="next" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.next")}">${protoToolbarIcon('chevron-right')}</button></div>
                 <div class="tm-proto-title" data-tm-proto-title="1">${titleText}</div>
                 <div class="tm-proto-toolbar-spacer"></div>
-                <div class="tm-proto-segmented bc-tabs-list" role="tablist" aria-label="视图">${viewButtons}</div>${weekScrollMarkup}${mobileViewSelect}${compactMonthMarkup}
-                <div class="tm-proto-tool-wrap"><button type="button" class="tm-proto-tool-btn tm-proto-opacity-btn tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="menu" data-tm-proto-menu="opacity" aria-label="不透明度" title="不透明度">${protoToolbarIcon('circle-half')}</button>${opacityMenu}</div>
-                <button type="button" class="tm-proto-tool-btn tm-proto-day-btn tm-btn tm-btn-info bc-btn bc-btn--sm ${prototypeShowDayPanel ? 'is-active' : ''}" data-tm-proto-action="toggleDayPanel" aria-label="单日" title="单日">${protoToolbarIcon('calendar-blank')}</button>
+                <div class="tm-proto-segmented bc-tabs-list" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.views")}">${viewButtons}</div>${weekScrollMarkup}${mobileViewSelect}${compactMonthMarkup}
+                <div class="tm-proto-tool-wrap"><button type="button" class="tm-proto-tool-btn tm-proto-opacity-btn tm-btn tm-btn-info bc-btn bc-btn--sm" data-tm-proto-action="menu" data-tm-proto-menu="opacity" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.opacity")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.opacity")}">${protoToolbarIcon('circle-half')}</button>${opacityMenu}</div>
+                <button type="button" class="tm-proto-tool-btn tm-proto-day-btn tm-btn tm-btn-info bc-btn bc-btn--sm ${prototypeShowDayPanel ? 'is-active' : ''}" data-tm-proto-action="toggleDayPanel" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.day2")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.day2")}">${protoToolbarIcon('calendar-blank')}</button>
             </header>`;
         };
         const snapshotPrototypeEvent = (eventApi, settings, viewType) => ({
@@ -38235,7 +38238,7 @@
             prototypeLastEventSnapshot = nextEventSnapshot;
             const title = String(view.title || '').trim() || (() => {
                 const date = protoSafeDate(view.currentStart || getCalendarDate(calendar)) || new Date();
-                return viewType === 'dayGridMonth' ? `${date.getFullYear()}年${date.getMonth() + 1}月` : `${date.getMonth() + 1}月${date.getDate()}日`;
+                return viewType === 'dayGridMonth' ? __tmT("date.yearMonthNumbers", { value1: date.getFullYear(), value2: date.getMonth() + 1 }) : __tmT("date.monthDayNumbers", { value1: date.getMonth() + 1, value2: date.getDate() });
             })();
             const previousTimeScroller = prototypeSurface.querySelector('.tm-proto-time-scroll');
             const previousTimeScrollTop = previousTimeScroller instanceof HTMLElement
@@ -38546,10 +38549,10 @@
             expandRows: true,
             locale: CALENDAR_ZH_CN_LOCALE,
             firstDay: Number(s.firstDay) === 0 ? 0 : 1,
-            weekTextLong: '周',
-            weekTextShort: '周',
-            allDayText: '全天',
-            noEventsText: '暂无记录',
+            weekTextLong: __tmT("calendar.week"),
+            weekTextShort: __tmT("calendar.week"),
+            allDayText: __tmT("calendar.allDay"),
+            noEventsText: __tmT("calendar.noRecords"),
             nowIndicator: false,
             slotEventOverlap: false,
             lazyFetching: true,
@@ -38619,7 +38622,7 @@
                         end = new Date(start.getTime() + durMin * 60000);
                     }
                     const calendarId = String(ext.calendarId || payload?.calendarId || '').trim() || pickDefaultCalendarId(settings);
-                    const title = String(payload?.title || info?.event?.title || '').trim() || '任务';
+                    const title = String(payload?.title || info?.event?.title || '').trim() || __tmT("kernel.task");
                     if (await maybeUpdateEmptyTaskDueDateFromAllDayDrop({ ...(payload || {}), taskId }, start, allDay, {
                         source: 'calendar-receive-task-due-date',
                         viewType: String(getCalendarView(calendar)?.type || '').trim(),
@@ -38640,10 +38643,10 @@
                         dragSource: payload?.dragSource,
                     });
                     try { info?.event?.remove?.(); } catch (e2) {}
-                    toast('✅ 已加入日程', 'success');
+                    toast(__tmT("calendar.addedToSchedule"), 'success');
                 } catch (e) {
                     try { info?.event?.remove?.(); } catch (e2) {}
-                    toast(`❌ 加入日程失败：${String(e?.message || e || '')}`, 'error');
+                    toast(__tmT("calendar.failedToAddToSchedule", { value1: String(e?.message || e || '') }), 'error');
                 } finally {
                     calendarExternalDragPreviewController.clear({ stopPointerMonitor: true });
                 }
@@ -39126,14 +39129,14 @@
                             notificationSchedules: sanitizeScheduleNotificationSchedules(ext.__tmNotificationSchedules),
                         });
                     } catch (e2) {
-                        try { toast(`❌ 打开编辑窗失败：${String(e2?.message || e2 || '')}`, 'error'); } catch (e3) {}
+                        try { toast(__tmT("calendar.failedToOpenTheEditDialog", { value1: String(e2?.message || e2 || '') }), 'error'); } catch (e3) {}
                     }
                     return;
                 }
                 try {
                     openRecordModal(activeEvent || arg.event);
                 } catch (e2) {
-                    try { toast(`❌ 打开记录窗失败：${String(e2?.message || e2 || '')}`, 'error'); } catch (e3) {}
+                    try { toast(__tmT("calendar.failedToOpenTheRecordsDialog", { value1: String(e2?.message || e2 || '') }), 'error'); } catch (e3) {}
                 }
             },
             dateClick: (info) => {
@@ -39173,10 +39176,10 @@
                             try { arg.revert(); } catch (e) {}
                             return;
                         }
-                        if (!result?.dateFollowFailed) toast('✅ 已更新日程', 'success');
+                        if (!result?.dateFollowFailed) toast(__tmT("calendar.scheduleUpdated"), 'success');
                     } catch (e) {
                         try { arg.revert(); } catch (e2) {}
-                        toast(`❌ 更新日程失败：${String(e?.message || e || '')}`, 'error');
+                        toast(__tmT("calendar.failedToUpdateTheSchedule", { value1: String(e?.message || e || '') }), 'error');
                     }
                     return;
                 }
@@ -39184,7 +39187,7 @@
                     try {
                         if (shouldCreateScheduleFromTaskDateDrop(arg)) {
                             await createScheduleFromTaskDateDrop(arg);
-                            toast('✅ 已加入日程', 'success');
+                            toast(__tmT("calendar.addedToSchedule"), 'success');
                             return;
                         }
                         const result = await persistTaskDateEventChange(arg, { background: true, calendar });
@@ -39192,10 +39195,10 @@
                             try { arg.revert(); } catch (e) {}
                             return;
                         }
-                        toast(result?.scope === 'one' ? '✅ 已新增本次例外日程' : '✅ 已更新任务日期', 'success');
+                        toast(result?.scope === 'one' ? __tmT("calendar.exceptionOccurrenceAdded") : __tmT("calendar.taskDatesUpdated"), 'success');
                     } catch (e) {
                         try { arg.revert(); } catch (e2) {}
-                        toast(`❌ 更新任务日期失败：${String(e?.message || e || '')}`, 'error');
+                        toast(__tmT("calendar.failedToUpdateTaskDate", { value1: String(e?.message || e || '') }), 'error');
                     }
                     return;
                 }
@@ -39207,7 +39210,7 @@
                 const dock = globalThis.__dockTomato;
                 const history = dock?.history;
                 if (!history || typeof history.updateTime !== 'function') {
-                    toast('⚠ 未检测到番茄钟历史编辑接口', 'warning');
+                    toast(__tmT("calendar.dockTomatoHistoryEditApiNotDetected"), 'warning');
                     try { arg.revert(); } catch (e) {}
                     return;
                 }
@@ -39219,11 +39222,11 @@
                 }
                 const ok = await history.updateTime(recordKey, { start: start.toISOString(), end: end.toISOString() });
                 if (!ok) {
-                    toast('❌ 更新失败', 'error');
+                    toast(__tmT("calendar.updateFailed"), 'error');
                     try { arg.revert(); } catch (e) {}
                     return;
                 }
-                toast('✅ 已更新', 'success');
+                toast(__tmT("calendar.updated"), 'success');
             },
             eventResize: async (arg) => {
                 const ext = arg?.event?.extendedProps || {};
@@ -39235,10 +39238,10 @@
                             try { arg.revert(); } catch (e) {}
                             return;
                         }
-                        if (!result?.dateFollowFailed) toast('✅ 已更新日程', 'success');
+                        if (!result?.dateFollowFailed) toast(__tmT("calendar.scheduleUpdated"), 'success');
                     } catch (e) {
                         try { arg.revert(); } catch (e2) {}
-                        toast(`❌ 更新日程失败：${String(e?.message || e || '')}`, 'error');
+                        toast(__tmT("calendar.failedToUpdateTheSchedule", { value1: String(e?.message || e || '') }), 'error');
                     }
                     return;
                 }
@@ -39249,10 +39252,10 @@
                             try { arg.revert(); } catch (e) {}
                             return;
                         }
-                        toast(result?.scope === 'one' ? '✅ 已新增本次例外日程' : '✅ 已更新任务日期', 'success');
+                        toast(result?.scope === 'one' ? __tmT("calendar.exceptionOccurrenceAdded") : __tmT("calendar.taskDatesUpdated"), 'success');
                     } catch (e) {
                         try { arg.revert(); } catch (e2) {}
-                        toast(`❌ 更新任务日期失败：${String(e?.message || e || '')}`, 'error');
+                        toast(__tmT("calendar.failedToUpdateTaskDate", { value1: String(e?.message || e || '') }), 'error');
                     }
                     return;
                 }
@@ -39264,7 +39267,7 @@
                 const dock = globalThis.__dockTomato;
                 const history = dock?.history;
                 if (!history || typeof history.updateTime !== 'function') {
-                    toast('⚠ 未检测到番茄钟历史编辑接口', 'warning');
+                    toast(__tmT("calendar.dockTomatoHistoryEditApiNotDetected"), 'warning');
                     try { arg.revert(); } catch (e) {}
                     return;
                 }
@@ -39276,11 +39279,11 @@
                 }
                 const ok = await history.updateTime(recordKey, { start: start.toISOString(), end: end.toISOString() });
                 if (!ok) {
-                    toast('❌ 更新失败', 'error');
+                    toast(__tmT("calendar.updateFailed"), 'error');
                     try { arg.revert(); } catch (e) {}
                     return;
                 }
-                toast('✅ 已更新', 'success');
+                toast(__tmT("calendar.updated"), 'success');
             },
             select: (info) => {
                 try { calendar.unselect(); } catch (e) {}
@@ -40056,17 +40059,17 @@
             if (k === 'calendar') {
                 const def = getCalendarDefs(getSettings()).find((item) => String(item?.id || '').trim() === kk);
                 const name = String(def?.name || '').trim();
-                return name ? `${name}颜色` : '文档分组颜色';
+                return name ? __tmT("calendar.color2", { name: name }) : __tmT("calendar.documentGroupColors");
             }
-            if (k === 'schedule') return '日程颜色';
-            if (k === 'taskDates') return '任务日期颜色';
-            if (k === 'cnHoliday') return '节假日颜色';
+            if (k === 'schedule') return __tmT("calendar.scheduleColors");
+            if (k === 'taskDates') return __tmT("kernel.taskDateColor");
+            if (k === 'cnHoliday') return __tmT("calendar.holidayColors");
             if (k === 'tomato') {
-                const labels = { focus: '专注颜色', break: '休息颜色', stopwatch: '正计时颜色', idle: '闲置颜色' };
-                const label = labels[kk] || '番茄颜色';
-                return getSettings().tomatoColorMode === 'type' ? label : `${label}（备用）`;
+                const labels = { focus: __tmT("calendar.focusColors"), break: __tmT("calendar.breakColors"), stopwatch: __tmT("calendar.stopwatchColor"), idle: __tmT("calendar.idleColors") };
+                const label = labels[kk] || __tmT("calendar.pomodoroColors");
+                return getSettings().tomatoColorMode === 'type' ? label : __tmT("calendar.fallback", { label: label });
             }
-            return '文档分组颜色';
+            return __tmT("calendar.documentGroupColors");
         };
 
         const getSidebarColorPickerFallback = (kind, key, value) => {
@@ -40172,10 +40175,10 @@
                 };
                 return item;
             };
-            menu.appendChild(createItem('设置颜色', () => {
+            menu.appendChild(createItem(__tmT("calendar.setColor"), () => {
                 openSidebarColorPicker(kind, key, value);
             }));
-            menu.appendChild(createItem('重置颜色', () => { resetSidebarColor(kind, key); }, true));
+            menu.appendChild(createItem(__tmT("calendar.resetColor"), () => { resetSidebarColor(kind, key); }, true));
             document.body.appendChild(menu);
             const closeHandler = () => {
                 try { menu.remove(); } catch (e2) {}
@@ -40737,7 +40740,7 @@
     };
 
     class CalendarSubscriptionStaleError extends Error {
-        constructor(message = '日历 ICS 数据在生成期间发生变化') {
+        constructor(message = __tmT("calendar.calendarIcsDataChangedDuringGeneration")) {
             super(message);
             this.name = 'CalendarSubscriptionStaleError';
         }
@@ -40751,7 +40754,7 @@
         stopped.catch(() => {});
         const run = {
             startedAt: Date.now(),
-            phase: '准备发布',
+            phase: __tmT("calendar.preparingToPublish"),
             error: null,
             remoteWriteStarted: false,
             cancel(error) {
@@ -40764,7 +40767,7 @@
                 if (!run.error && Date.now() - run.startedAt >= CALENDAR_SUBSCRIPTION_TIMEOUT_MS) timeout();
                 if (run.error) throw run.error;
                 if (!getSettings().icsEnabled || (run.automatic && !calendarSubscriptionPublisher.bound)) {
-                    throw new CalendarSubscriptionStaleError('日历 ICS 自动发布已停止');
+                    throw new CalendarSubscriptionStaleError(__tmT("calendar.automaticCalendarIcsPublishingStopped"));
                 }
             },
             async wait(phase, operation) {
@@ -40782,11 +40785,11 @@
             },
             dispose() {
                 clearTimeout(timer);
-                run.cancel(Object.assign(new Error('日历 ICS 发布已结束'), { code: 'TM_ICS_CANCELLED' }));
+                run.cancel(Object.assign(new Error(__tmT("calendar.calendarIcsPublishingFinished")), { code: 'TM_ICS_CANCELLED' }));
             },
         };
         const timeout = () => run.cancel(Object.assign(new Error(
-            `${run.phase}超时${run.remoteWriteStarted ? '，远端结果未确认，请稍后手动重试' : '，请稍后重试'}`
+            __tmT("calendar.timedOut", { phase: run.phase, value2: run.remoteWriteStarted ? __tmT("calendar.theRemoteResultIsUnconfirmedTryAgainManuallyLater") : __tmT("calendar.pleaseTryAgainLater") })
         ), { code: 'TM_ICS_TIMEOUT' }));
         const timer = setTimeout(timeout, CALENDAR_SUBSCRIPTION_TIMEOUT_MS);
         return run;
@@ -40841,20 +40844,20 @@
         const settings = getSettings();
         const includesTaskDates = settings.icsIncludeTaskDates === true;
         const includesCustomHolidays = settings.icsIncludeCustomHolidays === true;
-        const customSuffix = includesCustomHolidays ? '与个人节假日' : '';
+        const customSuffix = includesCustomHolidays ? __tmT("calendar.andPersonalHolidays") : '';
         if (settings.icsIncludeTomatoReminders !== true) {
             return includesTaskDates
-                ? `包含任务管理器日程、任务全天日程${customSuffix}`
-                : `仅包含任务管理器日程${customSuffix}`;
+                ? __tmT("calendar.includesTaskManagerSchedulesAndAllDayTaskDates", { customSuffix: customSuffix })
+                : __tmT("calendar.includesOnlyTaskManagerSchedules", { customSuffix: customSuffix });
         }
         if (isDockTomatoPluginLoaded()) {
             return includesTaskDates
-                ? `包含任务管理器日程、任务全天日程与底栏番茄钟提醒${customSuffix}`
-                : `包含任务管理器日程与底栏番茄钟提醒${customSuffix}`;
+                ? __tmT("calendar.includesTaskManagerSchedulesAllDayTaskDatesAnd", { customSuffix: customSuffix })
+                : __tmT("calendar.includesTaskManagerSchedulesAndBottomBarPomodoroReminders", { customSuffix: customSuffix });
         }
         return includesTaskDates
-            ? `未启用底栏番茄钟，包含任务管理器日程与任务全天日程${customSuffix}`
-            : `未启用底栏番茄钟，仅发布任务管理器日程${customSuffix}`;
+            ? __tmT("calendar.bottomBarPomodoroIsDisabledIncludesTaskManagerSchedules", { customSuffix: customSuffix })
+            : __tmT("calendar.bottomBarPomodoroIsDisabledPublishingOnlyTaskManager", { customSuffix: customSuffix });
     }
 
     function getCalendarSubscriptionDisplayUrl(settings = getSettings()) {
@@ -40878,16 +40881,16 @@
 
     function formatCalendarSubscriptionStatusTime(value) {
         const date = new Date(String(value || ''));
-        return Number.isNaN(date.getTime()) ? '尚未成功发布' : date.toLocaleString();
+        return Number.isNaN(date.getTime()) ? __tmT("calendar.neverPublishedSuccessfully") : date.toLocaleString();
     }
 
     function syncCalendarSubscriptionTopBar() {
         const settings = getSettings();
         const status = loadCalendarSubscriptionRuntimeStatus();
         const enabled = settings.icsEnabled === true;
-        let title = '立即上传日历 ICS';
-        if (calendarSubscriptionPublisher.running) title = '正在上传日历 ICS';
-        else if (status.lastError) title = `日历 ICS 上传失败：${String(status.lastError).slice(0, 120)}`;
+        let title = __tmT("plugin.uploadCalendarIcsNow");
+        if (calendarSubscriptionPublisher.running) title = __tmT("calendar.uploadingCalendarIcs");
+        else if (status.lastError) title = __tmT("calendar.calendarIcsUploadFailed", { value1: String(status.lastError).slice(0, 120) });
         try {
             globalThis.__taskHorizonSyncCalendarSubscriptionTopBar?.({
                 enabled,
@@ -40908,8 +40911,8 @@
             if (element) element.textContent = String(value || '');
         };
         setText('[data-tm-ics-source-status]', getCalendarSubscriptionSourceStatusText());
-        setText('[data-tm-ics-last-success]', `${formatCalendarSubscriptionStatusTime(status.lastSuccessAt)}${status.lastSuccessAt ? `，${Number(status.eventCount) || 0} 个事件` : ''}`);
-        setText('[data-tm-ics-last-error]', status.lastError ? String(status.lastError) : '无');
+        setText('[data-tm-ics-last-success]', `${formatCalendarSubscriptionStatusTime(status.lastSuccessAt)}${status.lastSuccessAt ? __tmT("calendar.events", { value1: Number(status.eventCount) || 0 }) : ''}`);
+        setText('[data-tm-ics-last-error]', status.lastError ? String(status.lastError) : __tmT("common.none"));
         try {
             container.querySelector('[data-tm-ics-last-error]')?.classList.toggle('tm-calendar-ics-inline-status--error', !!status.lastError);
         } catch (e) {}
@@ -40918,7 +40921,7 @@
         const publishButton = container.querySelector('[data-tm-ics-action="publish"]');
         if (publishButton instanceof HTMLButtonElement) {
             publishButton.disabled = !settings.icsEnabled || calendarSubscriptionPublisher.running;
-            publishButton.textContent = calendarSubscriptionPublisher.running ? '正在更新' : '立即更新';
+            publishButton.textContent = calendarSubscriptionPublisher.running ? __tmT("calendar.updating") : __tmT("calendar.updateNow");
         }
     }
 
@@ -40955,10 +40958,10 @@
         const store = state.settingsStore;
         const current = String(store?.data?.calendarIcsChainFileName || getSettings().icsChainFileName || '').trim();
         if (/^[A-Za-z0-9._-]+\.ics$/i.test(current)) return current;
-        if (!store?.data) throw new Error('日历 ICS 上传设置尚未就绪');
+        if (!store?.data) throw new Error(__tmT("calendar.calendarIcsUploadSettingsAreNotReadyYet"));
         const next = createStableCalendarSubscriptionFileName();
         store.data.calendarIcsChainFileName = next;
-        await run.wait('保存订阅文件名', () => flushCalendarSubscriptionSettingsStore(store));
+        await run.wait(__tmT("calendar.saveSubscriptionFileName"), () => flushCalendarSubscriptionSettingsStore(store));
         return next;
     }
 
@@ -41050,30 +41053,30 @@
     async function waitForDockTomatoSubscriptionBridge() {
         const deadline = Date.now() + 5000;
         do {
-            if (!isDockTomatoPluginLoaded()) throw new CalendarSubscriptionStaleError('Dock Tomato 状态已变化');
+            if (!isDockTomatoPluginLoaded()) throw new CalendarSubscriptionStaleError(__tmT("calendar.dockTomatoStateChanged"));
             const bridge = globalThis.__tomatoReminder;
             if (Number(bridge?.version) >= 2 && typeof bridge?.listOccurrences === 'function') return bridge;
             if (Date.now() >= deadline) break;
             await delay(100);
         } while (true);
-        throw new Error('Dock Tomato 已启用，但提醒接口尚未就绪，请稍后重试');
+        throw new Error(__tmT("calendar.dockTomatoIsEnabledButTheReminderApiIs"));
     }
 
     async function refreshCalendarSubscriptionSharedSettings(run) {
         const store = state.settingsStore;
-        if (!store?.data) throw new Error('日历 ICS 上传设置尚未就绪');
-        if (store.saveDirty || store.saving) throw new CalendarSubscriptionStaleError('上传设置正在保存');
+        if (!store?.data) throw new Error(__tmT("calendar.calendarIcsUploadSettingsAreNotReadyYet"));
+        if (store.saveDirty || store.saving) throw new CalendarSubscriptionStaleError(__tmT("calendar.uploadSettingsAreBeingSaved"));
         const settingsUpdatedAt = store.data.settingsUpdatedAt;
         let shared = null;
         for (let attempt = 0; attempt < 2; attempt += 1) {
             try {
-                shared = await run.wait('读取上传设置', async (signal) => {
+                shared = await run.wait(__tmT("calendar.readingUploadSettings"), async (signal) => {
                     const response = await postJSON('/api/file/getFile', { path: CALENDAR_SUBSCRIPTION_SETTINGS_FILE }, signal);
                     if (!response.ok) throw new Error(response.status === 404
-                        ? '设置文件尚未同步到本机' : `HTTP ${response.status}`);
+                        ? __tmT("calendar.theSettingsFileHasNotSyncedToThisDevice") : `HTTP ${response.status}`);
                     const parse = (text) => {
                         try { return JSON.parse(String(text || '').replace(/^\uFEFF/, '').trim()); }
-                        catch (error) { throw new Error('设置文件为空或 JSON 格式不完整'); }
+                        catch (error) { throw new Error(__tmT("calendar.theSettingsFileIsEmptyOrItsJsonIs")); }
                     };
                     let value = parse(await response.text());
                     // getFile normally returns the file itself. Do not mistake a
@@ -41081,31 +41084,31 @@
                     if (value && typeof value === 'object' && !Array.isArray(value)
                         && Object.prototype.hasOwnProperty.call(value, 'code')) {
                         if (Number(value.code) !== 0) throw new Error(Number(value.code) === 404
-                            ? '设置文件尚未同步到本机' : `内核读取错误 ${value.code}`);
+                            ? __tmT("calendar.theSettingsFileHasNotSyncedToThisDevice") : __tmT("calendar.kernelReadError", { code: value.code }));
                         value = value.data ?? value.content;
                         if (typeof value?.content === 'string') value = value.content;
                         if (typeof value === 'string') value = parse(value);
                     }
                     if (!value || typeof value !== 'object' || Array.isArray(value)
                         || !Object.keys(value).some((key) => key.startsWith('calendarIcs'))) {
-                        throw new Error('设置文件中缺少日历 ICS 配置，请重新保存日历订阅设置');
+                        throw new Error(__tmT("calendar.theSettingsFileHasNoCalendarIcsConfigurationRe"));
                     }
                     return value;
                 });
                 break;
             } catch (error) {
                 run.check();
-                if (attempt === 1) throw new Error(`日历 ICS 上传设置读取失败：${String(error?.message || '请求失败')}；已停止本次发布`);
-                await run.wait('等待上传设置重读', () => delay(220));
+                if (attempt === 1) throw new Error(__tmT("calendar.failedToReadCalendarIcsUploadSettingsThisPublish", { value1: String(error?.message || __tmT("calendar.requestFailed")) }));
+                await run.wait(__tmT("calendar.waitingToReReadUploadSettings"), () => delay(220));
             }
         }
         // A local edit/save may have started while the disk read was in flight.
         if (store.saveDirty || store.saving || store.data.settingsUpdatedAt !== settingsUpdatedAt) {
-            throw new CalendarSubscriptionStaleError('上传设置正在保存');
+            throw new CalendarSubscriptionStaleError(__tmT("calendar.uploadSettingsAreBeingSaved"));
         }
         if ((shared.calendarIcsScope || store.data.calendarIcsScope) === 'selected'
             && (!Array.isArray(shared.docGroups) || !Array.isArray(shared.calendarIcsDocGroupIds))) {
-            throw new Error('文档分组同步范围配置不完整，已停止本次发布');
+            throw new Error(__tmT("calendar.theDocumentGroupSyncScopeIsIncompleteThisPublish"));
         }
         const fields = {
             calendarIcsEnabled: 'boolean',
@@ -41128,17 +41131,17 @@
         };
         let changed = false;
         if ((shared.calendarIcsScope || store.data.calendarIcsScope) === 'selected') {
-            if (typeof store.applySharedDocGroupSettings !== 'function') throw new Error('文档分组同步接口尚未就绪');
+            if (typeof store.applySharedDocGroupSettings !== 'function') throw new Error(__tmT("calendar.theDocumentGroupSyncApiIsNotReadyYet"));
             changed = store.applySharedDocGroupSettings(shared);
         }
         for (const [key, type] of Object.entries(fields)) {
             if (typeof shared[key] !== type) continue;
             let sharedValue = shared[key];
             if (key === 'calendarIcsDocGroupIds' && !Array.isArray(sharedValue)) {
-                throw new Error('文档分组同步范围配置无效，已停止本次发布');
+                throw new Error(__tmT("calendar.theDocumentGroupSyncScopeIsInvalidThisPublish"));
             }
             if (key === 'calendarIcsCalendarName' && (!String(sharedValue || '').trim() || String(sharedValue).trim() === 'Task Horizon')) {
-                sharedValue = '任务管理器';
+                sharedValue = __tmT("common.taskManager");
             } else if (key === 'calendarIcsPublishMode') {
                 sharedValue = String(sharedValue || '').trim() === 'manual' ? 'manual' : 'auto';
             } else if (key === 'calendarIcsScope') {
@@ -41170,18 +41173,18 @@
         const todayKey = formatDateKey(new Date());
         const source = String(options?.source || '').trim();
         if (state.scheduleCache.inflight) {
-            try { await run.wait('等待日程读取', () => state.scheduleCache.inflight); } catch (e) { run.check(); }
+            try { await run.wait(__tmT("calendar.waitingToReadSchedules"), () => state.scheduleCache.inflight); } catch (e) { run.check(); }
         }
         // Publication and sync rechecks need the shared source, not a local
         // shadow that can still contain the snapshot from before sync-end.
-        const schedules = await run.wait('读取日程', () => loadScheduleAll({ force: true }));
-        if (state.scheduleCache.lastLoadError) throw new Error('日程数据读取失败，已保留上次成功文件');
+        const schedules = await run.wait(__tmT("calendar.readingSchedules"), () => loadScheduleAll({ force: true }));
+        if (state.scheduleCache.lastLoadError) throw new Error(__tmT("calendar.failedToReadScheduleDataKeepingTheLastSuccessful"));
         let scope = null;
         if (settings.icsScope === 'selected') {
-            if (typeof window.tmResolveCalendarSubscriptionScope !== 'function') throw new Error('文档分组范围接口尚未就绪');
+            if (typeof window.tmResolveCalendarSubscriptionScope !== 'function') throw new Error(__tmT("calendar.theDocumentGroupScopeApiIsNotReadyYet"));
             const linkedIds = (Array.isArray(schedules) ? schedules : [])
                 .flatMap(item => [getScheduleLinkedTaskId(item), getScheduleLinkedBlockId(item)]).filter(Boolean);
-            const resolved = await run.wait('读取同步文档分组', () => window.tmResolveCalendarSubscriptionScope(settings.icsDocGroupIds, linkedIds));
+            const resolved = await run.wait(__tmT("calendar.loadSyncedDocumentGroups"), () => window.tmResolveCalendarSubscriptionScope(settings.icsDocGroupIds, linkedIds));
             scope = { groups: new Set(resolved.groupIds), docs: new Set(resolved.docIds), blockDocIds: resolved.blockDocIds };
         }
         const scopedSchedules = (Array.isArray(schedules) ? schedules : []).filter(item => {
@@ -41213,7 +41216,7 @@
             if (required.every((id) => taskRemarkById.has(id))) return;
             if (typeof window.tmEnsureCalendarTaskCache !== 'function') return;
             try {
-                const loaded = await run.wait('读取任务备注', () => window.tmEnsureCalendarTaskCache({
+                const loaded = await run.wait(__tmT("calendar.readingTaskNotes"), () => window.tmEnsureCalendarTaskCache({
                     source: 'calendar-ics-task-notes',
                     forceFresh: true,
                     refresh: false,
@@ -41246,11 +41249,11 @@
         }
         for (const item of scopedSchedules) {
             const scheduleId = String(item?.id || '').trim();
-            if (!scheduleId) throw new Error('日程数据缺少稳定 ID');
+            if (!scheduleId) throw new Error(__tmT("calendar.scheduleDataIsMissingAStableId"));
             const baseStartMs = toMs(item?.start);
             const baseEndMs = toMs(item?.end);
             if (!Number.isFinite(baseStartMs) || !Number.isFinite(baseEndMs) || baseEndMs <= baseStartMs) {
-                throw new Error(`日程时间无效：${String(item?.title || scheduleId)}`);
+                throw new Error(__tmT("calendar.invalidScheduleTime", { value1: String(item?.title || scheduleId) }));
             }
             const baseStart = new Date(baseStartMs);
             const baseEnd = new Date(baseEndMs);
@@ -41263,7 +41266,7 @@
                 const startAt = Number(occurrence?.startMs);
                 const endAt = Number(occurrence?.endMs);
                 if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || endAt <= startAt) {
-                    throw new Error(`日程时间无效：${String(item?.title || scheduleId)}`);
+                    throw new Error(__tmT("calendar.invalidScheduleTime", { value1: String(item?.title || scheduleId) }));
                 }
                 const completed = isScheduleOccurrenceDone(item, startAt)
                     || item?.scheduleDone === true
@@ -41273,7 +41276,7 @@
                 const event = {
                     uidSeed: `schedule:${scheduleId}:${Math.trunc(startAt)}`,
                     source: 'schedule',
-                    title: normalizeCalendarScheduleTitleText(item?.title, '日程'),
+                    title: normalizeCalendarScheduleTitleText(item?.title, __tmT("kernel.schedule")),
                     completed,
                 };
                 if (includeTaskNotes) {
@@ -41295,21 +41298,21 @@
                 event.alarm = getScheduleSubscriptionAlarm(item, occurrence, settings, allDay, completed);
                 events.push(event);
                 if (events.length > CALENDAR_SUBSCRIPTION_EVENT_LIMIT) {
-                    throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
+                    throw new Error(__tmT("calendar.subscriptionHasMoreThanEvents", { CALENDAR_SUBSCRIPTION_EVENT_LIMIT: CALENDAR_SUBSCRIPTION_EVENT_LIMIT }));
                 }
             }
         }
 
         if (settings.icsIncludeTaskDates) {
             if (typeof window.tmQueryCalendarTaskDateEvents !== 'function') {
-                throw new Error('任务全天日程接口未就绪，已保留上次成功文件');
+                throw new Error(__tmT("calendar.allDayTaskDateApiIsNotReadyKeeping"));
             }
             let taskDateItems = null;
             const forceFreshTaskDates = options?.force === true
                 || options?.refreshTaskDates === true
                 || /^(?:startup|sync-end|day-boundary|settings|task-attr-updated|task-list-updated|task-date-follow-updated|task-completed)/.test(source);
             try {
-                taskDateItems = await run.wait('读取任务日期', () => window.tmQueryCalendarTaskDateEvents(range.start, range.end, {
+                taskDateItems = await run.wait(__tmT("calendar.readingTaskDates"), () => window.tmQueryCalendarTaskDateEvents(range.start, range.end, {
                     forceFresh: forceFreshTaskDates,
                     fastFirst: !forceFreshTaskDates,
                     allowInactiveFullLoad: true,
@@ -41322,9 +41325,9 @@
                 }));
             } catch (error) {
                 run.check();
-                throw new Error(`任务全天日程读取失败：${String(error?.message || error || '未知错误')}`);
+                throw new Error(__tmT("calendar.failedToReadAllDayTaskDates", { value1: String(error?.message || error || __tmT("plugin.unknownError")) }));
             }
-            if (!Array.isArray(taskDateItems)) throw new Error('任务全天日程接口返回无效');
+            if (!Array.isArray(taskDateItems)) throw new Error(__tmT("calendar.allDayTaskDateApiReturnedAnInvalidResult"));
             if (includeTaskNotes) await ensureTaskRemarks(taskDateItems.map((item) => item?.id));
             for (const item of taskDateItems) {
                 if (scope && !scope.docs.has(getCalendarTaskDocumentId(item))) continue;
@@ -41335,7 +41338,7 @@
                 const end = parseDateOnly(endDate);
                 if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())
                     || !(end instanceof Date) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
-                    throw new Error(`任务全天日程数据无效：${String(item?.title || taskId || '未知任务')}`);
+                    throw new Error(__tmT("calendar.invalidAllDayTaskDateData", { value1: String(item?.title || taskId || __tmT("calendar.unknowntask")) }));
                 }
                 // Match the calendar's date visibility, using today's date rather
                 // than a future flag saved in an earlier task-cache projection.
@@ -41344,7 +41347,7 @@
                 events.push({
                     uidSeed: `task-date:${taskId}`,
                     source: 'task',
-                    title: `${String(item?.title || '').trim() || '任务'}${isCheckin && item?.done === true ? '（已打卡）' : ''}`,
+                    title: `${String(item?.title || '').trim() || __tmT("kernel.task")}${isCheckin && item?.done === true ? __tmT("calendar.checkedIn") : ''}`,
                     completed: item?.done === true,
                     allDay: true,
                     startDate: formatDateKey(start),
@@ -41354,7 +41357,7 @@
                         : {}),
                 });
                 if (events.length > CALENDAR_SUBSCRIPTION_EVENT_LIMIT) {
-                    throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
+                    throw new Error(__tmT("calendar.subscriptionHasMoreThanEvents", { CALENDAR_SUBSCRIPTION_EVENT_LIMIT: CALENDAR_SUBSCRIPTION_EVENT_LIMIT }));
                 }
             }
         }
@@ -41366,19 +41369,19 @@
             sourceMode = settings.icsIncludeTaskDates
                 ? 'schedules-task-dates-and-reminders'
                 : 'schedules-and-reminders';
-            const bridge = await run.wait('等待番茄提醒接口', () => waitForDockTomatoSubscriptionBridge());
+            const bridge = await run.wait(__tmT("calendar.waitingForThePomodoroReminderApi"), () => waitForDockTomatoSubscriptionBridge());
             if (scope && bridge.capabilities?.documentScope !== true) {
-                throw new Error('请更新底栏番茄钟以支持按文档分组同步提醒，已保留上次成功文件');
+                throw new Error(__tmT("calendar.pleaseUpdateDockTomatoToSupportDocumentGroupSynced"));
             }
             const remaining = Math.max(1, CALENDAR_SUBSCRIPTION_EVENT_LIMIT - events.length);
-            const result = await run.wait('读取番茄提醒', () => bridge.listOccurrences({
+            const result = await run.wait(__tmT("calendar.readingPomodoroReminders"), () => bridge.listOccurrences({
                 startAt: range.startAt,
                 endAt: range.endAt,
                 limit: remaining,
                 ...(scope ? { docIds: Array.from(scope.docs) } : {}),
             }));
-            if (!result || !Array.isArray(result.occurrences)) throw new Error('Dock Tomato 提醒接口返回无效');
-            if (result.truncated === true) throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
+            if (!result || !Array.isArray(result.occurrences)) throw new Error(__tmT("calendar.dockTomatoReminderApiReturnedAnInvalidResult"));
+            if (result.truncated === true) throw new Error(__tmT("calendar.subscriptionHasMoreThanEvents", { CALENDAR_SUBSCRIPTION_EVENT_LIMIT: CALENDAR_SUBSCRIPTION_EVENT_LIMIT }));
             if (includeTaskNotes) await ensureTaskRemarks(result.occurrences.map((item) => item?.blockId));
             for (const occurrence of result.occurrences) {
                 if (scope && !scope.docs.has(getCalendarTaskDocumentId(occurrence))) continue;
@@ -41387,19 +41390,19 @@
                 const occurrenceKey = String(occurrence?.occurrenceKey || '').trim();
                 const stableIdentity = String(occurrence?.stableIdentity || '').trim();
                 if (!blockId || !occurrenceKey || !Number.isFinite(startAt) || startAt < range.startAt || startAt >= range.endAt) {
-                    throw new Error('Dock Tomato 提醒接口返回了无效实例');
+                    throw new Error(__tmT("calendar.dockTomatoReminderApiReturnedAnInvalidInstance"));
                 }
                 events.push({
                     uidSeed: `tomato:${blockId}:${stableIdentity || occurrenceKey}`,
                     source: 'tomato',
-                    title: `${String(occurrence?.title || '').trim() || '任务提醒'}${occurrence?.checkin === true && occurrence?.completed === true ? '（已打卡）' : ''}`,
+                    title: `${String(occurrence?.title || '').trim() || __tmT("calendar.taskReminder")}${occurrence?.checkin === true && occurrence?.completed === true ? __tmT("calendar.checkedIn") : ''}`,
                     completed: occurrence?.completed === true,
                     startAt,
                     alarm: { trigger: 'PT0M' },
                     ...(includeTaskNotes ? { description: resolveTaskRemark(blockId) } : {}),
                 });
                 if (events.length > CALENDAR_SUBSCRIPTION_EVENT_LIMIT) {
-                    throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
+                    throw new Error(__tmT("calendar.subscriptionHasMoreThanEvents", { CALENDAR_SUBSCRIPTION_EVENT_LIMIT: CALENDAR_SUBSCRIPTION_EVENT_LIMIT }));
                 }
             }
         }
@@ -41408,7 +41411,7 @@
             for (const event of customHolidayEvents) {
                 events.push(event);
                 if (events.length > CALENDAR_SUBSCRIPTION_EVENT_LIMIT) {
-                    throw new Error(`订阅事件超过 ${CALENDAR_SUBSCRIPTION_EVENT_LIMIT} 条上限`);
+                    throw new Error(__tmT("calendar.subscriptionHasMoreThanEvents", { CALENDAR_SUBSCRIPTION_EVENT_LIMIT: CALENDAR_SUBSCRIPTION_EVENT_LIMIT }));
                 }
             }
             if (customHolidayEvents.length > 0) sourceMode = `${sourceMode}-and-custom-holidays`;
@@ -41417,12 +41420,12 @@
     }
 
     async function readKernelJsonResponse(response, context) {
-        if (!response?.ok) throw new Error(`${context}失败：HTTP ${Number(response?.status) || 0}`);
+        if (!response?.ok) throw new Error(__tmT("calendar.failedHttp", { context: context, value2: Number(response?.status) || 0 }));
         let payload = null;
         try { payload = await response.json(); } catch (e) {
-            throw new Error(`${context}失败：响应格式无效`);
+            throw new Error(__tmT("calendar.failedInvalidResponseFormat", { context: context }));
         }
-        if (!payload || Number(payload.code) !== 0) throw new Error(`${context}失败：${String(payload?.msg || payload?.message || '未知错误')}`);
+        if (!payload || Number(payload.code) !== 0) throw new Error(__tmT("calendar.failed", { context: context, value2: String(payload?.msg || payload?.message || __tmT("plugin.unknownError")) }));
         return payload.data;
     }
 
@@ -41443,7 +41446,7 @@
             // The kernel may report its own deadline before our overall timer.
             // A lost upload acknowledgement cannot prove the remote write failed.
             if (remoteWrite) {
-                const uncertain = Object.assign(new Error(`${context}结果未确认，远端文件可能已更新，请稍后手动重试`), {
+                const uncertain = Object.assign(new Error(__tmT("calendar.resultUnconfirmedTheRemoteFileMayAlreadyBeUpdated", { context: context })), {
                     code: 'TM_ICS_REMOTE_UNCONFIRMED',
                 });
                 run.cancel(uncertain);
@@ -41457,21 +41460,21 @@
     async function putCalendarSubscriptionFile(path, text, run, mime = 'text/calendar; charset=utf-8') {
         const normalizedPath = String(path || '').trim();
         const slash = normalizedPath.lastIndexOf('/');
-        if (!normalizedPath.startsWith('/data/') || slash <= 5) throw new Error('日历 ICS 文件路径无效');
+        if (!normalizedPath.startsWith('/data/') || slash <= 5) throw new Error(__tmT("calendar.invalidCalendarIcsFilePath"));
         const directory = normalizedPath.slice(0, slash);
         const dirForm = new FormData();
         dirForm.append('path', directory);
         dirForm.append('isDir', 'true');
         globalThis.__tmHost?.appendStorageRequestApp?.(dirForm);
-        await run.wait('创建日历 ICS 目录', async (signal) => readKernelJsonResponse(
-            await fetch('/api/file/putFile', { method: 'POST', body: dirForm, signal }), '创建日历 ICS 目录'));
+        await run.wait(__tmT("calendar.creatingCalendarIcsDirectory"), async (signal) => readKernelJsonResponse(
+            await fetch('/api/file/putFile', { method: 'POST', body: dirForm, signal }), __tmT("calendar.creatingCalendarIcsDirectory")));
         const form = new FormData();
         form.append('path', normalizedPath);
         form.append('isDir', 'false');
         form.append('file', new Blob([String(text ?? '')], { type: mime }));
         globalThis.__tmHost?.appendStorageRequestApp?.(form);
-        await run.wait('写入日历 ICS 文件', async (signal) => readKernelJsonResponse(
-            await fetch('/api/file/putFile', { method: 'POST', body: form, signal }), '写入日历 ICS 文件'));
+        await run.wait(__tmT("calendar.writingCalendarIcsFile"), async (signal) => readKernelJsonResponse(
+            await fetch('/api/file/putFile', { method: 'POST', body: form, signal }), __tmT("calendar.writingCalendarIcsFile")));
         return true;
     }
 
@@ -41492,11 +41495,11 @@
     function normalizeCalendarSubscriptionWebdavUrl(value) {
         let url = null;
         try { url = new URL(String(value || '').trim()); } catch (e) {
-            throw new Error('WebDAV 目录地址无效');
+            throw new Error(__tmT("calendar.invalidWebdavDirectoryUrl"));
         }
-        if (url.username || url.password) throw new Error('WebDAV 地址中不能包含账号或密码');
+        if (url.username || url.password) throw new Error(__tmT("calendar.theWebdavUrlMustNotContainAUsernameOr"));
         if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isPrivateCalendarSubscriptionHost(url.hostname))) {
-            throw new Error('WebDAV 公网地址必须使用 HTTPS');
+            throw new Error(__tmT("calendar.publicWebdavUrlsMustUseHttps"));
         }
         // Keep already-saved file URLs working while new configurations use a directory URL.
         if (!/\.ics$/i.test(url.pathname)) {
@@ -41542,12 +41545,12 @@
         const status = Number(response?.status);
         let hint = '';
         if (status === 401 || status === 403) {
-            hint = '（请检查用户名、访问权限和坚果云第三方应用密码）';
+            hint = __tmT("calendar.checkTheUsernameAccessPermissionsAndTheNutstoreApp");
         } else if (status === 404) {
-            hint = '（目录或文件路径不存在，或当前账号无权访问）';
+            hint = __tmT("calendar.theDirectoryOrFilePathDoesNotExistOr");
         }
         const detail = getCalendarSubscriptionWebdavResponseDetail(response);
-        return new Error(`${context}：HTTP ${Number.isFinite(status) ? status : '未知'}${hint}${detail ? `；${detail}` : ''}`);
+        return new Error(`${context}：HTTP ${Number.isFinite(status) ? status : __tmT("calendar.unknown")}${hint}${detail ? `；${detail}` : ''}`);
     }
 
     async function forwardCalendarSubscriptionRequest(url, method, options = {}, run) {
@@ -41565,7 +41568,7 @@
             payloadEncoding: String(options.payloadEncoding || 'text'),
             payload: String(options.payload ?? ''),
             responseEncoding: 'text',
-        }, `WebDAV/ICS ${String(method || 'GET').toUpperCase()} 请求`, run, String(method).toUpperCase() === 'PUT');
+        }, __tmT("calendar.webdavIcsRequest", { value1: String(method || 'GET').toUpperCase() }), run, String(method).toUpperCase() === 'PUT');
         const status = Number(data?.status);
         return { status, body: String(data?.body ?? ''), headers: data?.headers || null };
     }
@@ -41573,7 +41576,7 @@
     async function createCalendarSubscriptionWebdavDirectory(url, authorization, run) {
         const response = await forwardCalendarSubscriptionRequest(url, 'MKCOL', { authorization }, run);
         if ((response.status >= 200 && response.status < 300) || response.status === 405) return true;
-        throw createCalendarSubscriptionWebdavHttpError('创建 WebDAV 目录失败', response);
+        throw createCalendarSubscriptionWebdavHttpError(__tmT("calendar.failedToCreateTheWebdavDirectory"), response);
     }
 
     async function ensureCalendarSubscriptionWebdavDirectory(url, authorization, run) {
@@ -41586,7 +41589,7 @@
         if (response.status >= 200 && response.status < 300) return true;
         if (response.status === 404) return await createCalendarSubscriptionWebdavDirectory(url, authorization, run);
         if (response.status === 405 || response.status === 501) return false;
-        throw createCalendarSubscriptionWebdavHttpError('检查 WebDAV 目录失败', response);
+        throw createCalendarSubscriptionWebdavHttpError(__tmT("calendar.failedToCheckTheWebdavDirectory"), response);
     }
 
     function appendCalendarSubscriptionCacheBuster(value, hash) {
@@ -41609,17 +41612,17 @@
                     { authorization },
                     run
                 );
-                if (response.status < 200 || response.status >= 300) throw new Error(`远端回读失败：HTTP ${response.status}`);
-                const remoteHash = await run.wait('校验远端 ICS', () => core.hashText(response.body));
-                if (remoteHash !== expectedFileHash) throw new Error('远端文件校验失败，可能仍是旧缓存');
+                if (response.status < 200 || response.status >= 300) throw new Error(__tmT("calendar.remoteReadBackFailedHttp", { status: response.status }));
+                const remoteHash = await run.wait(__tmT("calendar.verifyingRemoteIcs"), () => core.hashText(response.body));
+                if (remoteHash !== expectedFileHash) throw new Error(__tmT("calendar.remoteFileVerificationFailedItMayStillBeAn"));
                 return true;
             } catch (error) {
                 run.check();
                 lastError = error;
-                if (attempt < 2) await run.wait('等待远端回读重试', () => delay(400 * (attempt + 1)));
+                if (attempt < 2) await run.wait(__tmT("calendar.waitingToRetryRemoteReadBack"), () => delay(400 * (attempt + 1)));
             }
         }
-        throw lastError || new Error('远端文件校验失败');
+        throw lastError || new Error(__tmT("calendar.remoteFileVerificationFailed"));
     }
 
     async function uploadCalendarSubscriptionWebdav(target, icsText, fileHash, run) {
@@ -41642,7 +41645,7 @@
             await createCalendarSubscriptionWebdavDirectory(parent.toString(), authorization, run);
             response = await forwardCalendarSubscriptionRequest(requestUrl, 'PUT', requestOptions, run);
         }
-        if (response.status < 200 || response.status >= 300) throw createCalendarSubscriptionWebdavHttpError('WebDAV 上传失败', response);
+        if (response.status < 200 || response.status >= 300) throw createCalendarSubscriptionWebdavHttpError(__tmT("calendar.webdavUploadFailed"), response);
         await verifyCalendarSubscriptionRemote(requestUrl, fileHash, authorization, { cacheBust: false }, run);
     }
 
@@ -41660,15 +41663,15 @@
     async function getCalendarSubscriptionCloudUser(run) {
         let user = normalizeCloudUserData(globalThis.siyuan?.user);
         try {
-            const current = normalizeCloudUserData(await callKernelJson('/api/setting/getCloudUser', {}, '读取链滴账号', run));
+            const current = normalizeCloudUserData(await callKernelJson('/api/setting/getCloudUser', {}, __tmT("calendar.readingLiandiAccount"), run));
             if (String(current?.userId || '').trim()) user = { ...user, ...current };
         } catch (error) {
             run.check();
             if (!String(user?.userId || '').trim()) throw error;
         }
         const userId = String(user?.userId || '').trim();
-        if (!userId) throw new Error('链滴上传需要先登录思源账号');
-        if (!isCalendarSubscriptionCloudSubscriber(user)) throw new Error('链滴上传需要有效的思源订阅资格');
+        if (!userId) throw new Error(__tmT("calendar.liandiUploadRequiresSigningInToASiyuanAccount"));
+        if (!isCalendarSubscriptionCloudSubscriber(user)) throw new Error(__tmT("calendar.liandiUploadRequiresAnActiveSiyuanSubscription"));
         return { userId, raw: user };
     }
 
@@ -41679,13 +41682,13 @@
         await callKernelJson('/api/asset/uploadCloudByAssetsPaths', {
             paths: [`assets/${target.fileName}`],
             ignorePushMsg: true,
-        }, '链滴上传', run, true);
+        }, __tmT("calendar.liandiUpload"), run, true);
         await verifyCalendarSubscriptionRemote(target.url, fileHash, '', { cacheBust: true }, run);
     }
 
     async function resolveCalendarSubscriptionTarget(settings, run) {
         if (settings.icsProvider === 'chain') {
-            if (settings.icsChainPublicConfirmed !== true) throw new Error('请先确认链滴订阅 URL 的公开可访问性');
+            if (settings.icsChainPublicConfirmed !== true) throw new Error(__tmT("calendar.firstConfirmThatTheLiandiSubscriptionUrlIsPublicly"));
             const fileName = await ensureCalendarSubscriptionChainFileName(run);
             const cloudUser = await getCalendarSubscriptionCloudUser(run);
             const url = `https://assets.b3logfile.com/siyuan/${encodeURIComponent(cloudUser.userId)}/assets/${encodeURIComponent(fileName)}`;
@@ -41712,25 +41715,25 @@
 
     async function executeCalendarSubscriptionPublication(options, capturedSeq, capturedToken, run) {
         if (state.settingsStore?.loadingPromise) {
-            await run.wait('等待上传设置加载', () => state.settingsStore.loadingPromise);
+            await run.wait(__tmT("calendar.waitingForUploadSettingsToLoad"), () => state.settingsStore.loadingPromise);
         }
         if (state.settingsStore?.saveDirty || state.settingsStore?.saving) {
-            await run.wait('保存上传设置', () => typeof state.settingsStore.saveNow === 'function'
+            await run.wait(__tmT("calendar.savingUploadSettings"), () => typeof state.settingsStore.saveNow === 'function'
                 ? state.settingsStore.saveNow()
                 : flushCalendarSubscriptionSettingsStore(state.settingsStore));
         }
         await refreshCalendarSubscriptionSharedSettings(run);
         const settings = getSettings();
         if (!settings.icsEnabled) {
-            throw new CalendarSubscriptionStaleError('日历 ICS 上传已关闭');
+            throw new CalendarSubscriptionStaleError(__tmT("calendar.calendarIcsUploadIsOff"));
         }
         const core = globalThis.__tmCalendarSubscriptionCore;
-        if (!core || typeof core.serializeCalendar !== 'function') throw new Error('日历 ICS 核心未加载');
+        if (!core || typeof core.serializeCalendar !== 'function') throw new Error(__tmT("calendar.calendarIcsCoreIsNotLoaded"));
         const built = await buildCalendarSubscriptionEvents(options, run);
         assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded, run);
         const target = await resolveCalendarSubscriptionTarget(settings, run);
         assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded, run);
-        const semanticHash = await run.wait('比较日历内容', () => core.hashText(core.stableStringify({
+        const semanticHash = await run.wait(__tmT("calendar.comparingCalendarContent"), () => core.hashText(core.stableStringify({
             calendarName: settings.icsCalendarName,
             sourceMode: built.sourceMode,
             events: built.events,
@@ -41748,8 +41751,8 @@
             generatedAt: Date.now(),
         });
         const byteLength = core.utf8ByteLength(icsText);
-        if (byteLength > CALENDAR_SUBSCRIPTION_FILE_LIMIT) throw new Error('ICS 文件超过 9 MiB 上限');
-        const fileHash = await run.wait('生成日历文件', () => core.hashText(icsText));
+        if (byteLength > CALENDAR_SUBSCRIPTION_FILE_LIMIT) throw new Error(__tmT("calendar.icsFileExceedsTheMibLimit"));
+        const fileHash = await run.wait(__tmT("calendar.generatingCalendarFile"), () => core.hashText(icsText));
         assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded, run);
         if (target.provider === 'chain') await uploadCalendarSubscriptionChain(target, icsText, fileHash, run);
         else await uploadCalendarSubscriptionWebdav(target, icsText, fileHash, run);
@@ -41803,8 +41806,8 @@
                     lastResult = await executeCalendarSubscriptionPublication(nextRequest, capturedSeq, capturedToken, run);
                     if (nextRequest.interactive) {
                         toast(lastResult.skipped
-                            ? `日历 ICS 内容无变化，共 ${lastResult.eventCount} 个事件`
-                            : `日历 ICS 已上传，共 ${lastResult.eventCount} 个事件`, 'success');
+                            ? __tmT("calendar.calendarIcsUnchangedEvents", { eventCount: lastResult.eventCount })
+                            : __tmT("calendar.calendarIcsUploadedEvents", { eventCount: lastResult.eventCount }), 'success');
                     }
                 } catch (error) {
                     error = run.error || error;
@@ -41817,10 +41820,10 @@
                     } else if (error?.code === 'TM_ICS_CANCELLED') {
                         return { ok: false, cancelled: true };
                     } else {
-                        const detail = String(error?.message || error || '日历 ICS 上传失败');
+                        const detail = String(error?.message || error || __tmT("calendar.calendarIcsUploadFailed2"));
                         const message = error?.code === 'TM_ICS_TIMEOUT' ? detail : `${run.phase}：${detail}`;
                         saveCalendarSubscriptionRuntimeStatus({ lastError: message });
-                        if (nextRequest.interactive) toast(`日历 ICS 上传失败：${message}`, 'error');
+                        if (nextRequest.interactive) toast(__tmT("calendar.calendarIcsUploadFailed3", { message: message }), 'error');
                         lastResult = { ok: false, error: message };
                         // 上传超时可能仍在内核执行，不立即重传，也不继续消费旧队列。
                         if (error?.code === 'TM_ICS_TIMEOUT' || error?.code === 'TM_ICS_REMOTE_UNCONFIRMED') break;
@@ -41831,7 +41834,7 @@
                     || (pending.automatic && !calendarSubscriptionPublisher.bound)) break;
                 if (attempt + 1 === CALENDAR_SUBSCRIPTION_MAX_ATTEMPTS) {
                     deferAutomatic = calendarSubscriptionPublisher.bound;
-                    if (pending.interactive) toast('日历数据持续变化，本次更新已暂停，请稍后重试', 'warning');
+                    if (pending.interactive) toast(__tmT("calendar.calendarDataKeepsChangingThisUpdateWasPausedRetry"), 'warning');
                     break;
                 }
                 nextRequest = pending;
@@ -42090,12 +42093,12 @@
             }
             const searchableDocs = Array.from(docsById.values());
             if (typeof globalThis.__tmOpenDocSearchPrompt !== 'function') {
-                toast('文档搜索组件尚未加载，请刷新后重试', 'warning');
+                toast(__tmT("calendar.theDocumentSearchComponentIsNotLoadedYetRefresh"), 'warning');
                 return false;
             }
-            const selectedId = await globalThis.__tmOpenDocSearchPrompt('选择固定任务文档', searchableDocs, {
-                placeholder: '搜索文档名、别名、路径或 ID',
-                emptyText: '没有匹配的文档',
+            const selectedId = await globalThis.__tmOpenDocSearchPrompt(__tmT("calendar.chooseAFixedTaskDocument"), searchableDocs, {
+                placeholder: __tmT("calendar.searchDocumentNameAliasPathOrId"),
+                emptyText: __tmT("calendar.noMatchingDocuments"),
                 limit: 80,
             });
             const nextId = String(selectedId || '').trim();
@@ -42113,7 +42116,7 @@
             try { renderSettings(containerEl, store); } catch (e) {}
             return true;
         } catch (e) {
-            toast(`搜索文档失败：${String(e?.message || e || '未知错误')}`, 'error');
+            toast(__tmT("calendar.failedToSearchDocuments", { value1: String(e?.message || e || __tmT("plugin.unknownError")) }), 'error');
             return false;
         } finally {
             if (buttonEl instanceof HTMLButtonElement && buttonEl.isConnected) buttonEl.disabled = false;
@@ -42142,11 +42145,11 @@
         overlay.className = 'tm-calendar-holiday-editor';
         overlay.setAttribute('role', 'dialog');
         overlay.setAttribute('aria-modal', 'true');
-        overlay.setAttribute('aria-label', '管理个人节假日');
+        overlay.setAttribute('aria-label', __tmT("calendar.managePersonalHolidays"));
         const close = (force = false) => {
             if (!force && saving) return false;
             const dirty = JSON.stringify(Object.entries(draft).sort()) !== JSON.stringify(Object.entries(initial).sort());
-            if (!force && dirty && !window.confirm('有未保存的个人节假日修改，确定关闭吗？')) return false;
+            if (!force && dirty && !window.confirm(__tmT("calendar.thereAreUnsavedPersonalHolidayChangesCloseAnyway"))) return false;
             window.removeEventListener('keydown', onKeydown, true);
             try { overlay.remove(); } catch (e) {}
             return true;
@@ -42167,29 +42170,29 @@
             overlay.innerHTML = `
                 <div class="tm-calendar-holiday-editor__panel" ${recordsOpen ? 'inert aria-hidden="true"' : ''}>
                     <div class="tm-calendar-holiday-editor__header">
-                        <div><strong>管理个人节假日</strong><div class="tm-calendar-holiday-editor__sub">${year} 年已修改 ${countCalendarCustomHolidayOverrides(year, draft)} 天</div></div>
-                        <button type="button" class="tm-calendar-holiday-editor__close" data-tm-holiday-editor-action="close" aria-label="关闭">×</button>
+                        <div><strong>${__tmT("calendar.managePersonalHolidays")}</strong><div class="tm-calendar-holiday-editor__sub">${__tmT("calendar.daysModifiedIn", { year: year, value2: countCalendarCustomHolidayOverrides(year, draft) })}</div></div>
+                        <button type="button" class="tm-calendar-holiday-editor__close" data-tm-holiday-editor-action="close" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}">×</button>
                     </div>
                     <div class="tm-calendar-holiday-editor__toolbar">
-                        <button type="button" data-tm-holiday-editor-action="prev-year" aria-label="上一年" title="上一年">${buildCalendarChromeIcon('chevron-left', 18)}</button>
-                        <button type="button" data-tm-holiday-editor-action="prev-month" aria-label="上个月" title="上个月">${buildCalendarChromeIcon('chevron-left', 18)}</button>
-                        <span class="tm-calendar-holiday-editor__month">${year} 年 ${month + 1} 月</span>
-                        <button type="button" data-tm-holiday-editor-action="next-month" aria-label="下个月" title="下个月">${buildCalendarChromeIcon('chevron-right', 18)}</button>
-                        <button type="button" data-tm-holiday-editor-action="next-year" aria-label="下一年" title="下一年">${buildCalendarChromeIcon('chevron-right', 18)}</button>
+                        <button type="button" data-tm-holiday-editor-action="prev-year" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousYear")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousYear")}">${buildCalendarChromeIcon('chevron-left', 18)}</button>
+                        <button type="button" data-tm-holiday-editor-action="prev-month" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousMonth")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.previousMonth")}">${buildCalendarChromeIcon('chevron-left', 18)}</button>
+                        <span class="tm-calendar-holiday-editor__month">${__tmT("date.yearMonthSpaced", { year: year, value2: month + 1 })}</span>
+                        <button type="button" data-tm-holiday-editor-action="next-month" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextMonth2")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextMonth2")}">${buildCalendarChromeIcon('chevron-right', 18)}</button>
+                        <button type="button" data-tm-holiday-editor-action="next-year" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextYear")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.nextYear")}">${buildCalendarChromeIcon('chevron-right', 18)}</button>
                     </div>
-                    <div class="tm-calendar-holiday-editor__mode" role="group" aria-label="设置类型">
-                        <button type="button" class="${mode === 'rest' ? 'is-active' : ''}" data-tm-holiday-editor-mode="rest">休</button>
-                        <button type="button" class="${mode === 'work' ? 'is-active' : ''}" data-tm-holiday-editor-mode="work">班</button>
-                        <input type="text" maxlength="80" data-tm-holiday-editor-name value="${esc(name)}" placeholder="节假日名称（可选）" aria-label="节假日名称">
+                    <div class="tm-calendar-holiday-editor__mode" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.settingstype")}">
+                        <button type="button" class="${mode === 'rest' ? 'is-active' : ''}" data-tm-holiday-editor-mode="rest">${__tmT("calendar.rest")}</button>
+                        <button type="button" class="${mode === 'work' ? 'is-active' : ''}" data-tm-holiday-editor-mode="work">${__tmT("calendar.work")}</button>
+                        <input type="text" maxlength="80" data-tm-holiday-editor-name value="${esc(name)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.holidayNameOptional")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.holidayName")}">
                     </div>
-                    <div class="tm-calendar-holiday-editor__legend"><span>官方状态</span><span class="is-custom">个人覆盖</span></div>
-                    <div class="tm-calendar-holiday-editor__weekdays">${['一', '二', '三', '四', '五', '六', '日'].map((item) => `<span>${item}</span>`).join('')}</div>
+                    <div class="tm-calendar-holiday-editor__legend"><span>${__tmT("calendar.officialStatus")}</span><span class="is-custom">${__tmT("calendar.personalOverride")}</span></div>
+                    <div class="tm-calendar-holiday-editor__weekdays">${[1, 2, 3, 4, 5, 6, 0].map(day => __tmT('date.weekday.short.' + day)).map((item) => `<span>${item}</span>`).join('')}</div>
                     <div class="tm-calendar-holiday-editor__grid">
                         ${days.map(({ date, key, current }) => {
                             const officialValue = official.get(key);
                             const custom = draft[key];
-                            const officialText = officialValue ? `官${Number(officialValue.type) === 4 ? '班' : '休'}` : '';
-                            const customText = custom ? `个${custom.type === 'work' ? '班' : '休'}` : '';
+                            const officialText = officialValue ? __tmT("calendar.official", { value1: Number(officialValue.type) === 4 ? __tmT("calendar.work") : __tmT("calendar.rest") }) : '';
+                            const customText = custom ? __tmT("calendar.custom", { value1: custom.type === 'work' ? __tmT("calendar.work") : __tmT("calendar.rest") }) : '';
                             const stateText = [officialText, customText].filter(Boolean).join(' · ');
                             const classes = [
                                 'tm-calendar-holiday-editor__day',
@@ -42199,23 +42202,23 @@
                                 custom ? 'has-custom' : '',
                                 custom?.type === 'work' ? 'is-work' : '',
                             ].filter(Boolean).join(' ');
-                            const officialTitle = officialValue ? `官方：${String(officialValue?.name || '').trim() || (Number(officialValue?.type) === 4 ? '调休工作日' : '休息日')}（${Number(officialValue?.type) === 4 ? '班' : '休'}）` : '官方：普通日期';
-                            const customTitle = custom ? `；个人：${custom.name || getCalendarCustomHolidayFallbackName(custom.type)}（${custom.type === 'work' ? '班' : '休'}）` : '';
+                            const officialTitle = officialValue ? __tmT("calendar.official2", { value1: String(officialValue?.name || '').trim() || (Number(officialValue?.type) === 4 ? __tmT("calendar.makeUpWorkday") : __tmT("calendar.restDay")), value2: Number(officialValue?.type) === 4 ? __tmT("calendar.work") : __tmT("calendar.rest") }) : __tmT("calendar.officialRegularDay");
+                            const customTitle = custom ? __tmT("calendar.personal", { value1: custom.name || getCalendarCustomHolidayFallbackName(custom.type), value2: custom.type === 'work' ? __tmT("calendar.work") : __tmT("calendar.rest") }) : '';
                             return `<button type="button" class="${classes}" data-tm-holiday-editor-date="${key}" title="${esc(officialTitle + customTitle)}" ${current ? '' : 'disabled'}><span>${date.getDate()}</span><small>${esc(stateText)}</small></button>`;
                         }).join('')}
                     </div>
-                    <div class="tm-calendar-holiday-editor__footer"><button type="button" class="tm-btn tm-btn-secondary tm-calendar-holiday-editor__records-button" data-tm-holiday-editor-action="records" aria-haspopup="dialog" ${saving ? 'disabled' : ''}>已修改记录（${modified.length}）</button><button type="button" class="tm-btn tm-btn-secondary" data-tm-holiday-editor-action="close">取消</button><button type="button" class="tm-btn" data-tm-holiday-editor-action="save" ${saving ? 'disabled' : ''}>${saving ? '保存中…' : '保存'}</button></div>
+                    <div class="tm-calendar-holiday-editor__footer"><button type="button" class="tm-btn tm-btn-secondary tm-calendar-holiday-editor__records-button" data-tm-holiday-editor-action="records" aria-haspopup="dialog" ${saving ? 'disabled' : ''}>${__tmT("calendar.modifiedRecords2", { length: modified.length })}</button><button type="button" class="tm-btn tm-btn-secondary" data-tm-holiday-editor-action="close">${__tmT("common.cancel")}</button><button type="button" class="tm-btn" data-tm-holiday-editor-action="save" ${saving ? 'disabled' : ''}>${saving ? __tmT("calendar.saving") : __tmT("common.save")}</button></div>
                 </div>
-                ${recordsOpen ? `<div class="tm-calendar-holiday-editor tm-calendar-holiday-editor--records" role="dialog" aria-modal="true" aria-label="已修改记录">
+                ${recordsOpen ? `<div class="tm-calendar-holiday-editor tm-calendar-holiday-editor--records" role="dialog" aria-modal="true" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.modifiedRecords")}">
                     <div class="tm-calendar-holiday-editor__panel">
                         <div class="tm-calendar-holiday-editor__header">
-                            <div><strong>已修改记录</strong><div class="tm-calendar-holiday-editor__sub">共 ${modified.length} 天，恢复官方后请在管理页保存。</div></div>
-                            <button type="button" class="tm-calendar-holiday-editor__close" data-tm-holiday-editor-action="close-records" aria-label="关闭记录">×</button>
+                            <div><strong>${__tmT("calendar.modifiedRecords")}</strong><div class="tm-calendar-holiday-editor__sub">${__tmT("calendar.daysInTotalSaveOnTheManagementPageAfter", { length: modified.length })}</div></div>
+                            <button type="button" class="tm-calendar-holiday-editor__close" data-tm-holiday-editor-action="close-records" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.closeRecords")}">×</button>
                         </div>
                         <div class="tm-calendar-holiday-editor__modified">
-                            ${modified.length ? modified.map(([date, value]) => `<div class="tm-calendar-holiday-editor__modified-row"><span>${date} · ${esc(value.name || getCalendarCustomHolidayFallbackName(value.type))}（${value.type === 'work' ? '班' : '休'}）</span><button type="button" data-tm-holiday-editor-restore="${date}">恢复官方</button></div>`).join('') : '<div class="tm-calendar-holiday-editor__empty">暂无个人覆盖</div>'}
+                            ${modified.length ? modified.map(([date, value]) => `<div class="tm-calendar-holiday-editor__modified-row"><span>${date} · ${esc(value.name || getCalendarCustomHolidayFallbackName(value.type))}（${value.type === 'work' ? __tmT("calendar.work") : __tmT("calendar.rest")}）</span><button type="button" data-tm-holiday-editor-restore="${date}">${__tmT("calendar.restoreOfficial")}</button></div>`).join('') : `<div class="tm-calendar-holiday-editor__empty">${__tmT("calendar.noPersonalOverrides")}</div>`}
                         </div>
-                        <div class="tm-calendar-holiday-editor__footer"><button type="button" class="tm-btn tm-btn-secondary" data-tm-holiday-editor-action="close-records">返回管理</button></div>
+                        <div class="tm-calendar-holiday-editor__footer"><button type="button" class="tm-btn tm-btn-secondary" data-tm-holiday-editor-action="close-records">${__tmT("calendar.backToManagement")}</button></div>
                     </div>
                 </div>` : ''}`;
             if (recordsOpen) overlay.querySelector('[data-tm-holiday-editor-action="close-records"]')?.focus();
@@ -42271,7 +42274,7 @@
                     else if (typeof store.save === 'function') await store.save();
                     const savedSettings = JSON.parse(String(await getFileTextRetry(CALENDAR_SUBSCRIPTION_SETTINGS_FILE, 1) || '{}'));
                     if (getCalendarCustomHolidaySignature(savedSettings?.calendarCustomHolidayOverrides) !== getCalendarCustomHolidaySignature(draft)) {
-                        throw new Error('设置文件回读校验未通过');
+                        throw new Error(__tmT("calendar.settingsFileReadBackVerificationFailed"));
                     }
                     state.cnHolidayMap = new Map(); state.cnHolidaySignature = '';
                     try { scheduleCalendarRefresh({ reason: 'custom-holiday-updated', main: true, side: true, hard: true }); } catch (e) {}
@@ -42282,7 +42285,7 @@
                     store.data.calendarCustomHolidayOverrides = previousOverrides;
                     try { store.syncToLocal?.(); } catch (e) {}
                     saving = false; render();
-                    toast(`个人节假日保存失败：${String(error?.message || error || '未知错误')}`, 'error');
+                    toast(__tmT("calendar.failedToSavePersonalHolidays", { value1: String(error?.message || error || __tmT("plugin.unknownError")) }), 'error');
                 }
             }
         });
@@ -42322,71 +42325,53 @@
         const showJianguoyunSubscriptionHint = isJianguoyunCalendarSubscriptionUrl(s.icsWebdavUrl);
         const icsProviderRows = s.icsProvider === 'chain' ? `
                 <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
-                    <div class="tm-calendar-settings-label">
-                        链滴公开订阅
-                        <div class="tm-calendar-settings-label-desc">需要登录思源账号并具有有效订阅。任务标题和时间会通过公开 URL 提供，上传后会回读校验文件。</div>
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.liandiPublicSubscription")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.requiresSigningInToASiyuanAccountWithAn")}</div>
                     </div>
-                    <div class="tm-calendar-ics-inline-status">${s.icsChainPublicConfirmed ? '已确认公开发布' : '启用时需要确认'}</div>
+                    <div class="tm-calendar-ics-inline-status">${s.icsChainPublicConfirmed ? __tmT("calendar.publicPublishingConfirmed") : __tmT("calendar.confirmationRequiredWhenEnabling")}</div>
                 </div>
         ` : `
                 <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
-                    <div class="tm-calendar-settings-label">
-                        WebDAV 目录 URL
-                        <div class="tm-calendar-settings-label-desc">支持坚果云、NAS 等 WebDAV 服务，请填写用于存放固定文件 task-horizon.ics 的目录地址。</div>
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.webdavDirectoryUrl")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.supportsNutstoreNasAndOtherWebdavServicesEnterThe")}</div>
                     </div>
-                    <input id="tm-calendar-ics-webdav-url" class="tm-calendar-settings-input" type="url" aria-label="WebDAV 目录 URL" data-tm-cal-setting="calendarIcsWebdavUrl" value="${esc(s.icsWebdavUrl)}" placeholder="https://dav.jianguoyun.com/dav/task-ics/">
+                    <input id="tm-calendar-ics-webdav-url" class="tm-calendar-settings-input" type="url" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.webdavDirectoryUrl2")}" data-tm-cal-setting="calendarIcsWebdavUrl" value="${esc(s.icsWebdavUrl)}" placeholder="https://dav.jianguoyun.com/dav/task-ics/">
                 </div>
                 <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">
-                        WebDAV 用户名
-                        <div class="tm-calendar-settings-label-desc">用于访问 WebDAV 目录，会随日历设置同步。</div>
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.webdavUsername")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.usedToAccessTheWebdavDirectorySyncsWithThe")}</div>
                     </div>
-                    <input id="tm-calendar-ics-webdav-user" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="text" aria-label="WebDAV 用户名" autocomplete="username" data-tm-cal-setting="calendarIcsWebdavUsername" value="${esc(s.icsWebdavUsername)}">
+                    <input id="tm-calendar-ics-webdav-user" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="text" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.webdavUsername2")}" autocomplete="username" data-tm-cal-setting="calendarIcsWebdavUsername" value="${esc(s.icsWebdavUsername)}">
                 </div>
                 <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">
-                        WebDAV 密码
-                        <div class="tm-calendar-settings-label-desc">随插件设置保存并同步到其他设备，不包含在手动导出的设置包中。</div>
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.webdavPassword")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.savedWithThePluginSettingsAndSyncedToOther")}</div>
                     </div>
-                    <input id="tm-calendar-ics-webdav-password" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="password" aria-label="WebDAV 密码" autocomplete="current-password" data-tm-cal-setting="calendarIcsWebdavPassword" value="${esc(s.icsWebdavPassword)}">
+                    <input id="tm-calendar-ics-webdav-password" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="password" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.webdavPassword2")}" autocomplete="current-password" data-tm-cal-setting="calendarIcsWebdavPassword" value="${esc(s.icsWebdavPassword)}">
                 </div>
                 ${showJianguoyunSubscriptionHint ? `<div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
-                    <div class="tm-calendar-settings-label">
-                        坚果云订阅
-                        <div class="tm-calendar-settings-label-desc">此处 WebDAV 地址只用于上传。上传成功后，请在坚果云中为 task-horizon.ics 获取外部分享链接，并使用该链接在日历应用中订阅。</div>
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.nutstoreSubscription")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.thisWebdavAddressIsUsedOnlyForUploadingAfter")}</div>
                     </div>
                 </div>` : ''}
         `;
         const tomatoRows = s.linkDockTomato ? `
                 <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">
-                        番茄记录颜色
-                        <div class="tm-calendar-settings-label-desc">按计时类型、任务所属文档分组或关联文档上色；无法确定所属文档时使用计时类型颜色。</div>
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.pomodoroRecordColors")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.colorsByTimerTypeTheTaskSDocumentGroup")}</div>
                     </div>
-                    <select class="tm-calendar-settings-select" aria-label="番茄记录颜色" data-tm-cal-setting="calendarTomatoColorMode">
-                        <option value="type" ${s.tomatoColorMode === 'type' ? 'selected' : ''}>按计时类型</option>
-                        <option value="group" ${s.tomatoColorMode === 'group' ? 'selected' : ''}>按文档分组</option>
-                        <option value="document" ${s.tomatoColorMode === 'document' ? 'selected' : ''}>按关联文档</option>
+                    <select class="tm-calendar-settings-select" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.pomodoroRecordColors2")}" data-tm-cal-setting="calendarTomatoColorMode">
+                        <option value="type" ${s.tomatoColorMode === 'type' ? 'selected' : ''}>${__tmT("calendar.byTimerType")}</option>
+                        <option value="group" ${s.tomatoColorMode === 'group' ? 'selected' : ''}>${__tmT("calendar.groupByDocument")}</option>
+                        <option value="document" ${s.tomatoColorMode === 'document' ? 'selected' : ''}>${__tmT("calendar.byLinkedDocument")}</option>
                     </select>
                 </div>
                 <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">
-                        月视图隐藏番茄钟
-                        <div class="tm-calendar-settings-label-desc">月视图不展开专注、休息与闲置记录，其他视图不受影响。</div>
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.hidePomodoroRecordsInMonthView")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.theMonthViewDoesNotExpandFocusBreakAnd")}</div>
                     </div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarMonthAggregate" ${s.monthAggregate ? 'checked' : ''}>
                 </div>
                 <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">
-                        显示休息记录
-                        <div class="tm-calendar-settings-label-desc">在日历中显示底栏番茄钟记录的休息时段。</div>
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.showBreakRecords")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showBreakPeriodsFromBottomBarPomodoroRecordsIn")}</div>
                     </div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowBreak" ${s.showBreak ? 'checked' : ''}>
                 </div>
                 <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">
-                        显示闲置记录
-                        <div class="tm-calendar-settings-label-desc">在日历中显示底栏番茄钟记录的闲置时段。</div>
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.showIdleRecords")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showIdlePeriodsFromBottomBarPomodoroRecordsIn")}</div>
                     </div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowIdle" ${s.showIdle ? 'checked' : ''}>
                 </div>
@@ -42408,478 +42393,376 @@
             : '';
         containerEl.innerHTML = `
             <div class="tm-calendar-settings">
-                <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-general" data-tm-settings-search-key="${encodeURIComponent('calendar||日历')}" data-tm-settings-search-tab="calendar" data-tm-settings-search-title="日历" data-tm-settings-search-desc="日历视图与日程相关设置">
-                    <div class="tm-settings-section-title">🗓️ 基础视图</div>
-                    <div class="tm-settings-section-desc">控制日历入口，以及桌面端、移动端和 Dock 首次进入时的默认视图。</div>
+                <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-general" data-tm-settings-search-key="${encodeURIComponent(__tmT("calendar.calendar2"))}" data-tm-settings-search-tab="calendar" data-tm-settings-search-title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.calendar")}" data-tm-settings-search-desc="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.calendarViewsAndScheduleSettings")}">
+                    <div class="tm-settings-section-title">${__tmT("calendar.basicViews")}</div>
+                    <div class="tm-settings-section-desc">${__tmT("calendar.controlsTheCalendarEntryPointAndTheDefaultView")}</div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            启用日历视图
-                            <div class="tm-calendar-settings-label-desc">控制任务管理器是否提供日历视图入口，关闭不会删除已有日程。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.enableCalendarView")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.controlsWhetherTheTaskManagerOffersACalendarView")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarEnabled" ${s.enabled ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            桌面端默认视图
-                            <div class="tm-calendar-settings-label-desc">桌面端首次进入日历时打开的视图。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.defaultDesktopView")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.theViewOpenedWhenFirstEnteringTheCalendarOn")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarInitialViewDesktop">${desktopInitialViewOptions}</select>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            移动端/Dock侧边栏默认视图
-                            <div class="tm-calendar-settings-label-desc">移动端或 Dock 侧边栏首次进入日历时打开的视图。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.defaultViewForMobileDockSidebar")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.theViewOpenedWhenFirstEnteringTheCalendarOn2")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarInitialViewMobile">${mobileInitialViewOptions}</select>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            日历起始日
-                            <div class="tm-calendar-settings-label-desc">决定周视图和迷你日历每周从哪一天开始。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.firstDayOfWeek")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.determinesTheFirstDayOfTheWeekInThe")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarFirstDay">
-                            <option value="1" ${Number(s.firstDay) === 1 ? 'selected' : ''}>周一</option>
-                            <option value="0" ${Number(s.firstDay) === 0 ? 'selected' : ''}>周日</option>
+                            <option value="1" ${Number(s.firstDay) === 1 ? 'selected' : ''}>${__tmT("calendar.monday")}</option>
+                            <option value="0" ${Number(s.firstDay) === 0 ? 'selected' : ''}>${__tmT("calendar.sunday")}</option>
                         </select>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            3日视图今天位置
-                            <div class="tm-calendar-settings-label-desc">控制今天在连续 3 日视图中的列位置。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.todayPositionInDayView")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.controlsWhichColumnHoldsTodayInTheRollingDay")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendar3DayTodayPosition">
-                            <option value="1" ${Number(s.threeDayTodayPosition) === 1 ? 'selected' : ''}>第1日</option>
-                            <option value="2" ${Number(s.threeDayTodayPosition) === 2 ? 'selected' : ''}>第2日</option>
-                            <option value="3" ${Number(s.threeDayTodayPosition) === 3 ? 'selected' : ''}>第3日</option>
+                            <option value="1" ${Number(s.threeDayTodayPosition) === 1 ? 'selected' : ''}>${__tmT("calendar.day3")}</option>
+                            <option value="2" ${Number(s.threeDayTodayPosition) === 2 ? 'selected' : ''}>${__tmT("calendar.day4")}</option>
+                            <option value="3" ${Number(s.threeDayTodayPosition) === 3 ? 'selected' : ''}>${__tmT("calendar.day5")}</option>
                         </select>
                     </div>
                 </section>
 
                 <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-layout">
-                    <div class="tm-settings-section-title">🪟 视图布局</div>
-                    <div class="tm-settings-section-desc">调整侧边栏、可见时间范围，以及时间格和月视图的显示密度。</div>
+                    <div class="tm-settings-section-title">${__tmT("calendar.viewsLayout")}</div>
+                    <div class="tm-settings-section-desc">${__tmT("calendar.adjustTheSidebarVisibleTimeRangeAndTheDisplay")}</div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            默认折叠桌面端日历左侧侧边栏
-                            <div class="tm-calendar-settings-label-desc">桌面端首次进入日历时默认收起左侧侧边栏。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.collapseTheDesktopCalendarSidebarByDefault")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.collapseTheLeftSidebarByDefaultWhenFirstEntering")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarSidebarCollapsedDesktopDefault" ${s.collapseDesktopSidebarDefault ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            侧边栏默认打开区域
-                            <div class="tm-calendar-settings-label-desc">展开侧边栏时优先显示迷你日历或待安排任务。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.defaultSidebarArea")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.whenTheSidebarIsExpandedShowTheMiniCalendar")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarSidebarDefaultPage">
-                            <option value="calendar" ${s.defaultSidebarPage === 'calendar' ? 'selected' : ''}>日历区域</option>
-                            <option value="tasks" ${s.defaultSidebarPage === 'tasks' ? 'selected' : ''}>任务区域</option>
+                            <option value="calendar" ${s.defaultSidebarPage === 'calendar' ? 'selected' : ''}>${__tmT("calendar.calendarArea")}</option>
+                            <option value="tasks" ${s.defaultSidebarPage === 'tasks' ? 'selected' : ''}>${__tmT("calendar.tasksArea")}</option>
                         </select>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            显示起始时间
-                            <div class="tm-calendar-settings-label-desc">设为 06:00 后，日历不显示 00:00-06:00 时段；若结束时间更早，则按跨午夜范围折叠（如 06:00 → 02:00 会隐藏 02:00-06:00）。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.showStartTime")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.hides")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarVisibleStartTime">${visibleStartOptions}</select>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            显示结束时间
-                            <div class="tm-calendar-settings-label-desc">设为 22:00 后，日历不显示 22:00 之后的时段；结束时间早于起始时间时支持跨午夜设置。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.showEndTime")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.whenSetToTheCalendarHidesHoursAfterAn")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarVisibleEndTime">${visibleEndOptions}</select>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            每小时格子高度
-                            <div class="tm-calendar-settings-label-desc">调整日、周和 3 日视图的纵向时间刻度密度。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.hourSlotHeight")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.adjustTheVerticalTimeScaleDensityOfTheDay")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarHourSlotHeightMode">
-                            <option value="normal" ${s.hourSlotHeightMode === 'normal' ? 'selected' : ''}>标准</option>
-                            <option value="high" ${s.hourSlotHeightMode === 'high' ? 'selected' : ''}>高（+10px）</option>
-                            <option value="higher" ${s.hourSlotHeightMode === 'higher' ? 'selected' : ''}>更高（+20px）</option>
-                            <option value="ultra" ${s.hourSlotHeightMode === 'ultra' ? 'selected' : ''}>超高（+30px）</option>
+                            <option value="normal" ${s.hourSlotHeightMode === 'normal' ? 'selected' : ''}>${__tmT("calendar.standard")}</option>
+                            <option value="high" ${s.hourSlotHeightMode === 'high' ? 'selected' : ''}>${__tmT("calendar.highPx")}</option>
+                            <option value="higher" ${s.hourSlotHeightMode === 'higher' ? 'selected' : ''}>${__tmT("calendar.higherPx")}</option>
+                            <option value="ultra" ${s.hourSlotHeightMode === 'ultra' ? 'selected' : ''}>${__tmT("calendar.ultraPx")}</option>
                         </select>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            日程块字号
-                            <div class="tm-calendar-settings-label-desc">调整块状视图中的日程标题，时间文字自动小 1px；范围 10–14px，列表视图不受影响。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.scheduleBlockFontSize")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.adjustsScheduleTitlesInBlockViewsTimeTextIs")}</div>
                         </div>
-                        <input class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="number" min="10" max="14" step="1" inputmode="numeric" aria-label="日程块字号" data-tm-cal-setting="calendarEventFontSize" value="${s.eventFontSize}">
+                        <input class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="number" min="10" max="14" step="1" inputmode="numeric" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.scheduleBlockFontSize2")}" data-tm-cal-setting="calendarEventFontSize" value="${s.eventFontSize}">
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            月视图默认显示日程
-                            <div class="tm-calendar-settings-label-desc">设置每个日期默认直接展示的日程条数，超出部分收纳到 +N；窗口空间变化时仍会自动调整可见容量。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.schedulesShownByDefaultInMonthView")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.setsHowManySchedulesEachDateShowsDirectlyBy")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarMonthMinVisibleEvents">
-                            <option value="1" ${Number(s.monthMinVisibleEvents) === 1 ? 'selected' : ''}>1 条</option>
-                            <option value="2" ${Number(s.monthMinVisibleEvents) === 2 ? 'selected' : ''}>2 条</option>
-                            <option value="3" ${Number(s.monthMinVisibleEvents) === 3 ? 'selected' : ''}>3 条</option>
-                            <option value="4" ${Number(s.monthMinVisibleEvents) === 4 ? 'selected' : ''}>4 条</option>
-                            <option value="5" ${Number(s.monthMinVisibleEvents) === 5 ? 'selected' : ''}>5 条</option>
-                            <option value="6" ${Number(s.monthMinVisibleEvents) === 6 ? 'selected' : ''}>6 条</option>
-                            <option value="7" ${Number(s.monthMinVisibleEvents) === 7 ? 'selected' : ''}>7 条</option>
-                            <option value="8" ${Number(s.monthMinVisibleEvents) === 8 ? 'selected' : ''}>8 条</option>
+                            <option value="1" ${Number(s.monthMinVisibleEvents) === 1 ? 'selected' : ''}>${__tmT("calendar.oneRow")}</option>
+                            <option value="2" ${Number(s.monthMinVisibleEvents) === 2 ? 'selected' : ''}>${__tmT("calendar.twoRows")}</option>
+                            <option value="3" ${Number(s.monthMinVisibleEvents) === 3 ? 'selected' : ''}>${__tmT("calendar.threeRows")}</option>
+                            <option value="4" ${Number(s.monthMinVisibleEvents) === 4 ? 'selected' : ''}>${__tmT("calendar.fourRows")}</option>
+                            <option value="5" ${Number(s.monthMinVisibleEvents) === 5 ? 'selected' : ''}>${__tmT("calendar.fiveRows")}</option>
+                            <option value="6" ${Number(s.monthMinVisibleEvents) === 6 ? 'selected' : ''}>${__tmT("calendar.sixRows")}</option>
+                            <option value="7" ${Number(s.monthMinVisibleEvents) === 7 ? 'selected' : ''}>${__tmT("calendar.sevenRows")}</option>
+                            <option value="8" ${Number(s.monthMinVisibleEvents) === 8 ? 'selected' : ''}>${__tmT("calendar.eightRows")}</option>
                         </select>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            周视图全天显示行数
-                            <div class="tm-calendar-settings-label-desc">设置全天区域最多显示 1–15 行（含 +N 行），默认 5 行；同步用于 3 日、日视图和单日侧边栏，不影响月视图日期格。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.allDayRowsInWeekView")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.setsTheAllDayAreaToShowRowsAt")}</div>
                         </div>
-                        <select class="tm-calendar-settings-select" aria-label="周视图全天显示行数" data-tm-cal-setting="calendarWeekAllDayVisibleRows">
-                            ${Array.from({ length: 15 }, (_, index) => index + 1).map((rows) => `<option value="${rows}" ${Number(s.weekAllDayVisibleRows) === rows ? 'selected' : ''}>${rows} 行</option>`).join('')}
+                        <select class="tm-calendar-settings-select" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.allDayRowsInWeekView2")}" data-tm-cal-setting="calendarWeekAllDayVisibleRows">
+                            ${Array.from({ length: 15 }, (_, index) => index + 1).map((rows) => `<option value="${rows}" ${Number(s.weekAllDayVisibleRows) === rows ? 'selected' : ''}>${__tmT("calendar.rows", { rows: rows })}</option>`).join('')}
                         </select>
                     </div>
                 </section>
 
                 <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-content">
-                    <div class="tm-settings-section-title">📆 日程与显示</div>
-                    <div class="tm-settings-section-desc">控制日程创建、任务日期联动，以及日历中各类内容和颜色的显示。</div>
+                    <div class="tm-settings-section-title">${__tmT("calendar.scheduleDisplay")}</div>
+                    <div class="tm-settings-section-desc">${__tmT("calendar.controlsScheduleCreationTaskDateLinkageAndTheDisplay")}</div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            个人节假日
-                            <div class="tm-calendar-settings-label-desc">${new Date().getFullYear()} 年已设置 ${countCalendarCustomHolidayOverrides(new Date().getFullYear(), s.customHolidayOverrides)} 天，可覆盖官方休息日或添加任意日期。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.personalHolidays")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.daysConfiguredOverrideOfficialRestDaysOrAddAny", { value1: new Date().getFullYear(), value2: countCalendarCustomHolidayOverrides(new Date().getFullYear(), s.customHolidayOverrides) })}</div>
                         </div>
-                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-cal-setting-action="manageCustomHolidays">管理个人节假日</button>
+                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-cal-setting-action="manageCustomHolidays">${__tmT("calendar.managePersonalHolidays")}</button>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            任务日期跟随日程
-                            <div class="tm-calendar-settings-label-desc">关联日程变动后同步任务日期：单日只改截止，多日按最早和最晚时间更新。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.taskDatesFollowSchedules")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.syncsTaskDatesWhenLinkedSchedulesChangeASingle")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleDatesFollowSchedule" ${s.scheduleDatesFollowSchedule ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            新建独立日程时
-                            <div class="tm-calendar-settings-label-desc">可仅创建日程，或自动创建同名任务并绑定到今天日记或固定文档。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.whenCreatingStandaloneSchedules")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.createOnlyAScheduleOrAutomaticallyCreateATask")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarIndependentScheduleTaskCreateMode">
-                            <option value="scheduleOnly" ${independentScheduleTaskCreateMode === 'scheduleOnly' ? 'selected' : ''}>仅创建日程</option>
-                            <option value="dailyNote" ${independentScheduleTaskCreateMode === 'dailyNote' ? 'selected' : ''}>创建任务到今天日记</option>
-                            <option value="doc" ${independentScheduleTaskCreateMode === 'doc' ? 'selected' : ''}>创建任务到固定文档</option>
+                            <option value="scheduleOnly" ${independentScheduleTaskCreateMode === 'scheduleOnly' ? 'selected' : ''}>${__tmT("calendar.createScheduleOnly")}</option>
+                            <option value="dailyNote" ${independentScheduleTaskCreateMode === 'dailyNote' ? 'selected' : ''}>${__tmT("calendar.createTaskInTodaySJournal")}</option>
+                            <option value="doc" ${independentScheduleTaskCreateMode === 'doc' ? 'selected' : ''}>${__tmT("calendar.createTaskInFixedDocument")}</option>
                         </select>
                     </div>
                     ${independentScheduleTaskCreateMode === 'doc' ? `<div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
-                        <div class="tm-calendar-settings-label">
-                            固定任务文档
-                            <div class="tm-calendar-settings-label-desc">搜索并选择文档；不会跟随常规设置中的“上次选择”。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.fixedTaskDocument")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.searchAndSelectADocumentDoesNotFollowThe")}</div>
                         </div>
                         <div class="tm-calendar-ics-url-row" style="flex-wrap:wrap;">
-                            <input class="tm-calendar-settings-input" type="text" readonly aria-label="已选择的固定任务文档" value="${esc(independentScheduleTaskDocLabel)}" placeholder="尚未选择固定任务文档" title="${esc(independentScheduleTaskDocLabel)}" style="flex:1 1 240px;width:auto;">
+                            <input class="tm-calendar-settings-input" type="text" readonly aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.selectedDefaultTaskDocument")}" value="${esc(independentScheduleTaskDocLabel)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.noDefaultTaskDocumentSelected")}" title="${esc(independentScheduleTaskDocLabel)}" style="flex:1 1 240px;width:auto;">
                             <button class="tm-btn tm-btn-secondary" type="button" data-tm-cal-setting-action="pickIndependentScheduleTaskDoc" style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;">
-                                ${independentScheduleTaskSearchIcon}<span>搜索文档</span>
+                                ${independentScheduleTaskSearchIcon}<span>${__tmT("calendar.searchDocuments")}</span>
                             </button>
                         </div>
                     </div>` : ''}
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            联通底栏番茄钟
-                            <div class="tm-calendar-settings-label-desc">读取底栏番茄钟的专注、休息、闲置和任务提醒记录。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.linkBottomBarPomodoro")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.readsFocusBreakIdleAndTaskReminderRecordsFrom")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarLinkDockTomato" ${s.linkDockTomato ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            日程默认最大新建时长
-                            <div class="tm-calendar-settings-label-desc">限制拖入任务或时间格新建日程时的默认最长时长，避免意外跨天。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.defaultMaximumNewScheduleDuration")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.limitsTheDefaultMaximumDurationWhenCreatingASchedule")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarNewScheduleMaxDurationMin">
-                            <option value="60" ${Number(s.newScheduleMaxDurationMin) === 60 ? 'selected' : ''}>1 小时</option>
-                            <option value="120" ${Number(s.newScheduleMaxDurationMin) === 120 ? 'selected' : ''}>2 小时</option>
-                            <option value="180" ${Number(s.newScheduleMaxDurationMin) === 180 ? 'selected' : ''}>3 小时</option>
-                            <option value="240" ${Number(s.newScheduleMaxDurationMin) === 240 ? 'selected' : ''}>4 小时</option>
+                            <option value="60" ${Number(s.newScheduleMaxDurationMin) === 60 ? 'selected' : ''}>${__tmT("calendar.hour")}</option>
+                            <option value="120" ${Number(s.newScheduleMaxDurationMin) === 120 ? 'selected' : ''}>${__tmT("calendar.hours")}</option>
+                            <option value="180" ${Number(s.newScheduleMaxDurationMin) === 180 ? 'selected' : ''}>${__tmT("calendar.hours2")}</option>
+                            <option value="240" ${Number(s.newScheduleMaxDurationMin) === 240 ? 'selected' : ''}>${__tmT("calendar.hours3")}</option>
                         </select>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            文档中块菜单添加至今天日程的默认时间
-                            <div class="tm-calendar-settings-label-desc">决定文档块菜单“添加至今天日程”使用的开始时间。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.defaultTimeForAddToTodaySScheduleIn")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.determinesTheStartTimeUsedByTheAddTo")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarQuickAddScheduleTimeMode">
-                            <option value="current" ${s.quickAddScheduleTimeMode === 'current' ? 'selected' : ''}>当前时间</option>
-                            <option value="nextHour" ${s.quickAddScheduleTimeMode === 'nextHour' ? 'selected' : ''}>下一个整点</option>
-                            <option value="custom" ${s.quickAddScheduleTimeMode === 'custom' ? 'selected' : ''}>自定义时间</option>
+                            <option value="current" ${s.quickAddScheduleTimeMode === 'current' ? 'selected' : ''}>${__tmT("calendar.currentTime2")}</option>
+                            <option value="nextHour" ${s.quickAddScheduleTimeMode === 'nextHour' ? 'selected' : ''}>${__tmT("calendar.nextFullHour")}</option>
+                            <option value="custom" ${s.quickAddScheduleTimeMode === 'custom' ? 'selected' : ''}>${__tmT("kernel.customTime")}</option>
                         </select>
                     </div>
                     <div class="tm-calendar-settings-row" style="${s.quickAddScheduleTimeMode === 'custom' ? '' : 'opacity:0.55;pointer-events:none;'}">
-                        <div class="tm-calendar-settings-label">
-                            自定义添加时间
-                            <div class="tm-calendar-settings-label-desc">仅在上方选择“自定义时间”时生效。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.customAddTime")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.onlyTakesEffectWhenCustomTimeIsSelectedAbove")}</div>
                         </div>
                         <input class="tm-calendar-settings-select" style="height:34px;" type="time" data-tm-cal-setting="calendarQuickAddScheduleCustomTime" value="${esc(String(s.quickAddScheduleCustomTime || '09:00'))}" ${s.quickAddScheduleTimeMode === 'custom' ? '' : 'disabled'}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            显示农历
-                            <div class="tm-calendar-settings-label-desc">在日期标题旁显示农历、节气和传统节日信息。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.showLunarCalendar")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showLunarDatesSolarTermsAndTraditionalFestivalsNext")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowLunar" ${s.showLunar ? 'checked' : ''}>
                     </div>
                     ${tomatoRows}
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            显示任务提醒
-                            <div class="tm-calendar-settings-label-desc">显示底栏番茄钟创建的任务提醒，需先联通底栏番茄钟。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.showTaskReminders")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showTaskRemindersCreatedByTheBottomBarPomodoro")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskReminders" ${s.showTaskReminders ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            显示跨天任务
-                            <div class="tm-calendar-settings-label-desc">将带开始或截止日期的任务显示在日历全天区域。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.showMultiDayTasks")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showTasksWithStartOrDueDatesInThe")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskDates" ${s.showTaskDates ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            显示已完成全天日程
-                            <div class="tm-calendar-settings-label-desc">保留已完成的全天日程，关闭后从全天区域隐藏。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.showCompletedAllDaySchedules")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.keepCompletedAllDaySchedulesWhenOffTheyAre")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowCompletedAllDaySchedules" ${s.showCompletedAllDaySchedules !== false ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            全天区隐藏已安排任务
-                            <div class="tm-calendar-settings-label-desc">日、周等视图中，已安排具体时段的任务不再重复显示在全天区域。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.hideScheduledTasksInTheAllDayArea")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.inDayWeekAndSimilarViewsTasksWithA")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarHideScheduledTaskDatesInAllDay" ${s.hideScheduledTaskDatesInAllDay ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            其他块显示复选框
-                            <div class="tm-calendar-settings-label-desc">在非任务块创建的日程上显示完成复选框。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.showCheckboxesOnOtherBlocks")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showCompletionCheckboxesOnSchedulesCreatedFromNonTask")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowOtherBlockCheckbox" ${s.showOtherBlockCheckbox ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            跨天任务颜色
-                            <div class="tm-calendar-settings-label-desc">设置任务日期事件跟随文档分组颜色，或统一使用灰色。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.multiDayTaskColors")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.makeTaskDateEventsFollowDocumentGroupColorsOr")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarTaskDateColorMode">
-                            <option value="group" ${s.taskDateColorMode === 'group' ? 'selected' : ''}>跟随文档分组</option>
-                            <option value="gray" ${s.taskDateColorMode === 'gray' ? 'selected' : ''}>统一灰色</option>
+                            <option value="group" ${s.taskDateColorMode === 'group' ? 'selected' : ''}>${__tmT("calendar.followDocumentGroup")}</option>
+                            <option value="gray" ${s.taskDateColorMode === 'gray' ? 'selected' : ''}>${__tmT("calendar.uniformGray")}</option>
                         </select>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            日程跟随文档颜色
-                            <div class="tm-calendar-settings-label-desc">已关联文档的日程优先使用该文档在侧边栏中的颜色。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.schedulesFollowDocumentColors")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.schedulesLinkedToADocumentPreferThatDocumentS")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleFollowDocColor" ${s.scheduleFollowDocColor ? 'checked' : ''}>
                     </div>
                 </section>
 
                 <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-reminders">
-                    <div class="tm-settings-section-title">🔔 提醒通知</div>
-                    <div class="tm-settings-section-desc">设置日程的默认提醒提前量、通知渠道，以及全天事项的汇总提醒。</div>
+                    <div class="tm-settings-section-title">${__tmT("calendar.remindersNotifications")}</div>
+                    <div class="tm-settings-section-desc">${__tmT("calendar.configureTheDefaultReminderLeadTimeNotificationChannelsAnd")}</div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            日程提醒
-                            <div class="tm-calendar-settings-label-desc">启用任务管理器的日程通知，关闭后以下提醒方式均不执行。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.scheduleReminder3")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.enableTaskManagerScheduleNotificationsWhenOffNoneOf")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderEnabled" ${s.scheduleReminderEnabled ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                        <div class="tm-calendar-settings-label">
-                            日程默认提醒
-                            <div class="tm-calendar-settings-label-desc">新建日程未单独设置提醒时使用的默认提前量。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.defaultScheduleReminder")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.defaultLeadTimeUsedWhenANewScheduleHas")}</div>
                         </div>
                         <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarScheduleReminderDefaultMode">
-                            <option value="off" ${String(s.scheduleReminderDefaultMode) === 'off' ? 'selected' : ''}>关闭</option>
-                            <option value="0" ${String(s.scheduleReminderDefaultMode) === '0' ? 'selected' : ''}>准时提醒</option>
-                            <option value="5" ${String(s.scheduleReminderDefaultMode) === '5' ? 'selected' : ''}>5 分钟前</option>
-                            <option value="10" ${String(s.scheduleReminderDefaultMode) === '10' ? 'selected' : ''}>10 分钟前</option>
-                            <option value="15" ${String(s.scheduleReminderDefaultMode) === '15' ? 'selected' : ''}>15 分钟前</option>
-                            <option value="30" ${String(s.scheduleReminderDefaultMode) === '30' ? 'selected' : ''}>30 分钟前</option>
-                            <option value="60" ${String(s.scheduleReminderDefaultMode) === '60' ? 'selected' : ''}>1 小时前</option>
+                            <option value="off" ${String(s.scheduleReminderDefaultMode) === 'off' ? 'selected' : ''}>${__tmT("common.close")}</option>
+                            <option value="0" ${String(s.scheduleReminderDefaultMode) === '0' ? 'selected' : ''}>${__tmT("calendar.onTime")}</option>
+                            <option value="5" ${String(s.scheduleReminderDefaultMode) === '5' ? 'selected' : ''}>${__tmT("calendar.minutesBefore")}</option>
+                            <option value="10" ${String(s.scheduleReminderDefaultMode) === '10' ? 'selected' : ''}>${__tmT("calendar.minutesBefore2")}</option>
+                            <option value="15" ${String(s.scheduleReminderDefaultMode) === '15' ? 'selected' : ''}>${__tmT("calendar.minutesBefore3")}</option>
+                            <option value="30" ${String(s.scheduleReminderDefaultMode) === '30' ? 'selected' : ''}>${__tmT("calendar.minutesBefore4")}</option>
+                            <option value="60" ${String(s.scheduleReminderDefaultMode) === '60' ? 'selected' : ''}>${__tmT("calendar.hourBefore")}</option>
                         </select>
                     </div>
                     <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                        <div class="tm-calendar-settings-label">
-                            系统弹窗提醒
-                            <div class="tm-calendar-settings-label-desc">到点后通过当前设备的系统通知显示提醒。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.systemNotification")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showTheReminderViaThisDeviceSSystemNotification")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderSystemEnabled" ${s.scheduleReminderSystemEnabled ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                        <div class="tm-calendar-settings-label" title="标题和时间将以明文发送到思源云端">
-                            微信提醒
-                            <div class="tm-calendar-settings-label-desc">通过思源云端发送，标题和时间会以明文传输；仅中国区云服务可用。</div>
+                        <div class="tm-calendar-settings-label" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.titlesAndTimesWillBeSentToSiyuanCloud")}">${__tmT("calendar.wechatReminders")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.sentViaSiyuanCloudTitlesAndTimesAreTransmitted")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderWechatEnabled" ${s.scheduleReminderWechatEnabled ? 'checked' : ''} ${Number(globalThis?.siyuan?.config?.cloudRegion) === 0 ? '' : 'disabled'}>
                     </div>
                     <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                        <div class="tm-calendar-settings-label">
-                            全天事件提醒
-                            <div class="tm-calendar-settings-label-desc">为全天日程在指定时间生成汇总提醒。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.allDayEventReminder")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.generateASummaryReminderForAllDaySchedulesAt")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarAllDayReminderEnabled" ${s.allDayReminderEnabled ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                        <div class="tm-calendar-settings-label">
-                            跨天事项全天提醒
-                            <div class="tm-calendar-settings-label-desc">为任务日期事项在指定时间生成全天提醒。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.allDayReminderForMultiDayItems")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.generateAllDayRemindersForTaskDateItemsAt")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarTaskDateAllDayReminderEnabled" ${s.taskDateAllDayReminderEnabled ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row" style="${s.scheduleReminderEnabled ? '' : 'opacity:0.55;pointer-events:none;'}">
-                        <div class="tm-calendar-settings-label">
-                            全天汇总包含番茄/节日
-                            <div class="tm-calendar-settings-label-desc">在全天提醒汇总中一并包含番茄记录和节假日。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.allDaySummaryIncludesPomodoroHolidays")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.includePomodoroRecordsAndHolidaysInTheAllDay")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarAllDaySummaryIncludeExtras" ${s.allDaySummaryIncludeExtras ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row" style="${(s.scheduleReminderEnabled && (s.allDayReminderEnabled || s.taskDateAllDayReminderEnabled)) ? '' : 'opacity:0.55;pointer-events:none;'}">
-                        <div class="tm-calendar-settings-label">
-                            全天提醒时间
-                            <div class="tm-calendar-settings-label-desc">全天日程和任务日期事项统一触发提醒的时间。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.allDayReminderTime")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.theUnifiedTimeAtWhichAllDaySchedulesAnd")}</div>
                         </div>
                         <input class="tm-calendar-settings-select" style="height:34px;" type="time" data-tm-cal-setting="calendarAllDayReminderTime" value="${esc(String(s.allDayReminderTime || '09:00'))}">
                     </div>
                 </section>
 
                 <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-subscription">
-                    <div class="tm-calendar-settings-section-title">日历 ICS 上传</div>
-                    <div class="tm-settings-section-desc">生成可供系统日历和第三方日历应用订阅的 ICS 快照，并发布到链滴或 WebDAV。</div>
+                    <div class="tm-calendar-settings-section-title">${__tmT("calendar.calendarIcsExport")}</div>
+                    <div class="tm-settings-section-desc">${__tmT("calendar.generateAnIcsSnapshotThatSystemAndThirdParty")}</div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            启用 ICS 上传
-                            <div class="tm-calendar-settings-label-desc">各设备均可发布过去 30 天至未来 400 天的完整日历快照。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.enableIcsUpload")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.anyDeviceCanPublishACompleteCalendarSnapshotFrom")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsEnabled" ${s.icsEnabled ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            提供方
-                            <div class="tm-calendar-settings-label-desc">选择链滴公开地址，或使用自有 WebDAV 目录保存 ICS 文件。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.provider")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.chooseAPublicLiandiAddressOrUseYourOwn")}</div>
                         </div>
-                        <select id="tm-calendar-ics-provider" class="tm-calendar-settings-select" aria-label="提供方" data-tm-cal-setting="calendarIcsProvider">
+                        <select id="tm-calendar-ics-provider" class="tm-calendar-settings-select" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.provider2")}" data-tm-cal-setting="calendarIcsProvider">
                             <option value="webdav" ${s.icsProvider === 'webdav' ? 'selected' : ''}>WebDAV</option>
-                            <option value="chain" ${s.icsProvider === 'chain' ? 'selected' : ''}>链滴</option>
+                            <option value="chain" ${s.icsProvider === 'chain' ? 'selected' : ''}>${__tmT("calendar.liandi")}</option>
                         </select>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            日历名称
-                            <div class="tm-calendar-settings-label-desc">订阅到其他日历应用后显示的日历名称。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.calendarName")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.theCalendarNameShownAfterSubscribingInOtherCalendar")}</div>
                         </div>
-                        <input id="tm-calendar-ics-name" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="text" aria-label="日历名称" maxlength="120" data-tm-cal-setting="calendarIcsCalendarName" value="${esc(s.icsCalendarName)}">
+                        <input id="tm-calendar-ics-name" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="text" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.calendarName2")}" maxlength="120" data-tm-cal-setting="calendarIcsCalendarName" value="${esc(s.icsCalendarName)}">
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            同步范围
-                            <div class="tm-calendar-settings-label-desc">应用于日程、任务全天日程和番茄钟提醒；个人节假日由下方开关控制。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.syncScope")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.appliesToSchedulesAllDayTaskSchedulesAndPomodoro")}</div>
                         </div>
-                        <select class="tm-calendar-settings-select" aria-label="同步范围" data-tm-cal-setting="calendarIcsScope">
-                            <option value="all" ${s.icsScope === 'all' ? 'selected' : ''}>全部</option>
-                            <option value="selected" ${s.icsScope === 'selected' ? 'selected' : ''}>指定文档分组</option>
+                        <select class="tm-calendar-settings-select" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.syncScope2")}" data-tm-cal-setting="calendarIcsScope">
+                            <option value="all" ${s.icsScope === 'all' ? 'selected' : ''}>${__tmT("calendar.all")}</option>
+                            <option value="selected" ${s.icsScope === 'selected' ? 'selected' : ''}>${__tmT("calendar.specifiedDocumentGroups")}</option>
                         </select>
                     </div>
                     ${s.icsScope === 'selected' ? `<div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
-                        <div class="tm-calendar-settings-label">文档分组 <span class="tm-calendar-settings-label-desc">可多选，重叠内容只同步一次</span></div>
-                        <div class="tm-calendar-ics-groups" role="group" aria-label="同步文档分组">${icsDocGroups.map(group => {
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.documentGroups2")}<span class="tm-calendar-settings-label-desc">${__tmT("calendar.multipleSelectionsOverlappingContentSyncsOnce")}</span></div>
+                        <div class="tm-calendar-ics-groups" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.syncDocumentGroups")}">${icsDocGroups.map(group => {
                             const id = group.id.slice(6);
                             return `<label><input type="checkbox" data-tm-cal-setting="calendarIcsDocGroupIds" value="${esc(id)}" ${s.icsDocGroupIds.includes(id) ? 'checked' : ''}><span>${esc(group.name)}</span></label>`;
-                        }).join('') || '<div class="tm-calendar-settings-label-desc">暂无文档分组，请先在任务管理器中创建。</div>'}</div>
+                        }).join('') || `<div class="tm-calendar-settings-label-desc">${__tmT("calendar.noDocumentGroupsYetCreateOneInTaskHorizon")}</div>`}</div>
                         <div class="tm-calendar-settings-label-desc">${icsDocGroups.some(group => s.icsDocGroupIds.includes(group.id.slice(6)))
-                            ? '关联日程和提醒按来源文档筛选，独立日程按归属日历筛选；未分组的独立日程不包含在内。'
-                            : '未选择有效分组，日程、任务全天日程和番茄钟提醒将不再同步。'}</div>
+                            ? __tmT("calendar.linkedSchedulesAndRemindersAreFilteredBySourceDocument")
+                            : __tmT("calendar.noValidGroupSelectedSchedulesAllDayTaskSchedules")}</div>
                     </div>` : ''}
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            不同步已完成日程
-                            <div class="tm-calendar-settings-label-desc">开启后不再同步已完成日程；重复日程仅排除已完成的实例。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.doNotSyncCompletedSchedules")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.whenOnCompletedSchedulesAreNoLongerSyncedFor")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsExcludeCompletedSchedules" ${s.icsExcludeCompletedSchedules ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            同步关联任务备注
-                            <div class="tm-calendar-settings-label-desc">将日程、任务全天日程和番茄钟提醒的备注写入 ICS 描述；开启后请注意订阅地址可能公开。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.syncLinkedTaskNotes")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.writesNotesFromSchedulesAllDayTaskDatesAnd")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsIncludeTaskNotes" ${s.icsIncludeTaskNotes ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            同步个人节假日
-                            <div class="tm-calendar-settings-label-desc">仅同步你明确设置的休息日和调休工作日，不包含未修改的官方节假日；使用全天事件，无提醒。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.syncPersonalHolidays")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.syncsOnlyTheRestDaysAndMakeUpWorkdays")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsIncludeCustomHolidays" ${s.icsIncludeCustomHolidays ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            同步任务全天日程
-                            <div class="tm-calendar-settings-label-desc">将设置了开始日期或截止日期的未完成任务作为全天事件同步。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.syncAllDayTaskDates")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.syncsUnfinishedTasksThatHaveAStartOrDue")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsIncludeTaskDates" ${s.icsIncludeTaskDates ? 'checked' : ''}>
                     </div>
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            同步番茄钟提醒
-                            <div class="tm-calendar-settings-label-desc">将底栏番茄钟中的任务提醒作为带通知的日历事件同步。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.syncPomodoroReminders")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.syncsTaskRemindersFromTheBottomBarPomodoroAs")}</div>
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsIncludeTomatoReminders" ${s.icsIncludeTomatoReminders ? 'checked' : ''}>
                     </div>
                     ${icsProviderRows}
                     <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">
-                            发布方式
-                            <div class="tm-calendar-settings-label-desc">${s.icsPublishMode === 'manual'
-                                ? '仅在设置页或顶栏点击“立即更新”时生成并上传。'
-                                : '日程、提醒或相关设置变更后 30 秒更新；启动、同步完成和每日跨日会补偿检查，内容未变化时不重复上传。失败会保留上次成功文件，等待下次触发或手动重试。'}</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.publishMode")}<div class="tm-calendar-settings-label-desc">${s.icsPublishMode === 'manual'
+                                ? __tmT("calendar.onlyGeneratesAndUploadsWhenClickingUpdateNowOn")
+                                : __tmT("calendar.updatesSecondsAfterScheduleReminderOrRelatedSettingsChange")}</div>
                         </div>
-                        <div class="tm-calendar-ics-publish-mode" role="radiogroup" aria-label="发布方式">
+                        <div class="tm-calendar-ics-publish-mode" role="radiogroup" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.publishMode2")}">
                             <label>
                                 <input type="radio" name="tm-calendar-ics-publish-mode" value="auto" data-tm-cal-setting="calendarIcsPublishMode" ${s.icsPublishMode === 'auto' ? 'checked' : ''}>
-                                <span>自动更新</span>
+                                <span>${__tmT("calendar.autoUpdate")}</span>
                             </label>
                             <label>
                                 <input type="radio" name="tm-calendar-ics-publish-mode" value="manual" data-tm-cal-setting="calendarIcsPublishMode" ${s.icsPublishMode === 'manual' ? 'checked' : ''}>
-                                <span>仅手动更新</span>
+                                <span>${__tmT("calendar.manualOnly")}</span>
                             </label>
                         </div>
                     </div>
                     <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
-                        <div class="tm-calendar-settings-label">
-                            数据范围
-                            <div class="tm-calendar-settings-label-desc">展示当前 ICS 快照包含的数据来源。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.dataScope")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showsTheDataSourcesIncludedInTheCurrentIcs")}</div>
                         </div>
                         <div class="tm-calendar-ics-inline-status" data-tm-ics-source-status>${getCalendarSubscriptionSourceStatusText()}</div>
                     </div>
                     <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
-                        <div class="tm-calendar-settings-label">
-                            最近成功
-                            <div class="tm-calendar-settings-label-desc">最后一次通过远端回读校验的发布时间和事件数。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.lastSuccess")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.theTimeAndEventCountOfTheLastPublish")}</div>
                         </div>
-                        <div class="tm-calendar-ics-inline-status" data-tm-ics-last-success>${formatCalendarSubscriptionStatusTime(icsStatus.lastSuccessAt)}${icsStatus.lastSuccessAt ? `，${Number(icsStatus.eventCount) || 0} 个事件` : ''}</div>
+                        <div class="tm-calendar-ics-inline-status" data-tm-ics-last-success>${formatCalendarSubscriptionStatusTime(icsStatus.lastSuccessAt)}${icsStatus.lastSuccessAt ? __tmT("calendar.events", { value1: Number(icsStatus.eventCount) || 0 }) : ''}</div>
                     </div>
                     <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
-                        <div class="tm-calendar-settings-label">
-                            最近错误
-                            <div class="tm-calendar-settings-label-desc">显示最近一次失败原因；失败时保留上次成功发布的文件。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.lastError")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showsTheMostRecentFailureReasonOnFailureThe")}</div>
                         </div>
-                        <div class="tm-calendar-ics-inline-status ${icsStatus.lastError ? 'tm-calendar-ics-inline-status--error' : ''}" data-tm-ics-last-error>${esc(icsStatus.lastError || '无')}</div>
+                        <div class="tm-calendar-ics-inline-status ${icsStatus.lastError ? 'tm-calendar-ics-inline-status--error' : ''}" data-tm-ics-last-error>${esc(icsStatus.lastError || __tmT("common.none"))}</div>
                     </div>
                     <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
-                        <div class="tm-calendar-settings-label">
-                            订阅 URL
-                            <div class="tm-calendar-settings-label-desc">复制到系统日历或第三方日历应用中订阅。</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.subscriptionUrl")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.copyIntoASystemOrThirdPartyCalendarApp")}</div>
                         </div>
                         <div class="tm-calendar-ics-url-row">
-                            <input id="tm-calendar-ics-url" class="tm-calendar-settings-input" type="text" aria-label="订阅 URL" readonly data-tm-ics-subscription-url value="${esc(getCalendarSubscriptionDisplayUrl(s))}">
-                            <button class="b3-tooltips__nw b3-button b3-button--outline tm-calendar-ics-icon-button" type="button" aria-label="复制订阅 URL" data-tm-ics-action="copy" data-position="parentW" title="复制订阅 URL">
+                            <input id="tm-calendar-ics-url" class="tm-calendar-settings-input" type="text" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.subscriptionUrl2")}" readonly data-tm-ics-subscription-url value="${esc(getCalendarSubscriptionDisplayUrl(s))}">
+                            <button class="b3-tooltips__nw b3-button b3-button--outline tm-calendar-ics-icon-button" type="button" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.copysubscriptionUrl")}" data-tm-ics-action="copy" data-position="parentW" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.copysubscriptionUrl")}">
                                 <svg aria-hidden="true"><use href="#iconCopy"></use></svg>
                             </button>
                         </div>
                     </div>
                     <div class="tm-calendar-settings-row tm-calendar-settings-row--actions">
                         <span></span>
-                        <button class="tm-btn" type="button" data-tm-ics-action="publish" ${(!s.icsEnabled || calendarSubscriptionPublisher.running) ? 'disabled' : ''}>${calendarSubscriptionPublisher.running ? '正在更新' : '立即更新'}</button>
+                        <button class="tm-btn" type="button" data-tm-ics-action="publish" ${(!s.icsEnabled || calendarSubscriptionPublisher.running) ? 'disabled' : ''}>${calendarSubscriptionPublisher.running ? __tmT("calendar.updating") : __tmT("calendar.updateNow")}</button>
                     </div>
                 </section>
             </div>
@@ -42908,7 +42791,7 @@
             const store = state.settingsStore;
             if (!store || !store.data) return;
             if (key === 'calendarScheduleReminderWechatEnabled' && el.checked) {
-                const accepted = window.confirm('微信提醒会将日程标题和时间以明文发送到思源云端，并立即同步已有的未来提醒。是否继续？');
+                const accepted = window.confirm(__tmT("calendar.wechatRemindersWillSendScheduleTitlesAndTimesTo"));
                 if (!accepted) {
                     el.checked = false;
                     return;
@@ -42916,7 +42799,7 @@
             }
             if ((key === 'calendarIcsEnabled' && el.checked && String(store.data.calendarIcsProvider || 'chain') === 'chain' && store.data.calendarIcsChainPublicConfirmed !== true)
                 || (key === 'calendarIcsProvider' && String(el.value || '') === 'chain' && store.data.calendarIcsEnabled === true && store.data.calendarIcsChainPublicConfirmed !== true)) {
-                const accepted = window.confirm('链滴订阅会让任务标题和时间通过公开 URL 提供。确认继续使用链滴发布吗？');
+                const accepted = window.confirm(__tmT("calendar.liandiSubscriptionExposesTaskTitlesAndTimesViaA"));
                 if (!accepted) {
                     if (key === 'calendarIcsEnabled') el.checked = false;
                     else el.value = String(store.data.calendarIcsProvider || 'chain');
@@ -42975,7 +42858,7 @@
                 else ids.delete(String(el.value));
                 store.data[key] = Array.from(ids);
             } else if (key === 'calendarIcsCalendarName') {
-                store.data[key] = String(el.value || '').trim() || '任务管理器';
+                store.data[key] = String(el.value || '').trim() || __tmT("common.taskManager");
             } else if (el.type === 'checkbox') {
                 store.data[key] = !!el.checked;
             } else {
@@ -43157,7 +43040,7 @@
             if (action === 'copy') {
                 const value = String(containerEl.querySelector('[data-tm-ics-subscription-url]')?.value || '').trim();
                 if (!value) {
-                    toast('订阅 URL 尚未生成', 'warning');
+                    toast(__tmT("calendar.subscriptionUrlHasNotBeenGeneratedYet"), 'warning');
                     return;
                 }
                 try {
@@ -43165,11 +43048,11 @@
                     else {
                         const input = containerEl.querySelector('[data-tm-ics-subscription-url]');
                         input?.select?.();
-                        if (!document.execCommand('copy')) throw new Error('浏览器未允许复制');
+                        if (!document.execCommand('copy')) throw new Error(__tmT("calendar.clipboardAccessWasNotAllowed"));
                     }
-                    toast('订阅 URL 已复制', 'success');
+                    toast(__tmT("calendar.subscriptionUrlCopied"), 'success');
                 } catch (error) {
-                    toast('复制订阅 URL 失败', 'error');
+                    toast(__tmT("calendar.failedToCopyTheSubscriptionUrl"), 'error');
                 }
             }
         }, { signal: abort.signal });
@@ -43180,7 +43063,7 @@
     }
 
     function cleanup() {
-        calendarSubscriptionPublisher.activeRun?.cancel(Object.assign(new Error('日历模块已关闭'), { code: 'TM_ICS_CANCELLED' }));
+        calendarSubscriptionPublisher.activeRun?.cancel(Object.assign(new Error(__tmT("calendar.calendarModuleClosed")), { code: 'TM_ICS_CANCELLED' }));
         try { __tmCalendarModuleLifecycleAbort.abort(); } catch (e) {}
         unmountSideDayTimeline();
         unmount();
@@ -43202,7 +43085,7 @@
             let shouldFlush = false;
             const calendarName = String(state.settingsStore.data.calendarIcsCalendarName || '').trim();
             if (!calendarName || calendarName === 'Task Horizon') {
-                state.settingsStore.data.calendarIcsCalendarName = '任务管理器';
+                state.settingsStore.data.calendarIcsCalendarName = __tmT("common.taskManager");
                 shouldFlush = true;
             }
             if (!String(state.settingsStore.data.calendarIcsWebdavPassword || '')) {
@@ -43238,13 +43121,13 @@
             const list = await loadScheduleAll();
             const item = (Array.isArray(list) ? list : []).find((x) => String(x?.id || '').trim() === id) || null;
             if (!item) {
-                toast('⚠ 未找到日程', 'warning');
+                toast(__tmT("calendar.scheduleNotFound"), 'warning');
                 return false;
             }
             const startMs = toMs(item.start);
             const endMs = toMs(item.end);
             if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-                toast('⚠ 日程时间不合法', 'warning');
+                toast(__tmT("calendar.invalidScheduleTime2"), 'warning');
                 return false;
             }
             const start = new Date(startMs);
@@ -43299,7 +43182,7 @@
             });
             return true;
         } catch (e) {
-            try { toast('❌ 打开失败', 'error'); } catch (e2) {}
+            try { toast(__tmT("calendar.failedToOpen"), 'error'); } catch (e2) {}
             return false;
         }
     }
@@ -43329,7 +43212,7 @@
                 e.setHours(0, 0, 0, 0);
                 if (e.getTime() > s.getTime()) {
                     return {
-                        title: title0 || (taskId ? '任务' : '日程'),
+                        title: title0 || (taskId ? __tmT("kernel.task") : __tmT("kernel.schedule")),
                         start: s,
                         end: e,
                         allDay: true,
@@ -43390,7 +43273,7 @@
         }
 
         return {
-            title: title0 || (taskId ? '任务' : '日程'),
+            title: title0 || (taskId ? __tmT("kernel.task") : __tmT("kernel.schedule")),
             start,
             end,
             allDay,
@@ -43460,7 +43343,7 @@
             openScheduleModal(buildScheduleEditorInitFromInput(extra));
             return true;
         } catch (e) {
-            try { toast('❌ 打开失败', 'error'); } catch (e2) {}
+            try { toast(__tmT("calendar.failedToOpen"), 'error'); } catch (e2) {}
             return false;
         }
     }
@@ -43485,7 +43368,7 @@
                     }));
                     return true;
                 }
-                toast('⚠ 该任务暂无日程', 'warning');
+                toast(__tmT("calendar.thisTaskHasNoSchedulesYet"), 'warning');
                 return false;
             }
             const now = Date.now();
@@ -43497,7 +43380,7 @@
             if (!sid) return false;
             return await openScheduleEditorById(sid);
         } catch (e) {
-            try { toast('❌ 打开失败', 'error'); } catch (e2) {}
+            try { toast(__tmT("calendar.failedToOpen"), 'error'); } catch (e2) {}
             return false;
         }
     }
@@ -43516,7 +43399,7 @@
             const requestedScope = String(opts.scope || opts.deleteScope || '').trim();
             const scope = (requestedScope === 'one' || requestedScope === 'future' ? requestedScope : '')
                 || await showScheduleRecurringDeleteScopeDialog({
-                    message: '这是一个循环重复的日程。要只删除当前这一次，还是删除当前及以后的日程？',
+                    message: __tmT("calendar.thisIsARecurringScheduleDeleteOnlyThisOccurrence"),
                 });
             if (!scope) return false;
             mutationResult = applyScheduleRecurringDeleteScopeMutation(list, idx, scope, {
@@ -43725,11 +43608,11 @@
             };
             return item;
         };
-        menu.appendChild(createItem('编辑日程', async () => {
+        menu.appendChild(createItem(__tmT("calendar.editSchedule"), async () => {
             try { await openScheduleEditorById(scheduleId, meta); } catch (e) { try { toast(`❌ ${String(e?.message || e)}`, 'error'); } catch (e2) {} }
         }));
         const taskId = String(meta?.taskId || '').trim();
-        const taskName = String(meta?.title || '').trim() || '任务';
+        const taskName = String(meta?.title || '').trim() || __tmT("kernel.task");
         const startMs = toMs(meta?.start);
         const endMs = toMs(meta?.end);
         const isAllDaySchedule = meta?.allDay === true
@@ -43739,7 +43622,7 @@
             ? Math.max(1, Math.round((endMs - startMs) / 60000))
             : 25;
         if (taskId) {
-            menu.appendChild(createItem(`按 ${durationMin} 分钟开始番茄`, async () => {
+            menu.appendChild(createItem(__tmT("calendar.startPomodoroForMin", { durationMin: durationMin }), async () => {
                 const timer = globalThis.__tomatoTimer;
                 const startFromTaskBlock = timer?.startFromTaskBlock;
                 const startCountdown = timer?.startCountdown;
@@ -43753,14 +43636,14 @@
                     try { timer?.refreshUI?.(); } catch (e) {}
                     return;
                 }
-                toast('⚠ 未检测到番茄计时功能', 'warning');
+                toast(__tmT("calendar.pomodoroTimingFeatureNotDetected"), 'warning');
             }));
-            menu.appendChild(createItem('跳转关联任务', async () => {
+            menu.appendChild(createItem(__tmT("calendar.goToLinkedTask"), async () => {
                 try { window.tmJumpToTask?.(taskId, event); } catch (e) {}
             }));
         }
         if (isAllDaySchedule) {
-            menu.appendChild(createItem(isAllDayBottom ? '取消置底全天日程' : '置底全天日程', async () => {
+            menu.appendChild(createItem(isAllDayBottom ? __tmT("calendar.restoreAllDayScheduleOrder") : __tmT("calendar.sendAllDaySchedulesToBottom"), async () => {
                 await setScheduleAllDayBottomById(scheduleId, !isAllDayBottom, {
                     allDay: true,
                     start: meta?.start,
@@ -43768,13 +43651,13 @@
                 });
             }));
         }
-        menu.appendChild(createItem('删除日程', async () => {
+        menu.appendChild(createItem(__tmT("kernel.deleteSchedule"), async () => {
             const ok = await deleteScheduleById(scheduleId, {
                 closeModal: false,
                 occurrenceStartMs: meta?.occurrenceStartMs,
                 start: meta?.start,
             });
-            if (ok) toast('✅ 已删除', 'success');
+            if (ok) toast(__tmT("calendar.deleted"), 'success');
         }, true));
         document.body.appendChild(menu);
         const rect = menu.getBoundingClientRect();

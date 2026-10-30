@@ -27,7 +27,7 @@
             if (!order.includes(colKey)) order.push(colKey);
         } else {
             if (order.length <= 1 && order.includes(colKey)) {
-                hint('⚠️ 至少保留一列', 'warning');
+                hint(__tmT("settings.keepAtLeastOneColumn"), 'warning');
                 return;
             }
             order = order.filter((item) => item !== colKey);
@@ -141,10 +141,10 @@
         if (!id) return '';
         const options = SettingsStore.data.customStatusOptions || [];
         if (id === __tmResolveCheckboxLinkedStatusId(true, options)) {
-            return '此状态用于“勾选完成时状态”，请先选择其他状态再删除';
+            return __tmT("settings.thisStatusIsUsedAsTheStatusWhenChecked");
         }
         if (id === __tmResolveCheckboxLinkedStatusId(false, options)) {
-            return '此状态用于“未完成状态默认状态”，请先选择其他状态再删除';
+            return __tmT("settings.thisStatusIsUsedAsTheDefaultUnfinishedStatus");
         }
         return '';
     }
@@ -153,16 +153,16 @@
         const options = SettingsStore.data.customStatusOptions || [];
         const compatMode = __tmIsLegacyWin7CompatMode();
         const markerInputTitle = compatMode
-            ? '兼容模式下旧版思源仅支持空格和 X；未完成状态的语法标记统一为空格，完成状态为 X。'
-            : '空格和 / 为未完成，X 为已完成，- 为放弃；除空格外，语法标记不能重复。';
+            ? __tmT("settings.legacySiyuanInCompatibilityModeSupportsOnlySpaceAnd")
+            : __tmT("settings.spaceAndAreUnfinishedXIsFinishedAndIs2");
         const conflicts = globalThis.__tmTaskStatusRules.conflicts(options);
         const conflictIds = new Set(conflicts.flatMap((group) => group.items.map((item) => item.id)));
         const rows = [`
             <div style="display: flex; align-items: center; gap: 6px; margin: 2px 0 6px; flex-wrap: wrap; color: var(--tm-secondary-text); font-size: 12px; font-weight: 600;">
                 <span style="width: 24px; min-width: 24px;"></span>
-                <span style="width: 100px;">状态名</span>
-                <span style="width: 120px;">属性名</span>
-                <span style="width: 56px; text-align: center;">语法标记</span>
+                <span style="width: 100px;">${__tmT("settings.statusName")}</span>
+                <span style="width: 120px;">${__tmT("settings.attributeName")}</span>
+                <span style="width: 56px; text-align: center;">${__tmT("settings.marker")}</span>
             </div>
         `];
         rows.push(...options.map((opt, index) => {
@@ -175,17 +175,17 @@
                     data-tm-status-color-btn="${index}"
                     onclick="tmPickStatusOptionColor(${index})"
                     style="width: 24px; height: 24px; border: 1px solid var(--tm-border-color); padding: 0; background: ${esc(__tmNormalizeHexColor(opt?.color, __tmGetStatusPresetColor(index)) || __tmGetStatusPresetColor(index))}; cursor: pointer; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);"
-                    title="点击选择预置色系或自定义颜色"
+                    title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.chooseAPresetPaletteOrCustomColor")}"
                 ></button>
-                <input type="text" value="${esc(opt.name)}" onchange="updateStatusOption(${index}, 'name', this.value)" style="width: 100px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 13px;" title="修改名称">
-                <input type="text" value="${esc(opt.id)}" onchange="updateStatusOption(${index}, 'id', this.value)" style="width: 120px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="修改ID（将同步更新任务状态）">
-                <input type="text" value="${esc(displayMarker.trim())}" onchange="updateStatusOption(${index}, 'marker', this.value)" placeholder="空格" ${compatMode ? 'disabled' : ''} style="width: 56px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace; text-align: center; ${compatMode ? 'opacity:.72;cursor:not-allowed;' : ''}" title="${esc(markerInputTitle)} 当前：${esc(__tmFormatStatusMarkerText(displayMarker))}">
+                <input type="text" value="${esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('status', opt))}" onchange="updateStatusOption(${index}, 'name', this.value)" style="width: 100px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 13px;" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.rename")}">
+                <input type="text" value="${esc(opt.id)}" onchange="updateStatusOption(${index}, 'id', this.value)" style="width: 120px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.changeIdUpdatesTaskStatuses")}">
+                <input type="text" value="${esc(displayMarker.trim())}" onchange="updateStatusOption(${index}, 'marker', this.value)" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.space")}" ${compatMode ? 'disabled' : ''} style="width: 56px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace; text-align: center; ${compatMode ? 'opacity:.72;cursor:not-allowed;' : ''}" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.current2", { markerInputTitle: markerInputTitle, value2: __tmFormatStatusMarkerText(displayMarker) })}">
                 <div style="display: flex; gap: 2px;">
                     <button class="tm-btn" onclick="moveStatusOption(${index}, -1)" ${index === 0 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↑</button>
                     <button class="tm-btn" onclick="moveStatusOption(${index}, 1)" ${index === options.length - 1 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↓</button>
                 </div>
-                ${conflictIds.has(opt.id) ? '<span style="color:var(--tm-danger-color);font-size:12px;">语法标记重复，旧任务保留原状态</span>' : ''}
-                <button class="tm-btn tm-btn-danger" onclick="deleteStatusOption(${index})" ${deleteBlockReason ? `disabled title="${esc(deleteBlockReason)}"` : ''} style="padding: 2px 6px; font-size: 11px; ${deleteBlockReason ? 'opacity:.5;cursor:not-allowed;' : ''}">删除</button>
+                ${conflictIds.has(opt.id) ? `<span style="color:var(--tm-danger-color);font-size:12px;">${__tmT("settings.duplicateMarkerExistingTasksKeepTheirOriginalStatus")}</span>` : ''}
+                <button class="tm-btn tm-btn-danger" onclick="deleteStatusOption(${index})" ${deleteBlockReason ? `disabled title="${esc(deleteBlockReason)}"` : ''} style="padding: 2px 6px; font-size: 11px; ${deleteBlockReason ? 'opacity:.5;cursor:not-allowed;' : ''}">${__tmT("common.delete")}</button>
             </div>
         `; }));
         const draft = __tmGetStatusOptionDraft();
@@ -197,13 +197,13 @@
                         data-tm-status-color-btn="__draft__"
                         onclick="tmPickStatusOptionDraftColor()"
                         style="width: 24px; height: 24px; border: 1px solid var(--tm-border-color); padding: 0; background: ${esc(draft.color)}; cursor: pointer; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);"
-                        title="点击选择预置色系或自定义颜色"
+                        title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.chooseAPresetPaletteOrCustomColor")}"
                     ></button>
-                    <input data-tm-status-option-draft-name type="text" value="${esc(draft.name)}" oninput="updateStatusOptionDraft('name', this.value)" placeholder="状态名称" style="width: 100px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 13px;" title="请输入状态名称">
-                    <input data-tm-status-option-draft-id type="text" value="${esc(draft.id)}" oninput="updateStatusOptionDraft('id', this.value)" placeholder="自定义属性名称" style="width: 120px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="请输入自定义属性名称（唯一标识）">
-                    <input data-tm-status-option-draft-marker type="text" value="${esc(__tmGetCompatStatusOptionMarker(draft).trim())}" oninput="updateStatusOptionDraft('marker', this.value)" placeholder="空格" ${compatMode ? 'disabled' : ''} style="width: 56px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace; text-align: center; ${compatMode ? 'opacity:.72;cursor:not-allowed;' : ''}" title="${esc(markerInputTitle)} 当前：${esc(__tmFormatStatusMarkerText(__tmGetCompatStatusOptionMarker(draft)))}">
-                    <button class="tm-btn tm-btn-success" onclick="saveStatusOptionDraft()" style="padding: 2px 8px; font-size: 11px;">保存</button>
-                    <button class="tm-btn" onclick="cancelStatusOptionDraft()" style="padding: 2px 8px; font-size: 11px;">取消</button>
+                    <input data-tm-status-option-draft-name type="text" value="${esc(draft.name)}" oninput="updateStatusOptionDraft('name', this.value)" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.statusName2")}" style="width: 100px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 13px;" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.enterStatusName")}">
+                    <input data-tm-status-option-draft-id type="text" value="${esc(draft.id)}" oninput="updateStatusOptionDraft('id', this.value)" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.customAttributeName")}" style="width: 120px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.enterAUniqueCustomAttributeName")}">
+                    <input data-tm-status-option-draft-marker type="text" value="${esc(__tmGetCompatStatusOptionMarker(draft).trim())}" oninput="updateStatusOptionDraft('marker', this.value)" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.space")}" ${compatMode ? 'disabled' : ''} style="width: 56px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace; text-align: center; ${compatMode ? 'opacity:.72;cursor:not-allowed;' : ''}" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.current2", { markerInputTitle: markerInputTitle, value2: __tmFormatStatusMarkerText(__tmGetCompatStatusOptionMarker(draft)) })}">
+                    <button class="tm-btn tm-btn-success" onclick="saveStatusOptionDraft()" style="padding: 2px 8px; font-size: 11px;">${__tmT("common.save")}</button>
+                    <button class="tm-btn" onclick="cancelStatusOptionDraft()" style="padding: 2px 8px; font-size: 11px;">${__tmT("common.cancel")}</button>
                 </div>
             `);
         }
@@ -213,24 +213,24 @@
     window.renderDurationOptionsList = function() {
         const options = __tmGetDurationPresetOptions();
         if (!options.length) {
-            return '<div style="color: var(--tm-secondary-text); font-size: 12px;">暂无时长预设，编辑时会继续使用自定义填写。</div>';
+            return `<div style="color: var(--tm-secondary-text); font-size: 12px;">${__tmT("settings.noDurationPresetsEditingKeepsUsingFreeFormValues")}</div>`;
         }
         const unit = globalThis.__tmDuration?.getUnit?.()
             || (String(SettingsStore?.data?.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours');
-        const unitName = unit === 'minutes' ? '分钟' : '小时';
-        const placeholder = unit === 'minutes' ? '例如 30 / 60 / 90' : '例如 0.5 / 1 / 2';
+        const unitName = unit === 'minutes' ? __tmT("task.minutes") : __tmT("homepage.h2");
+        const placeholder = unit === 'minutes' ? __tmT("settings.eG") : __tmT("settings.eG2");
         return options.map((value, index) => {
             const normalized = __tmNormalizeDurationPresetValue(value);
             const label = globalThis.__tmDuration?.formatPresetLabel?.(normalized, unit) || normalized;
             return `
                 <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
-                    <input type="text" data-tm-duration-option-input="${index}" value="${esc(normalized)}" onchange="updateDurationOption(${index}, this.value)" placeholder="${esc(placeholder)}" style="width: 200px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="时长值（当前单位：${esc(unitName)}；可写 30m / 1h30m 自动换算）">
+                    <input type="text" data-tm-duration-option-input="${index}" value="${esc(normalized)}" onchange="updateDurationOption(${index}, this.value)" placeholder="${esc(placeholder)}" style="width: 200px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.durationValueCurrentUnitAcceptsMH30mWithAutomatic", { unitName: unitName })}">
                     <span style="font-size:11px;color:var(--tm-secondary-text);min-width:44px;">= ${esc(label)}</span>
                     <div style="display:flex;gap:2px;">
                         <button class="tm-btn" onclick="moveDurationOption(${index}, -1)" ${index === 0 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↑</button>
                         <button class="tm-btn" onclick="moveDurationOption(${index}, 1)" ${index === options.length - 1 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↓</button>
                     </div>
-                    <button class="tm-btn tm-btn-danger" onclick="deleteDurationOption(${index})" style="padding: 2px 6px; font-size: 11px;">删除</button>
+                    <button class="tm-btn tm-btn-danger" onclick="deleteDurationOption(${index})" style="padding: 2px 6px; font-size: 11px;">${__tmT("common.delete")}</button>
                 </div>
             `;
         }).join('');
@@ -242,7 +242,7 @@
         if (!option) return;
         const fallback = __tmGetStatusPresetColor(index);
         const current = __tmNormalizeHexColor(option?.color, fallback) || fallback;
-        __tmOpenColorPickerDialog('状态颜色', current, async (next) => {
+        __tmOpenColorPickerDialog(__tmT("settings.statusColor"), current, async (next) => {
             await window.updateStatusOption?.(index, 'color', next);
         }, __tmBuildPresetColorPickerOptions(fallback));
     };
@@ -251,7 +251,7 @@
         const draft = __tmGetStatusOptionDraft();
         if (!draft) return;
         const fallback = String(draft.color || '').trim() || __tmGetStatusPresetColor((SettingsStore.data.customStatusOptions || []).length);
-        __tmOpenColorPickerDialog('状态颜色', fallback, async (next) => {
+        __tmOpenColorPickerDialog(__tmT("settings.statusColor"), fallback, async (next) => {
             window.updateStatusOptionDraft?.('color', next);
         }, __tmBuildPresetColorPickerOptions(fallback));
     };
@@ -265,7 +265,7 @@
             try {
                 document.querySelectorAll('[data-tm-status-color-btn="__draft__"]').forEach((btn) => {
                     btn.style.background = nextColor;
-                    btn.title = `点击选择预置色系或自定义颜色（当前 ${__tmFormatColorDisplayValue(nextColor)}）`;
+                    btn.title = __tmT("settings.clickToPickAPresetOrCustomColorCurrent", { value1: __tmFormatColorDisplayValue(nextColor) });
                 });
             } catch (e) {}
             return;
@@ -307,18 +307,18 @@
         const name = String(draft.name || '').trim();
         const id = String(draft.id || '').trim();
         if (!name) {
-            hint('状态名称不能为空', 'warning');
+            hint(__tmT("settings.statusNameCannotBeEmpty"), 'warning');
             __tmFocusStatusOptionDraftInput();
             return;
         }
         if (!id) {
-            hint('自定义属性名称不能为空', 'warning');
+            hint(__tmT("settings.customAttributeNameCannotBeEmpty"), 'warning');
             __tmFocusStatusOptionDraftField('[data-tm-status-option-draft-id]');
             return;
         }
         const options = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
         if (options.some((o) => String(o?.id || '').trim() === id)) {
-            hint('自定义属性名称已存在，请使用其他名称', 'warning');
+            hint(__tmT("settings.theCustomAttributeNameAlreadyExistsUseAnotherOne"), 'warning');
             __tmFocusStatusOptionDraftField('[data-tm-status-option-draft-id]');
             return;
         }
@@ -327,12 +327,12 @@
             ? __tmGetCompatStatusOptionMarker({ id, name, marker: rawMarker })
             : __tmNormalizeTaskStatusMarker(rawMarker, '');
         if (!__tmIsLegacyWin7CompatMode() && !directMarker && rawMarker !== '' && rawMarker !== ' ') {
-            hint('状态标记必须是单个字节字符，且不能是 [ 或 ]', 'warning');
+            hint(__tmT("settings.theMarkerMustBeASingleByteCharacterAnd"), 'warning');
             __tmFocusStatusOptionDraftField('[data-tm-status-option-draft-marker]');
             return;
         }
         if (directMarker && directMarker !== ' ' && options.some((item) => __tmNormalizeTaskStatusMarker(item.marker, __tmGuessStatusOptionDefaultMarker(item)) === directMarker)) {
-            hint('该语法标记已被其他状态使用，只有空格可以重复', 'warning');
+            hint(__tmT("settings.thisMarkerIsAlreadyUsedByAnotherStatusOnly"), 'warning');
             __tmFocusStatusOptionDraftField('[data-tm-status-option-draft-marker]');
             return;
         }
@@ -355,18 +355,18 @@
     window.addDurationOption = async function() {
         const unit = globalThis.__tmDuration?.getUnit?.()
             || (String(SettingsStore?.data?.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours');
-        const unitName = unit === 'minutes' ? '分钟' : '小时';
+        const unitName = unit === 'minutes' ? __tmT("task.minutes") : __tmT("homepage.h2");
         const example = unit === 'minutes' ? '30 / 60' : '0.5 / 1';
-        const rawValue = await showPrompt('添加时长预设', `请输入时长值（当前单位：${unitName}），例如 ${example}；也可以写 30m / 1h30m，会自动换算`, '');
+        const rawValue = await showPrompt(__tmT("settings.addDurationPreset2"), __tmT("settings.enterADurationValueCurrentUnitEGYou", { unitName: unitName, example: example }), '');
         if (rawValue == null) return;
         const value = __tmNormalizeDurationInputValue(rawValue);
         if (!value) {
-            hint('时长值不能为空', 'warning');
+            hint(__tmT("settings.durationValueCannotBeEmpty"), 'warning');
             return;
         }
         const options = __tmGetDurationPresetOptions();
         if (options.some((item) => __tmNormalizeDurationPresetValue(item).toLowerCase() === value.toLowerCase())) {
-            hint('时长值已存在，请使用其他值', 'warning');
+            hint(__tmT("settings.theDurationValueAlreadyExistsUseAnotherOne"), 'warning');
             return;
         }
         options.push(value);
@@ -455,7 +455,7 @@
                 : __tmGetDefaultUndoneStatusId(options);
         }
         if (nextValue && !options.some((item) => String(item?.id || '').trim() === nextValue)) {
-            hint('状态不存在，请重新选择', 'warning');
+            hint(__tmT("settings.theStatusDoesNotExistChooseAgain"), 'warning');
             showSettings();
             return;
         }
@@ -479,12 +479,12 @@
         if (field === 'id') {
             const nextId = String(value || '').trim();
             if (!nextId) {
-                hint('ID 不能为空', 'warning');
+                hint(__tmT("settings.idCannotBeEmpty"), 'warning');
                 showSettings();
                 return;
             }
             if (options.some((o, i) => i !== index && o.id === nextId)) {
-                hint('ID 已存在，请使用其他ID', 'warning');
+                hint(__tmT("settings.theIdAlreadyExistsUseAnotherId"), 'warning');
                 showSettings();
                 return;
             }
@@ -517,14 +517,14 @@
             const rawMarker = value == null ? '' : String(value).trim();
             const directMarker = __tmNormalizeTaskStatusMarker(rawMarker, '');
             if (!directMarker && rawMarker !== '') {
-                hint('状态标记必须是单个字节字符，且不能是 [ 或 ]', 'warning');
+                hint(__tmT("settings.theMarkerMustBeASingleByteCharacterAnd"), 'warning');
                 showSettings();
                 return;
             }
             const nextMarker = directMarker || ' ';
             if (nextMarker !== ' ' && nextMarker !== __tmNormalizeTaskStatusMarker(options[index].marker, ' ')
                 && options.some((item, itemIndex) => itemIndex !== index && __tmNormalizeTaskStatusMarker(item.marker, __tmGuessStatusOptionDefaultMarker(item)) === nextMarker)) {
-                hint('该语法标记已被其他状态使用，只有空格可以重复', 'warning');
+                hint(__tmT("settings.thisMarkerIsAlreadyUsedByAnotherStatusOnly"), 'warning');
                 showSettings();
                 return;
             }
@@ -537,7 +537,7 @@
         if (field === 'color') {
             try {
                 const nextColor = String(options[index]?.color || '').trim();
-                const title = `点击选择预置色系或自定义颜色（当前 ${__tmFormatColorDisplayValue(nextColor)}）`;
+                const title = __tmT("settings.clickToPickAPresetOrCustomColorCurrent", { value1: __tmFormatColorDisplayValue(nextColor) });
                 document.querySelectorAll(`[data-tm-status-color-btn="${index}"]`).forEach((btn) => {
                     btn.style.background = nextColor;
                     btn.title = title;
@@ -555,12 +555,12 @@
         if (!options[index]) return;
         const nextValue = __tmNormalizeDurationInputValue(value);
         if (!nextValue) {
-            hint('时长值不能为空', 'warning');
+            hint(__tmT("settings.durationValueCannotBeEmpty"), 'warning');
             showSettings();
             return;
         }
         if (options.some((item, itemIndex) => itemIndex !== index && __tmNormalizeDurationPresetValue(item).toLowerCase() === nextValue.toLowerCase())) {
-            hint('时长值已存在，请使用其他值', 'warning');
+            hint(__tmT("settings.theDurationValueAlreadyExistsUseAnotherOne"), 'warning');
             showSettings();
             return;
         }
@@ -606,7 +606,7 @@
             hint(deleteBlockReason, 'warning');
             return;
         }
-        const ok = await showConfirm('删除状态', '确定删除此状态吗？');
+        const ok = await showConfirm(__tmT("settings.deleteStatus"), __tmT("settings.deleteThisStatus"));
         if (!ok) return;
         const options = SettingsStore.data.customStatusOptions || [];
         const currentIndex = options.findIndex((item) => item.id === optionId);
@@ -627,7 +627,7 @@
     };
 
     window.deleteDurationOption = async function(index) {
-        const ok = await showConfirm('删除时长预设', '确定删除这个时长预设吗？');
+        const ok = await showConfirm(__tmT("settings.deleteDurationPreset"), __tmT("settings.deleteThisDurationPreset"));
         if (!ok) return;
         const options = __tmGetDurationPresetOptions();
         options.splice(index, 1);
@@ -641,7 +641,7 @@
         if (!currentFieldId) return false;
         const field = __tmGetCustomFieldDefs().find((item) => String(item?.id || '').trim() === currentFieldId) || null;
         if (!field) return false;
-        const ok = await showConfirm('删除自定义列', `确定删除“${String(field?.name || currentFieldId).trim() || currentFieldId}”吗？已有任务上的历史值不会被立即清理，但会停止显示。`);
+        const ok = await showConfirm(__tmT("settings.deleteCustomColumn"), __tmT("settings.deleteHistoricalValuesOnExistingTasksAreNotCleaned", { value1: String(field?.name || currentFieldId).trim() || currentFieldId }));
         if (!ok) return false;
         const nextDefs = __tmGetCustomFieldDefs().filter((item) => String(item?.id || '').trim() !== currentFieldId);
         const colKey = __tmBuildCustomFieldColumnKey(currentFieldId);
@@ -680,7 +680,7 @@
         SettingsStore.normalizeColumns();
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
-        hint('✅ 自定义列已删除', 'success');
+        hint(__tmT("settings.customColumnDeleted"), 'success');
         if (state.settingsModal) showSettings();
         render();
         return true;
@@ -689,10 +689,10 @@
     window.tmClearCustomFieldSettings = async function() {
         const defs = __tmGetCustomFieldDefs();
         if (!defs.length) {
-            hint('ℹ️ 当前没有自定义列设置', 'info');
+            hint(__tmT("settings.noCustomColumnSettings"), 'info');
             return false;
         }
-        const ok = await showConfirm('清空自定义列设置', '确定清空所有自定义列配置吗？已有任务上的历史值不会被立即清理，但会停止显示。');
+        const ok = await showConfirm(__tmT("settings.clearCustomColumnSettings"), __tmT("settings.clearAllCustomColumnConfigurationsHistoricalValuesOnExisting"));
         if (!ok) return false;
         const colKeys = new Set(
             defs.map((field) => __tmBuildCustomFieldColumnKey(field?.id))
@@ -737,7 +737,7 @@
         SettingsStore.normalizeColumns();
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
-        hint('✅ 自定义列设置已清空', 'success');
+        hint(__tmT("settings.customColumnSettingsCleared"), 'success');
         if (state.settingsModal) showSettings();
         render();
         return true;
@@ -1101,7 +1101,7 @@
             const id = String(doc?.id || '').trim();
             const fallbackDoc = metaById.get(id);
             const name = String(doc?.name || fallbackDoc?.name || '').trim()
-                || String(doc?.name || '未命名文档').trim() || '未命名文档';
+                || String(doc?.name || __tmT("kernel.untitledDocument")).trim() || __tmT("kernel.untitledDocument");
             const alias = __tmNormalizeDocAliasValue(doc?.alias || fallbackDoc?.alias);
             return { doc, id, label: displayNameMode === 'alias' ? alias || name : name };
         });
@@ -1276,9 +1276,9 @@
             let availableDocs = scopeDocumentData?.documents || [];
             const availableDocGroups = Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [];
             const availableDocTabGroups = typeof __tmGetDocTabCustomGroups === 'function' ? __tmGetDocTabCustomGroups() : [];
-            const resolveDocScopeLabel = (doc) => scopeDocumentData?.labels.get(String(doc?.id || '').trim()) || doc?.name || '未命名文档';
-            const resolveDocGroupScopeLabel = (group) => group?.name || '未命名文档分组';
-            const resolveDocTabGroupScopeLabel = (group) => group?.name || '未命名页签组';
+            const resolveDocScopeLabel = (doc) => scopeDocumentData?.labels.get(String(doc?.id || '').trim()) || doc?.name || __tmT("kernel.untitledDocument");
+            const resolveDocGroupScopeLabel = (group) => group?.name || __tmT("kernel.untitledDocumentGroup");
+            const resolveDocTabGroupScopeLabel = (group) => group?.name || __tmT("task.untitledTabGroup");
             const resolveDocScopeSearchResults = (queryInput) => {
                 const query = String(queryInput || '').trim().toLocaleLowerCase();
                 if (!query) return { matches: [], shown: [] };
@@ -1286,12 +1286,12 @@
                 return { matches, shown: matches.slice(0, 60) };
             };
             const initialDocSearchResults = resolveDocScopeSearchResults(scopeDocSearch);
-            const docScopePendingHtml = '<div class="tm-custom-field-scope-empty">正在加载文档…</div>';
+            const docScopePendingHtml = `<div class="tm-custom-field-scope-empty">${__tmT("task.loadingDocuments2")}</div>`;
             const docScopeChoices = scopeDocSearch
-                ? (scopeDocumentData ? buildScopeChoices(initialDocSearchResults.shown, selectedScope.docIds, resolveDocScopeLabel, 'doc', '未找到匹配文档') : docScopePendingHtml)
+                ? (scopeDocumentData ? buildScopeChoices(initialDocSearchResults.shown, selectedScope.docIds, resolveDocScopeLabel, 'doc', __tmT("settings.noMatchingDocumentsFound")) : docScopePendingHtml)
                 : '';
-            const docGroupScopeChoices = buildScopeChoices(availableDocGroups, selectedScope.docGroupIds, resolveDocGroupScopeLabel, 'docGroup', '没有可选文档分组');
-            const docTabGroupScopeChoices = buildScopeChoices(availableDocTabGroups, selectedScope.docTabGroupIds, resolveDocTabGroupScopeLabel, 'tabGroup', '没有可选页签组');
+            const docGroupScopeChoices = buildScopeChoices(availableDocGroups, selectedScope.docGroupIds, resolveDocGroupScopeLabel, 'docGroup', __tmT("settings.noDocumentGroupsAvailable"));
+            const docTabGroupScopeChoices = buildScopeChoices(availableDocTabGroups, selectedScope.docTabGroupIds, resolveDocTabGroupScopeLabel, 'tabGroup', __tmT("settings.noTabGroupsAvailable"));
             const buildScopeLabelMap = (items, resolveLabel) => new Map((Array.isArray(items) ? items : [])
                 .map((item) => {
                     const id = String(item?.id || '').trim();
@@ -1302,31 +1302,31 @@
             const docGroupScopeLabelMap = buildScopeLabelMap(availableDocGroups, resolveDocGroupScopeLabel);
             const docTabGroupScopeLabelMap = buildScopeLabelMap(availableDocTabGroups, resolveDocTabGroupScopeLabel);
             const selectedScopeItems = [
-                ...selectedScope.docIds.map((id) => ({ kind: 'doc', type: '文档', id, label: docScopeLabelMap.get(id) || (scopeDocumentData ? `${id}（已失效）` : id) })),
-                ...selectedScope.docGroupIds.map((id) => ({ kind: 'docGroup', type: '文档分组', id, label: docGroupScopeLabelMap.get(id) || `${id}（已失效）` })),
-                ...selectedScope.docTabGroupIds.map((id) => ({ kind: 'tabGroup', type: '页签组', id, label: docTabGroupScopeLabelMap.get(id) || `${id}（已失效）` })),
+                ...selectedScope.docIds.map((id) => ({ kind: 'doc', type: __tmT("kernel.documents"), id, label: docScopeLabelMap.get(id) || (scopeDocumentData ? __tmT("settings.invalid", { id: id }) : id) })),
+                ...selectedScope.docGroupIds.map((id) => ({ kind: 'docGroup', type: __tmT("calendar.documentGroups"), id, label: docGroupScopeLabelMap.get(id) || __tmT("settings.invalid", { id: id }) })),
+                ...selectedScope.docTabGroupIds.map((id) => ({ kind: 'tabGroup', type: __tmT("task.tabGroups2"), id, label: docTabGroupScopeLabelMap.get(id) || __tmT("settings.invalid", { id: id }) })),
             ];
             const selectedScopeSummaryHtml = selectedScopeItems.length
                 ? selectedScopeItems.map((item) => `
-                    <button type="button" class="tm-custom-field-scope-token" data-tm-custom-field-scope-remove="${item.kind}" data-tm-scope-id="${esc(item.id)}" title="移除${esc(item.type)}：${esc(item.label)}">
+                    <button type="button" class="tm-custom-field-scope-token" data-tm-custom-field-scope-remove="${item.kind}" data-tm-scope-id="${esc(item.id)}" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.remove", { type: item.type, label: item.label })}">
                         <span class="tm-custom-field-scope-token__type">${esc(item.type)}</span>
                         <span class="tm-custom-field-scope-token__label">${esc(item.label)}</span>
                         ${__tmRenderLucideIcon('x')}
                     </button>
                 `).join('')
-                : '<span class="tm-custom-field-scope-selection__empty">尚未选择范围</span>';
+                : `<span class="tm-custom-field-scope-selection__empty">${__tmT("settings.noScopeSelectedYet")}</span>`;
             const listHtml = defsNow.map((field) => {
                 const id = String(field?.id || '').trim();
                 const active = id && id === currentFieldId;
                 const fieldType = String(field?.type || '').trim();
                 const fieldTypeLabel = fieldType === 'multi'
-                    ? '多选'
-                    : (fieldType === 'text' ? '文本' : '单选');
+                    ? __tmT("task.multiSelect")
+                    : (fieldType === 'text' ? __tmT("task.text") : __tmT("task.singleSelect"));
                 const fieldScope = __tmNormalizeCustomFieldScope(field?.scope);
-                const fieldScopeLabel = fieldScope ? '指定范围' : '全部文档';
+                const fieldScopeLabel = fieldScope ? __tmT("settings.specificScope") : __tmT("task.allDocuments");
                 return `
                     <button type="button" data-tm-custom-field-open="${esc(id)}" style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid ${active ? 'var(--tm-primary-color)' : 'var(--tm-border-color)'};border-radius:10px;background:${active ? 'var(--tm-hover-bg)' : 'var(--tm-card-bg)'};color:var(--tm-text-color);cursor:pointer;text-align:left;">
-                        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(String(field?.name || id || '未命名自定义列').trim() || '未命名自定义列')}</span>
+                        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(String(field?.name || id || __tmT("settings.untitledCustomColumn")).trim() || __tmT("settings.untitledCustomColumn"))}</span>
                         <span style="font-size:11px;color:var(--tm-secondary-text);flex:none;">${fieldTypeLabel} · ${fieldScopeLabel}</span>
                     </button>
                 `;
@@ -1357,28 +1357,28 @@
                 const children = optionRuntime.childrenByParentId.get(optionId) || [];
                 const directlyArchived = option?.archived === true;
                 const effectivelyArchived = optionRuntime.effectiveArchivedById.get(optionId) === true;
-                const archiveLabel = directlyArchived ? '取消归档' : '归档选项';
+                const archiveLabel = directlyArchived ? __tmT("settings.unarchive") : __tmT("settings.archiveOption");
                 const stateLabel = directlyArchived
-                    ? '已归档'
-                    : (effectivelyArchived ? '随父级归档' : `第 ${depth + 1} 级`);
+                    ? __tmT("settings.archived")
+                    : (effectivelyArchived ? __tmT("settings.archiveWithParent") : __tmT("settings.level", { value1: depth + 1 }));
                 const childHtml = children.map((child, index) => `${renderDropLine(optionId, index, depth + 1)}${renderOptionNode(child)}`).join('');
                 return `
                     <div class="tm-custom-field-option-row${effectivelyArchived ? ' is-effectively-archived' : ''}" style="--tm-option-depth:${depth};" data-depth="${depth}" data-option-id="${esc(optionId)}" data-tm-custom-field-option-child-drop data-target-parent-id="${esc(optionId)}" data-target-sibling-index="${children.length}">
-                        <button type="button" class="tm-custom-field-option-drag" data-tm-custom-field-option-drag data-option-id="${esc(optionId)}" draggable="${supportsDesktopDrag ? 'true' : 'false'}" aria-disabled="${supportsDesktopDrag ? 'false' : 'true'}" title="${supportsDesktopDrag ? '拖拽移动选项' : '移动端请使用右侧移动按钮'}" aria-label="拖拽移动选项">
+                        <button type="button" class="tm-custom-field-option-drag" data-tm-custom-field-option-drag data-option-id="${esc(optionId)}" draggable="${supportsDesktopDrag ? 'true' : 'false'}" aria-disabled="${supportsDesktopDrag ? 'false' : 'true'}" title="${supportsDesktopDrag ? __tmT("settings.dragToMoveOption") : __tmT("settings.onMobileUseTheMoveButtonsOnTheRight")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.dragToMoveOption")}">
                             ${__tmRenderLucideIcon('menu')}
                         </button>
-                        <input data-tm-custom-field-option-color data-option-id="${esc(optionId)}" type="color" value="${esc(String(option?.color || __tmGetCustomFieldPresetColor(siblingIndex)).trim() || __tmGetCustomFieldPresetColor(siblingIndex))}" title="选项颜色" aria-label="选项颜色" style="width:28px;height:28px;border:none;padding:0;background:none;cursor:pointer;">
+                        <input data-tm-custom-field-option-color data-option-id="${esc(optionId)}" type="color" value="${esc(String(option?.color || __tmGetCustomFieldPresetColor(siblingIndex)).trim() || __tmGetCustomFieldPresetColor(siblingIndex))}" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.optionscolor")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.optionscolor")}" style="width:28px;height:28px;border:none;padding:0;background:none;cursor:pointer;">
                         <div class="tm-custom-field-option-name-wrap">
-                            <input class="tm-custom-field-option-name" data-tm-custom-field-option-name data-option-id="${esc(optionId)}" type="text" value="${esc(String(option?.name || '').trim())}" placeholder="选项名称">
+                            <input class="tm-custom-field-option-name" data-tm-custom-field-option-name data-option-id="${esc(optionId)}" type="text" value="${esc(String(option?.name || '').trim())}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.optionsname")}">
                             <span class="tm-custom-field-option-badge">${stateLabel}</span>
                         </div>
                         <div class="tm-custom-field-option-actions">
-                            ${renderOptionAction(optionId, 'up', 'arrow-up', '同级上移', siblingIndex <= 0)}
-                            ${renderOptionAction(optionId, 'down', 'arrow-down', '同级下移', siblingIndex < 0 || siblingIndex >= siblings.length - 1)}
-                            ${renderOptionAction(optionId, 'indent', 'text-indent', '缩进为上一同级选项的子项', !canIndent)}
-                            ${renderOptionAction(optionId, 'promote', 'text-outdent', '提升一级', !parentId || parentSiblingIndex < 0)}
+                            ${renderOptionAction(optionId, 'up', 'arrow-up', __tmT("settings.moveUpSameLevel"), siblingIndex <= 0)}
+                            ${renderOptionAction(optionId, 'down', 'arrow-down', __tmT("settings.moveDownSameLevel"), siblingIndex < 0 || siblingIndex >= siblings.length - 1)}
+                            ${renderOptionAction(optionId, 'indent', 'text-indent', __tmT("settings.indentAsAChildOfThePreviousSiblingOption"), !canIndent)}
+                            ${renderOptionAction(optionId, 'promote', 'text-outdent', __tmT("settings.outdentByOneLevel"), !parentId || parentSiblingIndex < 0)}
                             ${renderOptionAction(optionId, 'archive', 'archive', archiveLabel)}
-                            ${renderOptionAction(optionId, 'delete', 'trash-2', children.length ? '有子项时不能删除' : '删除选项', children.length > 0)}
+                            ${renderOptionAction(optionId, 'delete', 'trash-2', children.length ? __tmT("settings.cannotDeleteWhileItHasChildOptions") : __tmT("settings.deleteOption"), children.length > 0)}
                         </div>
                     </div>
                     ${childHtml}
@@ -1391,103 +1391,101 @@
             dialog.innerHTML = `
                 <div style="padding:${isCompact ? '14px 14px 12px' : '16px 18px'};border-bottom:1px solid var(--tm-border-color);display:flex;align-items:${isCompact ? 'flex-start' : 'center'};justify-content:space-between;gap:${isCompact ? '8px' : '12px'};flex-wrap:${isCompact ? 'wrap' : 'nowrap'};">
                     <div style="min-width:0;">
-                        <div style="font-size:18px;font-weight:700;">自定义单选 / 多选 / 文本列</div>
-                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:4px;line-height:1.5;">右击表头即可再次打开这里。自定义列会同步进入列设置、表格视图和任务详情页。</div>
+                        <div style="font-size:18px;font-weight:700;">${__tmT("settings.customSingleSelectMultiSelectTextColumns")}</div>
+                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:4px;line-height:1.5;">${__tmT("settings.rightClickATableHeaderToOpenThisAgain")}</div>
                     </div>
-                    <button type="button" class="tm-btn tm-btn-gray" data-tm-custom-field-close style="padding:${isCompact ? '8px 12px' : '6px 10px'};min-height:${isCompact ? '40px' : 'auto'};${isCompact ? 'margin-left:auto;' : ''}">关闭</button>
+                    <button type="button" class="tm-btn tm-btn-gray" data-tm-custom-field-close style="padding:${isCompact ? '8px 12px' : '6px 10px'};min-height:${isCompact ? '40px' : 'auto'};${isCompact ? 'margin-left:auto;' : ''}">${__tmT("common.close")}</button>
                 </div>
                 <div data-tm-custom-field-dialog-scroll style="display:grid;grid-template-columns:${isCompact ? '1fr' : 'minmax(180px,220px) minmax(0,1fr)'};gap:${isCompact ? '12px' : '16px'};padding:${isCompact ? '14px' : '18px'};overflow:auto;">
                     <div style="display:flex;flex-direction:column;gap:10px;">
-                        <div style="font-size:12px;font-weight:600;color:var(--tm-secondary-text);">已配置自定义列</div>
-                        <div style="display:${isCompact ? 'grid' : 'flex'};${isCompact ? `grid-template-columns:${isPhone ? '1fr' : 'repeat(auto-fit,minmax(132px,1fr))'};` : 'flex-direction:column;'}gap:8px;">${listHtml || '<div style="font-size:12px;color:var(--tm-secondary-text);padding:10px;border:1px dashed var(--tm-border-color);border-radius:10px;">还没有自定义列</div>'}</div>
+                        <div style="font-size:12px;font-weight:600;color:var(--tm-secondary-text);">${__tmT("settings.configuredCustomColumns")}</div>
+                        <div style="display:${isCompact ? 'grid' : 'flex'};${isCompact ? `grid-template-columns:${isPhone ? '1fr' : 'repeat(auto-fit,minmax(132px,1fr))'};` : 'flex-direction:column;'}gap:8px;">${listHtml || `<div style="font-size:12px;color:var(--tm-secondary-text);padding:10px;border:1px dashed var(--tm-border-color);border-radius:10px;">${__tmT("settings.noCustomColumnsYet")}</div>`}</div>
                         <div style="display:grid;grid-template-columns:1fr;gap:8px;">
-                            <button type="button" class="tm-btn tm-btn-primary" data-tm-custom-field-new style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">+ 新建自定义列</button>
+                            <button type="button" class="tm-btn tm-btn-primary" data-tm-custom-field-new style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">${__tmT("settings.newCustomColumn")}</button>
                         </div>
-                        ${defsNow.length ? `<button type="button" class="tm-btn tm-btn-danger" data-tm-custom-field-clear-all style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">清空自定义列设置</button>` : ''}
+                        ${defsNow.length ? `<button type="button" class="tm-btn tm-btn-danger" data-tm-custom-field-clear-all style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">${__tmT("settings.clearCustomColumnSettings")}</button>` : ''}
                     </div>
                     <div style="display:flex;flex-direction:column;gap:14px;">
                         <div style="display:grid;grid-template-columns:${isCompact ? '1fr' : 'minmax(0,1fr) 120px'};gap:12px;">
                             <label style="display:flex;flex-direction:column;gap:6px;min-width:0;">
-                                <span style="font-size:12px;color:var(--tm-secondary-text);">自定义列名称</span>
-                                <input type="text" data-tm-custom-field-name value="${esc(String(draft.name || '').trim())}" placeholder="例如：负责人 / 渠道 / 标签" style="box-sizing:border-box;width:100%;min-width:0;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:10px;background:var(--tm-input-bg);color:var(--tm-text-color);">
+                                <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.customColumnName")}</span>
+                                <input type="text" data-tm-custom-field-name value="${esc(String(draft.name || '').trim())}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.forExampleOwnerChannelTags")}" style="box-sizing:border-box;width:100%;min-width:0;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:10px;background:var(--tm-input-bg);color:var(--tm-text-color);">
                             </label>
                             <label style="display:flex;flex-direction:column;gap:6px;min-width:0;">
-                                <span style="font-size:12px;color:var(--tm-secondary-text);">自定义列类型</span>
+                                <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.customColumnType")}</span>
                                 <select data-tm-custom-field-type style="box-sizing:border-box;width:100%;min-width:0;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:10px;background:var(--tm-input-bg);color:var(--tm-text-color);">
-                                    <option value="single" ${draftType === 'single' ? 'selected' : ''}>单选</option>
-                                    <option value="multi" ${draftType === 'multi' ? 'selected' : ''}>多选</option>
-                                    <option value="text" ${draftType === 'text' ? 'selected' : ''}>文本</option>
+                                    <option value="single" ${draftType === 'single' ? 'selected' : ''}>${__tmT("task.singleSelect")}</option>
+                                    <option value="multi" ${draftType === 'multi' ? 'selected' : ''}>${__tmT("task.multiSelect")}</option>
+                                    <option value="text" ${draftType === 'text' ? 'selected' : ''}>${__tmT("task.text")}</option>
                                 </select>
                             </label>
                         </div>
                         <label style="display:flex;flex-direction:column;gap:6px;">
-                            <span style="font-size:12px;color:var(--tm-secondary-text);">属性键名</span>
-                            <input type="text" data-tm-custom-field-attr-key value="${esc(String(draft.attrKey || '').trim())}" placeholder="例如 location / owner / channel" style="width:100%;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:10px;background:var(--tm-input-bg);color:var(--tm-text-color);">
-                            <span style="font-size:12px;color:var(--tm-secondary-text);">会写入思源块属性 custom-tm-属性键名。仅支持字母、数字、-；留空时会自动使用稳定的字段 ID。</span>
+                            <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.attributeKey")}</span>
+                            <input type="text" data-tm-custom-field-attr-key value="${esc(String(draft.attrKey || '').trim())}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.forExampleLocationOwnerChannel")}" style="width:100%;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:10px;background:var(--tm-input-bg);color:var(--tm-text-color);">
+                            <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.writtenToTheSiyuanBlockAttributeCustomTmKey")}</span>
                         </label>
                         <div style="display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
                             <label style="display:flex;flex-direction:column;gap:6px;">
-                                <span style="font-size:12px;color:var(--tm-secondary-text);">生效范围</span>
+                                <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.scope")}</span>
                                 <select data-tm-custom-field-scope-mode style="width:100%;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:8px;background:var(--tm-input-bg);color:var(--tm-text-color);">
-                                    <option value="global" ${scopeMode === 'global' ? 'selected' : ''}>全部文档</option>
-                                    <option value="selected" ${scopeMode === 'selected' ? 'selected' : ''}>指定文档、文档分组或页签组</option>
+                                    <option value="global" ${scopeMode === 'global' ? 'selected' : ''}>${__tmT("task.allDocuments")}</option>
+                                    <option value="selected" ${scopeMode === 'selected' ? 'selected' : ''}>${__tmT("settings.specifiedDocumentsDocumentGroupsOrTabGroups")}</option>
                                 </select>
                             </label>
                             ${scopeMode === 'selected' ? `
                                 <div class="tm-custom-field-scope-selection">
                                     <div class="tm-custom-field-scope-selection__header">
-                                        <span>已选择范围</span>
-                                        <span>${selectedScopeItems.length} 项</span>
+                                        <span>${__tmT("settings.selectedScope")}</span>
+                                        <span>${__tmT("settings.items", { length: selectedScopeItems.length })}</span>
                                     </div>
                                     <div class="tm-custom-field-scope-selection__items">${selectedScopeSummaryHtml}</div>
                                 </div>
                                 <div class="tm-custom-field-scope-controls">
                                     <div class="tm-custom-field-scope-control tm-custom-field-scope-control--documents" data-tm-custom-field-scope-control="doc">
-                                        <div class="tm-custom-field-scope-control__label"><span>文档</span></div>
+                                        <div class="tm-custom-field-scope-control__label"><span>${__tmT("kernel.documents")}</span></div>
                                         <div class="tm-custom-field-scope-search-wrap">
-                                            <input class="tm-custom-field-scope-search" type="search" data-tm-custom-field-scope-doc-search value="${esc(scopeDocSearch)}" placeholder="搜索并选择文档" autocomplete="off" aria-expanded="${openScopePicker === 'doc' ? 'true' : 'false'}">
+                                            <input class="tm-custom-field-scope-search" type="search" data-tm-custom-field-scope-doc-search value="${esc(scopeDocSearch)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("settings.searchAndSelectDocuments")}" autocomplete="off" aria-expanded="${openScopePicker === 'doc' ? 'true' : 'false'}">
                                         </div>
-                                        <div class="tm-custom-field-scope-help" data-tm-custom-field-scope-doc-status role="status" ${scopeDocumentData ? 'hidden' : ''}>正在加载文档…</div>
-                                        <div class="tm-custom-field-scope-menu" data-tm-custom-field-scope-list="doc" data-tm-custom-field-scope-doc-list ${openScopePicker === 'doc' ? '' : 'hidden'}>${scopeDocSearch ? docScopeChoices : '<div class="tm-custom-field-scope-empty">输入文档名称开始搜索</div>'}</div>
+                                        <div class="tm-custom-field-scope-help" data-tm-custom-field-scope-doc-status role="status" ${scopeDocumentData ? 'hidden' : ''}>${__tmT("task.loadingDocuments2")}</div>
+                                        <div class="tm-custom-field-scope-menu" data-tm-custom-field-scope-list="doc" data-tm-custom-field-scope-doc-list ${openScopePicker === 'doc' ? '' : 'hidden'}>${scopeDocSearch ? docScopeChoices : `<div class="tm-custom-field-scope-empty">${__tmT("settings.typeADocumentNameToSearch")}</div>`}</div>
                                     </div>
                                     <div class="tm-custom-field-scope-control" data-tm-custom-field-scope-control="docGroup">
-                                        <div class="tm-custom-field-scope-control__label"><span>文档分组</span><span>${availableDocGroups.length}</span></div>
+                                        <div class="tm-custom-field-scope-control__label"><span>${__tmT("calendar.documentGroups")}</span><span>${availableDocGroups.length}</span></div>
                                         <button type="button" class="tm-custom-field-scope-trigger" data-tm-custom-field-scope-trigger="docGroup" aria-expanded="${openScopePicker === 'docGroup' ? 'true' : 'false'}">
-                                            <span>${selectedScope.docGroupIds.length ? `已选择 ${selectedScope.docGroupIds.length} 项` : '选择文档分组'}</span>
+                                            <span>${selectedScope.docGroupIds.length ? __tmT("settings.selected4", { length: selectedScope.docGroupIds.length }) : __tmT("task.selectADocumentGroup")}</span>
                                         </button>
                                         <div class="tm-custom-field-scope-menu" data-tm-custom-field-scope-list="docGroup" ${openScopePicker === 'docGroup' ? '' : 'hidden'}>${docGroupScopeChoices}</div>
                                     </div>
                                     <div class="tm-custom-field-scope-control" data-tm-custom-field-scope-control="tabGroup">
-                                        <div class="tm-custom-field-scope-control__label"><span>页签组</span><span>${availableDocTabGroups.length}</span></div>
+                                        <div class="tm-custom-field-scope-control__label"><span>${__tmT("task.tabGroups2")}</span><span>${availableDocTabGroups.length}</span></div>
                                         <button type="button" class="tm-custom-field-scope-trigger" data-tm-custom-field-scope-trigger="tabGroup" aria-expanded="${openScopePicker === 'tabGroup' ? 'true' : 'false'}">
-                                            <span>${selectedScope.docTabGroupIds.length ? `已选择 ${selectedScope.docTabGroupIds.length} 项` : '选择页签组'}</span>
+                                            <span>${selectedScope.docTabGroupIds.length ? __tmT("settings.selected4", { length: selectedScope.docTabGroupIds.length }) : __tmT("settings.selectTabGroup")}</span>
                                         </button>
                                         <div class="tm-custom-field-scope-menu" data-tm-custom-field-scope-list="tabGroup" ${openScopePicker === 'tabGroup' ? '' : 'hidden'}>${docTabGroupScopeChoices}</div>
                                     </div>
                                 </div>
-                                <span class="tm-custom-field-scope-help">三个范围按并集生效</span>
+                                <span class="tm-custom-field-scope-help">${__tmT("settings.theThreeScopesApplyAsAUnion")}</span>
                             ` : ''}
                         </div>
                         ${supportsOptions ? `
                             <div style="display:flex;align-items:${isCompact ? 'stretch' : 'center'};justify-content:space-between;gap:12px;flex-direction:${isCompact ? 'column' : 'row'};">
                                 <div style="min-width:0;">
-                                    <div style="font-size:13px;font-weight:600;">选项配置</div>
-                                    <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:4px;">最多三层。桌面端可拖拽；移动端和键盘可使用每行的移动按钮。</div>
+                                    <div style="font-size:13px;font-weight:600;">${__tmT("settings.optionConfiguration")}</div>
+                                    <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:4px;">${__tmT("settings.upToThreeLevelsDragOnDesktopOnMobile")}</div>
                                 </div>
-                                <button type="button" class="tm-btn tm-btn-secondary" data-tm-custom-field-add-option style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};${isCompact ? 'width:100%;' : ''}">+ 添加选项</button>
+                                <button type="button" class="tm-btn tm-btn-secondary" data-tm-custom-field-add-option style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};${isCompact ? 'width:100%;' : ''}">${__tmT("settings.addOption")}</button>
                             </div>
-                            <div class="tm-custom-field-option-tree">${draft.options.length ? optionTreeHtml : '<div style="font-size:12px;color:var(--tm-secondary-text);padding:10px;border:1px dashed var(--tm-border-color);border-radius:8px;">请至少添加一个选项</div>'}</div>
+                            <div class="tm-custom-field-option-tree">${draft.options.length ? optionTreeHtml : `<div style="font-size:12px;color:var(--tm-secondary-text);padding:10px;border:1px dashed var(--tm-border-color);border-radius:8px;">${__tmT("settings.addAtLeastOneOption")}</div>`}</div>
                         ` : `
-                            <div style="font-size:12px;color:var(--tm-secondary-text);padding:12px;border:1px dashed var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);line-height:1.6;">
-                                文本列不需要预设选项。创建后会像备注一样直接输入文本，并支持在表格、任务详情和 Excel 导出中使用。
-                            </div>
+                            <div style="font-size:12px;color:var(--tm-secondary-text);padding:12px;border:1px dashed var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);line-height:1.6;">${__tmT("settings.textColumnsNeedNoPresetOptionsAfterCreationThey")}</div>
                         `}
                         <div style="display:flex;align-items:${isCompact ? 'stretch' : 'center'};justify-content:space-between;gap:10px;flex-wrap:wrap;flex-direction:${isCompact ? 'column' : 'row'};border-top:1px solid var(--tm-border-color);padding-top:14px;">
-                            <div style="font-size:12px;color:var(--tm-secondary-text);width:${isCompact ? '100%' : 'auto'};line-height:1.5;">${currentFieldId ? `当前编辑自定义列：${esc(String(draft.name || currentFieldId).trim() || currentFieldId)}` : '新的自定义列会自动加入列设置，可继续在外观里排序或隐藏'}</div>
+                            <div style="font-size:12px;color:var(--tm-secondary-text);width:${isCompact ? '100%' : 'auto'};line-height:1.5;">${currentFieldId ? __tmT("settings.editingCustomColumn", { value1: esc(String(draft.name || currentFieldId).trim() || currentFieldId) }) : __tmT("settings.newCustomColumnsJoinTheColumnSettingsAutomaticallyReorder")}</div>
                             <div style="display:${isCompact ? 'grid' : 'flex'};gap:8px;flex-wrap:wrap;width:${isCompact ? '100%' : 'auto'};${isCompact ? `grid-template-columns:${isPhone ? '1fr' : `repeat(${currentFieldId ? 3 : 2}, minmax(0,1fr))`};` : ''}">
-                                ${currentFieldId ? `<button type="button" class="tm-btn tm-btn-danger" data-tm-custom-field-delete style="padding:${isCompact ? '8px 12px' : '6px 10px'};min-height:${isCompact ? '40px' : 'auto'};">删除自定义列</button>` : ''}
-                                <button type="button" class="tm-btn tm-btn-secondary" data-tm-custom-field-cancel style="padding:${isCompact ? '8px 12px' : '6px 10px'};min-height:${isCompact ? '40px' : 'auto'};">取消</button>
-                                <button type="button" class="tm-btn tm-btn-primary" data-tm-custom-field-save style="padding:${isCompact ? '8px 12px' : '6px 12px'};min-height:${isCompact ? '40px' : 'auto'};">保存自定义列</button>
+                                ${currentFieldId ? `<button type="button" class="tm-btn tm-btn-danger" data-tm-custom-field-delete style="padding:${isCompact ? '8px 12px' : '6px 10px'};min-height:${isCompact ? '40px' : 'auto'};">${__tmT("settings.deleteCustomColumn")}</button>` : ''}
+                                <button type="button" class="tm-btn tm-btn-secondary" data-tm-custom-field-cancel style="padding:${isCompact ? '8px 12px' : '6px 10px'};min-height:${isCompact ? '40px' : 'auto'};">${__tmT("common.cancel")}</button>
+                                <button type="button" class="tm-btn tm-btn-primary" data-tm-custom-field-save style="padding:${isCompact ? '8px 12px' : '6px 12px'};min-height:${isCompact ? '40px' : 'auto'};">${__tmT("settings.saveCustomColumn")}</button>
                             </div>
                         </div>
                     </div>
@@ -1551,7 +1549,7 @@
                 readDraftFromDom();
                 const name = String(draft.name || '').trim();
                 if (!name) {
-                    hint('⚠️ 自定义列名称不能为空', 'warning');
+                    hint(__tmT("settings.customColumnNameCannotBeEmpty"), 'warning');
                     return;
                 }
                 const currentDefs = __tmGetCustomFieldDefs();
@@ -1569,7 +1567,7 @@
                 }
                 const attrKey = __tmNormalizeCustomFieldAttrName(draft.attrKey || nextId, nextId);
                 if (!attrKey) {
-                    hint('⚠️ 属性键名不能为空', 'warning');
+                    hint(__tmT("settings.attributeKeyCannotBeEmpty"), 'warning');
                     return;
                 }
                 const draftType = String(draft.type || 'single').trim() === 'multi'
@@ -1585,22 +1583,22 @@
                         archived: option?.archived === true,
                     })).filter((option) => option.name));
                 if (draftType !== 'text' && !optionsList.length) {
-                    hint('⚠️ 请至少保留一个选项', 'warning');
+                    hint(__tmT("settings.keepAtLeastOneOption"), 'warning');
                     return;
                 }
                 const optionNames = optionsList.map((option) => String(option?.name || '').trim().toLocaleLowerCase());
                 if (new Set(optionNames).size !== optionNames.length) {
-                    hint('⚠️ 同一自定义列内的选项名称不能重复', 'warning');
+                    hint(__tmT("settings.optionNamesWithinACustomColumnCannotRepeat"), 'warning');
                     return;
                 }
                 const nextScope = __tmNormalizeCustomFieldScope(draft.scope);
                 if (nextScope && !nextScope.docIds.length && !nextScope.docGroupIds.length && !nextScope.docTabGroupIds.length) {
-                    hint('⚠️ 指定范围时请至少选择一个文档、文档分组或页签组', 'warning');
+                    hint(__tmT("settings.withASpecificScopeSelectAtLeastOneDocument"), 'warning');
                     return;
                 }
                 const duplicateAttrField = others.find((field) => __tmNormalizeCustomFieldAttrName(field?.attrKey || field?.id || field?.name || 'field', field?.id || 'field') === attrKey);
                 if (duplicateAttrField) {
-                    hint('⚠️ 属性键名已存在，请换一个', 'warning');
+                    hint(__tmT("settings.theAttributeKeyAlreadyExistsUseAnotherOne"), 'warning');
                     return;
                 }
                 const prevField = currentDefs.find((field) => String(field?.id || '').trim() === currentFieldId) || null;
@@ -1641,7 +1639,7 @@
                 currentFieldId = nextId;
                 draft = resolveDraft(__tmGetCustomFieldDefs().find((field) => String(field?.id || '').trim() === nextId) || null);
                 try { globalThis.__taskHorizonQuickbarInvalidateCustomFieldScope?.(); } catch (e) {}
-                hint('✅ 自定义列已保存', 'success');
+                hint(__tmT("settings.customColumnSaved"), 'success');
                 if (state.settingsModal) showSettings();
                 render();
                 renderDialog();
@@ -1666,13 +1664,13 @@
             dialog.querySelector('[data-tm-custom-field-cancel]')?.addEventListener('click', close);
             dialog.querySelector('[data-tm-custom-field-save]')?.addEventListener('click', () => {
                 saveField().catch((e) => {
-                    hint(`❌ 保存自定义列失败: ${e?.message || '未知错误'}`, 'error');
+                    hint(__tmT("settings.failedToSaveTheCustomColumn", { value1: e?.message || __tmT("plugin.unknownError") }), 'error');
                 });
             });
             dialog.querySelector('[data-tm-custom-field-delete]')?.addEventListener('click', () => { deleteField().catch(() => null); });
             dialog.querySelector('[data-tm-custom-field-clear-all]')?.addEventListener('click', () => {
                 clearAllFields().catch((e) => {
-                    hint(`❌ 清空自定义列设置失败: ${e?.message || '未知错误'}`, 'error');
+                    hint(__tmT("settings.failedToClearTheCustomColumnSettings", { value1: e?.message || __tmT("plugin.unknownError") }), 'error');
                 });
             });
             dialog.querySelector('[data-tm-custom-field-add-option]')?.addEventListener('click', () => {
@@ -1717,9 +1715,9 @@
                 const searchResults = resolveDocScopeSearchResults(scopeDocSearch);
                 const selectedDocIds = __tmNormalizeCustomFieldScope(draft.scope)?.docIds || [];
                 listEl.innerHTML = scopeDocSearch
-                    ? (scopeDocumentData ? buildScopeChoices(searchResults.shown, selectedDocIds, resolveDocScopeLabel, 'doc', '未找到匹配文档')
-                        : (scopeDocumentsFailed ? '<div class="tm-custom-field-scope-empty">文档加载失败，请重试。</div>' : docScopePendingHtml))
-                    : '<div class="tm-custom-field-scope-empty">输入文档名称开始搜索</div>';
+                    ? (scopeDocumentData ? buildScopeChoices(searchResults.shown, selectedDocIds, resolveDocScopeLabel, 'doc', __tmT("settings.noMatchingDocumentsFound"))
+                        : (scopeDocumentsFailed ? `<div class="tm-custom-field-scope-empty">${__tmT("settings.failedToLoadDocumentsTryAgain")}</div>` : docScopePendingHtml))
+                    : `<div class="tm-custom-field-scope-empty">${__tmT("settings.typeADocumentNameToSearch")}</div>`;
                 bindScopeCheckboxes(listEl);
             };
             refreshScopeDocumentUi = () => {
@@ -1727,12 +1725,12 @@
                 const statusEl = dialog.querySelector('[data-tm-custom-field-scope-doc-status]');
                 if (statusEl) {
                     statusEl.hidden = !!scopeDocumentData;
-                    statusEl.textContent = scopeDocumentsFailed ? '文档加载失败，请重试。' : '正在加载文档…';
+                    statusEl.textContent = scopeDocumentsFailed ? __tmT("settings.failedToLoadDocumentsTryAgain") : __tmT("task.loadingDocuments2");
                     if (scopeDocumentsFailed) {
                         const retry = document.createElement('button');
                         retry.type = 'button';
                         retry.className = 'tm-btn tm-btn-secondary';
-                        retry.textContent = '重试';
+                        retry.textContent = __tmT("common.retry");
                         retry.addEventListener('click', () => { loadScopeDocuments(); refreshScopeDocumentUi(); });
                         statusEl.appendChild(retry);
                     }
@@ -1740,10 +1738,10 @@
                 if (scopeDocumentData) {
                     dialog.querySelectorAll('[data-tm-custom-field-scope-remove="doc"]').forEach((button) => {
                         const id = String(button.getAttribute('data-tm-scope-id') || '').trim();
-                        const label = scopeDocumentData.labels.get(id) || `${id}（已失效）`;
+                        const label = scopeDocumentData.labels.get(id) || __tmT("settings.invalid", { id: id });
                         const labelEl = button.querySelector('.tm-custom-field-scope-token__label');
                         if (labelEl) labelEl.textContent = label;
-                        button.title = `移除文档：${label}`;
+                        button.title = __tmT("settings.removeDocument", { label: label });
                     });
                 }
                 refreshDocSearchResults();
@@ -1815,8 +1813,8 @@
                 const result = __tmMoveCustomFieldOptionSubtree(draft.options, move);
                 if (!result.ok) {
                     const message = result.reason === 'max-depth'
-                        ? '最多支持三层，当前子树不能移动到这里'
-                        : (result.reason === 'cycle' ? '不能把选项移动到自身或其子项下' : '当前选项无法移动到该位置');
+                        ? __tmT("settings.upToThreeLevelsAreSupportedTheCurrentSubtree")
+                        : (result.reason === 'cycle' ? __tmT("settings.anOptionCannotBeMovedIntoItselfOrIts") : __tmT("settings.theCurrentOptionCannotBeMovedThere"));
                     hint(`⚠️ ${message}`, 'warning');
                     return false;
                 }
@@ -1871,11 +1869,11 @@
                     }
                     if (action === 'delete') {
                         if ((runtime.childrenByParentId.get(optionId) || []).length) {
-                            hint('⚠️ 请先移动或删除该选项的子项', 'warning');
+                            hint(__tmT("settings.moveOrDeleteThisOptionSChildrenFirst"), 'warning');
                             return;
                         }
                         const optionName = String(option?.name || optionId).trim() || optionId;
-                        if (!window.confirm(`确定删除选项“${optionName}”吗？历史任务中的原始属性值不会被批量改写。`)) return;
+                        if (!window.confirm(__tmT("settings.deleteOptionRawAttributeValuesInExistingTasksAre", { optionName: optionName }))) return;
                         draft.options = draft.options.filter((item) => String(item?.id || '').trim() !== optionId);
                         renderDialog();
                     }
@@ -1951,7 +1949,7 @@
         if (existing) existing.remove();
         const fieldDefs = typeof __tmGetTaskMetaAttrFieldDefs === 'function' ? __tmGetTaskMetaAttrFieldDefs() : [];
         if (!fieldDefs.length) {
-            hint('⚠️ 当前版本未加载内置字段属性名配置', 'warning');
+            hint(__tmT("settings.theBuiltInFieldAttributeConfigurationIsNotLoaded"), 'warning');
             return;
         }
         const backdrop = document.createElement('div');
@@ -1974,7 +1972,7 @@
 
         const close = () => {
             if (stateLocal.running) {
-                hint('⚠️ 迁移正在执行，请等待完成', 'warning');
+                hint(__tmT("settings.aMigrationIsRunningWaitForItToFinish"), 'warning');
                 return;
             }
             try { backdrop.remove(); } catch (e) {}
@@ -2015,11 +2013,11 @@
         const getPreviewStats = (field) => stateLocal.preview?.stats?.[field] || null;
         const renderStatsText = (field) => {
             const stats = getPreviewStats(field);
-            if (!stats) return '未预览';
+            if (!stats) return __tmT("settings.notPreviewed");
             const migrated = Number(stats.migrated || 0);
             const failed = Number(stats.failed || 0);
-            const suffix = migrated || failed ? `，已写 ${migrated}，失败 ${failed}` : '';
-            return `可迁移 ${stats.copy || 0}，跳过 ${stats.exists || 0}，无旧值 ${stats.noOldValue || 0}，冲突 ${stats.conflict || 0}${suffix}`;
+            const suffix = migrated || failed ? __tmT("settings.writtenFailed", { migrated: migrated, failed: failed }) : '';
+            return __tmT("settings.migratableSkippedNoOldValueConflicts", { value1: stats.copy || 0, value2: stats.exists || 0, value3: stats.noOldValue || 0, value4: stats.conflict || 0, suffix: suffix });
         };
         const queryAllTaskRows = async () => {
             const rows = [];
@@ -2103,7 +2101,7 @@
             const entries = [];
             if (!selectedRows.length) return { stats, entries, taskCount: 0, hostCount: 0 };
             const tasks = await queryAllTaskRows();
-            setStatus(`已扫描任务 ${tasks.length} 个，正在解析属性宿主块...`);
+            setStatus(__tmT("settings.scannedTasksResolvingAttributeHostBlocks", { length: tasks.length }));
             await resolveHostRows(tasks);
             const hostIds = Array.from(new Set(tasks.map((task) => String(task?.attrHostId || task?.attr_host_id || task?.id || '').trim()).filter(Boolean)));
             const attrNames = [];
@@ -2150,7 +2148,7 @@
             rows.forEach((row) => { draftKeys[row.field] = row.nextKey || row.defaultKey; });
             const validation = __tmValidateTaskMetaAttrSettings(draftKeys);
             if (!validation.ok) {
-                hint(`⚠️ ${validation.errors[0] || '属性名不合法'}`, 'warning');
+                hint(`⚠️ ${validation.errors[0] || __tmT("settings.invalidAttributeName")}`, 'warning');
                 setStatus(validation.errors.join('；'));
                 return false;
             }
@@ -2184,8 +2182,8 @@
                 stateLocal.draftKeys[def.field] = validation.keys[def.field] || def.defaultKey;
             });
             stateLocal.preview = null;
-            setStatus('字段名设置已保存。迁移不会自动执行，可先预览再迁移。');
-            hint('✅ 内置字段属性名已保存', 'success');
+            setStatus(__tmT("settings.fieldNameSettingsSavedMigrationDoesNotRunAutomatically"));
+            hint(__tmT("settings.builtInFieldAttributeNamesSaved"), 'success');
             return true;
         };
         const refreshAfterMigration = async () => {
@@ -2207,12 +2205,12 @@
             renderDialog();
             try {
                 if (!(await saveFieldNames(rowsBeforeSave))) return;
-                setStatus('正在预览迁移...');
+                setStatus(__tmT("settings.previewingMigration"));
                 const plan = await buildMigrationPlan(rowsBeforeSave, { previewOnly: false });
-                setStatus(`预览完成：任务 ${plan.taskCount} 个，宿主块 ${plan.hostCount} 个，可迁移 ${plan.entries.length} 项。`);
+                setStatus(__tmT("settings.previewCompleteTasksHostBlocksMigratableItems", { taskCount: plan.taskCount, hostCount: plan.hostCount, length: plan.entries.length }));
             } catch (e) {
-                setStatus(`预览失败：${String(e?.message || e || '未知错误')}`);
-                hint(`❌ 预览失败: ${e?.message || '未知错误'}`, 'error');
+                setStatus(__tmT("settings.previewFailed", { value1: String(e?.message || e || __tmT("plugin.unknownError")) }));
+                hint(__tmT("settings.previewFailed2", { value1: e?.message || __tmT("plugin.unknownError") }), 'error');
             } finally {
                 stateLocal.running = false;
                 renderDialog();
@@ -2222,28 +2220,28 @@
             if (stateLocal.running) return;
             const selectedRows = getRowsFromDom().filter((row) => row.migrate);
             if (!selectedRows.length) {
-                hint('⚠️ 请至少勾选一个字段', 'warning');
+                hint(__tmT("settings.selectAtLeastOneField"), 'warning');
                 return;
             }
-            if (!confirm('迁移会把旧属性值复制到新属性名，旧属性会保留且新属性已有值时不会覆盖。继续吗？')) return;
+            if (!confirm(__tmT("settings.migrationCopiesOldAttributeValuesToTheNewAttribute"))) return;
             const rowsBeforeSave = getRowsFromDom();
             stateLocal.running = true;
             renderDialog();
             try {
                 if (!(await saveFieldNames(rowsBeforeSave))) return;
-                setStatus('正在准备迁移...');
+                setStatus(__tmT("settings.preparingMigration"));
                 const plan = await buildMigrationPlan(rowsBeforeSave, { previewOnly: false });
                 const entries = Array.isArray(plan.entries) ? plan.entries : [];
                 const stats = plan.stats || buildFieldStats();
                 if (!entries.length) {
                     stateLocal.preview = { ...plan, stats };
-                    setStatus('没有需要迁移的项目。');
+                    setStatus(__tmT("settings.nothingToMigrate"));
                     return;
                 }
                 const chunkSize = 40;
                 for (let i = 0; i < entries.length; i += chunkSize) {
                     const chunk = entries.slice(i, i + chunkSize);
-                    setStatus(`正在迁移 ${Math.min(i + chunk.length, entries.length)} / ${entries.length}...`);
+                    setStatus(__tmT("settings.migrating", { value1: Math.min(i + chunk.length, entries.length), length: entries.length }));
                     for (const entry of chunk) {
                         try {
                             const latest = await API.call('/api/attr/getBlockAttrs', { id: entry.hostId });
@@ -2253,7 +2251,7 @@
                                 continue;
                             }
                             const adapter = globalThis.__tmTaskHorizonBackendAdapter;
-                            if (!adapter || typeof adapter.setAttrs !== 'function') throw new Error('任务写入适配器未就绪: setAttrs');
+                            if (!adapter || typeof adapter.setAttrs !== 'function') throw new Error(__tmT("task.taskWriteAdapterIsNotReadySetattrs"));
                             await adapter.setAttrs(entry.hostId, { [entry.newKey]: entry.value });
                             stats[entry.field].migrated += 1;
                         } catch (e) {
@@ -2262,12 +2260,12 @@
                     }
                 }
                 stateLocal.preview = { ...plan, stats };
-                setStatus(`迁移完成：写入 ${Object.values(stats).reduce((sum, item) => sum + Number(item.migrated || 0), 0)} 项，失败 ${Object.values(stats).reduce((sum, item) => sum + Number(item.failed || 0), 0)} 项。`);
+                setStatus(__tmT("settings.migrationCompleteWroteItemsFailedItems", { value1: Object.values(stats).reduce((sum, item) => sum + Number(item.migrated || 0), 0), value2: Object.values(stats).reduce((sum, item) => sum + Number(item.failed || 0), 0) }));
                 await refreshAfterMigration();
-                hint('✅ 迁移完成', 'success');
+                hint(__tmT("settings.migrationComplete"), 'success');
             } catch (e) {
-                setStatus(`迁移失败：${String(e?.message || e || '未知错误')}`);
-                hint(`❌ 迁移失败: ${e?.message || '未知错误'}`, 'error');
+                setStatus(__tmT("settings.migrationFailed", { value1: String(e?.message || e || __tmT("plugin.unknownError")) }));
+                hint(__tmT("settings.migrationFailed2", { value1: e?.message || __tmT("plugin.unknownError") }), 'error');
             } finally {
                 stateLocal.running = false;
                 renderDialog();
@@ -2296,35 +2294,33 @@
             dialog.innerHTML = `
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--tm-border-color);">
                     <div>
-                        <div style="font-weight:700;font-size:15px;">内置字段属性名与迁移</div>
-                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:3px;">保存字段名不会自动迁移。迁移只复制旧值到新属性名，旧属性保留。</div>
+                        <div style="font-weight:700;font-size:15px;">${__tmT("settings.builtInFieldAttributeNamesMigration")}</div>
+                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:3px;">${__tmT("settings.savingFieldNamesDoesNotMigrateAutomaticallyMigrationOnly")}</div>
                     </div>
-                    <button class="tm-btn tm-btn-secondary" data-tm-task-meta-close>关闭</button>
+                    <button class="tm-btn tm-btn-secondary" data-tm-task-meta-close>${__tmT("common.close")}</button>
                 </div>
                 <div style="padding:12px 16px;overflow:auto;">
-                    <div style="font-size:12px;line-height:1.6;color:var(--tm-secondary-text);background:var(--tm-card-bg);border:1px solid var(--tm-border-color);border-radius:8px;padding:10px 12px;margin-bottom:12px;">
-                        风险：多设备旧版本仍会写旧属性，可能出现新旧 key 并存；迁移不会清理旧字段；新 key 已有值时跳过不覆盖；属性名不能与自定义列、附件、循环、番茄钟、提醒等保留 key 冲突。
-                    </div>
+                    <div style="font-size:12px;line-height:1.6;color:var(--tm-secondary-text);background:var(--tm-card-bg);border:1px solid var(--tm-border-color);border-radius:8px;padding:10px 12px;margin-bottom:12px;">${__tmT("settings.risksOlderVersionsOnOtherDevicesStillWriteThe")}</div>
                     <table style="width:100%;border-collapse:collapse;font-size:13px;">
                         <thead>
                             <tr style="text-align:left;color:var(--tm-secondary-text);">
-                                <th style="padding:6px 10px;width:62px;">迁移</th>
-                                <th style="padding:6px 10px;">字段</th>
-                                <th style="padding:6px 10px;">默认属性名</th>
-                                <th style="padding:6px 10px;">当前属性名</th>
-                                <th style="padding:6px 10px;">新属性名</th>
-                                <th style="padding:6px 10px;">预览统计</th>
+                                <th style="padding:6px 10px;width:62px;">${__tmT("settings.migrate")}</th>
+                                <th style="padding:6px 10px;">${__tmT("settings.field")}</th>
+                                <th style="padding:6px 10px;">${__tmT("settings.defaultAttribute")}</th>
+                                <th style="padding:6px 10px;">${__tmT("settings.currentAttribute")}</th>
+                                <th style="padding:6px 10px;">${__tmT("settings.newAttribute")}</th>
+                                <th style="padding:6px 10px;">${__tmT("settings.previewStats")}</th>
                             </tr>
                         </thead>
                         <tbody>${rowsHtml}</tbody>
                     </table>
                 </div>
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-top:1px solid var(--tm-border-color);">
-                    <div data-tm-task-meta-status style="font-size:12px;color:var(--tm-secondary-text);min-height:18px;">${esc(stateLocal.status || '未执行迁移。')}</div>
+                    <div data-tm-task-meta-status style="font-size:12px;color:var(--tm-secondary-text);min-height:18px;">${esc(stateLocal.status || __tmT("settings.noMigrationWasPerformed"))}</div>
                     <div style="display:flex;gap:8px;align-items:center;">
-                        <button class="tm-btn tm-btn-secondary" data-tm-task-meta-save ${stateLocal.running ? 'disabled' : ''}>保存字段名</button>
-                        <button class="tm-btn tm-btn-secondary" data-tm-task-meta-preview ${stateLocal.running ? 'disabled' : ''}>预览迁移</button>
-                        <button class="tm-btn tm-btn-primary" data-tm-task-meta-migrate-run ${stateLocal.running ? 'disabled' : ''}>迁移选中字段</button>
+                        <button class="tm-btn tm-btn-secondary" data-tm-task-meta-save ${stateLocal.running ? 'disabled' : ''}>${__tmT("settings.saveFieldNames")}</button>
+                        <button class="tm-btn tm-btn-secondary" data-tm-task-meta-preview ${stateLocal.running ? 'disabled' : ''}>${__tmT("settings.previewMigration")}</button>
+                        <button class="tm-btn tm-btn-primary" data-tm-task-meta-migrate-run ${stateLocal.running ? 'disabled' : ''}>${__tmT("settings.migrateSelectedFields")}</button>
                     </div>
                 </div>
             `;
@@ -2347,7 +2343,7 @@
             });
             dialog.querySelector('[data-tm-task-meta-close]')?.addEventListener('click', close);
             dialog.querySelector('[data-tm-task-meta-save]')?.addEventListener('click', () => {
-                saveFieldNames().then((ok) => { if (ok) renderDialog(); }).catch((e) => hint(`❌ 保存失败: ${e?.message || '未知错误'}`, 'error'));
+                saveFieldNames().then((ok) => { if (ok) renderDialog(); }).catch((e) => hint(__tmT("settings.saveFailed", { value1: e?.message || __tmT("plugin.unknownError") }), 'error'));
             });
             dialog.querySelector('[data-tm-task-meta-preview]')?.addEventListener('click', () => { previewMigration().catch(() => null); });
             dialog.querySelector('[data-tm-task-meta-migrate-run]')?.addEventListener('click', () => { migrateSelected().catch(() => null); });
@@ -2399,7 +2395,7 @@
         }
         if (!hasColumn) return true;
         if (order.length <= 1) {
-            hint('时间轴至少需要保留一列', 'info');
+            hint(__tmT("settings.theTimelineMustKeepAtLeastOneColumn"), 'info');
             return false;
         }
         return __tmApplyTimelineColumnOrder(order.filter((item) => item !== key), 'timeline-column-hide');
@@ -2476,13 +2472,13 @@
         if (scope === 'timeline') {
             const order = __tmGetTimelineColumnOrder();
             const index = order.indexOf(key);
-            if (index > 0) createItem('向左移动', () => { window.tmMoveTimelineColumn(key, -1).catch(() => null); });
-            if (index >= 0 && index < order.length - 1) createItem('向右移动', () => { window.tmMoveTimelineColumn(key, 1).catch(() => null); });
-            createItem(`隐藏“${__tmResolveColumnLabel(key)}”`, () => { window.tmSetTimelineColumnVisible(key, false).catch(() => null); });
+            if (index > 0) createItem(__tmT("settings.moveLeft"), () => { window.tmMoveTimelineColumn(key, -1).catch(() => null); });
+            if (index >= 0 && index < order.length - 1) createItem(__tmT("settings.moveRight"), () => { window.tmMoveTimelineColumn(key, 1).catch(() => null); });
+            createItem(__tmT("settings.hide", { value1: __tmResolveColumnLabel(key) }), () => { window.tmSetTimelineColumnVisible(key, false).catch(() => null); });
             createDivider();
 
             const listLabel = document.createElement('div');
-            listLabel.textContent = '显示列';
+            listLabel.textContent = __tmT("settings.showColumn");
             listLabel.style.cssText = 'padding:4px 12px 3px;color:var(--b3-theme-on-surface);font-size:12px;';
             menu.appendChild(listLabel);
             const list = document.createElement('div');
@@ -2497,7 +2493,7 @@
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 checkbox.checked = order.includes(colKey);
-                checkbox.setAttribute('aria-label', `显示${__tmResolveColumnLabel(colKey)}`);
+                checkbox.setAttribute('aria-label', __tmT("settings.show", { value1: __tmResolveColumnLabel(colKey) }));
                 checkbox.addEventListener('change', () => {
                     const requested = checkbox.checked;
                     window.tmSetTimelineColumnVisible(colKey, requested).then((ok) => {
@@ -2512,7 +2508,7 @@
             });
             menu.appendChild(list);
             createDivider();
-            createItem('管理自定义列', () => window.tmOpenCustomFieldDialog('', { manager: true }));
+            createItem(__tmT("settings.manageCustomColumns"), () => window.tmOpenCustomFieldDialog('', { manager: true }));
             document.body.appendChild(menu);
             __tmClampFloatingMenuToViewport(menu, event.clientX, event.clientY, { margin: 8 });
             const closeHandler = () => close();
@@ -2522,18 +2518,18 @@
         }
         const fieldId = __tmParseCustomFieldColumnKey(key);
         const field = fieldId ? __tmGetCustomFieldDefMap().get(fieldId) : null;
-        createItem('新增单选列', () => window.tmOpenCustomFieldDialog('', { type: 'single' }));
-        createItem('新增多选列', () => window.tmOpenCustomFieldDialog('', { type: 'multi' }));
-        createItem('新增文本列', () => window.tmOpenCustomFieldDialog('', { type: 'text' }));
-        createItem('管理自定义列', () => window.tmOpenCustomFieldDialog('', { manager: true }));
+        createItem(__tmT("settings.addSingleSelectColumn"), () => window.tmOpenCustomFieldDialog('', { type: 'single' }));
+        createItem(__tmT("settings.addMultiSelectColumn"), () => window.tmOpenCustomFieldDialog('', { type: 'multi' }));
+        createItem(__tmT("settings.addTextColumn"), () => window.tmOpenCustomFieldDialog('', { type: 'text' }));
+        createItem(__tmT("settings.manageCustomColumns"), () => window.tmOpenCustomFieldDialog('', { manager: true }));
         if (field) {
             createDivider();
-            createItem(`编辑“${field.name}”`, () => window.tmOpenCustomFieldDialog(fieldId));
-            createItem(`隐藏“${field.name}”`, () => window.toggleColumn(key, false, { refreshSettings: false }));
-            createItem(`删除“${field.name}”`, () => { window.tmDeleteCustomFieldById(fieldId).catch(() => null); }, true);
+            createItem(__tmT("settings.edit", { name: field.name }), () => window.tmOpenCustomFieldDialog(fieldId));
+            createItem(__tmT("settings.hide2", { name: field.name }), () => window.toggleColumn(key, false, { refreshSettings: false }));
+            createItem(__tmT("settings.delete", { name: field.name }), () => { window.tmDeleteCustomFieldById(fieldId).catch(() => null); }, true);
         } else {
             createDivider();
-            createItem(`隐藏“${__tmResolveColumnLabel(key)}”`, () => window.toggleColumn(key, false, { refreshSettings: false }));
+            createItem(__tmT("settings.hide", { value1: __tmResolveColumnLabel(key) }), () => window.toggleColumn(key, false, { refreshSettings: false }));
         }
         document.body.appendChild(menu);
         __tmClampFloatingMenuToViewport(menu, event.clientX, event.clientY, { margin: 8 });
@@ -2676,7 +2672,7 @@
             try { SettingsStore.syncToLocal(); } catch (e2) {}
             try { await SettingsStore.save(); } catch (e2) {}
             try { showSettings(); } catch (e2) {}
-            try { hint(`❌ 切换失败: ${e?.message || String(e)}`, 'error'); } catch (e2) {}
+            try { hint(__tmT("settings.switchFailed", { value1: e?.message || String(e) }), 'error'); } catch (e2) {}
             throw e;
         }
     };
@@ -2719,7 +2715,7 @@
         await __tmRefreshNotebookCache(true);
         const notebooks = __tmGetNotebookGroupImportNotebookOptions();
         if (notebooks.length === 0) {
-            if (opts.showHints !== false) hint('⚠ 未找到可用笔记本', 'warning');
+            if (opts.showHints !== false) hint(__tmT("settings.noUsableNotebookFound2"), 'warning');
             return { imported: 0, total: 0, groups: [] };
         }
 
@@ -2742,7 +2738,7 @@
         });
 
         if (importedGroups.length === 0) {
-            if (opts.showHints !== false) hint('⚠ 所有笔记本已在分组中', 'warning');
+            if (opts.showHints !== false) hint(__tmT("settings.allNotebooksAreAlreadyInGroups"), 'warning');
             return { imported: 0, total: notebooks.length, groups: [] };
         }
 
@@ -2769,8 +2765,8 @@
             if (freshGroups.some((group) => String(group?.id || '').trim())) return false;
             if (typeof showConfirm !== 'function') return false;
             const ok = await showConfirm(
-                '初始化文档分组',
-                '当前还没有任何文档分组，是否读取所有笔记本并自动创建分组？后续可在文档分组设置中调整或删除。'
+                __tmT("settings.initializeDocumentGroups"),
+                __tmT("settings.thereAreNoDocumentGroupsYetReadAllNotebooks")
             );
             Storage.set(__TM_INITIAL_NOTEBOOK_GROUP_IMPORT_PROMPTED_KEY, true);
             if (!ok) return false;
@@ -2779,10 +2775,10 @@
                 showHints: false
             });
             if (result.imported > 0) {
-                hint(`✅ 已导入 ${result.imported} 个笔记本分组`, 'success');
+                hint(__tmT("settings.importedNotebookGroups", { imported: result.imported }), 'success');
                 return true;
             }
-            hint('⚠ 未找到可导入的笔记本', 'warning');
+            hint(__tmT("settings.noNotebooksToImport"), 'warning');
             return false;
         }).finally(() => {
             state.__tmInitialNotebookGroupImportPromptPromise = null;
@@ -2795,10 +2791,10 @@
         await __tmRefreshNotebookCache(true);
         const notebooks = __tmGetNotebookGroupImportNotebookOptions();
         if (notebooks.length === 0) {
-            hint('⚠ 未找到可用笔记本', 'warning');
+            hint(__tmT("settings.noUsableNotebookFound2"), 'warning');
             return;
         }
-        const notebookId = await showSelectPrompt('选择笔记本', notebooks, notebooks[0].value);
+        const notebookId = await showSelectPrompt(__tmT("settings.selectNotebook"), notebooks, notebooks[0].value);
         if (!notebookId) return;
         const notebookName = __tmGetNotebookDisplayName(notebookId, notebooks.find((item) => item.value === notebookId)?.label || '');
         await __tmCreateGroupAndSelect({
@@ -2811,7 +2807,7 @@
     };
 
     window.createCustomGroup = async function() {
-        const name = await showPrompt('新建自定义分组', '请输入分组名称', '新分组');
+        const name = await showPrompt(__tmT("settings.newCustomGroup"), __tmT("settings.enterAGroupName"), __tmT("settings.newGroup"));
         if (!name) return;
         await __tmCreateGroupAndSelect({
             id: 'g_' + Date.now(),
@@ -2843,21 +2839,21 @@
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
         const group = groups.find((item) => String(item?.id || '').trim() === currentId);
         if (!group) {
-            hint('⚠ 未找到当前分组', 'warning');
+            hint(__tmT("settings.theCurrentGroupWasNotFound"), 'warning');
             return;
         }
         if (String(group.notebookId || '').trim()) {
-            hint('⚠ 笔记本分组名称跟随笔记本显示名，暂不支持重命名', 'warning');
+            hint(__tmT("settings.notebookGroupNamesFollowTheNotebookDisplayNameAnd"), 'warning');
             return;
         }
 
         const storedOldName = String(group.name || '').trim();
         const oldName = storedOldName || __tmResolveDocGroupName(group);
-        const nextNameInput = await showPrompt('重命名自定义分组', '请输入新的分组名称', oldName);
+        const nextNameInput = await showPrompt(__tmT("settings.renameCustomGroup"), __tmT("settings.enterANewGroupName"), oldName);
         if (nextNameInput === null || nextNameInput === undefined) return;
         const nextName = String(nextNameInput || '').trim();
         if (!nextName) {
-            hint('⚠ 分组名称不能为空', 'warning');
+            hint(__tmT("settings.groupNameCannotBeEmpty"), 'warning');
             return;
         }
         if (nextName === storedOldName) return;
@@ -2868,7 +2864,7 @@
         try { window.tmRefreshDocGroupTopbarSelects?.(currentId); } catch (e) {}
         try { render(); } catch (e) {}
         showSettings();
-        hint('✅ 已重命名分组', 'success');
+        hint(__tmT("settings.groupRenamed"), 'success');
     };
 
     // 新增：删除当前分组
@@ -2876,8 +2872,8 @@
         const currentId = SettingsStore.data.currentGroupId;
         let groups = SettingsStore.data.docGroups || [];
         const currentGroup = groups.find((group) => String(group?.id || '').trim() === String(currentId || '').trim());
-        const currentGroupName = __tmResolveDocGroupName(currentGroup) || '当前分组';
-        if (!confirm(`确定要删除分组“${currentGroupName}”吗？此操作不会删除思源中的文档。`)) return;
+        const currentGroupName = __tmResolveDocGroupName(currentGroup) || __tmT("task.currentGroup");
+        if (!confirm(__tmT("settings.deleteTheGroupThisDoesNotDeleteDocumentsIn", { currentGroupName: currentGroupName }))) return;
         groups = groups.filter(g => g.id !== currentId);
         try {
             const pinMap = (SettingsStore.data.docPinnedByGroup && typeof SettingsStore.data.docPinnedByGroup === 'object')

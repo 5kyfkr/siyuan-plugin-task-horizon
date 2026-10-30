@@ -67,7 +67,7 @@
             const restore = intent.restorePatch;
             const clean = (patch) => Object.fromEntries(Object.entries(patch || {}).filter(([key]) => !['markdown', 'taskMarker', 'task_marker', 'title', 'content', 'raw_content'].includes(key)));
             for (const [key, value] of Object.entries(clean(restore.expected))) {
-                if (JSON.stringify(task[key] ?? '') !== JSON.stringify(value ?? '')) throw new Error('任务已有后续修改，不能覆盖新的状态');
+                if (JSON.stringify(task[key] ?? '') !== JSON.stringify(value ?? '')) throw new Error(__tmT("task.theTaskHasLaterChangesTheNewStateCannot"));
             }
             return { patch: clean(restore.patch), receipt: { ...receipt, restoredState: true } };
         }
@@ -84,7 +84,7 @@
             const entry = restore.historyEntry;
             if (entry?.id && history.some(item => item.id === entry.id)) return applied(entry);
             if (!entry || !__tmIsSameTaskOccurrenceRound(occurrenceId, restore.expectedOccurrenceId)
-                || (entry.ruleSignature && entry.ruleSignature !== __tmGetTaskRepeatScheduleSignature(rule))) throw new Error('任务已有后续修改，不能恢复该次完成');
+                || (entry.ruleSignature && entry.ruleSignature !== __tmGetTaskRepeatScheduleSignature(rule))) throw new Error(__tmT("task.theTaskHasLaterChangesThisCompletionCannotBe"));
             return { patch: { ...restore.patch, repeatHistory: __tmNormalizeTaskRepeatHistory([entry, ...history]) },
                 receipt: { ...applied(entry).receipt, outcome: 'committed', reappliedCompletionId: entry.id || entry.completedAt } };
         }
@@ -103,7 +103,7 @@
             // The same round can arrive with an id rendered by a different build
             // (legacy ids used to carry the view-date anchor). Only a round that
             // really moved on is a conflict; blocking the click is not a repair.
-            else if (!restoreId && !__tmIsSameTaskOccurrenceRound(requestedOccurrence, occurrenceId)) throw new Error('任务轮次已变化，请刷新后重试');
+            else if (!restoreId && !__tmIsSameTaskOccurrenceRound(requestedOccurrence, occurrenceId)) throw new Error(__tmT("task.theTaskCycleHasChangedRefreshAndTryAgain"));
         }
         if (!restoreId && intent.done === false && intent.nativeObserved?.previousDone === true && intent.nativeObserved.targetMarker === ' '
             && repeatState.pendingNativeDoneReset) restoreId = repeatState.lastCompletionId || repeatState.lastCompletedAt;
@@ -111,21 +111,21 @@
             let index = history.findIndex((entry) => entry.id === restoreId);
             if (index < 0) {
                 const matching = history.map((entry, i) => entry.completedAt === restoreId ? i : -1).filter(i => i >= 0);
-                if (matching.length > 1) throw new Error('存在同一时间的多条记录，请选择具体完成记录');
+                if (matching.length > 1) throw new Error(__tmT("task.multipleRecordsShareTheSameTimeChooseTheSpecific"));
                 index = matching[0] ?? -1;
             }
             if (index < 0) {
                 if (repeatState.lastRestoredCompletionId === restoreId) return { patch: {}, receipt: { ...receipt, outcome: 'alreadyApplied', restoredCompletionId: restoreId } };
-                throw new Error('未找到可撤销的完成记录');
+                throw new Error(__tmT("task.noRevertibleCompletionRecordFound"));
             }
             const entry = history[index];
             if (index !== 0 || (entry.ruleSignature && entry.ruleSignature !== __tmGetTaskRepeatScheduleSignature(rule))) {
-                throw new Error('任务已有后续完成或循环规则已修改，不能回退该记录');
+                throw new Error(__tmT("task.theTaskHasLaterCompletionsOrTheRepeatRule"));
             }
             const advanced = !!(entry.nextDue || entry.nextStart);
             const expectedDue = advanced ? entry.nextDue : entry.sourceDue;
             const expectedStart = advanced ? entry.nextStart : entry.sourceStart;
-            if (String(task.completionTime || '') !== expectedDue || String(task.startDate || '') !== expectedStart) throw new Error('任务已改期，不能覆盖新的日期');
+            if (String(task.completionTime || '') !== expectedDue || String(task.startDate || '') !== expectedStart) throw new Error(__tmT("task.theTaskHasBeenRescheduledTheNewDatesCannot"));
             const nextHistory = history.filter((_, i) => i !== index);
             const before = entry.before;
             const rollback = before ? {
@@ -161,13 +161,13 @@
         if (!recurring) return { patch, receipt };
         const fsrs = rule.type === 'fsrs';
         const rating = Number(intent.fsrsRating) || 0;
-        if (fsrs && rating < 2) throw new Error('FSRS 任务需要选择困难、良好或简单；重来请使用复习菜单');
+        if (fsrs && rating < 2) throw new Error(__tmT("task.fsrsTasksRequireHardGoodOrEasyUseThe"));
         const next = fsrs
             ? __tmBuildFsrsReviewPatch(task, rating, { completedAt, reviewedAt: completedAt })
             : __tmBuildTaskRepeatAdvancePatch(task, rule, { completedAt, advancedAt: context.now });
         if (!next && !(rule.maxOccurrences > 0 && repeatState.occurrenceCount >= rule.maxOccurrences)
             && !__tmBuildTaskRepeatAdvancePatch(task, { ...rule, until: '', maxOccurrences: 0 }, { completedAt })) {
-            throw new Error('循环规则没有有效的下一日期，请检查规则和支持的日期范围');
+            throw new Error(__tmT("task.theRepeatRuleHasNoValidNextDateCheck"));
         }
         const keepNativeDone = !!next && context.keepNativeDone === true;
         const focus = __tmGetTaskTomatoFocusValues(task);
@@ -217,13 +217,13 @@
     async function __tmExecuteTaskCompletion(op) {
         const data = op.data || {};
         let task = data.baseline || await __tmReadTaskMutationBaseline(data.taskId);
-        if (!task?.id) throw new Error('无法读取完整任务状态');
+        if (!task?.id) throw new Error(__tmT("task.couldNotReadTheCompleteTaskState"));
         const rule = __tmGetTaskRepeatRule(task);
         const occurrenceMatches = !data.occurrenceId || __tmIsSameTaskOccurrenceRound(data.occurrenceId, __tmGetTaskOccurrenceId(task));
         if (data.done && !data.previousDone && occurrenceMatches && !task.repeatHistory?.some(entry => entry.id === op.id) && rule.enabled && rule.trigger !== 'checkin') {
             await __tmSettleTomatoAfterTaskDone(task.id, { task, source: data.source, operationId: op.id, occurrenceId: data.occurrenceId, timerContext: data.timerContext, timerOnly: true, throwOnFailure: true });
             task = await __tmReadTaskMutationBaseline(task.id);
-            if (!task) throw new Error('番茄结算后未能确认任务状态');
+            if (!task) throw new Error(__tmT("task.couldNotConfirmTheTaskStateAfterThePomodoro"));
         }
         const doneStatus = __tmBuildCheckboxStatusPatch(task, true, data.statusPatch) || {};
         const undoneStatus = __tmBuildCheckboxStatusPatch(task, false, data.done ? null : data.statusPatch) || {};
@@ -254,9 +254,9 @@
             action: 'patch', commandID: op.id, taskID: task.id, patch: plan.patch,
             options: { allowSystem: true, expected }, recordUndo: false,
             laneID: __tmGetActiveTaskMutationLaneId(task.id),
-        }, '任务完成状态');
+        }, __tmT("task.taskCompletionStatus"));
         const confirmed = __tmNormalizeQueuedKernelTaskSnapshot(result.task || result.value?.task);
-        if (!confirmed) throw new Error('任务写入未返回确认状态');
+        if (!confirmed) throw new Error(__tmT("task.theTaskWriteDidNotReturnAConfirmedState"));
         const marker = __tmResolveTaskMarker(confirmed);
         const projection = { ...plan.patch, taskMarker: marker, task_marker: marker, markdown: confirmed.markdown };
         globalThis.__tmTaskStore?.upsertLocal?.(confirmed, { status: 'completion-committed' });
@@ -270,7 +270,7 @@
             const before = data.nativeObserved ? { ...task, ...data.nativeObserved } : task;
             Object.keys(plan.patch).filter((key) => key !== 'repeatHistory').forEach((key) => { inverse[key] = before[key] ?? ''; });
             __tmPushUndoRecord({
-                type: 'setDone', taskId: task.id, label: data.done ? '完成任务' : '取消完成',
+                type: 'setDone', taskId: task.id, label: data.done ? __tmT("calendar.complete") : __tmT("task.markIncomplete"),
                 patch: { ...plan.patch, done: data.done }, inversePatch: inverse,
                 completionId: plan.receipt.completionId || '',
                 removedCompletion: plan.receipt.restoredCompletionId ? task.repeatHistory.find(entry => (entry.id || entry.completedAt) === plan.receipt.restoredCompletionId) : null,
@@ -289,7 +289,7 @@
 
     async function __tmSynchronizeCompletionLinks(task, receipt, options = {}) {
         const errors = [];
-        const attempt = async (run) => { try { if (await run() === false) throw new Error('关联状态未保存'); } catch (error) { errors.push(String(error?.message || error)); } };
+        const attempt = async (run) => { try { if (await run() === false) throw new Error(__tmT("task.linkedStateWasNotSaved")); } catch (error) { errors.push(String(error?.message || error)); } };
         if (receipt.completionId) {
             const entry = task.repeatHistory?.find(item => item.id === receipt.completionId);
             if (entry && receipt.origin?.scheduleId) await attempt(() => __tmReassignCompletedScheduleToRecurringInstance(receipt.origin.scheduleId, task, entry, receipt.origin));
@@ -298,7 +298,7 @@
                 if (reminder?.capabilities?.completionReceipt === true) await attempt(() => reminder.completeFollowTaskReminder(task.id, { completion: receipt }));
                 else if (typeof reminder?.get === 'function') await attempt(async () => {
                     const record = await reminder.get(task.id);
-                    if (record?.repeatMode === 'followTaskRepeat') throw new Error('请更新番茄钟以同步循环实例');
+                    if (record?.repeatMode === 'followTaskRepeat') throw new Error(__tmT("task.updateDockTomatoToSyncRecurringInstances"));
                     return true;
                 });
             }
@@ -434,7 +434,7 @@
         if (occurrenceReset) {
             occurrenceCount = 1;
         } else if (nextRule.maxOccurrences > 0 && nextRule.maxOccurrences < occurrenceCount) {
-            throw new Error(`结束次数不能小于当前第 ${occurrenceCount} 次`);
+            throw new Error(__tmT("task.theEndCountCannotBeLessThanTheCurrent", { occurrenceCount: occurrenceCount }));
         }
         let nextState = __tmNormalizeTaskRepeatState({
             ...currentState,
@@ -461,7 +461,7 @@
         if (scheduleChanged && nextRule.trigger !== 'checkin' && __tmMonthRepeatCore?.isExplicit(nextRule)) {
             const currentKey = __tmNormalizeDateOnly(task.completionTime || task.startDate || nextRule.anchorDate);
             const firstKey = __tmMonthRepeatCore.nextDateKey(nextRule, currentKey, true);
-            if (!firstKey) throw new Error('月循环没有有效日期，请检查日期和结束条件');
+            if (!firstKey) throw new Error(__tmT("task.theMonthlyRecurrenceHasNoValidDatesCheckThe"));
             nextRule.anchorDate = firstKey;
             patch.completionTime = firstKey;
             nextState.lastInstanceDue = patch.completionTime || '';
@@ -488,7 +488,7 @@
 
     async function __tmApplyTaskRepeatRule(taskId, ruleInput, options = {}) {
         const task = await __tmResolveTaskForRepeat(taskId);
-        if (!task?.id) throw new Error('未找到任务');
+        if (!task?.id) throw new Error(__tmT("kernel.noTaskFound"));
         const opts = (options && typeof options === 'object') ? options : {};
         const datePatch = {};
         for (const field of ['startDate', 'completionTime']) {
@@ -504,7 +504,7 @@
         }
         const result = await __tmApplyTaskMetaPatchWithUndo(task.id, patch, {
             source: String(opts.source || 'task-repeat').trim() || 'task-repeat',
-            label: '循环规则',
+            label: __tmT("task.repeatRule"),
             refresh: opts.refresh !== false,
             refreshCalendar: opts.refreshCalendar !== false,
             withFilters: opts.withFilters !== false,
@@ -524,7 +524,7 @@
 
     async function __tmDeleteTaskRepeatHistoryEntry(taskId, completedAt, options = {}) {
         const task = await __tmResolveTaskForRepeat(taskId);
-        if (!task?.id) throw new Error('未找到任务');
+        if (!task?.id) throw new Error(__tmT("kernel.noTaskFound"));
         const opts = (options && typeof options === 'object') ? options : {};
         const source = String(opts.source || 'task-repeat-history-delete').trim() || 'task-repeat-history-delete';
         const key = String(completedAt || '').trim();
@@ -550,7 +550,7 @@
         }
         await __tmApplyTaskMetaPatchWithUndo(task.id, nextPatch, {
             source,
-            label: '删除循环记录',
+            label: __tmT("task.deleteRepeatRecords"),
             refresh: false,
             refreshCalendar: false,
             withFilters: true,
@@ -592,7 +592,7 @@
 
     async function __tmSetDetachedTaskRepeatHistoryEntry(taskId, done, entryInput = {}, options = {}) {
         const task = await __tmResolveTaskForRepeat(taskId);
-        if (!task?.id) throw new Error('未找到任务');
+        if (!task?.id) throw new Error(__tmT("kernel.noTaskFound"));
         const opts = (options && typeof options === 'object') ? options : {};
         const entry = (entryInput && typeof entryInput === 'object') ? entryInput : {};
         const completedAt = String(entry.completedAt || opts.completedAt || __tmNowInChinaTimezoneIso()).trim() || __tmNowInChinaTimezoneIso();
@@ -632,7 +632,7 @@
         };
         const result = await __tmApplyTaskMetaPatchWithUndo(task.id, nextPatch, {
             source: String(opts.source || 'task-repeat-detached-history').trim() || 'task-repeat-detached-history',
-            label: nextDone ? '循环例外完成记录' : '删除循环例外完成记录',
+            label: nextDone ? __tmT("task.recurrenceExceptionCompletionRecord") : __tmT("task.deleteRecurrenceExceptionCompletionRecord"),
             refresh: opts.refresh !== false,
             refreshCalendar: opts.refreshCalendar !== false,
             withFilters: opts.withFilters !== false,
@@ -678,7 +678,7 @@
             if (!repeatRule.enabled || repeatRule.type === 'none' || !nativeDone || !held || !resetDateKey) {
                 await __tmApplyTaskMetaPatchWithUndo(taskId, { repeatState: clearedState }, {
                     source: String(opts.source || 'task-repeat-native-reset-reconcile').trim() || 'task-repeat-native-reset-reconcile',
-                    label: '循环状态对账',
+                    label: __tmT("task.recurrenceStateReconciliation"),
                     refresh: false,
                     refreshCalendar: false,
                     withFilters: true,
@@ -690,7 +690,7 @@
             }
             if (!todayKey || todayKey < resetDateKey) return false;
             const setDone = globalThis.__tmRequireTaskMutation?.('setDone');
-            if (typeof setDone !== 'function') throw new Error('任务完成写入队列未就绪');
+            if (typeof setDone !== 'function') throw new Error(__tmT("task.taskCompletionWriteQueueIsNotReady"));
             // Reset only the held native marker; the UI entry treats unchecking
             // a held occurrence as undoing its completion and history.
             const resetResult = await setDone(taskId, false, {
@@ -708,7 +708,7 @@
                     taskCompleteAt: '',
                 },
             });
-            if (resetResult === false) throw new Error('循环任务未能恢复为未完成状态');
+            if (resetResult === false) throw new Error(__tmT("task.theRecurringTaskCouldNotBeRestoredToUnfinished"));
             if (resetResult?.completion?.outcome === 'alreadyApplied') return false;
             try {
                 globalThis.__tmTaskSnapshotService?.scheduleAfterLocalPatch?.(taskId, {
@@ -833,7 +833,7 @@
                 }).catch((error) => {
 
                     try {
-                        if (opts.suppressHint !== true) hint(`❌ 循环任务推进失败，已保留完成状态：${error?.message || String(error)}`, 'error');
+                        if (opts.suppressHint !== true) hint(__tmT("task.failedToAdvanceTheRecurringTaskTheCompletionState", { value1: error?.message || String(error) }), 'error');
                     } catch (e) {}
                     try {
                         __tmRefreshViewsAfterTaskMutation({
@@ -1026,23 +1026,23 @@
 
     window.tmSkipRecurringTaskOccurrence = async function(taskId, options = {}) {
         const task = await __tmResolveTaskForRepeat(taskId);
-        if (!task?.id) throw new Error('未找到任务');
+        if (!task?.id) throw new Error(__tmT("kernel.noTaskFound"));
         const opts = (options && typeof options === 'object') ? options : {};
         const rule = __tmGetTaskRepeatRule(task);
-        if (!rule.enabled || rule.type === 'none') throw new Error('该任务未开启循环');
-        if (rule.type === 'fsrs') throw new Error('FSRS 间隔重复请使用“重来”重新安排');
+        if (!rule.enabled || rule.type === 'none') throw new Error(__tmT("task.thisTaskHasNoRecurrence"));
+        if (rule.type === 'fsrs') throw new Error(__tmT("task.forFsrsSpacedRepetitionUseAgainToReschedule"));
         const nextPatch = __tmBuildTaskRepeatAdvancePatch(task, rule, {
             advancedAt: String(opts.advancedAt || new Date().toISOString()).trim() || new Date().toISOString(),
             completedAt: String(task?.repeatState?.lastCompletedAt || '').trim(),
         });
-        if (!nextPatch) throw new Error('没有可跳过到的下一次循环');
+        if (!nextPatch) throw new Error(__tmT("task.noNextOccurrenceAvailableToSkipTo"));
         nextPatch.repeatState = __tmNormalizeTaskRepeatState({ ...nextPatch.repeatState,
             occurrenceId: __tmCreateMutationOperationId() + '-skip', planOverride: null });
         const sourceStart = __tmNormalizeDateOnly(task?.startDate || '');
         const sourceDue = __tmNormalizeDateOnly(task?.completionTime || '');
         const result = await __tmApplyTaskMetaPatchWithUndo(task.id, nextPatch, {
             source: String(opts.source || 'task-repeat-skip').trim() || 'task-repeat-skip',
-            label: String(opts.label || '跳过循环本次').trim() || '跳过循环本次',
+            label: String(opts.label || __tmT("task.skipThisOccurrence")).trim() || __tmT("task.skipThisOccurrence"),
             refresh: opts.refresh !== false,
             refreshCalendar: opts.refreshCalendar !== false,
             withFilters: opts.withFilters !== false,
@@ -1082,11 +1082,11 @@
             : null;
         const task = draftTask || await __tmResolveTaskForRepeat(taskId);
         if (!task?.id) {
-            hint('⚠ 未找到任务', 'warning');
+            hint(__tmT("task.noTaskFound"), 'warning');
             return null;
         }
         const nextRule = await showTaskRepeatRuleDialog(task, {
-            title: String(options?.title || '循环设置').trim() || '循环设置',
+            title: String(options?.title || __tmT("task.repeatSettings")).trim() || __tmT("task.repeatSettings"),
             customOnly: options?.customOnly === true,
             initialTrigger: options?.initialTrigger,
         });
@@ -1100,12 +1100,12 @@
 
     window.tmReviewFsrsTask = async function(taskId, ratingInput, options = {}) {
         const task = await __tmResolveTaskForRepeat(taskId);
-        if (!task?.id) throw new Error('未找到任务');
+        if (!task?.id) throw new Error(__tmT("kernel.noTaskFound"));
         const rule = __tmGetTaskRepeatRule(task);
-        if (!rule.enabled || rule.type !== 'fsrs') throw new Error('该任务未开启 FSRS 间隔重复');
+        if (!rule.enabled || rule.type !== 'fsrs') throw new Error(__tmT("task.thisTaskDoesNotUseFsrsSpacedRepetition"));
         const rating = __tmNormalizeFsrsRating(ratingInput);
-        if (!rating) throw new Error('FSRS 评分无效');
-        if (__tmIsTaskDoneEffective(task)) throw new Error('任务已完成，请等待循环推进完成');
+        if (!rating) throw new Error(__tmT("task.invalidFsrsRating"));
+        if (__tmIsTaskDoneEffective(task)) throw new Error(__tmT("task.theTaskIsAlreadyCompletedWaitForTheRecurrence"));
         const opts = (options && typeof options === 'object') ? options : {};
         if (rating === 1) {
             const patch = __tmBuildFsrsReviewPatch(task, rating, {
@@ -1117,7 +1117,7 @@
                 repeatState: patch.repeatState,
             }, {
                 source: String(opts.source || 'fsrs-review-again').trim() || 'fsrs-review-again',
-                label: 'FSRS 重来',
+                label: __tmT("task.fsrsAgain"),
                 refresh: opts.refresh !== false,
                 refreshCalendar: opts.refreshCalendar !== false,
                 withFilters: opts.withFilters !== false,
@@ -1125,7 +1125,7 @@
                 recordUndo: opts.recordUndo !== false,
                 broadcast: opts.broadcast !== false,
             });
-            if (opts.suppressHint !== true) hint(`已重新安排到 ${patch.completionTime}`, 'success');
+            if (opts.suppressHint !== true) hint(__tmT("task.rescheduledTo", { completionTime: patch.completionTime }), 'success');
             return { ...result, rating, nextDue: patch.completionTime, completed: false };
         }
         const completed = await window.tmSetDone(task.id, true, null, {
@@ -1140,16 +1140,16 @@
     async function __tmApplyFollowReminderDraft(payload = {}) {
         const source = (payload && typeof payload === 'object') ? payload : {};
         const taskRef = String(source.taskId || source.blockId || source.attrHostId || '').trim();
-        if (!taskRef) throw new Error('任务 ID 为空');
+        if (!taskRef) throw new Error(__tmT("task.taskIdIsEmpty"));
         const task = await __tmResolveTaskForRepeat(taskRef);
-        if (!task?.id) throw new Error('未找到任务');
+        if (!task?.id) throw new Error(__tmT("kernel.noTaskFound"));
         const currentRule = __tmNormalizeTaskRepeatRule(task?.repeatRule, {
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });
         const checkin = currentRule?.enabled && currentRule.trigger === 'checkin';
         const completionTime = __tmNormalizeDateOnly(checkin ? task?.completionTime || '' : source.completionTime || '');
-        if (!checkin && !completionTime) throw new Error('任务截止日不能为空');
+        if (!checkin && !completionTime) throw new Error(__tmT("task.theTaskDueDateCannotBeEmpty"));
         const currentState = __tmNormalizeTaskRepeatState(task?.repeatState);
         const completionChanged = __tmNormalizeDateOnly(task?.completionTime || '') !== completionTime;
         if (completionChanged) {
@@ -1157,7 +1157,7 @@
                 completionTime,
             }, {
                 source: String(source.source || 'tomato-reminder-follow-draft').trim() || 'tomato-reminder-follow-draft',
-                label: '任务提醒联动',
+                label: __tmT("task.taskReminderLinkage"),
                 refresh: true,
                 refreshCalendar: true,
                 withFilters: true,
@@ -1171,7 +1171,7 @@
             changed: completionChanged,
             taskId: String(task.id || taskRef).trim() || taskRef,
             attrHostId: attrHostId || String(task.id || taskRef).trim() || taskRef,
-            taskTitle: String(task?.content || task?.raw_content || task?.rawContent || task?.markdown || '任务').trim() || '任务',
+            taskTitle: String(task?.content || task?.raw_content || task?.rawContent || task?.markdown || __tmT("kernel.task")).trim() || __tmT("kernel.task"),
             startDate: __tmNormalizeDateOnly(task?.startDate || ''),
             completionTime,
             repeatRule: currentRule,
@@ -1182,9 +1182,9 @@
     async function __tmClearFollowReminderDraft(payload = {}) {
         const source = (payload && typeof payload === 'object') ? payload : {};
         const taskRef = String(source.taskId || source.blockId || source.attrHostId || '').trim();
-        if (!taskRef) throw new Error('任务 ID 为空');
+        if (!taskRef) throw new Error(__tmT("task.taskIdIsEmpty"));
         const task = await __tmResolveTaskForRepeat(taskRef);
-        if (!task?.id) throw new Error('未找到任务');
+        if (!task?.id) throw new Error(__tmT("kernel.noTaskFound"));
         const currentRule = __tmNormalizeTaskRepeatRule(task?.repeatRule, {
             startDate: task?.startDate,
             completionTime: task?.completionTime,
@@ -1230,7 +1230,7 @@
                 const requestedOccurrence = payload.taskOccurrenceId || payload.reminder?.taskRepeatState?.occurrenceId;
                 const knownCompletion = !!__tmFindTaskRepeatHistoryEntryByOccurrence(task.repeatHistory, requestedOccurrence);
                 if (!knownCompletion && payload.dateKey && task.completionTime && payload.dateKey !== task.completionTime) {
-                    return { ok: false, applied: false, code: 'CONFLICT', message: '任务已改期，请刷新提醒' };
+                    return { ok: false, applied: false, code: 'CONFLICT', message: __tmT("task.theTaskWasRescheduledRefreshTheReminder") };
                 }
                 const occurrenceId = payload.taskOccurrenceId || __tmGetTaskOccurrenceId({
                     id: task.id, repeatState: payload.reminder?.taskRepeatState, repeatRule: payload.reminder?.taskRepeatRule,

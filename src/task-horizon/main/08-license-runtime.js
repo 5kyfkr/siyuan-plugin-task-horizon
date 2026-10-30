@@ -9,9 +9,9 @@
         crv: 'P-256',
     });
     const LICENSE_PLANS = Object.freeze({
-        trial: { label: '试用', durationDays: 30 },
-        yearly: { label: '年付', durationDays: 365 },
-        lifetime: { label: '永久', durationDays: null },
+        trial: { label: __tmT("task.trial"), durationDays: 30 },
+        yearly: { label: __tmT("task.yearly"), durationDays: 365 },
+        lifetime: { label: __tmT("task.lifetime"), durationDays: null },
     });
 
     let __tmLicenseRecord = null;
@@ -76,7 +76,7 @@
         return 0;
     }
 
-    function __tmLicenseFormatDate(value, fallback = '无') {
+    function __tmLicenseFormatDate(value, fallback = __tmT("common.none")) {
         const raw = String(value || '').trim();
         return raw || fallback;
     }
@@ -103,7 +103,7 @@
                 kind: 'account',
                 userId,
                 userName,
-                displayName: primarySubject || '未读取到账号名',
+                displayName: primarySubject || __tmT("task.accountNameNotFound"),
                 loggedIn: true,
             };
         }
@@ -119,7 +119,7 @@
             kind: systemId ? 'device' : 'missing',
             userId: '',
             userName: '',
-            displayName: systemId ? '未登录，使用本机设备ID' : '未读取到思源账号或设备ID',
+            displayName: systemId ? __tmT("task.notSignedInUsingThisDeviceId") : __tmT("task.couldNotReadTheSiyuanAccountOrDeviceId"),
             loggedIn: false,
         };
     }
@@ -148,7 +148,7 @@
         if (__tmLicensePublicKeyPromise) return await __tmLicensePublicKeyPromise;
         __tmLicensePublicKeyPromise = (async () => {
             const cryptoObj = __tmLicenseGetCrypto();
-            if (!cryptoObj?.subtle) throw new Error('当前环境不支持 Web Crypto，无法离线验证激活码');
+            if (!cryptoObj?.subtle) throw new Error(__tmT("task.thisEnvironmentDoesNotSupportWebCryptoTheActivation"));
             return await cryptoObj.subtle.importKey(
                 'jwk',
                 LICENSE_PUBLIC_JWK,
@@ -166,38 +166,38 @@
 
     function __tmLicenseValidatePayloadShape(payload) {
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-            return '激活码内容无效';
+            return __tmT("task.invalidActivationCodeContent");
         }
-        if (Number(payload.v) !== 1) return '激活码版本不支持';
-        if (String(payload.app || '').trim() !== APP_ID) return '激活码不属于 Task Horizon';
+        if (Number(payload.v) !== 1) return __tmT("task.unsupportedActivationCodeVersion");
+        if (String(payload.app || '').trim() !== APP_ID) return __tmT("task.theActivationCodeDoesNotBelongToTaskHorizon");
         const plan = String(payload.plan || '').trim();
-        if (!Object.prototype.hasOwnProperty.call(LICENSE_PLANS, plan)) return '未知套餐';
+        if (!Object.prototype.hasOwnProperty.call(LICENSE_PLANS, plan)) return __tmT("task.unknownPlan");
         const sub = String(payload.sub || '').trim();
-        if (!sub) return '激活码缺少账号或设备ID';
-        if (plan !== 'lifetime' && !__tmLicenseIsDateOnly(payload.exp)) return '激活码缺少有效到期日';
+        if (!sub) return __tmT("task.theActivationCodeIsMissingTheAccountOrDevice");
+        if (plan !== 'lifetime' && !__tmLicenseIsDateOnly(payload.exp)) return __tmT("task.theActivationCodeIsMissingAValidExpiryDate");
         if (plan === 'lifetime' && payload.exp != null && String(payload.exp || '').trim() && !__tmLicenseIsDateOnly(payload.exp)) {
-            return '永久激活码到期字段无效';
+            return __tmT("task.invalidExpiryFieldForALifetimeActivationCode");
         }
         return '';
     }
 
     async function __tmLicenseParseAndVerify(codeInput) {
         const code = __tmLicenseNormalizeCode(codeInput);
-        if (!code) return { ok: false, reason: 'empty', message: '请输入激活码' };
+        if (!code) return { ok: false, reason: 'empty', message: __tmT("task.enterTheActivationCode") };
         const parts = code.split('.');
         if (parts.length !== 3 || parts[0] !== LICENSE_CODE_PREFIX) {
-            return { ok: false, reason: 'format', message: '激活码格式不正确' };
+            return { ok: false, reason: 'format', message: __tmT("task.incorrectActivationCodeFormat") };
         }
         const payloadPart = parts[1];
         const signaturePart = parts[2];
         if (!payloadPart || !signaturePart) {
-            return { ok: false, reason: 'format', message: '激活码格式不完整' };
+            return { ok: false, reason: 'format', message: __tmT("task.incompleteActivationCodeFormat") };
         }
         let payload = null;
         try {
             payload = JSON.parse(__tmLicenseDecodePayload(payloadPart));
         } catch (e) {
-            return { ok: false, reason: 'payload', message: '激活码内容无法解析' };
+            return { ok: false, reason: 'payload', message: __tmT("task.theActivationCodeContentCannotBeParsed") };
         }
         const shapeError = __tmLicenseValidatePayloadShape(payload);
         if (shapeError) return { ok: false, reason: 'payload', message: shapeError, payload };
@@ -211,9 +211,9 @@
                 signature,
                 signedBytes,
             );
-            if (!ok) return { ok: false, reason: 'signature', message: '激活码签名不正确', payload };
+            if (!ok) return { ok: false, reason: 'signature', message: __tmT("task.incorrectActivationCodeSignature"), payload };
         } catch (e) {
-            return { ok: false, reason: 'crypto', message: String(e?.message || e || '验证失败'), payload };
+            return { ok: false, reason: 'crypto', message: String(e?.message || e || __tmT("task.verificationFailed")), payload };
         }
         return { ok: true, code, payload };
     }
@@ -226,9 +226,9 @@
             active: false,
             pro: false,
             reason: '',
-            statusText: '免费版',
+            statusText: __tmT("task.free"),
             plan: 'free',
-            label: '免费版',
+            label: __tmT("task.free"),
             features: [],
             issuedAt: '',
             expiresAt: '',
@@ -244,7 +244,7 @@
         };
         const payload = record?.payload && typeof record.payload === 'object' ? record.payload : null;
         if (!record?.code || !payload) {
-            return __tmLicenseLoaded ? base : { ...base, reason: 'loading', statusText: '读取中' };
+            return __tmLicenseLoaded ? base : { ...base, reason: 'loading', statusText: __tmT("task.reading") };
         }
         const plan = String(payload.plan || '').trim();
         const planMeta = LICENSE_PLANS[plan] || null;
@@ -253,7 +253,7 @@
             ...base,
             hasLicense: true,
             plan: plan || 'unknown',
-            label: planMeta?.label || String(payload.label || '').trim() || plan || '未知',
+            label: planMeta?.label || String(payload.label || '').trim() || plan || __tmT("calendar.unknown"),
             features,
             issuedAt: String(payload.iat || '').trim(),
             expiresAt: String(payload.exp || '').trim(),
@@ -265,7 +265,7 @@
             return {
                 ...next,
                 reason: 'missing_subject',
-                statusText: '无法读取账号或设备ID',
+                statusText: __tmT("task.cannotReadTheAccountOrDeviceId"),
             };
         }
         const validSubjects = Array.isArray(auth.validSubjects) ? auth.validSubjects : [auth.subject].filter(Boolean);
@@ -273,7 +273,7 @@
             return {
                 ...next,
                 reason: 'subject_mismatch',
-                statusText: '账号或设备ID不匹配',
+                statusText: __tmT("task.accountOrDeviceIdMismatch"),
             };
         }
         if (plan !== 'lifetime') {
@@ -282,7 +282,7 @@
                 return {
                     ...next,
                     reason: 'missing_expiry',
-                    statusText: '到期日无效',
+                    statusText: __tmT("task.invalidExpiryDate"),
                 };
             }
             const today = __tmLicenseTodayIso();
@@ -290,7 +290,7 @@
                 return {
                     ...next,
                     reason: 'expired',
-                    statusText: '已过期',
+                    statusText: __tmT("homepage.overdue3"),
                 };
             }
         }
@@ -299,7 +299,7 @@
             active: true,
             pro: features.includes('pro'),
             reason: 'active',
-            statusText: planMeta?.label || '已激活',
+            statusText: planMeta?.label || __tmT("task.activated"),
         };
     }
 
@@ -477,7 +477,7 @@
     }
 
     function __tmLicenseShowFullFeaturePrompt(featureName) {
-        const name = String(featureName || '此功能').trim() || '此功能';
+        const name = String(featureName || __tmT("task.thisFeature")).trim() || __tmT("task.thisFeature");
         try {
             const existing = document.querySelector('.tm-prompt-modal.tm-license-feature-prompt');
             if (existing) existing.remove();
@@ -485,14 +485,14 @@
             modal.className = 'tm-prompt-modal tm-license-feature-prompt';
             modal.innerHTML = `
                 <div class="tm-prompt-box">
-                    <div class="tm-prompt-title">全功能权益</div>
+                    <div class="tm-prompt-title">${__tmT("task.fullFeatureBenefits")}</div>
                     <div style="padding:10px 0;color:var(--tm-text-color);font-size:14px;line-height:1.65;">
-                        <div style="font-weight:700;margin-bottom:6px;">${__tmLicenseEsc(name)}属于全功能权益。</div>
-                        <div style="color:var(--tm-secondary-text);font-size:13px;">可使用全功能试用、年付或永久授权解锁。</div>
+                        <div style="font-weight:700;margin-bottom:6px;">${__tmT("task.isPartOfTheFullFeatureBenefits", { value1: __tmLicenseEsc(name) })}</div>
+                        <div style="color:var(--tm-secondary-text);font-size:13px;">${__tmT("task.unlockWithTheFullFeatureTrialYearlyOrLifetime")}</div>
                     </div>
                     <div class="tm-prompt-buttons">
-                        <button class="tm-prompt-btn tm-prompt-btn-secondary" type="button" data-tm-license-feature-close>取消</button>
-                        <button class="tm-prompt-btn tm-prompt-btn-primary" type="button" data-tm-license-feature-benefits>查看功能权益</button>
+                        <button class="tm-prompt-btn tm-prompt-btn-secondary" type="button" data-tm-license-feature-close>${__tmT("common.cancel")}</button>
+                        <button class="tm-prompt-btn tm-prompt-btn-primary" type="button" data-tm-license-feature-benefits>${__tmT("task.viewFeatureBenefits")}</button>
                     </div>
                 </div>
             `;
@@ -518,7 +518,7 @@
             });
             return true;
         } catch (e) {
-            __tmLicenseNotify(`${name}属于全功能权益。`, 'warning');
+            __tmLicenseNotify(__tmT("task.isPartOfTheFullFeatureBenefits2", { name: name }), 'warning');
             return false;
         }
     }
@@ -546,27 +546,27 @@
         if (!verified.ok) return verified;
         const auth = __tmLicenseGetAuthInfo();
         if (!auth.subject) {
-            return { ok: false, reason: 'missing_subject', message: '当前环境未读取到思源账号ID或设备ID' };
+            return { ok: false, reason: 'missing_subject', message: __tmT("task.theCurrentEnvironmentCouldNotReadASiyuanAccount") };
         }
         const validSubjects = Array.isArray(auth.validSubjects) ? auth.validSubjects : [auth.subject].filter(Boolean);
         if (!validSubjects.includes(String(verified.payload?.sub || '').trim())) {
             return {
                 ok: false,
                 reason: 'subject_mismatch',
-                message: '激活码绑定的账号或设备ID与当前环境不一致',
+                message: __tmT("task.theAccountOrDeviceIdBoundToTheActivation"),
                 payload: verified.payload,
             };
         }
         const state = __tmLicenseBuildState({ code: verified.code, payload: verified.payload });
         if (!state.active) {
-            return { ok: false, reason: state.reason || 'inactive', message: state.statusText || '激活码不可用', payload: verified.payload };
+            return { ok: false, reason: state.reason || 'inactive', message: state.statusText || __tmT("task.activationCodeUnavailable"), payload: verified.payload };
         }
         const saved = await __tmLicenseSaveRecord({
             code: verified.code,
             payload: verified.payload,
             activatedAt: new Date().toISOString(),
         });
-        if (!saved) return { ok: false, reason: 'save_failed', message: '激活码验证成功，但保存失败' };
+        if (!saved) return { ok: false, reason: 'save_failed', message: __tmT("task.activationCodeVerifiedButSavingFailed") };
         return { ok: true, payload: verified.payload, state: __tmLicenseBuildState(__tmLicenseRecord) };
     }
 
@@ -576,21 +576,21 @@
         const bg = active
             ? 'color-mix(in srgb, var(--tm-success-color) 12%, transparent)'
             : (state?.hasLicense ? 'color-mix(in srgb, var(--tm-warning-color, #f9ab00) 14%, transparent)' : 'var(--tm-rule-group-bg)');
-        return `<span style="display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:999px;background:${bg};color:${tone};font-size:12px;font-weight:700;">${__tmLicenseEsc(state?.statusText || '免费版')}</span>`;
+        return `<span style="display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:999px;background:${bg};color:${tone};font-size:12px;font-weight:700;">${__tmLicenseEsc(state?.statusText || __tmT("task.free"))}</span>`;
     }
 
     function __tmLicenseRenderMetaRows(state) {
         const expText = state?.plan === 'lifetime'
-            ? '永久'
-            : (__tmLicenseFormatDate(state?.expiresAt, state?.hasLicense ? '无' : '未激活'));
+            ? __tmT("task.lifetime")
+            : (__tmLicenseFormatDate(state?.expiresAt, state?.hasLicense ? __tmT("common.none") : __tmT("task.notActivated")));
         const rows = [
-            ['思源用户名', state?.loggedIn ? (state?.userName || '未设置') : '未登录'],
-            ['授权方式', state?.loggedIn ? '思源账号' : (state?.authKind === 'device' ? '设备ID' : '未读取到')],
-            ['当前方案', state?.hasLicense ? state.label : '免费版'],
-            ['当前账号/设备', state?.currentSubject || '未读取到'],
-            ['绑定账号/设备', state?.subject || '未激活'],
-            ['签发日期', __tmLicenseFormatDate(state?.issuedAt, '未激活')],
-            ['到期日期', expText],
+            [__tmT("task.siyuanUsername"), state?.loggedIn ? (state?.userName || __tmT("common.notSet")) : __tmT("task.notSignedIn")],
+            [__tmT("task.licenseType"), state?.loggedIn ? __tmT("task.siyuanAccount") : (state?.authKind === 'device' ? __tmT("task.deviceId") : __tmT("task.notDetected"))],
+            [__tmT("task.currentPlan"), state?.hasLicense ? state.label : __tmT("task.free")],
+            [__tmT("task.currentAccountDevice"), state?.currentSubject || __tmT("task.notDetected")],
+            [__tmT("task.boundAccountDevice"), state?.subject || __tmT("task.notActivated")],
+            [__tmT("task.issued"), __tmLicenseFormatDate(state?.issuedAt, __tmT("task.notActivated"))],
+            [__tmT("task.expires"), expText],
         ];
         return rows.map(([label, value]) => `
             <div style="font-size:12px;color:var(--tm-secondary-text);">${__tmLicenseEsc(label)}</div>
@@ -602,13 +602,13 @@
         const auth = __tmLicenseGetAuthInfo();
         const state = __tmLicenseBuildState(__tmLicenseRecord);
         const accountLine = auth.loggedIn
-            ? `已登录账号：${auth.displayName}`
-            : '未登录思源账号，将使用本机设备ID绑定';
+            ? __tmT("task.signedInAccount", { displayName: auth.displayName })
+            : __tmT("task.notSignedInToSiyuanTheLocalDeviceId");
         const note = auth.loggedIn
-            ? '付款时提供对应账号名。'
-            : '未登录时授权码会绑定当前设备，设备ID 会带 device: 前缀。';
+            ? __tmT("task.provideTheMatchingAccountNameWhenPaying")
+            : __tmT("task.whenNotSignedInTheActivationCodeBindsTo");
         const clearBtn = state.hasLicense
-            ? '<button class="tm-btn tm-btn-danger" type="button" onclick="tmClearLicenseFromSettings()">清除激活</button>'
+            ? `<button class="tm-btn tm-btn-danger" type="button" onclick="tmClearLicenseFromSettings()">${__tmT("task.clearActivation")}</button>`
             : '';
         const disabled = auth.subject ? '' : ' disabled';
         return `
@@ -616,7 +616,7 @@
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
                     <div style="min-width:220px;flex:1;">
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                            <div style="font-weight:700;font-size:15px;">Task Horizon 授权</div>
+                            <div style="font-weight:700;font-size:15px;">${__tmT("task.taskHorizonLicense")}</div>
                             ${__tmLicenseRenderStatusBadge(state)}
                         </div>
                         <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:6px;line-height:1.7;">
@@ -624,17 +624,17 @@
                         </div>
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                        <button class="tm-btn tm-btn-secondary" type="button" onclick="tmRefreshLicenseStatus()">刷新授权</button>
+                        <button class="tm-btn tm-btn-secondary" type="button" onclick="tmRefreshLicenseStatus()">${__tmT("task.refreshLicense")}</button>
                         ${clearBtn}
                     </div>
                 </div>
 
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:12px;align-items:stretch;">
                     <div style="min-width:0;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);padding:12px;">
-                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:6px;">当前账号/设备</div>
+                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:6px;">${__tmT("task.currentAccountDevice")}</div>
                         <div style="display:flex;gap:8px;align-items:center;min-width:0;flex-wrap:wrap;">
-                            <code style="flex:1;min-width:220px;padding:8px 10px;border-radius:8px;background:var(--tm-sidebar-bg);border:1px solid var(--tm-border-color);color:var(--tm-text-color);word-break:break-all;">${__tmLicenseEsc(auth.subject || '未读取到')}</code>
-                            <button class="tm-btn tm-btn-primary" type="button" onclick="tmCopyLicenseAuthSubject()"${disabled}>复制</button>
+                            <code style="flex:1;min-width:220px;padding:8px 10px;border-radius:8px;background:var(--tm-sidebar-bg);border:1px solid var(--tm-border-color);color:var(--tm-text-color);word-break:break-all;">${__tmLicenseEsc(auth.subject || __tmT("task.notDetected"))}</code>
+                            <button class="tm-btn tm-btn-primary" type="button" onclick="tmCopyLicenseAuthSubject()"${disabled}>${__tmT("task.copy")}</button>
                         </div>
                         <div style="margin-top:10px;display:grid;grid-template-columns:86px minmax(0,1fr);gap:8px 10px;">
                             ${__tmLicenseRenderMetaRows(state)}
@@ -642,10 +642,10 @@
                     </div>
 
                     <div style="min-width:0;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);padding:12px;">
-                        <label for="tmLicenseCodeInput" style="display:block;font-size:12px;color:var(--tm-secondary-text);margin-bottom:6px;">输入激活码</label>
+                        <label for="tmLicenseCodeInput" style="display:block;font-size:12px;color:var(--tm-secondary-text);margin-bottom:6px;">${__tmT("task.activationCode")}</label>
                         <textarea id="tmLicenseCodeInput" rows="4" spellcheck="false" style="width:100%;box-sizing:border-box;resize:vertical;min-height:82px;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:8px;background:var(--tm-input-bg);color:var(--tm-text-color);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;"></textarea>
                         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;flex-wrap:wrap;">
-                            <button class="tm-btn tm-btn-primary" type="button" onclick="tmActivateLicenseFromSettings()"${disabled}>激活</button>
+                            <button class="tm-btn tm-btn-primary" type="button" onclick="tmActivateLicenseFromSettings()"${disabled}>${__tmT("task.activate")}</button>
                         </div>
                     </div>
                 </div>
@@ -665,7 +665,7 @@
         return state.active === true && state.features.includes(String(feature || '').trim());
     };
     window.tmRequireFullFeature = function(feature, label) {
-        const name = String(label || feature || '此功能').trim() || '此功能';
+        const name = String(label || feature || __tmT("task.thisFeature")).trim() || __tmT("task.thisFeature");
         const state = __tmLicenseBuildState(__tmLicenseRecord);
         if (state.active === true && state.features.includes('pro')) return true;
         __tmLicenseShowFullFeaturePrompt(name);
@@ -677,17 +677,17 @@
     window.tmRenderLicenseSettingsPanel = __tmLicenseRenderSettingsPanel;
     window.tmRefreshLicenseStatus = async function() {
         await __tmLicenseLoadRecord(true);
-        __tmLicenseNotify('授权状态已刷新', 'success');
+        __tmLicenseNotify(__tmT("task.licenseStatusRefreshed"), 'success');
         __tmLicenseRefreshSettingsUi();
     };
     window.tmCopyLicenseAuthSubject = async function() {
         const auth = __tmLicenseGetAuthInfo();
         if (!auth.subject) {
-            __tmLicenseNotify('未读取到账号或设备ID', 'warning');
+            __tmLicenseNotify(__tmT("task.couldNotReadTheAccountOrDeviceId"), 'warning');
             return false;
         }
         const ok = await __tmLicenseCopyText(auth.subject);
-        __tmLicenseNotify(ok ? '已复制账号/设备ID' : '复制失败，请手动选择复制', ok ? 'success' : 'warning');
+        __tmLicenseNotify(ok ? __tmT("task.accountDeviceIdCopied") : __tmT("task.copyFailedSelectAndCopyManually"), ok ? 'success' : 'warning');
         return ok;
     };
     window.tmActivateLicenseFromSettings = async function() {
@@ -695,19 +695,19 @@
         const code = input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement ? input.value : '';
         const result = await __tmLicenseActivate(code);
         if (!result.ok) {
-            __tmLicenseNotify(result.message || '激活失败', 'error');
+            __tmLicenseNotify(result.message || __tmT("task.activationFailed"), 'error');
             return false;
         }
-        __tmLicenseNotify(`感谢您的支持，已成功激活：${result.state?.label || 'Pro'}`, 'success');
+        __tmLicenseNotify(__tmT("task.thankYouForYourSupportActivated", { value1: result.state?.label || 'Pro' }), 'success');
         __tmLicenseRefreshSettingsUi();
         return true;
     };
     window.tmClearLicenseFromSettings = async function() {
         try {
-            if (typeof confirm === 'function' && !confirm('清除当前激活信息？')) return false;
+            if (typeof confirm === 'function' && !confirm(__tmT("task.clearTheCurrentActivationInformation"))) return false;
         } catch (e) {}
         const ok = await __tmLicenseRemoveRecord();
-        __tmLicenseNotify(ok ? '已清除激活信息' : '清除失败', ok ? 'success' : 'error');
+        __tmLicenseNotify(ok ? __tmT("task.activationInformationCleared") : __tmT("task.clearFailed"), ok ? 'success' : 'error');
         __tmLicenseRefreshSettingsUi();
         return ok;
     };

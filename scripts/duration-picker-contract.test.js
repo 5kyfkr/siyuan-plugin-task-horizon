@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -52,11 +52,11 @@ assert.match(css, /width: min\(252px, calc\(100vw - 20px\)\)/, 'focus-summary pa
 const actions = read('src/task-horizon/main/settings/70-doc-group-and-settings-actions.js');
 const settingsScreen = read('src/task-horizon/main/settings/60-settings-screen.js');
 const presetSettings = read('src/task-horizon/main/settings/62-settings-columns-and-rules.js');
-assert.match(actions, /updateDurationFormat[\s\S]*showConfirm\('切换时长单位'[\s\S]*不会自动换算/, 'unit switching must warn without converting');
-assert.match(settingsScreen, /'时长单位'/, 'settings must label the unit explicitly');
-assert.match(settingsScreen, /切换不会换算历史数字/, 'settings must explain the no-conversion behaviour');
+assert.match(actions, /updateDurationFormat[\s\S]*showConfirm\(__tmT\("settings.switchDurationUnit"\)[\s\S]*settings.afterSwitchingNumbersInExistingTasksAndPresetsAre/, 'unit switching must warn without converting');
+assert.match(settingsScreen, /__tmT\("settings.durationUnit"\)/, 'settings must label the unit explicitly');
+assert.match(settingsScreen, /settings.controlsWhetherTaskDurationsAndPresetNumbersAreInterpreted/, 'settings must explain the no-conversion behaviour');
 assert.match(presetSettings, /formatPresetLabel/, 'preset editor must show a formatted preview');
-assert.match(presetSettings, /当前单位：\$\{esc\(unitName\)\}/, 'preset editor title must mention the current unit');
+assert.match(presetSettings, /i18n\.html\("settings.durationValueCurrentUnitAcceptsMH30mWithAutomatic", \{ unitName: unitName \}\)/, 'preset editor title must safely include the current unit');
 assert.match(presetSettings, /updateDurationOption[\s\S]*__tmNormalizeDurationInputValue/, 'preset editing must accept formatted duration input');
 assert.match(presetSettings, /addDurationOption[\s\S]*__tmNormalizeDurationInputValue/, 'adding a preset must accept formatted duration input');
 

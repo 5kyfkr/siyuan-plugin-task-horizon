@@ -4,7 +4,7 @@
 // and scroll-anchor helpers. Run with Playwright CLI, not against user tasks.
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'src/task-horizon/main/20-api-and-runtime-services.js'), 'utf8');
 function between(start, end) {

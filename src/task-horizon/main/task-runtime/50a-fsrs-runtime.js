@@ -1,14 +1,14 @@
     const __TM_FSRS_RATING_LABELS = Object.freeze({
-        1: '重来',
-        2: '困难',
-        3: '良好',
-        4: '简单',
+        1: __tmT("task.again"),
+        2: __tmT("task.hard"),
+        3: __tmT("task.good"),
+        4: __tmT("task.easy"),
     });
     const __TM_FSRS_REVIEW_OPTIONS = Object.freeze([
-        { rating: 1, label: '重来', tone: 'again' },
-        { rating: 2, label: '困难', tone: 'hard' },
-        { rating: 3, label: '良好', tone: 'good' },
-        { rating: 4, label: '简单', tone: 'easy' },
+        { rating: 1, label: __tmT("task.again"), tone: 'again' },
+        { rating: 2, label: __tmT("task.hard"), tone: 'hard' },
+        { rating: 3, label: __tmT("task.good"), tone: 'good' },
+        { rating: 4, label: __tmT("task.easy"), tone: 'easy' },
     ]);
 
     function __tmNormalizeFsrsRating(value) {
@@ -39,7 +39,7 @@
     function __tmRequireFsrsRuntime() {
         const runtime = globalThis.FSRS;
         if (!runtime || typeof runtime.fsrs !== 'function' || typeof runtime.createEmptyCard !== 'function') {
-            throw new Error('FSRS 调度器未加载');
+            throw new Error(__tmT("task.fsrsSchedulerNotLoaded"));
         }
         return runtime;
     }
@@ -109,7 +109,7 @@
     function __tmBuildFsrsReviewPatch(taskLike, ratingInput, options = {}) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
         const rating = __tmNormalizeFsrsRating(ratingInput);
-        if (!rating) throw new Error('FSRS 评分无效');
+        if (!rating) throw new Error(__tmT("task.invalidFsrsRating"));
         const runtime = __tmRequireFsrsRuntime();
         const opts = (options && typeof options === 'object') ? options : {};
         const reviewedAt = __tmFsrsDate(opts.reviewedAt || opts.completedAt || new Date());
@@ -131,7 +131,7 @@
         let nextDue = __tmNormalizeDateOnly(review?.card?.due);
         if (!nextDue || (minimumNextKey && nextDue < minimumNextKey)) nextDue = minimumNextKey;
         if (maximumNextKey && nextDue > maximumNextKey) nextDue = maximumNextKey;
-        if (!nextDue) throw new Error('FSRS 未生成有效的下次日期');
+        if (!nextDue) throw new Error(__tmT("task.fsrsDidNotProduceAValidNextDate"));
         review.card.due = __tmFsrsDateForDateKey(nextDue, reviewedAt);
         const nextDueDate = __tmBuildLocalNoonDateFromKey(nextDue);
         const reviewDate = __tmBuildLocalNoonDateFromKey(reviewDateKey);
@@ -180,10 +180,10 @@
 
     function __tmFormatFsrsPreviewDate(value, referenceDate = new Date()) {
         const key = __tmNormalizeDateOnly(value);
-        if (!key) return '待计算';
+        if (!key) return __tmT("settings.pending2");
         const todayKey = __tmNormalizeDateOnly(referenceDate);
-        if (key === todayKey) return '今天';
-        if (key === __tmShiftTaskRepeatDateKey(todayKey, 1)) return '明天';
+        if (key === todayKey) return __tmT("common.today");
+        if (key === __tmShiftTaskRepeatDateKey(todayKey, 1)) return __tmT("calendar.tomorrow");
         const parts = key.split('-').map(Number);
         if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return key;
         return String(parts[0]) === String(todayKey || '').slice(0, 4)

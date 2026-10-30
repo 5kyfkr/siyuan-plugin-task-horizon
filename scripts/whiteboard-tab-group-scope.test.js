@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const root = path.join(__dirname, '../src/task-horizon/main');
 const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 const runtime = read('task-runtime/51-whiteboard-and-link-runtime.js');

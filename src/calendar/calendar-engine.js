@@ -101,7 +101,8 @@
                     end: new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1),
                 }
                 : range;
-            const title = dateMath.formatViewTitle?.(viewType, titleRange, 'zh-CN') || '';
+            const locale = typeof optionState.locale === 'string' ? optionState.locale : optionState.locale?.code || 'zh-CN';
+            const title = dateMath.formatViewTitle?.(viewType, titleRange, locale) || '';
             view = {
                 type: viewType,
                 currentStart: new Date(titleRange.start.getTime()),

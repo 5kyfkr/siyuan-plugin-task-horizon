@@ -6,8 +6,8 @@
         const TIMELINE_MIN_RESIZE_WIDTH_PX = 22;
         const TIMELINE_SCALE_CONFIG = Object.freeze({
             day: Object.freeze({ label: '日', unitDays: 1, zoomWidths: Object.freeze([28, 32, 36, 40, 44]), snapDays: 1, windowDays: 397 }),
-            week: Object.freeze({ label: '周', unitDays: 7, zoomWidths: Object.freeze([84, 98, 112, 126]), snapDays: 1, windowDays: 1095 }),
-            month: Object.freeze({ label: '月', unitDays: TIMELINE_AVERAGE_MONTH_DAYS, zoomWidths: Object.freeze([80, 92, 104, 116, 128]), snapDays: 7, windowDays: 2192 }),
+            week: Object.freeze({ label: __tmT("calendar.week"), unitDays: 7, zoomWidths: Object.freeze([84, 98, 112, 126]), snapDays: 1, windowDays: 1095 }),
+            month: Object.freeze({ label: __tmT("calendar.month"), unitDays: TIMELINE_AVERAGE_MONTH_DAYS, zoomWidths: Object.freeze([80, 92, 104, 116, 128]), snapDays: 7, windowDays: 2192 }),
         });
 
         function clamp(n, min, max) {
@@ -324,8 +324,8 @@
             const d = new Date(ts);
             if (Number.isNaN(d.getTime())) return '';
             return normalizeTimelineScale(scaleInput) === 'month'
-                ? `${d.getFullYear()}年`
-                : `${d.getFullYear()}年${d.getMonth() + 1}月`;
+                ? __tmT("date.yearNumber", { value1: d.getFullYear() })
+                : __tmT("date.yearMonthNumbers", { value1: d.getFullYear(), value2: d.getMonth() + 1 });
         }
 
         function buildDayCellsHtml(startTs, dayCount, dayWidth) {
@@ -339,7 +339,7 @@
                 const isMonthStart = d.getDate() === 1;
                 const isToday = isSameCalendarDay(ts, todayTs);
                 const cls = `tm-gantt-day tm-gantt-period-cell tm-gantt-period-cell--day${isWeekend ? ' tm-gantt-day--weekend' : ''}${isMonthStart ? ' tm-gantt-day--month-start' : ''}${isToday ? ' tm-gantt-period-cell--current' : ''}`;
-                cells.push(`<div class="${cls}" style="left:${i * dayWidth}px;width:${dayWidth}px" aria-label="${d.getFullYear()}年${d.getMonth() + 1}月${day}日"><span class="tm-gantt-date-marker">${day}</span></div>`);
+                cells.push(`<div class="${cls}" style="left:${i * dayWidth}px;width:${dayWidth}px" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("date.fullDateWithDay", { value1: d.getFullYear(), value2: d.getMonth() + 1, day: day })}"><span class="tm-gantt-date-marker">${day}</span></div>`);
             }
             return cells.join('');
         }
@@ -436,7 +436,7 @@
                 const isCurrent = today.getFullYear() === year && today.getMonth() === month;
                 const isQuarterStart = month % 3 === 0;
                 const cls = `tm-gantt-day tm-gantt-period-cell tm-gantt-period-cell--month${isQuarterStart ? ' tm-gantt-period-cell--strong-boundary' : ''}${isCurrent ? ' tm-gantt-period-cell--current' : ''}`;
-                return `<div class="${cls}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px"><span class="tm-gantt-date-marker tm-gantt-date-marker--period">${month + 1}月</span></div>`;
+                return `<div class="${cls}" style="left:${segment.startIndex * dayWidth}px;width:${segment.spanDays * dayWidth}px"><span class="tm-gantt-date-marker tm-gantt-date-marker--period">${__tmT("date.monthNumber", { value1: month + 1 })}</span></div>`;
             }).join('');
         }
 
@@ -465,7 +465,7 @@
         function formatTimelineHintDate(ts) {
             const d = new Date(ts);
             if (Number.isNaN(d.getTime())) return '';
-            return `${d.getMonth() + 1}月${d.getDate()}日`;
+            return __tmT("date.monthDayNumbers", { value1: d.getMonth() + 1, value2: d.getDate() });
         }
 
         function resolveTimelineScaleDateRange(pointTs, scaleInput = 'day') {
@@ -535,7 +535,7 @@
                 ? __tmDesaturateHex(__tmDarkenHex(baseColor, isDark ? 0.48 : 0.36), isDark ? 0.36 : 0.26)
                 : baseColor;
             const statusOptions = __tmGetStatusOptions(SettingsStore?.data?.customStatusOptions);
-            const statusOption = __tmResolveTaskStatusDisplayOption(task, statusOptions, { fallbackColor: '#9ca3af', fallbackName: done ? '完成' : '待办' });
+            const statusOption = __tmResolveTaskStatusDisplayOption(task, statusOptions, { fallbackColor: '#9ca3af', fallbackName: done ? __tmT("quickbar.done") : __tmT("homepage.toDo") });
             const rawStatusLabel = String(statusOption?.name || '').trim();
             const showTitle = timelineCardFieldSet.has('title');
             const showStatus = timelineCardFieldSet.has('status');
@@ -543,7 +543,7 @@
             const statusLabel = showStatus ? rawStatusLabel : '';
             const statusChipStyle = statusLabel ? __tmBuildStatusChipStyle(statusOption?.color || '#9ca3af') : '';
             const taskCompleteAtText = showTaskCompleteAt ? resolveTimelineTaskCompleteAtText(task) : '';
-            const rawTaskTitle = String(task?.content || '').trim() || '(无内容)';
+            const rawTaskTitle = String(task?.content || '').trim() || __tmT("kernel.noContent");
             const taskTitlePresentation = API.getTaskTitlePresentation(task?.markdown, rawTaskTitle);
             const taskTitle = taskTitlePresentation.text;
             const taskLevel = Number(task?.level);
@@ -575,12 +575,12 @@
             if (days > 30) {
                 const months = Math.floor(days / 30);
                 const remainingDays = days % 30;
-                label = `${months}个月${remainingDays ? `${remainingDays}天` : ''}`;
+                label = __tmT("task.mo", { months: months, value2: remainingDays ? __tmT("task.days3", { remainingDays: remainingDays }) : '' });
             }
             return {
                 days,
                 label,
-                accessibleLabel: `共${days}天`,
+                accessibleLabel: __tmT("task.totalD", { days: days }),
             };
         }
 
@@ -591,7 +591,7 @@
 
         function estimateTimelineBarContentWidth(visualMeta, durationLabel = '') {
             const visual = (visualMeta && typeof visualMeta === 'object') ? visualMeta : {};
-            const titleLen = Array.from(String(visual.taskTitle || '').trim() || '(无内容)').length;
+            const titleLen = Array.from(String(visual.taskTitle || '').trim() || __tmT("kernel.noContent")).length;
             const statusLen = Array.from(String(visual.statusLabel || '').trim()).length;
             const completeAtLen = Array.from(String(visual.taskCompleteAtText || '').trim()).length;
             const durationLen = Array.from(String(durationLabel || '').trim()).length;
@@ -629,9 +629,9 @@
                 ? `<span class="tm-gantt-bar__status"><span class="tm-status-tag" style="${visual.statusChipStyle}">${esc(visual.statusLabel)}</span></span>`
                 : '';
             const completeAtHtml = visual.taskCompleteAtText
-                ? `<span class="tm-gantt-bar__complete-time" title="完成时间"><span class="tm-gantt-bar__complete-time-value">${esc(visual.taskCompleteAtText)}</span></span>`
+                ? `<span class="tm-gantt-bar__complete-time" title="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.completionTime")}"><span class="tm-gantt-bar__complete-time-value">${esc(visual.taskCompleteAtText)}</span></span>`
                 : '';
-            const menuBtnHtml = `<button class="tm-gantt-bar__menu-btn" type="button" aria-label="时间轴菜单" title="时间轴菜单"><span class="tm-gantt-bar__menu-btn-text">···</span></button>`;
+            const menuBtnHtml = `<button class="tm-gantt-bar__menu-btn" type="button" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.timelineMenu")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.timelineMenu")}"><span class="tm-gantt-bar__menu-btn-text">···</span></button>`;
             if (visual.isMilestone) {
                 return `
                     <div class="tm-gantt-bar__surface">
@@ -660,9 +660,9 @@
 
         function buildTimelineTaskBarTitle(layout, visualMeta = null) {
             const visual = visualMeta || getTimelineTaskVisualMeta(null, !!layout?.isDark);
-            const completeAtLine = visual.taskCompleteAtText ? `\n完成时间：${visual.taskCompleteAtText}` : '';
+            const completeAtLine = visual.taskCompleteAtText ? __tmT("task.completionTime", { taskCompleteAtText: visual.taskCompleteAtText }) : '';
             if (visual.isMilestone) {
-                return `${visual.taskTitle}\n里程碑：${formatDateOnlyFromTs(layout?.endTs || layout?.startTs)}${completeAtLine}`;
+                return __tmT("task.milestone", { taskTitle: visual.taskTitle, value2: formatDateOnlyFromTs(layout?.endTs || layout?.startTs), completeAtLine: completeAtLine });
             }
             return `${visual.taskTitle}\n${formatDateOnlyFromTs(layout?.startTs)} ~ ${formatDateOnlyFromTs(layout?.endTs)}${completeAtLine}`;
         }
@@ -712,14 +712,14 @@
                     size: 14,
                     fallbackHtml: __tmRenderLucideIcon('file-text', '', { size: 14 }),
                 });
-            const entityLabel = visual.entityKind === 'heading' ? '标题' : '文档';
+            const entityLabel = visual.entityKind === 'heading' ? __tmT("calendar.title") : __tmT("kernel.documents");
             const durationHtml = buildTimelineDurationBadgeHtml(layout?.startTs, layout?.endTs);
             const handlesHtml = visual.state === 'range' && layout?.showHandles !== false
                 ? '<div class="tm-gantt-bar-handle tm-gantt-bar-handle--start" data-handle="start"></div><div class="tm-gantt-bar-handle tm-gantt-bar-handle--end" data-handle="end"></div>'
                 : '';
             return `<div class="tm-gantt-bar tm-gantt-bar--group-range tm-gantt-bar--${visual.entityKind} tm-gantt-bar--${mode}${isOverflow ? ' tm-gantt-bar--overflowing' : ''}${markerClass}" style="left:${Number(layout?.left) || 0}px;width:${barWidth}px;--tm-gantt-bar-fill:${visual.barColor};--tm-gantt-fade-start:${barWidth}px;" title="${esc(title)}">
                 <div class="tm-gantt-bar__surface"><span class="tm-gantt-bar__edge tm-gantt-bar__edge--end"></span><div class="tm-gantt-bar__drag-label" hidden></div></div>
-                <span class="tm-gantt-bar__label-layer tm-gantt-group-bar__label"><span class="tm-gantt-bar__lead">${iconHtml}</span><span class="tm-gantt-bar__title">${esc(visual.title)}</span>${durationHtml}<button class="tm-gantt-bar__menu-btn" type="button" data-tm-group-range-trigger aria-label="设置${entityLabel}日期" title="设置${entityLabel}日期">${__tmRenderLucideIcon('calendar-range', '', { size: 14 })}</button></span>
+                <span class="tm-gantt-bar__label-layer tm-gantt-group-bar__label"><span class="tm-gantt-bar__lead">${iconHtml}</span><span class="tm-gantt-bar__title">${esc(visual.title)}</span>${durationHtml}<button class="tm-gantt-bar__menu-btn" type="button" data-tm-group-range-trigger aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.setDate", { entityLabel: entityLabel })}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.setDate", { entityLabel: entityLabel })}">${__tmRenderLucideIcon('calendar-range', '', { size: 14 })}</button></span>
                 <div class="tm-gantt-bar__date-hint tm-gantt-bar__date-hint--start" data-role="start-date-hint" hidden></div>
                 <div class="tm-gantt-bar__date-hint tm-gantt-bar__date-hint--end" data-role="end-date-hint" hidden></div>
                 ${handlesHtml}
@@ -749,9 +749,9 @@
         function buildTimelineOffscreenNavHtml(item, entityKind = 'task') {
             const isGroup = entityKind === 'doc' || entityKind === 'heading';
             const itemTitle = isGroup
-                ? (String(item?.label || '').trim() || (entityKind === 'heading' ? '(空标题)' : '未命名文档'))
-                : (getTimelineTaskVisualMeta(item).taskTitle || '(无内容)');
-            const label = `定位到${entityKind === 'heading' ? '标题' : (entityKind === 'doc' ? '文档' : '任务')}：${itemTitle}`;
+                ? (String(item?.label || '').trim() || (entityKind === 'heading' ? __tmT("homepage.untitledHeading") : __tmT("kernel.untitledDocument")))
+                : (getTimelineTaskVisualMeta(item).taskTitle || __tmT("kernel.noContent"));
+            const label = __tmT("task.goTo", { value1: entityKind === 'heading' ? __tmT("calendar.title") : (entityKind === 'doc' ? __tmT("kernel.documents") : __tmT("kernel.task")), itemTitle: itemTitle });
             return `
                 <button class="tm-gantt-offscreen-nav${isGroup ? ' tm-gantt-offscreen-nav--group' : ''}" type="button" data-tm-gantt-offscreen-nav aria-label="${esc(label)}" title="${esc(label)}" aria-hidden="true" tabindex="-1">
                     <span class="tm-gantt-offscreen-nav__icon tm-gantt-offscreen-nav__icon--left">${__tmPhosphorBoldSvg('chevron-left', { size: 14, className: 'tm-gantt-offscreen-nav__svg' })}</span>
@@ -1081,12 +1081,12 @@
                 }
                 if (groupEntity) {
                     const invalid = timelineState === 'invalid';
-                    const entityLabel = groupEntity.entityKind === 'heading' ? '标题' : '文档';
+                    const entityLabel = groupEntity.entityKind === 'heading' ? __tmT("calendar.title") : __tmT("kernel.documents");
                     const labelHtml = groupEntity.entityKind === 'heading'
                         ? __tmRenderHeadingLevelIconLabel(groupEntity.label, groupEntity.headingLevel)
                         : __tmRenderDocGroupLabel(groupEntity.entityId, groupEntity.label);
-                    const warningHtml = invalid ? `<span class="tm-doc-timeline-warning" title="开始日期晚于截止日期">${__tmRenderLucideIcon('triangle-alert', '', { size: 14 })}</span>` : '';
-                    return `<span class="tm-gantt-group-chip${invalid ? ' tm-gantt-group-chip--warning' : ''}">${toggle}<span class="tm-group-label" style="color:${labelColor};" title="${esc(groupEntity.label)}">${labelHtml}</span><button class="tm-gantt-group-chip__date-trigger" type="button" data-tm-group-range-trigger data-tm-entity-kind="${groupEntity.entityKind}" data-entity-id="${esc(groupEntity.entityId)}" aria-label="设置${entityLabel}日期" title="${esc(`${groupEntity.label} · 设置${entityLabel}日期`)}">${__tmRenderLucideIcon('calendar-range', '', { size: 14 })}</button>${countHtml}${warningHtml}</span>`;
+                    const warningHtml = invalid ? `<span class="tm-doc-timeline-warning" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.theStartDateIsLaterThanTheDueDate")}">${__tmRenderLucideIcon('triangle-alert', '', { size: 14 })}</span>` : '';
+                    return `<span class="tm-gantt-group-chip${invalid ? ' tm-gantt-group-chip--warning' : ''}">${toggle}<span class="tm-group-label" style="color:${labelColor};" title="${esc(groupEntity.label)}">${labelHtml}</span><button class="tm-gantt-group-chip__date-trigger" type="button" data-tm-group-range-trigger data-tm-entity-kind="${groupEntity.entityKind}" data-entity-id="${esc(groupEntity.entityId)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.setDate", { entityLabel: entityLabel })}" title="${esc(__tmT("task.settingsDate", { label: groupEntity.label, entityLabel: entityLabel }))}">${__tmRenderLucideIcon('calendar-range', '', { size: 14 })}</button>${countHtml}${warningHtml}</span>`;
                 }
                 if (groupRow.kind === 'task') {
                     return `<span class="tm-gantt-group-chip">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderIconLabel('puzzle', groupRow.label || '')}</span>${countHtml}</span>`;
@@ -1181,7 +1181,7 @@
                     : '';
                 const multiSelCls = timelineMultiSelectedSet.has(String(r.id)) ? ' tm-gantt-row--multi-selected' : '';
                 const rowAttrs = `data-id="${String(r.id)}" data-doc-id="${docId}" data-task-start-ts="${Number(aTs) || 0}" data-task-end-ts="${Number(bTs) || 0}" style="width:${totalWidth}px;height:var(--tm-row-height);min-height:var(--tm-row-height);max-height:var(--tm-row-height);${rowBgStyle}" ondragenter="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragover="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragleave="tmTimelineLinkRowDragLeave(event, '${escSq(String(r.id))}')"`;
-                const buildDotHtml = (kind, leftPx) => `<span class="tm-task-link-dot tm-task-link-dot--timeline tm-task-link-dot--${kind}${state.whiteboardLinkFromTaskId === String(r.id) ? ' tm-task-link-dot--active' : ''}" style="left:${leftPx}px;" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(String(r.id))}', '${escSq(docId)}', '${kind}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(String(r.id))}', '${escSq(docId)}', '${kind}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(String(r.id))}', '${escSq(docId)}')" title="连接${kind === 'in' ? '输入' : '输出'}点"></span>`;
+                const buildDotHtml = (kind, leftPx) => `<span class="tm-task-link-dot tm-task-link-dot--timeline tm-task-link-dot--${kind}${state.whiteboardLinkFromTaskId === String(r.id) ? ' tm-task-link-dot--active' : ''}" style="left:${leftPx}px;" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(String(r.id))}', '${escSq(docId)}', '${kind}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(String(r.id))}', '${escSq(docId)}', '${kind}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(String(r.id))}', '${escSq(docId)}')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.connectPort", { value1: kind === 'in' ? __tmT("task.input") : __tmT("settings.output") })}"></span>`;
                 const offscreenNavHtml = aTs && bTs ? buildTimelineOffscreenNavHtml(task) : '';
                 if (!aTs && !bTs) {
                     rowsHtml.push(`<div class="tm-gantt-row${selectedCls}${dotHoverCls}${multiSelCls}" ${rowAttrs}></div>`);
@@ -1527,7 +1527,7 @@
                             <path class="tm-gantt-dep-hit" d="${d}" onclick="tmTimelineSelectLink('${idEsc}', event)"></path>
                             <path class="${cls}" d="${d}" marker-end="url(#${markerIdOut})" onclick="tmTimelineSelectLink('${idEsc}', event)"></path>
                             <foreignObject class="tm-gantt-dep-remove" x="${btnPos.x.toFixed(2)}" y="${btnPos.y.toFixed(2)}" width="20" height="20">
-                                <button xmlns="http://www.w3.org/1999/xhtml" class="tm-gantt-dep-remove-btn" type="button" title="删除连线" onclick="tmTimelineRemoveLink('${idEsc}', event)">×</button>
+                                <button xmlns="http://www.w3.org/1999/xhtml" class="tm-gantt-dep-remove-btn" type="button" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.deleteConnection")}" onclick="tmTimelineRemoveLink('${idEsc}', event)">×</button>
                             </foreignObject>
                         </g>
                     `;
@@ -1571,12 +1571,12 @@
                 const toolbar = document.createElement('div');
                 toolbar.className = 'tm-timeline-selection-toolbar';
                 toolbar.setAttribute('role', 'toolbar');
-                toolbar.setAttribute('aria-label', '时间轴任务操作');
+                toolbar.setAttribute('aria-label', __tmT("task.timelineTaskActions"));
                 toolbar.hidden = true;
                 toolbar.innerHTML = `
-                    <button type="button" class="tm-timeline-selection-toolbar__btn" data-tm-gantt-selection-action="detail" aria-label="打开任务详情" title="打开任务详情" data-tm-floating-tooltip-label="打开任务详情" data-tm-tooltip-side="bottom">${__tmRenderLucideIcon('file-text')}</button>
-                    <button type="button" class="tm-timeline-selection-toolbar__btn" data-tm-gantt-selection-action="milestone" aria-label="转为里程碑" title="转为里程碑" data-tm-floating-tooltip-label="转为里程碑" data-tm-tooltip-side="bottom">${__tmRenderLucideIcon('flag')}</button>
-                    <button type="button" class="tm-timeline-selection-toolbar__btn tm-timeline-selection-toolbar__btn--danger" data-tm-gantt-selection-action="clear" aria-label="清除起止日期" title="清除起止日期" data-tm-floating-tooltip-label="清除起止日期" data-tm-tooltip-side="bottom">${__tmRenderLucideIcon('trash-2')}</button>
+                    <button type="button" class="tm-timeline-selection-toolbar__btn" data-tm-gantt-selection-action="detail" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.openTaskDetails")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.openTaskDetails")}" data-tm-floating-tooltip-label="打开任务详情" data-tm-tooltip-side="bottom">${__tmRenderLucideIcon('file-text')}</button>
+                    <button type="button" class="tm-timeline-selection-toolbar__btn" data-tm-gantt-selection-action="milestone" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.convertToMilestone")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.convertToMilestone")}" data-tm-floating-tooltip-label="转为里程碑" data-tm-tooltip-side="bottom">${__tmRenderLucideIcon('flag')}</button>
+                    <button type="button" class="tm-timeline-selection-toolbar__btn tm-timeline-selection-toolbar__btn--danger" data-tm-gantt-selection-action="clear" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearStartEndDates")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearStartEndDates")}" data-tm-floating-tooltip-label="清除起止日期" data-tm-tooltip-side="bottom">${__tmRenderLucideIcon('trash-2')}</button>
                 `;
                 document.body.appendChild(toolbar);
                 return toolbar;
@@ -1666,7 +1666,7 @@
                     : isTimelineTaskMilestone(task, id);
                 selectionToolbar.dataset.tmMilestone = isMilestone ? '1' : '0';
                 if (milestoneButton instanceof HTMLButtonElement) {
-                    const label = isMilestone ? '还原普通时间轴' : '转为里程碑';
+                    const label = isMilestone ? __tmT("task.restoreNormalTimeline") : __tmT("task.convertToMilestone");
                     milestoneButton.classList.toggle('tm-timeline-selection-toolbar__btn--active', isMilestone);
                     milestoneButton.setAttribute('aria-pressed', isMilestone ? 'true' : 'false');
                     milestoneButton.setAttribute('aria-label', label);
@@ -1751,22 +1751,22 @@
                                 : isTimelineTaskMilestone(task, taskId);
                         const nextMilestone = !currentMilestone;
                         if (nextMilestone && !String(task?.completionTime || '').trim()) {
-                            hint('⚠️ 请先设置截止日期后再设为里程碑', 'error');
+                            hint(__tmT("task.setADueDateBeforeConvertingToAMilestone"), 'error');
                             return;
                         }
                         await onUpdateTaskMeta(taskId, { milestone: nextMilestone });
-                        try { hint(nextMilestone ? '✅ 已设为里程碑' : '✅ 已还原普通时间轴', 'success'); } catch (e2) {}
+                        try { hint(nextMilestone ? __tmT("task.convertedToMilestone") : __tmT("task.restoredToNormalTimeline"), 'success'); } catch (e2) {}
                         syncTimelineSelectionToolbar(taskId, nextMilestone);
                         return;
                     }
                     if (action === 'clear' && onUpdateTaskDates) {
                         await onUpdateTaskDates(taskId, { startDate: '', completionTime: '' });
                         clearTimelineTaskSelection();
-                        try { hint('✅ 已清除时间轴', 'success'); } catch (e2) {}
+                        try { hint(__tmT("task.timelineCleared"), 'success'); } catch (e2) {}
                     }
                 } catch (error) {
                     if (!error?.__tmGanttUpdateHinted) {
-                        try { hint(`❌ 操作失败: ${error?.message || String(error)}`, 'error'); } catch (e2) {}
+                        try { hint(__tmT("task.operationFailed2", { value1: error?.message || String(error) }), 'error'); } catch (e2) {}
                     }
                 } finally {
                     button.dataset.tmBusy = '';
@@ -1863,49 +1863,49 @@
                 };
 
                 if (typeof window.tmOpenTaskDetail === 'function') {
-                    menu.appendChild(createItem(__tmRenderContextMenuLabel('file-text', '打开任务详情'), async () => {
+                    menu.appendChild(createItem(__tmRenderContextMenuLabel('file-text', __tmT("calendar.openTaskDetails")), async () => {
                         try {
                             await window.tmOpenTaskDetail(String(taskIdText), null, { source: 'timeline-context-menu' });
                         } catch (e2) {
-                            try { hint(`❌ 打开失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                            try { hint(__tmT("task.failedToOpen", { value1: e2?.message || String(e2) }), 'error'); } catch (e3) {}
                         }
                     }));
                 }
 
-                menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', '清除时间轴（清空起止）'), async () => {
+                menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', __tmT("task.clearTimelineClearStartEnd")), async () => {
                     try {
                         await onUpdateTaskDates(String(taskIdText), { startDate: '', completionTime: '' });
-                        try { hint('✅ 已清除时间轴', 'success'); } catch (e3) {}
+                        try { hint(__tmT("task.timelineCleared"), 'success'); } catch (e3) {}
                     } catch (e2) {
                         if (!e2?.__tmGanttUpdateHinted) {
-                            try { hint(`❌ 清除失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                            try { hint(__tmT("task.clearFailed2", { value1: e2?.message || String(e2) }), 'error'); } catch (e3) {}
                         }
                     }
                 }, true));
 
                 if (onUpdateTaskMeta && !isMilestone) {
-                    menu.appendChild(createItem('🚩 设为里程碑事件', async () => {
+                    menu.appendChild(createItem(__tmT("task.setAsMilestoneEvent"), async () => {
                         try {
                             const endDate = String(task?.completionTime || '').trim();
                             if (!endDate) {
-                                hint('⚠️ 请先设置截止日期后再设为里程碑', 'error');
+                                hint(__tmT("task.setADueDateBeforeConvertingToAMilestone"), 'error');
                                 return;
                             }
                             await onUpdateTaskMeta(String(taskIdText), { milestone: true });
-                            try { hint('✅ 已设为里程碑', 'success'); } catch (e3) {}
+                            try { hint(__tmT("task.convertedToMilestone"), 'success'); } catch (e3) {}
                         } catch (e2) {
-                            try { hint(`❌ 设置失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                            try { hint(__tmT("task.setupFailed", { value1: e2?.message || String(e2) }), 'error'); } catch (e3) {}
                         }
                     }));
                 }
 
                 if (onUpdateTaskMeta && isMilestone) {
-                    menu.appendChild(createItem('↩ 还原普通时间轴', async () => {
+                    menu.appendChild(createItem(__tmT("task.restoreNormalTimeline2"), async () => {
                         try {
                             await onUpdateTaskMeta(String(taskIdText), { milestone: false });
-                            try { hint('✅ 已还原普通时间轴', 'success'); } catch (e3) {}
+                            try { hint(__tmT("task.restoredToNormalTimeline"), 'success'); } catch (e3) {}
                         } catch (e2) {
-                            try { hint(`❌ 还原失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                            try { hint(__tmT("task.restoreFailed", { value1: e2?.message || String(e2) }), 'error'); } catch (e3) {}
                         }
                     }));
                 }
@@ -2090,7 +2090,7 @@
                     if (groupMove && groupItems.length > 1) {
                         const first = groupItems[0];
                         const delta = first.lastStartIdx - first.initialStartIdx;
-                        endText = `整体偏移 ${delta >= 0 ? '+' : ''}${delta} 天`;
+                        endText = __tmT("task.shiftAllByD", { value1: delta >= 0 ? '+' : '', delta: delta });
                     } else if (action === 'start') {
                         startText = startLabel;
                     } else if (action === 'end') {
@@ -2323,7 +2323,7 @@
                             });
                             const cascadeCount = Math.max(0, Number(result?.cascadeCount) || 0);
                             const skippedCount = Math.max(0, Number(result?.skippedCount) || 0);
-                            hint(`✅ 已顺延${cascadeCount ? ` ${cascadeCount} 个后续任务` : '当前任务'}${skippedCount ? `，跳过 ${skippedCount} 个不可写任务` : ''}`, 'success');
+                            hint(__tmT("task.shifted", { value1: cascadeCount ? __tmT("task.subsequentTasks", { cascadeCount: cascadeCount }) : __tmT("ai.currentTask"), value2: skippedCount ? __tmT("task.skippedReadOnlyTasks", { skippedCount: skippedCount }) : '' }), 'success');
                         } catch (error) {
                             try {
                                 if (typeof __tmRerenderTimelineInPlace === 'function') {
@@ -2334,7 +2334,7 @@
                             } catch (e2) {
                                 try { state.__tmTimelineRenderDeps?.(); } catch (e3) {}
                             }
-                            try { hint(`❌ 顺延失败: ${error?.message || String(error)}`, 'error'); } catch (e2) {}
+                            try { hint(__tmT("task.shiftFailed", { value1: error?.message || String(error) }), 'error'); } catch (e2) {}
                         }
                         return;
                     }
@@ -2476,7 +2476,7 @@
                 try {
                     await onUpdateTaskDates(String(taskId), { startDate, completionTime });
                     const dateLabel = startDate === completionTime ? completionTime : `${startDate} - ${completionTime}`;
-                    try { hint(`✅ 任务日期：${dateLabel}`, 'success'); } catch (e3) {}
+                    try { hint(__tmT("task.taskDates", { dateLabel: dateLabel }), 'success'); } catch (e3) {}
                 } catch (e2) {}
             };
 

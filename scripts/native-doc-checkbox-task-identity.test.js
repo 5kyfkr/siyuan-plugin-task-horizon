@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const root = path.resolve(__dirname, '..', 'src', 'task-horizon', 'main');
 const nativeSource = fs.readFileSync(path.join(root, 'shell', '72-shell-entrances-and-native-doc-hooks.js'), 'utf8');
@@ -70,6 +70,7 @@ function createHarness(options = {}) {
         __tmScheduleRecurringTaskAdvanceAfterCompletion: (...args) => calls.advances.push(args),
         __tmConsumeNativeDocCheckboxInsertedBlock: () => false,
         normalizeTaskFields: () => {},
+        __tmCacheTaskInState: (value) => value,
         __tmResolveNativeDocCheckboxAttrHostIdFromDom: (id, resolvedTaskID) => resolvedTaskID,
         __tmGetTaskAttrHostId: (value) => value.id,
         __tmMarkNativeDocCheckboxSyncedState: () => {},

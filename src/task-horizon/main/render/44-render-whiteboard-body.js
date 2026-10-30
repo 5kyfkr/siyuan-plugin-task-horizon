@@ -96,11 +96,11 @@
                 const rule = resolveQuadrantRule(task);
                 info = {
                     key: String(rule?.id || '__unmatched__'),
-                    label: String(rule?.name || (rule ? rule.id : '未匹配四象限')),
+                    label: rule ? globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule) : __tmT("task.noMatchingQuadrant"),
                     color: quadrantColorMap[String(rule?.color || '')] || 'var(--tm-text-color)',
                 };
             } else {
-                const label = String(task?.content || '').trim() || '(无内容)';
+                const label = String(task?.content || '').trim() || __tmT("kernel.noContent");
                 info = { key: label, label, color: 'var(--tm-primary-color)' };
             }
             if (!groups.has(info.key)) groups.set(info.key, { ...info, roots: [] });
@@ -112,7 +112,7 @@
             const order = [...quadrantOrder, ...quadrantRules.map((rule) => String(rule?.id || '')).filter((id) => id && !quadrantOrder.includes(id)), '__unmatched__'];
             cards.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
         } else cards.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
-        if (pinned.length) cards.unshift({ key: '__pinned__', label: '置顶任务', color: 'var(--tm-pinned-color)', roots: pinned, pinned: true });
+        if (pinned.length) cards.unshift({ key: '__pinned__', label: __tmT("task.pinnedTask"), color: 'var(--tm-pinned-color)', roots: pinned, pinned: true });
         // Group roots first, then bring their entire visible subtree into the same card.
         return cards.map((card) => {
             const ids = new Set();
@@ -165,15 +165,15 @@
                 ? __tmGetVisibleDocTabsForCurrentGroup()
                 : docsInOrder0).map((doc) => String(doc?.id || doc || '').trim()).filter(Boolean);
             const visibleDocIdSet = new Set(visibleDocIds);
-            const docNameById = new Map((state.taskTree || []).map(d => [String(d?.id || '').trim(), String(d?.name || '').trim() || '未命名文档']));
+            const docNameById = new Map((state.taskTree || []).map(d => [String(d?.id || '').trim(), String(d?.name || '').trim() || __tmT("kernel.untitledDocument")]));
             const snapMap = __tmGetWhiteboardCardSnapshotMap();
             // 仅使用当前分组已加载文档，避免把其他分组/历史快照文档混入“全部页签”白板
             const docsInOrder = docsInOrder0;
             let detachedMap = __tmGetDetachedChildrenMap();
             const enableDocH2Subgroup = SettingsStore.data.docH2SubgroupEnabled !== false;
             const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
-            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-            const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+            const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+            const noHeadingLabel = __tmT("calendar.no", { value1: headingLabelMap[headingLevel] || __tmT("calendar.title") });
             let notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
             let drawings = Array.isArray(SettingsStore.data.whiteboardDrawings) ? SettingsStore.data.whiteboardDrawings : [];
             let frames = Array.isArray(SettingsStore.data.whiteboardFrames) ? SettingsStore.data.whiteboardFrames : [];
@@ -263,7 +263,7 @@
             if (globalCollectionDocId && !docNameById.has(globalCollectionDocId)) {
                 const collectionDoc = (Array.isArray(state.allDocuments) ? state.allDocuments : [])
                     .find((doc) => String(doc?.id || '').trim() === globalCollectionDocId);
-                docNameById.set(globalCollectionDocId, String(collectionDoc?.name || '').trim() || '全局收集文档');
+                docNameById.set(globalCollectionDocId, String(collectionDoc?.name || '').trim() || __tmT("task.globalInboxDocument"));
             }
             const globalCollectionVisibleTaskIds = (() => {
                 if (!isGlobalBoardMode || !globalCollectionDocId) return new Set();
@@ -340,7 +340,7 @@
                 const useSnapHeading = snapHeadingLevel ? (snapHeadingLevel === headingLevel) : (headingLevel === 'h2');
                 pushDocTask({
                     id: String(id || '').trim(),
-                    content: String(snap.content || '').trim() || '(无内容)',
+                    content: String(snap.content || '').trim() || __tmT("kernel.noContent"),
                     root_id: docId,
                     docId,
                     parentTaskId: String(snap.parentTaskId || '').trim(),
@@ -373,7 +373,7 @@
                 const useSnapHeading = snapHeadingLevel ? (snapHeadingLevel === headingLevel) : (headingLevel === 'h2');
                 pushDocTask({
                     id,
-                    content: String(snap.content || '').trim() || '(无内容)',
+                    content: String(snap.content || '').trim() || __tmT("kernel.noContent"),
                     root_id: String(snap.docId || '').trim(),
                     docId: String(snap.docId || '').trim(),
                     parentTaskId: String(snap.parentTaskId || '').trim(),
@@ -536,9 +536,9 @@
                             return !!cid && !!childTask && __tmShouldKeepChildTaskVisible(task, childTask, inheritedHideCompleted);
                         });
                         const collapsed = childIds.length ? __tmKanbanGetCollapsedSet().has(tid) : false;
-                        const content = String(task?.content || '').trim() || '(无内容)';
+                        const content = String(task?.content || '').trim() || __tmT("kernel.noContent");
                         const toggleHtml = childIds.length
-                            ? `<button class="tm-kanban-toggle" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${collapsed ? '展开子任务' : '折叠子任务'}"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="10" height="10" style="transform:translate(-50%, -50%) rotate(${collapsed ? '0deg' : '90deg'});"><path d="M4.75 3.25l6.5 4.75-6.5 4.75" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+                            ? `<button class="tm-kanban-toggle" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${collapsed ? __tmT("calendar.expandSubtasks") : __tmT("calendar.collapseSubtasks")}"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="10" height="10" style="transform:translate(-50%, -50%) rotate(${collapsed ? '0deg' : '90deg'});"><path d="M4.75 3.25l6.5 4.75-6.5 4.75" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
                             : '';
                         const childrenHtml = childIds.length && !collapsed
                             ? `<div class="tm-whiteboard-stream-children"><div class="tm-whiteboard-stream-subtasks">${childIds.map((id) => renderTaskTree(id, hideCompletedDescendants, depth + 1, inCompletedRootGroup)).join('')}</div></div>`
@@ -551,14 +551,14 @@
                         });
                         const sourceDocId = String(task?.root_id || task?.docId || '').trim();
                         const sourceDocHtml = useSemanticGroups && depth === 0 && sourceDocId
-                            ? `<button type="button" class="tm-whiteboard-stream-task-doc" title="${esc(docNameById.get(sourceDocId) || '打开文档')}" aria-label="${esc(`打开文档：${docNameById.get(sourceDocId) || '未知文档'}`)}" onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(sourceDocId)}');">${__tmRenderDocIcon(sourceDocId, { fallbackText: '📄', size: 12 })}</button>`
+                            ? `<button type="button" class="tm-whiteboard-stream-task-doc" title="${esc(docNameById.get(sourceDocId) || __tmT("task.openDocument"))}" aria-label="${esc(__tmT("task.openDocument2", { value1: docNameById.get(sourceDocId) || __tmT("task.unknownDocument") }))}" onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(sourceDocId)}');">${__tmRenderDocIcon(sourceDocId, { fallbackText: '📄', size: 12 })}</button>`
                             : '';
                         return `
                             <div class="tm-whiteboard-stream-task-node" data-task-id="${esc(tid)}" data-id="${esc(tid)}">
                                 <div class="tm-whiteboard-stream-task">
                                     <div class="tm-whiteboard-stream-task-head${multiSelectCls}" data-task-id="${esc(tid)}" data-id="${esc(tid)}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(tid)}')" ondragend="tmDragTaskEnd(event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')" onclick="tmWhiteboardStreamTaskHeadClick('${escSq(tid)}', event)">
-                                        ${__tmRenderTaskCheckboxWrap(tid, task, { checked: __tmIsTaskClosedForDisplay(task), stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)` })}
-                                        <span class="tm-whiteboard-stream-task-title${parentTaskTitleCls}${__tmIsTaskClosedForDisplay(task) ? ' tm-task-done' : ''}" onpointerdown="tmWhiteboardStreamTaskTitlePointerDown(event)" onmousedown="tmWhiteboardStreamTaskTitleMouseDown(event)" onclick="tmWhiteboardStreamTaskTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, content)}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                                        ${__tmRenderTaskCheckboxWrap(tid, task, { checked: __tmIsTaskClosedForDisplay(task), stopMouseDown: true, stopPointerDown: true, stopClick: true, title: __tmT("task.completionStatus"), onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)` })}
+                                        <span class="tm-whiteboard-stream-task-title${parentTaskTitleCls}${__tmIsTaskClosedForDisplay(task) ? ' tm-task-done' : ''}" onpointerdown="tmWhiteboardStreamTaskTitlePointerDown(event)" onmousedown="tmWhiteboardStreamTaskTitleMouseDown(event)" onclick="tmWhiteboardStreamTaskTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, content || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, content)}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                                         ${sourceDocHtml}
                                         ${toggleHtml}
                                     </div>
@@ -587,7 +587,7 @@
                             <div class="tm-whiteboard-stream-heading tm-whiteboard-stream-heading--done" onclick="tmToggleGroupCollapse('${escSq(doneGroupKey)}', event)">
                                 <div class="tm-whiteboard-stream-heading-main">
                                     <span class="tm-group-toggle${doneCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;">${__tmRenderToggleIcon(16, doneCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>
-                                    <span class="tm-whiteboard-stream-heading-label" style="color:var(--tm-secondary-text);">已完成任务</span>
+                                    <span class="tm-whiteboard-stream-heading-label" style="color:var(--tm-secondary-text);">${__tmT("calendar.completedTasks")}</span>
                                 </div>
                                 <span class="tm-badge tm-badge--count">${completedRootIds.length}</span>
                             </div>
@@ -640,24 +640,24 @@
                             <header class="tm-whiteboard-stream-doc-head">
                                 <div class="tm-whiteboard-stream-doc-meta">
                                     ${__tmRenderDocIcon(docId, { fallbackText: '📄', className: 'tm-whiteboard-stream-doc-icon', size: 14 })}
-                                    <span class="tm-whiteboard-stream-doc-title" onclick="event.preventDefault(); event.stopPropagation(); tmOpenDocById('${escSq(docId)}');" title="打开文档">${esc(docNameById.get(docId) || '未知文档')}</span>
+                                    <span class="tm-whiteboard-stream-doc-title" onclick="event.preventDefault(); event.stopPropagation(); tmOpenDocById('${escSq(docId)}');" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.openDocument")}">${esc(docNameById.get(docId) || __tmT("task.unknownDocument"))}</span>
                                     ${showMobileStreamDocCount ? `<span class="tm-badge tm-badge--count">${docTasks.length}</span>` : ''}
                                 </div>
                                 <div class="tm-whiteboard-stream-doc-actions" onclick="event.stopPropagation()">
                                     <button class="tm-group-create-btn tm-whiteboard-stream-doc-add-btn"
                                             type="button"
-                                            title="新建任务"
-                                            aria-label="新建任务"
+                                            title="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}"
+                                            aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}"
                                             onpointerdown="event.stopPropagation()"
                                             onclick="event.preventDefault(); event.stopPropagation(); tmQuickAddOpenForDoc('${escSq(docId)}');">
                                         ${__tmRenderLucideIcon('plus')}
                                     </button>
-                                    <span class="tm-whiteboard-stream-doc-grip" draggable="true" ondragstart="tmWhiteboardAllTabsDocDragStart(event, '${escSq(docId)}')" ondragend="tmWhiteboardAllTabsDocDragEnd(event)" title="拖拽调整文档卡片顺序">⋮⋮</span>
+                                    <span class="tm-whiteboard-stream-doc-grip" draggable="true" ondragstart="tmWhiteboardAllTabsDocDragStart(event, '${escSq(docId)}')" ondragend="tmWhiteboardAllTabsDocDragEnd(event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToReorderDocumentCards")}">⋮⋮</span>
                                 </div>
                             </header>
                             `}
                             <div class="tm-whiteboard-stream-doc-list"${groupCollapsed ? ' hidden' : ''}>
-                                ${streamSectionsHtml || (groupCollapsed ? '' : `<div class="tm-whiteboard-stream-empty">当前${useSemanticGroups ? '分组' : '文档'}没有任务</div>`)}
+                                ${streamSectionsHtml || (groupCollapsed ? '' : `<div class="tm-whiteboard-stream-empty">${__tmT("task.noTasksInTheCurrent", { value1: useSemanticGroups ? __tmT("task.group") : __tmT("kernel.documents") })}</div>`)}
                             </div>
                         </section>
                     `;
@@ -674,7 +674,7 @@
                     <div class="tm-body tm-body--whiteboard tm-body--whiteboard-stream${bodyAnimClass}" id="tmWhiteboardBody">
                         ${streamCards.length
                             ? `<div class="tm-whiteboard-stream" style="--tm-whiteboard-stream-gap:${streamGap}px;">${streamColsHtml}</div>`
-                            : `<div class="tm-whiteboard-stream-empty">暂无任务可用于卡片流</div>`}
+                            : `<div class="tm-whiteboard-stream-empty">${__tmT("task.noTasksAvailableForTheCardStream")}</div>`}
                     </div>
                 `;
             }
@@ -722,7 +722,7 @@
                     const posDocId = String(pos?.docId || '').trim();
                     const taskObj = isGlobalCanvasDoc ? globalWhiteboardTaskMap.get(tid) : (state.flatTasks?.[tid] || (snapMap?.[tid] ? {
                         id: tid,
-                        content: String(snapMap[tid]?.content || '').trim() || '(无内容)',
+                        content: String(snapMap[tid]?.content || '').trim() || __tmT("kernel.noContent"),
                         root_id: String(snapMap[tid]?.docId || '').trim(),
                         docId: String(snapMap[tid]?.docId || '').trim(),
                         parentTaskId: String(snapMap[tid]?.parentTaskId || '').trim(),
@@ -905,7 +905,7 @@
                     const fy = Math.round(localY + ((allView && !isGlobalCanvasDoc) ? framePlan.offsetY : 0));
                     const name = (typeof __tmNormalizeWhiteboardFrameName === 'function')
                         ? __tmNormalizeWhiteboardFrameName(frame?.name)
-                        : (String(frame?.name || '').trim() || '分组').slice(0, 48);
+                        : (String(frame?.name || '').trim() || __tmT("task.group")).slice(0, 48);
                     const backgroundColor = (typeof __tmNormalizeWhiteboardFrameBackgroundColor === 'function')
                         ? __tmNormalizeWhiteboardFrameBackgroundColor(frame?.backgroundColor)
                         : (/^#[0-9a-fA-F]{6}$/.test(String(frame?.backgroundColor || '').trim()) ? String(frame.backgroundColor).trim() : '');
@@ -913,18 +913,18 @@
                     const frameStyle = `left:${fx}px;top:${fy}px;width:${w}px;height:${h}px;${backgroundColor ? `--tm-whiteboard-frame-bg:${esc(backgroundColor)};` : ''}`;
                     const toolsHtml = selected ? `
                         <div class="tm-whiteboard-frame-tools" onclick="event.stopPropagation()" onpointerdown="event.stopPropagation()" onmousedown="event.stopPropagation()">
-                            <input class="tm-whiteboard-frame-name-input" value="${esc(name)}" maxlength="48" onkeydown="tmWhiteboardFrameNameKeyDown(event, '${escSq(frameId)}')" onblur="tmWhiteboardUpdateFrameName('${escSq(frameId)}', this.value, event)" aria-label="分组名称">
-                            <div class="tm-whiteboard-frame-swatches" role="group" aria-label="背景颜色">
-                                ${frameColorOptions.map((color) => `<button type="button" class="tm-whiteboard-frame-swatch${backgroundColor.toLowerCase() === color ? ' is-active' : ''}" style="--tm-whiteboard-frame-swatch:${esc(color)};" onclick="tmWhiteboardSetFrameBackground('${escSq(frameId)}', '${escSq(color)}', event)" title="背景颜色"></button>`).join('')}
+                            <input class="tm-whiteboard-frame-name-input" value="${esc(name)}" maxlength="48" onkeydown="tmWhiteboardFrameNameKeyDown(event, '${escSq(frameId)}')" onblur="tmWhiteboardUpdateFrameName('${escSq(frameId)}', this.value, event)" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.groupname")}">
+                            <div class="tm-whiteboard-frame-swatches" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.backgroundcolor")}">
+                                ${frameColorOptions.map((color) => `<button type="button" class="tm-whiteboard-frame-swatch${backgroundColor.toLowerCase() === color ? ' is-active' : ''}" style="--tm-whiteboard-frame-swatch:${esc(color)};" onclick="tmWhiteboardSetFrameBackground('${escSq(frameId)}', '${escSq(color)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.backgroundcolor")}"></button>`).join('')}
                             </div>
-                            <button type="button" class="tm-whiteboard-frame-tool-btn" onclick="tmWhiteboardSetFrameBackground('${escSq(frameId)}', '', event)" title="清除背景">清除</button>
-                            <button type="button" class="tm-whiteboard-frame-tool-btn tm-whiteboard-frame-tool-btn--danger" onclick="tmWhiteboardDeleteFrame('${escSq(frameId)}', event)" title="删除分组框">删除</button>
+                            <button type="button" class="tm-whiteboard-frame-tool-btn" onclick="tmWhiteboardSetFrameBackground('${escSq(frameId)}', '', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearbackground")}">${__tmT("task.clear")}</button>
+                            <button type="button" class="tm-whiteboard-frame-tool-btn tm-whiteboard-frame-tool-btn--danger" onclick="tmWhiteboardDeleteFrame('${escSq(frameId)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.deleteFrame")}">${__tmT("common.delete")}</button>
                         </div>
                     ` : '';
                     const resizeHtml = selected
-                        ? `<span class="tm-whiteboard-frame-resize tm-whiteboard-frame-resize--nw" onpointerdown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'nw')" onmousedown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'nw')" title="拖拽调整分组框"></span><span class="tm-whiteboard-frame-resize tm-whiteboard-frame-resize--se" onpointerdown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'se')" onmousedown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'se')" title="拖拽调整分组框"></span>`
+                        ? `<span class="tm-whiteboard-frame-resize tm-whiteboard-frame-resize--nw" onpointerdown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'nw')" onmousedown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'nw')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToResizeFrame")}"></span><span class="tm-whiteboard-frame-resize tm-whiteboard-frame-resize--se" onpointerdown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'se')" onmousedown="tmWhiteboardFrameResizeStart(event, '${escSq(frameId)}', '${escSq(docId)}', 'se')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToResizeFrame")}"></span>`
                         : '';
-                    return `<div class="tm-whiteboard-frame${selected ? ' tm-whiteboard-frame--selected' : ''}" data-frame-id="${esc(frameId)}" data-doc-id="${esc(docId)}" data-x="${Math.round(fx)}" data-y="${Math.round(fy)}" data-local-x="${Math.round(localX)}" data-local-y="${Math.round(localY)}" data-w="${w}" data-h="${h}" style="${frameStyle}" onclick="tmWhiteboardSelectFrame('${escSq(frameId)}', event)" onpointerdown="tmWhiteboardFramePointerDown(event, '${escSq(frameId)}', '${escSq(docId)}')" onmousedown="tmWhiteboardFrameMouseDown(event, '${escSq(frameId)}', '${escSq(docId)}')" title="${selected ? '拖动分组框' : '点击选中分组框后可移动'}"><div class="tm-whiteboard-frame-title">${esc(name)}</div>${toolsHtml}${resizeHtml}</div>`;
+                    return `<div class="tm-whiteboard-frame${selected ? ' tm-whiteboard-frame--selected' : ''}" data-frame-id="${esc(frameId)}" data-doc-id="${esc(docId)}" data-x="${Math.round(fx)}" data-y="${Math.round(fy)}" data-local-x="${Math.round(localX)}" data-local-y="${Math.round(localY)}" data-w="${w}" data-h="${h}" style="${frameStyle}" onclick="tmWhiteboardSelectFrame('${escSq(frameId)}', event)" onpointerdown="tmWhiteboardFramePointerDown(event, '${escSq(frameId)}', '${escSq(docId)}')" onmousedown="tmWhiteboardFrameMouseDown(event, '${escSq(frameId)}', '${escSq(docId)}')" title="${selected ? __tmT("task.dragTheGroupFrame") : __tmT("task.clickToSelectTheGroupFrameThenMoveIt")}"><div class="tm-whiteboard-frame-title">${esc(name)}</div>${toolsHtml}${resizeHtml}</div>`;
                 };
 
                 const renderWhiteboardNote = (n, idx) => {
@@ -943,7 +943,7 @@
                         const stickySizeStyle = `width:${stickyWidth}px;${stickyHeight > 0 ? `height:${stickyHeight}px;` : ''}`;
                         const stickyBodyHtml = stickyText
                             ? __tmRenderRemarkMarkdown(stickyText)
-                            : '<div class="tm-whiteboard-sticky-empty">双击编辑内容</div>';
+                            : `<div class="tm-whiteboard-sticky-empty">${__tmT("task.doubleClickToEdit")}</div>`;
                         const stickyToolsHtml = selected
                             ? `<div class="tm-whiteboard-note-tools tm-whiteboard-sticky-tools">
                                 ${stickyThemeOptions.map((item) => {
@@ -952,12 +952,12 @@
                                     if (!value) return '';
                                     return `<button class="tm-whiteboard-sticky-swatch tm-whiteboard-sticky-swatch--${esc(value)}${stickyTheme === value ? ' is-active' : ''}" onclick="tmWhiteboardSetStickyTheme('${escSq(nid)}', '${escSq(value)}', event)" title="${esc(label)}"></button>`;
                                 }).join('')}
-                                <button class="tm-btn tm-btn-info" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="编辑便利贴">编辑</button>
-                                <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteNote('${escSq(nid)}', event)" title="移除便利贴">移除</button>
+                                <button class="tm-btn tm-btn-info" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.editstickyNote")}">${__tmT("calendar.edit")}</button>
+                                <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteNote('${escSq(nid)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.removestickyNote")}">${__tmT("task.remove")}</button>
                             </div>`
                             : '';
-                        const stickyResizeHtml = selected ? `<span class="tm-whiteboard-note-width-resize" onmousedown="tmWhiteboardNoteResizeWidthStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节便利贴宽度"></span><span class="tm-whiteboard-note-height-resize" onmousedown="tmWhiteboardNoteResizeHeightStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="向下拖拽调节便利贴高度"></span>` : '';
-                        return `<div class="tm-whiteboard-note tm-whiteboard-sticky tm-whiteboard-sticky--${esc(stickyTheme)}${selected ? ' tm-whiteboard-note--selected' : ''}" data-note-id="${esc(nid)}" data-note-kind="sticky" data-doc-id="${esc(docId)}" style="position:absolute;left:${nx}px;top:${ny}px;z-index:4;${stickySizeStyle}" onclick="tmWhiteboardNoteClick('${escSq(nid)}', event)" onmousedown="tmWhiteboardNoteMouseDown(event, '${escSq(nid)}', '${escSq(docId)}')" ondblclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="拖动便利贴，双击编辑">${stickyToolsHtml}<div class="tm-whiteboard-sticky-title">${esc(stickyTitle || '便利贴')}</div><div class="tm-whiteboard-sticky-body">${stickyBodyHtml}</div>${stickyResizeHtml}</div>`;
+                        const stickyResizeHtml = selected ? `<span class="tm-whiteboard-note-width-resize" onmousedown="tmWhiteboardNoteResizeWidthStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToResizeStickyNoteWidth")}"></span><span class="tm-whiteboard-note-height-resize" onmousedown="tmWhiteboardNoteResizeHeightStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragDownToResizeStickyNoteHeight")}"></span>` : '';
+                        return `<div class="tm-whiteboard-note tm-whiteboard-sticky tm-whiteboard-sticky--${esc(stickyTheme)}${selected ? ' tm-whiteboard-note--selected' : ''}" data-note-id="${esc(nid)}" data-note-kind="sticky" data-doc-id="${esc(docId)}" style="position:absolute;left:${nx}px;top:${ny}px;z-index:4;${stickySizeStyle}" onclick="tmWhiteboardNoteClick('${escSq(nid)}', event)" onmousedown="tmWhiteboardNoteMouseDown(event, '${escSq(nid)}', '${escSq(docId)}')" ondblclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToMoveStickyNoteDoubleClickToEdit")}">${stickyToolsHtml}<div class="tm-whiteboard-sticky-title">${esc(stickyTitle || __tmT("task.stickyNote"))}</div><div class="tm-whiteboard-sticky-body">${stickyBodyHtml}</div>${stickyResizeHtml}</div>`;
                     }
                     const noteColor = __tmNormalizeWhiteboardNoteColor(n?.color) || '';
                     const noteFont = __tmNormalizeWhiteboardNoteFontSize(n?.fontSize);
@@ -966,15 +966,15 @@
                     const noteStyle = `${noteColor ? `color:${noteColor};` : ''}font-size:${noteFont}px;font-weight:${noteBold ? '700' : '400'};${noteWidth > 0 ? `width:${noteWidth}px;white-space:pre-wrap;overflow-wrap:anywhere;` : 'white-space:pre;overflow-wrap:normal;'}`;
                     const toolsHtml = selected
                         ? `<div class="tm-whiteboard-note-tools">
-                            <button class="tm-btn ${noteBold ? 'tm-btn-primary' : 'tm-btn-secondary'}" style="padding:2px 8px;font-size:12px;font-weight:700;" onclick="tmWhiteboardToggleNoteBold('${escSq(nid)}', event)" title="加粗">B</button>
-                            <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', -1, event)" title="减小字号">A-</button>
-                            <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', 1, event)" title="增大字号">A+</button>
-                            ${noteColorOptions.map((c) => `<button class="tm-btn" style="padding:0;width:16px;height:14px;min-width:16px;border-radius:50%;background:${c};border:${noteColor === c ? '2px solid var(--tm-primary-color)' : '1px solid var(--tm-border-color)'};" onclick="tmWhiteboardSetNoteColor('${escSq(nid)}', '${escSq(c)}', event)" title="文字颜色"></button>`).join('')}
-                            <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteNote('${escSq(nid)}', event)" title="移除文本">移除</button>
+                            <button class="tm-btn ${noteBold ? 'tm-btn-primary' : 'tm-btn-secondary'}" style="padding:2px 8px;font-size:12px;font-weight:700;" onclick="tmWhiteboardToggleNoteBold('${escSq(nid)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.bold")}">B</button>
+                            <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', -1, event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.decreaseFontSize")}">A-</button>
+                            <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', 1, event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.increaseFontSize")}">A+</button>
+                            ${noteColorOptions.map((c) => `<button class="tm-btn" style="padding:0;width:16px;height:14px;min-width:16px;border-radius:50%;background:${c};border:${noteColor === c ? '2px solid var(--tm-primary-color)' : '1px solid var(--tm-border-color)'};" onclick="tmWhiteboardSetNoteColor('${escSq(nid)}', '${escSq(c)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.textcolor")}"></button>`).join('')}
+                            <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteNote('${escSq(nid)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.removetext")}">${__tmT("task.remove")}</button>
                         </div>`
                         : '';
-                    const resizeHtml = selected ? `<span class="tm-whiteboard-note-resize" onmousedown="tmWhiteboardNoteResizeStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节字号"></span><span class="tm-whiteboard-note-width-resize" onmousedown="tmWhiteboardNoteResizeWidthStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节文本框宽度"></span>` : '';
-                    return `<div class="tm-whiteboard-note${selected ? ' tm-whiteboard-note--selected' : ''}" data-note-id="${esc(nid)}" data-doc-id="${esc(docId)}" style="position:absolute;left:${nx}px;top:${ny}px;z-index:4;${noteStyle}" onclick="tmWhiteboardNoteClick('${escSq(nid)}', event)" onmousedown="tmWhiteboardNoteMouseDown(event, '${escSq(nid)}', '${escSq(docId)}')" ondblclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="拖动便签位置，双击编辑">${toolsHtml}${esc(String(n?.text || '').trim())}${resizeHtml}</div>`;
+                    const resizeHtml = selected ? `<span class="tm-whiteboard-note-resize" onmousedown="tmWhiteboardNoteResizeStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToResizeText")}"></span><span class="tm-whiteboard-note-width-resize" onmousedown="tmWhiteboardNoteResizeWidthStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToResizeTextBoxWidth")}"></span>` : '';
+                    return `<div class="tm-whiteboard-note${selected ? ' tm-whiteboard-note--selected' : ''}" data-note-id="${esc(nid)}" data-doc-id="${esc(docId)}" style="position:absolute;left:${nx}px;top:${ny}px;z-index:4;${noteStyle}" onclick="tmWhiteboardNoteClick('${escSq(nid)}', event)" onmousedown="tmWhiteboardNoteMouseDown(event, '${escSq(nid)}', '${escSq(docId)}')" ondblclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToMoveNoteDoubleClickToEdit")}">${toolsHtml}${esc(String(n?.text || '').trim())}${resizeHtml}</div>`;
                 };
 
                 const renderTaskNode = (id, depth = 0, inheritedHideCompleted = false) => {
@@ -1009,7 +1009,7 @@
                     const linkedAnchors = linkedTaskAnchorMap.get(tid) || new Set();
                     const linkDotActiveClass = (anchor) => linkedAnchors.has(anchor) ? ' tm-task-link-dot--linked' : '';
                     const hasVisibleChildren = children.length > 0;
-                    const toggleTitle = collapsed ? '展开子任务' : '折叠子任务';
+                    const toggleTitle = collapsed ? __tmT("calendar.expandSubtasks") : __tmT("calendar.collapseSubtasks");
                     const toggleIconPathHtml = '<path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';
                     const toggleButtonIconHtml = `<svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:translate(-50%, -50%) rotate(${collapsed ? '0deg' : '90deg'});">${toggleIconPathHtml}</svg>`;
                     const toggleChevronIconHtml = `<svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:rotate(${collapsed ? '0deg' : '90deg'});">${toggleIconPathHtml}</svg>`;
@@ -1022,10 +1022,10 @@
                     const collapseProxyHasInLinks = collapsed && linkedDescendantParentInIdSet.has(tid);
                     const collapseProxyHasOutLinks = collapsed && linkedDescendantParentOutIdSet.has(tid);
                     const collapseProxyDot = (collapsed && totalChildren)
-                        ? `<span class="tm-task-link-dot tm-whiteboard-collapse-proxy-dot tm-whiteboard-collapse-proxy-dot--in${collapseProxyHasInLinks ? ' tm-whiteboard-collapse-proxy-dot--has-links' : ''}" title="折叠子任务输入连线汇聚点"></span><span class="tm-task-link-dot tm-whiteboard-collapse-proxy-dot tm-whiteboard-collapse-proxy-dot--out${collapseProxyHasOutLinks ? ' tm-whiteboard-collapse-proxy-dot--has-links' : ''}" title="折叠子任务输出连线汇聚点"></span>`
+                        ? `<span class="tm-task-link-dot tm-whiteboard-collapse-proxy-dot tm-whiteboard-collapse-proxy-dot--in${collapseProxyHasInLinks ? ' tm-whiteboard-collapse-proxy-dot--has-links' : ''}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.collapsedSubtaskInputJunction")}"></span><span class="tm-task-link-dot tm-whiteboard-collapse-proxy-dot tm-whiteboard-collapse-proxy-dot--out${collapseProxyHasOutLinks ? ' tm-whiteboard-collapse-proxy-dot--has-links' : ''}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.collapsedSubtaskOutputJunction")}"></span>`
                         : '';
                     const verticalLinkDots = depth === 0
-                        ? `<span class="tm-task-link-dot tm-task-link-dot--in tm-task-link-dot--top${linkDotActiveClass('top')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'top')" title="连接输入点"></span><span class="tm-task-link-dot tm-task-link-dot--out tm-task-link-dot--bottom${linkDotActiveClass('bottom')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'bottom')" title="连接输出点"></span>`
+                        ? `<span class="tm-task-link-dot tm-task-link-dot--in tm-task-link-dot--top${linkDotActiveClass('top')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'top')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.connectInput")}"></span><span class="tm-task-link-dot tm-task-link-dot--out tm-task-link-dot--bottom${linkDotActiveClass('bottom')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'bottom')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.connectOutput")}"></span>`
                         : '';
                     const childrenListHtml = hasVisibleChildren && !collapsed
                         ? children.map(cid => renderTaskNode(cid, depth + 1, hideCompletedDescendants)).join('')
@@ -1043,7 +1043,7 @@
                     const nodeMouse = isFrozen ? '' : ` onpointerdown="tmWhiteboardCardPointerDown(event, '${escSq(tid)}', '${escSq(taskDocId)}')" onmousedown="tmWhiteboardCardMouseDown(event, '${escSq(tid)}', '${escSq(taskDocId)}')"`;
                     const nodeContextMenu = isFrozen ? '' : ` oncontextmenu="return tmWhiteboardCardContextMenu(event, '${escSq(tid)}')"`;
                     const selectClick = ` onclick="tmWhiteboardSelectTask('${escSq(tid)}', event)"`;
-                    const deleteTitle = isGhost ? '移除快照卡片并彻底移除记录（不进入侧边栏）' : '移除卡片并回到侧栏';
+                    const deleteTitle = isGhost ? __tmT("task.removeTheSnapshotCardAndDeleteItsRecordEntirely") : __tmT("task.removeTheCardAndReturnItToTheSidebar");
                     const parentId = __tmResolveWhiteboardTaskParentId(tid);
                     const parentTask = parentId ? (state.flatTasks?.[parentId] || (snapMap?.[parentId] ? { content: String(snapMap[parentId]?.content || '') } : null)) : null;
                     const parentText = String(parentTask?.content || '').trim();
@@ -1070,16 +1070,16 @@
                     const toolsHtml = selected && !isFrozen ? `
                         <div class="tm-whiteboard-card-tools">
                             ${__tmBuildWhiteboardTraversalButtonHtml(tid)}
-                            <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteCard('${escSq(tid)}', '${escSq(taskDocId)}', event)" title="${esc(deleteTitle)}">移除</button>
-                            ${canMoveBack ? `<button class="tm-btn tm-btn-info" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardMoveBackToParent('${escSq(tid)}', '${escSq(taskDocId)}', event)" title="移回父任务">移回父任务</button>` : ''}
+                            <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteCard('${escSq(tid)}', '${escSq(taskDocId)}', event)" title="${esc(deleteTitle)}">${__tmT("task.remove")}</button>
+                            ${canMoveBack ? `<button class="tm-btn tm-btn-info" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardMoveBackToParent('${escSq(tid)}', '${escSq(taskDocId)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.moveBackToParentTask")}">${__tmT("task.moveBackToParentTask")}</button>` : ''}
                         </div>
                     ` : '';
                     const ghostTip = isFrozen
-                        ? `<span class="tm-whiteboard-frozen-indicator" title="任务已移出当前分组，保留离开时内容">${__tmRenderLucideIcon('lock', '', { size: 12 })}<span>已冻结</span></span>`
-                        : (isGhost ? `<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">快照</span>` : '');
+                        ? `<span class="tm-whiteboard-frozen-indicator" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.theTaskLeftTheCurrentGroupKeepingItsContent")}">${__tmRenderLucideIcon('lock', '', { size: 12 })}<span>${__tmT("task.frozen")}</span></span>`
+                        : (isGhost ? `<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">${__tmT("task.snapshot")}</span>` : '');
                     const opt = __tmResolveTaskStatusDisplayOption(task, statusOptions, {
                         fallbackColor: taskDone ? '#9e9e9e' : '#757575',
-                        fallbackName: taskDone ? '完成' : (todoOpt?.name || '待办'),
+                        fallbackName: taskDone ? __tmT("quickbar.done") : (todoOpt?.name || __tmT("homepage.toDo")),
                     });
                     const editableMeta = !isGhost && !isCollectionOverlay;
                     const statusChipStyle = __tmBuildStatusChipStyle(opt.color || '#757575');
@@ -1087,7 +1087,7 @@
                     if (!taskDone) {
                         statusChip = `<span class="tm-status-tag" style="${statusChipStyle};cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditStatus('${escSq(tid)}', this, event)"` : ''}>${esc(opt.name || '')}</span>`;
                     } else if (keepCompletedStatusChip) {
-                        statusChip = `<span class="tm-status-tag" style="${statusChipStyle};cursor:default;">${esc(opt.name || '完成')}</span>`;
+                        statusChip = `<span class="tm-status-tag" style="${statusChipStyle};cursor:default;">${esc(opt.name || __tmT("quickbar.done"))}</span>`;
                     }
                     const priorityChipStyle = __tmBuildPriorityChipStyle(task?.priority);
                     const priorityChip = `<span class="tm-kanban-priority-chip" style="${priorityChipStyle};cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditPriority('${escSq(tid)}', this, event)"` : ''}>${__tmRenderPriorityJira(task?.priority, false)}</span>`;
@@ -1096,7 +1096,7 @@
                     if (whiteboardCardFields.has('status') && __tmShouldRenderTaskCardStatus(task) && statusChip) metaParts.push(statusChip);
                     if (whiteboardCardFields.has('date') && __tmShouldRenderTaskCardDate(task)) {
                         const dateChipClass = `${dateValue ? ' tm-kanban-chip--date-has-value' : ' tm-kanban-chip--date-empty'}${isTaskOverdue ? ' tm-kanban-chip--date-overdue' : ''}`;
-                        metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? '点击选择日期' : ''}">${esc(dateTxt || '日期')}</span>`);
+                        metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? __tmT("calendar.clickToPickADate") : ''}">${esc(dateTxt || __tmT("calendar.date"))}</span>`);
                     }
                     if (whiteboardCardFields.has('scheduleTime')) {
                         const scheduleTime = __tmRenderTaskScheduleTimeHtml(task);
@@ -1109,7 +1109,7 @@
                     }
                     if (whiteboardCardFields.has('tomatoSummary')) {
                         const text = __tmGetTaskTomatoSummaryText(task);
-                        if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoSummary" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmEditFocusSummaryInline('${escSq(tid)}', this)"` : ''} title="${editableMeta ? '时长与番茄' : ''}">${__tmGetTaskTomatoSummaryHtml(task)}</span>`);
+                        if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoSummary" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmEditFocusSummaryInline('${escSq(tid)}', this)"` : ''} title="${editableMeta ? __tmT("quickbar.durationPomodoro") : ''}">${__tmGetTaskTomatoSummaryHtml(task)}</span>`);
                     }
                     if (whiteboardCardFields.has('tomatoEstimateCount')) {
                         const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task));
@@ -1128,17 +1128,17 @@
                         checked: __tmIsTaskClosedForDisplay(task),
                         disabled: isGhost || isCollectionOverlay,
                         extraClass: GlobalLock.isLocked() ? 'tm-operating' : '',
-                        title: isGhost ? '快照任务，当前不可直接勾选' : (isCollectionOverlay ? '打开原文档后可修改任务状态' : ''),
+                        title: isGhost ? __tmT("task.snapshotTaskCannotBeCheckedDirectly") : (isCollectionOverlay ? __tmT("task.openTheOriginalDocumentToChangeTheTaskStatus") : ''),
                         stopMouseDown: true,
                         stopClick: true,
                         onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)`,
                         collapsed: !!(collapsed && totalChildren),
                     });
-                    const titleInnerHtml = `${API.renderTaskContentHtml(task?.markdown, content || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
+                    const titleInnerHtml = `${API.renderTaskContentHtml(task?.markdown, content || __tmT("kernel.noContent"))}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
                     const titleAction = isFrozen || isRetained || isCollectionOverlay
                         ? `onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(tid)}')"`
                         : `onclick="tmTaskTitleClick('${escSq(tid)}', event, { surface: 'whiteboard' })"`;
-                    const titleAttrs = `${titleAction}${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, content || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
+                    const titleAttrs = `${titleAction}${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, content || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
                     const parentTaskTitleCls = depth === 0 ? ' tm-parent-task-title' : '';
                     const subtaskCountButtonHtml = totalChildren
                         ? `<button class="tm-badge tm-badge--count tm-kanban-subtasks-count" type="button" data-tm-subtask-count-owner="${esc(tid)}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${toggleTitle}">${completedChildren}/${totalChildren}</button>`
@@ -1151,9 +1151,9 @@
                         : '';
                     const subtasksSectionHtml = totalChildren
                         ? `
-                            <section class="tm-kanban-subtasks" aria-label="子任务">
+                            <section class="tm-kanban-subtasks" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.subtasks")}">
                                 <button class="tm-kanban-subtasks-head" type="button" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${toggleTitle}">
-                                    <span class="tm-kanban-subtasks-label">${__tmRenderBadgeIcon('clipboard-list', 14)}<span>子任务</span></span>
+                                    <span class="tm-kanban-subtasks-label">${__tmRenderBadgeIcon('clipboard-list', 14)}<span>${__tmT("calendar.subtasks")}</span></span>
                                     <span class="tm-badge tm-badge--count" data-tm-subtask-count-owner="${esc(tid)}">${completedChildren}/${totalChildren}</span>
                                     <span class="tm-kanban-subtasks-chevron" aria-hidden="true">${toggleChevronIconHtml}</span>
                                 </button>
@@ -1163,14 +1163,14 @@
                         `
                         : '';
                     const parentLineHtml = (detachedOrDetachedLike && parentText)
-                        ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentText)}"><span>父任务：</span><span style="font-weight:${SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800'};color:var(--card-foreground);">${esc(parentText)}</span></div>`
+                        ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentText)}"><span>${__tmT("calendar.parentTask")}</span><span style="font-weight:${SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800'};color:var(--card-foreground);">${esc(parentText)}</span></div>`
                         : '';
                     if (depth > 0) {
                         return `
                         <div class="${cls}" data-task-id="${esc(tid)}" data-doc-id="${esc(taskDocId)}"${isFrozen ? ' data-tm-whiteboard-frozen="1" aria-readonly="true"' : ''}${nodeMouse}${selectClick}${nodeContextMenu}>
                                 ${toolsHtml}
-                                <span class="tm-task-link-dot tm-task-link-dot--in${linkDotActiveClass('left')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}')" title="连接输入点"></span>
-                                <span class="tm-task-link-dot tm-task-link-dot--out${linkDotActiveClass('right')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}')" title="连接输出点"></span>
+                                <span class="tm-task-link-dot tm-task-link-dot--in${linkDotActiveClass('left')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.connectInput")}"></span>
+                                <span class="tm-task-link-dot tm-task-link-dot--out${linkDotActiveClass('right')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.connectOutput")}"></span>
                                 ${verticalLinkDots}
                                 ${collapseProxyDot}
                                 <div class="tm-kanban-subtask-row-main">
@@ -1180,7 +1180,7 @@
                                         ${subtaskMetaHtml}
                                     </div>
                                     <div class="tm-kanban-subtask-actions">
-                                        ${!isGhost && !isCollectionOverlay ? `<button class="tm-kanban-more tm-kanban-subtask-more" onclick="tmOpenTaskDetail('${escSq(tid)}', event)" title="任务详情">${__tmRenderLucideIcon('dots-three')}</button>` : ''}
+                                        ${!isGhost && !isCollectionOverlay ? `<button class="tm-kanban-more tm-kanban-subtask-more" onclick="tmOpenTaskDetail('${escSq(tid)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.taskDetails")}">${__tmRenderLucideIcon('dots-three')}</button>` : ''}
                                         ${subtaskToggleControlHtml}
                                     </div>
                                 </div>
@@ -1192,8 +1192,8 @@
                     return `
                         <div class="${cls}" data-task-id="${esc(tid)}" data-doc-id="${esc(taskDocId)}"${isFrozen ? ' data-tm-whiteboard-frozen="1" aria-readonly="true"' : ''}${rootStyle}${nodeMouse}${selectClick}${nodeContextMenu}>
                             ${toolsHtml}
-                            <span class="tm-task-link-dot tm-task-link-dot--in${linkDotActiveClass('left')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}')" title="连接输入点"></span>
-                            <span class="tm-task-link-dot tm-task-link-dot--out${linkDotActiveClass('right')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}')" title="连接输出点"></span>
+                            <span class="tm-task-link-dot tm-task-link-dot--in${linkDotActiveClass('left')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'in')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.connectInput")}"></span>
+                            <span class="tm-task-link-dot tm-task-link-dot--out${linkDotActiveClass('right')}${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onpointerdown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(taskDocId)}', 'out')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(taskDocId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(taskDocId)}')" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.connectOutput")}"></span>
                             ${verticalLinkDots}
                             ${collapseProxyDot}
                             <div class="tm-kanban-card-top tm-kanban-card-main">
@@ -1205,7 +1205,7 @@
                                         ${cardMetaHtml}
                                     </div>
                                 </div>
-                                ${!isGhost && !isCollectionOverlay ? `<button class="tm-kanban-more" onclick="tmOpenTaskDetail('${escSq(tid)}', event)" title="任务详情">${__tmRenderLucideIcon('dots-three')}</button>` : ''}
+                                ${!isGhost && !isCollectionOverlay ? `<button class="tm-kanban-more" onclick="tmOpenTaskDetail('${escSq(tid)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.taskDetails")}">${__tmRenderLucideIcon('dots-three')}</button>` : ''}
                             </div>
                             ${parentLineHtml}
                             ${remarkHtml}
@@ -1277,7 +1277,7 @@
                     }).join('');
                     return `<svg class="tm-whiteboard-drawing-layer${hiddenCls}" data-doc-id="${esc(docId)}" width="${Math.round(boardW)}" height="${Math.round(boardH)}" viewBox="0 0 ${Math.round(boardW)} ${Math.round(boardH)}" aria-hidden="true">${pathHtml}</svg>`;
                 };
-                const cardEmptyHtml = cardsHtml || `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--tm-secondary-text);font-size:14px;">无任务</div>`;
+                const cardEmptyHtml = cardsHtml || `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--tm-secondary-text);font-size:14px;">${__tmT("task.noTasks")}</div>`;
                 if (isGlobalCanvasDoc) {
                     return `
                         <section class="tm-whiteboard-doc tm-whiteboard-doc--global" data-doc-id="${esc(globalCanvasDocId)}" data-tm-whiteboard-scope="global" style="border:none;background:transparent;">
@@ -1308,8 +1308,8 @@
                 }
                 return `
                     <section class="tm-whiteboard-doc" data-doc-id="${esc(docId)}" style="width:${Math.round(boardW)}px;min-width:${Math.round(boardW)}px;">
-                        <header class="tm-whiteboard-doc-head" onclick="tmSwitchDoc('${escSq(docId)}')"${__tmBuildTooltipAttrs('切换到该文档页签', { side: 'bottom', ariaLabel: false })} style="cursor:pointer;">
-                            <span style="display:inline-flex;align-items:center;gap:6px;min-width:0;">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${esc(docNameById.get(docId) || '未知文档')}</span></span>
+                        <header class="tm-whiteboard-doc-head" onclick="tmSwitchDoc('${escSq(docId)}')"${__tmBuildTooltipAttrs(__tmT("task.switchToThisDocumentTab"), { side: 'bottom', ariaLabel: false })} style="cursor:pointer;">
+                            <span style="display:inline-flex;align-items:center;gap:6px;min-width:0;">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${esc(docNameById.get(docId) || __tmT("task.unknownDocument"))}</span></span>
                             <span class="tm-badge tm-badge--count">${docTasks.length}</span>
                         </header>
                         <div class="tm-whiteboard-doc-body" data-doc-id="${esc(docId)}" data-frame-offset-x="${allView ? Math.round(framePlan.offsetX) : 0}" data-frame-offset-y="${allView ? Math.round(framePlan.offsetY) : 0}" style="height:${Math.round(boardH)}px;min-height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;min-width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(docId)}')">
@@ -1420,13 +1420,13 @@
                     const weekday = __tmGetTaskRepeatWeekdayLabel(target);
                     return `<span class="tm-time-group-label-wrap"><span class="tm-time-group-label-text">${safeLabel}</span><span class="tm-time-group-weekday-chip">${esc(weekday)}</span></span>`;
                 };
-                if (!Number.isFinite(diffDays)) return { key: 'pending', label: '待定', labelHtml: '待定', sortValue: Infinity };
-                if (diffDays < 0) return { key: 'overdue', label: '已过期', labelHtml: '已过期', sortValue: diffDays };
-                if (diffDays === 0) return { key: 'today', label: '今天', labelHtml: buildTimeGroupLabelHtml('今天', diffDays), sortValue: 0 };
-                if (diffDays === 1) return { key: 'tomorrow', label: '明天', labelHtml: buildTimeGroupLabelHtml('明天', diffDays), sortValue: 1 };
-                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', labelHtml: buildTimeGroupLabelHtml('后天', diffDays), sortValue: 2 };
-                if (diffDays >= 16) return { key: 'farther', label: '更远', labelHtml: '更远', sortValue: 16 };
-                const label = `余${diffDays}天`;
+                if (!Number.isFinite(diffDays)) return { key: 'pending', label: __tmT("task.unscheduled"), labelHtml: __tmT("task.unscheduled"), sortValue: Infinity };
+                if (diffDays < 0) return { key: 'overdue', label: __tmT("homepage.overdue3"), labelHtml: __tmT("homepage.overdue3"), sortValue: diffDays };
+                if (diffDays === 0) return { key: 'today', label: __tmT("common.today"), labelHtml: buildTimeGroupLabelHtml(__tmT("common.today"), diffDays), sortValue: 0 };
+                if (diffDays === 1) return { key: 'tomorrow', label: __tmT("calendar.tomorrow"), labelHtml: buildTimeGroupLabelHtml(__tmT("calendar.tomorrow"), diffDays), sortValue: 1 };
+                if (diffDays === 2) return { key: 'after_tomorrow', label: __tmT("task.dayAfterTomorrow"), labelHtml: buildTimeGroupLabelHtml(__tmT("task.dayAfterTomorrow"), diffDays), sortValue: 2 };
+                if (diffDays >= 16) return { key: 'farther', label: __tmT("task.later"), labelHtml: __tmT("task.later"), sortValue: 16 };
+                const label = __tmT("task.daysLeft2", { diffDays: diffDays });
                 return { key: `days_${diffDays}`, label, labelHtml: buildTimeGroupLabelHtml(label, diffDays), sortValue: diffDays };
             };
             const poolQuadrantRules = (SettingsStore.data.quadrantConfig && Array.isArray(SettingsStore.data.quadrantConfig.rules))
@@ -1468,7 +1468,7 @@
                     const orderIndex = poolQuadrantOrder.indexOf(ruleId);
                     return {
                         key: `quadrant_${ruleId || 'other'}`,
-                        label: String(rule?.name || '').trim() || '未分类',
+                        label: globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule) || __tmT("task.uncategorized"),
                         sortValue: orderIndex >= 0 ? orderIndex : (poolQuadrantOrder.length + 1),
                         labelColor: poolQuadrantColorMap[String(rule?.color || '').trim()] || 'var(--tm-text-color)',
                     };
@@ -1478,7 +1478,7 @@
             const buildWhiteboardPoolDocData = (docIdRaw) => {
                 const docId = String(docIdRaw || '').trim();
                 if (!docId) return null;
-                const docName = String(docNameById.get(docId) || '未知文档');
+                const docName = String(docNameById.get(docId) || __tmT("task.unknownDocument"));
                 const sourceTasks = (byDoc.get(docId) || [])
                     .filter((task) => !task?.__tmGhost)
                     .slice()
@@ -1607,7 +1607,7 @@
                     const childIds = (childrenMap.get(tid) || []).filter((cid) => taskMap.has(cid));
                     const collapsed = childIds.length ? __tmKanbanGetCollapsedSet().has(tid) : false;
                     const toggleHtml = childIds.length
-                        ? `<button type="button" class="tm-whiteboard-pool-toggle${collapsed ? ' tm-whiteboard-pool-toggle--collapsed' : ''}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" onmousedown="event.stopPropagation()" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? '展开子任务' : '折叠子任务'}">${__tmRenderToggleIcon(10, 0, 'tm-whiteboard-pool-toggle-icon', `transform:translate(-50%, -50%) rotate(${collapsed ? 0 : 90}deg);`)}</button>`
+                        ? `<button type="button" class="tm-whiteboard-pool-toggle${collapsed ? ' tm-whiteboard-pool-toggle--collapsed' : ''}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" onmousedown="event.stopPropagation()" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? __tmT("calendar.expandSubtasks") : __tmT("calendar.collapseSubtasks")}">${__tmRenderToggleIcon(10, 0, 'tm-whiteboard-pool-toggle-icon', `transform:translate(-50%, -50%) rotate(${collapsed ? 0 : 90}deg);`)}</button>`
                         : '';
                     const indent = depth > 0 ? whiteboardPoolSubtaskIndent : 0;
                     const doneCls = __tmIsTaskClosedForDisplay(task) ? ' tm-whiteboard-pool-item--done' : '';
@@ -1621,7 +1621,7 @@
                     const dragEndAttr = task?.__tmPoolLocked ? '' : ' ondragend="tmWhiteboardPoolDragEnd(event)"';
                     const mouseDownAttr = ` onmousedown="tmWhiteboardPoolItemMouseDown(event, '${escSq(tid)}', '${escSq(docId)}', ${task?.__tmPoolLocked ? 'true' : 'false'})"`;
                     const titleDragAttr = task?.__tmPoolLocked ? '' : ` draggable="true"${mouseDownAttr} ondragstart="tmWhiteboardPoolDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmWhiteboardPoolDragEnd(event)"`;
-                    const itemTitle = task?.__tmPoolLocked ? '父任务已在白板中，不可重复拖入' : '拖动到白板';
+                    const itemTitle = task?.__tmPoolLocked ? __tmT("task.theParentTaskIsAlreadyOnTheWhiteboardAnd") : __tmT("task.dragToWhiteboard");
                     const docBadgeHtml = (options.showDocBadge && depth === 0)
                         ? `<span class="tm-whiteboard-pool-item-prefix" title="${esc(docName)}">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 12 })}</span>`
                         : '';
@@ -1631,9 +1631,9 @@
                     return `
                         <div class="tm-whiteboard-pool-node" style="padding-left:${indent}px;">
                             <div class="tm-whiteboard-pool-item${doneCls}${parentCls}${topCls}${lockedCls}${selectedCls}" data-task-id="${esc(tid)}" draggable="${draggableAttr}"${mouseDownAttr}${dragStartAttr}${dragEndAttr} oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')" title="${itemTitle}">
-                                ${__tmRenderTaskCheckboxWrap(tid, task, { checked: __tmIsTaskClosedForDisplay(task), stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)`, collapsed: !!collapsed })}
+                                ${__tmRenderTaskCheckboxWrap(tid, task, { checked: __tmIsTaskClosedForDisplay(task), stopMouseDown: true, stopPointerDown: true, stopClick: true, title: __tmT("task.completionStatus"), onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)`, collapsed: !!collapsed })}
                                 ${docBadgeHtml}
-                                <span class="tm-whiteboard-pool-item-title${parentTaskTitleCls}"${titleDragAttr}><span class="tm-task-content-clickable" onclick="tmWhiteboardPoolTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, String(task?.content || '').trim() || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
+                                <span class="tm-whiteboard-pool-item-title${parentTaskTitleCls}"${titleDragAttr}><span class="tm-task-content-clickable" onclick="tmWhiteboardPoolTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, String(task?.content || '').trim() || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || __tmT("kernel.noContent"))}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
                                 ${toggleHtml}
                             </div>
                             ${kidsHtml}
@@ -1657,7 +1657,7 @@
                 return {
                     collapsed,
                     html: `
-                        <button type="button" class="tm-whiteboard-pool-doc-head tm-whiteboard-pool-doc-head--toggle" onclick="tmWhiteboardTogglePoolSection('${escSq(key)}', event)" aria-expanded="${collapsed ? 'false' : 'true'}" data-pool-section-label="${esc(label || '分组')}" title="${collapsed ? '展开' : '折叠'}${esc(label || '分组')}">
+                        <button type="button" class="tm-whiteboard-pool-doc-head tm-whiteboard-pool-doc-head--toggle" onclick="tmWhiteboardTogglePoolSection('${escSq(key)}', event)" aria-expanded="${collapsed ? 'false' : 'true'}" data-pool-section-label="${esc(label || __tmT("task.group"))}" title="${collapsed ? __tmT("quickbar.expand") : __tmT("task.collapse")}${esc(label || __tmT("task.group"))}">
                             <span class="tm-whiteboard-pool-doc-title"><span class="tm-whiteboard-pool-doc-chevron" aria-hidden="true">${__tmRenderToggleIcon(12, collapsed ? 0 : 90, 'tm-whiteboard-pool-doc-chevron-icon')}</span><span class="tm-whiteboard-pool-doc-identity">${titleHtml}</span></span>
                             <span class="tm-whiteboard-pool-doc-count">· ${Number(count) || 0}</span>
                         </button>
@@ -1672,7 +1672,7 @@
                 const list = (Array.isArray(docData.list) ? docData.list : [])
                     .filter((task) => !excludedTaskIds?.has(String(task?.id || '').trim()));
                 if (!list.length) return '';
-                const docName = String(docData.docName || '未知文档');
+                const docName = String(docData.docName || __tmT("task.unknownDocument"));
                 const sectionKey = `doc:${docId}`;
                 const sectionHead = renderWhiteboardPoolSectionHead({
                     sectionKey,
@@ -1742,7 +1742,7 @@
                                     const childIds = (groupChildrenMap.get(tid) || []).filter((cid) => groupTaskMap.has(cid));
                                     const collapsed = childIds.length ? __tmKanbanGetCollapsedSet().has(tid) : false;
                                     const toggleHtml = childIds.length
-                                        ? `<button type="button" class="tm-whiteboard-pool-toggle${collapsed ? ' tm-whiteboard-pool-toggle--collapsed' : ''}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" onmousedown="event.stopPropagation()" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? '展开子任务' : '折叠子任务'}">${__tmRenderToggleIcon(10, 0, 'tm-whiteboard-pool-toggle-icon', `transform:translate(-50%, -50%) rotate(${collapsed ? 0 : 90}deg);`)}</button>`
+                                        ? `<button type="button" class="tm-whiteboard-pool-toggle${collapsed ? ' tm-whiteboard-pool-toggle--collapsed' : ''}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" onmousedown="event.stopPropagation()" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? __tmT("calendar.expandSubtasks") : __tmT("calendar.collapseSubtasks")}">${__tmRenderToggleIcon(10, 0, 'tm-whiteboard-pool-toggle-icon', `transform:translate(-50%, -50%) rotate(${collapsed ? 0 : 90}deg);`)}</button>`
                                         : '';
                                     const indent = depth > 0 ? whiteboardPoolSubtaskIndent : 0;
                                     const doneCls = __tmIsTaskClosedForDisplay(task) ? ' tm-whiteboard-pool-item--done' : '';
@@ -1756,15 +1756,15 @@
                                     const dragEndAttr = task?.__tmPoolLocked ? '' : ' ondragend="tmWhiteboardPoolDragEnd(event)"';
                                     const mouseDownAttr = ` onmousedown="tmWhiteboardPoolItemMouseDown(event, '${escSq(tid)}', '${escSq(docId)}', ${task?.__tmPoolLocked ? 'true' : 'false'})"`;
                                     const titleDragAttr = task?.__tmPoolLocked ? '' : ` draggable="true"${mouseDownAttr} ondragstart="tmWhiteboardPoolDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmWhiteboardPoolDragEnd(event)"`;
-                                    const itemTitle = task?.__tmPoolLocked ? '父任务已在白板中，不可重复拖入' : '拖动到白板';
+                                    const itemTitle = task?.__tmPoolLocked ? __tmT("task.theParentTaskIsAlreadyOnTheWhiteboardAnd") : __tmT("task.dragToWhiteboard");
                                     const kidsHtml = (!collapsed && childIds.length)
                                         ? childIds.map((cid) => renderGroupTaskNode(cid, depth + 1)).join('')
                                         : '';
                                     return `
                                         <div class="tm-whiteboard-pool-node" style="padding-left:${indent}px;">
                                             <div class="tm-whiteboard-pool-item${doneCls}${parentCls}${topCls}${lockedCls}${selectedCls}" data-task-id="${esc(tid)}" draggable="${draggableAttr}"${mouseDownAttr}${dragStartAttr}${dragEndAttr} oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')" title="${itemTitle}">
-                                                ${__tmRenderTaskCheckboxWrap(tid, task, { checked: __tmIsTaskClosedForDisplay(task), stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)`, collapsed: !!collapsed })}
-                                                <span class="tm-whiteboard-pool-item-title${parentTaskTitleCls}"${titleDragAttr}><span class="tm-task-content-clickable" onclick="tmWhiteboardPoolTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, String(task?.content || '').trim() || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
+                                                ${__tmRenderTaskCheckboxWrap(tid, task, { checked: __tmIsTaskClosedForDisplay(task), stopMouseDown: true, stopPointerDown: true, stopClick: true, title: __tmT("task.completionStatus"), onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)`, collapsed: !!collapsed })}
+                                                <span class="tm-whiteboard-pool-item-title${parentTaskTitleCls}"${titleDragAttr}><span class="tm-task-content-clickable" onclick="tmWhiteboardPoolTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, String(task?.content || '').trim() || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || __tmT("kernel.noContent"))}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
                                                 ${toggleHtml}
                                             </div>
                                             ${kidsHtml}
@@ -1781,7 +1781,7 @@
                                         data-h2="${esc(groupLabel)}"
                                         data-task-ids="${esc(h2DragTaskIds.join(','))}"
                                         ${h2DragTaskIds.length ? `ondragstart="tmWhiteboardPoolH2DragStart(event, '${escSq(docId)}', '${escSq(groupLabel)}')" ondragend="tmWhiteboardPoolDragEnd(event)"` : ''}
-                                        title="${h2DragTaskIds.length ? '拖动该二级标题及其任务到白板' : ''}">${__tmRenderHeadingLevelIconLabel(groupLabel, SettingsStore.data.taskHeadingLevel || 'h2', { size: 14, className: 'tm-whiteboard-pool-h2-text' })}<span> · ${items.length}</span></div>
+                                        title="${h2DragTaskIds.length ? __tmT("task.dragThisSubheadingAndItsTasksToTheWhiteboard") : ''}">${__tmRenderHeadingLevelIconLabel(groupLabel, SettingsStore.data.taskHeadingLevel || 'h2', { size: 14, className: 'tm-whiteboard-pool-h2-text' })}<span> · ${items.length}</span></div>
                                     ${groupRootIds.map((rid) => renderGroupTaskNode(rid, 0)).join('')}
                                 `;
                             }).join('')}
@@ -1838,20 +1838,20 @@
                 const label = String(section?.label || '').trim();
                 const labelColor = String(section?.labelColor || '').trim();
                 if (section?.kind === 'pinned') {
-                    return __tmRenderIconLabel('pin', label || '置顶', {
+                    return __tmRenderIconLabel('pin', label || __tmT("kernel.pin"), {
                         style: labelColor ? `color:${labelColor};` : 'color:var(--tm-pinned-color);',
                     });
                 }
                 if (section?.kind === 'task') {
-                    return __tmRenderIconLabel('puzzle', label || '未命名任务', {
+                    return __tmRenderIconLabel('puzzle', label || __tmT("kernel.untitledTask"), {
                         style: labelColor ? `color:${labelColor};` : '',
                     });
                 }
                 if (section?.kind === 'completed') {
-                    return `<span style='color:var(--tm-secondary-text);'>${esc(label || '已完成任务')}</span>`;
+                    return `<span style='color:var(--tm-secondary-text);'>${esc(label || __tmT("calendar.completedTasks"))}</span>`;
                 }
                 if (section?.kind === 'none') {
-                    return `<span>${esc(label || '全部任务')}</span>`;
+                    return `<span>${esc(label || __tmT("task.allTasks"))}</span>`;
                 }
                 if (section?.kind === 'time') {
                     const rawHtml = String(section?.labelHtml || '').trim();
@@ -1887,7 +1887,7 @@
                     : showPoolRootDocBadge;
                 const kind = String(section?.kind || 'group').trim() || 'group';
                 const key = String(section?.key || section?.label || 'all').trim() || 'all';
-                const label = String(section?.label || '').trim() || '分组';
+                const label = String(section?.label || '').trim() || __tmT("task.group");
                 const sectionKey = `${kind}:${key}`;
                 const sectionHead = renderWhiteboardPoolSectionHead({
                     sectionKey,
@@ -2013,14 +2013,14 @@
                 const keyword = String(keywordRaw || '').trim();
                 const poolSearchResults = buildWhiteboardPoolSearchResults(keyword);
                 if (!keyword) {
-                    return `<div class="tm-whiteboard-pool-empty">输入关键词搜索任务</div>`;
+                    return `<div class="tm-whiteboard-pool-empty">${__tmT("task.typeKeywordsToSearchTasks")}</div>`;
                 }
                 if (!poolSearchResults.length) {
-                    return `<div class="tm-whiteboard-pool-empty">没有匹配任务</div>`;
+                    return `<div class="tm-whiteboard-pool-empty">${__tmT("task.noMatchingTasks")}</div>`;
                 }
                 return `
                     <section class="tm-whiteboard-pool-doc tm-whiteboard-pool-search-results">
-                        <header class="tm-whiteboard-pool-doc-head">搜索结果 · ${poolSearchResults.length}</header>
+                        <header class="tm-whiteboard-pool-doc-head">${__tmT("task.searchResults", { length: poolSearchResults.length })}</header>
                         <div class="tm-whiteboard-pool-list">
                             ${poolSearchResults.map((task) => {
                                 const tid = String(task?.id || '').trim();
@@ -2043,13 +2043,13 @@
                                 const contentDragAttr = placed
                                     ? ` draggable="false"${blockedDragStartAttr}`
                                     : ` draggable="true"${mouseDownAttr} ondragstart="tmWhiteboardPoolDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmWhiteboardPoolDragEnd(event)"`;
-                                const itemTitle = placed ? '点击定位白板卡片' : '点击跳转原文档，拖动到白板';
+                                const itemTitle = placed ? __tmT("task.clickToLocateTheWhiteboardCard") : __tmT("task.clickToOpenTheOriginalDocumentDragToThe");
                                 return `
                                     <div class="tm-whiteboard-pool-item tm-whiteboard-pool-search-item${doneCls}${placedCls}${selectedCls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}" data-tm-pool-search-result="1" data-tm-pool-placed="${placed ? '1' : '0'}" draggable="${draggableAttr}" onclick="tmWhiteboardSearchResultClick('${escSq(tid)}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')"${blockedPressAttr}${mouseDownAttr}${dragStartAttr}${dragEndAttr} title="${esc(itemTitle)}">
-                                        ${__tmRenderTaskCheckboxWrap(tid, task, { checked: taskDone, stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)` })}
-                                        <span class="tm-whiteboard-pool-item-prefix" title="${esc(docNameById.get(docId) || '未知文档')}">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 12 })}</span>
-                                        <span class="tm-whiteboard-pool-item-title"${titleDragAttr}><span class="tm-task-content-clickable"${contentDragAttr}${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, String(task?.content || '').trim() || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
-                                        <span class="tm-badge tm-badge--count tm-whiteboard-pool-search-status${placed ? ' tm-whiteboard-pool-search-status--placed' : ''}">${placed ? '已在白板' : '未加入'}</span>
+                                        ${__tmRenderTaskCheckboxWrap(tid, task, { checked: taskDone, stopMouseDown: true, stopPointerDown: true, stopClick: true, title: __tmT("task.completionStatus"), onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)` })}
+                                        <span class="tm-whiteboard-pool-item-prefix" title="${esc(docNameById.get(docId) || __tmT("task.unknownDocument"))}">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 12 })}</span>
+                                        <span class="tm-whiteboard-pool-item-title"${titleDragAttr}><span class="tm-task-content-clickable"${contentDragAttr}${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, String(task?.content || '').trim() || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || __tmT("kernel.noContent"))}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
+                                        <span class="tm-badge tm-badge--count tm-whiteboard-pool-search-status${placed ? ' tm-whiteboard-pool-search-status--placed' : ''}">${placed ? __tmT("task.onWhiteboard") : __tmT("task.notAdded")}</span>
                                     </div>
                                 `;
                             }).join('')}
@@ -2062,7 +2062,7 @@
                 ? renderWhiteboardPoolGroupedSection({
                     kind: 'pinned',
                     key: 'pinned_root_tasks',
-                    label: '置顶',
+                    label: __tmT("kernel.pin"),
                     labelColor: 'var(--tm-pinned-color)',
                     rootEntries: pinnedPoolRootEntries,
                 }, { showDocBadge: poolDocDataList.length > 1 })
@@ -2071,7 +2071,7 @@
                 ? renderWhiteboardPoolGroupedSection({
                     kind: 'completed',
                     key: 'whiteboard-pool',
-                    label: '已完成任务',
+                    label: __tmT("calendar.completedTasks"),
                     rootEntries: completedPoolRootEntries,
                 }, { showDocBadge: poolDocDataList.length > 1 })
                 : '';
@@ -2149,7 +2149,7 @@
                     ? renderWhiteboardPoolGroupedSection({
                         kind: hasSeparatePinnedGroup ? 'normal' : 'none',
                         key: hasSeparatePinnedGroup ? 'normal_root_tasks' : 'all',
-                        label: hasSeparatePinnedGroup ? '普通' : '全部任务',
+                        label: hasSeparatePinnedGroup ? __tmT("ai.normal") : __tmT("task.allTasks"),
                         rootEntries: regularPoolRootEntries,
                     })
                     : '';
@@ -2160,7 +2160,7 @@
                 ? '<div class="tm-whiteboard-pool-deferred" data-tm-whiteboard-pool-deferred="1" aria-hidden="true"></div>'
                 : (whiteboardPoolSearchOpen
                     ? renderWhiteboardPoolSearchResults(whiteboardPoolSearchKeyword)
-                    : (poolHtml || `<div class="tm-whiteboard-pool-empty">当前没有可拖出的任务</div>`));
+                    : (poolHtml || `<div class="tm-whiteboard-pool-empty">${__tmT("task.noTasksAvailableToDragOut")}</div>`));
 
             let whiteboardLayoutStateDirty = false;
             if (posDirty) {
@@ -2196,10 +2196,10 @@
             const layoutClass = sidebarCollapsed ? ' tm-whiteboard-layout--sidebar-collapsed' : '';
             const navigatorHidden = !!SettingsStore.data.whiteboardNavigatorHidden;
             const navigatorReadyAttr = (!navigatorHidden && state.whiteboardNavigatorModel) ? ' data-tm-ready="1"' : '';
-            const sidebarToggleLabel = sidebarCollapsed ? '展开侧栏' : '折叠侧栏';
+            const sidebarToggleLabel = sidebarCollapsed ? __tmT("task.expandSidebar") : __tmT("task.collapseSidebar2");
             const sidebarToggleGlyph = sidebarCollapsed ? '☰' : '⟨';
             const compactSidebarToggleHtml = compactSidebarHost
-                ? `<button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-sidebar-title-toggle" onclick="tmWhiteboardToggleSidebar(event)"${__tmBuildTooltipAttrs('折叠任务池', { side: 'bottom' })}>⟨</button>`
+                ? `<button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-sidebar-title-toggle" onclick="tmWhiteboardToggleSidebar(event)"${__tmBuildTooltipAttrs(__tmT("task.collapseTaskPool"), { side: 'bottom' })}>⟨</button>`
                 : '';
             const whiteboardPluginFullscreen = !!state.whiteboardPluginFullscreen;
             const whiteboardBottomMoreOpen = !!state.whiteboardBottomMoreOpen;
@@ -2207,7 +2207,7 @@
                 const cls = `tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-toolbar-btn${active ? ' tm-whiteboard-toolbar-btn--active' : ''}${extraClass ? ` ${extraClass}` : ''}`;
                 const ariaPressed = pressed == null ? '' : ` aria-pressed="${pressed ? 'true' : 'false'}"`;
                 const dragAttrs = createTool ? ` data-tm-whiteboard-create-tool="${createTool}" onpointerdown="tmWhiteboardToolPointerDown(event, '${createTool}')"` : '';
-                return `<button type="button" class="${cls}" onclick="${onclick}"${dragAttrs}${ariaPressed}${__tmBuildTooltipAttrs(createTool ? `${label}，可拖到白板创建` : label, { side: 'top' })}>${__tmPhosphorBoldSvg(icon, { size: 20, className: 'tm-whiteboard-toolbar-btn__icon', style: 'width:20px;height:20px;min-width:20px;min-height:20px;max-width:20px;max-height:20px;' })}</button>`;
+                return `<button type="button" class="${cls}" onclick="${onclick}"${dragAttrs}${ariaPressed}${__tmBuildTooltipAttrs(createTool ? __tmT("task.dragOntoTheWhiteboardToCreate", { label: label }) : label, { side: 'top' })}>${__tmPhosphorBoldSvg(icon, { size: 20, className: 'tm-whiteboard-toolbar-btn__icon', style: 'width:20px;height:20px;min-width:20px;min-height:20px;max-width:20px;max-height:20px;' })}</button>`;
             };
             const renderWhiteboardBottomMoreItem = ({ label, icon, onclick, danger = false, disabled = false }) => {
                 const cls = `tm-whiteboard-bottom-more-item${danger ? ' tm-whiteboard-bottom-more-item--danger' : ''}`;
@@ -2242,33 +2242,33 @@
                 const currentColor = /^#[0-9a-fA-F]{6}$/.test(activeColorLower) ? activeColorLower : '#1f2937';
                 const moreColorsOpen = !!state.whiteboardDrawingMoreColorsOpen;
                 const actionsOpen = !!state.whiteboardDrawingActionsOpen;
-                const renderColorSwatch = (color) => `<button type="button" class="tm-whiteboard-drawing-swatch${activeColorLower === color ? ' is-active' : ''}" style="--tm-whiteboard-drawing-swatch:${esc(color)};" onclick="tmWhiteboardSetDrawingColor('${escSq(color)}', event)"${__tmBuildTooltipAttrs(`颜色 ${color}`, { side: 'left' })}></button>`;
+                const renderColorSwatch = (color) => `<button type="button" class="tm-whiteboard-drawing-swatch${activeColorLower === color ? ' is-active' : ''}" style="--tm-whiteboard-drawing-swatch:${esc(color)};" onclick="tmWhiteboardSetDrawingColor('${escSq(color)}', event)"${__tmBuildTooltipAttrs(__tmT("task.color", { color: color }), { side: 'left' })}></button>`;
                 const renderCustomColorButton = () => {
                     const cls = `tm-whiteboard-drawing-custom-color is-active${moreColorsOpen ? ' is-open' : ''}`;
-                    return `<button type="button" class="${cls}" style="--tm-whiteboard-drawing-custom-color:${esc(currentColor)};" onclick="tmWhiteboardToggleDrawingMoreColors(event)" aria-pressed="${moreColorsOpen ? 'true' : 'false'}"${__tmBuildTooltipAttrs(moreColorsOpen ? '收起颜色' : '选择颜色', { side: 'left' })}></button>`;
+                    return `<button type="button" class="${cls}" style="--tm-whiteboard-drawing-custom-color:${esc(currentColor)};" onclick="tmWhiteboardToggleDrawingMoreColors(event)" aria-pressed="${moreColorsOpen ? 'true' : 'false'}"${__tmBuildTooltipAttrs(moreColorsOpen ? __tmT("task.hideColors") : __tmT("task.pickAColor"), { side: 'left' })}></button>`;
                 };
                 return `
                     <div class="tm-whiteboard-drawing-toolbar" data-tm-whiteboard-drawing-toolbar="1">
                         <div class="tm-whiteboard-drawing-toolbar__group">
-                            ${renderDrawingToolButton({ label: '画笔', icon: 'pencil', onclick: "tmWhiteboardSetTool('pen')", active: whiteboardTool === 'pen' })}
-                            ${renderDrawingToolButton({ label: '高亮笔', icon: 'highlighter', onclick: "tmWhiteboardSetTool('highlighter')", active: whiteboardTool === 'highlighter' })}
-                            ${renderDrawingToolButton({ label: '橡皮', icon: 'eraser', onclick: "tmWhiteboardSetTool('eraser')", active: whiteboardTool === 'eraser' })}
+                            ${renderDrawingToolButton({ label: __tmT("task.pen"), icon: 'pencil', onclick: "tmWhiteboardSetTool('pen')", active: whiteboardTool === 'pen' })}
+                            ${renderDrawingToolButton({ label: __tmT("task.highlighter"), icon: 'highlighter', onclick: "tmWhiteboardSetTool('highlighter')", active: whiteboardTool === 'highlighter' })}
+                            ${renderDrawingToolButton({ label: __tmT("task.eraser"), icon: 'eraser', onclick: "tmWhiteboardSetTool('eraser')", active: whiteboardTool === 'eraser' })}
                         </div>
                         <div class="tm-whiteboard-drawing-toolbar__group">
-                            ${renderDrawingToolButton({ label: '撤销手写 Ctrl+Z', icon: 'arrow-counter-clockwise', onclick: 'tmWhiteboardUndoDrawing(event)', disabled: !canUndoDrawing })}
+                            ${renderDrawingToolButton({ label: __tmT("task.undoHandwritingCtrlZ"), icon: 'arrow-counter-clockwise', onclick: 'tmWhiteboardUndoDrawing(event)', disabled: !canUndoDrawing })}
                         </div>
                         <div class="tm-whiteboard-drawing-toolbar__group tm-whiteboard-drawing-toolbar__colors">
                             ${renderCustomColorButton()}
-                            ${moreColorsOpen ? `<div class="tm-whiteboard-drawing-color-panel" role="group" aria-label="更多颜色">${customColors.map(renderColorSwatch).join('')}</div>` : ''}
+                            ${moreColorsOpen ? `<div class="tm-whiteboard-drawing-color-panel" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.morecolor")}">${customColors.map(renderColorSwatch).join('')}</div>` : ''}
                         </div>
                         <div class="tm-whiteboard-drawing-toolbar__group tm-whiteboard-drawing-toolbar__widths">
-                            <input class="tm-whiteboard-drawing-width-slider" type="range" min="${widthRange.min}" max="${widthRange.max}" step="0.1" value="${activeWidthValue}" oninput="tmWhiteboardSetDrawingWidth(this.value, event, { persist: false, render: false })" onchange="tmWhiteboardSetDrawingWidth(this.value, event)" aria-label="${whiteboardTool === 'eraser' ? '橡皮大小' : '笔画粗细'}"${__tmBuildTooltipAttrs(`${activeWidthValue}px`, { side: 'left' })}>
+                            <input class="tm-whiteboard-drawing-width-slider" type="range" min="${widthRange.min}" max="${widthRange.max}" step="0.1" value="${activeWidthValue}" oninput="tmWhiteboardSetDrawingWidth(this.value, event, { persist: false, render: false })" onchange="tmWhiteboardSetDrawingWidth(this.value, event)" aria-label="${whiteboardTool === 'eraser' ? __tmT("task.eraserSize") : __tmT("task.strokeWidth")}"${__tmBuildTooltipAttrs(`${activeWidthValue}px`, { side: 'left' })}>
                             <span class="tm-whiteboard-drawing-width-value">${activeWidthValue}</span>
                         </div>
                         <div class="tm-whiteboard-drawing-toolbar__group tm-whiteboard-drawing-toolbar__actions">
-                            ${renderDrawingToolButton({ label: '更多手写操作', icon: 'dots-three', onclick: 'tmWhiteboardToggleDrawingActions(event)', active: actionsOpen })}
+                            ${renderDrawingToolButton({ label: __tmT("task.moreHandwritingActions"), icon: 'dots-three', onclick: 'tmWhiteboardToggleDrawingActions(event)', active: actionsOpen })}
                             ${actionsOpen ? `<div class="tm-whiteboard-drawing-actions-panel">
-                                ${renderDrawingToolButton({ label: '清空当前手写', icon: 'trash', onclick: 'tmWhiteboardClearDrawings(event)', danger: true })}
+                                ${renderDrawingToolButton({ label: __tmT("task.clearCurrentHandwriting"), icon: 'trash', onclick: 'tmWhiteboardClearDrawings(event)', danger: true })}
                             </div>` : ''}
                         </div>
                     </div>
@@ -2276,9 +2276,9 @@
             };
             const poolSearchBarHtml = whiteboardPoolSearchOpen ? `
                 <div class="tm-whiteboard-pool-searchbar" role="search">
-                    <input id="tmWhiteboardPoolSearchInput" class="b3-text-field tm-whiteboard-pool-searchbar__input" type="search" value="${esc(whiteboardPoolSearchKeyword)}" placeholder="搜索任务池" autocomplete="off" spellcheck="false" aria-label="搜索任务池" oncompositionstart="tmWhiteboardPoolSearchCompositionStart(event)" oncompositionend="tmWhiteboardPoolSearchCompositionEnd(event)" oninput="tmWhiteboardPoolSearchInput(event)" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" onkeydown="if(event.key==='Escape'){tmWhiteboardTogglePoolSearch(event)}">
-                    <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-pool-searchbar__btn" onclick="tmWhiteboardClearPoolSearch(event)"${__tmBuildTooltipAttrs('清空搜索', { side: 'bottom' })}>${__tmPhosphorBoldSvg('x-circle', { size: 15, className: 'tm-whiteboard-pool-searchbar__btn-icon' })}</button>
-                    <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-pool-searchbar__btn" onclick="tmWhiteboardTogglePoolSearch(event)"${__tmBuildTooltipAttrs('关闭搜索', { side: 'bottom' })}>${__tmPhosphorBoldSvg('x', { size: 15, className: 'tm-whiteboard-pool-searchbar__btn-icon' })}</button>
+                    <input id="tmWhiteboardPoolSearchInput" class="b3-text-field tm-whiteboard-pool-searchbar__input" type="search" value="${esc(whiteboardPoolSearchKeyword)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.searchTaskPool")}" autocomplete="off" spellcheck="false" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.searchTaskPool")}" oncompositionstart="tmWhiteboardPoolSearchCompositionStart(event)" oncompositionend="tmWhiteboardPoolSearchCompositionEnd(event)" oninput="tmWhiteboardPoolSearchInput(event)" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" onkeydown="if(event.key==='Escape'){tmWhiteboardTogglePoolSearch(event)}">
+                    <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-pool-searchbar__btn" onclick="tmWhiteboardClearPoolSearch(event)"${__tmBuildTooltipAttrs(__tmT("task.clearSearch2"), { side: 'bottom' })}>${__tmPhosphorBoldSvg('x-circle', { size: 15, className: 'tm-whiteboard-pool-searchbar__btn-icon' })}</button>
+                    <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-pool-searchbar__btn" onclick="tmWhiteboardTogglePoolSearch(event)"${__tmBuildTooltipAttrs(__tmT("task.closeSearch"), { side: 'bottom' })}>${__tmPhosphorBoldSvg('x', { size: 15, className: 'tm-whiteboard-pool-searchbar__btn-icon' })}</button>
                 </div>
             ` : '';
             return `
@@ -2289,14 +2289,14 @@
                                 <div class="tm-whiteboard-sidebar-title-row">
                                     <div class="tm-whiteboard-sidebar-title-wrap">
                                         ${compactSidebarToggleHtml}
-                                        <div class="tm-whiteboard-sidebar-title">任务池</div>
+                                        <div class="tm-whiteboard-sidebar-title">${__tmT("task.taskPool")}</div>
                                     </div>
                                     <div class="tm-whiteboard-sidebar-actions">
-                                        <label class="tm-whiteboard-sidebar-switch" title="显示已完成任务">
+                                        <label class="tm-whiteboard-sidebar-switch" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.showCompletedTasks")}">
                                             <input type="checkbox" ${showDoneTasks ? 'checked' : ''} onchange="tmWhiteboardToggleShowDone(this.checked)">
-                                            <span>已完成</span>
+                                            <span>${__tmT("ai.completed")}</span>
                                         </label>
-                                        <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-pool-search-toggle${whiteboardPoolSearchOpen ? ' tm-whiteboard-pool-search-toggle--active' : ''}" onclick="tmWhiteboardTogglePoolSearch(event)" aria-pressed="${whiteboardPoolSearchOpen ? 'true' : 'false'}"${__tmBuildTooltipAttrs(whiteboardPoolSearchOpen ? '关闭搜索' : '搜索任务池', { side: 'bottom' })}>${__tmPhosphorBoldSvg('magnifying-glass', { size: 15, className: 'tm-whiteboard-pool-search-toggle__icon' })}</button>
+                                        <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-pool-search-toggle${whiteboardPoolSearchOpen ? ' tm-whiteboard-pool-search-toggle--active' : ''}" onclick="tmWhiteboardTogglePoolSearch(event)" aria-pressed="${whiteboardPoolSearchOpen ? 'true' : 'false'}"${__tmBuildTooltipAttrs(whiteboardPoolSearchOpen ? __tmT("task.closeSearch") : __tmT("task.searchTaskPool"), { side: 'bottom' })}>${__tmPhosphorBoldSvg('magnifying-glass', { size: 15, className: 'tm-whiteboard-pool-search-toggle__icon' })}</button>
                                     </div>
                                 </div>
                                 ${poolSearchBarHtml}
@@ -2304,44 +2304,44 @@
                             </div>
                             <div class="tm-whiteboard-sidebar-scrollbar" aria-hidden="true"><div class="tm-whiteboard-sidebar-scrollbar-thumb"></div></div>
                         </aside>
-                        <div class="tm-whiteboard-sidebar-resizer" onmousedown="tmStartWhiteboardSidebarResize(event)" title="拖拽调整侧栏宽度"></div>
+                        <div class="tm-whiteboard-sidebar-resizer" onmousedown="tmStartWhiteboardSidebarResize(event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToResizeSidebar")}"></div>
                         <div class="tm-whiteboard-main">
                             <button class="tm-btn tm-btn-info tm-whiteboard-sidebar-toggle" onclick="tmWhiteboardToggleSidebar(event)" title="${sidebarToggleLabel}">${sidebarToggleGlyph}</button>
                             <div id="tmWhiteboardViewport" class="tm-whiteboard-viewport${viewportToolClass}" onpointerdown="tmWhiteboardViewportMouseDown(event)" oncontextmenu="return tmWhiteboardViewportContextMenu(event)" onclick="tmWhiteboardBoardClick(event)" ondblclick="tmWhiteboardBoardDblClick(event)" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event)">
-                                <button type="button" class="tm-btn tm-btn-info tm-whiteboard-traversal-exit" hidden onclick="tmWhiteboardExitTraversal(event)" title="退出关联遍历（Esc）">退出遍历</button>
+                                <button type="button" class="tm-btn tm-btn-info tm-whiteboard-traversal-exit" hidden onclick="tmWhiteboardExitTraversal(event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.exitLinkTraversalEsc")}">${__tmT("task.exitTraversal")}</button>
                                 <div id="tmWhiteboardWorld" class="tm-whiteboard-world" style="transform:translate(${view.x}px, ${view.y}px) scale(${view.zoom});">
                                     <div class="tm-whiteboard tm-kanban--clean${isKanbanCompact ? ' tm-kanban--compact' : ''}">
-                                        ${docsHtml || `<div style="padding:18px;color:var(--tm-secondary-text);">暂无任务可用于白板视图</div>`}
+                                        ${docsHtml || `<div style="padding:18px;color:var(--tm-secondary-text);">${__tmT("task.noTasksAvailableForTheWhiteboardView")}</div>`}
                                     </div>
                                 </div>
-                                <div id="tmWhiteboardNavigator" class="tm-whiteboard-navigator${navigatorHidden ? ' tm-whiteboard-navigator--hidden' : ''}"${navigatorReadyAttr} aria-label="白板视图浏览窗口">
-                                    <button type="button" class="tm-whiteboard-navigator__hide" onclick="tmWhiteboardSetNavigatorHidden(true, event)" title="隐藏浏览窗口">${__tmRenderLucideIcon('corners-in')}</button>
+                                <div id="tmWhiteboardNavigator" class="tm-whiteboard-navigator${navigatorHidden ? ' tm-whiteboard-navigator--hidden' : ''}"${navigatorReadyAttr} aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.whiteboardOverview")}">
+                                    <button type="button" class="tm-whiteboard-navigator__hide" onclick="tmWhiteboardSetNavigatorHidden(true, event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.hideOverview")}">${__tmRenderLucideIcon('corners-in')}</button>
                                     <div class="tm-whiteboard-navigator__surface" onpointerdown="tmWhiteboardNavigatorSurfacePointerDown(event)">
                                         <div class="tm-whiteboard-navigator__content"></div>
                                         <div class="tm-whiteboard-navigator__viewport" onpointerdown="tmWhiteboardNavigatorViewportPointerDown(event)"></div>
                                     </div>
                                 </div>
-                                <button id="tmWhiteboardNavigatorReveal" type="button" class="tm-whiteboard-navigator-reveal${navigatorHidden ? ' tm-whiteboard-navigator-reveal--visible' : ''}" onclick="tmWhiteboardSetNavigatorHidden(false, event)" title="显示浏览窗口">${__tmRenderLucideIcon('map')}</button>
+                                <button id="tmWhiteboardNavigatorReveal" type="button" class="tm-whiteboard-navigator-reveal${navigatorHidden ? ' tm-whiteboard-navigator-reveal--visible' : ''}" onclick="tmWhiteboardSetNavigatorHidden(false, event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.showOverview")}">${__tmRenderLucideIcon('map')}</button>
                                 ${renderWhiteboardDrawingToolbar()}
                                 <div class="tm-whiteboard-bottom-toolbar">
-                                    ${renderWhiteboardToolbarButton({ label: '平移模式', icon: 'hand', onclick: "tmWhiteboardSetTool('pan')", active: whiteboardTool === 'pan', pressed: whiteboardTool === 'pan' })}
-                                    ${renderWhiteboardToolbarButton({ label: '多选模式', icon: 'selection-plus', onclick: "tmWhiteboardSetTool('select')", active: whiteboardTool === 'select', pressed: whiteboardTool === 'select' })}
-                                    ${renderWhiteboardToolbarButton({ label: '文字模式', icon: 'cursor-text', onclick: "tmWhiteboardSetTool('text', event)", createTool: 'text', active: whiteboardTool === 'text', pressed: whiteboardTool === 'text' })}
-                                    ${renderWhiteboardToolbarButton({ label: '便利贴模式', icon: 'note-pencil', onclick: "tmWhiteboardSetTool('sticky', event)", createTool: 'sticky', active: whiteboardTool === 'sticky', pressed: whiteboardTool === 'sticky' })}
-                                    ${renderWhiteboardToolbarButton({ label: '分组框', icon: 'bounding-box', onclick: "tmWhiteboardSetTool('frame', event)", createTool: 'frame', active: whiteboardTool === 'frame', pressed: whiteboardTool === 'frame' })}
-                                    ${whiteboardDrawingToolsEnabled ? renderWhiteboardToolbarButton({ label: '手写模式', icon: 'pencil', onclick: "tmWhiteboardSetTool('pen')", active: whiteboardDrawingModeActive, pressed: whiteboardDrawingModeActive }) : ''}
-                                    ${renderWhiteboardToolbarButton({ label: '缩小画布', icon: 'minus', onclick: 'tmWhiteboardZoomOut()' })}
-                                    ${renderWhiteboardToolbarButton({ label: '放大画布', icon: 'plus', onclick: 'tmWhiteboardZoomIn()' })}
-                                    ${renderWhiteboardToolbarButton({ label: whiteboardPluginFullscreen ? '退出全屏' : '全屏', icon: whiteboardPluginFullscreen ? 'corners-in' : 'corners-out', onclick: 'tmWhiteboardTogglePluginFullscreen(event)', active: whiteboardPluginFullscreen, pressed: whiteboardPluginFullscreen })}
+                                    ${renderWhiteboardToolbarButton({ label: __tmT("task.panMode"), icon: 'hand', onclick: "tmWhiteboardSetTool('pan')", active: whiteboardTool === 'pan', pressed: whiteboardTool === 'pan' })}
+                                    ${renderWhiteboardToolbarButton({ label: __tmT("task.multiSelectMode"), icon: 'selection-plus', onclick: "tmWhiteboardSetTool('select')", active: whiteboardTool === 'select', pressed: whiteboardTool === 'select' })}
+                                    ${renderWhiteboardToolbarButton({ label: __tmT("task.textMode"), icon: 'cursor-text', onclick: "tmWhiteboardSetTool('text', event)", createTool: 'text', active: whiteboardTool === 'text', pressed: whiteboardTool === 'text' })}
+                                    ${renderWhiteboardToolbarButton({ label: __tmT("task.stickyNoteMode"), icon: 'note-pencil', onclick: "tmWhiteboardSetTool('sticky', event)", createTool: 'sticky', active: whiteboardTool === 'sticky', pressed: whiteboardTool === 'sticky' })}
+                                    ${renderWhiteboardToolbarButton({ label: __tmT("task.groupFrame"), icon: 'bounding-box', onclick: "tmWhiteboardSetTool('frame', event)", createTool: 'frame', active: whiteboardTool === 'frame', pressed: whiteboardTool === 'frame' })}
+                                    ${whiteboardDrawingToolsEnabled ? renderWhiteboardToolbarButton({ label: __tmT("task.handwritingMode"), icon: 'pencil', onclick: "tmWhiteboardSetTool('pen')", active: whiteboardDrawingModeActive, pressed: whiteboardDrawingModeActive }) : ''}
+                                    ${renderWhiteboardToolbarButton({ label: __tmT("task.zoomOut2"), icon: 'minus', onclick: 'tmWhiteboardZoomOut()' })}
+                                    ${renderWhiteboardToolbarButton({ label: __tmT("task.zoomIn2"), icon: 'plus', onclick: 'tmWhiteboardZoomIn()' })}
+                                    ${renderWhiteboardToolbarButton({ label: whiteboardPluginFullscreen ? __tmT("task.exitFullscreen") : __tmT("task.fullscreen"), icon: whiteboardPluginFullscreen ? 'corners-in' : 'corners-out', onclick: 'tmWhiteboardTogglePluginFullscreen(event)', active: whiteboardPluginFullscreen, pressed: whiteboardPluginFullscreen })}
                                     <div class="tm-whiteboard-bottom-more">
-                                        ${renderWhiteboardToolbarButton({ label: '更多白板操作', icon: 'dots-three', onclick: 'tmWhiteboardToggleBottomMore(event)', active: whiteboardBottomMoreOpen, pressed: whiteboardBottomMoreOpen })}
+                                        ${renderWhiteboardToolbarButton({ label: __tmT("task.moreWhiteboardActions"), icon: 'dots-three', onclick: 'tmWhiteboardToggleBottomMore(event)', active: whiteboardBottomMoreOpen, pressed: whiteboardBottomMoreOpen })}
                                     </div>
                                 </div>
                                 ${whiteboardBottomMoreOpen ? `<div class="tm-whiteboard-bottom-more-panel">
-                                    ${renderWhiteboardBottomMoreItem({ label: state.whiteboardPngExportPending ? '正在导出…' : '导出 PNG', icon: 'export', onclick: 'tmWhiteboardExportPng(event)', disabled: !!state.whiteboardPngExportPending })}
-                                    ${whiteboardDrawingToolsEnabled ? renderWhiteboardBottomMoreItem({ label: drawingConfig.hidden ? '显示手写' : '隐藏手写', icon: drawingConfig.hidden ? 'eye' : 'eye-slash', onclick: 'tmWhiteboardToggleDrawingLayer(event)' }) : ''}
-                                    ${renderWhiteboardBottomMoreItem({ label: '回到画布中心', icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView(event)' })}
-                                    ${renderWhiteboardBottomMoreItem({ label: '清空卡片连线', icon: 'link-simple-break', onclick: 'tmWhiteboardClearLinks(event)', danger: true })}
+                                    ${renderWhiteboardBottomMoreItem({ label: state.whiteboardPngExportPending ? __tmT("task.exporting") : __tmT("task.exportPng"), icon: 'export', onclick: 'tmWhiteboardExportPng(event)', disabled: !!state.whiteboardPngExportPending })}
+                                    ${whiteboardDrawingToolsEnabled ? renderWhiteboardBottomMoreItem({ label: drawingConfig.hidden ? __tmT("task.showHandwriting") : __tmT("task.hideHandwriting"), icon: drawingConfig.hidden ? 'eye' : 'eye-slash', onclick: 'tmWhiteboardToggleDrawingLayer(event)' }) : ''}
+                                    ${renderWhiteboardBottomMoreItem({ label: __tmT("task.backToCanvasCenter"), icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView(event)' })}
+                                    ${renderWhiteboardBottomMoreItem({ label: __tmT("task.clearCardConnections"), icon: 'link-simple-break', onclick: 'tmWhiteboardClearLinks(event)', danger: true })}
                                 </div>` : ''}
                             </div>
                         </div>

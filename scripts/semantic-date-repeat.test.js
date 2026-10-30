@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const main = path.join(__dirname, '..', 'src/task-horizon/main');
 const api = fs.readFileSync(path.join(main, '20-api-and-runtime-services.js'), 'utf8');
 const model = fs.readFileSync(path.join(main, 'task-runtime/50-task-model-and-repeat-utils.js'), 'utf8');

@@ -216,7 +216,7 @@ async function verify(page, side, view, sourceType, action, touch = false, spanD
 }
 
 async function main() {
-    const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+    const {chromium} = require('./i18n-browser-fixture');
     const browser = await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_EXECUTABLE ? {executablePath:process.env.PLAYWRIGHT_EXECUTABLE} : {})});
     try {
         const context = await browser.newContext({viewport:{width:1100,height:800},hasTouch:true});

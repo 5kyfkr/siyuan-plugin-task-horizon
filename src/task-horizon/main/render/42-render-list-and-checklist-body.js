@@ -249,9 +249,9 @@
                     currentGroupAccent = String(labelColor || '');
                 }
                 const createBtnHtml = (row.kind === 'doc' && state.groupByDocName)
-                    ? __tmBuildDocGroupQuickAddBtnHtml(row.docId || row.id, '新建任务')
+                    ? __tmBuildDocGroupQuickAddBtnHtml(row.docId || row.id, __tmT("common.newTask"))
                     : ((row.kind === 'h2' && state.groupByDocName)
-                        ? __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务')
+                        ? __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, __tmT("task.newTaskUnderThisHeading"))
                         : (row.kind === 'time'
                             ? __tmBuildTimeGroupQuickAddBtnHtml((typeof __tmIsDocTabCustomGroupActiveId === 'function' && __tmIsDocTabCustomGroupActiveId(state.activeDocId)) ? '' : state.activeDocId, row)
                             : ''));
@@ -444,7 +444,7 @@
                     ? __tmBuildTaskSearchSnippet(task, state.searchKeyword, { excludeFields: compactRemarkHtml ? ['remark'] : [] })
                     : '';
                 renderedChecklistTaskCount += 1;
-                const taskTitleHtml = API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || '(无内容)');
+                const taskTitleHtml = API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || __tmT("kernel.noContent"));
                 const titleInnerHtml = __tmBuildChecklistTitleContentHtml(task, taskTitleHtml, completedTodayBadgeHtml);
                 const titleWrap = typeof __tmGetTaskTitleWrapPresentation === 'function'
                     ? __tmGetTaskTitleWrapPresentation('checklist', task.id, taskTitleHtml)
@@ -459,7 +459,7 @@
                         </div>
                         <div class="tm-checklist-item-main">
                             <div class="${titleRowClass}">
-                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span ${titleDragAttrs} onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, String(task.content || '').trim() || '(无内容)').text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${titleInnerHtml}</span></span>${reminderHtml}<span data-tm-field="remarkIcon">${remarkIconHtml}</span><span data-tm-field="attachmentIcon">${attachmentIconHtml}</span>${__tmRenderChecklistSubtaskProgress(String(task.id || ''), completedChildren, totalChildren)}</div></div>
+                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span ${titleDragAttrs} onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task.markdown, String(task.content || '').trim() || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${titleInnerHtml}</span></span>${reminderHtml}<span data-tm-field="remarkIcon">${remarkIconHtml}</span><span data-tm-field="attachmentIcon">${attachmentIconHtml}</span>${__tmRenderChecklistSubtaskProgress(String(task.id || ''), completedChildren, totalChildren)}</div></div>
                                 ${compactMeta}
                                 ${hasChildren ? `<span class="tm-checklist-mobile-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : ''}
                             </div>
@@ -560,7 +560,7 @@
             }
             const checklistRemain = checklistVirtualEnabled && hasMoreChecklistTaskRows ? 1 : 0;
             const checklistLoadMoreHtml = checklistRemain > 0
-                ? `<div class="tm-checklist-load-more" style="padding:10px 0;text-align:center;"><button type="button" class="tm-btn tm-btn-secondary" onclick="tmChecklistLoadMoreRows(event)">继续加载</button></div>`
+                ? `<div class="tm-checklist-load-more" style="padding:10px 0;text-align:center;"><button type="button" class="tm-btn tm-btn-secondary" onclick="tmChecklistLoadMoreRows(event)">${__tmT("task.loadMore")}</button></div>`
                 : '';
             const detailTask = activeId
                 ? resolveChecklistDetailTask(activeId)
@@ -569,13 +569,13 @@
                 ? (typeof __tmShouldRenderTaskDetailNoteView === 'function' && __tmShouldRenderTaskDetailNoteView('sheet', detailTask)
                     ? __tmBuildTaskDetailNoteViewInnerHtml(detailTask, { embedded: true, closeable: true })
                     : __tmBuildTaskDetailInnerHtml(detailTask, { embedded: true, closeable: true }))
-                : `<div class="tm-checklist-empty-detail">选择左侧任务后，这里会显示可编辑的详情。</div>`;
+                : `<div class="tm-checklist-empty-detail">${__tmT("task.selectATaskOnTheLeftToSeeEditable")}</div>`;
             return `
                 <div class="tm-body${bodyAnimClass} tm-body--checklist">
                     <div class="tm-checklist-layout">
                         <div class="tm-checklist-pane tm-checklist-pane--compact tm-checklist-pane--right-font-${compactRightFontSize}${checklistFieldsBelow ? ' tm-checklist-pane--fields-below' : ''}${checklistCompactTreeGuides ? ' tm-checklist-pane--tree-guides' : ''}${wrapCfg.enabled ? ' tm-checklist-pane--wrap' : ''}${state.groupByDocName ? ' tm-checklist-pane--group-doc' : ''}">
                             <div class="tm-checklist-scroll">
-                                <div class="tm-checklist-items">${itemsHtml || `<div class="tm-checklist-empty-detail">暂无任务</div>`}${checklistLoadMoreHtml}</div>
+                                <div class="tm-checklist-items">${itemsHtml || `<div class="tm-checklist-empty-detail">${__tmT("calendar.noTasks")}</div>`}${checklistLoadMoreHtml}</div>
                             </div>
                             <div class="tm-checklist-scrollbar"><div class="tm-checklist-scrollbar-thumb"></div></div>
                         </div>
@@ -585,7 +585,7 @@
                             <div class="tm-checklist-sheet-handle"></div>
                             <div class="tm-checklist-sheet-body" id="tmChecklistSheetPanel">${detailHtml}</div>
                         </div>`
-                            : `<div class="tm-checklist-resizer" onmousedown="tmStartChecklistDetailResize(event)" title="拖拽调整详情宽度"></div>
+                            : `<div class="tm-checklist-resizer" onmousedown="tmStartChecklistDetailResize(event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToResizeTaskDetails")}"></div>
                         <aside class="tm-checklist-side" style="width:${detailWidth}px;min-width:${detailWidth}px;flex-basis:${detailWidth}px;">
                             <div class="tm-checklist-detail-wrap" id="tmChecklistDetailPanel">${detailHtml}</div>
                         </aside>`}

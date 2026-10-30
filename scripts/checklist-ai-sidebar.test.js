@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const checklistSource = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'task-horizon', 'main', 'render', '42-render-list-and-checklist-body.js'),

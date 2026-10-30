@@ -1,10 +1,12 @@
 // @name         思源笔记任务管理器
-// @version      3.3.5
+// @version      3.3.6
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
 (function() {
     'use strict';
+
+    const __tmT = globalThis.__taskHorizonHostBridge.i18n.t;
 
     const __tmExplicitWindowExportKeys = (() => {
         try {

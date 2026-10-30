@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'calendar-view.js'), 'utf8');
@@ -44,8 +44,8 @@ assert.match(
 );
 
 const pagingControls = [
-    ['mini calendar previous month', /data-tm-mini-action="prev"[^>]*aria-label="上个月"[^>]*>\$\{buildCalendarChromeIcon\('chevron-left', 12\)\}/],
-    ['mini calendar next month', /data-tm-mini-action="next"[^>]*aria-label="下个月"[^>]*>\$\{buildCalendarChromeIcon\('chevron-right', 12\)\}/],
+    ['mini calendar previous month', /data-tm-mini-action="prev"[^>]*aria-label="\$\{globalThis\.__taskHorizonHostBridge\.i18n\.html\("calendar.previousMonth"\)\}"[^>]*>\$\{buildCalendarChromeIcon\('chevron-left', 12\)\}/],
+    ['mini calendar next month', /data-tm-mini-action="next"[^>]*aria-label="\$\{globalThis\.__taskHorizonHostBridge\.i18n\.html\("calendar.nextMonth2"\)\}"[^>]*>\$\{buildCalendarChromeIcon\('chevron-right', 12\)\}/],
     ['mini calendar month picker previous year', /data-tm-mini-year-step="-1"[^>]*>\$\{buildCalendarChromeIcon\('chevron-left', 14\)\}/],
     ['mini calendar month picker next year', /data-tm-mini-year-step="1"[^>]*>\$\{buildCalendarChromeIcon\('chevron-right', 14\)\}/],
     ['list view previous week', /data-tm-proto-list-action="prev-week"[^>]*>\$\{buildCalendarChromeIcon\('chevron-left', 18\)\}/],

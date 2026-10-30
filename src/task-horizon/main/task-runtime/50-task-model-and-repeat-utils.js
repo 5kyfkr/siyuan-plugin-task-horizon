@@ -47,7 +47,7 @@
         if (!/^\d{4}-\d{2}-\d{2}$/.test(full)) return full;
         const year = Number(full.slice(0, 4));
         const currentYear = new Date().getFullYear();
-        return year === currentYear ? `${Number(full.slice(5, 7))}月${Number(full.slice(8, 10))}日` : full;
+        return year === currentYear ? __tmT("date.monthDayNumbers", { value1: Number(full.slice(5, 7)), value2: Number(full.slice(8, 10)) }) : full;
     }
 
     const __tmTaskCompletedAtFormatCache = new Map();
@@ -115,26 +115,26 @@
         const opts = (options && typeof options === 'object') ? options : {};
         if (opts.inCompletedRootGroup !== true && !__tmIsRecurringInstanceTask(task)) return '';
         if (!__tmIsTaskCompletedToday(task, opts.todayKey || '')) return '';
-        const label = String(opts.label || '今天').trim() || '今天';
+        const label = String(opts.label || __tmT("common.today")).trim() || __tmT("common.today");
         return `<span class="tm-task-completed-today-badge">${esc(label)}</span>`;
     }
 
     const __TM_TASK_CARD_FIELD_OPTIONS = [
-        { key: 'priority', label: '重要性' },
-        { key: 'status', label: '状态' },
-        { key: 'date', label: '截止日期' },
-        { key: 'scheduleTime', label: '日程时间' },
-        { key: 'remainingTime', label: '剩余时间' },
-        { key: 'tomatoSummary', label: '专注' },
-        { key: 'tomatoEstimateCount', label: '预计番茄' },
-        { key: 'tomatoCount', label: '实际番茄' },
-        { key: 'remark', label: '备注' },
+        { key: 'priority', label: __tmT("kernel.importance") },
+        { key: 'status', label: __tmT("kernel.status") },
+        { key: 'date', label: __tmT("kernel.dueDate") },
+        { key: 'scheduleTime', label: __tmT("calendar.scheduleTime") },
+        { key: 'remainingTime', label: __tmT("task.remainingTime") },
+        { key: 'tomatoSummary', label: __tmT("calendar.focus") },
+        { key: 'tomatoEstimateCount', label: __tmT("quickbar.estimatedPomodoros") },
+        { key: 'tomatoCount', label: __tmT("task.actualPomodoros") },
+        { key: 'remark', label: __tmT("kernel.note") },
     ];
 
     const __TM_TASK_CARD_ALWAYS_SHOW_FIELD_OPTIONS = [
-        { key: 'priority', label: '重要性' },
-        { key: 'status', label: '状态' },
-        { key: 'date', label: '截止日期' },
+        { key: 'priority', label: __tmT("kernel.importance") },
+        { key: 'status', label: __tmT("kernel.status") },
+        { key: 'date', label: __tmT("kernel.dueDate") },
     ];
 
     function __tmNormalizeTaskCardFieldList(input, fallback = ['priority', 'status', 'date', 'scheduleTime']) {
@@ -169,7 +169,7 @@
             const action = canEdit
                 ? `onclick="tmOpenCustomFieldSelect('${escSq(task.id)}', '${escSq(fieldId)}', event, this)"`
                 : 'disabled';
-            return `<button type="button" class="tm-task-card-custom-field" data-tm-custom-field-cell="${esc(fieldId)}" title="${esc(canEdit ? `点击编辑：${name}` : name)}" aria-label="${esc(name)}" onpointerdown="event.stopPropagation()" onmousedown="event.stopPropagation()" ${action}>${html}</button>`;
+            return `<button type="button" class="tm-task-card-custom-field" data-tm-custom-field-cell="${esc(fieldId)}" title="${esc(canEdit ? __tmT("task.clickToEdit", { name: name }) : name)}" aria-label="${esc(name)}" onpointerdown="event.stopPropagation()" onmousedown="event.stopPropagation()" ${action}>${html}</button>`;
         }).join('');
     }
 
@@ -237,7 +237,7 @@
         const compact = options.compact === true;
         const className = (compact ? 'tm-checklist-meta-compact-time' : `tm-kanban-chip${info.isToday ? '' : ' tm-kanban-chip--muted'}`)
             + (info.isToday ? ' tm-task-schedule-time--today' : '');
-        return `<span class="${className}"${compact ? ' data-tm-checklist-compact-field="scheduleTime"' : ''} data-tm-task-time-field="${compact ? 'scheduleTimeCompact' : 'scheduleTime'}" title="日程开始时间">${esc(info.text)}</span>`;
+        return `<span class="${className}"${compact ? ' data-tm-checklist-compact-field="scheduleTime"' : ''} data-tm-task-time-field="${compact ? 'scheduleTimeCompact' : 'scheduleTime'}" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.scheduleStartTime")}">${esc(info.text)}</span>`;
     }
 
     function __tmGetTaskCardAlwaysShowFieldList() {
@@ -290,7 +290,7 @@
     function __tmFormatTaskDateFieldDisplayValue(task, field, compact = false) {
         const value = __tmGetTaskDateFieldDisplayValue(task, field);
         const text = compact ? __tmFormatTaskCardDateValueFromValue(value) : __tmFormatTaskTime(value);
-        return value && __tmIsCheckinTask(task) ? `打卡 ${text}` : text;
+        return value && __tmIsCheckinTask(task) ? __tmT("task.checkIn", { text: text }) : text;
     }
 
     function __tmHasTaskCardDate(task) {
@@ -367,11 +367,11 @@
     function __tmFormatTaskCardDateValue(task) {
         if (__tmIsCheckinTask(task)) {
             const date = __tmGetTaskCheckinCurrentDate(task);
-            if (!date) return '打卡计划已结束';
+            if (!date) return __tmT("settings.checkInScheduleEnded");
             if (date === __tmNormalizeDateOnly(new Date())) {
-                return __tmIsTaskCheckinChecked(task, date) ? '今日已打卡' : '今日待打卡';
+                return __tmIsTaskCheckinChecked(task, date) ? __tmT("settings.checkedInToday") : __tmT("settings.checkInDueToday");
             }
-            return `下次打卡 ${__tmFormatTaskCardDateValueFromValue(date)}`;
+            return __tmT("task.nextCheckIn", { value1: __tmFormatTaskCardDateValueFromValue(date) });
         }
         return __tmFormatTaskCardDateValueFromValue(__tmGetTaskCardDateValue(task));
     }
@@ -401,7 +401,7 @@
         const id = String(task?.id || task?.blockId || '');
         const expanded = state.checklistExpandedRemarks?.has(id) === true;
         const contentId = `tm-checklist-remark-${id}`;
-        return `<div class="tm-task-card-remark tm-checklist-remark${expanded ? ' tm-checklist-remark--expanded' : ''}"><div class="tm-checklist-remark-text" id="${esc(contentId)}" title="${esc(text)}">${esc(text)}</div><button type="button" class="tm-checklist-remark-toggle" aria-controls="${esc(contentId)}" aria-expanded="${expanded}" onclick="tmChecklistToggleRemark('${esc(id.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}', event)"${expanded ? '' : ' hidden'}>${expanded ? '收起备注' : '展开备注'}</button></div>`;
+        return `<div class="tm-task-card-remark tm-checklist-remark${expanded ? ' tm-checklist-remark--expanded' : ''}"><div class="tm-checklist-remark-text" id="${esc(contentId)}" title="${esc(text)}">${esc(text)}</div><button type="button" class="tm-checklist-remark-toggle" aria-controls="${esc(contentId)}" aria-expanded="${expanded}" onclick="tmChecklistToggleRemark('${esc(id.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}', event)"${expanded ? '' : ' hidden'}>${expanded ? __tmT("task.collapseNote") : __tmT("task.expandNote")}</button></div>`;
     }
 
     function __tmBuildChecklistTitleContentHtml(task, titleHtml, completedTodayBadgeHtml = '') {
@@ -411,7 +411,7 @@
     function __tmRenderChecklistSubtaskProgress(taskId, completed, total) {
         if (total <= 0) return '';
         const percent = Math.round(completed / total * 100);
-        return `<span class="tm-checklist-subtask-progress${completed === total ? ' tm-checklist-subtask-progress--complete' : ''}" role="progressbar" aria-label="子任务进度" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${completed}"><span class="tm-checklist-progress-track"><i data-tm-subtask-progress-owner="${esc(taskId)}" data-tm-subtask-progress-kind="inline" style="width:${percent}%"></i></span><span data-tm-subtask-count-owner="${esc(taskId)}" class="tm-checklist-progress-count">${completed}/${total}</span></span>`;
+        return `<span class="tm-checklist-subtask-progress${completed === total ? ' tm-checklist-subtask-progress--complete' : ''}" role="progressbar" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.subtasksprogress")}" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${completed}"><span class="tm-checklist-progress-track"><i data-tm-subtask-progress-owner="${esc(taskId)}" data-tm-subtask-progress-kind="inline" style="width:${percent}%"></i></span><span data-tm-subtask-count-owner="${esc(taskId)}" class="tm-checklist-progress-count">${completed}/${total}</span></span>`;
     }
 
     function __tmShouldRenderChecklistTaskStatus(task, statusOption, statusOptions = null) {
@@ -537,7 +537,7 @@
         const parts = __tmGetTaskTomatoSummaryParts(task);
         const actualForPlan = parts.actual || '0';
         const durationProgress = parts.duration ? `${parts.spent || '0'}/${parts.duration}` : '';
-        const tomatoPlanText = parts.estimate ? `番茄 ${actualForPlan}/${parts.estimate}` : '';
+        const tomatoPlanText = parts.estimate ? __tmT("quickbar.pomodoro2", { actualForPlan: actualForPlan, estimate: parts.estimate }) : '';
         if (parts.duration) {
             return `${tomatoPlanText ? `${tomatoPlanText} ` : ''}${durationProgress}`.trim();
         }
@@ -738,29 +738,29 @@
         const label = (value) => {
             const days = normalizeDays(value);
             const dates = days.filter((day) => day > 0);
-            return [dates.length ? dates.join('、') + '日' : '', days.includes(-1) ? '最后一天' : ''].filter(Boolean).join('、');
+            return [dates.length ? dates.join('、') + '日' : '', days.includes(-1) ? __tmT("task.lastDay") : ''].filter(Boolean).join('、');
         };
         const weekdayLabel = (value, anchorKey = '') => {
             const pattern = weekdayRule(value, anchorKey);
-            return (pattern.ordinal === -1 ? '最后一个' : ['第一个', '第二个', '第三个', '第四个', '第五个'][pattern.ordinal - 1])
-                + ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][pattern.weekday];
+            return (pattern.ordinal === -1 ? __tmT("task.last") : [__tmT("task.first2"), __tmT("task.second"), __tmT("task.third"), __tmT("task.fourth"), __tmT("task.fifth")][pattern.ordinal - 1])
+                + [__tmT("calendar.sunday"), __tmT("calendar.monday"), __tmT("calendar.tuesday"), __tmT("calendar.wednesday"), __tmT("calendar.thursday"), __tmT("calendar.friday"), __tmT("calendar.saturday")][pattern.weekday];
         };
         const weekdayPickerHTML = (value, anchorKey = '') => {
             const pattern = weekdayRule(value, anchorKey);
-            const ordinals = [[1, '第一个'], [2, '第二个'], [3, '第三个'], [4, '第四个'], [5, '第五个'], [-1, '最后一个']];
-            const weekdays = [[0, '周日'], [1, '周一'], [2, '周二'], [3, '周三'], [4, '周四'], [5, '周五'], [6, '周六']];
+            const ordinals = [[1, __tmT("task.first2")], [2, __tmT("task.second")], [3, __tmT("task.third")], [4, __tmT("task.fourth")], [5, __tmT("task.fifth")], [-1, __tmT("task.last")]];
+            const weekdays = [[0, __tmT("calendar.sunday")], [1, __tmT("calendar.monday")], [2, __tmT("calendar.tuesday")], [3, __tmT("calendar.wednesday")], [4, __tmT("calendar.thursday")], [5, __tmT("calendar.friday")], [6, __tmT("calendar.saturday")]];
             const select = (field, label, values, selected) => '<select data-tm-month-week="' + field + '" aria-label="' + label + '" style="flex:1;min-width:0;height:36px;padding:0 10px;border:1px solid var(--tm-border-color,var(--b3-theme-surface-light));border-radius:6px;background:var(--tm-bg-color,var(--b3-theme-background));color:var(--tm-text-color,var(--b3-theme-on-background));font:inherit;">'
                 + values.map(([key, text]) => '<option value="' + key + '"' + (key === selected ? ' selected' : '') + '>' + text + '</option>').join('') + '</select>';
-            return '<div style="display:flex;gap:8px;width:100%;min-width:0;">' + select('ordinal', '每月第几个星期', ordinals, pattern.ordinal) + select('weekday', '星期几', weekdays, pattern.weekday) + '</div>';
+            return '<div style="display:flex;gap:8px;width:100%;min-width:0;">' + select('ordinal', __tmT("task.weekdayOfTheMonth"), ordinals, pattern.ordinal) + select('weekday', __tmT("task.weekday"), weekdays, pattern.weekday) + '</div>';
         };
         const pickerHTML = (value, anchorKey = '') => {
             const days = value === undefined ? [parseKey(anchorKey)?.day || 1] : normalizeDays(value);
             const buttons = Array.from({ length: 32 }, (_, index) => index < 31 ? index + 1 : -1).map((day) => {
                 const selected = days.includes(day);
-                const title = day === -1 ? '最后一天' : String(day);
-                return '<button type="button" class="tm-repeat-month-day' + (selected ? ' is-selected' : '') + '" data-tm-month-day="' + day + '" aria-pressed="' + selected + '" aria-label="每月' + (day === -1 ? title : title + '日') + '">' + title + '</button>';
+                const title = day === -1 ? __tmT("task.lastDay") : String(day);
+                return '<button type="button" class="tm-repeat-month-day' + (selected ? ' is-selected' : '') + '" data-tm-month-day="' + day + '" aria-pressed="' + selected + '" aria-label="' + __tmT('task.repeatMonthDay', { day: day === -1 ? title : String(day) }) + '">' + title + '</button>';
             }).join('');
-            return '<style>.tm-repeat-month-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;width:100%;min-width:0}.tm-repeat-month-day{position:relative;z-index:0;min-width:0;height:36px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--tm-text-color,var(--b3-theme-on-background));font:inherit;font-size:12px;font-weight:750;cursor:pointer}.tm-repeat-month-day::after{content:"";position:absolute;z-index:-1;pointer-events:none;width:28px;height:28px;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:999px}.tm-repeat-month-day:hover::after{background:var(--tm-hover-bg,var(--b3-theme-surface-light))}.tm-repeat-month-day.is-selected{color:var(--tm-primary-color,var(--b3-theme-primary))}.tm-repeat-month-day.is-selected::after{background:color-mix(in srgb,var(--tm-primary-color,var(--b3-theme-primary)) 20%,var(--tm-card-bg,var(--b3-theme-background)) 80%)}.tm-repeat-month-day:focus-visible{outline:2px solid var(--tm-primary-color,var(--b3-theme-primary));outline-offset:1px}.tm-repeat-month-day[data-tm-month-day="-1"]{grid-column:span 2;font-weight:500}.tm-repeat-month-day[data-tm-month-day="-1"]::after{width:calc(100% - 8px);border-radius:6px}.tm-repeat-month-days-note{margin:6px 0 0;color:var(--tm-secondary-text,var(--b3-theme-on-surface-light));font-size:12px;line-height:1.5}@media(pointer:coarse){.tm-repeat-month-day{height:44px}.tm-repeat-month-day::after{width:32px;height:32px}}</style><div class="tm-repeat-month-days" role="group" aria-label="每月日期，可多选">' + buttons + '</div><p class="tm-repeat-month-days-note">' + (value === undefined ? '可多选；未修改时保留原有月末规则。' : '当月不存在的日期跳过；最后一天随月份变化。') + '</p>';
+            return `<style>.tm-repeat-month-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;width:100%;min-width:0}.tm-repeat-month-day{position:relative;z-index:0;min-width:0;height:36px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--tm-text-color,var(--b3-theme-on-background));font:inherit;font-size:12px;font-weight:750;cursor:pointer}.tm-repeat-month-day::after{content:"";position:absolute;z-index:-1;pointer-events:none;width:28px;height:28px;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:999px}.tm-repeat-month-day:hover::after{background:var(--tm-hover-bg,var(--b3-theme-surface-light))}.tm-repeat-month-day.is-selected{color:var(--tm-primary-color,var(--b3-theme-primary))}.tm-repeat-month-day.is-selected::after{background:color-mix(in srgb,var(--tm-primary-color,var(--b3-theme-primary)) 20%,var(--tm-card-bg,var(--b3-theme-background)) 80%)}.tm-repeat-month-day:focus-visible{outline:2px solid var(--tm-primary-color,var(--b3-theme-primary));outline-offset:1px}.tm-repeat-month-day[data-tm-month-day="-1"]{grid-column:span 2;font-weight:500}.tm-repeat-month-day[data-tm-month-day="-1"]::after{width:calc(100% - 8px);border-radius:6px}.tm-repeat-month-days-note{margin:6px 0 0;color:var(--tm-secondary-text,var(--b3-theme-on-surface-light));font-size:12px;line-height:1.5}@media(pointer:coarse){.tm-repeat-month-day{height:44px}.tm-repeat-month-day::after{width:32px;height:32px}}</style><div class="tm-repeat-month-days" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.monthlyDatesMultiSelect")}">` + buttons + '</div><p class="tm-repeat-month-days-note">' + (value === undefined ? __tmT("task.multiSelectKeepsTheOriginalMonthEndRuleWhen") : __tmT("task.datesThatDoNotExistInTheMonthAre")) + '</p>';
         };
         return Object.freeze({ version: 1, normalizeDays, weekdayRule, weekdayLabel, weekdayPickerHTML, isExplicit, candidates, nextDateKey, previousDateKey, ordinal, iterate, afterCompletion, label, pickerHTML });
     }
@@ -978,10 +978,10 @@
 
     function __tmGetTaskCheckinTodayHint(taskLike) {
         const today = __tmNormalizeDateOnly(new Date());
-        if (__tmIsTaskCheckinChecked(taskLike, today)) return '今日已打卡';
+        if (__tmIsTaskCheckinChecked(taskLike, today)) return __tmT("settings.checkedInToday");
         const next = __tmGetTaskCheckinNextDate(taskLike, today);
-        if (next === today) return '今日待打卡';
-        return next ? `今日可额外打卡 · 下次 ${next}` : '打卡计划已结束 · 今日可额外打卡';
+        if (next === today) return __tmT("settings.checkInDueToday");
+        return next ? __tmT("task.extraCheckInAvailableTodayNext", { next: next }) : __tmT("task.checkInPlanFinishedExtraCheckInAvailableToday");
     }
 
     function __tmIsRecurringNativeDoneHeld(taskLike) {
@@ -1183,14 +1183,14 @@
         );
         if (!rule.enabled || rule.type === 'none') return '';
         const repeatState = __tmNormalizeTaskRepeatState(task.repeatState);
-        if (repeatState.lastCompletionId && task.done === true && !repeatState.pendingNativeDoneReset) return '计划已结束';
+        if (repeatState.lastCompletionId && task.done === true && !repeatState.pendingNativeDoneReset) return __tmT("task.scheduleEnded");
         if (rule.maxOccurrences <= 0) return '';
         if (rule.trigger === 'checkin') {
             const completed = __tmGetTaskRepeatCompletedCount(task, rule);
             const extra = __tmGetTaskCheckinHistory(task).length - completed;
-            return `计划打卡 ${completed}/${rule.maxOccurrences}${extra > 0 ? ` · 额外 ${extra} 次` : ''}`;
+            return __tmT("task.scheduledCheckIns", { completed: completed, maxOccurrences: rule.maxOccurrences, value3: extra > 0 ? __tmT("task.extraOccurrences", { extra: extra }) : '' });
         }
-        return `第 ${Math.min(rule.maxOccurrences, __tmNormalizeTaskRepeatState(task.repeatState).occurrenceCount)}/${rule.maxOccurrences} 轮`;
+        return __tmT("task.cycle", { value1: Math.min(rule.maxOccurrences, __tmNormalizeTaskRepeatState(task.repeatState).occurrenceCount), maxOccurrences: rule.maxOccurrences });
     }
 
     function __tmResolveTaskRepeatHistoryOccurrenceNumber(taskLike, historyItem, orderIndex = 0) {
@@ -1904,13 +1904,13 @@
     function __tmGetTaskRepeatUnitLabel(type, every) {
         const repeatType = __tmNormalizeTaskRepeatType(type);
         const n = __tmNormalizeTaskRepeatEvery(every, repeatType);
-        if (repeatType === 'daily') return n > 1 ? `每${n}天` : '每天';
-        if (repeatType === 'workday') return n > 1 ? `每${n}个工作日` : '每个工作日';
-        if (repeatType === 'weekly') return n > 1 ? `每${n}周` : '每周';
-        if (repeatType === 'monthly') return n > 1 ? `每${n}个月` : '每月';
-        if (repeatType === 'yearly') return n > 1 ? `每${n}年` : '每年';
-        if (repeatType === 'fsrs') return 'FSRS 间隔重复';
-        return '不循环';
+        if (repeatType === 'daily') return n > 1 ? __tmT("task.everyDays", { n: n }) : __tmT("calendar.daily");
+        if (repeatType === 'workday') return n > 1 ? __tmT("task.everyWorkdays", { n: n }) : __tmT("task.everyWorkday");
+        if (repeatType === 'weekly') return n > 1 ? __tmT("task.everyWeeks", { n: n }) : __tmT("calendar.weekly");
+        if (repeatType === 'monthly') return n > 1 ? __tmT("task.everyMonths", { n: n }) : __tmT("calendar.monthly2");
+        if (repeatType === 'yearly') return n > 1 ? __tmT("task.everyYears", { n: n }) : __tmT("calendar.yearly");
+        if (repeatType === 'fsrs') return __tmT("task.fsrsSpacedRepetition");
+        return __tmT("calendar.noRepeat");
     }
 
     function __tmGetTaskRepeatCalendarUnitLabel(type, every, calendarMode) {
@@ -1918,21 +1918,21 @@
         const mode = __tmNormalizeTaskRepeatCalendarMode(calendarMode, repeatType);
         const n = __tmNormalizeTaskRepeatEvery(every, repeatType);
         if (mode !== 'lunar') return __tmGetTaskRepeatUnitLabel(repeatType, n);
-        if (repeatType === 'monthly') return n > 1 ? `每${n}个农历月` : '农历每月';
-        if (repeatType === 'yearly') return n > 1 ? `每${n}个农历年` : '农历每年';
+        if (repeatType === 'monthly') return n > 1 ? __tmT("task.everyLunarMonths", { n: n }) : __tmT("calendar.lunarMonthly");
+        if (repeatType === 'yearly') return n > 1 ? __tmT("task.everyLunarYears", { n: n }) : __tmT("calendar.lunarYearly");
         return __tmGetTaskRepeatUnitLabel(repeatType, n);
     }
 
     function __tmGetTaskRepeatSummary(ruleInput, options = {}) {
         const rule = __tmNormalizeTaskRepeatRule(ruleInput, options);
         if (!rule.enabled || rule.type === 'none') return '';
-        if (rule.type === 'fsrs') return 'FSRS 间隔重复';
-        const triggerText = rule.trigger === 'complete' ? '完成后' : (rule.trigger === 'checkin' ? '打卡' : '到期后');
+        if (rule.type === 'fsrs') return __tmT("task.fsrsSpacedRepetition");
+        const triggerText = rule.trigger === 'complete' ? __tmT("task.afterCompletion") : (rule.trigger === 'checkin' ? __tmT("task.checkIn2") : __tmT("task.whenDue"));
         const unitText = __tmGetTaskRepeatCalendarUnitLabel(rule.type, rule.every, rule.calendarMode);
-        const untilText = rule.until ? ` · 至 ${rule.until}` : '';
-        const countText = rule.maxOccurrences > 0 ? ` · 共 ${rule.maxOccurrences} 次` : '';
+        const untilText = rule.until ? __tmT("task.until2", { until: rule.until }) : '';
+        const countText = rule.maxOccurrences > 0 ? __tmT("task.timesTotal", { maxOccurrences: rule.maxOccurrences }) : '';
         const weekdayText = rule.type === 'weekly' && rule.weekdays.length > 0
-            ? `（${[1, 2, 3, 4, 5, 6, 0].filter((weekday) => rule.weekdays.includes(weekday)).map((weekday) => ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][weekday]).join('、')}）`
+            ? `（${[1, 2, 3, 4, 5, 6, 0].filter((weekday) => rule.weekdays.includes(weekday)).map((weekday) => [__tmT("calendar.sunday"), __tmT("calendar.monday"), __tmT("calendar.tuesday"), __tmT("calendar.wednesday"), __tmT("calendar.thursday"), __tmT("calendar.friday"), __tmT("calendar.saturday")][weekday]).join('、')}）`
             : '';
         const monthDayText = __tmMonthRepeatCore?.isExplicit(rule)
             ? `（${rule.monthlyMode === 'weekday' ? __tmMonthRepeatCore.weekdayLabel(rule.monthWeek, rule.anchorDate) : __tmMonthRepeatCore.label(rule.monthDays)}）` : '';
@@ -1941,19 +1941,19 @@
 
     function __tmGetTaskRepeatWeekdayLabel(dateLike) {
         const dt = (dateLike instanceof Date) ? dateLike : __tmBuildLocalNoonDateFromKey(dateLike);
-        if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return '周?';
-        return ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][dt.getDay()] || '周?';
+        if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return __tmT("date.unknownWeekday");
+        return [__tmT("calendar.sunday"), __tmT("calendar.monday"), __tmT("calendar.tuesday"), __tmT("calendar.wednesday"), __tmT("calendar.thursday"), __tmT("calendar.friday"), __tmT("calendar.saturday")][dt.getDay()] || __tmT("date.unknownWeekday");
     }
 
     function __tmGetTaskRepeatMonthlyModeCaption(mode, anchorDateLike) {
         const anchorDate = __tmBuildLocalNoonDateFromKey(anchorDateLike);
         if (!(anchorDate instanceof Date) || Number.isNaN(anchorDate.getTime())) {
-            return mode === 'weekday' ? '按星期' : '按日期';
+            return mode === 'weekday' ? __tmT("calendar.byWeekday") : __tmT("calendar.byDate");
         }
         if (String(mode || '').trim() === 'weekday') {
-            return `按星期（第${__tmGetTaskRepeatMonthWeekOrdinal(anchorDate)}个${__tmGetTaskRepeatWeekdayLabel(anchorDate)}）`;
+            return __tmT("task.byWeekdayThe", { value1: __tmGetTaskRepeatMonthWeekOrdinal(anchorDate), value2: __tmGetTaskRepeatWeekdayLabel(anchorDate) });
         }
-        return `按日期（${anchorDate.getDate()}日）`;
+        return __tmT("task.byDate", { value1: anchorDate.getDate() });
     }
 
     function __tmFormatTaskRepeatLunarDay(day) {
@@ -1969,13 +1969,13 @@
     function __tmGetTaskRepeatLunarCaption(type, anchorDateLike) {
         const repeatType = __tmNormalizeTaskRepeatType(type);
         const info = __tmGetLunarDateInfo(anchorDateLike);
-        if (!info) return repeatType === 'yearly' ? '农历每年' : '农历每月';
-        const monthText = ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月'][info.month - 1] || `${info.month}月`;
+        if (!info) return repeatType === 'yearly' ? __tmT("calendar.lunarYearly") : __tmT("calendar.lunarMonthly");
+        const monthText = ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月'][info.month - 1] || __tmT("date.monthSuffix", { month: info.month });
         const dayText = __tmFormatTaskRepeatLunarDay(info.day);
         const leap = info.isLeap ? '闰' : '';
         return repeatType === 'yearly'
-            ? `农历每年（${leap}${monthText}${dayText}）`
-            : `农历每月（${dayText}）`;
+            ? __tmT("calendar.lunarYearly2", { leap: leap, monthText: monthText, dayText: dayText })
+            : __tmT("calendar.lunarMonthly2", { dayText: dayText });
     }
 
     function __tmIsRecurringInstanceTask(task) {
@@ -2032,12 +2032,12 @@
             isRecurringInstance: true,
             isRecurringInstanceReadOnly: true,
             done: true,
-            content: String(history.content || source.content || '').trim() || String(source.content || '').trim() || '(无内容)',
-            raw_content: String(history.content || source.content || '').trim() || String(source.content || '').trim() || '(无内容)',
-            markdown: `- [x] ${String(history.content || source.content || '').trim() || '(无内容)'}`,
+            content: String(history.content || source.content || '').trim() || String(source.content || '').trim() || __tmT("kernel.noContent"),
+            raw_content: String(history.content || source.content || '').trim() || String(source.content || '').trim() || __tmT("kernel.noContent"),
+            markdown: `- [x] ${String(history.content || source.content || '').trim() || __tmT("kernel.noContent")}`,
             root_id: String(history.docId || source.root_id || source.docId || '').trim(),
             docId: String(history.docId || source.root_id || source.docId || '').trim(),
-            docName: String(history.docName || source.docName || '').trim() || '未命名文档',
+            docName: String(history.docName || source.docName || '').trim() || __tmT("kernel.untitledDocument"),
             h2: String(history.h2 || source.h2 || '').trim(),
             h2Id: String(history.h2Id || source.h2Id || '').trim(),
             h2Path: String(history.h2Path || source.h2Path || '').trim(),
@@ -2085,7 +2085,7 @@
             repeatRule: { enabled: false, type: 'none' },
             repeatState: __tmNormalizeTaskRepeatState(null),
         };
-        try { normalizeTaskFields(next, next.docName || source.docName || '未命名文档'); } catch (e) {}
+        try { normalizeTaskFields(next, next.docName || source.docName || __tmT("kernel.untitledDocument")); } catch (e) {}
         return next;
     }
 
@@ -2097,9 +2097,9 @@
         const occurrenceNumber = Math.max(0, parseInt(task?.recurringOccurrenceNumber, 10) || 0);
         const totalOccurrences = __tmNormalizeTaskRepeatMaxOccurrences(task?.recurringTotalOccurrences);
         const progressText = occurrenceNumber > 0
-            ? ` · 第 ${occurrenceNumber}${totalOccurrences > 0 ? `/${totalOccurrences}` : ''} 次`
+            ? __tmT("task.repeatOccurrenceSuffix", { occurrenceNumber: occurrenceNumber, value2: totalOccurrences > 0 ? `/${totalOccurrences}` : '' })
             : '';
-        return `<span class="${classes.join(' ')}">循环记录${progressText}</span>`;
+        return `<span class="${classes.join(' ')}">${__tmT("task.recurring", { progressText: progressText })}</span>`;
     }
 
     function __tmRenderRecurringTaskInlineIcon(task, options = {}) {
@@ -2117,7 +2117,7 @@
             completionTime: task?.completionTime,
         });
         const checkinHint = rule.trigger === 'checkin' ? ` · ${__tmGetTaskCheckinTodayHint(task)}` : '';
-        const tooltip = summary ? `循环任务：${summary}${checkinHint}` : `循环任务${checkinHint}`;
+        const tooltip = summary ? __tmT("task.recurringTask", { summary: summary, checkinHint: checkinHint }) : __tmT("task.recurringTask2", { checkinHint: checkinHint });
         return `<span class="${classes.join(' ')}"${__tmBuildTooltipAttrs(tooltip, { side: String(options?.tooltipSide || 'bottom').trim() || 'bottom', ariaLabel: false })}>${__tmRenderLucideIcon('repeat')}</span>`;
     }
 
@@ -2126,7 +2126,7 @@
         const cls = String(options?.className || '').trim();
         const classes = ['tm-pinned-task-icon'];
         if (cls) classes.push(cls);
-        return `<span class="${classes.join(' ')}" data-tm-inline-field="pinned"${__tmBuildTooltipAttrs('置顶任务', { side: String(options?.tooltipSide || 'bottom').trim() || 'bottom', ariaLabel: false })}>${__tmRenderLucideIcon('pin')}</span>`;
+        return `<span class="${classes.join(' ')}" data-tm-inline-field="pinned"${__tmBuildTooltipAttrs(__tmT("task.pinnedTask"), { side: String(options?.tooltipSide || 'bottom').trim() || 'bottom', ariaLabel: false })}>${__tmRenderLucideIcon('pin')}</span>`;
     }
 
     function __tmIsGlobalCollectDocTask(task) {
@@ -2146,7 +2146,7 @@
         const cls = String(options?.className || '').trim();
         const classes = ['tm-global-collect-task-icon'];
         if (cls) classes.push(cls);
-        return `<span class="${classes.join(' ')}" data-tm-inline-field="global-collect"${__tmBuildTooltipAttrs('全局收集文档任务', { side: String(options?.tooltipSide || 'bottom').trim() || 'bottom', ariaLabel: false })}>${__tmPhosphorBoldSvg('tray-arrow-down', { size: Number(options?.size) || 14, className: 'tm-inline-icon__svg' })}</span>`;
+        return `<span class="${classes.join(' ')}" data-tm-inline-field="global-collect"${__tmBuildTooltipAttrs(__tmT("task.globalInboxDocumentTasks"), { side: String(options?.tooltipSide || 'bottom').trim() || 'bottom', ariaLabel: false })}>${__tmPhosphorBoldSvg('tray-arrow-down', { size: Number(options?.size) || 14, className: 'tm-inline-icon__svg' })}</span>`;
     }
 
     function __tmPurgeRecurringInstanceTasks(sourceTaskId, completedAtList = []) {
@@ -2330,13 +2330,13 @@
 
     function __tmGetPriorityJiraInfo(value) {
         const p = String(value || '').trim().toLowerCase();
-        if (p === 'a') return { key: 'high', label: '高', iconType: 'high' };
-        if (p === 'b') return { key: 'medium', label: '中', iconType: 'medium' };
-        if (p === 'c') return { key: 'low', label: '低', iconType: 'low' };
-        if (p === 'high') return { key: 'high', label: '高', iconType: 'high' };
-        if (p === 'medium') return { key: 'medium', label: '中', iconType: 'medium' };
-        if (p === 'low') return { key: 'low', label: '低', iconType: 'low' };
-        return { key: 'none', label: '无', iconType: 'none' };
+        if (p === 'a') return { key: 'high', label: __tmT("common.high"), iconType: 'high' };
+        if (p === 'b') return { key: 'medium', label: __tmT("common.medium"), iconType: 'medium' };
+        if (p === 'c') return { key: 'low', label: __tmT("common.low"), iconType: 'low' };
+        if (p === 'high') return { key: 'high', label: __tmT("common.high"), iconType: 'high' };
+        if (p === 'medium') return { key: 'medium', label: __tmT("common.medium"), iconType: 'medium' };
+        if (p === 'low') return { key: 'low', label: __tmT("common.low"), iconType: 'low' };
+        return { key: 'none', label: __tmT("common.none"), iconType: 'none' };
     }
 
     function __tmNormalizePriorityIconStyle(value) {
@@ -2424,7 +2424,7 @@
         const taskIdAttr = ` data-task-id="${esc(tid)}"`;
         const title = String(options?.title || (checkinTask
             ? __tmGetTaskCheckinTodayHint(task)
-            : (readOnly ? '完成状态仅在插件内生效，不会修改原块内容' : ''))).trim();
+            : (readOnly ? __tmT("task.theCompletionStateOnlyAppliesInsideThePluginAnd") : ''))).trim();
         const titleAttr = title ? ` title="${esc(title)}"` : '';
         const mouseDownAttr = options?.stopMouseDown ? ' onmousedown="event.stopPropagation()"' : '';
         const pointerDownAttr = options?.stopPointerDown ? ' onpointerdown="event.stopPropagation()"' : '';
@@ -2529,9 +2529,11 @@
 
         const toInfo = (srcTask, sourceTaskId, fromChild) => {
             const checkinTask = __tmIsCheckinTask(srcTask);
+            // Incremental confirmations keep SQL aliases in nested children.
+            // An explicit canonical clear still overrides an older alias.
             const date = checkinTask
                 ? __tmGetTaskCheckinCurrentDate(srcTask, new Date(todayStartTs))
-                : srcTask?.completionTime;
+                : (srcTask?.completionTime ?? srcTask?.completion_time);
             const dayTs = parseToLocalDayStartTs(date);
             const rawTs = checkinTask ? dayTs : __tmParseTimeToTs(date);
             const out = {

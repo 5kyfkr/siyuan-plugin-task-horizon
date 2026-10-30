@@ -1,12 +1,14 @@
 (function () {
     'use strict';
 
+    const __tmT = globalThis.__taskHorizonHostBridge.i18n.t;
+
     if (globalThis.__tmAI?.loaded && globalThis.__tmAI?.runtimeKind === 'agent') return;
 
     const STORE_FILE = 'agent-workbench.json';
     const API_ROOT = '/api/ai/agent';
     const SKILL_ROOT = '/data/plugins/siyuan-plugin-task-horizon/skills';
-    const DEFAULT_SESSION_TITLE = '任务工作台';
+    const DEFAULT_SESSION_TITLE = __tmT("ai.taskWorkbench");
     const SIYUAN_DEFAULT_SESSION_TITLE = 'AI Agent';
     const SESSION_LIST_PAGE_SIZE = 100;
     const WORKBENCH_BINDING_TOKEN = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -27,10 +29,10 @@
         ['Groq', 'https://api.groq.com/openai/v1'], ['Ollama', 'http://localhost:11434/v1'], ['LM Studio', 'http://localhost:1234/v1'],
     ]);
     const REASONING_EFFORT_OPTIONS = Object.freeze([
-        { value: '', label: '默认' }, { value: 'none', label: '无' },
-        { value: 'low', label: '低' }, { value: 'medium', label: '中' },
-        { value: 'high', label: '高' }, { value: 'xhigh', label: '超高' },
-        { value: 'max', label: '最大' },
+        { value: '', label: __tmT("settings.default") }, { value: 'none', label: __tmT("common.none") },
+        { value: 'low', label: __tmT("common.low") }, { value: 'medium', label: __tmT("common.medium") },
+        { value: 'high', label: __tmT("common.high") }, { value: 'xhigh', label: __tmT("ai.veryHigh") },
+        { value: 'max', label: __tmT("ai.max") },
     ]);
     const CAPABILITY_RETRY_INTERVAL_MS = 1000;
     const CAPABILITY_RETRY_LIMIT = 5;
@@ -63,44 +65,44 @@
     const BUILTIN_SKILL_NAMES = Object.freeze(['task-capture', 'task-planning', 'task-review', 'task-template']);
     const BUILTIN_PRESETS = Object.freeze({
         'title-rewrite': {
-            label: '优化标题',
-            prompt: '请结合当前任务和思源文档上下文，给出更明确、可执行的任务标题。需要修改时使用任务工具更新标题。',
-            starter: '优化当前任务标题',
+            label: __tmT("ai.optimizeTitle"),
+            prompt: __tmT("ai.usingTheCurrentTaskAndSiyuanDocumentContextPropose"),
+            starter: __tmT("ai.optimizeTheCurrentTaskTitle"),
         },
         'field-edit': {
-            label: '修改字段',
-            prompt: '请根据用户要求检查当前任务，只修改明确要求的安全字段。写入前先说明变更并等待确认。',
-            starter: '帮我检查并修改当前任务字段',
+            label: __tmT("ai.editFields"),
+            prompt: __tmT("ai.inspectTheCurrentTaskPerTheUserSRequest"),
+            starter: __tmT("ai.checkAndEditTheCurrentTaskFields"),
         },
         'smart-review': {
-            label: '目标分析',
-            prompt: '请用 SMART 原则分析当前目标，优先利用思源文档上下文；只有用户明确要求时才写入任务。',
-            starter: '分析当前目标是否清晰可执行',
+            label: __tmT("ai.goalAnalysis"),
+            prompt: __tmT("ai.analyzeTheCurrentGoalUsingTheSmartPrinciplesPrioritizing"),
+            starter: __tmT("ai.analyzeWhetherTheCurrentGoalIsClearAndActionable"),
         },
         'task-capture': {
-            label: '拆分任务',
-            prompt: '使用 task-capture 工作流程，把用户表达整理为少量明确任务。先给出计划，再整批确认写入。',
-            starter: '把当前内容拆分成可执行任务',
+            label: __tmT("ai.splitTasks"),
+            prompt: __tmT("ai.useTheTaskCaptureWorkflowToTurnTheUser"),
+            starter: __tmT("ai.splitTheCurrentContentIntoActionableTasks"),
         },
         'task-create': {
-            label: '创建任务',
-            prompt: '直接创建用户要求的单个任务，不要擅自拆分。用户没有明确指定位置时使用本轮提供的插件默认新建位置，直接调用 create_task，不询问位置、不预览，也不要求额外确认。',
-            starter: '我想创建一个任务',
+            label: __tmT("task.createTask"),
+            prompt: __tmT("ai.directlyCreateTheSingleTaskTheUserAskedFor"),
+            starter: __tmT("ai.iWantToCreateATask"),
         },
         'task-planning': {
-            label: '安排时间',
-            prompt: '使用 task-planning 工作流程读取任务、日程和安排规则，先生成无冲突预览，再一次确认写入。',
-            starter: '为当前任务安排合适的时间',
+            label: __tmT("ai.scheduleTime"),
+            prompt: __tmT("ai.useTheTaskPlanningWorkflowToReadTasksSchedules"),
+            starter: __tmT("ai.scheduleASuitableTimeForTheCurrentTask"),
         },
         'task-review': {
-            label: '生成复盘',
-            prompt: '使用 task-review 工作流程和聚合统计工具生成复盘。长期范围必须使用聚合工具，不要拉取全部原始任务自行计数。',
-            starter: '总结当前范围的完成情况和投入时间',
+            label: __tmT("ai.generateReview"),
+            prompt: __tmT("ai.useTheTaskReviewWorkflowAndAggregateStatisticsTools"),
+            starter: __tmT("ai.summarizeCompletionsAndTimeSpentInTheCurrentRange"),
         },
         'task-template': {
-            label: '场景模板',
-            prompt: '使用 task-template 工作流程，根据用户描述生成可复用的任务与日程计划，先预览后整批确认。',
-            starter: '按我的固定场景生成一套任务安排',
+            label: __tmT("ai.sceneTemplates"),
+            prompt: __tmT("ai.useTheTaskTemplateWorkflowToGenerateAReusable"),
+            starter: __tmT("ai.generateATaskPlanFromMySavedScene"),
         },
     });
 
@@ -330,7 +332,7 @@
         const normalize = (value) => text(value).toLowerCase().replace(/\/+$/, '').replace(/\/v1$/, '');
         const baseURL = text(provider.baseURL);
         const preset = PROVIDER_TITLES.find((item) => item.slice(1).some((url) => normalize(url) === normalize(baseURL)));
-        return preset?.[0] || baseURL || '自定义提供商';
+        return preset?.[0] || baseURL || __tmT("ai.customProvider");
     }
 
     function agentModelOptions() {
@@ -353,7 +355,7 @@
         const selected = current || options.find((item) => item.id === text(window.siyuan?.config?.ai?.agent?.modelId)) || options[0];
         if (runtime.session && !current && !runtime.busy && (!currentID || notify)) {
             runtime.session.model = selected?.id || '';
-            if (notify && currentID) showSessionNotice(selected ? `原模型已不可用，已切换为 ${selected.name}` : '当前没有可用模型，请先在思源设置中配置', 'warning');
+            if (notify && currentID) showSessionNotice(selected ? __tmT("ai.thePreviousModelIsUnavailableSwitchedTo", { name: selected.name }) : __tmT("ai.noModelIsAvailableConfigureOneInSiyuanSettings"), 'warning');
         }
         return selected || null;
     }
@@ -384,9 +386,9 @@
         const effort = selectedReasoningEffort();
         const permission = sessionPermissionMode();
         const labels = {
-            model: model ? `切换模型：${model.provider} / ${model.name}` : '切换模型：未配置，点击前往思源设置',
-            reasoning: `思考强度：${effort.label}`,
-            permission: `批准：${agentPermissionLabel(permission)}`,
+            model: model ? __tmT("ai.switchModel", { provider: model.provider, name: model.name }) : __tmT("ai.switchModelNotConfiguredClickToOpenSiyuanSettings"),
+            reasoning: __tmT("ai.reasoningEffort", { label: effort.label }),
+            permission: __tmT("ai.approve", { value1: agentPermissionLabel(permission) }),
         };
         runtime.host?.querySelectorAll?.('[data-agent-setting]').forEach((button) => {
             const kind = button.dataset.agentSetting;
@@ -402,7 +404,7 @@
         if (presets) {
             presets.disabled = runtime.settingsBusy;
             presets.setAttribute('aria-expanded', runtime.settingsMenu?.kind === 'presets' ? 'true' : 'false');
-            presets.setAttribute('title', getPreset(runtime.presetID)?.label || '选择对话预设');
+            presets.setAttribute('title', getPreset(runtime.presetID)?.label || __tmT("ai.chooseConversationPreset"));
         }
     }
 
@@ -419,9 +421,9 @@
                 (entry.type === 'assistant' && (text(entry.reasoningContent) || entry.toolCalls?.length))
                 || (entry.type === 'thinking' && entry.steps?.some((step) => text(step.reasoningContent))));
             if (hasSpecificContext) {
-                const message = agentLanguage('agentModelSwitchWarning', '当前会话包含推理或工具调用上下文。切换模型后，回答质量、工具调用连续性和缓存命中率可能下降。是否继续切换？');
+                const message = agentLanguage('agentModelSwitchWarning', __tmT("ai.thisConversationIncludesReasoningOrToolCallContextSwitching"));
                 const accepted = bridge().confirm
-                    ? await new Promise((resolve) => bridge().confirm('切换模型', message, () => resolve(true), () => resolve(false)))
+                    ? await new Promise((resolve) => bridge().confirm(__tmT("ai.switchModel2"), message, () => resolve(true), () => resolve(false)))
                     : window.confirm(message);
                 if (!accepted) return;
             }
@@ -430,7 +432,7 @@
             await saveSession();
         } catch (error) {
             if (runtime.activeSessionID === sessionID) runtime.session.model = previousID;
-            showSessionNotice(`模型切换失败：${text(error?.message || error)}`, 'error');
+            showSessionNotice(__tmT("ai.modelSwitchFailed", { value1: text(error?.message || error) }), 'error');
         } finally {
             runtime.settingsBusy = false;
             render();
@@ -449,7 +451,7 @@
                 window.siyuan.storage[REASONING_EFFORT_KEY] = value;
             }
         } catch (error) {
-            showSessionNotice(`思考强度保存失败：${text(error?.message || error)}`, 'error');
+            showSessionNotice(__tmT("ai.failedToSaveReasoningEffort", { value1: text(error?.message || error) }), 'error');
         } finally {
             runtime.settingsBusy = false;
             render();
@@ -474,7 +476,7 @@
                 if (runtime.live) runtime.live.permissionMode = runtime.session.permissionMode;
             }
         } catch (error) {
-            showSessionNotice(`批准设置更新失败：${text(error?.message || error)}`, 'error');
+            showSessionNotice(__tmT("ai.failedToUpdateApprovalSettings", { value1: text(error?.message || error) }), 'error');
         } finally {
             runtime.settingsBusy = false;
             render();
@@ -483,7 +485,7 @@
 
     function openAgentAiSettings() {
         if (!bridge().openSetting) {
-            showSessionNotice('请打开思源设置 - 人工智能，配置并启用模型', 'info');
+            showSessionNotice(__tmT("ai.openSiyuanSettingsAiToConfigureAndEnableA"), 'info');
             return;
         }
         const dialog = bridge().openSetting(bridge().app);
@@ -501,7 +503,7 @@
         selectedAgentModel(true);
         syncComposerControls();
         const Menu = bridge().Menu;
-        if (!Menu) { showSessionNotice('当前客户端无法打开设置菜单，请重新加载插件', 'warning'); return; }
+        if (!Menu) { showSessionNotice(__tmT("ai.thisClientCannotOpenTheSettingsMenuReloadThe"), 'warning'); return; }
         // 原生菜单使用思源的层级计数器，需先跨过工作区及其外层弹窗的显示层级。
         if (window.siyuan) {
             let layer = Number(window.siyuan.zIndex) || 0;
@@ -535,7 +537,7 @@
                 menu.addItem({ iconHTML: '', label: esc(item.name), current: item.id === selectedAgentModel()?.id, click: apply(() => changeAgentModel(item.id)) });
             });
             if (options.length) menu.addSeparator();
-            menu.addItem({ icon: 'iconSettings', label: options.length ? '思源模型设置' : '配置思源模型', click: openAgentAiSettings });
+            menu.addItem({ icon: 'iconSettings', label: options.length ? __tmT("ai.siyuanModelSettings") : __tmT("ai.configureSiyuanModel"), click: openAgentAiSettings });
         } else if (kind === 'reasoning') {
             REASONING_EFFORT_OPTIONS.forEach((item) => menu.addItem({
                 iconHTML: '', label: item.label, current: item.value === selectedReasoningEffort().value,
@@ -711,8 +713,8 @@
             button.className = 'block__icon tm-agent-code-copy ariaLabel';
             button.dataset.agentAction = 'copy-code-block';
             button.setAttribute('data-position', 'north');
-            button.setAttribute('aria-label', '复制代码块');
-            button.setAttribute('title', '复制代码块');
+            button.setAttribute('aria-label', __tmT("ai.copyCodeBlock"));
+            button.setAttribute('title', __tmT("ai.copyCodeBlock"));
             button.innerHTML = phosphorBoldContextIcon('copy');
             pre.classList.add('tm-agent-code-block');
             pre.appendChild(button);
@@ -787,7 +789,7 @@
         let payload = null;
         try { payload = await response.json(); } catch (error) {}
         if (!response.ok || !payload || Number(payload.code) !== 0) {
-            throw new Error(text(payload?.msg || payload?.message) || `智能体请求失败 (${response.status})`);
+            throw new Error(text(payload?.msg || payload?.message) || __tmT("ai.agentRequestFailed", { status: response.status }));
         }
         return payload.data;
     }
@@ -806,7 +808,7 @@
             message = text(payload?.msg || payload?.message);
         } catch (error) {}
         if (!response.ok || (payload && Number(payload.code) !== 0)) {
-            throw new Error(message || `智能体交互请求失败 (${response.status})`);
+            throw new Error(message || __tmT("ai.agentInteractionRequestFailed", { status: response.status }));
         }
         return true;
     }
@@ -843,7 +845,7 @@
 
     async function restartKernelPluginSession() {
         const appID = kernelRecoveryAppID();
-        if (!appID) throw new Error('缺少当前窗口标识，无法安全重启任务工具内核');
+        if (!appID) throw new Error(__tmT("task.missingTheCurrentWindowIdentityCannotSafelyRestartThe"));
 
         const now = Date.now();
         const recentRecovery = readKernelRecoveryTime();
@@ -870,7 +872,7 @@
             let payload = null;
             try { payload = await response.json(); } catch (error) {}
             if (!response.ok || !payload || Number(payload.code) !== 0) {
-                throw new Error(text(payload?.msg || payload?.message) || `任务工具内核重启失败 (${response.status})`);
+                throw new Error(text(payload?.msg || payload?.message) || __tmT("task.taskToolKernelRestartFailed", { status: response.status }));
             }
             return true;
         } catch (error) {
@@ -894,10 +896,10 @@
     async function callKernelMethod(name, args) {
         const kernel = bridge().kernel || bridge().plugin?.kernel;
         const method = kernel?.rpc?.call?.[name];
-        if (typeof method !== 'function') throw new Error('当前思源版本未提供任务工具服务');
+        if (typeof method !== 'function') throw new Error(__tmT("ai.theCurrentSiyuanVersionDoesNotProvideTheTask"));
         const result = await method(...args);
         if (!result || result.ok !== true) {
-            const error = new Error(text(result?.error?.message) || '任务工具服务调用失败');
+            const error = new Error(text(result?.error?.message) || __tmT("ai.taskToolsServiceCallFailed"));
             error.code = text(result?.error?.code) || 'STORAGE_ERROR';
             error.details = result?.error?.details || null;
             throw error;
@@ -913,14 +915,14 @@
             try {
                 await recoverKernelSession();
             } catch (recoveryError) {
-                const failure = new Error(`任务工具会话失效，自动恢复失败：${text(recoveryError?.message || recoveryError) || '未知错误'}`);
+                const failure = new Error(__tmT("task.theTaskToolSessionExpiredAndAutomaticRecoveryFailed", { value1: text(recoveryError?.message || recoveryError) || __tmT("plugin.unknownError") }));
                 failure.code = 'KERNEL_SESSION_RECOVERY_FAILED';
                 throw failure;
             }
             if (KERNEL_AUTH_RETRYABLE_READ_CALLS.has(name)) {
                 return await callKernelMethod(name, args);
             }
-            const retry = new Error('任务工具会话已恢复，请重试刚才的操作');
+            const retry = new Error(__tmT("task.theTaskToolSessionRecoveredRetryTheLastAction"));
             retry.code = 'KERNEL_SESSION_RECOVERED';
             retry.details = { call: name };
             throw retry;
@@ -1076,12 +1078,12 @@
             if (!isMissingAgentSessionError(error)) throw error;
         }
         if (!session && options.requireExistingSession === true) {
-            throw new Error('已绑定的智能体会话在当前设备上不可用，请完成思源数据同步后重试');
+            throw new Error(__tmT("ai.theBoundAgentConversationIsUnavailableOnThisDevice"));
         }
         if (Number(options.expectedUpdatedAt) > (Number(session?.updatedAt) || 0)) {
-            throw new Error('当前设备的智能体会话尚未同步到最后保存的版本，请完成思源数据同步后重试');
+            throw new Error(__tmT("ai.thisDeviceSAgentConversationHasNotSyncedTo"));
         }
-        if (session?.agentRunning === true) throw new Error('智能体会话正在其他实例中执行');
+        if (session?.agentRunning === true) throw new Error(__tmT("ai.theAgentConversationIsRunningInAnotherInstance"));
         if (text(session?.recoveryTurnID)) {
             for (let attempt = 0; attempt < 2; attempt += 1) {
                 try {
@@ -1095,9 +1097,9 @@
         }
         const userEntryID = newID();
         for (let attempt = 0; attempt < 2; attempt += 1) {
-            if (session?.agentRunning === true) throw new Error('智能体会话正在其他实例中执行');
+            if (session?.agentRunning === true) throw new Error(__tmT("ai.theAgentConversationIsRunningInAnotherInstance"));
             if (Number(options.expectedUpdatedAt) > (Number(session?.updatedAt) || 0)) {
-                throw new Error('当前设备的智能体会话尚未同步到最后保存的版本，请完成思源数据同步后重试');
+                throw new Error(__tmT("ai.thisDeviceSAgentConversationHasNotSyncedTo"));
             }
             const now = Date.now();
             const entries = Array.isArray(session?.entries) ? clone(session.entries) : [];
@@ -1160,7 +1162,7 @@
                 }
             }
         }
-        throw new Error('智能体会话保存失败');
+        throw new Error(__tmT("ai.failedToSaveTheAgentConversation"));
     }
 
     async function finalizeAutomationConversation(sessionID, title, run = {}) {
@@ -1169,7 +1171,7 @@
         await ensureStoreLoaded();
         rememberSession(id);
         const session = await post('/getSession', { id });
-        if (!session) throw new Error('智能体会话读取失败');
+        if (!session) throw new Error(__tmT("ai.failedToReadTheAgentConversation"));
         const desiredTitle = text(title);
         if (desiredTitle) {
             session.title = desiredTitle;
@@ -1302,23 +1304,23 @@
                 ? Number(caps.effectiveRegisteredToolCount)
                 : (Number(caps.registeredToolCount) || 0);
             const denied = Number(caps.agentDeniedToolCount) || 0;
-            return `${available} 个任务工具可用${denied ? ` · ${denied} 个被思源关闭` : ''}${runtime.skillSync.installed ? ` · ${BUILTIN_SKILL_NAMES.length} 个工作流程` : ''}`;
+            return __tmT("ai.taskToolsAvailable", { available: available, value2: denied ? __tmT("ai.disabledInSiyuan", { denied: denied }) : '', value3: runtime.skillSync.installed ? __tmT("ai.workflows", { length: BUILTIN_SKILL_NAMES.length }) : '' });
         }
-        if (caps.kernelAvailable !== true) return caps.unavailableReason === 'kernel-rpc-error' ? '任务工具内核连接失败' : '任务工具内核未加载';
-        if (caps.mcpAvailable !== true) return '当前思源内核未提供 MCP';
-        if (aiBridge()?.getSettings?.()?.agentMcpAllowed !== true) return '文档对话模式 · 任务工具未授权';
-        return '文档对话模式 · 任务工具未启用';
+        if (caps.kernelAvailable !== true) return caps.unavailableReason === 'kernel-rpc-error' ? __tmT("ai.taskToolsKernelConnectionFailed") : __tmT("ai.taskToolsKernelNotLoaded");
+        if (caps.mcpAvailable !== true) return __tmT("ai.theCurrentSiyuanKernelDoesNotProvideMcp");
+        if (aiBridge()?.getSettings?.()?.agentMcpAllowed !== true) return __tmT("ai.documentChatModeTaskToolsNotAuthorized");
+        return __tmT("ai.documentChatModeTaskToolsNotEnabled");
     }
 
     async function setToolsEnabled(enabled) {
         stopCapabilityRetry();
         const settings = aiBridge()?.getSettings?.() || {};
         if (enabled === true && settings.agentMcpAllowed !== true) {
-            runtime.statusText = '任务工具属于全功能权益，当前保持文档对话模式';
+            runtime.statusText = __tmT("ai.taskToolsAreAFullFeatureEntitlementStayingIn");
             render();
             return false;
         }
-        runtime.statusText = enabled ? '正在启用任务工具...' : '正在停用任务工具...';
+        runtime.statusText = enabled ? __tmT("ai.enablingTaskTools") : __tmT("ai.disablingTaskTools");
         render();
         try {
             if (typeof aiBridge()?.setAgentMcpEnabled === 'function') {
@@ -1352,8 +1354,8 @@
         }
         if (capabilities?.mcpEnabled === true) return true;
         runtime.statusText = capabilities?.unavailableDetail
-            ? `任务工具连接恢复失败：${capabilities.unavailableDetail}`
-            : '任务工具正在恢复，请稍后重试';
+            ? __tmT("ai.failedToRestoreTheTaskToolsConnection", { unavailableDetail: capabilities.unavailableDetail })
+            : __tmT("ai.taskToolsAreBeingRestoredTryAgainLater");
         startCapabilityRetry();
         render();
         return false;
@@ -1391,7 +1393,7 @@
                 const payload = JSON.parse(content);
                 message = text(payload?.msg || payload?.message);
             } catch (error) {}
-            throw new Error(message || `无法读取内置工作流程 ${name}`);
+            throw new Error(message || __tmT("ai.cannotReadBuiltInWorkflow", { name: name }));
         }
         return content;
     }
@@ -1409,12 +1411,12 @@
     async function syncBuiltinSkills() {
         if (runtime.skillSync.busy) return runtime.skillSync;
         runtime.skillSync = { busy: true, installed: false, results: [], error: '' };
-        runtime.statusText = '正在同步工作流程...';
+        runtime.statusText = __tmT("ai.syncingWorkflows");
         render();
         try {
             for (const name of BUILTIN_SKILL_NAMES) {
                 const bundledContent = await loadBundledSkill(name);
-                if (!text(bundledContent)) throw new Error(`内置工作流程 ${name} 内容为空`);
+                if (!text(bundledContent)) throw new Error(__tmT("ai.builtInWorkflowIsEmpty", { name: name }));
                 const bundledHash = await hashContent(bundledContent);
                 const trackedHash = text(runtime.store.builtinSkills?.[name]?.hash);
                 const installedContent = await loadInstalledSkill(name);
@@ -1436,7 +1438,7 @@
             runtime.skillSync.installed = runtime.skillSync.results.length === BUILTIN_SKILL_NAMES.length;
             scheduleSave();
         } catch (error) {
-            runtime.skillSync.error = text(error?.message || error) || '工作流程同步失败';
+            runtime.skillSync.error = text(error?.message || error) || __tmT("ai.workflowssyncFailed");
         } finally {
             runtime.skillSync.busy = false;
             runtime.statusText = '';
@@ -1447,11 +1449,11 @@
 
     function sessionSwitchBlocked() {
         if (runtime.settingsBusy) {
-            showSessionNotice('正在保存会话设置，请稍后再切换会话', 'info');
+            showSessionNotice(__tmT("ai.savingSessionSettingsSwitchSessionsInAMoment"), 'info');
             return true;
         }
         if (!runtime.busy) return false;
-        showSessionNotice('当前会话正在处理，请停止后再切换会话', 'warning');
+        showSessionNotice(__tmT("ai.theCurrentConversationIsBusyStopItBeforeSwitching"), 'warning');
         return true;
     }
 
@@ -1475,7 +1477,7 @@
     function currentSessionHeaderTitle() {
         const title = text(runtime.session?.title);
         if (runtime.session?.titled === false || !title || title === DEFAULT_SESSION_TITLE || title === SIYUAN_DEFAULT_SESSION_TITLE) {
-            return '任务智能体';
+            return __tmT("ai.taskAgent");
         }
         return title;
     }
@@ -1502,9 +1504,9 @@
         if (!sessionID) return createSession();
         try {
             const session = await post('/getSession', { id: sessionID });
-            if (!session) throw new Error('智能体会话读取失败');
+            if (!session) throw new Error(__tmT("ai.failedToReadTheAgentConversation"));
             if (Number(options.sessionUpdatedAt) > (Number(session.updatedAt) || 0)) {
-                throw new Error('会话尚未同步到最后保存的版本，请完成思源数据同步后重试');
+                throw new Error(__tmT("ai.theConversationHasNotSyncedToTheLatestSaved"));
             }
             runtime.activeSessionID = sessionID;
             if (typeof session.titled !== 'boolean') {
@@ -1527,14 +1529,14 @@
                 const draft = getDraft();
                 const session = createSession();
                 setDraft(draft);
-                showSessionNotice('原会话在当前设备上不可用，已新建会话', 'info');
+                showSessionNotice(__tmT("ai.thePreviousSessionIsNotAvailableOnThisDevice"), 'info');
                 runtime.statusText = '';
                 render();
                 return session;
             }
             runtime.statusText = isMissingAgentSessionError(error)
-                ? '会话在当前设备上不可用，请完成思源数据同步后重试'
-                : `会话读取失败：${text(error?.message || error)}`;
+                ? __tmT("ai.theConversationIsUnavailableOnThisDeviceFinishSiyuan")
+                : __tmT("ai.failedToReadConversation", { value1: text(error?.message || error) });
             showSessionNotice(runtime.statusText, 'warning');
             return null;
         }
@@ -1596,7 +1598,7 @@
         const form = document.createElement('form');
         form.className = 'tm-agent-history__rename';
         form.dataset.agentSessionRename = sessionID;
-        form.innerHTML = `<input class="b3-text-field b3-text-field--small" name="title" value="${esc(title)}" aria-label="会话名称"><button type="submit" class="block__icon" aria-label="保存会话名称"><svg><use xlink:href="#iconSelect"></use></svg></button><button type="button" class="block__icon" data-agent-action="cancel-session-rename" aria-label="取消重命名"><svg><use xlink:href="#iconClose"></use></svg></button>`;
+        form.innerHTML = `<input class="b3-text-field b3-text-field--small" name="title" value="${esc(title)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.conversationname")}"><button type="submit" class="block__icon" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.saveconversationname")}"><svg><use xlink:href="#iconSelect"></use></svg></button><button type="button" class="block__icon" data-agent-action="cancel-session-rename" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.cancelrename")}"><svg><use xlink:href="#iconClose"></use></svg></button>`;
         main.replaceWith(form);
         row.classList.add('is-renaming');
         const input = form.elements?.title;
@@ -1608,17 +1610,17 @@
         const sessionID = text(id);
         const title = text(value);
         if (!sessionID || !title) {
-            showSessionNotice('会话名称不能为空', 'warning');
+            showSessionNotice(__tmT("ai.conversationNameCannotBeEmpty"), 'warning');
             return false;
         }
         if (sessionID === runtime.activeSessionID && runtime.busy) {
-            showSessionNotice('当前会话正在处理，请完成后再重命名', 'warning');
+            showSessionNotice(__tmT("ai.theCurrentConversationIsBusyFinishItBeforeRenaming"), 'warning');
             return false;
         }
         try {
             const session = await post('/getSession', { id: sessionID });
-            if (!session) throw new Error('会话不存在');
-            if (session.agentRunning === true) throw new Error('会话正在其他实例中处理');
+            if (!session) throw new Error(__tmT("ai.conversationDoesNotExist"));
+            if (session.agentRunning === true) throw new Error(__tmT("ai.theConversationIsBeingHandledInAnotherInstance"));
             const next = {
                 ...session,
                 title,
@@ -1634,7 +1636,7 @@
             render();
             return true;
         } catch (error) {
-            showSessionNotice(`重命名失败：${text(error?.message || error)}`, 'error');
+            showSessionNotice(__tmT("ai.renameFailed", { value1: text(error?.message || error) }), 'error');
             return false;
         }
     }
@@ -1649,7 +1651,7 @@
         void post('/title', {
             message,
             model: text(modelID || runtime.session.model),
-            language: window.siyuan?.config?.appearance?.lang || 'zh_CN',
+            language: globalThis.__taskHorizonHostBridge.i18n.locale,
         }).then(async (generatedTitle) => {
             const title = text(generatedTitle);
             if (!title || runtime.activeSessionID !== sessionID || !runtime.session) return;
@@ -1667,7 +1669,7 @@
         const sessionID = text(id);
         if (!sessionID) return false;
         if (sessionID === runtime.activeSessionID && runtime.busy) {
-            showSessionNotice('当前会话正在处理，暂时无法删除', 'warning');
+            showSessionNotice(__tmT("ai.theCurrentConversationIsBusyAndCannotBeDeleted"), 'warning');
             return false;
         }
         try {
@@ -1684,7 +1686,7 @@
             render();
             return true;
         } catch (error) {
-            showSessionNotice(`删除失败：${text(error?.message || error)}`, 'error');
+            showSessionNotice(__tmT("ai.deleteFailed", { value1: text(error?.message || error) }), 'error');
             return false;
         }
     }
@@ -1707,7 +1709,7 @@
         const completed = toolCallCompleted(call);
         if (name === 'todo_write') return renderTodoCall(call, completed);
         return `<details class="tm-agent-tool" ${completed ? '' : 'open'}>
-            <summary><svg aria-hidden="true"><use xlink:href="#iconTools"></use></svg><span>${esc(name || '工具调用')}</span><span class="tm-agent-tool__state">${completed ? '已完成' : '执行中'}</span></summary>
+            <summary><svg aria-hidden="true"><use xlink:href="#iconTools"></use></svg><span>${esc(name || __tmT("ai.toolCall"))}</span><span class="tm-agent-tool__state">${completed ? __tmT("ai.completed") : __tmT("ai.running")}</span></summary>
             ${result ? renderDomainResult(name, result, call) : ''}
         </details>`;
     }
@@ -1725,8 +1727,8 @@
         return `<details class="tm-agent-tool-group" ${completed ? '' : 'open'}>
             <summary class="tm-agent-tool-group__header">
                 <svg class="tm-agent-tool-group__icon" aria-hidden="true"><use xlink:href="#iconTools"></use></svg>
-                <span class="tm-agent-tool-group__title">执行过程</span>
-                <span class="tm-agent-tool-group__state">${completed ? '已完成' : `${completedCount}/${items.length}`}</span>
+                <span class="tm-agent-tool-group__title">${__tmT("ai.executionProcess")}</span>
+                <span class="tm-agent-tool-group__state">${completed ? __tmT("ai.completed") : `${completedCount}/${items.length}`}</span>
                 <svg class="tm-agent-tool-group__caret" aria-hidden="true"><use xlink:href="#iconRight"></use></svg>
             </summary>
             <div class="tm-agent-tool-group__items">${items.map(renderToolCall).join('')}</div>
@@ -1834,11 +1836,11 @@
         return `<details class="tm-agent-todo agent-chat__tool-card agent-chat__tool-card--todo" ${completedResponse ? '' : 'open'}>
             <summary class="tm-agent-todo__header agent-chat__todo-header">
                 <svg class="tm-agent-todo__title-icon agent-chat__tool-icon" aria-hidden="true"><use xlink:href="#iconList"></use></svg>
-                <span class="tm-agent-todo__title agent-chat__tool-title">任务清单</span>
+                <span class="tm-agent-todo__title agent-chat__tool-title">${__tmT("ai.taskList")}</span>
                 <span class="tm-agent-todo__progress">${completedCount}/${items.length}</span>
                 <svg class="tm-agent-todo__caret" aria-hidden="true"><use xlink:href="#iconRight"></use></svg>
             </summary>
-            <div class="tm-agent-todo__items agent-chat__todo-items">${items.map((item) => `<div class="tm-agent-todo__item tm-agent-todo__item--${esc(item.status.replace('_', '-'))} agent-chat__todo-item agent-chat__todo-item--${esc(item.status.replace('_', '-'))}"><svg class="tm-agent-todo__status agent-chat__todo-status" aria-hidden="true"><use xlink:href="#${statusIcon(item.status)}"></use></svg><span>${esc(item.content)}</span></div>`).join('') || '<div class="tm-agent-todo__empty">暂无任务</div>'}</div>
+            <div class="tm-agent-todo__items agent-chat__todo-items">${items.map((item) => `<div class="tm-agent-todo__item tm-agent-todo__item--${esc(item.status.replace('_', '-'))} agent-chat__todo-item agent-chat__todo-item--${esc(item.status.replace('_', '-'))}"><svg class="tm-agent-todo__status agent-chat__todo-status" aria-hidden="true"><use xlink:href="#${statusIcon(item.status)}"></use></svg><span>${esc(item.content)}</span></div>`).join('') || `<div class="tm-agent-todo__empty">${__tmT("calendar.noTasks")}</div>`}</div>
         </details>`;
     }
 
@@ -1941,7 +1943,7 @@
         }
         if (parsed.completion && parsed.task) {
             const linkage = await aiBridge()?.applyTaskCompletionReceipt?.(parsed.task, parsed.completion);
-            if (linkage?.ok === false) aiBridge()?.hint?.(`任务已保存，提醒联动需要重试：${linkage.message || ''}`, 'warning');
+            if (linkage?.ok === false) aiBridge()?.hint?.(__tmT("ai.taskSavedTheReminderLinkageNeedsARetry", { value1: linkage.message || '' }), 'warning');
         }
         if (toolName !== 'configure_task_reminder') {
             if (!Object.prototype.hasOwnProperty.call(parsed.changes || {}, 'reminder') && !parsed.task?.reminder) return;
@@ -1971,7 +1973,7 @@
         try { globalThis.__tomatoUpdateReminderBadge?.(); } catch (error) {}
         try {
             globalThis.__tmBasecoat?.toast?.({
-                title: parsed.hasReminder ? (toolName === 'create_task' ? '任务提醒创建完成' : '任务提醒已更新') : '任务提醒已清除',
+                title: parsed.hasReminder ? (toolName === 'create_task' ? __tmT("ai.taskReminderCreated") : __tmT("ai.taskReminderUpdated")) : __tmT("ai.taskReminderCleared"),
                 variant: 'success',
                 duration: 2500,
             });
@@ -2029,14 +2031,14 @@
         if (runtime.busy) return;
         const retry = failedRetryPayload(findToolCall(callID));
         if (!retry) {
-            runtime.statusText = '没有可重试的失败项';
+            runtime.statusText = __tmT("ai.noFailedItemsToRetry");
             render();
             return;
         }
         const instruction = retry.name === 'apply_task_operation_plan'
-            ? '先展示这些失败项的新预览，再调用组合操作工具；不要重复已经成功的项目。'
-            : '先重新调用预览阶段，再只执行这些失败项；不要重复已经成功的项目。';
-        setDraft(`只重试上一批中的失败项。${instruction}\n工具：${retry.name}\n参数：${JSON.stringify(retry.args)}`);
+            ? __tmT("ai.firstShowAFreshPreviewOfTheseFailedItems")
+            : __tmT("ai.callThePreviewStageAgainFirstThenExecuteOnly");
+        setDraft(__tmT("ai.retryOnlyTheFailedItemsFromTheLastBatch", { instruction: instruction, name: retry.name, value3: JSON.stringify(retry.args) }));
         await sendMessage();
     }
 
@@ -2084,7 +2086,7 @@
         try {
             const grouped = await kernelCall('taskHorizonGroupUndoMutations', {
                 undoIDs,
-                label: '撤销本轮 AI 操作',
+                label: __tmT("kernel.undoThisRoundOfAiOperations"),
             });
             runtime.undoID = text(grouped?.undoID) || undoIDs[undoIDs.length - 1];
             runtime.undoCount = Number(grouped?.count) || undoIDs.length;
@@ -2092,7 +2094,7 @@
             return '';
         } catch (error) {
             clearUndoAvailability();
-            return `整体撤销准备失败：${text(error?.message || error)}`;
+            return __tmT("ai.failedToPrepareTheOverallUndo", { value1: text(error?.message || error) });
         }
     }
 
@@ -2102,100 +2104,100 @@
 
     function formatMinutes(value) {
         const minutes = Math.max(0, Math.round(Number(value) || 0));
-        if (minutes < 60) return `${minutes} 分钟`;
+        if (minutes < 60) return __tmT("task.min2", { minutes: minutes });
         const hours = Math.floor(minutes / 60);
         const rest = minutes % 60;
-        return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+        return rest ? __tmT("task.hMin", { hours: hours, rest: rest }) : __tmT("calendar.h", { hours: hours });
     }
 
     function renderBreakdown(title, items) {
         const rows = Array.isArray(items) ? items.filter((item) => item && Number(item.count) > 0).slice(0, 10) : [];
         if (!rows.length) return '';
-        return `<section class="tm-agent-result__breakdown"><strong>${esc(title)}</strong>${rows.map((item) => `<div><span>${esc(item.key || '未设置')}</span><b>${Number(item.count) || 0}</b></div>`).join('')}</section>`;
+        return `<section class="tm-agent-result__breakdown"><strong>${esc(title)}</strong>${rows.map((item) => `<div><span>${esc(item.key || __tmT("common.notSet"))}</span><b>${Number(item.count) || 0}</b></div>`).join('')}</section>`;
     }
 
     function renderStatsBreakdowns(parsed) {
         const sections = [
-            renderBreakdown('文档', parsed.byDocument),
-            renderBreakdown('状态', parsed.byStatus),
-            renderBreakdown('重要性', parsed.byPriority),
+            renderBreakdown(__tmT("kernel.documents"), parsed.byDocument),
+            renderBreakdown(__tmT("kernel.status"), parsed.byStatus),
+            renderBreakdown(__tmT("kernel.importance"), parsed.byPriority),
             ...(Array.isArray(parsed.byCustomField) ? parsed.byCustomField.map((field) => renderBreakdown(field.label || field.fieldID, field.items)) : []),
         ].filter(Boolean);
         if (!sections.length) return '';
-        return `<details class="tm-agent-result__breakdowns"><summary>查看分组明细</summary><div>${sections.join('')}</div></details>`;
+        return `<details class="tm-agent-result__breakdowns"><summary>${__tmT("ai.viewGroupDetails")}</summary><div>${sections.join('')}</div></details>`;
     }
 
     function renderDomainResult(name, result, call = null) {
         const parsed = parseDomainResult(result);
         if (!parsed) return `<pre>${esc(result)}</pre>`;
         if (parsed.ok === false && parsed.error) {
-            return `<div class="tm-agent-result tm-agent-result--error"><strong>${esc(parsed.error.code || '操作失败')}</strong><span>${esc(parsed.error.message || '')}</span></div>`;
+            return `<div class="tm-agent-result tm-agent-result--error"><strong>${esc(parsed.error.code || __tmT("kernel.operationFailed"))}</strong><span>${esc(parsed.error.message || '')}</span></div>`;
         }
         const receipt = parsed.summary && Array.isArray(parsed.items) ? parsed : null;
         if (receipt) {
             const summary = receipt.summary || {};
             const retry = failedRetryPayload(call);
             const retryAction = retry
-                ? `<div class="tm-agent-result__actions"><button type="button" class="b3-button b3-button--cancel" data-agent-action="retry-failed" data-id="${esc(call?.callID || call?.callId || call?.id || '')}">只重试失败项</button></div>`
+                ? `<div class="tm-agent-result__actions"><button type="button" class="b3-button b3-button--cancel" data-agent-action="retry-failed" data-id="${esc(call?.callID || call?.callId || call?.id || '')}">${__tmT("ai.retryFailedItems")}</button></div>`
                 : '';
             return `<div class="tm-agent-result">${renderResultRows([
-                { label: '成功', value: Number(summary.succeeded) || 0 },
-                { label: '失败', value: Number(summary.failed) || 0 },
-                { label: '跳过', value: Number(summary.skipped) || 0 },
-            ])}<div class="tm-agent-result__items">${receipt.items.slice(0, 20).map((item) => `<div class="${item.ok ? 'is-success' : 'is-error'}"><span>${esc(item.targetLabel || item.targetID || item.kind)}</span><small>${esc(item.ok ? '已完成' : (item.error?.message || '失败'))}</small></div>`).join('')}</div>${retryAction}</div>`;
+                { label: __tmT("ai.success"), value: Number(summary.succeeded) || 0 },
+                { label: __tmT("ai.failed2"), value: Number(summary.failed) || 0 },
+                { label: __tmT("ai.skip"), value: Number(summary.skipped) || 0 },
+            ])}<div class="tm-agent-result__items">${receipt.items.slice(0, 20).map((item) => `<div class="${item.ok ? 'is-success' : 'is-error'}"><span>${esc(item.targetLabel || item.targetID || item.kind)}</span><small>${esc(item.ok ? __tmT("ai.completed") : (item.error?.message || __tmT("ai.failed2")))}</small></div>`).join('')}</div>${retryAction}</div>`;
         }
         if (name === 'aggregate_task_stats' || Object.prototype.hasOwnProperty.call(parsed, 'totalCompleted')) {
             const trend = Array.isArray(parsed.trend) ? parsed.trend : [];
             const max = Math.max(1, ...trend.map((item) => Number(item.count) || 0));
             const coverage = parsed.coverage || {};
             return `<div class="tm-agent-result">${renderResultRows([
-                { label: '完成任务', value: Number(parsed.totalCompleted) || 0 },
-                { label: '统计周期', value: parsed.period || 'month' },
-                { label: '缺少完成时间', value: Number(coverage.missingCompletionTime) || 0 },
-            ])}${trend.length ? `<div class="tm-agent-result__trend">${trend.slice(-24).map((item) => `<div><span>${esc(item.key)}</span><i style="--tm-agent-bar:${Math.max(2, Math.round(((Number(item.count) || 0) / max) * 100))}%"></i><strong>${Number(item.count) || 0}</strong></div>`).join('')}</div>` : '<div class="tm-agent-result__empty">当前范围没有可绘制的完成时间</div>'}${renderStatsBreakdowns(parsed)}</div>`;
+                { label: __tmT("calendar.complete"), value: Number(parsed.totalCompleted) || 0 },
+                { label: __tmT("ai.statisticsPeriod"), value: parsed.period || 'month' },
+                { label: __tmT("ai.missingCompletionTime"), value: Number(coverage.missingCompletionTime) || 0 },
+            ])}${trend.length ? `<div class="tm-agent-result__trend">${trend.slice(-24).map((item) => `<div><span>${esc(item.key)}</span><i style="--tm-agent-bar:${Math.max(2, Math.round(((Number(item.count) || 0) / max) * 100))}%"></i><strong>${Number(item.count) || 0}</strong></div>`).join('')}</div>` : `<div class="tm-agent-result__empty">${__tmT("ai.noPlottableCompletionTimesInTheCurrentRange")}</div>`}${renderStatsBreakdowns(parsed)}</div>`;
         }
         if (name === 'aggregate_time_usage' || (parsed.estimated && parsed.planned && parsed.actual)) {
             return `<div class="tm-agent-result">${renderResultRows([
-                { label: '预估', value: parsed.estimated?.available ? formatMinutes(parsed.estimated.minutes) : '无数据' },
-                { label: '计划', value: parsed.planned?.available ? formatMinutes(parsed.planned.minutes) : '无数据' },
-                { label: '番茄实际', value: parsed.actual?.available ? formatMinutes(parsed.actual.minutes) : '无数据' },
-            ])}<details class="tm-agent-result__availability"><summary>查看数据覆盖</summary><div>${[
-                ['预估', parsed.estimated], ['计划', parsed.planned], ['番茄实际', parsed.actual],
-            ].map(([label, item]) => `<p><span>${label}</span><b>${Number(item?.availableCount) || 0} 条可用</b><small>${Number(item?.missingCount) || 0} 条缺失</small></p>`).join('')}</div></details></div>`;
+                { label: __tmT("ai.estimate"), value: parsed.estimated?.available ? formatMinutes(parsed.estimated.minutes) : __tmT("ai.noData") },
+                { label: __tmT("ai.planned"), value: parsed.planned?.available ? formatMinutes(parsed.planned.minutes) : __tmT("ai.noData") },
+                { label: __tmT("ai.pomodoroActual"), value: parsed.actual?.available ? formatMinutes(parsed.actual.minutes) : __tmT("ai.noData") },
+            ])}<details class="tm-agent-result__availability"><summary>${__tmT("ai.viewDataCoverage")}</summary><div>${[
+                [__tmT("ai.estimate"), parsed.estimated], [__tmT("ai.planned"), parsed.planned], [__tmT("ai.pomodoroActual"), parsed.actual],
+            ].map(([label, item]) => `<p><span>${label}</span><b>${__tmT("ai.available", { value1: Number(item?.availableCount) || 0 })}</b><small>${__tmT("ai.missing", { value1: Number(item?.missingCount) || 0 })}</small></p>`).join('')}</div></details></div>`;
         }
         if (normalizeToolName(name) === 'configure_task_reminder') {
             const preview = !!parsed.previewToken;
             const reminder = preview ? parsed.next : parsed.reminder;
             const mode = text(parsed.mode || (reminder?.repeatMode === 'followTaskRepeat' ? 'follow_task' : (reminder ? 'independent' : '')));
             return `<div class="tm-agent-result">${renderResultRows([
-                { label: '任务', value: parsed.taskTitle || parsed.taskID || '' },
-                { label: '任务来源', value: parsed.taskReused ? (parsed.taskMatchType === 'fuzzy' ? '已绑定相似任务' : '已绑定同名任务') : (parsed.taskCreated ? '已新建任务' : '当前任务') },
-                { label: '操作', value: parsed.operation === 'clear' ? '清除提醒' : (preview ? '设置提醒预览' : '提醒已设置') },
-                { label: '模式', value: mode === 'follow_task' ? '跟随截止日期' : (mode === 'independent' ? '独立提醒' : '无') },
-                { label: '时间', value: reminder ? `${reminder.startDate || ''} ${(reminder.times || []).join('、')}`.trim() : '无' },
+                { label: __tmT("kernel.task"), value: parsed.taskTitle || parsed.taskID || '' },
+                { label: __tmT("ai.taskSource"), value: parsed.taskReused ? (parsed.taskMatchType === 'fuzzy' ? __tmT("ai.boundSimilarTask") : __tmT("ai.boundSameNameTask")) : (parsed.taskCreated ? __tmT("ai.newTaskCreated") : __tmT("ai.currentTask")) },
+                { label: __tmT("kernel.actions"), value: parsed.operation === 'clear' ? __tmT("ai.clearReminder") : (preview ? __tmT("ai.reminderSetupPreview") : __tmT("task.reminderSet")) },
+                { label: __tmT("calendar.mode"), value: mode === 'follow_task' ? __tmT("ai.followDueDate") : (mode === 'independent' ? __tmT("ai.standaloneReminder") : __tmT("common.none")) },
+                { label: __tmT("task.time"), value: reminder ? `${reminder.startDate || ''} ${(reminder.times || []).join('、')}`.trim() : __tmT("common.none") },
             ])}</div>`;
         }
         if (Array.isArray(parsed.changes)) {
-            return `<div class="tm-agent-result"><div class="tm-agent-result__items">${parsed.changes.map((item) => `<div><span>${esc(item.path || '字段')}</span><small>${esc(`${JSON.stringify(item.before ?? null)} → ${JSON.stringify(item.after ?? null)}`)}</small></div>`).join('') || '<div><span>没有变化</span></div>'}</div></div>`;
+            return `<div class="tm-agent-result"><div class="tm-agent-result__items">${parsed.changes.map((item) => `<div><span>${esc(item.path || __tmT("settings.field"))}</span><small>${esc(`${JSON.stringify(item.before ?? null)} → ${JSON.stringify(item.after ?? null)}`)}</small></div>`).join('') || `<div><span>${__tmT("ai.noChanges")}</span></div>`}</div></div>`;
         }
         const items = Array.isArray(parsed.items) ? parsed.items : null;
         if (items && items.length) {
-            return `<div class="tm-agent-result"><div class="tm-agent-result__items">${items.slice(0, 50).map((item) => `<div><span>${esc(item.title || item.name || item.id || '结果')}</span><small>${esc(item.documentName || item.start || item.path || '')}</small></div>`).join('')}</div></div>`;
+            return `<div class="tm-agent-result"><div class="tm-agent-result__items">${items.slice(0, 50).map((item) => `<div><span>${esc(item.title || item.name || item.id || __tmT("ai.result"))}</span><small>${esc(item.documentName || item.start || item.path || '')}</small></div>`).join('')}</div></div>`;
         }
         const task = parsed.task && typeof parsed.task === 'object' ? parsed.task : (parsed.id && parsed.title ? parsed : null);
         if (task) return `<div class="tm-agent-result">${renderResultRows([
-            { label: '任务', value: task.title || task.id },
-            { label: '状态', value: task.repeatRule?.trigger === 'checkin' && parsed.repeatSummary ? '打卡计划已设置' : (parsed.completion?.advanced ? '本轮已完成，已进入下一轮' : (task.done ? (parsed.completion?.recurring ? '循环已完成' : '已完成') : '未完成')) },
-            ...(parsed.repeatSummary ? [{ label: '循环', value: parsed.repeatSummary }, { label: task.repeatRule?.trigger === 'checkin' ? '计划起始' : '本轮日期', value: task.repeatRule?.trigger === 'checkin' ? task.repeatRule.anchorDate : (task.completionTime || '') }] : []),
-            ...(task.reminder?.repeatMode === 'followTaskRepeat' ? [{ label: '提醒', value: `${(task.reminder.times || []).join('、')} · ${task.repeatRule?.trigger === 'checkin' ? '跟随打卡计划' : '跟随每轮任务日期'}` }] : []),
-            { label: '文档', value: task.documentName || task.documentID || '' },
+            { label: __tmT("kernel.task"), value: task.title || task.id },
+            { label: __tmT("kernel.status"), value: task.repeatRule?.trigger === 'checkin' && parsed.repeatSummary ? __tmT("ai.checkInScheduleSet") : (parsed.completion?.advanced ? __tmT("ai.thisRoundIsDoneMovedToTheNextRound") : (task.done ? (parsed.completion?.recurring ? __tmT("ai.repeatCompleted") : __tmT("ai.completed")) : __tmT("ai.notDone"))) },
+            ...(parsed.repeatSummary ? [{ label: __tmT("quickbar.repeat"), value: parsed.repeatSummary }, { label: task.repeatRule?.trigger === 'checkin' ? __tmT("ai.plannedStart") : __tmT("ai.thisRoundSDate"), value: task.repeatRule?.trigger === 'checkin' ? task.repeatRule.anchorDate : (task.completionTime || '') }] : []),
+            ...(task.reminder?.repeatMode === 'followTaskRepeat' ? [{ label: __tmT("ai.warnings"), value: `${(task.reminder.times || []).join('、')} · ${task.repeatRule?.trigger === 'checkin' ? __tmT("ai.followTheCheckInSchedule") : __tmT("ai.followEachRoundSTaskDate")}` }] : []),
+            { label: __tmT("kernel.documents"), value: task.documentName || task.documentID || '' },
         ])}</div>`;
         return `<pre>${esc(result)}</pre>`;
     }
 
     function renderMessageActions(index, copyable) {
         const copyButton = copyable
-            ? `<button type="button" class="tm-agent-message__copy ariaLabel" data-position="north" data-agent-action="copy-message" data-index="${Number(index)}" aria-label="复制这条消息">${phosphorBoldContextIcon('copy')}</button>`
+            ? `<button type="button" class="tm-agent-message__copy ariaLabel" data-position="north" data-agent-action="copy-message" data-index="${Number(index)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.copyThisMessage")}">${phosphorBoldContextIcon('copy')}</button>`
             : '';
         return copyButton ? `<div class="tm-agent-message__actions">${copyButton}</div>` : '';
     }
@@ -2224,7 +2226,7 @@
     }
 
     function agentPermissionLabel(mode) {
-        return text(mode) === 'allowSession' ? '本会话自动批准' : '按批准设置';
+        return text(mode) === 'allowSession' ? __tmT("ai.autoApproveForThisSession") : __tmT("ai.followApprovalSettings");
     }
 
     function renderAgentUsage(usage) {
@@ -2237,15 +2239,15 @@
         const context = contextLimit
             ? `${formatAgentTokenCount(contextTokens)} / ${formatAgentTokenCount(contextLimit)}`
             : formatAgentTokenCount(contextTokens);
-        return `<div class="tm-agent-notice tm-agent-usage" data-tm-agent-usage>上下文 ${esc(context)} · 输入 ${esc(formatAgentTokenCount(promptTokens))} · 输出 ${esc(formatAgentTokenCount(completionTokens))}</div>`;
+        return `<div class="tm-agent-notice tm-agent-usage" data-tm-agent-usage>${__tmT("ai.contextInputOutput", { context: esc(context), value2: esc(formatAgentTokenCount(promptTokens)), value3: esc(formatAgentTokenCount(completionTokens)) })}</div>`;
     }
 
     function renderConfirmEffects(effects) {
         const source = effects && typeof effects === 'object' ? effects : {};
         const items = [];
-        if (source.dataEgress === true) items.push(agentLanguage('agentEffectDataEgress', '将向已配置的 API 提供商发送文档或图片数据'));
-        if (source.externalCost === true) items.push(agentLanguage('agentEffectExternalCost', '可能产生外部 API 调用费用'));
-        if (source.localWrite === true) items.push(agentLanguage('agentEffectLocalWrite', '将修改本地数据'));
+        if (source.dataEgress === true) items.push(agentLanguage('agentEffectDataEgress', __tmT("ai.documentOrImageDataWillBeSentToThe")));
+        if (source.externalCost === true) items.push(agentLanguage('agentEffectExternalCost', __tmT("ai.thisMayIncurExternalApiUsageCosts")));
+        if (source.localWrite === true) items.push(agentLanguage('agentEffectLocalWrite', __tmT("ai.localDataWillBeModified")));
         return items.length ? `<ul class="agent-chat__confirm-effects">${items.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : '';
     }
 
@@ -2257,7 +2259,7 @@
             sync: 'agentCatSync', database: 'agentCatDatabase',
         };
         const key = categories[text(name)];
-        return key ? agentLanguage(key, text(name)) : agentLanguage('agentCatDefault', '任务');
+        return key ? agentLanguage(key, text(name)) : agentLanguage('agentCatDefault', __tmT("kernel.task"));
     }
 
     function renderEntry(entry, index, options = {}) {
@@ -2273,10 +2275,10 @@
             const tools = options.omitTools === true
                 ? ''
                 : renderToolGroup(calls.filter((call) => !isTodoToolCall(call)), true);
-            const permission = entry.permissionMode ? `<div class="tm-agent-notice">权限模式：${esc(agentPermissionLabel(entry.permissionMode))}</div>` : '';
+            const permission = entry.permissionMode ? `<div class="tm-agent-notice">${__tmT("ai.permissionMode", { value1: esc(agentPermissionLabel(entry.permissionMode)) })}</div>` : '';
             return `<article class="tm-agent-message tm-agent-message--assistant">${todo}${tools}<div class="tm-agent-message__body tm-agent-markdown b3-typography">${renderMarkdown(entry.content)}</div>${renderMessageActions(index, text(entry.content))}${permission}${renderAgentUsage(entry.usage)}</article>`;
         }
-        if (type === 'thinking') return `<div class="tm-agent-thinking"><svg aria-hidden="true"><use xlink:href="#iconSparkles"></use></svg><span>${esc(entry.content || entry.reasoning || '正在思考')}</span></div>`;
+        if (type === 'thinking') return `<div class="tm-agent-thinking"><svg aria-hidden="true"><use xlink:href="#iconSparkles"></use></svg><span>${esc(entry.content || entry.reasoning || __tmT("ai.thinking"))}</span></div>`;
         if (type === 'confirm') {
             const status = text(entry.status || entry.confirmStatus || 'pending');
             const processed = status !== 'pending';
@@ -2284,20 +2286,21 @@
             const confirmID = text(entry.confirmID);
             const name = text(entry.name || entry.confirmName);
             const args = entry.args || entry.confirmArgs || {};
-            const description = agentLanguage('agentConfirmDesc', '智能体：{category} 操作').replace('{category}', esc(agentToolCategory(name)));
+            const categoryLabel = esc(agentToolCategory(name));
+            const description = agentLanguage('agentConfirmDesc', __tmT("ai.agentAction", { category: categoryLabel })).replace('{category}', categoryLabel);
             const statusLabel = status === 'approved'
-                ? agentLanguage('agentConfirmApprove', '已批准')
+                ? agentLanguage('agentConfirmApprove', __tmT("ai.approved"))
                 : (status === 'rejected'
-                    ? agentLanguage('agentConfirmReject', '已拒绝')
+                    ? agentLanguage('agentConfirmReject', __tmT("ai.denied"))
                     : (status === 'always'
-                        ? agentLanguage('agentConfirmAlways', '本会话允许')
-                        : agentLanguage('agentConfirmPending', '等待确认')));
+                        ? agentLanguage('agentConfirmAlways', __tmT("ai.allowForThisSession"))
+                        : agentLanguage('agentConfirmPending', __tmT("ai.waitingForConfirmation"))));
             const card = `<div class="agent-chat__confirm-card">
                     <div class="agent-chat__confirm-header"><svg class="agent-chat__confirm-icon"><use xlink:href="#iconInfo"></use></svg> ${description}</div>
                     ${renderConfirmEffects(entry.effects)}
                     <pre class="agent-chat__confirm-args">${esc(JSON.stringify(args, null, 2))}</pre>
                     <div class="agent-chat__confirm-actions">${interactive
-                        ? `<button type="button" class="b3-button b3-button--cancel agent-chat__confirm-reject" data-agent-action="reject-confirm" data-id="${esc(confirmID)}">${esc(agentLanguage('agentConfirmReject', '拒绝'))}</button><button type="button" class="b3-button b3-button--text agent-chat__confirm-approve" data-agent-action="approve-confirm" data-id="${esc(confirmID)}">${esc(agentLanguage('agentConfirmApprove', '批准'))}</button><button type="button" class="b3-button b3-button--text agent-chat__confirm-always ariaLabel" data-position="n" aria-label="${esc(agentLanguage('agentConfirmAlwaysDesc', '本会话后续不再询问'))}" data-agent-action="always-confirm" data-id="${esc(confirmID)}">${esc(agentLanguage('agentConfirmAlways', '本会话允许'))}</button>`
+                        ? `<button type="button" class="b3-button b3-button--cancel agent-chat__confirm-reject" data-agent-action="reject-confirm" data-id="${esc(confirmID)}">${esc(agentLanguage('agentConfirmReject', __tmT("ai.deny")))}</button><button type="button" class="b3-button b3-button--text agent-chat__confirm-approve" data-agent-action="approve-confirm" data-id="${esc(confirmID)}">${esc(agentLanguage('agentConfirmApprove', __tmT("ai.approve2")))}</button><button type="button" class="b3-button b3-button--text agent-chat__confirm-always ariaLabel" data-position="n" aria-label="${esc(agentLanguage('agentConfirmAlwaysDesc', __tmT("ai.donTAskAgainInThisSession")))}" data-agent-action="always-confirm" data-id="${esc(confirmID)}">${esc(agentLanguage('agentConfirmAlways', __tmT("ai.allowForThisSession")))}</button>`
                         : `<span class="agent-chat__confirm-done">${esc(statusLabel)}</span>`}</div>
                 </div>`;
             if (processed) return `<details class="agent-chat__msg agent-chat__msg--confirm agent-chat__msg--confirmed tm-agent-interaction" data-confirm-id="${esc(confirmID)}">
@@ -2325,14 +2328,14 @@
                     return `<div class="agent-chat__question-item" data-question-item="${index}">
                         ${question?.header ? `<div class="agent-chat__question-header">${esc(question.header)}</div>` : ''}
                         ${question?.question ? `<div class="agent-chat__question-text">${esc(question.question)}</div>` : ''}
-                        <div class="agent-chat__question-options" data-qi="${index}">${options.map((option) => `<label class="agent-chat__question-option"><input type="${inputType}" name="${esc(name)}" value="${esc(option?.label)}" ${answers.has(option.label) ? 'checked' : ''} ${interactive ? '' : 'disabled'}><span class="agent-chat__question-option-label">${esc(option?.label)}</span>${option?.description ? `<span class="agent-chat__question-option-desc">${esc(option.description)}</span>` : ''}</label>`).join('')}${custom ? `<input class="agent-chat__question-custom" data-question-custom data-qi="${index}" type="text" value="${esc(submitted ? customAnswer : '')}" placeholder="${esc(agentLanguage('agentQuestionCustom', '输入其他回答…'))}" ${interactive ? '' : 'disabled'}>` : ''}</div>
+                        <div class="agent-chat__question-options" data-qi="${index}">${options.map((option) => `<label class="agent-chat__question-option"><input type="${inputType}" name="${esc(name)}" value="${esc(option?.label)}" ${answers.has(option.label) ? 'checked' : ''} ${interactive ? '' : 'disabled'}><span class="agent-chat__question-option-label">${esc(option?.label)}</span>${option?.description ? `<span class="agent-chat__question-option-desc">${esc(option.description)}</span>` : ''}</label>`).join('')}${custom ? `<input class="agent-chat__question-custom" data-question-custom data-qi="${index}" type="text" value="${esc(submitted ? customAnswer : '')}" placeholder="${esc(agentLanguage('agentQuestionCustom', __tmT("ai.typeAnotherAnswer")))}" ${interactive ? '' : 'disabled'}>` : ''}</div>
                     </div>`;
                 }).join('')}
-                ${questions.length ? `<div class="agent-chat__question-submit">${interactive ? `<button type="button" class="b3-button b3-button--text agent-chat__question-submit-btn" data-agent-action="submit-question" data-id="${esc(questionID)}">${esc(agentLanguage('agentQuestionSubmit', '提交'))}</button>` : `<span class="agent-chat__confirm-done">${esc(submitted ? agentLanguage('agentQuestionSubmitted', '已提交') : agentLanguage('agentQuestionPending', '等待回答'))}</span>`}</div>` : ''}
+                ${questions.length ? `<div class="agent-chat__question-submit">${interactive ? `<button type="button" class="b3-button b3-button--text agent-chat__question-submit-btn" data-agent-action="submit-question" data-id="${esc(questionID)}">${esc(agentLanguage('agentQuestionSubmit', __tmT("ai.submit")))}</button>` : `<span class="agent-chat__confirm-done">${esc(submitted ? agentLanguage('agentQuestionSubmitted', __tmT("ai.submitted")) : agentLanguage('agentQuestionPending', __tmT("ai.waitingForAnAnswer")))}</span>`}</div>` : ''}
                 </div>`;
             if (submitted) {
-                const title = text(questions[0]?.header || questions[0]?.question) || '回答问题';
-                const answer = Array.from(answers).join('、') || agentLanguage('agentQuestionSubmitted', '已提交');
+                const title = text(questions[0]?.header || questions[0]?.question) || __tmT("ai.answerQuestion");
+                const answer = Array.from(answers).join('、') || agentLanguage('agentQuestionSubmitted', __tmT("ai.submitted"));
                 return `<details class="agent-chat__msg agent-chat__msg--question agent-chat__msg--confirmed tm-agent-interaction" data-question-id="${esc(questionID)}">
                     <summary class="tm-agent-interaction__summary"><svg class="tm-agent-interaction__icon" aria-hidden="true"><use xlink:href="#iconHelp"></use></svg><span class="tm-agent-interaction__title">${esc(title)}</span><span class="tm-agent-interaction__state">${esc(answer)}</span><svg class="tm-agent-interaction__caret" aria-hidden="true"><use xlink:href="#iconRight"></use></svg></summary>
                     <div class="tm-agent-interaction__body">${card}</div>
@@ -2342,7 +2345,7 @@
                 ${card}
             </div>`;
         }
-        if (type === 'snapshot') return `<div class="tm-agent-notice">已创建操作快照 ${esc(entry.snapshotID || '')}</div>`;
+        if (type === 'snapshot') return `<div class="tm-agent-notice">${__tmT("ai.operationSnapshotCreated", { value1: esc(entry.snapshotID || '') })}</div>`;
         return '';
     }
 
@@ -2388,8 +2391,8 @@
         const tools = options.omitTools === true
             ? ''
             : renderToolGroup(calls.filter((call) => !isTodoToolCall(call)), live.done === true);
-        const permission = live.permissionMode ? `<div class="tm-agent-notice">权限模式：${esc(agentPermissionLabel(live.permissionMode))}</div>` : '';
-        const retry = live.retry ? `<div class="tm-agent-notice">正在重试（${esc(live.retry.attempt)} / ${esc(live.retry.maxRetries)}）</div>` : '';
+        const permission = live.permissionMode ? `<div class="tm-agent-notice">${__tmT("ai.permissionMode", { value1: esc(agentPermissionLabel(live.permissionMode)) })}</div>` : '';
+        const retry = live.retry ? `<div class="tm-agent-notice">${__tmT("ai.retrying", { attempt: esc(live.retry.attempt), maxRetries: esc(live.retry.maxRetries) })}</div>` : '';
         const usage = renderAgentUsage(live.usage);
         if (!text(live.content) && !todo && !tools && !text(live.status) && !permission && !retry && !usage) return '';
         return `<article class="tm-agent-message tm-agent-message--assistant" data-tm-agent-live><div class="tm-agent-thinking" data-tm-agent-live-status ${live.status ? '' : 'hidden'}>${esc(live.status || '')}</div>${permission}${retry}${todo}${tools}<div class="tm-agent-message__body" data-tm-agent-live-content>${esc(live.content || '')}</div>${usage}</article>`;
@@ -2442,9 +2445,9 @@
 
     function contextLabels() {
         const labels = [];
-        runtime.context.taskIDs.forEach((id) => labels.push({ kind: 'task', id, label: `任务 ${id.slice(-6)}` }));
-        runtime.context.documentIDs.forEach((id) => labels.push({ kind: 'document', id, label: `文档 ${id.slice(-6)}` }));
-        if (runtime.context.scope) labels.push({ kind: 'scope', id: 'scope', label: text(runtime.context.scope.label) || '当前任务视图' });
+        runtime.context.taskIDs.forEach((id) => labels.push({ kind: 'task', id, label: __tmT("task.task", { value1: id.slice(-6) }) }));
+        runtime.context.documentIDs.forEach((id) => labels.push({ kind: 'document', id, label: __tmT("kernel.document", { value1: id.slice(-6) }) }));
+        if (runtime.context.scope) labels.push({ kind: 'scope', id: 'scope', label: text(runtime.context.scope.label) || __tmT("ai.currentTaskView") });
         return labels;
     }
 
@@ -2575,7 +2578,7 @@
         if (!taskIDs.length) return false;
         const newTaskIDs = taskIDs.filter((taskID) => !runtime.context.taskIDs.includes(taskID));
         if (!newTaskIDs.length) {
-            aiBridge()?.hint?.(taskIDs.length > 1 ? '这些任务已在智能体上下文中' : '该任务已在智能体上下文中', 'info');
+            aiBridge()?.hint?.(taskIDs.length > 1 ? __tmT("ai.theseTasksAreAlreadyInTheAgentContext") : __tmT("ai.thisTaskIsAlreadyInTheAgentContext"), 'info');
             return true;
         }
         runtime.context.taskIDs.push(...newTaskIDs);
@@ -2587,7 +2590,7 @@
         scheduleSave();
         render();
         void enrichContextLabels();
-        aiBridge()?.hint?.(`已添加 ${newTaskIDs.length} 个任务到智能体上下文`, 'success');
+        aiBridge()?.hint?.(__tmT("ai.addedTasksToTheAgentContext", { length: newTaskIDs.length }), 'success');
         return true;
     }
 
@@ -2620,7 +2623,7 @@
         runtime.context.scope = {
             type: 'current_view',
             id: text(aiBridge()?.getCurrentGroupId?.()) || 'current',
-            label: '当前任务视图',
+            label: __tmT("ai.currentTaskView"),
         };
         runtime.context.labels = resolvedContextLabels();
         scheduleSave();
@@ -2628,8 +2631,8 @@
     }
 
     function currentViewScopeLabel(snapshot, scopeType) {
-        const parts = [text(snapshot?.groupLabel) || '当前分组'];
-        if (scopeType !== 'current_group') parts.push(text(snapshot?.activeDocLabel) || '全部页签');
+        const parts = [text(snapshot?.groupLabel) || __tmT("task.currentGroup")];
+        if (scopeType !== 'current_group') parts.push(text(snapshot?.activeDocLabel) || __tmT("task.allTabs2"));
         if (text(snapshot?.viewLabel) || text(snapshot?.view)) parts.push(text(snapshot.viewLabel) || text(snapshot.view));
         return parts.filter(Boolean).join(' · ');
     }
@@ -2686,7 +2689,7 @@
                 });
             }
         } catch (error) {
-            if (seq === runtime.viewContextSyncSeq) runtime.statusText = `任务范围注册失败：${text(error?.message || error)}`;
+            if (seq === runtime.viewContextSyncSeq) runtime.statusText = __tmT("ai.failedToRegisterTheTaskScope", { value1: text(error?.message || error) });
             return null;
         }
         if (seq !== runtime.viewContextSyncSeq || !runtime.context.scope) return null;
@@ -2792,7 +2795,7 @@
                 results = (Array.isArray(data?.items) ? data.items : []).map((item) => ({
                     kind: 'task',
                     id: text(item?.id),
-                    label: text(item?.title) || `任务 ${text(item?.id).slice(-6)}`,
+                    label: text(item?.title) || __tmT("task.task", { value1: text(item?.id).slice(-6) }),
                     meta: text(item?.documentName || item?.documentPath),
                 })).filter((item) => item.id);
             } else {
@@ -2803,7 +2806,7 @@
                 results = (Array.isArray(data?.items) ? data.items : []).map((item) => ({
                     kind: 'document',
                     id: text(item?.id),
-                    label: text(item?.name) || `文档 ${text(item?.id).slice(-6)}`,
+                    label: text(item?.name) || __tmT("kernel.document", { value1: text(item?.id).slice(-6) }),
                     meta: text(item?.path),
                 })).filter((item) => item.id);
             }
@@ -2812,7 +2815,7 @@
         } catch (error) {
             if (seq !== runtime.contextPickerSearchSeq) return;
             runtime.contextPickerResults = [];
-            runtime.contextPickerError = text(error?.message || error) || '搜索失败';
+            runtime.contextPickerError = text(error?.message || error) || __tmT("ai.searchFailed");
         } finally {
             if (seq === runtime.contextPickerSearchSeq) {
                 runtime.contextPickerLoading = false;
@@ -2824,24 +2827,24 @@
     function suggestions() {
         let items;
         if (runtime.context.taskIDs.length) items = [
-            { label: '优化标题', preset: 'title-rewrite' },
-            { label: '拆分下一步', preset: 'task-capture' },
-            { label: '安排时间', preset: 'task-planning' },
+            { label: __tmT("ai.optimizeTitle"), preset: 'title-rewrite' },
+            { label: __tmT("ai.splitNextStep"), preset: 'task-capture' },
+            { label: __tmT("ai.scheduleTime"), preset: 'task-planning' },
         ];
         else if (runtime.context.scope) items = [
-            { label: '规划今天', preset: 'task-planning' },
-            { label: '处理逾期', text: '检查当前范围内的逾期任务，给出处理计划' },
-            { label: '查看工作量', preset: 'task-review' },
+            { label: __tmT("ai.planToday"), preset: 'task-planning' },
+            { label: __tmT("ai.handleOverdue"), text: __tmT("ai.checkOverdueTasksInTheCurrentRangeAndPropose") },
+            { label: __tmT("ai.viewWorkload"), preset: 'task-review' },
         ];
         else if (runtime.context.documentIDs.length) items = [
-            { label: '提取任务', preset: 'task-capture' },
-            { label: '分析目标', preset: 'smart-review' },
-            { label: '生成复盘', preset: 'task-review' },
+            { label: __tmT("ai.extractTasks"), preset: 'task-capture' },
+            { label: __tmT("ai.analyzeGoal"), preset: 'smart-review' },
+            { label: __tmT("ai.generateReview"), preset: 'task-review' },
         ];
         else items = [
-            { label: '询问思源内容', text: '请帮我查找并整理思源笔记中的相关内容' },
-            { label: '创建任务', preset: 'task-create' },
-            { label: '打开最近会话', action: 'history' },
+            { label: __tmT("ai.askAboutSiyuanContent"), text: __tmT("ai.findAndOrganizeRelevantContentInMySiyuanNotes") },
+            { label: __tmT("task.createTask"), preset: 'task-create' },
+            { label: __tmT("ai.openRecentConversations"), action: 'history' },
         ];
         const pinned = runtime.store.pinnedPresetIDs
             .map((id) => getPreset(id))
@@ -2862,7 +2865,7 @@
         const deleteAction = options.builtin ? 'delete-builtin-preset' : 'delete-preset';
         const selectID = options.builtin ? id : `custom:${id}`;
         const pinned = presetPinned(selectID);
-        return `<div class="tm-agent-preset-list-row"><button type="button" class="tm-agent-preset-row ${runtime.presetID === selectID ? 'is-active' : ''}" data-agent-action="select-preset" data-id="${esc(selectID)}"><span>${esc(item.label)}</span><small>${esc(item.starter || item.prompt)}${item.customized ? ' · 已自定义' : ''}</small></button><button type="button" class="block__icon tm-agent-preset-action tm-agent-preset-pin ${pinned ? 'is-active is-unpin' : ''}" data-agent-action="toggle-pin-preset" data-id="${esc(selectID)}" aria-label="${pinned ? '取消置顶' : '置顶'} ${esc(item.label)}" aria-pressed="${pinned ? 'true' : 'false'}"><svg><use xlink:href="#iconPin"></use></svg></button><button type="button" class="block__icon tm-agent-preset-action" data-agent-action="${editAction}" data-id="${esc(editID)}" aria-label="编辑 ${esc(item.label)}">${phosphorBoldContextIcon('pencilSimple')}</button><button type="button" class="block__icon tm-agent-preset-action" data-agent-action="${deleteAction}" data-id="${esc(editID)}" aria-label="删除 ${esc(item.label)}">${phosphorBoldContextIcon('trash')}</button></div>`;
+        return `<div class="tm-agent-preset-list-row"><button type="button" class="tm-agent-preset-row ${runtime.presetID === selectID ? 'is-active' : ''}" data-agent-action="select-preset" data-id="${esc(selectID)}"><span>${esc(item.label)}</span><small>${esc(item.starter || item.prompt)}${item.customized ? __tmT("ai.customized") : ''}</small></button><button type="button" class="block__icon tm-agent-preset-action tm-agent-preset-pin ${pinned ? 'is-active is-unpin' : ''}" data-agent-action="toggle-pin-preset" data-id="${esc(selectID)}" aria-label="${pinned ? __tmT("ai.unpin") : __tmT("kernel.pin")} ${esc(item.label)}" aria-pressed="${pinned ? 'true' : 'false'}"><svg><use xlink:href="#iconPin"></use></svg></button><button type="button" class="block__icon tm-agent-preset-action" data-agent-action="${editAction}" data-id="${esc(editID)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.edit", { label: item.label })}">${phosphorBoldContextIcon('pencilSimple')}</button><button type="button" class="block__icon tm-agent-preset-action" data-agent-action="${deleteAction}" data-id="${esc(editID)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.delete", { label: item.label })}">${phosphorBoldContextIcon('trash')}</button></div>`;
     }
 
     function fillPresetEditorFromBuiltin(select) {
@@ -2878,7 +2881,7 @@
             if (starterInput) starterInput.value = '';
             return;
         }
-        if (labelInput) labelInput.value = `${preset.label}副本`.slice(0, 60);
+        if (labelInput) labelInput.value = __tmT("ai.copy", { label: preset.label }).slice(0, 60);
         if (promptInput) promptInput.value = preset.prompt;
         if (starterInput) starterInput.value = preset.starter;
         labelInput?.focus?.();
@@ -2888,21 +2891,21 @@
     function renderOnboarding() {
         const caps = runtime.capabilities || {};
         if (caps.mcpEnabled && runtime.skillSync.error) {
-            return `<section class="tm-agent-onboarding tm-agent-onboarding--warning"><div><strong>任务工具可用</strong><span>工作流程同步失败：${esc(runtime.skillSync.error)}</span></div><button type="button" class="b3-button b3-button--cancel" data-agent-action="retry-skills">重试</button></section>`;
+            return `<section class="tm-agent-onboarding tm-agent-onboarding--warning"><div><strong>${__tmT("ai.taskToolsAvailable2")}</strong><span>${__tmT("ai.workflowSyncFailed", { error: esc(runtime.skillSync.error) })}</span></div><button type="button" class="b3-button b3-button--cancel" data-agent-action="retry-skills">${__tmT("common.retry")}</button></section>`;
         }
         if (caps.mcpEnabled) return '';
         if (caps.kernelAvailable !== true) {
             const rpcFailed = caps.unavailableReason === 'kernel-rpc-error';
-            return `<section class="tm-agent-onboarding tm-agent-onboarding--warning"><div><strong>${rpcFailed ? '任务工具内核连接失败' : '任务工具内核未加载'}</strong><span>${rpcFailed ? `插件 Kernel RPC 调用失败${caps.unavailableDetail ? `：${esc(caps.unavailableDetail)}` : ''}。` : '未找到 Task Horizon 的 Kernel RPC。请确认当前思源支持 Kernel 插件，并在重启思源后重新检测。'}普通文档对话仍可使用。</span></div><button type="button" class="b3-button b3-button--cancel" data-agent-action="refresh-capabilities">重新检测</button></section>`;
+            return `<section class="tm-agent-onboarding tm-agent-onboarding--warning"><div><strong>${rpcFailed ? __tmT("ai.taskToolsKernelConnectionFailed") : __tmT("ai.taskToolsKernelNotLoaded")}</strong><span>${__tmT("ai.plainDocumentChatIsStillAvailable", { value1: rpcFailed ? __tmT("ai.pluginKernelRpcCallFailed", { value1: caps.unavailableDetail ? `：${esc(caps.unavailableDetail)}` : '' }) : __tmT("ai.taskHorizonKernelRpcNotFoundMakeSureThis") })}</span></div><button type="button" class="b3-button b3-button--cancel" data-agent-action="refresh-capabilities">${__tmT("ai.reCheck")}</button></section>`;
         }
         if (caps.mcpAvailable !== true) {
-            return `<section class="tm-agent-onboarding tm-agent-onboarding--warning"><div><strong>当前思源内核未提供 MCP</strong><span>Task Horizon Kernel 已正常加载，但当前客户端没有提供 siyuan.mcp，暂时无法注册任务工具。普通文档对话仍可使用。</span></div><button type="button" class="b3-button b3-button--cancel" data-agent-action="refresh-capabilities">重新检测</button></section>`;
+            return `<section class="tm-agent-onboarding tm-agent-onboarding--warning"><div><strong>${__tmT("ai.theCurrentSiyuanKernelDoesNotProvideMcp")}</strong><span>${__tmT("ai.theTaskHorizonKernelLoadedNormallyButThisClient")}</span></div><button type="button" class="b3-button b3-button--cancel" data-agent-action="refresh-capabilities">${__tmT("ai.reCheck")}</button></section>`;
         }
         if (runtime.store.toolsOnboardingDismissed) return '';
         if (aiBridge()?.getSettings?.()?.agentMcpAllowed !== true) {
-            return `<section class="tm-agent-onboarding tm-agent-onboarding--warning"><div><strong>文档对话模式</strong><span>任务工具属于全功能权益，免费版不会启用。</span></div></section>`;
+            return `<section class="tm-agent-onboarding tm-agent-onboarding--warning"><div><strong>${__tmT("ai.documentChatMode")}</strong><span>${__tmT("ai.taskToolsAreAFullFeatureEntitlementAndAre")}</span></div></section>`;
         }
-        return `<section class="tm-agent-onboarding"><div><strong>启用任务工具</strong><span>智能体可以读取任务和日程；写入前会展示确认。</span></div><div class="tm-agent-onboarding__actions"><button type="button" class="b3-button b3-button--cancel" data-agent-action="dismiss-tools">暂时只用文档对话</button><button type="button" class="b3-button b3-button--text" data-agent-action="enable-tools">启用任务工具</button></div></section>`;
+        return `<section class="tm-agent-onboarding"><div><strong>${__tmT("ai.enableTaskTools")}</strong><span>${__tmT("ai.theAgentCanReadTasksAndSchedulesWritesShow")}</span></div><div class="tm-agent-onboarding__actions"><button type="button" class="b3-button b3-button--cancel" data-agent-action="dismiss-tools">${__tmT("ai.useDocumentChatForNow")}</button><button type="button" class="b3-button b3-button--text" data-agent-action="enable-tools">${__tmT("ai.enableTaskTools")}</button></div></section>`;
     }
 
     function renderHistory() {
@@ -2911,9 +2914,9 @@
         const sessions = runtime.historyScheduledOnly
             ? runtime.sessions.filter((session) => activeScheduledSessionIDs.has(text(session?.id)))
             : runtime.sessions;
-        return `<aside class="tm-agent-history" aria-label="任务工作台会话">
-            <div class="tm-agent-history__head"><strong>会话</strong><div class="tm-agent-history__actions"><label class="tm-agent-history__filter"><span>已启用定时任务</span><input class="b3-switch fn__flex-center" type="checkbox" data-agent-action="toggle-scheduled-history" ${runtime.historyScheduledOnly ? 'checked' : ''} aria-label="只显示已启用定时任务的会话"></label><button type="button" class="block__icon" data-agent-action="close-history" aria-label="关闭会话列表"><svg><use xlink:href="#iconClose"></use></svg></button></div></div>
-            <div class="tm-agent-history__list">${sessions.map((session) => `<div class="tm-agent-history__row ${text(session.id) === runtime.activeSessionID ? 'is-active' : ''}"><button type="button" class="tm-agent-history__main" data-agent-action="select-session" data-id="${esc(session.id)}" ${runtime.busy ? 'disabled' : ''}><span>${esc(session.title || DEFAULT_SESSION_TITLE)}</span><small>${new Date(Number(session.updatedAt) || Date.now()).toLocaleString()}</small></button><div class="tm-agent-history__row-actions"><button type="button" class="block__icon ariaLabel" data-position="parentW" data-agent-action="rename-session" data-id="${esc(session.id)}" aria-label="重命名会话"><svg><use xlink:href="#iconEdit"></use></svg></button><button type="button" class="block__icon ariaLabel" data-position="parentW" data-agent-action="toggle-session-menu" data-id="${esc(session.id)}" aria-label="更多"><svg><use xlink:href="#iconMore"></use></svg></button><div class="tm-agent-history__menu b3-menu"><button type="button" class="b3-menu__item b3-menu__item--warning" data-agent-action="delete-session" data-id="${esc(session.id)}"><svg class="b3-menu__icon"><use xlink:href="#iconTrashcan"></use></svg><span class="b3-menu__label">删除</span></button></div></div></div>`).join('') || `<div class="tm-agent-empty">${runtime.historyScheduledOnly ? '当前没有已启用定时任务的会话' : '还没有思源智能体会话'}</div>`}</div>
+        return `<aside class="tm-agent-history" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.taskWorkbenchconversation")}">
+            <div class="tm-agent-history__head"><strong>${__tmT("ai.conversation")}</strong><div class="tm-agent-history__actions"><label class="tm-agent-history__filter"><span>${__tmT("ai.scheduledEventsEnabled")}</span><input class="b3-switch fn__flex-center" type="checkbox" data-agent-action="toggle-scheduled-history" ${runtime.historyScheduledOnly ? 'checked' : ''} aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.onlyShowConversationsWithScheduledEvents")}"></label><button type="button" class="block__icon" data-agent-action="close-history" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.closeSessionList")}"><svg><use xlink:href="#iconClose"></use></svg></button></div></div>
+            <div class="tm-agent-history__list">${sessions.map((session) => `<div class="tm-agent-history__row ${text(session.id) === runtime.activeSessionID ? 'is-active' : ''}"><button type="button" class="tm-agent-history__main" data-agent-action="select-session" data-id="${esc(session.id)}" ${runtime.busy ? 'disabled' : ''}><span>${esc(session.title || DEFAULT_SESSION_TITLE)}</span><small>${new Date(Number(session.updatedAt) || Date.now()).toLocaleString()}</small></button><div class="tm-agent-history__row-actions"><button type="button" class="block__icon ariaLabel" data-position="parentW" data-agent-action="rename-session" data-id="${esc(session.id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.renameconversation")}"><svg><use xlink:href="#iconEdit"></use></svg></button><button type="button" class="block__icon ariaLabel" data-position="parentW" data-agent-action="toggle-session-menu" data-id="${esc(session.id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.more")}"><svg><use xlink:href="#iconMore"></use></svg></button><div class="tm-agent-history__menu b3-menu"><button type="button" class="b3-menu__item b3-menu__item--warning" data-agent-action="delete-session" data-id="${esc(session.id)}"><svg class="b3-menu__icon"><use xlink:href="#iconTrashcan"></use></svg><span class="b3-menu__label">${__tmT("common.delete")}</span></button></div></div></div>`).join('') || `<div class="tm-agent-empty">${runtime.historyScheduledOnly ? __tmT("ai.noConversationsWithScheduledEventsEnabled") : __tmT("ai.noSiyuanAgentConversationsYet")}</div>`}</div>
         </aside>`;
     }
 
@@ -2929,18 +2932,18 @@
         const hiddenBuiltinCount = runtime.store.hiddenBuiltinPresetIDs.length;
         const builtinRows = Object.keys(BUILTIN_PRESETS).map((id) => getPreset(id)).filter(Boolean).sort((a, b) => Number(presetPinned(b.id)) - Number(presetPinned(a.id)));
         const customRows = runtime.store.customPresets.slice().sort((a, b) => Number(presetPinned(`custom:${b.id}`)) - Number(presetPinned(`custom:${a.id}`)));
-        const editorTitle = editingID === '__new__' ? '新建自定义预设' : (editingBuiltinID ? '编辑内置预设' : '编辑自定义预设');
-        const builtinTemplateField = editingID === '__new__' ? `<label><span>基于内置模板（可选）</span><select class="b3-select" name="builtinTemplate" data-agent-preset-template><option value="">空白预设</option>${builtinRows.map((item) => `<option value="${esc(item.id)}">${esc(item.label)}</option>`).join('')}</select></label>` : '';
-        return `<aside class="tm-agent-presets" aria-label="对话预设">
-            <div class="tm-agent-panel__head"><strong>对话预设</strong><button type="button" class="block__icon" data-agent-action="close-presets" aria-label="关闭预设"><svg><use xlink:href="#iconClose"></use></svg></button></div>
+        const editorTitle = editingID === '__new__' ? __tmT("ai.newCustomPreset") : (editingBuiltinID ? __tmT("ai.editBuiltInPreset") : __tmT("ai.editCustomPreset"));
+        const builtinTemplateField = editingID === '__new__' ? `<label><span>${__tmT("ai.basedOnBuiltInTemplateOptional")}</span><select class="b3-select" name="builtinTemplate" data-agent-preset-template><option value="">${__tmT("ai.blankPreset")}</option>${builtinRows.map((item) => `<option value="${esc(item.id)}">${esc(item.label)}</option>`).join('')}</select></label>` : '';
+        return `<aside class="tm-agent-presets" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.chatPresets")}">
+            <div class="tm-agent-panel__head"><strong>${__tmT("ai.chatPresets")}</strong><button type="button" class="block__icon" data-agent-action="close-presets" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.offpreset")}"><svg><use xlink:href="#iconClose"></use></svg></button></div>
             <div class="tm-agent-presets__body">
-                <section class="tm-agent-presets__section"><div class="tm-agent-presets__section-head"><span>内置</span>${hiddenBuiltinCount ? `<button type="button" class="block__icon tm-agent-preset-action ariaLabel" data-position="south" data-agent-action="restore-builtin-presets" aria-label="恢复 ${hiddenBuiltinCount} 个已删除的内置预设">${phosphorBoldContextIcon('arrowCounterClockwise')}</button>` : ''}</div>
-                    <div class="tm-agent-presets__list">${builtinRows.map((item) => presetListRow(item, { builtin: true })).join('') || '<div class="tm-agent-presets__empty">已删除全部内置预设，可从右上角恢复</div>'}</div>
+                <section class="tm-agent-presets__section"><div class="tm-agent-presets__section-head"><span>${__tmT("ai.builtIn")}</span>${hiddenBuiltinCount ? `<button type="button" class="block__icon tm-agent-preset-action ariaLabel" data-position="south" data-agent-action="restore-builtin-presets" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.restoreDeletedBuiltInPresets", { hiddenBuiltinCount: hiddenBuiltinCount })}">${phosphorBoldContextIcon('arrowCounterClockwise')}</button>` : ''}</div>
+                    <div class="tm-agent-presets__list">${builtinRows.map((item) => presetListRow(item, { builtin: true })).join('') || `<div class="tm-agent-presets__empty">${__tmT("ai.allBuiltInPresetsWereDeletedRestoreThemFrom")}</div>`}</div>
                 </section>
-                <section class="tm-agent-presets__section"><div class="tm-agent-presets__section-head"><span>自定义</span><button type="button" class="block__icon tm-agent-preset-action ariaLabel" data-position="south" data-agent-action="new-preset" aria-label="新建预设">${phosphorBoldContextIcon('plus')}</button></div>
-                    <div class="tm-agent-presets__list">${customRows.map((item) => presetListRow(item)).join('') || '<div class="tm-agent-presets__empty">新建预设以复用常用指令</div>'}</div>
+                <section class="tm-agent-presets__section"><div class="tm-agent-presets__section-head"><span>${__tmT("settings.custom")}</span><button type="button" class="block__icon tm-agent-preset-action ariaLabel" data-position="south" data-agent-action="new-preset" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.newpreset")}">${phosphorBoldContextIcon('plus')}</button></div>
+                    <div class="tm-agent-presets__list">${customRows.map((item) => presetListRow(item)).join('') || `<div class="tm-agent-presets__empty">${__tmT("ai.createPresetsToReuseCommonInstructions")}</div>`}</div>
                 </section>
-                ${editing ? `<div class="tm-agent-preset-editor-backdrop"><form class="tm-agent-preset-editor" data-preset-editor-id="${esc(editingID)}" role="dialog" aria-modal="true" aria-labelledby="tm-agent-preset-editor-title"><div class="tm-agent-preset-editor__head"><div><strong id="tm-agent-preset-editor-title">${editorTitle}</strong>${editingBuiltinID ? '<span>修改只影响你的预设</span>' : ''}</div><button type="button" class="block__icon" data-agent-action="cancel-preset-edit" aria-label="关闭预设编辑"><svg><use xlink:href="#iconClose"></use></svg></button></div>${builtinTemplateField}<label><span>名称</span><input class="b3-text-field" name="label" maxlength="60" value="${esc(editing.label)}" required></label><label><span>对话附带指令</span><textarea class="b3-text-field" name="prompt" rows="5" maxlength="8000" required>${esc(editing.prompt)}</textarea></label><label><span>输入提示</span><input class="b3-text-field" name="starter" maxlength="500" value="${esc(editing.starter)}"></label><div class="tm-agent-preset-editor__actions">${editingBuiltinID && editing.customized ? `<button type="button" class="b3-button b3-button--cancel" data-agent-action="reset-builtin-preset" data-id="${esc(editingBuiltinID)}">恢复默认</button>` : ''}<span class="fn__flex-1"></span><button type="button" class="b3-button b3-button--cancel" data-agent-action="cancel-preset-edit">取消</button><button type="button" class="b3-button b3-button--text" data-agent-action="save-preset">保存</button></div></form></div>` : ''}
+                ${editing ? `<div class="tm-agent-preset-editor-backdrop"><form class="tm-agent-preset-editor" data-preset-editor-id="${esc(editingID)}" role="dialog" aria-modal="true" aria-labelledby="tm-agent-preset-editor-title"><div class="tm-agent-preset-editor__head"><div><strong id="tm-agent-preset-editor-title">${editorTitle}</strong>${editingBuiltinID ? `<span>${__tmT("ai.changesOnlyAffectYourOwnPresets")}</span>` : ''}</div><button type="button" class="block__icon" data-agent-action="cancel-preset-edit" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.offpresetedit")}"><svg><use xlink:href="#iconClose"></use></svg></button></div>${builtinTemplateField}<label><span>${__tmT("ai.name")}</span><input class="b3-text-field" name="label" maxlength="60" value="${esc(editing.label)}" required></label><label><span>${__tmT("ai.instructionsAttachedToChat")}</span><textarea class="b3-text-field" name="prompt" rows="5" maxlength="8000" required>${esc(editing.prompt)}</textarea></label><label><span>${__tmT("ai.starterHint")}</span><input class="b3-text-field" name="starter" maxlength="500" value="${esc(editing.starter)}"></label><div class="tm-agent-preset-editor__actions">${editingBuiltinID && editing.customized ? `<button type="button" class="b3-button b3-button--cancel" data-agent-action="reset-builtin-preset" data-id="${esc(editingBuiltinID)}">${__tmT("task.restoreDefault")}</button>` : ''}<span class="fn__flex-1"></span><button type="button" class="b3-button b3-button--cancel" data-agent-action="cancel-preset-edit">${__tmT("common.cancel")}</button><button type="button" class="b3-button b3-button--text" data-agent-action="save-preset">${__tmT("common.save")}</button></div></form></div>` : ''}
             </div>
         </aside>`;
     }
@@ -2952,7 +2955,7 @@
         const mode = runtime.contextPickerMode === 'document' ? 'document' : 'task';
         const selectedCount = runtime.context.taskIDs.length + runtime.context.documentIDs.length + (runtime.context.scope ? 1 : 0);
         const resultHtml = runtime.contextPickerLoading
-            ? '<div class="tm-agent-context-picker__empty">正在搜索...</div>'
+            ? `<div class="tm-agent-context-picker__empty">${__tmT("ai.searching")}</div>`
             : (runtime.contextPickerError
                 ? `<div class="tm-agent-context-picker__empty is-error">${esc(runtime.contextPickerError)}</div>`
                 : (runtime.contextPickerResults.map((item) => {
@@ -2961,28 +2964,28 @@
                         <span class="tm-agent-context-result__copy"><strong>${esc(item.label)}</strong>${item.meta ? `<small>${esc(item.meta)}</small>` : ''}</span>
                         <svg aria-hidden="true"><use xlink:href="#${selected ? 'iconCheck' : 'iconAdd'}"></use></svg>
                     </button>`;
-                }).join('') || `<div class="tm-agent-context-picker__empty">${runtime.contextPickerQuery ? '没有匹配结果' : (mode === 'task' ? '没有最近任务' : '输入关键词搜索文档')}</div>`));
-        return `<aside class="tm-agent-context-picker" aria-label="添加上下文">
-            <div class="tm-agent-panel__head"><strong>添加上下文</strong><button type="button" class="block__icon" data-agent-action="close-context-picker" aria-label="关闭上下文选择"><svg><use xlink:href="#iconClose"></use></svg></button></div>
+                }).join('') || `<div class="tm-agent-context-picker__empty">${runtime.contextPickerQuery ? __tmT("ai.noMatches") : (mode === 'task' ? __tmT("ai.noRecentTasks") : __tmT("ai.typeKeywordsToSearchDocuments"))}</div>`));
+        return `<aside class="tm-agent-context-picker" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.addContext")}">
+            <div class="tm-agent-panel__head"><strong>${__tmT("ai.addContext")}</strong><button type="button" class="block__icon" data-agent-action="close-context-picker" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.closeContextPicker")}"><svg><use xlink:href="#iconClose"></use></svg></button></div>
             <div class="tm-agent-context-picker__body">
-                <div class="tm-agent-context-picker__quick" aria-label="快速添加">
-                    <button type="button" data-agent-action="add-current-task" ${currentTaskID ? '' : 'disabled'} aria-pressed="${currentTaskID && contextItemSelected('task', currentTaskID) ? 'true' : 'false'}"><svg aria-hidden="true"><use xlink:href="#iconListItem"></use></svg><span>当前任务</span></button>
-                    <button type="button" data-agent-action="add-current-document" ${currentDocumentID ? '' : 'disabled'} aria-pressed="${currentDocumentID && contextItemSelected('document', currentDocumentID) ? 'true' : 'false'}"><svg aria-hidden="true"><use xlink:href="#iconFile"></use></svg><span>当前文档</span></button>
-                    <button type="button" data-agent-action="add-current-view" aria-pressed="${runtime.context.scope ? 'true' : 'false'}"><svg aria-hidden="true"><use xlink:href="#iconFilter"></use></svg><span>当前视图</span></button>
+                <div class="tm-agent-context-picker__quick" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.quickAdd")}">
+                    <button type="button" data-agent-action="add-current-task" ${currentTaskID ? '' : 'disabled'} aria-pressed="${currentTaskID && contextItemSelected('task', currentTaskID) ? 'true' : 'false'}"><svg aria-hidden="true"><use xlink:href="#iconListItem"></use></svg><span>${__tmT("ai.currentTask")}</span></button>
+                    <button type="button" data-agent-action="add-current-document" ${currentDocumentID ? '' : 'disabled'} aria-pressed="${currentDocumentID && contextItemSelected('document', currentDocumentID) ? 'true' : 'false'}"><svg aria-hidden="true"><use xlink:href="#iconFile"></use></svg><span>${__tmT("ai.currentDocument")}</span></button>
+                    <button type="button" data-agent-action="add-current-view" aria-pressed="${runtime.context.scope ? 'true' : 'false'}"><svg aria-hidden="true"><use xlink:href="#iconFilter"></use></svg><span>${__tmT("ai.currentView")}</span></button>
                 </div>
-                <div class="tm-agent-context-picker__tabs" role="tablist" aria-label="上下文类型">
-                    <button type="button" role="tab" aria-selected="${mode === 'task'}" class="${mode === 'task' ? 'is-active' : ''}" data-agent-action="set-context-picker-mode" data-mode="task">任务</button>
-                    <button type="button" role="tab" aria-selected="${mode === 'document'}" class="${mode === 'document' ? 'is-active' : ''}" data-agent-action="set-context-picker-mode" data-mode="document">文档</button>
+                <div class="tm-agent-context-picker__tabs" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.contexttype")}">
+                    <button type="button" role="tab" aria-selected="${mode === 'task'}" class="${mode === 'task' ? 'is-active' : ''}" data-agent-action="set-context-picker-mode" data-mode="task">${__tmT("kernel.task")}</button>
+                    <button type="button" role="tab" aria-selected="${mode === 'document'}" class="${mode === 'document' ? 'is-active' : ''}" data-agent-action="set-context-picker-mode" data-mode="document">${__tmT("kernel.documents")}</button>
                 </div>
                 <label class="tm-agent-context-picker__search">
                     <svg aria-hidden="true"><use xlink:href="#iconSearch"></use></svg>
-                    <input class="b3-text-field" type="search" data-agent-context-search value="${esc(runtime.contextPickerQuery)}" placeholder="搜索${mode === 'task' ? '任务' : '文档'}" autocomplete="off">
-                    ${runtime.contextPickerQuery ? '<button type="button" data-agent-action="clear-context-search" aria-label="清除搜索"><svg><use xlink:href="#iconClose"></use></svg></button>' : ''}
+                    <input class="b3-text-field" type="search" data-agent-context-search value="${esc(runtime.contextPickerQuery)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("ai.search", { value1: mode === 'task' ? __tmT("kernel.task") : __tmT("kernel.documents") })}" autocomplete="off">
+                    ${runtime.contextPickerQuery ? `<button type="button" data-agent-action="clear-context-search" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.clearSearch")}"><svg><use xlink:href="#iconClose"></use></svg></button>` : ''}
                 </label>
                 <div class="tm-agent-context-picker__results">${resultHtml}</div>
                 <div class="tm-agent-context-picker__footer">
-                    <button type="button" class="b3-button b3-button--text" data-agent-action="finish-context-picker">完成</button>
-                    <span role="status">已选 ${selectedCount} 项</span>
+                    <button type="button" class="b3-button b3-button--text" data-agent-action="finish-context-picker">${__tmT("quickbar.done")}</button>
+                    <span role="status">${__tmT("task.selected3", { selectedCount: selectedCount })}</span>
                 </div>
             </div>
         </aside>`;
@@ -3142,39 +3145,39 @@
             <header class="tm-agent-header">
                 <div class="tm-agent-header__title" title="${esc(headerTitle)}"><span class="tm-agent-status-dot ${caps.mcpEnabled ? 'is-ready' : ''}" aria-hidden="true"></span><span>${esc(headerTitle)}</span></div>
                 <div class="tm-agent-header__actions">
-                    <button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="new-session" aria-label="新会话" ${runtime.busy ? 'disabled' : ''}><svg><use xlink:href="#iconAdd"></use></svg></button>
-                    <button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="open-scheduled-events" aria-label="管理定时事件">${phosphorBoldContextIcon('calendarDots')}</button>
-                    <button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="open-history" aria-label="会话历史"><svg><use xlink:href="#iconHistory"></use></svg></button>
-                    ${runtime.mobile ? '<button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="close-sidebar" aria-label="关闭 AI 对话"><svg><use xlink:href="#iconClose"></use></svg></button>' : ''}
+                    <button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="new-session" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.newSession")}" ${runtime.busy ? 'disabled' : ''}><svg><use xlink:href="#iconAdd"></use></svg></button>
+                    <button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="open-scheduled-events" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.manageScheduledEvents")}">${phosphorBoldContextIcon('calendarDots')}</button>
+                    <button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="open-history" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.sessionHistory")}"><svg><use xlink:href="#iconHistory"></use></svg></button>
+                    ${runtime.mobile ? `<button type="button" class="block__icon block__icon--show ariaLabel" data-position="south" data-agent-action="close-sidebar" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.offAiChat")}"><svg><use xlink:href="#iconClose"></use></svg></button>` : ''}
                 </div>
             </header>
-            <div class="tm-agent-context ${runtime.contextExpanded ? 'is-expanded' : ''}" aria-label="当前上下文">
+            <div class="tm-agent-context ${runtime.contextExpanded ? 'is-expanded' : ''}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.currentcontext")}">
                 <div class="tm-agent-context__items">
-                    ${labels.map((item) => `<span class="tm-agent-context__chip"><span>${esc(item.label)}</span><button type="button" data-agent-action="remove-context" data-kind="${esc(item.kind)}" data-id="${esc(item.id)}" aria-label="移除 ${esc(item.label)}"><svg><use xlink:href="#iconClose"></use></svg></button></span>`).join('') || '<span class="tm-agent-context__empty">未选择任务或文档</span>'}
+                    ${labels.map((item) => `<span class="tm-agent-context__chip"><span>${esc(item.label)}</span><button type="button" data-agent-action="remove-context" data-kind="${esc(item.kind)}" data-id="${esc(item.id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.remove", { label: item.label })}"><svg><use xlink:href="#iconClose"></use></svg></button></span>`).join('') || `<span class="tm-agent-context__empty">${__tmT("ai.noTaskOrDocumentSelected")}</span>`}
                 </div>
                 <span class="tm-agent-context__scrollbar" aria-hidden="true"><span class="tm-agent-context__scrollbar-thumb"></span></span>
                 <div class="tm-agent-context__actions">
-                    <button type="button" class="tm-agent-context__control tm-agent-context__add ariaLabel" data-position="south" data-agent-action="open-context-picker" aria-label="添加任务、文档或当前视图">${phosphorBoldContextIcon('plus')}</button>
-                    ${labels.length ? `<button type="button" class="tm-agent-context__control ariaLabel" data-position="south" data-agent-action="clear-context" aria-label="清空上下文">${phosphorBoldContextIcon('broom')}</button><button type="button" class="tm-agent-context__control ariaLabel" data-position="south" data-agent-action="toggle-context-expanded" aria-expanded="${runtime.contextExpanded ? 'true' : 'false'}" aria-label="${runtime.contextExpanded ? '收起上下文' : '展开上下文'}">${phosphorBoldContextIcon(runtime.contextExpanded ? 'caretUp' : 'caretDown')}</button>` : ''}
+                    <button type="button" class="tm-agent-context__control tm-agent-context__add ariaLabel" data-position="south" data-agent-action="open-context-picker" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.addTasksDocumentsOrTheCurrentView")}">${phosphorBoldContextIcon('plus')}</button>
+                    ${labels.length ? `<button type="button" class="tm-agent-context__control ariaLabel" data-position="south" data-agent-action="clear-context" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.clearcontext")}">${phosphorBoldContextIcon('broom')}</button><button type="button" class="tm-agent-context__control ariaLabel" data-position="south" data-agent-action="toggle-context-expanded" aria-expanded="${runtime.contextExpanded ? 'true' : 'false'}" aria-label="${runtime.contextExpanded ? __tmT("ai.collapseContext") : __tmT("ai.expandContext")}">${phosphorBoldContextIcon(runtime.contextExpanded ? 'caretUp' : 'caretDown')}</button>` : ''}
                 </div>
             </div>
             ${renderOnboarding()}
             <div class="tm-agent-messages-shell">
                 <main class="tm-agent-messages" aria-live="polite">
                     ${renderConversation(entries, live)}
-                    ${!entries.length && !live ? '<div class="tm-agent-empty"><strong>从当前内容开始</strong><span>选择下面的建议，或直接输入你的问题。</span></div>' : ''}
+                    ${!entries.length && !live ? `<div class="tm-agent-empty"><strong>${__tmT("ai.startFromTheCurrentContent")}</strong><span>${__tmT("ai.pickASuggestionBelowOrTypeYourQuestion")}</span></div>` : ''}
                 </main>
-                <button type="button" class="tm-agent-scroll-bottom" data-agent-action="scroll-to-bottom" aria-label="回到底部" title="回到底部" hidden>${phosphorBoldContextIcon('caretDown')}</button>
+                <button type="button" class="tm-agent-scroll-bottom" data-agent-action="scroll-to-bottom" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.scrollToBottom")}" title="${globalThis.__taskHorizonHostBridge.i18n.html("ai.scrollToBottom")}" hidden>${phosphorBoldContextIcon('caretDown')}</button>
             </div>
-            <div class="tm-agent-suggestions"><div class="tm-agent-suggestions__items">${suggestions().slice(0, 3).map((item, index) => `<button type="button" data-agent-action="suggestion" data-index="${index}">${esc(item.label)}</button>`).join('')}</div><button type="button" class="tm-agent-suggestions__compact" data-agent-action="open-quick-presets" data-agent-preset-menu aria-label="选择对话预设" aria-haspopup="menu" aria-expanded="false"><span>预设</span>${phosphorBoldContextIcon('caretDown')}</button><div class="tm-agent-composer-tools" role="group" aria-label="对话设置"><button type="button" class="block__icon block__icon--show ariaLabel tm-agent-suggestions__settings" data-position="north" data-agent-action="open-presets" aria-label="对话预设设置"><svg><use xlink:href="#iconSettings"></use></svg></button>${[['model', 'iconAtom'], ['reasoning', 'iconBrain'], ['permission', 'iconShieldCheck']].map(([kind, icon]) => `<button type="button" class="block__icon block__icon--show ariaLabel tm-agent-setting" data-position="north" data-agent-action="open-setting" data-agent-setting="${kind}" aria-haspopup="menu" aria-expanded="false"><svg><use xlink:href="#${icon}"></use></svg></button>`).join('')}</div></div>
+            <div class="tm-agent-suggestions"><div class="tm-agent-suggestions__items">${suggestions().slice(0, 3).map((item, index) => `<button type="button" data-agent-action="suggestion" data-index="${index}">${esc(item.label)}</button>`).join('')}</div><button type="button" class="tm-agent-suggestions__compact" data-agent-action="open-quick-presets" data-agent-preset-menu aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.chooseConversationPreset")}" aria-haspopup="menu" aria-expanded="false"><span>${__tmT("ai.preset")}</span>${phosphorBoldContextIcon('caretDown')}</button><div class="tm-agent-composer-tools" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.conversationSettings")}"><button type="button" class="block__icon block__icon--show ariaLabel tm-agent-suggestions__settings" data-position="north" data-agent-action="open-presets" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.chatPresetssettings")}"><svg><use xlink:href="#iconSettings"></use></svg></button>${[['model', 'iconAtom'], ['reasoning', 'iconBrain'], ['permission', 'iconShieldCheck']].map(([kind, icon]) => `<button type="button" class="block__icon block__icon--show ariaLabel tm-agent-setting" data-position="north" data-agent-action="open-setting" data-agent-setting="${kind}" aria-haspopup="menu" aria-expanded="false"><svg><use xlink:href="#${icon}"></use></svg></button>`).join('')}</div></div>
             <footer class="tm-agent-composer">
-                ${runtime.undoAvailable ? `<div class="tm-agent-undo-bar"><span>${runtime.undoCount > 1 ? '本轮写入可整体撤销' : '最近一次写入可撤销'}</span><div class="tm-agent-undo-bar__actions"><button type="button" class="b3-button b3-button--cancel" data-agent-action="undo-last-mutation"><svg aria-hidden="true"><use xlink:href="#iconUndo"></use></svg><span>撤销</span></button><button type="button" class="block__icon block__icon--show ariaLabel tm-agent-undo-bar__close" data-position="north" data-agent-action="dismiss-undo" aria-label="关闭撤销提示"><svg aria-hidden="true"><use xlink:href="#iconClose"></use></svg></button></div></div>` : ''}
-                <div class="tm-agent-composer__selections">${preset ? `<div class="tm-agent-preset"><span>${esc(preset.label)}</span><button type="button" data-agent-action="clear-preset" aria-label="清除预设"><svg><use xlink:href="#iconClose"></use></svg></button></div>` : ''}</div>
-                <div class="tm-agent-composer__row"><textarea class="b3-text-field" data-agent-draft placeholder="输入问题或任务要求" rows="2" ${runtime.busy ? 'disabled' : ''}>${esc(getDraft())}</textarea>
-                ${runtime.busy ? '<button type="button" class="b3-button b3-button--cancel tm-agent-send" data-agent-action="stop" aria-label="停止"><svg><use xlink:href="#iconSquareStop"></use></svg></button>' : '<button type="button" class="b3-button b3-button--text tm-agent-send" data-agent-action="send" aria-label="发送"><svg><use xlink:href="#iconForward"></use></svg></button>'}</div>
+                ${runtime.undoAvailable ? `<div class="tm-agent-undo-bar"><span>${runtime.undoCount > 1 ? __tmT("ai.thisRoundSWritesCanBeUndoneAsA") : __tmT("ai.theLastWriteCanBeUndone")}</span><div class="tm-agent-undo-bar__actions"><button type="button" class="b3-button b3-button--cancel" data-agent-action="undo-last-mutation"><svg aria-hidden="true"><use xlink:href="#iconUndo"></use></svg><span>${__tmT("quickbar.undo")}</span></button><button type="button" class="block__icon block__icon--show ariaLabel tm-agent-undo-bar__close" data-position="north" data-agent-action="dismiss-undo" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.dismissUndoNotice")}"><svg aria-hidden="true"><use xlink:href="#iconClose"></use></svg></button></div></div>` : ''}
+                <div class="tm-agent-composer__selections">${preset ? `<div class="tm-agent-preset"><span>${esc(preset.label)}</span><button type="button" data-agent-action="clear-preset" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.clearpreset")}"><svg><use xlink:href="#iconClose"></use></svg></button></div>` : ''}</div>
+                <div class="tm-agent-composer__row"><textarea class="b3-text-field" data-agent-draft placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("ai.enterAQuestionOrTask")}" rows="2" ${runtime.busy ? 'disabled' : ''}>${esc(getDraft())}</textarea>
+                ${runtime.busy ? `<button type="button" class="b3-button b3-button--cancel tm-agent-send" data-agent-action="stop" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.stop")}"><svg><use xlink:href="#iconSquareStop"></use></svg></button>` : `<button type="button" class="b3-button b3-button--text tm-agent-send" data-agent-action="send" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("ai.send")}"><svg><use xlink:href="#iconForward"></use></svg></button>`}</div>
                 ${runtime.statusText ? `<div class="tm-agent-composer__status" role="status">${esc(runtime.statusText)}</div>` : ''}
             </footer>
-            <div class="tm-agent-task-drop-hint" aria-hidden="true"><span>${phosphorBoldContextIcon('plus')}添加到智能体上下文</span></div>
+            <div class="tm-agent-task-drop-hint" aria-hidden="true"><span>${__tmT("ai.addToAgentContext", { value1: phosphorBoldContextIcon('plus') })}</span></div>
             ${renderContextPicker()}
             ${renderHistory()}
             ${renderPresetPanel()}
@@ -3214,7 +3217,7 @@
             saveSession().catch(() => null);
             return true;
         } catch (error) {
-            runtime.statusText = `确认提交失败：${text(error?.message || error)}`;
+            runtime.statusText = __tmT("ai.failedToSubmitConfirmation", { value1: text(error?.message || error) });
             render();
             return false;
         }
@@ -3247,7 +3250,7 @@
             saveSession().catch(() => null);
             return true;
         } catch (error) {
-            runtime.statusText = `回答提交失败：${text(error?.message || error)}`;
+            runtime.statusText = __tmT("ai.failedToSubmitAnswer", { value1: text(error?.message || error) });
             render();
             return false;
         }
@@ -3257,17 +3260,17 @@
         const entry = sessionEntries()[Number(index)];
         const copied = await writeClipboardText(entry?.content);
         if (!copied) {
-            aiBridge()?.hint?.('复制失败', 'error');
+            aiBridge()?.hint?.(__tmT("task.copyFailed"), 'error');
             return false;
         }
         if (button instanceof HTMLElement) {
             button.classList.add('is-copied');
-            button.setAttribute('aria-label', '已复制');
+            button.setAttribute('aria-label', __tmT("ai.copied"));
             button.innerHTML = phosphorBoldContextIcon('check');
             setTimeout(() => {
                 if (!button.isConnected) return;
                 button.classList.remove('is-copied');
-                button.setAttribute('aria-label', '复制这条消息');
+                button.setAttribute('aria-label', __tmT("ai.copyThisMessage"));
                 button.innerHTML = phosphorBoldContextIcon('copy');
             }, 1600);
         }
@@ -3280,18 +3283,18 @@
             : null;
         const copied = await writeClipboardText(code?.textContent || '');
         if (!copied) {
-            aiBridge()?.hint?.('复制失败', 'error');
+            aiBridge()?.hint?.(__tmT("task.copyFailed"), 'error');
             return false;
         }
         button.classList.add('is-copied');
-        button.setAttribute('aria-label', '已复制');
-        button.setAttribute('title', '已复制');
+        button.setAttribute('aria-label', __tmT("ai.copied"));
+        button.setAttribute('title', __tmT("ai.copied"));
         button.innerHTML = phosphorBoldContextIcon('check');
         setTimeout(() => {
             if (!button.isConnected) return;
             button.classList.remove('is-copied');
-            button.setAttribute('aria-label', '复制代码块');
-            button.setAttribute('title', '复制代码块');
+            button.setAttribute('aria-label', __tmT("ai.copyCodeBlock"));
+            button.setAttribute('title', __tmT("ai.copyCodeBlock"));
             button.innerHTML = phosphorBoldContextIcon('copy');
         }, 1600);
         return true;
@@ -3322,17 +3325,17 @@
         const args = event.arguments && typeof event.arguments === 'object' ? event.arguments : {};
         let outcome;
         try {
-            if (!frontendCapabilityAllowed(capabilityID)) throw new Error(`前端能力已在思源设置中关闭：${capabilityID}`);
+            if (!frontendCapabilityAllowed(capabilityID)) throw new Error(__tmT("ai.frontendCapabilityDisabledInSiyuanSettings", { capabilityID: capabilityID }));
             const descriptors = Array.isArray(globalThis.__taskHorizonFrontendCapabilityDescriptors)
                 ? globalThis.__taskHorizonFrontendCapabilityDescriptors
                 : [];
             const descriptor = descriptors.find((item) => text(item?.id) === capabilityID);
             if (!descriptor || (Number(event.generation) > 0 && Number(descriptor.generation) !== Number(event.generation))) {
-                throw new Error(`前端能力不可用：${capabilityID}`);
+                throw new Error(__tmT("ai.frontendCapabilityUnavailable", { capabilityID: capabilityID }));
             }
             outcome = frontendActionResult(await globalThis.__taskHorizonInvokeAgentAction?.(capabilityID, args));
         } catch (error) {
-            outcome = { result: text(error?.message || error) || '前端能力执行失败', isError: true };
+            outcome = { result: text(error?.message || error) || __tmT("ai.frontendCapabilityExecutionFailed"), isError: true };
         }
         await postAgentInteraction('/browserCapabilityResult', {
             callID: event.callID,
@@ -3362,16 +3365,16 @@
                 signal,
             });
             if (!response.ok) {
-                let message = `智能体请求失败 (${response.status})`;
+                let message = __tmT("ai.agentRequestFailed", { status: response.status });
                 try { message = text((await response.json())?.msg) || message; } catch (error) {}
                 throw new Error(message);
             }
             if (!(response.headers.get('Content-Type') || '').includes('text/event-stream')) {
                 const payload = await response.json().catch(() => null);
-                throw new Error(text(payload?.msg || payload?.message) || '智能体尚未配置可用模型');
+                throw new Error(text(payload?.msg || payload?.message) || __tmT("ai.noUsableModelIsConfiguredForTheAgent"));
             }
             const reader = response.body?.getReader();
-            if (!reader) throw new Error('无法读取智能体响应');
+            if (!reader) throw new Error(__tmT("ai.cannotReadTheAgentResponse"));
             const decoder = new TextDecoder();
             let buffer = '';
             let eventName = '';
@@ -3414,7 +3417,7 @@
                 }
             }
             if (!terminalReceived && !signal?.aborted) {
-                throw new Error('智能体连接意外中断，未收到完整终态');
+                throw new Error(__tmT("ai.theAgentConnectionWasInterruptedBeforeReceivingAComplete"));
             }
         }
     }
@@ -3487,7 +3490,7 @@
     function reminderIntentInstruction(value) {
         if (!isReminderModeChoiceIntent(value)) return '';
         if (/(每(?:隔|个|天|日|周|星期|月|年|工作日)|循环|重复|打卡|FSRS)/i.test(value) && !/(独立提醒|\bAI\b|智能体|定时任务|定时执行)/i.test(value)) {
-            return '\n\n本轮为跟随任务循环的提醒要求：使用 create_task 或 update_task 的 patch.repeatRule 保存任务循环，patch.followReminder.times 保存提醒时点，patch.followReminder.intentText 必须原样使用本轮用户请求；两者一起写入，不要另建 AI 定时任务或独立循环提醒，不要再询问提醒类型。';
+            return __tmT("ai.thisTurnIsAReminderRequestThatFollowsThe");
         }
         return '\n\n提醒意图选择：执行任何写入前，必须先调用思源 question 工具单选询问“这次要设置哪种提醒？”。选项固定为：AI 定时任务（到点后让智能体执行指令）、跟随任务提醒（根据要求时间直接设置截止日期并默认同步完成任务）、独立提醒（固定日期或独立重复）；multiple=false，custom=false。用户选择后立即继续，禁止自行猜测，也禁止追加写入确认。选择跟随任务提醒后，直接从用户原话解析日期和时间并传入 follow.date（YYYY-MM-DD）与 follow.times。用户说“今天/今晚”时日期唯一确定为当日，只有说“明天/明晚”时才使用次日；禁止调用 question 询问截止日期，禁止生成“今天/明天”或任何其他日期候选。configure_task_reminder 使用 action=apply 单次直接写入，不要先调用预览，也不要再索要 previewToken。没有由上下文明确绑定真实任务块时，必须先从用户原话提炼不含日期、时间和“提醒我”等命令词的任务核心词，调用 query_tasks（action=query、filters.keyword=核心词，且 filters 不传 scopeToken、ids 或 documentIDs）检索全部任务；不要沿用当前视图的范围令牌。优先选择未完成且标题完全一致的任务，其次选择语义明确对应的未完成任务，并把其 taskID 传给 configure_task_reminder；有多个合理候选时用 question 让用户选择目标任务。只有没有合理候选时才省略 taskID，传入 taskTitle 和插件默认新建位置 documentID，且不要先调用 create_task。提醒工具仍会按可见标题在全部任务中先精确、再模糊兜底匹配，少量错字也会优先绑定未完成任务，只有两种匹配都找不到时才创建任务并立即设置提醒；执行时会同时写入任务截止日期，也不询问跟随开始日期、日期偏移或是否同步完成。';
     }
@@ -3509,7 +3512,7 @@
             .filter((item) => text(item?.id))
             .filter((item, index, list) => list.findIndex((other) => text(other?.id) === text(item?.id)) === index);
         if (!available.length) return '\n\n创建任务位置：插件未配置可用的默认新建文档，当前分组也没有可用的置顶文档。只有确实需要新建任务（包括没有任务块的跟随或独立提醒）时，才调用思源 question 工具询问“创建到哪个文档？”，multiple=false，custom=true，让用户手动输入文档名；随后先用思源文档搜索能力解析真实文档 ID，同名或结果不明确时继续确认。';
-        const mapping = available.map((item, index) => `${index + 1}. ${text(item.label) || '未命名文档'}（documentID：${text(item.id)}${item === defaultTarget ? '，默认新建位置' : '，置顶文档'}）`).join('\n');
+        const mapping = available.map((item, index) => `${index + 1}. ${text(item.label) || __tmT("kernel.untitledDocument")}（documentID：${text(item.id)}${item === defaultTarget ? __tmT("ai.defaultCreationLocation") : __tmT("ai.pinnedDocument")}）`).join('\n');
         if (defaultTarget) {
             return `\n\n创建任务位置（本轮实时）：\n${mapping}\n用户没有明确指定目标文档时，单个任务直接调用 create_task 并使用插件默认新建位置 documentID：${text(defaultTarget.id)}；不要询问位置、不要预览、不要要求额外确认。只有用户明确指定其他文档时才使用对应位置。设置跟随任务提醒或独立提醒但没有真实任务块时，先调用 query_tasks 用任务核心词检索全部任务，filters 不传 scopeToken、ids 或 documentIDs；有明确匹配时把已有 taskID 传给 configure_task_reminder。只有没有合理候选时才省略 taskID，传入简短任务标题 taskTitle 和默认 documentID：${text(defaultTarget.id)}，且不要先调用 create_task。工具还会按可见标题先精确、再模糊查重，少量错字也会匹配，只有都找不到时才在默认位置创建承载任务并立即写入提醒。提醒类型已经通过 question 选择后不得再询问位置或写入确认。`;
         }
@@ -3549,14 +3552,14 @@
             } else createSession();
         }
         if (!selectedAgentModel(true)) {
-            showSessionNotice('请先在思源设置 - 人工智能中配置并启用模型', 'warning');
+            showSessionNotice(__tmT("ai.configureAndEnableAModelInSiyuanSettingsAi"), 'warning');
             return;
         }
         if (!await ensureTaskToolsReadyForSend()) return;
         await syncDocumentGroupSnapshot();
         const currentViewSnapshot = await syncCurrentViewContext();
         if (runtime.context.scope && !text(currentViewSnapshot?.scopeToken)) {
-            runtime.statusText = runtime.statusText || '无法注册完整任务范围，请稍后重试';
+            runtime.statusText = runtime.statusText || __tmT("ai.cannotRegisterTheFullTaskScopeTryAgainLater");
             render();
             return;
         }
@@ -3591,31 +3594,31 @@
                     virtualTasks: Array.isArray(readScope.virtualTasks) ? readScope.virtualTasks : [],
                 });
             } catch (error) {
-                runtime.statusText = `上下文任务范围注册失败：${text(error?.message || error)}`;
+                runtime.statusText = __tmT("ai.contextfailedToRegisterTheTaskScope", { value1: text(error?.message || error) });
                 render();
                 return;
             }
         }
         const creationDestinationInstruction = await taskCreationDestinationInstruction(userText);
         const customFieldInstruction = await customFieldHierarchyInstruction();
-        const repeatInstruction = `\n\n循环与提醒写入：使用任务工具 patch.repeatRule；普通循环用 completionTime 设置首次截止日期。按计划打卡使用 trigger=checkin，anchorDate 为计划起始日期，不写任务开始或截止日期；FSRS 间隔重复使用 type=fsrs，自动按完成触发并初始化复习状态。设置打卡或 FSRS 规则时不要写 done，实际打卡和评分使用任务原有入口。按现有语义识别的写入方式，循环日期与提醒分别判断。只有用户本轮明确提到“提醒”或“通知”才添加 patch.followReminder，时间本身不代表提醒意图；没有明确要求时不新增提醒，已有提醒随任务规则保留。明确需要提醒但未指定时间时使用默认 ${aiBridge()?.getDefaultReminderTime?.() || '08:00'}。不要直接编写 repeatState、repeatHistory 或 reminder；完成普通循环任务先读取 occurrenceId，写 done=true 时携带 expectedOccurrenceId。`;
-        const basePrompt = `${preset ? `${preset.prompt}\n\n用户请求：${userText}` : userText}${creationDestinationInstruction}${repeatInstruction}${reminderIntentInstruction(userText)}${customFieldInstruction}`;
+        const repeatInstruction = __tmT("ai.repeatAndReminderWritesUseTheTaskToolPatch", { value1: aiBridge()?.getDefaultReminderTime?.() || '08:00' });
+        const basePrompt = `${preset ? __tmT("ai.userRequest", { prompt: preset.prompt, userText: userText }) : userText}${creationDestinationInstruction}${repeatInstruction}${reminderIntentInstruction(userText)}${customFieldInstruction}`;
         const taskScopeSnapshot = currentViewSnapshot || selectedTaskSnapshot;
         const taskScopeLabel = currentViewSnapshot
-            ? (text(runtime.context.scope?.label) || '当前任务视图')
+            ? (text(runtime.context.scope?.label) || __tmT("ai.currentTaskView"))
             : (runtime.context.taskIDs.length && runtime.context.documentIDs.length
-                ? '已选任务与文档'
-                : (runtime.context.documentIDs.length ? '已选文档中的任务' : '已选任务'));
+                ? __tmT("ai.selectedTasksAndDocuments")
+                : (runtime.context.documentIDs.length ? __tmT("ai.tasksInSelectedDocuments") : __tmT("ai.selectedTasks")));
         const taskScopeCount = currentViewSnapshot
             ? Math.max(0, Number(currentViewSnapshot.visibleTaskCount ?? runtime.context.scope?.visibleTaskCount) || 0)
             : Math.max(0, Number(selectedTaskSnapshot?.taskCount) || 0);
         const taskScopeToken = text(taskScopeSnapshot?.scopeToken);
         const containerScopeToken = text(currentViewSnapshot?.containerScopeToken || taskScopeToken);
         const alternateScopeHint = currentViewSnapshot && containerScopeToken && containerScopeToken !== taskScopeToken
-            ? `用户要求当前界面以外的时间、完成状态、优先级或状态范围时，改用 containerScopeToken：${containerScopeToken}，并在 query_tasks.filters 中传 done、dateRange、overdue、priorities、customStatuses 或 includeVirtual；默认仍使用当前视图 scopeToken。`
+            ? __tmT("ai.whenTheUserAsksForTimeCompletionStatePriority", { containerScopeToken: containerScopeToken })
             : '';
         const virtualScheduleHint = Number(taskScopeSnapshot?.virtualTaskCount) > 0
-            ? `当前范围含循环虚拟实例。虚拟实例本身仍只读，不能更新、移动、删除或配置任务提醒；但可以为某次实例安排日程：使用 query_tasks 的 includeVirtual 查询实例，把其 repeatinst ID 作为 taskId，并把当前 scopeToken（${taskScopeToken}）传给 create_schedule 或重新关联它的 update_schedule。batch_schedules 与 apply_task_operation_plan 中每个关联虚拟实例的日程 create/update 操作也要各自携带该 scopeToken。只有修改来源任务本身时才改用 sourceTaskID。`
+            ? __tmT("ai.theCurrentRangeContainsRecurringVirtualInstancesVirtualInstances", { taskScopeToken: taskScopeToken })
             : '';
         const scopeHint = taskScopeSnapshot
             ? `\n\n当前任务范围（本轮实时）：${taskScopeLabel}；任务数：${taskScopeCount}；scopeToken：${taskScopeToken}。调用 query_tasks 时把该令牌放入 filters.scopeToken；调用 aggregate_task_stats 或 aggregate_time_usage 时放入顶层 scopeToken。${alternateScopeHint}${virtualScheduleHint}令牌代表完整范围，不要索取或复述全部任务 ID；明细按游标分页，统计直接使用聚合工具。若令牌过期，再调用 Task Horizon 的 get_task_view_context 前端动作获取新令牌；禁止复用之前轮次的范围。`
@@ -3639,8 +3642,8 @@
         runtime.busy = true;
         runtime.roundUndoIDs = [];
         runtime.conversationFollowBottom = true;
-        runtime.statusText = '智能体正在处理...';
-        runtime.live = { content: '', status: '正在连接', toolCalls: [], permissionMode: '', usage: null, retry: null };
+        runtime.statusText = __tmT("ai.agentprocessing");
+        runtime.live = { content: '', status: __tmT("ai.connecting"), toolCalls: [], permissionMode: '', usage: null, retry: null };
         runtime.abortController = new AbortController();
         rememberSession(runtime.activeSessionID);
         render();
@@ -3661,7 +3664,7 @@
                 message: prompt,
                 model: modelID,
                 reasoningEffort,
-                language: window.siyuan?.config?.appearance?.lang || 'zh_CN',
+                language: globalThis.__taskHorizonHostBridge.i18n.locale,
                 references: refs,
                 sessionID: runtime.activeSessionID,
                 editorContext,
@@ -3680,12 +3683,12 @@
                     return;
                 }
                 if (event.type === 'reasoning') {
-                    runtime.live.status = '正在推理';
+                    runtime.live.status = __tmT("ai.reasoning");
                     scheduleStreamRender();
                     return;
                 }
                 if (event.type === 'thinking') {
-                    runtime.live.status = text(event.reasoning) || '正在思考';
+                    runtime.live.status = text(event.reasoning) || __tmT("ai.thinking");
                     scheduleStreamRender();
                     return;
                 }
@@ -3719,8 +3722,8 @@
                         try {
                             await autoApproveImmediateWriteConfirm(event);
                             runtime.live.status = immediateKind === 'read'
-                                ? '正在读取任务数据'
-                                : (immediateKind === 'task-create' ? '正在新建任务' : '正在写入提醒');
+                                ? __tmT("ai.readingTaskData")
+                                : (immediateKind === 'task-create' ? __tmT("ai.creatingTask") : __tmT("ai.writingReminder"));
                         } catch (error) {
                             runtime.session.entries.push({ id: newID(), type: 'confirm', name: event.name, args: event.arguments, confirmID: event.confirmID, effects: event.effects, status: 'pending' });
                             runtime.live.status = '';
@@ -3752,14 +3755,14 @@
                         attempt: Math.max(1, Number(event.attempt) || 1),
                         maxRetries: Math.max(1, Number(event.maxRetries) || 1),
                     };
-                    runtime.live.status = '正在重新连接模型';
+                    runtime.live.status = __tmT("ai.reconnectingModel");
                 } else if (event.type === 'browser_capability_call') await invokeBrowserCapability(event);
                 else if (event.type === 'snapshot') {
                     settleLiveBeforeInteraction();
                     runtime.session.entries.push({ id: newID(), type: 'snapshot', snapshotID: event.snapshotID });
                 }
-                else if (event.type === 'error') throw new Error(text(event.message) || '智能体执行失败');
-                else if (event.type === 'interrupted') throw new Error(text(event.message) || '智能体响应已中断');
+                else if (event.type === 'error') throw new Error(text(event.message) || __tmT("ai.agentExecutionFailed"));
+                else if (event.type === 'interrupted') throw new Error(text(event.message) || __tmT("ai.agentResponseInterrupted"));
                 else if (event.type === 'done') {
                     turnID = text(event.turnID) || turnID;
                     runtime.live.status = '';
@@ -3797,7 +3800,7 @@
                         timestamp: Date.now(),
                     });
                 }
-                runtime.session.entries.push({ id: newID(), type: 'assistant', content: `请求失败：${text(error?.message || error)}`, timestamp: Date.now() });
+                runtime.session.entries.push({ id: newID(), type: 'assistant', content: __tmT("ai.requestFailed2", { value1: text(error?.message || error) }), timestamp: Date.now() });
             }
             if (!turnID) {
                 try { await saveSession(); } catch (saveError) {}
@@ -3815,7 +3818,7 @@
 
     function stop() {
         runtime.abortController?.abort?.();
-        runtime.statusText = '已停止';
+        runtime.statusText = __tmT("ai.stopped");
     }
 
     function applyPreset(id, draft) {
@@ -3865,7 +3868,7 @@
             taskIDs,
             documentIDs,
             scope: source.contextScope === 'current_group' || source.contextScope === 'current_view'
-                ? { type: source.contextScope, id: text(aiBridge()?.getCurrentGroupId?.()) || 'current', label: source.contextScope === 'current_group' ? '当前分区' : '当前任务视图' }
+                ? { type: source.contextScope, id: text(aiBridge()?.getCurrentGroupId?.()) || 'current', label: source.contextScope === 'current_group' ? __tmT("ai.currentGroup") : __tmT("ai.currentTaskView") }
                 : null,
         };
         if (runtime.context.scope) await syncCurrentViewContext();
@@ -4174,13 +4177,13 @@
                 else if (action === 'add-current-task') {
                     const taskID = text(aiBridge()?.getCurrentTaskId?.());
                     if (contextItemSelected('task', taskID)) removeContextItem('task', taskID);
-                    else addContextItem('task', taskID, '当前任务');
+                    else addContextItem('task', taskID, __tmT("ai.currentTask"));
                     render();
                 }
                 else if (action === 'add-current-document') {
                     const documentID = text(aiBridge()?.getCurrentDocId?.());
                     if (contextItemSelected('document', documentID)) removeContextItem('document', documentID);
-                    else addContextItem('document', documentID, '当前文档');
+                    else addContextItem('document', documentID, __tmT("ai.currentDocument"));
                     render();
                 }
                 else if (action === 'add-current-view') {
@@ -4223,7 +4226,7 @@
                         prompt: form?.elements?.prompt?.value,
                         starter: form?.elements?.starter?.value,
                     });
-                    if (!preset) { runtime.statusText = '预设名称和指令不能为空'; render(); return; }
+                    if (!preset) { runtime.statusText = __tmT("ai.presetNameAndInstructionsCannotBeEmpty"); render(); return; }
                     if (builtinID) {
                         saveBuiltinPresetOverride(builtinID, preset);
                     } else {
@@ -4273,22 +4276,22 @@
                 else if (action === 'copy-code-block') await copyCodeBlock(target);
                 else if (action === 'retry-failed') await retryFailedToolCall(id);
                 else if (action === 'enable-tools') await setToolsEnabled(true);
-                else if (action === 'refresh-capabilities') { runtime.statusText = '正在检测任务工具能力...'; render(); await getCapabilities(); runtime.statusText = ''; render(); }
+                else if (action === 'refresh-capabilities') { runtime.statusText = __tmT("ai.checkingTaskToolCapabilities"); render(); await getCapabilities(); runtime.statusText = ''; render(); }
                 else if (action === 'retry-skills') await syncBuiltinSkills();
                 else if (action === 'undo-last-mutation') {
                     target.disabled = true;
-                    runtime.statusText = '正在撤销...';
+                    runtime.statusText = __tmT("ai.undoing");
                     render();
                     try {
                         const result = await kernelCall('taskHorizonUndoLastMutation', { undoID: runtime.undoID });
                         await applyDomainResultEffects('undo_last_mutation', result);
                         clearUndoAvailability();
                         runtime.session.entries = Array.isArray(runtime.session.entries) ? runtime.session.entries : [];
-                        runtime.session.entries.push({ id: newID(), type: 'assistant', content: `已撤销：${text(result?.label) || '本次操作'}`, timestamp: Date.now() });
+                        runtime.session.entries.push({ id: newID(), type: 'assistant', content: __tmT("ai.undone", { value1: text(result?.label) || __tmT("ai.thisOperation") }), timestamp: Date.now() });
                         runtime.statusText = '';
                     } catch (error) {
                         if (['CONFLICT', 'NOT_FOUND'].includes(text(error?.code))) clearUndoAvailability();
-                        runtime.statusText = `撤销失败：${text(error?.message || error)}`;
+                        runtime.statusText = __tmT("ai.undoFailed", { value1: text(error?.message || error) });
                     }
                     render();
                 }
@@ -4325,7 +4328,7 @@
 
     async function testConnection() {
         await post('/lsSessions', { page: 1, pageSize: 1, keyword: '' });
-        aiBridge()?.hint?.('智能体连接正常', 'success');
+        aiBridge()?.hint?.(__tmT("ai.agentConnectionOk"), 'success');
         return true;
     }
 
@@ -4346,18 +4349,18 @@
             headers: agentHeaders(),
             body: JSON.stringify({ confirmID: text(event.confirmID), approved: true }),
         });
-        if (!response.ok) throw new Error(`定时智能体工具确认失败 (${response.status})`);
+        if (!response.ok) throw new Error(__tmT("ai.scheduledAgentToolConfirmationFailed", { status: response.status }));
     }
 
     async function answerAutomationQuestion(event) {
         const questionID = text(event.questionID || event.questionId || event.id);
-        if (!questionID) throw new Error('定时智能体提问缺少 questionID');
+        if (!questionID) throw new Error(__tmT("ai.scheduledAgentQuestionIsMissingQuestionid"));
         const response = await fetch(`${API_ROOT}/question`, {
             method: 'POST',
             headers: agentHeaders(),
             body: JSON.stringify({ questionID, answers: [] }),
         });
-        if (!response.ok) throw new Error(`定时智能体提问处理失败 (${response.status})`);
+        if (!response.ok) throw new Error(__tmT("ai.scheduledAgentQuestionHandlingFailed", { status: response.status }));
     }
 
     function scheduleAutomationSessionCleanup(sessionID) {
@@ -4371,7 +4374,7 @@
     function automationTitle(markdown, fallback) {
         const lines = String(markdown || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
         const heading = lines.find((line) => /^#{1,6}\s+/.test(line));
-        return text((heading || lines[0] || fallback || '定时事件结果').replace(/^#{1,6}\s+/, '').replace(/[*_`]/g, '')).slice(0, 120);
+        return text((heading || lines[0] || fallback || __tmT("settings.scheduledEventResult")).replace(/^#{1,6}\s+/, '').replace(/[*_`]/g, '')).slice(0, 120);
     }
 
     function sanitizeAutomationOutput(markdown) {
@@ -4384,7 +4387,7 @@
         await ensureStoreLoaded();
         const settings = aiBridge()?.getSettings?.() || {};
         if (settings.agentMcpEnabled === true && !await ensureTaskToolsReadyForSend()) {
-            throw new Error('任务工具正在恢复，本次定时事件尚未发起模型请求');
+            throw new Error(__tmT("ai.taskToolsAreBeingRestoredNoModelRequestWas"));
         }
         if (options.focusTools !== true) return true;
         let capabilities = await getCapabilities();
@@ -4407,18 +4410,18 @@
             } catch (error) {}
         }
         if (!focusToolsReady()) {
-            throw new Error('定时事件需要已暴露的专注 MCP 工具（query_focus_statistics、aggregate_time_usage；本轮完整 capability 名称带 plugin__siyuan_plugin_task_horizon__ 前缀和校验后缀）：请保持任务 MCP 工具开启，并在工具设置中启用“统计复盘”');
+            throw new Error(__tmT("ai.scheduledEventsNeedTheExposedFocusMcpToolsQuery"));
         }
         if (!runtime.skillSync.installed) {
             const sync = await syncBuiltinSkills();
-            if (!sync.installed) throw new Error(`任务工作流程同步失败：${text(sync.error) || '未知错误'}`);
+            if (!sync.installed) throw new Error(__tmT("ai.taskWorkflowSyncFailed", { value1: text(sync.error) || __tmT("plugin.unknownError") }));
         }
         return true;
     }
 
     async function runAutomation(request = {}) {
         const prompt = text(request.prompt || request.message);
-        if (!prompt) throw new Error('自动化提示词不能为空');
+        if (!prompt) throw new Error(__tmT("ai.automationPromptCannotBeEmpty"));
         const includeInternalPrompt = request.includeInternalPrompt !== false;
         const agentPrompt = includeInternalPrompt ? `${prompt}${automationSafetyInstruction()}` : prompt;
         await ensureAutomationTaskToolsReady({ focusTools: includeInternalPrompt && request.requireFocusTools === true });
@@ -4454,7 +4457,7 @@
                 contentRevision = prepared.revision;
                 await checkpointConversation(prepared.session);
             } catch (error) {
-                const failure = new Error(`智能体会话初始化失败：${text(error?.message || error) || '未知错误'}`);
+                const failure = new Error(__tmT("ai.failedToInitializeTheAgentConversation", { value1: text(error?.message || error) || __tmT("plugin.unknownError") }));
                 if (savedSession) Object.assign(failure, conversationState());
                 throw failure;
             }
@@ -4467,7 +4470,7 @@
         try {
             await client.chat({
                 message: agentPrompt,
-                language: window.siyuan?.config?.appearance?.lang || 'zh_CN',
+                language: globalThis.__taskHorizonHostBridge.i18n.locale,
                 references: [],
                 sessionID,
                 editorContext: {},
@@ -4500,12 +4503,12 @@
                     await invokeBrowserCapability(event);
                     return;
                 }
-                if (event.type === 'error') throw new Error(text(event.message) || '智能体执行失败');
-                if (event.type === 'interrupted') throw new Error(text(event.message) || '智能体响应已中断');
+                if (event.type === 'error') throw new Error(text(event.message) || __tmT("ai.agentExecutionFailed"));
+                if (event.type === 'interrupted') throw new Error(text(event.message) || __tmT("ai.agentResponseInterrupted"));
                 if (event.type === 'done') turnID = text(event.turnID) || turnID;
             }, controller.signal);
             const output = sanitizeAutomationOutput(markdown);
-            if (!output) throw new Error('智能体未返回内容');
+            if (!output) throw new Error(__tmT("settings.theAgentReturnedNoContent"));
             if (persistent) await checkpointConversation(await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: output, turnID }));
             return {
                 title: automationTitle(output, request.title),
@@ -4515,10 +4518,10 @@
             };
         } catch (error) {
             const reportedError = text(error?.message || error) === '网络异常，请稍后再试'
-                ? Object.assign(new Error('智能体请求失败：网络异常，请稍后再试'), { code: error?.code })
+                ? Object.assign(new Error(__tmT("ai.agentRequestFailedNetworkErrorTryAgainLater")), { code: error?.code })
                 : error;
             if (persistent) {
-                const failure = sanitizeAutomationOutput(markdown) || `执行失败：${text(reportedError?.message || reportedError) || '未知错误'}`;
+                const failure = sanitizeAutomationOutput(markdown) || __tmT("ai.executionFailed2", { value1: text(reportedError?.message || reportedError) || __tmT("plugin.unknownError") });
                 try {
                     await checkpointConversation(await finalizeAutomationConversation(sessionID, request.sessionTitle, { baseEntries, markdown: failure, turnID }));
                 } catch (saveError) {

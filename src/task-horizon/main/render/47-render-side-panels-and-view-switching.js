@@ -29,8 +29,8 @@
         const ts = __tmParseTimeToTs(String(dateKey || '').trim());
         if (!ts) return String(dateKey || '');
         const d = new Date(ts);
-        const week = ['日', '一', '二', '三', '四', '五', '六'];
-        return `${d.getMonth() + 1}月${d.getDate()}日 周${week[d.getDay()]}`;
+        const week = [__tmT('date.weekday.short.0'), __tmT('date.weekday.short.1'), __tmT('date.weekday.short.2'), __tmT('date.weekday.short.3'), __tmT('date.weekday.short.4'), __tmT('date.weekday.short.5'), __tmT('date.weekday.short.6')];
+        return __tmT("date.monthDayWeekday", { value1: d.getMonth() + 1, value2: d.getDate(), value3: week[d.getDay()] });
     }
 
     function __tmSetCalendarSideDockDragHidden(hidden) {
@@ -113,19 +113,19 @@
         if (!(timelineRoot instanceof HTMLElement)) return;
         const ensureCalendarAssets = globalThis.__taskHorizonEnsureCalendarAssets;
         if (!globalThis.__tmCalendar && typeof ensureCalendarAssets === 'function') {
-            timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历模块加载中...</div>`;
+            timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">${__tmT("task.calendarModuleLoading")}</div>`;
             Promise.resolve().then(() => ensureCalendarAssets()).then(() => {
                 if (state.calendarSideDockMountToken !== token) return;
                 if (!root.isConnected || (state.modal && !state.modal.contains(root))) return;
                 if (!__tmShouldShowCalendarSideDock()) return;
                 __tmCalendarDockMount(0, token);
             }).catch(() => {
-                if (timelineRoot.isConnected) timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历模块加载失败。</div>`;
+                if (timelineRoot.isConnected) timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">${__tmT("task.failedToLoadTheCalendarModule")}</div>`;
             });
             return;
         }
         if (!globalThis.__tmCalendar || typeof globalThis.__tmCalendar.mountSideDayTimeline !== 'function') {
-            timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历模块加载中...</div>`;
+            timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">${__tmT("task.calendarModuleLoading")}</div>`;
             if (attempt < 80) {
                 try {
                     setTimeout(() => {
@@ -138,13 +138,13 @@
                     }, attempt < 8 ? 80 : 160);
                 } catch (e) {}
             } else {
-                timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历模块未加载。</div>`;
+                timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">${__tmT("task.calendarModuleIsNotLoaded")}</div>`;
             }
             return;
         }
         const ok = __tmCalendarDockMountTimeline(timelineRoot);
         if (!ok) {
-            timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">日历初始化失败。</div>`;
+            timelineRoot.innerHTML = `<div class="tm-calendar-dock-message">${__tmT("task.calendarInitializationFailed")}</div>`;
             return;
         }
         if (state.calendarSideDockMountToken === token) state.calendarSideDockMountToken = '';
@@ -322,7 +322,7 @@
 
     window.tmToggleAiSideDock = async function(enabled) {
         const next = (typeof enabled === 'boolean') ? enabled : !SettingsStore.data.aiSideDockEnabled;
-        if (next && typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-workbench', 'AI 工作台')) return false;
+        if (next && typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-workbench', __tmT("ai.aiWorkbench"))) return false;
         SettingsStore.data.aiSideDockEnabled = !!next;
         try { await SettingsStore.save(); } catch (e) {}
         if (!next) {
@@ -366,17 +366,17 @@
     window.tmMultiSelectSendToAi = async function() {
         const taskIds = __tmGetMultiSelectedTaskIds();
         if (!taskIds.length) {
-            try { hint('请先选择任务', 'info'); } catch (e) {}
+            try { hint(__tmT("task.selectTasksFirst"), 'info'); } catch (e) {}
             return false;
         }
         return await window.tmOpenAiSidebar({
             selectedTaskIds: taskIds,
-            draft: `请基于这 ${taskIds.length} 个已选任务继续处理：`,
+            draft: __tmT("task.continueWithTheseSelectedTasks", { length: taskIds.length }),
         });
     };
 
     window.tmOpenAiSidebar = async function(payload) {
-        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-workbench', 'AI 工作台')) return false;
+        if (typeof window.tmRequireFullFeature === 'function' && !window.tmRequireFullFeature('ai-workbench', __tmT("ai.aiWorkbench"))) return false;
         if (SettingsStore.data.aiSideDockEnabled !== true) {
             SettingsStore.data.aiSideDockEnabled = true;
             try { await SettingsStore.save(); } catch (e) {}
@@ -600,18 +600,18 @@
         if (mode === 'whiteboard' && scene?.showWhiteboardAllTabsModeToggle) {
             return __tmRenderTopbarSelect({
                 id: 'tmTopbarWhiteboardLayoutSelect',
-                label: '白板模式',
+                label: __tmT("task.whiteboardMode"),
                 className: 'tm-kanban-mode-select tm-topbar-select--narrow',
-                tooltip: '切换白板模式',
+                tooltip: __tmT("task.switchToWhiteboardMode"),
                 options: __tmBuildWhiteboardLayoutMenuOptions(scene.whiteboardAllTabsLayoutMode),
             });
         }
         if (mode !== 'kanban') return '';
         return __tmRenderTopbarSelect({
             id: 'tmTopbarKanbanModeSelect',
-            label: '看板模式',
+            label: __tmT("task.kanbanMode"),
             className: 'tm-kanban-mode-select tm-topbar-select--narrow',
-            tooltip: '切换看板模式',
+            tooltip: __tmT("task.switchToKanbanMode"),
             options: __tmBuildKanbanModeMenuOptions(),
         });
     }
@@ -767,36 +767,36 @@
         if (!(root instanceof HTMLElement)) return false;
         const ensureCalendarAssets = globalThis.__taskHorizonEnsureCalendarAssets;
         if (!globalThis.__tmCalendar && typeof ensureCalendarAssets === 'function') {
-            root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块加载中...</div>`;
+            root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">${__tmT("task.calendarModuleLoading")}</div>`;
             Promise.resolve().then(() => ensureCalendarAssets()).then(() => {
                 if (!root.isConnected || (state.modal && !state.modal.contains(root))) return;
                 __tmMountCalendarViewRoot(modal, opts);
             }).catch(() => {
-                if (root.isConnected) root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块加载失败。</div>`;
+                if (root.isConnected) root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">${__tmT("task.failedToLoadTheCalendarModule")}</div>`;
             });
             return true;
         }
         const mount = (attempt = 0) => {
             if (!root.isConnected || (state.modal && !state.modal.contains(root))) return;
             if (!SettingsStore.data.calendarEnabled) {
-                root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历视图已关闭，可在设置 → 日历中开启。</div>`;
+                root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">${__tmT("task.theCalendarViewIsDisabledEnableItInSettings")}</div>`;
                 return;
             }
             if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.mount === 'function') {
                 const ok = globalThis.__tmCalendar.mount(root, { settingsStore: SettingsStore });
                 if (!ok) {
-                    root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败，请确认日历引擎已加载。</div>`;
+                    root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">${__tmT("task.calendarInitializationFailedMakeSureTheCalendarEngineIs")}</div>`;
                     return;
                 }
                 try { opts.onMounted?.(modal.querySelector('#tmCalendarRoot')); } catch (e) {}
                 return;
             }
             if (attempt >= 80) {
-                root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块未加载。</div>`;
+                root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">${__tmT("task.calendarModuleIsNotLoaded")}</div>`;
                 return;
             }
             if (attempt === 0) {
-                root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块加载中...</div>`;
+                root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">${__tmT("task.calendarModuleLoading")}</div>`;
             }
             try { setTimeout(() => mount(attempt + 1), attempt < 8 ? 80 : 160); } catch (e) {}
         };

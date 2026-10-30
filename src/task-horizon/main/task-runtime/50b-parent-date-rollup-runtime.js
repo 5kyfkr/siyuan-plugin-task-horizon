@@ -14,7 +14,7 @@
             });
             __tmDispatchTaskAttrPatchUpdated(id, update.patch, { source: 'date-rollup' });
         }
-        if (receipt?.dateRollupError) hint(`父任务日期汇总失败：${receipt.dateRollupError}`, 'error');
+        if (receipt?.dateRollupError) hint(__tmT("task.parentTaskDateRollUpFailed", { dateRollupError: receipt.dateRollupError }), 'error');
     }
     globalThis.__tmApplyDateRollupReceipt = __tmApplyDateRollupReceipt;
 
@@ -28,7 +28,7 @@
             while (__tmDateRollupDirtyDocuments.size) {
                 const documentIDs = Array.from(__tmDateRollupDirtyDocuments);
                 __tmDateRollupDirtyDocuments.clear();
-                await __tmExecuteTaskCommandGateway({ action: 'reconcileDates', documentIDs }, '父任务日期汇总');
+                await __tmExecuteTaskCommandGateway({ action: 'reconcileDates', documentIDs }, __tmT("task.parentTaskDateRollUp"));
             }
         }).catch(error => {
             console.warn('[task-horizon] date-rollup-refresh-failed', error);
@@ -37,22 +37,22 @@
     globalThis.__tmScheduleDateRollupReconcile = __tmScheduleDateRollupReconcile;
 
     window.tmSetTaskDateMode = async function(taskId, mode) {
-        if (!['manual', 'rollup'].includes(mode)) throw new Error('日期模式无效');
+        if (!['manual', 'rollup'].includes(mode)) throw new Error(__tmT("task.invalidDateMode"));
         // Capture the whole transition for one undo, including the dates replaced
         // by enabling rollup. Derived updates themselves never create undo items.
         const task = await __tmReadTaskMutationBaseline(taskId);
-        if (!task) throw new Error('未找到任务');
+        if (!task) throw new Error(__tmT("kernel.noTaskFound"));
         const inversePatch = {
             dateMode: globalThis.__tmIsTaskDateRollup(task) ? 'rollup' : 'manual',
             startDate: String(task.startDate || task.start_date || ''),
             completionTime: String(task.completionTime || task.completion_time || ''),
         };
         const result = await __tmApplyTaskMetaPatchWithUndo(taskId, { dateMode: mode }, {
-            source: 'task-date-mode', label: '日期模式', wait: true,
+            source: 'task-date-mode', label: __tmT("kernel.dateMode"), wait: true,
             renderOptimistic: false, recordUndo: false, showErrorHint: false,
         });
         const current = await __tmReadTaskMutationBaseline(taskId);
-        if (!current) throw new Error('日期模式已保存，但任务回读失败，请刷新后查看');
+        if (!current) throw new Error(__tmT("task.dateModeSavedButTheTaskCouldNotBe"));
         const patch = { dateMode: mode, startDate: String(current?.startDate || current?.start_date || ''),
             completionTime: String(current?.completionTime || current?.completion_time || '') };
         __tmApplyAttrPatchLocally(taskId, patch, { render: false, source: 'task-date-mode' });
@@ -60,7 +60,7 @@
             docId: task.root_id || task.docId, source: 'task-date-mode', patch });
         __tmDispatchTaskAttrPatchUpdated(taskId, patch, { source: 'task-date-mode' });
         if (!__tmUndoState.applying && result?.changed !== false) {
-            __tmPushUndoRecord({ type: 'taskPatch', taskId, patch, inversePatch, label: '日期模式', source: 'task-date-mode' });
+            __tmPushUndoRecord({ type: 'taskPatch', taskId, patch, inversePatch, label: __tmT("kernel.dateMode"), source: 'task-date-mode' });
         }
         return { ...task, ...current, ...patch, date_mode: mode,
             start_date: patch.startDate, completion_time: patch.completionTime };

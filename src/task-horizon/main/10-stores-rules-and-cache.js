@@ -118,7 +118,7 @@
     const __TM_DOC_EXPAND_CACHE_TTL_MS = 10 * 60 * 1000;
     const __TM_RESOLVED_DOC_IDS_CACHE_TTL_MS = 10 * 60 * 1000;
     const __TM_OTHER_BLOCK_TAB_ID = '__tm_other_blocks__';
-    const __TM_OTHER_BLOCK_TAB_NAME = '其他块';
+    const __TM_OTHER_BLOCK_TAB_NAME = __tmT("task.otherBlocks");
     const WHITEBOARD_DATA_CACHE_KEY = 'tm_whiteboard_data_cache';
     const __TM_QUICK_ADD_RECENT_DOCS_KEY = 'tm_quick_add_recent_docs';
     const __TM_QUICK_ADD_LAST_LOCATION_KEY = 'tm_quick_add_last_location';
@@ -178,26 +178,26 @@
     const __TM_TASK_ATTACHMENT_TABLE_PREVIEW_LIMIT = 2;
     const __TM_CUSTOM_FIELD_COLOR_PRESETS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316'];
     const __TM_STATUS_COLOR_PALETTE_GROUPS = [
-        { id: 'macaron', label: '马卡龙色系', colors: ['#F78A8A', '#F7B9A6', '#FAD79A', '#BFDCCF', '#67C0D4', '#6A9EE8', '#B18AE6', '#EC6FAE'] },
-        { id: 'morandi', label: '莫兰迪色系', colors: ['#D57A63', '#F7C27A', '#DAD85A', '#A5C8B9', '#76C5CF', '#7FA2DA', '#A489C5', '#C779A0'] },
-        { id: 'rococo', label: '洛可可色系', colors: ['#C57B76', '#E58F27', '#E8CE75', '#7AAD94', '#5FB59E', '#4D8CC8', '#7F88B0', '#D08B93'] },
-        { id: 'classic', label: '经典色系', colors: ['#F15B5D', '#F7AC39', '#FFD35A', '#DDE23C', '#55C99A', '#499CE7', '#BF58EC', '#E668A6'] },
-        { id: 'memphis', label: '孟菲斯色系', colors: ['#FF2A21', '#FF7A52', '#FFCD57', '#12CFB3', '#38B5C8', '#7D59F0', '#BE72F0', '#EB59C0'] },
+        { id: 'macaron', label: __tmT("task.macaronPalette"), colors: ['#F78A8A', '#F7B9A6', '#FAD79A', '#BFDCCF', '#67C0D4', '#6A9EE8', '#B18AE6', '#EC6FAE'] },
+        { id: 'morandi', label: __tmT("task.morandiPalette"), colors: ['#D57A63', '#F7C27A', '#DAD85A', '#A5C8B9', '#76C5CF', '#7FA2DA', '#A489C5', '#C779A0'] },
+        { id: 'rococo', label: __tmT("task.rococoPalette"), colors: ['#C57B76', '#E58F27', '#E8CE75', '#7AAD94', '#5FB59E', '#4D8CC8', '#7F88B0', '#D08B93'] },
+        { id: 'classic', label: __tmT("task.classicPalette"), colors: ['#F15B5D', '#F7AC39', '#FFD35A', '#DDE23C', '#55C99A', '#499CE7', '#BF58EC', '#E668A6'] },
+        { id: 'memphis', label: __tmT("task.memphisPalette"), colors: ['#FF2A21', '#FF7A52', '#FFCD57', '#12CFB3', '#38B5C8', '#7D59F0', '#BE72F0', '#EB59C0'] },
     ];
     const __TM_TASK_META_ATTR_FIELDS = Object.freeze([
-        { field: 'priority', label: '重要性', defaultKey: 'custom-priority', sqlAlias: 'custom_priority' },
-        { field: 'customStatus', label: '状态', defaultKey: 'custom-status', sqlAlias: 'custom_status' },
-        { field: 'startDate', label: '开始日期', defaultKey: 'custom-start-date', sqlAlias: 'start_date', visibleDate: true, mirror: true },
-        { field: 'completionTime', label: '截止日期', defaultKey: 'custom-completion-time', sqlAlias: 'completion_time', visibleDate: true, mirror: true },
-        { field: 'dateMode', label: '日期模式', defaultKey: 'custom-task-date-mode', sqlAlias: 'date_mode' },
-        { field: 'taskCompleteAt', label: '完成时间', defaultKey: 'custom-task-complete-at', sqlAlias: 'task_complete_at' },
-        { field: 'duration', label: '时长', defaultKey: 'custom-duration', sqlAlias: 'duration' },
-        { field: 'remark', label: '备注', defaultKey: 'custom-remark', sqlAlias: 'remark' },
-        { field: 'taskDateColor', label: '任务日期颜色', defaultKey: 'custom-task-date-color', sqlAlias: 'task_date_color', mirror: true },
-        { field: 'customTime', label: '自定义时间', defaultKey: 'custom-time', sqlAlias: 'custom_time', visibleDate: true, mirror: true },
-        { field: 'milestone', label: '里程碑', defaultKey: 'custom-milestone-event', sqlAlias: 'milestone' },
-        { field: 'pinned', label: '置顶', defaultKey: 'custom-pinned', sqlAlias: 'pinned' },
-        { field: 'allDayBottom', label: '全天置底', defaultKey: 'custom-all-day-bottom', sqlAlias: 'custom_all_day_bottom' },
+        { field: 'priority', label: __tmT("kernel.importance"), defaultKey: 'custom-priority', sqlAlias: 'custom_priority' },
+        { field: 'customStatus', label: __tmT("kernel.status"), defaultKey: 'custom-status', sqlAlias: 'custom_status' },
+        { field: 'startDate', label: __tmT("kernel.startDate"), defaultKey: 'custom-start-date', sqlAlias: 'start_date', visibleDate: true, mirror: true },
+        { field: 'completionTime', label: __tmT("kernel.dueDate"), defaultKey: 'custom-completion-time', sqlAlias: 'completion_time', visibleDate: true, mirror: true },
+        { field: 'dateMode', label: __tmT("kernel.dateMode"), defaultKey: 'custom-task-date-mode', sqlAlias: 'date_mode' },
+        { field: 'taskCompleteAt', label: __tmT("kernel.completionTime"), defaultKey: 'custom-task-complete-at', sqlAlias: 'task_complete_at' },
+        { field: 'duration', label: __tmT("task.duration"), defaultKey: 'custom-duration', sqlAlias: 'duration' },
+        { field: 'remark', label: __tmT("kernel.note"), defaultKey: 'custom-remark', sqlAlias: 'remark' },
+        { field: 'taskDateColor', label: __tmT("kernel.taskDateColor"), defaultKey: 'custom-task-date-color', sqlAlias: 'task_date_color', mirror: true },
+        { field: 'customTime', label: __tmT("kernel.customTime"), defaultKey: 'custom-time', sqlAlias: 'custom_time', visibleDate: true, mirror: true },
+        { field: 'milestone', label: __tmT("kernel.milestone"), defaultKey: 'custom-milestone-event', sqlAlias: 'milestone' },
+        { field: 'pinned', label: __tmT("kernel.pin"), defaultKey: 'custom-pinned', sqlAlias: 'pinned' },
+        { field: 'allDayBottom', label: __tmT("kernel.allDayBottom"), defaultKey: 'custom-all-day-bottom', sqlAlias: 'custom_all_day_bottom' },
     ]);
     const __TM_TASK_META_ATTR_FIELD_MAP = new Map(__TM_TASK_META_ATTR_FIELDS.map((def) => [def.field, def]));
     const __TM_TASK_META_ATTR_DEFAULT_KEY_MAP = new Map(__TM_TASK_META_ATTR_FIELDS.map((def) => [def.defaultKey, def.field]));
@@ -454,17 +454,17 @@
     function __tmGetTaskMetaAttrReservedReason(attrKey, field = '') {
         const key = String(attrKey || '').trim();
         const ownerField = String(field || '').trim();
-        if (!key) return '属性名为空';
+        if (!key) return __tmT("task.attributeNameIsEmpty");
         const defaultOwner = __TM_TASK_META_ATTR_DEFAULT_KEY_MAP.get(key);
-        if (defaultOwner && defaultOwner !== ownerField) return `内置字段“${__tmGetTaskMetaAttrLabel(defaultOwner, defaultOwner)}”`;
+        if (defaultOwner && defaultOwner !== ownerField) return __tmT("task.builtInField", { value1: __tmGetTaskMetaAttrLabel(defaultOwner, defaultOwner) });
         for (const def of __TM_TASK_META_ATTR_FIELDS) {
             if (def.field === ownerField) continue;
-            if (__tmGetTaskMetaAttrKey(def.field) === key) return `内置字段“${__tmGetTaskMetaAttrLabel(def.field, def.field)}”`;
+            if (__tmGetTaskMetaAttrKey(def.field) === key) return __tmT("task.builtInField", { value1: __tmGetTaskMetaAttrLabel(def.field, def.field) });
         }
-        if (key.startsWith(__TM_CUSTOM_FIELD_ATTR_PREFIX)) return '自定义列';
-        if (key.startsWith(__TM_TASK_ATTACHMENT_ATTR_PREFIX) || key === __TM_TASK_ATTACHMENT_META_ATTR) return '附件';
-        if (key === 'custom-task-repeat-rule' || key === 'custom-task-repeat-state' || key === 'custom-task-repeat-history') return '循环任务';
-        if (key === 'bookmark' || key === 'custom-reminder' || key === 'custom-tomato-reminder') return '书签或提醒';
+        if (key.startsWith(__TM_CUSTOM_FIELD_ATTR_PREFIX)) return __tmT("task.customColumn");
+        if (key.startsWith(__TM_TASK_ATTACHMENT_ATTR_PREFIX) || key === __TM_TASK_ATTACHMENT_META_ATTR) return __tmT("task.attachment");
+        if (key === 'custom-task-repeat-rule' || key === 'custom-task-repeat-state' || key === 'custom-task-repeat-history') return __tmT("calendar.recurringTask");
+        if (key === 'bookmark' || key === 'custom-reminder' || key === 'custom-tomato-reminder') return __tmT("task.bookmarkOrReminder");
         const tomatoKeys = new Set([
             'custom-tomato-minutes',
             'custom-tomato-time',
@@ -475,13 +475,13 @@
             String(__tmGetTaskMetaAttrSettingsData().tomatoCountAttrKey || '').trim(),
             String(__tmGetTaskMetaAttrSettingsData().tomatoEstimateAttrKey || '').trim(),
         ].filter(Boolean));
-        if (tomatoKeys.has(key)) return '番茄钟';
+        if (tomatoKeys.has(key)) return __tmT("task.pomodoro");
         try {
             if (typeof __tmGetCustomFieldDefs === 'function') {
                 const defs = __tmGetCustomFieldDefs();
                 for (const def of defs) {
                     const storageKey = __tmBuildCustomFieldAttrStorageKey(def?.attrKey || def?.id || def?.name || 'field', def?.id || 'field');
-                    if (storageKey === key) return '自定义列';
+                    if (storageKey === key) return __tmT("task.customColumn");
                 }
             }
         } catch (e) {}
@@ -497,14 +497,14 @@
             const raw = Object.prototype.hasOwnProperty.call(source, def.field) ? source[def.field] : __tmGetTaskMetaAttrKey(def.field);
             const key = String(raw || '').trim() || def.defaultKey;
             if (!__TM_TASK_META_ATTR_SAFE_KEY_RE.test(key)) {
-                errors.push(`${def.label}：属性名必须以 custom- 开头，且只能包含英文、数字、下划线或连字符`);
+                errors.push(__tmT("task.theAttributeNameMustStartWithCustomAndMay", { label: def.label }));
                 return;
             }
             const reservedReason = __tmGetTaskMetaAttrReservedReason(key, def.field);
-            if (reservedReason) errors.push(`${def.label}：${key} 已被${reservedReason}占用`);
+            if (reservedReason) errors.push(__tmT("task.isAlreadyTakenBy", { label: def.label, key: key, reservedReason: reservedReason }));
             const existed = seen.get(key);
             if (existed && existed !== def.field) {
-                errors.push(`${def.label}：${key} 与“${__tmGetTaskMetaAttrLabel(existed, existed)}”重复`);
+                errors.push(__tmT("task.duplicates", { label: def.label, key: key, value3: __tmGetTaskMetaAttrLabel(existed, existed) }));
             }
             seen.set(key, def.field);
             keys[def.field] = key;
@@ -538,7 +538,7 @@
 
     function __tmGetTomatoCountDisplay(value) {
         const normalized = __tmNormalizeActualTomatoCountValue(value);
-        return normalized ? `番茄 ${normalized}` : '';
+        return normalized ? __tmT("quickbar.pomodoro", { normalized: normalized }) : '';
     }
 
     function __tmGetTaskTomatoEstimateCount(task) {
@@ -677,7 +677,7 @@
     }
 
     function __tmCollectFixedDateColumnTexts(colKey) {
-        const out = [colKey === 'startDate' ? '开始日期' : '截止日期', '2026-04-29'];
+        const out = [colKey === 'startDate' ? __tmT("kernel.startDate") : __tmT("kernel.dueDate"), '2026-04-29'];
         try {
             const tasks = globalThis.__tmRuntimeState?.getFlatTasks?.() || null;
             if (tasks && typeof tasks === 'object') {
@@ -699,7 +699,7 @@
         const colKey = String(column || '').trim();
         const bodyInfo = __tmBuildDateColumnMeasureInfo(colKey, 'body');
         const headerInfo = __tmBuildDateColumnMeasureInfo(colKey, 'header');
-        const headerText = colKey === 'startDate' ? '开始日期' : '截止日期';
+        const headerText = colKey === 'startDate' ? __tmT("kernel.startDate") : __tmT("kernel.dueDate");
         const bodyTexts = __tmCollectFixedDateColumnTexts(colKey);
         const bodyTextSig = bodyTexts.join('\u001f');
         const cacheKey = [
@@ -886,12 +886,12 @@
     function __tmGetTaskAttachmentBlockTypeLabel(type, subtype) {
         const t = String(type || '').trim().toLowerCase();
         const st = String(subtype || '').trim().toLowerCase();
-        if (t === 'd') return '文档链接';
-        if (t === 'h') return '标题链接';
-        if (t === 'p') return '段落链接';
-        if (t === 'i' && st === 't') return '任务块链接';
-        if (t === 'i' || t === 'l') return '列表块链接';
-        return '块链接';
+        if (t === 'd') return __tmT("task.documentLink");
+        if (t === 'h') return __tmT("task.headingLink");
+        if (t === 'p') return __tmT("task.paragraphLink");
+        if (t === 'i' && st === 't') return __tmT("task.taskBlockLink");
+        if (t === 'i' || t === 'l') return __tmT("task.listBlockLink");
+        return __tmT("task.blockLink");
     }
 
     function __tmGetTaskAttachmentBlockMeta(blockId) {
@@ -913,11 +913,11 @@
         const label = __tmGetTaskAttachmentBlockThumbLabel(type, subtype);
         const typeLabel = __tmGetTaskAttachmentBlockTypeLabel(type, subtype);
         const name = rawContent
-            || (isDocBlock ? (docName || '未命名文档') : '')
-            || `块链接 ${normalizedId.slice(0, 8)}`;
+            || (isDocBlock ? (docName || __tmT("kernel.untitledDocument")) : '')
+            || __tmT("task.blockLink2", { value1: normalizedId.slice(0, 8) });
         const displayPath = isDocBlock
-            ? (docPath || docName || `文档 ID: ${normalizedId}`)
-            : ([docName, docPath].filter(Boolean).join(' · ') || `块 ID: ${normalizedId}`);
+            ? (docPath || docName || __tmT("task.documentsId", { normalizedId: normalizedId }))
+            : ([docName, docPath].filter(Boolean).join(' · ') || __tmT("task.blockId", { normalizedId: normalizedId }));
         const meta = {
             id: normalizedId,
             type,
@@ -1031,7 +1031,7 @@
     function __tmGetTaskAttachmentDisplayName(path) {
         const blockId = __tmExtractTaskAttachmentBlockId(path);
         if (blockId) {
-            return __tmGetTaskAttachmentBlockMeta(blockId)?.name || `块链接 ${blockId.slice(0, 8)}`;
+            return __tmGetTaskAttachmentBlockMeta(blockId)?.name || __tmT("task.blockLink2", { value1: blockId.slice(0, 8) });
         }
         const localDisplayPath = __tmGetTaskAttachmentLocalDisplayPath(path);
         if (localDisplayPath) {
@@ -1196,8 +1196,8 @@
             const blockId = __tmExtractTaskAttachmentBlockId(path);
             if (blockId) {
                 const meta = __tmGetTaskAttachmentBlockMeta(blockId);
-                const name = meta?.name || `块链接 ${blockId.slice(0, 8)}`;
-                const displayPath = meta?.displayPath || `块 ID: ${blockId}`;
+                const name = meta?.name || __tmT("task.blockLink2", { value1: blockId.slice(0, 8) });
+                const displayPath = meta?.displayPath || __tmT("task.blockId2", { blockId: blockId });
                 return {
                     index,
                     path,
@@ -1206,7 +1206,7 @@
                     label: meta?.label || 'REF',
                     kind: 'block-ref',
                     displayPath,
-                    tooltip: [meta?.typeLabel || '块链接', name, displayPath].filter(Boolean).join('\n'),
+                    tooltip: [meta?.typeLabel || __tmT("task.blockLink"), name, displayPath].filter(Boolean).join('\n'),
                     blockId,
                     blockType: String(meta?.type || '').trim(),
                     blockSubtype: String(meta?.subtype || '').trim(),
@@ -2634,7 +2634,7 @@
             if (tasks.length || cached.inTaskTree !== false) {
                 taskTree.push({
                     id: docId,
-                    name: String(cached.name || '').trim() || '未命名文档',
+                    name: String(cached.name || '').trim() || __tmT("kernel.untitledDocument"),
                     alias: __tmNormalizeDocAliasValue(cached.alias),
                     icon: __tmNormalizeDocIconValue(cached.icon),
                     created: String(cached.created || '').trim(),
@@ -3885,7 +3885,7 @@
             blockPath: String(item.blockPath || item.block_path || '').trim(),
             doc_name: String(item.rawDocName || item.docName || docEntry?.name || '').trim(),
             rawDocName: String(item.rawDocName || item.docName || docEntry?.name || '').trim(),
-            docName: String(item.docName || item.rawDocName || docEntry?.name || '').trim() || '未命名文档',
+            docName: String(item.docName || item.rawDocName || docEntry?.name || '').trim() || __tmT("kernel.untitledDocument"),
             markdown,
             raw_content: content,
             content,
@@ -4407,7 +4407,7 @@
             if (!tasks.length && entry.inTaskTree === false) return;
             out.push({
                 id: docId,
-                name: String(entry.name || '').trim() || '未命名文档',
+                name: String(entry.name || '').trim() || __tmT("kernel.untitledDocument"),
                 alias: __tmNormalizeDocAliasValue(entry.alias),
                 icon: __tmNormalizeDocIconValue(entry.icon),
                 created: String(entry.created || '').trim(),
@@ -5147,7 +5147,7 @@
 
     function __tmNormalizeWhiteboardFrameName(value) {
         const text = String(value || '').replace(/\s+/g, ' ').trim();
-        return (text || '分组').slice(0, 48);
+        return (text || __tmT("task.group")).slice(0, 48);
     }
 
     function __tmNormalizeWhiteboardFrameBackgroundColor(value) {
@@ -5638,8 +5638,8 @@
 
     function __tmGetTaskHeadingColumnLabel() {
         const level = String(SettingsStore?.data?.taskHeadingLevel || 'h2').trim() || 'h2';
-        const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-        return labels[level] || '标题';
+        const labels = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+        return labels[level] || __tmT("calendar.title");
     }
 
     function __tmNormalizeCustomFieldId(raw, fallback = '') {
@@ -5714,7 +5714,7 @@
             { id: 'remark', name: '备注' },
             ...__tmGetCustomFieldDefs()
                 .filter((field) => field.enabled !== false && field.type === 'text')
-                .map((field) => ({ id: `customField:${field.id}`, name: field.name || '文本列' })),
+                .map((field) => ({ id: `customField:${field.id}`, name: field.name || __tmT("task.textColumns") })),
         ];
     }
 
@@ -6063,7 +6063,7 @@
                 if (!colors.length) return null;
                 return {
                     id: String(group?.id || `status-palette-${groupIndex + 1}`).trim() || `status-palette-${groupIndex + 1}`,
-                    label: String(group?.label || `色系 ${groupIndex + 1}`).trim() || `色系 ${groupIndex + 1}`,
+                    label: String(group?.label || __tmT("task.palette", { value1: groupIndex + 1 })).trim() || __tmT("task.palette", { value1: groupIndex + 1 }),
                     colors,
                 };
             })
@@ -6082,16 +6082,16 @@
         return {
             defaultColor: normalizedDefault,
             paletteGroups: __tmGetStatusColorPaletteGroups(),
-            customSectionLabel: '自定义颜色',
+            customSectionLabel: __tmT("task.customColor"),
             pickLabel: '+',
-            formatHint: '支持 HEX、RGBA、HSL/HSLA、透明色 transparent、var(--token) 等格式',
+            formatHint: __tmT("task.supportsHexRgbaHslHslaTheTransparentColorVar"),
             ...extra,
         };
     }
 
     function __tmNormalizeCustomFieldOption(option, index = 0, seenIds = null) {
         const source = (option && typeof option === 'object') ? option : {};
-        const baseName = String(source.name || source.label || '').trim() || `选项${index + 1}`;
+        const baseName = String(source.name || source.label || '').trim() || __tmT("quickbar.option", { value1: index + 1 });
         let id = __tmNormalizeCustomFieldId(source.id || baseName, `option-${index + 1}`);
         const seen = seenIds instanceof Set ? seenIds : new Set();
         let dedupe = 2;
@@ -6320,7 +6320,7 @@
 
     function __tmNormalizeCustomFieldDef(field, index = 0, seenIds = null, seenAttrKeys = null) {
         const source = (field && typeof field === 'object') ? field : {};
-        const name = String(source.name || source.label || '').trim() || `自定义列${index + 1}`;
+        const name = String(source.name || source.label || '').trim() || __tmT("quickbar.customColumn", { value1: index + 1 });
         let id = __tmNormalizeCustomFieldId(source.id || name, `field-${index + 1}`);
         const seen = seenIds instanceof Set ? seenIds : new Set();
         let dedupe = 2;
@@ -6825,10 +6825,10 @@
         Promise.resolve().then(async () => {
             try {
                 const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                 await patchTask(tid, { customFieldValues: patch }, {
                     source: 'custom-field-attr-backfill',
-                    label: '自定义字段迁移',
+                    label: __tmT("task.customFieldMigration"),
                     wait: true,
                     background: false,
                     optimistic: false,
@@ -6919,20 +6919,20 @@
     function __tmResolveColumnLabel(key) {
         const raw = String(key || '').trim();
         if (!raw) return '';
-        if (raw === 'pinned') return '置顶';
-        if (raw === 'content') return '任务内容';
-        if (raw === 'status') return '状态';
-        if (raw === 'score') return '优先级分值';
-        if (raw === 'doc') return '文档';
+        if (raw === 'pinned') return __tmT("kernel.pin");
+        if (raw === 'content') return __tmT("task.taskContent");
+        if (raw === 'status') return __tmT("kernel.status");
+        if (raw === 'score') return __tmT("task.priorityScore");
+        if (raw === 'doc') return __tmT("kernel.documents");
         if (raw === 'h2') return __tmGetTaskHeadingColumnLabel();
-        if (raw === 'priority') return '重要性';
-        if (raw === 'startDate') return '开始日期';
-        if (raw === 'completionTime') return '截止日期';
-        if (raw === 'taskCompleteAt') return '完成时间';
-        if (raw === 'remainingTime') return '剩余时间';
-        if (raw === 'tomatoSummary') return '专注';
-        if (raw === 'remark') return '备注';
-        if (raw === 'attachments') return '附件';
+        if (raw === 'priority') return __tmT("kernel.importance");
+        if (raw === 'startDate') return __tmT("kernel.startDate");
+        if (raw === 'completionTime') return __tmT("kernel.dueDate");
+        if (raw === 'taskCompleteAt') return __tmT("kernel.completionTime");
+        if (raw === 'remainingTime') return __tmT("task.remainingTime");
+        if (raw === 'tomatoSummary') return __tmT("calendar.focus");
+        if (raw === 'remark') return __tmT("kernel.note");
+        if (raw === 'attachments') return __tmT("task.attachment");
         const fieldId = __tmParseCustomFieldColumnKey(raw);
         if (!fieldId) return raw;
         const field = __tmGetCustomFieldDefMap().get(fieldId);
@@ -6941,20 +6941,20 @@
 
     function __tmGetAllColumnDefs() {
         const builtins = [
-            { key: 'pinned', label: '置顶', kind: 'builtin' },
-            { key: 'content', label: '任务内容', kind: 'builtin' },
-            { key: 'status', label: '状态', kind: 'builtin' },
-            { key: 'score', label: '优先级分值', kind: 'builtin' },
-            { key: 'doc', label: '文档', kind: 'builtin' },
+            { key: 'pinned', label: __tmT("kernel.pin"), kind: 'builtin' },
+            { key: 'content', label: __tmT("task.taskContent"), kind: 'builtin' },
+            { key: 'status', label: __tmT("kernel.status"), kind: 'builtin' },
+            { key: 'score', label: __tmT("task.priorityScore"), kind: 'builtin' },
+            { key: 'doc', label: __tmT("kernel.documents"), kind: 'builtin' },
             { key: 'h2', label: __tmGetTaskHeadingColumnLabel(), kind: 'builtin' },
-            { key: 'priority', label: '重要性', kind: 'builtin' },
-            { key: 'startDate', label: '开始日期', kind: 'builtin' },
-            { key: 'completionTime', label: '截止日期', kind: 'builtin' },
-            { key: 'taskCompleteAt', label: '完成时间', kind: 'builtin' },
-            { key: 'remainingTime', label: '剩余时间', kind: 'builtin' },
-            { key: 'tomatoSummary', label: '专注', kind: 'builtin' },
-            { key: 'remark', label: '备注', kind: 'builtin' },
-            { key: 'attachments', label: '附件', kind: 'builtin' },
+            { key: 'priority', label: __tmT("kernel.importance"), kind: 'builtin' },
+            { key: 'startDate', label: __tmT("kernel.startDate"), kind: 'builtin' },
+            { key: 'completionTime', label: __tmT("kernel.dueDate"), kind: 'builtin' },
+            { key: 'taskCompleteAt', label: __tmT("kernel.completionTime"), kind: 'builtin' },
+            { key: 'remainingTime', label: __tmT("task.remainingTime"), kind: 'builtin' },
+            { key: 'tomatoSummary', label: __tmT("calendar.focus"), kind: 'builtin' },
+            { key: 'remark', label: __tmT("kernel.note"), kind: 'builtin' },
+            { key: 'attachments', label: __tmT("task.attachment"), kind: 'builtin' },
         ];
         const customs = __tmGetCustomFieldDefs().map((field) => ({
             key: __tmBuildCustomFieldColumnKey(field?.id),
@@ -7302,7 +7302,7 @@
             if (option) return option;
             return {
                 id,
-                name: id || `未知选项${index + 1}`,
+                name: id || __tmT("task.unknownOption", { value1: index + 1 }),
                 color: '#9ca3af',
                 missing: true,
             };
@@ -7314,12 +7314,12 @@
         const selected = __tmResolveCustomFieldSelectedOptions(field, rawValue);
         const max = Math.max(1, Number(opts.maxTags) || 3);
         const shown = selected.slice(0, max);
-        const chips = shown.map((item) => `<span class="tm-status-tag${item?.missing ? ' is-missing' : ''}" style="${__tmBuildStatusChipStyle(item?.color || '#9ca3af')}">${esc(String(item?.name || item?.id || '').trim() || '未命名')}</span>`).join('');
+        const chips = shown.map((item) => `<span class="tm-status-tag${item?.missing ? ' is-missing' : ''}" style="${__tmBuildStatusChipStyle(item?.color || '#9ca3af')}">${esc(String(item?.name || item?.id || '').trim() || __tmT("quickbar.untitled"))}</span>`).join('');
         const remain = selected.length - shown.length;
         const remainHtml = remain > 0
             ? `<span class="tm-status-tag tm-custom-field-tag--more" style="${__tmBuildStatusChipStyle('#9ca3af')}">+${remain}</span>`
             : '';
-        const emptyText = String(opts.emptyText || '').trim() || '未设置';
+        const emptyText = String(opts.emptyText || '').trim() || __tmT("common.notSet");
         if (!chips && !remainHtml) {
             return opts.allowEmpty === false ? '' : `<span class="tm-status-tag tm-custom-field-tag--empty" style="${__tmBuildStatusChipStyle('#9ca3af')}">${esc(emptyText)}</span>`;
         }
@@ -7334,7 +7334,7 @@
             const text = String(__tmNormalizeCustomFieldValue(def, rawValue) || '').trim();
             if (!text) {
                 if (opts.allowEmpty === false) return '';
-                const emptyText = String(opts.emptyText || '').trim() || '未设置';
+                const emptyText = String(opts.emptyText || '').trim() || __tmT("common.notSet");
                 return `<span class="tm-task-remark-text" style="color:var(--tm-secondary-text);">${esc(emptyText)}</span>`;
             }
             return `<span class="tm-task-remark-text">${esc(text)}</span>`;
@@ -7345,7 +7345,7 @@
     function __tmNormalizeMetaPriorityForStore(value) {
         const raw = String(value ?? '').trim();
         if (!raw) return '';
-        return ['none', '无', 'null', 'undefined'].includes(raw.toLowerCase()) ? '' : raw;
+        return ['none', "无", 'null', 'undefined'].includes(raw.toLowerCase()) ? '' : raw;
     }
 
     function __tmCompactTaskMetaEntry(entry) {
@@ -8467,12 +8467,12 @@
 
     const __TM_SUBTASK_INHERIT_DEFAULT_FIELDS = [];
     const __TM_SUBTASK_INHERIT_FIELD_OPTIONS = [
-        { key: 'priority', label: '重要性' },
-        { key: 'customStatus', label: '状态' },
-        { key: 'startDate', label: '开始日期' },
-        { key: 'completionTime', label: '截止日期' },
-        { key: 'duration', label: '时长' },
-        { key: 'remark', label: '备注' },
+        { key: 'priority', label: __tmT("kernel.importance") },
+        { key: 'customStatus', label: __tmT("kernel.status") },
+        { key: 'startDate', label: __tmT("kernel.startDate") },
+        { key: 'completionTime', label: __tmT("kernel.dueDate") },
+        { key: 'duration', label: __tmT("task.duration") },
+        { key: 'remark', label: __tmT("kernel.note") },
     ];
 
     const __TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_DEFAULT = true;
@@ -8703,6 +8703,7 @@
     // 设置存储（使用云端同步存储，支持跨设备同步）
     const SettingsStore = {
         data: {
+            uiLanguage: 'system',
             settingsUpdatedAt: 0,
             settingsFieldUpdatedAt: {},
             docGroupSettingsUpdatedAt: 0,
@@ -8864,7 +8865,7 @@
             calendarIcsPublishMode: 'auto',
             calendarIcsScope: 'all',
             calendarIcsDocGroupIds: [],
-            calendarIcsCalendarName: '任务管理器',
+            calendarIcsCalendarName: __tmT("common.taskManager"),
             calendarIcsWebdavUrl: '',
             calendarIcsWebdavUsername: '',
             calendarIcsWebdavPassword: '',
@@ -9435,6 +9436,7 @@
                                 // 应用云端数据
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.selectedDocIds)) this.data.selectedDocIds = cloudData.selectedDocIds;
                                 if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
+                                if (typeof cloudData.uiLanguage === 'string') this.data.uiLanguage = ['en', 'zh-CN'].includes(cloudData.uiLanguage) ? cloudData.uiLanguage : 'system';
                                 if (typeof cloudData.recursiveDocLimit === 'number') this.data.recursiveDocLimit = cloudData.recursiveDocLimit;
                                 if (typeof cloudData.legacyWin7CompatMode === 'boolean') this.data.legacyWin7CompatMode = cloudData.legacyWin7CompatMode;
                                 if (typeof cloudData.taskParentLookupDepth === 'number') this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(cloudData.taskParentLookupDepth);
@@ -9600,7 +9602,7 @@
                                 if (typeof cloudData.calendarIcsPublishMode === 'string') this.data.calendarIcsPublishMode = String(cloudData.calendarIcsPublishMode).trim() === 'manual' ? 'manual' : 'auto';
                                 if (typeof cloudData.calendarIcsCalendarName === 'string') {
                                     const calendarName = String(cloudData.calendarIcsCalendarName || '').trim();
-                                    this.data.calendarIcsCalendarName = !calendarName || calendarName === 'Task Horizon' ? '任务管理器' : calendarName;
+                                    this.data.calendarIcsCalendarName = !calendarName || calendarName === 'Task Horizon' ? __tmT("common.taskManager") : calendarName;
                                 }
                                 if (typeof cloudData.calendarIcsWebdavUrl === 'string') this.data.calendarIcsWebdavUrl = cloudData.calendarIcsWebdavUrl;
                                 if (typeof cloudData.calendarIcsWebdavUsername === 'string') this.data.calendarIcsWebdavUsername = cloudData.calendarIcsWebdavUsername;
@@ -9937,6 +9939,8 @@
 
         // 从本地缓存加载
         loadFromLocal() {
+            const cachedLanguage = Storage.get('tm_ui_language', this.data.uiLanguage);
+            this.data.uiLanguage = cachedLanguage === 'en' || cachedLanguage === 'zh-CN' ? cachedLanguage : 'system';
             this.data.settingsUpdatedAt = Number(Storage.get('tm_settings_updated_at', this.data.settingsUpdatedAt)) || 0;
             let migratedCalendarOpacity = false;
             const rawSettingsFieldUpdatedAt = Storage.get('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt);
@@ -10159,7 +10163,7 @@
             this.data.calendarIcsPublishMode = String(Storage.get('tm_calendar_ics_publish_mode', this.data.calendarIcsPublishMode) || '').trim() === 'manual' ? 'manual' : 'auto';
             {
                 const calendarName = String(Storage.get('tm_calendar_ics_calendar_name', this.data.calendarIcsCalendarName) || '').trim();
-                this.data.calendarIcsCalendarName = !calendarName || calendarName === 'Task Horizon' ? '任务管理器' : calendarName;
+                this.data.calendarIcsCalendarName = !calendarName || calendarName === 'Task Horizon' ? __tmT("common.taskManager") : calendarName;
             }
             this.data.calendarIcsWebdavUrl = String(Storage.get('tm_calendar_ics_webdav_url', this.data.calendarIcsWebdavUrl) || '');
             this.data.calendarIcsWebdavUsername = String(Storage.get('tm_calendar_ics_webdav_username', this.data.calendarIcsWebdavUsername) || '');
@@ -10553,6 +10557,7 @@
         syncToLocal() {
             __tmMigrateLegacyTaskTitleClickSettings(this.data, this.data);
             Storage.set('tm_settings_updated_at', Number(this.data.settingsUpdatedAt) || 0);
+            Storage.set('tm_ui_language', this.data.uiLanguage);
             this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
             Storage.set('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt);
             Storage.set('tm_doc_group_settings_updated_at', Number(this.data.docGroupSettingsUpdatedAt) || 0);
@@ -10757,7 +10762,7 @@
             Storage.set('tm_calendar_ics_doc_group_ids', this.data.calendarIcsDocGroupIds);
             Storage.set('tm_calendar_ics_provider', String(this.data.calendarIcsProvider || 'chain'));
             Storage.set('tm_calendar_ics_publish_mode', String(this.data.calendarIcsPublishMode || '').trim() === 'manual' ? 'manual' : 'auto');
-            Storage.set('tm_calendar_ics_calendar_name', String(this.data.calendarIcsCalendarName || '任务管理器'));
+            Storage.set('tm_calendar_ics_calendar_name', String(this.data.calendarIcsCalendarName || __tmT("common.taskManager")));
             Storage.set('tm_calendar_ics_webdav_url', String(this.data.calendarIcsWebdavUrl || ''));
             Storage.set('tm_calendar_ics_webdav_username', String(this.data.calendarIcsWebdavUsername || ''));
             Storage.set('tm_calendar_ics_webdav_password', String(this.data.calendarIcsWebdavPassword || ''));
@@ -12210,7 +12215,7 @@
             const currentRule = (SettingsStore.data.filterRules || []).find((rule) => rule?.id === currentRuleId);
             return {
                 id: 'rule_' + Date.now(),
-                name: name || '新规则',
+                name: name || __tmT("task.newRule"),
                 enabled: true,
                 conditions: [],
                 sort: (Array.isArray(currentRule?.sort) ? currentRule.sort : []).map((item) => ({ ...item }))
@@ -12237,7 +12242,7 @@
             const statusOptionLabels = statusOptions.reduce((acc, option) => {
                 const id = String(option?.id || '').trim();
                 if (!id) return acc;
-                acc[id] = String(option?.name || id).trim() || id;
+                acc[id] = globalThis.__taskHorizonHostBridge.i18n.builtinName('status', option) || id;
                 return acc;
             }, {});
             const defaultUndoneStatusId = __tmGetDefaultUndoneStatusId(statusOptions);
@@ -12248,7 +12253,7 @@
                 if (customFieldType === 'text') {
                     return {
                         value: __tmBuildCustomFieldColumnKey(fieldId),
-                        label: `${String(field?.name || fieldId).trim() || fieldId}（自定义列）`,
+                        label: __tmT("task.customColumn2", { value1: String(field?.name || fieldId).trim() || fieldId }),
                         type: 'text',
                         customFieldId: fieldId,
                     };
@@ -12277,7 +12282,7 @@
                 }, {});
                 return {
                     value: __tmBuildCustomFieldColumnKey(fieldId),
-                    label: `${String(field?.name || fieldId).trim() || fieldId}（自定义列）`,
+                    label: __tmT("task.customColumn2", { value1: String(field?.name || fieldId).trim() || fieldId }),
                     type: 'select',
                     options: optionIds,
                     optionLabels,
@@ -12285,49 +12290,51 @@
                     customFieldId: fieldId,
                     multi: customFieldType === 'multi',
                     allowEmpty: true,
-                    emptyLabel: '未设置',
+                    emptyLabel: __tmT("common.notSet"),
                 };
             }).filter(Boolean);
             const fields = [
-                { value: 'content', label: '任务内容', type: 'text' },
-                { value: 'done', label: '完成状态', type: 'boolean' },
+                { value: 'content', label: __tmT("task.taskContent"), type: 'text' },
+                { value: 'done', label: __tmT("task.completionStatus"), type: 'boolean' },
                 {
                     value: 'pinned',
-                    label: '置顶任务',
+                    label: __tmT("task.pinnedTask"),
                     type: 'boolean',
-                    optionLabels: { true: '已置顶', false: '未置顶' },
+                    optionLabels: { true: __tmT("task.pinned"), false: __tmT("task.notPinned") },
                 },
                 {
                     value: 'priority',
-                    label: '重要性',
+                    label: __tmT("kernel.importance"),
                     type: 'select',
                     options: ['high', 'medium', 'low', 'none'],
-                    optionLabels: { high: '高', medium: '中', low: '低', none: '无' },
-                    emptyLabel: '无',
+                    optionLabels: { high: __tmT("common.high"), medium: __tmT("common.medium"), low: __tmT("common.low"), none: __tmT("common.none") },
+                    optionAliases: { '高': 'high', '中': 'medium', '低': 'low', '无': 'none', '未设置': 'none' },
+                    emptyLabel: __tmT("common.none"),
                 },
-                { value: 'priorityScore', label: '优先级分值', type: 'number' },
+                { value: 'priorityScore', label: __tmT("task.priorityScore"), type: 'number' },
                 {
                     value: 'customStatus',
-                    label: '状态',
+                    label: __tmT("kernel.status"),
                     type: 'select',
                     options: statusOptionIds,
                     optionLabels: statusOptionLabels,
-                    emptyLabel: '未设置',
+                    optionAliases: Object.fromEntries(statusOptions.map(option => [String(option.name || '').trim(), String(option.id || '').trim()])),
+                    emptyLabel: __tmT("common.notSet"),
                     statusOptions,
                     defaultStatusId: defaultUndoneStatusId,
                 },
-                { value: 'startDate', label: '开始日期', type: 'datetime' },
-                { value: 'completionTime', label: '截止日期', type: 'datetime' },
-                { value: 'taskDate', label: '任务日期（含打卡计划）', type: 'datetime' },
-                { value: 'taskCompleteAt', label: '完成时间', type: 'datetime' },
-                { value: 'created', label: '创建时间', type: 'datetime' },
-                { value: 'updated', label: '更新时间', type: 'datetime' },
-                { value: 'duration', label: '任务时长', type: 'text' },
-                { value: 'tomatoEstimateCount', label: '预计番茄', type: 'number' },
-                { value: 'tomatoCount', label: '实际番茄', type: 'number' },
-                { value: 'remark', label: '备注', type: 'text' },
-                { value: 'docName', label: '文档名称', type: 'text' },
-                { value: 'level', label: '任务层级', type: 'number' }
+                { value: 'startDate', label: __tmT("kernel.startDate"), type: 'datetime' },
+                { value: 'completionTime', label: __tmT("kernel.dueDate"), type: 'datetime' },
+                { value: 'taskDate', label: __tmT("task.taskDatesInclCheckInPlan"), type: 'datetime' },
+                { value: 'taskCompleteAt', label: __tmT("kernel.completionTime"), type: 'datetime' },
+                { value: 'created', label: __tmT("task.createdTime"), type: 'datetime' },
+                { value: 'updated', label: __tmT("task.updatedTime"), type: 'datetime' },
+                { value: 'duration', label: __tmT("task.taskDuration"), type: 'text' },
+                { value: 'tomatoEstimateCount', label: __tmT("quickbar.estimatedPomodoros"), type: 'number' },
+                { value: 'tomatoCount', label: __tmT("task.actualPomodoros"), type: 'number' },
+                { value: 'remark', label: __tmT("kernel.note"), type: 'text' },
+                { value: 'docName', label: __tmT("task.documentName"), type: 'text' },
+                { value: 'level', label: __tmT("task.taskLevel"), type: 'number' }
             ].concat(customFieldRuleFields);
             this.__availableFieldsCacheKey = cacheKey;
             this.__availableFieldsCache = fields;
@@ -12450,7 +12457,7 @@
                 : (typeof value === 'string' && value.includes(','))
                     ? value.split(',').map((item) => String(item || '').trim())
                     : [value];
-            const emptyTokens = new Set(['', '无', '未设置', String(fieldInfo?.emptyLabel || '').trim()].filter(Boolean));
+            const emptyTokens = new Set(['', __tmT("common.none"), __tmT("common.notSet"), String(fieldInfo?.emptyLabel || '').trim()].filter(Boolean));
             const valueText = String(value ?? '').trim();
             const valueLower = valueText.toLowerCase();
             const doneTargetValue = (value === '' || value === null || typeof value === 'undefined')
@@ -12600,7 +12607,7 @@
 
         getSelectFieldLabel(fieldValue, rawValue) {
             const fieldInfo = (fieldValue && typeof fieldValue === 'object') ? fieldValue : this.getFieldInfo(fieldValue);
-            const emptyLabel = String(fieldInfo?.emptyLabel || '未设置').trim() || '未设置';
+            const emptyLabel = String(fieldInfo?.emptyLabel || __tmT("common.notSet")).trim() || __tmT("common.notSet");
             const normalized = this.normalizeSelectFieldValues(fieldInfo, rawValue);
             const token = String((normalized[0] || rawValue || '') ?? '').trim();
             if (!token) return emptyLabel;
@@ -12630,40 +12637,40 @@
         // 获取可用操作符
         getOperators(fieldType) {
             const baseOperators = [
-                { value: '=', label: '等于' },
-                { value: '!=', label: '不等于' },
-                { value: 'in', label: '在列表中' },        // 多值匹配
-                { value: 'not_in', label: '不在列表中' },  // 多值排除
-                { value: 'contains', label: '包含' },
-                { value: 'not_contains', label: '不包含' },
-                { value: 'is_empty', label: '为空' },
-                { value: 'is_not_empty', label: '不为空' }
+                { value: '=', label: __tmT("task.equals") },
+                { value: '!=', label: __tmT("task.notEquals") },
+                { value: 'in', label: __tmT("task.inList") },        // 多值匹配
+                { value: 'not_in', label: __tmT("task.notInList") },  // 多值排除
+                { value: 'contains', label: __tmT("task.contains") },
+                { value: 'not_contains', label: __tmT("task.notIncluded") },
+                { value: 'is_empty', label: __tmT("task.isEmpty") },
+                { value: 'is_not_empty', label: __tmT("task.isNotEmpty") }
             ];
 
             const numberOperators = [
-                { value: '>', label: '大于' },
-                { value: '<', label: '小于' },
-                { value: '>=', label: '大于等于' },
-                { value: '<=', label: '小于等于' },
-                { value: 'between', label: '介于' }
+                { value: '>', label: __tmT("rules.greaterThan") },
+                { value: '<', label: __tmT("rules.lessThan") },
+                { value: '>=', label: __tmT("rules.greaterThanOrEqual") },
+                { value: '<=', label: __tmT("rules.lessThanOrEqual") },
+                { value: 'between', label: __tmT("task.between") }
             ];
 
             const datetimeOperators = [
-                { value: 'range_today', label: '今天' },
-                { value: 'range_overlap_today', label: '覆盖今天' },
-                { value: 'overdue', label: '已逾期' },
-                { value: 'range_week', label: '本周' },
-                { value: 'range_month', label: '本月' },
-                { value: 'range_recent_days', label: '今天至N天前' },
-                { value: 'range_next_days', label: '今天至N天后' },
-                { value: 'range_year', label: '今年' },
-                { value: 'before_today', label: '今天之前' },
-                { value: 'after_today', label: '今天之后' },
-                { value: 'on_or_before_today', label: '今天及之前' },
-                { value: 'on_or_after_today', label: '今天及之后' },
-                { value: 'before', label: '之前' },
-                { value: 'after', label: '之后' },
-                { value: 'between', label: '介于' }
+                { value: 'range_today', label: __tmT("common.today") },
+                { value: 'range_overlap_today', label: __tmT("task.coversToday") },
+                { value: 'overdue', label: __tmT("task.overdue") },
+                { value: 'range_week', label: __tmT("task.thisWeek") },
+                { value: 'range_month', label: __tmT("task.thisMonth") },
+                { value: 'range_recent_days', label: __tmT("task.todayToNDaysAgo") },
+                { value: 'range_next_days', label: __tmT("task.todayToNDaysAhead") },
+                { value: 'range_year', label: __tmT("task.thisYear") },
+                { value: 'before_today', label: __tmT("task.beforeToday") },
+                { value: 'after_today', label: __tmT("task.afterToday") },
+                { value: 'on_or_before_today', label: __tmT("task.todayAndBefore") },
+                { value: 'on_or_after_today', label: __tmT("task.todayAndAfter") },
+                { value: 'before', label: __tmT("task.before") },
+                { value: 'after', label: __tmT("task.after") },
+                { value: 'between', label: __tmT("task.between") }
             ];
 
             switch(fieldType) {
@@ -12673,8 +12680,8 @@
                     return [...baseOperators, ...datetimeOperators];
                 case 'boolean':
                     return [
-                        { value: '=', label: '是' },
-                        { value: '!=', label: '不是' }
+                        { value: '=', label: __tmT("task.yes") },
+                        { value: '!=', label: __tmT("task.isNot") }
                     ];
                 default:
                     return baseOperators;
@@ -12684,34 +12691,34 @@
         // 获取排序字段
         getSortFields() {
             const sortFields = [
-                { value: __TM_CUSTOM_ORDER_SORT_FIELD, label: '自定义排序' },
-                { value: 'priorityScore', label: '优先级分值' },
-                { value: 'priority', label: '重要性' },
-                { value: 'customStatus', label: '状态' },
-                { value: 'docSeq', label: '文档出现顺序' },
-                { value: 'startDate', label: '开始日期' },
-                { value: 'completionTime', label: '截止日期' },
-                { value: 'taskDate', label: '任务日期（含打卡计划）' },
-                { value: 'taskCompleteAt', label: '完成时间' },
-                { value: 'created', label: '创建时间' },
-                { value: 'updated', label: '更新时间' },
-                { value: 'content', label: '任务内容' },
-                { value: 'docName', label: '文档名称' },
+                { value: __TM_CUSTOM_ORDER_SORT_FIELD, label: __tmT("task.customSort") },
+                { value: 'priorityScore', label: __tmT("task.priorityScore") },
+                { value: 'priority', label: __tmT("kernel.importance") },
+                { value: 'customStatus', label: __tmT("kernel.status") },
+                { value: 'docSeq', label: __tmT("task.documentAppearanceOrder") },
+                { value: 'startDate', label: __tmT("kernel.startDate") },
+                { value: 'completionTime', label: __tmT("kernel.dueDate") },
+                { value: 'taskDate', label: __tmT("task.taskDatesInclCheckInPlan") },
+                { value: 'taskCompleteAt', label: __tmT("kernel.completionTime") },
+                { value: 'created', label: __tmT("task.createdTime") },
+                { value: 'updated', label: __tmT("task.updatedTime") },
+                { value: 'content', label: __tmT("task.taskContent") },
+                { value: 'docName', label: __tmT("task.documentName") },
                 { value: 'h2', label: (() => {
                     const level = SettingsStore.data.taskHeadingLevel || 'h2';
-                    const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-                    return labels[level] || '标题';
+                    const labels = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+                    return labels[level] || __tmT("calendar.title");
                 })() },
-                { value: 'duration', label: '任务时长' },
-                { value: 'tomatoEstimateCount', label: '预计番茄' },
-                { value: 'tomatoCount', label: '实际番茄' }
+                { value: 'duration', label: __tmT("task.taskDuration") },
+                { value: 'tomatoEstimateCount', label: __tmT("quickbar.estimatedPomodoros") },
+                { value: 'tomatoCount', label: __tmT("task.actualPomodoros") }
             ];
             __tmGetCustomFieldDefs().forEach((field) => {
                 const fieldId = String(field?.id || '').trim();
                 if (!fieldId) return;
                 sortFields.push({
                     value: __tmBuildCustomFieldColumnKey(fieldId),
-                    label: `${String(field?.name || fieldId).trim() || fieldId}（自定义列）`,
+                    label: __tmT("task.customColumn2", { value1: String(field?.name || fieldId).trim() || fieldId }),
                     customFieldId: fieldId,
                 });
             });
@@ -14373,7 +14380,7 @@
                     } else {
                         state.allDocuments.push({
                             id,
-                            name: docName || '未命名文档',
+                            name: docName || __tmT("kernel.untitledDocument"),
                             alias: '',
                             icon: '',
                             path: docPath,
@@ -15140,7 +15147,7 @@
             const blockId = String(row?.block_id || '').trim();
             if (!blockId) continue;
             const adapter = globalThis.__tmTaskHorizonBackendAdapter;
-            if (!adapter || typeof adapter.setAttrs !== 'function') throw new Error('任务写入适配器未就绪: setAttrs');
+            if (!adapter || typeof adapter.setAttrs !== 'function') throw new Error(__tmT("task.taskWriteAdapterIsNotReadySetattrs"));
             await adapter.setAttrs(blockId, {
                 [nextKey]: String(row?.value ?? ''),
                 [prevKey]: '',
@@ -15800,7 +15807,7 @@
                     } else {
                         state.allDocuments.push({
                             id,
-                            name: docName || '未命名文档',
+                            name: docName || __tmT("kernel.untitledDocument"),
                             alias: '',
                             icon: '',
                             path: docPath,
@@ -15867,7 +15874,7 @@
             }
             __tmApplyDoneOverrideToTaskIfPresent(task);
             try { __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask); } catch (e) {}
-            const docName = task.docName || task.doc_name || docInfoById.get(docId)?.name || '未命名文档';
+            const docName = task.docName || task.doc_name || docInfoById.get(docId)?.name || __tmT("kernel.untitledDocument");
             try {
                 normalizeTaskFields(task, docName, normalizeTaskOptions);
             } catch (e) {}
@@ -15951,7 +15958,7 @@
             const docInfo = docInfoById.get(docId) || {};
             const entry = __tmBuildTaskIndexDocEntry({
                 id: docId,
-                name: String(docInfo?.name || rawTasks?.[0]?.docName || '未命名文档').trim() || '未命名文档',
+                name: String(docInfo?.name || rawTasks?.[0]?.docName || __tmT("kernel.untitledDocument")).trim() || __tmT("kernel.untitledDocument"),
                 alias: __tmNormalizeDocAliasValue(docInfo?.alias),
                 icon: __tmNormalizeDocIconValue(docInfo?.icon),
                 created: String(docInfo?.created || '').trim(),
@@ -17286,7 +17293,7 @@
         __tmApplyDoneOverrideToTaskIfPresent(task);
         try { __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask); } catch (e) {}
         try { MetaStore.applyToTask(task); } catch (e) {}
-        const docName = task.docName || task.doc_name || prevTask?.docName || prevTask?.doc_name || '未命名文档';
+        const docName = task.docName || task.doc_name || prevTask?.docName || prevTask?.doc_name || __tmT("kernel.untitledDocument");
         try { normalizeTaskFields(task, docName, normalizeOptions); } catch (e) {}
         if (prevTask && typeof prevTask === 'object') {
             try { __tmCopyTaskHeadingContext(task, prevTask); } catch (e) {}
@@ -17890,7 +17897,7 @@
             if (!taskId || !Object.keys(patch).length || state.inheritedSubtaskPatchQueuedIds?.[queueKey]) return;
             try {
                 const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                 state.inheritedSubtaskPatchQueuedIds[queueKey] = now;
                 patchTask(taskId, patch, {
                     docId: String(item.docId || item?.task?.root_id || item?.task?.docId || opts.docId || '').trim(),
@@ -18225,7 +18232,7 @@
             __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask);
             __tmApplyDoneOverrideToTaskIfPresent(task);
 
-            const docName = task.docName || task.doc_name || '未命名文档';
+            const docName = task.docName || task.doc_name || __tmT("kernel.untitledDocument");
             normalizeTaskFields(task, docName, normalizeTaskOptions);
 
             const h2ctx = taskId ? h2ContextMap.get(taskId) : null;
@@ -18315,7 +18322,7 @@
             __tmAssignDocSeqByTree(rootTasks, 0);
             const nextDoc = {
                 id: docId,
-                name: String(cachedDoc?.name || existingDoc?.name || rawTasks?.[0]?.docName || '未命名文档').trim() || '未命名文档',
+                name: String(cachedDoc?.name || existingDoc?.name || rawTasks?.[0]?.docName || __tmT("kernel.untitledDocument")).trim() || __tmT("kernel.untitledDocument"),
                 alias: __tmNormalizeDocAliasValue(cachedDoc?.alias || existingDoc?.alias),
                 icon: __tmNormalizeDocIconValue(cachedDoc?.icon || existingDoc?.icon),
                 created: String(cachedDoc?.created || existingDoc?.created || '').trim(),
@@ -18987,7 +18994,7 @@
         try { tasks = __tmBuildTaskTreeFromTaskIndexBlocks(entry) || []; } catch (e) { return null; }
         return {
             id: did,
-            name: String(entry.name || '').trim() || '未命名文档',
+            name: String(entry.name || '').trim() || __tmT("kernel.untitledDocument"),
             alias: __tmNormalizeDocAliasValue(entry.alias),
             icon: __tmNormalizeDocIconValue(entry.icon),
             created: String(entry.created || '').trim(),

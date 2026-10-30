@@ -113,7 +113,7 @@
             ? (typeof __tmShouldRenderTaskDetailNoteView === 'function' && __tmShouldRenderTaskDetailNoteView('sheet', taskDetailSheetTask)
                 ? __tmBuildTaskDetailNoteViewInnerHtml(taskDetailSheetTask, { embedded: true, closeable: true })
                 : __tmBuildTaskDetailInnerHtml(taskDetailSheetTask, { embedded: true, closeable: true }))
-            : `<div class="tm-checklist-empty-detail">选择任务后，这里会显示可编辑的详情。</div>`;
+            : `<div class="tm-checklist-empty-detail">${__tmT("task.selectATaskToSeeEditableDetailsHere")}</div>`;
         const showMobileBottomViewBar = isDockHost
             ? (!isRuntimeMobile || !isLandscape)
             : !!(isMobile && !isLandscape);
@@ -134,7 +134,7 @@
         const showMobileLandscapeTimelineTopbar = !!(isMobile && !isDockHost && isLandscape && renderMode === 'timeline');
         const showDesktopNarrowTimelineTopbar = !!(!isMobile && !isDockHost && isDesktopNarrow && renderMode === 'timeline');
         const showTopbarTimelineToolbar = !!(!isMobile && !isDockHost && renderMode === 'timeline');
-        const topbarAddBtnHtml = `<button class="tm-btn tm-btn-info tm-topbar-add-btn bc-btn bc-btn--sm" onclick="tmAdd()" aria-label="新建任务" data-tm-floating-tooltip-label="新建任务" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center" style="padding: 0; width: 30px; height: 30px; min-width: 30px; min-height: 30px; display: inline-flex; align-items: center; justify-content: center;">${__tmRenderLucideIcon('plus')}</button>`;
+        const topbarAddBtnHtml = `<button class="tm-btn tm-btn-info tm-topbar-add-btn bc-btn bc-btn--sm" onclick="tmAdd()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}" data-tm-floating-tooltip-label="新建任务" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center" style="padding: 0; width: 30px; height: 30px; min-width: 30px; min-height: 30px; display: inline-flex; align-items: center; justify-content: center;">${__tmRenderLucideIcon('plus')}</button>`;
         const timelineScaleState = globalThis.__TaskHorizonGanttView?.resolveScaleState?.(state.ganttView) || {
             scale: ['day', 'week', 'month'].includes(String(state.ganttView?.scale || '')) ? String(state.ganttView.scale) : 'day',
             label: '日',
@@ -146,9 +146,9 @@
         const timelineSidebarCollapsed = useCompactTimelineSidebarState
             ? state.timelineMobileSidebarExpanded !== true
             : !!SettingsStore.data.timelineSidebarCollapsed;
-        const timelineSidebarToggleLabel = timelineSidebarCollapsed ? '展开时间轴侧栏' : '隐藏时间轴侧栏';
+        const timelineSidebarToggleLabel = timelineSidebarCollapsed ? __tmT("task.expandTimelineSidebar") : __tmT("task.hideTimelineSidebar");
         const timelineCardFieldsHidden = state.timelineCardFieldsHidden === true;
-        const timelineCardFieldsToggleLabel = timelineCardFieldsHidden ? '显示时间轴卡片字段' : '隐藏时间轴卡片字段';
+        const timelineCardFieldsToggleLabel = timelineCardFieldsHidden ? __tmT("task.showTimelineCardFields") : __tmT("task.hideTimelineCardFields");
         const __tmRenderTimelineToolbarIcon = (iconName, size = 14) => `<span class="tm-timeline-toolbar-icon">${__tmPhosphorBoldSvg(iconName, { size, className: 'tm-timeline-toolbar-icon__svg' })}</span>`;
         const __tmRenderTimelineSidebarToggleButton = ({ buttonClass = '', buttonStyle = '', interactionAttrs = '', clickPrefix = '' } = {}) => {
             const buttonClassName = ['tm-btn', 'tm-btn-info', 'tm-timeline-toolbar-btn', 'bc-btn', 'bc-btn--sm', String(buttonClass || '').trim()].filter(Boolean).join(' ');
@@ -163,20 +163,20 @@
             const styleAttr = buttonStyle ? ` style="${__tmEscAttr(buttonStyle)}"` : '';
             return `<button type="button" class="${buttonClassName}" data-tm-timeline-card-fields-toggle aria-pressed="${timelineCardFieldsHidden ? 'true' : 'false'}" onclick="${String(clickPrefix || '')}tmTimelineToggleCardFields(event)"${styleAttr}${String(interactionAttrs || '')}${__tmBuildTooltipAttrs(timelineCardFieldsToggleLabel, { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon(timelineCardFieldsHidden ? 'eye-slash' : 'eye')}</button>`;
         };
-        const __tmRenderTimelineScaleSegments = () => `<div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="时间轴尺度">${[
+        const __tmRenderTimelineScaleSegments = () => `<div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.timelineScale")}">${[
             ['day', '日'],
-            ['week', '周'],
-            ['month', '月'],
+            ['week', __tmT("calendar.week")],
+            ['month', __tmT("calendar.month")],
         ].map(([value, label]) => {
             const active = timelineScale === value;
             return `<button type="button" class="tm-view-seg-item bc-tabs-trigger ${active ? 'tm-view-seg-item--active' : ''}" data-state="${active ? 'active' : 'inactive'}" data-tm-timeline-scale="${value}" role="tab" aria-selected="${active ? 'true' : 'false'}" onclick="tmGanttSetScale('${value}', event)">${label}</button>`;
         }).join('')}</div>`;
         const __tmRenderTimelineScaleMenu = ({ interactionAttrs = '', showRulerIcon = true } = {}) => `<details class="tm-timeline-scale-menu">
-            <summary class="tm-timeline-scale-menu__trigger" aria-label="时间轴尺度：${timelineScaleState.label || '日'}"${String(interactionAttrs || '')}>${showRulerIcon ? __tmRenderTimelineToolbarIcon('ruler') : ''}<span class="tm-timeline-scale-menu__label">${timelineScaleState.label || '日'}</span>${__tmRenderTimelineToolbarIcon('caret-down', 11)}</summary>
-            <div class="tm-timeline-scale-menu__popover" role="menu" aria-label="选择时间轴尺度">${[
+            <summary class="tm-timeline-scale-menu__trigger" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.timelineScale2", { value1: timelineScaleState.label || '日' })}"${String(interactionAttrs || '')}>${showRulerIcon ? __tmRenderTimelineToolbarIcon('ruler') : ''}<span class="tm-timeline-scale-menu__label">${timelineScaleState.label || '日'}</span>${__tmRenderTimelineToolbarIcon('caret-down', 11)}</summary>
+            <div class="tm-timeline-scale-menu__popover" role="menu" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.chooseTimelineScale")}">${[
                 ['day', '日'],
-                ['week', '周'],
-                ['month', '月'],
+                ['week', __tmT("calendar.week")],
+                ['month', __tmT("calendar.month")],
             ].map(([value, label]) => `<button type="button" role="menuitemradio" aria-checked="${timelineScale === value ? 'true' : 'false'}" data-tm-timeline-scale="${value}" class="tm-timeline-scale-menu__option${timelineScale === value ? ' is-active' : ''}" onclick="tmGanttSetScale('${value}', event)">${label}</button>`).join('')}</div>
         </details>`;
         const __tmRenderTimelineToolbarButtons = ({ buttonClass = '', buttonStyle = '', interactionAttrs = '', clickPrefix = '' } = {}) => {
@@ -185,10 +185,10 @@
             const extraAttrs = String(interactionAttrs || '');
             const clickStart = String(clickPrefix || '');
             return `
-                <button type="button" class="${buttonClassName}" data-tm-timeline-zoom="out" onclick="${clickStart}tmGanttZoomOut()"${timelineScaleState.canZoomOut ? '' : ' disabled'}${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('缩小', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('minus')}</button>
-                <button type="button" class="${buttonClassName}" data-tm-timeline-zoom="in" onclick="${clickStart}tmGanttZoomIn()"${timelineScaleState.canZoomIn ? '' : ' disabled'}${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('放大', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('plus')}</button>
-                <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttFit()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('适配范围', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('corners-out')}</button>
-                <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttToday()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs('定位今天', { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('calendar-blank')}</button>
+                <button type="button" class="${buttonClassName}" data-tm-timeline-zoom="out" onclick="${clickStart}tmGanttZoomOut()"${timelineScaleState.canZoomOut ? '' : ' disabled'}${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs(__tmT("task.zoomOut"), { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('minus')}</button>
+                <button type="button" class="${buttonClassName}" data-tm-timeline-zoom="in" onclick="${clickStart}tmGanttZoomIn()"${timelineScaleState.canZoomIn ? '' : ' disabled'}${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs(__tmT("task.zoomIn"), { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('plus')}</button>
+                <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttFit()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs(__tmT("task.fitRange"), { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('corners-out')}</button>
+                <button type="button" class="${buttonClassName}" onclick="${clickStart}tmGanttToday()"${styleAttr}${extraAttrs}${__tmBuildTooltipAttrs(__tmT("task.goToToday"), { side: 'bottom' })}>${__tmRenderTimelineToolbarIcon('calendar-blank')}</button>
             `;
         };
         const __tmRenderTimelineToolbarGroup = ({ includeSidebarToggle = false, buttonClass = '', buttonStyle = '', interactionAttrs = '', clickPrefix = '' } = {}) => {
@@ -240,13 +240,13 @@
                 <div class="tm-main-body-with-cal-dock">
                     ${mainBodyHtml}
                     ${showAiSideDock ? `
-                        <div class="tm-ai-side-dock-resizer" onmousedown="tmStartAiSideDockResize(event)" title="拖拽调整 AI 侧栏宽度"></div>
+                        <div class="tm-ai-side-dock-resizer" onmousedown="tmStartAiSideDockResize(event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToResizeAiSidebar")}"></div>
                         <aside class="tm-ai-side-dock" style="width:${aiSideDockWidth}px;min-width:${aiSideDockWidth}px;">
                             <div id="tmAiSidebarPanel" style="height:100%;min-height:0;"></div>
                         </aside>
                     ` : ''}
                     ${showCalendarSideDock ? `
-                        <div class="tm-calendar-side-dock-resizer" onmousedown="tmStartCalendarSideDockResize(event)" title="拖拽调整侧栏宽度"></div>
+                        <div class="tm-calendar-side-dock-resizer" onmousedown="tmStartCalendarSideDockResize(event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.dragToResizeSidebar")}"></div>
                         <aside class="tm-calendar-side-dock" style="width:${calendarSideDockWidth}px;min-width:${calendarSideDockWidth}px;">
                             <div id="tmCalendarSideDockPanel"></div>
                         </aside>
@@ -269,17 +269,17 @@
                 <div class="tm-multi-bulkbar" style="bottom:${multiSelectBarBottom};">
                     <div class="tm-multi-bulkbar__inner">
                         <div class="tm-multi-bulkbar__summary">
-                            <span class="tm-multi-bulkbar__count" data-tm-multi-count title="已选任务数">${multiSelectCount}</span>
+                            <span class="tm-multi-bulkbar__count" data-tm-multi-count title="${globalThis.__taskHorizonHostBridge.i18n.html("task.selectedTaskCount")}">${multiSelectCount}</span>
                         </div>
                         <div class="tm-multi-bulkbar__actions">
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectSendToAi()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('发送到 AI', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('sparkle', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetStartDate()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置开始日期', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('calendar-plus-2', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetCompletionDate()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置截止日期', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('calendar-check', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetPriority()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置重要性', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('flag', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetStatus()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置状态', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('circle-dot', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" data-tm-multi-more-btn="1" onclick="tmMultiSelectToggleMoreMenu(event)"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('更多批量操作', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('dots-three', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--wide" type="button" data-tm-multi-action="1" onclick="tmMultiSelectClear()"${multiSelectActionDisabledAttr}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('x-circle', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span><span>清空</span></button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--wide" type="button" onclick="tmMultiSelectExit()"><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('x', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span><span>退出</span></button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectSendToAi()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs(__tmT("task.sendToAi"), { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('sparkle', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetStartDate()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs(__tmT("task.batchSetStartDate"), { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('calendar-plus-2', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetCompletionDate()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs(__tmT("task.batchSetDueDate"), { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('calendar-check', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetPriority()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs(__tmT("task.batchSetPriority"), { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('flag', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetStatus()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs(__tmT("task.batchSetStatus"), { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('circle-dot', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" data-tm-multi-more-btn="1" onclick="tmMultiSelectToggleMoreMenu(event)"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs(__tmT("task.moreBatchActions"), { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('dots-three', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--wide" type="button" data-tm-multi-action="1" onclick="tmMultiSelectClear()"${multiSelectActionDisabledAttr}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('x-circle', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span><span>${__tmT("common.clear")}</span></button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--wide" type="button" onclick="tmMultiSelectExit()"><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('x', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span><span>${__tmT("task.exit")}</span></button>
                         </div>
                     </div>
                 </div>

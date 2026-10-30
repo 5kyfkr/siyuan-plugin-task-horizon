@@ -64,8 +64,8 @@
             return input;
         };
 
-        const hourInput = makeField('小时', '预计时长（小时）', 999, 'data-tm-duration-hours');
-        const minuteInput = makeField('分钟', '预计时长（分钟）', 59, 'data-tm-duration-minutes');
+        const hourInput = makeField(__tmT("homepage.h2"), __tmT("task.estimatedDurationHours"), 999, 'data-tm-duration-hours');
+        const minuteInput = makeField(__tmT("task.minutes"), __tmT("task.estimatedDurationMinutes"), 59, 'data-tm-duration-minutes');
 
         const preview = document.createElement('div');
         preview.className = 'tm-duration-picker__preview';

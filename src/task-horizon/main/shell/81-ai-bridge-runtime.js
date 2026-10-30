@@ -138,7 +138,7 @@
     function __tmAiRequireMutation(methodName) {
         const mutation = globalThis.__tmTaskMutations || null;
         const method = mutation && typeof mutation[methodName] === 'function' ? mutation[methodName] : null;
-        if (!method) throw new Error(`任务写入队列未就绪: ${methodName}`);
+        if (!method) throw new Error(__tmT("task.taskWriteQueueIsNotReady2", { methodName: methodName }));
         return { mutation, method };
     }
 
@@ -191,7 +191,7 @@
             || null;
         return __tmAiClone({
             id: did,
-            name: String(doc?.name || tasks?.[0]?.doc_name || tasks?.[0]?.docName || '未命名文档').trim() || '未命名文档',
+            name: String(doc?.name || tasks?.[0]?.doc_name || tasks?.[0]?.docName || __tmT("kernel.untitledDocument")).trim() || __tmT("kernel.untitledDocument"),
             path: String(tasks?.[0]?.doc_path || '').trim(),
             kramdown,
             tasks,
@@ -200,9 +200,9 @@
 
     async function __tmAiApplyTaskPatch(taskId, patch = {}) {
         const requestedId = String(taskId || '').trim();
-        if (!requestedId) throw new Error('缺少任务 ID');
+        if (!requestedId) throw new Error(__tmT("plugin.missingTaskId"));
         const sourceTask = await __tmAiGetTaskSnapshot(requestedId, { forceFresh: true });
-        if (!sourceTask) throw new Error('未找到任务');
+        if (!sourceTask) throw new Error(__tmT("kernel.noTaskFound"));
         const tid = String(sourceTask.id || requestedId).trim() || requestedId;
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         const attrPatch = {};
@@ -222,7 +222,7 @@
             }, {
                 source: 'ai-task-patch',
                 reason: 'ai-task-patch',
-                label: 'AI 修改任务',
+                label: __tmT("task.aiEditsTask"),
                 background: true,
                 wait: true,
                 skipInteractionGate: true,
@@ -249,8 +249,8 @@
     async function __tmAiCreateTaskSuggestion(docId, content) {
         const did = String(docId || '').trim();
         const text = String(content || '').trim();
-        if (!did) throw new Error('缺少文档');
-        if (!text) throw new Error('任务建议为空');
+        if (!did) throw new Error(__tmT("task.missingDocument"));
+        if (!text) throw new Error(__tmT("task.taskSuggestionIsEmpty"));
         const createTask = __tmAiRequireMutation('createTaskInDoc');
         const taskId = await createTask.method.call(createTask.mutation, {
             docId: did,
@@ -275,12 +275,12 @@
         const parentTaskIdRaw = String(raw.parentTaskId || raw.parentId || raw.parent_task_id || '').trim();
         const docIdRaw = String(raw.docId || raw.documentId || raw.root_id || '').trim();
         const initialContent = String(raw.content || raw.title || raw.text || patch.title || '').trim();
-        if (!initialContent) throw new Error('任务内容为空');
+        if (!initialContent) throw new Error(__tmT("settings.taskContentIsEmpty"));
 
         let createdTaskId = '';
         if (parentTaskIdRaw) {
             const parentTask = await __tmAiGetTaskSnapshot(parentTaskIdRaw);
-            if (!parentTask) throw new Error('未找到父任务');
+            if (!parentTask) throw new Error(__tmT("ai.parentTaskNotFound"));
             const pid = String(parentTask.id || parentTaskIdRaw).trim() || parentTaskIdRaw;
             const createSubtask = __tmAiRequireMutation('createSubtask');
             createdTaskId = await createSubtask.method.call(createSubtask.mutation, pid, initialContent, {
@@ -292,7 +292,7 @@
             });
         } else {
             const did = await __tmAiResolveDocumentId(docIdRaw);
-            if (!did) throw new Error('缺少文档');
+            if (!did) throw new Error(__tmT("task.missingDocument"));
             const createTask = __tmAiRequireMutation('createTaskInDoc');
             createdTaskId = await createTask.method.call(createTask.mutation, {
                 docId: did,
@@ -407,7 +407,7 @@
             virtualType: 'recurring-history',
             readOnly: true,
             sourceTaskID,
-            title: String(task?.content || task?.raw_content || task?.title || '').trim() || '(无内容)',
+            title: String(task?.content || task?.raw_content || task?.title || '').trim() || __tmT("kernel.noContent"),
             markdown: String(task?.markdown || ''),
             done: true,
             documentID: __tmAiTaskDocId(task),
@@ -639,13 +639,13 @@
         const currentGroup = currentGroupId === 'all'
             ? null
             : groups.find((group) => String(group?.id || '').trim() === currentGroupId) || null;
-        let groupLabel = currentGroupId === 'all' ? '全部分组' : String(currentGroup?.name || currentGroup?.label || currentGroup?.title || currentGroupId).trim();
-        try { groupLabel = currentGroupId === 'all' ? '全部分组' : (__tmResolveDocGroupName(currentGroup) || groupLabel); } catch (e) {}
+        let groupLabel = currentGroupId === 'all' ? __tmT("settings.allGroups") : String(currentGroup?.name || currentGroup?.label || currentGroup?.title || currentGroupId).trim();
+        try { groupLabel = currentGroupId === 'all' ? __tmT("settings.allGroups") : (__tmResolveDocGroupName(currentGroup) || groupLabel); } catch (e) {}
         const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-        let activeDocLabel = activeDocId === 'all' ? '全部页签' : activeDocId;
+        let activeDocLabel = activeDocId === 'all' ? __tmT("task.allTabs2") : activeDocId;
         try {
-            if (__tmIsOtherBlockTabId(activeDocId)) activeDocLabel = '其他块';
-            else if (__tmParseDocTabCustomGroupActiveId(activeDocId)) activeDocLabel = '自定义页签组';
+            if (__tmIsOtherBlockTabId(activeDocId)) activeDocLabel = __tmT("task.otherBlocks");
+            else if (__tmParseDocTabCustomGroupActiveId(activeDocId)) activeDocLabel = __tmT("task.customTabGroup2");
             else if (activeDocId !== 'all') activeDocLabel = __tmGetDocDisplayName(activeDocId, activeDocId) || activeDocId;
         } catch (e) {}
         const view = String(state.viewMode || globalThis.__tmRuntimeState?.getViewMode?.('') || '').trim();
@@ -880,7 +880,7 @@
             if (deletedTaskIDs.has(taskID)) return;
             try {
                 __tmCacheTaskInState(task, {
-                    docNameFallback: task.doc_name || task.docName || '未命名文档',
+                    docNameFallback: task.doc_name || task.docName || __tmT("kernel.untitledDocument"),
                 });
             } catch (e) {}
         });
@@ -996,7 +996,7 @@
                 customStatusOptions: Array.isArray(SettingsStore.data.customStatusOptions)
                     ? SettingsStore.data.customStatusOptions.map((it) => ({
                         id: String(it?.id || '').trim(),
-                        name: String(it?.name || '').trim(),
+                        name: globalThis.__taskHorizonHostBridge.i18n.builtinName('status', it),
                         color: String(it?.color || '').trim(),
                     }))
                     : [],
@@ -1020,14 +1020,14 @@
                 }
                 if (notebook) {
                     const id = String(await API.createDailyNote(notebook) || '').trim();
-                    if (id) defaultTarget = { id, label: '今天日记', kind: 'default' };
+                    if (id) defaultTarget = { id, label: __tmT("settings.todaySDailyNote"), kind: 'default' };
                 }
             } else {
                 const id = String(__tmResolveConfiguredQuickAddDocId() || await __tmResolveDefaultDocIdAsync() || '').trim();
                 if (id) {
                     const doc = (Array.isArray(state.allDocuments) ? state.allDocuments : []).find((item) => String(item?.id || '').trim() === id)
                         || (Array.isArray(state.taskTree) ? state.taskTree : []).find((item) => String(item?.id || '').trim() === id);
-                    defaultTarget = { id, label: String(doc?.name || '默认新建文档').trim() || '默认新建文档', kind: 'default' };
+                    defaultTarget = { id, label: String(doc?.name || __tmT("task.defaultNewTaskDocument")).trim() || __tmT("task.defaultNewTaskDocument"), kind: 'default' };
                 }
             }
             const groupID = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
@@ -1038,7 +1038,7 @@
                 const targetID = String(id || '').trim();
                 const doc = (Array.isArray(state.allDocuments) ? state.allDocuments : []).find((item) => String(item?.id || '').trim() === targetID)
                     || (Array.isArray(state.taskTree) ? state.taskTree : []).find((item) => String(item?.id || '').trim() === targetID);
-                return targetID ? { id: targetID, label: String(doc?.name || '未命名文档').trim() || '未命名文档', kind: 'pinned' } : null;
+                return targetID ? { id: targetID, label: String(doc?.name || __tmT("kernel.untitledDocument")).trim() || __tmT("kernel.untitledDocument"), kind: 'pinned' } : null;
             }).filter(Boolean);
             return { defaultTarget, pinned, groupID };
         },
@@ -1287,7 +1287,7 @@
         if (task && typeof task === 'object') {
             try {
                 task = __tmCacheTaskInState(task, {
-                    docNameFallback: task.doc_name || task.docName || '未命名文档'
+                    docNameFallback: task.doc_name || task.docName || __tmT("kernel.untitledDocument")
                 }) || task;
             } catch (e) {}
         }
@@ -1372,7 +1372,7 @@
         }
         try {
             task = __tmCacheTaskInState(task, {
-                docNameFallback: task.doc_name || task.docName || '未命名文档'
+                docNameFallback: task.doc_name || task.docName || __tmT("kernel.untitledDocument")
             }) || task;
         } catch (e) {}
         return task && typeof task === 'object' ? task : null;
@@ -1483,10 +1483,10 @@
         }
         try {
             childTask = __tmCacheTaskInState(childTask, {
-                docNameFallback: childTask.doc_name || childTask.docName || '未命名文档'
+                docNameFallback: childTask.doc_name || childTask.docName || __tmT("kernel.untitledDocument")
             }) || childTask;
             parentTask = __tmCacheTaskInState(parentTask, {
-                docNameFallback: parentTask.doc_name || parentTask.docName || '未命名文档'
+                docNameFallback: parentTask.doc_name || parentTask.docName || __tmT("kernel.untitledDocument")
             }) || parentTask;
         } catch (e) {}
         const patch = __tmBuildMissingExternalSubtaskInheritedPatch(childTask, parentTask);

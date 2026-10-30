@@ -422,11 +422,11 @@
     function __tmCanLinkTasks(fromTaskId, toTaskId) {
         const fromId = String(fromTaskId || '').trim();
         const toId = String(toTaskId || '').trim();
-        if (!fromId || !toId || fromId === toId) return { ok: false, reason: '无效任务' };
+        if (!fromId || !toId || fromId === toId) return { ok: false, reason: __tmT("task.invalidTask") };
         const fromDocId = __tmGetTaskDocIdById(fromId);
         const toDocId = __tmGetTaskDocIdById(toId);
-        if (!fromDocId || !toDocId) return { ok: false, reason: '任务不存在' };
-        if (fromDocId !== toDocId) return { ok: false, reason: '不支持跨文档连线' };
+        if (!fromDocId || !toDocId) return { ok: false, reason: __tmT("task.taskDoesNotExist") };
+        if (fromDocId !== toDocId) return { ok: false, reason: __tmT("task.crossDocumentConnectionsAreNotSupported") };
         return { ok: true, docId: fromDocId };
     }
 
@@ -506,7 +506,7 @@
             if (title) return title;
         }
         const id = String(taskId || item.id || '').trim();
-        return id ? `任务 ${id.slice(-6)}` : '任务';
+        return id ? __tmT("task.task", { value1: id.slice(-6) }) : __tmT("kernel.task");
     }
 
     function __tmIsWhiteboardOutlineTaskDone(taskLike) {
@@ -1166,7 +1166,7 @@
                     !__tmIsTaskInWhiteboardScope(globalThis.__tmTaskBoundary?.getTask?.(link.from), scope)
                     || !__tmIsTaskInWhiteboardScope(globalThis.__tmTaskBoundary?.getTask?.(link.to), scope)
                 ));
-                if (invalid) throw new Error('连线任务不在当前页签组全局白板范围内');
+                if (invalid) throw new Error(__tmT("task.theConnectedTaskIsOutsideTheCurrentTabGroup"));
             }
             __tmSetWhiteboardGlobalTaskLinks(links, scope.boardKey, options);
             return;
@@ -1176,9 +1176,9 @@
 
     function __tmGetWhiteboardLinkSourceOptions(documentValue = 'document') {
         return [
-            { value: documentValue, label: '各文档白板' },
-            { value: 'global', label: '文档分组全局白板' },
-            { value: 'tabGroup', label: '页签组全局白板' },
+            { value: documentValue, label: __tmT("task.perDocumentWhiteboards") },
+            { value: 'global', label: __tmT("task.documentGroupGlobalWhiteboard") },
+            { value: 'tabGroup', label: __tmT("task.tabGroupGlobalWhiteboard") },
         ];
     }
 
@@ -3534,10 +3534,10 @@
                     waitForCommit: true,
                 });
                 if (saved !== false) return true;
-                try { hint('❌ 当前修改未保存，请重试', 'error'); } catch (e) {}
+                try { hint(__tmT("task.currentChangesWereNotSavedTryAgain"), 'error'); } catch (e) {}
                 return false;
             } catch (error) {
-                try { hint(`❌ 详情保存失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
+                try { hint(__tmT("task.failedToSaveDetails", { value1: error?.message || String(error) }), 'error'); } catch (e) {}
                 return false;
             }
         })();
@@ -3584,7 +3584,7 @@
             } catch (error) {
                 try { root.__tmTaskDetailClosing = false; } catch (e) {}
                 try { root.__tmTaskDetailClosed = false; } catch (e) {}
-                try { hint(`❌ 关闭任务详情失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
+                try { hint(__tmT("task.failedToCloseTaskDetails", { value1: error?.message || String(error) }), 'error'); } catch (e) {}
                 return false;
             }
         })();
@@ -3636,7 +3636,12 @@
 
     function __tmGetBusyTaskDetailBarrier() {
         const globalReasons = __tmCollectGlobalTaskDetailUiReasons();
-        const entries = __tmCollectBusyTaskDetailRoots().map((meta) => {
+        const entries = __tmCollectBusyTaskDetailRoots().filter((meta) => {
+            if (meta.scope !== 'checklist' && meta.scope !== 'task-sheet') return true;
+            const isInCurrentScope = globalThis.__tmIsTaskIdInCurrentDocumentScope;
+            if (typeof isInCurrentScope !== 'function') return true;
+            try { return isInCurrentScope(meta.taskId) !== false; } catch (e) { return true; }
+        }).map((meta) => {
             const reasons = Array.from(new Set([
                 ...__tmCollectTaskDetailFallbackDeferReasons(meta.root),
                 ...(Array.isArray(globalReasons) ? globalReasons : []),
@@ -4728,10 +4733,10 @@ return false;
             if (format === 'remaining') {
                 node.textContent = String(remaining);
                 node.hidden = remaining === 0;
-                node.title = `共${stats.total}个任务，已完成${stats.completed}个，剩余${remaining}个`;
+                node.title = __tmT("task.tasksDoneRemaining", { total: stats.total, completed: stats.completed, remaining: remaining });
             } else {
                 node.textContent = node.classList.contains('tm-checklist-meta-chip')
-                    ? `子任务 ${stats.completed}/${stats.total}`
+                    ? __tmT("task.subtasks", { completed: stats.completed, total: stats.total })
                     : `${stats.completed}/${stats.total}`;
             }
             touched = true;
@@ -4919,7 +4924,7 @@ return false;
         title.setAttribute('data-group-key', groupKey);
         title.setAttribute('aria-expanded', 'true');
         title.style.background = 'var(--tm-pinned-bg)';
-        title.innerHTML = `<span style="display:inline-flex;align-items:center;min-width:0;"><span class="tm-group-toggle" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><span style="display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--tm-pinned-color);"><span class="tm-checklist-group-pin-icon" style="transform:translateY(-1px);">${__tmRenderBadgeIcon('pin', 14)}</span><span>置顶</span></span></span><span class="tm-badge tm-badge--count">0</span>`;
+        title.innerHTML = `<span style="display:inline-flex;align-items:center;min-width:0;"><span class="tm-group-toggle" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><span style="display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--tm-pinned-color);"><span class="tm-checklist-group-pin-icon" style="transform:translateY(-1px);">${__tmRenderBadgeIcon('pin', 14)}</span><span>${__tmT("kernel.pin")}</span></span></span><span class="tm-badge tm-badge--count">0</span>`;
         title.addEventListener('click', (event) => {
             try { globalThis.tmToggleGroupCollapse?.(groupKey, event); } catch (e) {}
         });
@@ -4963,8 +4968,8 @@ return false;
         if (state.groupByDocName) {
             const docId = String(taskLike.root_id || taskLike.docId || '').trim();
             const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
-            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-            const bucket = __tmGetDocHeadingBucket(taskLike, `无${headingLabelMap[headingLevel] || '标题'}`);
+            const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+            const bucket = __tmGetDocHeadingBucket(taskLike, __tmT("calendar.no", { value1: headingLabelMap[headingLevel] || __tmT("calendar.title") }));
             return `doc:${docId}|heading:${String(bucket?.key || '').trim()}`;
         }
         if (state.groupByTime) return `time:${__tmGetKanbanTimeProjectionKey(taskLike)}`;
@@ -4984,8 +4989,8 @@ return false;
         if (state.groupByDocName) {
             const docId = String(taskLike.root_id || taskLike.docId || '__unknown__').trim() || '__unknown__';
             const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
-            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-            const bucket = __tmGetDocHeadingBucket(taskLike, `无${headingLabelMap[headingLevel] || '标题'}`);
+            const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+            const bucket = __tmGetDocHeadingBucket(taskLike, __tmT("calendar.no", { value1: headingLabelMap[headingLevel] || __tmT("calendar.title") }));
             const docKey = `kanban_${columnId}_doc_${docId}`;
             const h2Key = `${docKey}__h2_${encodeURIComponent(String(bucket?.key || 'label:__none__'))}`;
             return [h2Key, docKey];
@@ -6192,9 +6197,9 @@ return false;
             const finish = () => {
                 const nextViewerCtor = globalThis.Viewer || window.Viewer;
                 if (typeof nextViewerCtor === 'function') resolve(nextViewerCtor);
-                else reject(new Error('思源图片查看器不可用'));
+                else reject(new Error(__tmT("task.siyuanImageViewerIsUnavailable")));
             };
-            const fail = () => reject(new Error('加载思源图片查看器失败'));
+            const fail = () => reject(new Error(__tmT("task.failedToLoadTheSiyuanImageViewer")));
             const existing = document.getElementById('protyleViewerScript') || document.getElementById('tmTaskAttachmentViewerScript');
             if (existing instanceof HTMLScriptElement) {
                 if (typeof (globalThis.Viewer || window.Viewer) === 'function') {
@@ -6247,7 +6252,7 @@ return false;
             const li = document.createElement('li');
             const img = document.createElement('img');
             img.src = item.href;
-            img.alt = item.name || '附件图片';
+            img.alt = item.name || __tmT("task.attachedImage");
             li.appendChild(img);
             imagesElement.appendChild(li);
             if (currentItem.href.endsWith(encodeURI(item.href)) || currentItem.href.endsWith(item.href)) {
@@ -6508,8 +6513,8 @@ return false;
         const button = doc.createElement('button');
         button.type = 'button';
         button.className = 'tm-task-title-block-ref-floating-jump';
-        button.title = '跳转到块引用文档';
-        button.setAttribute('aria-label', '跳转到块引用文档');
+        button.title = __tmT("task.goToTheBlockReferenceDocument");
+        button.setAttribute('aria-label', __tmT("task.goToTheBlockReferenceDocument"));
         button.innerHTML = (typeof __tmRenderLucideIcon === 'function')
             ? __tmRenderLucideIcon('map-pin', '', { size: 13 })
             : '<span aria-hidden="true">&#8599;</span>';
@@ -6657,7 +6662,7 @@ return false;
             item.isBlockRef ? 'is-block-ref' : '',
         ].filter(Boolean).join(' ');
         if (item.isImage) {
-            return `<span class="${className}"><img src="${esc(assetHref || item.path)}" alt="${esc(item.name || '附件')}" loading="lazy"></span>`;
+            return `<span class="${className}"><img src="${esc(assetHref || item.path)}" alt="${esc(item.name || __tmT("task.attachment"))}" loading="lazy"></span>`;
         }
         return `<span class="${className}"><span class="tm-task-attachment-thumb__label">${esc(item.label || 'FILE')}</span></span>`;
     }
@@ -6721,7 +6726,7 @@ return false;
 
     async function __tmWriteTaskAttachmentTextToClipboard(text) {
         const value = String(text || '').trim();
-        if (!value) throw new Error('没有可复制的内容');
+        if (!value) throw new Error(__tmT("task.nothingToCopy"));
         try {
             if (navigator?.clipboard?.writeText) {
                 await navigator.clipboard.writeText(value);
@@ -6737,7 +6742,7 @@ return false;
             textarea.focus();
             textarea.select();
             const ok = document.execCommand('copy');
-            if (!ok) throw new Error('复制失败');
+            if (!ok) throw new Error(__tmT("task.copyFailed"));
             return true;
         } finally {
             textarea.remove();
@@ -6794,7 +6799,7 @@ return false;
             try {
                 await onClick?.();
             } catch (e) {
-                try { hint(`❌ ${String(e?.message || e || '操作失败')}`, 'error'); } catch (e2) {}
+                try { hint(`❌ ${String(e?.message || e || __tmT("kernel.operationFailed"))}`, 'error'); } catch (e2) {}
             }
         };
         menu.appendChild(item);
@@ -6831,14 +6836,14 @@ return false;
             user-select: none;
         `;
         if (isAssetPath) {
-            __tmCreateTaskAttachmentContextMenuItem(menu, __tmRenderContextMenuLabel('paperclip', '复制附件'), async () => {
+            __tmCreateTaskAttachmentContextMenuItem(menu, __tmRenderContextMenuLabel('paperclip', __tmT("task.copyAttachment")), async () => {
                 await __tmCopyTaskAttachmentFile(normalizedPath);
-                try { hint('✅ 已复制附件', 'success'); } catch (e) {}
+                try { hint(__tmT("task.attachmentCopied"), 'success'); } catch (e) {}
             });
         }
-        __tmCreateTaskAttachmentContextMenuItem(menu, __tmRenderContextMenuLabel(isBlockRef ? 'link-simple' : 'file-text', isBlockRef ? '复制块链接' : '复制路径'), async () => {
+        __tmCreateTaskAttachmentContextMenuItem(menu, __tmRenderContextMenuLabel(isBlockRef ? 'link-simple' : 'file-text', isBlockRef ? __tmT("task.copyBlockLink") : __tmT("task.copyPath")), async () => {
             await __tmCopyTaskAttachmentPathText(normalizedPath);
-            try { hint(isBlockRef ? '✅ 已复制块链接' : '✅ 已复制路径', 'success'); } catch (e) {}
+            try { hint(isBlockRef ? __tmT("task.blockLinkCopied") : __tmT("task.pathCopied"), 'success'); } catch (e) {}
         });
 
         document.body.appendChild(menu);
@@ -6901,14 +6906,14 @@ return false;
         if (kind === 'local-path') {
             const opener = globalThis.__taskHorizonOpenAssetWithSystem;
             if (typeof opener !== 'function') {
-                try { hint('⚠ 当前环境不支持打开本地路径', 'warning'); } catch (e) {}
+                try { hint(__tmT("task.thisEnvironmentCannotOpenLocalPaths"), 'warning'); } catch (e) {}
                 return true;
             }
             Promise.resolve(opener(normalizedPath)).then((opened) => {
                 if (opened) return;
-                try { hint('⚠ 当前环境无法打开本地路径', 'warning'); } catch (e) {}
+                try { hint(__tmT("task.cannotOpenLocalPathsInThisEnvironment"), 'warning'); } catch (e) {}
             }).catch(() => {
-                try { hint('⚠ 打开本地路径失败', 'warning'); } catch (e) {}
+                try { hint(__tmT("task.failedToOpenTheLocalPath"), 'warning'); } catch (e) {}
             });
             return true;
         }
@@ -6992,10 +6997,10 @@ return false;
         if (!tid) return false;
         const normalizedPaths = __tmReconcileQueuedTaskAttachmentPaths(tid, nextPaths, options);
         const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-        if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+        if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
         return await patchTask(tid, { attachments: normalizedPaths }, {
             source: String(options?.source || 'task-attachments').trim() || 'task-attachments',
-            label: '附件',
+            label: __tmT("task.attachment"),
             withFilters: false,
             reason: String(options?.reason || options?.source || 'task-attachments').trim() || 'task-attachments',
             broadcast: options?.broadcast !== false,
@@ -7008,17 +7013,17 @@ return false;
 
     async function __tmCreateTaskAttachmentDocument(taskId, draft) {
         const tid = String(taskId || '').trim();
-        if (!tid || !draft || typeof draft !== 'object') throw new Error('缺少任务或文档信息');
+        if (!tid || !draft || typeof draft !== 'object') throw new Error(__tmT("task.missingTaskOrDocumentInformation"));
         if (!draft.createdDocId) {
             const title = String(draft.title || '').trim();
-            if (!title) throw new Error('请输入文档标题');
+            if (!title) throw new Error(__tmT("task.enterADocumentTitle"));
             if (title.length > 512 || /[\\/\x00-\x1f]/.test(title) || title === '.' || title === '..') {
-                throw new Error('文档标题最多 512 个字符，不能包含斜杠或控制字符，也不能为 . 或 ..');
+                throw new Error(__tmT("task.documentTitlesMayBeUpToCharactersAndCannot"));
             }
             const parentId = __tmNormalizeTaskAttachmentBlockId(draft.parentDocId);
-            if (!parentId) throw new Error('请选择创建位置');
+            if (!parentId) throw new Error(__tmT("task.chooseACreationLocation"));
             const parent = await API.getDocMetaById(parentId);
-            if (!parent?.notebook || !parent?.path) throw new Error('无法读取创建位置，请重新选择文档');
+            if (!parent?.notebook || !parent?.path) throw new Error(__tmT("task.cannotReadTheCreationLocationSelectTheDocumentAgain"));
             const docPath = `${String(parent.path).replace(/\/+$/, '')}/${title}`;
             if (!draft.requestedDocId) draft.requestedDocId = __tmNewTaskBlockId();
             let created;
@@ -7034,7 +7039,7 @@ return false;
                 creationFailure = e;
             }
             const docId = __tmNormalizeTaskAttachmentBlockId(created);
-            if (!docId) throw new Error('文档已创建，但未返回有效的文档 ID');
+            if (!docId) throw new Error(__tmT("task.theDocumentWasCreatedButNoValidDocumentId"));
             // 先保留创建结果；关联失败时只重试写入附件。
             draft.createdDocId = docId;
             draft.title = title;
@@ -7043,7 +7048,7 @@ return false;
             if (creationFailure) throw creationFailure;
         }
         const token = __tmBuildTaskAttachmentBlockToken(draft.createdDocId);
-        if (!token) throw new Error('文档 ID 无效');
+        if (!token) throw new Error(__tmT("settings.invalidDocumentId"));
         const currentPaths = __tmGetQueuedTaskAttachmentPatchPaths(tid) || __tmGetCurrentTaskAttachmentPatchBase(tid);
         const paths = __tmNormalizeTaskAttachmentPaths(currentPaths.concat(token));
         const saved = await __tmUpdateTaskAttachmentsField(tid, paths, {
@@ -7052,17 +7057,17 @@ return false;
             wait: true,
             skipNoopCheck: true,
         });
-        if (saved === false) throw new Error('任务附件未保存，请重试关联');
+        if (saved === false) throw new Error(__tmT("task.theTaskAttachmentWasNotSavedTryLinkingAgain"));
         return { id: draft.createdDocId, paths };
     }
 
     const __TM_ATTACHMENT_LIBRARY_TYPE_OPTIONS = [
-        { value: 'all', label: '全部' },
-        { value: 'image', label: '图片' },
+        { value: 'all', label: __tmT("calendar.all") },
+        { value: 'image', label: __tmT("task.image") },
         { value: 'pdf', label: 'PDF' },
-        { value: 'file', label: '普通文件' },
-        { value: 'block', label: '文档/块链接' },
-        { value: 'local', label: '本地路径' },
+        { value: 'file', label: __tmT("task.file") },
+        { value: 'block', label: __tmT("task.documentBlockLink") },
+        { value: 'local', label: __tmT("task.localPath") },
     ];
 
     function __tmNormalizeAttachmentLibraryTypeFilter(value) {
@@ -7072,16 +7077,16 @@ return false;
 
     function __tmGetAttachmentLibraryTypeInfo(entry) {
         const item = (entry && typeof entry === 'object') ? entry : {};
-        if (item.isLocalPath || item.kind === 'local-path') return { key: 'local', label: '本地路径' };
-        if (item.isBlockRef || item.kind === 'block-ref') return { key: 'block', label: '文档/块链接' };
-        if (item.isImage || item.kind === 'image') return { key: 'image', label: '图片' };
+        if (item.isLocalPath || item.kind === 'local-path') return { key: 'local', label: __tmT("task.localPath") };
+        if (item.isBlockRef || item.kind === 'block-ref') return { key: 'block', label: __tmT("task.documentBlockLink") };
+        if (item.isImage || item.kind === 'image') return { key: 'image', label: __tmT("task.image") };
         if (item.isPdf || item.kind === 'pdf') return { key: 'pdf', label: 'PDF' };
-        return { key: 'file', label: '普通文件' };
+        return { key: 'file', label: __tmT("task.file") };
     }
 
     function __tmGetAttachmentLibraryTaskTitlePresentation(taskLike) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
-        const fallback = String(task.content || task.raw_content || task.rawContent || task.title || task.name || task.id || '').trim() || '未命名任务';
+        const fallback = String(task.content || task.raw_content || task.rawContent || task.title || task.name || task.id || '').trim() || __tmT("kernel.untitledTask");
         return API.getTaskTitlePresentation(task.markdown || fallback, fallback);
     }
 
@@ -7099,10 +7104,10 @@ return false;
         const docId = String(task.root_id || task.rootId || task.docId || '').trim();
         if (docId) {
             try {
-                return __tmGetDocDisplayName(docId, '未命名文档') || '未命名文档';
+                return __tmGetDocDisplayName(docId, __tmT("kernel.untitledDocument")) || __tmT("kernel.untitledDocument");
             } catch (e) {}
         }
-        return '未命名文档';
+        return __tmT("kernel.untitledDocument");
     }
 
     function __tmCollectAttachmentLibraryTasks() {
@@ -7406,9 +7411,9 @@ return false;
 
     function __tmFormatAttachmentLibraryTime(value) {
         const ts = Number(value || 0);
-        if (!Number.isFinite(ts) || ts <= 0) return '历史附件';
+        if (!Number.isFinite(ts) || ts <= 0) return __tmT("task.legacyAttachments");
         const date = new Date(ts);
-        if (Number.isNaN(date.getTime())) return '历史附件';
+        if (Number.isNaN(date.getTime())) return __tmT("task.legacyAttachments");
         const pad = (part) => String(part).padStart(2, '0');
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
     }
@@ -7429,11 +7434,11 @@ return false;
         const displayPath = row.displayPath || row.path;
         const addedAt = Number(row.addedAt || 0);
         const timeLabel = __tmFormatAttachmentLibraryTime(addedAt);
-        const timeTitle = addedAt > 0 ? new Date(addedAt).toISOString() : '历史附件';
+        const timeTitle = addedAt > 0 ? new Date(addedAt).toISOString() : __tmT("task.legacyAttachments");
         const fileTitle = [row.name, displayPath].filter(Boolean).join('\n');
         const copyLabel = __tmIsTaskAttachmentAssetPath(row.path)
-            ? '复制附件'
-            : (row.typeKey === 'block' ? '复制块链接' : '复制路径');
+            ? __tmT("task.copyAttachment")
+            : (row.typeKey === 'block' ? __tmT("task.copyBlockLink") : __tmT("task.copyPath"));
         return `
             <article class="tm-attachment-library-row" data-tm-task-id="${esc(row.taskId)}" data-tm-path="${esc(row.path)}">
                 <div class="tm-attachment-library-file">
@@ -7452,10 +7457,10 @@ return false;
                 <div class="tm-attachment-library-doc" title="${esc(row.docName)}">${esc(row.docName)}</div>
                 <div class="tm-attachment-library-time" title="${esc(timeTitle)}">${esc(timeLabel)}</div>
                 <div class="tm-attachment-library-actions">
-                    <button type="button" class="tm-icon-btn tm-attachment-library-action" onclick="tmAttachmentLibraryOpen('${jsPath}', event)" aria-label="打开"${__tmBuildTooltipAttrs('打开', { side: 'top' })}>${__tmRenderLucideIcon('file')}</button>
+                    <button type="button" class="tm-icon-btn tm-attachment-library-action" onclick="tmAttachmentLibraryOpen('${jsPath}', event)" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("plugin.open")}"${__tmBuildTooltipAttrs(__tmT("plugin.open"), { side: 'top' })}>${__tmRenderLucideIcon('file')}</button>
                     <button type="button" class="tm-icon-btn tm-attachment-library-action" onclick="tmAttachmentLibraryCopy('${jsPath}', event)" aria-label="${esc(copyLabel)}"${__tmBuildTooltipAttrs(copyLabel, { side: 'top' })}>${__tmRenderLucideIcon('paperclip')}</button>
-                    <button type="button" class="tm-icon-btn tm-attachment-library-action" onclick="tmAttachmentLibraryOpenTask('${jsTaskId}', event)" aria-label="定位任务"${__tmBuildTooltipAttrs('定位任务', { side: 'top' })}>${__tmRenderLucideIcon('map-pin')}</button>
-                    <button type="button" class="tm-icon-btn tm-attachment-library-action tm-attachment-library-action--danger" onclick="tmAttachmentLibraryRemove('${jsTaskId}', '${jsPath}', event)" aria-label="移除关联"${__tmBuildTooltipAttrs('移除关联', { side: 'top' })}>${__tmRenderLucideIcon('trash-2')}</button>
+                    <button type="button" class="tm-icon-btn tm-attachment-library-action" onclick="tmAttachmentLibraryOpenTask('${jsTaskId}', event)" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.locateTask")}"${__tmBuildTooltipAttrs(__tmT("task.locateTask"), { side: 'top' })}>${__tmRenderLucideIcon('map-pin')}</button>
+                    <button type="button" class="tm-icon-btn tm-attachment-library-action tm-attachment-library-action--danger" onclick="tmAttachmentLibraryRemove('${jsTaskId}', '${jsPath}', event)" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.removeLink")}"${__tmBuildTooltipAttrs(__tmT("task.removeLink"), { side: 'top' })}>${__tmRenderLucideIcon('trash-2')}</button>
                 </div>
             </article>
         `;
@@ -7468,7 +7473,7 @@ return false;
             return `
                 <div class="tm-attachment-library-empty">
                     <div class="tm-attachment-library-empty__icon">${__tmRenderLucideIcon('paperclip')}</div>
-                    <div class="tm-attachment-library-empty__title">暂无附件</div>
+                    <div class="tm-attachment-library-empty__title">${__tmT("task.noAttachmentsYet")}</div>
                 </div>
             `;
         }
@@ -7476,18 +7481,18 @@ return false;
             return `
                 <div class="tm-attachment-library-empty">
                     <div class="tm-attachment-library-empty__icon">${__tmRenderLucideIcon('search')}</div>
-                    <div class="tm-attachment-library-empty__title">没有匹配的附件</div>
+                    <div class="tm-attachment-library-empty__title">${__tmT("task.noMatchingAttachments")}</div>
                 </div>
             `;
         }
         return `
             <div class="tm-attachment-library-head" aria-hidden="true">
-                <div>附件</div>
-                <div>类型</div>
-                <div>关联任务</div>
-                <div>所属文档</div>
-                <div>添加时间</div>
-                <div>操作</div>
+                <div>${__tmT("task.attachment")}</div>
+                <div>${__tmT("task.type")}</div>
+                <div>${__tmT("calendar.linkedTask2")}</div>
+                <div>${__tmT("task.document2")}</div>
+                <div>${__tmT("task.added")}</div>
+                <div>${__tmT("kernel.actions")}</div>
             </div>
             <div class="tm-attachment-library-list">
                 ${items.map((item) => __tmRenderAttachmentLibraryRowHtml(item)).join('')}
@@ -7507,19 +7512,19 @@ return false;
                     <header class="tm-attachment-library-header">
                         <div class="tm-attachment-library-title">
                             <span class="tm-attachment-library-title__icon">${__tmRenderLucideIcon('paperclip')}</span>
-                            <span>附件库</span>
+                            <span>${__tmT("task.attachmentLibrary")}</span>
                             <span class="tm-attachment-library-count" data-tm-attachment-library-count>${filteredItems.length}/${allItems.length}</span>
-                            <span class="tm-attachment-library-note" title="仅展示当前文档分组的任务附件">仅展示当前文档分组的任务附件</span>
+                            <span class="tm-attachment-library-note" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.onlyTaskAttachmentsInTheCurrentDocumentGroup")}">${__tmT("task.onlyTaskAttachmentsInTheCurrentDocumentGroup")}</span>
                         </div>
-                        <button type="button" class="tm-icon-btn tm-attachment-library-close" onclick="tmCloseAttachmentLibrary(event)" aria-label="返回工作区"${__tmBuildTooltipAttrs('返回工作区', { side: 'bottom' })}>${__tmRenderLucideIcon('x')}</button>
+                        <button type="button" class="tm-icon-btn tm-attachment-library-close" onclick="tmCloseAttachmentLibrary(event)" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.backToWorkspace")}"${__tmBuildTooltipAttrs(__tmT("task.backToWorkspace"), { side: 'bottom' })}>${__tmRenderLucideIcon('x')}</button>
                     </header>
                     <div class="tm-attachment-library-toolbar">
                         <label class="tm-attachment-library-search">
                             <span class="tm-attachment-library-search__icon">${__tmRenderLucideIcon('search')}</span>
-                            <input type="search" value="${esc(searchValue)}" placeholder="搜索附件、任务或文档" oninput="tmAttachmentLibrarySearch(this.value)" autocomplete="off">
+                            <input type="search" value="${esc(searchValue)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.searchAttachmentsTasksOrDocuments")}" oninput="tmAttachmentLibrarySearch(this.value)" autocomplete="off">
                         </label>
                         <label class="tm-attachment-library-filter">
-                            <span>类型</span>
+                            <span>${__tmT("task.type")}</span>
                             <select onchange="tmAttachmentLibraryFilter(this.value)">
                                 ${__tmRenderAttachmentLibraryTypeOptions()}
                             </select>
@@ -7577,15 +7582,15 @@ return false;
         try {
             if (__tmIsTaskAttachmentAssetPath(normalizedPath)) {
                 await __tmCopyTaskAttachmentFile(normalizedPath);
-                try { hint('✅ 已复制附件', 'success'); } catch (e) {}
+                try { hint(__tmT("task.attachmentCopied"), 'success'); } catch (e) {}
             } else {
                 await __tmCopyTaskAttachmentPathText(normalizedPath);
                 const isBlockRef = __tmIsTaskAttachmentBlockRef(normalizedPath);
-                try { hint(isBlockRef ? '✅ 已复制块链接' : '✅ 已复制路径', 'success'); } catch (e) {}
+                try { hint(isBlockRef ? __tmT("task.blockLinkCopied") : __tmT("task.pathCopied"), 'success'); } catch (e) {}
             }
             return true;
         } catch (e) {
-            try { hint(`❌ ${String(e?.message || e || '复制失败')}`, 'error'); } catch (e2) {}
+            try { hint(`❌ ${String(e?.message || e || __tmT("task.copyFailed"))}`, 'error'); } catch (e2) {}
             return false;
         }
     };
@@ -7598,7 +7603,7 @@ return false;
         try {
             if (typeof window.tmOpenTaskDetail === 'function') return await window.tmOpenTaskDetail(tid, event);
         } catch (e) {}
-        try { hint('⚠️ 未找到任务数据，无法打开详情', 'warning'); } catch (e) {}
+        try { hint(__tmT("task.taskDataNotFoundCannotOpenDetails"), 'warning'); } catch (e) {}
         return false;
     };
 
@@ -7623,14 +7628,14 @@ return false;
         if (!tid || !normalizedPath) return false;
         let ok = true;
         try {
-            ok = await showConfirm('移除附件关联', '仅从该任务移除此附件，不会删除思源资产文件或本地文件。是否继续？');
+            ok = await showConfirm(__tmT("task.removeAttachmentLink"), __tmT("task.removeThisAttachmentOnlyFromThisTaskSiyuanAsset"));
         } catch (e) {
-            try { ok = confirm('仅从该任务移除此附件，不会删除原文件。是否继续？'); } catch (e2) { ok = true; }
+            try { ok = confirm(__tmT("task.removeThisAttachmentOnlyFromThisTaskTheOriginal")); } catch (e2) { ok = true; }
         }
         if (!ok) return false;
         const task = __tmTaskStateKernel.getTask(tid);
         if (!task) {
-            try { hint('⚠ 未找到关联任务', 'warning'); } catch (e) {}
+            try { hint(__tmT("task.linkedTaskNotFound"), 'warning'); } catch (e) {}
             return false;
         }
         const currentPaths = __tmGetTaskAttachmentPaths(task);
@@ -7641,7 +7646,7 @@ return false;
         }
         const updated = await __tmUpdateTaskAttachmentsField(tid, nextPaths, { source: 'attachment-library-remove' });
         if (updated) {
-            try { hint('已移除附件关联', 'success'); } catch (e) {}
+            try { hint(__tmT("task.attachmentLinkRemoved"), 'success'); } catch (e) {}
         }
         if (!__tmRefreshAttachmentLibraryInPlace()) {
             try { render(); } catch (e) {}
@@ -7654,7 +7659,7 @@ return false;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
         let touched = false;
-        const input = root.querySelector('input[type="checkbox"][title="置顶"]');
+        const input = root.querySelector(__tmT("task.inputTypeCheckboxTitlePin"));
         if (input instanceof HTMLInputElement) {
             input.checked = !!taskLike.pinned;
             touched = true;
@@ -8039,9 +8044,9 @@ return false;
         return touched;
     }
 
-    function __tmBuildTaskInlineContentHtml(task, fallbackText = '(无内容)') {
+    function __tmBuildTaskInlineContentHtml(task, fallbackText = __tmT("kernel.noContent")) {
         const taskLike = (task && typeof task === 'object') ? task : {};
-        const content = String(taskLike.content || '').trim() || String(fallbackText || '(无内容)').trim() || '(无内容)';
+        const content = String(taskLike.content || '').trim() || String(fallbackText || __tmT("kernel.noContent")).trim() || __tmT("kernel.noContent");
         return `${API.renderTaskContentHtml(taskLike.markdown, content)}${__tmRenderGlobalCollectDocTaskInlineIcon(taskLike)}${__tmRenderRecurringTaskInlineIcon(taskLike)}${__tmRenderPinnedTaskInlineIcon(taskLike)}${__tmRenderRecurringInstanceBadge(taskLike, { className: 'tm-recurring-instance-badge--inline' })}`;
     }
 
@@ -8050,7 +8055,7 @@ return false;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
         const html = __tmBuildTaskInlineContentHtml(taskLike);
-        const titlePresentation = API.getTaskTitlePresentation(taskLike.markdown, taskLike.content || '(无内容)');
+        const titlePresentation = API.getTaskTitlePresentation(taskLike.markdown, taskLike.content || __tmT("kernel.noContent"));
         const titleText = titlePresentation.text;
         const taskId = String(taskLike.id || taskLike.blockId || '').trim();
         let touched = false;
@@ -8204,12 +8209,12 @@ return false;
             && (!taskDone || keepCompletedStatusChip)) {
             const opt = __tmResolveTaskStatusDisplayOption(taskLike, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
                 fallbackColor: taskDone ? '#9e9e9e' : '#757575',
-                fallbackName: taskDone ? '完成' : '待办',
+                fallbackName: taskDone ? __tmT("quickbar.done") : __tmT("homepage.toDo"),
             });
             const style = __tmBuildStatusChipStyle(opt.color || '#757575');
-            const label = esc(String(opt.name || opt.id || (taskDone ? '完成' : '')).trim());
+            const label = esc(String(opt.name || opt.id || (taskDone ? __tmT("quickbar.done") : '')).trim());
             if (taskDone) {
-                metaParts.push(`<span class="tm-status-tag" style="${style};cursor:default;">${label || esc('完成')}</span>`);
+                metaParts.push(`<span class="tm-status-tag" style="${style};cursor:default;">${label || esc(__tmT("quickbar.done"))}</span>`);
             } else if (viewKey === 'whiteboard') {
                 metaParts.push(`<span class="tm-status-tag" style="${style};cursor:${editableWhiteboard ? 'pointer' : 'default'};" ${editableWhiteboard ? `onclick="tmWhiteboardEditStatus('${escSq(tid)}', this, event)"` : ''}>${label}</span>`);
             } else {
@@ -8222,9 +8227,9 @@ return false;
             const dateText = dateValue ? __tmFormatTaskCardDateValue(taskLike) : '';
             const dateChipClass = `${dateValue ? ' tm-kanban-chip--date-has-value' : ' tm-kanban-chip--date-empty'}${__tmIsTaskCardDateOverdue(taskLike) ? ' tm-kanban-chip--date-overdue' : ''}`;
             if (viewKey === 'whiteboard') {
-                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" style="cursor:${editableWhiteboard ? 'pointer' : 'default'};" ${editableWhiteboard ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableWhiteboard ? '点击选择日期' : ''}">${esc(dateText || '日期')}</span>`);
+                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" style="cursor:${editableWhiteboard ? 'pointer' : 'default'};" ${editableWhiteboard ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableWhiteboard ? __tmT("calendar.clickToPickADate") : ''}">${esc(dateText || __tmT("calendar.date"))}</span>`);
             } else {
-                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${escSq(tid)}', event)" title="点击选择日期">${esc(dateText || '日期')}</span>`);
+                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${escSq(tid)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clickToPickADate")}">${esc(dateText || __tmT("calendar.date"))}</span>`);
             }
         }
 
@@ -8245,7 +8250,7 @@ return false;
                     ? (editableWhiteboard ? `onclick="tmEditFocusSummaryInline('${escSq(tid)}', this)"` : '')
                     : `onclick="tmEditFocusSummaryInline('${escSq(tid)}', this)"`;
                 const styleAttr = viewKey === 'whiteboard' ? ` style="cursor:${editableWhiteboard ? 'pointer' : 'default'};"` : '';
-                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoSummary"${styleAttr} ${clickAttr} title="时长与番茄">${__tmGetTaskTomatoSummaryHtml(taskLike)}</span>`);
+                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoSummary"${styleAttr} ${clickAttr} title="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.durationPomodoro")}">${__tmGetTaskTomatoSummaryHtml(taskLike)}</span>`);
             }
         }
         if (__tmTaskCardFieldEnabled(viewKey, 'tomatoEstimateCount')) {
@@ -8950,7 +8955,7 @@ return false;
                             });
                             Promise.resolve(patchPromise).catch((e) => {
                                 try {
-                                    hint(`❌ 批量更新失败: ${e?.message || String(e)}`, 'error');
+                                    hint(__tmT("task.batchUpdateFailed", { value1: e?.message || String(e) }), 'error');
                                 } catch (err) {}
                             });
                         } else {
@@ -8963,7 +8968,7 @@ return false;
                     } catch (e) {
                         failures.push({
                             id,
-                            error: e instanceof Error ? e : new Error(String(e || '批量更新失败')),
+                            error: e instanceof Error ? e : new Error(String(e || __tmT("task.batchUpdateFailed2"))),
                         });
                     }
                 }
@@ -9001,7 +9006,7 @@ return false;
         const taskLike = __tmTaskStateKernel.getTask(tid);
         if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask({ ...taskLike, ...plan.normalizedPatch })
             && (plan.explicitDone || (plan.explicitCustomStatus && plan.normalizedPatch.done === true))) {
-            return Promise.reject(new Error('打卡模式没有永久完成状态；请使用打卡复选框，或先切换循环方式'));
+            return Promise.reject(new Error(__tmT("task.checkInModeHasNoPermanentCompletionStateUse")));
         }
         const attachmentPreviousSnapshot = Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'attachments')
             ? {
@@ -9035,7 +9040,7 @@ return false;
                     onPending: typeof opts.onPending === 'function' ? opts.onPending : undefined,
                 });
             }
-            return Promise.reject(new Error('完成状态写入缺少任务最新状态，已暂停本次写入'));
+            return Promise.reject(new Error(__tmT("task.theCompletionWriteIsMissingTheTaskSLatest")));
         }
         const optimisticSkipDetailPatch = opts.optimisticSkipDetailPatch === true
             || (((String(state.viewMode || '').trim() === 'checklist') || __tmHasCalendarSidebarChecklist(state.modal))
@@ -9064,7 +9069,7 @@ return false;
                     ? Math.max(0, Math.round(Number(__tmEnsureTaskPriorityScore(taskLike, { force: true })) || 0))
                     : 0,
                 source: String(opts.source || 'inline-field').trim() || 'inline-field',
-                label: String(opts.label || '任务字段').trim() || '任务字段',
+                label: String(opts.label || __tmT("task.taskFields")).trim() || __tmT("task.taskFields"),
                 reason: String(opts.reason || opts.source || 'inline-field').trim() || 'inline-field',
                 optimisticSkipDetailPatch,
                 presentation: {
@@ -9121,7 +9126,7 @@ return false;
         let request = null;
         try {
             const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-            if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+            if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
             const shouldWait = opts.wait === true || opts.forceImmediate === true;
             request = patchTask(tid, nextPatch, {
                 ...opts,
@@ -9161,11 +9166,11 @@ return false;
         }
         Promise.resolve(promise).then((result) => {
             if (result === false && opts.showErrorHint !== false) {
-                try { hint(`❌ 更新失败: ${String(opts.label || '任务字段').trim() || '任务字段'}未写入`, 'error'); } catch (e) {}
+                try { hint(__tmT("task.updateFailedWasNotSaved", { value1: String(opts.label || __tmT("task.taskFields")).trim() || __tmT("task.taskFields") }), 'error'); } catch (e) {}
             }
         }).catch((e) => {
             if (opts.showErrorHint !== false) {
-                try { hint(`❌ 更新失败: ${e.message}`, 'error'); } catch (err) {}
+                try { hint(__tmT("task.updateFailed", { message: e.message }), 'error'); } catch (err) {}
             }
         });
         if (successHint) hint(successHint, 'success');
@@ -9246,28 +9251,28 @@ return false;
         const customField = customFieldId ? __tmGetCustomFieldDefMap().get(customFieldId) : null;
         if (customField && !__tmIsCustomFieldApplicableToTask(customField, task)) return Promise.resolve(false);
         const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-        if (typeof patchTask !== 'function') return Promise.reject(new Error('任务写入队列未就绪: patchTask'));
+        if (typeof patchTask !== 'function') return Promise.reject(new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask")));
         if (customField && String(customField.type || '').trim() === 'text') {
             const next = String(__tmNormalizeCustomFieldValue(customField, value) || '').trim();
             return patchTask(tid, {
                 customFieldValues: { [customFieldId]: next }
             }, {
                 source: 'cell-edit-custom-field',
-                label: String(customField.name || '文本列').trim() || '文本列',
+                label: String(customField.name || __tmT("task.textColumns")).trim() || __tmT("task.textColumns"),
             });
         }
         if (field === 'priority') {
             const next = value === 'high' || value === 'medium' || value === 'low' ? value : '';
             return patchTask(tid, { priority: next }, {
                 source: 'cell-edit-priority',
-                label: '重要性',
+                label: __tmT("kernel.importance"),
             });
         }
         if (field === 'duration') {
             const next = String(value || '').trim();
             return patchTask(tid, { duration: next }, {
                 source: 'cell-edit-time',
-                label: '时长',
+                label: __tmT("task.duration"),
             });
         }
         if (field === 'tomatoSummary') {
@@ -9277,21 +9282,21 @@ return false;
                 tomatoEstimateCount: __tmNormalizeTomatoCountValue(next.tomatoEstimateCount || ''),
             }, {
                 source: 'cell-edit-focus-summary',
-                label: '时长与番茄',
+                label: __tmT("quickbar.durationPomodoro"),
             });
         }
         if (field === 'tomatoEstimateCount') {
             const next = __tmNormalizeTomatoCountValue(value);
             return patchTask(tid, { tomatoEstimateCount: next }, {
                 source: 'cell-edit-tomato',
-                label: '预计番茄',
+                label: __tmT("quickbar.estimatedPomodoros"),
             });
         }
         if (field === 'remark') {
             const next = __tmNormalizeRemarkMarkdown(value);
             return patchTask(tid, { remark: next }, {
                 source: 'cell-edit',
-                label: '备注',
+                label: __tmT("kernel.note"),
             });
         }
         if (field === 'completionTime') {
@@ -9299,7 +9304,7 @@ return false;
             const next = raw ? __tmNormalizeDateOnly(raw) : '';
             return patchTask(tid, { completionTime: next }, {
                 source: 'cell-edit-time',
-                label: '截止日期',
+                label: __tmT("kernel.dueDate"),
             });
         }
         if (field === 'startDate') {
@@ -9307,14 +9312,14 @@ return false;
             const next = raw ? __tmNormalizeDateOnly(raw) : '';
             return patchTask(tid, { startDate: next }, {
                 source: 'cell-edit-time',
-                label: '开始日期',
+                label: __tmT("kernel.startDate"),
             });
         }
         if (field === 'customTime') {
             const raw = String(value || '').trim();
             return patchTask(tid, { customTime: raw }, {
                 source: 'cell-edit-time',
-                label: '任务时间',
+                label: __tmT("task.taskTime"),
             });
         }
         return Promise.resolve(false);
@@ -9463,7 +9468,7 @@ return false;
                 activeField: field,
                 source: 'table-cell',
             })).catch((e) => {
-                try { hint(`❌ 打开时间设置失败: ${e.message}`, 'error'); } catch (e2) {}
+                try { hint(__tmT("task.failedToOpenTimeSettings", { message: e.message }), 'error'); } catch (e2) {}
             });
             return;
         }
@@ -9539,13 +9544,13 @@ return false;
 
                 const helper = document.createElement('div');
                 helper.className = 'tm-duration-preset-helper';
-                helper.textContent = '选预设或直接输入';
+                helper.textContent = __tmT("quickbar.pickAPresetOrTypeAValue");
                 editor.appendChild(helper);
 
                 const input = document.createElement('input');
                 input.type = 'text';
                 input.className = 'tm-duration-editor-input';
-                input.placeholder = '例如：30 或 30m';
+                input.placeholder = __tmT("quickbar.eGOrM");
                 input.value = String(task.duration || '');
                 editor.appendChild(input);
 
@@ -9557,11 +9562,11 @@ return false;
                     selectInput: false,
                 });
 
-                const { wrap } = __tmBuildActions('保存', async () => {
+                const { wrap } = __tmBuildActions(__tmT("common.save"), async () => {
                     await saveDuration(input.value);
                 }, async () => {
                     await saveDuration('');
-                }, null, { cancelLabel: '清空' });
+                }, null, { cancelLabel: __tmT("common.clear") });
                 editor.appendChild(wrap);
                 try {
                     input.focus();
@@ -9580,9 +9585,9 @@ return false;
             const select = document.createElement('select');
             select.className = 'tm-cell-editor-select';
             select.innerHTML = `
-                <option value="high">高</option>
-                <option value="medium">中</option>
-                <option value="low">低</option>
+                <option value="high">${__tmT("common.high")}</option>
+                <option value="medium">${__tmT("common.medium")}</option>
+                <option value="low">${__tmT("common.low")}</option>
             `;
             select.value = task.priority || 'medium';
             td.appendChild(select);
@@ -10179,12 +10184,12 @@ return false;
 
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'tm-btn tm-btn-secondary';
-        cancelBtn.textContent = String(options?.cancelLabel || '').trim() || '取消';
+        cancelBtn.textContent = String(options?.cancelLabel || '').trim() || __tmT("common.cancel");
         cancelBtn.onclick = () => onCancel?.();
 
         const okBtn = document.createElement('button');
         okBtn.className = 'tm-btn tm-btn-primary';
-        okBtn.textContent = okLabel || '确定';
+        okBtn.textContent = okLabel || __tmT("common.ok");
         okBtn.onclick = () => onOk?.();
 
         wrap.appendChild(cancelBtn);
@@ -10199,10 +10204,10 @@ return false;
         __tmOpenInlineEditor(el, ({ editor, close }) => {
             const select = document.createElement('select');
             const opts = [
-                { value: '', label: '无' },
-                { value: 'high', label: '高' },
-                { value: 'medium', label: '中' },
-                { value: 'low', label: '低' },
+                { value: '', label: __tmT("common.none") },
+                { value: 'high', label: __tmT("common.high") },
+                { value: 'medium', label: __tmT("common.medium") },
+                { value: 'low', label: __tmT("common.low") },
             ];
             select.innerHTML = opts.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
             select.value = task.priority || '';
@@ -10211,14 +10216,14 @@ return false;
                 close();
                 const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                 if (typeof patchTask !== 'function') {
-                    hint('❌ 更新失败: 任务写入队列未就绪: patchTask', 'error');
+                    hint(__tmT("task.updateFailedTaskWriteQueueIsNotReadyPatchtask"), 'error');
                     return;
                 }
                 void patchTask(tid, { priority: next }, {
                     source: 'inline-priority-editor',
-                    label: '重要性',
+                    label: __tmT("kernel.importance"),
                 }).catch((error) => {
-                    hint(`❌ 更新失败: ${error.message}`, 'error');
+                    hint(__tmT("task.updateFailed", { message: error.message }), 'error');
                 });
             };
             editor.appendChild(select);
@@ -10235,10 +10240,10 @@ return false;
                 const next = String(rawValue || '').trim();
                 close();
                 const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                 return patchTask(tid, { duration: next }, {
                     source: 'inline-duration-editor',
-                    label: '时长',
+                    label: __tmT("task.duration"),
                 });
             };
             const presets = __tmGetDurationPresetOptions();
@@ -10250,13 +10255,13 @@ return false;
 
                 const helper = document.createElement('div');
                 helper.className = 'tm-duration-preset-helper';
-                helper.textContent = '选预设或直接输入';
+                helper.textContent = __tmT("quickbar.pickAPresetOrTypeAValue");
                 editor.appendChild(helper);
             }
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'tm-duration-editor-input';
-            input.placeholder = '例如：30 或 30m';
+            input.placeholder = __tmT("quickbar.eGOrM");
             input.value = String(task.duration || '');
             editor.appendChild(input);
             if (presets.length) {
@@ -10268,11 +10273,11 @@ return false;
                     selectInput: false,
                 });
             }
-            const { wrap } = __tmBuildActions('保存', async () => {
+            const { wrap } = __tmBuildActions(__tmT("common.save"), async () => {
                 await saveDuration(input.value);
             }, async () => {
                 await saveDuration('');
-            }, null, { cancelLabel: '清空' });
+            }, null, { cancelLabel: __tmT("common.clear") });
             editor.appendChild(wrap);
             try {
                 input.focus();
@@ -10298,16 +10303,16 @@ return false;
                 };
                 close();
                 const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                 return patchTask(tid, nextPatch, {
                     source: 'inline-focus-summary-editor',
-                    label: '时长与番茄',
+                    label: __tmT("quickbar.durationPomodoro"),
                 });
             };
 
             const title = document.createElement('div');
             title.className = 'tm-focus-summary-editor__title';
-            title.textContent = '时长与番茄';
+            title.textContent = __tmT("quickbar.durationPomodoro");
             editor.appendChild(title);
 
             const durationValue = String(task.duration || '');
@@ -10317,10 +10322,10 @@ return false;
             const tabs = document.createElement('div');
             tabs.className = 'tm-focus-summary-editor__tabs';
             tabs.setAttribute('role', 'tablist');
-            tabs.setAttribute('aria-label', '时长与番茄');
+            tabs.setAttribute('aria-label', __tmT("quickbar.durationPomodoro"));
             tabs.innerHTML = `
-                <button type="button" data-tm-focus-summary-tab="duration" role="tab">预计时长</button>
-                <button type="button" data-tm-focus-summary-tab="tomato" role="tab">预计番茄</button>
+                <button type="button" data-tm-focus-summary-tab="duration" role="tab">${__tmT("quickbar.estimatedDuration")}</button>
+                <button type="button" data-tm-focus-summary-tab="tomato" role="tab">${__tmT("quickbar.estimatedPomodoros")}</button>
             `;
             editor.appendChild(tabs);
 
@@ -10336,7 +10341,7 @@ return false;
 
             const durationRow = document.createElement('div');
             durationRow.className = 'tm-focus-summary-editor__field';
-            durationRow.innerHTML = `<span>预计时长</span><div data-tm-duration-picker-slot></div>`;
+            durationRow.innerHTML = `<span>${__tmT("quickbar.estimatedDuration")}</span><div data-tm-duration-picker-slot></div>`;
             durationPanel.appendChild(durationRow);
             editor.appendChild(durationPanel);
             const durationSlot = durationRow.querySelector('[data-tm-duration-picker-slot]');
@@ -10348,7 +10353,7 @@ return false;
                     });
                     durationSlot.appendChild(picker.root);
                 } else {
-                    durationSlot.innerHTML = `<input type="text" class="bc-input tm-duration-editor-input" data-tm-focus-duration placeholder="例如：30 或 30m" value="${esc(durationValue)}">`;
+                    durationSlot.innerHTML = `<input type="text" class="bc-input tm-duration-editor-input" data-tm-focus-duration placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.eGOrM")}" value="${esc(durationValue)}">`;
                 }
             }
             const durationInput = durationRow.querySelector('[data-tm-focus-duration]');
@@ -10358,7 +10363,7 @@ return false;
             estimatePanel.setAttribute('data-tm-focus-summary-panel', 'tomato');
             const estimateRow = document.createElement('label');
             estimateRow.className = 'tm-focus-summary-editor__field';
-            estimateRow.innerHTML = `<span>预计番茄</span><input type="number" min="0" step="1" inputmode="numeric" class="bc-input" data-tm-focus-estimate placeholder="空或整数" value="${esc(estimateValue)}">`;
+            estimateRow.innerHTML = `<span>${__tmT("quickbar.estimatedPomodoros")}</span><input type="number" min="0" step="1" inputmode="numeric" class="bc-input" data-tm-focus-estimate placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("quickbar.emptyOrWholeNumber")}" value="${esc(estimateValue)}">`;
             estimatePanel.appendChild(estimateRow);
             editor.appendChild(estimatePanel);
             const estimateInput = estimateRow.querySelector('[data-tm-focus-estimate]');
@@ -10366,8 +10371,8 @@ return false;
             const readonly = document.createElement('div');
             readonly.className = 'tm-focus-summary-editor__readonly';
             readonly.innerHTML = `
-                <span>实际番茄 <b class="tm-focus-summary-actual">${esc(__tmGetTaskTomatoCount(task) || '0')}</b></span>
-                <span>实际耗时 <b>${esc(__tmGetTaskSpentDisplay(task) || '0m')}</b></span>
+                <span>${__tmT("task.actualPomodoros2")}<b class="tm-focus-summary-actual">${esc(__tmGetTaskTomatoCount(task) || '0')}</b></span>
+                <span>${__tmT("task.actualTimeSpent")}<b>${esc(__tmGetTaskSpentDisplay(task) || '0m')}</b></span>
             `;
             editor.appendChild(readonly);
 
@@ -10434,7 +10439,7 @@ return false;
             }
             setActiveMode(activeMode);
 
-            const { wrap } = __tmBuildActions('保存', async () => {
+            const { wrap } = __tmBuildActions(__tmT("common.save"), async () => {
                 const durationDraft = durationInput instanceof HTMLInputElement
                     ? String(durationInput.value || '').trim()
                     : '';
@@ -10451,7 +10456,7 @@ return false;
                 });
             }, async () => {
                 await saveFocusSummary({ duration: '', tomatoEstimateCount: '' });
-            }, null, { cancelLabel: '清空' });
+            }, null, { cancelLabel: __tmT("common.clear") });
             editor.appendChild(wrap);
             try {
                 const target = activeMode === 'tomato' ? estimateInput : durationInput;
@@ -10482,17 +10487,17 @@ return false;
         __tmOpenInlineEditor(el, ({ editor, close }) => {
             const input = document.createElement('input');
             input.type = 'text';
-            input.placeholder = '输入备注（可留空）';
+            input.placeholder = __tmT("task.enterANoteOptional");
             input.value = String(task.remark || '');
             editor.appendChild(input);
-            const { wrap } = __tmBuildActions('保存', async () => {
+            const { wrap } = __tmBuildActions(__tmT("common.save"), async () => {
                 const next = __tmNormalizeRemarkMarkdown(input.value);
                 close();
                 const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                 return patchTask(tid, { remark: next }, {
                     source: 'inline-remark-editor',
-                    label: '备注',
+                    label: __tmT("kernel.note"),
                 });
             }, close);
             editor.appendChild(wrap);
@@ -10514,19 +10519,19 @@ return false;
 
             const clearBtn = document.createElement('button');
             clearBtn.className = 'tm-btn tm-btn-secondary';
-            clearBtn.textContent = '清空';
+            clearBtn.textContent = __tmT("common.clear");
             clearBtn.onclick = async () => {
                 close();
                 const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                 if (typeof patchTask !== 'function') {
-                    hint('❌ 更新失败: 任务写入队列未就绪: patchTask', 'error');
+                    hint(__tmT("task.updateFailedTaskWriteQueueIsNotReadyPatchtask"), 'error');
                     return;
                 }
                 void patchTask(tid, { completionTime: '' }, {
                     source: 'inline-completion-editor',
-                    label: '截止日期',
+                    label: __tmT("kernel.dueDate"),
                 }).catch((error) => {
-                    hint(`❌ 更新失败: ${error.message}`, 'error');
+                    hint(__tmT("task.updateFailed", { message: error.message }), 'error');
                 });
             };
 
@@ -10535,10 +10540,10 @@ return false;
                 const next = raw ? __tmNormalizeDateOnly(raw) : '';
                 close();
                 const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
-                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
                 return patchTask(tid, { completionTime: next }, {
                     source: 'inline-completion-editor',
-                    label: '截止日期',
+                    label: __tmT("kernel.dueDate"),
                 });
             };
 
@@ -10563,28 +10568,28 @@ return false;
         if (!tid) return;
         const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        if (!__tmEnsureEditableTaskLike(task, '切换标题')) return;
+        if (!__tmEnsureEditableTaskLike(task, __tmT("task.switchHeading"))) return;
         const docId = String(task.docId || task.root_id || '').trim();
         if (!docId) {
-            hint('⚠ 未找到任务所在文档', 'warning');
+            hint(__tmT("task.couldNotFindTheDocumentContainingTheTask"), 'warning');
             return;
         }
         try { await __tmWarmKanbanDocHeadings([docId], { force: true }); } catch (e) {}
         const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
-        const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-        const headingLabel = headingLabelMap[headingLevel] || '标题';
+        const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+        const headingLabel = headingLabelMap[headingLevel] || __tmT("calendar.title");
         const headingsRaw = Array.isArray(state.kanbanDocHeadingsByDocId?.[docId]) ? state.kanbanDocHeadingsByDocId[docId] : [];
         const headings = headingsRaw
             .map((h) => ({
                 id: String(h?.id || '').trim(),
-                content: String(h?.content || '').trim() || '(空标题)',
+                content: String(h?.content || '').trim() || __tmT("homepage.untitledHeading"),
                 sort: Number(h?.sort) || Number(h?.rank) || 0
             }))
             .filter((h) => !!h.id);
         const currentHeadingId = String(task.h2Id || '').trim();
         const hasCurrentHeading = !!currentHeadingId || !!__tmNormalizeHeadingText(task?.h2 || task?.h2Name);
         if (!headings.length && !hasCurrentHeading) {
-            hint(`⚠ 当前文档没有可切换的${headingLabel}`, 'warning');
+            hint(__tmT("task.thisDocumentHasNoSwitchable", { headingLabel: headingLabel }), 'warning');
             return;
         }
         const anchorEl = (el instanceof Element)
@@ -10603,35 +10608,35 @@ return false;
                     ? { targetDocId: docId, headingId: nextId, mode: 'heading' }
                     : { targetDocId: docId, mode: 'docTop' };
                 const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
-                if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
+                if (typeof moveTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyMovetask"));
                 moveTask(tid, payload, {
                     wait: false,
                     onError: (err) => {
-                        hint(`❌ 切换失败: ${err?.message || err || '未知错误'}`, 'error');
+                        hint(__tmT("settings.switchFailed", { value1: err?.message || err || __tmT("plugin.unknownError") }), 'error');
                     },
                 });
-                hint(nextId ? '✅ 任务已移动到目标标题下' : '✅ 任务已移出标题分组', 'success');
+                hint(nextId ? __tmT("task.taskMovedUnderTheTargetHeading") : __tmT("task.taskMovedOutOfTheHeadingGroup"), 'success');
             } catch (e) {
-                hint(`❌ 切换失败: ${e.message}`, 'error');
+                hint(__tmT("task.switchFailed", { message: e.message }), 'error');
             }
         };
 
         if (!(anchorEl instanceof Element)) {
             const options = [
-                { value: '', label: `无${headingLabel}` },
+                { value: '', label: __tmT("task.no2", { headingLabel: headingLabel }) },
                 ...headings.map(h => ({
                     value: String(h?.id || '').trim(),
-                    label: String(h?.content || '').trim() || '(空标题)'
+                    label: String(h?.content || '').trim() || __tmT("homepage.untitledHeading")
                 }))
             ];
-            const next = await showSelectPrompt(`选择${headingLabel}`, options, currentHeadingId);
+            const next = await showSelectPrompt(__tmT("task.select3", { headingLabel: headingLabel }), options, currentHeadingId);
             if (next == null) return;
             await saveHeading(next, null);
             return;
         }
 
         __tmOpenInlineEditor(anchorEl, ({ editor, close }) => {
-            const maxLen = headings.reduce((m, h) => Math.max(m, String(h?.content || '').trim().length), (`无${headingLabel}`).length);
+            const maxLen = headings.reduce((m, h) => Math.max(m, String(h?.content || '').trim().length), (__tmT("task.no2", { headingLabel: headingLabel })).length);
             const w = Math.min(320, Math.max(140, maxLen * 12 + 36));
             editor.style.minWidth = '0';
             editor.style.width = `${w}px`;
@@ -10661,10 +10666,10 @@ return false;
                 return b;
             };
 
-            wrap.appendChild(makeBtn('', `无${headingLabel}`, !currentHeadingId));
+            wrap.appendChild(makeBtn('', __tmT("task.no2", { headingLabel: headingLabel }), !currentHeadingId));
             headings.forEach((h) => {
                 const hid = String(h?.id || '').trim();
-                const text = String(h?.content || '').trim() || '(空标题)';
+                const text = String(h?.content || '').trim() || __tmT("homepage.untitledHeading");
                 wrap.appendChild(makeBtn(hid, text, hid === currentHeadingId));
             });
             editor.appendChild(wrap);
@@ -10680,13 +10685,13 @@ return false;
         if (!tid) return;
         const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        if (!__tmEnsureEditableTaskLike(task, '移动到文档')) return;
+        if (!__tmEnsureEditableTaskLike(task, __tmT("task.moveToDocument"))) return;
         const currentDocId = String(task.docId || task.root_id || '').trim();
         const docs = __tmGetVisibleDocTabsForCurrentGroup()
             .filter(doc => String(doc.id || '').trim() && String(doc.id || '').trim() !== currentDocId);
         const allDocs = await __tmResolveCurrentGroupAllDocEntries({ excludeDocId: currentDocId });
         if (!allDocs.length) {
-            hint('⚠ 当前分组内没有可移动到的其他文档', 'warning');
+            hint(__tmT("task.noOtherDocumentsInTheCurrentGroupToMove"), 'warning');
             return;
         }
 
@@ -10703,24 +10708,24 @@ return false;
                     mode: 'docTop',
                 };
                 const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
-                if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
+                if (typeof moveTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyMovetask"));
                 moveTask(tid, payload, {
                     wait: false,
                     onError: (err) => {
-                        hint(`❌ 移动失败: ${err?.message || err || '未知错误'}`, 'error');
+                        hint(__tmT("task.moveFailed2", { value1: err?.message || err || __tmT("plugin.unknownError") }), 'error');
                     },
                 });
-                hint('✅ 任务已移动到目标文档顶部', 'success');
+                hint(__tmT("task.taskMovedToTheTopOfTheTargetDocument"), 'success');
             } catch (e) {
-                hint(`❌ 移动失败: ${e.message}`, 'error');
+                hint(__tmT("task.moveFailed", { message: e.message }), 'error');
             }
         };
 
         const openSearchDocPicker = async (close) => {
             close?.();
-            const next = await __tmOpenDocSearchPrompt('搜索当前分组文档', allDocs, {
-                placeholder: '搜索当前分组内文档名、别名或 ID',
-                emptyText: '当前分组内没有匹配的文档',
+            const next = await __tmOpenDocSearchPrompt(__tmT("task.searchDocumentsInTheCurrentGroup"), allDocs, {
+                placeholder: __tmT("task.searchTheCurrentGroupByDocumentNameAliasOr"),
+                emptyText: __tmT("task.noMatchingDocumentsInTheCurrentGroup"),
             });
             if (!next) return;
             await saveDoc(next, null);
@@ -10731,11 +10736,11 @@ return false;
             : (ev?.currentTarget instanceof Element ? ev.currentTarget : null);
 
         if (!(anchorEl instanceof Element)) {
-            const next = await showSelectPrompt('选择目标文档', [
-                { value: '__tm_search__', label: `搜索文档（当前分组共 ${allDocs.length} 个）` },
+            const next = await showSelectPrompt(__tmT("task.selectTargetDocument"), [
+                { value: '__tm_search__', label: __tmT("task.searchDocumentsInTheCurrentGroup2", { length: allDocs.length }) },
                 ...docs.map(doc => ({
                     value: doc.id,
-                    label: __tmGetDocDisplayName(doc, String(doc?.name || '').trim() || '未命名文档'),
+                    label: __tmGetDocDisplayName(doc, String(doc?.name || '').trim() || __tmT("kernel.untitledDocument")),
                 }))
             ], '');
             if (next == null) return;
@@ -10748,7 +10753,7 @@ return false;
         }
 
         __tmOpenInlineEditor(anchorEl, ({ editor, close }) => {
-            const maxLen = docs.reduce((m, doc) => Math.max(m, __tmGetDocDisplayName(doc, String(doc?.name || '').trim() || '未命名文档').length), 6);
+            const maxLen = docs.reduce((m, doc) => Math.max(m, __tmGetDocDisplayName(doc, String(doc?.name || '').trim() || __tmT("kernel.untitledDocument")).length), 6);
             const w = Math.min(320, Math.max(160, maxLen * 12 + 36));
             editor.style.minWidth = '0';
             editor.style.width = `${w}px`;
@@ -10765,7 +10770,7 @@ return false;
             searchBtn.style.justifyContent = 'flex-start';
             searchBtn.style.display = 'block';
             searchBtn.style.width = '100%';
-            searchBtn.textContent = `搜索文档（当前分组共 ${allDocs.length} 个）`;
+            searchBtn.textContent = __tmT("task.searchDocumentsInTheCurrentGroup2", { length: allDocs.length });
             searchBtn.onclick = async () => {
                 await openSearchDocPicker(close);
             };
@@ -10773,12 +10778,12 @@ return false;
             if (docs.length) {
                 const tip = document.createElement('div');
                 tip.style.cssText = 'padding:2px 2px 4px;font-size:11px;color:var(--tm-secondary-text);';
-                tip.textContent = '或直接移动到当前分组内已有任务的文档';
+                tip.textContent = __tmT("task.orMoveDirectlyToADocumentInTheCurrent");
                 wrap.appendChild(tip);
             } else {
                 const tip = document.createElement('div');
                 tip.style.cssText = 'padding:2px 2px 4px;font-size:11px;color:var(--tm-secondary-text);';
-                tip.textContent = '当前分组内暂无其他有任务的文档，可使用上方搜索全部文档';
+                tip.textContent = __tmT("task.noOtherDocumentsWithTasksInTheCurrentGroup");
                 wrap.appendChild(tip);
             }
             docs.forEach((doc) => {
@@ -10790,7 +10795,7 @@ return false;
                 btn.style.justifyContent = 'flex-start';
                 btn.style.display = 'block';
                 btn.style.width = '100%';
-                btn.textContent = __tmGetDocDisplayName(doc, String(doc?.name || '').trim() || '未命名文档');
+                btn.textContent = __tmGetDocDisplayName(doc, String(doc?.name || '').trim() || __tmT("kernel.untitledDocument"));
                 btn.onclick = async () => {
                     await saveDoc(String(doc?.id || '').trim(), close);
                 };
@@ -10804,17 +10809,17 @@ return false;
         const tid = String(id || '').trim();
         const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const next = await showSelectPrompt('设置重要性', [
-            { value: '', label: '无' },
-            { value: 'high', label: '高' },
-            { value: 'medium', label: '中' },
-            { value: 'low', label: '低' },
+        const next = await showSelectPrompt(__tmT("task.settingsimportance"), [
+            { value: '', label: __tmT("common.none") },
+            { value: 'high', label: __tmT("common.high") },
+            { value: 'medium', label: __tmT("common.medium") },
+            { value: 'low', label: __tmT("common.low") },
         ], task.priority || '');
         if (next == null) return;
         __tmCommitPromptTaskPatchInBackground(tid, { priority: next }, {
             source: 'prompt-priority',
-            label: '重要性',
-            successHint: '✅ 重要性已更新',
+            label: __tmT("kernel.importance"),
+            successHint: __tmT("task.importanceUpdated"),
         });
     };
 
@@ -10822,12 +10827,12 @@ return false;
         const tid = String(id || '').trim();
         const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const next = await showDurationPrompt('设置时长', String(task.duration || ''));
+        const next = await showDurationPrompt(__tmT("task.setDuration"), String(task.duration || ''));
         if (next == null) return;
         __tmCommitPromptTaskPatchInBackground(tid, { duration: String(next || '').trim() }, {
             source: 'prompt-duration',
-            label: '时长',
-            successHint: '✅ 时长已更新',
+            label: __tmT("task.duration"),
+            successHint: __tmT("task.durationUpdated"),
         });
     };
 
@@ -10835,13 +10840,13 @@ return false;
         const tid = String(id || '').trim();
         const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const next = await showPrompt('设置备注', '输入备注（可留空）', String(task.remark || ''));
+        const next = await showPrompt(__tmT("task.setNote"), __tmT("task.enterANoteOptional"), String(task.remark || ''));
         if (next == null) return;
         const remark = __tmNormalizeRemarkMarkdown(next);
         __tmCommitPromptTaskPatchInBackground(tid, { remark }, {
             source: 'prompt-remark',
-            label: '备注',
-            successHint: '✅ 备注已更新',
+            label: __tmT("kernel.note"),
+            successHint: __tmT("task.noteUpdated"),
         });
     };
 
@@ -10849,12 +10854,12 @@ return false;
         const tid = String(id || '').trim();
         const task = __tmTaskStateKernel.getTask(tid);
         if (!task) return;
-        const next = await showDateTimePrompt('设置截止日期', task.completionTime || '');
+        const next = await showDateTimePrompt(__tmT("calendar.setDueDate"), task.completionTime || '');
         if (next == null) return;
         __tmCommitPromptTaskPatchInBackground(tid, { completionTime: String(next || '').trim() }, {
             source: 'prompt-completion-time',
-            label: '截止日期',
-            successHint: '✅ 截止日期已更新',
+            label: __tmT("kernel.dueDate"),
+            successHint: __tmT("task.dueDateUpdated2"),
         });
     };
 
@@ -11437,7 +11442,7 @@ return false;
                 if (!a || !b) return a === b ? 0 : (a ? -1 : 1);
                 return b.localeCompare(a);
             }).map((date) => makeGroup('done-date', `date:${date || 'unknown'}`,
-                !date ? '无完成日期' : (date === today ? '今天' : (date === yesterdayKey ? '昨天' : date)), byDate.get(date), 1));
+                !date ? __tmT("settings.noCompletionDate") : (date === today ? __tmT("common.today") : (date === yesterdayKey ? __tmT("task.yesterday") : date)), byDate.get(date), 1));
         }
         const activeDocId = String(state.activeDocId || 'all').trim();
         const aggregate = options.aggregate ?? (activeDocId === 'all'
@@ -11454,8 +11459,8 @@ return false;
         const docOrder = new Map(docs.map((doc, index) => [String(doc.id), index]));
         const docNames = new Map([...(state.allDocuments || []), ...docs].map((doc) => [String(doc.id), doc.name]));
         const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
-        const headingLabels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-        const noHeadingLabel = `无${headingLabels[headingLevel] || '标题'}`;
+        const headingLabels = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+        const noHeadingLabel = __tmT("calendar.no", { value1: headingLabels[headingLevel] || __tmT("calendar.title") });
         return Array.from(byDoc.keys()).sort((a, b) => (docOrder.get(a) ?? Infinity) - (docOrder.get(b) ?? Infinity)
             || a.localeCompare(b)).flatMap((docId) => {
             const docItems = byDoc.get(docId);
@@ -11470,7 +11475,7 @@ return false;
                     bucket.label, byHeading.get(bucket.key) || [], aggregate ? 2 : 1,
                     { docId, headingId: bucket.id, headingLevel }));
             if (!aggregate) return groups;
-            const label = docNames.get(docId) || docItems[0]?.docName || '未知文档';
+            const label = docNames.get(docId) || docItems[0]?.docName || __tmT("task.unknownDocument");
             return [makeGroup('done-doc', `title:${encodeURIComponent(docId)}`, label, docItems, 1, { docId, groups })];
         });
     }
@@ -11628,7 +11633,7 @@ return false;
                 const seen = new Set();
                 let rank = 0;
                 const pushByTask = (task) => {
-                    const bucket = __tmGetDocHeadingBucket(task, '无标题');
+                    const bucket = __tmGetDocHeadingBucket(task, __tmT("task.untitled"));
                     const key = `${did}::${String(bucket?.key || 'label:__none__')}`;
                     if (seen.has(key)) return;
                     seen.add(key);
@@ -11647,7 +11652,7 @@ return false;
             const timeInfoMemo = new Map();
             const items = state.filteredTasks.map((t, i) => {
                 const docId = String(t?.root_id || t?.docId || '').trim();
-                const bucket = __tmGetDocHeadingBucket(t, '无标题');
+                const bucket = __tmGetDocHeadingBucket(t, __tmT("task.untitled"));
                 const h2Key = `${docId}::${String(bucket?.key || 'label:__none__')}`;
                 const preferChildTime = !!(SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant && (state.groupByTime || state.quadrantEnabled));
                 const info = preferChildTime || __tmIsCheckinTask(t)
@@ -11839,7 +11844,7 @@ return false;
                 type: 'group',
                 kind: 'done',
                 key: doneGroupKey,
-                label: '已完成任务',
+                label: __tmT("calendar.completedTasks"),
                 count: completedRoots.length,
                 durationSum: __tmCalcGroupDurationText(completedRoots),
                 collapsed: !!doneCollapsed,
@@ -11859,7 +11864,7 @@ return false;
                 type: 'group',
                 kind: 'pinned',
                 key: pinnedGroupKey,
-                label: '置顶',
+                label: __tmT("kernel.pin"),
                 count: pinnedRoots.length,
                 durationSum: pinnedDurationSum,
                 collapsed: !!pinnedCollapsed,
@@ -11876,7 +11881,7 @@ return false;
                 type: 'group',
                 kind: 'normal',
                 key: normalGroupKey,
-                label: '普通',
+                label: __tmT("ai.normal"),
                 count: normalRoots.length,
                 collapsed: !!normalCollapsed,
             });
@@ -11956,7 +11961,7 @@ return false;
                     type: 'group',
                     kind: 'quadrant',
                     key: groupKey,
-                    label: String(group.name || ''),
+                    label: globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', group),
                     color: String(group.color || ''),
                     count: group.items.length,
                     durationSum: calculateDuration(group.items),
@@ -11977,8 +11982,8 @@ return false;
         if (state.groupByDocName) {
             const enableDocH2Subgroup = SettingsStore.data.docH2SubgroupEnabled !== false;
             const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
-            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-            const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+            const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
+            const noHeadingLabel = __tmT("calendar.no", { value1: headingLabelMap[headingLevel] || __tmT("calendar.title") });
             docsInOrder.forEach(docId => {
                 const docEntry = docEntryById.get(String(docId || '').trim());
                 if (!docEntry) return;
@@ -11991,7 +11996,7 @@ return false;
                 if (activeDocRootTasks.length === 0 && alwaysVisibleDocHeadingTasks.length === 0) return;
                 const docTasks = activeDocRootTasks;
                 const renderDocTasks = sortRowModelGroupItems(activeDocRootTasks.slice());
-                const docName = docEntry.name || '未知文档';
+                const docName = docEntry.name || __tmT("task.unknownDocument");
                 const groupKey = `doc_${docId}`;
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
                 const labelColor = __tmGetDocColorHex(docId, isDark) || 'var(--tm-group-doc-label-color)';
@@ -12114,13 +12119,13 @@ return false;
             const getTimeGroup = (task) => {
                 const info = getTimePriorityInfo(task);
                 const diffDays = Number(info?.diffDays);
-                if (!Number.isFinite(diffDays)) return { key: 'pending', label: '待定', labelHtml: '待定', sortValue: Infinity };
-                if (diffDays < 0) return { key: 'overdue', label: '已过期', labelHtml: '已过期', sortValue: diffDays };
-                if (diffDays === 0) return { key: 'today', label: '今天', labelHtml: buildTimeGroupLabelHtml('今天', diffDays), sortValue: 0 };
-                if (diffDays === 1) return { key: 'tomorrow', label: '明天', labelHtml: buildTimeGroupLabelHtml('明天', diffDays), sortValue: 1 };
-                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', labelHtml: buildTimeGroupLabelHtml('后天', diffDays), sortValue: 2 };
-                if (diffDays >= 16) return { key: 'farther', label: '更远', labelHtml: '更远', sortValue: 16 };
-                const label = `余${diffDays}天`;
+                if (!Number.isFinite(diffDays)) return { key: 'pending', label: __tmT("task.unscheduled"), labelHtml: __tmT("task.unscheduled"), sortValue: Infinity };
+                if (diffDays < 0) return { key: 'overdue', label: __tmT("homepage.overdue3"), labelHtml: __tmT("homepage.overdue3"), sortValue: diffDays };
+                if (diffDays === 0) return { key: 'today', label: __tmT("common.today"), labelHtml: buildTimeGroupLabelHtml(__tmT("common.today"), diffDays), sortValue: 0 };
+                if (diffDays === 1) return { key: 'tomorrow', label: __tmT("calendar.tomorrow"), labelHtml: buildTimeGroupLabelHtml(__tmT("calendar.tomorrow"), diffDays), sortValue: 1 };
+                if (diffDays === 2) return { key: 'after_tomorrow', label: __tmT("task.dayAfterTomorrow"), labelHtml: buildTimeGroupLabelHtml(__tmT("task.dayAfterTomorrow"), diffDays), sortValue: 2 };
+                if (diffDays >= 16) return { key: 'farther', label: __tmT("task.later"), labelHtml: __tmT("task.later"), sortValue: 16 };
+                const label = __tmT("task.daysLeft2", { diffDays: diffDays });
                 return { key: `days_${diffDays}`, label, labelHtml: buildTimeGroupLabelHtml(label, diffDays), sortValue: diffDays };
             };
 
@@ -12325,7 +12330,7 @@ return false;
         const showCompletedSubtasks = __tmShouldShowCompletedSubtasksForTask(task?.id);
         const children = __tmBuildTaskDetailSubtaskTree(allChildren, showCompletedSubtasks);
         if (!children.length) {
-            return `<div class="tm-task-detail-empty tm-checklist-empty-detail">已隐藏当前父任务下已完成的子任务</div>`;
+            return `<div class="tm-task-detail-empty tm-checklist-empty-detail">${__tmT("task.completedSubtasksUnderThisParentAreHidden")}</div>`;
         }
         const renderNode = (item, depth = 0) => {
             const tid = String(item?.id || '').trim();
@@ -12353,12 +12358,12 @@ return false;
                     <div class="tm-task-detail-subtask-row" data-tm-detail-subtask-menu="${esc(tid)}">
                         <div class="tm-task-detail-subtask-main">
                             ${__tmRenderTaskCheckbox(tid, viewTask, { checked: viewTaskDone, extraClass: checkboxExtraClass, stopMouseDown: true, stopClick: true, priority: canonicalPriority })}
-                            <textarea class="tm-task-detail-subtask-title${viewTaskDone ? ' is-done' : ''}" data-tm-detail-subtask-content="${esc(tid)}" rows="1" ${readOnly ? 'readonly' : ''} title="${readOnly ? '其他块内容请回原文档编辑' : '直接编辑子任务内容'}">${esc(String(viewTask?.content || '').trim() || '')}</textarea>
+                            <textarea class="tm-task-detail-subtask-title${viewTaskDone ? ' is-done' : ''}" data-tm-detail-subtask-content="${esc(tid)}" rows="1" ${readOnly ? 'readonly' : ''} title="${readOnly ? __tmT("task.editOtherBlockContentInTheOriginalDocument") : __tmT("task.editSubtaskContentDirectly")}">${esc(String(viewTask?.content || '').trim() || '')}</textarea>
                         </div>
                         <div class="tm-task-detail-subtask-trailing">
                             ${childStatsHtml}
                             <div class="tm-task-detail-subtask-actions">
-                                <button type="button" class="bc-btn bc-btn--sm tm-task-detail-subtask-action" data-tm-detail-open-child="${esc(tid)}"${__tmBuildTooltipAttrs('打开子任务详情', { side: 'bottom' })}>${__tmRenderLucideIcon('chevron-right')}</button>
+                                <button type="button" class="bc-btn bc-btn--sm tm-task-detail-subtask-action" data-tm-detail-open-child="${esc(tid)}"${__tmBuildTooltipAttrs(__tmT("task.openSubtaskDetails"), { side: 'bottom' })}>${__tmRenderLucideIcon('chevron-right')}</button>
                             </div>
                         </div>
                     </div>
@@ -12378,44 +12383,44 @@ return false;
             modal.className = 'tm-prompt-modal tm-task-attachment-picker-modal';
             modal.innerHTML = `
                 <div class="tm-prompt-box tm-task-attachment-picker-box" role="dialog" aria-modal="true" aria-labelledby="tm-attachment-picker-title">
-                    <div class="tm-prompt-title" id="tm-attachment-picker-title">添加附件</div>
+                    <div class="tm-prompt-title" id="tm-attachment-picker-title">${__tmT("task.addAttachment")}</div>
                     <div class="tm-task-attachment-picker-search" data-tm-attachment-picker-search>
                     <div class="tm-task-attachment-picker-modebar">
-                        <div class="tm-task-attachment-picker-tabs" role="tablist" aria-label="附件类型">
-                            <button type="button" role="tab" id="tm-attachment-tab-asset" aria-controls="tm-attachment-search-panel" aria-selected="true" data-tm-attachment-picker-mode="asset">文件附件</button>
-                            <button type="button" role="tab" id="tm-attachment-tab-doc" aria-controls="tm-attachment-search-panel" aria-selected="false" tabindex="-1" data-tm-attachment-picker-mode="doc">思源文档</button>
+                        <div class="tm-task-attachment-picker-tabs" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.attachmentType")}">
+                            <button type="button" role="tab" id="tm-attachment-tab-asset" aria-controls="tm-attachment-search-panel" aria-selected="true" data-tm-attachment-picker-mode="asset">${__tmT("task.fileAttachments")}</button>
+                            <button type="button" role="tab" id="tm-attachment-tab-doc" aria-controls="tm-attachment-search-panel" aria-selected="false" tabindex="-1" data-tm-attachment-picker-mode="doc">${__tmT("task.siyuanDocuments")}</button>
                         </div>
-                        ${typeof opts.onCreateDocument === 'function' ? `<button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-create>${__tmRenderLucideIcon('plus', 'tm-task-attachment-picker-action-icon')}<span>新建文档</span></button>` : ''}
+                        ${typeof opts.onCreateDocument === 'function' ? `<button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-create>${__tmRenderLucideIcon('plus', 'tm-task-attachment-picker-action-icon')}<span>${__tmT("task.newDocument")}</span></button>` : ''}
                     </div>
                     <div class="tm-task-attachment-picker-search" role="tabpanel" id="tm-attachment-search-panel" aria-labelledby="tm-attachment-tab-asset">
                     <div class="tm-task-attachment-picker-toolbar">
-                        <input class="tm-prompt-input tm-task-attachment-picker-input" type="search" aria-label="搜索附件" placeholder="搜索附件名称，或粘贴链接、路径">
-                        <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-upload>${__tmRenderLucideIcon('arrow-up', 'tm-task-attachment-picker-action-icon')}<span>上传本地</span></button>
+                        <input class="tm-prompt-input tm-task-attachment-picker-input" type="search" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.searchAttachments")}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.searchAttachmentNamesOrPasteALinkOrPath")}">
+                        <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-upload>${__tmRenderLucideIcon('arrow-up', 'tm-task-attachment-picker-action-icon')}<span>${__tmT("task.uploadLocal")}</span></button>
                         <input class="tm-task-attachment-picker-file-input" type="file" multiple data-tm-attachment-picker-file hidden>
                     </div>
-                    <div class="tm-task-attachment-picker-helper" data-tm-attachment-picker-helper>支持搜索思源附件，也支持拖拽/上传本地文件、Ctrl+V 粘贴图片、assets 路径、本地路径、Markdown 附件链接或文档/块链接。</div>
+                    <div class="tm-task-attachment-picker-helper" data-tm-attachment-picker-helper>${__tmT("task.searchSiyuanAttachmentsOrDragUploadLocalFilesPaste")}</div>
                     <div class="tm-task-attachment-picker-list" data-tm-attachment-picker-list></div>
                     </div>
                     </div>
                     <form id="tm-attachment-create-document-form" class="tm-task-attachment-create-form" data-tm-attachment-create-form hidden>
                         <label class="tm-task-attachment-create-field">
-                            <span>文档标题</span>
+                            <span>${__tmT("task.documentTitle")}</span>
                             <input class="tm-prompt-input" data-tm-attachment-create-title maxlength="512" autocomplete="off" required value="${esc(String(opts.documentTitle || ''))}">
                         </label>
                         <div class="tm-task-attachment-create-field">
-                            <span id="tm-attachment-create-location-label">创建位置</span>
+                            <span id="tm-attachment-create-location-label">${__tmT("task.creationLocation")}</span>
                             <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary tm-task-attachment-create-location" data-tm-attachment-create-location aria-labelledby="tm-attachment-create-location-label tm-attachment-create-location-value">
-                                <span id="tm-attachment-create-location-value" data-tm-attachment-create-location-value>选择文档</span><span>更改</span>
+                                <span id="tm-attachment-create-location-value" data-tm-attachment-create-location-value>${__tmT("task.selectDocument")}</span><span>${__tmT("task.change")}</span>
                             </button>
-                            <span class="tm-task-attachment-picker-helper">新文档将建在所选文档下。</span>
+                            <span class="tm-task-attachment-picker-helper">${__tmT("task.theNewDocumentWillBeCreatedUnderTheSelected")}</span>
                         </div>
                         <div class="tm-task-attachment-picker-helper tm-task-attachment-create-status" data-tm-attachment-create-status role="status" aria-live="polite"></div>
                     </form>
                     <div class="tm-prompt-buttons">
-                        <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-cancel>取消</button>
-                        <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-create-open hidden>打开文档</button>
-                        <button type="submit" form="tm-attachment-create-document-form" class="tm-prompt-btn tm-prompt-btn-primary" data-tm-attachment-create-submit hidden>创建并关联</button>
-                        <button type="button" class="tm-prompt-btn tm-prompt-btn-primary" data-tm-attachment-picker-add disabled>添加选中</button>
+                        <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-cancel>${__tmT("common.cancel")}</button>
+                        <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-create-open hidden>${__tmT("task.openDocument")}</button>
+                        <button type="submit" form="tm-attachment-create-document-form" class="tm-prompt-btn tm-prompt-btn-primary" data-tm-attachment-create-submit hidden>${__tmT("task.createLink")}</button>
+                        <button type="button" class="tm-prompt-btn tm-prompt-btn-primary" data-tm-attachment-picker-add disabled>${__tmT("task.addSelected")}</button>
                     </div>
                 </div>
             `;
@@ -12457,20 +12462,20 @@ return false;
             const getSearchMode = () => searchMode;
             const getModeEmptyText = () => (
                 getSearchMode() === 'doc'
-                    ? '输入名称，查找要关联的文档'
-                    : '输入名称，查找思源中已有的附件'
+                    ? __tmT("task.typeANameToFindADocumentToLink")
+                    : __tmT("task.typeANameToFindAnExistingSiyuanAttachment")
             );
-            const getModeZeroText = () => (getSearchMode() === 'doc' ? '没有找到匹配文档' : '没有找到匹配附件');
-            const getModeSearchText = () => (getSearchMode() === 'doc' ? '文档搜索中...' : '搜索中...');
+            const getModeZeroText = () => (getSearchMode() === 'doc' ? __tmT("task.noMatchingDocuments") : __tmT("task.noMatchingAttachments2"));
+            const getModeSearchText = () => (getSearchMode() === 'doc' ? __tmT("task.searchingDocuments") : __tmT("task.searching"));
             const getDefaultHelperText = () => (
                 getSearchMode() === 'doc'
-                    ? '搜索思源文档并关联到任务，也可粘贴文档或块链接。'
-                    : '可拖拽上传文件，或粘贴图片、附件链接、本地路径。'
+                    ? __tmT("task.searchSiyuanDocumentsToLinkToTheTaskOr")
+                    : __tmT("task.dragToUploadFilesOrPasteImagesAttachmentLinks")
             );
             const getInputPlaceholder = () => (
                 getSearchMode() === 'doc'
-                    ? '搜索文档名，或粘贴块链接'
-                    : '搜索附件名称，或粘贴链接、路径'
+                    ? __tmT("task.searchDocumentNameOrPasteABlockLink")
+                    : __tmT("task.searchAttachmentNamesOrPasteALinkOrPath")
             );
             const getInputText = () => String(input instanceof HTMLInputElement ? input.value : '').trim();
             const setHelperText = (text) => {
@@ -12482,7 +12487,7 @@ return false;
                     setHelperText(dragRestoreHelperText || getDefaultHelperText());
                     return;
                 }
-                setHelperText(fileCount > 1 ? `松手后上传 ${fileCount} 个文件到思源附件` : '松手后上传文件到思源附件');
+                setHelperText(fileCount > 1 ? __tmT("task.releaseToUploadFilesToSiyuanAttachments", { fileCount: fileCount }) : __tmT("task.releaseToUploadFilesToSiyuanAttachments2"));
             };
             const removeFromStack = __tmModalStackBind(() => {
                 try { cancelBtn?.click?.(); } catch (e) {}
@@ -12506,11 +12511,11 @@ return false;
                 locationBtn.disabled = locked;
                 createSubmit.disabled = createBusy || locationBusy || !String(titleInput.value || '').trim() || !documentDraft.parentDocId;
                 createSubmit.hidden = !createMode || createDone;
-                createSubmit.textContent = createBusy ? '处理中…' : (documentDraft.createdDocId ? '重试关联' : '创建并关联');
+                createSubmit.textContent = createBusy ? __tmT("task.working") : (documentDraft.createdDocId ? __tmT("task.retryLinking") : __tmT("task.createLink"));
                 openDocBtn.hidden = !createMode || !documentDraft.createdDocId;
                 openDocBtn.disabled = createBusy;
                 cancelBtn.disabled = createBusy || locationBusy;
-                cancelBtn.textContent = createDone ? '完成' : (createMode ? (documentDraft.createdDocId ? '关闭' : '返回') : '取消');
+                cancelBtn.textContent = createDone ? __tmT("quickbar.done") : (createMode ? (documentDraft.createdDocId ? __tmT("common.close") : __tmT("task.back")) : __tmT("common.cancel"));
                 createForm.setAttribute('aria-busy', String(createBusy || locationBusy));
             };
             const setCreateMode = (active) => {
@@ -12518,7 +12523,7 @@ return false;
                 searchPanel.hidden = active;
                 createForm.hidden = !active;
                 addBtn.hidden = active;
-                modal.querySelector('.tm-prompt-title').textContent = active ? '新建文档并关联' : '添加附件';
+                modal.querySelector('.tm-prompt-title').textContent = active ? __tmT("task.createLinkDocument") : __tmT("task.addAttachment");
                 syncCreateControls();
                 if (active) { titleInput.focus(); titleInput.select(); }
                 else input.focus();
@@ -12531,10 +12536,10 @@ return false;
                     syncCreateControls();
                     try {
                         const parent = await API.getDocMetaById(documentDraft.parentDocId);
-                        locationValue.textContent = parent?.path || parent?.name || '选择文档';
+                        locationValue.textContent = parent?.path || parent?.name || __tmT("task.selectDocument");
                         locationBtn.title = locationValue.textContent;
                     } catch (e) {
-                        createStatus.textContent = `读取位置失败：${String(e?.message || e || '')}`;
+                        createStatus.textContent = __tmT("task.failedToReadTheLocation", { value1: String(e?.message || e || '') });
                     } finally {
                         locationBusy = false;
                         syncCreateControls();
@@ -12550,12 +12555,12 @@ return false;
                     const selected = await __tmOpenDocumentLocationPicker(documentDraft.parentDocId);
                     if (selected) {
                         documentDraft.parentDocId = selected.id;
-                        locationValue.textContent = selected.path || selected.name || '所选文档';
+                        locationValue.textContent = selected.path || selected.name || __tmT("task.selectedDocument");
                         locationBtn.title = locationValue.textContent;
                         createStatus.textContent = '';
                     }
                 } catch (e) {
-                    createStatus.textContent = `读取位置失败：${String(e?.message || e || '')}`;
+                    createStatus.textContent = __tmT("task.failedToReadTheLocation", { value1: String(e?.message || e || '') });
                 } finally {
                     locationBusy = false;
                     syncCreateControls();
@@ -12568,15 +12573,15 @@ return false;
                 if (createBusy || locationBusy || createDone || typeof opts.onCreateDocument !== 'function') return;
                 documentDraft.title = titleInput.value;
                 createBusy = true;
-                createStatus.textContent = documentDraft.createdDocId ? '正在关联文档…' : '正在创建并关联文档…';
+                createStatus.textContent = documentDraft.createdDocId ? __tmT("task.linkingDocument") : __tmT("task.creatingAndLinkingDocument");
                 createStatus.classList.remove('is-error');
                 syncCreateControls();
                 try {
                     await opts.onCreateDocument(documentDraft);
                     createDone = true;
-                    createStatus.textContent = '已创建并关联到当前任务。';
+                    createStatus.textContent = __tmT("task.createdAndLinkedToTheCurrentTask");
                 } catch (e) {
-                    createStatus.textContent = `${documentDraft.createdDocId ? '文档已创建，关联失败，可重试关联。' : '创建失败：'}${String(e?.message || e || '')}`;
+                    createStatus.textContent = `${documentDraft.createdDocId ? __tmT("task.theDocumentWasCreatedButLinkingFailedYouCan") : __tmT("task.creationFailed")}${String(e?.message || e || '')}`;
                     createStatus.classList.add('is-error');
                 } finally {
                     createBusy = false;
@@ -12599,14 +12604,14 @@ return false;
             const setUploadButtonBusy = (busy, label = '') => {
                 if (!(uploadBtn instanceof HTMLButtonElement)) return;
                 uploadBtn.disabled = !!busy;
-                uploadBtn.textContent = busy ? (label || '上传中...') : '上传本地';
+                uploadBtn.textContent = busy ? (label || __tmT("task.uploading")) : __tmT("task.uploadLocal");
             };
 
             const syncAddButton = () => {
                 if (!(addBtn instanceof HTMLButtonElement)) return;
                 const count = selectedPaths.size;
                 addBtn.disabled = count === 0;
-                addBtn.textContent = count > 0 ? `添加 ${count} 个` : '添加选中';
+                addBtn.textContent = count > 0 ? __tmT("task.add2", { count: count }) : __tmT("task.addSelected");
             };
 
             const finalizeResolvedAttachments = (items, options = {}) => {
@@ -12616,7 +12621,7 @@ return false;
                     return true;
                 }
                 if (options.hintOnDuplicate === true && Array.isArray(items) && items.length) {
-                    try { hint('⚠ 剪贴板里的内容已经在当前任务附件中', 'warning'); } catch (e) {}
+                    try { hint(__tmT("task.theClipboardContentIsAlreadyInThisTaskS"), 'warning'); } catch (e) {}
                 }
                 return false;
             };
@@ -12627,12 +12632,12 @@ return false;
                     hintOnDuplicate: options.hintOnDuplicate === true,
                 });
                 if (options.hintOnMiss === true) {
-                    try { hint('⚠ 未识别到附件路径或块链接，可粘贴 assets/...、本地路径、Markdown 附件链接或 siyuan://blocks/...', 'warning'); } catch (e) {}
+                    try { hint(__tmT("task.noAttachmentPathOrBlockLinkRecognizedPasteAssets"), 'warning'); } catch (e) {}
                 }
                 return false;
             };
 
-            const uploadPickedFiles = async (files, busyText = '上传中...') => {
+            const uploadPickedFiles = async (files, busyText = __tmT("task.uploading")) => {
                 const list = __tmGetTaskAttachmentFiles(files);
                 if (!list.length) return false;
                 try {
@@ -12640,7 +12645,7 @@ return false;
                     const paths = await __tmUploadTaskAttachmentFiles(list, { assetsDirPath: '/assets/' });
                     return finalizeResolvedAttachments(paths);
                 } catch (e) {
-                    try { hint(`❌ 上传失败: ${String(e?.message || e || '')}`, 'error'); } catch (e2) {}
+                    try { hint(__tmT("task.uploadFailed", { value1: String(e?.message || e || '') }), 'error'); } catch (e2) {}
                     return false;
                 } finally {
                     setUploadButtonBusy(false);
@@ -12655,7 +12660,7 @@ return false;
                 if (clipboardFiles.length) {
                     try { ev.preventDefault(); } catch (e) {}
                     const imageOnly = clipboardFiles.every((file) => String(file?.type || '').toLowerCase().startsWith('image/'));
-                    return await uploadPickedFiles(clipboardFiles, imageOnly ? '导入图片...' : '导入文件...');
+                    return await uploadPickedFiles(clipboardFiles, imageOnly ? __tmT("task.importingImage") : __tmT("task.importFile"));
                 }
                 const text = String(clipboardData.getData?.('text/plain') || '').trim();
                 const directAssets = __tmParseTaskAttachmentAssetPathsFromText(text);
@@ -12669,7 +12674,7 @@ return false;
             const renderList = (emptyText = '') => {
                 if (!(list instanceof HTMLElement)) return;
                 if (!results.length) {
-                    list.innerHTML = `<div class="tm-task-attachment-picker-empty">${esc(emptyText || '未找到匹配附件')}</div>`;
+                    list.innerHTML = `<div class="tm-task-attachment-picker-empty">${esc(emptyText || __tmT("task.noMatchingAttachmentFound"))}</div>`;
                     return;
                 }
                 list.innerHTML = results.map((item) => {
@@ -12685,7 +12690,7 @@ return false;
                                 <span class="tm-task-attachment-picker-item__name">${esc(item.name || item.path)}</span>
                                 <span class="tm-task-attachment-picker-item__path">${esc(item.displayPath || item.path)}</span>
                             </span>
-                            <span class="tm-task-attachment-picker-item__state">${disabled ? '已添加' : (selected ? '已选择' : '')}</span>
+                            <span class="tm-task-attachment-picker-item__state">${disabled ? __tmT("settings.added") : (selected ? __tmT("task.selected2") : '')}</span>
                         </button>
                     `;
                 }).join('');
@@ -12707,8 +12712,8 @@ return false;
                 const directBlockIds = __tmParseTaskAttachmentBlockIdsFromText(query);
                 if (directAssetPaths.length || directLocalPaths.length || directBlockIds.length) {
                     results = [];
-                    setHelperText('检测到可直接导入的附件路径或块链接，按回车即可添加。');
-                    renderList('检测到可直接导入的内容，按回车添加');
+                    setHelperText(__tmT("task.aDirectlyImportableAttachmentPathOrBlockLinkWas"));
+                    renderList(__tmT("task.directlyImportableContentDetectedPressEnterToAdd"));
                     syncAddButton();
                     return;
                 }
@@ -12723,12 +12728,12 @@ return false;
                         ...item,
                         ...(__tmBuildTaskAttachmentEntries([item.path])[0] || {}),
                     }));
-                    setHelperText(results.length ? `找到 ${results.length} 个${getSearchMode() === 'doc' ? '文档' : '附件'}` : getModeZeroText());
+                    setHelperText(results.length ? __tmT("task.found", { length: results.length, value2: getSearchMode() === 'doc' ? __tmT("kernel.documents") : __tmT("task.attachment") }) : getModeZeroText());
                     renderList(results.length ? '' : getModeZeroText());
                 } catch (e) {
                     if (currentSeq !== searchSeq || closed || createMode) return;
                     results = [];
-                    const message = `${getSearchMode() === 'doc' ? '文档' : '附件'}搜索失败：${String(e?.message || e || '')}`;
+                    const message = __tmT("task.searchFailed", { value1: getSearchMode() === 'doc' ? __tmT("kernel.documents") : __tmT("task.attachment"), value2: String(e?.message || e || '') });
                     setHelperText(message);
                     renderList(message);
                 }
@@ -12806,7 +12811,7 @@ return false;
                 try { ev.stopPropagation(); } catch (e) {}
                 pickerDragDepth = 0;
                 setPickerDragActive(false);
-                void uploadPickedFiles(ev?.dataTransfer, '上传中...');
+                void uploadPickedFiles(ev?.dataTransfer, __tmT("task.uploading"));
             };
 
             if (list instanceof HTMLElement) {
@@ -12830,7 +12835,7 @@ return false;
                     const files = Array.from(uploadInput.files || []);
                     if (!files.length) return;
                     try {
-                        await uploadPickedFiles(files, '上传中...');
+                        await uploadPickedFiles(files, __tmT("task.uploading"));
                     } finally {
                         try { uploadInput.value = ''; } catch (e) {}
                     }
@@ -12853,7 +12858,7 @@ return false;
                     dragRestoreHelperText = '';
                     if (input instanceof HTMLInputElement) {
                         input.placeholder = getInputPlaceholder();
-                        input.setAttribute('aria-label', searchMode === 'doc' ? '搜索文档' : '搜索附件');
+                        input.setAttribute('aria-label', searchMode === 'doc' ? __tmT("calendar.searchDocuments") : __tmT("task.searchAttachments"));
                     }
                     if (getInputText()) {
                         void runSearch();
@@ -12906,7 +12911,7 @@ return false;
         const cardsHtml = entries.length
             ? entries.map((entry, index) => `
                 <article class="tm-task-attachment-card" data-tm-detail-attachment-context="${esc(entry.path)}" ${index >= collapseLimit ? 'data-tm-attachment-extra="true"' : ''}>
-                    <button type="button" class="tm-task-attachment-card__preview" data-tm-detail-attachment-open="${esc(entry.path)}"${tip('打开附件', { ariaLabel: false })}>
+                    <button type="button" class="tm-task-attachment-card__preview" data-tm-detail-attachment-open="${esc(entry.path)}"${tip(__tmT("task.openAttachment"), { ariaLabel: false })}>
                         ${__tmBuildTaskAttachmentThumbHtml(entry, { size: 'detail' })}
                     </button>
                     <div class="tm-task-attachment-card__body">
@@ -12914,24 +12919,24 @@ return false;
                         <div class="tm-task-attachment-card__path">${esc(entry.displayPath || entry.path)}</div>
                     </div>
                     <div class="tm-task-attachment-card__actions">
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-attachment-card__action" data-tm-detail-attachment-move="-1" data-index="${index}" ${index === 0 ? 'disabled' : ''}${tip('上移', { ariaLabel: false })}>${__tmRenderLucideIcon('arrow-up')}</button>
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-attachment-card__action" data-tm-detail-attachment-move="1" data-index="${index}" ${index === entries.length - 1 ? 'disabled' : ''}${tip('下移', { ariaLabel: false })}>${__tmRenderLucideIcon('arrow-down')}</button>
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-attachment-card__action" data-tm-detail-attachment-remove data-index="${index}"${tip('移除', { ariaLabel: false })}>${__tmRenderLucideIcon('trash-2')}</button>
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-attachment-card__action" data-tm-detail-attachment-move="-1" data-index="${index}" ${index === 0 ? 'disabled' : ''}${tip(__tmT("settings.moveUp3"), { ariaLabel: false })}>${__tmRenderLucideIcon('arrow-up')}</button>
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-attachment-card__action" data-tm-detail-attachment-move="1" data-index="${index}" ${index === entries.length - 1 ? 'disabled' : ''}${tip(__tmT("settings.moveDown3"), { ariaLabel: false })}>${__tmRenderLucideIcon('arrow-down')}</button>
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-attachment-card__action" data-tm-detail-attachment-remove data-index="${index}"${tip(__tmT("task.remove"), { ariaLabel: false })}>${__tmRenderLucideIcon('trash-2')}</button>
                     </div>
                 </article>
             `).join('')
-            : `<div class="tm-task-attachment-empty">可拖拽至此处添加附件，也可Ctrl+V粘贴。</div>`;
+            : `<div class="tm-task-attachment-empty">${__tmT("task.dragAttachmentsHereOrPressCtrlVToPaste")}</div>`;
         return `
             <section class="tm-task-detail-section" data-tm-detail-collapsible-section data-tm-detail-attachment-section data-tm-expanded="${expanded ? 'true' : 'false'}" data-tm-attachment-count="${entries.length}">
                 <div class="tm-task-detail-section-head">
                     <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="true">
-                        <span class="tm-task-detail-section-title">附件</span>
+                        <span class="tm-task-detail-section-title">${__tmT("task.attachment")}</span>
                         <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
                     </button>
                     <div class="tm-task-detail-section-tools">
                         ${entries.length ? `<span class="tm-task-detail-section-count">${entries.length}</span>` : ''}
-                        ${canCollapse ? `<button type="button" class="bc-btn bc-btn--sm tm-task-detail-attachment-toggle" data-tm-detail-attachment-toggle>${expanded ? '收起' : `展开 ${hiddenCount} 个`}</button>` : ''}
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-attachment-add" data-tm-detail-attachment-add>${__tmRenderLucideIcon('plus')}<span>添加附件</span></button>
+                        ${canCollapse ? `<button type="button" class="bc-btn bc-btn--sm tm-task-detail-attachment-toggle" data-tm-detail-attachment-toggle>${expanded ? __tmT("ai.collapse") : __tmT("task.showMore", { hiddenCount: hiddenCount })}</button>` : ''}
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-attachment-add" data-tm-detail-attachment-add>${__tmRenderLucideIcon('plus')}<span>${__tmT("task.addAttachment")}</span></button>
                     </div>
                 </div>
                 <div class="tm-task-detail-attachments-grid" data-tm-detail-attachments-grid>${cardsHtml}</div>
@@ -12941,11 +12946,11 @@ return false;
 
     function __tmGetWhiteboardStickyThemes() {
         return [
-            { value: 'yellow', label: '黄色' },
-            { value: 'green', label: '绿色' },
-            { value: 'red', label: '红色' },
-            { value: 'blue', label: '蓝色' },
-            { value: 'purple', label: '紫色' },
+            { value: 'yellow', label: __tmT("task.yellow2") },
+            { value: 'green', label: __tmT("task.green2") },
+            { value: 'red', label: __tmT("task.red2") },
+            { value: 'blue', label: __tmT("task.blue2") },
+            { value: 'purple', label: __tmT("task.purple") },
         ];
     }
 
@@ -12964,20 +12969,20 @@ return false;
         const buttonClass = String(opts.buttonClass || 'bc-btn bc-btn--sm tm-task-detail-remark-toolbar-btn').trim() || 'bc-btn bc-btn--sm tm-task-detail-remark-toolbar-btn';
         const tooltipSide = String(opts.tooltipSide || 'top').trim() || 'top';
         const tools = [
-            { action: 'outdent', title: '取消缩进', icon: 'text-outdent' },
-            { action: 'indent', title: '缩进', icon: 'text-indent' },
-            { action: 'bold', title: '粗体', icon: 'text-b' },
-            { action: 'italic', title: '斜体', icon: 'text-italic' },
-            { action: 'bullet', title: '无序列表', icon: 'list-bullets' },
-            { action: 'ordered', title: '有序列表', icon: 'list-numbers' },
-            { action: 'code', title: '行内代码', icon: 'code' },
-            { action: 'link', title: '链接', icon: 'link-simple' },
-            { action: 'quote', title: '引用', icon: 'quotes' },
+            { action: 'outdent', title: __tmT("quickbar.outdent"), icon: 'text-outdent' },
+            { action: 'indent', title: __tmT("quickbar.indent"), icon: 'text-indent' },
+            { action: 'bold', title: __tmT("quickbar.bold"), icon: 'text-b' },
+            { action: 'italic', title: __tmT("quickbar.italic"), icon: 'text-italic' },
+            { action: 'bullet', title: __tmT("quickbar.bulletList"), icon: 'list-bullets' },
+            { action: 'ordered', title: __tmT("quickbar.numberedList"), icon: 'list-numbers' },
+            { action: 'code', title: __tmT("quickbar.inlineCode"), icon: 'code' },
+            { action: 'link', title: __tmT("quickbar.link"), icon: 'link-simple' },
+            { action: 'quote', title: __tmT("quickbar.quote"), icon: 'quotes' },
         ];
         if (opts.history === true) {
             tools.unshift(
-                { action: 'undo', title: '撤销（Ctrl / ⌘ + Z）', icon: 'arrow-u-up-left', history: true },
-                { action: 'redo', title: '重做（Ctrl / ⌘ + Shift + Z）', icon: 'arrow-u-up-right', history: true },
+                { action: 'undo', title: __tmT("quickbar.undoCtrlZ"), icon: 'arrow-u-up-left', history: true },
+                { action: 'redo', title: __tmT("quickbar.redoCtrlShiftZ"), icon: 'arrow-u-up-right', history: true },
             );
         }
         return tools.map((tool) => `
@@ -13062,16 +13067,16 @@ return false;
                 <div class="tm-task-detail-section-head tm-task-detail-remark-head">
                     <div class="tm-task-detail-remark-head-main">
                         <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="true">
-                            <span class="tm-task-detail-section-title">备注</span>
+                            <span class="tm-task-detail-section-title">${__tmT("kernel.note")}</span>
                             <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
                         </button>
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-remark-toolbar-toggle" data-tm-detail-remark-toolbar-toggle aria-label="格式工具"${detailTip('格式工具', { ariaLabel: false })}>${__tmPhosphorBoldSvg('sliders-horizontal', { size: 16 })}</button>
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-remark-toolbar-toggle" data-tm-detail-remark-toolbar-toggle aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.formattingTools")}"${detailTip(__tmT("task.formattingTools"), { ariaLabel: false })}>${__tmPhosphorBoldSvg('sliders-horizontal', { size: 16 })}</button>
                     </div>
                     <div class="tm-task-detail-remark-toolbar" data-tm-detail-remark-toolbar>${__tmBuildTaskDetailRemarkToolbarHtml()}</div>
                 </div>
                 <div class="tm-task-detail-remark-shell" data-tm-detail-remark-shell>
                     <div class="tm-task-detail-remark-preview" data-tm-detail-remark-preview>${previewHtml}</div>
-                    <button type="button" class="tm-task-detail-remark-activator" data-tm-detail-remark-activator aria-label="编辑备注"></button>
+                    <button type="button" class="tm-task-detail-remark-activator" data-tm-detail-remark-activator aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.editnote")}"></button>
                     <textarea class="bc-textarea tm-task-detail-remark tm-task-detail-remark-editor" data-tm-detail="remark" rows="1">${esc(source)}</textarea>
                 </div>
             </section>
@@ -13091,7 +13096,7 @@ return false;
                 item?.totalOccurrences || __tmGetTaskRepeatRule(task)?.maxOccurrences
             );
             const occurrenceText = occurrenceNumber > 0
-                ? `第 ${occurrenceNumber}${totalOccurrences > 0 ? `/${totalOccurrences}` : ''} 次`
+                ? __tmT("task.repeatOccurrenceLabel", { occurrenceNumber: occurrenceNumber, value2: totalOccurrences > 0 ? `/${totalOccurrences}` : '' })
                 : '';
             const sourceStart = __tmNormalizeDateOnly(item?.sourceStart || '');
             const sourceDue = __tmNormalizeDateOnly(item?.sourceDue || '');
@@ -13099,29 +13104,29 @@ return false;
             const nextDue = __tmNormalizeDateOnly(item?.nextDue || '');
             const sourceText = sourceStart && sourceDue
                 ? `${__tmFormatTaskTimeCompact(sourceStart)} - ${__tmFormatTaskTimeCompact(sourceDue)}`
-                : (sourceDue ? `截止 ${__tmFormatTaskTimeCompact(sourceDue)}` : (sourceStart ? `开始 ${__tmFormatTaskTimeCompact(sourceStart)}` : '未记录日期'));
+                : (sourceDue ? __tmT("task.due", { value1: __tmFormatTaskTimeCompact(sourceDue) }) : (sourceStart ? __tmT("task.start", { value1: __tmFormatTaskTimeCompact(sourceStart) }) : __tmT("task.noDateRecorded")));
             const nextText = nextStart && nextDue
                 ? `${__tmFormatTaskTimeCompact(nextStart)} - ${__tmFormatTaskTimeCompact(nextDue)}`
-                : (nextDue ? `截止 ${__tmFormatTaskTimeCompact(nextDue)}` : (nextStart ? `开始 ${__tmFormatTaskTimeCompact(nextStart)}` : (item.id ? '计划已结束' : '未记录下一轮')));
+                : (nextDue ? __tmT("task.due", { value1: __tmFormatTaskTimeCompact(nextDue) }) : (nextStart ? __tmT("task.start", { value1: __tmFormatTaskTimeCompact(nextStart) }) : (item.id ? __tmT("task.scheduleEnded") : __tmT("task.noNextOccurrenceRecorded"))));
             return `
                 <div class="tm-task-detail-history-item">
                     <div class="tm-task-detail-history-head">
-                        <div class="tm-task-detail-history-main">${esc([occurrenceText, completedAt ? `完成于 ${__tmFormatTaskTime(completedAt)}` : '已完成'].filter(Boolean).join(' · '))}</div>
-                        <button type="button" class="tm-task-detail-history-delete" data-tm-detail-repeat-history-delete="${esc(item.id || completedAt || String(index))}">删除记录</button>
+                        <div class="tm-task-detail-history-main">${esc([occurrenceText, completedAt ? __tmT("task.completedAt", { value1: __tmFormatTaskTime(completedAt) }) : __tmT("ai.completed")].filter(Boolean).join(' · '))}</div>
+                        <button type="button" class="tm-task-detail-history-delete" data-tm-detail-repeat-history-delete="${esc(item.id || completedAt || String(index))}">${__tmT("task.deleteRecord")}</button>
                     </div>
-                    <div class="tm-task-detail-history-sub">本次：${esc(sourceText)}</div>
-                    <div class="tm-task-detail-history-sub">已推进到：${esc(nextText)}</div>
+                    <div class="tm-task-detail-history-sub">${__tmT("task.thisOccurrence", { sourceText: esc(sourceText) })}</div>
+                    <div class="tm-task-detail-history-sub">${__tmT("task.advancedTo", { nextText: esc(nextText) })}</div>
                 </div>
             `;
         }).join('');
         const more = offset + limit < history.length
-            ? `<button type="button" class="b3-button b3-button--outline" data-tm-repeat-history-more="${offset + limit}">再显示 ${Math.min(limit, history.length - offset - limit)} 条记录</button>` : '';
+            ? `<button type="button" class="b3-button b3-button--outline" data-tm-repeat-history-more="${offset + limit}">${__tmT("task.showMoreRecords", { value1: Math.min(limit, history.length - offset - limit) })}</button>` : '';
         if (options.itemsOnly) return itemsHtml + more;
         return `
             <section class="tm-task-detail-section" data-tm-detail-collapsible-section>
                 <div class="tm-task-detail-section-head">
                     <button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="true">
-                        <span class="tm-task-detail-section-title">循环完成记录</span>
+                        <span class="tm-task-detail-section-title">${__tmT("task.recurrenceHistory")}</span>
                         <span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span>
                     </button>
                     <div class="tm-task-detail-section-tools">
@@ -13139,7 +13144,7 @@ return false;
         const rows = history.slice().sort((a, b) => String(b.scheduledDate).localeCompare(String(a.scheduledDate))).map((entry) => {
             const date = String(entry?.scheduledDate || '').trim();
             const checkedAt = String(entry?.checkedAt || '').trim();
-            return `<div class="tm-task-detail-history-item"><div class="tm-task-detail-history-head"><div class="tm-task-detail-history-main">${esc(date)} · 已打卡</div><button type="button" class="tm-task-detail-history-delete" data-tm-detail-checkin-toggle="${esc(date)}">取消</button></div><div class="tm-task-detail-history-sub">记录于 ${esc(checkedAt ? __tmFormatTaskTime(checkedAt) : '未知时间')}</div></div>`;
+            return `<div class="tm-task-detail-history-item"><div class="tm-task-detail-history-head"><div class="tm-task-detail-history-main">${__tmT("task.checkedIn", { date: esc(date) })}</div><button type="button" class="tm-task-detail-history-delete" data-tm-detail-checkin-toggle="${esc(date)}">${__tmT("common.cancel")}</button></div><div class="tm-task-detail-history-sub">${__tmT("task.recordedAt", { value1: esc(checkedAt ? __tmFormatTaskTime(checkedAt) : __tmT("task.unknownTime")) })}</div></div>`;
         }).join('');
-        return `<section class="tm-task-detail-section" data-tm-detail-collapsible-section data-tm-detail-checkin-section><div class="tm-task-detail-section-head"><button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="false"><span class="tm-task-detail-section-title">打卡记录</span><span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span></button><div class="tm-task-detail-section-tools"><span class="tm-task-detail-section-count">${history.length}</span></div></div><div class="tm-task-detail-history-list" hidden>${rows || '<div class="tm-task-detail-history-sub">暂无打卡记录；计划日会显示在日历中。</div>'}</div></section>`;
+        return `<section class="tm-task-detail-section" data-tm-detail-collapsible-section data-tm-detail-checkin-section><div class="tm-task-detail-section-head"><button type="button" class="tm-task-detail-section-toggle" data-tm-detail-section-toggle aria-expanded="false"><span class="tm-task-detail-section-title">${__tmT("task.checkInRecords")}</span><span class="tm-task-detail-section-chevron" aria-hidden="true">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-task-detail-section-chevron__svg' })}</span></button><div class="tm-task-detail-section-tools"><span class="tm-task-detail-section-count">${history.length}</span></div></div><div class="tm-task-detail-history-list" hidden>${rows || `<div class="tm-task-detail-history-sub">${__tmT("task.noCheckInRecordsYetPlannedDaysShowIn")}</div>`}</div></section>`;
     }

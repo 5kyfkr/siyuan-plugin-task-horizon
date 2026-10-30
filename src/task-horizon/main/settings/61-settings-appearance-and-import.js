@@ -5,7 +5,7 @@
     window.tmCopyDeviceRecognitionReport = async function() {
         const text = __tmBuildDeviceRecognitionReportText();
         if (!String(text || '').trim()) {
-            hint('⚠️ 没有可复制的诊断内容', 'warning');
+            hint(__tmT("settings.noDiagnosticContentToCopy"), 'warning');
             return false;
         }
         let ok = false;
@@ -29,7 +29,7 @@
                 textarea.remove();
             } catch (e) {}
         }
-        hint(ok ? '✅ 诊断信息已复制' : '❌ 复制失败，请手动展开 JSON 复制', ok ? 'success' : 'error');
+        hint(ok ? __tmT("settings.diagnosticsCopied") : __tmT("settings.copyFailedExpandTheJsonManuallyToCopyIt"), ok ? 'success' : 'error');
         return ok;
     };
     window.tmSwitchSettingsTab = function(tab) {
@@ -93,8 +93,8 @@
 
         let html = `
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-                <div style="font-size:12px;color:var(--tm-secondary-text);">自定义列也可在这里参与显示、排序和宽度调整。</div>
-                <button class="tm-btn tm-btn-secondary" onclick="tmOpenCustomFieldDialog('', { manager: true })" style="padding:4px 10px;font-size:12px;">管理自定义列</button>
+                <div style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.customColumnsCanAlsoTakePartInDisplayOrdering")}</div>
+                <button class="tm-btn tm-btn-secondary" onclick="tmOpenCustomFieldDialog('', { manager: true })" style="padding:4px 10px;font-size:12px;">${__tmT("settings.manageCustomColumns")}</button>
             </div>
             <div class="tm-column-list">
         `;
@@ -105,13 +105,13 @@
             const isFixedDateColumn = __tmIsFixedDateColumn(key);
             const width = isFixedDateColumn ? __tmGetFixedDateColumnWidth(key) : (widths[key] || defaultWidths[key] || 120);
             const widthControlHtml = isFixedDateColumn
-                ? `<span style="flex:1;margin:0 8px;font-size:12px;color:var(--tm-secondary-text);">按日期内容固定</span>`
-                : `<input type="range" min="10" max="800" value="${width}" style="flex: 1; margin: 0 8px;" onchange="updateColumnWidth('${key}', parseInt(this.value))" title="宽度调整">`;
-            const widthText = isFixedDateColumn ? `${width}px 固定` : `${width}px`;
+                ? `<span style="flex:1;margin:0 8px;font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.fixedToDateContent")}</span>`
+                : `<input type="range" min="10" max="800" value="${width}" style="flex: 1; margin: 0 8px;" onchange="updateColumnWidth('${key}', parseInt(this.value))" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.resize")}">`;
+            const widthText = isFixedDateColumn ? __tmT("settings.pxFixed", { width: width }) : `${width}px`;
 
             html += `
-                <div class="tm-column-item" ${__tmSettingsSearchAttrs('appearance', `${colDef.label || key}列设置`, '控制该列的显示、排序与列宽。', { section: 'columns', key: `appearance-column-${key}` })} style="display: flex; align-items: center; gap: 8px; padding: 6px; background: var(--tm-input-bg); margin-bottom: 4px; border-radius: 4px;">
-                    <input type="checkbox" checked onchange="toggleColumn('${key}', false)" title="显示/隐藏">
+                <div class="tm-column-item" ${__tmSettingsSearchAttrs('appearance', __tmT("settings.columns", { value1: colDef.label || key }), __tmT("settings.controlsThisColumnSVisibilityOrderAndWidth"), { section: 'columns', key: `appearance-column-${key}` })} style="display: flex; align-items: center; gap: 8px; padding: 6px; background: var(--tm-input-bg); margin-bottom: 4px; border-radius: 4px;">
+                    <input type="checkbox" checked onchange="toggleColumn('${key}', false)" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.showHide")}">
                     <span style="width: 110px; font-weight: bold; font-size: 13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(colDef.label || key)}">${esc(colDef.label || key)}</span>
                     <div style="display: flex; gap: 2px;">
                         <button class="tm-btn" onclick="moveColumn('${key}', -1)" ${index === 0 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 10px;">↑</button>
@@ -126,10 +126,10 @@
         // Invisible columns
         const hiddenCols = availableCols.filter(c => !currentOrder.includes(c.key));
         if (hiddenCols.length > 0) {
-            html += '<div style="margin-top: 12px; font-size: 12px; color: var(--tm-secondary-text); margin-bottom: 4px;">隐藏的列 (勾选以显示):</div>';
+            html += `<div style="margin-top: 12px; font-size: 12px; color: var(--tm-secondary-text); margin-bottom: 4px;">${__tmT("settings.hiddenColumnsCheckToShow")}</div>`;
             hiddenCols.forEach(col => {
                 html += `
-                    <div class="tm-column-item" ${__tmSettingsSearchAttrs('appearance', `${col.label || col.key}列设置`, '控制该列的显示、排序与列宽。', { section: 'columns', key: `appearance-column-${col.key}` })} style="display: flex; align-items: center; gap: 8px; padding: 6px; opacity: 0.7;">
+                    <div class="tm-column-item" ${__tmSettingsSearchAttrs('appearance', __tmT("settings.columns2", { key: col.label || col.key }), __tmT("settings.controlsThisColumnSVisibilityOrderAndWidth"), { section: 'columns', key: `appearance-column-${col.key}` })} style="display: flex; align-items: center; gap: 8px; padding: 6px; opacity: 0.7;">
                         <input type="checkbox" onchange="toggleColumn('${col.key}', true)">
                         <span style="font-size: 13px;">${esc(col.label || col.key)}</span>
                     </div>
@@ -160,98 +160,98 @@
         };
         const items = [
             {
-                title: '插件顶栏渐变',
+                title: __tmT("settings.pluginTopBarGradient"),
                 rows: [
-                    { label: '亮色 起始', key: 'topbarGradientLightStart', value: colorValue('topbarGradientLightStart', themeDefaultsLight.topbarGradientStart) },
-                    { label: '亮色 结束', key: 'topbarGradientLightEnd', value: colorValue('topbarGradientLightEnd', themeDefaultsLight.topbarGradientEnd) },
-                    { label: '夜间 起始', key: 'topbarGradientDarkStart', value: colorValue('topbarGradientDarkStart', themeDefaultsDark.topbarGradientStart) },
-                    { label: '夜间 结束', key: 'topbarGradientDarkEnd', value: colorValue('topbarGradientDarkEnd', themeDefaultsDark.topbarGradientEnd) },
-                    { label: '顶栏文字 亮色', key: 'topbarTextColorLight', value: colorValue('topbarTextColorLight', themeDefaultsLight.topbarTextColor) },
-                    { label: '顶栏文字 夜间', key: 'topbarTextColorDark', value: colorValue('topbarTextColorDark', themeDefaultsDark.topbarTextColor) }
+                    { label: __tmT("settings.lightStart"), key: 'topbarGradientLightStart', value: colorValue('topbarGradientLightStart', themeDefaultsLight.topbarGradientStart) },
+                    { label: __tmT("settings.lightEnd"), key: 'topbarGradientLightEnd', value: colorValue('topbarGradientLightEnd', themeDefaultsLight.topbarGradientEnd) },
+                    { label: __tmT("settings.darkStart"), key: 'topbarGradientDarkStart', value: colorValue('topbarGradientDarkStart', themeDefaultsDark.topbarGradientStart) },
+                    { label: __tmT("settings.darkEnd"), key: 'topbarGradientDarkEnd', value: colorValue('topbarGradientDarkEnd', themeDefaultsDark.topbarGradientEnd) },
+                    { label: __tmT("settings.topBarTextLight"), key: 'topbarTextColorLight', value: colorValue('topbarTextColorLight', themeDefaultsLight.topbarTextColor) },
+                    { label: __tmT("settings.topBarTextDark"), key: 'topbarTextColorDark', value: colorValue('topbarTextColorDark', themeDefaultsDark.topbarTextColor) }
                 ]
             },
             {
-                title: '顶栏控件颜色',
+                title: __tmT("settings.topBarControlColors"),
                 rows: [
-                    { label: '背景 亮色', key: 'topbarControlBgLight', value: topbarLight.controlBg },
-                    { label: '背景 夜间', key: 'topbarControlBgDark', value: topbarDark.controlBg },
-                    { label: '文字 亮色', key: 'topbarControlTextLight', value: topbarLight.controlText },
-                    { label: '文字 夜间', key: 'topbarControlTextDark', value: topbarDark.controlText },
-                    { label: '边框 亮色', key: 'topbarControlBorderLight', value: topbarLight.controlBorder },
-                    { label: '边框 夜间', key: 'topbarControlBorderDark', value: topbarDark.controlBorder },
-                    { label: '悬停 亮色', key: 'topbarControlHoverLight', value: topbarLight.controlHover },
-                    { label: '悬停 夜间', key: 'topbarControlHoverDark', value: topbarDark.controlHover },
-                    { label: '视图选择器背景 亮色', key: 'topbarControlSegmentBgLight', value: topbarLight.segBg },
-                    { label: '视图选择器背景 夜间', key: 'topbarControlSegmentBgDark', value: topbarDark.segBg },
-                    { label: '分段激活 亮色', key: 'topbarControlSegmentActiveBgLight', value: topbarLight.segActive },
-                    { label: '分段激活 夜间', key: 'topbarControlSegmentActiveBgDark', value: topbarDark.segActive },
-                    { label: '阴影 亮色', key: 'topbarControlShadowColorLight', value: topbarLight.shadowColor },
-                    { label: '阴影 夜间', key: 'topbarControlShadowColorDark', value: topbarDark.shadowColor }
+                    { label: __tmT("settings.backgroundLight"), key: 'topbarControlBgLight', value: topbarLight.controlBg },
+                    { label: __tmT("settings.backgroundDark"), key: 'topbarControlBgDark', value: topbarDark.controlBg },
+                    { label: __tmT("settings.textLight"), key: 'topbarControlTextLight', value: topbarLight.controlText },
+                    { label: __tmT("settings.textDark"), key: 'topbarControlTextDark', value: topbarDark.controlText },
+                    { label: __tmT("settings.borderLight"), key: 'topbarControlBorderLight', value: topbarLight.controlBorder },
+                    { label: __tmT("settings.borderDark"), key: 'topbarControlBorderDark', value: topbarDark.controlBorder },
+                    { label: __tmT("settings.hoverLight"), key: 'topbarControlHoverLight', value: topbarLight.controlHover },
+                    { label: __tmT("settings.hoverDark"), key: 'topbarControlHoverDark', value: topbarDark.controlHover },
+                    { label: __tmT("settings.viewSelectorBackgroundLight"), key: 'topbarControlSegmentBgLight', value: topbarLight.segBg },
+                    { label: __tmT("settings.viewSelectorBackgroundDark"), key: 'topbarControlSegmentBgDark', value: topbarDark.segBg },
+                    { label: __tmT("settings.segmentActiveLight"), key: 'topbarControlSegmentActiveBgLight', value: topbarLight.segActive },
+                    { label: __tmT("settings.segmentActiveDark"), key: 'topbarControlSegmentActiveBgDark', value: topbarDark.segActive },
+                    { label: __tmT("settings.shadowLight"), key: 'topbarControlShadowColorLight', value: topbarLight.shadowColor },
+                    { label: __tmT("settings.shadowDark"), key: 'topbarControlShadowColorDark', value: topbarDark.shadowColor }
                 ]
             },
             {
-                title: '任务内容列字体颜色',
+                title: __tmT("settings.taskContentColumnFontColor"),
                 rows: [
-                    { label: '亮色', key: 'taskContentColorLight', value: colorValue('taskContentColorLight', themeDefaultsLight.taskContentColor) },
-                    { label: '夜间', key: 'taskContentColorDark', value: colorValue('taskContentColorDark', themeDefaultsDark.taskContentColor) }
+                    { label: __tmT("settings.light"), key: 'taskContentColorLight', value: colorValue('taskContentColorLight', themeDefaultsLight.taskContentColor) },
+                    { label: __tmT("settings.dark"), key: 'taskContentColorDark', value: colorValue('taskContentColorDark', themeDefaultsDark.taskContentColor) }
                 ]
             },
             {
-                title: '任务其它列字体颜色',
+                title: __tmT("settings.otherTaskColumnFontColor"),
                 rows: [
-                    { label: '亮色', key: 'taskMetaColorLight', value: colorValue('taskMetaColorLight', themeDefaultsLight.taskMetaColor) },
-                    { label: '夜间', key: 'taskMetaColorDark', value: colorValue('taskMetaColorDark', themeDefaultsDark.taskMetaColor) }
+                    { label: __tmT("settings.light"), key: 'taskMetaColorLight', value: colorValue('taskMetaColorLight', themeDefaultsLight.taskMetaColor) },
+                    { label: __tmT("settings.dark"), key: 'taskMetaColorDark', value: colorValue('taskMetaColorDark', themeDefaultsDark.taskMetaColor) }
                 ]
             },
             {
-                title: '子任务进度条背景',
+                title: __tmT("settings.subtaskProgressBarBackground"),
                 rows: [
-                    { label: '亮色', key: 'progressBarColorLight', value: colorValue('progressBarColorLight', themeDefaultsLight.progressBarColor) },
-                    { label: '夜间', key: 'progressBarColorDark', value: colorValue('progressBarColorDark', themeDefaultsDark.progressBarColor) }
+                    { label: __tmT("settings.light"), key: 'progressBarColorLight', value: colorValue('progressBarColorLight', themeDefaultsLight.progressBarColor) },
+                    { label: __tmT("settings.dark"), key: 'progressBarColorDark', value: colorValue('progressBarColorDark', themeDefaultsDark.progressBarColor) }
                 ]
             },
             {
-                title: '日历当天高亮颜色',
+                title: __tmT("settings.calendarTodayHighlightColor"),
                 rows: [
-                    { label: '亮色', key: 'calendarTodayHighlightColorLight', value: colorValue('calendarTodayHighlightColorLight', themeDefaultsLight.calendarTodayHighlightColor) },
-                    { label: '夜间', key: 'calendarTodayHighlightColorDark', value: colorValue('calendarTodayHighlightColorDark', themeDefaultsDark.calendarTodayHighlightColor) }
+                    { label: __tmT("settings.light"), key: 'calendarTodayHighlightColorLight', value: colorValue('calendarTodayHighlightColorLight', themeDefaultsLight.calendarTodayHighlightColor) },
+                    { label: __tmT("settings.dark"), key: 'calendarTodayHighlightColorDark', value: colorValue('calendarTodayHighlightColorDark', themeDefaultsDark.calendarTodayHighlightColor) }
                 ]
             },
             {
-                title: '日历边框线颜色',
+                title: __tmT("settings.calendarBorderLineColor"),
                 rows: [
-                    { label: '亮色', key: 'calendarGridBorderColorLight', value: colorValue('calendarGridBorderColorLight', themeDefaultsLight.calendarGridBorderColor) },
-                    { label: '夜间', key: 'calendarGridBorderColorDark', value: colorValue('calendarGridBorderColorDark', themeDefaultsDark.calendarGridBorderColor) }
+                    { label: __tmT("settings.light"), key: 'calendarGridBorderColorLight', value: colorValue('calendarGridBorderColorLight', themeDefaultsLight.calendarGridBorderColor) },
+                    { label: __tmT("settings.dark"), key: 'calendarGridBorderColorDark', value: colorValue('calendarGridBorderColorDark', themeDefaultsDark.calendarGridBorderColor) }
                 ]
             },
             {
-                title: '表格边框线颜色',
+                title: __tmT("settings.tableBorderLineColor"),
                 rows: [
-                    { label: '亮色', key: 'tableBorderColorLight', value: colorValue('tableBorderColorLight', themeDefaultsLight.tableBorderColor) },
-                    { label: '夜间', key: 'tableBorderColorDark', value: colorValue('tableBorderColorDark', themeDefaultsDark.tableBorderColor) }
+                    { label: __tmT("settings.light"), key: 'tableBorderColorLight', value: colorValue('tableBorderColorLight', themeDefaultsLight.tableBorderColor) },
+                    { label: __tmT("settings.dark"), key: 'tableBorderColorDark', value: colorValue('tableBorderColorDark', themeDefaultsDark.tableBorderColor) }
                 ]
             },
             {
-                title: '分组名称（按文档分组）',
+                title: __tmT("settings.groupNameByDocument"),
                 rows: [
-                    { label: '亮色', key: 'groupDocLabelColorLight', value: colorValue('groupDocLabelColorLight', themeDefaultsLight.groupDocLabelColor) },
-                    { label: '夜间', key: 'groupDocLabelColorDark', value: colorValue('groupDocLabelColorDark', themeDefaultsDark.groupDocLabelColor) }
+                    { label: __tmT("settings.light"), key: 'groupDocLabelColorLight', value: colorValue('groupDocLabelColorLight', themeDefaultsLight.groupDocLabelColor) },
+                    { label: __tmT("settings.dark"), key: 'groupDocLabelColorDark', value: colorValue('groupDocLabelColorDark', themeDefaultsDark.groupDocLabelColor) }
                 ]
             },
             {
-                title: '分组名称（按时间分组）',
+                title: __tmT("settings.groupNameByTime"),
                 rows: [
-                    { label: '未来基础色 亮色', key: 'timeGroupBaseColorLight', value: colorValue('timeGroupBaseColorLight', themeDefaultsLight.timeGroupBaseColor) },
-                    { label: '未来基础色 夜间', key: 'timeGroupBaseColorDark', value: colorValue('timeGroupBaseColorDark', themeDefaultsDark.timeGroupBaseColor) },
-                    { label: '已过期 亮色', key: 'timeGroupOverdueColorLight', value: colorValue('timeGroupOverdueColorLight', themeDefaultsLight.timeGroupOverdueColor) },
-                    { label: '已过期 夜间', key: 'timeGroupOverdueColorDark', value: colorValue('timeGroupOverdueColorDark', themeDefaultsDark.timeGroupOverdueColor) }
+                    { label: __tmT("settings.futureBaseColorLight"), key: 'timeGroupBaseColorLight', value: colorValue('timeGroupBaseColorLight', themeDefaultsLight.timeGroupBaseColor) },
+                    { label: __tmT("settings.futureBaseColorDark"), key: 'timeGroupBaseColorDark', value: colorValue('timeGroupBaseColorDark', themeDefaultsDark.timeGroupBaseColor) },
+                    { label: __tmT("settings.overdueLight"), key: 'timeGroupOverdueColorLight', value: colorValue('timeGroupOverdueColorLight', themeDefaultsLight.timeGroupOverdueColor) },
+                    { label: __tmT("settings.overdueDark"), key: 'timeGroupOverdueColorDark', value: colorValue('timeGroupOverdueColorDark', themeDefaultsDark.timeGroupOverdueColor) }
                 ]
             },
             {
-                title: '表格视图待定分组任务行背景',
+                title: __tmT("settings.tableViewUnscheduledGroupRowBackground"),
                 rows: [
-                    { label: '亮色', key: 'timeGroupPendingTaskBgColorLight', value: colorValue('timeGroupPendingTaskBgColorLight', themeDefaultsLight.timeGroupPendingTaskBgColor) },
-                    { label: '夜间', key: 'timeGroupPendingTaskBgColorDark', value: colorValue('timeGroupPendingTaskBgColorDark', themeDefaultsDark.timeGroupPendingTaskBgColor) }
+                    { label: __tmT("settings.light"), key: 'timeGroupPendingTaskBgColorLight', value: colorValue('timeGroupPendingTaskBgColorLight', themeDefaultsLight.timeGroupPendingTaskBgColor) },
+                    { label: __tmT("settings.dark"), key: 'timeGroupPendingTaskBgColorDark', value: colorValue('timeGroupPendingTaskBgColorDark', themeDefaultsDark.timeGroupPendingTaskBgColor) }
                 ]
             }
         ];
@@ -260,7 +260,7 @@
             const raw = __tmNormalizeHexColor(row.value, '#000000') || '#000000';
             const displayValue = __tmFormatColorDisplayValue(raw);
             const disabled = !canEditColor(row.key);
-            const disabledAttr = disabled ? ' disabled title="跟随思源主题色时由当前主题自动生成"' : '';
+            const disabledAttr = disabled ? __tmT("settings.disabledTitleAutoGeneratedFromTheCurrentThemeWhen") : '';
             const disabledStyle = disabled ? 'opacity:0.68;cursor:not-allowed;' : '';
             return `
                 <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 8px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-bg-color);">
@@ -274,11 +274,11 @@
         };
 
         const metrics = [
-            { label: '控件圆角', key: 'topbarControlRadiusPx', value: topbarLight.radiusPx, min: 0, max: 24 },
-            { label: '边框宽度', key: 'topbarControlBorderWidthPx', value: topbarLight.borderWidthPx, min: 0, max: 4 },
-            { label: '阴影偏移Y', key: 'topbarControlShadowYOffsetPx', value: topbarLight.shadowYOffsetPx, min: 0, max: 24 },
-            { label: '阴影模糊', key: 'topbarControlShadowBlurPx', value: topbarLight.shadowBlurPx, min: 0, max: 48 },
-            { label: '阴影强度', key: 'topbarControlShadowStrengthPct', value: topbarLight.shadowStrengthPct, min: 0, max: 200, unit: '%' }
+            { label: __tmT("settings.controlRadius"), key: 'topbarControlRadiusPx', value: topbarLight.radiusPx, min: 0, max: 24 },
+            { label: __tmT("settings.borderWidth"), key: 'topbarControlBorderWidthPx', value: topbarLight.borderWidthPx, min: 0, max: 4 },
+            { label: __tmT("settings.shadowOffsetY"), key: 'topbarControlShadowYOffsetPx', value: topbarLight.shadowYOffsetPx, min: 0, max: 24 },
+            { label: __tmT("settings.shadowBlur"), key: 'topbarControlShadowBlurPx', value: topbarLight.shadowBlurPx, min: 0, max: 48 },
+            { label: __tmT("settings.shadowStrength"), key: 'topbarControlShadowStrengthPct', value: topbarLight.shadowStrengthPct, min: 0, max: 200, unit: '%' }
         ];
 
         const renderMetric = (item) => `
@@ -300,7 +300,7 @@
         `;
 
         const cards = items.map((it) => `
-            <div ${__tmSettingsSearchAttrs('appearance', it.title, '调整亮色与夜间配色。', { section: 'colors', key: `appearance-colors-${it.rows[0].key}` })} style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
+            <div ${__tmSettingsSearchAttrs('appearance', it.title, __tmT("settings.adjustLightAndDarkColorSchemes"), { section: 'colors', key: `appearance-colors-${it.rows[0].key}` })} style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
                 <div style="font-weight:600;margin-bottom:10px;">${esc(it.title)}</div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
                     ${(it.rows || []).map(renderRow).join('')}
@@ -320,17 +320,17 @@
         const previewDark = buildTopbarPreviewBg('topbarGradientDarkStart', 'topbarGradientDarkEnd', themeDefaultsDark);
         const themeOptions = __TM_THEME_PRESETS.map((preset) => `<option value="${esc(preset.id)}" ${themeSelectValue === preset.id ? 'selected' : ''}>${esc(preset.name)}</option>`).join('');
         const activeThemeName = followSiyuan
-            ? '思源主题色'
+            ? __tmT("settings.siyuanThemeColors")
             : (themeConfig.source === 'imported' && hasImportedTheme ? (themeConfig.importName || 'Custom') : __tmGetThemePresetById(themeConfig.presetId).name);
         const themeControlDisabledAttr = followSiyuan ? ' disabled' : '';
         const themeControlDisabledStyle = followSiyuan ? 'opacity:0.68;cursor:not-allowed;' : '';
         const editableThemeTokens = [
-            { key: 'background', label: '背景' },
-            { key: 'sidebar', label: '侧栏' },
-            { key: 'card', label: '卡片' },
-            { key: 'primary', label: '主色' },
-            { key: 'accent', label: '强调' },
-            { key: 'destructive', label: '危险' },
+            { key: 'background', label: __tmT("settings.background") },
+            { key: 'sidebar', label: __tmT("settings.sidebar") },
+            { key: 'card', label: __tmT("settings.card") },
+            { key: 'primary', label: __tmT("settings.primary") },
+            { key: 'accent', label: __tmT("settings.accent") },
+            { key: 'destructive', label: __tmT("settings.danger") },
         ];
         const renderThemeTokenEditor = (token) => {
             const lightValue = __tmNormalizeHexColor(themePaletteLight[token.key], '#000000') || '#000000';
@@ -338,26 +338,26 @@
             const lightOverridden = !!String(themeConfig.overrideLight?.[token.key] || '').trim();
             const darkOverridden = !!String(themeConfig.overrideDark?.[token.key] || '').trim();
             return `
-                <div ${__tmSettingsSearchAttrs('appearance', `主题${token.label}颜色`, '调整主题亮色、夜间颜色，支持清除覆盖。', { section: 'colors', key: `appearance-theme-token-${token.key}` })} style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-bg-color);display:flex;flex-direction:column;gap:8px;">
+                <div ${__tmSettingsSearchAttrs('appearance', __tmT("settings.color", { label: token.label }), __tmT("settings.adjustThemeLightAndDarkColorsOverridesCanBe"), { section: 'colors', key: `appearance-theme-token-${token.key}` })} style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-bg-color);display:flex;flex-direction:column;gap:8px;">
                     <div style="font-size:12px;font-weight:600;color:var(--tm-text-color);">${esc(token.label)}</div>
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-                        <span style="font-size:12px;color:var(--tm-secondary-text);">亮色${lightOverridden ? ' · 已覆盖' : ''}</span>
+                        <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.light2", { value1: lightOverridden ? __tmT("settings.overridden") : '' })}</span>
                         <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
                             <button type="button" class="tm-color-btn" onclick="tmOpenThemeTokenPicker('${esc(token.key)}','light')" style="min-width:128px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>
                                 <span class="tm-color-swatch" style="background:${esc(lightValue)}"></span>
                                 <span class="tm-color-text">${esc(__tmFormatColorDisplayValue(lightValue))}</span>
                             </button>
-                            ${lightOverridden ? `<button class="tm-btn tm-btn-gray" onclick="tmClearThemeTokenOverride('${esc(token.key)}','light')" style="padding:4px 8px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>清除</button>` : ''}
+                            ${lightOverridden ? `<button class="tm-btn tm-btn-gray" onclick="tmClearThemeTokenOverride('${esc(token.key)}','light')" style="padding:4px 8px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>${__tmT("task.clear")}</button>` : ''}
                         </span>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-                        <span style="font-size:12px;color:var(--tm-secondary-text);">夜间${darkOverridden ? ' · 已覆盖' : ''}</span>
+                        <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.dark2", { value1: darkOverridden ? __tmT("settings.overridden") : '' })}</span>
                         <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
                             <button type="button" class="tm-color-btn" onclick="tmOpenThemeTokenPicker('${esc(token.key)}','dark')" style="min-width:128px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>
                                 <span class="tm-color-swatch" style="background:${esc(darkValue)}"></span>
                                 <span class="tm-color-text">${esc(__tmFormatColorDisplayValue(darkValue))}</span>
                             </button>
-                            ${darkOverridden ? `<button class="tm-btn tm-btn-gray" onclick="tmClearThemeTokenOverride('${esc(token.key)}','dark')" style="padding:4px 8px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>清除</button>` : ''}
+                            ${darkOverridden ? `<button class="tm-btn tm-btn-gray" onclick="tmClearThemeTokenOverride('${esc(token.key)}','dark')" style="padding:4px 8px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>${__tmT("task.clear")}</button>` : ''}
                         </span>
                     </div>
                 </div>
@@ -370,50 +370,50 @@
                     <span style="font-size:11px;color:var(--tm-secondary-text);">${esc(activeThemeName)}</span>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <span title="背景" style="width:24px;height:24px;border-radius:8px;background:${esc(palette.background)};border:1px solid var(--tm-border-color);"></span>
-                    <span title="卡片" style="width:24px;height:24px;border-radius:8px;background:${esc(palette.card)};border:1px solid var(--tm-border-color);"></span>
-                    <span title="主色" style="width:24px;height:24px;border-radius:8px;background:${esc(palette.primary)};border:1px solid var(--tm-border-color);"></span>
-                    <span title="强调" style="width:24px;height:24px;border-radius:8px;background:${esc(palette.accent)};border:1px solid var(--tm-border-color);"></span>
-                    <span title="危险" style="width:24px;height:24px;border-radius:8px;background:${esc(palette.destructive)};border:1px solid var(--tm-border-color);"></span>
+                    <span title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.background")}" style="width:24px;height:24px;border-radius:8px;background:${esc(palette.background)};border:1px solid var(--tm-border-color);"></span>
+                    <span title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.card")}" style="width:24px;height:24px;border-radius:8px;background:${esc(palette.card)};border:1px solid var(--tm-border-color);"></span>
+                    <span title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.primary")}" style="width:24px;height:24px;border-radius:8px;background:${esc(palette.primary)};border:1px solid var(--tm-border-color);"></span>
+                    <span title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.accent")}" style="width:24px;height:24px;border-radius:8px;background:${esc(palette.accent)};border:1px solid var(--tm-border-color);"></span>
+                    <span title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.danger")}" style="width:24px;height:24px;border-radius:8px;background:${esc(palette.destructive)};border:1px solid var(--tm-border-color);"></span>
                 </div>
             </div>
         `;
         const currentThemeSourceText = followSiyuan
-            ? '思源主题色'
-            : (themeConfig.source === 'imported' && hasImportedTheme ? `导入主题「${themeConfig.importName || 'Custom'}」` : `预设「${__tmGetThemePresetById(themeConfig.presetId).name}」`);
+            ? __tmT("settings.siyuanThemeColors")
+            : (themeConfig.source === 'imported' && hasImportedTheme ? __tmT("settings.importedTheme", { value1: themeConfig.importName || 'Custom' }) : __tmT("settings.preset", { name: __tmGetThemePresetById(themeConfig.presetId).name }));
         const themeSection = `
             <div style="padding:12px;border:1px solid var(--tm-border-color);border-radius:12px;background:var(--tm-card-bg);margin-bottom:12px;display:flex;flex-direction:column;gap:12px;">
                 <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-bg-color);">
                     <span style="display:flex;flex-direction:column;gap:4px;">
-                        <span style="font-size:13px;color:var(--tm-text-color);font-weight:600;">跟随思源主题色</span>
-                        <span style="font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">开启后使用当前思源主题变量，关闭后恢复插件配色。</span>
+                        <span style="font-size:13px;color:var(--tm-text-color);font-weight:600;">${__tmT("settings.followSiyuanThemeColors")}</span>
+                        <span style="font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">${__tmT("settings.usesTheCurrentSiyuanThemeVariablesWhenOnRestores")}</span>
                     </span>
                     <input class="b3-switch fn__flex-center" type="checkbox" ${followSiyuan ? 'checked' : ''} onchange="tmToggleSiyuanThemeColors(this.checked)">
                 </label>
                 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
                     <div>
-                        <div style="font-weight:600;">主题方案</div>
-                        <div style="margin-top:4px;font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">支持内置预设与 TweakCN / shadcn CSS 变量导入。切换方案时，会同步刷新插件背景、Basecoat 控件和下面的外观微调项。<a href="${esc(__TM_TWEAKCN_URL)}" target="_blank" rel="noopener noreferrer" style="margin-left:6px;color:var(--tm-primary-color);text-decoration:none;">打开 TweakCN ↗</a></div>
+                        <div style="font-weight:600;">${__tmT("settings.themeScheme")}</div>
+                        <div style="margin-top:4px;font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">${__tmT("settings.supportsBuiltInPresetsAndTweakcnShadcnCssVariable")}<a href="${esc(__TM_TWEAKCN_URL)}" target="_blank" rel="noopener noreferrer" style="margin-left:6px;color:var(--tm-primary-color);text-decoration:none;">${__tmT("settings.openTweakcn")}</a></div>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                        <select class="tm-rule-select" aria-label="主题方案" onchange="tmSelectAppearanceTheme(this.value)" style="min-width:180px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>
+                        <select class="tm-rule-select" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.themeScheme")}" onchange="tmSelectAppearanceTheme(this.value)" style="min-width:180px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>
                             ${themeOptions}
-                            ${hasImportedTheme ? `<option value="__imported__" ${themeSelectValue === '__imported__' ? 'selected' : ''}>导入主题 · ${esc(themeConfig.importName || 'Custom')}</option>` : ''}
+                            ${hasImportedTheme ? `<option value="__imported__" ${themeSelectValue === '__imported__' ? 'selected' : ''}>${__tmT("settings.importedTheme2", { value1: esc(themeConfig.importName || 'Custom') })}</option>` : ''}
                         </select>
-                        <button class="tm-btn tm-btn-gray" type="button" onclick="window.open('${esc(__TM_TWEAKCN_URL)}', '_blank', 'noopener,noreferrer')" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>访问 TweakCN</button>
-                        <button class="tm-btn tm-btn-info" onclick="tmOpenThemeImportDialog()" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>导入 TweakCN</button>
-                        ${hasImportedTheme ? `<button class="tm-btn tm-btn-gray" onclick="tmClearImportedTheme()" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>移除导入</button>` : ''}
-                        <button class="tm-btn tm-btn-gray" onclick="tmResetThemeOverrides()" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>还原当前主题</button>
+                        <button class="tm-btn tm-btn-gray" type="button" onclick="window.open('${esc(__TM_TWEAKCN_URL)}', '_blank', 'noopener,noreferrer')" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>${__tmT("settings.visitTweakcn")}</button>
+                        <button class="tm-btn tm-btn-info" onclick="tmOpenThemeImportDialog()" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>${__tmT("settings.importTweakcn")}</button>
+                        ${hasImportedTheme ? `<button class="tm-btn tm-btn-gray" onclick="tmClearImportedTheme()" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>${__tmT("settings.removeImport")}</button>` : ''}
+                        <button class="tm-btn tm-btn-gray" onclick="tmResetThemeOverrides()" style="padding:4px 10px;font-size:12px;${themeControlDisabledStyle}"${themeControlDisabledAttr}>${__tmT("settings.resetCurrentTheme")}</button>
                     </div>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">
-                    ${renderThemeSwatches(themePaletteLight, '亮色预览')}
-                    ${renderThemeSwatches(themePaletteDark, '夜间预览')}
+                    ${renderThemeSwatches(themePaletteLight, __tmT("settings.lightPreview"))}
+                    ${renderThemeSwatches(themePaletteDark, __tmT("settings.darkPreview"))}
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
                     ${editableThemeTokens.map(renderThemeTokenEditor).join('')}
                 </div>
-                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">当前来源：${esc(currentThemeSourceText)}</div>
+                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">${__tmT("settings.currentSource", { currentThemeSourceText: esc(currentThemeSourceText) })}</div>
             </div>
         `;
 
@@ -421,52 +421,50 @@
             ${themeSection}
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                    <span style="font-size:12px;color:var(--tm-secondary-text);">预览(亮色):</span>
+                    <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.previewLight")}</span>
                     <div id="tmAppearancePreviewLight" style="width:180px;height:22px;border-radius:8px;background:${previewLight};border:1px solid rgba(0,0,0,0.06);"></div>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                    <span style="font-size:12px;color:var(--tm-secondary-text);">预览(夜间):</span>
+                    <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.previewDark")}</span>
                     <div id="tmAppearancePreviewDark" style="width:180px;height:22px;border-radius:8px;background:${previewDark};border:1px solid rgba(0,0,0,0.06);"></div>
                 </div>
             </div>
             <div style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
-                    <div style="font-weight:600;">顶栏控件形态</div>
+                    <div style="font-weight:600;">${__tmT("settings.topBarControlStyle")}</div>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
                     ${metrics.map(renderMetric).join('')}
                 </div>
             </div>
             <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
-                <span style="font-size:12px;color:var(--tm-secondary-text);">分组内任务行背景使用分组色</span>
+                <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.useGroupColorsForTaskRowBackgroundsWithinGroups")}</span>
                 <input class="b3-switch fn__flex-center" type="checkbox" ${d.enableGroupTaskBgByGroupColor ? 'checked' : ''} onchange="tmToggleGroupTaskBgByGroupColor(this.checked)">
             </label>
             <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
                 <span style="display:flex;flex-direction:column;gap:4px;">
-                    <span style="font-size:13px;color:var(--tm-text-color);font-weight:600;">重要性图标样式</span>
-                    <span style="font-size:12px;color:var(--tm-secondary-text);">切换重要性图标样式，可选 Jira 样式或旗标样式。</span>
+                    <span style="font-size:13px;color:var(--tm-text-color);font-weight:600;">${__tmT("settings.priorityIconStyle")}</span>
+                    <span style="font-size:12px;color:var(--tm-secondary-text);">${__tmT("settings.switchThePriorityIconStyleJiraStyleOrFlag")}</span>
                 </span>
                 <select class="tm-rule-select" onchange="tmUpdatePriorityIconStyle(this.value)" style="min-width:180px;">
-                    <option value="jira" ${__tmNormalizePriorityIconStyle(d.priorityIconStyle) === 'jira' ? 'selected' : ''}>Jira 样式</option>
-                    <option value="flag" ${__tmNormalizePriorityIconStyle(d.priorityIconStyle) === 'flag' ? 'selected' : ''}>旗标样式</option>
+                    <option value="jira" ${__tmNormalizePriorityIconStyle(d.priorityIconStyle) === 'jira' ? 'selected' : ''}>${__tmT("settings.jiraStyle")}</option>
+                    <option value="flag" ${__tmNormalizePriorityIconStyle(d.priorityIconStyle) === 'flag' ? 'selected' : ''}>${__tmT("settings.flagStyle")}</option>
                 </select>
             </label>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
                 ${cards}
             </div>
-            <div style="margin-top:10px;font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">
-                上面的颜色按钮会作为当前主题的微调覆盖项；开启“跟随思源主题色”后，任务内容、分组名称、子任务进度、日历当天、日历/表格边框和待定分组行背景仍可单独覆盖，默认色使用插件固定默认色。按时间分组的分组名称会根据“距离今天的天数”自动变淡，已过期固定使用“已过期颜色”。
-            </div>
+            <div style="margin-top:10px;font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">${__tmT("settings.theColorButtonsAboveActAsTweakOverridesFor")}</div>
         `;
     }
 
     window.tmOpenAppearanceColorPicker = function(el) {
         const btn = el && el.nodeType === 1 ? el : null;
         const k = String(btn?.dataset?.tmColorKey || '').trim();
-        const label = String(btn?.dataset?.tmColorLabel || '选择颜色').trim() || '选择颜色';
+        const label = String(btn?.dataset?.tmColorLabel || __tmT("task.pickAColor")).trim() || __tmT("task.pickAColor");
         if (!k) return;
         if (__tmIsSiyuanThemeColorsEnabled() && !__tmCanOverrideAppearanceColorWhenFollowingSiyuan(k)) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            hint(__tmT("settings.colorsAreGeneratedFromTheCurrentThemeWhenFollowing"), 'info');
             return;
         }
         const themeDefaultsLight = __tmBuildThemeAppearanceDefaults(SettingsStore.data?.themeConfig, false);
@@ -549,7 +547,7 @@
         const k = String(key || '').trim();
         if (!allowed.has(k)) return;
         if (__tmIsSiyuanThemeColorsEnabled() && !__tmCanOverrideAppearanceColorWhenFollowingSiyuan(k)) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            hint(__tmT("settings.colorsAreGeneratedFromTheCurrentThemeWhenFollowing"), 'info');
             return;
         }
         const v = __tmNormalizeHexColor(value, '');
@@ -703,7 +701,7 @@
 
     window.tmSelectAppearanceTheme = async function(value) {
         if (__tmIsSiyuanThemeColorsEnabled()) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            hint(__tmT("settings.colorsAreGeneratedFromTheCurrentThemeWhenFollowing"), 'info');
             showSettings();
             return;
         }
@@ -726,7 +724,7 @@
 
     window.tmOpenThemeTokenPicker = function(tokenKey, mode) {
         if (__tmIsSiyuanThemeColorsEnabled()) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            hint(__tmT("settings.colorsAreGeneratedFromTheCurrentThemeWhenFollowing"), 'info');
             return;
         }
         const key = __tmNormalizeThemeTokenKey(tokenKey);
@@ -735,7 +733,7 @@
         const config = __tmNormalizeThemeConfig(SettingsStore.data?.themeConfig);
         const palette = __tmBuildThemePalette(config, resolvedMode === 'dark');
         const current = __tmNormalizeHexColor(palette[key], '#000000') || '#000000';
-        const label = `${key} ${resolvedMode === 'dark' ? '夜间' : '亮色'}`;
+        const label = `${key} ${resolvedMode === 'dark' ? __tmT("settings.dark") : __tmT("settings.light")}`;
         __tmOpenColorPickerDialog(label, current, (next) => {
             tmUpdateThemeTokenOverride(key, resolvedMode, next);
         }, { defaultColor: current });
@@ -743,7 +741,7 @@
 
     window.tmUpdateThemeTokenOverride = async function(tokenKey, mode, value) {
         if (__tmIsSiyuanThemeColorsEnabled()) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            hint(__tmT("settings.colorsAreGeneratedFromTheCurrentThemeWhenFollowing"), 'info');
             return;
         }
         const key = __tmNormalizeThemeTokenKey(tokenKey);
@@ -765,7 +763,7 @@
 
     window.tmClearThemeTokenOverride = async function(tokenKey, mode) {
         if (__tmIsSiyuanThemeColorsEnabled()) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            hint(__tmT("settings.colorsAreGeneratedFromTheCurrentThemeWhenFollowing"), 'info');
             return;
         }
         const key = __tmNormalizeThemeTokenKey(tokenKey);
@@ -786,7 +784,7 @@
 
     window.tmResetThemeOverrides = async function() {
         if (__tmIsSiyuanThemeColorsEnabled()) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            hint(__tmT("settings.colorsAreGeneratedFromTheCurrentThemeWhenFollowing"), 'info');
             showSettings();
             return;
         }
@@ -803,7 +801,7 @@
 
     window.tmClearImportedTheme = async function() {
         if (__tmIsSiyuanThemeColorsEnabled()) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            hint(__tmT("settings.colorsAreGeneratedFromTheCurrentThemeWhenFollowing"), 'info');
             showSettings();
             return;
         }
@@ -1043,9 +1041,9 @@
     function __tmBuildTickTickImportModel(csvText, options = {}) {
         const importOptions = __tmNormalizeTickTickImportOptions(options);
         const rows = __tmParseCsvRows(csvText);
-        if (!rows.length) throw new Error('CSV 文件为空');
+        if (!rows.length) throw new Error(__tmT("settings.theCsvFileIsEmpty"));
         const headerRowIndex = __tmFindTickTickHeaderRowIndex(rows);
-        if (headerRowIndex < 0) throw new Error('未识别到滴答清单表头，请确认导出的是原始 CSV');
+        if (headerRowIndex < 0) throw new Error(__tmT("settings.couldNotRecognizeTheTicktickCsvHeaderMakeSure"));
         const getCell = __tmBuildTickTickCsvCellGetter(rows[headerRowIndex]);
         const entries = [];
         let skippedCompleted = 0;
@@ -1109,7 +1107,7 @@
                 parentSourceId,
                 order: entries.length,
                 folderName: getCell(row, ['Folder Name', 'FolderName']),
-                docName: getCell(row, ['List Name', 'ListName']) || '未命名清单',
+                docName: getCell(row, ['List Name', 'ListName']) || __tmT("settings.untitledList"),
                 headingName: getCell(row, ['Column Name', 'ColumnName']),
                 title,
                 done: isDone,
@@ -1180,7 +1178,7 @@
                 tags: Array.isArray(entry.tags) ? entry.tags.slice() : [],
                 children: inlineChildren.concat(explicitChildren),
                 headingName: String(entry.headingName || '').trim(),
-                docName: String(entry.docName || '').trim() || '未命名清单',
+                docName: String(entry.docName || '').trim() || __tmT("settings.untitledList"),
                 folderName: String(entry.folderName || '').trim(),
             };
         };
@@ -1191,7 +1189,7 @@
             .forEach((entry) => {
                 const task = buildImportTask(entry);
                 if (!task || !task.title) return;
-                const docName = task.docName || '未命名清单';
+                const docName = task.docName || __tmT("settings.untitledList");
                 let doc = docMap.get(docName);
                 if (!doc) {
                     doc = {
@@ -1266,19 +1264,19 @@
 
     function __tmRenderTickTickImportSummary(model, options = {}) {
         const data = (model && typeof model === 'object') ? model : null;
-        if (!data?.summary) return '尚未选择 CSV 文件。';
+        if (!data?.summary) return __tmT("settings.noCsvFileSelectedYet");
         const opts = (options && typeof options === 'object') ? options : {};
         const summary = data.summary;
         const extra = [];
-        extra.push(`识别到 ${Number(summary.docs) || 0} 个文档、${Number(summary.headings) || 0} 个二级标题、${Number(summary.tasks) || 0} 条任务`);
-        extra.push(`待办 ${Number(summary.pendingTasks) || 0} 条，已完成 ${Number(summary.completedTasks) || 0} 条，已归档 ${Number(summary.archivedTasks) || 0} 条`);
-        if (Number(summary.subtasks) > 0) extra.push(`其中子任务 ${Number(summary.subtasks)} 条`);
-        extra.push(`已跳过已完成 ${Number(summary.skippedCompleted) || 0} 条、已归档 ${Number(summary.skippedArchived) || 0} 条`);
-        if (Number(summary.skippedOtherStatus) > 0) extra.push(`其他状态 ${Number(summary.skippedOtherStatus) || 0} 条`);
-        if (Number(summary.skippedBlankTitle) > 0) extra.push(`空标题 ${Number(summary.skippedBlankTitle)} 条`);
-        if (Number(summary.orphanSubtasks) > 0) extra.push(`找不到父任务的子任务 ${Number(summary.orphanSubtasks)} 条，已按根任务导入`);
-        if (Number(summary.tagCount) > 0) extra.push(`标签 ${Number(summary.tagCount) || 0} 个，将新建“标签”多选列`);
-        if (opts.fileName) extra.unshift(`文件：${String(opts.fileName || '').trim()}`);
+        extra.push(__tmT("settings.detectedDocumentsHeadingsTasks", { value1: Number(summary.docs) || 0, value2: Number(summary.headings) || 0, value3: Number(summary.tasks) || 0 }));
+        extra.push(__tmT("settings.toDoCompletedArchived", { value1: Number(summary.pendingTasks) || 0, value2: Number(summary.completedTasks) || 0, value3: Number(summary.archivedTasks) || 0 }));
+        if (Number(summary.subtasks) > 0) extra.push(__tmT("settings.includingSubtasks", { subtasks: Number(summary.subtasks) }));
+        extra.push(__tmT("settings.skippedCompletedArchived", { value1: Number(summary.skippedCompleted) || 0, value2: Number(summary.skippedArchived) || 0 }));
+        if (Number(summary.skippedOtherStatus) > 0) extra.push(__tmT("settings.otherStatuses", { value1: Number(summary.skippedOtherStatus) || 0 }));
+        if (Number(summary.skippedBlankTitle) > 0) extra.push(__tmT("settings.blankTitles", { skippedBlankTitle: Number(summary.skippedBlankTitle) }));
+        if (Number(summary.orphanSubtasks) > 0) extra.push(__tmT("settings.subtasksWithoutAParentImportedAsRootTasks", { orphanSubtasks: Number(summary.orphanSubtasks) }));
+        if (Number(summary.tagCount) > 0) extra.push(__tmT("settings.tagsATagsMultiSelectColumnWillBeCreated", { value1: Number(summary.tagCount) || 0 }));
+        if (opts.fileName) extra.unshift(__tmT("settings.file", { value1: String(opts.fileName || '').trim() }));
         return extra.join('；');
     }
 
@@ -1335,7 +1333,7 @@
 
     function __tmTickTickSanitizeDocName(name) {
         const trimmed = String(name || '').trim().replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
-        return trimmed || '未命名清单';
+        return trimmed || __tmT("settings.untitledList");
     }
 
     function __tmExtractCreatedDocId(data) {
@@ -1352,11 +1350,11 @@
 
     async function __tmCreateTickTickImportDoc(notebookId, docName) {
         const box = String(notebookId || '').trim();
-        if (!box) throw new Error('未选择目标笔记本');
+        if (!box) throw new Error(__tmT("settings.noTargetNotebookSelected"));
         const baseName = __tmTickTickSanitizeDocName(docName);
         let lastErr = null;
         for (let i = 0; i < 50; i += 1) {
-            const nextName = i === 0 ? baseName : `${baseName}（导入${i + 1}）`;
+            const nextName = i === 0 ? baseName : __tmT("settings.import", { baseName: baseName, value2: i + 1 });
             const path = `/${nextName}.sy`;
             try {
                 const created = await API.createDocWithMd(box, path, '');
@@ -1368,7 +1366,7 @@
                         .sort((a, b) => String(b?.created || '').localeCompare(String(a?.created || '')))[0];
                     docId = String(hit?.id || '').trim();
                 }
-                if (!docId) throw new Error('文档已创建，但未拿到文档 ID');
+                if (!docId) throw new Error(__tmT("settings.theDocumentWasCreatedButNoDocumentIdWas"));
                 await __tmWaitForTickTickImportDocReady(docId);
                 return { id: docId, name: nextName };
             } catch (e) {
@@ -1381,7 +1379,7 @@
                 throw e;
             }
         }
-        throw lastErr || new Error('创建导入文档失败');
+        throw lastErr || new Error(__tmT("settings.failedToCreateTheImportDocument"));
     }
 
     async function __tmFlushTickTickImportTransaction() {
@@ -1395,7 +1393,7 @@
     async function __tmWaitForTickTickImportDocReady(docId, options = {}) {
         const did = String(docId || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
-        if (!did) throw new Error('文档 ID 无效');
+        if (!did) throw new Error(__tmT("settings.invalidDocumentId"));
         const retryDelays = Array.isArray(opts.retryDelays) && opts.retryDelays.length
             ? opts.retryDelays
             : [80, 160, 260, 420, 680, 1000];
@@ -1408,7 +1406,7 @@
                     try { await API.getBlockKramdown(did); } catch (e) {}
                     return did;
                 }
-                lastErr = new Error('文档尚未就绪');
+                lastErr = new Error(__tmT("settings.theDocumentIsNotReadyYet"));
             } catch (e) {
                 lastErr = e;
             }
@@ -1417,13 +1415,13 @@
                 await new Promise((resolve) => setTimeout(resolve, retryDelays[i]));
             }
         }
-        throw lastErr || new Error('文档尚未就绪');
+        throw lastErr || new Error(__tmT("settings.theDocumentIsNotReadyYet"));
     }
 
     async function __tmEnsureTickTickImportTaskId(taskId, options = {}) {
         let currentId = String(taskId || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
-        if (!currentId) throw new Error('任务 ID 无效');
+        if (!currentId) throw new Error(__tmT("settings.invalidTaskId"));
         const retryDelays = Array.isArray(opts.retryDelays) && opts.retryDelays.length
             ? opts.retryDelays
             : [80, 160, 280, 420, 640, 900];
@@ -1450,7 +1448,7 @@
                         && String(resolvedRow?.subtype || '').trim() === 't';
                     if (resolvedIsTask) return resolvedId;
                 }
-                lastErr = new Error('新建任务块尚未就绪');
+                lastErr = new Error(__tmT("settings.theNewTaskBlockIsNotReadyYet"));
             } catch (e) {
                 lastErr = e;
             }
@@ -1478,7 +1476,7 @@
                 const isHeading = String(row?.id || '').trim() === currentId
                     && String(row?.type || '').trim() === 'h';
                 if (isHeading) return currentId;
-                lastErr = new Error('标题块尚未就绪');
+                lastErr = new Error(__tmT("settings.theHeadingBlockIsNotReadyYet"));
             } catch (e) {
                 lastErr = e;
             }
@@ -1528,8 +1526,8 @@
         const targetParentId = String(parentId || '').trim();
         const text = __tmTickTickNormalizeTaskTitle(title || '');
         const opts = (options && typeof options === 'object') ? options : {};
-        if (!targetParentId) throw new Error('未找到导入目标');
-        if (!text) throw new Error('任务内容为空');
+        if (!targetParentId) throw new Error(__tmT("settings.importTargetNotFound"));
+        if (!text) throw new Error(__tmT("settings.taskContentIsEmpty"));
         const md = `- [${opts.done === true ? 'x' : ' '}] ${text}`;
         let insertedId = '';
         const previousID = String(opts.previousID || '').trim();
@@ -1555,7 +1553,7 @@
         let cancelled = false;
         try { cancelled = !!shouldCancel(); } catch (e) { cancelled = false; }
         if (cancelled) {
-            const err = new Error('导入已取消');
+            const err = new Error(__tmT("settings.importCancelled"));
             err.__tmCancelled = true;
             throw err;
         }
@@ -1567,12 +1565,12 @@
         const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
         const title = __tmTickTickNormalizeTaskTitle(task?.title || '');
         __tmThrowIfTickTickImportCancelled(opts);
-        if (!targetParentId) throw new Error('未找到导入目标');
+        if (!targetParentId) throw new Error(__tmT("settings.importTargetNotFound"));
         if (!title) return '';
         if (onProgress) {
             try {
                 onProgress({
-                    current: depth > 0 ? `正在导入子任务：${title}` : `正在导入任务：${title}`,
+                    current: depth > 0 ? __tmT("settings.importingSubtask", { title: title }) : __tmT("settings.importingTask", { title: title }),
                     currentTaskTitle: title,
                     currentDepth: depth,
                 });
@@ -1625,7 +1623,7 @@
             try {
                 onProgress({
                     completedTasks: Number(summary?.tasks) || 0,
-                    current: depth > 0 ? `已导入子任务：${title}` : `已导入任务：${title}`,
+                    current: depth > 0 ? __tmT("settings.importedSubtask", { title: title }) : __tmT("settings.importedTask", { title: title }),
                     currentTaskTitle: title,
                     currentDepth: depth,
                 });
@@ -1702,14 +1700,14 @@
         });
         const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
         const shouldCancel = typeof opts.shouldCancel === 'function' ? opts.shouldCancel : null;
-        if (!docs.length) throw new Error('没有可导入的任务');
+        if (!docs.length) throw new Error(__tmT("settings.noTasksToImport"));
         await __tmEnsureSettingsLoaded();
         await MetaStore.load();
         __tmThrowIfTickTickImportCancelled({ shouldCancel });
         let tagsField = null;
         if (Array.isArray(model?.tagNames) && model.tagNames.length > 0) {
             if (onProgress) {
-                try { onProgress({ current: '正在创建“标签”多选列...' }); } catch (e) {}
+                try { onProgress({ current: __tmT("settings.creatingTheTagsMultiSelectColumn") }); } catch (e) {}
             }
             tagsField = await __tmCreateTickTickTagsCustomField(model.tagNames);
         }
@@ -1725,7 +1723,7 @@
             completedUnits: 0,
             totalUnits: 0,
             percent: 0,
-            current: `准备导入 ${Math.max(0, docs.length)} 个文档...`,
+            current: __tmT("settings.preparingToImportDocuments", { value1: Math.max(0, docs.length) }),
             currentDocName: '',
             currentHeadingName: '',
             currentTaskTitle: '',
@@ -1757,9 +1755,9 @@
         emitProgress();
         const processDoc = async (doc) => {
             __tmThrowIfTickTickImportCancelled({ shouldCancel });
-            const currentDocName = String(doc?.name || '').trim() || '未命名清单';
+            const currentDocName = String(doc?.name || '').trim() || __tmT("settings.untitledList");
             emitProgress({
-                current: `正在创建文档：${currentDocName}`,
+                current: __tmT("settings.creatingDocument", { currentDocName: currentDocName }),
                 currentDocName,
                 currentHeadingName: '',
                 currentTaskTitle: '',
@@ -1767,12 +1765,12 @@
             });
             const createdDoc = await __tmCreateTickTickImportDoc(notebookId, doc?.name);
             const docId = String(createdDoc?.id || '').trim();
-            if (!docId) throw new Error(`文档「${String(doc?.name || '')}」创建失败`);
+            if (!docId) throw new Error(__tmT("settings.failedToCreateDocument", { value1: String(doc?.name || '') }));
             createdDocIds.push(docId);
             summary.docs += 1;
             emitProgress({
                 completedDocs: Number(summary.docs) || 0,
-                current: `已创建文档：${currentDocName}`,
+                current: __tmT("settings.createdDocument", { currentDocName: currentDocName }),
                 currentDocName,
             });
             const rootTasks = Array.isArray(doc?.rootTasks) ? doc.rootTasks : [];
@@ -1791,7 +1789,7 @@
                 const headingName = String(section?.name || '').trim();
                 if (!headingName) continue;
                 emitProgress({
-                    current: `正在创建标题：${headingName}`,
+                    current: __tmT("settings.creatingHeading", { headingName: headingName }),
                     currentDocName,
                     currentHeadingName: headingName,
                     currentTaskTitle: '',
@@ -1801,7 +1799,7 @@
                 summary.headings += 1;
                 emitProgress({
                     completedHeadings: Number(summary.headings) || 0,
-                    current: `已创建标题：${headingName}`,
+                    current: __tmT("settings.createdHeading", { headingName: headingName }),
                     currentDocName,
                     currentHeadingName: headingName,
                 });
@@ -1854,7 +1852,7 @@
             completedDocs: Number(summary.docs) || 0,
             completedHeadings: Number(summary.headings) || 0,
             completedTasks: Number(summary.tasks) || 0,
-            current: '导入完成',
+            current: __tmT("settings.importComplete"),
             percent: 100,
         });
         return { createdDocIds, summary, groupAttach };
@@ -1864,7 +1862,7 @@
         await SettingsStore.load();
         await __tmRefreshNotebookCache();
         if (!Array.isArray(state.notebooks) || state.notebooks.length === 0) {
-            hint('❌ 未找到可用笔记本', 'error');
+            hint(__tmT("settings.noUsableNotebookFound"), 'error');
             return;
         }
         const existing = document.getElementById('tm-ticktick-import-modal');
@@ -1880,23 +1878,23 @@
 
         const title = document.createElement('div');
         title.className = 'tm-prompt-title';
-        title.textContent = '导入滴答清单 CSV';
+        title.textContent = __tmT("settings.importTicktickCsv2");
         box.appendChild(title);
 
         const desc = document.createElement('div');
         desc.style.cssText = 'padding: 2px 0 10px; color: var(--tm-secondary-text); font-size: 13px; line-height: 1.7;';
-        desc.textContent = '按 List Name 创建文档，按 Column Name 创建二级标题，Title 创建任务，Start Date / Due Date 写入开始日期和截止日期，Priority 映射重要性；Tags 会新建“标签”多选列；可选择是否导入 Status=1 的已完成任务和 Status=2 的归档任务，并按文档并行写入。';
+        desc.textContent = __tmT("settings.listNameCreatesDocumentsColumnNameCreatesHeadingsTitle");
         box.appendChild(desc);
 
         const notebookRow = document.createElement('label');
         notebookRow.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding: 2px 0 10px;';
-        notebookRow.innerHTML = '<span style="font-size:13px;color:var(--tm-text-color);font-weight:600;">目标笔记本</span>';
+        notebookRow.innerHTML = `<span style="font-size:13px;color:var(--tm-text-color);font-weight:600;">${__tmT("settings.targetNotebook")}</span>`;
         const notebookSelect = document.createElement('select');
         notebookSelect.className = 'tm-prompt-input tm-prompt-select';
         notebookSelect.style.width = '100%';
         notebookSelect.innerHTML = (Array.isArray(state.notebooks) ? state.notebooks : []).map((item, idx) => {
             const notebookId = String(item?.id || item?.box || '').trim();
-            const notebookName = __tmGetNotebookDisplayName(notebookId, item?.name || item?.title || `笔记本 ${idx + 1}`);
+            const notebookName = __tmGetNotebookDisplayName(notebookId, item?.name || item?.title || __tmT("settings.notebook2", { value1: idx + 1 }));
             return `<option value="${esc(notebookId)}">${esc(notebookName)}</option>`;
         }).join('');
         notebookRow.appendChild(notebookSelect);
@@ -1907,11 +1905,11 @@
         optionRow.innerHTML = `
             <label style="display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--tm-text-color); cursor:pointer;">
                 <input type="checkbox" class="b3-switch fn__flex-center" data-tm-ticktick-import-option="completed">
-                <span>导入已完成任务</span>
+                <span>${__tmT("settings.importCompletedTasks")}</span>
             </label>
             <label style="display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--tm-text-color); cursor:pointer;">
                 <input type="checkbox" class="b3-switch fn__flex-center" data-tm-ticktick-import-option="archived">
-                <span>导入已归档任务</span>
+                <span>${__tmT("settings.importArchivedTasks")}</span>
             </label>
         `;
         box.appendChild(optionRow);
@@ -1920,7 +1918,7 @@
 
         const helper = document.createElement('div');
         helper.style.cssText = 'padding: 10px 12px; border: 1px solid var(--tm-border-color); border-radius: 10px; background: color-mix(in srgb, var(--tm-card-bg, var(--tm-bg-color)) 92%, var(--tm-primary-color) 8%); color: var(--tm-secondary-text); font-size: 12px; line-height: 1.7; white-space: pre-wrap;';
-        helper.textContent = '尚未选择 CSV 文件。';
+        helper.textContent = __tmT("settings.noCsvFileSelectedYet");
         box.appendChild(helper);
 
         const progressWrap = document.createElement('div');
@@ -1931,7 +1929,7 @@
 
         const progressTitle = document.createElement('div');
         progressTitle.style.cssText = 'font-weight:600;';
-        progressTitle.textContent = '导入进度';
+        progressTitle.textContent = __tmT("settings.importProgress");
         progressHead.appendChild(progressTitle);
 
         const progressPercent = document.createElement('div');
@@ -1950,7 +1948,7 @@
 
         const progressMeta = document.createElement('div');
         progressMeta.style.cssText = 'margin-top:10px; font-size:12px; line-height:1.6; color:var(--tm-secondary-text); white-space:pre-wrap;';
-        progressMeta.textContent = '等待开始导入';
+        progressMeta.textContent = __tmT("settings.waitingToStartTheImport");
         progressWrap.appendChild(progressMeta);
         box.appendChild(progressWrap);
 
@@ -1960,15 +1958,15 @@
 
         const pickBtn = document.createElement('button');
         pickBtn.className = 'tm-prompt-btn tm-prompt-btn-secondary';
-        pickBtn.textContent = '选择 CSV';
+        pickBtn.textContent = __tmT("settings.chooseCsv");
 
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'tm-prompt-btn tm-prompt-btn-secondary';
-        cancelBtn.textContent = '取消';
+        cancelBtn.textContent = __tmT("common.cancel");
 
         const okBtn = document.createElement('button');
         okBtn.className = 'tm-prompt-btn tm-prompt-btn-primary';
-        okBtn.textContent = '开始导入';
+        okBtn.textContent = __tmT("settings.startImport");
         okBtn.disabled = true;
         okBtn.style.opacity = '0.6';
 
@@ -2014,7 +2012,7 @@
             if (!info || typeof info !== 'object') {
                 progressPercent.textContent = '0%';
                 progressFill.style.width = '0%';
-                progressMeta.textContent = '等待开始导入';
+                progressMeta.textContent = __tmT("settings.waitingToStartTheImport");
                 return;
             }
             const percent = Math.max(0, Math.min(100, Math.round(Number(info.percent) || 0)));
@@ -2029,11 +2027,11 @@
             progressPercent.textContent = `${percent}%`;
             progressFill.style.width = `${percent}%`;
             const metaLines = [
-                `总进度：${completedUnits}/${totalUnits}`,
-                `文档 ${completedDocs}/${totalDocs} · 标题 ${completedHeadings}/${totalHeadings} · 任务 ${completedTasks}/${totalTasks}`,
+                __tmT("settings.overallProgress", { completedUnits: completedUnits, totalUnits: totalUnits }),
+                __tmT("settings.documentsHeadingsTasks", { completedDocs: completedDocs, totalDocs: totalDocs, completedHeadings: completedHeadings, totalHeadings: totalHeadings, completedTasks: completedTasks, totalTasks: totalTasks }),
             ];
             const current = String(info.current || '').trim();
-            if (current) metaLines.push(`当前：${current}`);
+            if (current) metaLines.push(__tmT("settings.current", { current: current }));
             progressMeta.textContent = metaLines.join('\n');
         };
 
@@ -2051,7 +2049,7 @@
         const rebuildImportModel = () => {
             if (!fileText) {
                 importModel = null;
-                refreshHelper('尚未选择 CSV 文件。');
+                refreshHelper(__tmT("settings.noCsvFileSelectedYet"));
                 setProgressVisible(false);
                 refreshProgress(null);
                 refreshSubmitState();
@@ -2064,7 +2062,7 @@
                 refreshProgress(null);
             } catch (e) {
                 importModel = null;
-                refreshHelper(String(e?.message || e || 'CSV 解析失败'), true);
+                refreshHelper(String(e?.message || e || __tmT("settings.csvParsingFailed")), true);
                 setProgressVisible(false);
                 refreshProgress(null);
             }
@@ -2076,8 +2074,8 @@
             if (importInFlight) {
                 cancelRequested = true;
                 cancelBtn.disabled = true;
-                cancelBtn.textContent = '正在停止...';
-                refreshHelper(`正在停止导入 ${fileName || 'CSV'}，请稍候...`);
+                cancelBtn.textContent = __tmT("settings.stopping");
+                refreshHelper(__tmT("settings.stoppingTheImportOfPleaseWait", { value1: fileName || 'CSV' }));
                 return;
             }
             removeFromStack();
@@ -2088,17 +2086,17 @@
             if (!importModel) return;
             const notebookId = String(notebookSelect.value || '').trim();
             if (!notebookId) {
-                refreshHelper('请先选择目标笔记本。', true);
+                refreshHelper(__tmT("settings.chooseATargetNotebookFirst"), true);
                 return;
             }
             importInFlight = true;
             cancelRequested = false;
             pickBtn.disabled = true;
             cancelBtn.disabled = false;
-            cancelBtn.textContent = '取消导入';
+            cancelBtn.textContent = __tmT("settings.cancelImport");
             okBtn.disabled = true;
             okBtn.style.opacity = '0.6';
-            refreshHelper(`正在导入 ${fileName || 'CSV'}，可能需要几分钟，请稍候...`);
+            refreshHelper(__tmT("settings.importingThisMayTakeAFewMinutes", { value1: fileName || 'CSV' }));
             setProgressVisible(true);
             refreshProgress({
                 percent: 0,
@@ -2110,7 +2108,7 @@
                 completedDocs: 0,
                 completedHeadings: 0,
                 completedTasks: 0,
-                current: `正在导入 ${fileName || 'CSV'}...`,
+                current: __tmT("settings.importing", { value1: fileName || 'CSV' }),
             });
             try {
                 const result = await __tmImportTickTickModel(importModel, notebookId, {
@@ -2125,11 +2123,11 @@
                 try { modal.remove(); } catch (e) {}
                 const attach = result?.groupAttach;
                 const attachText = attach?.created
-                    ? '，并已新建并切换到导入笔记本分组'
+                    ? __tmT("settings.andANewNotebookGroupWasCreatedAndSwitched")
                     : (attach?.reason === 'existing-notebook-group'
-                        ? '，并已切换到导入笔记本分组'
-                        : (attach?.attached ? '，并已将导入笔记本绑定到当前分组' : ''));
-                hint(`✅ 滴答 CSV 导入完成：新建 ${Number(result?.summary?.docs) || 0} 个文档，导入 ${Number(result?.summary?.tasks) || 0} 条任务${attachText}`, 'success');
+                        ? __tmT("settings.andSwitchedToTheImportNotebookGroup")
+                        : (attach?.attached ? __tmT("settings.andTheImportNotebookWasBoundToTheCurrent") : ''));
+                hint(__tmT("settings.ticktickCsvImportCompleteNewDocumentsTasksImported", { value1: Number(result?.summary?.docs) || 0, value2: Number(result?.summary?.tasks) || 0, attachText: attachText }), 'success');
                 if (state.settingsModal && document.body.contains(state.settingsModal)) {
                     try { showSettings(); } catch (e) {}
                 }
@@ -2137,13 +2135,13 @@
                 importInFlight = false;
                 pickBtn.disabled = false;
                 cancelBtn.disabled = false;
-                cancelBtn.textContent = '取消';
+                cancelBtn.textContent = __tmT("common.cancel");
                 const cancelled = !!(e && (e.__tmCancelled === true || String(e?.message || '').trim() === '导入已取消'));
                 if (cancelled) {
-                    refreshHelper('导入已取消。');
-                    try { hint('ℹ 滴答 CSV 导入已取消', 'info'); } catch (e2) {}
+                    refreshHelper(__tmT("settings.importCancelled2"));
+                    try { hint(__tmT("settings.ticktickCsvImportCancelled"), 'info'); } catch (e2) {}
                 } else {
-                    refreshHelper(String(e?.message || e || '导入失败'), true);
+                    refreshHelper(String(e?.message || e || __tmT("settings.importFailed")), true);
                 }
                 setProgressVisible(true);
                 refreshSubmitState();
@@ -2162,7 +2160,7 @@
             reader.onerror = () => {
                 fileText = '';
                 importModel = null;
-                refreshHelper('读取文件失败，请重试。', true);
+                refreshHelper(__tmT("settings.failedToReadTheFileTryAgain"), true);
                 setProgressVisible(false);
                 refreshProgress(null);
                 refreshSubmitState();
@@ -2190,7 +2188,7 @@
 
     window.tmOpenThemeImportDialog = function() {
         if (__tmIsSiyuanThemeColorsEnabled()) {
-            hint('跟随思源主题色时由当前主题自动生成颜色', 'info');
+            hint(__tmT("settings.colorsAreGeneratedFromTheCurrentThemeWhenFollowing"), 'info');
             return;
         }
         __tmRemoveElementsById('tm-theme-import-backdrop');
@@ -2209,21 +2207,21 @@
 
         const title = document.createElement('div');
         title.className = 'tm-theme-import-title';
-        title.textContent = '导入 TweakCN / shadcn 主题';
+        title.textContent = __tmT("settings.importTweakcnShadcnTheme");
         content.appendChild(title);
 
         const desc = document.createElement('div');
         desc.className = 'tm-theme-import-desc';
-        desc.innerHTML = `粘贴 TweakCN 导出的 :root / .dark CSS 变量，或导入 .css 文件。系统会读取 shadcn 语义色并同步到插件与 Basecoat 控件。<br>在 TweakCN 编辑好主题后，点击右上角的 Code，再选择 RGB，复制主题代码粘贴到这里即可导入。<a href="${__TM_TWEAKCN_URL}" target="_blank" rel="noopener noreferrer" style="margin-left:6px;color:var(--tm-primary-color);text-decoration:none;">打开 TweakCN ↗</a>`;
+        desc.innerHTML = `${__tmT("settings.pasteTheRootDarkCssVariablesExportedByTweakcn")}<br>${__tmT("settings.afterEditingAThemeInTweakcnClickCodeIn")}<a href="${__TM_TWEAKCN_URL}" target="_blank" rel="noopener noreferrer" style="margin-left:6px;color:var(--tm-primary-color);text-decoration:none;">${__tmT("settings.openTweakcn")}</a>`;
         content.appendChild(desc);
 
         const nameRow = document.createElement('label');
         nameRow.className = 'tm-theme-import-name';
-        nameRow.innerHTML = '<span class="tm-theme-import-name-label">主题名称</span>';
+        nameRow.innerHTML = `<span class="tm-theme-import-name-label">${__tmT("settings.themeName")}</span>`;
         const nameInput = document.createElement('input');
         nameInput.type = 'text';
         nameInput.value = String(currentConfig.importName || '').trim();
-        nameInput.placeholder = '例如：TweakCN Slate';
+        nameInput.placeholder = __tmT("settings.eGTweakcnSlate");
         nameInput.className = 'tm-theme-import-name-input';
         nameRow.appendChild(nameInput);
         content.appendChild(nameRow);
@@ -2236,7 +2234,7 @@
 
         const helper = document.createElement('div');
         helper.className = 'tm-theme-import-helper';
-        helper.textContent = hasImportedTokens(currentConfig) ? `当前已导入：${currentConfig.importName || 'Custom theme'}` : '支持直接粘贴 TweakCN 主题 CSS。';
+        helper.textContent = hasImportedTokens(currentConfig) ? __tmT("settings.currentlyImported", { value1: currentConfig.importName || 'Custom theme' }) : __tmT("settings.youCanPasteTweakcnThemeCssDirectly");
         content.appendChild(helper);
 
         const actions = document.createElement('div');
@@ -2245,17 +2243,17 @@
         const fileBtn = document.createElement('button');
         fileBtn.type = 'button';
         fileBtn.className = 'tm-btn tm-btn-gray';
-        fileBtn.textContent = '导入文件';
+        fileBtn.textContent = __tmT("settings.importFile");
 
         const cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
         cancelBtn.className = 'tm-btn tm-btn-gray';
-        cancelBtn.textContent = '取消';
+        cancelBtn.textContent = __tmT("common.cancel");
 
         const okBtn = document.createElement('button');
         okBtn.type = 'button';
         okBtn.className = 'tm-btn tm-btn-primary';
-        okBtn.textContent = '应用主题';
+        okBtn.textContent = __tmT("settings.applyTheme");
 
         const close = () => {
             try { backdrop.remove(); } catch (e) {}
@@ -2264,7 +2262,7 @@
         const applyTheme = async () => {
             const parsed = __tmParseThemeCssVariables(textarea.value);
             if (!parsed || !Object.keys(parsed.light || {}).length) {
-                helper.textContent = '未解析到可用的主题变量，请确认内容里包含 :root / .dark 的 shadcn 语义 token。';
+                helper.textContent = __tmT("settings.noUsableThemeVariablesWereParsedMakeSureThe");
                 helper.style.color = 'var(--tm-danger-color)';
                 try { textarea.style.borderColor = 'var(--tm-danger-color)'; } catch (e) {}
                 return;
@@ -2298,7 +2296,7 @@
                 if (!nameInput.value.trim()) {
                     nameInput.value = String(file.name || '').replace(/\.[^.]+$/, '').trim();
                 }
-                helper.textContent = `已载入文件：${file.name}`;
+                helper.textContent = __tmT("settings.loadedFile", { name: file.name });
                 helper.style.color = 'var(--tm-secondary-text)';
                 try { textarea.style.borderColor = 'var(--tm-input-border)'; } catch (e) {}
             };
@@ -2309,7 +2307,7 @@
         cancelBtn.onclick = close;
         okBtn.onclick = () => {
             applyTheme().catch((e) => {
-                helper.textContent = String(e?.message || e || '导入失败');
+                helper.textContent = String(e?.message || e || __tmT("settings.importFailed"));
                 helper.style.color = 'var(--tm-danger-color)';
             });
         };

@@ -72,7 +72,7 @@ runtime = runtime.slice(0, startup) + `
             {id:'empty',name:'空白清单',icon:{type:'phosphor',name:'file-text'},groupId:'empty',tabGroupId:'',docId:docC,viewId:'checklist',ruleId:''}
         ]);}
     };
-    globalThis.__taskHorizonHostBridge={openEmoji:options=>{window.shortcutTest.emojiOptions=options;}};
+    globalThis.__taskHorizonHostBridge={ i18n: globalThis.__taskHorizonHostBridge?.i18n,openEmoji:options=>{window.shortcutTest.emojiOptions=options;}};
     window.tmLicenseHasFeature=()=>true;
     const host=document.getElementById('host');__tmSetMount(host);
     __tmApplyAppearanceThemeVars();load();applyFilters();render();

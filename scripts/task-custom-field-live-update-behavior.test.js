@@ -1,9 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const fs = require('./i18n-source-fixture');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./i18n-vm-fixture');
 const { test } = require('node:test');
 const { DatabaseSync } = require('node:sqlite');
 
@@ -196,6 +196,7 @@ test(`${scope} all-tabs ${viewMode} repairs cached fields without row clicks`, a
             __tmShouldDeferMainViewRefreshForActiveScroll: () => false,
             __tmRerenderCurrentViewInPlace: () => { repaints += 1; return true; },
         });
+        h.context.__tmClearChecklistDetailOutsideCurrentDocumentScope = () => {};
         h.context.state.viewMode = viewMode;
         h.context.state.activeDocId = h.docs[0].id;
         h.context.state.__tmCacheFirstPaintNeedsVerify = false;

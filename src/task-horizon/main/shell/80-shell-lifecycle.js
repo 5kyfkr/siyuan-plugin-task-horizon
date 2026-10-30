@@ -812,7 +812,7 @@ if (shouldMarkDirty) {
         // 检查是否至少有一个分组包含文档
         const hasDocs = await checkAnyGroupHasDocs();
         if (!hasDocs) {
-            hint('⚠ 请先在设置中添加要显示的文档', 'warning');
+            hint(__tmT("task.addDocumentsToDisplayInTheSettingsFirst"), 'warning');
             const activeModal = globalThis.__tmRuntimeState?.getModal?.() || state.modal;
             if (activeModal && (globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) showSettings();
             settleOpenGate(false);
@@ -932,7 +932,7 @@ if (shouldMarkDirty) {
             }).catch((e) => {
                 settleOpenGate(false);
                 if (awaitInitialLoad) {
-                    try { hint(`❌ 加载失败: ${e?.message || e}`, 'error'); } catch (e2) {}
+                    try { hint(__tmT("task.failedToLoad", { value1: e?.message || e }), 'error'); } catch (e2) {}
                     return false;
                 }
                 return null;
@@ -1002,7 +1002,7 @@ if (shouldMarkDirty) {
             if (forceFreshOpenLoad) {
                 try { state.__tmPendingCustomFieldFreshOpenAt = Date.now(); } catch (e2) {}
             }
-            hint(`❌ 加载失败: ${e.message}`, 'error');
+            hint(__tmT("task.failedToLoad2", { message: e.message }), 'error');
             settleOpenGate(false);
             return false;
         });
@@ -2081,7 +2081,7 @@ if (shouldMarkDirty) {
         }
         openManager({ skipEnsureTabOpened: true, preserveViewMode: true }).catch((e) => {
             try { console.error('[task-horizon] openManager failed:', e); } catch (e2) {}
-            try { hint(`❌ 加载失败: ${e?.message || String(e)}`, 'error'); } catch (e3) {}
+            try { hint(__tmT("task.failedToLoad", { value1: e?.message || String(e) }), 'error'); } catch (e3) {}
             try {
                 try { if (__tmMountRetryTimer) { clearTimeout(__tmMountRetryTimer); __tmMountRetryTimer = null; } } catch (e4) {}
                 __tmMountRetryTimer = setTimeout(() => {
