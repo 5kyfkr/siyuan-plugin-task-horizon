@@ -22,7 +22,8 @@ runtime = runtime.slice(0, end) + `
         queue: __tmQueueSettingsSave, run: __tmRunSettingsSave, jobs: __tmSettingsSaveJobs,
         pageFor: __tmSettingsV2PageFor, policy: __tmAgentPolicyView,
         flush: __tmFlushSettingsAutosave, failures: __tmSettingsSaveErrors, applyTheme: __tmApplyAppearanceThemeVars,
-        persistPolicy: __tmPersistPolicySetting, policySnapshot: () => __tmSettingsDomainSnapshot('policy'), ruleOptions: __tmBuildRuleMenuOptions };
+        persistPolicy: __tmPersistPolicySetting, policySnapshot: () => __tmSettingsDomainSnapshot('policy'), ruleOptions: __tmBuildRuleMenuOptions,
+        exportGeneral: __tmBuildGeneralSettingsMigrationData, exportCalendar: () => __tmPickSettingsKeys(TM_CALENDAR_SETTING_KEYS) };
     const cached = localStorage.getItem('settings-test');
     if (cached) Object.assign(SettingsStore.data, JSON.parse(cached));
     SettingsStore.loaded = true;
@@ -93,7 +94,7 @@ const server = http.createServer((req, res) => {
         const setup = `${read('src/i18n/runtime.js')}\nwindow.__taskHorizonHostBridge.i18n = window.__taskHorizonHostBridge.i18nRuntime.createI18n(${read('i18n/' + locale + '.json')}, { locale: '${locale}' });`;
         res.setHeader('content-type', 'text/javascript'); res.end(setup + prelude + runtime); return;
     }
-    if (req.url === '/calendar.js') { res.setHeader('content-type', 'text/javascript'); res.end(read('calendar-view.js')); return; }
+    if (req.url === '/calendar.js') { res.setHeader('content-type', 'text/javascript'); res.end(read('calendar-subscription-core.js') + '\n' + read('calendar-view.js')); return; }
     if (req.url.endsWith('.css')) { res.setHeader('content-type', 'text/css'); res.end(req.url === '/basecoat.css' ? read('src/basecoat/basecoat.css') : req.url === '/calendar.css' ? read('calendar-view.css') : read('task-horizon.css')); return; }
     res.setHeader('content-type', 'text/html; charset=utf-8');
     const calendarScript = req.url.includes('lazy-calendar')
@@ -152,6 +153,79 @@ async function checkSettingsLayouts(page, mobile = false) {
     }
     if (mobile) await page.evaluate(() => { delete window.__tmRuntimeHost; });
 }
+async function checkCalendarS3Settings(page) {
+    await page.evaluate(() => {
+        tmOpenSettingsV2Page('calendar', 'c-ics');
+    });
+    const scope = page.locator('[data-tm-settings-section="calendar-subscription-scope"]');
+    assert.equal(await scope.locator('.tm-settings-section-title').textContent(), '同步范围');
+    assert.equal(await scope.evaluate(el => !!(el.compareDocumentPosition(document.querySelector('[data-tm-settings-section="calendar-subscription"]')) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
+    for (const key of ['CalendarName', 'Scope', 'IncludeTaskNotes', 'IncludeTaskDates', 'IncludeTomatoReminders', 'IncludeCustomHolidays', 'ExcludeCompletedSchedules']) {
+        assert.equal(await scope.locator(`[data-tm-cal-setting="calendarIcs${key}"]`).count(), 1);
+    }
+    const provider = () => page.locator('[data-tm-cal-setting="calendarIcsProvider"]');
+    await provider().selectOption('s3', { force: true });
+    await page.locator('[data-tm-cal-setting="calendarIcsS3Endpoint"]').waitFor();
+    assert.equal(await provider().inputValue(), 's3');
+    assert.equal(await scope.isVisible(), true);
+    const field = suffix => page.locator(`[data-tm-cal-setting="calendarIcsS3${suffix}"]`);
+    assert.equal(await field('FileName').count(), 0);
+    for (const [suffix, value] of [
+        ['Endpoint', 'http://192.168.1.10:9000'], ['Region', 'us-east-1'], ['Bucket', 'calendar'],
+        ['AccessKeyId', 'browser-fixture-access'], ['SecretAccessKey', 'browser-fixture-secret'],
+        ['StoragePath', '我的日历'],
+    ]) {
+        await field(suffix).fill(value);
+        await field(suffix).dispatchEvent('change');
+        await page.waitForFunction(([suffix, value]) => JSON.parse(localStorage.getItem('settings-test'))[`calendarIcsS3${suffix}`] === value, [suffix, value]);
+    }
+    assert.equal(await page.locator('[data-tm-ics-subscription-url]').inputValue(), 'http://192.168.1.10:9000/calendar/%E6%88%91%E7%9A%84%E6%97%A5%E5%8E%86/task-horizon.ics');
+    await field('StoragePath').fill('');
+    await field('StoragePath').dispatchEvent('change');
+    await page.waitForFunction(() => document.querySelector('[data-tm-ics-subscription-url]').value === 'http://192.168.1.10:9000/calendar/task-horizon.ics');
+    await field('SecretAccessKey').fill('typed-before-source-change');
+    await field('UseSiyuanConfig').check();
+    await page.waitForFunction(() => !document.querySelector('[data-tm-cal-setting="calendarIcsS3SecretAccessKey"]'));
+    assert.equal(await page.evaluate(() => __settingsTest.SettingsStore.data.calendarIcsS3SecretAccessKey), 'typed-before-source-change');
+    await field('UseSiyuanConfig').uncheck();
+    await page.locator('[data-tm-cal-setting="calendarIcsS3Endpoint"]').waitFor();
+    assert.equal(await field('SecretAccessKey').inputValue(), 'typed-before-source-change');
+    const exported = await page.evaluate(() => ({ general: __settingsTest.exportGeneral(), calendar: __settingsTest.exportCalendar() }));
+    for (const data of [exported.general, exported.calendar]) {
+        assert.equal(Object.hasOwn(data, 'calendarIcsS3AccessKeyId'), false);
+        assert.equal(Object.hasOwn(data, 'calendarIcsS3SecretAccessKey'), false);
+    }
+    assert.equal(exported.calendar.calendarIcsProvider, 's3');
+    assert.equal(exported.calendar.calendarIcsS3Endpoint, 'http://192.168.1.10:9000');
+    await page.reload();
+    await page.locator('.tm-settings-v2').waitFor();
+    await page.evaluate(() => tmOpenSettingsV2Page('calendar', 'c-ics'));
+    assert.equal(await provider().inputValue(), 's3');
+    assert.equal(await field('Endpoint').inputValue(), 'http://192.168.1.10:9000');
+    assert.equal(await field('SecretAccessKey').inputValue(), 'typed-before-source-change');
+    for (const [width, dark] of [[1440, false], [390, false], [390, true], [1440, true]]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await page.evaluate(dark => {
+            document.documentElement.dataset.themeMode = dark ? 'dark' : 'light';
+            siyuan.config.appearance.mode = dark ? 1 : 0;
+            __settingsTest.applyTheme();
+        }, dark);
+        const layout = await page.locator('.tm-settings-content').evaluate(el => ({
+            overflow: el.scrollWidth - el.clientWidth,
+            outside: [...el.querySelectorAll('input,select')].filter(node => {
+                const box = node.getBoundingClientRect(), parent = el.getBoundingClientRect();
+                return box.width && box.height && (box.left < parent.left - 1 || box.right > parent.right + 1);
+            }).map(node => node.dataset.tmCalSetting),
+        }));
+        assert.ok(layout.overflow <= 2, `${width} overflow: ${layout.overflow}`);
+        assert.deepEqual(layout.outside, []);
+        await page.locator('.tm-settings-content').evaluate(el => { el.scrollTop = 0; });
+        await page.screenshot({ path: path.join(root, `output/playwright/calendar-s3-${width}-${dark ? 'dark' : 'light'}.png`) });
+    }
+    await scope.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(root, 'output/playwright/calendar-sync-scope.png') });
+}
+
 async function checkBoundStatusDeletion(page) {
     const original = await page.evaluate(() => {
         const data = __settingsTest.SettingsStore.data;
@@ -253,6 +327,12 @@ async function checkRecommendedRules(page) {
         await page.waitForTimeout(300);
         if (errors.length) throw new Error(errors.join('\n'));
         await page.locator('.tm-settings-v2').waitFor();
+        if (process.env.TM_TEST_CALENDAR_S3 === '1') {
+            await checkCalendarS3Settings(page);
+            assert.deepEqual(errors, []);
+            console.log('Calendar S3 settings passed: MinIO configuration, persistence, scope grouping and desktop/mobile themes');
+            return;
+        }
         if (process.env.TM_TEST_LANGUAGE) {
             const locale = process.env.TM_TEST_LANGUAGE;
             await page.evaluate(() => tmOpenSettingsV2Page('appearance', 'l-density'));
@@ -415,6 +495,7 @@ async function checkRecommendedRules(page) {
             await page.waitForFunction(() => !document.querySelector('.tm-settings-v2'));
             await page.evaluate(() => showSettings());
             await page.locator('.tm-settings-v2').waitFor();
+            await checkCalendarS3Settings(page);
             assert.deepEqual(errors, []);
             console.log('Settings release smoke passed: open, change, persist, reload, close and reopen');
             return;

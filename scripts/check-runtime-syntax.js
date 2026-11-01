@@ -25,7 +25,7 @@ const source = manifest.scripts.map(relativePath => {
 }).join('\n');
 new vm.Script(source, { filename: 'task-horizon.main.js' });
 
-for (const file of ['index.js', 'ai.js', 'calendar-view.js', 'homepage.js', 'quickbar.js', 'kernel.js', 'calendar-subscription-core.js', 'src/ai/agent-workbench.js']) {
+for (const file of ['index.js', 'ai.js', 'calendar-view.js', 'homepage.js', 'quickbar.js', 'kernel.js', 'calendar-subscription-core.js', 'src/vendor/s3-presigner.min.js', 'src/ai/agent-workbench.js']) {
     new vm.Script(fs.readFileSync(path.join(root, file), 'utf8'), { filename: file });
 }
 const plugin = JSON.parse(fs.readFileSync(path.join(root, 'plugin.json'), 'utf8'));

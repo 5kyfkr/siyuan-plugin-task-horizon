@@ -189,8 +189,93 @@
         return `${lines.map(foldLine).join('\r\n')}\r\n`;
     }
 
+    const CONTENT_TYPE = 'text/calendar; charset=utf-8';
+    const CACHE_CONTROL = 'no-cache, max-age=0, must-revalidate';
+
+    function fail(key) {
+        const error = new Error(scope.__taskHorizonHostBridge?.i18n?.t(key) || key);
+        error.code = key;
+        throw error;
+    }
+
+    function normalizeUrl(value) {
+        const text = String(value || '').trim();
+        let url;
+        try { url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`); }
+        catch (error) { fail('calendar.s3InvalidAddress'); }
+        if (!text || !['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+            fail('calendar.s3InvalidAddress');
+        }
+        return url;
+    }
+
+    function isPrivateHost(hostname) {
+        const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+        return host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.lan')
+            || /^(?:127\.|10\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(host)
+            || host === '::1' || (/^(?:fc|fd|fe[89ab])/.test(host) && host.includes(':'))
+            || /^::ffff:(?:127\.|10\.|192\.168\.)/.test(host);
+    }
+
+    function normalize(config = {}, siyuan = null) {
+        const source = config.useSiyuanConfig ? siyuan : config;
+        if (!source) fail('calendar.s3SiyuanConfigMissing');
+        const bucket = String(config.bucket || source.bucket || '').trim();
+        const endpoint = String(source.endpoint || '').trim();
+        const accessKeyId = String(config.useSiyuanConfig ? source.accessKey || '' : source.accessKeyId || '').trim();
+        const secretAccessKey = String(config.useSiyuanConfig ? source.secretKey || '' : source.secretAccessKey || '');
+        if (!bucket || !endpoint || !accessKeyId || !secretAccessKey) fail('calendar.s3ConfigIncomplete');
+        if (/[\s/\\?#:@\[\]]/.test(bucket)) fail('calendar.s3InvalidBucket');
+        const endpointUrl = normalizeUrl(endpoint);
+        const prefix = String(config.storagePath || '').trim().replace(/^\/+|\/+$/g, '');
+        if (prefix.split('/').some(part => part === '.' || part === '..') || /[\\\u0000-\u001f]/.test(prefix)) {
+            fail('calendar.s3InvalidPath');
+        }
+        const fileName = String(config.fileName || '').trim();
+        if (!fileName || !/\.ics$/i.test(fileName) || /[/\\\u0000-\u001f]/.test(fileName) || fileName === '.ics') {
+            fail('calendar.s3InvalidFileName');
+        }
+        const key = `${prefix ? `${prefix}/` : ''}${fileName}`;
+        const forcePathStyle = config.useSiyuanConfig ? source.pathStyle !== false : config.forcePathStyle !== false;
+        const publicBase = String(config.publicBaseUrl || '').trim();
+        const url = normalizeUrl(publicBase || endpoint);
+        url.pathname = `${url.pathname.replace(/\/+$/, '')}/`;
+        if (!publicBase) {
+            if (forcePathStyle) url.pathname += `${encodeURIComponent(bucket)}/`;
+            else {
+                if (isPrivateHost(url.hostname) || url.hostname.includes(':')) fail('calendar.s3PathStyleRequired');
+                url.hostname = `${bucket}.${url.hostname}`;
+            }
+        }
+        url.pathname += key.split('/').map(encodeURIComponent).join('/');
+        return {
+            endpoint: endpointUrl.toString().replace(/\/$/, ''),
+            region: String(source.region || 'auto').trim() || 'auto',
+            bucket, accessKeyId, secretAccessKey, forcePathStyle, key, url: url.toString(),
+            transport: config.transport === 'direct' || config.transport === 'proxy' ? config.transport : 'auto',
+        };
+    }
+
+    function transportFor(url, transport = 'auto') {
+        if (transport === 'direct' || transport === 'proxy') return transport;
+        return isPrivateHost(new URL(url).hostname) ? 'direct' : 'proxy';
+    }
+
+    function sanitizeError(value, credentials = {}) {
+        let message = String(value?.message || value || '');
+        for (const secret of [credentials.accessKeyId, credentials.secretAccessKey]) {
+            if (!secret) continue;
+            for (const encoded of new Set([secret, encodeURIComponent(secret)])) message = message.split(encoded).join('[redacted]');
+        }
+        return message.replace(/https?:\/\/[^\s<>"']+/gi, '[S3 URL]')
+            .replace(/(X-Amz-(?:Signature|Credential|Security-Token)=)[^&\s]+/gi, '$1[redacted]').slice(0, 600);
+    }
+
+    const s3 = Object.freeze({ CONTENT_TYPE, CACHE_CONTROL, normalize, transportFor, sanitizeError });
+
     const api = Object.freeze({
         version: 1,
+        s3,
         escapeText,
         foldLine,
         formatCalendarTime,

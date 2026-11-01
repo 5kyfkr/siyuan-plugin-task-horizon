@@ -103,7 +103,14 @@
         'calendarIcsCalendarName',
         'calendarIcsWebdavUrl',
         'calendarIcsWebdavUsername',
-        'calendarIcsChainFileName',
+        'calendarIcsS3UseSiyuanConfig',
+        'calendarIcsS3Endpoint',
+        'calendarIcsS3Region',
+        'calendarIcsS3Bucket',
+        'calendarIcsS3StoragePath',
+        'calendarIcsS3ForcePathStyle',
+        'calendarIcsS3PublicBaseUrl',
+        'calendarIcsS3Transport',
         'calendarIcsChainPublicConfirmed',
         'calendarIcsExcludeCompletedSchedules',
         'calendarIcsIncludeTomatoReminders',
@@ -189,6 +196,8 @@
         'scheduledEventsSchemaVersion',
         'scheduledEvents',
         'calendarIcsWebdavPassword',
+        'calendarIcsS3AccessKeyId',
+        'calendarIcsS3SecretAccessKey',
         ...TM_DOC_GROUP_SETTING_KEYS,
         ...TM_AI_SETTING_KEYS,
         ...TM_CALENDAR_SETTING_KEYS,
@@ -246,6 +255,12 @@
         }
         Object.entries(patch).forEach(([key, value]) => {
             if (!key) return;
+            if (key === 'taskTemplateLibrary') {
+                const incoming = __tmNormalizeTaskTemplateLibrary(value);
+                const current = __tmNormalizeTaskTemplateLibrary(SettingsStore.data.taskTemplateLibrary);
+                SettingsStore.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary({ items: __tmMergeArrayById(current.items, incoming.items) });
+                return;
+            }
             if (mode === 'docGroups') {
                 if (key === 'docGroups') {
                     SettingsStore.data.docGroups = __tmMergeArrayById(SettingsStore.data.docGroups, value);

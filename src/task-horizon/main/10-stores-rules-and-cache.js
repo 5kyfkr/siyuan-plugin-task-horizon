@@ -83,6 +83,7 @@
     const PLUGIN_STORAGE_DIR = '/data/storage/petal/siyuan-plugin-task-horizon';
     const META_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-meta.json`;
     const SETTINGS_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-settings.json`;
+    const TASK_TEMPLATES_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-templates.json`;
     const WHITEBOARD_DATA_FILE_PATH = `${PLUGIN_STORAGE_DIR}/whiteboard-data.json`;
     const SEMANTIC_DATE_RECOGNIZED_FILE_PATH = `${PLUGIN_STORAGE_DIR}/semantic-date-recognized.json`;
     const TASK_SNAPSHOT_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-snapshot.json`;
@@ -4754,6 +4755,7 @@
         'whiteboardSidebarCollapsed',
         'whiteboardSidebarWidth',
         'whiteboardShowDone',
+        'whiteboardNavigatorHidden',
         'whiteboardCardFields',
         'whiteboardView',
         'whiteboardNodePos',
@@ -5355,6 +5357,7 @@
             whiteboardSidebarCollapsed: !!src.whiteboardSidebarCollapsed,
             whiteboardSidebarWidth: Number(src.whiteboardSidebarWidth) || 300,
             whiteboardShowDone: !!src.whiteboardShowDone,
+            whiteboardNavigatorHidden: !!src.whiteboardNavigatorHidden,
             whiteboardCardFields: __tmCloneJsonSafe(src.whiteboardCardFields || [], []),
             whiteboardView: __tmCloneJsonSafe(src.whiteboardView || { x: 64, y: 40, zoom: 1 }, { x: 64, y: 40, zoom: 1 }),
             whiteboardNodePos: __tmNormalizeWhiteboardNodePosMap(src.whiteboardNodePos),
@@ -8833,6 +8836,7 @@
             newTaskDailyNoteTargetHeadingText: '',
             newTaskDailyNoteAppendToBottom: false,
             deleteTaskRemovesWhiteboardCards: true,
+            taskTemplateLibrary: null,
             quickAddRecentDocs: [],
             quickAddLastLocation: null,
             quickAddFieldVisibility: {},
@@ -8869,7 +8873,16 @@
             calendarIcsWebdavUrl: '',
             calendarIcsWebdavUsername: '',
             calendarIcsWebdavPassword: '',
-            calendarIcsChainFileName: '',
+            calendarIcsS3UseSiyuanConfig: false,
+            calendarIcsS3Endpoint: '',
+            calendarIcsS3Region: 'auto',
+            calendarIcsS3Bucket: '',
+            calendarIcsS3AccessKeyId: '',
+            calendarIcsS3SecretAccessKey: '',
+            calendarIcsS3StoragePath: 'calendar/task-horizon',
+            calendarIcsS3ForcePathStyle: true,
+            calendarIcsS3PublicBaseUrl: '',
+            calendarIcsS3Transport: 'auto',
             calendarIcsChainPublicConfirmed: false,
             calendarIcsExcludeCompletedSchedules: false,
             calendarIcsIncludeTomatoReminders: true,
@@ -9313,7 +9326,49 @@
             __tmMigrateLegacyTaskTitleClickSettings(payload, payload);
             delete payload.agentMcpEnabled;
             delete payload.agentMcpEnabledInitialized;
+            delete payload.taskTemplateLibrary;
             return payload;
+        },
+
+        async saveTaskTemplates(input) {
+            const previous = this.data.taskTemplateLibrary;
+            const previousFieldUpdatedAt = this.data.settingsFieldUpdatedAt?.taskTemplateLibrary;
+            const library = __tmNormalizeTaskTemplateLibrary(input);
+            const updatedAt = Date.now();
+            this.data.taskTemplateLibrary = library;
+            this.data.settingsFieldUpdatedAt = {
+                ...(this.data.settingsFieldUpdatedAt || {}),
+                taskTemplateLibrary: updatedAt,
+            };
+            const ok = await __tmWriteJsonFile(TASK_TEMPLATES_FILE_PATH, {
+                schemaVersion: 1,
+                updatedAt,
+                items: library.items,
+            });
+            this.lastSaveResult = {
+                ok,
+                codeOk: ok,
+                taskTemplateFingerprint: JSON.stringify(library),
+                updatedAt,
+            };
+            if (!ok) {
+                this.data.taskTemplateLibrary = previous;
+                if (this.data.settingsFieldUpdatedAt) {
+                    if (previousFieldUpdatedAt == null) delete this.data.settingsFieldUpdatedAt.taskTemplateLibrary;
+                    else this.data.settingsFieldUpdatedAt.taskTemplateLibrary = previousFieldUpdatedAt;
+                }
+                return this.lastSaveResult;
+            }
+            try { Storage.set('tm_task_template_library', library); } catch (e) {}
+            this.loadedSettingsFieldSnapshot = {
+                ...(this.loadedSettingsFieldSnapshot || {}),
+                taskTemplateLibrary: __tmCloneJsonSafe(library, library),
+            };
+            this.loadedSettingsFieldUpdatedAt = {
+                ...(this.loadedSettingsFieldUpdatedAt || {}),
+                taskTemplateLibrary: updatedAt,
+            };
+            return this.lastSaveResult;
         },
 
         async load(options = {}) {
@@ -9336,7 +9391,18 @@
             // 云端数据存在时，再用云端字段覆盖本地字段
             let migratedLegacyTaskTitleClickSettings = false;
             try { migratedLegacyTaskTitleClickSettings = this.loadFromLocal() === true; } catch (e) {}
-
+            const taskTemplateFile = await __tmReadJsonFile(TASK_TEMPLATES_FILE_PATH);
+            const dedicatedTaskTemplateLibrary = Array.isArray(taskTemplateFile?.items)
+                ? __tmNormalizeTaskTemplateLibrary({ schemaVersion: taskTemplateFile.schemaVersion, items: taskTemplateFile.items })
+                : null;
+            const applyDedicatedTaskTemplateLibrary = () => {
+                if (!dedicatedTaskTemplateLibrary) return;
+                this.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary(dedicatedTaskTemplateLibrary);
+                this.data.settingsFieldUpdatedAt = {
+                    ...(this.data.settingsFieldUpdatedAt || {}),
+                    taskTemplateLibrary: __tmParseUpdatedAtNumber(taskTemplateFile.updatedAt),
+                };
+            };
             // 从云端加载设置（优先）
             try {
                 const res = await fetch('/api/file/getFile', {
@@ -9398,6 +9464,12 @@
                                     __tmApplySettingsFieldUpdatesByMap(this.data, cloudData, {
                                         skipKeys: new Set(['agentMcpEnabled', 'agentMcpEnabledInitialized']),
                                     });
+                                    if (localSettingsBeforeCloud.taskTemplateLibrary) {
+                                        this.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary(
+                                            localSettingsBeforeCloud.taskTemplateLibrary
+                                        );
+                                    }
+                                    applyDedicatedTaskTemplateLibrary();
                                     if (shouldApplyCloudWhiteboardState) {
                                         __tmAssignWhiteboardSettingsState(this.data, cloudData);
                                     }
@@ -9423,6 +9495,9 @@
                                     this.refreshCollapsedStateSyncState();
                                     this.refreshSettingsFieldSyncState();
                                     this.loaded = true;
+                                    if (!dedicatedTaskTemplateLibrary) {
+                                        try { await this.saveTaskTemplates(this.data.taskTemplateLibrary); } catch (e) {}
+                                    }
                                     if (migratedLegacyTopbarDefaults || migratedLegacyTaskTitleClickSettings || resolvedCustomFieldSchema.repairRemote === true) {
                                         try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
                                     }
@@ -9568,6 +9643,7 @@
                                 if (typeof cloudData.newTaskDailyNoteTargetHeadingText === 'string') this.data.newTaskDailyNoteTargetHeadingText = cloudData.newTaskDailyNoteTargetHeadingText;
                                 if (typeof cloudData.newTaskDailyNoteAppendToBottom === 'boolean') this.data.newTaskDailyNoteAppendToBottom = cloudData.newTaskDailyNoteAppendToBottom;
                                 if (typeof cloudData.deleteTaskRemovesWhiteboardCards === 'boolean') this.data.deleteTaskRemovesWhiteboardCards = cloudData.deleteTaskRemovesWhiteboardCards;
+                                if (cloudData.taskTemplateLibrary) this.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary(cloudData.taskTemplateLibrary);
                                 if (Array.isArray(cloudData.quickAddRecentDocs)) this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(cloudData.quickAddRecentDocs);
                                 if (cloudData.quickAddFieldVisibility) this.data.quickAddFieldVisibility = __tmNormalizeQuickAddFieldVisibility(cloudData.quickAddFieldVisibility);
                                 this.data.quickAddMobileFieldVisibility = __tmNormalizeQuickAddFieldVisibility(cloudData.quickAddMobileFieldVisibility ?? cloudData.quickAddFieldVisibility ?? this.data.quickAddMobileFieldVisibility);
@@ -9607,7 +9683,16 @@
                                 if (typeof cloudData.calendarIcsWebdavUrl === 'string') this.data.calendarIcsWebdavUrl = cloudData.calendarIcsWebdavUrl;
                                 if (typeof cloudData.calendarIcsWebdavUsername === 'string') this.data.calendarIcsWebdavUsername = cloudData.calendarIcsWebdavUsername;
                                 if (typeof cloudData.calendarIcsWebdavPassword === 'string') this.data.calendarIcsWebdavPassword = cloudData.calendarIcsWebdavPassword;
-                                if (typeof cloudData.calendarIcsChainFileName === 'string') this.data.calendarIcsChainFileName = cloudData.calendarIcsChainFileName;
+                                if (typeof cloudData.calendarIcsS3UseSiyuanConfig === 'boolean') this.data.calendarIcsS3UseSiyuanConfig = cloudData.calendarIcsS3UseSiyuanConfig;
+                                if (typeof cloudData.calendarIcsS3Endpoint === 'string') this.data.calendarIcsS3Endpoint = cloudData.calendarIcsS3Endpoint;
+                                if (typeof cloudData.calendarIcsS3Region === 'string') this.data.calendarIcsS3Region = cloudData.calendarIcsS3Region;
+                                if (typeof cloudData.calendarIcsS3Bucket === 'string') this.data.calendarIcsS3Bucket = cloudData.calendarIcsS3Bucket;
+                                if (typeof cloudData.calendarIcsS3AccessKeyId === 'string') this.data.calendarIcsS3AccessKeyId = cloudData.calendarIcsS3AccessKeyId;
+                                if (typeof cloudData.calendarIcsS3SecretAccessKey === 'string') this.data.calendarIcsS3SecretAccessKey = cloudData.calendarIcsS3SecretAccessKey;
+                                if (typeof cloudData.calendarIcsS3StoragePath === 'string') this.data.calendarIcsS3StoragePath = cloudData.calendarIcsS3StoragePath;
+                                if (typeof cloudData.calendarIcsS3ForcePathStyle === 'boolean') this.data.calendarIcsS3ForcePathStyle = cloudData.calendarIcsS3ForcePathStyle;
+                                if (typeof cloudData.calendarIcsS3PublicBaseUrl === 'string') this.data.calendarIcsS3PublicBaseUrl = cloudData.calendarIcsS3PublicBaseUrl;
+                                if (typeof cloudData.calendarIcsS3Transport === 'string') this.data.calendarIcsS3Transport = cloudData.calendarIcsS3Transport;
                                 if (typeof cloudData.calendarIcsChainPublicConfirmed === 'boolean') this.data.calendarIcsChainPublicConfirmed = cloudData.calendarIcsChainPublicConfirmed;
                                 if (typeof cloudData.calendarIcsExcludeCompletedSchedules === 'boolean') this.data.calendarIcsExcludeCompletedSchedules = cloudData.calendarIcsExcludeCompletedSchedules;
                                 if (typeof cloudData.calendarIcsIncludeTomatoReminders === 'boolean') this.data.calendarIcsIncludeTomatoReminders = cloudData.calendarIcsIncludeTomatoReminders;
@@ -9697,7 +9782,6 @@
                                 if (shouldApplyCloudDocGroupState && typeof cloudData.defaultDocId === 'string') this.data.defaultDocId = cloudData.defaultDocId;
                                 if (shouldApplyCloudDocGroupState && cloudData.defaultDocIdByGroup && typeof cloudData.defaultDocIdByGroup === 'object') this.data.defaultDocIdByGroup = cloudData.defaultDocIdByGroup;
                                 if (shouldApplyCloudDocGroupState && cloudData.showCompletedTasksByGroup && typeof cloudData.showCompletedTasksByGroup === 'object') this.data.showCompletedTasksByGroup = __tmNormalizeShowCompletedTasksByGroup(cloudData.showCompletedTasksByGroup);
-                                if (shouldApplyCloudDocGroupState && cloudData.docDefaultTaskHeadingByDocId && typeof cloudData.docDefaultTaskHeadingByDocId === 'object') this.data.docDefaultTaskHeadingByDocId = cloudData.docDefaultTaskHeadingByDocId;
                                 if (typeof cloudData.taskDeleteMode === 'string') this.data.taskDeleteMode = __tmNormalizeTaskDeleteMode(cloudData.taskDeleteMode);
                                 if (typeof cloudData.taskRecycleDocId === 'string') this.data.taskRecycleDocId = cloudData.taskRecycleDocId;
                                 if (typeof cloudData.taskCompletionArchiveMode === 'string') this.data.taskCompletionArchiveMode = __tmNormalizeTaskCompletionArchiveMode(cloudData.taskCompletionArchiveMode);
@@ -9853,7 +9937,20 @@
                                 if (typeof cloudData.serverSyncOnManualRefresh === 'boolean') this.data.serverSyncOnManualRefresh = cloudData.serverSyncOnManualRefresh;
                                 if (typeof cloudData.serverSyncSessionStateOnManualRefresh === 'boolean') this.data.serverSyncSessionStateOnManualRefresh = cloudData.serverSyncSessionStateOnManualRefresh;
                                 const restoredLocalSettingFields = __tmApplySettingsFieldUpdatesByMap(this.data, localSettingsBeforeCloud);
-
+                                // These fields were historically omitted from the normal
+                                // shared-settings hydration path. Once the synchronized file
+                                // is at least as new as local state, its values are authoritative.
+                                if (cloudData.taskCountBadge && typeof cloudData.taskCountBadge === 'object' && !Array.isArray(cloudData.taskCountBadge)) {
+                                    this.data.taskCountBadge = __tmNormalizeTaskCountBadge(cloudData.taskCountBadge);
+                                }
+                                if (Array.isArray(cloudData.taskSearchFields)) this.data.taskSearchFields = __tmGetTaskSearchFields(cloudData.taskSearchFields);
+                                if (cloudData.docDefaultTaskHeadingByDocId && typeof cloudData.docDefaultTaskHeadingByDocId === 'object' && !Array.isArray(cloudData.docDefaultTaskHeadingByDocId)) {
+                                    this.data.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap(cloudData.docDefaultTaskHeadingByDocId);
+                                }
+                                if (cloudData.taskTemplateLibrary) {
+                                    this.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary(cloudData.taskTemplateLibrary);
+                                }
+                                applyDedicatedTaskTemplateLibrary();
                                 const validModes = new Set(['none', 'doc', 'time', 'quadrant', 'task']);
                                 if (!validModes.has(String(this.data.groupMode || ''))) {
                                     // groupMode 无效时，根据标志位推导模式
@@ -9912,6 +10009,9 @@
                                 this.refreshSettingsFieldSyncState();
                                 this.loaded = true;
                                 __tmApplyEntryIconPreset(this.data.entryIconPreset);
+                                if (!dedicatedTaskTemplateLibrary) {
+                                    try { await this.saveTaskTemplates(this.data.taskTemplateLibrary); } catch (e) {}
+                                }
                                 if (migratedLegacyTopbarDefaults || migratedLegacyTaskTitleClickSettings || restoredLocalSettingFields.length > 0 || resolvedCustomFieldSchema.repairRemote === true) {
                                     try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
                                 }
@@ -9924,6 +10024,7 @@
             } catch (e) {
             }
             const migratedLegacyTopbarDefaults = this.migrateLegacyTopbarDefaults();
+            applyDedicatedTaskTemplateLibrary();
             this.loadedWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
             this.lastWhiteboardFingerprint = __tmGetWhiteboardSettingsFingerprint(this.data);
             this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
@@ -9932,6 +10033,9 @@
             this.refreshSettingsFieldSyncState();
             this.loaded = true;
             __tmApplyEntryIconPreset(this.data.entryIconPreset);
+            if (!dedicatedTaskTemplateLibrary) {
+                try { await this.saveTaskTemplates(this.data.taskTemplateLibrary); } catch (e) {}
+            }
             if (migratedLegacyTopbarDefaults || migratedLegacyTaskTitleClickSettings) {
                 try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
             }
@@ -10116,6 +10220,7 @@
             this.data.newTaskDefaultLocationMode = storedNewTaskDocId === '__dailyNote__' ? 'dailyNote' : storedNewTaskLocationMode;
             this.data.newTaskDailyNoteNotebookId = String(Storage.get('tm_new_task_daily_note_notebook_id', this.data.newTaskDailyNoteNotebookId) || '').trim();
             this.data.newTaskDailyNoteTargetHeadingText = String(Storage.get('tm_new_task_daily_note_target_heading_text', this.data.newTaskDailyNoteTargetHeadingText) || '').trim();
+            this.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary(Storage.get('tm_task_template_library', this.data.taskTemplateLibrary));
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(Storage.get(__TM_QUICK_ADD_RECENT_DOCS_KEY, this.data.quickAddRecentDocs));
             this.data.quickAddFieldVisibility = __tmNormalizeQuickAddFieldVisibility(Storage.get(__TM_QUICK_ADD_FIELD_VISIBILITY_KEY, this.data.quickAddFieldVisibility));
             this.data.quickAddMobileFieldVisibility = __tmNormalizeQuickAddFieldVisibility(Storage.get(__TM_QUICK_ADD_MOBILE_FIELD_VISIBILITY_KEY, this.data.quickAddMobileFieldVisibility ?? this.data.quickAddFieldVisibility));
@@ -10167,6 +10272,16 @@
             }
             this.data.calendarIcsWebdavUrl = String(Storage.get('tm_calendar_ics_webdav_url', this.data.calendarIcsWebdavUrl) || '');
             this.data.calendarIcsWebdavUsername = String(Storage.get('tm_calendar_ics_webdav_username', this.data.calendarIcsWebdavUsername) || '');
+            this.data.calendarIcsS3UseSiyuanConfig = !!(Storage.get('tm_calendar_ics_s3_use_siyuan_config', this.data.calendarIcsS3UseSiyuanConfig));
+            this.data.calendarIcsS3Endpoint = String(Storage.get('tm_calendar_ics_s3_endpoint', this.data.calendarIcsS3Endpoint));
+            this.data.calendarIcsS3Region = String(Storage.get('tm_calendar_ics_s3_region', this.data.calendarIcsS3Region));
+            this.data.calendarIcsS3Bucket = String(Storage.get('tm_calendar_ics_s3_bucket', this.data.calendarIcsS3Bucket));
+            this.data.calendarIcsS3AccessKeyId = String(Storage.get('tm_calendar_ics_s3_access_key_id', this.data.calendarIcsS3AccessKeyId));
+            this.data.calendarIcsS3SecretAccessKey = String(Storage.get('tm_calendar_ics_s3_secret_access_key', this.data.calendarIcsS3SecretAccessKey));
+            this.data.calendarIcsS3StoragePath = String(Storage.get('tm_calendar_ics_s3_storage_path', this.data.calendarIcsS3StoragePath));
+            this.data.calendarIcsS3ForcePathStyle = !!(Storage.get('tm_calendar_ics_s3_force_path_style', this.data.calendarIcsS3ForcePathStyle));
+            this.data.calendarIcsS3PublicBaseUrl = String(Storage.get('tm_calendar_ics_s3_public_base_url', this.data.calendarIcsS3PublicBaseUrl));
+            this.data.calendarIcsS3Transport = String(Storage.get('tm_calendar_ics_s3_transport', this.data.calendarIcsS3Transport));
             try {
                 const rawWebdavPassword = localStorage.getItem('tm_calendar_ics_webdav_password');
                 if (rawWebdavPassword != null) {
@@ -10178,7 +10293,6 @@
                     this.data.calendarIcsWebdavPassword = String(webdavPassword || '');
                 }
             } catch (e) {}
-            this.data.calendarIcsChainFileName = String(Storage.get('tm_calendar_ics_chain_file_name', this.data.calendarIcsChainFileName) || '');
             this.data.calendarIcsChainPublicConfirmed = !!Storage.get('tm_calendar_ics_chain_public_confirmed', this.data.calendarIcsChainPublicConfirmed);
             this.data.calendarIcsExcludeCompletedSchedules = !!Storage.get('tm_calendar_ics_exclude_completed_schedules', this.data.calendarIcsExcludeCompletedSchedules);
             this.data.calendarIcsIncludeTomatoReminders = !!Storage.get('tm_calendar_ics_include_tomato_reminders', this.data.calendarIcsIncludeTomatoReminders);
@@ -10715,6 +10829,7 @@
             Storage.set('tm_new_task_daily_note_target_heading_text', String(this.data.newTaskDailyNoteTargetHeadingText || '').trim());
             Storage.set('tm_new_task_daily_note_append_to_bottom', !!this.data.newTaskDailyNoteAppendToBottom);
             Storage.set('tm_delete_task_removes_whiteboard_cards', this.data.deleteTaskRemovesWhiteboardCards !== false);
+            Storage.set('tm_task_template_library', this.data.taskTemplateLibrary);
             Storage.set(__TM_QUICK_ADD_RECENT_DOCS_KEY, __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs));
             Storage.set(__TM_QUICK_ADD_FIELD_VISIBILITY_KEY, __tmNormalizeQuickAddFieldVisibility(this.data.quickAddFieldVisibility));
             Storage.set(__TM_QUICK_ADD_MOBILE_FIELD_VISIBILITY_KEY, __tmNormalizeQuickAddFieldVisibility(this.data.quickAddMobileFieldVisibility));
@@ -10766,7 +10881,16 @@
             Storage.set('tm_calendar_ics_webdav_url', String(this.data.calendarIcsWebdavUrl || ''));
             Storage.set('tm_calendar_ics_webdav_username', String(this.data.calendarIcsWebdavUsername || ''));
             Storage.set('tm_calendar_ics_webdav_password', String(this.data.calendarIcsWebdavPassword || ''));
-            Storage.set('tm_calendar_ics_chain_file_name', String(this.data.calendarIcsChainFileName || ''));
+            Storage.set('tm_calendar_ics_s3_use_siyuan_config', !!this.data.calendarIcsS3UseSiyuanConfig);
+            Storage.set('tm_calendar_ics_s3_endpoint', String(this.data.calendarIcsS3Endpoint || ''));
+            Storage.set('tm_calendar_ics_s3_region', String(this.data.calendarIcsS3Region || ''));
+            Storage.set('tm_calendar_ics_s3_bucket', String(this.data.calendarIcsS3Bucket || ''));
+            Storage.set('tm_calendar_ics_s3_access_key_id', String(this.data.calendarIcsS3AccessKeyId || ''));
+            Storage.set('tm_calendar_ics_s3_secret_access_key', String(this.data.calendarIcsS3SecretAccessKey || ''));
+            Storage.set('tm_calendar_ics_s3_storage_path', String(this.data.calendarIcsS3StoragePath || ''));
+            Storage.set('tm_calendar_ics_s3_force_path_style', !!this.data.calendarIcsS3ForcePathStyle);
+            Storage.set('tm_calendar_ics_s3_public_base_url', String(this.data.calendarIcsS3PublicBaseUrl || ''));
+            Storage.set('tm_calendar_ics_s3_transport', String(this.data.calendarIcsS3Transport || ''));
             Storage.set('tm_calendar_ics_chain_public_confirmed', !!this.data.calendarIcsChainPublicConfirmed);
             Storage.set('tm_calendar_ics_exclude_completed_schedules', !!this.data.calendarIcsExcludeCompletedSchedules);
             Storage.set('tm_calendar_ics_include_tomato_reminders', !!this.data.calendarIcsIncludeTomatoReminders);
@@ -11105,6 +11229,7 @@
             this.data.docDefaultColorScheme.seed = this.data.docColorSeed;
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(this.data.taskParentLookupDepth);
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields);
+            if (typeof __tmNormalizeTaskTemplateLibrary === 'function') this.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary(this.data.taskTemplateLibrary);
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs);
             this.data.quickAddFieldVisibility = __tmNormalizeQuickAddFieldVisibility(this.data.quickAddFieldVisibility);
             this.data.quickAddMobileFieldVisibility = __tmNormalizeQuickAddFieldVisibility(this.data.quickAddMobileFieldVisibility ?? this.data.quickAddFieldVisibility);
@@ -11405,6 +11530,7 @@
             if (!this.saveDirty) return this.savePromise || undefined;
             this.saving = true;
             this.saveDirty = false;
+            this.lastSaveResult = { ok: false };
             const suppressMobileCloseSyncDirty = !!this.suppressMobileCloseSyncDirty;
             this.suppressMobileCloseSyncDirty = false;
             try {
@@ -11436,6 +11562,9 @@
                 const appliedRemoteSettingFields = __tmApplySettingsFieldUpdatesByMap(this.data, remoteSettings, {
                     skipKeys: remoteSettingSkipKeys,
                 });
+                if (!settingsFieldChange.changedKeys.has('taskTemplateLibrary') && remoteSettings?.taskTemplateLibrary) {
+                    this.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary(remoteSettings.taskTemplateLibrary);
+                }
                 if (appliedRemoteSettingFields.length) {
                     this.normalizeColumns();
                 }
@@ -11568,7 +11697,10 @@
                 globalThis.__tmHost?.appendStorageRequestApp?.(formData);
 
                 const settingsPutRes = await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
-                const settingsPutOk = !!(settingsPutRes && settingsPutRes.ok);
+                const settingsPutBody = settingsPutRes?.ok ? await settingsPutRes.json().catch(() => null) : null;
+                const settingsPutOk = !!settingsPutRes?.ok;
+                const settingsPutCodeOk = settingsPutBody == null || settingsPutBody.code === 0;
+                this.lastSaveResult = { ok: settingsPutOk, codeOk: settingsPutCodeOk, taskTemplateFingerprint: JSON.stringify(payload.taskTemplateLibrary) };
                 const localSettingsChangedForMobileCloseSync = !!(
                     (settingsFieldChange?.changedKeys instanceof Set && settingsFieldChange.changedKeys.size > 0)
                     || whiteboardChangedLocal

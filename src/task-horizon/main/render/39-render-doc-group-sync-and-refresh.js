@@ -926,6 +926,9 @@
         })();
         const preserveSessionState = SettingsStore?.data?.serverSyncSessionStateOnManualRefresh !== true;
         const sessionSnapshot = preserveSessionState ? __tmCaptureManualRefreshSessionState() : null;
+        const templateLibraryBeforeReload = (() => {
+            try { return JSON.stringify(SettingsStore?.data?.taskTemplateLibrary || null); } catch (e) { return ''; }
+        })();
         const runWithStorageWritesSuppressed = async (callback) => {
             if (!suppressStorageWrites) return await callback();
             const previous = globalThis.__tmSuppressStorageWrites === true;
@@ -968,6 +971,14 @@
             }));
         } else {
             await SettingsStore.load({ preferRemoteWhiteboardSameVersion: true });
+        }
+        const templateLibraryAfterReload = (() => {
+            try { return JSON.stringify(SettingsStore?.data?.taskTemplateLibrary || null); } catch (e) { return ''; }
+        })();
+        if (templateLibraryAfterReload !== templateLibraryBeforeReload) {
+            try {
+                window.dispatchEvent(new CustomEvent('tm:task-templates-updated', { detail: { reason } }));
+            } catch (e) {}
         }
         await globalThis.__tmProjectVisibility?.load(true);
         if (preserveSessionState) __tmRestoreManualRefreshSessionState(sessionSnapshot, { restoreCollapse: false });

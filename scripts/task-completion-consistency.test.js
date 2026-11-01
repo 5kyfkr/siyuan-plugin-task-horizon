@@ -1477,9 +1477,13 @@ async function testNativeDocCheckboxWorksWithoutOpeningPanel() {
                     done: statusRules.isDone(after.marker), markdown: `- [${after.marker}] Task` });
                 if (cached) tasks.set(task.id, { ...task, taskMarker: before.marker,
                     done: statusRules.isDone(before.marker), markdown: `- [${before.marker}] Task` });
-                assert.equal(await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id), true);
-                const write = writes.at(-1);
                 const label = `${before.id} -> ${after.id}, cached=${cached}`;
+                const countBefore = writes.length;
+                const changed = before.marker !== after.marker;
+                assert.equal(await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id), changed, label);
+                assert.equal(writes.length, countBefore + (changed ? 1 : 0), label);
+                if (!changed) continue;
+                const write = writes.at(-1);
                 assert.equal(write.opts.statusPatch.customStatus, after.id, label);
                 assert.equal(write.done, statusRules.isDone(after.marker), label);
                 assert.equal(write.opts.nativeObserved.taskMarker, before.marker, label);
@@ -1492,7 +1496,95 @@ async function testNativeDocCheckboxWorksWithoutOpeningPanel() {
     }
 }
 
+function testNativeKeyboardTaskSelection() {
+    class NativeElement {
+        constructor(kind, id = '', parent = null) {
+            Object.assign(this, { kind, id, parentElement: parent, children: [] });
+            if (parent) parent.children.push(this);
+            this.classList = { contains: name => kind === 'action' && name === 'protyle-action--task' };
+        }
+        matches(selector) {
+            if (selector === '.protyle-wysiwyg') return this.kind === 'editor';
+            if (selector.includes('NodeListItem')) return this.kind === 'task' || this.kind === 'list';
+            return false;
+        }
+        closest(selector) {
+            for (let node = this; node; node = node.parentElement) {
+                if (node.matches(selector)) return node;
+            }
+            return null;
+        }
+        contains(node) {
+            for (; node; node = node.parentElement) if (node === this) return true;
+            return false;
+        }
+    }
+    const editor = new NativeElement('editor');
+    const firstTask = new NativeElement('task', 'task-first', editor);
+    new NativeElement('action', '', firstTask);
+    const secondTask = new NativeElement('task', 'task-second', editor);
+    new NativeElement('action', '', secondTask);
+    const secondTitle = new NativeElement('paragraph', '', secondTask);
+    const paragraph = new NativeElement('paragraph', '', editor);
+    const ordinaryList = new NativeElement('list', '', editor);
+    const nestedTask = new NativeElement('task', 'task-nested', ordinaryList);
+    new NativeElement('action', '', nestedTask);
+    const otherEditor = new NativeElement('editor');
+    let selection = { rangeCount: 1, getRangeAt: () => ({ startContainer: { parentElement: secondTitle } }) };
+    const context = vm.createContext({
+        Element: NativeElement,
+        document: { getSelection: () => selection },
+        __tmCompat: { resolveNativeTaskListItem: node => node === editor ? firstTask : node === ordinaryList ? nestedTask : null },
+        __tmIsNativeDocCheckboxSyncExcludedTarget: () => false,
+        __tmResolveAnyBlockIdFromElement: node => node.id,
+    });
+    for (const name of ['__tmResolveNativeDocEventElement', '__tmFindNativeDocTaskListItem', '__tmResolveNativeDocTaskBlockId', '__tmResolveNativeDocTaskKeyboardBlockId']) {
+        vm.runInContext(extractFunction(nativeDocHooksSource, name), context);
+    }
+    const resolve = target => context.__tmResolveNativeDocTaskKeyboardBlockId(target);
+    assert.equal(resolve(editor), secondTask.id, 'editor-root shortcuts must use the selected task instead of the first task');
+    assert.equal(resolve(secondTitle), secondTask.id, 'direct task keyboard targets must keep working');
+    selection = { anchorNode: paragraph };
+    assert.equal(resolve(editor), '', 'ordinary text must not select another task');
+    assert.equal(resolve(ordinaryList), '', 'an ordinary list must not select its nested task');
+    selection = { anchorNode: otherEditor };
+    assert.equal(resolve(editor), '', 'a selection from another editor must be ignored');
+    selection = null;
+    assert.equal(resolve(editor), '', 'a missing selection must not fall back to the first task');
+
+    const scheduled = [];
+    const captured = [];
+    let prevented = false;
+    Object.assign(context, {
+        window: { siyuan: { config: { keymap: { editor: { list: {} } } } } },
+        navigator: { platform: 'Win32' },
+        setTimeout() {},
+        __tmRememberNativeDocCheckboxPreviousState: id => captured.push(id),
+        __tmScheduleNativeDocCheckboxStatusSync: id => scheduled.push(id),
+    });
+    vm.runInContext(extractFunction(nativeDocHooksSource, '__tmMatchesNativeTaskShortcut'), context);
+    const handlerStart = nativeDocHooksSource.indexOf('__tmNativeDocCheckboxSyncClickHandler = (event) => {');
+    const handlerEnd = nativeDocHooksSource.indexOf("try { globalThis.__tmRuntimeEvents?.on?.(document, 'click'", handlerStart);
+    assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
+    vm.runInContext(nativeDocHooksSource.slice(handlerStart, handlerEnd), context);
+    const event = {
+        type: 'keydown', key: 'z', ctrlKey: true, isTrusted: true, target: editor,
+        preventDefault: () => { prevented = true; },
+        stopPropagation: () => { prevented = true; },
+    };
+    selection = { anchorNode: paragraph };
+    context.__tmNativeDocCheckboxSyncClickHandler(event);
+    assert.equal(captured.length, 0, 'text shortcuts must not capture an unrelated task');
+    selection = { anchorNode: secondTitle };
+    context.__tmNativeDocCheckboxSyncClickHandler(event);
+    context.__tmNativeDocCheckboxSyncClickHandler({ ...event, shiftKey: true });
+    assert.deepEqual(captured, [secondTask.id, secondTask.id], 'undo and redo must capture the selected task');
+    assert.deepEqual(scheduled, captured);
+    assert.equal(prevented, false, 'the native editor must retain control of undo and redo');
+}
+
 async function run() {
+    testNativeKeyboardTaskSelection();
     await testNativeDocCheckboxWorksWithoutOpeningPanel();
     testMissingCheckboxStatusRecovery();
     await testCheckboxBoundStatusDeletion();

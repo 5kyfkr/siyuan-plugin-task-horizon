@@ -12,6 +12,15 @@
 - `main/20-api-and-runtime-services.js` owns the bounded history for each remark textarea. Buttons, Ctrl/Cmd+Z, redo shortcuts and native history input events use the same snapshots and notify their toolbar through `tm-remark-history-change`.
 - Detail and quickbar share the Phosphor Bold icon table and editing commands. Ordinary save echoes preserve history; replacing external content or opening another quickbar editing session resets the baseline. History stays in memory with the editor and is not a document version archive.
 
+## Task templates
+
+- `main/task-runtime/53d-task-template-runtime.js` owns template-library normalization, the independent manager, instance previews, and parent-first creation plans.
+- Template definitions contain names, default topics, titles, and parent-child structure. Destination documents, dates, priority, reminders, and instance state remain in the existing quick-add context.
+- `main/task-runtime/53b-task-create-and-quick-add-runtime.js` exposes a nested template submenu in More and keeps template drafts separate from plain quick-add drafts.
+- `main/task-runtime/53d-task-template-runtime.js` submits template plans through the existing task mutation service after closing quick-add, reports background progress, and preserves stable IDs for explicit retries after partial failure.
+- Parent blocks commit before their children. The plan retains pre-generated node IDs for failure retries, while ProjectionEngine continues to own optimistic presentation and settled refresh behavior.
+- Compiled and source behavior are covered by `task-template-core.test.js` and `task-template-browser.test.js`.
+
 ## Shortcut date filter
 
 - `main/38-date-filter.js` owns the session-only `state.dateFilter`, shared interval matcher and one calendar mounted in the sidebar or its rail flyout. Only the month/week preference is persisted through the existing shortcut preferences.

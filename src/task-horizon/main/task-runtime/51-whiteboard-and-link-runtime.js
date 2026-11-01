@@ -3255,14 +3255,16 @@
     function __tmSaveQuickAddDraft(value, options = {}) {
         const draftValue = String(value || '');
         const remark = String(options.remark || '');
+        const template = typeof __tmNormalizeTaskTemplateDraft === 'function' ? __tmNormalizeTaskTemplateDraft(options.template) : null;
         const scope = String(options.scope || '');
-        if (!draftValue.trim() && !remark.trim()) {
+        if (!draftValue.trim() && !remark.trim() && !template) {
             __tmClearQuickAddDraft(null, scope);
             return true;
         }
         __tmPersistQuickAddDraftStorage({
             value: draftValue,
             remark,
+            template,
             scope,
             updatedAt: Date.now(),
             selectionStart: Number(options?.selectionStart || 0),
@@ -3278,7 +3280,7 @@
             ? memory
             : stored;
         const updatedAt = Number(entry?.updatedAt || 0);
-        if (!entry || (!String(entry.value || '').trim() && !String(entry.remark || '').trim()) || !updatedAt
+        if (!entry || (!String(entry.value || '').trim() && !String(entry.remark || '').trim() && !entry.template) || !updatedAt
             || Date.now() - updatedAt > __TM_QUICK_ADD_DRAFT_MAX_AGE_MS) {
             if (entry) __tmClearQuickAddDraft(null, scope);
             return null;
@@ -3294,7 +3296,8 @@
             const current = __tmGetQuickAddDraft(scope);
             if (!current || current.updatedAt !== expected.updatedAt
                 || current.value !== expected.value
-                || String(current.remark || '') !== String(expected.remark || '')) return false;
+                || String(current.remark || '') !== String(expected.remark || '')
+                || JSON.stringify(current.template || null) !== JSON.stringify(expected.template || null)) return false;
         }
         __tmPersistQuickAddDraftStorage(null, scope);
         return true;

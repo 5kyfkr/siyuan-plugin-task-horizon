@@ -2655,8 +2655,16 @@
         const taskId = String(binding?.taskId || '').trim();
         if (!task && taskId) task = await API.getTaskById(taskId);
         if (!taskId || !task) return false;
+        if (__tmReadNativeDocTaskMarkerFromDom(rawId) !== marker) {
+            __tmScheduleNativeDocCheckboxStatusSync(rawId);
+            return false;
+        }
         const previous = __tmConsumeNativeDocCheckboxPreviousState([rawId, taskId]);
         const inserted = __tmConsumeNativeDocCheckboxInsertedBlock(rawId) || __tmConsumeNativeDocCheckboxInsertedBlock(taskId);
+        // Text undo/redo can leave the checkbox unchanged. Consume its intent
+        // without submitting a completion command, including for check-ins.
+        const previousMarker = __tmNormalizeTaskStatusMarker(previous?.previousMarker, '');
+        if (previous?.userInitiated && !inserted && previousMarker && previousMarker === marker) return false;
         if (__tmIsCheckinTask(task)) {
             const day = previous?.scheduledDate || __tmNormalizeDateOnly(new Date());
             if (!previous?.userInitiated || inserted) {
@@ -2680,10 +2688,6 @@
         // commands. Explicit keyboard/menu intent is captured with pointer intent.
         if (!previous?.userInitiated || inserted) {
             __tmApplyNativeDocCheckboxDomProjection(rawId, done);
-            return false;
-        }
-        if (__tmReadNativeDocTaskMarkerFromDom(rawId) !== marker) {
-            __tmScheduleNativeDocCheckboxStatusSync(rawId);
             return false;
         }
         // Document tasks may not be cached until the manager is opened.
@@ -2883,6 +2887,29 @@
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'focusout', __tmNativeDocTaskContentInputHandler, true); } catch (e) {}
     }
 
+    function __tmResolveNativeDocTaskKeyboardBlockId(target) {
+        try {
+            const eventNode = __tmResolveNativeDocEventElement(target);
+            const editorRoot = eventNode?.closest?.('.protyle-wysiwyg');
+            if (!(editorRoot instanceof Element)) return '';
+            let node = eventNode;
+            if (node === editorRoot) {
+                const selection = document.getSelection?.();
+                const rangeNode = selection?.rangeCount
+                    ? selection.getRangeAt(0)?.startContainer
+                    : selection?.anchorNode;
+                node = __tmResolveNativeDocEventElement(rangeNode);
+                if (!(node instanceof Element) || !editorRoot.contains(node)) return '';
+            }
+            const listItem = node.closest('[data-type="NodeListItem"], .li[data-node-id]');
+            // A container lookup may find a descendant task unrelated to the caret.
+            if (!(listItem instanceof Element) || __tmFindNativeDocTaskListItem(node) !== listItem) return '';
+            return __tmResolveNativeDocTaskBlockId(listItem);
+        } catch (e) {
+            return '';
+        }
+    }
+
     function __tmMatchesNativeTaskShortcut(event) {
         if (event.isComposing || event.repeat) return false;
         if ((event.ctrlKey || event.metaKey) && !event.altKey && String(event.key).toLowerCase() === 'z') return true;
@@ -2940,9 +2967,11 @@
                 if (typeof __tmIsTaskDetailNoteViewLocalEventTarget === 'function'
                     && __tmIsTaskDetailNoteViewLocalEventTarget(event.target)) return;
             } catch (e) {}
-            const blockId = event.type === 'keydown' || event.type === 'contextmenu'
-                ? __tmResolveNativeDocTaskBlockId(event.target)
-                : __tmResolveNativeDocTaskToggleBlockIdFromEventTarget(event.target);
+            const blockId = event.type === 'keydown'
+                ? __tmResolveNativeDocTaskKeyboardBlockId(event.target)
+                : (event.type === 'contextmenu'
+                    ? __tmResolveNativeDocTaskBlockId(event.target)
+                    : __tmResolveNativeDocTaskToggleBlockIdFromEventTarget(event.target));
             if (!blockId) return;
             __tmRememberNativeDocCheckboxPreviousState(blockId, {
                 source: `native-doc-checkbox-${String(event.type || 'event').trim() || 'event'}`,

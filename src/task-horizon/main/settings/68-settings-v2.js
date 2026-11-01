@@ -84,7 +84,7 @@
             else if (/tmUpdatePriorityIconStyle/.test(handlers)) sub = 'l-icon';
             else sub = ({ columns: 'v-table', tabs: 't-src', topbar: 'v-start', icons: 'l-icon', checkbox: 'l-icon', colors: 'l-color' })[section] || 'l-density';
         } else if (tab === 'docs') sub = section === 'import' ? 'd-io' : 't-src';
-        else if (tab === 'calendar') sub = ({ 'calendar-content': 'c-content', 'calendar-reminders': 'c-remind', 'calendar-subscription': 'c-ics' })[section] || 'c-cal';
+        else if (tab === 'calendar') sub = ({ 'calendar-content': 'c-content', 'calendar-reminders': 'c-remind', 'calendar-subscription': 'c-ics', 'calendar-subscription-scope': 'c-ics' })[section] || 'c-cal';
         else if (tab === 'ai' || tab === 'scheduled') sub = ({ 'ai-agent': 'a-agent', 'ai-policy': 'a-policy', 'ai-connection': 'a-legacy' })[section] || 'a-mode';
         else if (['rules', 'rule_editor', 'priority', 'quadrant'].includes(tab)) sub = 'r-' + (tab === 'rule_editor' ? 'rules' : tab);
         else if (tab === 'about') sub = section === 'backup' ? 'd-io' : section === 'version' ? 'd-about' : 'd-sync';
@@ -321,7 +321,7 @@
         });
         __tmDecorateSettingsChoices(root); __tmObserveSettingsChoices(root);
         const content = root.querySelector('.tm-settings-content');
-        const calendarLabels = { 'calendar-general': __tmT("settings.basicViews"), 'calendar-layout': __tmT("settings.calendarLayout"), 'calendar-content': __tmT("settings.scheduleDisplay"), 'calendar-reminders': __tmT("settings.remindersNotifications"), 'calendar-subscription': __tmT("settings.calendarSubscription") };
+        const calendarLabels = { 'calendar-general': __tmT("settings.basicViews"), 'calendar-layout': __tmT("settings.calendarLayout"), 'calendar-content': __tmT("settings.scheduleDisplay"), 'calendar-reminders': __tmT("settings.remindersNotifications"), 'calendar-subscription': __tmT("settings.calendarSubscription"), 'calendar-subscription-scope': __tmT("calendar.syncScopeSettings") };
         const sections = Array.from(content.querySelectorAll('.tm-settings-panel[data-tm-settings-section]'));
         sections.forEach(panel => {
             const id = panel.dataset.tmSettingsSection;

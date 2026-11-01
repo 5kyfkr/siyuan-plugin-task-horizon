@@ -4,6 +4,7 @@ const path = require('node:path');
 const vm = require('./i18n-vm-fixture');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+const bridgeRuntime = fs.readFileSync(path.join(__dirname, '..', 'src/task-horizon/main/shell/81-ai-bridge-runtime.js'), 'utf8');
 const registered = [];
 const removedSkills = [];
 const removedFiles = [];
@@ -106,6 +107,8 @@ assert.equal(list, undefined, 'scheduled listing must use the shared kernel MCP,
 assert.equal(registered.some((item) => /scheduled event|定时事件/i.test(item.description)), false);
 
 const workbench = fs.readFileSync(path.join(__dirname, '..', 'src', 'ai', 'agent-workbench.js'), 'utf8');
+assert.match(bridgeRuntime, /removePluginFile\(DOC_SCOPE_CACHE_FILE_PATH\)/,
+    'the main runtime uninstall path must also remove the document scope cache');
 assert.doesNotMatch(workbench, /handleScheduledEventMessage|scheduledEventsApi/, 'the workbench must not intercept scheduled-event requests');
 assert.match(workbench, /reminderIntentInstruction/, 'the workbench must request the native Agent reminder intent choice');
 assert.match(workbench, /phosphorBoldContextIcon\('calendarDots'\)/, 'scheduled-event management must use the Phosphor calendar-dots icon');
@@ -113,6 +116,7 @@ assert.match(workbench, /phosphorBoldContextIcon\('calendarDots'\)/, 'scheduled-
 plugin.uninstall().then(() => {
     assert.deepEqual(removedSkills, ['task-capture'], 'uninstall must remove only unchanged plugin-owned Agent skills');
     assert.ok(removedFiles.includes('/data/storage/petal/siyuan-plugin-task-horizon/agent-scheduled-events.json'), 'uninstall must remove persisted Agent schedules');
+    assert.ok(removedFiles.includes('/data/storage/petal/siyuan-plugin-task-horizon/doc-scope-cache.json'), 'uninstall must remove the derived document scope cache');
     assert.equal(removedFiles.includes('/data/storage/petal/siyuan-plugin-task-horizon/task-license.json'), false, 'uninstall must preserve the activation license');
     assert.equal(removedFiles.includes('/data/storage/petal/siyuan-plugin-task-horizon/task-settings.json'), false, 'uninstall must preserve task settings');
     assert.equal(removedFiles.includes('/data/storage/petal/siyuan-plugin-task-horizon/calendar-events.json'), false, 'uninstall must preserve calendar events');

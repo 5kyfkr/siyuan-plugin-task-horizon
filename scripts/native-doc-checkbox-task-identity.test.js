@@ -57,6 +57,7 @@ function createHarness(options = {}) {
         __tmFlushSqlTransactionsSafe: async () => {},
         __tmReadNativeDocTaskDoneFromDom: () => options.domDone ?? false,
         __tmReadNativeDocTaskMarkerFromDom: () => options.marker || (options.domDone ? 'X' : ' '),
+        __tmNormalizeTaskStatusMarker: (value, fallback = '') => value == null ? fallback : value,
         __tmResolveTaskStatusId: (task) => ({ ' ': 'todo', X: 'completed', '/': 'doing', '-': 'cancelled', '?': 'custom' }[task.taskMarker]),
         __tmFindStatusOptionById: (id) => ({ marker: ({ todo: ' ', completed: 'X', doing: '/', cancelled: '-', custom: '?' })[id] }),
         __tmResolveTaskMarker: (task) => task.taskMarker || (task.done ? 'X' : ' '),
@@ -64,7 +65,7 @@ function createHarness(options = {}) {
         __tmNormalizeTaskRepeatState: (value) => value || {},
         __tmBuildTaskMarkdownWithMarker: (task, marker) => `* [${marker}] Task`,
         __tmWasNativeDocCheckboxRecentlySynced: () => false,
-        __tmConsumeNativeDocCheckboxPreviousState: () => ({ previousDone: false, userInitiated: true, ...(options.previousState || {}) }),
+        __tmConsumeNativeDocCheckboxPreviousState: () => ({ previousDone: true, previousMarker: 'X', userInitiated: true, ...(options.previousState || {}) }),
         __tmIsRecurringNativeDoneHeld: (value) => value.repeatState?.pendingNativeDoneReset === true && value.taskMarker === 'X',
         __tmDeleteTaskRepeatHistoryEntry: async (...args) => { calls.rollbacks.push(args); return false; },
         __tmScheduleRecurringTaskAdvanceAfterCompletion: (...args) => calls.advances.push(args),
@@ -132,7 +133,7 @@ async function main() {
     for (const marker of [' ', '/', 'X', '-', '?']) {
         const done = marker === 'X' || marker === '?';
         const h = createHarness({ exists: true, domDone: done, marker,
-            previousState: { previousDone: false, previousMarker: '/', occurrenceId: 'clicked-round' } });
+            previousState: { previousDone: false, previousMarker: marker === '/' ? ' ' : '/', occurrenceId: 'clicked-round' } });
         assert.equal(await h.sync(), true);
         assert.equal(h.calls.writes.length, 1, 'native intent enters the shared writer once');
         const write = h.calls.writes[0];
@@ -145,6 +146,10 @@ async function main() {
         assert.equal(write.options.wait, true);
         assert.equal(h.calls.advances.length, 0, 'the adapter must not schedule another advance');
         assert.equal(h.calls.rollbacks.length, 0, 'the adapter must not independently roll back history');
+        const unchanged = createHarness({ exists: true, domDone: done, marker,
+            previousState: { previousDone: done, previousMarker: marker } });
+        assert.equal(await unchanged.sync(), false, `text undo must skip unchanged marker ${JSON.stringify(marker)}`);
+        assertSkipped(unchanged);
     }
     const echo = createHarness({ exists: true, domDone: true, previousState: { userInitiated: false } });
     await echo.sync();

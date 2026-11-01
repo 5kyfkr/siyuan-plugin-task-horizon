@@ -6476,6 +6476,7 @@ if (ev) {
         { id: 'calendar-layout', label: __tmT("task.viewsLayout") },
         { id: 'calendar-content', label: __tmT("settings.scheduleDisplay") },
         { id: 'calendar-reminders', label: __tmT("settings.remindersNotifications") },
+        { id: 'calendar-subscription-scope', label: __tmT("calendar.syncScopeSettings") },
         { id: 'calendar-subscription', label: __tmT("settings.icsSubscription") }
     ]);
 

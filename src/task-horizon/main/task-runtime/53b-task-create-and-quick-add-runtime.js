@@ -2862,9 +2862,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const currentChildren = Array.isArray(parentTask?.children) ? parentTask.children : [];
         const previousChild = currentChildren.length > 0 ? currentChildren[currentChildren.length - 1] : null;
         const insertAfterTaskId = String(previousChild?.id || '').trim();
-        const requestedContainerId = String(previousChild?.parent_id || previousChild?.parentId || '').trim()
+        const requestedContainerId = String(previousChild?.parent_id || previousChild?.parentId || hooks.requestedContainerId || '').trim()
             || __tmNewTaskBlockId();
-        const requestedTaskId = __tmNewTaskBlockId();
+        const requestedTaskId = String(hooks.requestedTaskId || '').trim() || __tmNewTaskBlockId();
         const tempId = requestedTaskId;
         const clientId = String(globalThis.__tmTaskIdentity?.createClientId?.('subtask') || __tmGenerateTempTaskId('client')).trim();
         try {
@@ -3128,9 +3128,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const content = String(opts.content || '').trim();
         if (!docId) throw new Error(__tmT("task.noDocumentSet"));
         if (!content) throw new Error(__tmT("task.enterTheTaskContent"));
-        const requestedTaskId = __tmNewTaskBlockId();
+        const requestedTaskId = String(opts.requestedTaskId || '').trim() || __tmNewTaskBlockId();
         const tempId = requestedTaskId;
-        const requestedContainerId = __tmNewTaskBlockId();
+        const requestedContainerId = String(opts.requestedContainerId || '').trim() || __tmNewTaskBlockId();
         const clientId = String(globalThis.__tmTaskIdentity?.createClientId?.('task') || __tmGenerateTempTaskId('client')).trim();
         try {
             globalThis.__tmTaskIdentity?.remember?.({
@@ -3200,7 +3200,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         if (parentTaskId && typeof __tmIsMutationTaskPendingDeleted === 'function' && __tmIsMutationTaskPendingDeleted(parentTaskId)) {
             throw new Error(__tmT("task.theParentTaskIsBeingDeletedCannotCreateA2"));
         }
-        const requestedTaskId = __tmNewTaskBlockId();
+        const requestedTaskId = String(hooks.requestedTaskId || '').trim() || __tmNewTaskBlockId();
         const tempId = requestedTaskId;
         const clientId = String(globalThis.__tmTaskIdentity?.createClientId?.('sibling') || __tmGenerateTempTaskId('client')).trim();
         try {
@@ -3396,6 +3396,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     };
 
     window.tmQuickAddClose = function() {
+        if (state.quickAdd?.templateSubmitting || (typeof __tmTaskTemplateManager !== 'undefined' && __tmTaskTemplateManager?.saving)) return;
+        if (typeof __tmCloseTaskTemplateManager === 'function') __tmCloseTaskTemplateManager(true);
+        if (state.quickAdd?.templateInstance && typeof __tmPersistTemplateInstance === 'function') __tmPersistTemplateInstance();
         state.quickAddModal?.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
         if (typeof __tmInlineEditorState !== 'undefined' && state.quickAddModal?.contains(__tmInlineEditorState?.anchorEl)) __tmCloseInlineEditor('quick-add-close');
         state.__quickAddFieldsUnstack?.();
@@ -3440,6 +3443,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     }
 
     function __tmIsQuickAddFieldVisible(entry) {
+        if (state.quickAdd?.templateInstance) return entry.id === 'doc';
         const preferences = __tmGetQuickAddDisplayPlatform() === 'mobile'
             ? SettingsStore.data.quickAddMobileFieldVisibility ?? SettingsStore.data.quickAddFieldVisibility
             : SettingsStore.data.quickAddFieldVisibility;
@@ -3470,6 +3474,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 if (target) target.hidden = !__tmIsQuickAddFieldVisible(entry);
             }
         });
+        const more = state.quickAddModal?.querySelector('#tmQuickAddMoreBtn');
+        if (more) more.hidden = !!state.quickAdd?.templateInstance;
         if (document.getElementById('tmQuickAddMoreMenu')) __tmRenderQuickAddMoreMenu();
     }
 
@@ -3477,7 +3483,23 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const menu = document.getElementById('tmQuickAddMoreMenu');
         if (!menu || !state.quickAdd) return;
         const hiddenFields = __tmGetQuickAddFieldEntries().filter(entry => !__tmIsQuickAddFieldVisible(entry));
+        const templates = typeof __tmTaskTemplateLibrary === 'function' ? __tmTaskTemplateLibrary().items : [];
+        const templateRows = templates.map(item => `<button type="button" class="tm-quick-add-menu-row tm-quick-add-template-choice" role="menuitem" data-quick-add-template-id="${esc(item.id)}" ${__tmRunningTaskTemplateIds.has(item.id) ? 'disabled' : ''} aria-current="${state.quickAdd.templateInstance?.templateId === item.id ? 'true' : 'false'}"><span>${esc(item.name)}</span><small>${__tmTemplateFlat(item.nodes).length}</small></button>`).join('');
+        if (menu.dataset.quickAddView === 'templates') {
+            menu.setAttribute('aria-label', __tmT("taskTemplate.menu"));
+            menu.innerHTML = `
+                <button type="button" class="tm-quick-add-menu-row tm-quick-add-template-back" role="menuitem" data-quick-add-template-back>${__tmRenderLucideIcon('arrow-left')}<span>${__tmT("quickbar.more")}</span></button>
+                <div class="tm-quick-add-template-submenu-list">${templateRows || `<p class="tm-task-template-empty">${__tmT("taskTemplate.noTemplates")}</p>`}</div>
+                ${state.quickAdd.templateInstance ? `<button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-action="template-plain">${__tmRenderLucideIcon('list-bullets')}<span>${__tmT("taskTemplate.direct")}</span></button>` : ''}
+                <div class="tm-quick-add-template-submenu-divider"></div>
+                <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-action="template-manage">${__tmRenderLucideIcon('settings')}<span>${__tmT("taskTemplate.manage")}</span></button>`;
+            return;
+        }
+        menu.setAttribute('aria-label', __tmT("task.moreNewTaskActions"));
         menu.innerHTML = `
+            <button type="button" class="tm-quick-add-menu-row tm-quick-add-template-submenu-trigger" role="menuitem" data-quick-add-template-trigger aria-haspopup="menu" aria-expanded="false">
+                ${__tmRenderLucideIcon('stack-simple')}<span>${__tmT("taskTemplate.menu")}</span>${__tmRenderLucideIcon('chevron-right', 'tm-quick-add-template-submenu-arrow', { size: 14 })}
+            </button>
             <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-action="image">${__tmRenderLucideIcon('image')}<span>${__tmT("task.addImage")}</span></button>
             ${hiddenFields.length ? `<div class="tm-quick-add-menu-fields">${hiddenFields.map(entry => `
                 <button type="button" class="tm-quick-add-menu-row" role="menuitem" data-quick-add-field="${esc(entry.id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.settings", { name: entry.name, value2: __tmGetQuickAddFieldValueLabel(entry) })}">
@@ -3491,7 +3513,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         event?.stopPropagation?.();
         const qa = state.quickAdd;
         const anchor = document.getElementById('tmQuickAddMoreBtn');
-        if (!qa || qa.initializing || qa.uploadingImages || !anchor) return;
+        if (!qa || qa.initializing || qa.uploadingImages || qa.templateInstance || !anchor) return;
         if (document.getElementById('tmQuickAddMoreMenu')) { __tmCloseInlineEditor('quick-add-more-toggle'); return; }
         __tmOpenInlineEditor(anchor, ({ editor, close, onCleanup }) => {
             editor.classList.add('tm-quick-add-more-menu');
@@ -3501,12 +3523,57 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             anchor.setAttribute('aria-expanded', 'true');
             onCleanup(() => anchor.setAttribute('aria-expanded', 'false'));
             __tmRenderQuickAddMoreMenu();
+            let templateViewUnstack = null;
+            const showMoreView = () => {
+                templateViewUnstack?.();
+                templateViewUnstack = null;
+                editor.dataset.quickAddView = 'main';
+                __tmRenderQuickAddMoreMenu();
+                editor.querySelector('[data-quick-add-template-trigger]')?.focus({ preventScroll: true });
+            };
+            const showTemplateView = () => {
+                editor.dataset.quickAddView = 'templates';
+                __tmRenderQuickAddMoreMenu();
+                templateViewUnstack = __tmModalStackBind(() => {
+                    templateViewUnstack = null;
+                    editor.dataset.quickAddView = 'main';
+                    __tmRenderQuickAddMoreMenu();
+                    editor.querySelector('[data-quick-add-template-trigger]')?.focus({ preventScroll: true });
+                });
+                (editor.querySelector('[data-quick-add-template-id]:not(:disabled)')
+                    || editor.querySelector('[data-quick-add-action="template-manage"]')
+                    || editor.querySelector('[data-quick-add-template-back]'))?.focus({ preventScroll: true });
+            };
+            onCleanup(() => { templateViewUnstack?.(); templateViewUnstack = null; });
             editor.addEventListener('click', e => {
+                e.stopPropagation();
                 const button = e.target.closest('button');
                 if (!button) return;
+                if (button.matches('[data-quick-add-template-trigger]')) {
+                    showTemplateView();
+                    return;
+                }
+                if (button.matches('[data-quick-add-template-back]')) {
+                    showMoreView();
+                    return;
+                }
                 const id = button.dataset.quickAddField;
+                const templateId = button.dataset.quickAddTemplateId;
+                if (templateId) {
+                    if (button.disabled) return;
+                    close();
+                    window.tmQuickAddUseTemplate?.(templateId);
+                    return;
+                }
                 close();
-                if (button.dataset.quickAddAction === 'image') document.getElementById('tmQuickAddImageInput')?.click();
+                if (button.dataset.quickAddAction === 'template-plain') {
+                    state.quickAdd.templateInstance = null;
+                    __tmRenderQuickAddTemplate();
+                    __tmPersistTemplateInstance();
+                    __tmRefreshQuickAddInputLayout(state.quickAddModal);
+                }
+                else if (button.dataset.quickAddAction === 'template-manage') window.tmOpenTaskTemplateManager();
+                else if (button.dataset.quickAddAction === 'image') document.getElementById('tmQuickAddImageInput')?.click();
                 else if (button.dataset.quickAddAction === 'fields') window.tmQuickAddOpenFieldSettings();
                 else if (id === 'doc') window.tmQuickAddOpenDocPicker();
                 else if (id === 'date') window.tmQuickAddOpenDatePicker(anchor);
@@ -3515,9 +3582,17 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 else if (id?.startsWith('custom:')) window.tmQuickAddOpenCustomFieldPicker(id.slice(7), { currentTarget: anchor });
             });
             editor.addEventListener('keydown', e => {
+                if (e.key === 'ArrowRight' && document.activeElement.matches?.('[data-quick-add-template-trigger]')) {
+                    e.preventDefault(); showTemplateView();
+                    return;
+                }
+                if (e.key === 'ArrowLeft' && editor.dataset.quickAddView === 'templates') {
+                    e.preventDefault(); showMoreView();
+                    return;
+                }
                 if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
                 e.preventDefault();
-                const buttons = Array.from(editor.querySelectorAll('button'));
+                const buttons = Array.from(editor.querySelectorAll('button')).filter(item => !item.disabled && item.getClientRects().length);
                 const index = buttons.indexOf(document.activeElement);
                 const next = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1
                     : (index + (e.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
@@ -3668,6 +3743,22 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             state.quickAdd.images = remaining;
             __tmRenderQuickAddImages();
         }
+    }
+
+    function __tmDetachQuickAddImagesForTemplate(qa, submittedImages) {
+        if (!qa || !submittedImages?.length) return;
+        const current = __tmQuickAddImageDrafts.get(qa.draftScope) || [];
+        const remaining = current.filter(image => !submittedImages.includes(image));
+        if (remaining.length) __tmQuickAddImageDrafts.set(qa.draftScope, remaining);
+        else __tmQuickAddImageDrafts.delete(qa.draftScope);
+        qa.images = remaining;
+    }
+
+    function __tmRestoreQuickAddImagesAfterTemplateFailure(scope, images) {
+        if (!images?.length) return;
+        const current = __tmQuickAddImageDrafts.get(scope) || [];
+        const restored = [...current, ...images.filter(image => !current.includes(image))];
+        __tmQuickAddImageDrafts.set(scope, restored);
     }
 
     function __tmBuildQuickAddCustomFieldButtonHtml(field, value) {
@@ -3847,21 +3938,25 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         if (!modal?.isConnected) return;
         const input = modal.querySelector('#tmQuickAddInput');
         const remark = modal.querySelector('#tmQuickAddRemark');
-        const count = __tmSplitTaskInputLines(input?.value || '').length;
+        const templateMode = !!state.quickAdd?.templateInstance;
+        const count = state.quickAdd?.templateInstance && typeof __tmTemplateCount === 'function'
+            ? __tmTemplateCount() : __tmSplitTaskInputLines(input?.value || '').length;
         const submit = modal.querySelector('#tmQuickAddSubmitBtn');
         if (submit) {
             submit.textContent = count > 1 ? __tmT("task.add2", { count: count }) : __tmT("settings.add");
+            if (state.quickAdd?.templateSubmitting) submit.textContent = __tmT("taskTemplate.creating");
             if (state.quickAdd?.uploadingImages) submit.textContent = __tmT("task.uploading2");
-            submit.disabled = count === 0 || !!state.quickAdd?.initializing || !!state.quickAdd?.uploadingImages;
+            submit.disabled = count === 0 || !!state.quickAdd?.initializing || !!state.quickAdd?.uploadingImages || !!state.quickAdd?.templateSubmitting;
         }
         const hint = modal.querySelector('#tmQuickAddBatchHint');
         if (hint) {
-            hint.hidden = count < 2;
+            hint.hidden = templateMode || count < 2;
             hint.textContent = state.quickAdd?.images?.length
                 ? __tmT("task.totalTasksTheRemarkAndImagesApplyToThe", { count: count })
                 : __tmT("task.totalTasksTheRemarkAppliesToTheFirstTask", { count: count });
         }
         if (remark) {
+            remark.hidden = templateMode;
             remark.placeholder = __tmT("kernel.note");
             remark.setAttribute('aria-label', count > 1 ? __tmT("task.remarkAppliesToTheFirstTaskOnly") : __tmT("kernel.note"));
         }
@@ -3942,6 +4037,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
     }
 
     window.tmQuickAddOpen = async function(options = {}) {
+        if (state.quickAdd?.templateSubmitting) return state.quickAdd;
         const relation = options.relation === 'subtask' || options.relation === 'sibling' ? options.relation : '';
         const sourceTaskId = relation ? String(options.sourceTaskId || '').trim() : '';
         const dialogTitle = relation === 'subtask' ? __tmT("ai.newSubtask") : relation === 'sibling' ? __tmT("task.newSiblingTask") : __tmT("common.newTask");
@@ -4059,6 +4155,15 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 input.value = String(persistedDraft.value || '');
                 remarkInput.value = String(persistedDraft.remark || '');
                 state.quickAdd.remark = remarkInput.value;
+                if (persistedDraft.template) {
+                    const templateScope = typeof __tmTemplateDraftScope === 'function'
+                        ? __tmTemplateDraftScope(qa, persistedDraft.template.templateId) : '';
+                    if (templateScope && !__tmGetQuickAddDraft(templateScope)) {
+                        __tmSaveQuickAddDraft('', { scope: templateScope, template: persistedDraft.template });
+                    }
+                    __tmSaveQuickAddDraft(input.value, { scope: qa.draftScope, remark: remarkInput.value,
+                        selectionStart: persistedDraft.selectionStart, selectionEnd: persistedDraft.selectionEnd });
+                }
             }
             input.enterKeyHint = 'enter';
             input.setAttribute('enterkeyhint', 'enter');
@@ -4081,7 +4186,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             });
             remarkInput.addEventListener('input', () => {
                 if (state.quickAdd) state.quickAdd.remark = remarkInput.value;
-                __tmSaveQuickAddDraft(input.value, { scope: qa.draftScope, remark: remarkInput.value,
+                __tmSaveQuickAddDraft(input.value, { scope: qa.draftScope, remark: remarkInput.value, template: qa.templateInstance || null,
                     selectionStart: input.selectionStart, selectionEnd: input.selectionEnd });
                 __tmRefreshQuickAddInputLayout(modal);
             });
@@ -4126,7 +4231,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         try {
             await __tmEnsureSettingsLoaded();
             if (state.quickAdd !== qa || !modal.isConnected) return;
-            const initialLocation = relation || String(options.docId || '').trim()
+            const templateContext = qa.templateInstance?.execution?.payload;
+            const initialLocation = templateContext ? { mode: templateContext.docMode, docId: templateContext.docId } : relation || String(options.docId || '').trim()
                 ? { mode: 'doc', docId: options.docId }
                 : await __tmResolveQuickAddInitialLocation();
             if (state.quickAdd !== qa || !modal.isConnected) return;
@@ -4143,6 +4249,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             qa.docMode = initialLocation?.mode === 'dailyNote' ? 'dailyNote' : 'doc';
             qa.customStatus = inheritedPatch.customStatus || __tmGetDefaultUndoneStatusId(SettingsStore.data.customStatusOptions || []);
             qa.completionTime = inheritedPatch.completionTime || __tmResolveQuickAddDefaultCompletionTime();
+            if (templateContext) __tmRestoreTemplateExecutionContext(qa);
             qa.initializing = false;
             const toolbar = modal.querySelector('.tm-quick-add-tools');
             toolbar.removeAttribute('inert');
@@ -4150,6 +4257,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             modal.querySelector('#tmQuickAddMoreBtn').disabled = false;
             try { __tmApplyAppearanceThemeVars(); } catch (e) {}
             window.tmQuickAddRenderMeta?.();
+            if (qa.templateInstance) __tmRenderQuickAddTemplate();
             __tmRefreshQuickAddInputLayout(modal);
             return qa;
         } catch (e) {
@@ -4412,6 +4520,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 getReminderDraft: () => !!qa.reminderDraft,
                 reminderDraftLabel: __tmT("task.set"),
                 isReminderDisabled: () => !SettingsStore.data.enableTomatoIntegration
+                    || !!qa.templateInstance
                     || __tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '').length > 1
                     || globalThis.__tomatoReminder?.capabilities?.draftDialog !== true
                     || globalThis.__tomatoReminder?.capabilities?.upsertDraft !== true
@@ -4419,6 +4528,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     || typeof globalThis.__tomatoReminder?.upsertDraft !== 'function',
                 getReminderDisabledReason: () => !SettingsStore.data.enableTomatoIntegration
                     ? __tmT("task.pomodoroIntegrationIsNotEnabled")
+                    : qa.templateInstance ? __tmT("taskTemplate.reminderAfterCreation")
                     : (__tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '').length > 1
                         ? __tmT("task.forMultipleTasksSetRemindersAfterCreation")
                         : __tmT("task.reminderBridgeIsNotReadyTryAgainLater")),
@@ -5073,6 +5183,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const qa = state.quickAdd;
         if (!qa || qa.initializing) return;
         if (state.quickAddSubmitting) return;
+        if (qa.templateInstance && typeof __tmQuickAddSubmitTemplate === 'function') return await __tmQuickAddSubmitTemplate();
         if (qa.reminderDraftOpening) {
             hint(__tmT("task.finishSettingUpTheReminderFirst"), 'warning');
             return;

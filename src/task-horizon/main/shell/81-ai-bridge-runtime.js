@@ -1692,6 +1692,7 @@
                 removePluginFile(SEMANTIC_DATE_RECOGNIZED_FILE_PATH),
                 removePluginFile(TASK_SNAPSHOT_FILE_PATH),
                 removePluginFile(TASK_INDEX_FILE_PATH),
+                removePluginFile(DOC_SCOPE_CACHE_FILE_PATH),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-conversations.json`),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-debug.json`),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-prompt-templates.json`),

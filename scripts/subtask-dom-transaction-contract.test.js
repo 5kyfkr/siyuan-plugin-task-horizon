@@ -24,7 +24,8 @@ assert.match(createKernel, /const parentPreviousID = await resolveLastChildID\(p
 assert.match(createKernel, /预生成子任务 ID 已被其他块占用/);
 
 assert.match(api, /createSubtask:\s*__tmGuardBackendWrite\('createSubtask'/, 'subtask creation must use the guarded kernel adapter');
-assert.match(create, /const requestedContainerId = __tmNewTaskBlockId\(\);/, 'queued subtask creation must reserve a list ID');
+assert.match(create, /const requestedContainerId = String\([^;]*hooks\.requestedContainerId[^;]*\)\.trim\(\)\s*\|\|\s*__tmNewTaskBlockId\(\);/s,
+    'queued subtask creation must reuse or reserve a list ID');
 assert.match(create, /const itemData = API\.generateTaskDOM\(stableTaskId, text, false, \{[\s\S]*itemOnly: true/);
 assert.match(create, /createSubtask\(\s*pid,\s*stableTaskId,\s*childListId \|\| requestedListId,\s*listData,\s*itemData/);
 const subtaskWriter = create.slice(create.indexOf('async function __tmCreateSubtaskForTaskKernel'), create.indexOf('async function __tmCreateSiblingTaskForTaskKernel'));

@@ -34,6 +34,8 @@ assert.match(handler, /ensureTaskMainLoaded\(\)/, 'data reload must recover the 
 assert.match(handler, /__taskHorizonReloadSyncedData/, 'the plugin must delegate synchronized state hydration to the main runtime');
 assert.match(handler, /syncWindowTopBar\(\)/, 'the task topbar must be reconciled after data reload');
 assert.match(handler, /syncCalendarSubscriptionTopBar\(\)/, 'the calendar topbar must be reconciled after data reload');
+assert.match(handler, /__tmTaskCountBadge\?\.configure\?\.\(\)/,
+    'the task count badge must be reconfigured after synchronized settings are reloaded');
 
 const reloadStart = refreshRuntime.indexOf('async function __tmReloadSyncedPluginData');
 const reloadEnd = refreshRuntime.indexOf('\n    async function __tmRefreshCore', reloadStart);

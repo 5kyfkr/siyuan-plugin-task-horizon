@@ -19,6 +19,7 @@ const ZIP_VENDOR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/vendor/jszip.min.
 const BASECOAT_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/basecoat/basecoat.js`;
 const BASECOAT_CSS_PATH = `/data/plugins/${PLUGIN_ID}/src/basecoat/basecoat.css`;
 const CALENDAR_SUBSCRIPTION_CORE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/calendar-subscription-core.js`;
+const S3_SIGNER_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/vendor/s3-presigner.min.js`;
 const CALENDAR_SOURCE_ROOT = `/data/plugins/${PLUGIN_ID}/src/calendar`;
 const CALENDAR_ENGINE_SCRIPT_PATHS = [
     `${CALENDAR_SOURCE_ROOT}/calendar-date.js`,
@@ -1293,6 +1294,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonEnsureHomepageModuleLoaded = () => ensureDeferredScriptText("homepage", HOMEPAGE_SCRIPT_PATH, "homepage.js", () => !!globalThis.__tmHomepage?.loaded);
         globalThis.__taskHorizonEnsureXlsxModuleLoaded = () => ensureDeferredScriptText("xlsx", XLSX_VENDOR_SCRIPT_PATH, "vendor/xlsx.full.min.js", hasXlsxRuntime);
         globalThis.__taskHorizonEnsureZipModuleLoaded = () => ensureDeferredScriptText("zip", ZIP_VENDOR_SCRIPT_PATH, "vendor/jszip.min.js", hasZipRuntime);
+        globalThis.__taskHorizonEnsureCalendarS3Loaded = () => ensureDeferredScriptText("calendar-s3", S3_SIGNER_SCRIPT_PATH, "vendor/s3-presigner.min.js", () => typeof globalThis.__tmCalendarS3Signer?.presignPut === "function");
         globalThis.__taskHorizonPluginManifest = normalizePluginManifest(this?.manifest);
         Promise.resolve(loadPluginManifest(this)).then((manifest) => {
             if (String(globalThis.__taskHorizonMountToken || "") !== mountToken) return;
@@ -1381,13 +1383,17 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         if (this._taskSiyuanSyncHandlers || !this.eventBus?.on) return;
         this.publishSiyuanSyncStatus("synced");
         this._taskSiyuanSyncHandlers = {
-            "sync-start": () => this.publishSiyuanSyncStatus("syncing"),
+            "sync-start": () => {
+                this.publishSiyuanSyncStatus("syncing");
+            },
             "sync-end": () => {
                 this.publishSiyuanSyncStatus("synced");
                 // Completion also fires for upload-only/no-change syncs.
                 // Documents use syncMergeResult; plugin files use onDataChanged.
             },
-            "sync-fail": () => this.publishSiyuanSyncStatus("failed"),
+            "sync-fail": () => {
+                this.publishSiyuanSyncStatus("failed");
+            },
         };
         Object.entries(this._taskSiyuanSyncHandlers).forEach(([eventName, handler]) => {
             try { this.eventBus.on(eventName, handler); } catch (e) {}
@@ -3436,6 +3442,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonOpenTabView; } catch (e) {}
         try { delete globalThis.__taskHorizonSyncWindowTopBar; } catch (e) {}
         try { delete globalThis.__taskHorizonSyncCalendarSubscriptionTopBar; } catch (e) {}
+        try { delete globalThis.__taskHorizonEnsureCalendarS3Loaded; } catch (e) {}
+        try { delete globalThis.__tmCalendarS3Signer; } catch (e) {}
         try { delete globalThis.__taskHorizonEnsureCalendarAssets; } catch (e) {}
         try { delete globalThis.__taskHorizonApplyWindowTopBarIdentity; } catch (e) {}
         try { delete globalThis.__taskHorizonCustomTabId; } catch (e) {}
@@ -3486,6 +3494,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             const paths = [
                 "/data/storage/petal/siyuan-plugin-task-horizon/task-meta.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/task-snapshot.json",
+                "/data/storage/petal/siyuan-plugin-task-horizon/doc-scope-cache.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-conversations.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-debug.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-prompt-templates.json",

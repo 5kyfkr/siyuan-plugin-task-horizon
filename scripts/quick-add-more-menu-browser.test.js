@@ -68,6 +68,7 @@ const production = [
     fn(stores, '__tmNormalizeQuickAddFieldVisibility'),
     section(services, '    function __tmNormalizeCreateTaskCustomFieldValues(', '    function __tmMutationTempTaskExistsForOptimisticApply('),
     section(inline, '    let __tmInlineEditorState = null;', '    function __tmCollectTaskDetailFallbackDeferReasons('),
+    section(inline, '    const __TM_QUICK_ADD_DRAFT_STORAGE_KEY =', '    function __tmCaptureTaskDetailSubtaskDraftSnapshot('),
     section(picker, '    function __tmGetDefaultExpandedCustomFieldOptionIds(', '    window.tmOpenCustomFieldSelect ='),
     section(runtime, '    function __tmGetQuickAddVisibleOptionCustomFieldDefs(', '    function __tmApplyOptimisticDocTask('),
     section(runtime, '    window.tmQuickAddClose =', '    window.tmQuickAddOpenForDoc ='),
@@ -75,6 +76,8 @@ const production = [
     section(runtime, '    window.tmQuickAddOpenForDoc =', '    window.tmQuickAddOpenForPreset ='),
     section(runtime, '    window.tmQuickAddRenderMeta =', '    window.tmQuickAddOpenDocPicker ='),
     section(runtime, '    window.tmQuickAddSubmit =', '    window.tmAdd ='),
+    fn(runtime, '__tmNewTaskBlockId'),
+    read('task-runtime/53d-task-template-runtime.js'),
 ].join('\n');
 const productionTimeHub = [
     ...['__tmTaskDetailTimeHubIcon', '__tmTaskTimeHubShortcutDate', '__tmRenderTaskTimeHubQuickDatesHtml',
@@ -86,7 +89,7 @@ const productionTimeHub = [
 
 async function setup(page, theme = 'dark') {
     await page.goto('about:blank');
-    await page.setContent('<main aria-label="任务列表"></main>');
+    await page.setContent('<meta name="viewport" content="width=device-width, initial-scale=1"><main aria-label="任务列表"></main>');
     await page.addStyleTag({ content: fs.readFileSync(path.join(root, 'task-horizon.css'), 'utf8') });
     await page.addStyleTag({ content: `:root{--tm-text-color:${theme === 'dark' ? '#e0e0e0' : '#252525'};--tm-secondary-text:${theme === 'dark' ? '#aaa' : '#666'};--tm-card-bg:${theme === 'dark' ? '#202224' : '#fff'};--tm-primary-color:#528aa2;--tm-border-color:${theme === 'dark' ? '#444' : '#ddd'};--tm-hover-bg:${theme === 'dark' ? '#ffffff12' : '#00000008'};--tm-modal-overlay:#0008;--tm-input-bg:var(--tm-card-bg);--b3-theme-background:var(--tm-card-bg);--b3-theme-primary:#528aa2}body{margin:0;font:14px system-ui;background:${theme === 'dark' ? '#141619' : '#f6f6f6'}}.tm-prompt-box{background:var(--tm-card-bg);color:var(--tm-text-color)}.b3-switch{appearance:none;width:28px;height:16px;border-radius:10px;background:#888;position:relative;cursor:pointer}.b3-switch:checked{background:#528aa2}.b3-switch:after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:white}.b3-switch:checked:after{left:14px}.tm-btn-primary{background:#528aa2;color:white}.tm-inline-editor{position:fixed;background:var(--tm-card-bg);border:1px solid var(--tm-border-color)}*{animation:none!important}` });
     await page.evaluate(() => {
@@ -136,9 +139,20 @@ async function setup(page, theme = 'dark') {
         window.__tmBuildAttrPayloadFromPatch = patch => Object.fromEntries(Object.entries(patch).map(([key, value]) => [`custom-${key}`, value]));
         window.__tmNormalizeTaskAttachmentPaths = paths => [...new Set(paths)];
         window.__tmResolveDefaultNewTaskInsertOptions = async () => (window.reverseInsert ? { insertAfterId: 'heading' } : {});
-        window.__tmSaveQuickAddDraft = (value, extra) => { window.savedDraft = { value, remark: extra.remark }; };
-        window.__tmGetQuickAddDraft = () => window.savedDraft || null;
-        window.__tmClearQuickAddDraft = expected => { if (savedDraft?.value === expected?.value) window.savedDraft = null; };
+        window.savedDrafts = new Map();
+        window.__tmSaveQuickAddDraft = (value, extra = {}) => {
+            const scope = String(extra.scope || '');
+            const entry = { value, remark: extra.remark || '', template: extra.template || null, scope, updatedAt: Date.now() };
+            if (!String(value || '').trim() && !entry.remark.trim() && !entry.template) savedDrafts.delete(scope);
+            else savedDrafts.set(scope, entry);
+        };
+        window.__tmGetQuickAddDraft = (scope = '') => savedDrafts.get(String(scope || '')) || null;
+        window.__tmClearQuickAddDraft = (expected = null, scope = expected?.scope || '') => {
+            const current = savedDrafts.get(String(scope || ''));
+            if (!current) return false;
+            if (expected && (current.updatedAt !== expected.updatedAt || current.value !== expected.value)) return false;
+            return savedDrafts.delete(String(scope || ''));
+        };
         window.__tmRequireTaskMutation = name => async (...args) => {
             if (failWrite) throw new Error('任务写入失败');
             const payload = name === 'createTaskInDoc' ? args[0] : args[2].initialPatch;
@@ -178,7 +192,7 @@ async function screenshot(page, name) {
     await page.screenshot({ path: path.join(directory, `quick-add-integrated-${name}.png`) });
 }
 
-(async () => {
+async function run() {
     const browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_BROWSER_CHANNEL || undefined,
         ...(process.env.PLAYWRIGHT_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE } : {}) });
     const page = await browser.newPage({ viewport: { width: 1100, height: 760 } });
@@ -508,4 +522,6 @@ async function screenshot(page, name) {
         assert.deepEqual(errors, [], 'no browser errors');
         console.log('PASS light theme and browser error check');
     } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+}
+if (require.main === module) run().catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = { setup, run };

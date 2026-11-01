@@ -55,7 +55,11 @@ function harness(overrides = {}) {
         icsWebdavUsername: 'test', icsWebdavPassword: 'test',
         icsCalendarName: 'Test', icsIncludeTaskDates: false,
         icsIncludeTomatoReminders: false, icsIncludeTaskNotes: false,
-        icsChainPublicConfirmed: true, icsChainFileName: 'test.ics',
+        icsChainPublicConfirmed: true,
+        icsS3Endpoint: 'https://s3.example.test', icsS3Region: 'us-east-1', icsS3Bucket: 'calendar',
+        icsS3AccessKeyId: 'fixture-access-key', icsS3SecretAccessKey: 'fixture-secret-key',
+        icsS3StoragePath: 'calendars', icsS3ForcePathStyle: true,
+        icsS3PublicBaseUrl: 'https://calendar.example.test', icsS3Transport: 'auto',
         ...overrides.settings,
     };
     let remoteText = '';
@@ -88,6 +92,7 @@ function harness(overrides = {}) {
         document: { contains: () => false },
         getSettings: () => settings,
         __tmCalendarSubscriptionCore: core,
+        __tmCalendarS3Signer: overrides.signer || { presignPut: async (target) => `${target.endpoint}/${target.bucket}/${target.key}?X-Amz-Signature=fixture` },
         __taskHorizonSyncCalendarSubscriptionTopBar: (meta) => uiStates.push(meta.running),
         toast: (message, kind) => notices.push({ message, kind }),
         loadScheduleAll: async () => [],
@@ -127,6 +132,10 @@ function harness(overrides = {}) {
             return response();
         }
         if (url === '/api/asset/uploadCloudByAssetsPaths') return response();
+        if (/^http:\/\/192\.168\.1\.10:9000\//.test(url)) {
+            if (init.method === 'PUT') remoteText = init.body;
+            return { ...response(), text: async () => init.method === 'GET' ? remoteText : '' };
+        }
         throw new Error(`Unexpected fetch ${url}`);
     };
     sandbox.fetch = async (url, init) => {
@@ -202,6 +211,115 @@ test('a pending settings response times out, aborts its request and cannot affec
     assert.deepEqual(h.api.getStatus(), status);
 });
 
+for (const provider of ['chain', 's3', 'webdav']) {
+    test(`${provider} replaces legacy random filenames and cached URLs with the shared fixed target`, async () => {
+        const h = harness({ settings: {
+            icsProvider: provider,
+            icsChainFileName: 'task-horizon-old-random-id.ics',
+            icsS3FileName: 'task-horizon-old-random-id.ics',
+            icsWebdavUrl: 'https://calendar.example.test/dav/task-horizon-old-random-id.ics',
+        } });
+        h.context.saveCalendarSubscriptionRuntimeStatus({
+            url: 'https://assets.b3logfile.com/siyuan/test-user/assets/task-horizon-old-random-id.ics',
+            targetKey: 'legacy-random-target', contentHash: 'legacy-content',
+        });
+        const expected = provider === 'chain'
+            ? 'https://assets.b3logfile.com/siyuan/test-user/assets/task-horizon.ics'
+            : provider === 's3'
+                ? 'https://calendar.example.test/calendars/task-horizon.ics'
+                : 'https://calendar.example.test/dav/task-horizon.ics';
+        assert.equal(h.context.getCalendarSubscriptionDisplayUrl(), expected);
+        const result = await h.api.publishNow();
+        assert.equal(result.skipped, false);
+        assert.equal(result.url, expected);
+        assert.equal(h.api.getStatus().url, expected);
+        assert.ok(!JSON.stringify(h.requests).includes('old-random-id.ics'));
+        assert.equal((await h.api.publishNow()).skipped, true);
+    });
+}
+
+test('S3 publishes through the proxy, verifies the fixed public URL and deduplicates unchanged snapshots', async () => {
+    const h = harness({ settings: { icsProvider: 's3' } });
+    const first = await h.api.publishNow({ force: true });
+    assert.equal(first.skipped, false);
+    const remote = h.requests.filter(item => item.url === '/api/network/forwardProxy').map(item => JSON.parse(item.init.body));
+    assert.deepEqual(remote.map(item => item.method), ['PUT', 'GET']);
+    assert.match(remote[0].url, /X-Amz-Signature=fixture/);
+    assert.equal(remote[0].contentType, 'text/calendar; charset=utf-8');
+    assert.equal(remote[1].url, 'https://calendar.example.test/calendars/task-horizon.ics');
+    assert.equal(new URL(first.url).search, '');
+    assert.ok(Buffer.from(remote[0].payload, 'base64').toString('utf8').includes('BEGIN:VCALENDAR'));
+    assert.ok(!JSON.stringify(h.api.getStatus()).includes('fixture-access-key'));
+    assert.ok(!JSON.stringify(h.api.getStatus()).includes('fixture-secret-key'));
+    assert.equal((await h.api.publishNow()).skipped, true);
+    assert.equal(h.requests.filter(item => item.url === '/api/network/forwardProxy' && JSON.parse(item.init.body).method === 'PUT').length, 1);
+    h.settings.icsS3SecretAccessKey = 'rotated-secret';
+    assert.equal((await h.api.publishNow()).skipped, false, 'credential rotation must trigger a fresh upload and verification');
+    h.settings.icsS3PublicBaseUrl = 'https://new-calendar.example.test';
+    assert.match((await h.api.publishNow()).url, /^https:\/\/new-calendar\.example\.test\//);
+});
+
+test('local MinIO uploads and reads back directly without using the kernel proxy', async () => {
+    const h = harness({ settings: {
+        icsProvider: 's3', icsS3Endpoint: 'http://192.168.1.10:9000', icsS3PublicBaseUrl: '',
+    } });
+    const result = await h.api.publishNow({ force: true });
+    assert.equal(result.skipped, false);
+    assert.equal(result.url, 'http://192.168.1.10:9000/calendar/calendars/task-horizon.ics');
+    assert.equal(h.requests.some(item => item.url === '/api/network/forwardProxy'), false);
+    assert.deepEqual(h.requests.filter(item => item.url.startsWith('http://192.168.1.10:9000')).map(item => item.init.method), ['PUT', 'GET']);
+});
+
+test('S3 configuration changes during signing discard the old target before writing', async () => {
+    let h;
+    let signed = 0;
+    h = harness({ settings: { icsProvider: 's3' }, signer: { presignPut: async target => {
+        if (++signed === 1) {
+            h.settings.icsS3Bucket = 'new-calendar';
+            h.api.markDirty('settings:calendarIcsS3Bucket');
+        }
+        return `${target.endpoint}/${target.bucket}/${target.key}?X-Amz-Signature=fixture`;
+    } } });
+    await h.api.publishNow({ force: true });
+    const puts = h.requests.filter(item => item.url === '/api/network/forwardProxy' && JSON.parse(item.init.body).method === 'PUT');
+    assert.equal(signed, 2);
+    assert.equal(puts.length, 1);
+    assert.match(JSON.parse(puts[0].init.body).url, /\/new-calendar\//);
+});
+
+test('S3 verification failure preserves the previous successful subscription', async () => {
+    let failRead = false;
+    const h = harness({ settings: { icsProvider: 's3' }, fetch: (url, init, next) => {
+        if (failRead && url === '/api/network/forwardProxy' && JSON.parse(init.body).method === 'GET') return response({ status: 403, body: '' });
+        return next(url, init);
+    } });
+    await h.api.publishNow({ force: true });
+    const previous = h.api.getStatus();
+    failRead = true;
+    const job = h.api.publishNow({ force: true });
+    await drain();
+    await h.advance(1200);
+    assert.equal((await job).ok, false);
+    const status = h.api.getStatus();
+    assert.match(status.lastError, /403/);
+    assert.equal(status.lastSuccessAt, previous.lastSuccessAt);
+    assert.equal(status.url, previous.url);
+});
+
+test('a lost direct MinIO upload acknowledgement stops queued retries and hides credentials', async () => {
+    const h = harness({ settings: { icsProvider: 's3', icsS3Endpoint: 'http://192.168.1.10:9000', icsS3PublicBaseUrl: '' }, fetch: (url, init, next) => {
+        if (init.method === 'PUT') throw new TypeError('Failed to fetch fixture-secret-key');
+        return next(url, init);
+    } });
+    const result = await h.api.publishNow({ force: true });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /MinIO/);
+    assert.ok(!result.error.includes('fixture-secret-key'));
+    assert.equal(h.publisher.pendingRequest, null);
+    assert.equal(h.api.getStatus().lastSuccessAt, undefined);
+    assert.equal(h.timers.size, 0);
+});
+
 test('shared schedule reads remain reusable after the publisher stops waiting', async () => {
     const read = deferred();
     const h = harness();
@@ -217,7 +335,7 @@ test('shared schedule reads remain reusable after the publisher stops waiting', 
     assert.equal(h.requests.length, 1, 'late read must not advance to an upload');
 });
 
-for (const provider of ['webdav', 'chain']) {
+for (const provider of ['webdav', 'chain', 's3']) {
     test(`${provider} upload timeout discards queued retries and late responses cannot write success`, async () => {
         const upload = deferred();
         let uploadRequest;

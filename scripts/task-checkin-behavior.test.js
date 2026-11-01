@@ -63,6 +63,7 @@ const calls = { writes: [], projections: [], events: [], refresh: [], hints: [],
 let failWrite = false;
 let pendingWrite = null;
 let userInitiated = false;
+let previousState = {};
 const context = vm.createContext({
     Date: Clock, console: { ...console, info() {} }, Intl, setTimeout, clearTimeout, Element: class {},
     __tmNormalizeDateOnly: dateKey,
@@ -91,7 +92,7 @@ const context = vm.createContext({
     __tmFlushSqlTransactionsSafe: async () => {},
     __tmWasNativeDocCheckboxRecentlySynced: () => false,
     __tmResolveTaskBindingFromAnyBlockId: async () => ({ taskId: task.id, task }),
-    __tmConsumeNativeDocCheckboxPreviousState: () => ({ userInitiated }),
+    __tmConsumeNativeDocCheckboxPreviousState: () => ({ userInitiated, ...previousState }),
     __tmConsumeNativeDocCheckboxInsertedBlock: () => false,
     normalizeTaskFields: () => {},
     hint: message => calls.hints.push(message),
@@ -180,6 +181,19 @@ async function run() {
     assert.equal(context.__tmApplyNativeDocCheckboxDomProjection(task.id, true), true);
     assert.ok(calls.projections.every(mutation => Object.keys(mutation.patch).join() === 'repeatState'), 'check-in mutations must not project permanent done');
 
+    userInitiated = true;
+    previousState = { previousDone: true, previousMarker: 'X' };
+    const checkedWrites = calls.writes.length;
+    const checkedHistory = JSON.stringify(task.repeatState.checkinHistory);
+    const checkedHints = calls.hints.length;
+    assert.equal(await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id), false);
+    assert.equal(calls.writes.length, checkedWrites, 'text undo on a checked habit must not write check-in history');
+    assert.equal(JSON.stringify(task.repeatState.checkinHistory), checkedHistory);
+    assert.equal(calls.hints.length, checkedHints);
+    assert.equal(task.done, false, 'the displayed check-in state is independent of permanent completion');
+    previousState = {};
+    userInitiated = false;
+
     item.setAttribute('data-task', ' ');
     await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id);
     assertNote(true);
@@ -189,6 +203,11 @@ async function run() {
     await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id);
     assertNote(false);
     assert.equal(task.repeatState.checkinHistory.length, 0);
+    previousState = { previousDone: false, previousMarker: ' ' };
+    const uncheckedWrites = calls.writes.length;
+    assert.equal(await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id), false);
+    assert.equal(calls.writes.length, uncheckedWrites, 'text undo on an unchecked habit must not create a cancellation');
+    previousState = {};
     item.setAttribute('data-task', 'X');
     await context.__tmSyncNativeDocCheckboxLinkedStatus(task.id);
     assertNote(true);

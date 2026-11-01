@@ -25,7 +25,7 @@ const parameters = value => [...new Set([...value.matchAll(/\{([A-Za-z_$][\w$]*)
 for (const key of Object.keys(dictionaries.en).filter(key => key !== '__locale')) {
     assert.deepEqual(parameters(dictionaries.en[key]), parameters(dictionaries['zh-CN'][key]), `Parameters differ: ${key}`);
 }
-const files = ['index.js', 'kernel.js', 'ai.js', 'homepage.js', 'calendar-view.js', 'quickbar.js'];
+const files = ['index.js', 'kernel.js', 'ai.js', 'homepage.js', 'calendar-view.js', 'calendar-subscription-core.js', 'quickbar.js'];
 function collect(directory) {
     for (const item of fs.readdirSync(path.join(root, directory), { withFileTypes: true })) {
         const relative = directory + '/' + item.name;

@@ -60,7 +60,7 @@ const verifyRemoteEnd = calendar.indexOf('\n    async function uploadCalendarSub
 const verifyRemoteBlock = calendar.slice(verifyRemoteStart, verifyRemoteEnd);
 assert.match(verifyRemoteBlock, /options\.cacheBust === true[\s\S]*appendCalendarSubscriptionCacheBuster\(url, expectedFileHash\)[\s\S]*: String\(url\)/, 'remote verification must add a cache buster only when explicitly requested');
 const webdavUploadStart = calendar.indexOf('async function uploadCalendarSubscriptionWebdav');
-const webdavUploadEnd = calendar.indexOf('\n    function normalizeCloudUserData', webdavUploadStart);
+const webdavUploadEnd = calendar.indexOf('\n    async function requestCalendarSubscriptionS3', webdavUploadStart);
 const webdavUploadBlock = calendar.slice(webdavUploadStart, webdavUploadEnd);
 assert.match(webdavUploadBlock, /const password = String\(target\.password \|\| ''\)/, 'WebDAV uploads must read the synchronized password from the resolved target');
 assert.doesNotMatch(webdavUploadBlock, /localStorage/, 'WebDAV uploads must not depend on browser-local password storage');
@@ -94,13 +94,13 @@ const displayUrlEnd = calendar.indexOf('\n    function formatCalendarSubscriptio
 const displayUrlBlock = calendar.slice(displayUrlStart, displayUrlEnd);
 assert.doesNotMatch(displayUrlBlock, /buildCalendarSubscriptionWebdavRequestUrl/, 'displayed subscription URLs must never use request-only credentials');
 assert.match(displayUrlBlock, /url\.username = ''[\s\S]*url\.password = ''/, 'displayed subscription URLs must explicitly remove any URL credentials');
-assert.match(calendar, /CALENDAR_SUBSCRIPTION_WEBDAV_FILE_NAME = 'task-horizon\.ics'/, 'WebDAV directory uploads must use a stable ICS filename');
-assert.match(calendar, /if \(!\/\\\.ics\$\/i\.test\(url\.pathname\)\)[\s\S]*CALENDAR_SUBSCRIPTION_WEBDAV_FILE_NAME/, 'WebDAV directory URLs must resolve to the stable ICS file while preserving legacy file URLs');
-assert.match(calendar, /WebDAV 目录 URL[\s\S]*placeholder="https:\/\/dav\.jianguoyun\.com\/dav\/task-ics\/"/, 'WebDAV settings must show the concrete Jianguoyun directory URL format');
+assert.match(calendar, /CALENDAR_SUBSCRIPTION_FILE_NAME = 'task-horizon\.ics'/, 'all providers must use the same fixed ICS filename');
+assert.match(calendar, /const directory = \/\\\.ics\$\/i\.test\(url\.pathname\)[\s\S]*url\.pathname = `\$\{directory\}\$\{CALENDAR_SUBSCRIPTION_FILE_NAME\}`/, 'WebDAV must normalize both directory and legacy file URLs to the fixed filename');
+assert.match(calendar, /WebDAV 目录地址[\s\S]*placeholder="https:\/\/dav\.jianguoyun\.com\/dav\/task-ics\/"/, 'WebDAV settings must show the concrete Jianguoyun directory URL format');
 assert.doesNotMatch(calendar, /WebDAV 文件 URL/, 'WebDAV settings must not describe the directory as a complete ICS file URL');
 assert.match(calendar, /需要登录思源账号并具有有效订阅。任务标题和时间会通过公开 URL 提供，上传后会回读校验文件。/, 'Chain settings must explain the account and subscription requirement before upload');
-assert.match(calendar, /支持坚果云、NAS 等 WebDAV 服务，请填写用于存放固定文件 task-horizon\.ics 的目录地址。/, 'WebDAV settings must explain compatible services and the generated file location');
-assert.match(calendar, /此处 WebDAV 地址只用于上传。上传成功后，请在坚果云中为 task-horizon\.ics 获取外部分享链接，并使用该链接在日历应用中订阅。/, 'WebDAV settings must explain how Jianguoyun users obtain the subscription URL');
+assert.match(calendar, /填写 WebDAV 目录地址[\s\S]*自动保存 task-horizon\.ics，无需填写文件名/, 'WebDAV settings must explain the directory and generated file location');
+assert.match(calendar, /支持 HTTP 认证的日历[\s\S]*直接下载 task-horizon\.ics[\s\S]*分享网页的链接无法直接订阅/, 'WebDAV settings must distinguish authenticated feeds and direct ICS links from share pages');
 const jianguoyunUrlStart = calendar.indexOf('function isJianguoyunCalendarSubscriptionUrl');
 const jianguoyunUrlEnd = calendar.indexOf('\n    function buildCalendarSubscriptionWebdavRequestUrl', jianguoyunUrlStart);
 const jianguoyunUrlBlock = calendar.slice(jianguoyunUrlStart, jianguoyunUrlEnd);
@@ -112,7 +112,6 @@ assert.equal(isJianguoyunUrl('https://jianguoyun.com.example.com/dav/task-ics/')
 assert.equal(isJianguoyunUrl('not a url'), false, 'invalid URLs must not show the hint');
 assert.match(calendar, /showJianguoyunSubscriptionHint \? `<div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">[\s\S]*坚果云订阅[\s\S]*: ''/, 'the Jianguoyun subscription hint must be conditionally rendered from the URL hostname');
 assert.match(calendar, /uploadCloudByAssetsPaths[\s\S]*verifyCalendarSubscriptionRemote/, 'Chain upload must validate the public asset instead of trusting the API envelope');
-assert.doesNotMatch(calendar.slice(calendar.indexOf('const calendarSubscriptionPublisher ='), calendar.indexOf('function renderSettings')), /\bS3\b|calendarIcsS3/i, 'v1 publisher must not introduce S3 support');
 
 const subscriberStart = calendar.indexOf('function isCalendarSubscriptionCloudSubscriber(user)');
 const subscriberEnd = calendar.indexOf('\n    async function getCalendarSubscriptionCloudUser', subscriberStart);
@@ -162,7 +161,6 @@ for (const key of [
     'calendarIcsCalendarName',
     'calendarIcsWebdavUrl',
     'calendarIcsWebdavUsername',
-    'calendarIcsChainFileName',
     'calendarIcsChainPublicConfirmed',
     'calendarIcsExcludeCompletedSchedules',
     'calendarIcsIncludeTomatoReminders',

@@ -6,11 +6,23 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.3.7
+
+- **Task templates:** create reusable parent-child structures from **More → Task templates** in quick add, with starter templates for feature releases, articles, and weekly planning. Manage, copy, reorder, and edit templates; select branches and replace `{{主题}}` with the current topic. Tasks are created in the background, and retrying after an interruption continues only the remaining tasks.
+- **Calendar and ICS subscriptions:** publish ICS feeds to S3-compatible storage, including MinIO and R2, with manual settings or this device's SiYuan S3 configuration. The subscription URL is generated automatically, supports direct or proxied access, and is verified after upload. LianDi, WebDAV, and S3 now share the fixed `task-horizon.ics` filename; existing randomly named feeds need the new URL. Sync scope is now a separate calendar settings section with clearer WebDAV and S3 guidance.
+- **Settings sync:** improve reloading of synchronized task-count badge, search scope, per-document heading, whiteboard navigator, and task-template settings.
+- **Fixes:** text undo and redo no longer trigger a completion prompt or check-in update when the checkbox is unchanged, and related shortcuts resolve only the task at the caret. Uninstalling also removes the derived document-scope cache while preserving tasks and settings.
+
+<details>
+<summary>Previous release</summary>
+
 ## What's new in 3.3.6
 
 - **English interface:** switch between English, Simplified Chinese, or the SiYuan interface language in Appearance settings.
 - **Task handling:** completed parents can be reopened with their subtasks reset; dated subtasks no longer send parent tasks to the unscheduled group, and creating a subtask keeps its details view on the right task.
 - **Mobile and calendar:** reserve space above the mobile view switcher for expanded subtasks; refine calendar time-axis labels and all-day collapse controls.
+
+</details>
 
 ![Task Horizon preview](preview.png)
 
@@ -67,6 +79,7 @@ Document tabs, document groups, shortcuts, and filters control the scope. Search
 
 - Edit importance, status, start and due dates, time, estimated duration, notes, attachments, and supported custom fields.
 - Add subtasks, move tasks, pin important tasks, and batch-edit supported fields.
+- Create reusable parent-child structures from **More → Task templates**. Choose a template from its submenu, select branches, and replace `{{主题}}` with this creation's topic. The template toolbar shows only the existing document-location control. Manage templates from the submenu in plain entry mode. Submitting closes quick-add and continues task creation in the background; the next quick-add opens in plain entry mode.
 - Customize columns, card fields, document colors, and desktop and mobile presentation settings.
 - Combine filter conditions and sorting. Importance and the configurable priority score are separate fields.
 - Configure completion, archive, recycle, and delete behavior. These actions may update the underlying SiYuan document.
@@ -84,6 +97,24 @@ Calendar schedules and task reminders have separate settings. Native notificatio
 Automatic date recognition includes Chinese phrases such as `明天` and `下周五`, along with supported numeric date/time formats. Selecting English does not add a complete English natural-language date parser. Use the date picker for unambiguous scheduling.
 
 ## Calendar and integrations
+
+ICS subscriptions can publish to LianDi, WebDAV, or S3-compatible storage including MinIO and R2. In **Time → ICS subscription**, choose **S3 / MinIO / R2**, enter the API endpoint, region, bucket and credentials, then click **Update now**. You can also reference this device's SiYuan S3 settings. Every provider uses `task-horizon.ics`, with no random suffix or filename setting. The plugin generates the subscription URL from the destination settings; copy it after a successful upload. Later publications overwrite the same file and verify its contents. Changing the bucket, directory or public domain changes the URL and requires subscribing again. Existing subscriptions using a randomly named file must switch to the new URL after uploading.
+
+For local MinIO, enable **Path Style** and use **Auto** or **Direct**. Configure MinIO CORS to allow `GET` and `PUT` with the `Content-Type` and `Cache-Control` headers from your SiYuan origin. The subscription file must allow anonymous reads and be reachable by your calendar app. R2 needs a public bucket URL or custom domain in **Public access URL**. Credentials synchronize with plugin settings and are excluded from manual exports. Calendar name and content options are grouped under **Sync scope**.
+
+For a manual S3 configuration, enter the endpoint, region, bucket name and matching access key pair. The storage directory is optional, and Path Style and connection method usually keep their defaults. Reusing SiYuan's S3 settings hides the inherited fields.
+
+| Service | Endpoint example | Region | Public access URL |
+| --- | --- | --- | --- |
+| Amazon S3 | `https://s3.us-east-1.amazonaws.com` | The bucket's region, such as `us-east-1` | Leave empty for automatic generation, or use your bucket's public base URL |
+| MinIO | `http://192.168.1.10:9000` (API address) | Usually `us-east-1`; use the administrator's setting | Optional; for example `https://files.example.com/calendar/` for a bucket named `calendar` |
+| Cloudflare R2 | `https://ACCOUNT_ID.r2.cloudflarestorage.com` | `auto` | Required: a public bucket URL or a domain bound to the bucket, such as `https://calendar.example.com/` |
+
+Public access URLs identify the bucket root. The plugin appends the storage directory and fixed filename. See [R2 endpoint and region settings](https://developers.cloudflare.com/r2/api/s3/api/) and [R2 public access](https://developers.cloudflare.com/r2/buckets/public-buckets/).
+
+WebDAV has three fields: a directory URL, username and password. For Nutstore, create a `task-ics` folder, enter `https://dav.jianguoyun.com/dav/task-ics/`, use your account email, and generate an app password under **Account information → Security options → Third-party app management**. The plugin writes `task-horizon.ics`; omit the filename. [Nutstore app password instructions](https://help.jianguoyun.com/?p=2064)
+
+The displayed WebDAV URL excludes credentials. A calendar supporting HTTP authentication needs the account and app password entered separately. Other calendars need a URL that directly returns the ICS file; a share page alone is insufficient. WebDAV requests run on the SiYuan server, whose proxy may reject local NAS addresses, so confirm the service is reachable from that server. Public WebDAV URLs must use HTTPS.
 
 The calendar supports day, week, month, and list presentations, task editing, schedules, and an optional sidebar. Configure working days, holidays, display options, and reminders in time settings.
 

@@ -1,5 +1,11 @@
 # Export dependencies
 
+## Calendar S3 publishing
+
+`s3-presigner.min.js` contains AWS SDK v3 `@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner` 3.1161.0. It signs PUT requests locally and loads only when publishing through S3. Dependency notices are preserved in `s3-presigner.LICENSE.txt`.
+
+The reproducible entry, build script and dependency lockfile are in `scripts/s3-signer/`. Run `npm ci --ignore-scripts` and `npm run build` there with Node.js 20 or newer. esbuild is pinned to 0.28.2. The package lock records source tarballs and integrity hashes for all dependencies. Runtime uploads need no npm installation or CDN access.
+
 - `xlsx.full.min.js`: existing SheetJS 0.20.3 workbook writer.
 - `jszip.min.js`: JSZip 3.10.2, loaded only when exporting copied attachments. Uses the MIT license in `jszip.LICENSE.markdown`.
   Source: https://registry.npmjs.org/jszip/-/jszip-3.10.2.tgz

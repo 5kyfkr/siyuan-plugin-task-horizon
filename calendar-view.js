@@ -55,7 +55,7 @@
     };
     const CALENDAR_SUBSCRIPTION_RUNTIME_KEY = 'tm_calendar_ics_runtime_state_v1';
     const CALENDAR_SUBSCRIPTION_WEBDAV_PASSWORD_KEY = 'tm_calendar_ics_webdav_password';
-    const CALENDAR_SUBSCRIPTION_WEBDAV_FILE_NAME = 'task-horizon.ics';
+    const CALENDAR_SUBSCRIPTION_FILE_NAME = 'task-horizon.ics';
     const CALENDAR_SUBSCRIPTION_SETTINGS_FILE = '/data/storage/petal/siyuan-plugin-task-horizon/task-settings.json';
     const CALENDAR_SUBSCRIPTION_EVENT_LIMIT = 20000;
     const CALENDAR_SUBSCRIPTION_FILE_LIMIT = 9 * 1024 * 1024;
@@ -9561,7 +9561,7 @@
             enabled: !!s.calendarEnabled,
             linkDockTomato: !!s.calendarLinkDockTomato,
             icsEnabled: !!s.calendarIcsEnabled,
-            icsProvider: String(s.calendarIcsProvider || 'chain').trim() === 'chain' ? 'chain' : 'webdav',
+            icsProvider: ['chain', 'webdav', 's3'].includes(s.calendarIcsProvider) ? s.calendarIcsProvider : 'chain',
             icsPublishMode: String(s.calendarIcsPublishMode || '').trim() === 'manual' ? 'manual' : 'auto',
             icsScope: s.calendarIcsScope === 'selected' ? 'selected' : 'all',
             icsDocGroupIds: Array.isArray(s.calendarIcsDocGroupIds) ? Array.from(new Set(s.calendarIcsDocGroupIds.map(id => String(id || '').trim()).filter(Boolean))) : [],
@@ -9572,7 +9572,16 @@
             icsWebdavUrl: String(s.calendarIcsWebdavUrl || '').trim(),
             icsWebdavUsername: String(s.calendarIcsWebdavUsername || '').trim(),
             icsWebdavPassword: String(s.calendarIcsWebdavPassword || ''),
-            icsChainFileName: String(s.calendarIcsChainFileName || '').trim(),
+            icsS3UseSiyuanConfig: s.calendarIcsS3UseSiyuanConfig === true,
+            icsS3Endpoint: String(s.calendarIcsS3Endpoint || ''),
+            icsS3Region: String(s.calendarIcsS3Region || 'auto'),
+            icsS3Bucket: String(s.calendarIcsS3Bucket || ''),
+            icsS3AccessKeyId: String(s.calendarIcsS3AccessKeyId || ''),
+            icsS3SecretAccessKey: String(s.calendarIcsS3SecretAccessKey || ''),
+            icsS3StoragePath: String(s.calendarIcsS3StoragePath ?? 'calendar/task-horizon'),
+            icsS3ForcePathStyle: s.calendarIcsS3ForcePathStyle !== false,
+            icsS3PublicBaseUrl: String(s.calendarIcsS3PublicBaseUrl || ''),
+            icsS3Transport: String(s.calendarIcsS3Transport || 'auto'),
             icsChainPublicConfirmed: s.calendarIcsChainPublicConfirmed === true,
             icsExcludeCompletedSchedules: s.calendarIcsExcludeCompletedSchedules === true,
             icsIncludeTomatoReminders: s.calendarIcsIncludeTomatoReminders !== false,
@@ -40861,6 +40870,10 @@
     }
 
     function getCalendarSubscriptionDisplayUrl(settings = getSettings()) {
+        if (settings.icsProvider === 's3') {
+            try { return getCalendarSubscriptionS3Target(settings).url; }
+            catch (error) { return ''; }
+        }
         if (settings.icsProvider === 'webdav') {
             try {
                 const url = normalizeCalendarSubscriptionWebdavUrl(settings.icsWebdavUrl);
@@ -40871,11 +40884,9 @@
                 return '';
             }
         }
-        const runtimeUrl = String(loadCalendarSubscriptionRuntimeStatus()?.url || '').trim();
-        if (runtimeUrl.includes('assets.b3logfile.com/')) return runtimeUrl;
         const userId = String(globalThis.siyuan?.user?.userId || '').trim();
-        const fileName = String(settings.icsChainFileName || '').trim();
-        if (!userId || !fileName) return '';
+        const fileName = CALENDAR_SUBSCRIPTION_FILE_NAME;
+        if (!userId) return '';
         return `https://assets.b3logfile.com/siyuan/${encodeURIComponent(userId)}/assets/${encodeURIComponent(fileName)}`;
     }
 
@@ -40941,28 +40952,18 @@
         return false;
     }
 
-    function createStableCalendarSubscriptionFileName() {
-        let token = '';
-        try {
-            const bytes = new Uint8Array(12);
-            crypto.getRandomValues(bytes);
-            token = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
-        } catch (e) {
-            token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 14)}`;
-        }
-        return `task-horizon-${token}.ics`;
-    }
-
-    async function ensureCalendarSubscriptionChainFileName(run) {
-        run.check();
-        const store = state.settingsStore;
-        const current = String(store?.data?.calendarIcsChainFileName || getSettings().icsChainFileName || '').trim();
-        if (/^[A-Za-z0-9._-]+\.ics$/i.test(current)) return current;
-        if (!store?.data) throw new Error(__tmT("calendar.calendarIcsUploadSettingsAreNotReadyYet"));
-        const next = createStableCalendarSubscriptionFileName();
-        store.data.calendarIcsChainFileName = next;
-        await run.wait(__tmT("calendar.saveSubscriptionFileName"), () => flushCalendarSubscriptionSettingsStore(store));
-        return next;
+    function getCalendarSubscriptionS3Target(settings) {
+        const s3 = globalThis.__tmCalendarSubscriptionCore.s3;
+        if (!s3) throw new Error(__tmT("calendar.s3ModuleNotLoaded"));
+        return s3.normalize({
+            useSiyuanConfig: settings.icsS3UseSiyuanConfig,
+            endpoint: settings.icsS3Endpoint, region: settings.icsS3Region,
+            bucket: settings.icsS3Bucket, accessKeyId: settings.icsS3AccessKeyId,
+            secretAccessKey: settings.icsS3SecretAccessKey,
+            storagePath: settings.icsS3StoragePath, fileName: CALENDAR_SUBSCRIPTION_FILE_NAME,
+            forcePathStyle: settings.icsS3ForcePathStyle,
+            publicBaseUrl: settings.icsS3PublicBaseUrl, transport: settings.icsS3Transport,
+        }, globalThis.siyuan?.config?.sync?.s3);
     }
 
     function buildCalendarSubscriptionRange() {
@@ -41120,7 +41121,16 @@
             calendarIcsWebdavUrl: 'string',
             calendarIcsWebdavUsername: 'string',
             calendarIcsWebdavPassword: 'string',
-            calendarIcsChainFileName: 'string',
+            calendarIcsS3UseSiyuanConfig: 'boolean',
+            calendarIcsS3Endpoint: 'string',
+            calendarIcsS3Region: 'string',
+            calendarIcsS3Bucket: 'string',
+            calendarIcsS3AccessKeyId: 'string',
+            calendarIcsS3SecretAccessKey: 'string',
+            calendarIcsS3StoragePath: 'string',
+            calendarIcsS3ForcePathStyle: 'boolean',
+            calendarIcsS3PublicBaseUrl: 'string',
+            calendarIcsS3Transport: 'string',
             calendarIcsChainPublicConfirmed: 'boolean',
             calendarIcsExcludeCompletedSchedules: 'boolean',
             calendarIcsIncludeTomatoReminders: 'boolean',
@@ -41501,10 +41511,10 @@
         if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isPrivateCalendarSubscriptionHost(url.hostname))) {
             throw new Error(__tmT("calendar.publicWebdavUrlsMustUseHttps"));
         }
-        // Keep already-saved file URLs working while new configurations use a directory URL.
-        if (!/\.ics$/i.test(url.pathname)) {
-            url.pathname = `${url.pathname.replace(/\/+$/, '')}/${CALENDAR_SUBSCRIPTION_WEBDAV_FILE_NAME}`;
-        }
+        const directory = /\.ics$/i.test(url.pathname)
+            ? url.pathname.replace(/[^/]+$/, '')
+            : `${url.pathname.replace(/\/+$/, '')}/`;
+        url.pathname = `${directory}${CALENDAR_SUBSCRIPTION_FILE_NAME}`;
         return url;
     }
 
@@ -41559,6 +41569,7 @@
         if (options.authorization) headers.push({ Authorization: options.authorization });
         if (options.contentType) headers.push({ 'Content-Type': options.contentType });
         if (options.depth !== undefined) headers.push({ Depth: String(options.depth) });
+        for (const [key, value] of Object.entries(options.headers || {})) headers.push({ [key]: String(value) });
         const data = await callKernelJson('/api/network/forwardProxy', {
             url: String(url),
             method: String(method || 'GET').toUpperCase(),
@@ -41568,7 +41579,7 @@
             payloadEncoding: String(options.payloadEncoding || 'text'),
             payload: String(options.payload ?? ''),
             responseEncoding: 'text',
-        }, __tmT("calendar.webdavIcsRequest", { value1: String(method || 'GET').toUpperCase() }), run, String(method).toUpperCase() === 'PUT');
+        }, options.context || __tmT("calendar.webdavIcsRequest", { value1: String(method || 'GET').toUpperCase() }), run, String(method).toUpperCase() === 'PUT');
         const status = Number(data?.status);
         return { status, body: String(data?.body ?? ''), headers: data?.headers || null };
     }
@@ -41606,13 +41617,12 @@
                 const readUrl = options.cacheBust === true
                     ? appendCalendarSubscriptionCacheBuster(url, expectedFileHash)
                     : String(url);
-                const response = await forwardCalendarSubscriptionRequest(
-                    readUrl,
-                    'GET',
-                    { authorization },
-                    run
-                );
-                if (response.status < 200 || response.status >= 300) throw new Error(__tmT("calendar.remoteReadBackFailedHttp", { status: response.status }));
+                const response = options.s3Target
+                    ? await requestCalendarSubscriptionS3(options.s3Target, readUrl, 'GET', '', run)
+                    : await forwardCalendarSubscriptionRequest(readUrl, 'GET', { authorization }, run);
+                if (response.status < 200 || response.status >= 300) throw new Error(options.s3Target
+                    ? __tmT("calendar.s3ReadFailedHttp", { status: response.status })
+                    : __tmT("calendar.remoteReadBackFailedHttp", { status: response.status }));
                 const remoteHash = await run.wait(__tmT("calendar.verifyingRemoteIcs"), () => core.hashText(response.body));
                 if (remoteHash !== expectedFileHash) throw new Error(__tmT("calendar.remoteFileVerificationFailedItMayStillBeAn"));
                 return true;
@@ -41647,6 +41657,59 @@
         }
         if (response.status < 200 || response.status >= 300) throw createCalendarSubscriptionWebdavHttpError(__tmT("calendar.webdavUploadFailed"), response);
         await verifyCalendarSubscriptionRemote(requestUrl, fileHash, authorization, { cacheBust: false }, run);
+    }
+
+    async function requestCalendarSubscriptionS3(target, url, method, text, run) {
+        const s3 = globalThis.__tmCalendarSubscriptionCore.s3;
+        const context = __tmT("calendar.s3Request", { method });
+        if (method === 'PUT') run.assertCurrent?.();
+        const headers = { 'Cache-Control': method === 'PUT' ? s3.CACHE_CONTROL : 'no-cache' };
+        if (s3.transportFor(url, target.transport) === 'proxy') {
+            return await forwardCalendarSubscriptionRequest(url, method, {
+                context, headers, contentType: method === 'PUT' ? s3.CONTENT_TYPE : 'text/plain; charset=utf-8',
+                payloadEncoding: 'base64', payload: method === 'PUT' ? encodeCalendarSubscriptionUtf8Base64(text) : '',
+            }, run);
+        }
+        try {
+            return await run.wait(context, async (signal) => {
+                if (method === 'PUT') run.remoteWriteStarted = true;
+                const response = await fetch(url, {
+                    method, headers: method === 'PUT' ? { ...headers, 'Content-Type': s3.CONTENT_TYPE } : headers,
+                    ...(method === 'PUT' ? { body: text } : { cache: 'no-store' }), signal,
+                });
+                return { status: response.status, body: await response.text() };
+            });
+        } catch (error) {
+            if (run.error) throw run.error;
+            const failure = new Error(__tmT(method === 'PUT' ? "calendar.s3DirectWriteUnconfirmed" : "calendar.s3DirectReadFailed"));
+            if (method === 'PUT') {
+                failure.code = 'TM_ICS_REMOTE_UNCONFIRMED';
+                run.cancel(failure);
+            }
+            throw failure;
+        }
+    }
+
+    async function uploadCalendarSubscriptionS3(target, icsText, fileHash, run) {
+        try {
+            if (!globalThis.__tmCalendarS3Signer?.presignPut) {
+                const loaded = await run.wait(__tmT("calendar.s3LoadingSigner"), () => globalThis.__taskHorizonEnsureCalendarS3Loaded?.());
+                if (!loaded || !globalThis.__tmCalendarS3Signer?.presignPut) throw new Error(__tmT("calendar.s3ModuleNotLoaded"));
+            }
+            const s3 = globalThis.__tmCalendarSubscriptionCore.s3;
+            const signedUrl = await run.wait(__tmT("calendar.s3SigningUpload"), () => globalThis.__tmCalendarS3Signer.presignPut(target, s3.CONTENT_TYPE, s3.CACHE_CONTROL));
+            const response = await requestCalendarSubscriptionS3(target, signedUrl, 'PUT', icsText, run);
+            if (response.status < 200 || response.status >= 300) {
+                throw new Error(__tmT("calendar.s3UploadFailedHttp", { status: response.status }));
+            }
+            await verifyCalendarSubscriptionRemote(target.url, fileHash, '', { s3Target: target }, run);
+        } catch (error) {
+            if (run.error) throw run.error;
+            if (error instanceof CalendarSubscriptionStaleError) throw error;
+            const safeError = new Error(globalThis.__tmCalendarSubscriptionCore.s3.sanitizeError(error, target));
+            safeError.code = error?.code;
+            throw safeError;
+        }
     }
 
     function normalizeCloudUserData(value) {
@@ -41689,10 +41752,17 @@
     async function resolveCalendarSubscriptionTarget(settings, run) {
         if (settings.icsProvider === 'chain') {
             if (settings.icsChainPublicConfirmed !== true) throw new Error(__tmT("calendar.firstConfirmThatTheLiandiSubscriptionUrlIsPublicly"));
-            const fileName = await ensureCalendarSubscriptionChainFileName(run);
+            const fileName = CALENDAR_SUBSCRIPTION_FILE_NAME;
             const cloudUser = await getCalendarSubscriptionCloudUser(run);
             const url = `https://assets.b3logfile.com/siyuan/${encodeURIComponent(cloudUser.userId)}/assets/${encodeURIComponent(fileName)}`;
             return { provider: 'chain', fileName, url, targetKey: `chain:${cloudUser.userId}:${fileName}` };
+        }
+        if (settings.icsProvider === 's3') {
+            const target = getCalendarSubscriptionS3Target(settings);
+            const fingerprint = await run.wait(__tmT("calendar.s3CheckingTarget"), () => globalThis.__tmCalendarSubscriptionCore.hashText(
+                globalThis.__tmCalendarSubscriptionCore.stableStringify(target)
+            ));
+            return { ...target, provider: 's3', targetKey: `s3:${fingerprint}` };
         }
         const url = normalizeCalendarSubscriptionWebdavUrl(settings.icsWebdavUrl);
         return {
@@ -41754,7 +41824,9 @@
         if (byteLength > CALENDAR_SUBSCRIPTION_FILE_LIMIT) throw new Error(__tmT("calendar.icsFileExceedsTheMibLimit"));
         const fileHash = await run.wait(__tmT("calendar.generatingCalendarFile"), () => core.hashText(icsText));
         assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded, run);
+        run.assertCurrent = () => assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded, run);
         if (target.provider === 'chain') await uploadCalendarSubscriptionChain(target, icsText, fileHash, run);
+        else if (target.provider === 's3') await uploadCalendarSubscriptionS3(target, icsText, fileHash, run);
         else await uploadCalendarSubscriptionWebdav(target, icsText, fileHash, run);
         assertCalendarSubscriptionPublicationCurrent(capturedSeq, capturedToken, built.tomatoLoaded, run);
         await putCalendarSubscriptionFile(STORAGE.CALENDAR_SUBSCRIPTION_FILE, icsText, run);
@@ -42065,6 +42137,33 @@
     });
     globalThis.__tmCalendarSubscription = calendarSubscriptionApi;
 
+    function renderCalendarSubscriptionS3Settings(settings) {
+        const row = (label, description, control, stacked = false) => `<div class="tm-calendar-settings-row${stacked ? ' tm-calendar-settings-row--stacked' : ''}">
+            <div class="tm-calendar-settings-label">${__tmT(label)}<div class="tm-calendar-settings-label-desc">${__tmT(description)}</div></div>${control}</div>`;
+        const input = (suffix, label, description, placeholder = '', type = 'text') => row(label, description,
+            `<input class="tm-calendar-settings-input${type === 'password' ? ' tm-calendar-settings-input--compact' : ''}" type="${type}" aria-label="${esc(__tmT(label))}" autocomplete="off" data-tm-cal-setting="calendarIcsS3${suffix}" value="${esc(settings[`icsS3${suffix}`])}" placeholder="${esc(placeholder)}">`, type !== 'password');
+        const toggle = (suffix, label, description) => row(label, description,
+            `<input class="b3-switch fn__flex-center" type="checkbox" aria-label="${esc(__tmT(label))}" data-tm-cal-setting="calendarIcsS3${suffix}" ${settings[`icsS3${suffix}`] ? 'checked' : ''}>`);
+        return toggle('UseSiyuanConfig', 'calendar.s3UseSiyuanConfig', 'calendar.s3UseSiyuanConfigDescription')
+            + (settings.icsS3UseSiyuanConfig ? '' : [
+                input('Endpoint', 'calendar.s3Endpoint', 'calendar.s3EndpointDescription', 'https://s3.example.com', 'url'),
+                input('Region', 'calendar.s3Region', 'calendar.s3RegionDescription', 'auto'),
+            ].join(''))
+            + input('Bucket', 'calendar.s3Bucket', settings.icsS3UseSiyuanConfig ? 'calendar.s3BucketInheritedDescription' : 'calendar.s3BucketDescription', 'calendar')
+            + (settings.icsS3UseSiyuanConfig ? '' : [
+                input('AccessKeyId', 'calendar.s3AccessKeyId', 'calendar.s3AccessKeyIdDescription', '', 'password'),
+                input('SecretAccessKey', 'calendar.s3SecretAccessKey', 'calendar.s3SecretAccessKeyDescription', '', 'password'),
+            ].join(''))
+            + input('StoragePath', 'calendar.s3StoragePath', 'calendar.s3StoragePathDescription', 'calendar/task-horizon')
+            + input('PublicBaseUrl', 'calendar.s3PublicBaseUrl', 'calendar.s3PublicBaseUrlDescription', 'https://calendar.example.com/', 'url')
+            + (settings.icsS3UseSiyuanConfig ? '' : toggle('ForcePathStyle', 'calendar.s3PathStyle', 'calendar.s3PathStyleDescription'))
+            + row('calendar.s3Transport', 'calendar.s3TransportDescription', `<select class="tm-calendar-settings-select" aria-label="${esc(__tmT("calendar.s3Transport"))}" data-tm-cal-setting="calendarIcsS3Transport">
+                <option value="auto" ${settings.icsS3Transport === 'auto' ? 'selected' : ''}>${__tmT("calendar.s3TransportAuto")}</option>
+                <option value="direct" ${settings.icsS3Transport === 'direct' ? 'selected' : ''}>${__tmT("calendar.s3TransportDirect")}</option>
+                <option value="proxy" ${settings.icsS3Transport === 'proxy' ? 'selected' : ''}>${__tmT("calendar.s3TransportProxy")}</option>
+            </select>`);
+    }
+
     async function pickCalendarIndependentScheduleTaskDoc(containerEl, buttonEl) {
         const store = state.settingsStore;
         if (!store?.data) return false;
@@ -42329,7 +42428,7 @@
                     </div>
                     <div class="tm-calendar-ics-inline-status">${s.icsChainPublicConfirmed ? __tmT("calendar.publicPublishingConfirmed") : __tmT("calendar.confirmationRequiredWhenEnabling")}</div>
                 </div>
-        ` : `
+        ` : s.icsProvider === 's3' ? renderCalendarSubscriptionS3Settings(s) : `
                 <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
                     <div class="tm-calendar-settings-label">${__tmT("calendar.webdavDirectoryUrl")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.supportsNutstoreNasAndOtherWebdavServicesEnterThe")}</div>
                     </div>
@@ -42341,9 +42440,12 @@
                     <input id="tm-calendar-ics-webdav-user" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="text" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.webdavUsername2")}" autocomplete="username" data-tm-cal-setting="calendarIcsWebdavUsername" value="${esc(s.icsWebdavUsername)}">
                 </div>
                 <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">${__tmT("calendar.webdavPassword")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.savedWithThePluginSettingsAndSyncedToOther")}</div>
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.webdavPassword")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.savedWithThePluginSettingsAndSyncedToOther")}${showJianguoyunSubscriptionHint ? ` <a href="https://help.jianguoyun.com/?p=2064" target="_blank" rel="noopener noreferrer">${__tmT("calendar.webdavAppPasswordGuide")}</a>` : ''}</div>
                     </div>
                     <input id="tm-calendar-ics-webdav-password" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="password" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.webdavPassword2")}" autocomplete="current-password" data-tm-cal-setting="calendarIcsWebdavPassword" value="${esc(s.icsWebdavPassword)}">
+                </div>
+                <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
+                    <div class="tm-calendar-settings-label">${__tmT("calendar.webdavConnection")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.webdavConnectionDescription")}</div></div>
                 </div>
                 ${showJianguoyunSubscriptionHint ? `<div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
                     <div class="tm-calendar-settings-label">${__tmT("calendar.nutstoreSubscription")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.thisWebdavAddressIsUsedOnlyForUploadingAfter")}</div>
@@ -42654,22 +42756,8 @@
                     </div>
                 </section>
 
-                <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-subscription">
-                    <div class="tm-calendar-settings-section-title">${__tmT("calendar.calendarIcsExport")}</div>
-                    <div class="tm-settings-section-desc">${__tmT("calendar.generateAnIcsSnapshotThatSystemAndThirdParty")}</div>
-                    <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">${__tmT("calendar.enableIcsUpload")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.anyDeviceCanPublishACompleteCalendarSnapshotFrom")}</div>
-                        </div>
-                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsEnabled" ${s.icsEnabled ? 'checked' : ''}>
-                    </div>
-                    <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">${__tmT("calendar.provider")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.chooseAPublicLiandiAddressOrUseYourOwn")}</div>
-                        </div>
-                        <select id="tm-calendar-ics-provider" class="tm-calendar-settings-select" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.provider2")}" data-tm-cal-setting="calendarIcsProvider">
-                            <option value="webdav" ${s.icsProvider === 'webdav' ? 'selected' : ''}>WebDAV</option>
-                            <option value="chain" ${s.icsProvider === 'chain' ? 'selected' : ''}>${__tmT("calendar.liandi")}</option>
-                        </select>
-                    </div>
+                <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-subscription-scope">
+                    <div class="tm-calendar-settings-section-title">${__tmT("calendar.syncScopeSettings")}</div>
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">${__tmT("calendar.calendarName")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.theCalendarNameShownAfterSubscribingInOtherCalendar")}</div>
                         </div>
@@ -42718,6 +42806,25 @@
                         </div>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsIncludeTomatoReminders" ${s.icsIncludeTomatoReminders ? 'checked' : ''}>
                     </div>
+                </section>
+
+                <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-subscription">
+                    <div class="tm-calendar-settings-section-title">${__tmT("calendar.calendarIcsExport")}</div>
+                    <div class="tm-settings-section-desc">${__tmT("calendar.generateAnIcsSnapshotThatSystemAndThirdParty")}</div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.enableIcsUpload")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.anyDeviceCanPublishACompleteCalendarSnapshotFrom")}</div>
+                        </div>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarIcsEnabled" ${s.icsEnabled ? 'checked' : ''}>
+                    </div>
+                    <div class="tm-calendar-settings-row">
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.provider")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.chooseAPublicLiandiAddressOrUseYourOwn")}</div>
+                        </div>
+                        <select id="tm-calendar-ics-provider" class="tm-calendar-settings-select" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.provider2")}" data-tm-cal-setting="calendarIcsProvider">
+                            <option value="webdav" ${s.icsProvider === 'webdav' ? 'selected' : ''}>WebDAV</option>
+                            <option value="s3" ${s.icsProvider === 's3' ? 'selected' : ''}>S3 / MinIO / R2</option>
+                            <option value="chain" ${s.icsProvider === 'chain' ? 'selected' : ''}>${__tmT("calendar.liandi")}</option>
+                        </select>
+                    </div>
                     ${icsProviderRows}
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">${__tmT("calendar.publishMode")}<div class="tm-calendar-settings-label-desc">${s.icsPublishMode === 'manual'
@@ -42751,7 +42858,11 @@
                         <div class="tm-calendar-ics-inline-status ${icsStatus.lastError ? 'tm-calendar-ics-inline-status--error' : ''}" data-tm-ics-last-error>${esc(icsStatus.lastError || __tmT("common.none"))}</div>
                     </div>
                     <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
-                        <div class="tm-calendar-settings-label">${__tmT("calendar.subscriptionUrl")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.copyIntoASystemOrThirdPartyCalendarApp")}</div>
+                        <div class="tm-calendar-settings-label">${__tmT("calendar.subscriptionUrl")}<div class="tm-calendar-settings-label-desc">${s.icsProvider === 'webdav'
+                            ? __tmT("calendar.webdavSubscriptionDescription")
+                            : s.icsProvider === 's3'
+                                ? __tmT("calendar.s3SubscriptionDescription")
+                                : __tmT("calendar.copyIntoASystemOrThirdPartyCalendarApp")}</div>
                         </div>
                         <div class="tm-calendar-ics-url-row">
                             <input id="tm-calendar-ics-url" class="tm-calendar-settings-input" type="text" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.subscriptionUrl2")}" readonly data-tm-ics-subscription-url value="${esc(getCalendarSubscriptionDisplayUrl(s))}">
@@ -42765,6 +42876,7 @@
                         <button class="tm-btn" type="button" data-tm-ics-action="publish" ${(!s.icsEnabled || calendarSubscriptionPublisher.running) ? 'disabled' : ''}>${calendarSubscriptionPublisher.running ? __tmT("calendar.updating") : __tmT("calendar.updateNow")}</button>
                     </div>
                 </section>
+
             </div>
         `;
 
@@ -42776,10 +42888,11 @@
 
         containerEl.addEventListener('input', (e) => {
             const el = e.target;
-            if (String(el?.getAttribute?.('data-tm-cal-setting') || '') !== 'calendarIcsWebdavPassword') return;
+            const key = String(el?.getAttribute?.('data-tm-cal-setting') || '');
+            if (!['calendarIcsWebdavPassword', 'calendarIcsS3AccessKeyId', 'calendarIcsS3SecretAccessKey'].includes(key)) return;
             const store = state.settingsStore;
             if (!store?.data) return;
-            store.data.calendarIcsWebdavPassword = String(el?.value || '');
+            store.data[key] = String(el?.value || '');
             try { store.save?.(); } catch (e2) {}
         }, { signal: abort.signal });
 
@@ -42847,7 +42960,7 @@
             } else if (key === 'calendarTomatoColorMode') {
                 store.data[key] = normalizeCalendarTomatoColorMode(el.value);
             } else if (key === 'calendarIcsProvider') {
-                store.data[key] = String(el.value || '').trim() === 'chain' ? 'chain' : 'webdav';
+                store.data[key] = ['chain', 'webdav', 's3'].includes(el.value) ? el.value : 'chain';
             } else if (key === 'calendarIcsPublishMode') {
                 store.data[key] = String(el.value || '').trim() === 'manual' ? 'manual' : 'auto';
             } else if (key === 'calendarIcsScope') {
