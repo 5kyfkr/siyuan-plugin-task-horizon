@@ -907,6 +907,33 @@
         return true;
     }
 
+    function __tmScheduleDerivedTaskCachesAfterSyncedRefresh(reason = 'synced-refresh') {
+        const docIds = Array.isArray(state.__tmLoadedDocIdsForTasks)
+            ? state.__tmLoadedDocIdsForTasks.slice()
+            : [];
+        if (!docIds.length) return false;
+        const groupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const source = String(reason || 'synced-refresh').trim() || 'synced-refresh';
+        try {
+            __tmSchedulePersistTaskIndex({
+                docIds,
+                queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                delayMs: 500,
+                source,
+            });
+        } catch (e) {}
+        try {
+            globalThis.__tmTaskSnapshotService?.schedulePersist?.({
+                docIds,
+                groupId,
+                queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                delayMs: 900,
+                source,
+            });
+        } catch (e) {}
+        return true;
+    }
+
     async function __tmReloadSyncedPluginData(options = {}) {
         const opt = (options && typeof options === 'object') ? options : {};
         const reason = String(opt.reason || 'siyuan-data-changed').trim() || 'siyuan-data-changed';
@@ -1039,7 +1066,14 @@
                 skipSharedStateReload: true,
                 suppressStorageWrites,
             }));
-            if (refreshedView === true) state.__tmSyncedDataReloadPending = false;
+            if (refreshedView === true) {
+                state.__tmSyncedDataReloadPending = false;
+                if (suppressStorageWrites) {
+                    try { __tmScheduleDerivedTaskCachesAfterSyncedRefresh(reason); } catch (e) {}
+                }
+            } else if (suppressStorageWrites) {
+                state.__tmSyncedDataReloadPending = true;
+            }
         } else if (hasLiveView) {
             // Keep storage hydration cheap while the tab is hidden. The next
             // activation will perform one visible refresh instead of rebuilding

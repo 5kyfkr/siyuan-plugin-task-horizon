@@ -97,17 +97,8 @@ assert.match(docIncremental, /const commitView = opts\.commitView !== false && o
 assert.match(docIncremental, /if \(commitView && opts\.withFilters !== false\) __tmRecomputeTaskProjection/);
 assert.match(docIncremental, /if \(commitView\) \{[\s\S]*__tmScheduleViewRefresh/);
 
-const snapshotRefresh = segment(
-    dialogs,
-    'async function __tmRefreshVisibleViewAfterTaskSnapshotSync',
-    'function __tmScheduleListAutoLoadMoreHydration',
-);
-const snapshotLockIndex = snapshotRefresh.indexOf('state.__tmTaskSnapshotSyncRefreshInFlight = true;');
-const snapshotAwaitIndex = snapshotRefresh.indexOf('await snapshotService.refreshCache');
-assert.ok(snapshotLockIndex >= 0 && snapshotLockIndex < snapshotAwaitIndex,
-    'snapshot synchronization must lock before its first asynchronous read');
-assert.match(snapshotRefresh, /commitView,[\s\S]*deferProjection: true/,
-    'snapshot fallback must defer projection during data-only refresh');
+assert.doesNotMatch(dialogs, /function __tmRefreshVisibleViewAfterTaskSnapshotSync/,
+    'the retired standalone snapshot refresh pipeline must stay removed');
 
 const viewDefer = segment(
     viewRuntime,

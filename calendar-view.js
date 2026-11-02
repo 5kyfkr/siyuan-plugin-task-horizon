@@ -42141,7 +42141,7 @@
         const row = (label, description, control, stacked = false) => `<div class="tm-calendar-settings-row${stacked ? ' tm-calendar-settings-row--stacked' : ''}">
             <div class="tm-calendar-settings-label">${__tmT(label)}<div class="tm-calendar-settings-label-desc">${__tmT(description)}</div></div>${control}</div>`;
         const input = (suffix, label, description, placeholder = '', type = 'text') => row(label, description,
-            `<input class="tm-calendar-settings-input${type === 'password' ? ' tm-calendar-settings-input--compact' : ''}" type="${type}" aria-label="${esc(__tmT(label))}" autocomplete="off" data-tm-cal-setting="calendarIcsS3${suffix}" value="${esc(settings[`icsS3${suffix}`])}" placeholder="${esc(placeholder)}">`, type !== 'password');
+            `<input class="tm-calendar-settings-input" type="${type}" aria-label="${esc(__tmT(label))}" autocomplete="off" data-tm-cal-setting="calendarIcsS3${suffix}" value="${esc(settings[`icsS3${suffix}`])}" placeholder="${esc(placeholder)}">`, true);
         const toggle = (suffix, label, description) => row(label, description,
             `<input class="b3-switch fn__flex-center" type="checkbox" aria-label="${esc(__tmT(label))}" data-tm-cal-setting="calendarIcsS3${suffix}" ${settings[`icsS3${suffix}`] ? 'checked' : ''}>`);
         return toggle('UseSiyuanConfig', 'calendar.s3UseSiyuanConfig', 'calendar.s3UseSiyuanConfigDescription')
@@ -42434,15 +42434,15 @@
                     </div>
                     <input id="tm-calendar-ics-webdav-url" class="tm-calendar-settings-input" type="url" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.webdavDirectoryUrl2")}" data-tm-cal-setting="calendarIcsWebdavUrl" value="${esc(s.icsWebdavUrl)}" placeholder="https://dav.jianguoyun.com/dav/task-ics/">
                 </div>
-                <div class="tm-calendar-settings-row">
+                <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
                     <div class="tm-calendar-settings-label">${__tmT("calendar.webdavUsername")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.usedToAccessTheWebdavDirectorySyncsWithThe")}</div>
                     </div>
-                    <input id="tm-calendar-ics-webdav-user" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="text" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.webdavUsername2")}" autocomplete="username" data-tm-cal-setting="calendarIcsWebdavUsername" value="${esc(s.icsWebdavUsername)}">
+                    <input id="tm-calendar-ics-webdav-user" class="tm-calendar-settings-input" type="text" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.webdavUsername2")}" autocomplete="username" data-tm-cal-setting="calendarIcsWebdavUsername" value="${esc(s.icsWebdavUsername)}">
                 </div>
-                <div class="tm-calendar-settings-row">
+                <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
                     <div class="tm-calendar-settings-label">${__tmT("calendar.webdavPassword")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.savedWithThePluginSettingsAndSyncedToOther")}${showJianguoyunSubscriptionHint ? ` <a href="https://help.jianguoyun.com/?p=2064" target="_blank" rel="noopener noreferrer">${__tmT("calendar.webdavAppPasswordGuide")}</a>` : ''}</div>
                     </div>
-                    <input id="tm-calendar-ics-webdav-password" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="password" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.webdavPassword2")}" autocomplete="current-password" data-tm-cal-setting="calendarIcsWebdavPassword" value="${esc(s.icsWebdavPassword)}">
+                    <input id="tm-calendar-ics-webdav-password" class="tm-calendar-settings-input" type="password" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.webdavPassword2")}" autocomplete="current-password" data-tm-cal-setting="calendarIcsWebdavPassword" value="${esc(s.icsWebdavPassword)}">
                 </div>
                 <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
                     <div class="tm-calendar-settings-label">${__tmT("calendar.webdavConnection")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.webdavConnectionDescription")}</div></div>
@@ -42758,10 +42758,10 @@
 
                 <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-subscription-scope">
                     <div class="tm-calendar-settings-section-title">${__tmT("calendar.syncScopeSettings")}</div>
-                    <div class="tm-calendar-settings-row">
+                    <div class="tm-calendar-settings-row tm-calendar-settings-row--stacked">
                         <div class="tm-calendar-settings-label">${__tmT("calendar.calendarName")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.theCalendarNameShownAfterSubscribingInOtherCalendar")}</div>
                         </div>
-                        <input id="tm-calendar-ics-name" class="tm-calendar-settings-input tm-calendar-settings-input--compact" type="text" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.calendarName2")}" maxlength="120" data-tm-cal-setting="calendarIcsCalendarName" value="${esc(s.icsCalendarName)}">
+                        <input id="tm-calendar-ics-name" class="tm-calendar-settings-input" type="text" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.calendarName2")}" maxlength="120" data-tm-cal-setting="calendarIcsCalendarName" value="${esc(s.icsCalendarName)}">
                     </div>
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">${__tmT("calendar.syncScope")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.appliesToSchedulesAllDayTaskSchedulesAndPomodoro")}</div>

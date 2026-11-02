@@ -8819,6 +8819,7 @@
             if (!(hiddenInput instanceof HTMLInputElement) || !(trigger instanceof HTMLElement) || !(menu instanceof HTMLElement) || !(valueWrap instanceof HTMLElement)) return;
             const optionButtons = Array.from(menu.querySelectorAll('[data-tm-detail-status-option]')).filter((el) => el instanceof HTMLButtonElement);
             if (!optionButtons.length) return;
+            const sheetBody = root.closest('.tm-checklist-sheet-body');
 
             const closeMenu = (reason = '') => {
                 try {
@@ -8826,6 +8827,7 @@
                 } catch (e) {}
                 menu.hidden = true;
                 menu.style.display = 'none';
+                sheetBody?.classList.remove('tm-task-detail-sheet-body--popup-scroll');
                 trigger.setAttribute('aria-expanded', 'false');
             };
             const openMenu = () => {
@@ -8834,6 +8836,7 @@
                 } catch (e) {}
                 menu.hidden = false;
                 menu.style.display = 'flex';
+                sheetBody?.classList.add('tm-task-detail-sheet-body--popup-scroll');
                 trigger.setAttribute('aria-expanded', 'true');
             };
             const syncStatusUi = () => {

@@ -5,7 +5,7 @@ const fs = require('./i18n-source-fixture');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
+const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8').replace(/\r\n?/g, '\n');
 
 const detailSource = read('src', 'task-horizon', 'main', 'task-runtime', '52-task-detail-runtime.js');
 const helperSource = read('src', 'task-horizon', 'main', 'task-runtime', '51-whiteboard-and-link-runtime.js');

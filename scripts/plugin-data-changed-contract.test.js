@@ -42,6 +42,11 @@ const reloadEnd = refreshRuntime.indexOf('\n    async function __tmRefreshCore',
 assert.notEqual(reloadStart, -1, 'the main runtime must expose an in-place synchronized data reload');
 assert.notEqual(reloadEnd, -1, 'the synchronized data reload must remain independently inspectable');
 const reload = refreshRuntime.slice(reloadStart, reloadEnd);
+const derivedCacheStart = refreshRuntime.indexOf('function __tmScheduleDerivedTaskCachesAfterSyncedRefresh');
+const derivedCacheEnd = refreshRuntime.indexOf('\n    async function __tmReloadSyncedPluginData', derivedCacheStart);
+assert.notEqual(derivedCacheStart, -1, 'the synchronized refresh must expose one derived-cache scheduler');
+assert.notEqual(derivedCacheEnd, -1, 'the derived-cache scheduler must remain independently inspectable');
+const derivedCaches = refreshRuntime.slice(derivedCacheStart, derivedCacheEnd);
 
 assert.match(reload, /SettingsStore\.loaded = false/, 'settings must be force reloaded');
 assert.match(reload, /MetaStore\.loaded = false/, 'task metadata must be force reloaded');
@@ -54,6 +59,12 @@ assert.match(reload, /skipSharedStateReload: true/, 'the view refresh must not w
 assert.match(reload, /suppressStorageWrites/, 'overwrite reloads must suppress storage writes while remote data is hydrated');
 assert.match(reload, /hasLiveView && pluginVisible/, 'synchronized storage changes must not rebuild a hidden task tab');
 assert.match(reload, /__tmSyncedDataReloadPending = true/, 'hidden synchronized changes must be deferred until the task tab is visible');
+assert.match(reload, /refreshedView = await runWithStorageWritesSuppressed[\s\S]*if \(refreshedView === true\)[\s\S]*__tmScheduleDerivedTaskCachesAfterSyncedRefresh\(reason\)/,
+    'derived caches must be scheduled only after the read-only synchronized refresh completes');
+assert.match(reload, /else if \(suppressStorageWrites\)[\s\S]*__tmSyncedDataReloadPending = true/,
+    'a failed synchronized refresh must remain pending for the visible resume path');
+assert.match(derivedCaches, /__tmSchedulePersistTaskIndex\(\{[\s\S]*delayMs:\s*500[\s\S]*__tmTaskSnapshotService\?\.schedulePersist\?\.\(\{[\s\S]*delayMs:\s*900/,
+    'task index and snapshot caches must use the existing debounced writers');
 assert.match(renderRuntime, /state\.__tmRenderInFlight === true/, 'full shell renders must reject synchronous re-entry');
 assert.match(renderRuntime, /state\.__tmRenderQueued === true/, 'a render requested during a render must be coalesced');
 const saveNowIndex = reload.indexOf('await SettingsStore.saveNow?.()');

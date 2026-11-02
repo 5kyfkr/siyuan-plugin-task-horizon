@@ -40,11 +40,17 @@ const ICON_ID = "iconTaskHorizon";
 const ENTRY_ICON_PRESET_STORAGE_KEY = "tm_entry_icon_preset";
 const DEFAULT_ENTRY_ICON_PRESET = "classic";
 const WINDOW_TOPBAR_ATTR = "data-task-horizon-window-topbar";
+const WINDOW_TOPBAR_ID = "task-manager";
 const WINDOW_TOPBAR_ELEMENT_ID = "plugin_siyuan-plugin-task-horizon_task-manager";
 const CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID = "iconTaskHorizonCalendarUpload";
 const CALENDAR_SUBSCRIPTION_TOPBAR_ATTR = "data-task-horizon-calendar-subscription-topbar";
+const CALENDAR_SUBSCRIPTION_TOPBAR_ID = "calendar-subscription";
 const CALENDAR_SUBSCRIPTION_TOPBAR_ELEMENT_ID = "plugin_siyuan-plugin-task-horizon_calendar-subscription";
 const SIYUAN_UNPINNED_TOPBAR_STORAGE_KEY = "local-plugintopunpin";
+const encodeTopBarEntryKeyPart = (value) => encodeURIComponent(String(value || "")).replace(/\./g, "%2E");
+const getTopBarEntryKey = (id) => `plugin:${encodeTopBarEntryKeyPart(PLUGIN_ID)}:${encodeTopBarEntryKeyPart(id)}`;
+const WINDOW_TOPBAR_ENTRY_KEY = getTopBarEntryKey(WINDOW_TOPBAR_ID);
+const CALENDAR_SUBSCRIPTION_TOPBAR_ENTRY_KEY = getTopBarEntryKey(CALENDAR_SUBSCRIPTION_TOPBAR_ID);
 const CUSTOM_TAB_ID = PLUGIN_ID + TAB_TYPE;
 const TASK_DOCK_TYPE = "::task-horizon-dock";
 let TASK_DOCK_TITLE = "";
@@ -1088,9 +1094,21 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         return isRuntimeMobileClient(this);
     }
 
-    applyStableTopBarIdentity(element, stableId) {
+    applyStableTopBarIdentity(element, stableId, entryId = "", entryKey = "") {
         if (!(element instanceof HTMLElement)) return null;
+        let entryKeyChanged = false;
+        if (entryKey) {
+            try {
+                entryKeyChanged = element.getAttribute("data-topbar-entry") !== entryKey;
+            } catch (e) {}
+        }
         try { element.id = stableId; } catch (e) {}
+        if (entryId) {
+            try { element.setAttribute("data-id", entryId); } catch (e) {}
+        }
+        if (entryKey) {
+            try { element.setAttribute("data-topbar-entry", entryKey); } catch (e) {}
+        }
         let unpinned = false;
         try {
             const ids = globalThis.siyuan?.storage?.[SIYUAN_UNPINNED_TOPBAR_STORAGE_KEY];
@@ -1103,7 +1121,18 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 try { document.getElementById("menuPluginTopBar")?.after(element); } catch (e) {}
             }
         } else {
-            try { element.classList.toggle("fn__none", unpinned); } catch (e) {}
+            // SiYuan's unpin list controls the mobile plugin drawer. Desktop visibility is
+            // owned by the top-bar entry catalog, so a mobile unpin must not hide it here.
+            try { element.classList.remove("fn__none"); } catch (e) {}
+            if (entryKeyChanged) {
+                try { element.removeAttribute("data-entry-hidden"); } catch (e) {}
+                try {
+                    const anchor = document.getElementById("barPlugins");
+                    if (anchor?.parentElement && element.parentElement === anchor.parentElement) {
+                        anchor.before(element);
+                    }
+                } catch (e) {}
+            }
         }
         return element;
     }
@@ -1252,7 +1281,12 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonOpenTabView = this.openTaskHorizonTab.bind(this);
         globalThis.__taskHorizonSyncWindowTopBar = this.syncWindowTopBar.bind(this);
         globalThis.__taskHorizonSyncCalendarSubscriptionTopBar = this.syncCalendarSubscriptionTopBar.bind(this);
-        globalThis.__taskHorizonApplyWindowTopBarIdentity = (element) => this.applyStableTopBarIdentity(element, WINDOW_TOPBAR_ELEMENT_ID);
+        globalThis.__taskHorizonApplyWindowTopBarIdentity = (element) => this.applyStableTopBarIdentity(
+            element,
+            WINDOW_TOPBAR_ELEMENT_ID,
+            WINDOW_TOPBAR_ID,
+            WINDOW_TOPBAR_ENTRY_KEY,
+        );
         globalThis.__taskHorizonHostBridge = createTaskHorizonHostBridge(this);
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
         globalThis.__taskHorizonTabType = TAB_TYPE;
@@ -2345,7 +2379,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { element.setAttribute(WINDOW_TOPBAR_ATTR, "1"); } catch (e) {}
         try { if (!element.getAttribute("aria-label")) element.setAttribute("aria-label", TAB_TITLE); } catch (e) {}
         try { if (!element.getAttribute("title")) element.setAttribute("title", TAB_TITLE); } catch (e) {}
-        this.applyStableTopBarIdentity(element, WINDOW_TOPBAR_ELEMENT_ID);
+        this.applyStableTopBarIdentity(element, WINDOW_TOPBAR_ELEMENT_ID, WINDOW_TOPBAR_ID, WINDOW_TOPBAR_ENTRY_KEY);
         try { globalThis.__tmTaskCountBadge?.render?.(); } catch (e) {}
         return element;
     }
@@ -2404,6 +2438,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         }
         try {
             this._taskWindowTopBarElement = this.addTopBar({
+                id: WINDOW_TOPBAR_ID,
                 icon: ICON_ID,
                 title: TAB_TITLE,
                 position: "right",
@@ -2470,7 +2505,12 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { element.setAttribute("aria-busy", meta.running === true ? "true" : "false"); } catch (e) {}
         try { element.classList.toggle("tm-calendar-subscription-topbar--running", meta.running === true); } catch (e) {}
         try { if ("disabled" in element) element.disabled = meta.running === true; } catch (e) {}
-        this.applyStableTopBarIdentity(element, CALENDAR_SUBSCRIPTION_TOPBAR_ELEMENT_ID);
+        this.applyStableTopBarIdentity(
+            element,
+            CALENDAR_SUBSCRIPTION_TOPBAR_ELEMENT_ID,
+            CALENDAR_SUBSCRIPTION_TOPBAR_ID,
+            CALENDAR_SUBSCRIPTION_TOPBAR_ENTRY_KEY,
+        );
         return element;
     }
 
@@ -2501,6 +2541,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         }
         try {
             this._taskCalendarSubscriptionTopBarElement = this.addTopBar({
+                id: CALENDAR_SUBSCRIPTION_TOPBAR_ID,
                 icon: CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID,
                 title: String(this._taskCalendarSubscriptionTopBarMeta?.title || __tmT("plugin.uploadCalendarIcsNow")),
                 position: "right",

@@ -6,15 +6,21 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.3.8
+
+- **Mobile task details:** scroll a long status picker directly without first expanding the detail sheet. The first tap now opens the Copy submenu in the task More menu, while mouse hover remains supported.
+- **Calendar and ICS:** stabilize the task-manager and ICS-upload topbar entries to prevent icon placeholder and visibility problems. ICS settings for WebDAV, S3, and sync scope now use a clearer stacked layout on narrow screens.
+- **Sync:** schedule task-index and snapshot cache refreshes after a successful synchronized data refresh instead of running an independent refresh pipeline, reducing duplicate work while retaining pending work when the view is hidden or not ready.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.3.7
 
 - **Task templates:** create reusable parent-child structures from **More → Task templates** in quick add, with starter templates for feature releases, articles, and weekly planning. Manage, copy, reorder, and edit templates; select branches and replace `{{主题}}` with the current topic. Tasks are created in the background, and retrying after an interruption continues only the remaining tasks.
 - **Calendar and ICS subscriptions:** publish ICS feeds to S3-compatible storage, including MinIO and R2, with manual settings or this device's SiYuan S3 configuration. The subscription URL is generated automatically, supports direct or proxied access, and is verified after upload. LianDi, WebDAV, and S3 now share the fixed `task-horizon.ics` filename; existing randomly named feeds need the new URL. Sync scope is now a separate calendar settings section with clearer WebDAV and S3 guidance.
 - **Settings sync:** improve reloading of synchronized task-count badge, search scope, per-document heading, whiteboard navigator, and task-template settings.
 - **Fixes:** text undo and redo no longer trigger a completion prompt or check-in update when the checkbox is unchanged, and related shortcuts resolve only the task at the caret. Uninstalling also removes the derived document-scope cache while preserving tasks and settings.
-
-<details>
-<summary>Previous release</summary>
 
 ## What's new in 3.3.6
 

@@ -4174,71 +4174,6 @@ return Number(state.contextInteractionQuietUntil || 0);
         return true;
     }
 
-    async function __tmRefreshVisibleViewAfterTaskSnapshotSync(reason = 'task-snapshot-sync', options = {}) {
-        const source = String(reason || 'task-snapshot-sync').trim() || 'task-snapshot-sync';
-        const commitView = options?.commitView !== false;
-        try {
-            const snapshotService = globalThis.__tmTaskSnapshotService || null;
-            if (!snapshotService || typeof snapshotService.refreshCache !== 'function') {
-                return false;
-            }
-            if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) {
-                return false;
-            }
-            if (state.__tmTaskSnapshotSyncRefreshInFlight) {
-                return false;
-            }
-            const quietUntil = Number(state.contextInteractionQuietUntil || 0) || 0;
-            if (quietUntil > Date.now()) {
-                return false;
-            }
-            const now = Date.now();
-            if (now - (Number(state.__tmTaskSnapshotSyncLastCheckAt) || 0) < 1500) {
-                return false;
-            }
-            state.__tmTaskSnapshotSyncLastCheckAt = now;
-            state.__tmTaskSnapshotSyncRefreshInFlight = true;
-            try {
-                const meta = await snapshotService.refreshCache({ source });
-                if (!meta?.changed) return false;
-                if (typeof __tmRefreshCore === 'function') {
-                    return await __tmRefreshCore({
-                        silent: true,
-                        reason: source,
-                        preserveUi: true,
-                        commitView,
-                    });
-                }
-                await loadSelectedDocuments({
-                    skipRender: true,
-                    showInlineLoading: false,
-                    deferProjection: true,
-                    forceFreshTasks: true,
-                    skipSnapshotFirstPaint: true,
-                    skipTaskIndexFirstPaint: true,
-                    skipSessionRestoreFirstPaint: true,
-                    skipDocSessionRestoreFirstPaint: true,
-                    source,
-                });
-                if (commitView) {
-                    try { __tmRecomputeTaskProjection({ reason: 'group-switch' }); } catch (e) {}
-                    try {
-                        const modal = state.modal instanceof Element ? state.modal : null;
-                        if (!modal || !__tmRerenderCurrentViewInPlace(modal)) render();
-                    } catch (e) {
-                        try { render(); } catch (e2) {}
-                    }
-                }
-                return true;
-            } finally {
-                state.__tmTaskSnapshotSyncRefreshInFlight = false;
-            }
-        } catch (e) {
-            try { state.__tmTaskSnapshotSyncRefreshInFlight = false; } catch (e2) {}
-            return false;
-        }
-    }
-
     function __tmScheduleListAutoLoadMoreHydration(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const mode = String(opts.mode || state.viewMode || '').trim();
@@ -7752,8 +7687,21 @@ return Number(state.contextInteractionQuietUntil || 0);
                 btn.setAttribute('aria-expanded', 'false');
             }, 120);
         };
-        wrap.addEventListener('mouseenter', show);
-        wrap.addEventListener('mouseleave', hide);
+        const canUseHover = () => {
+            try {
+                return window.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches === true;
+            } catch (e) {
+                return false;
+            }
+        };
+        wrap.addEventListener('pointerenter', (ev) => {
+            if (String(ev?.pointerType || '').toLowerCase() !== 'mouse' || !canUseHover()) return;
+            show();
+        });
+        wrap.addEventListener('pointerleave', (ev) => {
+            if (String(ev?.pointerType || '').toLowerCase() !== 'mouse' || !canUseHover()) return;
+            hide();
+        });
         btn.onclick = (ev) => {
             try { ev.preventDefault(); } catch (e) {}
             try { ev.stopPropagation(); } catch (e) {}
@@ -18106,6 +18054,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         const textScrollEl = touchTextInputTarget
             ? target.closest('textarea, [contenteditable="true"]')
             : null;
+        if (target.closest('.tm-task-detail-status-menu:not([hidden])')) {
+            return;
+        }
         const gestureScroller = __tmFindChecklistSheetGestureScroller(target, body);
         const bodyScrollTop = __tmChecklistSheetScrollerTop(gestureScroller || body);
         const textScrollTop = __tmChecklistSheetScrollerTop(textScrollEl);

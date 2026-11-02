@@ -23,7 +23,7 @@ const segment = (source, start, end) => {
 const fullRenderTransfer = segment(viewSwitchRuntime, 'function __tmPrepareCalendarSideDockFullRenderTransfer', 'function __tmSyncPersistentSideDocksAfterViewSwitch');
 const renderBody = segment(renderRuntime, 'function render()', '\n    function __tmGetKanbanBodyForDomSync');
 const switchGroup = segment(dialogRuntime, 'window.tmSwitchDocGroup = async function', 'window.tmDocTabDragOver');
-const groupVerify = segment(dialogRuntime, 'function __tmScheduleDocGroupSwitchVerifyAfterFirstPaint', 'async function __tmRefreshVisibleViewAfterTaskSnapshotSync');
+const groupVerify = segment(dialogRuntime, 'function __tmScheduleDocGroupSwitchVerifyAfterFirstPaint', 'function __tmScheduleListAutoLoadMoreHydration');
 const loadSelected = loaderRuntime.slice(loaderRuntime.indexOf('async function loadSelectedDocuments'));
 assert.notEqual(loadSelected.length, loaderRuntime.length, 'missing loadSelectedDocuments function');
 const legacySwitch = segment(settingsRuntime, 'window.switchDocGroup = async function', 'async function __tmCreateGroupAndSelect');

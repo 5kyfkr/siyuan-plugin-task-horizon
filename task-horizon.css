@@ -11126,6 +11126,9 @@ select.tm-btn-secondary {
     box-shadow: var(--tm-shadow);
     max-height: min(280px, 50vh);
     overflow: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
     box-sizing: border-box;
 }
 
@@ -16740,6 +16743,10 @@ button.tm-task-detail-focus-stat[aria-expanded="true"] {
 #tmChecklistSheet.tm-checklist-sheet--dragging .tm-checklist-sheet-body,
 #tmTaskDetailSheet.tm-checklist-sheet--dragging .tm-checklist-sheet-body {
     touch-action: none;
+}
+
+#tmTaskDetailSheet:not(.tm-checklist-sheet--fullscreen) #tmTaskDetailSheetPanel.tm-task-detail-sheet-body--popup-scroll {
+    touch-action: pan-y;
 }
 
 #tmChecklistSheet.tm-checklist-sheet--fullscreen:not(.tm-checklist-sheet--dragging) .tm-checklist-sheet-body,
