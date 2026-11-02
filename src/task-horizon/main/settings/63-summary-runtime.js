@@ -122,6 +122,11 @@
         return Number.isFinite(ts) && ts > 0 ? ts : 0;
     }
 
+    function __tmSummaryDateOnlyText(value) {
+        const match = String(value || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+        return match ? match[1] : '';
+    }
+
     async function __tmSummaryBuildDocNameMapByGroups(baseMap) {
         const out = (baseMap && typeof baseMap === 'object') ? { ...baseMap } : {};
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
@@ -353,12 +358,15 @@
                 if (!matches) return;
             }
 
+            const done = __tmIsTaskDoneEffective(task);
             const completedAtTs = __tmSummaryTaskCompletedAtTs(task);
-            const dateKey = __tmSummaryDateKeyFromTs(completedAtTs);
+            const completionDate = __tmSummaryDateKeyFromTs(completedAtTs);
+            const dueDate = __tmSummaryDateOnlyText(task.completionTime || task.completion_time || '');
+            const dateKey = done ? completionDate : dueDate;
             if (start && (!dateKey || dateKey < start)) return;
             if (end && (!dateKey || dateKey > end)) return;
 
-            if (status === '__done__' && !task.done) return;
+            if (status === '__done__' && !done) return;
             if (status === '__undone__' && !__tmIsTaskActive(task)) return;
             if (status !== '__all__' && status !== '__done__' && status !== '__undone__') {
                 const sid = __tmResolveTaskStatusId(task);
@@ -371,7 +379,7 @@
             out.push({
                 id: String(task.id || '').trim(),
                 content: String(task.content || '').trim() || __tmT("settings.noContent"),
-                done: __tmIsTaskDoneEffective(task),
+                done,
                 taskMarker: __tmResolveTaskMarker(task),
                 customStatus: __tmResolveTaskStatusId(task),
                 priority: p,
@@ -379,7 +387,8 @@
                 focusDuration: __tmSummaryFormatFocusDuration(task),
                 completedAtTs,
                 dateKey,
-                dueDate: String(task.completionTime || '').trim(),
+                dueDate,
+                completionDate,
                 docId,
                 docName: String(docNameMap[docId] || task.docName || __tmT("kernel.untitledDocument")),
                 h2Id: String(task.h2Id || '').trim(),
@@ -417,11 +426,25 @@
         const showDocName = fields.docName !== false;
         const showPriority = fields.priority !== false;
         const showStatus = fields.status !== false;
-        const showDate = fields.date !== false;
+        const showDueDate = fields.dueDate === true;
+        const showCompletionDate = fields.completionDate === true;
         const showFocusDuration = fields.focusDuration !== false;
         const rangeLabel = (filter.start || filter.end)
             ? `${filter.start || __tmT("settings.earliest")} ~ ${filter.end || __tmT("settings.latest")}`
             : __tmT("settings.allTime");
+        const renderTaskDates = (task, options = {}) => {
+            const omitPrimary = options.omitPrimary === true;
+            const parts = [];
+            const dueDate = String(task.dueDate || '').trim();
+            const completionDate = String(task.completionDate || '').trim();
+            if (showDueDate && dueDate && !(omitPrimary && !task.done)) {
+                parts.push(`[${dueDate}]`);
+            }
+            if (showCompletionDate && completionDate && !(omitPrimary && task.done)) {
+                parts.push(`[${completionDate}]`);
+            }
+            return parts.join(' ');
+        };
 
         lines.push(isDailyReport ? __tmT("settings.todaySReport") : (preset === 'this_week_report' ? __tmT("settings.thisWeekSReport") : (preset === 'last_week_report' ? __tmT("settings.lastWeekSReport") : __tmT("settings.taskSummary"))));
         lines.push('');
@@ -443,7 +466,8 @@
                 ? arr.map((t) => {
                     const details = [t.recurringLabel, showFocusDuration && t.focusDuration ? __tmT("settings.focusTime", { focusDuration: t.focusDuration }) : ''].filter(Boolean);
                     const suffix = [t.docName, ...details].filter(Boolean);
-                    return `- [${__tmResolveTaskMarker(t)}] ${t.content}${suffix.length ? `（${suffix.join('｜')}）` : ''}`;
+                    const dates = renderTaskDates(t);
+                    return `- [${__tmResolveTaskMarker(t)}] ${t.content}${dates ? ` ${dates}` : ''}${suffix.length ? `（${suffix.join('｜')}）` : ''}`;
                 }).join('\n')
                 : __tmT("settings.none");
             lines.push(__tmT("settings.completion"));
@@ -463,7 +487,7 @@
         const sectionMap = new Map();
         const sectionLabel = (t) => {
             if (groupBy === 'h2') return String(t.h2Name || __tmT("homepage.noHeading"));
-            if (groupBy === 'date') return String(t.dateKey || __tmT("settings.noCompletionDate"));
+            if (groupBy === 'date') return String(t.dateKey || __tmT("settings.noDateSet"));
             if (groupBy === 'priority') return __tmT("settings.priority", { value1: __tmSummaryPriorityText(t.priority) });
             if (groupBy === 'doc') return String(t.docName || __tmT("kernel.untitledDocument"));
             return __tmSummaryStatusName(t, statusMap);
@@ -476,8 +500,9 @@
 
         const sectionOrder = Array.from(sectionMap.keys()).sort((a, b) => {
             if (groupBy === 'date') {
-                if (a === '无完成日期') return -1;
-                if (b === '无完成日期') return 1;
+                const missingDate = __tmT("settings.noDateSet");
+                if (a === missingDate) return -1;
+                if (b === missingDate) return 1;
             }
             return String(a).localeCompare(String(b), 'zh-Hans-CN');
         });
@@ -486,7 +511,7 @@
             lines.push(`## ${name}（${arr.length}）`);
             lines.push('');
             arr.forEach((t) => {
-                const d = (showDate && groupBy !== 'date' && t.dateKey) ? `[${t.dateKey}] ` : '';
+                const dates = renderTaskDates(t, { omitPrimary: groupBy === 'date' });
                 const pr = __tmSummaryPriorityText(t.priority);
                 const checkbox = t.done ? '[x]' : '[ ]';
                 const body = showTaskName ? t.content : __tmT("settings.task");
@@ -498,7 +523,7 @@
                 if (showStatus) ext.push(__tmSummaryStatusName(t, statusMap));
                 if (t.recurringLabel) ext.push(t.recurringLabel);
                 if (showFocusDuration && t.focusDuration) ext.push(__tmT("settings.focusTime", { focusDuration: t.focusDuration }));
-                lines.push(`${indent}- ${checkbox} ${d}${body}${ext.length ? `（${ext.join('｜')}）` : ''}`);
+                lines.push(`${indent}- ${checkbox} ${body}${dates ? ` ${dates}` : ''}${ext.length ? `（${ext.join('｜')}）` : ''}`);
             });
             lines.push('');
         });
@@ -589,6 +614,7 @@
         const allowedGroupBy = new Set(['status', 'date', 'priority', 'doc', 'h2']);
         const fields = (source.fields && typeof source.fields === 'object' && !Array.isArray(source.fields)) ? source.fields : {};
         const booleanOr = (key, fallback) => typeof fields[key] === 'boolean' ? fields[key] : fallback;
+        const legacyDate = typeof fields.date === 'boolean' ? fields.date : false;
         const preset = String(source.preset || '').trim();
         const priority = String(source.priority || '').trim();
         const groupBy = String(source.groupBy || '').trim();
@@ -613,7 +639,8 @@
                 docName: booleanOr('docName', false),
                 priority: booleanOr('priority', false),
                 status: booleanOr('status', false),
-                date: booleanOr('date', false),
+                dueDate: booleanOr('dueDate', legacyDate),
+                completionDate: booleanOr('completionDate', legacyDate),
                 focusDuration: booleanOr('focusDuration', false),
             },
         };
@@ -655,7 +682,8 @@
             fieldDocName: filter.fields?.docName === true,
             fieldPriority: filter.fields?.priority === true,
             fieldStatus: filter.fields?.status === true,
-            fieldDate: filter.fields?.date === true,
+            fieldDueDate: filter.fields?.dueDate === true,
+            fieldCompletionDate: filter.fields?.completionDate === true,
             fieldFocusDuration: filter.fields?.focusDuration === true,
         }).forEach(([key, checked]) => {
             const control = root.querySelector(`[data-tm-summary="${key}"]`);
@@ -693,7 +721,8 @@
                 docName: q('[data-tm-summary="fieldDocName"]')?.checked !== false,
                 priority: q('[data-tm-summary="fieldPriority"]')?.checked !== false,
                 status: q('[data-tm-summary="fieldStatus"]')?.checked !== false,
-                date: q('[data-tm-summary="fieldDate"]')?.checked !== false,
+                dueDate: q('[data-tm-summary="fieldDueDate"]')?.checked === true,
+                completionDate: q('[data-tm-summary="fieldCompletionDate"]')?.checked === true,
                 focusDuration: q('[data-tm-summary="fieldFocusDuration"]')?.checked !== false,
             },
         };
@@ -933,7 +962,8 @@
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDocName">${__tmT("task.documentName")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldPriority">${__tmT("kernel.importance")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldStatus">${__tmT("kernel.status")}</label>
-                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDate">${__tmT("calendar.date")}</label>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDueDate">${__tmT("kernel.dueDate")}</label>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldCompletionDate">${__tmT("calendar.completionDate")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldFocusDuration">${__tmT("settings.focusTime2")}</label>
                 </div>
                 <textarea class="tm-summary-preview" data-tm-summary="preview" style="width:100%;height:100%;box-sizing:border-box;padding:12px;font-size:0.875rem;line-height:1.55;background:var(--tm-input-bg);color:var(--tm-text-color);border:1px solid var(--tm-input-border);border-radius:8px;resize:vertical;"></textarea>

@@ -6,14 +6,20 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.3.9
+
+- **Calendar schedules:** when adding a schedule from a task in the Dock sidebar, the editor stays over the current task details instead of jumping to the left of the main view. Changing the start time preserves the original duration and moves the end time with it, avoiding invalid start/end boundaries.
+- **View recovery and Kanban:** validate the current navigation context before restoring UI from an older snapshot, preventing stale document, view, detail, or homepage state from replacing newer navigation. After a field edit moves a task to an off-screen Kanban column, scrolling to that column now loads its card instead of leaving a blank column.
+- **Summary:** bounded date filters now use the due date for unfinished tasks and the completion date for completed tasks. Due and completion dates are independent summary fields, and date grouping uses the applicable task date.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.3.8
 
 - **Mobile task details:** scroll a long status picker directly without first expanding the detail sheet. The first tap now opens the Copy submenu in the task More menu, while mouse hover remains supported.
 - **Calendar schedules and ICS:** when creating a schedule from a task in the Dock sidebar, the editor stays over the current task details instead of jumping to the left of the main view. Changing a schedule's start time now preserves its original duration and moves the end time with it, avoiding invalid start/end boundaries. Task-manager and ICS-upload topbar entries use stable identities to prevent icon placeholder and visibility problems, and WebDAV, S3, and sync-scope fields use a clearer stacked layout on narrow screens.
 - **Sync:** schedule task-index and snapshot cache refreshes after a successful synchronized data refresh instead of running an independent refresh pipeline, reducing duplicate work while retaining pending work when the view is hidden or not ready.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.3.7
 

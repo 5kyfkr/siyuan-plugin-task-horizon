@@ -179,8 +179,22 @@ async function checkOutsideTouchDrag(page, context, kind) {
             assert.equal(await editor.evaluate(el => el.closest('[data-tm-detail-remark-shell]').classList.contains('is-editing')), true,
                 'dragging must not exit remark editing');
         }
-        // A completed tap outside still leaves the editor and commits its draft.
-        await page.touchscreen.tap(8, 90);
+        // Chromium can suppress click synthesis after a CDP drag stream. The
+        // production mobile path listens for click, so dispatch that completed
+        // gesture event directly without scrolling the editor.
+        await page.evaluate(() => {
+            const x = 8;
+            const y = 90;
+            const target = document.elementFromPoint(x, y);
+            if (!(target instanceof Element)) throw new Error('outside tap target not found');
+            target.dispatchEvent(new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                composed: true,
+                clientX: x,
+                clientY: y,
+            }));
+        });
         await settle(page);
         assert.equal(await editor.evaluate(el => document.activeElement === el), false, `${kind}: an actual outside tap must still dismiss the keyboard`);
         if (kind === 'remark') {

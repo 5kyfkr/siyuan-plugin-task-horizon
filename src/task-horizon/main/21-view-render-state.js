@@ -392,7 +392,7 @@
 
     function __tmSyncKanbanProgressiveFieldMutation(job, mutation = {}) {
         if (state?.viewMode !== 'kanban' || !__tmIsViewWindowJobCurrent(job, { mode: 'kanban' })) return false;
-        if (!['taskPatch', 'contentPatch'].includes(String(mutation.type || ''))
+        if (!['taskPatch', 'contentPatch', 'setDone'].includes(String(mutation.type || ''))
             || mutation.data?.deferProjection === true || mutation.changeSet?.structural === true) return false;
         const revision = __tmGetViewWindowRevisionToken();
         if (job.projectionGeneration !== revision.projectionGeneration
@@ -404,7 +404,12 @@
         };
         if (!taskId || !Object.keys(patch).length || typeof __tmAnalyzeTaskProjectionPatch !== 'function') return false;
         const analysis = __tmAnalyzeTaskProjectionPatch(taskId, patch);
-        if (analysis?.projection !== false || analysis?.requiresClosure === true) return false;
+        // Commit-only acknowledgements do not schedule another projection. A job
+        // created after the optimistic/local projection already captured the
+        // destination column, so keep its loader alive after the write commits.
+        const projectionAlreadyApplied = String(mutation.phase || '').trim() === 'commit';
+        if (!projectionAlreadyApplied
+            && (analysis?.projection !== false || analysis?.requiresClosure === true)) return false;
         job.taskStoreRevision = revision.taskStoreRevision;
         return __tmScheduleKanbanProgressiveViewportCheck(job, 0);
     }

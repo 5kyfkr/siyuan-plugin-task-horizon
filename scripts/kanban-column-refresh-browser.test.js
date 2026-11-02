@@ -203,6 +203,7 @@ async function setup(page) {
         'optimistic top-level removal retains its source column for counts and keyed refresh',
         'completed grouping stays independent of main grouping and preserves document headings',
         'last task leaving a dynamic column or group removes its shell without manual refresh',
+        'horizontal scroll loads a deferred column after a field write commits',
     ]);
     async function run(name, check, mobile = false) {
         if (smoke && !smokeCases.has(name)) return;
@@ -214,6 +215,56 @@ async function setup(page) {
         finally { await page.close(); }
     }
     try {
+        await run('horizontal scroll loads a deferred column after a field write commits', async (page) => {
+            const result = await page.evaluate(async () => {
+                boardMode = 'time';
+                state.groupByTime = true;
+                state.groupByDocName = false;
+                state.groupByTaskName = false;
+                state.showCompletedTasks = true;
+                setModel([
+                    ...Array.from({ length: 11 }, (_, index) => ({ id: `today-${index}`, days: 0 })),
+                    { id: 'tomorrow', days: 1 },
+                    { id: 'after-tomorrow', days: 2 },
+                    { id: 'day-three', days: 3 },
+                    { id: 'moving', days: 4, completionTime: '2026-11-06' },
+                ]);
+                __tmAnalyzeTaskProjectionPatch = (_taskId, patch) => __tmTaskProjectionEngine.analyzePatch(patch, {
+                    viewMode: 'kanban',
+                    groupMode: 'time',
+                    rule: state.rule,
+                });
+                const job = __tmStartProgressiveViewRender('kanban');
+                state.renderKanbanBodyHtml = (opts) => __tmBuildRenderSceneKanbanBodyHtml(opts);
+                state.modal.innerHTML = state.renderKanbanBodyHtml();
+                __tmScheduleProgressiveViewRender('kanban', job);
+                const body = state.modal.querySelector('.tm-body--kanban');
+                const target = column('time:days_4');
+                const before = {
+                    card: !!target.querySelector('.tm-kanban-card[data-id="moving"]'),
+                    deferred: !!target.querySelector('.tm-kanban-deferred'),
+                };
+                __tmTaskStore.applyMutation({
+                    type: 'taskPatch',
+                    phase: 'commit',
+                    taskId: 'moving',
+                    patch: { completionTime: '2026-11-06' },
+                });
+                body.scrollLeft = target.offsetLeft;
+                body.dispatchEvent(new Event('scroll'));
+                await new Promise((resolve) => setTimeout(resolve, 260));
+                return {
+                    before,
+                    afterCard: !!target.querySelector('.tm-kanban-card[data-id="moving"]'),
+                    afterDeferred: !!target.querySelector('.tm-kanban-deferred'),
+                    current: __tmIsProgressiveViewRenderCurrent(job, 'kanban'),
+                };
+            });
+            assert.deepEqual(result.before, { card: false, deferred: true });
+            assert.equal(result.afterCard, true, `scrolling to the destination column must mount its deferred card: ${JSON.stringify(result)}`);
+            assert.equal(result.afterDeferred, false, 'the destination column must replace its loading placeholder');
+            assert.equal(result.current, true, 'the commit acknowledgement must keep the active viewport loader current');
+        });
         await run('child-only date matches survive unrelated structural changes', async (page) => {
             const taskModel = read('task-runtime/50-task-model-and-repeat-utils.js');
             const dateNormalizerStart = taskModel.indexOf('    function __tmNormalizeDateOnly(');

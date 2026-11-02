@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
+const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8').replace(/\r\n/g, '\n');
 
 const storesSource = read('src', 'task-horizon', 'main', '10-stores-rules-and-cache.js');
 const coordinatorSource = read('src', 'task-horizon', 'main', 'task-runtime', '51-whiteboard-and-link-runtime.js');

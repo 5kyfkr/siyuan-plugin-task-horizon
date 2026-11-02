@@ -15,7 +15,7 @@ const renderer = read('render/43-render-timeline-kanban-calendar-body.js');
 
 class FakeElement {}
 
-function createHarness() {
+function createHarness(options = {}) {
     const tasks = Array.from({ length: 40 }, (_, index) => ({
         id: 'task-' + index, root_id: 'doc-one', content: 'Original title', remark: '', children: [],
     }));
@@ -40,6 +40,7 @@ function createHarness() {
             flatTasks: Object.fromEntries(tasks.map((task) => [task.id, task])),
             taskTree: [{ id: 'doc-one', tasks }], filteredTasks: tasks, otherBlocks: [],
             viewMode: 'kanban', modal,
+            groupByTime: options.groupByTime === true,
         },
         SettingsStore: { data: {} },
         MetaStore: { set() {} },
@@ -47,7 +48,7 @@ function createHarness() {
     });
     vm.runInContext([stateSource, schemaSource, projectionSource, windowSource].join('\n'), context);
     context.__tmAnalyzeTaskProjectionPatch = (_taskId, patch) => context.__tmTaskProjectionEngine.analyzePatch(patch, {
-        viewMode: 'kanban', groupMode: 'none', rule: context.state.rule,
+        viewMode: 'kanban', groupMode: context.state.groupByTime ? 'time' : 'none', rule: context.state.rule,
     });
     context.__tmTaskBoundary = { getTask: (taskId) => context.__tmTaskStore.getProjected(taskId) };
     context.__tmTaskStore.replaceFlat(context.state.flatTasks, { authoritative: true, mergeOtherBlocks: false });
@@ -150,6 +151,64 @@ orderedByRemark.mutate('local', { remark: 'Changes ordering' });
 assert.equal(orderedByRemark.context.__tmIsProgressiveViewRenderCurrent(orderedByRemark.job, 'kanban'), false,
     'a field used by the active ordering rule must still invalidate the captured column order');
 orderedByRemark.context.__tmCancelProgressiveViewRender();
+
+const projectedCommit = createHarness({ groupByTime: true });
+projectedCommit.mutate('optimistic', { completionTime: '2026-11-03' });
+const movedJob = projectedCommit.context.__tmStartProgressiveViewRender('kanban');
+let resumedLoads = 0;
+projectedCommit.context.__tmRegisterKanbanProgressiveColumn(movedJob, {
+    key: 'time:tomorrow',
+    loaded: false,
+    loadNextBatch: () => {
+        resumedLoads += 1;
+        return { done: true };
+    },
+});
+assert.equal(projectedCommit.context.__tmIsProgressiveViewRenderCurrent(movedJob, 'kanban'), true);
+projectedCommit.mutate('commit', { completionTime: '2026-11-03' });
+assert.equal(projectedCommit.context.__tmIsProgressiveViewRenderCurrent(movedJob, 'kanban'), true,
+    'a projection-affecting commit with the applied projection must keep the moved column loadable');
+projectedCommit.flushOne();
+assert.equal(resumedLoads, 1, 'the offscreen destination column must resume loading after the write commits');
+projectedCommit.context.__tmCancelProgressiveViewRender();
+
+const statusCommit = createHarness();
+statusCommit.mutate('optimistic', { customStatus: 'doing' });
+const statusJob = statusCommit.context.__tmStartProgressiveViewRender('kanban');
+let statusLoads = 0;
+statusCommit.context.__tmRegisterKanbanProgressiveColumn(statusJob, {
+    key: 'status:doing',
+    loaded: false,
+    loadNextBatch: () => {
+        statusLoads += 1;
+        return { done: true };
+    },
+});
+statusCommit.mutate('commit', { customStatus: 'doing' });
+assert.equal(statusCommit.context.__tmIsProgressiveViewRenderCurrent(statusJob, 'kanban'), true,
+    'an applied status projection must remain current after its write commits');
+statusCommit.flushOne();
+assert.equal(statusLoads, 1, 'a status destination column outside the viewport must still load after confirmation');
+statusCommit.context.__tmCancelProgressiveViewRender();
+
+const doneCommit = createHarness();
+doneCommit.mutate('optimistic', { done: true }, { type: 'setDone' });
+const doneJob = doneCommit.context.__tmStartProgressiveViewRender('kanban');
+let doneLoads = 0;
+doneCommit.context.__tmRegisterKanbanProgressiveColumn(doneJob, {
+    key: 'status:done',
+    loaded: false,
+    loadNextBatch: () => {
+        doneLoads += 1;
+        return { done: true };
+    },
+});
+doneCommit.mutate('commit', { done: true }, { type: 'setDone' });
+assert.equal(doneCommit.context.__tmIsProgressiveViewRenderCurrent(doneJob, 'kanban'), true,
+    'an applied completion projection must remain current after its write commits');
+doneCommit.flushOne();
+assert.equal(doneLoads, 1, 'a completed task moved outside the viewport must still load after confirmation');
+doneCommit.context.__tmCancelProgressiveViewRender();
 
 assert.match(renderer, /const renderCard = \(task,[\s\S]*?task = resolveKanbanProjectedTask\(task\) \|\| task;/,
     'deferred cards must read current task fields instead of the captured projection');

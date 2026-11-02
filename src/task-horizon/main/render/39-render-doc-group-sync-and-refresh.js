@@ -667,6 +667,29 @@
         state.viewScroll = __tmCloneHostSessionValue(saved.viewScroll || {});
     }
 
+    function __tmRefreshUiContextMatches(snapshot) {
+        const saved = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        if (!saved) return false;
+        const current = {
+            viewMode: String(state.viewMode || 'list').trim() || 'list',
+            activeDocId: String(state.activeDocId || 'all').trim() || 'all',
+            detailTaskId: String(state.detailTaskId || '').trim(),
+            checklistDetailSheetOpen: !!state.checklistDetailSheetOpen,
+            checklistDetailDismissed: !!state.checklistDetailDismissed,
+            kanbanDetailTaskId: String(state.kanbanDetailTaskId || '').trim(),
+            kanbanDetailAnchorTaskId: String(state.kanbanDetailAnchorTaskId || '').trim(),
+            homepageOpen: !!state.homepageOpen,
+        };
+        return current.viewMode === (String(saved.viewMode || 'list').trim() || 'list')
+            && current.activeDocId === (String(saved.activeDocId || 'all').trim() || 'all')
+            && current.detailTaskId === String(saved.detailTaskId || '').trim()
+            && current.checklistDetailSheetOpen === !!saved.checklistDetailSheetOpen
+            && current.checklistDetailDismissed === !!saved.checklistDetailDismissed
+            && current.kanbanDetailTaskId === String(saved.kanbanDetailTaskId || '').trim()
+            && current.kanbanDetailAnchorTaskId === String(saved.kanbanDetailAnchorTaskId || '').trim()
+            && current.homepageOpen === !!saved.homepageOpen;
+    }
+
     const __TM_MANUAL_REFRESH_WRITE_PROTECT_FIELDS = new Set([
         ...(globalThis.__tmTaskFieldSchema?.getGroup?.('completion') || []),
         'startDate',
@@ -1180,7 +1203,7 @@ state.openToken = (Number(state.openToken) || 0) + 1;
             } catch (e) {}
             __tmApplyManualRefreshMutationProjection(refreshMutationProjection, `refresh-core:${reason}`);
 
-            if (preserveUi && snapshot) {
+            if (preserveUi && snapshot && __tmRefreshUiContextMatches(snapshot)) {
                 try { __tmRestoreRefreshUiState(snapshot); } catch (e) {}
             }
             if (!silent && mode === 'timeline' && state.groupByDocName) {
