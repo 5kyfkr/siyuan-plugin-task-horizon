@@ -40,7 +40,7 @@ async function run() {
                         background:var(--b3-theme-surface);color:var(--b3-theme-on-background);border-radius:12px}
                     #hub h3,#hub button{margin:18px}
                     .tm-proto-event-popover{animation:none!important}
-                </style><div id="hub"><h3>日期 / 日程</h3><button>新增日程</button></div>`);
+                </style><div id="hub" class="tm-task-time-hub-popover"><h3>日期 / 日程</h3><button>新增日程</button></div>`);
                 await page.evaluate(value => document.documentElement.setAttribute('data-theme-mode', value), theme);
                 await page.addScriptTag({ content: `(() => {
                     const popover = document.querySelector('#hub');
@@ -95,8 +95,8 @@ async function run() {
                 assert.equal(result.anchorIsHub, true, 'use the mounted hub rather than a parked calendar');
                 assert.equal(result.anchorConnected, true, 'schedule refresh must not detach the anchor');
                 assert.equal(result.forceNew, true);
-                assert.ok(result.pop.left > 500 && result.pop.right <= result.hub.left,
-                    `desktop editor opens alongside the time hub: ${JSON.stringify(result)}`);
+                assert.ok(result.pop.left >= result.hub.left - 8 && result.pop.right <= result.hub.right + 8,
+                    `desktop editor stays anchored over the task-detail hub: ${JSON.stringify(result)}`);
                 assert.equal(Math.round(result.pop.top), Math.round(result.hub.top));
                 assert.equal(result.background, theme === 'dark' ? 'rgb(41, 46, 54)' : 'rgb(248, 249, 251)', 'body portal has an opaque theme surface');
                 assert.equal(result.color, theme === 'dark' ? 'rgb(228, 232, 239)' : 'rgb(32, 36, 43)', 'text follows the host theme');

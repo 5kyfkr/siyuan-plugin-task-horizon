@@ -9,7 +9,7 @@ The same plugin includes English and Simplified Chinese. Existing installations 
 ## What's new in 3.3.8
 
 - **Mobile task details:** scroll a long status picker directly without first expanding the detail sheet. The first tap now opens the Copy submenu in the task More menu, while mouse hover remains supported.
-- **Calendar and ICS:** stabilize the task-manager and ICS-upload topbar entries to prevent icon placeholder and visibility problems. ICS settings for WebDAV, S3, and sync scope now use a clearer stacked layout on narrow screens.
+- **Calendar schedules and ICS:** when creating a schedule from a task in the Dock sidebar, the editor stays over the current task details instead of jumping to the left of the main view. Changing a schedule's start time now preserves its original duration and moves the end time with it, avoiding invalid start/end boundaries. Task-manager and ICS-upload topbar entries use stable identities to prevent icon placeholder and visibility problems, and WebDAV, S3, and sync-scope fields use a clearer stacked layout on narrow screens.
 - **Sync:** schedule task-index and snapshot cache refreshes after a successful synchronized data refresh instead of running an independent refresh pipeline, reducing duplicate work while retaining pending work when the view is hidden or not ready.
 
 <details>

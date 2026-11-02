@@ -109,6 +109,22 @@ async function run() {
             start: new Date('2026-09-29T10:00:00'), end: new Date('2026-09-29T11:00:00'),
         }, document.querySelector('.tm-proto-time-col')));
         assert.equal(await page.locator('.tm-proto-inline-schedule-editor:not(.is-mobile-fullscreen)').count(), 1);
+        await page.locator('[data-tm-proto-edit-time-card="start"]').tap();
+        await page.locator('.tm-proto-inline-hub-time-option[data-tm-proto-hub-time-option="10:30"]').tap();
+        let scheduleTimes = await page.evaluate(() => ({
+            start: document.querySelector('[data-tm-proto-edit-field="start"]')?.value,
+            end: document.querySelector('[data-tm-proto-edit-field="end"]')?.value,
+        }));
+        assert.equal(scheduleTimes.start, '2026-09-29T10:30', 'choosing a later start time keeps the new start');
+        assert.equal(scheduleTimes.end, '2026-09-29T11:30', 'the end time shifts with the start while preserving duration');
+        await page.locator('[data-tm-proto-edit-time-card="start"]').tap();
+        await page.locator('.tm-proto-inline-hub-time-option[data-tm-proto-hub-time-option="12:00"]').tap();
+        scheduleTimes = await page.evaluate(() => ({
+            start: document.querySelector('[data-tm-proto-edit-field="start"]')?.value,
+            end: document.querySelector('[data-tm-proto-edit-field="end"]')?.value,
+        }));
+        assert.equal(scheduleTimes.start, '2026-09-29T12:00', 'choosing a later start time updates the start');
+        assert.equal(scheduleTimes.end, '2026-09-29T13:00', 'the end time shifts later by the original one-hour duration');
         await page.dispatchEvent('body', 'click', { bubbles: true });
         assert.equal(await page.locator('.tm-proto-inline-schedule-editor').count(), 0,
             'ordinary popovers retain outside-click dismissal');

@@ -35971,6 +35971,9 @@
                 const value = String(time || '').trim() || fallback;
                 return `${key}T${/^\d{2}:\d{2}$/.test(value) ? value : fallback}`;
             };
+            const localScheduleDateTimeValue = (date) => (
+                `${formatDateKey(date)}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+            );
             const setHubDateInput = (field, value, fallbackTime) => {
                 const input = pop.querySelector(`[data-tm-proto-edit-field="${field}"]`);
                 if (!(input instanceof HTMLInputElement)) return;
@@ -36224,9 +36227,21 @@
                             const date = String(previous).slice(0, 10) || formatDateKey(new Date());
                             const next = `${date}T${value}`;
                             const other = field === 'start' ? readValue('end') : readValue('start');
-                            const start = field === 'start' ? next : other;
-                            const end = field === 'end' ? next : other;
-                            if (new Date(end).getTime() <= new Date(start).getTime()) {
+                            const startMs = new Date(field === 'start' ? next : other).getTime();
+                            const previousEndMs = new Date(readValue('end')).getTime();
+                            let endMs = new Date(field === 'end' ? next : other).getTime();
+                            if (field === 'start' && Number.isFinite(startMs)) {
+                                const previousStartMs = new Date(previous).getTime();
+                                const durationMs = previousEndMs > previousStartMs
+                                    ? previousEndMs - previousStartMs
+                                    : 60 * 60000;
+                                const endInput = pop.querySelector('[data-tm-proto-edit-field="end"]');
+                                if (endInput instanceof HTMLInputElement) {
+                                    endInput.value = localScheduleDateTimeValue(new Date(startMs + durationMs));
+                                }
+                                endMs = startMs + durationMs;
+                            }
+                            if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
                                 toast(__tmT("calendar.theEndTimeMustBeLaterThanTheStart"), 'warning');
                                 return;
                             }
@@ -36386,7 +36401,19 @@
                     && !isLikelyMobileRuntime()
                     && !compactSurface
                     && viewport.width > 480;
-                if (desktopSidePlacement) {
+                const taskDetailAnchor = anchorEl.classList?.contains?.('tm-task-time-hub-popover') === true;
+                if (taskDetailAnchor) {
+                    // A task-detail time hub already owns the right-side
+                    // workspace. Keep its schedule editor over that same
+                    // anchored surface instead of flipping across the main view.
+                    const popWidth = actualWidth || box.width || width;
+                    const minLeft = viewport.left + margin;
+                    const maxLeft = Math.max(minLeft, viewport.right - popWidth - margin);
+                    const centeredLeft = rect.left + ((rect.width - popWidth) / 2);
+                    left = Math.min(Math.max(minLeft, centeredLeft), maxLeft);
+                    const maxTop = Math.max(viewport.top + margin, viewport.bottom - box.height - margin);
+                    top = Math.min(Math.max(viewport.top + margin, rect.top), maxTop);
+                } else if (desktopSidePlacement) {
                     const popWidth = actualWidth || box.width || width;
                     const gap = 10;
                     const rightLeft = rect.right + gap;
