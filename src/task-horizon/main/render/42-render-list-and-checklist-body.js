@@ -181,32 +181,9 @@
                     return __tmWithAlpha(timeBaseColor || 'var(--tm-primary-color)', __tmClamp(1 - diffDays * (isDark ? 0.085 : 0.11), isDark ? 0.52 : 0.42, 1));
                 }
                 if (state.quadrantEnabled) {
-                    const quadrantRules = (SettingsStore.data.quadrantConfig && SettingsStore.data.quadrantConfig.rules) || [];
-                    const priority = String(task.priority || '').toLowerCase();
-                    const importance = (priority === 'a' || priority === '高' || priority === 'high')
-                        ? 'high'
-                        : ((priority === 'b' || priority === '中' || priority === 'medium')
-                            ? 'medium'
-                            : ((priority === 'c' || priority === '低' || priority === 'low') ? 'low' : 'none'));
-                    const diffDays = Number(__tmGetTaskTimePriorityInfo(task)?.diffDays);
-                    const timeRange = !Number.isFinite(diffDays)
-                        ? 'nodate'
-                        : (diffDays < 0 ? 'overdue' : (diffDays <= 7 ? 'within7days' : (diffDays <= 15 ? 'within15days' : (diffDays <= 30 ? 'within30days' : 'beyond30days'))));
-                    for (const rule of quadrantRules) {
-                        const importanceMatch = Array.isArray(rule?.importance) && rule.importance.includes(importance);
-                        let timeRangeMatch = Array.isArray(rule?.timeRanges) && rule.timeRanges.includes(timeRange);
-                        if (!timeRangeMatch && Array.isArray(rule?.timeRanges)) {
-                            for (const range of rule.timeRanges) {
-                                if (!String(range || '').startsWith('beyond') || range === 'beyond30days') continue;
-                                const days = parseInt(String(range).replace('beyond', '').replace('days', ''), 10);
-                                if (!Number.isNaN(days) && diffDays > days) { timeRangeMatch = true; break; }
-                            }
-                        }
-                        if (importanceMatch && timeRangeMatch) {
-                            const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
-                            return colorMap[String(rule?.color || '')] || 'var(--tm-text-color)';
-                        }
-                    }
+                    const rule = __tmResolveQuadrantRule(task);
+                    const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
+                    return rule ? (colorMap[String(rule.color || '')] || 'var(--tm-text-color)') : '';
                 }
                 return '';
             };
@@ -214,7 +191,7 @@
             const renderGroup = (row) => {
                 const isCollapsed = !!row?.collapsed;
                 const toggle = `<span class="tm-group-toggle" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-checklist-parent-toggle-color);">${__tmRenderToggleIcon(16, isCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>`;
-                const countHtml = Number(row?.count) > 0 ? `<span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>` : '';
+                const countHtml = Number(row?.count) > 0 || row.kind === 'quadrant' ? `<span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>` : '';
                 const durationHtml = String(row?.durationSum || '').trim()
                     ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(String(row.durationSum || '').trim())}</span>`
                     : '';
@@ -267,6 +244,9 @@
                 const timeGroupDropAttrs = groupKind === 'time'
                     ? ` ondragenter="tmTimeGroupDragOver(event, '${escSq(groupKey)}')" ondragover="tmTimeGroupDragOver(event, '${escSq(groupKey)}')" ondragleave="tmTimeGroupDragLeave(event)" ondrop="tmTimeGroupDrop(event, '${escSq(groupKey)}')"`
                     : '';
+                const quadrantGroupDropAttrs = groupKind === 'quadrant'
+                    ? ` data-quadrant="${esc(groupKey.replace(/^quadrant_/, ''))}" ondragenter="tmQuadrantGroupDragOver(event)" ondragover="tmQuadrantGroupDragOver(event)" ondragleave="tmQuadrantGroupDragLeave(event)" ondrop="tmQuadrantGroupDrop(event)"`
+                    : '';
                 const docDropId = String(row.docId || row.id || '').trim();
                 const headingDropId = String(row.headingId || '').trim();
                 const headingContextMenuAttrs = groupKind === 'h2'
@@ -278,7 +258,7 @@
                 const completedSubgroup = groupKind.startsWith('done-');
                 const completedSubgroupStyle = completedSubgroup ? `padding-left:${Math.max(1, Number(row.groupDepth) || 1)}ch;` : '';
                 return `
-                    <div class="tm-checklist-group ${row.kind === 'doc' || row.kind === 'done-doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' || row.kind === 'done-title' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' || row.kind === 'done-h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${completedSubgroup ? 'tm-checklist-group--completed-subgroup' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-kind="${esc(groupKind)}" data-group-key="${esc(groupKey)}" style="--tm-checklist-group-accent:${esc(labelColor)};${completedSubgroupStyle}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)"${timeGroupDropAttrs}${docHeadingGroupDropAttrs}${headingContextMenuAttrs}>
+                    <div class="tm-checklist-group ${row.kind === 'doc' || row.kind === 'done-doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' || row.kind === 'done-title' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' || row.kind === 'done-h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${completedSubgroup ? 'tm-checklist-group--completed-subgroup' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-kind="${esc(groupKind)}" data-group-key="${esc(groupKey)}" style="--tm-checklist-group-accent:${esc(labelColor)};${completedSubgroupStyle}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)"${timeGroupDropAttrs}${quadrantGroupDropAttrs}${docHeadingGroupDropAttrs}${headingContextMenuAttrs}>
                         ${pinnedIconHtml}
                         <span class="tm-checklist-group-label" style="color:${labelColor};">${labelHtml}</span>
                         ${countHtml}
@@ -486,14 +466,16 @@
                     compactGroupCard = null;
                     return;
                 }
+                const hasBody = compactGroupCard.children.length > 0
+                    || (compactGroupCard.kind === 'quadrant' && !compactGroupCard.collapsed);
                 const cardClasses = [
                     'tm-checklist-group-card',
                     `tm-checklist-group-card--${compactGroupCard.kind || 'default'}`,
-                    compactGroupCard.children.length ? '' : 'tm-checklist-group-card--collapsed',
+                    hasBody ? '' : 'tm-checklist-group-card--collapsed',
                 ].filter(Boolean).join(' ');
                 const cardStyle = [];
                 if (compactGroupCard.accent) cardStyle.push(`--tm-checklist-card-accent:${compactGroupCard.accent};`);
-                const cardBodyHtml = compactGroupCard.children.length
+                const cardBodyHtml = hasBody
                     ? `<div class="tm-checklist-group-card-items">${compactGroupCard.children.join('')}</div>`
                     : '';
                 items.push(`<section class="${cardClasses}"${cardStyle.length ? ` style="${cardStyle.join('')}"` : ''}>${compactGroupCard.header}${cardBodyHtml}</section>`);
@@ -512,6 +494,7 @@
                         flushCompactGroupCard();
                         compactGroupCard = {
                             kind: String(row.kind || 'default'),
+                            collapsed: !!row.collapsed,
                             accent: String(currentGroupAccent || '').trim(),
                             header: groupHtml,
                             children: [],

@@ -6,14 +6,21 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.4.0
+
+- **Calendar and sync:** add one-way CalDAV upload to NAS or iCloud calendars, with calendar discovery, target selection, and manual or automatic upload from this device. CalDAV shares ICS scope and content settings and works with ICS upload turned off. The top bar's **Upload calendar now** button uploads through all enabled channels.
+- **Quadrant groups and Kanban:** drag tasks between quadrants in checklist, table, and Kanban views to update importance and due date together according to the target rules. Empty quadrants remain available as drop targets, with consistent date matching and updated counts. Check-in tasks and conflicting rules show a prompt.
+- **Quick add:** pin a task before creating it. Configure the pin button in display field settings; on mobile it starts in **More**. Refine toolbar and picker hover feedback and prevent highlights from sticking after touch input.
+- **Whiteboard sequence mode:** linked subtasks now reveal later steps in order without detaching them from the parent card. Independent chains advance separately; fix blocked steps under unfinished parents and hidden subtasks reappearing in Kanban.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.3.9
 
 - **Calendar schedules:** when adding a schedule from a task in the Dock sidebar, the editor stays over the current task details instead of jumping to the left of the main view. Changing the start time preserves the original duration and moves the end time with it, avoiding invalid start/end boundaries.
 - **View recovery and Kanban:** validate the current navigation context before restoring UI from an older snapshot, preventing stale document, view, detail, or homepage state from replacing newer navigation. After a field edit moves a task to an off-screen Kanban column, scrolling to that column now loads its card instead of leaving a blank column.
 - **Summary:** bounded date filters now use the due date for unfinished tasks and the completion date for completed tasks. Due and completion dates are independent summary fields, and date grouping uses the applicable task date.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.3.8
 
@@ -110,7 +117,9 @@ Automatic date recognition includes Chinese phrases such as `明天` and `下周
 
 ## Calendar and integrations
 
-ICS subscriptions can publish to LianDi, WebDAV, or S3-compatible storage including MinIO and R2. In **Time → ICS subscription**, choose **S3 / MinIO / R2**, enter the API endpoint, region, bucket and credentials, then click **Update now**. You can also reference this device's SiYuan S3 settings. Every provider uses `task-horizon.ics`, with no random suffix or filename setting. The plugin generates the subscription URL from the destination settings; copy it after a successful upload. Later publications overwrite the same file and verify its contents. Changing the bucket, directory or public domain changes the URL and requires subscribing again. Existing subscriptions using a randomly named file must switch to the new URL after uploading.
+In **Time → CalDAV upload**, enter your NAS or iCloud CalDAV server URL and credentials, discover calendars, select a target, and upload manually or enable automatic upload on this device. Scope and content settings are shared with ICS upload, which can remain off. Upload is one-way: external edits are not imported into Task Horizon.
+
+ICS subscriptions can publish to LianDi, WebDAV, or S3-compatible storage including MinIO and R2. In **Time → ICS upload**, choose **S3 / MinIO / R2**, enter the API endpoint, region, bucket and credentials, then click **Update now**. You can also reference this device's SiYuan S3 settings. Every provider uses `task-horizon.ics`, with no random suffix or filename setting. The plugin generates the subscription URL from the destination settings; copy it after a successful upload. Later publications overwrite the same file and verify its contents. Changing the bucket, directory or public domain changes the URL and requires subscribing again. Existing subscriptions using a randomly named file must switch to the new URL after uploading.
 
 For local MinIO, enable **Path Style** and use **Auto** or **Direct**. Configure MinIO CORS to allow `GET` and `PUT` with the `Content-Type` and `Cache-Control` headers from your SiYuan origin. The subscription file must allow anonymous reads and be reachable by your calendar app. R2 needs a public bucket URL or custom domain in **Public access URL**. Credentials synchronize with plugin settings and are excluded from manual exports. Calendar name and content options are grouped under **Sync scope**.
 

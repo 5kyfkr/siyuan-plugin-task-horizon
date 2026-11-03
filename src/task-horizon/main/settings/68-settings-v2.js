@@ -22,7 +22,7 @@
     const TM_SETTINGS_V3_SUBPAGES = {
         docs: [['t-src', __tmT("settings.documentsSources")], ['t-new', __tmT("common.newTask")], ['t-status', __tmT("settings.statusList")], ['t-done', __tmT("settings.completionArchiving")], ['t-review', __tmT("settings.reviewDates")]],
         view: [['v-start', __tmT("settings.startupEntries")], ['v-float', __tmT("settings.quickbarInteraction")], ['v-fields', __tmT("settings.fieldsGrouping")], ['v-table', __tmT("settings.tableChecklist")], ['v-tl', __tmT("settings.timelineKanbanWhiteboard")]],
-        calendar: [['c-cal', __tmT("calendar.calendar")], ['c-content', __tmT("settings.scheduleDisplay")], ['c-remind', __tmT("settings.remindersNotifications")], ['c-ics', __tmT("settings.icsSubscription")], ['c-focus', __tmT("settings.focusIntegrations")]],
+        calendar: [['c-cal', __tmT("calendar.calendar")], ['c-content', __tmT("settings.scheduleDisplay")], ['c-remind', __tmT("settings.remindersNotifications")], ['c-ics', __tmT("settings.icsSubscription")], ['c-caldav', __tmT("caldav.title")], ['c-focus', __tmT("settings.focusIntegrations")]],
         appearance: [['l-density', __tmT("settings.fontSizeDensity")], ['l-icon', __tmT("settings.iconsCheckboxes")], ['l-color', __tmT("settings.colors")], ['l-top', __tmT("settings.topBarControls")]],
         ai: [['a-mode', __tmT("settings.workflow")], ['a-agent', __tmT("settings.agent")], ['a-legacy', __tmT("settings.legacyAccess")], ['a-policy', __tmT("kernel.schedulingRules")]],
         algo: [['r-rules', __tmT("settings.filteringSorting")], ['r-priority', __tmT("task.priorityScore")], ['r-quadrant', __tmT("task.quadrants")]],
@@ -84,7 +84,7 @@
             else if (/tmUpdatePriorityIconStyle/.test(handlers)) sub = 'l-icon';
             else sub = ({ columns: 'v-table', tabs: 't-src', topbar: 'v-start', icons: 'l-icon', checkbox: 'l-icon', colors: 'l-color' })[section] || 'l-density';
         } else if (tab === 'docs') sub = section === 'import' ? 'd-io' : 't-src';
-        else if (tab === 'calendar') sub = ({ 'calendar-content': 'c-content', 'calendar-reminders': 'c-remind', 'calendar-subscription': 'c-ics', 'calendar-subscription-scope': 'c-ics' })[section] || 'c-cal';
+        else if (tab === 'calendar') sub = ({ 'calendar-content': 'c-content', 'calendar-reminders': 'c-remind', 'calendar-subscription': 'c-ics', 'calendar-subscription-scope': 'c-ics', 'calendar-caldav': 'c-caldav' })[section] || 'c-cal';
         else if (tab === 'ai' || tab === 'scheduled') sub = ({ 'ai-agent': 'a-agent', 'ai-policy': 'a-policy', 'ai-connection': 'a-legacy' })[section] || 'a-mode';
         else if (['rules', 'rule_editor', 'priority', 'quadrant'].includes(tab)) sub = 'r-' + (tab === 'rule_editor' ? 'rules' : tab);
         else if (tab === 'about') sub = section === 'backup' ? 'd-io' : section === 'version' ? 'd-about' : 'd-sync';
@@ -321,7 +321,7 @@
         });
         __tmDecorateSettingsChoices(root); __tmObserveSettingsChoices(root);
         const content = root.querySelector('.tm-settings-content');
-        const calendarLabels = { 'calendar-general': __tmT("settings.basicViews"), 'calendar-layout': __tmT("settings.calendarLayout"), 'calendar-content': __tmT("settings.scheduleDisplay"), 'calendar-reminders': __tmT("settings.remindersNotifications"), 'calendar-subscription': __tmT("settings.calendarSubscription"), 'calendar-subscription-scope': __tmT("calendar.syncScopeSettings") };
+        const calendarLabels = { 'calendar-general': __tmT("settings.basicViews"), 'calendar-layout': __tmT("settings.calendarLayout"), 'calendar-content': __tmT("settings.scheduleDisplay"), 'calendar-reminders': __tmT("settings.remindersNotifications"), 'calendar-subscription': __tmT("settings.icsSubscription"), 'calendar-subscription-scope': __tmT("calendar.syncScopeSettings"), 'calendar-caldav': __tmT("caldav.title") };
         const sections = Array.from(content.querySelectorAll('.tm-settings-panel[data-tm-settings-section]'));
         sections.forEach(panel => {
             const id = panel.dataset.tmSettingsSection;

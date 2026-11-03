@@ -271,10 +271,187 @@
             .replace(/(X-Amz-(?:Signature|Credential|Security-Token)=)[^&\s]+/gi, '$1[redacted]').slice(0, 600);
     }
 
+    const DAV_NAMESPACE = 'DAV:';
+    const CALDAV_NAMESPACE = 'urn:ietf:params:xml:ns:caldav';
+    const escapeXml = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    function caldavFail(code, status) {
+        const error = new Error(`CalDAV: ${code}${status ? ` (HTTP ${status})` : ''}`);
+        error.code = code;
+        error.status = status;
+        return error;
+    }
+    function normalizeDavUrl(value, base) {
+        let parsed;
+        try { parsed = new URL(value, base); } catch (_) { throw caldavFail('invalidUrl'); }
+        if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password) throw caldavFail('invalidUrl');
+        parsed.hash = '';
+        return parsed.href;
+    }
+    function normalizeDavCollection(value) {
+        const parsed = new URL(normalizeDavUrl(value));
+        if (!parsed.pathname.endsWith('/')) parsed.pathname += '/';
+        return parsed.href;
+    }
+    const xmlElements = (node, namespace, name) => Array.from(node.getElementsByTagNameNS(namespace, name));
+    const xmlProperty = (node, namespace, name) => xmlElements(node, namespace, name)[0];
+    const xmlText = (node, namespace, name) => xmlProperty(node, namespace, name)?.textContent?.trim() || '';
+    function parseDavResponse(xmlTextValue, Parser) {
+        const doc = new Parser().parseFromString(xmlTextValue, 'application/xml');
+        if (xmlElements(doc, '*', 'parsererror').length || doc.documentElement?.localName !== 'multistatus'
+            || doc.documentElement?.namespaceURI !== DAV_NAMESPACE) throw caldavFail('invalidResponse');
+        return xmlElements(doc, DAV_NAMESPACE, 'response').map(response => {
+            const href = xmlText(response, DAV_NAMESPACE, 'href');
+            if (!href) throw caldavFail('invalidResponse');
+            const props = xmlElements(response, DAV_NAMESPACE, 'propstat');
+            const good = props.filter(item => /\s200(?:\s|$)/.test(xmlText(item, DAV_NAMESPACE, 'status')));
+            return { href, good, failed: props.filter(item => !good.includes(item)), status: xmlText(response, DAV_NAMESPACE, 'status') };
+        });
+    }
+    const davProp = (row, namespace, name) => row.good.map(item => xmlProperty(item, namespace, name)).find(Boolean);
+    const davValue = (row, namespace, name) => davProp(row, namespace, name)?.textContent?.trim() || '';
+    function icsProperty(ics, name) {
+        const lines = String(ics).replace(/\r?\n[ \t]/g, '').split(/\r?\n/);
+        return lines.find(line => line.toUpperCase().startsWith(`${name}:`))?.slice(name.length + 1) || '';
+    }
+    function semanticICS(ics) {
+        const unfolded = String(ics).replace(/\r?\n[ \t]/g, '');
+        const event = unfolded.slice(unfolded.indexOf('BEGIN:VEVENT'), unfolded.indexOf('END:VEVENT') + 'END:VEVENT'.length);
+        return event.split(/\r?\n/)
+            .filter(line => /^(?:BEGIN|END|UID|DTSTART|DTEND|SUMMARY|DESCRIPTION|CATEGORIES|ACTION|TRIGGER|X-TASK-HORIZON-(?:SOURCE|COMPLETED|OWNER|KEY))(?:[;:]|$)/i.test(line))
+            .sort().join('\n');
+    }
+    function createCaldavClient(config, request, Parser = scope.DOMParser) {
+        const root = normalizeDavCollection(config.url);
+        const credentials = `${config.username || ''}:${config.password || ''}`;
+        const authorization = config.username || config.password
+            ? `Basic ${scope.btoa(Array.from(encoder.encode(credentials), byte => String.fromCharCode(byte)).join(''))}` : '';
+        async function send(method, target, body = '', headers = {}) {
+            const response = await request(normalizeDavUrl(target, root), method, { body, headers, authorization,
+                contentType: method === 'PUT' ? CONTENT_TYPE : 'application/xml; charset=utf-8' });
+            if (response.status < 200 || response.status >= 300) throw caldavFail('requestFailed', response.status);
+            return response;
+        }
+        const query = async (target, depth) => parseDavResponse((await send('PROPFIND', target,
+            `<d:propfind xmlns:d="DAV:" xmlns:c="${CALDAV_NAMESPACE}"><d:prop><d:resourcetype/><d:displayname/><d:current-user-principal/><c:calendar-home-set/><c:supported-calendar-component-set/><d:current-user-privilege-set/></d:prop></d:propfind>`, { Depth: String(depth) })).body, Parser);
+        function calendars(rows, base) {
+            return rows.filter(row => {
+                const type = davProp(row, DAV_NAMESPACE, 'resourcetype');
+                if (!type || !xmlElements(type, CALDAV_NAMESPACE, 'calendar').length) return false;
+                const components = davProp(row, CALDAV_NAMESPACE, 'supported-calendar-component-set');
+                if (components && !xmlElements(components, CALDAV_NAMESPACE, 'comp').some(item => item.getAttribute('name') === 'VEVENT')) return false;
+                const rights = davProp(row, DAV_NAMESPACE, 'current-user-privilege-set');
+                return !rights || ['all', 'write', 'write-content'].some(name => xmlElements(rights, DAV_NAMESPACE, name).length);
+            }).map(row => ({ url: normalizeDavCollection(normalizeDavUrl(row.href, base)), name: davValue(row, DAV_NAMESPACE, 'displayname') || row.href }));
+        }
+        return {
+            async discover() {
+                const initial = await query(root, 0);
+                const direct = calendars(initial, root);
+                if (direct.length) return direct;
+                let home = initial.map(row => davProp(row, CALDAV_NAMESPACE, 'calendar-home-set')).filter(Boolean).map(node => xmlText(node, DAV_NAMESPACE, 'href')).find(Boolean);
+                if (!home) {
+                    const principal = initial.map(row => davProp(row, DAV_NAMESPACE, 'current-user-principal')).filter(Boolean)
+                        .map(node => xmlText(node, DAV_NAMESPACE, 'href')).find(Boolean);
+                    if (principal) {
+                        const principalUrl = normalizeDavUrl(principal, root);
+                        const principals = await query(principalUrl, 0);
+                        home = principals.map(row => davProp(row, CALDAV_NAMESPACE, 'calendar-home-set')).filter(Boolean)
+                            .map(node => xmlText(node, DAV_NAMESPACE, 'href')).find(Boolean);
+                        if (home) home = normalizeDavUrl(home, principalUrl);
+                    }
+                }
+                const homeUrl = home ? normalizeDavUrl(home, root) : root;
+                const found = calendars(await query(homeUrl, 1), homeUrl);
+                if (!found.length) throw caldavFail('noCalendars');
+                return Array.from(new Map(found.map(item => [item.url, item])).values());
+            },
+            async list(calendarUrl, owner) {
+                const target = normalizeDavCollection(calendarUrl);
+                const response = await send('REPORT', target,
+                    `<c:calendar-query xmlns:d="DAV:" xmlns:c="${CALDAV_NAMESPACE}"><d:prop><d:getetag/><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"/></c:comp-filter></c:filter></c:calendar-query>`, { Depth: '1' });
+                const found = new Map();
+                for (const row of parseDavResponse(response.body, Parser)) {
+                    const href = normalizeDavUrl(row.href, target);
+                    if (href === target) continue;
+                    if (!href.startsWith(target)) throw caldavFail('invalidResponse');
+                    const data = davValue(row, CALDAV_NAMESPACE, 'calendar-data');
+                    // A partial multistatus must never be mistaken for a complete empty calendar.
+                    if (!data || row.failed.some(item => xmlProperty(item, CALDAV_NAMESPACE, 'calendar-data') || xmlProperty(item, DAV_NAMESPACE, 'getetag'))) throw caldavFail('incompleteResponse');
+                    if (icsProperty(data, 'X-TASK-HORIZON-OWNER') !== owner) continue;
+                    const key = icsProperty(data, 'X-TASK-HORIZON-KEY');
+                    if (!key || !/(?:^|\r?\n)BEGIN:VEVENT(?:\r?\n|$)/.test(data) || found.has(key)) throw caldavFail('invalidResponse');
+                    const etag = davValue(row, DAV_NAMESPACE, 'getetag');
+                    if (!etag) throw caldavFail('missingEtag');
+                    found.set(key, { href, etag, ics: data });
+                }
+                return found;
+            },
+            async put(target, ics, etag) {
+                return send('PUT', target, ics, etag ? { 'If-Match': etag } : { 'If-None-Match': '*' });
+            },
+            async remove(target, etag) {
+                if (!etag) throw caldavFail('missingEtag');
+                try { await send('DELETE', target, '', { 'If-Match': etag }); }
+                catch (error) { if (error.status !== 404) throw error; }
+            },
+        };
+    }
+    async function caldavResources(snapshot, owner, core, check = () => {}) {
+        const result = new Map();
+        for (const event of snapshot.events) {
+            if (result.size && result.size % 128 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+            check();
+            const key = core.stableToken(event.caldavKey || event.uidSeed);
+            if (result.has(key)) throw caldavFail('duplicateIdentity');
+            const content = { ...event, uidSeed: `caldav:${owner}:${key}` };
+            const ics = core.serializeCalendar({ events: [content], calendarName: snapshot.calendarName, generatedAt: Date.now() })
+                .replace('END:VEVENT', `X-TASK-HORIZON-OWNER:${owner}\r\nX-TASK-HORIZON-KEY:${key}\r\nEND:VEVENT`);
+            result.set(key, { ics, name: `task-horizon-${owner}-${key}.ics` });
+        }
+        return result;
+    }
+    async function uploadCaldav(client, target, owner, desired, check, progress = () => {}) {
+        check();
+        const remote = await client.list(target, owner);
+        check();
+        const counts = { created: 0, updated: 0, deleted: 0, unchanged: 0 };
+        for (const [key, item] of desired) {
+            check();
+            const previous = remote.get(key);
+            if (previous && semanticICS(previous.ics) === semanticICS(item.ics)) counts.unchanged++;
+            else {
+                await client.put(previous?.href || new URL(item.name, normalizeDavCollection(target)).href, item.ics, previous?.etag);
+                counts[previous ? 'updated' : 'created']++;
+            }
+            remote.delete(key);
+            check();
+            progress({ ...counts });
+        }
+        // Only this plugin's resources absent from a complete, current snapshot are removed.
+        for (const previous of remote.values()) {
+            check();
+            await client.remove(previous.href, previous.etag);
+            counts.deleted++;
+            check();
+            progress({ ...counts });
+        }
+        return counts;
+    }
+
+    const caldav = Object.freeze({
+        createClient: createCaldavClient,
+        resources: caldavResources,
+        upload: uploadCaldav,
+        semanticICS,
+        collection: normalizeDavCollection,
+        fail: caldavFail,
+    });
+
     const s3 = Object.freeze({ CONTENT_TYPE, CACHE_CONTROL, normalize, transportFor, sanitizeError });
 
     const api = Object.freeze({
         version: 1,
+        caldav,
         s3,
         escapeText,
         foldLine,
@@ -288,5 +465,252 @@
     });
 
     scope.__tmCalendarSubscriptionCore = api;
+    // CalDAV settings and upload runtime share the calendar subscription core.
+    {
+    const core = scope.__tmCalendarSubscriptionCore?.caldav;
+    const t = (key, args) => scope.__taskHorizonHostBridge.i18n.t(key, args);
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+    const runtime = { host: null, signature: '', revision: 0, timer: null, periodic: null, active: null, pending: false, root: null, status: {} };
+    let deviceId;
+    function identity() { return scope.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`; }
+    function device() {
+        if (deviceId) return deviceId;
+        try {
+            deviceId = localStorage.getItem('tm-caldav-device') || identity();
+            localStorage.setItem('tm-caldav-device', deviceId);
+        } catch (_) { deviceId = identity(); }
+        return deviceId;
+    }
+    function config(store = runtime.host?.getStore()) {
+        const raw = store?.data?.calendarCaldav || {};
+        return { enabled: raw.enabled === true, url: String(raw.url || '').trim(), username: String(raw.username || '').trim(),
+            password: String(raw.password || ''), calendarUrl: String(raw.calendarUrl || '').trim(), namespace: String(raw.namespace || ''),
+            mode: raw.mode === 'auto' ? 'auto' : 'manual', writerDevice: String(raw.writerDevice || '') };
+    }
+    function automatic() {
+        const settings = config();
+        return settings.enabled && settings.mode === 'auto' && settings.writerDevice === device() && !!settings.calendarUrl;
+    }
+    function statusKey() {
+        const settings = config();
+        return `tm-caldav-status:${settings.namespace}:${scope.__tmCalendarSubscriptionCore.stableToken(settings.calendarUrl)}`;
+    }
+    function update(patch) {
+        Object.assign(runtime.status, patch);
+        try { localStorage.setItem(statusKey(), JSON.stringify({ ...runtime.status, running: false })); } catch (_) {}
+        runtime.host?.statusChanged?.();
+        const root = runtime.root;
+        if (!root) return;
+        const status = root.querySelector('[data-tm-caldav-status]');
+        if (status) {
+            const counts = runtime.status.counts;
+            status.textContent = [runtime.status.running ? t('caldav.uploading') : '', runtime.status.message || '',
+                runtime.status.lastSuccess ? `${t('caldav.lastSuccess')}: ${new Date(runtime.status.lastSuccess).toLocaleString()}` : '',
+                counts ? t('caldav.counts', counts) : ''].filter(Boolean).join(' · ');
+        }
+        root.querySelectorAll('[data-tm-caldav-action="upload"],[data-tm-caldav-action="discover"]').forEach(button => {
+            button.disabled = !!runtime.active || (button.dataset.tmCaldavAction === 'upload' && !config().enabled);
+        });
+    }
+    function message(error) {
+        if (error.status) return t('caldav.httpError', { status: error.status });
+        const known = ['invalidUrl', 'invalidResponse', 'incompleteResponse', 'missingEtag', 'noCalendars', 'duplicateIdentity', 'notReady', 'notConfigured', 'changed', 'timeout'];
+        return known.includes(error.code) ? t(`caldav.${error.code}`) : t('caldav.failed');
+    }
+    function makeRun(discovery) {
+        const signature = JSON.stringify(config());
+        const revision = runtime.revision;
+        const controller = new AbortController();
+        let error;
+        let rejectStopped;
+        const stopped = new Promise((resolve, reject) => { rejectStopped = reject; });
+        stopped.catch(() => {});
+        const cancel = reason => {
+            if (error) return;
+            error = reason;
+            controller.abort();
+            rejectStopped(reason);
+        };
+        const deadline = setTimeout(() => cancel(core.fail('timeout')), 600000);
+        const run = {
+            cancel, remoteWriteStarted: false,
+            check() {
+                if (error) throw error;
+                if (!runtime.host || JSON.stringify(config()) !== signature || (!discovery && runtime.revision !== revision)) throw core.fail('changed');
+                if (!discovery && !config().enabled) throw core.fail('changed');
+                run.assertCurrent?.();
+            },
+            async wait(phase, operation) {
+                run.check();
+                const timer = setTimeout(() => cancel(core.fail('timeout')), 60000);
+                try {
+                    const result = await Promise.race([stopped, Promise.resolve().then(() => operation(controller.signal))]);
+                    run.check();
+                    return result;
+                } finally { clearTimeout(timer); }
+            },
+            dispose() { clearTimeout(deadline); cancel(core.fail('changed')); },
+        };
+        return run;
+    }
+    async function execute(discovery) {
+        if (runtime.active) {
+            if (runtime.active.discovery !== discovery) throw core.fail('notReady');
+            return runtime.active.promise;
+        }
+        if (!runtime.host) throw core.fail('notReady');
+        if (runtime.timer) clearTimeout(runtime.timer);
+        runtime.timer = null;
+        const initial = config();
+        if (!initial.url || (!discovery && (!initial.enabled || !initial.calendarUrl || !initial.namespace))) throw core.fail('notConfigured');
+        const run = makeRun(discovery);
+        const active = { run, discovery, promise: null };
+        runtime.active = active;
+        runtime.pending = false;
+        update({ running: true, message: '', counts: null });
+        active.promise = Promise.resolve().then(async () => {
+            const host = runtime.host;
+            if (discovery) {
+                const client = core.createClient(initial, (url, method, options) => host.request(url, method, options, run));
+                return await client.discover();
+            }
+            const snapshot = await host.collect(run);
+            run.check();
+            const client = core.createClient(config(), (url, method, options) => host.request(url, method, options, run));
+            const desired = await run.wait('', () => core.resources(snapshot, initial.namespace, scope.__tmCalendarSubscriptionCore, run.check));
+            const counts = await core.upload(client, initial.calendarUrl, initial.namespace, desired, run.check, counts => update({ counts }));
+            run.check();
+            update({ counts, lastSuccess: Date.now(), lastError: '', message: t('caldav.success') });
+            return counts;
+        }).catch(error => {
+            update({ lastError: message(error), message: message(error) });
+            throw error;
+        }).finally(() => {
+            run.dispose();
+            if (runtime.active !== active) return;
+            runtime.active = null;
+            update({ running: false });
+            if (runtime.pending && automatic()) schedule(2000);
+        });
+        update({ running: true });
+        return active.promise;
+    }
+    function schedule(delay = 2000) {
+        if (!automatic()) return;
+        if (runtime.active) { runtime.pending = true; return; }
+        if (runtime.timer) clearTimeout(runtime.timer);
+        runtime.timer = setTimeout(() => { runtime.timer = null; execute(false).catch(() => {}); }, runtime.host?.isReady?.() === false ? Math.max(20000, delay) : delay);
+    }
+    function markDirty() {
+        runtime.revision++;
+        schedule();
+    }
+    function reconcile() {
+        const signature = JSON.stringify(config());
+        const changed = runtime.signature !== signature;
+        if (changed) {
+            runtime.signature = signature;
+            runtime.revision++;
+            runtime.active?.run.cancel(core.fail('changed'));
+            if (runtime.timer) clearTimeout(runtime.timer);
+            runtime.timer = null;
+            try { runtime.status = JSON.parse(localStorage.getItem(statusKey()) || '{}'); } catch (_) { runtime.status = {}; }
+        }
+        if (runtime.periodic) clearInterval(runtime.periodic);
+        runtime.periodic = null;
+        if (automatic()) {
+            runtime.periodic = setInterval(() => schedule(0), 15 * 60 * 1000);
+            if (changed) schedule(20000);
+        } else if (runtime.timer) { clearTimeout(runtime.timer); runtime.timer = null; }
+        update({});
+    }
+    function configure(host) { runtime.host = host; reconcile(); }
+    function renderSettings(store) {
+        const settings = config(store);
+        const row = (label, input) => `<div class="tm-calendar-settings-row"><div class="tm-calendar-settings-label">${esc(label)}</div>${input}</div>`;
+        const field = (name, type = 'text') => `<input class="tm-calendar-settings-input b3-text-field" type="${type}" autocomplete="${type === 'password' ? 'new-password' : 'off'}" aria-label="${esc(t(`caldav.${name}`))}" data-tm-caldav-field="${name}" value="${esc(settings[name])}">`;
+        return `<section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-caldav">
+            <div class="tm-calendar-settings-section-title">${esc(t('caldav.title'))}</div>
+            <div class="tm-settings-section-desc">${esc(t('caldav.description'))}</div>
+            ${row(t('caldav.enabled'), `<input class="b3-switch" type="checkbox" aria-label="${esc(t('caldav.enabled'))}" data-tm-caldav-field="enabled" ${settings.enabled ? 'checked' : ''}>`)}
+            ${row(t('caldav.url'), field('url', 'url'))}
+            ${row(t('caldav.username'), field('username'))}
+            ${row(t('caldav.password'), field('password', 'password'))}
+            ${row(t('caldav.calendarUrl'), `<select class="tm-calendar-settings-select" aria-label="${esc(t('caldav.calendarUrl'))}" data-tm-caldav-field="calendarUrl"><option value="${esc(settings.calendarUrl)}">${esc(settings.calendarUrl || t('caldav.selectCalendar'))}</option></select>`)}
+            ${row(t('caldav.mode'), `<select class="tm-calendar-settings-select" aria-label="${esc(t('caldav.mode'))}" data-tm-caldav-field="mode"><option value="manual">${esc(t('caldav.manual'))}</option><option value="auto" ${settings.mode === 'auto' && settings.writerDevice === device() ? 'selected' : ''}>${esc(t('caldav.auto'))}</option></select>`)}
+            ${row(t('caldav.editContent'), `<button class="tm-btn" type="button" data-tm-call="tmOpenSettingsV2Page" data-tm-args='["calendar","c-ics"]'>${esc(t('caldav.editContent'))}</button>`)}
+            <div class="tm-settings-section-desc">${esc(t('caldav.sharedContent'))}</div>
+            <div class="tm-calendar-settings-row tm-calendar-settings-row--actions"><button class="tm-btn" type="button" data-tm-caldav-action="discover">${esc(t('caldav.discover'))}</button><button class="tm-btn" type="button" data-tm-caldav-action="upload" ${settings.enabled ? '' : 'disabled'}>${esc(t('caldav.uploadNow'))}</button></div>
+            <div class="tm-settings-section-desc" role="status" aria-live="polite" data-tm-caldav-status></div>
+        </section>`;
+    }
+    function bind(root, store, signal) {
+        runtime.root = root;
+        async function save(next) {
+            if (!next.namespace) next.namespace = identity();
+            store.data.calendarCaldav = next;
+            reconcile();
+            if (typeof store.saveNow === 'function') await store.saveNow();
+            else if (typeof store.flushSave === 'function') { store.saveDirty = true; await store.flushSave(); }
+            else await store.save();
+            runtime.host?.changed?.();
+        }
+        root.addEventListener('change', async event => {
+            const input = event.target;
+            const name = input?.dataset?.tmCaldavField;
+            if (!name) return;
+            const next = config(store);
+            if (!Object.hasOwn(next, name)) return;
+            next[name] = name === 'enabled' ? input.checked : String(input.value);
+            if (['url', 'username', 'password'].includes(name)) next.calendarUrl = '';
+            if (name === 'mode') next.writerDevice = device();
+            try { await save(next); update({ message: '' }); }
+            catch (error) { update({ message: message(error) }); }
+            const select = root.querySelector('[data-tm-caldav-field="calendarUrl"]');
+            if (select && !next.calendarUrl) select.innerHTML = `<option value="">${esc(t('caldav.selectCalendar'))}</option>`;
+        }, { signal });
+        root.addEventListener('click', async event => {
+            const button = event.target.closest?.('[data-tm-caldav-action]');
+            if (!button || runtime.active) return;
+            try {
+                if (button.dataset.tmCaldavAction === 'upload') await execute(false);
+                else {
+                    const calendars = await execute(true);
+                    if (signal.aborted || !root.isConnected) return;
+                    const select = root.querySelector('[data-tm-caldav-field="calendarUrl"]');
+                    const next = config(store);
+                    if (!calendars.some(item => item.url === next.calendarUrl)) next.calendarUrl = calendars.length === 1 ? calendars[0].url : '';
+                    select.innerHTML = `<option value="">${esc(t('caldav.selectCalendar'))}</option>` + calendars.map(item => `<option value="${esc(item.url)}">${esc(item.name)}</option>`).join('');
+                    select.value = next.calendarUrl;
+                    await save(next);
+                    update({ message: t('caldav.discovered', { count: calendars.length }) });
+                }
+            } catch (error) { update({ message: message(error) }); }
+        }, { signal });
+        update({});
+    }
+    function cleanup() {
+        runtime.active?.run.cancel(core.fail('changed'));
+        if (runtime.timer) clearTimeout(runtime.timer);
+        if (runtime.periodic) clearInterval(runtime.periodic);
+        runtime.timer = runtime.periodic = null;
+        runtime.host = runtime.root = null;
+        runtime.signature = '';
+    }
+    scope.__tmCalendarCaldav = { configure, reconcile, markDirty, automatic, renderSettings, bind, cleanup,
+        async uploadNow(options = {}) {
+            try {
+                const counts = await execute(false);
+                if (options.interactive) runtime.host?.notify?.(t('caldav.success'), 'success');
+                return counts;
+            } catch (error) {
+                if (options.interactive) runtime.host?.notify?.(message(error), 'error');
+                throw error;
+            }
+        },
+        discover: () => execute(true), isRunning: () => !!runtime.active, getStatus: () => ({ ...runtime.status }) };
+
+    }
+
     if (typeof module === 'object' && module?.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

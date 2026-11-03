@@ -103,9 +103,11 @@
         const currentKey = String(__tmGetPriorityJiraInfo(currentValue)?.key || 'none').trim() || 'none';
         const onPick = typeof opts.onPick === 'function' ? opts.onPick : null;
         const waitForPickBeforeClose = opts.waitForPickBeforeClose === true;
+        const editorClassName = String(opts.editorClassName || '').trim();
         if (!onPick) return;
 
         __tmOpenInlineEditor(anchorEl, ({ editor, close }) => {
+            if (editorClassName) editor.classList.add(editorClassName);
             editor.style.minWidth = '60px';
             editor.style.width = '60px';
             editor.style.padding = '8px';

@@ -144,9 +144,9 @@ assert.match(calendar, /仅在设置页或顶栏点击“立即更新”时生�
 const topbarSyncStart = index.indexOf('syncCalendarSubscriptionTopBar(meta)');
 const topbarSyncEnd = index.indexOf('\n    async openQuickAddTaskWindow', topbarSyncStart);
 const topbarSyncBlock = index.slice(topbarSyncStart, topbarSyncEnd);
-assert.match(topbarSyncBlock, /current\.enabled !== true[\s\S]*removeCalendarSubscriptionTopBar\(\)/, 'topbar item must be physically removed when ICS upload is disabled');
+assert.match(topbarSyncBlock, /current\.enabled !== true[\s\S]*removeCalendarSubscriptionTopBar\(\)/, 'topbar item must be physically removed when both uploads are disabled');
 assert.doesNotMatch(topbarSyncBlock, /isRuntimeMobileClient|isPublisher/, 'manual upload must remain registered on mobile and every enabled device');
-assert.match(index, /addTopBar\(\{[\s\S]*CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID[\s\S]*publishNow\(\{ source: "topbar", force: true, interactive: true \}\)/, 'topbar icon must force a complete publication');
+assert.match(index, /addTopBar\(\{[\s\S]*CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID[\s\S]*uploadNow\(\{ source: "topbar", force: true, interactive: true \}\)/, 'shared topbar icon must upload through all enabled channels');
 assert.match(index, /removeCalendarSubscriptionTopBar\(\)[\s\S]*topBarIcons\.splice|removeWindowTopBarElement/, 'topbar cleanup must remove plugin references as well as DOM');
 assert.doesNotMatch(calendarCss, /\[data-task-horizon-calendar-subscription-topbar="1"\]\s*\{/, 'subscription topbar must inherit the native toolbar item box instead of overriding its alignment');
 assert.match(calendar, /tm-calendar-settings-section-title">日历 ICS 上传</, 'settings must use the user-facing feature name');

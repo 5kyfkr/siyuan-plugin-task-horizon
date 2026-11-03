@@ -12,7 +12,7 @@
         const colSet = new Set(colOrder);
         const colCount = Number(context.colCount) || colOrder.length || 7;
         const alwaysVisibleHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks();
-        if (state.filteredTasks.length === 0 && alwaysVisibleHeadingTasks.length === 0) {
+        if (state.filteredTasks.length === 0 && alwaysVisibleHeadingTasks.length === 0 && !state.quadrantEnabled) {
             return `<tr><td colspan="${colCount}" style="text-align: center; padding: 40px; color: var(--tm-secondary-text);">${__tmT("calendar.noTasks")}</td></tr>`;
         }
 
@@ -162,34 +162,9 @@
                 return __tmGroupBgFromLabelColor(__tmGetTimeGroupLabelColor(groupInfo), isDark) || '';
             }
             if (state.quadrantEnabled) {
-                const quadrantRules = (SettingsStore.data.quadrantConfig && SettingsStore.data.quadrantConfig.rules) || [];
-                const priority = String(task.priority || '').toLowerCase();
-                const importance = (priority === 'a' || priority === '高' || priority === 'high')
-                    ? 'high'
-                    : ((priority === 'b' || priority === '中' || priority === 'medium')
-                        ? 'medium'
-                        : ((priority === 'c' || priority === '低' || priority === 'low') ? 'low' : 'none'));
-                const diffDays = Number(getTimePriorityInfo(task)?.diffDays);
-                const timeRange = !Number.isFinite(diffDays)
-                    ? 'nodate'
-                    : (diffDays < 0 ? 'overdue' : (diffDays <= 7 ? 'within7days' : (diffDays <= 15 ? 'within15days' : (diffDays <= 30 ? 'within30days' : 'beyond30days'))));
-                let ruleColor = '';
-                for (const rule of quadrantRules) {
-                    const importanceMatch = Array.isArray(rule?.importance) && rule.importance.includes(importance);
-                    let timeRangeMatch = Array.isArray(rule?.timeRanges) && rule.timeRanges.includes(timeRange);
-                    if (!timeRangeMatch && Array.isArray(rule?.timeRanges)) {
-                        for (const range of rule.timeRanges) {
-                            if (!String(range || '').startsWith('beyond') || range === 'beyond30days') continue;
-                            const days = parseInt(String(range).replace('beyond', '').replace('days', ''), 10);
-                            if (!Number.isNaN(days) && diffDays > days) { timeRangeMatch = true; break; }
-                        }
-                    }
-                    if (importanceMatch && timeRangeMatch) {
-                        const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
-                        ruleColor = colorMap[String(rule?.color || '')] || 'var(--tm-text-color)';
-                        break;
-                    }
-                }
+                const rule = __tmResolveQuadrantRule(task);
+                const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
+                const ruleColor = rule ? colorMap[String(rule.color || '')] : '';
                 return ruleColor ? (__tmGroupBgFromLabelColor(ruleColor, isDark) || '') : '';
             }
             return '';
@@ -577,39 +552,10 @@
         } else
 
         // 处理普通任务
-        if (state.quadrantEnabled && normalRoots.length > 0) {
+        if (state.quadrantEnabled) {
             // 四象限分组逻辑
             const quadrantRules = (SettingsStore.data.quadrantConfig && SettingsStore.data.quadrantConfig.rules) || [];
 
-            // 获取任务的重要性等级
-            const getImportanceLevel = (task) => {
-                const priority = String(task.priority || '').toLowerCase();
-                if (priority === 'a' || priority === '高' || priority === 'high') return 'high';
-                if (priority === 'b' || priority === '中' || priority === 'medium') return 'medium';
-                if (priority === 'c' || priority === '低' || priority === 'low') return 'low';
-                return 'none';
-            };
-
-            // 获取任务的时间范围分类
-            const getTimeRange = (task) => {
-                const info = getTimePriorityInfo(task);
-                const diffDays = Number(info?.diffDays);
-                if (!Number.isFinite(diffDays)) return 'nodate';
-                if (diffDays < 0) return 'overdue';
-                if (diffDays <= 7) return 'within7days';
-                if (diffDays <= 15) return 'within15days';
-                if (diffDays <= 30) return 'within30days';
-                return 'beyond30days';
-            };
-
-            // 获取任务距离今天的天数
-            const getTaskDays = (task) => {
-                const info = getTimePriorityInfo(task);
-                const diffDays = Number(info?.diffDays);
-                return Number.isFinite(diffDays) ? diffDays : Infinity;
-            };
-
-            // 将任务分配到四象限
             const quadrantGroups = {};
             quadrantRules.forEach(rule => {
                 quadrantGroups[rule.id] = {
@@ -623,42 +569,12 @@
             const quadrantOrder = ['urgent-important', 'not-urgent-important', 'urgent-not-important', 'not-urgent-not-important'];
 
             normalRoots.forEach(task => {
-                const importance = getImportanceLevel(task);
-                const timeRange = getTimeRange(task);
-                const taskDays = getTaskDays(task);
-
-                // 查找匹配的四象限规则
-                let matchedRule = null;
-                for (const rule of quadrantRules) {
-                    const importanceMatch = rule.importance.includes(importance);
-
-                    // 检查时间范围匹配（支持 beyondXdays 范围）
-                    let timeRangeMatch = rule.timeRanges.includes(timeRange);
-                    if (!timeRangeMatch) {
-                        // 检查是否选择了 "余X天以上" 选项
-                        for (const range of rule.timeRanges) {
-                            if (range.startsWith('beyond') && range !== 'beyond30days') {
-                                const days = parseInt(range.replace('beyond', '').replace('days', ''));
-                                if (!isNaN(days) && taskDays > days) {
-                                    timeRangeMatch = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    if (importanceMatch && timeRangeMatch) {
-                        matchedRule = rule;
-                        break;
-                    }
-                }
-
-                if (matchedRule) {
+                const matchedRule = __tmResolveQuadrantRule(task);
+                if (matchedRule && quadrantGroups[matchedRule.id]) {
                     quadrantGroups[matchedRule.id].items.push(task);
                 }
             });
 
-            // 渲染四象限分组
             const colorMap = {
                 red: 'var(--tm-quadrant-red)',
                 yellow: 'var(--tm-quadrant-yellow)',
@@ -675,7 +591,7 @@
 
             quadrantOrder.forEach((quadrantId, index) => {
                 const group = quadrantGroups[quadrantId];
-                if (!group || group.items.length === 0) return;
+                if (!group) return;
 
                 const color = colorMap[group.color] || 'var(--tm-text-color)';
 
@@ -690,7 +606,7 @@
                 };
                 const durationSum = calculateDuration(group.items);
 
-                allRows.push(`<tr class="tm-group-row" data-group-key="${groupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:${color};"><div class="tm-group-sticky">${toggle}${esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', group))}<span class="tm-badge tm-badge--count">${group.items.length}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row" data-group-kind="quadrant" data-group-key="${groupKey}" data-quadrant="${esc(quadrantId)}" ondragenter="tmQuadrantGroupDragOver(event)" ondragover="tmQuadrantGroupDragOver(event)" ondragleave="tmQuadrantGroupDragLeave(event)" ondrop="tmQuadrantGroupDrop(event)"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:${color};"><div class="tm-group-sticky">${toggle}${esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', group))}<span class="tm-badge tm-badge--count">${group.items.length}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`);
 
                 // 如果未折叠，渲染任务
                 if (!isCollapsed) {
@@ -6477,7 +6393,8 @@ if (ev) {
         { id: 'calendar-content', label: __tmT("settings.scheduleDisplay") },
         { id: 'calendar-reminders', label: __tmT("settings.remindersNotifications") },
         { id: 'calendar-subscription-scope', label: __tmT("calendar.syncScopeSettings") },
-        { id: 'calendar-subscription', label: __tmT("settings.icsSubscription") }
+        { id: 'calendar-subscription', label: __tmT("settings.icsSubscription") },
+        { id: 'calendar-caldav', label: __tmT("caldav.title") }
     ]);
 
     const TM_APPEARANCE_SETTINGS_SECTIONS = Object.freeze([

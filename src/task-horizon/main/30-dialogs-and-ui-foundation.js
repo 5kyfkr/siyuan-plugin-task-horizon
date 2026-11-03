@@ -11298,9 +11298,9 @@ return Number(state.contextInteractionQuietUntil || 0);
         return cycleNodes;
     }
 
-    function __tmBuildWhiteboardSequenceVisibleTaskSet(candidateTasks) {
+    function __tmBuildWhiteboardSequenceModel(candidateTasks) {
         const list = Array.isArray(candidateTasks) ? candidateTasks : [];
-        if (!list.length) return null;
+        if (!list.length) return { visible: null, sequenceChildRoots: new Set() };
         const sequenceScope = __tmNormalizeWhiteboardSequenceScope(SettingsStore.data.whiteboardSequenceScope);
         const whiteboardScope = __tmResolveWhiteboardScope({ source: sequenceScope });
         const useGlobalSequence = !!whiteboardScope.boardKey;
@@ -11320,7 +11320,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             : list;
         const orderMap = new Map(sequenceTasks.map((t, i) => [String(t?.id || '').trim(), i]));
         const taskIds = Array.from(orderMap.keys()).filter(Boolean);
-        if (!taskIds.length) return null;
+        if (!taskIds.length) return { visible: null, sequenceChildRoots: new Set() };
 
         const globalBoard = useGlobalSequence ? __tmGetWhiteboardGlobalBoardState(whiteboardScope.boardKey) : null;
         const globalPlacedTaskIds = (globalBoard?.placedTaskIds && typeof globalBoard.placedTaskIds === 'object') ? globalBoard.placedTaskIds : {};
@@ -11342,11 +11342,12 @@ return Number(state.contextInteractionQuietUntil || 0);
                 byDoc.get(did).add(id);
             });
         }
-        if (!byDoc.size) return null;
+        if (!byDoc.size) return { visible: null, sequenceChildRoots: new Set() };
 
         const manualLinksRuntime = __tmGetManualTaskLinksRuntime();
         const manualLinksByDoc = manualLinksRuntime.byDoc instanceof Map ? manualLinksRuntime.byDoc : new Map();
         const visible = new Set();
+        const sequenceChildRoots = new Set();
 
         byDoc.forEach((nodes, docId) => {
             const docLinks = useGlobalSequence
@@ -11357,35 +11358,65 @@ return Number(state.contextInteractionQuietUntil || 0);
                 const item = globalDetachedChildren[String(id || '').trim()];
                 return !!(item && typeof item === 'object' && item.detached === true);
             };
-            const linkedDetachedChildren = new Set();
+            const linkedChildRoots = new Set();
+            const detachedChildRoots = new Set();
+            const nestedLinkedChildRoots = new Set();
+            const isChildInSequenceScope = (id) => {
+                const pid = String(__tmResolveWhiteboardTaskParentId(id) || '').trim();
+                if (!pid) return false;
+                if (nodes.has(pid)) return true;
+                const parentTask = globalThis.__tmTaskBoundary?.getTask?.(pid);
+                if (useGlobalSequence) return __tmIsTaskInWhiteboardScope(parentTask, whiteboardScope);
+                const parentDocId = String(
+                    __tmGetTaskDocIdById(pid)
+                    || parentTask?.docId
+                    || parentTask?.root_id
+                    || ''
+                ).trim();
+                return !!parentDocId && parentDocId === docId;
+            };
             docLinks.forEach((ln) => {
                 const from = String(ln?.from || '').trim();
                 const to = String(ln?.to || '').trim();
                 [from, to].forEach((id) => {
                     if (!id || !nodes.has(id)) return;
-                    const pid = String(__tmResolveWhiteboardTaskParentId(id) || '').trim();
-                    if (!pid || !nodes.has(pid)) return;
-                    if (!isDetachedInScope(id)) return;
-                    linkedDetachedChildren.add(id);
+                    if (!isChildInSequenceScope(id)) return;
+                    linkedChildRoots.add(id);
+                    if (isDetachedInScope(id)) detachedChildRoots.add(id);
+                    else nestedLinkedChildRoots.add(id);
                 });
             });
             if (useGlobalSequence) {
                 Object.keys(globalDetachedChildren).forEach((id) => {
-                    if (nodes.has(id) && isDetachedInScope(id)) linkedDetachedChildren.add(id);
+                    if (nodes.has(id) && isDetachedInScope(id)) detachedChildRoots.add(id);
                 });
             }
+            const hasPlacedAncestor = (taskId) => {
+                let parentId = String(__tmResolveWhiteboardTaskParentId(taskId) || '').trim();
+                const seen = new Set([String(taskId || '').trim()]);
+                while (parentId && !seen.has(parentId)) {
+                    if (globalPlacedTaskIds[parentId]) return true;
+                    seen.add(parentId);
+                    parentId = String(__tmResolveWhiteboardTaskParentId(parentId) || '').trim();
+                }
+                return false;
+            };
+            const independentChildRoots = new Set([...linkedChildRoots, ...detachedChildRoots]
+                .filter((id) => !useGlobalSequence || !!globalPlacedTaskIds[id] || hasPlacedAncestor(id)));
+            independentChildRoots.forEach((id) => sequenceChildRoots.add(id));
 
             const seqNodes = new Set();
             nodes.forEach((id) => {
                 const pid = String(__tmResolveWhiteboardTaskParentId(id) || '').trim();
                 const hasParentInScope = !!(pid && nodes.has(pid));
                 if (useGlobalSequence) {
-                    if (!globalPlacedTaskIds[id]) return;
+                    const linkedNestedOnBoard = nestedLinkedChildRoots.has(id) && independentChildRoots.has(id) && hasPlacedAncestor(id);
+                    if (!globalPlacedTaskIds[id] && !linkedNestedOnBoard) return;
                     const parentPlaced = hasParentInScope && !!globalPlacedTaskIds[pid];
-                    if (!parentPlaced || linkedDetachedChildren.has(id)) seqNodes.add(id);
+                    if (!parentPlaced || independentChildRoots.has(id)) seqNodes.add(id);
                     return;
                 }
-                if (!hasParentInScope || linkedDetachedChildren.has(id)) seqNodes.add(id);
+                if (!hasParentInScope || independentChildRoots.has(id)) seqNodes.add(id);
             });
             if (!seqNodes.size) return;
 
@@ -11403,12 +11434,30 @@ return Number(state.contextInteractionQuietUntil || 0);
                 if (arr.includes(to)) return;
                 arr.push(to);
             });
+            // An unlinked parent provides context for child steps, not another completion gate.
+            const linkedSequenceTaskIds = new Set();
+            adj.forEach((targets, from) => {
+                if (!targets.length) return;
+                linkedSequenceTaskIds.add(from);
+                targets.forEach((id) => linkedSequenceTaskIds.add(id));
+            });
+            const sequenceContainerRoots = new Set();
+            independentChildRoots.forEach((id) => {
+                let parentId = String(__tmResolveWhiteboardTaskParentId(id) || '').trim();
+                const seen = new Set([id]);
+                while (parentId && nodes.has(parentId) && !seen.has(parentId)) {
+                    seen.add(parentId);
+                    if (!linkedSequenceTaskIds.has(parentId)) sequenceContainerRoots.add(parentId);
+                    parentId = String(__tmResolveWhiteboardTaskParentId(parentId) || '').trim();
+                }
+            });
+            sequenceContainerRoots.forEach((id) => visible.add(id));
 
             const addVisibleWithChildren = (id) => {
                 const k = String(id || '').trim();
                 if (!k) return;
                 visible.add(k);
-                __tmCollectSequenceDescendants(k, nodes, linkedDetachedChildren).forEach((cid) => visible.add(cid));
+                __tmCollectSequenceDescendants(k, nodes, independentChildRoots).forEach((cid) => visible.add(cid));
             };
 
             const cyclic = __tmCollectCyclicNodes(seqNodes, adj);
@@ -11453,28 +11502,82 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
             if (!layers.length) return;
 
+            // Only connected steps share a completion barrier. Other chains and
+            // unlinked cards on the same whiteboard must advance independently.
+            const neighbors = new Map(Array.from(dagNodes, (id) => [id, []]));
+            dagNodes.forEach((from) => {
+                (adj.get(from) || []).forEach((to) => {
+                    if (!dagNodes.has(to)) return;
+                    neighbors.get(from).push(to);
+                    neighbors.get(to).push(from);
+                });
+            });
+            const componentById = new Map();
+            const componentLayers = [];
+            dagNodes.forEach((id) => {
+                if (componentById.has(id)) return;
+                const componentIndex = componentLayers.length;
+                componentLayers.push([]);
+                const pending = [id];
+                componentById.set(id, componentIndex);
+                while (pending.length) {
+                    const current = pending.pop();
+                    (neighbors.get(current) || []).forEach((next) => {
+                        if (componentById.has(next)) return;
+                        componentById.set(next, componentIndex);
+                        pending.push(next);
+                    });
+                }
+            });
+            layers.forEach((layer) => {
+                const groups = new Map();
+                layer.forEach((id) => {
+                    const componentIndex = componentById.get(id);
+                    if (!groups.has(componentIndex)) groups.set(componentIndex, []);
+                    groups.get(componentIndex).push(id);
+                });
+                groups.forEach((ids, componentIndex) => componentLayers[componentIndex].push(ids));
+            });
             const doneMemo = {};
-            let currentLayerIdx = layers.findIndex((layer) => !layer.every((id) => __tmIsTaskAndDescDoneForSequence(id, doneMemo, new Set(), { ignoreChildRoots: linkedDetachedChildren })));
-            if (currentLayerIdx < 0) currentLayerIdx = layers.length - 1;
-            (layers[currentLayerIdx] || []).forEach((id) => addVisibleWithChildren(id));
+            componentLayers.forEach((layers) => {
+                let currentLayer = layers.findIndex((layer) => !layer.every((id) => (
+                    sequenceContainerRoots.has(id)
+                    || __tmIsTaskAndDescDoneForSequence(id, doneMemo, new Set(), { ignoreChildRoots: independentChildRoots })
+                )));
+                if (currentLayer < 0) currentLayer = layers.length - 1;
+                (layers[currentLayer] || []).forEach((id) => addVisibleWithChildren(id));
+            });
         });
 
-        return visible;
+        return { visible, sequenceChildRoots };
     }
 
-    function __tmBuildWhiteboardSequenceActiveTaskList(tasks) {
+    function __tmBuildWhiteboardSequenceVisibleTaskSet(candidateTasks) {
+        return __tmBuildWhiteboardSequenceModel(candidateTasks).visible;
+    }
+
+    function __tmBuildWhiteboardSequenceActiveTaskList(tasks, sequenceChildRoots = new Set()) {
         const list = Array.isArray(tasks) ? tasks : [];
         if (!list.length) return list;
+        const independentRoots = sequenceChildRoots instanceof Set ? sequenceChildRoots : new Set();
         const taskMap = state.flatTasks || {};
         const hasIncompleteAncestorMemo = new Map();
         const hasIncompleteAncestor = (task) => {
             const tid = String(task?.id || '').trim();
             if (tid && hasIncompleteAncestorMemo.has(tid)) return hasIncompleteAncestorMemo.get(tid);
+            if (independentRoots.has(tid)) {
+                if (tid) hasIncompleteAncestorMemo.set(tid, null);
+                return null;
+            }
             let parentId = task?.parentTaskId;
             const seen = new Set();
             while (parentId) {
                 if (seen.has(parentId)) break;
                 seen.add(parentId);
+                if (independentRoots.has(String(parentId || '').trim())) {
+                    if (tid) hasIncompleteAncestorMemo.set(tid, null);
+                    return null;
+                }
                 const parent = taskMap[parentId];
                 if (!parent) {
                     if (tid) hasIncompleteAncestorMemo.set(tid, null);
@@ -11509,6 +11612,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!list.length) return list;
         if (state.viewMode === 'whiteboard') return list;
         if (!SettingsStore.data.whiteboardSequenceMode) return list;
+        const sequenceModel = __tmBuildWhiteboardSequenceModel(list);
         const hasCompletedTasks = list.some((task) => {
             try {
                 return typeof __tmIsTaskDoneEffective === 'function'
@@ -11519,9 +11623,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
         });
         if (hasCompletedTasks) {
-            const activeList = __tmBuildWhiteboardSequenceActiveTaskList(list);
+            const activeList = __tmBuildWhiteboardSequenceActiveTaskList(list, sequenceModel.sequenceChildRoots);
             if (activeList.length > 0 && activeList.length < list.length) {
-                const activeVisibleSet = __tmBuildWhiteboardSequenceVisibleTaskSet(activeList);
+                const activeVisibleSet = __tmBuildWhiteboardSequenceModel(activeList).visible;
                 if (activeVisibleSet instanceof Set && activeVisibleSet.size) {
                     return list.filter((task) => {
                         const taskDone = typeof __tmIsTaskDoneEffective === 'function'
@@ -11532,9 +11636,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                 }
             }
         }
-        const visibleSet = __tmBuildWhiteboardSequenceVisibleTaskSet(list);
+        const visibleSet = sequenceModel.visible;
         if (!(visibleSet instanceof Set) || !visibleSet.size) return list;
-        return list.filter((t) => visibleSet.has(String(t?.id || '').trim()));
+        return list.filter((task) => visibleSet.has(String(task?.id || '').trim()));
     }
 
     async function __tmTryRestoreCurrentDocTabViewSnapshot(docId, groupId) {
@@ -15496,6 +15600,87 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.__tmActiveTaskRowDropIndicator = { row: el, kind: dropKind };
     }
 
+    function __tmResolveQuadrantGroupDropElementFromTarget(target) {
+        return target instanceof Element
+            ? target.closest('.tm-checklist-group[data-group-kind="quadrant"], #tmTaskTable tbody tr.tm-group-row[data-group-kind="quadrant"]')
+            : null;
+    }
+
+    async function __tmApplyQuadrantDrop(taskIds, quadrantId) {
+        const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
+        if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
+        const ids = Array.from(new Set(taskIds.map((id) => String(id || '').trim()).filter(Boolean)));
+        let changed = 0;
+        for (const id of ids) {
+            const task = globalThis.__tmTaskBoundary?.getTask?.(id);
+            const result = __tmBuildQuadrantDropPatch(task, quadrantId);
+            if (result.reason === 'noop') continue;
+            if (!result.ok) {
+                const message = result.reason === 'checkin' ? __tmT("task.theCheckInDateIsDeterminedByTheRecurrence")
+                    : result.reason === 'date' ? __tmT("task.quadrantDropDateMismatch")
+                        : result.reason === 'overlap' ? __tmT("task.quadrantDropOverlap", {
+                            name: globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', result.conflictingRule),
+                        }) : __tmT("task.quadrantDropInvalid");
+                hint(message, 'warning');
+                continue;
+            }
+            if (!__tmEnsureEditableTaskLike(task, __tmT("task.quadrants"))) continue;
+            try {
+                const saved = await patchTask(id, result.patch, {
+                    source: 'quadrant-drop',
+                    label: __tmT("task.quadrants"),
+                    reason: 'quadrant-drop',
+                    background: true,
+                    wait: true,
+                    skipInteractionGate: true,
+                    persistSnapshot: true,
+                    showErrorHint: false,
+                });
+                if (saved !== false) changed += 1;
+            } catch (error) {
+                hint(__tmT("task.updateFailed", { message: error.message }), 'error');
+            }
+        }
+        if (changed) hint(__tmT("task.quadrantDropUpdated"), 'success');
+        return changed;
+    }
+
+    window.tmQuadrantGroupDragOver = function(ev) {
+        ev?.preventDefault?.();
+        ev?.stopPropagation?.();
+        const group = __tmResolveQuadrantGroupDropElementFromTarget(ev?.currentTarget)
+            || __tmResolveQuadrantGroupDropElementFromTarget(ev?.target);
+        const task = globalThis.__tmTaskBoundary?.getTask?.(__tmGetDraggedTaskId(ev));
+        const result = __tmBuildQuadrantDropPatch(task, String(group?.dataset.quadrant || ''));
+        const allowed = state.quadrantEnabled && (result.ok || result.reason === 'noop');
+        __tmApplyTimeGroupDropIndicator(group, allowed);
+        try { ev.dataTransfer.dropEffect = allowed ? 'move' : 'none'; } catch (e) {}
+        return false;
+    };
+
+    window.tmQuadrantGroupDragLeave = function(ev) {
+        const group = __tmResolveQuadrantGroupDropElementFromTarget(ev?.currentTarget)
+            || __tmResolveQuadrantGroupDropElementFromTarget(ev?.target);
+        if (ev?.relatedTarget instanceof Node && group?.contains(ev.relatedTarget)) return;
+        __tmClearTaskRowDropIndicators();
+    };
+
+    window.tmQuadrantGroupDrop = async function(ev) {
+        ev?.preventDefault?.();
+        ev?.stopPropagation?.();
+        const group = __tmResolveQuadrantGroupDropElementFromTarget(ev?.currentTarget)
+            || __tmResolveQuadrantGroupDropElementFromTarget(ev?.target);
+        try {
+            if (!state.quadrantEnabled || !group) return;
+            const ids = __tmGetDraggedTaskIds(ev);
+            await __tmApplyQuadrantDrop(ids, String(group.dataset.quadrant || ''));
+        } catch (error) {
+            hint(__tmT("task.updateFailed", { message: error.message }), 'error');
+        } finally {
+            __tmClearTaskRowDropIndicators();
+        }
+    };
+
     function __tmResolveTimeGroupDropElementFromTarget(target) {
         const el = target instanceof Element ? target : null;
         if (!(el instanceof Element)) return null;
@@ -16827,17 +17012,17 @@ return Number(state.contextInteractionQuietUntil || 0);
                         });
                     } catch (e) {}
                 } else {
-                const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTarget);
-                if (timeGroupEl instanceof HTMLElement) {
+                const taskGroupEl = __tmResolveQuadrantGroupDropElementFromTarget(pointTarget) || __tmResolveTimeGroupDropElementFromTarget(pointTarget);
+                if (taskGroupEl instanceof HTMLElement) {
                     clearTaskRowHover();
                     try {
-                        window.tmTimeGroupDragOver?.({
+                        window[taskGroupEl.dataset.groupKind === 'quadrant' ? 'tmQuadrantGroupDragOver' : 'tmTimeGroupDragOver']?.({
                             preventDefault() {},
                             stopPropagation() {},
                             dataTransfer: syntheticTransfer,
-                            target: pointTarget || timeGroupEl,
-                            currentTarget: timeGroupEl,
-                        }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
+                            target: pointTarget || taskGroupEl,
+                            currentTarget: taskGroupEl,
+                        }, String(taskGroupEl.getAttribute('data-group-key') || '').trim());
                     } catch (e) {}
                 } else {
                     const taskRowEl = __tmResolveTaskRowOrDropGapFromTarget(pointTarget);
@@ -16982,16 +17167,16 @@ return Number(state.contextInteractionQuietUntil || 0);
                         return true;
                     } catch (e) {}
                 }
-                const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTarget);
-                if (timeGroupEl instanceof HTMLElement) {
+                const taskGroupEl = __tmResolveQuadrantGroupDropElementFromTarget(pointTarget) || __tmResolveTimeGroupDropElementFromTarget(pointTarget);
+                if (taskGroupEl instanceof HTMLElement) {
                     try {
-                        await window.tmTimeGroupDrop?.({
+                        await window[taskGroupEl.dataset.groupKind === 'quadrant' ? 'tmQuadrantGroupDrop' : 'tmTimeGroupDrop']?.({
                             preventDefault() {},
                             stopPropagation() {},
                             dataTransfer: syntheticTransfer,
-                            target: pointTarget || timeGroupEl,
-                            currentTarget: timeGroupEl,
-                        }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
+                            target: pointTarget || taskGroupEl,
+                            currentTarget: taskGroupEl,
+                        }, String(taskGroupEl.getAttribute('data-group-key') || '').trim());
                         return true;
                     } catch (e) {}
                 }
@@ -17530,10 +17715,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                     });
                 } catch (e) {}
             } else {
-            const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTargetForRows);
-            if (timeGroupEl instanceof HTMLElement) {
+            const taskGroupEl = __tmResolveQuadrantGroupDropElementFromTarget(pointTargetForRows) || __tmResolveTimeGroupDropElementFromTarget(pointTargetForRows);
+            if (taskGroupEl instanceof HTMLElement) {
                 try {
-                    window.tmTimeGroupDragOver?.({
+                    window[taskGroupEl.dataset.groupKind === 'quadrant' ? 'tmQuadrantGroupDragOver' : 'tmTimeGroupDragOver']?.({
                         preventDefault() {},
                         stopPropagation() {},
                         dataTransfer: {
@@ -17542,9 +17727,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                                 return '';
                             },
                         },
-                        target: pointTargetForRows || timeGroupEl,
-                        currentTarget: timeGroupEl,
-                    }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
+                        target: pointTargetForRows || taskGroupEl,
+                        currentTarget: taskGroupEl,
+                    }, String(taskGroupEl.getAttribute('data-group-key') || '').trim());
                 } catch (e) {}
             } else {
                 const taskRowEl = __tmResolveTaskRowOrDropGapFromTarget(pointTargetForRows);
@@ -17605,9 +17790,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                             });
                             handled = true;
                         } else {
-                        const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTarget);
-                        if (timeGroupEl instanceof HTMLElement) {
-                            await window.tmTimeGroupDrop?.({
+                        const taskGroupEl = __tmResolveQuadrantGroupDropElementFromTarget(pointTarget) || __tmResolveTimeGroupDropElementFromTarget(pointTarget);
+                        if (taskGroupEl instanceof HTMLElement) {
+                            await window[taskGroupEl.dataset.groupKind === 'quadrant' ? 'tmQuadrantGroupDrop' : 'tmTimeGroupDrop']?.({
                                 preventDefault() {},
                                 stopPropagation() {},
                                 dataTransfer: {
@@ -17616,9 +17801,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                                         return '';
                                     },
                                 },
-                                target: pointTarget || timeGroupEl,
-                                currentTarget: timeGroupEl,
-                            }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
+                                target: pointTarget || taskGroupEl,
+                                currentTarget: taskGroupEl,
+                            }, String(taskGroupEl.getAttribute('data-group-key') || '').trim());
                             handled = true;
                         } else {
                             const taskRowEl = __tmResolveTaskRowOrDropGapFromTarget(pointTarget);

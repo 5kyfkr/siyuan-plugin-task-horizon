@@ -32,6 +32,7 @@
     "task-set-done-latest-intent-contract.test.js",
     "task-date-completion-race-contract.test.js",
     "task-field-live-update-behavior.test.js",
+    "task-quadrant-drag.test.js",
     "task-schedule-time-field.test.js",
     "task-custom-field-live-update-behavior.test.js",
     "task-pinned-refresh-behavior.test.js",
@@ -90,6 +91,7 @@
     "foreground-refresh-behavior.test.js",
     "whiteboard-batch-persistence-contract.test.js",
     "whiteboard-stream-grouping.test.js",
+    "whiteboard-sequence-scope-contract.test.js",
     "whiteboard-tab-group-scope.test.js",
     "whiteboard-traversal-behavior.test.js",
     "custom-field-hierarchy-contract.test.js",
@@ -97,6 +99,7 @@
     "settings-excel-attachments-behavior.test.js"
   ],
   "browser": [
+    "calendar-caldav-browser.test.js",
     "i18n-ui-browser.test.js",
     "task-search-fields-browser.test.js",
     "task-attachment-document-create-browser.test.js",
@@ -112,6 +115,7 @@
     "calendar-host-snapshot-browser.test.js",
     "checklist-style-integration-browser.test.js",
     "checklist-refresh-scope-browser.test.js",
+    "task-quadrant-drag-browser.test.js",
     "kanban-column-refresh-browser.test.js",
     "kanban-appearance-browser.test.js",
     "settings-v2-browser.test.js",

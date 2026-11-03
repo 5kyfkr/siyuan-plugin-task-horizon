@@ -727,9 +727,12 @@
                     const id = String(task?.id || '').trim();
                     if (id) filteredById.set(id, task);
                 });
+                const respectSequenceProjection = !!SettingsStore.data.whiteboardSequenceMode;
                 let hasInjectedAttachedTask = false;
                 const shouldInjectAttachedTask = (task) => {
                     if (!task || typeof task !== 'object') return false;
+                    const taskId = String(task?.id || '').trim();
+                    if (respectSequenceProjection && !filteredRawTaskById.has(taskId)) return false;
                     if (!isKanbanTaskVisibleByCompletion(task)) return false;
                     if (isHiddenKanbanCompletedDescendant(task)) return false;
                     const docId = String(task?.root_id || task?.docId || '').trim();
@@ -753,6 +756,7 @@
                         ancestorFrontier.forEach((task) => {
                             const parentId = getKanbanParentTaskId(task);
                             if (!parentId || visitedAncestorIds.has(parentId)) return;
+                            if (respectSequenceProjection && !filteredRawTaskById.has(parentId)) return;
                             visitedAncestorIds.add(parentId);
                             const parent = getRawKanbanTaskById(parentId);
                             if (!parent) return;
@@ -772,6 +776,7 @@
                             getKanbanChildTasksByParentId(parentId).forEach((child) => {
                                 const childId = String(child?.id || '').trim();
                                 if (!childId) return;
+                                if (respectSequenceProjection && !filteredRawTaskById.has(childId)) return;
                                 injectAttachedTask(child);
                                 if (!visitedDescendantParentIds.has(childId)) {
                                     visitedDescendantParentIds.add(childId);

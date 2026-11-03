@@ -196,6 +196,7 @@
         'scheduledEventsSchemaVersion',
         'scheduledEvents',
         'calendarIcsWebdavPassword',
+        'calendarCaldav',
         'calendarIcsS3AccessKeyId',
         'calendarIcsS3SecretAccessKey',
         ...TM_DOC_GROUP_SETTING_KEYS,

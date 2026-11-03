@@ -49,6 +49,7 @@ vm.runInContext([
     between('    function isDarkThemeMode()', '    function getCalendarDoneTextColor()'),
     between('    const __tmCalendarModuleLifecycleAbort =', '    function isVisibleCalendarExternalDragMirror('),
     between('    function mountSideDayTimeline(', '    function setSideDayDate('),
+    between('    function configureCalendarCaldav()', '    function renderCalendarSubscriptionS3Settings('),
     between('    function setSettingsStore(', '    async function openScheduleEditorById('),
     'globalThis.dispose = () => __tmCalendarModuleLifecycleAbort.abort();',
 ].join('\n'), context);

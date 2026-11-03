@@ -128,7 +128,7 @@
     function __tmNormalizeQuickAddFieldVisibility(input) {
         const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
         return Object.fromEntries(Object.entries(source).filter(([key, value]) =>
-            ['doc', 'date', 'priority', 'status', 'customFields'].includes(key) && typeof value === 'boolean'));
+            ['pin', 'doc', 'date', 'priority', 'status', 'customFields'].includes(key) && typeof value === 'boolean'));
     }
     const __TM_QUICK_ADD_RECENT_DOCS_LIMIT = 6;
     const __TM_BUILTIN_COLUMN_DEFAULT_ORDER = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'taskCompleteAt', 'remainingTime', 'tomatoSummary', 'remark', 'attachments'];
@@ -8865,6 +8865,7 @@
             calendarEnabled: true,
             calendarLinkDockTomato: true,
             calendarIcsEnabled: false,
+            calendarCaldav: { enabled: false, url: '', username: '', password: '', calendarUrl: '', namespace: '', mode: 'manual', writerDevice: '' },
             calendarIcsProvider: 'chain',
             calendarIcsPublishMode: 'auto',
             calendarIcsScope: 'all',
@@ -9672,6 +9673,7 @@
                                 if (typeof cloudData.calendarEnabled === 'boolean') this.data.calendarEnabled = cloudData.calendarEnabled;
                                 if (typeof cloudData.calendarLinkDockTomato === 'boolean') this.data.calendarLinkDockTomato = cloudData.calendarLinkDockTomato;
                                 if (typeof cloudData.calendarIcsEnabled === 'boolean') this.data.calendarIcsEnabled = cloudData.calendarIcsEnabled;
+                                if (cloudData.calendarCaldav && typeof cloudData.calendarCaldav === 'object' && !Array.isArray(cloudData.calendarCaldav)) this.data.calendarCaldav = { ...this.data.calendarCaldav, ...cloudData.calendarCaldav };
                                 if (typeof cloudData.calendarIcsProvider === 'string') this.data.calendarIcsProvider = cloudData.calendarIcsProvider;
                                 if (typeof cloudData.calendarIcsScope === 'string') this.data.calendarIcsScope = cloudData.calendarIcsScope === 'selected' ? 'selected' : 'all';
                                 if (Array.isArray(cloudData.calendarIcsDocGroupIds)) this.data.calendarIcsDocGroupIds = Array.from(new Set(cloudData.calendarIcsDocGroupIds.map(id => String(id || '').trim()).filter(Boolean)));
@@ -10261,6 +10263,7 @@
             this.data.calendarEnabled = Storage.get('tm_calendar_enabled', this.data.calendarEnabled);
             this.data.calendarLinkDockTomato = Storage.get('tm_calendar_link_docktomato', this.data.calendarLinkDockTomato);
             this.data.calendarIcsEnabled = !!Storage.get('tm_calendar_ics_enabled', this.data.calendarIcsEnabled);
+            this.data.calendarCaldav = Storage.get('tm_calendar_caldav', this.data.calendarCaldav);
             this.data.calendarIcsScope = Storage.get('tm_calendar_ics_scope', this.data.calendarIcsScope) === 'selected' ? 'selected' : 'all';
             const icsDocGroupIds = Storage.get('tm_calendar_ics_doc_group_ids', this.data.calendarIcsDocGroupIds);
             this.data.calendarIcsDocGroupIds = Array.isArray(icsDocGroupIds) ? Array.from(new Set(icsDocGroupIds.map(id => String(id || '').trim()).filter(Boolean))) : [];
@@ -10873,6 +10876,7 @@
             Storage.set('tm_calendar_enabled', !!this.data.calendarEnabled);
             Storage.set('tm_calendar_link_docktomato', !!this.data.calendarLinkDockTomato);
             Storage.set('tm_calendar_ics_enabled', !!this.data.calendarIcsEnabled);
+            Storage.set('tm_calendar_caldav', this.data.calendarCaldav);
             Storage.set('tm_calendar_ics_scope', this.data.calendarIcsScope === 'selected' ? 'selected' : 'all');
             Storage.set('tm_calendar_ics_doc_group_ids', this.data.calendarIcsDocGroupIds);
             Storage.set('tm_calendar_ics_provider', String(this.data.calendarIcsProvider || 'chain'));

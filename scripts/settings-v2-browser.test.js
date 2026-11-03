@@ -94,7 +94,7 @@ const server = http.createServer((req, res) => {
         const setup = `${read('src/i18n/runtime.js')}\nwindow.__taskHorizonHostBridge.i18n = window.__taskHorizonHostBridge.i18nRuntime.createI18n(${read('i18n/' + locale + '.json')}, { locale: '${locale}' });`;
         res.setHeader('content-type', 'text/javascript'); res.end(setup + prelude + runtime); return;
     }
-    if (req.url === '/calendar.js') { res.setHeader('content-type', 'text/javascript'); res.end(read('calendar-subscription-core.js') + '\n' + read('calendar-view.js')); return; }
+    if (req.url === '/calendar.js') { res.setHeader('content-type', 'text/javascript'); res.end(['calendar-subscription-core.js', 'calendar-view.js'].map(read).join('\n')); return; }
     if (req.url.endsWith('.css')) { res.setHeader('content-type', 'text/css'); res.end(req.url === '/basecoat.css' ? read('src/basecoat/basecoat.css') : req.url === '/calendar.css' ? read('calendar-view.css') : read('task-horizon.css')); return; }
     res.setHeader('content-type', 'text/html; charset=utf-8');
     const calendarScript = req.url.includes('lazy-calendar')
@@ -625,7 +625,10 @@ async function checkRecommendedRules(page) {
             }
             if (subpages.length) await page.evaluate(sub => tmOpenSettingsV3Subpage(sub), subpages[0]);
             if (id === 'docs') assert.ok(tabLabels.includes('扫描范围'), 'scan settings remain available');
-            if (id === 'calendar') assert.ok(subpages.includes('c-ics'), 'calendar subscription is reachable');
+            if (id === 'calendar') {
+                assert.ok(subpages.includes('c-ics'), 'ICS upload is reachable');
+                assert.equal(subpages.indexOf('c-caldav'), subpages.indexOf('c-ics') + 1, 'CalDAV upload immediately follows ICS upload');
+            }
             if (id === 'about') {
                 assert.ok(data.sections.some((section) => section.label === '设置备份与迁移'), 'backup section label');
                 await page.evaluate(() => tmOpenSettingsV3Subpage('d-sync'));
@@ -649,7 +652,7 @@ async function checkRecommendedRules(page) {
         }
         await page.waitForFunction(() => __settingsTest.searchIndexReady());
         const expected = await page.evaluate(() => __settingsTest.state.settingsSearchGeneratedEntries.filter((entry) => entry.rendered).map((entry) => [entry.key, entry.title]));
-        assert.equal(subpageCount, 29, 'v3 exposes twenty-nine secondary pages after removing reset');
+        assert.equal(subpageCount, 30, 'v3 exposes thirty secondary pages after adding CalDAV upload');
         const missing = expected.filter(([key]) => !rows.has(key));
         console.log('COVERAGE', rows.size, 'rows;', missing.length, 'missing', JSON.stringify(missing));
         assert.deepEqual(missing, [], 'every indexed production setting must remain reachable');
@@ -775,7 +778,7 @@ async function checkRecommendedRules(page) {
         await providerChoices.getByRole('radio', { name: 'WebDAV', exact: true }).click();
         await page.waitForFunction(() => document.querySelector('[data-tm-cal-setting="calendarIcsProvider"]').__tmChoiceGroup?.querySelector('[aria-checked="true"]')?.textContent === 'WebDAV');
         assert.equal(await page.evaluate(() => document.activeElement.dataset.choiceValue), 'webdav', 'focus survives calendar partial redraw');
-        assert.equal(await page.locator('[data-tm-settings-section="calendar-subscription"] > .tm-settings-v2-section-head .tm-settings-section-title').textContent(), '日历订阅', 'calendar heading survives partial redraw');
+        assert.equal(await page.locator('[data-tm-settings-section="calendar-subscription"] > .tm-settings-v2-section-head .tm-settings-section-title').textContent(), 'ICS 上传', 'ICS upload heading survives partial redraw');
         assert.equal(await page.locator('.tm-settings-v2-section-body .tm-settings-v2-section-body').count(), 0, 'section decoration is idempotent');
         await page.evaluate(() => { __settingsTest.SettingsStore.data.calendarIcsEnabled = true; });
         page.once('dialog', dialog => dialog.dismiss());

@@ -3985,11 +3985,16 @@
             const kind = String(col?.dataset?.kind || '').trim();
             const timeKey = String(col?.dataset?.time || '').trim();
             const timeDropForbidden = kind === 'time' && !__tmBuildKanbanTimeDropTarget(timeKey);
+            const quadrantDrop = kind === 'quadrant'
+                ? __tmBuildQuadrantDropPatch(globalThis.__tmTaskBoundary?.getTask?.(__tmGetDraggedTaskId(ev)), String(col.dataset.quadrant || ''))
+                : null;
+            const dropForbidden = timeDropForbidden || (quadrantDrop && !quadrantDrop.ok && quadrantDrop.reason !== 'noop');
             if (!col.classList.contains('tm-kanban-col--dragover')) {
                 __tmKanbanClearSurfaceDragOver();
                 col.classList.add('tm-kanban-col--dragover');
             }
-            col.classList.toggle('tm-kanban-col--drop-forbidden', timeDropForbidden);
+            col.classList.toggle('tm-kanban-col--drop-forbidden', !!dropForbidden);
+            ev.dataTransfer.dropEffect = dropForbidden ? 'none' : 'move';
         } catch (e) {}
     };
 
@@ -6407,6 +6412,7 @@
         let targetDocId = '';
         let targetHeadingId = '';
         let targetTimeKey = '';
+        let targetQuadrantId = '';
         let st = '';
 
         if (dropTarget) {
@@ -6423,6 +6429,7 @@
             targetDocId = String(col?.dataset?.doc || '').trim();
             targetHeadingId = String(col?.dataset?.heading || '').trim();
             targetTimeKey = String(col?.dataset?.time || '').trim();
+            targetQuadrantId = String(col?.dataset?.quadrant || '').trim();
             st = String(col?.dataset?.status || '').trim();
         }
 
@@ -6561,6 +6568,14 @@
             }
             return false;
         };
+        if (kind === 'quadrant') {
+            try {
+                await __tmApplyQuadrantDrop(baseIds, targetQuadrantId);
+            } catch (error) {
+                hint(__tmT("task.updateFailed", { message: error.message }), 'error');
+            }
+            return;
+        }
         if (kind === 'time') {
             if (baseIds.some((tid) => __tmIsCheckinTask(globalThis.__tmTaskBoundary?.getTask?.(String(tid || '').trim())))) {
                 hint(__tmT("task.checkInTasksAreGroupedByRecurrencePlanAdjust"), 'info');

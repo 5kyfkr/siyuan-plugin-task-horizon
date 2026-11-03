@@ -46,6 +46,7 @@ function harness(overrides = {}) {
     const taskReads = [];
     const notices = [];
     const uiStates = [];
+    const topbarStates = [];
     const eventListeners = new Map();
     const syncListeners = new Map();
     const mutationListeners = new Set();
@@ -93,7 +94,7 @@ function harness(overrides = {}) {
         getSettings: () => settings,
         __tmCalendarSubscriptionCore: core,
         __tmCalendarS3Signer: overrides.signer || { presignPut: async (target) => `${target.endpoint}/${target.bucket}/${target.key}?X-Amz-Signature=fixture` },
-        __taskHorizonSyncCalendarSubscriptionTopBar: (meta) => uiStates.push(meta.running),
+        __taskHorizonSyncCalendarSubscriptionTopBar: (meta) => { uiStates.push(meta.running); topbarStates.push(meta); },
         toast: (message, kind) => notices.push({ message, kind }),
         loadScheduleAll: async () => [],
         formatDateKey: (date) => date.toISOString().slice(0, 10),
@@ -149,7 +150,7 @@ function harness(overrides = {}) {
         globalThis.api = calendarSubscriptionApi;
     `, context);
     return {
-        context, settings, state, requests, notices, taskReads, uiStates, timers, mutationListeners,
+        context, settings, state, requests, notices, taskReads, uiStates, topbarStates, timers, mutationListeners,
         api: context.api, publisher: context.publisher,
         bind() {
             context.publisher.bound = false;
@@ -178,6 +179,100 @@ function harness(overrides = {}) {
         },
     };
 }
+
+for (const [icsEnabled, caldavEnabled] of [[false, false], [true, false], [false, true], [true, true]]) {
+    test(`shared topbar uploads only enabled channels (ICS=${icsEnabled}, CalDAV=${caldavEnabled})`, async () => {
+        const h = harness({ settings: { icsEnabled, icsPublishMode: 'manual' } });
+        h.state.settingsStore.data.calendarCaldav = { enabled: caldavEnabled, mode: 'manual' };
+        const caldavCalls = [];
+        h.context.__tmCalendarCaldav = {
+            uploadNow: async options => { caldavCalls.push(options); return { created: 1 }; },
+            isRunning: () => false,
+            getStatus: () => ({}),
+        };
+        h.context.syncCalendarSubscriptionTopBar();
+        assert.equal(h.topbarStates.at(-1).enabled, icsEnabled || caldavEnabled);
+        assert.equal(h.topbarStates.at(-1).title.includes('CalDAV'), caldavEnabled);
+        assert.equal(h.topbarStates.at(-1).title.includes('ICS'), icsEnabled);
+        const options = { source: 'topbar', force: true, interactive: true };
+        const results = await h.api.uploadNow(options);
+        assert.equal(results.length, Number(icsEnabled) + Number(caldavEnabled));
+        assert.ok(results.every(result => result.status === 'fulfilled'));
+        assert.equal(caldavCalls.length, Number(caldavEnabled));
+        if (caldavEnabled) assert.equal(caldavCalls[0], options);
+        const icsWrites = h.requests.filter(request => request.url === '/api/network/forwardProxy' && JSON.parse(request.init.body).method === 'PUT');
+        assert.equal(icsWrites.length, Number(icsEnabled));
+        assert.equal(h.state.settingsStore.data.calendarCaldav.mode, 'manual');
+    });
+}
+
+test('shared topbar stays busy until both upload channels finish and ignores disabled channel errors', () => {
+    const h = harness({ settings: { icsEnabled: false } });
+    h.state.settingsStore.data.calendarCaldav = { enabled: true };
+    let caldavRunning = true;
+    h.context.__tmCalendarCaldav = { isRunning: () => caldavRunning, getStatus: () => ({ lastError: 'CalDAV fixture failure' }) };
+    h.context.syncCalendarSubscriptionTopBar();
+    assert.equal(h.topbarStates.at(-1).running, true);
+    h.publisher.running = true;
+    caldavRunning = false;
+    h.context.syncCalendarSubscriptionTopBar();
+    assert.equal(h.topbarStates.at(-1).running, true);
+    h.publisher.running = false;
+    h.context.syncCalendarSubscriptionTopBar();
+    assert.equal(h.topbarStates.at(-1).running, false);
+    assert.equal(h.topbarStates.at(-1).title, 'CalDAV fixture failure');
+    h.state.settingsStore.data.calendarCaldav.enabled = false;
+    h.settings.icsEnabled = true;
+    h.context.syncCalendarSubscriptionTopBar();
+    assert.equal(h.topbarStates.at(-1).enabled, true);
+    assert.doesNotMatch(h.topbarStates.at(-1).title, /CalDAV fixture failure/);
+});
+
+test('a failed CalDAV upload does not prevent the shared topbar from completing ICS upload', async () => {
+    const h = harness();
+    h.state.settingsStore.data.calendarCaldav = { enabled: true };
+    h.context.__tmCalendarCaldav = {
+        uploadNow: async () => { throw new Error('CalDAV fixture failure'); },
+        isRunning: () => false,
+        getStatus: () => ({}),
+    };
+    const results = await h.api.uploadNow({ force: true });
+    assert.equal(results[0].status, 'fulfilled');
+    assert.equal(results[0].value.skipped, false);
+    assert.equal(results[1].status, 'rejected');
+    assert.equal(h.publisher.running, false);
+});
+
+test('CalDAV reads the same complete event snapshot with ICS disabled and waits for task writes', async () => {
+    const h = harness({ settings: { icsEnabled: false, icsIncludeTaskDates: true } });
+    let host, waited = false;
+    h.context.__tmCalendarCaldav = { configure(value) { host = value; } };
+    h.context.__tmTaskMutations = { waitIdle: async () => { waited = true; } };
+    h.context.tmQueryCalendarTaskDateEvents = async () => [{ id: 'task-a', title: 'Fixture task', start: '2026-09-27', endExclusive: '2026-09-28' }];
+    h.context.configureCalendarCaldav();
+    const run = { check() { this.assertCurrent?.(); }, async wait(phase, operation) { return await operation(); } };
+    const snapshot = await host.collect(run);
+    assert.equal(waited, true);
+    assert.equal(snapshot.events.length, 1);
+    assert.equal(snapshot.events[0].title, 'Fixture task');
+    assert.equal(snapshot.events[0].allDay, true);
+    assert.equal(h.taskReads.length, 0);
+    assert.equal(h.requests.filter(request => request.url === '/api/network/forwardProxy').length, 0, 'snapshot reading does not publish an ICS file');
+    assert.equal(h.state.settingsStore.data.calendarIcsEnabled, false);
+    const reference = await h.context.buildCalendarSubscriptionEvents({ force: true }, run);
+    assert.equal(JSON.stringify(snapshot.events), JSON.stringify(reference.events));
+});
+
+test('CalDAV snapshot rejects data that changed during collection', async () => {
+    const h = harness({ settings: { icsEnabled: false } });
+    let host;
+    h.context.__tmCalendarCaldav = { configure(value) { host = value; } };
+    h.context.__tmCalendarSubscriptionCore = { ...core, caldav: { ...core.caldav, fail: code => Object.assign(new Error(code), { code }) } };
+    h.context.loadScheduleAll = async () => { h.publisher.dirtySeq++; return []; };
+    h.context.configureCalendarCaldav();
+    const run = { check() { this.assertCurrent?.(); }, async wait(phase, operation) { return await operation(); } };
+    await assert.rejects(host.collect(run), error => error.code === 'changed');
+});
 
 test('a pending settings response times out, aborts its request and cannot affect a later publication', async () => {
     const lateBody = deferred();

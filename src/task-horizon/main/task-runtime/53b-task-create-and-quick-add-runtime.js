@@ -3428,6 +3428,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const qa = state.quickAdd;
         if (!qa) return [];
         return [
+            ...(!qa.relation ? [{ id: 'pin', name: __tmT('kernel.pin'), icon: 'pin', target: '.tm-quick-add-pin' }] : []),
             ...(!qa.relation ? [{ id: 'doc', name: __tmT('task.document'), icon: 'file-text', target: '.tm-quick-add-doc' }] : []),
             { id: 'date', name: __tmT('calendar.date'), icon: 'calendar-check', target: '.tm-quick-add-date-wrap' },
             { id: 'priority', name: __tmT('kernel.importance'), icon: 'flag', target: '#tmQuickAddPriorityBtn' },
@@ -3444,7 +3445,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
 
     function __tmIsQuickAddFieldVisible(entry) {
         if (state.quickAdd?.templateInstance) return entry.id === 'doc';
-        const preferences = __tmGetQuickAddDisplayPlatform() === 'mobile'
+        const isMobile = __tmGetQuickAddDisplayPlatform() === 'mobile';
+        const mobileVisibility = __tmNormalizeQuickAddFieldVisibility(SettingsStore.data.quickAddMobileFieldVisibility);
+        if (isMobile && entry.id === 'pin' && !Object.prototype.hasOwnProperty.call(mobileVisibility, 'pin')) return false;
+        const preferences = isMobile
             ? SettingsStore.data.quickAddMobileFieldVisibility ?? SettingsStore.data.quickAddFieldVisibility
             : SettingsStore.data.quickAddFieldVisibility;
         const visibility = __tmNormalizeQuickAddFieldVisibility(preferences);
@@ -3454,6 +3458,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
 
     function __tmGetQuickAddFieldValueLabel(entry) {
         const qa = state.quickAdd || {};
+        if (entry.id === 'pin') return qa.pinned ? __tmT('task.pinned') : __tmT('common.notSet');
         if (entry.id === 'doc') return qa.docMode === 'dailyNote' ? __tmT("settings.todaySDailyNote") : __tmResolveQuickAddDocName(qa.docId);
         if (entry.id === 'date') return document.getElementById('tmQuickAddDateLabel')?.parentElement?.title || __tmT("common.notSet");
         if (entry.id === 'priority') return { high: __tmT("common.high"), medium: __tmT("common.medium"), low: __tmT("common.low") }[qa.priority] || __tmT("common.none");
@@ -3576,6 +3581,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 else if (button.dataset.quickAddAction === 'image') document.getElementById('tmQuickAddImageInput')?.click();
                 else if (button.dataset.quickAddAction === 'fields') window.tmQuickAddOpenFieldSettings();
                 else if (id === 'doc') window.tmQuickAddOpenDocPicker();
+                else if (id === 'pin') window.tmQuickAddTogglePinned?.();
                 else if (id === 'date') window.tmQuickAddOpenDatePicker(anchor);
                 else if (id === 'priority') window.tmQuickAddOpenPriorityPicker({ currentTarget: anchor });
                 else if (id === 'status') window.tmQuickAddOpenStatusPicker(anchor);
@@ -3858,7 +3864,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             window.tmQuickAddRenderMeta?.();
         };
         __tmOpenInlineEditor(btn, ({ editor, close, onCleanup }) => {
-            try { editor.classList.add('tm-custom-field-inline-editor'); } catch (e) {}
+            try { editor.classList.add('tm-custom-field-inline-editor', 'tm-quick-add-custom-field-picker'); } catch (e) {}
             editor.style.zIndex = '100020';
             editor.style.minWidth = '0';
             editor.style.width = '260px';
@@ -4036,6 +4042,16 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         sync();
     }
 
+    window.tmQuickAddTogglePinned = function() {
+        const qa = state.quickAdd;
+        if (!qa || qa.relation) return;
+        qa.pinned = !qa.pinned;
+        const button = state.quickAddModal?.querySelector('#tmQuickAddPinBtn');
+        if (!button) return;
+        button.setAttribute('aria-pressed', String(!!qa.pinned));
+        button.title = __tmT(qa.pinned ? 'ai.unpin' : 'kernel.pin');
+    };
+
     window.tmQuickAddOpen = async function(options = {}) {
         if (state.quickAdd?.templateSubmitting) return state.quickAdd;
         const relation = options.relation === 'subtask' || options.relation === 'sibling' ? options.relation : '';
@@ -4082,6 +4098,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             reminderDraftOpening: false,
             customFieldValues: {},
             remark: '',
+            pinned: relation ? undefined : !!SettingsStore.data.pinNewTasksByDefault,
             ...inheritedPatch,
             inheritedDateFields: ['startDate', 'completionTime'].filter(field => Object.prototype.hasOwnProperty.call(inheritedPatch, field)),
         };
@@ -4103,7 +4120,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 </div>
                 <div class="tm-quick-add-toolbar">
                     <div class="tm-quick-add-tools" inert aria-busy="true">
-                        ${relation ? '' : `<button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-doc" onclick="tmQuickAddOpenDocPicker()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.selectDocument")}">
+                        ${relation ? '' : `<button type="button" id="tmQuickAddPinBtn" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-pin" onclick="tmQuickAddTogglePinned()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.pin")}" title="${globalThis.__taskHorizonHostBridge.i18n.html(qa.pinned ? "ai.unpin" : "kernel.pin")}" aria-pressed="${qa.pinned ? 'true' : 'false'}">
+                            ${__tmRenderLucideIcon('pin')}
+                        </button><button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-doc" onclick="tmQuickAddOpenDocPicker()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.selectDocument")}">
                             ${__tmRenderLucideIcon('file-text')}<span id="tmQuickAddDocName">${__tmT("kernel.documents")}</span>
                         </button>`}
                         <div class="tm-quick-add-date-wrap">
@@ -4604,6 +4623,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         __tmOpenPriorityInlinePicker(btn, {
             currentValue: qa.priority,
             zIndex: 100020,
+            editorClassName: 'tm-quick-add-priority-picker',
             onPick: async (value) => {
                 qa.priority = value || 'none';
                 window.tmQuickAddRenderMeta?.();
@@ -5244,6 +5264,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             docMode: qa.docMode,
             headingId: qa.headingId,
             priority: qa.priority,
+            ...(!qa.relation ? { pinned: !!qa.pinned } : {}),
             customStatus: qa.customStatus,
             customFieldValues,
             startDate,
@@ -5305,6 +5326,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                         remark: index === firstContentIndex ? payload.remark : '',
                         ...(index === firstContentIndex && payload.attachments.length ? { attachments: payload.attachments } : {}),
                         priority: payload.priority,
+                        ...(payload.pinned !== undefined ? { pinned: payload.pinned } : {}),
                         customStatus: payload.customStatus,
                         customFieldValues: payload.customFieldValues,
                         startDate: payload.startDate,

@@ -66,7 +66,78 @@ function __tmBuildTimeGroupQuickAddBtnHtml(docId, groupLike = null, title = '') 
     `;
 }
 
-// Keep task-card grouping identical in kanban and the whiteboard card stream.
+function __tmMatchesQuadrantTimeRange(range, days) {
+    if (!Number.isFinite(days)) return range === 'nodate';
+    if (range === 'overdue') return days < 0;
+    if (range === 'today') return days === 0;
+    if (range === 'tomorrow') return days === 1;
+    const match = /^(within|beyond)(\d+)days$/.exec(String(range || ''));
+    if (!match) return false;
+    const limit = Number(match[2]);
+    return match[1] === 'within' ? days >= 0 && days <= limit : days > limit;
+}
+
+function __tmGetMatchingQuadrantRules(task) {
+    const priority = String(task?.priority || '').trim().toLowerCase();
+    const importance = ['a', '高', 'high'].includes(priority) ? 'high'
+        : ['b', '中', 'medium'].includes(priority) ? 'medium'
+            : ['c', '低', 'low'].includes(priority) ? 'low' : 'none';
+    const timeStr = String(__tmIsCheckinTask(task)
+        ? __tmGetTaskCheckinCurrentDate(task)
+        : (task?.completionTime || '')).trim();
+    const date = timeStr ? new Date(timeStr.length === 10 ? `${timeStr}T12:00:00` : timeStr.replace(' ', 'T')) : null;
+    const today = new Date();
+    const days = date && !isNaN(date.getTime())
+        ? Math.round((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+            - Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000)
+        : Infinity;
+    const rules = Array.isArray(SettingsStore.data.quadrantConfig?.rules)
+        ? SettingsStore.data.quadrantConfig.rules
+        : [];
+    return rules.filter((rule) => Array.isArray(rule?.importance) && rule.importance.includes(importance)
+        && Array.isArray(rule?.timeRanges) && rule.timeRanges.some((range) => __tmMatchesQuadrantTimeRange(range, days)));
+}
+
+function __tmResolveQuadrantRule(task) {
+    return __tmGetMatchingQuadrantRules(task)[0] || null;
+}
+
+function __tmBuildQuadrantDropPatch(task, quadrantId) {
+    const rule = SettingsStore.data.quadrantConfig?.rules?.find((item) => item?.id === quadrantId);
+    if (!task || !rule) return { ok: false, reason: 'invalid' };
+    if (__tmResolveQuadrantRule(task)?.id === rule.id) return { ok: false, reason: 'noop' };
+    if (__tmIsCheckinTask(task)) return { ok: false, reason: 'checkin' };
+    const importance = ['high', 'medium', 'low', 'none'].find((value) => rule.importance?.includes(value));
+    const ranges = Array.isArray(rule.timeRanges) ? rule.timeRanges : [];
+    if (!importance || !ranges.length) return { ok: false, reason: 'invalid' };
+    let completionTime = '';
+    if (String(rule.id).startsWith('urgent-') || !ranges.includes('nodate')) {
+        const offsets = String(rule.id).startsWith('urgent-') ? [0] : ranges.map((range) => {
+            const match = /^beyond(\d+)days$/.exec(String(range));
+            if (match) return Number(match[1]) + 1;
+            return range === 'tomorrow' ? 1 : range === 'today' || /^within\d+days$/.test(range) ? 0 : Infinity;
+        });
+        const days = Math.min(...offsets);
+        if (!Number.isFinite(days) || !ranges.some((range) => __tmMatchesQuadrantTimeRange(range, days))) {
+            return { ok: false, reason: 'date' };
+        }
+        const date = new Date();
+        date.setHours(12, 0, 0, 0);
+        date.setDate(date.getDate() + days);
+        completionTime = __tmNormalizeDateOnly(date);
+    }
+    const patch = { priority: __tmNormalizeTaskPriorityValue(importance), completionTime };
+    const matches = __tmGetMatchingQuadrantRules({ ...task, ...patch });
+    if (matches.length > 1) {
+        return { ok: false, reason: 'overlap', conflictingRule: matches.find((item) => item.id !== rule.id) || matches[1] };
+    }
+    if (matches[0]?.id !== rule.id) {
+        return { ok: false, reason: 'date' };
+    }
+    return { ok: true, rule, patch };
+}
+
+// Keep quadrant membership identical in all task views.
 function __tmCreateTaskCardGroupingContext(isDark = false) {
     const timeBaseColor = isDark
         ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
@@ -108,36 +179,7 @@ function __tmCreateTaskCardGroupingContext(isDark = false) {
         blue: 'var(--tm-quadrant-blue)',
         green: 'var(--tm-quadrant-green)',
     };
-    const resolveQuadrantRule = (task) => {
-        const priority = String(task?.priority || '').toLowerCase();
-        const importance = ['a', "高", 'high'].includes(priority) ? 'high'
-            : ['b', "中", 'medium'].includes(priority) ? 'medium'
-                : ['c', "低", 'low'].includes(priority) ? 'low' : 'none';
-        const timeStr = __tmIsCheckinTask(task) ? __tmGetTaskCheckinCurrentDate(task) : String(task?.completionTime || '').trim();
-        const taskDate = timeStr ? new Date(timeStr) : null;
-        let taskDays = Infinity;
-        let timeRange = 'nodate';
-        if (taskDate && !isNaN(taskDate.getTime())) {
-            const now = new Date();
-            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
-            taskDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
-            timeRange = taskDays < 0 ? 'overdue' : taskDays <= 7 ? 'within7days'
-                : taskDays <= 15 ? 'within15days' : taskDays <= 30 ? 'within30days' : 'beyond30days';
-        }
-        for (const rule of quadrantRules) {
-            if (!(Array.isArray(rule?.importance) ? rule.importance : []).includes(importance)) continue;
-            const ranges = Array.isArray(rule?.timeRanges) ? rule.timeRanges : [];
-            const matches = ranges.includes(timeRange) || ranges.some((range) => {
-                const value = String(range || '');
-                if (!value.startsWith('beyond') || value === 'beyond30days') return false;
-                const days = parseInt(value.replace('beyond', '').replace('days', ''), 10);
-                return !isNaN(days) && taskDays > days;
-            });
-            if (matches) return rule;
-        }
-        return null;
-    };
+    const resolveQuadrantRule = __tmResolveQuadrantRule;
     return { getTimeGroup, getTimeGroupLabelColor, quadrantRules, quadrantOrder, quadrantColorMap, resolveQuadrantRule };
 }
 

@@ -510,7 +510,7 @@
             persist();
         }
         const execution = instance.execution;
-        execution.payload = { ...execution.payload, completionTime: '', dateMode: 'manual', pinned: false };
+        execution.payload = { ...execution.payload, completionTime: '', dateMode: 'manual', pinned: execution.payload.pinned === true };
         payload = execution.payload;
         if (!execution.targetDocId) {
             let docId = payload.docId;
@@ -575,7 +575,7 @@
         const images = Array.isArray(qa.images) ? qa.images.slice() : [];
         const payload = { relation: qa.relation, sourceTaskId: qa.sourceTaskId, docId: qa.docId, docMode: qa.docMode, headingId: qa.headingId,
             priority: qa.priority, customStatus: qa.customStatus, customFieldValues: __tmNormalizeQuickAddCustomFieldValues(qa.customFieldValues || {}),
-            startDate: qa.startDate || '', completionTime: '', dateMode: 'manual', pinned: false, repeatRule: qa.repeatRule, repeatState: qa.repeatState,
+            startDate: qa.startDate || '', completionTime: '', dateMode: 'manual', pinned: !!qa.pinned, repeatRule: qa.repeatRule, repeatState: qa.repeatState,
             inheritedDateFields: qa.inheritedDateFields || [], remark: '' };
         const scope = __tmTemplateDraftScope(qa, templateId);
         const persist = () => __tmPersistTemplateInstance(qa);

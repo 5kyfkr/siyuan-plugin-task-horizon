@@ -4661,15 +4661,14 @@ return false;
         const fragment = document.createDocumentFragment();
         block.forEach((node) => fragment.appendChild(node));
         targetContainer.insertBefore(fragment, nextNode instanceof Node ? nextNode : null);
-        if (target.groupKey) {
-            const targetHeader = currentItems.querySelector(`.tm-checklist-group[data-group-key="${CSS.escape(target.groupKey)}"]`);
-            const targetBadge = targetHeader?.querySelector?.(':scope > .tm-badge--count');
-            if (targetBadge instanceof HTMLElement && groupCounts.has(target.groupKey)) {
-                targetBadge.textContent = String(groupCounts.get(target.groupKey));
-            }
-        }
+        groupCounts.forEach((count, key) => {
+            const header = currentItems.querySelector(`.tm-checklist-group[data-group-key="${CSS.escape(key)}"]`);
+            const badge = header?.querySelector?.(':scope > .tm-badge--count');
+            if (badge instanceof HTMLElement) badge.textContent = String(count);
+        });
         if (sourceGroupCard instanceof HTMLElement
             && sourceGroupCard !== item.closest('.tm-checklist-group-card')
+            && !sourceGroupCard.querySelector('.tm-checklist-group[data-group-kind="quadrant"]')
             && !sourceGroupCard.querySelector('.tm-checklist-item[data-id]')) {
             sourceGroupCard.remove();
         }
@@ -11593,7 +11592,7 @@ return false;
         const cached = cacheStore?.get(cacheMeta.viewMode);
         if (maxTaskRows === Number.POSITIVE_INFINITY && __tmTaskRowModelCacheMatches(cached, cacheMeta)) return cached.rows;
         const alwaysVisibleHeadingTasks = __tmGetAlwaysVisibleTaskDocHeadingTasks();
-        if ((!Array.isArray(state.filteredTasks) || state.filteredTasks.length === 0) && alwaysVisibleHeadingTasks.length === 0) {
+        if ((!Array.isArray(state.filteredTasks) || state.filteredTasks.length === 0) && alwaysVisibleHeadingTasks.length === 0 && !state.quadrantEnabled) {
             return cacheableMode ? __tmRememberTaskRowModelCache([], cacheMeta) : [];
         }
 
@@ -11897,30 +11896,8 @@ return false;
             return maxTaskRows === Number.POSITIVE_INFINITY && cacheableMode ? __tmRememberTaskRowModelCache(rows, cacheMeta) : rows;
         }
 
-        if (state.quadrantEnabled && normalRoots.length > 0) {
+        if (state.quadrantEnabled) {
             const quadrantRules = (SettingsStore.data.quadrantConfig && SettingsStore.data.quadrantConfig.rules) || [];
-            const getImportanceLevel = (task) => {
-                const priority = String(task.priority || '').toLowerCase();
-                if (priority === 'a' || priority === '高' || priority === 'high') return 'high';
-                if (priority === 'b' || priority === '中' || priority === 'medium') return 'medium';
-                if (priority === 'c' || priority === '低' || priority === 'low') return 'low';
-                return 'none';
-            };
-            const getTimeRange = (task) => {
-                const info = getTimePriorityInfo(task);
-                const diffDays = Number(info?.diffDays);
-                if (!Number.isFinite(diffDays)) return 'nodate';
-                if (diffDays < 0) return 'overdue';
-                if (diffDays <= 7) return 'within7days';
-                if (diffDays <= 15) return 'within15days';
-                if (diffDays <= 30) return 'within30days';
-                return 'beyond30days';
-            };
-            const getTaskDays = (task) => {
-                const info = getTimePriorityInfo(task);
-                const diffDays = Number(info?.diffDays);
-                return Number.isFinite(diffDays) ? diffDays : Infinity;
-            };
 
             const quadrantGroups = {};
             quadrantRules.forEach(rule => {
@@ -11929,23 +11906,7 @@ return false;
             const quadrantOrder = ['urgent-important', 'not-urgent-important', 'urgent-not-important', 'not-urgent-not-important'];
 
             normalRoots.forEach(task => {
-                const importance = getImportanceLevel(task);
-                const timeRange = getTimeRange(task);
-                const taskDays = getTaskDays(task);
-                let matchedRule = null;
-                for (const rule of quadrantRules) {
-                    const importanceMatch = rule.importance.includes(importance);
-                    let timeRangeMatch = rule.timeRanges.includes(timeRange);
-                    if (!timeRangeMatch) {
-                        for (const range of rule.timeRanges) {
-                            if (range.startsWith('beyond') && range !== 'beyond30days') {
-                                const days = parseInt(range.replace('beyond', '').replace('days', ''));
-                                if (!isNaN(days) && taskDays > days) { timeRangeMatch = true; break; }
-                            }
-                        }
-                    }
-                    if (importanceMatch && timeRangeMatch) { matchedRule = rule; break; }
-                }
+                const matchedRule = __tmResolveQuadrantRule(task);
                 if (matchedRule && quadrantGroups[matchedRule.id]) {
                     quadrantGroups[matchedRule.id].items.push(task);
                 }
@@ -11957,7 +11918,7 @@ return false;
 
             quadrantOrder.forEach((quadrantId) => {
                 const group = quadrantGroups[quadrantId];
-                if (!group || !Array.isArray(group.items) || group.items.length === 0) return;
+                if (!group || !Array.isArray(group.items)) return;
                 const groupKey = `quadrant_${quadrantId}`;
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
                 rows.push({

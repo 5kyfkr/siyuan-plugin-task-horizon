@@ -166,7 +166,8 @@ async function setup(page, theme = 'dark') {
             return [`assets/${files[0].name}`];
         };
         window.__tmOpenPriorityInlinePicker = (anchor, options) => __tmOpenInlineEditor(anchor, ({ editor, close }) => {
-            editor.innerHTML = '<button type="button">高</button>';
+            if (options.editorClassName) editor.classList.add(options.editorClassName);
+            editor.innerHTML = '<button type="button" class="tm-priority-option-btn">高</button>';
             editor.querySelector('button').onclick = () => { options.onPick('high'); close(); };
         });
         window.tmOpenTaskTimeHub = async (_, anchor, options) => {
@@ -186,6 +187,27 @@ async function setup(page, theme = 'dark') {
 const image = { name: 'capture.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5J8AAAAASUVORK5CYII=','base64') };
 async function more(page) { await page.getByRole('button', { name: '更多', exact: true }).click(); }
 async function settings(page) { await more(page); await page.getByRole('menuitem', { name: '显示字段设置' }).click(); }
+async function hoverCenter(page, locator) {
+    const bounds = await locator.boundingBox();
+    assert.ok(bounds, 'hover target is visible');
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await page.waitForTimeout(180);
+}
+async function backgroundRgb(locator) {
+    return locator.evaluate(element => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const context = canvas.getContext('2d');
+        context.fillStyle = getComputedStyle(element).backgroundColor;
+        context.fillRect(0, 0, 1, 1);
+        return Array.from(context.getImageData(0, 0, 1, 1).data).slice(0, 3);
+    });
+}
+function assertVisibleBackgroundChange(start, end, label) {
+    const distance = Math.hypot(...start.map((channel, index) => channel - end[index]));
+    assert.ok(distance >= 20, `${label} hover background should be visibly different (${start} -> ${end})`);
+}
 async function screenshot(page, name) {
     const directory = path.join(root, 'output/playwright');
     fs.mkdirSync(directory, { recursive: true });
@@ -200,6 +222,76 @@ async function run() {
     page.on('pageerror', error => errors.push(error.message));
     try {
         await setup(page);
+        await page.evaluate(() => { tmQuickAddClose(); SettingsStore.data.pinNewTasksByDefault = true; return tmQuickAddOpen(); });
+        await page.waitForFunction(() => state.quickAdd?.initializing === false);
+        const pinButton = page.locator('#tmQuickAddPinBtn');
+        assert.equal(await pinButton.getAttribute('aria-pressed'), 'true', 'the default pin setting checks the new-task pin option');
+        assert.equal(await pinButton.evaluate(button => button.nextElementSibling?.classList.contains('tm-quick-add-doc')), true, 'pin option appears before document selection');
+        const documentButton = page.locator('.tm-quick-add-doc');
+        const documentBackground = await backgroundRgb(documentButton);
+        const documentTransform = await documentButton.evaluate(button => getComputedStyle(button).transform);
+        await hoverCenter(page, documentButton);
+        assertVisibleBackgroundChange(documentBackground, await backgroundRgb(documentButton), 'toolbar fields');
+        assert.equal(await documentButton.evaluate(button => getComputedStyle(button).transform), documentTransform, 'toolbar hover does not scale');
+        await page.locator('#tmQuickAddStatusBtn').click();
+        const statusOption = page.locator('.tm-quick-add-status-picker .tm-status-option-btn').first();
+        const statusBackground = await backgroundRgb(statusOption);
+        const statusTransform = await statusOption.evaluate(button => getComputedStyle(button).transform);
+        await hoverCenter(page, statusOption);
+        assertVisibleBackgroundChange(statusBackground, await backgroundRgb(statusOption), 'status options');
+        assert.equal(await statusOption.evaluate(button => getComputedStyle(button).transform), statusTransform, 'status hover does not scale');
+        await page.keyboard.press('Escape');
+        await page.locator('#tmQuickAddPriorityBtn').click();
+        const priorityOption = page.locator('.tm-quick-add-priority-picker .tm-priority-option-btn').first();
+        const priorityBackground = await backgroundRgb(priorityOption);
+        const priorityTransform = await priorityOption.evaluate(button => getComputedStyle(button).transform);
+        await hoverCenter(page, priorityOption);
+        assertVisibleBackgroundChange(priorityBackground, await backgroundRgb(priorityOption), 'importance options');
+        assert.equal(await priorityOption.evaluate(button => getComputedStyle(button).transform), priorityTransform, 'importance hover does not scale');
+        await page.keyboard.press('Escape');
+        await page.locator('[data-tm-quick-add-custom-field="dev"]').click();
+        const customOption = page.locator('.tm-quick-add-custom-field-picker .tm-custom-field-inline-option').first();
+        const customBackground = await backgroundRgb(customOption);
+        const customTransform = await customOption.evaluate(button => getComputedStyle(button).transform);
+        await hoverCenter(page, customOption);
+        assertVisibleBackgroundChange(customBackground, await backgroundRgb(customOption), 'custom field options');
+        assert.equal(await customOption.evaluate(button => getComputedStyle(button).transform), customTransform, 'custom field hover does not scale');
+        await page.keyboard.press('Escape');
+        await page.locator('#tmQuickAddInput').fill('默认置顶任务');
+        await page.evaluate(() => tmQuickAddSubmit());
+        assert.equal(await page.evaluate(() => writes.at(-1)?.payload.pinned), true, 'default pin state reaches task creation');
+        await page.evaluate(() => { SettingsStore.data.pinNewTasksByDefault = true; return tmQuickAddOpen(); });
+        await page.waitForFunction(() => state.quickAdd?.initializing === false);
+        await page.locator('#tmQuickAddPinBtn').click();
+        assert.equal(await page.locator('#tmQuickAddPinBtn').getAttribute('aria-pressed'), 'false', 'the option can override the default');
+        await page.locator('#tmQuickAddInput').fill('手动取消置顶任务');
+        await page.evaluate(() => tmQuickAddSubmit());
+        assert.equal(await page.evaluate(() => writes.at(-1)?.payload.pinned), false, 'an explicit unpinned choice reaches task creation');
+        await page.evaluate(() => { SettingsStore.data.pinNewTasksByDefault = false; notices.length = 0; writes.length = 0; });
+        const touchContext = await browser.newContext({ viewport: { width: 390, height: 760 }, hasTouch: true, isMobile: true });
+        const touchPage = await touchContext.newPage();
+        const touchErrors = [];
+        touchPage.on('pageerror', error => touchErrors.push(error.message));
+        try {
+            await setup(touchPage);
+            await touchPage.waitForFunction(() => state.quickAdd?.initializing === false);
+            assert.ok(await touchPage.evaluate(() => matchMedia('(hover: none)').matches || matchMedia('(pointer: coarse)').matches), 'touch context exposes touch pointer capabilities');
+            const touchPinButton = touchPage.locator('#tmQuickAddPinBtn');
+            assert.equal(await touchPinButton.isVisible(), false, 'pin toolbar button is hidden by default on mobile');
+            const touchStatusButton = touchPage.locator('#tmQuickAddStatusBtn');
+            const touchStatusBackground = await touchStatusButton.evaluate(button => getComputedStyle(button).backgroundColor);
+            const touchStatusBounds = await touchStatusButton.boundingBox();
+            await touchPage.touchscreen.tap(touchStatusBounds.x + touchStatusBounds.width / 2, touchStatusBounds.y + touchStatusBounds.height / 2);
+            await touchPage.waitForTimeout(180);
+            assert.equal(await touchStatusButton.evaluate(button => getComputedStyle(button).backgroundColor), touchStatusBackground, 'touch tap does not leave a toolbar hover background');
+            await touchPage.keyboard.press('Escape');
+            await touchPage.evaluate(() => { SettingsStore.data.quickAddMobileFieldVisibility.pin = true; tmQuickAddRenderMeta(); });
+            assert.equal(await touchPinButton.isVisible(), true, 'mobile field preference can enable the pin button');
+            assert.deepEqual(touchErrors, [], 'touch hover handling has no browser errors');
+            console.log('PASS touch controls do not retain hover styling and mobile pin visibility defaults off');
+        } finally {
+            await touchContext.close();
+        }
         for (const width of [1100, 390]) {
             await page.setViewportSize({ width, height: 760 });
             await page.evaluate(() => {
@@ -232,8 +324,8 @@ async function run() {
         });
         assert.deepEqual(await page.evaluate(() => notices), [], 'heading capture works without a configured default document');
         console.log('PASS desktop/mobile heading actions open the shared composer with the target document and heading');
-        assert.deepEqual(await page.evaluate(() => __tmNormalizeQuickAddFieldVisibility({ date: false, customFields: false, 'custom:dev': false, unknown: true })),
-            { date: false, customFields: false }, 'only supported field preferences are stored');
+        assert.deepEqual(await page.evaluate(() => __tmNormalizeQuickAddFieldVisibility({ pin: false, date: false, customFields: false, 'custom:dev': false, unknown: true })),
+            { pin: false, date: false, customFields: false }, 'only supported field preferences are stored');
         assert.equal(await page.locator('#tmQuickAddDateLabel').innerText(), '日期', 'desktop retains the empty date label');
         assert.deepEqual(await page.evaluate(() => __tmGetQuickAddVisibleOptionCustomFieldDefs().map(field => field.id)), ['dev', 'link']);
         await page.evaluate(() => { state.quickAdd.docId = 'doc-b'; tmQuickAddRenderMeta(); });
@@ -252,10 +344,21 @@ async function run() {
         await page.locator('#tmQuickAddRemark').fill('保留备注');
         await settings(page);
         await screenshot(page, 'desktop-settings');
-        assert.equal(await page.locator('[data-quick-add-visibility]').count(), 5, 'four base fields and one aggregate custom-column switch');
-        for (const id of ['date', 'priority', 'status', 'customFields']) await page.locator(`[data-quick-add-visibility="${id}"]`).uncheck();
+        const pinSettingRow = page.locator('.tm-quick-add-field-setting').first();
+        const pinSettingBackground = await backgroundRgb(pinSettingRow);
+        const pinSettingTransform = await pinSettingRow.locator('.tm-lucide-emoji').evaluate(icon => getComputedStyle(icon).transform);
+        await hoverCenter(page, pinSettingRow);
+        assertVisibleBackgroundChange(pinSettingBackground, await backgroundRgb(pinSettingRow), 'field-setting rows');
+        assert.equal(await pinSettingRow.locator('.tm-lucide-emoji').evaluate(icon => getComputedStyle(icon).transform), pinSettingTransform, 'field-setting hover does not scale icons');
+        assert.equal(await page.locator('[data-quick-add-visibility]').count(), 6, 'five base fields and one aggregate custom-column switch');
+        for (const id of ['date', 'priority', 'status', 'customFields', 'pin']) await page.locator(`[data-quick-add-visibility="${id}"]`).uncheck();
         await page.getByRole('button', { name: '完成', exact: true }).click();
         assert.equal(await page.locator('#tmQuickAddPriorityBtn').isVisible(), false);
+        assert.equal(await page.locator('#tmQuickAddPinBtn').isVisible(), false, 'field settings hide the pin button');
+        await more(page);
+        assert.equal(await page.locator('[data-quick-add-field="pin"]').count(), 1, 'hidden pin remains available in the more menu');
+        await page.locator('[data-quick-add-field="pin"]').click();
+        assert.equal(await page.evaluate(() => state.quickAdd.pinned), true, 'more menu can toggle a hidden pin field');
         await more(page);
         await page.getByRole('menuitem', { name: /^设置开发/ }).click();
         await page.getByText('修复', { exact: true }).click();
@@ -452,7 +555,7 @@ async function run() {
         await setup(page, 'light');
         await settings(page);
         await screenshot(page, 'light-settings');
-        assert.equal(await page.locator('.tm-quick-add-field-setting').count(), 5);
+        assert.equal(await page.locator('.tm-quick-add-field-setting').count(), 6);
         await page.getByRole('button', { name: '完成', exact: true }).click();
         await page.evaluate(() => {
             window.API = { getTaskTitlePresentation: (value, fallback) => ({ text: value || fallback }) };

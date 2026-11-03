@@ -20935,8 +20935,9 @@ th[data-col] {
     box-shadow: none;
     white-space: nowrap;
 }
-.tm-quick-add-box .tm-quick-add-tool:hover,
+.tm-quick-add-box .tm-quick-add-tool:hover { background: color-mix(in srgb, var(--tm-primary-color) 14%, var(--tm-card-bg, var(--b3-theme-background))) !important; }
 .tm-quick-add-close:hover { background: var(--tm-hover-bg); }
+.tm-quick-add-box .tm-quick-add-pin[aria-pressed="true"] { color: var(--tm-pinned-color); background: var(--tm-pinned-bg); }
 .tm-quick-add-box button:focus-visible { outline: 2px solid var(--tm-primary-color); outline-offset: -2px; }
 .tm-quick-add-tool > svg { width: 17px; height: 17px; flex-shrink: 0; }
 .tm-quick-add-date-wrap { position: relative; flex-shrink: 0; }
@@ -21047,7 +21048,7 @@ th[data-col] {
     background: transparent;
     cursor: pointer;
 }
-.tm-quick-add-menu-row:hover { background: var(--tm-hover-bg); }
+.tm-quick-add-menu-row:hover { background: color-mix(in srgb, var(--tm-primary-color) 14%, var(--tm-card-bg, var(--b3-theme-background))); }
 .tm-quick-add-menu-row:focus-visible { outline: 2px solid var(--tm-primary-color); outline-offset: -2px; }
 .tm-quick-add-menu-row > svg, .tm-quick-add-field-setting > svg,
 .tm-quick-add-menu-row > .tm-lucide-emoji, .tm-quick-add-field-setting > .tm-lucide-emoji { flex: 0 0 18px; width: 18px; height: 18px; color: var(--tm-secondary-text); }
@@ -21075,7 +21076,42 @@ th[data-col] {
 .tm-quick-add-settings-description { flex-shrink: 0; margin: 8px 0 14px; color: var(--tm-secondary-text); font-size: 12px; line-height: 1.6; }
 .tm-quick-add-settings-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .tm-quick-add-field-setting { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 2px 8px; border-radius: 6px; cursor: pointer; }
-.tm-quick-add-field-setting:hover { background: var(--tm-hover-bg); }
+.tm-quick-add-field-setting:hover { background: color-mix(in srgb, var(--tm-primary-color) 14%, var(--tm-card-bg, var(--b3-theme-background))); }
+.tm-quick-add-status-picker .tm-status-option-btn:hover,
+.tm-quick-add-custom-field-picker .tm-custom-field-inline-option:hover { background: color-mix(in srgb, var(--tm-primary-color) 14%, var(--tm-card-bg, var(--b3-theme-background))); }
+.tm-quick-add-priority-picker .tm-priority-option-btn { transition: background 160ms ease; }
+.tm-quick-add-priority-picker .tm-priority-option-btn:hover {
+    background: color-mix(in srgb, var(--tm-primary-color) 14%, var(--tm-card-bg, var(--b3-theme-background))) !important;
+    border-color: var(--tm-priority-option-border, var(--tm-border-color));
+    box-shadow: none;
+    transform: none;
+}
+@media (hover: none), (pointer: coarse), (any-pointer: coarse) {
+    .tm-quick-add-box .tm-quick-add-tool:hover,
+    .tm-quick-add-close:hover,
+    .tm-quick-add-settings-back:hover,
+    .tm-quick-add-menu-row:hover,
+    .tm-quick-add-field-setting:hover { background: transparent !important; }
+    .tm-quick-add-box .tm-quick-add-pin[aria-pressed="true"]:hover { background: var(--tm-pinned-bg) !important; }
+    .tm-quick-add-box .tm-quick-add-more[aria-expanded="true"]:hover {
+        background: var(--tm-hover-bg) !important;
+        color: var(--tm-primary-color);
+    }
+    .tm-quick-add-template-choice[aria-current="true"]:hover { background: var(--tm-hover-bg) !important; }
+    .tm-quick-add-status-picker .tm-status-option-btn:hover { background: transparent !important; }
+    .tm-quick-add-custom-field-picker .tm-custom-field-inline-option:hover:not([data-selected="true"]) {
+        background: transparent !important;
+    }
+    .tm-quick-add-custom-field-picker .tm-custom-field-inline-option[data-selected="true"]:hover {
+        background: var(--b3-theme-surface-light, var(--tm-hover-bg)) !important;
+    }
+    .tm-quick-add-priority-picker .tm-priority-option-btn:hover {
+        background: var(--tm-priority-option-bg, transparent) !important;
+        border-color: var(--tm-priority-option-border, var(--tm-border-color));
+        box-shadow: none;
+        transform: none;
+    }
+}
 .tm-quick-add-field-setting > span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
 .tm-quick-add-field-setting .b3-switch { flex-shrink: 0; }
 .tm-quick-add-settings-group { margin: 12px 8px 4px; padding-top: 12px; border-top: 1px solid var(--tm-border-color); color: var(--tm-secondary-text); font-size: 12px; }

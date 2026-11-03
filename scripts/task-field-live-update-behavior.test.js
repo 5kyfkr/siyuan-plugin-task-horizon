@@ -146,6 +146,23 @@ for (const [field, alias, before, after] of cases) {
     });
 }
 
+test('quadrant importance and deadline changes commit and roll back together across task mirrors', () => {
+    const before = { priority: 'low', completionTime: '2026-11-10' };
+    const after = { priority: 'high', completionTime: '' };
+    for (const phase of ['commit', 'rollback']) {
+        const h = createHarness({ ...before, custom_priority: before.priority, completion_time: before.completionTime });
+        const patch = phase === 'rollback' ? before : after;
+        h.mutate('optimistic', after);
+        h.mutate(phase, after, { inversePatch: before });
+        for (const task of [...h.mirrors, h.store.getProjected('task-a')]) {
+            assert.equal(task.priority, patch.priority, phase);
+            assert.equal(task.completionTime, patch.completionTime, phase);
+            assert.equal(task.custom_priority, patch.priority, phase);
+            assert.equal(task.completion_time, patch.completionTime, phase);
+        }
+    }
+});
+
 test('custom-field removal survives an unrelated receipt, stale mirrors and sparse custom-field receipts', () => {
     const h = createHarness({ customFieldValues: { stage: 'old', labels: ['a'], notes: 'old' }, __customFieldRawValues: { stage: 'old', labels: 'a', notes: 'old' } });
     const defs = new Map([['stage', { type: 'select' }], ['labels', { type: 'multi' }], ['notes', { type: 'text' }]]);

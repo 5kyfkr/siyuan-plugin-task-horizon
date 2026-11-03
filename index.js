@@ -1262,7 +1262,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this._taskMobileStartupWaitResolve = null;
         this._taskWindowTopBarLayoutReady = false;
         this._taskCalendarSubscriptionTopBarElement = null;
-        this._taskCalendarSubscriptionTopBarMeta = { enabled: false, running: false, title: __tmT("plugin.uploadCalendarIcsNow") };
+        this._taskCalendarSubscriptionTopBarMeta = { enabled: false, running: false, title: __tmT("plugin.uploadCalendarNow") };
         globalThis.__taskHorizonPluginApp = this.app;
         globalThis.__taskHorizonPluginInstance = this;
         globalThis.__taskHorizonEnsureCalendarAssets = () => this.loadTaskHorizonCalendarAssets();
@@ -2498,7 +2498,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     markCalendarSubscriptionTopBarElement(element) {
         if (!(element instanceof HTMLElement)) return null;
         const meta = this._taskCalendarSubscriptionTopBarMeta || {};
-        const title = String(meta.title || __tmT("plugin.uploadCalendarIcsNow"));
+        const title = String(meta.title || __tmT("plugin.uploadCalendarNow"));
         try { element.setAttribute(CALENDAR_SUBSCRIPTION_TOPBAR_ATTR, "1"); } catch (e) {}
         try { element.setAttribute("title", title); } catch (e) {}
         try { element.setAttribute("aria-label", title); } catch (e) {}
@@ -2543,14 +2543,14 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             this._taskCalendarSubscriptionTopBarElement = this.addTopBar({
                 id: CALENDAR_SUBSCRIPTION_TOPBAR_ID,
                 icon: CALENDAR_SUBSCRIPTION_TOPBAR_ICON_ID,
-                title: String(this._taskCalendarSubscriptionTopBarMeta?.title || __tmT("plugin.uploadCalendarIcsNow")),
+                title: String(this._taskCalendarSubscriptionTopBarMeta?.title || __tmT("plugin.uploadCalendarNow")),
                 position: "right",
                 callback: () => {
                     if (this._taskCalendarSubscriptionTopBarMeta?.running === true) return;
                     void this.loadTaskHorizonCalendarAssets().then(() => {
                         const publisher = globalThis.__tmCalendarSubscription;
-                        if (typeof publisher?.publishNow !== "function") return;
-                        return publisher.publishNow({ source: "topbar", force: true, interactive: true });
+                        if (typeof publisher?.uploadNow !== "function") return;
+                        return publisher.uploadNow({ source: "topbar", force: true, interactive: true });
                     }).catch((error) => {
                         console.warn("[task-horizon] calendar subscription assets failed", error);
                     });

@@ -40925,14 +40925,23 @@
     function syncCalendarSubscriptionTopBar() {
         const settings = getSettings();
         const status = loadCalendarSubscriptionRuntimeStatus();
-        const enabled = settings.icsEnabled === true;
-        let title = __tmT("plugin.uploadCalendarIcsNow");
-        if (calendarSubscriptionPublisher.running) title = __tmT("calendar.uploadingCalendarIcs");
-        else if (status.lastError) title = __tmT("calendar.calendarIcsUploadFailed", { value1: String(status.lastError).slice(0, 120) });
+        const icsEnabled = settings.icsEnabled === true;
+        const caldavEnabled = state.settingsStore?.data?.calendarCaldav?.enabled === true;
+        const caldav = globalThis.__tmCalendarCaldav;
+        const running = calendarSubscriptionPublisher.running || caldav?.isRunning?.() === true;
+        const channels = [icsEnabled ? 'ICS' : '', caldavEnabled ? 'CalDAV' : ''].filter(Boolean).join(' / ');
+        let title = `${__tmT(running ? 'calendar.uploadingCalendar' : 'plugin.uploadCalendarNow')} · ${channels}`;
+        if (!running) {
+            const errors = [
+                icsEnabled && status.lastError ? __tmT("calendar.calendarIcsUploadFailed", { value1: String(status.lastError).slice(0, 120) }) : '',
+                caldavEnabled ? caldav?.getStatus?.().lastError || '' : '',
+            ].filter(Boolean);
+            if (errors.length) title = errors.join(' · ');
+        }
         try {
             globalThis.__taskHorizonSyncCalendarSubscriptionTopBar?.({
-                enabled,
-                running: calendarSubscriptionPublisher.running,
+                enabled: icsEnabled || caldavEnabled,
+                running,
                 title,
             });
         } catch (e) {}
@@ -41139,6 +41148,7 @@
             throw new Error(__tmT("calendar.theDocumentGroupSyncScopeIsIncompleteThisPublish"));
         }
         const fields = {
+            calendarCaldav: 'object',
             calendarIcsEnabled: 'boolean',
             calendarIcsProvider: 'string',
             calendarIcsPublishMode: 'string',
@@ -41312,6 +41322,7 @@
                 if (settings.icsExcludeCompletedSchedules === true && completed) continue;
                 const event = {
                     uidSeed: `schedule:${scheduleId}:${Math.trunc(startAt)}`,
+                    ...(options.caldav ? { caldavKey: `schedule:${scheduleId}:${occurrence.isRecurring ? occurrence.ordinal : 'single'}` } : {}),
                     source: 'schedule',
                     title: normalizeCalendarScheduleTitleText(item?.title, __tmT("kernel.schedule")),
                     completed,
@@ -41959,6 +41970,7 @@
 
     function scheduleCalendarSubscriptionPublication(delayMs = CALENDAR_SUBSCRIPTION_DEBOUNCE_MS, options = {}) {
         if (!calendarSubscriptionPublisher.bound) return false;
+        if (!getSettings().icsEnabled || getSettings().icsPublishMode === 'manual') return false;
         if (calendarSubscriptionPublisher.startupPending && options.allowBeforeStartupReady !== true) return true;
         if (calendarSubscriptionPublisher.debounceTimer) clearTimeout(calendarSubscriptionPublisher.debounceTimer);
         calendarSubscriptionPublisher.debounceTimer = setTimeout(() => {
@@ -41974,8 +41986,10 @@
     }
 
     function markCalendarSubscriptionDirty(source = 'change', delayMs = CALENDAR_SUBSCRIPTION_DEBOUNCE_MS) {
+        globalThis.__tmCalendarCaldav?.markDirty(source);
         if (!calendarSubscriptionPublisher.bound) return false;
         calendarSubscriptionPublisher.dirtySeq += 1;
+        if (!getSettings().icsEnabled || getSettings().icsPublishMode === 'manual') return false;
         if (calendarSubscriptionPublisher.running) {
             queueCalendarSubscriptionPublication({ automatic: true, source });
             return true;
@@ -41984,7 +41998,9 @@
     }
 
     function scheduleCalendarSubscriptionContentCheck(source, delayMs = CALENDAR_SUBSCRIPTION_DEBOUNCE_MS) {
+        globalThis.__tmCalendarCaldav?.markDirty(source);
         if (!calendarSubscriptionPublisher.bound) return false;
+        if (!getSettings().icsEnabled || getSettings().icsPublishMode === 'manual') return false;
         // Sync completion may only concern reminder registries or our own ICS
         // snapshot. Recheck content once afterward without invalidating an upload.
         if (calendarSubscriptionPublisher.activeRun) {
@@ -42141,8 +42157,9 @@
 
     function reconcileCalendarSubscriptionPublisher(options = {}) {
         const settings = getSettings();
-        const shouldBind = settings.icsEnabled === true
-            && settings.icsPublishMode === 'auto';
+        globalThis.__tmCalendarCaldav?.reconcile();
+        const shouldBind = (settings.icsEnabled === true && settings.icsPublishMode === 'auto')
+            || state.settingsStore?.data?.calendarCaldav?.enabled === true;
         if (shouldBind) bindCalendarSubscriptionPublisher();
         else unbindCalendarSubscriptionPublisher();
         updateCalendarSubscriptionUi();
@@ -42150,9 +42167,19 @@
         return shouldBind;
     }
 
+    function uploadCalendarNow(options = {}) {
+        const uploads = [];
+        if (getSettings().icsEnabled === true) uploads.push(publishCalendarSubscriptionNow(options));
+        if (state.settingsStore?.data?.calendarCaldav?.enabled === true) {
+            uploads.push(globalThis.__tmCalendarCaldav.uploadNow(options));
+        }
+        return Promise.allSettled(uploads);
+    }
+
     const calendarSubscriptionApi = Object.freeze({
         version: 1,
         publishNow: publishCalendarSubscriptionNow,
+        uploadNow: uploadCalendarNow,
         reconcile: reconcileCalendarSubscriptionPublisher,
         markDirty: markCalendarSubscriptionDirty,
         isRunning: () => calendarSubscriptionPublisher.running,
@@ -42163,6 +42190,35 @@
         }),
     });
     globalThis.__tmCalendarSubscription = calendarSubscriptionApi;
+
+    function configureCalendarCaldav() {
+        globalThis.__tmCalendarCaldav?.configure({
+            getStore: () => state.settingsStore,
+            isReady: () => !calendarSubscriptionPublisher.startupPending,
+            changed: () => reconcileCalendarSubscriptionPublisher({ reason: 'caldav-settings' }),
+            statusChanged: syncCalendarSubscriptionTopBar,
+            notify: (message, kind) => toast(message, kind),
+            request: (url, method, options, run) => forwardCalendarSubscriptionRequest(url, method, {
+                authorization: options.authorization, headers: options.headers, contentType: options.contentType,
+                payloadEncoding: 'base64', payload: encodeCalendarSubscriptionUtf8Base64(options.body || ''),
+            }, run),
+            async collect(run) {
+                const store = state.settingsStore;
+                if (!store?.data) throw globalThis.__tmCalendarSubscriptionCore.caldav.fail('notReady');
+                if (store.loadingPromise) await run.wait('', () => store.loadingPromise);
+                if (store.saveDirty || store.saving) await run.wait('', () => flushCalendarSubscriptionSettingsStore(store));
+                await run.wait('', () => globalThis.__tmTaskMutations?.waitIdle?.());
+                await refreshCalendarSubscriptionSharedSettings(run);
+                const revision = calendarSubscriptionPublisher.dirtySeq;
+                const built = await buildCalendarSubscriptionEvents({ force: true, caldav: true, source: 'caldav' }, run);
+                run.assertCurrent = () => {
+                    if (calendarSubscriptionPublisher.dirtySeq !== revision) throw globalThis.__tmCalendarSubscriptionCore.caldav.fail('changed');
+                };
+                run.check();
+                return { ...built, calendarName: getSettings().icsCalendarName };
+            },
+        });
+    }
 
     function renderCalendarSubscriptionS3Settings(settings) {
         const row = (label, description, control, stacked = false) => `<div class="tm-calendar-settings-row${stacked ? ' tm-calendar-settings-row--stacked' : ''}">
@@ -42904,14 +42960,18 @@
                     </div>
                 </section>
 
+                ${globalThis.__tmCalendarCaldav?.renderSettings(state.settingsStore) || ''}
             </div>
         `;
 
         if (indexOnly) return true;
 
+        configureCalendarCaldav();
+
         state.settingsAbort?.abort();
         const abort = new AbortController();
         state.settingsAbort = abort;
+        globalThis.__tmCalendarCaldav?.bind(containerEl, state.settingsStore, abort.signal);
 
         containerEl.addEventListener('input', (e) => {
             const el = e.target;
@@ -43026,6 +43086,7 @@
             } catch (e2) {}
             try {
                 if (key.startsWith('calendarIcs')) {
+                    globalThis.__tmCalendarCaldav?.markDirty(`settings:${key}`);
                     reconcileCalendarSubscriptionPublisher({ reason: `settings:${key}` });
                     if (store.data.calendarIcsEnabled === true) {
                         markCalendarSubscriptionDirty(`settings:${key}`);
@@ -43203,6 +43264,7 @@
     }
 
     function cleanup() {
+        globalThis.__tmCalendarCaldav?.cleanup();
         calendarSubscriptionPublisher.activeRun?.cancel(Object.assign(new Error(__tmT("calendar.calendarModuleClosed")), { code: 'TM_ICS_CANCELLED' }));
         try { __tmCalendarModuleLifecycleAbort.abort(); } catch (e) {}
         unmountSideDayTimeline();
@@ -43219,6 +43281,7 @@
 
     function setSettingsStore(settingsStore) {
         state.settingsStore = settingsStore || state.settingsStore || null;
+        configureCalendarCaldav();
         try { state.prototypeOpacitySync?.(); } catch (e) {}
         try { syncSideDayEventOpacity(); } catch (e) {}
         if (state.settingsStore?.data) {

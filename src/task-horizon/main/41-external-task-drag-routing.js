@@ -168,6 +168,11 @@
             };
         }
 
+        const quadrantGroupEl = __tmResolveQuadrantGroupDropElementFromTarget(el);
+        if (quadrantGroupEl instanceof HTMLElement) {
+            return { type: 'quadrant-group', el: quadrantGroupEl, groupKey: String(quadrantGroupEl.dataset.quadrant || '') };
+        }
+
         const taskRowEl = __tmResolveExternalTaskRowDropElement(el);
         if (taskRowEl instanceof HTMLElement) {
             const rowTarget = __tmReadExternalTaskRowDrop(taskRowEl, el);
@@ -266,6 +271,10 @@
                 window.tmTimeGroupDragOver?.(ev, hit.groupKey);
                 return true;
             }
+            if (hit.type === 'quadrant-group') {
+                window.tmQuadrantGroupDragOver?.(ev);
+                return true;
+            }
             if (hit.type === 'task-row') {
                 window.tmTaskRowDragOver?.(ev, hit.targetId, hit.overrideKind);
                 return true;
@@ -312,6 +321,10 @@
         }
         if (hit.type === 'time-group') {
             await window.tmTimeGroupDrop?.(ev, hit.groupKey);
+            return true;
+        }
+        if (hit.type === 'quadrant-group') {
+            await window.tmQuadrantGroupDrop?.(ev);
             return true;
         }
         if (hit.type === 'task-row') {
