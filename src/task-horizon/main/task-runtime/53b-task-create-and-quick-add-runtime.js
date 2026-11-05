@@ -3428,7 +3428,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         const qa = state.quickAdd;
         if (!qa) return [];
         return [
-            ...(!qa.relation ? [{ id: 'pin', name: __tmT('kernel.pin'), icon: 'pin', target: '.tm-quick-add-pin' }] : []),
+            { id: 'pin', name: __tmT('kernel.pin'), icon: 'pin', target: '.tm-quick-add-pin' },
             ...(!qa.relation ? [{ id: 'doc', name: __tmT('task.document'), icon: 'file-text', target: '.tm-quick-add-doc' }] : []),
             { id: 'date', name: __tmT('calendar.date'), icon: 'calendar-check', target: '.tm-quick-add-date-wrap' },
             { id: 'priority', name: __tmT('kernel.importance'), icon: 'flag', target: '#tmQuickAddPriorityBtn' },
@@ -4044,7 +4044,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
 
     window.tmQuickAddTogglePinned = function() {
         const qa = state.quickAdd;
-        if (!qa || qa.relation) return;
+        if (!qa) return;
         qa.pinned = !qa.pinned;
         const button = state.quickAddModal?.querySelector('#tmQuickAddPinBtn');
         if (!button) return;
@@ -4098,8 +4098,8 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             reminderDraftOpening: false,
             customFieldValues: {},
             remark: '',
-            pinned: relation ? undefined : !!SettingsStore.data.pinNewTasksByDefault,
             ...inheritedPatch,
+            pinned: !!SettingsStore.data.pinNewTasksByDefault,
             inheritedDateFields: ['startDate', 'completionTime'].filter(field => Object.prototype.hasOwnProperty.call(inheritedPatch, field)),
         };
         const qa = state.quickAdd;
@@ -4120,9 +4120,9 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                 </div>
                 <div class="tm-quick-add-toolbar">
                     <div class="tm-quick-add-tools" inert aria-busy="true">
-                        ${relation ? '' : `<button type="button" id="tmQuickAddPinBtn" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-pin" onclick="tmQuickAddTogglePinned()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.pin")}" title="${globalThis.__taskHorizonHostBridge.i18n.html(qa.pinned ? "ai.unpin" : "kernel.pin")}" aria-pressed="${qa.pinned ? 'true' : 'false'}">
+                        <button type="button" id="tmQuickAddPinBtn" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-pin" onclick="tmQuickAddTogglePinned()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.pin")}" title="${globalThis.__taskHorizonHostBridge.i18n.html(qa.pinned ? "ai.unpin" : "kernel.pin")}" aria-pressed="${qa.pinned ? 'true' : 'false'}">
                             ${__tmRenderLucideIcon('pin')}
-                        </button><button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-doc" onclick="tmQuickAddOpenDocPicker()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.selectDocument")}">
+                        </button>${relation ? '' : `<button type="button" class="tm-btn tm-btn-secondary tm-quick-add-tool tm-quick-add-doc" onclick="tmQuickAddOpenDocPicker()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.selectDocument")}">
                             ${__tmRenderLucideIcon('file-text')}<span id="tmQuickAddDocName">${__tmT("kernel.documents")}</span>
                         </button>`}
                         <div class="tm-quick-add-date-wrap">
@@ -4250,6 +4250,10 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
         try {
             await __tmEnsureSettingsLoaded();
             if (state.quickAdd !== qa || !modal.isConnected) return;
+            qa.pinned = !!SettingsStore.data.pinNewTasksByDefault;
+            const pinButton = modal.querySelector('#tmQuickAddPinBtn');
+            pinButton.setAttribute('aria-pressed', String(qa.pinned));
+            pinButton.title = __tmT(qa.pinned ? 'ai.unpin' : 'kernel.pin');
             const templateContext = qa.templateInstance?.execution?.payload;
             const initialLocation = templateContext ? { mode: templateContext.docMode, docId: templateContext.docId } : relation || String(options.docId || '').trim()
                 ? { mode: 'doc', docId: options.docId }
@@ -5264,7 +5268,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
             docMode: qa.docMode,
             headingId: qa.headingId,
             priority: qa.priority,
-            ...(!qa.relation ? { pinned: !!qa.pinned } : {}),
+            pinned: !!qa.pinned,
             customStatus: qa.customStatus,
             customFieldValues,
             startDate,
@@ -5343,6 +5347,7 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                             initialPatch: {
                                 priority: '', customStatus: '', startDate: '', completionTime: '', customFieldValues: {},
                                 ...__tmBuildCreateTaskInDocAttrPatchFromPayload(taskPayload),
+                                pinned: payload.pinned,
                             },
                             inheritedDateFields: qa.inheritedDateFields || [],
                             silent: true,

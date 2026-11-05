@@ -918,7 +918,9 @@
             const source = __tmResolveTaskContentRenderSource(markdownSource, fallbackSource);
             const cached = __tmTaskContentHtmlCache.get(source);
             if (cached !== undefined) return cached;
-            const html = __tmRenderTaskContentInlineHtml(source);
+            const nativeHtml = /<span\b[^>]*\bdata-type=|<a\b|<(?:https?:\/\/|mailto:)/i.test(source) && typeof __tmRenderNativeTaskTitleHtml === 'function'
+                ? __tmRenderNativeTaskTitleHtml(source) : null;
+            const html = nativeHtml === null ? __tmRenderTaskContentInlineHtml(source) : nativeHtml;
             if (!html) {
                 const plain = this.normalizeTaskContent(source || fallback) || __tmT("kernel.noContent");
                 const fallbackHtml = esc(plain);
@@ -9317,6 +9319,7 @@
     const __tmSemanticDatePendingTasks = new Map();
     let __tmSemanticDatePromptTimer = null;
     let __tmSemanticDatePromptRunning = false;
+    let __tmSemanticDatePromptActivePending = null;
 
     function __tmYieldSemanticDateScan() {
         return new Promise((resolve) => {
@@ -10778,6 +10781,18 @@
         }, 0);
     }
 
+    function __tmWakeSemanticDatePromptsOnPluginEnter() {
+        if (!__tmSemanticDatePendingTasks.size && !__tmSemanticDatePromptActivePending) return false;
+        if (!__tmIsSemanticDateAutoPromptEnabled() || !__tmIsPluginVisibleNow()) return false;
+        const token = Number(state.openToken) || 0;
+        __tmSemanticDatePendingTasks.forEach((pending, taskId) => {
+            __tmSemanticDatePendingTasks.set(taskId, { ...pending, token });
+        });
+        __tmSemanticDatePromptActivePending?.forEach(({ pending }) => { pending.token = token; });
+        __tmScheduleSemanticDatePrompt();
+        return true;
+    }
+
     function __tmQueueSemanticDateTask(taskId, fallbackTask = null) {
         const id = String(taskId || '').trim();
         if (!id || !__tmIsSemanticDateAutoPromptEnabled()) return;
@@ -10817,44 +10832,73 @@
         if (__tmSemanticDatePromptRunning) return;
         const canPrompt = () => __tmIsSemanticDateAutoPromptEnabled()
             && (typeof __tmRuntimeCleanupRequested === 'undefined' || !__tmRuntimeCleanupRequested)
+            && (typeof __tmNativeDocTaskContentSyncTimers === 'undefined'
+                || !Array.from(__tmNativeDocTaskContentSyncTimers.values()).some((entry) => entry.recognize === true))
+            && __tmIsPluginVisibleNow()
             && !state.semanticDateAutoApplying
             && !__tmShouldDeferSemanticDatePrompt()
             && !(state.semanticDateConfirmModal && document.body.contains(state.semanticDateConfirmModal));
+        const batch = new Map();
+        let batchConsumed = false;
         __tmSemanticDatePromptRunning = true;
+        __tmSemanticDatePromptActivePending = batch;
         try {
-            while (__tmSemanticDatePendingTasks.size) {
+            while (__tmSemanticDatePendingTasks.size && batch.size < __TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE) {
                 if (!canPrompt()) return;
                 const [taskId, pending] = __tmSemanticDatePendingTasks.entries().next().value;
                 __tmSemanticDatePendingTasks.delete(taskId);
-                const isCurrent = () => pending.token === (Number(state.openToken) || 0) && canPrompt();
-                if (!isCurrent()) continue;
+                if (pending.token !== (Number(state.openToken) || 0)) continue;
+                batch.set(taskId, { pending, task: null });
                 if (typeof __tmWaitForTaskWrites === 'function') {
                     const saved = await __tmWaitForTaskWrites(taskId, { types: ['contentPatch', 'taskPatch'] });
-                    if (!saved?.ok) continue;
+                    if (!saved?.ok) {
+                        batch.delete(taskId);
+                        continue;
+                    }
                 }
-                const readTask = () => __tmPrepareTaskForSemanticScan(
+                const task = __tmPrepareTaskForSemanticScan(
                     globalThis.__tmTaskBoundary?.getTask?.(taskId) || pending.task
                 );
-                const task = readTask();
-                if (!task) continue;
-                const { items: suggestions, interrupted } = await __tmCollectSemanticDateSuggestions([task], {
-                    maxSuggestions: 1,
-                    shouldStop: () => !isCurrent(),
-                });
-                if (interrupted || !isCurrent()) {
-                    if (pending.token === (Number(state.openToken) || 0) && __tmIsSemanticDateAutoPromptEnabled()
-                        && !__tmSemanticDatePendingTasks.has(taskId)) __tmSemanticDatePendingTasks.set(taskId, pending);
-                    return;
+                if (!task) {
+                    batch.delete(taskId);
+                    continue;
                 }
-                const latestTask = readTask();
-                if (!latestTask || latestTask.content !== task.content || latestTask.done) continue;
-                if (!suggestions.length) continue;
-                __tmMarkSemanticDateSuggestionsRecognized(suggestions);
-                __tmShowSemanticDateConfirmModal(suggestions);
-                return;
+                batch.get(taskId).task = task;
             }
+            if (!batch.size) return;
+            const isCurrent = () => canPrompt()
+                && Array.from(batch.values()).every(({ pending }) => pending.token === (Number(state.openToken) || 0));
+            const { items, interrupted } = await __tmCollectSemanticDateSuggestions(
+                Array.from(batch.values(), ({ task }) => task), {
+                    maxSuggestions: __TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE,
+                    shouldStop: () => !isCurrent(),
+                },
+            );
+            if (interrupted || !isCurrent()) return;
+            const suggestions = items.filter((item) => {
+                const { pending, task } = batch.get(item.taskId);
+                if (__tmSemanticDatePendingTasks.has(item.taskId)) return false;
+                const latestTask = __tmPrepareTaskForSemanticScan(
+                    globalThis.__tmTaskBoundary?.getTask?.(item.taskId) || pending.task,
+                );
+                return latestTask && latestTask.content === task.content && !latestTask.done;
+            });
+            batchConsumed = true;
+            if (!suggestions.length) return;
+            __tmMarkSemanticDateSuggestionsRecognized(suggestions);
+            __tmShowSemanticDateConfirmModal(suggestions);
         } finally {
+            if (!batchConsumed && __tmIsSemanticDateAutoPromptEnabled()
+                && (typeof __tmRuntimeCleanupRequested === 'undefined' || !__tmRuntimeCleanupRequested)) {
+                batch.forEach(({ pending }, taskId) => {
+                    if (__tmSemanticDatePendingTasks.has(taskId)) return;
+                    if (pending.token !== (Number(state.openToken) || 0) && !__tmIsPluginVisibleNow()) return;
+                    pending.token = Number(state.openToken) || 0;
+                    __tmSemanticDatePendingTasks.set(taskId, pending);
+                });
+            }
             __tmSemanticDatePromptRunning = false;
+            __tmSemanticDatePromptActivePending = null;
             if (!__tmSemanticDatePendingTasks.size) document.removeEventListener('focusout', __tmScheduleSemanticDatePrompt, true);
             else if (canPrompt()) __tmScheduleSemanticDatePrompt();
         }
@@ -19504,6 +19548,7 @@ if (!state.homepageOpen) return;
                 try {
                     const hasPendingWork = __tmHasAutoRefreshPendingSync();
                     const cheapActive = typeof __tmIsTaskHorizonTabActiveNow === 'function' && __tmIsTaskHorizonTabActiveNow();
+                    __tmWakeSemanticDatePromptsOnPluginEnter();
                     const prev = __tmTaskHorizonTabWasActive === true;
                     if (prev && !cheapActive) {
                         try { __tmHideGlobalTransientSurfacesOnTabLeave(); } catch (e) {}
@@ -19536,6 +19581,7 @@ if (!state.homepageOpen) return;
             __tmTabEnterAutoRefreshTryCount += 1;
             try {
                 if (__tmIsPluginVisibleNow()) {
+                    __tmWakeSemanticDatePromptsOnPluginEnter();
                     if (!__tmHasExternalTaskTxDirtySync()) {
                         const delayMeta = __tmGetEnterAutoRefreshDelayMeta(source);
                         if (delayMeta.shouldDelay) {
@@ -19613,7 +19659,10 @@ if (!state.homepageOpen) return;
             const installMeta = globalThis.__tmCompat?.installSwitchTabObserver?.('__tmTaskHorizonWrapped', (tab) => {
                 try {
                     const isMine = __tmIsTaskHorizonCustomModel(tab);
-                    if (isMine) __tmScheduleMaybeAutoRefreshOnEnter('switchTab');
+                    if (isMine) {
+                        __tmWakeSemanticDatePromptsOnPluginEnter();
+                        __tmScheduleMaybeAutoRefreshOnEnter('switchTab');
+                    }
                 } catch (e) {}
             }) || null;
             if (installMeta?.ok && typeof installMeta.original === 'function') {
@@ -19627,6 +19676,7 @@ if (!state.homepageOpen) return;
                         const target = event?.target instanceof Element ? event.target : null;
                         const header = target?.closest?.('.layout-tab-bar__item');
                         if (!header || !__tmIsTaskHorizonTabHeaderEl(header)) return;
+                        __tmWakeSemanticDatePromptsOnPluginEnter();
                         __tmScheduleMaybeAutoRefreshOnEnter('tabHeaderClick');
                     } catch (e) {}
                 };
@@ -19638,6 +19688,7 @@ if (!state.homepageOpen) return;
             __tmObserveTaskHorizonActivationTargets();
             __tmTaskHorizonHostLifecycleHandler = (event) => {
                 __tmObserveTaskHorizonActivationTargets();
+                __tmWakeSemanticDatePromptsOnPluginEnter();
                 __tmQueueTabActivationCheck(`hostLifecycle:${String(event?.detail?.phase || 'update')}`);
             };
             globalThis.__tmRuntimeEvents?.on?.(window, 'tm:task-horizon-host-lifecycle', __tmTaskHorizonHostLifecycleHandler);
@@ -21482,6 +21533,7 @@ if (!state.homepageOpen) return;
         return Number(m[0]);
     }
 
+
     const __tmTaskContentHtmlCache = new Map();
     const __tmTaskStatusParseCache = new Map();
 
@@ -21520,7 +21572,7 @@ if (!state.homepageOpen) return;
             { type: 'code', marker: '`', re: /`([^`\n]+)`/g, group: 1 },
             { type: 'blockRef', marker: '((', re: /\(\(([0-9]{14}-[A-Za-z0-9]+)(?:\s+(['"])([\s\S]*?)\2)?\)\)/g, group: 3 },
             { type: 'linked', marker: '[[', re: /\[\[([^\]\n]+)\]\]/g, group: 1 },
-            { type: 'linked', marker: '[', re: /\[([^\]\n]+)\]\((?:[^)(]+|\([^)]*\))*\)/g, group: 1 },
+            { type: 'linked', marker: '[', re: /\[([^\]\n]+)\]\(((?:[^)(]+|\([^)]*\))*)\)/g, group: 1, destinationGroup: 2 },
             { type: 'strong', tag: 'strong', marker: '**', re: /\*\*([^\s*](?:[\s\S]*?[^\s*])?)\*\*/g, group: 1 },
             { type: 'strong', tag: 'strong', marker: '__', boundary: 'avoid-ascii-word-pair', re: /__([^\s_](?:[\s\S]*?[^\s_])?)__/g, group: 1 },
             { type: 'underline', tag: 'u', marker: '++', boundary: 'not-ascii-word', re: /\+\+([^\s+](?:[\s\S]*?[^\s+])?)\+\+/g, group: 1 },
@@ -21552,6 +21604,20 @@ if (!state.homepageOpen) return;
         return esc(String(input || '').replace(/\\([\\`*_{}\[\]()#+\-.!~>=+])/g, '$1'));
     }
 
+    function __tmGetTaskTitleLinkHref(markdown, destination = '') {
+        let href = '';
+        try {
+            const lute = typeof __tmGetTaskTitleLute === 'function' ? __tmGetTaskTitleLute() : null;
+            href = String(lute?.GetLinkDest?.(markdown) || '');
+        } catch (e) {}
+        if (!href) {
+            const match = String(destination || '').trim().match(/^(?:<([^>]+)>|((?:\\.|[^\s])+))/);
+            href = String(match?.[1] || match?.[2] || '').replace(/\\([\\()[\]])/g, '$1');
+        }
+        href = href.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+        return /^(?:javascript|vbscript|data):/i.test(href) ? '' : href;
+    }
+
     function __tmRenderTaskInlineMarkdownHtml(input, depth = 0) {
         const source = String(input || '');
         if (!source) return '';
@@ -21572,7 +21638,9 @@ if (!state.homepageOpen) return;
                 middle = `<span class="tm-linked-text tm-task-title-block-ref" data-tm-block-ref-id="${esc(blockId)}"><span class="tm-task-title-block-ref__text">${labelHtml}</span></span>`;
             }
         } else if (hit.def.type === 'linked') {
-            middle = inner ? `<span class="tm-linked-text">${__tmRenderTaskInlineMarkdownHtml(inner, depth + 1)}</span>` : '';
+            const href = hit.def.destinationGroup ? __tmGetTaskTitleLinkHref(raw, hit.match[hit.def.destinationGroup]) : '';
+            const linkAttributes = href ? ` data-tm-title-link-href="${esc(href)}" tabindex="0"` : '';
+            middle = inner ? `<span class="tm-linked-text${href ? ' tm-task-title-link' : ''}"${linkAttributes}>${__tmRenderTaskInlineMarkdownHtml(inner, depth + 1)}</span>` : '';
         } else {
             middle = `<${hit.def.tag}>${__tmRenderTaskInlineMarkdownHtml(inner, depth + 1)}</${hit.def.tag}>`;
         }
@@ -24772,7 +24840,11 @@ if (!state.homepageOpen) return;
             size: iconSize,
             fallbackHtml,
         });
-        return `<span class="${cls}"${styleAttr}>${iconHtml}<span>${esc(String(text || ''))}</span></span>`;
+        const rawText = String(text || '');
+        const contentHtml = (rawText.trim() && typeof API !== 'undefined' && API && typeof API.renderTaskContentHtml === 'function')
+            ? API.renderTaskContentHtml(rawText, rawText)
+            : esc(rawText);
+        return `<span class="${cls}"${styleAttr}>${iconHtml}<span>${contentHtml}</span></span>`;
     }
 
     function __tmSyncDocAliasInState(docId, alias) {

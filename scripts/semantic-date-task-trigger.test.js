@@ -42,6 +42,7 @@ function harness() {
         },
         hint() {}, __tmCollectBusyTaskDetailRoots: () => detailRoots,
         __TM_SEMANTIC_DATE_AUTO_SCAN_BATCH_SIZE: 120,
+        __TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE: 50,
         __tmSemanticDatePendingTasks: new Map(), __tmSemanticDatePromptTimer: null, __tmSemanticDatePromptRunning: false,
         __tmMutationSettleListeners: new Map(),
         __tmGetMutationTaskIdForSettle: op => op?.data?.taskId || op?.data?.sourceTaskId || '',
@@ -55,6 +56,7 @@ function harness() {
         clearTimeout: id => timers.delete(id),
     });
     vm.runInContext([
+        'let __tmSemanticDatePromptActivePending = null;',
         segment(read('task-runtime/50-task-model-and-repeat-utils.js'), '    function __tmParseTaskRepeatJson', '    function __tmGetTaskRepeatWeekdayLabel'),
         segment(api, '    function __tmSemanticPad2', '    function __tmGetSemanticSuggestionWrites'),
         segment(api, '    function __tmNotifyMutationSettle', '    function __tmOnMutationSettle'),
@@ -72,6 +74,7 @@ function harness() {
     const settle = (type, data, status = 'done', result = {}, inversePatch = {}) =>
         context.__tmNotifyMutationSettle({ type, data, inversePatch }, status, { result });
     const flush = async () => {
+        for (let index = 0; index < 8; index++) await Promise.resolve();
         while (timers.size) {
             const callbacks = Array.from(timers.values()); timers.clear();
             callbacks.forEach(callback => callback());
@@ -132,10 +135,14 @@ function harness() {
     h.task('queued-a', '明天12点吃饭'); h.task('queued-b', '明天13点吃饭');
     for (const taskId of ['queued-a', 'queued-a', 'queued-b']) h.context.__tmQueueSemanticDateTask(taskId);
     await h.flush();
-    assert.equal(h.shown.at(-1)[0].taskId, 'queued-a');
-    assert.equal(h.context.__tmSemanticDatePendingTasks.size, 1, 'duplicate events for one task must coalesce');
+    assert.deepEqual(Array.from(h.shown.at(-1), item => item.taskId), ['queued-a', 'queued-b'],
+        'one confirmation must include every eligible queued task without duplicate rows');
+    assert.equal(h.context.__tmSemanticDatePendingTasks.size, 0, 'a batch must consume both task entries');
+    h.task('queued-later', '明天14点吃饭'); h.context.__tmQueueSemanticDateTask('queued-later');
+    const beforeLater = h.shown.length; await h.flush();
+    assert.equal(h.shown.length, beforeLater, 'a pending edit must not replace the open batch');
     h.context.__tmCloseSemanticDateConfirmModal(); await h.flush();
-    assert.equal(h.shown.at(-1)[0].taskId, 'queued-b', 'an open confirmation must not lose subsequent task edits');
+    assert.equal(h.shown.at(-1)[0].taskId, 'queued-later', 'closing a batch must retain subsequent task edits');
     h.context.__tmCloseSemanticDateConfirmModal();
 
     h.context.SettingsStore.data.semanticDateAutoPromptEnabled = false;
@@ -156,10 +163,15 @@ function harness() {
     h.context.__tmIsPluginVisibleNow = () => false;
     h.task('standalone-create', '明天18点吃饭');
     h.settle('createTaskInDoc', { requestedTaskId: 'standalone-create' }, 'done', { realId: 'standalone-create' });
+    const hiddenSuggestionCount = h.shown.length;
     await h.flush();
-    assert.equal(h.shown.at(-1)[0].taskId, 'standalone-create', 'standalone quick-add must not depend on a visible task manager');
-    h.context.__tmCloseSemanticDateConfirmModal();
+    assert.equal(h.shown.length, hiddenSuggestionCount, 'hidden plugin hosts must retain suggestions without showing a body-level modal');
+    assert.equal(h.context.__tmSemanticDatePendingTasks.size, 1, 'hidden plugin hosts must retain pending recognition');
     h.context.__tmIsPluginVisibleNow = () => true;
+    h.context.__tmWakeSemanticDatePromptsOnPluginEnter();
+    await h.flush();
+    assert.equal(h.shown.at(-1)[0].taskId, 'standalone-create', 'returning to the plugin must recognize the retained task');
+    h.context.__tmCloseSemanticDateConfirmModal();
 
     h.task('closed', '明天16点开会');
     h.context.__tmQueueSemanticDateTask('closed'); h.state.openToken++;
@@ -227,14 +239,22 @@ function harness() {
     assert.equal(d.shown.length, failureCount, 'a failed final blur save must not show an earlier suggestion');
 
     // Exercise the existing native editor bridge with its real scheduling and event binding.
-    const nativeHandlers = new Map();
+    const nativeHandlers = new Map(), nativeRows = new Map(), nativeReads = [], nativeFlushes = [];
+    let nativeBinding = { taskId: 'native', taskItem: { isConnected: true } };
     Object.assign(h.context, {
         __tmNativeDocTaskContentSyncTimers: new Map(), __tmNativeDocTaskContentInputHandler: null,
         __TM_NATIVE_DOC_TASK_CONTENT_SYNC_DELAY_MS: 200,
         __tmRuntimeEvents: { on: (target, type, handler) => nativeHandlers.set(type, handler), off: () => {} },
-        __tmResolveNativeDocTaskContentInput: () => ({ taskId: 'native', taskItem: { isConnected: true } }),
-        __tmApplyLiveDocumentTaskContentPatch: () => h.task('native', '明天17点开会'),
+        __tmResolveNativeDocEventElement: target => target || Object.assign(new h.DetailElement('editor'), {
+            matches: selector => selector === '.protyle-wysiwyg',
+            closest: selector => selector === '.protyle-wysiwyg' ? null : null,
+        }),
+        __tmResolveNativeDocTaskContentInput: () => nativeBinding,
+        __tmApplyLiveDocumentTaskContentPatch: id => id === 'native' && h.task('native', '明天17点开会'),
+        __tmReadLiveDocumentTaskContentPatch: (id, options) => options.taskItem?.patch || null,
+        __tmFlushSqlTransactionsSafe: async reason => { nativeFlushes.push(reason); },
     });
+    h.context.API.getTaskById = async id => { nativeReads.push(id); return nativeRows.get(id) || null; };
     h.task('native', '开会');
     vm.runInContext(segment(native, '    function __tmScheduleNativeDocTaskContentSync', '    function __tmMatchesNativeTaskShortcut'), h.context);
     h.context.__tmBindNativeDocTaskContentSync();
@@ -242,6 +262,143 @@ function harness() {
     assert.equal(h.shown.length, shownBeforeClose, 'typing alone must not interrupt native editing');
     nativeHandlers.get('focusout')({ type: 'focusout', isTrusted: true }); await h.flush();
     assert.equal(h.shown.at(-1)[0].taskId, 'native');
+    h.context.__tmCloseSemanticDateConfirmModal();
+
+    nativeRows.set('outside-group', { id: 'outside-group', root_id: 'other-doc', content: '明天吃饭', markdown: '- [ ] 明天吃饭' });
+    nativeBinding = { taskId: 'outside-group', taskItem: { isConnected: true } };
+    const outsideCount = h.shown.length;
+    h.focus(true);
+    nativeHandlers.get('input')({ type: 'input', isTrusted: true, isComposing: true });
+    nativeHandlers.get('compositionend')({ type: 'compositionend', isTrusted: false, isComposing: false }); await h.flush();
+    assert.equal(h.shown.length, outsideCount, 'off-group typing and IME completion must wait for blur');
+    assert.deepEqual(nativeReads, ['outside-group'], 'off-group composition end must read only the edited task');
+    h.focus(false); await h.flush();
+    assert.equal(h.shown.at(-1)[0].taskId, 'outside-group', 'a native task outside the loaded group must trigger recognition');
+    assert.equal(nativeFlushes.length, 1, 'a new native task must be committed before its SQL read');
+    assert.equal(h.tasks.has('outside-group'), false, 'off-group recognition must not insert tasks into the active group');
+    h.context.__tmCloseSemanticDateConfirmModal();
+    h.focus(false); await h.flush();
+    assert.equal(h.shown.length, outsideCount + 1, 'off-group blur must preserve recognition deduplication');
+
+    nativeBinding.taskItem.patch = { content: '明天19点吃饭', markdown: '- [ ] 明天19点吃饭', done: false };
+    nativeHandlers.get('focusout')({ type: 'focusout', isTrusted: true }); await h.flush();
+    assert.match(h.shown.at(-1)[0].completionValue, / 19:00$/, 'off-group recognition uses the final native title when SQL lags');
+    h.context.__tmCloseSemanticDateConfirmModal();
+
+    nativeBinding = { taskId: 'missing-native', taskItem: { isConnected: true } };
+    const missingCount = h.shown.length;
+    nativeHandlers.get('focusout')({ type: 'focusout', isTrusted: true }); await h.flush();
+    assert.equal(h.shown.length, missingCount, 'deleted or unavailable native tasks must not produce suggestions');
+
+    nativeBinding = { taskId: 'disabled-native', taskItem: { isConnected: true } };
+    h.context.SettingsStore.data.semanticDateAutoPromptEnabled = false;
+    const disabledReads = nativeReads.length;
+    nativeHandlers.get('focusout')({ type: 'focusout', isTrusted: true }); await h.flush();
+    assert.equal(nativeReads.length, disabledReads, 'disabled recognition must not read off-group tasks');
+    h.context.SettingsStore.data.semanticDateAutoPromptEnabled = true;
+
+    nativeRows.set('done-native', { id: 'done-native', root_id: 'other-doc', markdown: '- [x] 明天吃饭' });
+    nativeBinding = { taskId: 'done-native', taskItem: { isConnected: true } };
+    nativeHandlers.get('focusout')({ type: 'focusout', isTrusted: true }); await h.flush();
+    assert.equal(h.shown.length, missingCount, 'completed off-group tasks must not produce suggestions');
+
+    const readNativeTask = h.context.API.getTaskById;
+    let releaseNativeRead;
+    h.context.API.getTaskById = () => new Promise(resolve => { releaseNativeRead = resolve; });
+    nativeBinding = { taskId: 'native-race', taskItem: { isConnected: true } };
+    nativeHandlers.get('focusout')({ type: 'focusout', isTrusted: true }); await h.flush();
+    assert.equal(typeof releaseNativeRead, 'function');
+    nativeHandlers.get('input')({ type: 'input', isTrusted: true });
+    releaseNativeRead({ id: 'native-race', root_id: 'other-doc', markdown: '- [ ] 明天20点吃饭' }); await h.flush();
+    assert.equal(h.shown.length, missingCount, 'typing again must invalidate an older off-group read');
+    h.context.API.getTaskById = readNativeTask;
+    nativeRows.set('native-race', { id: 'native-race', root_id: 'other-doc', markdown: '- [ ] 明天21点吃饭' });
+    nativeHandlers.get('focusout')({ type: 'focusout', isTrusted: true }); await h.flush();
+    assert.match(h.shown.at(-1)[0].completionValue, / 21:00$/, 'a later blur must recognize the latest off-group title');
+    h.context.__tmCloseSemanticDateConfirmModal();
+
+    h.context.API.getTaskById = () => new Promise(resolve => { releaseNativeRead = resolve; });
+    nativeBinding = { taskId: 'native-activate', taskItem: { isConnected: true } };
+    nativeHandlers.get('focusout')({ type: 'focusout', isTrusted: true }); await h.flush();
+    h.state.openToken++;
+    releaseNativeRead({ id: 'native-activate', root_id: 'other-doc', markdown: '- [ ] 明天22点吃饭' }); await h.flush();
+    assert.equal(h.shown.at(-1)[0].taskId, 'native-activate', 'returning to the plugin during the read must retain native recognition');
+    h.context.__tmCloseSemanticDateConfirmModal();
+
+    const unloadedCount = h.shown.length;
+    nativeBinding = { taskId: 'native-unload', taskItem: { isConnected: true } };
+    nativeHandlers.get('focusout')({ type: 'focusout', isTrusted: true }); await h.flush();
+    h.context.__tmNativeDocTaskContentSyncTimers.clear();
+    releaseNativeRead({ id: 'native-unload', root_id: 'other-doc', markdown: '- [ ] 明天23点吃饭' }); await h.flush();
+    assert.equal(h.shown.length, unloadedCount, 'runtime disposal must cancel recognition from an in-flight native read');
+
+    const batch = harness();
+    batch.context.__tmIsPluginVisibleNow = () => false;
+    const batchTitles = ['明天吃饭', '后天吃饭', '大后天吃饭'];
+    batchTitles.forEach((content, index) => batch.context.__tmQueueSemanticDateTask(`batch-${index}`, {
+        id: `batch-${index}`, root_id: 'other-doc', markdown: '- [ ] ' + content,
+    }));
+    await batch.flush();
+    assert.equal(batch.shown.length, 0, 'off-group task batches must wait for the plugin page');
+    batch.state.openToken++;
+    batch.context.__tmIsPluginVisibleNow = () => true;
+    batch.context.__tmWakeSemanticDatePromptsOnPluginEnter(); await batch.flush();
+    assert.equal(batch.shown.length, 1, 'returning to the plugin must show a single confirmation for the batch');
+    assert.deepEqual(Array.from(batch.shown[0], item => item.taskId), ['batch-0', 'batch-1', 'batch-2']);
+    assert.equal(batch.context.__tmSemanticDatePendingTasks.size, 0);
+
+    const interruptedBatch = harness();
+    batchTitles.forEach((content, index) => {
+        interruptedBatch.task(`interrupted-${index}`, content);
+        interruptedBatch.context.__tmQueueSemanticDateTask(`interrupted-${index}`);
+    });
+    let releaseBatchScan;
+    interruptedBatch.setLoadBarrier(new Promise(resolve => { releaseBatchScan = resolve; }));
+    const batchScan = interruptedBatch.context.__tmMaybeAutoPromptSemanticDates();
+    interruptedBatch.focus(true); releaseBatchScan(); await batchScan;
+    interruptedBatch.setLoadBarrier(null); await interruptedBatch.flush();
+    assert.equal(interruptedBatch.shown.length, 0);
+    assert.equal(interruptedBatch.context.__tmSemanticDatePendingTasks.size, 3,
+        'editing during a batch scan must retain every unshown task');
+    interruptedBatch.focus(false); await interruptedBatch.flush();
+    assert.equal(interruptedBatch.shown[0].length, 3, 'resuming a scan must show all retained tasks together');
+
+    const largeBatch = harness();
+    for (let index = 0; index < 52; index++) {
+        largeBatch.task(`large-${index}`, '明天吃饭');
+        largeBatch.context.__tmQueueSemanticDateTask(`large-${index}`);
+    }
+    await largeBatch.flush();
+    assert.equal(largeBatch.shown[0].length, 50, 'batch recognition must preserve the existing confirmation size limit');
+    assert.equal(largeBatch.context.__tmSemanticDatePendingTasks.size, 2, 'overflow must remain queued');
+    largeBatch.context.__tmCloseSemanticDateConfirmModal(); await largeBatch.flush();
+    assert.deepEqual(Array.from(largeBatch.shown[1], item => item.taskId), ['large-50', 'large-51']);
+
+    const nativeBatch = harness(), pendingNativeReads = new Map();
+    Object.assign(nativeBatch.context, {
+        __tmNativeDocTaskContentSyncTimers: new Map(), __tmNativeDocTaskContentInputHandler: null,
+        __TM_NATIVE_DOC_TASK_CONTENT_SYNC_DELAY_MS: 80,
+        __tmApplyLiveDocumentTaskContentPatch: () => false,
+        __tmReadLiveDocumentTaskContentPatch: () => null,
+        __tmFlushSqlTransactionsSafe: async () => true,
+    });
+    nativeBatch.context.API.getTaskById = id => new Promise(resolve => { pendingNativeReads.set(id, resolve); });
+    vm.runInContext(segment(native, '    function __tmScheduleNativeDocTaskContentSync', '    function __tmMatchesNativeTaskShortcut'), nativeBatch.context);
+    for (let index = 0; index < 3; index++) {
+        nativeBatch.context.__tmScheduleNativeDocTaskContentSync(`native-batch-${index}`, { isConnected: true }, {
+            immediate: true, recognize: true,
+        });
+    }
+    await nativeBatch.flush();
+    pendingNativeReads.get('native-batch-0')({ id: 'native-batch-0', root_id: 'other-doc', markdown: '- [ ] 明天吃饭' });
+    await nativeBatch.flush();
+    assert.equal(nativeBatch.shown.length, 0, 'the first completed native read must wait for the other tasks in the batch');
+    for (let index = 1; index < 3; index++) {
+        pendingNativeReads.get(`native-batch-${index}`)({ id: `native-batch-${index}`, root_id: 'other-doc', markdown: '- [ ] ' + batchTitles[index] });
+    }
+    await nativeBatch.flush();
+    assert.equal(nativeBatch.shown.length, 1);
+    assert.equal(nativeBatch.shown[0].length, 3, 'concurrent native task reads must produce one combined confirmation');
 
     assert.doesNotMatch(read('task-runtime/53c-document-loader-runtime.js'), /__tmMaybeAutoPromptSemanticDates/, 'loading or refreshing the list must not trigger a global scan');
     console.log('semantic task-specific create, edit, native-editor trigger and race tests passed');

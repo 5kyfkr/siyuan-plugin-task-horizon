@@ -83,6 +83,22 @@ assert.equal(expandedRecurring[1].sourceTaskId, 'source-task', 'expanded recurri
 assert.match(source, /focusDuration: __tmSummaryFormatFocusDuration\(task\)/, 'summary focus duration must use the actual Tomato duration formatter');
 assert.doesNotMatch(source, /focusDuration: __tmFormatDurationDisplayValue\(task\.duration/, 'summary focus duration must not use the estimated task duration');
 assert.match(source, /data-tm-summary="fieldFocusDuration">专注时长<\/label>/, 'summary field controls must offer focus duration');
+assert.match(source, /data-tm-summary-multi-option[\s\S]*data-tm-summary-option-group/, 'summary status and option pickers must use checkbox-based multi-select controls');
+assert.match(source, /data-tm-summary-custom-filter/, 'custom single- and multi-select columns must each expose an option filter');
+assert.match(source, /data-tm-summary-custom-field-display/, 'custom single- and multi-select columns must each expose a display-field toggle');
+assert.match(source, /statusIds: __tmSummaryReadStatusIds[\s\S]*customFieldFilters: __tmSummaryReadCustomFieldFilters/, 'multi-select filters must be read into the persisted summary state');
+assert.match(source, /const priorityPickerMarkup = __tmSummaryRenderMultiPicker\(/, 'importance filtering must use the shared multi-select picker');
+assert.match(source, /key: 'priority'/, 'importance picker must use the independent priority-selection state');
+assert.match(source, /priorityIds: __tmSummaryReadMultiPicker\(root, 'priority'\)/, 'multiple importance selections must be persisted');
+const toolbarStart = source.indexOf('<div class="tm-summary-toolbar"');
+const toolbarEnd = source.indexOf('<div style="display:flex;gap:10px;', toolbarStart);
+const summaryToolbarMarkup = source.slice(toolbarStart, toolbarEnd);
+const groupByControlAt = summaryToolbarMarkup.indexOf('data-tm-summary="groupBy"');
+const customFilterControlAt = summaryToolbarMarkup.indexOf('${customFieldFilterMarkup}');
+assert.ok(groupByControlAt >= 0 && customFilterControlAt > groupByControlAt, 'custom-field filters must appear immediately after the summary grouping-mode selector');
+assert.match(source, /data-tm-summary-picker-placeholder="\$\{esc\(defaultLabel\)\}"/, 'an empty custom-field filter trigger must keep its field-name placeholder');
+assert.match(source, /document\.addEventListener\('pointerdown', closeOtherPickers, true\)/, 'pointering outside the summary modal must close all open pickers');
+assert.match(source, /picker !== activePicker\) picker\.open = false/, 'opening or interacting with one picker must close every other picker');
 assert.ok(source.includes('showFocusDuration && t.focusDuration') && source.includes('`专注时长:${t.focusDuration}`'), 'summary markdown must render enabled focus duration values');
 assert.match(taskUtilsSource, /tomatoMinutes: String\(entry\.tomatoMinutes[\s\S]*tomatoHours: String\(entry\.tomatoHours/, 'recurring history must retain actual Tomato duration snapshots');
 assert.match(taskUtilsSource, /tomatoMinutes: String\(history\.tomatoMinutes[\s\S]*tomatoHours: String\(history\.tomatoHours/, 'recurring virtual tasks must expose their own actual Tomato duration snapshot');
@@ -158,7 +174,7 @@ assert.match(source, /const savedFilter = __tmSummaryLoadSavedFilter\(\);[\s\S]*
 assert.match(source, /__tmSummaryRefreshDocOptions\(root, ctx\);[\s\S]*__tmSummaryApplySavedFilter\(root, savedFilter, \{ includeDoc: true \}\)/, 'the saved document must restore after its option list is available');
 assert.match(source, /root\.addEventListener\('change'[\s\S]*__tmSummarySaveFilter\(filter\)/, 'every summary filter change must save the latest state');
 assert.match(source, /control\.tagName === 'SELECT'[\s\S]*control\.value = exists \? next : fallback/, 'deleted groups, documents, or options must fall back to a valid filter value');
-const savedFilterNormalizerSource = segment('function __tmSummaryNormalizeSavedFilter', 'function __tmSummaryLoadSavedFilter');
+const savedFilterNormalizerSource = segment('function __tmSummaryNormalizeOptionIds', 'function __tmSummaryLoadSavedFilter');
 const savedFilterContext = {
     __tmNormalizeDateOnly(value) {
         const text = String(value || '').trim();
@@ -180,15 +196,16 @@ assert.deepEqual(
         fields: { taskName: true, docName: true, priority: false, status: true, dueDate: true, completionDate: false, focusDuration: true },
     }))),
     {
-        preset: 'custom',
+    preset: 'custom',
         start: '2026-08-01',
         end: '2026-08-12',
         groupId: 'group-a',
         docId: 'doc-a',
-        status: 'doing',
-        priority: 'high',
+        statusIds: ['doing'],
+        priorityIds: ['high'],
+        customFieldFilters: {},
         groupBy: 'date',
-        fields: { taskName: true, docName: true, priority: false, status: true, dueDate: true, completionDate: false, focusDuration: true },
+        fields: { taskName: true, docName: true, priority: false, status: true, dueDate: true, completionDate: false, focusDuration: true, customFieldIds: [] },
     },
     'a valid custom summary range and all filter fields must survive normalization',
 );
@@ -197,12 +214,76 @@ assert.equal(legacyDateFilter.fields.dueDate, true, 'legacy date-field selection
 assert.equal(legacyDateFilter.fields.completionDate, true, 'legacy date-field selections must enable completion date display');
 const repairedFilter = savedFilterContext.normalizeSavedFilter({ preset: 'broken', priority: 'urgent', groupBy: 'broken', start: 'not-a-date' });
 assert.equal(repairedFilter.preset, 'this_week', 'an invalid saved preset must fall back to the original weekly default');
-assert.equal(repairedFilter.priority, '__all__', 'an invalid saved priority must fall back to all priorities');
+assert.deepEqual(Array.from(repairedFilter.priorityIds), ['__all__'], 'an invalid saved priority must fall back to all priorities');
 assert.equal(repairedFilter.groupBy, 'status', 'an invalid saved grouping must fall back to status');
 assert.equal(repairedFilter.start, '', 'an invalid saved custom date must be discarded');
+assert.deepEqual(Array.from(savedFilterContext.normalizeSavedFilter({ status: 'doing' }).statusIds), ['doing'], 'legacy single-status filters must normalize to a one-item selection');
+assert.deepEqual(Array.from(savedFilterContext.normalizeSavedFilter({ statusIds: ['__all__', 'doing', 'done'] }).statusIds), ['__all__'], 'all statuses must clear competing selected status values');
+assert.deepEqual(Array.from(savedFilterContext.normalizeSavedFilter({ priority: 'high' }).priorityIds), ['high'], 'legacy single-priority filters must normalize to a one-item selection');
+assert.deepEqual(Array.from(savedFilterContext.normalizeSavedFilter({ priorityIds: ['high', 'low', 'high'] }).priorityIds), ['high', 'low'], 'multi-priority filters must deduplicate selected values');
+assert.deepEqual(Array.from(savedFilterContext.normalizeSavedFilter({ priorityIds: ['__all__', 'high'] }).priorityIds), ['__all__'], 'all priorities must clear competing selected values');
+assert.deepEqual(JSON.parse(JSON.stringify(savedFilterContext.normalizeSavedFilter({
+    customFieldFilters: { tags: { optionIds: ['one', 'two', 'one'], includeEmpty: true } },
+    fields: { customFieldIds: ['tags', 'tags', 'removed'] },
+}))), {
+    preset: 'this_week', start: '', end: '', groupId: '__all__', docId: '__all__', statusIds: ['__all__'], priorityIds: ['__all__'], customFieldFilters: { tags: { optionIds: ['one', 'two'], includeEmpty: true } }, groupBy: 'status',
+    fields: { taskName: true, docName: false, priority: false, status: false, dueDate: false, completionDate: false, focusDuration: false, customFieldIds: ['tags', 'removed'] },
+}, 'custom option filters and selected custom field display IDs must be deduplicated and preserved');
+
+const multiPickerSource = segment('function __tmSummaryNormalizeOptionIds', 'function __tmSummaryNormalizeSavedFilter');
+const multiPickerContext = {};
+vm.createContext(multiPickerContext);
+vm.runInContext(`${multiPickerSource}\nthis.handleMultiOptionChange = __tmSummaryHandleMultiOptionChange; this.readMultiPicker = __tmSummaryReadMultiPicker;`, multiPickerContext);
+const pickerLabel = { textContent: '' };
+pickerLabel.dataset = { tmSummaryPickerPlaceholder: '阶段' };
+const picker = { querySelector: () => pickerLabel };
+const statusPickerOptions = [
+    { value: '__all__', dataset: { tmSummaryOptionGroup: 'status', tmSummaryOptionLabel: '全部状态', tmSummaryAllOption: '__all__' }, checked: true },
+    { value: 'todo', dataset: { tmSummaryOptionGroup: 'status', tmSummaryOptionLabel: '待办' }, checked: false },
+    { value: 'doing', dataset: { tmSummaryOptionGroup: 'status', tmSummaryOptionLabel: '进行中' }, checked: false },
+].map((option) => ({ ...option, closest: () => picker }));
+const priorityPickerOptions = [
+    { value: '__all__', dataset: { tmSummaryOptionGroup: 'priority', tmSummaryOptionLabel: '全部重要性', tmSummaryAllOption: '__all__' }, checked: true },
+    { value: 'high', dataset: { tmSummaryOptionGroup: 'priority', tmSummaryOptionLabel: '高' }, checked: false },
+    { value: 'low', dataset: { tmSummaryOptionGroup: 'priority', tmSummaryOptionLabel: '低' }, checked: false },
+].map((option) => ({ ...option, closest: () => picker }));
+const customPickerOptions = [
+    { value: 'option:one', dataset: { tmSummaryOptionGroup: 'custom:phase', tmSummaryOptionLabel: '阶段一' }, checked: false },
+    { value: '__empty__', dataset: { tmSummaryOptionGroup: 'custom:phase', tmSummaryOptionLabel: '未设置' }, checked: false },
+].map((option) => ({ ...option, closest: () => picker }));
+const pickerRoot = {
+    querySelectorAll(selector) {
+        const options = [...statusPickerOptions, ...priorityPickerOptions, ...customPickerOptions];
+        return selector.includes(':checked') ? options.filter((option) => option.checked) : options;
+    },
+};
+statusPickerOptions[1].checked = true;
+multiPickerContext.handleMultiOptionChange(pickerRoot, statusPickerOptions[1]);
+statusPickerOptions[2].checked = true;
+multiPickerContext.handleMultiOptionChange(pickerRoot, statusPickerOptions[2]);
+assert.deepEqual(Array.from(multiPickerContext.readMultiPicker(pickerRoot, 'status')), ['todo', 'doing'], 'status options must support selecting multiple values');
+statusPickerOptions[0].checked = true;
+multiPickerContext.handleMultiOptionChange(pickerRoot, statusPickerOptions[0]);
+assert.deepEqual(Array.from(multiPickerContext.readMultiPicker(pickerRoot, 'status')), ['__all__'], 'the all-status option must clear other selections');
+priorityPickerOptions[1].checked = true;
+multiPickerContext.handleMultiOptionChange(pickerRoot, priorityPickerOptions[1]);
+priorityPickerOptions[2].checked = true;
+multiPickerContext.handleMultiOptionChange(pickerRoot, priorityPickerOptions[2]);
+assert.deepEqual(Array.from(multiPickerContext.readMultiPicker(pickerRoot, 'priority')), ['high', 'low'], 'priority options must support selecting multiple values');
+customPickerOptions[0].checked = true;
+multiPickerContext.handleMultiOptionChange(pickerRoot, customPickerOptions[0]);
+customPickerOptions[1].checked = true;
+multiPickerContext.handleMultiOptionChange(pickerRoot, customPickerOptions[1]);
+assert.deepEqual(Array.from(multiPickerContext.readMultiPicker(pickerRoot, 'custom:phase')), ['option:one', '__empty__'], 'custom-field filters must allow multiple values plus the unset choice');
+customPickerOptions[0].checked = false;
+multiPickerContext.handleMultiOptionChange(pickerRoot, customPickerOptions[0]);
+customPickerOptions[1].checked = false;
+multiPickerContext.handleMultiOptionChange(pickerRoot, customPickerOptions[1]);
+assert.equal(pickerLabel.textContent, '阶段', 'a custom-field picker must show its field name when no filter option is selected');
 
 const summaryDateHelpersSource = segment('function __tmSummaryDateKeyFromTs', 'async function __tmSummaryBuildDocNameMapByGroups');
 const collectorSource = segment('function __tmSummaryCollectTasks', 'function __tmSummaryGenerateMarkdown');
+let collectorCustomFieldDefs = [];
 const collectorContext = {
     __tmParseTimeToTs(value) {
         const ts = Date.parse(String(value || '').trim());
@@ -220,6 +301,22 @@ const collectorContext = {
     __tmResolveTaskStatusId(task) {
         return String(task?.customStatus || (task?.done ? 'done' : 'todo'));
     },
+    __tmGetCustomFieldDefs() {
+        return collectorCustomFieldDefs;
+    },
+    __tmIsCustomFieldApplicableToTask(field, task) {
+        return !Array.isArray(field?.docIds) || field.docIds.includes(String(task?.docId || ''));
+    },
+    __tmGetTaskCustomFieldValue(task, fieldId) {
+        return task?.customFieldValues?.[fieldId] ?? '';
+    },
+    __tmNormalizeCustomFieldValue(field, value) {
+        return field?.type === 'multi' ? (Array.isArray(value) ? value : []) : String(value || '');
+    },
+    __tmSerializeCustomFieldValue(field, value) {
+        const ids = Array.isArray(value) ? value : [value];
+        return ids.map((id) => field.options.find((option) => option.id === id)?.name || id).join(', ');
+    },
     __tmResolveTaskMarker(task) {
         return task?.done ? 'x' : ' ';
     },
@@ -234,7 +331,7 @@ const collectorContext = {
             || String(a?.content || '').localeCompare(String(b?.content || ''), 'zh-Hans-CN');
     },
     __tmT(key) {
-        return key;
+        return key === 'common.notSet' ? '未设置' : key;
     },
 };
 vm.createContext(collectorContext);
@@ -274,6 +371,60 @@ assert.deepEqual(Array.from(collectedUndoneTasks, (task) => task.id), ['active-i
 const collectedAllTimeTasks = collectorContext.collectTasks(summaryTaskContext, { ...summaryFilter, start: '', end: '' });
 assert.ok(collectedAllTimeTasks.some((task) => task.id === 'active-no-date'), 'all-time summaries must retain unfinished tasks without a due date');
 
+collectorCustomFieldDefs = [
+    { id: 'tags', name: '标签', type: 'multi', options: [{ id: 'tag-a', name: '甲' }, { id: 'tag-b', name: '乙' }] },
+    { id: 'category', name: '分类', type: 'single', docIds: ['doc'], options: [{ id: 'cat-1', name: '一类' }, { id: 'cat-2', name: '二类' }] },
+];
+const customFieldTasks = [
+    { id: 'custom-a', content: 'A', done: false, customStatus: 's1', docId: 'doc', customFieldValues: { tags: ['tag-a'], category: '' } },
+    { id: 'custom-b', content: 'B', done: false, customStatus: 's2', docId: 'doc', customFieldValues: { tags: ['tag-b'], category: 'cat-1' } },
+    { id: 'custom-c', content: 'C', done: false, customStatus: 's3', docId: 'doc', customFieldValues: { tags: ['tag-a'], category: 'cat-2' } },
+    { id: 'custom-out-of-scope', content: 'D', done: false, customStatus: 's2', docId: 'doc-other', customFieldValues: { tags: ['tag-b'] } },
+];
+const customFieldContext = {
+    docNameMap: { doc: 'Doc', 'doc-other': 'Other' },
+    docGroupIdsMap: {},
+    customFieldDefs: collectorCustomFieldDefs,
+    summaryTasks: customFieldTasks,
+};
+const multiStatusAndCustomFieldTasks = collectorContext.collectTasks(customFieldContext, {
+    ...summaryFilter,
+    start: '', end: '',
+    statusIds: ['s1', 's2'],
+    customFieldFilters: {
+        tags: { optionIds: ['tag-a', 'tag-b'], includeEmpty: false },
+        category: { optionIds: ['cat-1'], includeEmpty: false },
+    },
+});
+assert.deepEqual(Array.from(multiStatusAndCustomFieldTasks, (task) => task.id), ['custom-b'], 'status and options in a field must match by any selected value while different custom columns combine with AND');
+const multiPriorityTasks = collectorContext.collectTasks({
+    docNameMap: { doc: 'Doc' }, docGroupIdsMap: {},
+    summaryTasks: [
+        { id: 'high-task', content: 'High', priority: 'high', docId: 'doc' },
+        { id: 'low-task', content: 'Low', priority: 'low', docId: 'doc' },
+        { id: 'medium-task', content: 'Medium', priority: 'medium', docId: 'doc' },
+        { id: 'no-priority-task', content: 'None', priority: 'none', docId: 'doc' },
+    ],
+}, {
+    ...summaryFilter,
+    start: '', end: '', statusIds: ['__all__'], priorityIds: ['high', 'low'],
+});
+assert.deepEqual(Array.from(multiPriorityTasks, (task) => task.id).sort(), ['high-task', 'low-task'], 'multiple selected priorities must match tasks with any selected priority');
+const unsetCustomFieldTasks = collectorContext.collectTasks(customFieldContext, {
+    ...summaryFilter,
+    start: '', end: '',
+    statusIds: ['__all__'],
+    customFieldFilters: { category: { optionIds: [], includeEmpty: true } },
+});
+assert.deepEqual(Array.from(unsetCustomFieldTasks, (task) => task.id), ['custom-a'], 'the unset option must match only applicable custom fields with no value');
+const customFieldDisplayTask = collectorContext.collectTasks(customFieldContext, {
+    ...summaryFilter,
+    start: '', end: '',
+    statusIds: ['__all__'],
+    fields: { customFieldIds: ['tags', 'category'] },
+}).find((task) => task.id === 'custom-a');
+assert.deepEqual(JSON.parse(JSON.stringify(customFieldDisplayTask.customFieldValues)), { tags: '甲', category: '未设置' }, 'selected custom single- and multi-select columns must resolve option names and display unset values');
+
 const markdownSource = segment('function __tmSummaryGenerateMarkdown', 'const __TM_SUMMARY_FILTER_STORAGE_KEY');
 const markdownContext = {
     __tmSummaryFormatChinaDateTime() {
@@ -291,6 +442,9 @@ const markdownContext = {
     __tmSummaryDateFmt() {
         return '2026-11-02';
     },
+    __tmGetCustomFieldDefs() {
+        return collectorCustomFieldDefs;
+    },
     __tmIsTaskActive(task) {
         return task?.done !== true;
     },
@@ -304,7 +458,7 @@ const markdownContext = {
 vm.createContext(markdownContext);
 vm.runInContext(`${markdownSource}\nthis.generateMarkdown = __tmSummaryGenerateMarkdown;`, markdownContext);
 const markdownTasks = [
-    { content: '未完成任务', done: false, dueDate: '2026-11-05', completionDate: '', dateKey: '2026-11-05', docName: '文档', priority: 'none', level: 0 },
+    { content: '未完成任务', done: false, dueDate: '2026-11-05', completionDate: '', dateKey: '2026-11-05', docName: '文档', priority: 'none', level: 0, customFieldValues: { tags: '甲、乙', category: '未设置' } },
     { content: '已完成任务', done: true, dueDate: '2026-10-20', completionDate: '2026-11-04', dateKey: '2026-11-04', docName: '文档', priority: 'none', level: 0 },
 ];
 const markdownFilter = {
@@ -316,7 +470,7 @@ const markdownFilter = {
     status: '__all__',
     priority: '__all__',
     groupBy: 'status',
-    fields: { taskName: true, docName: false, priority: false, status: false, dueDate: true, completionDate: false, focusDuration: false },
+    fields: { taskName: true, docName: false, priority: false, status: false, dueDate: true, completionDate: false, focusDuration: false, customFieldIds: [] },
 };
 const dueOnlyMarkdown = markdownContext.generateMarkdown(markdownTasks, markdownFilter, {
     statusMap: new Map(),
@@ -358,6 +512,56 @@ const emptyDateMarkdown = markdownContext.generateMarkdown([{
     docNameMap: { doc: '文档' },
 });
 assert.doesNotMatch(emptyDateMarkdown, /\[\]/, 'empty dates must not render as empty square brackets');
+
+const reportTasks = [
+    ...markdownTasks,
+    { content: '逾期任务', done: false, dueDate: '2026-10-30', completionDate: '', dateKey: '2026-10-30', docName: '逾期文档', priority: 'high', level: 0, customFieldValues: { tags: '甲', category: '一类' } },
+];
+const reportMarkdown = markdownContext.generateMarkdown(reportTasks, {
+    ...markdownFilter,
+    fields: { taskName: true, docName: true, priority: true, status: true, dueDate: false, completionDate: false, focusDuration: false, customFieldIds: ['tags', 'category'] },
+}, {
+    statusMap: new Map(),
+    groupNameMap: { '__all__': '全部分组' },
+    docNameMap: { doc: '文档' },
+});
+assert.match(reportMarkdown, /## 完成情况（1）/, 'weekly reports must include the completed task count in the group heading');
+assert.match(reportMarkdown, /## 计划项（2）/, 'weekly reports must include the planned task count in the group heading');
+assert.match(reportMarkdown, /## 逾期项（1）/, 'weekly reports must include the overdue task count in the group heading');
+assert.equal((reportMarkdown.match(/^## /gm) || []).length, 3, 'daily and weekly reports must only render the three preset groups');
+assert.doesNotMatch(reportMarkdown, /- 总计：/, 'daily and weekly reports must not append duplicate summary statistics');
+assert.match(reportMarkdown, /未完成任务（文档｜重要性:无｜未完成(?:｜|）)/, 'report task lines must honor enabled document, importance, and status fields');
+assert.match(reportMarkdown, /逾期任务（逾期文档｜重要性:无｜未完成(?:｜|）)/, 'overdue report task lines must honor the same display fields');
+assert.match(reportMarkdown, /标签:甲、乙/, 'report output must display selected custom field values');
+assert.match(reportMarkdown, /分类:未设置/, 'report output must show unset values for applicable selected custom fields');
+const hiddenReportFieldsMarkdown = markdownContext.generateMarkdown(reportTasks, {
+    ...markdownFilter,
+    fields: { taskName: false, docName: false, priority: false, status: false, dueDate: false, completionDate: false, focusDuration: false },
+}, {
+    statusMap: new Map(),
+    groupNameMap: { '__all__': '全部分组' },
+    docNameMap: { doc: '文档' },
+});
+assert.match(hiddenReportFieldsMarkdown, /\[ \] \(任务\)/, 'report task-name visibility must be controlled by the selected fields');
+assert.doesNotMatch(hiddenReportFieldsMarkdown, /未完成任务|逾期文档|重要性:|｜未完成/, 'disabled report fields must stay hidden inside preset groups');
+const emptyReportMarkdown = markdownContext.generateMarkdown([], markdownFilter, {
+    statusMap: new Map(),
+    groupNameMap: { '__all__': '全部分组' },
+    docNameMap: {},
+});
+assert.match(emptyReportMarkdown, /## 完成情况（0）[\s\S]*## 计划项（0）[\s\S]*## 逾期项（0）/, 'empty reports must still show all three counted groups');
+assert.doesNotMatch(emptyReportMarkdown, /没有匹配到任务/, 'empty reports must show the three zero-count groups instead of exiting early');
+const dailyReportMarkdown = markdownContext.generateMarkdown(reportTasks, {
+    ...markdownFilter,
+    preset: 'today_report',
+    fields: { taskName: true, docName: true, priority: true, status: true, dueDate: false, completionDate: false, focusDuration: false },
+}, {
+    statusMap: new Map(),
+    groupNameMap: { '__all__': '全部分组' },
+    docNameMap: { doc: '文档' },
+});
+assert.match(dailyReportMarkdown, /^# 今日日报/m, 'daily reports must retain the daily report title');
+assert.equal((dailyReportMarkdown.match(/^## /gm) || []).length, 3, 'daily reports must also render only the three preset groups');
 
 const modalMountedAt = source.indexOf('document.body.appendChild(state.summaryModal);');
 const firstPaintAt = source.indexOf('await new Promise((resolve) => requestAnimationFrame(resolve));');

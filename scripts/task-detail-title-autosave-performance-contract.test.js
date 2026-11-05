@@ -31,7 +31,7 @@ assert.match(contentSave, /onPending:\s*\(pendingPromise, op\)[\s\S]*trackDetail
 assert.doesNotMatch(source, /\[Task Horizon\]\[Detail\]\[ContentSave\]|logDetailContentSave|titleAutoSaveRequestedAt/, 'retired title-save diagnostics must stay deleted');
 
 const panelPatch = sliceBetween('function __tmPatchTaskDetailPanelInPlace(', 'function __tmScheduleTaskDetailForceRebuildRetry(', 'task detail in-place patch');
-assert.match(panelPatch, /hasOwnProperty\.call\(nextPatch, 'content'\)[\s\S]*isEditing[\s\S]*if \(!isEditing\) titleTextarea\.value = titleText/, 'focused title edits must keep their local value during an optimistic content patch');
+assert.match(panelPatch, /hasOwnProperty\.call\(nextPatch, 'content'\)[\s\S]*__tmPatchTaskTitleEditor\(titleTextarea, task\)/, 'title patches must use the shared focus and draft protection');
 
 const visibleRefresh = sliceBetween('function __tmRefreshVisibleTaskDetailForTask(', 'let __tmKanbanDetailOutsideClickHandler', 'visible task detail refresh');
 const kanbanRefreshStart = visibleRefresh.indexOf("if (String(state.viewMode || '').trim() === 'kanban'");

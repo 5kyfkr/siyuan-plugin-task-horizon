@@ -316,8 +316,17 @@
         const f = filter || {};
         const start = String(f.start || '').trim();
         const end = String(f.end || '').trim();
-        const status = String(f.status || '__all__').trim();
-        const priority = String(f.priority || '__all__').trim();
+        const statusIds = Array.isArray(f.statusIds) && f.statusIds.length
+            ? f.statusIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [String(f.status || '__all__').trim() || '__all__'];
+        const priorityIds = Array.isArray(f.priorityIds) && f.priorityIds.length
+            ? f.priorityIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [String(f.priority || '__all__').trim() || '__all__'];
+        const customFieldFilters = (f.customFieldFilters && typeof f.customFieldFilters === 'object' && !Array.isArray(f.customFieldFilters))
+            ? f.customFieldFilters
+            : {};
+        const customFieldDefs = (Array.isArray(ctx?.customFieldDefs) ? ctx.customFieldDefs : (typeof __tmGetCustomFieldDefs === 'function' ? __tmGetCustomFieldDefs() : []))
+            .filter((field) => field?.enabled !== false && ['single', 'multi'].includes(String(field?.type || '').trim()));
         const groupIds = __tmSummaryGetGroupIds(f);
         const allGroupsSelected = groupIds.includes('__all__');
         const docIdFilter = String(f.docId || '__all__').trim();
@@ -366,15 +375,63 @@
             if (start && (!dateKey || dateKey < start)) return;
             if (end && (!dateKey || dateKey > end)) return;
 
-            if (status === '__done__' && !done) return;
-            if (status === '__undone__' && !__tmIsTaskActive(task)) return;
-            if (status !== '__all__' && status !== '__done__' && status !== '__undone__') {
-                const sid = __tmResolveTaskStatusId(task);
-                if (sid !== status) return;
+            if (!statusIds.includes('__all__')) {
+                const taskStatusId = __tmResolveTaskStatusId(task);
+                const matchesStatus = statusIds.some((statusId) => {
+                    if (statusId === '__done__') return done;
+                    if (statusId === '__undone__') return __tmIsTaskActive(task);
+                    return taskStatusId === statusId;
+                });
+                if (!matchesStatus) return;
             }
 
             const p = String(task.priority || '').trim() || 'none';
-            if (priority !== '__all__' && p !== priority) return;
+            if (!priorityIds.includes('__all__') && !priorityIds.includes(p)) return;
+
+            const matchesCustomFieldFilters = Object.entries(customFieldFilters).every(([fieldId, selectedInput]) => {
+                const selection = (selectedInput && typeof selectedInput === 'object' && !Array.isArray(selectedInput)) ? selectedInput : {};
+                const selected = Array.isArray(selection.optionIds) ? selection.optionIds.map((id) => String(id || '').trim()).filter(Boolean) : [];
+                const includeEmpty = selection.includeEmpty === true;
+                if (!selected.length && !includeEmpty) return true;
+                const field = customFieldDefs.find((item) => String(item?.id || '').trim() === fieldId);
+                if (!field) return true;
+                if (typeof __tmIsCustomFieldApplicableToTask === 'function' && !__tmIsCustomFieldApplicableToTask(field, task)) return false;
+                const raw = typeof __tmGetTaskCustomFieldValue === 'function'
+                    ? __tmGetTaskCustomFieldValue(task, fieldId)
+                    : task?.customFieldValues?.[fieldId];
+                const normalized = typeof __tmNormalizeCustomFieldValue === 'function'
+                    ? __tmNormalizeCustomFieldValue(field, raw)
+                    : raw;
+                const values = Array.isArray(normalized)
+                    ? normalized.map((value) => String(value || '').trim()).filter(Boolean)
+                    : (String(normalized || '').trim() ? [String(normalized).trim()] : []);
+                return values.length
+                    ? values.some((value) => selected.includes(value))
+                    : includeEmpty;
+            });
+            if (!matchesCustomFieldFilters) return;
+
+            const customFieldValues = {};
+            (Array.isArray(f.fields?.customFieldIds) ? f.fields.customFieldIds : []).forEach((fieldId0) => {
+                const fieldId = String(fieldId0 || '').trim();
+                const field = customFieldDefs.find((item) => String(item?.id || '').trim() === fieldId);
+                if (!field) return;
+                if (typeof __tmIsCustomFieldApplicableToTask === 'function' && !__tmIsCustomFieldApplicableToTask(field, task)) return;
+                const raw = typeof __tmGetTaskCustomFieldValue === 'function'
+                    ? __tmGetTaskCustomFieldValue(task, fieldId)
+                    : task?.customFieldValues?.[fieldId];
+                const normalized = typeof __tmNormalizeCustomFieldValue === 'function'
+                    ? __tmNormalizeCustomFieldValue(field, raw)
+                    : raw;
+                const hasValue = Array.isArray(normalized)
+                    ? normalized.length > 0
+                    : String(normalized || '').trim() !== '';
+                customFieldValues[fieldId] = hasValue
+                    ? (typeof __tmSerializeCustomFieldValue === 'function'
+                        ? __tmSerializeCustomFieldValue(field, normalized)
+                        : (Array.isArray(normalized) ? normalized.join(', ') : String(normalized)))
+                    : __tmT("common.notSet");
+            });
 
             out.push({
                 id: String(task.id || '').trim(),
@@ -391,6 +448,7 @@
                 completionDate,
                 docId,
                 docName: String(docNameMap[docId] || task.docName || __tmT("kernel.untitledDocument")),
+                customFieldValues,
                 h2Id: String(task.h2Id || '').trim(),
                 h2Name: String(task.h2 || task.h2Name || '').trim() || __tmT("homepage.noHeading"),
                 level: resolveLevel(task),
@@ -413,10 +471,18 @@
         const docName = filter.docId === '__all__'
             ? (selectedGroupIds.includes('__all__') ? __tmT("settings.allDocumentsInAllGroups") : __tmT("settings.allDocumentsInTheSelectedGroups"))
             : (ctx.docNameMap?.[String(filter.docId || '')] || __tmT("settings.specifiedDocuments"));
-        const statusName = String(filter.status || '__all__') === '__all__'
+        const selectedStatusIds = Array.isArray(filter.statusIds) && filter.statusIds.length
+            ? filter.statusIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [String(filter.status || '__all__').trim() || '__all__'];
+        const statusName = selectedStatusIds.includes('__all__')
             ? __tmT("settings.allStatuses")
-            : (String(filter.status) === '__done__' ? __tmT("ai.completed") : (String(filter.status) === '__undone__' ? __tmT("ai.notDone") : (statusMap.get(String(filter.status || '')) || String(filter.status || ''))));
-        const priorityName = String(filter.priority || '__all__') === '__all__' ? __tmT("settings.allPriorities") : __tmSummaryPriorityText(filter.priority);
+            : selectedStatusIds.map((id) => id === '__done__' ? __tmT("ai.completed") : (id === '__undone__' ? __tmT("ai.notDone") : (statusMap.get(id) || id))).join('、');
+        const selectedPriorityIds = Array.isArray(filter.priorityIds) && filter.priorityIds.length
+            ? filter.priorityIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [String(filter.priority || '__all__').trim() || '__all__'];
+        const priorityName = selectedPriorityIds.includes('__all__')
+            ? __tmT("settings.allPriorities")
+            : selectedPriorityIds.map(__tmSummaryPriorityText).join('、');
         const groupBy = String(filter.groupBy || 'status').trim() || 'status';
         const groupByName = groupBy === 'h2'
             ? __tmT("settings.byHeading")
@@ -429,6 +495,11 @@
         const showDueDate = fields.dueDate === true;
         const showCompletionDate = fields.completionDate === true;
         const showFocusDuration = fields.focusDuration !== false;
+        const customFieldDefs = (Array.isArray(ctx.customFieldDefs) ? ctx.customFieldDefs : (typeof __tmGetCustomFieldDefs === 'function' ? __tmGetCustomFieldDefs() : []))
+            .filter((field) => field?.enabled !== false && ['single', 'multi'].includes(String(field?.type || '').trim()));
+        const customFieldDisplayDefs = (Array.isArray(fields.customFieldIds) ? fields.customFieldIds : [])
+            .map((fieldId) => customFieldDefs.find((field) => String(field?.id || '').trim() === String(fieldId || '').trim()))
+            .filter(Boolean);
         const rangeLabel = (filter.start || filter.end)
             ? `${filter.start || __tmT("settings.earliest")} ~ ${filter.end || __tmT("settings.latest")}`
             : __tmT("settings.allTime");
@@ -450,9 +521,23 @@
         lines.push('');
         lines.push(__tmT("settings.generatedAt", { now: now }));
         lines.push(__tmT("settings.filters", { rangeLabel: rangeLabel, groupName: groupName, docName: docName, statusName: statusName, priorityName: priorityName, groupByName: groupByName }));
+        const selectedCustomFilters = (filter.customFieldFilters && typeof filter.customFieldFilters === 'object') ? filter.customFieldFilters : {};
+        const customFilterLabels = Object.entries(selectedCustomFilters).map(([fieldId, selection]) => {
+            const field = customFieldDefs.find((item) => String(item?.id || '').trim() === fieldId);
+            if (!field) return '';
+            const runtime = typeof __tmGetCustomFieldOptionRuntime === 'function' ? __tmGetCustomFieldOptionRuntime(field) : null;
+            const names = (Array.isArray(selection?.optionIds) ? selection.optionIds : []).map((id) => {
+                const optionId = String(id || '').trim();
+                const option = (Array.isArray(field.options) ? field.options : []).find((item) => String(item?.id || '').trim() === optionId);
+                return String(runtime?.pathById?.get?.(optionId) || option?.name || optionId).trim();
+            }).filter(Boolean);
+            if (selection?.includeEmpty === true) names.push(__tmT("common.notSet"));
+            return names.length ? `${field.name}: ${names.join('、')}` : '';
+        }).filter(Boolean);
+        if (customFilterLabels.length) lines.push(__tmT("settings.summaryCustomFieldFilters", { value1: customFilterLabels.join('；') }));
         lines.push('');
 
-        if (!tasks.length) {
+        if (!tasks.length && !isDailyReport && !isWeeklyReport) {
             lines.push(__tmT("settings.noTasksMatched"));
             return lines.join('\n');
         }
@@ -464,24 +549,31 @@
         if (isDailyReport || isWeeklyReport) {
             const renderTaskLines = (arr) => arr.length
                 ? arr.map((t) => {
-                    const details = [t.recurringLabel, showFocusDuration && t.focusDuration ? __tmT("settings.focusTime", { focusDuration: t.focusDuration }) : ''].filter(Boolean);
-                    const suffix = [t.docName, ...details].filter(Boolean);
+                    const body = showTaskName ? t.content : __tmT("settings.task");
+                    const suffix = [];
+                    if (showDocName) suffix.push(t.docName);
+                    if (showPriority) suffix.push(__tmT("settings.importance", { pr: __tmSummaryPriorityText(t.priority) }));
+                    if (showStatus) suffix.push(__tmSummaryStatusName(t, statusMap));
+                    customFieldDisplayDefs.forEach((field) => {
+                        const value = String(t.customFieldValues?.[String(field.id || '').trim()] || '').trim();
+                        if (value) suffix.push(`${field.name}:${value}`);
+                    });
+                    if (t.recurringLabel) suffix.push(t.recurringLabel);
+                    if (showFocusDuration && t.focusDuration) suffix.push(__tmT("settings.focusTime", { focusDuration: t.focusDuration }));
                     const dates = renderTaskDates(t);
-                    return `- [${__tmResolveTaskMarker(t)}] ${t.content}${dates ? ` ${dates}` : ''}${suffix.length ? `（${suffix.join('｜')}）` : ''}`;
+                    return `- [${__tmResolveTaskMarker(t)}] ${body}${dates ? ` ${dates}` : ''}${suffix.length ? `（${suffix.join('｜')}）` : ''}`;
                 }).join('\n')
                 : __tmT("settings.none");
-            lines.push(__tmT("settings.completion"));
-            lines.push('');
-            lines.push(renderTaskLines(doneTasks));
-            lines.push('');
-            lines.push(__tmT("settings.planned"));
-            lines.push('');
-            lines.push(renderTaskLines(todoTasks.slice(0, 30)));
-            lines.push('');
-            lines.push(__tmT("settings.overdue"));
-            lines.push('');
-            lines.push(renderTaskLines(overdueTasks));
-            lines.push('');
+            const renderReportGroup = (title, arr, visibleTasks = arr) => {
+                lines.push(`${__tmT(title)}（${arr.length}）`);
+                lines.push('');
+                lines.push(renderTaskLines(visibleTasks));
+                lines.push('');
+            };
+            renderReportGroup("settings.completion", doneTasks);
+            renderReportGroup("settings.planned", todoTasks, todoTasks.slice(0, 30));
+            renderReportGroup("settings.overdue", overdueTasks);
+            return lines.join('\n');
         }
 
         const sectionMap = new Map();
@@ -521,6 +613,10 @@
                 if (showDocName && groupBy !== 'doc') ext.push(t.docName);
                 if (showPriority) ext.push(__tmT("settings.importance", { pr: pr }));
                 if (showStatus) ext.push(__tmSummaryStatusName(t, statusMap));
+                customFieldDisplayDefs.forEach((field) => {
+                    const value = String(t.customFieldValues?.[String(field.id || '').trim()] || '').trim();
+                    if (value) ext.push(`${field.name}:${value}`);
+                });
                 if (t.recurringLabel) ext.push(t.recurringLabel);
                 if (showFocusDuration && t.focusDuration) ext.push(__tmT("settings.focusTime", { focusDuration: t.focusDuration }));
                 lines.push(`${indent}- ${checkbox} ${body}${dates ? ` ${dates}` : ''}${ext.length ? `（${ext.join('｜')}）` : ''}`);
@@ -560,6 +656,100 @@
         const names = ids.map((id) => String(groupNameMap?.[id] || id)).filter(Boolean);
         if (names.length === 1 || options.compact === false) return names.join('、');
         return __tmT("settings.selectedGroups", { length: names.length });
+    }
+
+    function __tmSummaryNormalizeOptionIds(value, allOptionId = '') {
+        const source = Array.isArray(value) ? value : [value];
+        const ids = Array.from(new Set(source.map((id) => String(id || '').trim()).filter(Boolean)));
+        return allOptionId && ids.includes(allOptionId) ? [allOptionId] : ids;
+    }
+
+    function __tmSummaryReadMultiPicker(root, key) {
+        return __tmSummaryNormalizeOptionIds(Array.from(root?.querySelectorAll?.('[data-tm-summary-multi-option]:checked') || [])
+            .filter((option) => String(option?.dataset?.tmSummaryOptionGroup || '') === String(key || ''))
+            .map((option) => option.value));
+    }
+
+    function __tmSummarySyncMultiPicker(root, key, values, options = {}) {
+        const optionEls = Array.from(root?.querySelectorAll?.('[data-tm-summary-multi-option]') || [])
+            .filter((option) => String(option?.dataset?.tmSummaryOptionGroup || '') === String(key || ''));
+        const allOptionId = String(options.allOptionId || '').trim();
+        const available = new Set(optionEls.map((option) => String(option.value || '').trim()).filter(Boolean));
+        let ids = __tmSummaryNormalizeOptionIds(values, allOptionId).filter((id) => available.has(id));
+        if (allOptionId && (!ids.length || ids.includes(allOptionId))) ids = [allOptionId];
+        const selected = new Set(ids);
+        optionEls.forEach((option) => { option.checked = selected.has(String(option.value || '').trim()); });
+        const picker = optionEls[0]?.closest?.('[data-tm-summary-multi-picker]');
+        const label = picker?.querySelector?.('[data-tm-summary-picker-label]');
+        if (label) {
+            const names = optionEls.filter((option) => option.checked)
+                .map((option) => String(option.dataset.tmSummaryOptionLabel || '').trim()).filter(Boolean);
+            label.textContent = ids.includes(allOptionId) && allOptionId
+                ? String(options.allLabel || names[0] || '')
+                : (names.length ? names.join('、') : String(options.triggerLabel || label.dataset.tmSummaryPickerPlaceholder || ''));
+        }
+        return ids;
+    }
+
+    function __tmSummaryHandleMultiOptionChange(root, option) {
+        const key = String(option?.dataset?.tmSummaryOptionGroup || '').trim();
+        if (!key) return [];
+        const groupOptions = Array.from(root?.querySelectorAll?.('[data-tm-summary-multi-option]') || [])
+            .filter((item) => String(item?.dataset?.tmSummaryOptionGroup || '') === key);
+        const allOption = groupOptions.find((item) => String(item?.dataset?.tmSummaryAllOption || '').trim());
+        const allOptionId = String(allOption?.dataset?.tmSummaryAllOption || '').trim();
+        let ids = __tmSummaryReadMultiPicker(root, key);
+        const id = String(option?.value || '').trim();
+        if (allOptionId && id === allOptionId && option.checked) {
+            ids = [allOptionId];
+        } else if (option.checked) {
+            ids = ids.filter((item) => item !== allOptionId);
+            if (!ids.includes(id)) ids.push(id);
+        } else {
+            ids = ids.filter((item) => item !== id);
+        }
+        return __tmSummarySyncMultiPicker(root, key, ids, {
+            allOptionId,
+            allLabel: allOption?.dataset?.tmSummaryOptionLabel || '',
+        });
+    }
+
+    function __tmSummaryReadStatusIds(root) {
+        return __tmSummaryReadMultiPicker(root, 'status');
+    }
+
+    function __tmSummaryReadCustomFieldFilters(root) {
+        const filters = {};
+        root?.querySelectorAll?.('[data-tm-summary-custom-filter]')?.forEach((picker) => {
+            const fieldId = String(picker.getAttribute('data-tm-summary-custom-filter') || '').trim();
+            const tokens = __tmSummaryReadMultiPicker(root, `custom:${fieldId}`);
+            const optionIds = tokens.filter((id) => id.startsWith('option:')).map((id) => id.slice('option:'.length)).filter(Boolean);
+            const includeEmpty = tokens.includes('__empty__');
+            if (fieldId && (optionIds.length || includeEmpty)) filters[fieldId] = { optionIds, includeEmpty };
+        });
+        return filters;
+    }
+
+    function __tmSummaryRenderMultiPicker(options = {}) {
+        const key = String(options.key || '').trim();
+        const items = Array.isArray(options.items) ? options.items : [];
+        const allOptionId = String(options.allOptionId || '').trim();
+        const allLabel = String(options.allLabel || '').trim();
+        const pickerAttribute = String(options.pickerAttribute || '').trim();
+        const ariaLabel = String(options.ariaLabel || allLabel || '').trim();
+        const markup = items.map((item) => {
+            const id = String(item?.id || '').trim();
+            const value = String(item?.value == null ? id : item.value);
+            const name = String(item?.name || id);
+            return `<label class="tm-summary-group-option"><input type="checkbox" data-tm-summary-multi-option data-tm-summary-option-group="${esc(key)}" data-tm-summary-option-label="${esc(name)}" value="${esc(value)}"${allOptionId && id === allOptionId ? ` data-tm-summary-all-option="${esc(allOptionId)}" checked` : ''}><span>${esc(name)}</span></label>`;
+        }).join('');
+        const defaultLabel = allLabel || String(options.triggerLabel || items[0]?.name || '');
+        return `<details class="tm-summary-group-picker tm-summary-multi-picker" data-tm-summary-multi-picker ${pickerAttribute}>
+            <summary class="tm-rule-select tm-summary-group-trigger" aria-label="${esc(ariaLabel)}">
+                <span data-tm-summary-picker-label data-tm-summary-picker-placeholder="${esc(defaultLabel)}">${esc(defaultLabel)}</span><span class="tm-summary-group-trigger__icon" aria-hidden="true">${__tmLucideIconSvg('caret-down', { size: 14, className: 'tm-inline-icon__svg' })}</span>
+            </summary>
+            <div class="tm-summary-group-menu" role="group" aria-label="${esc(ariaLabel)}">${markup}</div>
+        </details>`;
     }
 
     function __tmSummaryReadGroupIds(root) {
@@ -610,13 +800,11 @@
         const source = (value && typeof value === 'object' && !Array.isArray(value)) ? value : null;
         if (!source) return null;
         const allowedPreset = new Set(['all', 'today_report', 'this_week_report', 'last_week_report', 'today', 'this_week', 'last_week', 'this_month', 'last_month', 'custom']);
-        const allowedPriority = new Set(['__all__', 'high', 'medium', 'low', 'none']);
         const allowedGroupBy = new Set(['status', 'date', 'priority', 'doc', 'h2']);
         const fields = (source.fields && typeof source.fields === 'object' && !Array.isArray(source.fields)) ? source.fields : {};
         const booleanOr = (key, fallback) => typeof fields[key] === 'boolean' ? fields[key] : fallback;
         const legacyDate = typeof fields.date === 'boolean' ? fields.date : false;
         const preset = String(source.preset || '').trim();
-        const priority = String(source.priority || '').trim();
         const groupBy = String(source.groupBy || '').trim();
         const sourceGroupIds = Array.isArray(source.groupIds)
             ? source.groupIds
@@ -625,14 +813,34 @@
             .map((id) => String(id || '').trim())
             .filter((id) => id && id !== '__ungrouped__')));
         if (!groupIds.length || groupIds.includes('__all__')) groupIds.splice(0, groupIds.length, '__all__');
+        const statusIds = __tmSummaryNormalizeOptionIds(
+            Array.isArray(source.statusIds) ? source.statusIds : [String(source.status || '__all__').trim() || '__all__'],
+            '__all__',
+        );
+        const allowedPriorityIds = new Set(['__all__', 'high', 'medium', 'low', 'none']);
+        const priorityIds = __tmSummaryNormalizeOptionIds(
+            Array.isArray(source.priorityIds) ? source.priorityIds : [String(source.priority || '__all__').trim() || '__all__'],
+            '__all__',
+        ).filter((id) => allowedPriorityIds.has(id));
+        const customFieldFilters = {};
+        if (source.customFieldFilters && typeof source.customFieldFilters === 'object' && !Array.isArray(source.customFieldFilters)) {
+            Object.entries(source.customFieldFilters).forEach(([fieldId, optionIds]) => {
+                const id = String(fieldId || '').trim();
+                const sourceSelection = (optionIds && typeof optionIds === 'object' && !Array.isArray(optionIds)) ? optionIds : {};
+                const selected = __tmSummaryNormalizeOptionIds(sourceSelection.optionIds);
+                const includeEmpty = sourceSelection.includeEmpty === true;
+                if (id && (selected.length || includeEmpty)) customFieldFilters[id] = { optionIds: selected, includeEmpty };
+            });
+        }
         const normalized = {
             preset: allowedPreset.has(preset) ? preset : 'this_week',
             start: __tmNormalizeDateOnly(source.start || ''),
             end: __tmNormalizeDateOnly(source.end || ''),
             groupId: groupIds.length === 1 ? groupIds[0] : '__all__',
             docId: String(source.docId || '__all__').trim() || '__all__',
-            status: String(source.status || '__all__').trim() || '__all__',
-            priority: allowedPriority.has(priority) ? priority : '__all__',
+            statusIds: statusIds.length ? statusIds : ['__all__'],
+            priorityIds: priorityIds.length ? priorityIds : ['__all__'],
+            customFieldFilters,
             groupBy: allowedGroupBy.has(groupBy) ? groupBy : 'status',
             fields: {
                 taskName: booleanOr('taskName', true),
@@ -642,6 +850,8 @@
                 dueDate: booleanOr('dueDate', legacyDate),
                 completionDate: booleanOr('completionDate', legacyDate),
                 focusDuration: booleanOr('focusDuration', false),
+                customFieldIds: Array.from(new Set((Array.isArray(fields.customFieldIds) ? fields.customFieldIds : [])
+                    .map((id) => String(id || '').trim()).filter(Boolean))),
             },
         };
         // Keep the legacy normalized shape stable while persisting the new multi-select value.
@@ -674,9 +884,25 @@
         setValue('end', filter.end, '');
         __tmSummarySyncGroupPicker(root, __tmSummaryGetGroupIds(filter));
         if (options.includeDoc === true) setValue('doc', filter.docId, '__all__');
-        setValue('status', filter.status, '__all__');
-        setValue('priority', filter.priority, '__all__');
+        __tmSummarySyncMultiPicker(root, 'status', filter.statusIds || [filter.status || '__all__'], {
+            allOptionId: '__all__',
+            allLabel: __tmT("settings.allStatuses"),
+        });
+        __tmSummarySyncMultiPicker(root, 'priority', filter.priorityIds || [filter.priority || '__all__'], {
+            allOptionId: '__all__',
+            allLabel: __tmT("settings.allPriorities"),
+        });
         setValue('groupBy', filter.groupBy, 'status');
+        const customFieldFilters = (filter.customFieldFilters && typeof filter.customFieldFilters === 'object') ? filter.customFieldFilters : {};
+        root.querySelectorAll('[data-tm-summary-custom-filter]').forEach((picker) => {
+            const fieldId = String(picker.getAttribute('data-tm-summary-custom-filter') || '').trim();
+            const selection = customFieldFilters[fieldId] || {};
+            const tokens = [
+                ...(Array.isArray(selection.optionIds) ? selection.optionIds.map((id) => `option:${id}`) : []),
+                ...(selection.includeEmpty === true ? ['__empty__'] : []),
+            ];
+            __tmSummarySyncMultiPicker(root, `custom:${fieldId}`, tokens);
+        });
         Object.entries({
             fieldTaskName: filter.fields?.taskName !== false,
             fieldDocName: filter.fields?.docName === true,
@@ -688,6 +914,10 @@
         }).forEach(([key, checked]) => {
             const control = root.querySelector(`[data-tm-summary="${key}"]`);
             if (control) control.checked = checked;
+        });
+        const selectedCustomFieldIds = new Set(Array.isArray(filter.fields?.customFieldIds) ? filter.fields.customFieldIds.map((id) => String(id || '').trim()) : []);
+        root.querySelectorAll('[data-tm-summary-custom-field-display]').forEach((control) => {
+            control.checked = selectedCustomFieldIds.has(String(control.value || '').trim());
         });
     }
 
@@ -713,8 +943,9 @@
             groupIds,
             groupId: groupIds.length === 1 ? groupIds[0] : '__all__',
             docId: String(q('[data-tm-summary="doc"]')?.value || '__all__').trim(),
-            status: String(q('[data-tm-summary="status"]')?.value || '__all__').trim(),
-            priority: String(q('[data-tm-summary="priority"]')?.value || '__all__').trim(),
+            statusIds: __tmSummaryReadStatusIds(root),
+            priorityIds: __tmSummaryReadMultiPicker(root, 'priority'),
+            customFieldFilters: __tmSummaryReadCustomFieldFilters(root),
             groupBy: String(q('[data-tm-summary="groupBy"]')?.value || 'status').trim(),
             fields: {
                 taskName: q('[data-tm-summary="fieldTaskName"]')?.checked !== false,
@@ -724,6 +955,8 @@
                 dueDate: q('[data-tm-summary="fieldDueDate"]')?.checked === true,
                 completionDate: q('[data-tm-summary="fieldCompletionDate"]')?.checked === true,
                 focusDuration: q('[data-tm-summary="fieldFocusDuration"]')?.checked !== false,
+                customFieldIds: Array.from(root.querySelectorAll('[data-tm-summary-custom-field-display]:checked'))
+                    .map((control) => String(control.value || '').trim()).filter(Boolean),
             },
         };
     }
@@ -850,6 +1083,11 @@
         state.__summaryUnstack?.();
         state.__summaryUnstack = null;
         if (!state.summaryModal) return;
+        const outsideCloseHandler = state.summaryModal.__tmSummaryOutsideCloseHandler;
+        if (outsideCloseHandler) {
+            try { document.removeEventListener('pointerdown', outsideCloseHandler, true); } catch (e) {}
+            state.summaryModal.__tmSummaryOutsideCloseHandler = null;
+        }
         try { state.summaryModal.remove(); } catch (e) {}
         state.summaryModal = null;
     }
@@ -894,11 +1132,57 @@
             ...groups.map((g) => ({ id: String(g?.id || '').trim(), name: __tmResolveDocGroupName(g) })).filter(g => g.id)
         ];
         const statusSelectOptions = [
-            { id: '__all__', name: '全部状态' },
-            { id: '__done__', name: '已完成' },
-            { id: '__undone__', name: '未完成' },
+            { id: '__all__', name: __tmT("settings.allStatuses") },
+            { id: '__done__', name: __tmT("ai.completed") },
+            { id: '__undone__', name: __tmT("ai.notDone") },
             ...Array.from(statusMap.keys()).map((id) => ({ id, name: statusMap.get(id) || id }))
         ];
+        const customFieldDefs = (typeof __tmGetCustomFieldDefs === 'function' ? __tmGetCustomFieldDefs() : [])
+            .filter((field) => field?.enabled !== false && ['single', 'multi'].includes(String(field?.type || '').trim()));
+        const statusPickerMarkup = __tmSummaryRenderMultiPicker({
+            key: 'status',
+            items: statusSelectOptions,
+            allOptionId: '__all__',
+            allLabel: __tmT("settings.allStatuses"),
+            ariaLabel: __tmT("kernel.status"),
+        });
+        const priorityPickerMarkup = __tmSummaryRenderMultiPicker({
+            key: 'priority',
+            items: [
+                { id: '__all__', name: __tmT("settings.allPriorities") },
+                { id: 'high', name: __tmT("common.high") },
+                { id: 'medium', name: __tmT("common.medium") },
+                { id: 'low', name: __tmT("common.low") },
+                { id: 'none', name: __tmT("common.none") },
+            ],
+            allOptionId: '__all__',
+            allLabel: __tmT("settings.allPriorities"),
+            ariaLabel: __tmT("kernel.importance"),
+        });
+        const customFieldFilterMarkup = customFieldDefs.map((field) => {
+            const fieldId = String(field?.id || '').trim();
+            if (!fieldId) return '';
+            const runtime = typeof __tmGetCustomFieldOptionRuntime === 'function' ? __tmGetCustomFieldOptionRuntime(field) : null;
+            const items = (Array.isArray(runtime?.options) ? runtime.options : (Array.isArray(field.options) ? field.options : []))
+                .map((option) => {
+                    const id = String(option?.id || '').trim();
+                    if (!id) return null;
+                    return { id, value: `option:${id}`, name: runtime?.pathById?.get?.(id) || String(option?.name || id) };
+                }).filter(Boolean);
+            items.push({ id: '__empty__', value: '__empty__', name: __tmT("common.notSet") });
+            return __tmSummaryRenderMultiPicker({
+                key: `custom:${fieldId}`,
+                items,
+                triggerLabel: String(field.name || fieldId),
+                ariaLabel: String(field.name || fieldId),
+                pickerAttribute: `data-tm-summary-custom-filter="${esc(fieldId)}"`,
+            });
+        }).join('');
+        const customFieldDisplayMarkup = customFieldDefs.map((field) => {
+            const fieldId = String(field?.id || '').trim();
+            if (!fieldId) return '';
+            return `<label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="customFieldDisplay" data-tm-summary-custom-field-display value="${esc(fieldId)}">${esc(field.name || fieldId)}</label>`;
+        }).join('');
 
         const isMobileSummary = __tmIsMobileDevice();
         state.summaryModal = document.createElement('div');
@@ -938,16 +1222,8 @@
                     </details>
                     <input type="hidden" data-tm-summary="group" value="__all__">
                     <select class="tm-rule-select" data-tm-summary="doc" style="min-width:160px;"></select>
-                    <select class="tm-rule-select" data-tm-summary="status" style="min-width:130px;">
-                        ${statusSelectOptions.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}
-                    </select>
-                    <select class="tm-rule-select" data-tm-summary="priority" style="min-width:120px;">
-                        <option value="__all__">${__tmT("settings.allPriorities")}</option>
-                        <option value="high">${__tmT("common.high")}</option>
-                        <option value="medium">${__tmT("common.medium")}</option>
-                        <option value="low">${__tmT("common.low")}</option>
-                        <option value="none">${__tmT("common.none")}</option>
-                    </select>
+                    ${statusPickerMarkup}
+                    ${priorityPickerMarkup}
                     <select class="tm-rule-select" data-tm-summary="groupBy" style="min-width:130px;">
                         <option value="status">${__tmT("settings.groupByStatus")}</option>
                         <option value="date">${__tmT("settings.groupByCompletionDate")}</option>
@@ -955,6 +1231,7 @@
                         <option value="doc">${__tmT("calendar.groupByDocument")}</option>
                         <option value="h2">${__tmT("settings.groupByHeading")}</option>
                     </select>
+                    ${customFieldFilterMarkup}
                 </div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;color:var(--tm-secondary-text);font-size:12px;">
                     <span>${__tmT("settings.fields")}</span>
@@ -965,6 +1242,7 @@
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDueDate">${__tmT("kernel.dueDate")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldCompletionDate">${__tmT("calendar.completionDate")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldFocusDuration">${__tmT("settings.focusTime2")}</label>
+                    ${customFieldDisplayMarkup}
                 </div>
                 <textarea class="tm-summary-preview" data-tm-summary="preview" style="width:100%;height:100%;box-sizing:border-box;padding:12px;font-size:0.875rem;line-height:1.55;background:var(--tm-input-bg);color:var(--tm-text-color);border:1px solid var(--tm-input-border);border-radius:8px;resize:vertical;"></textarea>
             </div>
@@ -983,6 +1261,21 @@
 
         const root = state.summaryModal;
         root.__tmSummaryGroupNameMap = groupNameMap;
+        const closeOtherPickers = (event) => {
+            const target = event?.target;
+            const activePicker = target instanceof Element
+                ? target.closest('[data-tm-summary-group-picker], [data-tm-summary-multi-picker]')
+                : null;
+            if (!(target instanceof Node) || !root.contains(target)) {
+                root.querySelectorAll('[data-tm-summary-group-picker][open], [data-tm-summary-multi-picker][open]')
+                    .forEach((picker) => { picker.open = false; });
+                return;
+            }
+            root.querySelectorAll('[data-tm-summary-group-picker][open], [data-tm-summary-multi-picker][open]')
+                .forEach((picker) => { if (picker !== activePicker) picker.open = false; });
+        };
+        root.__tmSummaryOutsideCloseHandler = closeOtherPickers;
+        document.addEventListener('pointerdown', closeOtherPickers, true);
         const savedFilter = __tmSummaryLoadSavedFilter();
         const ctx = {
             docNameMap,
@@ -992,6 +1285,7 @@
             allDocIds: [],
             statusMap,
             groupNameMap,
+            customFieldDefs,
             summaryTasks: [],
             summaryH2ResolvedIds: new Set(),
             loading: true,
@@ -1004,6 +1298,9 @@
                 control.disabled = loading;
             });
             root.querySelectorAll('[data-tm-summary-group-option]').forEach((control) => {
+                control.disabled = loading;
+            });
+            root.querySelectorAll('[data-tm-summary-multi-option]').forEach((control) => {
                 control.disabled = loading;
             });
             const groupTrigger = root.querySelector('[data-tm-summary-group-trigger]');
@@ -1028,6 +1325,16 @@
                 __tmSummaryUpdatePreview(root, ctx);
                 return;
             }
+            if (target.matches('[data-tm-summary-multi-option]')) {
+                __tmSummaryHandleMultiOptionChange(root, target);
+                const filter = __tmSummaryReadFilter(root);
+                __tmSummarySaveFilter(filter);
+                await __tmSummaryEnsureTasksForFilter(ctx, filter);
+                await __tmSummaryEnsureH2Contexts(ctx, filter);
+                if (state.summaryModal !== root) return;
+                __tmSummaryUpdatePreview(root, ctx);
+                return;
+            }
             const key = String(target.getAttribute('data-tm-summary') || '').trim();
             if (!key) return;
             const filter = __tmSummaryReadFilter(root);
@@ -1039,9 +1346,7 @@
         });
 
         root.addEventListener('click', async (e) => {
-            if (!e.target?.closest?.('[data-tm-summary-group-picker]')) {
-                root.querySelectorAll('[data-tm-summary-group-picker][open]').forEach((picker) => { picker.open = false; });
-            }
+            closeOtherPickers(e);
             const target = e.target?.closest?.('[data-tm-summary-action]');
             if (!target) return;
             const action = String(target.getAttribute('data-tm-summary-action') || '').trim();
@@ -1113,7 +1418,13 @@
         await new Promise((resolve) => requestAnimationFrame(resolve));
         if (state.summaryModal !== root) return;
         const docNamesPromise = __tmSummaryBuildDocNameMapByGroups(docNameMap);
-        const groupScope = await __tmSummaryBuildGroupScope();
+        const customFieldScopePromise = typeof __tmRefreshCustomFieldScopeMembership === 'function'
+            ? __tmRefreshCustomFieldScopeMembership()
+            : Promise.resolve();
+        const [groupScope] = await Promise.all([
+            __tmSummaryBuildGroupScope(),
+            customFieldScopePromise,
+        ]);
         const summaryTasksPromise = __tmSummaryLoadTasksByDocs(groupScope.allDocIds);
         const [resolvedDocNameMap, summaryTasks] = await Promise.all([docNamesPromise, summaryTasksPromise]);
         if (state.summaryModal !== root) return;

@@ -263,6 +263,14 @@ for (const enabled of [true, false]) {
             __tmTaskDetailTimeHubHasValue: (_task, options) => !!options.repeatSummary,
             __tmGetTaskDetailTimeHubLabel: (_task, options) => options.repeatSummary || '设置时间',
             __tmBuildTaskDetailTimeHubFace: (_task, options) => options.repeatSummary || '设置时间',
+            // The shared rich title control owns focus/IME protection; keep the
+            // active draft untouched exactly like the production helper does.
+            __tmPatchTaskTitleEditor: (element, task) => {
+                if (!(element instanceof TextArea)) return false;
+                if (element === h.context.document.activeElement || element.dataset?.composing === 'true') return true;
+                element.value = String(task?.content || '');
+                return true;
+            },
         });
         vm.runInContext(extract(detailSource, '__tmPatchTaskDetailPanelInPlace'), h.context);
         const patch = { repeatRule: { enabled }, content: '其他视图的新标题' };

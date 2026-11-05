@@ -78,7 +78,7 @@ const detailFormSnapshot = sliceBetween(
     'const captureFormStateSnapshot =',
     'detail form snapshot',
 );
-assert.match(detailFormSnapshot, /const hasContentEditor = contentEditor instanceof HTMLTextAreaElement/, 'detail snapshots must distinguish an absent title editor from an empty title');
+assert.match(detailFormSnapshot, /const hasContentEditor = __tmIsTaskTitleEditor\(contentEditor\)/, 'detail snapshots must distinguish an absent title editor from an empty title');
 assert.match(detailFormSnapshot, /hasContentEditor,\s*nextContent,/, 'the title-editor presence marker must travel with the immutable save snapshot');
 
 const visibleContentPatch = sliceBetween(
@@ -248,7 +248,7 @@ const detailPatch = sliceBetween(
     'detail in-place patch',
 );
 assert.match(detailPatch, /hasOwnProperty\.call\(nextPatch, 'content'\)/, 'detail panels must handle content as an in-place patch');
-assert.match(detailPatch, /titleTextarea === document\.activeElement \|\| titleTextarea\.dataset\.composing === 'true'/, 'detail content patch must preserve active and IME drafts');
+assert.match(detailPatch, /__tmPatchTaskTitleEditor\(titleTextarea, task\)/, 'detail content patch must use shared active, IME and dirty-draft protection');
 
 const checklistRefresh = sliceBetween(
     detailSource,

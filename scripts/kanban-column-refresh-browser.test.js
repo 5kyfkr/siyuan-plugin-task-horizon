@@ -141,6 +141,10 @@ async function setup(page) {
             __tmIsOtherBlockTabId: () => false,
             __tmIsViewDomCommitBlocked: () => false,
             esc: (value) => String(value ?? ''),
+            API: {
+                renderTaskContentHtml: (markdown, fallback) => String(markdown || fallback || ''),
+                getTaskTitlePresentation: (markdown, fallback) => ({ html: String(markdown || fallback || ''), text: String(markdown || fallback || '') }),
+            },
             renderedTaskIds: [],
             __tmBuildElementFromHtml: (html) => {
                 const t = document.createElement('template'); t.innerHTML = html; return t.content.firstElementChild;

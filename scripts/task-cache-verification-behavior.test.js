@@ -209,7 +209,7 @@ test('a thrown transport error also stops metadata chunks without a compatibilit
     assert.equal(result.readFailure, true);
 });
 
-test('task index round-trip retains the update stamp needed to reuse unchanged snapshots', () => {
+test('task index round-trip retains title formatting and the update stamp needed to reuse unchanged snapshots', () => {
     const source = fs.readFileSync(path.join(root, '10-stores-rules-and-cache.js'), 'utf8');
     const names = ['__tmBuildTaskIndexBlockEntry', '__tmRestoreTaskIndexBlockEntry'];
     const functions = names.map((name) => {
@@ -229,8 +229,11 @@ test('task index round-trip retains the update stamp needed to reuse unchanged s
         __tmNormalizeTaskAttachmentMetaMap: () => new Map(), __tmSerializeTaskAttachmentMeta: () => '',
         __tmCloneTaskSnapshotValue: (value) => value,
     });
-    vm.runInContext(functions.join('\n'), context);
-    const task = { id: id(10), root_id: id(1), updated: '20260925182000', hash: 'abc1234', content: 'unchanged task' };
+    const helpersStart = apiSource.indexOf('    function __tmGetTaskListItemMarkerPrefixMatch(');
+    const helpersEnd = apiSource.indexOf('    function __tmNormalizeTaskListItemMarkdownMarker(', helpersStart);
+    vm.runInContext(apiSource.slice(helpersStart, helpersEnd) + functions.join('\n'), context);
+    const title = '323232[链接111](baidu.com1111 "666")';
+    const task = { id: id(10), root_id: id(1), updated: '20260925182000', hash: 'abc1234', content: '323232链接111', markdown: `- [ ] ${title}\n  - [ ] child task` };
     const entry = context.__tmBuildTaskIndexBlockEntry(task, { id: id(1) });
     const stored = JSON.parse(JSON.stringify(entry));
     const restored = context.__tmRestoreTaskIndexBlockEntry(stored, { id: id(1) });
@@ -238,4 +241,14 @@ test('task index round-trip retains the update stamp needed to reuse unchanged s
     assert.equal(restored.hash, task.hash);
     assert.equal(restored.id, task.id);
     assert.equal(restored.content, task.content);
+    assert.equal(restored.markdown, `- [ ] ${title}`, 'cached list titles retain their link target and tooltip without duplicating descendants');
+    for (const sourceTitle of [
+        `前 ((20260101000000-abcdefg "静态引用")) 后`,
+        `前 ((20260101000000-abcdefg '动态引用')) 后`,
+        '<span data-type="a strong" data-href="https://example.invalid" data-title="提示">链接</span>',
+    ]) {
+        const entry = context.__tmBuildTaskIndexBlockEntry({ ...task, markdown: `- [ ] ${sourceTitle}` }, { id: id(1) });
+        const next = context.__tmRestoreTaskIndexBlockEntry(JSON.parse(JSON.stringify(entry)), { id: id(1) });
+        assert.equal(next.markdown, `- [ ] ${sourceTitle}`);
+    }
 });

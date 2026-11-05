@@ -40,7 +40,8 @@ const layoutSettingsCode=extract(settingsActions,'updateChecklistCompactMode',tr
 const headingPolicyCode=services.slice(hostFieldsEnd,services.indexOf('    const __tmShouldShowCompactChecklistDocName =',hostFieldsEnd)).replace('const __tmShouldLoadCompactChecklistHeadingContext =','window.__tmShouldLoadCompactChecklistHeadingContext =');
 const fieldPreviewCode=settingsScreen.slice(settingsScreen.indexOf('        const __tmFieldPreviewStatusTag ='),settingsScreen.indexOf('        const __tmFieldPreviewCardChip =')).replace(/const (__tmFieldPreview\w+) =/g, 'window.$1 =');
 const realFunctions = new Set([...(renderer + helpers + patchCode + wrapCode).matchAll(/function\s+(__tm\w+)\(/g)].map(match => match[1]));
-const stubNames = [...new Set((renderer + helpers + patchCode).match(/\b__tm\w+/g))].filter(name => !realFunctions.has(name));
+const stubNames = [...new Set((renderer + helpers + patchCode).match(/\b__tm\w+/g))]
+    .filter(name => name !== '__tmT' && !realFunctions.has(name));
 const setup = `
 for (const name of ${JSON.stringify(stubNames)}) window[name] = () => '';
 window.esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

@@ -16,6 +16,10 @@
         const taskCompleteAtText = columnOrder.includes('taskCompleteAt')
             ? __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task))
             : '';
+        const taskCompleteAtEditable = columnOrder.includes('taskCompleteAt')
+            && (typeof __tmIsTaskClosedForDisplay === 'function'
+                ? __tmIsTaskClosedForDisplay(task)
+                : task?.done === true);
         let html = '';
 
         columnOrder.forEach((columnKey) => {
@@ -45,7 +49,7 @@
                     html += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="completionTime" style="${getCellStyle('completionTime')}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskDateFieldDisplayValue(task, 'completionTime')}</td>`;
                     break;
                 case 'taskCompleteAt':
-                    html += `<td class="tm-task-meta-cell" data-tm-task-time-field="taskCompleteAt" style="${getCellStyle('taskCompleteAt')}" title="${esc(taskCompleteAtText)}">${esc(taskCompleteAtText)}</td>`;
+                    html += `<td class="tm-task-meta-cell${taskCompleteAtEditable ? ' tm-cell-editable' : ''}" data-tm-task-time-field="taskCompleteAt" style="${getCellStyle('taskCompleteAt')}" title="${esc(taskCompleteAtText)}"${taskCompleteAtEditable ? ` onclick="tmBeginCellEdit('${task.id}','taskCompleteAt',this,event)"` : ''}>${esc(taskCompleteAtText)}</td>`;
                     break;
                 case 'remainingTime':
                     html += `<td class="tm-task-meta-cell" data-tm-task-time-field="remainingTime" style="${getCellStyle('remainingTime', 'text-align:center;')}" title="${esc(remainingLabel)}">${__tmRenderTaskRemainingTimeInfoHtml(remainingInfo)}</td>`;
@@ -1781,7 +1785,7 @@
                         const isCollapsed = showDocTitle && state.collapsedGroups?.has(groupKey);
                         const docName = docNameById.get(docId) || __tmT("task.unknownDocument");
                         const labelColor = docId === '__unknown__' ? 'var(--tm-secondary-text)' : (__tmGetDocColorHex(docId, isDark) || 'var(--tm-group-doc-label-color)');
-                        const title = `<span style="display:inline-flex;align-items:center;gap:6px;color:${labelColor};">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${esc(docName)}</span></span>`;
+                        const title = `<span style="display:inline-flex;align-items:center;gap:6px;color:${labelColor};">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${API.renderTaskContentHtml(docName, docName)}</span></span>`;
                         // 在标题看板模式下，即使设置中没有启用 docH2SubgroupEnabled，也启用二级标题分组
                         const enableH2 = ((!!SettingsStore.data.docH2SubgroupEnabled || headingMode) && !o.forceNoHeading)
                             && __tmDocHasAnyHeading(docId, items);
@@ -2210,6 +2214,9 @@
                     : (headingMode
                     ? (kind === 'doc' ? `📄 ${c.name}` : c.name)
                     : (c.id === '__done__' ? __tmT("calendar.done") : c.id === 'todo' ? `🗂️ ${c.name}` : c.name))));
+                const columnTitle = headingMode && !isDoneCol
+                    ? API.getTaskTitlePresentation(c?.name, c?.name)
+                    : { html: esc(String(c?.name || '')), text: String(c?.name || '') };
                 const dataAttrs = isDoneCol
                     ? `data-kind="status" data-status="__done__"`
                     : (quadrantBoardMode
@@ -2244,7 +2251,7 @@
                 const progressPercent = showColumnProgress ? __tmGetProjectProgressPercent(columnProgress, progressDocId) : 0;
                 const progressLabel = columnProgress.total ? __tmT("calendar.projectProgress", { progressPercent: progressPercent }) : __tmT("calendar.noTasks");
                 const progressTextHtml = showColumnProgress ? `<span class="tm-kanban-col-completion" title="${esc(progressLabel)}">${progressPercent}%</span>` : '';
-                const progressBarHtml = showColumnProgress ? `<div class="tm-kanban-col-progress" data-progress-doc="${esc(progressDocId)}" data-progress-key="${esc(c.id)}" data-progress-total="${columnProgress.total}" data-progress-done="${columnProgress.done}" data-progress-none-label="${esc(noHeadingLabel)}" role="progressbar" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.doneprogress", { name: c.name })}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" aria-valuetext="${esc(progressLabel)}" title="${esc(progressLabel)}" style="--tm-kanban-completion:${progressPercent / 100}"><span></span></div>` : '';
+                const progressBarHtml = showColumnProgress ? `<div class="tm-kanban-col-progress" data-progress-doc="${esc(progressDocId)}" data-progress-key="${esc(c.id)}" data-progress-total="${columnProgress.total}" data-progress-done="${columnProgress.done}" data-progress-none-label="${esc(noHeadingLabel)}" role="progressbar" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.doneprogress", { name: columnTitle.text })}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}" aria-valuetext="${esc(progressLabel)}" title="${esc(progressLabel)}" style="--tm-kanban-completion:${progressPercent / 100}"><span></span></div>` : '';
                 const docIdForTitle = String(c?.docId || c?.id || '').trim();
                 const headingDocId = String(c?.docId || '').trim();
                 const headingIdForCreate = String(c?.headingId || '__none__').trim() || '__none__';
@@ -2267,14 +2274,14 @@
                 const titleContentHtml = timeBoardMode && !isDoneCol
                     ? `<span>${String(c?.labelHtml || '').trim() || esc(String(c?.name || ''))}</span>`
                     : (headingMode && !isDoneCol && kind === 'doc'
-                    ? `${__tmRenderDocIcon(docIdForTitle, { fallbackText: '📄', size: 14 })}<span>${esc(String(c?.name || ''))}</span>`
+                    ? `${__tmRenderDocIcon(docIdForTitle, { fallbackText: '📄', size: 14 })}<span>${columnTitle.html}</span>`
                     : (headingMode && !isDoneCol && kind === 'heading'
-                        ? `${__tmRenderHeadingLevelInlineIcon(c?.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })}<span>${esc(String(c?.name || ''))}</span>`
+                        ? `${__tmRenderHeadingLevelInlineIcon(c?.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })}<span>${columnTitle.html}</span>`
                         : esc(title)));
                 const titleTextHtml = canOpenDocFromTitle
-                    ? `<button type="button" class="tm-kanban-col-title-text tm-kanban-col-title-text--link" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.goToDocument", { name: c.name })}" onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(docIdForTitle)}');">${titleContentHtml}</button>`
-                    : `<span class="tm-kanban-col-title-text" title="${esc(c.name)}">${titleContentHtml}</span>`;
-                const navLabel = String(isDoneCol ? __tmT("ai.completed") : (c?.name || title || '')).trim();
+                    ? `<button type="button" class="tm-kanban-col-title-text tm-kanban-col-title-text--link" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.goToDocument", { name: columnTitle.text })}" onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(docIdForTitle)}');">${titleContentHtml}</button>`
+                    : `<span class="tm-kanban-col-title-text" title="${esc(columnTitle.text)}">${titleContentHtml}</span>`;
+                const navLabel = String(isDoneCol ? __tmT("ai.completed") : (columnTitle.text || title || '')).trim();
                 kanbanBoardNavItems.push({
                     key: columnKey,
                     label: navLabel,

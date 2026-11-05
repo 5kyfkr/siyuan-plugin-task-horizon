@@ -27,8 +27,8 @@ assert.match(apiRuntime, /async getTasksByDocument\(docId,[\s\S]*?const tasks = 
 assert.match(apiRuntime, /async getTasksByDocuments\(docIds,[\s\S]*?let tasks = __tmDedupeTaskQueryRowsById\(Array\.isArray\(res\.data\) \? res\.data : \[\]\)\.map\(\(row\) => \(\{ \.\.\.row \}\)\);/, 'multi-document task queries must dedupe and own rows before enrichment');
 assert.match(apiRuntime, /SELECT root_id, COUNT\(DISTINCT id\) AS task_count/, 'task count probes must count logical IDs');
 assert.match(apiRuntime, /COUNT\(DISTINCT task\.id\) AS parent_list_task_count/, 'parent-list shape queries must count logical IDs');
-assert.match(storesRuntime, /const __TM_TASK_SNAPSHOT_VERSION = 4;/, 'task snapshots must invalidate duplicate-bearing v3 data');
-assert.match(storesRuntime, /const __TM_TASK_INDEX_VERSION = 7;/, 'task indexes must invalidate entries created before repeat-history projection');
+assert.match(storesRuntime, /const __TM_TASK_SNAPSHOT_VERSION = 5;/, 'task snapshots must invalidate data derived from indexes that discarded title formatting');
+assert.match(storesRuntime, /const __TM_TASK_INDEX_VERSION = 8;/, 'task indexes must invalidate entries without rich title sources');
 assert.match(
     storesRuntime,
     /function __tmBuildTaskIndexBlockEntry\(task,[\s\S]*repeatHistory: __tmCompactTaskIndexValue\(source\.repeatHistory \|\| source\.repeat_history/,

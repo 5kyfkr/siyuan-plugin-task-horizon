@@ -551,7 +551,7 @@
             const create = globalThis.__tmRequireTaskMutation(kind);
             const id = kind === 'createTaskInDoc' ? await create(taskPayload) : await create(parent?.realId || payload.sourceTaskId, step.title, {
                 requestedTaskId: step.requestedTaskId, requestedContainerId: step.requestedContainerId,
-                initialPatch: { priority: '', customStatus: '', startDate: '', completionTime: '', customFieldValues: {}, ...__tmBuildCreateTaskInDocAttrPatchFromPayload(taskPayload) },
+                initialPatch: { priority: '', customStatus: '', startDate: '', completionTime: '', customFieldValues: {}, ...__tmBuildCreateTaskInDocAttrPatchFromPayload(taskPayload), pinned: payload.pinned },
                 inheritedDateFields: payload.inheritedDateFields || [], silent: true, wait: true, skipInteractionGate: true,
             });
             if (!id) throw new Error(__tmT("taskTemplate.createFailed"));

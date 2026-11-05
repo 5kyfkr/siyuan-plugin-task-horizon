@@ -5189,13 +5189,13 @@ return Number(state.contextInteractionQuietUntil || 0);
             .filter(Boolean);
     }
 
-    function showConfirm(title, message) {
+    function showConfirm(title, message, options = {}) {
         return new Promise((resolve) => {
             const existing = document.querySelector('.tm-prompt-modal');
             if (existing) existing.remove();
 
             const modal = document.createElement('div');
-            modal.className = 'tm-prompt-modal';
+            modal.className = `tm-prompt-modal${options?.mobileSafe === true ? ' tm-prompt-modal--mobile-safe' : ''}`;
 
             modal.innerHTML = `
                 <div class="tm-prompt-box">
@@ -19074,6 +19074,8 @@ return Number(state.contextInteractionQuietUntil || 0);
     }
 
     const __tmPhosphorBoldPaths = {
+        'arrow-up-right': 'M204,64V168a12,12,0,0,1-24,0V93L72.49,200.49a12,12,0,0,1-17-17L163,76H88a12,12,0,0,1,0-24H192A12,12,0,0,1,204,64Z',
+        'pencil-simple': 'M230.14,70.54,185.46,25.85a20,20,0,0,0-28.29,0L33.86,149.17A19.85,19.85,0,0,0,28,163.31V208a20,20,0,0,0,20,20H92.69a19.86,19.86,0,0,0,14.14-5.86L230.14,98.82a20,20,0,0,0,0-28.28ZM91,204H52V165l84-84,39,39ZM192,103,153,64l18.34-18.34,39,39Z',
         'alarm-clock': 'M128,36A100,100,0,1,0,228,136,100.11,100.11,0,0,0,128,36Zm0,176a76,76,0,1,1,76-76A76.08,76.08,0,0,1,128,212ZM32.49,72.49a12,12,0,1,1-17-17l32-32a12,12,0,1,1,17,17Zm208,0a12,12,0,0,1-17,0l-32-32a12,12,0,1,1,17-17l32,32A12,12,0,0,1,240.49,72.49ZM176,124a12,12,0,0,1,0,24H128a12,12,0,0,1-12-12V88a12,12,0,0,1,24,0v36Z',
         'arrow-clockwise': 'M244,56v48a12,12,0,0,1-12,12H184a12,12,0,1,1,0-24H201.1l-19-17.38c-.13-.12-.26-.24-.38-.37A76,76,0,1,0,127,204h1a75.53,75.53,0,0,0,52.15-20.72,12,12,0,0,1,16.49,17.45A99.45,99.45,0,0,1,128,228h-1.37A100,100,0,1,1,198.51,57.06L220,76.72V56a12,12,0,0,1,24,0Z',
         'arrow-left': 'M228,128a12,12,0,0,1-12,12H69l51.52,51.51a12,12,0,0,1-17,17l-72-72a12,12,0,0,1,0-17l72-72a12,12,0,0,1,17,17L69,116H216A12,12,0,0,1,228,128Z',

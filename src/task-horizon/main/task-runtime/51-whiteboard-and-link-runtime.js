@@ -6450,6 +6450,17 @@ return false;
         return false;
     }
 
+    function __tmOpenTaskTitleLink(href, event) {
+        const value = String(href || '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+        if (!value || /^(?:javascript|vbscript|data):/i.test(value)) return false;
+        const block = /^siyuan:\/\/blocks\/(\d{14}-[a-z0-9]{7})(?:[/?#]|$)/i.exec(value);
+        if (block) return __tmOpenTaskAttachmentBlockRef(block[1], event);
+        const target = /^\/{2}/.test(value) ? `https:${value}`
+            : /^(?:\.?\.?\/)?assets\//i.test(value) ? __tmResolveTaskAttachmentHref(value.replace(/^\.\//, ''))
+            : /^(?:[a-z][a-z0-9+.-]*:|[/.#])/i.test(value) ? value : `https://${value}`;
+        try { window.open(target, '_blank', 'noopener,noreferrer'); return true; } catch (e) { return false; }
+    }
+
     let __tmTaskTitleBlockRefJumpDelegationInstalled = false;
     let __tmTaskTitleBlockRefFloatingButton = null;
     let __tmTaskTitleBlockRefFloatingSource = null;
@@ -6465,7 +6476,8 @@ return false;
     function __tmGetTaskTitleBlockRefElement(target) {
         const el = target instanceof Element ? target : null;
         if (!el) return null;
-        return el.closest?.('.tm-task-title-block-ref[data-tm-block-ref-id]') || null;
+        if (el.closest?.('.tm-title-editor')) return null;
+        return el.closest?.('.tm-task-title-block-ref[data-tm-block-ref-id], .tm-task-title-link[data-tm-title-link-href]') || null;
     }
 
     function __tmStopTaskTitleBlockRefJumpEvent(event, options = {}) {
@@ -6489,6 +6501,7 @@ return false;
         if (!(button instanceof HTMLElement)) return;
         button.classList.remove('is-visible', 'is-below');
         button.removeAttribute('data-tm-block-ref-id');
+        button.removeAttribute('data-tm-title-link-href');
     }
 
     function __tmScheduleHideTaskTitleBlockRefFloatingJump(delay = 140) {
@@ -6533,9 +6546,11 @@ return false;
         button.addEventListener('click', (event) => {
             __tmStopTaskTitleBlockRefJumpEvent(event);
             const blockId = String(button.getAttribute('data-tm-block-ref-id') || '').trim();
-            if (!blockId) return;
+            const href = String(button.getAttribute('data-tm-title-link-href') || '').trim();
+            if (!blockId && !href) return;
             __tmHideTaskTitleBlockRefFloatingJump();
-            void __tmOpenTaskAttachmentBlockRef(blockId, event);
+            if (blockId) void __tmOpenTaskAttachmentBlockRef(blockId, event);
+            else __tmOpenTaskTitleLink(href, event);
         }, true);
         doc.body.appendChild(button);
         __tmTaskTitleBlockRefFloatingButton = button;
@@ -6561,12 +6576,20 @@ return false;
     function __tmShowTaskTitleBlockRefFloatingJump(source) {
         const refEl = source instanceof HTMLElement ? source : null;
         const blockId = String(refEl?.getAttribute?.('data-tm-block-ref-id') || '').trim();
-        if (!refEl || !blockId) return false;
+        const href = String(refEl?.getAttribute?.('data-tm-title-link-href') || '').trim();
+        if (!refEl || (!blockId && !href)) return false;
         const button = __tmGetTaskTitleBlockRefFloatingButton();
         if (!(button instanceof HTMLElement)) return false;
         __tmClearTaskTitleBlockRefFloatingHideTimer();
         __tmTaskTitleBlockRefFloatingSource = refEl;
-        button.setAttribute('data-tm-block-ref-id', blockId);
+        if (blockId) button.setAttribute('data-tm-block-ref-id', blockId);
+        else button.removeAttribute('data-tm-block-ref-id');
+        if (href) button.setAttribute('data-tm-title-link-href', href);
+        else button.removeAttribute('data-tm-title-link-href');
+        const label = blockId ? __tmT('task.goToTheBlockReferenceDocument') : __tmT('title.openLink');
+        button.title = label;
+        button.setAttribute('aria-label', label);
+        button.innerHTML = __tmRenderLucideIcon(blockId ? 'map-pin' : 'arrow-up-right', '', { size: 13 });
         if (!__tmPositionTaskTitleBlockRefFloatingJump(button, refEl)) return false;
         button.classList.add('is-visible');
         return true;
@@ -6612,6 +6635,14 @@ return false;
         };
         __tmTaskTitleBlockRefKeydownHandler = (event) => {
             if (event?.key === 'Escape') __tmHideTaskTitleBlockRefFloatingJump();
+            if (event?.key !== 'Enter') return;
+            const link = __tmGetTaskTitleBlockRefElement(event.target);
+            if (!link) return;
+            __tmStopTaskTitleBlockRefJumpEvent(event);
+            const blockId = link.getAttribute('data-tm-block-ref-id');
+            if (blockId) void __tmOpenTaskAttachmentBlockRef(blockId, event);
+            else __tmOpenTaskTitleLink(link.getAttribute('data-tm-title-link-href'), event);
+            __tmHideTaskTitleBlockRefFloatingJump();
         };
         __tmTaskTitleBlockRefScrollHandler = () => __tmRefreshTaskTitleBlockRefFloatingJumpPosition();
         __tmTaskTitleBlockRefResizeHandler = () => __tmRefreshTaskTitleBlockRefFloatingJumpPosition();
@@ -8115,12 +8146,7 @@ return false;
         try {
             aliases.forEach((alias) => {
                 document.querySelectorAll(`[data-tm-detail-subtask-content="${CSS.escape(alias)}"]`).forEach((textarea) => {
-                    if (!(textarea instanceof HTMLTextAreaElement)) return;
-                    const titleText = String(task.content || '').trim();
-                    const isEditing = textarea === document.activeElement || textarea.dataset.composing === 'true';
-                    if (!isEditing) textarea.value = titleText;
-                    if (!isEditing || textarea.value === titleText) textarea.dataset.savedValue = titleText;
-                    touched = true;
+                    touched = __tmPatchTaskTitleEditor(textarea, task) || touched;
                 });
             });
         } catch (e) {}
@@ -9438,6 +9464,110 @@ return false;
         } catch (e) {}
     }
 
+    window.tmEditTaskCompleteAt = function(id, anchorEl) {
+        const tid = String(id || '').trim();
+        if (!tid) return;
+        const task = __tmTaskStateKernel.getTask(tid)
+            || globalThis.__tmTaskBoundary?.getTask?.(tid)
+            || null;
+        if (!task) return;
+        if (typeof __tmEnsureEditableTaskLike === 'function'
+            && !__tmEnsureEditableTaskLike(task, __tmT("kernel.completionTime"))) return;
+        if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) {
+            hint(__tmT("task.completeTimeUnsupportedCheckin"), 'warning');
+            return;
+        }
+        const repeatRule = typeof __tmGetTaskRepeatRule === 'function' ? __tmGetTaskRepeatRule(task) : null;
+        if (repeatRule && repeatRule.enabled) {
+            hint(__tmT("task.completeTimeUnsupportedRecurring"), 'warning');
+            return;
+        }
+        if (!__tmIsTaskClosedForDisplay(task)) {
+            hint(__tmT("task.completeTimeRequiresClosedTask"), 'warning');
+            return;
+        }
+
+        const anchor = anchorEl instanceof Element ? anchorEl : null;
+        if (!anchor) return;
+        const currentIso = __tmNormalizeTaskCompleteAtValue(
+            __tmResolveTaskCompletedAtRaw(task, { completedOnly: false })
+        ) || __tmNowInChinaTimezoneIso();
+
+        let pickerInput = null;
+        __tmOpenInlineEditor(anchor, ({ editor, close }) => {
+            try { editor.classList.add('tm-inline-editor--task-complete-at'); } catch (e) {}
+            const input = document.createElement('input');
+            input.type = 'datetime-local';
+            input.step = '60';
+            input.value = __tmToDatetimeLocalValue(currentIso);
+            input.setAttribute('aria-label', __tmT("kernel.completionTime"));
+            pickerInput = input;
+            editor.appendChild(input);
+
+            const initial = input.value;
+            let committed = false;
+            const save = () => {
+                if (committed) return;
+                const local = String(input.value || '').trim();
+                // 空值视为取消：完成时间不允许在此清除。
+                if (!local || local === initial) {
+                    close();
+                    return;
+                }
+                if (!__tmIsNativeDateInputValueReady('datetime-local', local)) return;
+                const nextValue = __tmNormalizeTaskCompleteAtValue(__tmParseDatetimeLocalToISO(local));
+                if (!nextValue) {
+                    hint(__tmT("task.updateFailed", { message: __tmT("task.invalidDateFormatUseYyyyMmDd") }), 'error');
+                    return;
+                }
+                const latestTask = __tmTaskStateKernel.getTask(tid)
+                    || globalThis.__tmTaskBoundary?.getTask?.(tid)
+                    || null;
+                if (!latestTask || !__tmIsTaskClosedForDisplay(latestTask)) {
+                    close();
+                    hint(__tmT("task.completeTimeRequiresClosedTask"), 'warning');
+                    return;
+                }
+                const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
+                if (typeof patchTask !== 'function') {
+                    hint(__tmT("task.taskWriteQueueIsNotReadyPatchtask"), 'error');
+                    return;
+                }
+                committed = true;
+                close();
+                try {
+                    Promise.resolve(patchTask(String(latestTask.id || tid).trim() || tid, {
+                        taskCompleteAt: nextValue,
+                    }, {
+                        source: 'inline-task-complete-at',
+                        label: __tmT("kernel.completionTime"),
+                        background: true,
+                        wait: false,
+                        optimistic: true,
+                    })).catch((e) => {
+                        hint(__tmT("task.updateFailed", { message: String(e?.message || e || '') }), 'error');
+                    });
+                } catch (e) {
+                    hint(__tmT("task.updateFailed", { message: String(e?.message || e || '') }), 'error');
+                }
+            };
+
+            input.onchange = save;
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    try { e.preventDefault(); } catch (e2) {}
+                    save();
+                } else if (e.key === 'Escape') {
+                    try { e.preventDefault(); } catch (e2) {}
+                    close();
+                }
+            };
+            try { input.addEventListener('cancel', () => close()); } catch (e) {}
+        });
+        // 点击即打开原生时间选择器；不支持 showPicker 的浏览器回退到聚焦输入框。
+        try { pickerInput?.showPicker?.(); } catch (e) {}
+    };
+
     window.tmBeginCellEdit = function(id, field, td, ev) {
         try {
             if (ev) {
@@ -9472,6 +9602,11 @@ return false;
             })).catch((e) => {
                 try { hint(__tmT("task.failedToOpenTimeSettings", { message: e.message }), 'error'); } catch (e2) {}
             });
+            return;
+        }
+        if (field === 'taskCompleteAt') {
+            __tmCloseCellEditor(false);
+            window.tmEditTaskCompleteAt(id, td);
             return;
         }
         if (field === 'tomatoSummary' && typeof window.tmEditFocusSummaryInline === 'function') {
@@ -12322,7 +12457,7 @@ return false;
                     <div class="tm-task-detail-subtask-row" data-tm-detail-subtask-menu="${esc(tid)}">
                         <div class="tm-task-detail-subtask-main">
                             ${__tmRenderTaskCheckbox(tid, viewTask, { checked: viewTaskDone, extraClass: checkboxExtraClass, stopMouseDown: true, stopClick: true, priority: canonicalPriority })}
-                            <textarea class="tm-task-detail-subtask-title${viewTaskDone ? ' is-done' : ''}" data-tm-detail-subtask-content="${esc(tid)}" rows="1" ${readOnly ? 'readonly' : ''} title="${readOnly ? __tmT("task.editOtherBlockContentInTheOriginalDocument") : __tmT("task.editSubtaskContentDirectly")}">${esc(String(viewTask?.content || '').trim() || '')}</textarea>
+                            ${__tmBuildTaskTitleEditorHtml(viewTask, { className: `tm-task-detail-subtask-title${viewTaskDone ? ' is-done' : ''}`, attributes: `data-tm-detail-subtask-content="${esc(tid)}"`, readOnly, title: readOnly ? __tmT('task.editOtherBlockContentInTheOriginalDocument') : __tmT('task.editSubtaskContentDirectly') })}
                         </div>
                         <div class="tm-task-detail-subtask-trailing">
                             ${childStatsHtml}

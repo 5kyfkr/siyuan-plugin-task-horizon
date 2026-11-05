@@ -42,6 +42,7 @@
     "main/task-runtime/50a-fsrs-runtime.js",
     "main/task-runtime/50b-parent-date-rollup-runtime.js",
     "main/task-runtime/51-whiteboard-and-link-runtime.js",
+    "main/task-runtime/51a-task-title-editor-runtime.js",
     "main/task-runtime/52-task-detail-runtime.js",
     "main/task-runtime/53-list-render-and-document-loader.js",
     "main/task-runtime/53a-list-field-edit-runtime.js",

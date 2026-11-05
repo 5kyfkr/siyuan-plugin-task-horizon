@@ -628,7 +628,7 @@
     function renderSettings(store) {
         const settings = config(store);
         const row = (label, input) => `<div class="tm-calendar-settings-row"><div class="tm-calendar-settings-label">${esc(label)}</div>${input}</div>`;
-        const field = (name, type = 'text') => `<input class="tm-calendar-settings-input b3-text-field" type="${type}" autocomplete="${type === 'password' ? 'new-password' : 'off'}" aria-label="${esc(t(`caldav.${name}`))}" data-tm-caldav-field="${name}" value="${esc(settings[name])}">`;
+        const field = (name, type = 'text') => `<input class="tm-calendar-settings-input" type="${type}" autocomplete="${type === 'password' ? 'new-password' : 'off'}" aria-label="${esc(t(`caldav.${name}`))}" data-tm-caldav-field="${name}" value="${esc(settings[name])}">`;
         return `<section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-caldav">
             <div class="tm-calendar-settings-section-title">${esc(t('caldav.title'))}</div>
             <div class="tm-settings-section-desc">${esc(t('caldav.description'))}</div>

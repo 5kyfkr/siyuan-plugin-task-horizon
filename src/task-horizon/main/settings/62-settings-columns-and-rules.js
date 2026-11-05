@@ -2873,7 +2873,14 @@
         let groups = SettingsStore.data.docGroups || [];
         const currentGroup = groups.find((group) => String(group?.id || '').trim() === String(currentId || '').trim());
         const currentGroupName = __tmResolveDocGroupName(currentGroup) || __tmT("task.currentGroup");
-        if (!confirm(__tmT("settings.deleteTheGroupThisDoesNotDeleteDocumentsIn", { currentGroupName: currentGroupName }))) return;
+        const confirmed = typeof showConfirm === 'function'
+            ? await showConfirm(
+                __tmT("settings.deleteGroup"),
+                __tmT("settings.deleteTheGroupThisDoesNotDeleteDocumentsIn", { currentGroupName }),
+                { mobileSafe: true }
+            )
+            : !!window.confirm(__tmT("settings.deleteTheGroupThisDoesNotDeleteDocumentsIn", { currentGroupName }));
+        if (!confirmed) return;
         groups = groups.filter(g => g.id !== currentId);
         try {
             const pinMap = (SettingsStore.data.docPinnedByGroup && typeof SettingsStore.data.docPinnedByGroup === 'object')

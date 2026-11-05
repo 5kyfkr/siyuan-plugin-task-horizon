@@ -2,12 +2,19 @@
         const rawValue = __tmResolveTaskCompletedAtRaw(task);
         const text = __tmFormatTaskCompletedAtTime(rawValue);
         if (!text) return '';
+        const editable = typeof __tmIsTaskClosedForDisplay === 'function'
+            ? __tmIsTaskClosedForDisplay(task)
+            : task?.done === true;
+        const tag = editable ? 'button' : 'div';
+        const typeAttr = editable ? ' type="button"' : '';
+        const triggerAttr = editable ? ' data-tm-detail-complete-at-trigger' : '';
+        const staticClass = editable ? '' : ' tm-task-detail-core-chip--static';
         const tipAttr = typeof detailTip === 'function'
             ? detailTip(__tmT("task.completionTime2", { text: text }), { ariaLabel: false })
             : ` title="${esc(__tmT('task.completionTime2', { text }))}" data-tm-floating-tooltip-label="${esc(__tmT('task.completionTime2', { text }))}"`;
-        return `<div class="bc-btn bc-btn--sm tm-task-detail-core-chip tm-task-detail-core-chip--static has-value" data-tm-detail-complete-at-chip${tipAttr}>
+        return `<${tag}${typeAttr} class="bc-btn bc-btn--sm tm-task-detail-core-chip${staticClass} has-value" data-tm-detail-complete-at-chip${triggerAttr}${tipAttr}>
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="taskCompleteAt">${__tmBuildTaskDetailCoreChipFace('taskCompleteAt', rawValue)}</span>
-                        </div>`;
+                        </${tag}>`;
     }
 
     function __tmTaskDetailTimeHubIcon(iconName, className = 'tm-task-time-hub__icon-svg', size = 15) {
@@ -3436,39 +3443,6 @@
         const whiteboardOutlineChipHtml = whiteboardOutlineModel
             ? __tmBuildTaskDetailWhiteboardOutlineChipHtml(whiteboardOutlineModel, detailTip, { open: false })
             : '';
-        const cleanDetailTitle = (value, fallback = '') => {
-            const stripTaskSyntax = (input) => String(input || '')
-                .replace(/^[\s>*]*(?:(?:[-*+]|\d+[.)])\s*)?\[[^\]]?\]\s*/, '')
-                .replace(/\r?\n+/g, ' ')
-                .replace(/\s{2,}/g, ' ')
-                .trim();
-            let text = String(value || fallback || '').trim();
-            if (!text) return '';
-            try {
-                if (typeof API?.extractTaskContentLine === 'function') {
-                    text = String(API.extractTaskContentLine(text) || text).trim();
-                } else {
-                    text = String(text.split(/\r?\n/)[0] || text).trim();
-                }
-            } catch (e) {}
-            try {
-                if (typeof API?.normalizeTaskContent === 'function') {
-                    text = String(API.normalizeTaskContent(text) || text).trim();
-                }
-            } catch (e) {}
-            text = stripTaskSyntax(text);
-            return text || stripTaskSyntax(fallback);
-        };
-        const titleValue = (() => {
-            if (isOtherBlock) {
-                const raw = String(task?.otherBlockRawContent || task?.content || '').trim();
-                return cleanDetailTitle(raw, raw);
-            }
-            const parsedContent = String(API.parseTaskStatus(String(task?.markdown || '')).content || '').trim();
-            if (parsedContent) return cleanDetailTitle(parsedContent, parsedContent);
-            const fallback = String(task?.content || '').trim();
-            return cleanDetailTitle(fallback, fallback);
-        })();
         const titleReadonly = isOtherBlock || isSnapshotTask;
         const titleReadonlyTip = isOtherBlock
             ? __tmT("task.editOtherBlockContentInTheOriginalDocument")
@@ -3622,7 +3596,7 @@
                     </div>
                     <div class="tm-task-detail-header-main">
                         ${parentLineHtml}
-                        <textarea class="tm-task-detail-title-input" data-tm-detail="content" ${titleReadonly ? 'readonly' : ''} title="${esc(titleReadonlyTip)}" rows="1">${esc(titleValue)}</textarea>
+                        ${__tmBuildTaskTitleEditorHtml(task, { attributes: 'data-tm-detail="content"', readOnly: titleReadonly, title: titleReadonlyTip })}
                         ${fsrsReviewHtml}
                     </div>
                 </div>
@@ -4126,7 +4100,7 @@
         const close = async () => {
             try { __tmCloseTaskDetailMoreMenu(); } catch (e) {}
             const skipFlush = root.__tmTaskDetailSkipCloseFlush === true;
-            const hasDetailForm = root.querySelector('[data-tm-detail="content"]') instanceof HTMLTextAreaElement;
+            const hasDetailForm = __tmIsTaskTitleEditor(root.querySelector('[data-tm-detail="content"]'));
             if (!skipFlush && hasDetailForm && typeof root.__tmTaskDetailFlushSave === 'function') {
                 const saved = await __tmFlushTaskDetailBeforeClose(root, { consumeHandoff: false });
                 if (!saved) return false;
@@ -4912,6 +4886,7 @@
         };
         resetQueuedSaveRequest();
         const shouldDeferAutoSaveWhileFocused = () => {
+            if (__tmTaskTitleHasOpenPopover(root)) return true;
             try {
                 const active = document.activeElement;
                 if (!(active instanceof Element) || !root.contains(active)) return false;
@@ -5290,6 +5265,7 @@
             try { ev.preventDefault(); } catch (e) {}
             try { tmEdit(getBoundTaskId() || taskId); } catch (e) {}
         });
+        __tmMountTaskTitleEditor(root.querySelector('[data-tm-detail="content"]'), getBoundTask(), { signal: abortController.signal });
         const collectFormState = () => {
             const task = getBoundTask();
             const normalize = (s) => {
@@ -5299,7 +5275,7 @@
                 return v;
             };
             const contentEditor = root.querySelector('[data-tm-detail="content"]');
-            const hasContentEditor = contentEditor instanceof HTMLTextAreaElement;
+            const hasContentEditor = __tmIsTaskTitleEditor(contentEditor);
             const nextContent = hasContentEditor ? String(contentEditor.value || '').trim() : '';
             const nextStatus = String(root.querySelector('[data-tm-detail="status"]')?.value || '').trim()
                 || __tmResolveTaskStatusId(task)
@@ -5356,7 +5332,7 @@
         };
         const buildDetailDiff = (taskLike, formState) => {
             const task0 = (taskLike && typeof taskLike === 'object') ? taskLike : {};
-            const currentContent = String(task0.content || '').trim();
+            const currentContent = __tmGetTaskTitleMarkdown(task0);
             const currentStatus = __tmResolveTaskStatusId(task0);
             const currentPriority = String(task0.priority || task0.custom_priority || '').trim();
             const currentPinned = !!(task0.pinned === true || task0.pinned === '1' || task0.pinned === 1 || String(task0.custom_pinned || '').trim() === '1');
@@ -5533,6 +5509,11 @@
                         onPending: (pendingPromise, op) => {
                             const opId = String(op?.id || '').trim();
                             trackDetailCommit(pendingPromise, ['content'], opId);
+                            Promise.resolve(pendingPromise).then(() => {
+                                if (!isSessionActive(task.id)) return;
+                                const editor = root.querySelector('[data-tm-detail="content"]');
+                                if (__tmIsTaskTitleEditor(editor)) editor.dataset.savedValue = nextContent;
+                            }).catch(() => null);
                         },
                     });
                     if (waitForCommit) {
@@ -5748,6 +5729,14 @@
             pendingAutoSaveRequest = null;
             const mergedOptions = mergeSaveRequestOptions(pendingOptions, createSaveRequestOptions(saveOptions));
             const formState = captureFormStateSnapshot();
+            if (mergedOptions.waitForCommit === true) {
+                for (const editor of root.querySelectorAll('[data-tm-detail-subtask-content]')) {
+                    if (!__tmIsTaskTitleEditor(editor) || editor.readOnly || String(editor.value || '').trim() === String(editor.dataset.savedValue || '').trim()) continue;
+                    const childId = editor.getAttribute('data-tm-detail-subtask-content');
+                    clearSubtaskSaveTimer(childId);
+                    if (await saveSubtaskContent(editor, childId, { showHint: mergedOptions.showHint }) === false) return false;
+                }
+            }
             const saved = await doSave(mergedOptions, formState);
             if (saved === false || mergedOptions.waitForCommit !== true) return saved;
             try {
@@ -6143,13 +6132,13 @@
                 const prevUntil = Math.max(0, Number(root.__tmTaskDetailSubtaskContentEditingUntil) || 0);
                 root.__tmTaskDetailSubtaskContentEditingUntil = Math.max(prevUntil, until);
             } catch (e) {}
-            if (textarea instanceof HTMLTextAreaElement) {
+            if (__tmIsTaskTitleEditor(textarea)) {
                 try { textarea.dataset.editing = 'true'; } catch (e) {}
             }
             bumpDetailRefreshHold(ttl);
         };
         const clearSubtaskContentEditingHold = (textarea = null) => {
-            if (textarea instanceof HTMLTextAreaElement) {
+            if (__tmIsTaskTitleEditor(textarea)) {
                 try { delete textarea.dataset.editing; } catch (e) {}
             }
             try {
@@ -8201,12 +8190,12 @@
             }, { once: true });
         } catch (e) {}
         const saveSubtaskContent = async (textarea, subtaskId, options = {}) => {
-            if (!(textarea instanceof HTMLTextAreaElement)) return false;
+            if (!__tmIsTaskTitleEditor(textarea) || textarea.dataset.composing === 'true') return false;
             const currentAttrTaskId = String(textarea.getAttribute('data-tm-detail-subtask-content') || '').trim();
             const tid = String(currentAttrTaskId || subtaskId || '').trim();
             const task = resolveDetailTaskById(tid, { includePending: true, preferPending: true });
             if (!tid || !task) return false;
-            const savedValue = String(textarea.dataset.savedValue || task.content || '').trim();
+            const savedValue = String(textarea.dataset.savedValue ?? __tmGetTaskTitleMarkdown(task)).trim();
             const nextValue = String(textarea.value || '').trim();
             const commitKey = `subtask:${tid}:content`;
             if (!nextValue) {
@@ -8215,10 +8204,9 @@
                 if (options.showHint !== false) hint(__tmT("task.subtaskContentCannotBeEmpty"), 'warning');
                 return false;
             }
-            if (nextValue === savedValue) {
+            if (nextValue === savedValue || nextValue === __tmGetTaskTitleMarkdown(task)) {
                 pendingDetailCommitErrors.delete(commitKey);
                 textarea.value = nextValue;
-                textarea.dataset.savedValue = nextValue;
                 syncAutoHeight(textarea, subtaskTextareaMinHeight);
                 return true;
             }
@@ -8238,27 +8226,21 @@
                     suppressHint: true,
                     onPending: (pendingPromise, op) => {
                         trackDetailCommit(pendingPromise, [commitKey], String(op?.id || '').trim());
-                        Promise.resolve(pendingPromise).catch((error) => {
-                            textarea.value = savedValue;
-                            textarea.dataset.savedValue = savedValue;
-                            syncAutoHeight(textarea, subtaskTextareaMinHeight);
+                        Promise.resolve(pendingPromise).then(() => {
+                            textarea.dataset.savedValue = nextValue;
+                        }).catch((error) => {
                             if (options.showHint !== false) hint(__tmT("task.subtaskUpdateFailed", { message: error.message }), 'error');
                         });
                     },
                 });
                 Promise.resolve(savePromise).catch((e) => {
-                    textarea.value = savedValue;
-                    textarea.dataset.savedValue = savedValue;
-                    syncAutoHeight(textarea, subtaskTextareaMinHeight);
                     if (options.showHint !== false) hint(__tmT("task.subtaskUpdateFailed", { message: e.message }), 'error');
                 });
                 try { __tmInvalidateTasksQueryCacheByDocId(task.root_id || task.docId); } catch (e) {}
-                textarea.dataset.savedValue = nextValue;
                 textarea.value = nextValue;
                 syncAutoHeight(textarea, subtaskTextareaMinHeight);
                 return true;
             } catch (e) {
-                textarea.value = savedValue;
                 syncAutoHeight(textarea, subtaskTextareaMinHeight);
                 if (options.showHint !== false) hint(__tmT("task.subtaskUpdateFailed", { message: e.message }), 'error');
                 return false;
@@ -8279,9 +8261,10 @@
             subtaskSaveTimers.set(tid, timer);
         };
         const bindSubtaskContentEditor = (el, subtaskId) => {
-            if (!(el instanceof HTMLTextAreaElement)) return;
+            if (!__tmIsTaskTitleEditor(el)) return;
             const tid = String(subtaskId || '').trim();
             if (!tid) return;
+            __tmMountTaskTitleEditor(el, resolveDetailTaskById(tid, { includePending: true, preferPending: true }), { signal: abortController.signal });
             if (!el.dataset.savedValue) el.dataset.savedValue = String(el.value || '').trim();
             syncAutoHeight(el, subtaskTextareaMinHeight);
             on(el, 'focus', () => {
@@ -8304,7 +8287,8 @@
                 if (el.readOnly) return;
                 scheduleSubtaskSave(el, tid);
             });
-            on(el, 'blur', () => {
+            on(el, 'blur', (event) => {
+                if (__tmTaskTitleOwnsFocus(el, event.relatedTarget) || __tmTaskTitleHasOpenPopover(root)) return;
                 try { delete el.dataset.composing; } catch (e) {}
                 clearSubtaskContentEditingHold(el);
                 clearSubtaskSaveTimer(tid);
@@ -8587,7 +8571,7 @@
         const bindSubtaskEditors = (scope = root) => {
             const host = scope instanceof Element ? scope : root;
             host.querySelectorAll('[data-tm-detail-subtask-content]').forEach((el) => {
-                if (!(el instanceof HTMLTextAreaElement)) return;
+                if (!__tmIsTaskTitleEditor(el)) return;
                 const tid = String(el.getAttribute('data-tm-detail-subtask-content') || '').trim();
                 if (!tid) return;
                 bindSubtaskContentEditor(el, tid);
@@ -9149,6 +9133,17 @@
                     openTaskTimeHubPopover(btn, { activeField: field === 'startDate' ? 'startDate' : 'completionTime' });
                 });
             });
+            on(root, 'click', (ev) => {
+                const trigger = ev.target instanceof Element
+                    ? ev.target.closest('[data-tm-detail-complete-at-trigger]')
+                    : null;
+                if (!(trigger instanceof HTMLElement) || !root.contains(trigger)) return;
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                if (typeof window.tmEditTaskCompleteAt === 'function') {
+                    window.tmEditTaskCompleteAt(getBoundTaskId() || taskId, trigger);
+                }
+            });
             on(root.querySelector('[data-tm-detail-focus-summary-trigger]'), 'click', (ev) => {
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
@@ -9540,7 +9535,7 @@
         void refreshReminderButtonState();
         void refreshTimeHubScheduleSummary();
         const titleTextarea = root.querySelector('[data-tm-detail="content"]');
-        if (titleTextarea instanceof HTMLTextAreaElement) {
+        if (__tmIsTaskTitleEditor(titleTextarea)) {
             syncAutoHeight(titleTextarea, 36);
             on(titleTextarea, 'compositionstart', () => {
                 try { titleTextarea.dataset.composing = 'true'; } catch (e) {}
@@ -9556,7 +9551,8 @@
                 if (titleTextarea.readOnly || titleTextarea.dataset.composing === 'true') return;
                 scheduleAutoSave(500);
             });
-            on(titleTextarea, 'blur', () => {
+            on(titleTextarea, 'blur', (event) => {
+                if (__tmTaskTitleOwnsFocus(titleTextarea, event.relatedTarget) || __tmTaskTitleHasOpenPopover(root)) return;
                 try { delete titleTextarea.dataset.composing; } catch (e) {}
                 if (titleTextarea.readOnly) return;
                 flushAutoSaveNow({
@@ -9569,7 +9565,7 @@
             const blurTitleWhenPointerLeavesEditor = (ev) => {
                 if (document.activeElement !== titleTextarea) return;
                 const target = ev?.target instanceof Element ? ev.target : null;
-                if (target && (target === titleTextarea || titleTextarea.contains(target))) return;
+                if (__tmTaskTitleOwnsFocus(titleTextarea, target)) return;
                 try { titleTextarea.blur(); } catch (e) {}
             };
             // Touch presses may become scroll/sheet drags; dismiss only on a completed tap.
@@ -10810,12 +10806,7 @@ return true;
 
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'content')) {
             const titleTextarea = panel.querySelector('[data-tm-detail="content"]');
-            if (titleTextarea instanceof HTMLTextAreaElement) {
-                const titleText = String(task?.content || '').trim();
-                const isEditing = titleTextarea === document.activeElement || titleTextarea.dataset.composing === 'true';
-                if (!isEditing) titleTextarea.value = titleText;
-                touched = true;
-            }
+            touched = __tmPatchTaskTitleEditor(titleTextarea, task) || touched;
         }
 
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus') || Object.prototype.hasOwnProperty.call(nextPatch, 'done')) {

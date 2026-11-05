@@ -1,4 +1,4 @@
-﻿    function __tmCanUpdateTimelineDatesInPlace(task) {
+    function __tmCanUpdateTimelineDatesInPlace(task) {
         if (String(state.viewMode || '').trim() !== 'timeline') return false;
         if (!(state.modal instanceof Element) || !document.body.contains(state.modal)) return false;
         if (state.currentRule) return false;
@@ -174,6 +174,18 @@ return false;
         setCell('completionTime', __tmFormatTaskDateFieldDisplayValue(task, 'completionTime'));
         const taskCompleteAtText = __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task));
         setCell('taskCompleteAt', taskCompleteAtText, { title: taskCompleteAtText });
+        const completeAtCell = row.querySelector('[data-tm-task-time-field="taskCompleteAt"]');
+        if (completeAtCell instanceof HTMLElement) {
+            const completeAtEditable = typeof __tmIsTaskClosedForDisplay === 'function'
+                ? __tmIsTaskClosedForDisplay(task)
+                : task.done === true;
+            completeAtCell.classList.toggle('tm-cell-editable', completeAtEditable);
+            if (completeAtEditable) {
+                completeAtCell.setAttribute('onclick', `tmBeginCellEdit('${id}','taskCompleteAt',this,event)`);
+            } else {
+                completeAtCell.removeAttribute('onclick');
+            }
+        }
         setCell('duration', esc(__tmFormatDurationDisplayValue(task.duration || '')), { html: true });
         setCell('tomatoSummary', __tmGetTaskTomatoSummaryHtml(task), { html: true });
         setCell('tomatoEstimateCount', __tmGetTomatoCountDisplayHtml(__tmGetTaskTomatoEstimateCount(task)), { html: true });

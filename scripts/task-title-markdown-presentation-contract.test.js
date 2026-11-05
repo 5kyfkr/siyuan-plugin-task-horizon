@@ -106,8 +106,8 @@ assert.equal(
 );
 assert.equal(
     renderer.renderTaskContentHtml('- [ ] [链接](https://example.com)', ''),
-    '<span class="tm-linked-text">链接</span>',
-    'the existing renderer must keep safe markdown-link labels',
+    '<span class="tm-linked-text tm-task-title-link" data-tm-title-link-href="https://example.com" tabindex="0">链接</span>',
+    'the shared renderer must retain the safe label and real destination for hover navigation',
 );
 assert.equal(
     renderer.renderTaskContentHtml('- [ ] ((20260817000000-abcdefg "块标题"))', ''),
@@ -126,6 +126,25 @@ assert.equal(presentation.text, '标题 粗体');
 const dangerousPresentation = renderer.getTaskTitlePresentation('- [ ] <img src=x onerror=alert(1)>安全', '备用');
 assert.equal(dangerousPresentation.html, '安全');
 assert.equal(dangerousPresentation.text, '安全');
+
+vm.runInContext(`
+    const __tmEscAttr = esc;
+    const __tmRenderInlineIcon = () => '<svg class="file-icon"></svg>';
+    const __tmRenderDocIcon = (_id, options) => options.fallbackHtml;
+    ${sliceBetween(apiSource, '    function __tmRenderDocGroupLabel(', '    function __tmSyncDocAliasInState(', 'document group label')}
+    this.renderDocGroupLabel = __tmRenderDocGroupLabel;
+`, context);
+for (const [name, expectedHtml] of [
+    ['普通文档 & "名称"', '普通文档 &amp; &quot;名称&quot;'],
+    ['((20260817000000-abcdefg "引用文档"))', renderer.renderTaskContentHtml('', '((20260817000000-abcdefg "引用文档"))')],
+    ["((20260817000000-abcdefg '动态引用'))", renderer.renderTaskContentHtml('', "((20260817000000-abcdefg '动态引用'))")],
+    ['[项目文档](https://example.com)', renderer.renderTaskContentHtml('', '[项目文档](https://example.com)')],
+    ['', ''],
+]) {
+    assert.equal(context.renderDocGroupLabel('doc-id', name),
+        `<span class="tm-icon-label"><svg class="file-icon"></svg><span>${expectedHtml}</span></span>`,
+        'document groups must render references and links while preserving icons, plain names and empty labels');
+}
 
 vm.runInContext(sliceBetween(
     apiSource,
@@ -244,7 +263,7 @@ for (const quote of ['"', "'"]) {
 for (const [name, expectedHtml, expectedText] of [
     ['普通标题', '普通标题', '普通标题'],
     ['## **方案** / [文档](https://example.com) / `API`',
-        '<strong>方案</strong> / <span class="tm-linked-text">文档</span> / <code>API</code>', '方案 / 文档 / API'],
+        '<strong>方案</strong> / <span class="tm-linked-text tm-task-title-link" data-tm-title-link-href="https://example.com" tabindex="0">文档</span> / <code>API</code>', '方案 / 文档 / API'],
     ['"发布日期" & <img src=x onerror=alert(1)>安全', '&quot;发布日期&quot; &amp; 安全', '&quot;发布日期&quot; &amp; 安全'],
     ['', '(空标题)', '(空标题)'],
 ]) {
@@ -287,8 +306,8 @@ assert.match(liveSource, /hasContentPatch && viewMode === 'timeline'[\s\S]*__tmU
     'live title edits must rebuild the matching Gantt bar');
 assert.match(liveSource, /closest\('\.tm-cal-task-event--schedule'\)\) return/,
     'task title edits must not overwrite a linked schedule custom title');
-assert.match(detailSource, /<textarea[^>]*data-tm-detail="content"/,
-    'the task detail editor must remain a raw markdown textarea');
+assert.match(detailSource, /__tmBuildTaskTitleEditorHtml\(task, \{ attributes: 'data-tm-detail="content"'/,
+    'the task detail editor must use the shared rich title control');
 
 console.log('task title markdown presentation contract tests passed');
 

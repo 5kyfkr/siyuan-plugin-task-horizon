@@ -54,8 +54,7 @@
                 name: __tmT("kernel.completionTime"),
                 attrKey: 'taskCompleteAt',
                 type: 'completed-time',
-                defaultValue: '',
-                readonly: true
+                defaultValue: ''
             },
             {
                 name: __tmT("quickbar.focusTimeSpent"),
@@ -127,7 +126,7 @@
         { attrKey: 'custom-start-date', name: '开始日期', type: 'date' },
         { attrKey: 'custom-completion-time', name: '截止日期', type: 'date' },
         { attrKey: 'remainingTime', name: '剩余时间', type: 'remaining-time', readonly: true },
-        { attrKey: 'taskCompleteAt', name: '完成时间', type: 'completed-time', readonly: true },
+        { attrKey: 'taskCompleteAt', name: '完成时间', type: 'completed-time' },
         { attrKey: 'custom-focus-summary', name: '专注/耗时', type: 'focus-summary', placeholder: __tmT("quickbar.setDurationPomodoro") },
         { attrKey: 'custom-tomato-estimate-count', name: '预计番茄', type: 'tomato-count', placeholder: __tmT("quickbar.enterPomodoroCount") },
         { attrKey: 'custom-tomato-count', name: '实际番茄', type: 'tomato-count', readonly: true },
@@ -1171,7 +1170,12 @@
     function shouldShowQuickbarTaskCompleteAt(props) {
         const data = props && typeof props === 'object' ? props : {};
         const completeAt = String(data.taskCompleteAt || data.task_complete_at || readQuickbarTaskMetaAttrValue(data, 'taskCompleteAt', '') || '').trim();
-        return isQuickbarPropsDone(data) && !!completeAt;
+        const marker = globalThis.__tmTaskStatusRules.normalizeMarker(data.taskMarker ?? data.task_marker, '')
+            || globalThis.__tmTaskStatusRules.fromMarkdown(data.markdown);
+        const closed = marker
+            ? globalThis.__tmTaskStatusRules.isClosed(marker)
+            : isQuickbarPropsDone(data);
+        return closed && !!completeAt;
     }
 
     async function getManagedTaskStatusSnapshot(taskIdOrBlockId) {
@@ -6519,7 +6523,11 @@
                 const allProps = [...customPropsConfig.firstRow, ...customPropsConfig.secondRow];
                 activePropConfig = allProps.find(p => p.attrKey === attrKey) || getQuickbarCustomFieldConfigByAttrKey(attrKey);
                 if (!activePropConfig) return;
-                if (activePropConfig.readonly || propType === 'completed-time') return;
+                if (activePropConfig.readonly) return;
+                if (attrKey === 'taskCompleteAt' && typeof window.tmEditTaskCompleteAt === 'function') {
+                    window.tmEditTaskCompleteAt(resolveCurrentTaskId() || currentBlockId, propEl);
+                    return;
+                }
 
                 // 如果是状态属性，每次打开前重新加载选项
                 if (attrKey === 'custom-status') {
@@ -8086,11 +8094,15 @@
 
                 return;
             }
-            if (config.readonly || String(config.type || '').trim() === 'completed-time') {
+            if (config.readonly) {
 
                 return;
             }
             updateCurrentTaskContext(blockRef, attrHostId || blockId || String(blockRef.dataset.nodeId || '').trim(), hostBinding);
+            if (attrKey === 'taskCompleteAt' && typeof window.tmEditTaskCompleteAt === 'function') {
+                window.tmEditTaskCompleteAt(resolveCurrentTaskId() || blockId, chip);
+                return;
+            }
             currentProps = await getTaskCustomProps(currentBlockId, false, { blockEl: blockRef, binding: hostBinding });
             activePropConfig = config;
             const currentValue = String(chip.dataset.inlineValue || currentProps[attrKey] || '').trim();

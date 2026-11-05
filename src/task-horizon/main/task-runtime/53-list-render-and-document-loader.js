@@ -362,7 +362,7 @@
                         break;
                     case 'taskCompleteAt':
                         rowHtml += `
-                    <td class="tm-task-meta-cell" data-tm-task-time-field="taskCompleteAt" style="${getTableCellStyle('taskCompleteAt')}" title="${esc(taskCompleteAtText)}">${esc(taskCompleteAtText)}</td>`;
+                    <td class="tm-task-meta-cell${done ? ' tm-cell-editable' : ''}" data-tm-task-time-field="taskCompleteAt" style="${getTableCellStyle('taskCompleteAt')}" title="${esc(taskCompleteAtText)}"${done ? ` onclick="tmBeginCellEdit('${taskId}','taskCompleteAt',this,event)"` : ''}>${esc(taskCompleteAtText)}</td>`;
                         break;
                     case 'remainingTime':
                         rowHtml += `<td class="tm-task-meta-cell" data-tm-task-time-field="remainingTime" style="${getTableCellStyle('remainingTime', 'text-align:center;')}" title="${esc(remainingLabel)}">${remainingHtml}</td>`;
@@ -4455,7 +4455,8 @@ if (ev) {
             }
             return text;
         }).filter(Boolean);
-        return lines.join(' ').replace(/\s{2,}/g, ' ').trim();
+        const joined = lines.join(' ').trim();
+        return /<span\b|\]\(|\(\(/i.test(joined) ? joined : joined.replace(/\s{2,}/g, ' ');
     }
 
     function __tmBuildTaskMarkdownWithContent(taskLike, nextContent) {
@@ -4950,8 +4951,8 @@ if (ev) {
         if (!task) return;
         if (!__tmEnsureEditableTaskLike(task, __tmT("task.editContent"))) return;
 
-        const currentContent = __tmNormalizeTaskContentEditInput(task.content || task.raw_content || task.rawContent || task.markdown || '');
-        const newContent = await showPrompt(__tmT("task.editTask"), __tmT("task.enterTheNewTaskContent"), currentContent);
+        const currentContent = __tmGetTaskTitleMarkdown(task);
+        const newContent = await __tmShowTaskTitleDialog(task);
         if (newContent === null) return;
         const nextContent = __tmNormalizeTaskContentEditInput(newContent);
         if (!nextContent) {

@@ -29,6 +29,8 @@ function fn(source, name) {
 // Use the real local-load statements and field merge rules to verify migration and cross-device saves.
 const preferenceHarness = vm.createContext({ Date, Set, Map });
 vm.runInContext([
+    `const __TM_DOC_GROUP_SETTINGS_FIELD_KEY = 'docGroupSyncState';
+     function __tmBuildDocGroupSyncSnapshot() { return {}; }`,
     section(stores, '    const __TM_QUICK_ADD_FIELD_VISIBILITY_KEY =', '    const __TM_QUICK_ADD_RECENT_DOCS_LIMIT ='),
     section(stores, '    const __TM_SETTINGS_FIELD_SYNC_EXCLUDED_KEYS =', '    const __TM_LEGACY_TASK_TITLE_SETTING_KEYS ='),
     fn(stores, '__tmCloneJsonSafe'), fn(stores, '__tmParseUpdatedAtNumber'),
@@ -267,6 +269,20 @@ async function run() {
         await page.locator('#tmQuickAddInput').fill('手动取消置顶任务');
         await page.evaluate(() => tmQuickAddSubmit());
         assert.equal(await page.evaluate(() => writes.at(-1)?.payload.pinned), false, 'an explicit unpinned choice reaches task creation');
+        for (const relation of ['subtask', 'sibling']) {
+            await page.evaluate(relation => tmQuickAddOpen({ relation, sourceTaskId: 'task-parent', docId: 'doc-a' }), relation);
+            await page.waitForFunction(() => state.quickAdd?.initializing === false);
+            assert.equal(await page.locator('#tmQuickAddPinBtn').isVisible(), true, `${relation} creation shows the pin control`);
+            assert.equal(await page.locator('#tmQuickAddPinBtn').getAttribute('aria-pressed'), 'true', `${relation} creation uses the default pin setting`);
+            await page.locator('#tmQuickAddInput').fill(`默认置顶 ${relation}`);
+            await page.evaluate(() => tmQuickAddSubmit());
+            assert.equal(await page.evaluate(() => writes.at(-1)?.payload.pinned), true, `${relation} creation saves the default pin state`);
+            await page.evaluate(relation => tmQuickAddOpen({ relation, sourceTaskId: 'task-parent', docId: 'doc-a' }), relation);
+            await page.locator('#tmQuickAddPinBtn').click();
+            await page.locator('#tmQuickAddInput').fill(`取消置顶 ${relation}`);
+            await page.evaluate(() => tmQuickAddSubmit());
+            assert.equal(await page.evaluate(() => writes.at(-1)?.payload.pinned), false, `${relation} creation saves an explicit unpinned choice`);
+        }
         await page.evaluate(() => { SettingsStore.data.pinNewTasksByDefault = false; notices.length = 0; writes.length = 0; });
         const touchContext = await browser.newContext({ viewport: { width: 390, height: 760 }, hasTouch: true, isMobile: true });
         const touchPage = await touchContext.newPage();

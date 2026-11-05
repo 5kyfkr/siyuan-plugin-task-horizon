@@ -6,15 +6,23 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.4.1
+
+- **Rich task names:** task details, subtask names, and the **Edit task** dialog use a rich title editor that shows bold, italic, inline code, highlight, links, and block references as formatted text. A link or reference opens an action panel to jump to its target, change its address or reference target, follow the original block name, or keep text only. Paste and copy keep the formatting, saving keeps links and references intact, and names keep their links after a restart.
+- **Editable completion time:** click the completion time in table and timeline views, in the quickbar, or in task details to choose a new date and time. Only completed or abandoned tasks accept edits; recurring and check-in tasks show a notice, and an unchanged or empty value cancels without writing.
+- **Summary:** filter by custom single- and multi-select columns, including **Not set**, and choose which of those columns appear. Status and importance accept multiple selections, and weekly and daily reports show group counts with the configured fields.
+- **Views and document groups:** document and heading group names render block references and links in checklist, table, timeline, Kanban, and whiteboard, and still open their document. Document-group settings now merge field by field when switching or syncing groups, so a sync or reload no longer restores stale groups; unchanged settings are not rewritten, and name-only changes refresh views without reloading tasks. Deleting a document group now asks for confirmation in a dialog that fits narrow screens.
+- **Semantic dates and task creation:** editing a task in its original document now offers date recognition even when the task is outside the current group, without adding it to the group. Queued tasks share a single confirmation (up to 50 tasks) and remain pending while the plugin page is hidden. Creating a subtask or sibling task shows the pin control again and follows the default pin setting.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.4.0
 
 - **Calendar and sync:** add one-way CalDAV upload to NAS or iCloud calendars, with calendar discovery, target selection, and manual or automatic upload from this device. CalDAV shares ICS scope and content settings and works with ICS upload turned off. The top bar's **Upload calendar now** button uploads through all enabled channels.
 - **Quadrant groups and Kanban:** drag tasks between quadrants in checklist, table, and Kanban views to update importance and due date together according to the target rules. Empty quadrants remain available as drop targets, with consistent date matching and updated counts. Check-in tasks and conflicting rules show a prompt.
 - **Quick add:** pin a task before creating it. Configure the pin button in display field settings; on mobile it starts in **More**. Refine toolbar and picker hover feedback and prevent highlights from sticking after touch input.
 - **Whiteboard sequence mode:** linked subtasks now reveal later steps in order without detaching them from the parent card. Independent chains advance separately; fix blocked steps under unfinished parents and hidden subtasks reappearing in Kanban.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.3.9
 

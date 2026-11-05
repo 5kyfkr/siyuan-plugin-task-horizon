@@ -1,4 +1,8 @@
     function __tmCancelSettingsStorePendingSave() {
+        // In-flight reads and saves must not apply a pre-sync snapshot after reload.
+        SettingsStore.reloadGeneration = (Number(SettingsStore.reloadGeneration) || 0) + 1;
+        try { SettingsStore.activeSaveAbortController?.abort(); } catch (e) {}
+        SettingsStore.activeSaveAbortController = null;
         try {
             if (SettingsStore?.saveTimer) {
                 clearTimeout(SettingsStore.saveTimer);
@@ -166,108 +170,6 @@
         return 0;
     }
 
-    function __tmGetDocGroupSnapshotEntryCount(snapshot, groupId = 'all') {
-        const data = (snapshot && typeof snapshot === 'object') ? snapshot : {};
-        const groups = Array.isArray(data.docGroups) ? data.docGroups : [];
-        const gid = String(groupId || 'all').trim() || 'all';
-        if (gid === 'all') {
-            let count = Array.isArray(data.selectedDocIds) ? data.selectedDocIds.length : 0;
-            groups.forEach((group) => {
-                count += Array.isArray(group?.docs) ? group.docs.length : 0;
-                if (String(group?.notebookId || '').trim()) count += 1;
-            });
-            const manualArchivedByGroup = data.docTabsManualArchivedByGroup && typeof data.docTabsManualArchivedByGroup === 'object'
-                ? data.docTabsManualArchivedByGroup
-                : {};
-            Object.keys(manualArchivedByGroup).forEach((key) => {
-                if (Array.isArray(manualArchivedByGroup[key])) count += manualArchivedByGroup[key].length;
-            });
-            const manualUnarchivedByGroup = data.docTabsManualUnarchivedByGroup && typeof data.docTabsManualUnarchivedByGroup === 'object'
-                ? data.docTabsManualUnarchivedByGroup
-                : {};
-            Object.keys(manualUnarchivedByGroup).forEach((key) => {
-                if (Array.isArray(manualUnarchivedByGroup[key])) count += manualUnarchivedByGroup[key].length;
-            });
-            return count;
-        }
-        const group = groups.find((item) => String(item?.id || '').trim() === gid);
-        const manualArchivedByGroup = data.docTabsManualArchivedByGroup && typeof data.docTabsManualArchivedByGroup === 'object'
-            ? data.docTabsManualArchivedByGroup
-            : {};
-        const manualArchivedCount = Array.isArray(manualArchivedByGroup[gid]) ? manualArchivedByGroup[gid].length : 0;
-        const manualUnarchivedByGroup = data.docTabsManualUnarchivedByGroup && typeof data.docTabsManualUnarchivedByGroup === 'object'
-            ? data.docTabsManualUnarchivedByGroup
-            : {};
-        const manualUnarchivedCount = Array.isArray(manualUnarchivedByGroup[gid]) ? manualUnarchivedByGroup[gid].length : 0;
-        if (!group) return manualArchivedCount + manualUnarchivedCount;
-        return (Array.isArray(group.docs) ? group.docs.length : 0) + (String(group.notebookId || '').trim() ? 1 : 0) + manualArchivedCount + manualUnarchivedCount;
-    }
-
-    function __tmIsDocGroupSnapshotEmpty(snapshot) {
-        const data = (snapshot && typeof snapshot === 'object') ? snapshot : {};
-        if (Array.isArray(data.selectedDocIds) && data.selectedDocIds.length > 0) return false;
-        if (String(data.defaultDocId || '').trim()) return false;
-        if (data.defaultDocIdByGroup && Object.keys(data.defaultDocIdByGroup).length > 0) return false;
-        if (data.showCompletedTasksByGroup && Object.keys(data.showCompletedTasksByGroup).length > 0) return false;
-        if (Array.isArray(data.allDocsExcludedDocIds) && data.allDocsExcludedDocIds.length > 0) return false;
-        if (Array.isArray(data.otherBlockRefs) && data.otherBlockRefs.length > 0) return false;
-        if (Array.isArray(data.docTabCustomGroups) && data.docTabCustomGroups.some((group) => Array.isArray(group?.entries) && group.entries.length > 0)) return false;
-        if (data.docPinnedByGroup && Object.keys(data.docPinnedByGroup).some((key) => Array.isArray(data.docPinnedByGroup[key]) && data.docPinnedByGroup[key].length > 0)) {
-            return false;
-        }
-        if (data.docTabsManualArchivedByGroup && Object.keys(data.docTabsManualArchivedByGroup).some((key) => Array.isArray(data.docTabsManualArchivedByGroup[key]) && data.docTabsManualArchivedByGroup[key].length > 0)) {
-            return false;
-        }
-        if (data.docTabsManualUnarchivedByGroup && Object.keys(data.docTabsManualUnarchivedByGroup).some((key) => Array.isArray(data.docTabsManualUnarchivedByGroup[key]) && data.docTabsManualUnarchivedByGroup[key].length > 0)) {
-            return false;
-        }
-        const groups = Array.isArray(data.docGroups) ? data.docGroups : [];
-        return !groups.some((group) => {
-            return (Array.isArray(group?.docs) && group.docs.length > 0)
-                || !!String(group?.notebookId || '').trim()
-                || (Array.isArray(group?.excludedDocIds) && group.excludedDocIds.length > 0)
-                || (Array.isArray(group?.otherBlockRefs) && group.otherBlockRefs.length > 0);
-        });
-    }
-
-    function __tmShouldPreferRemoteDocGroupState(localData, remoteData, options = {}) {
-        if (!remoteData || typeof remoteData !== 'object') return false;
-        const localFingerprint = __tmBuildDocGroupSyncFingerprint(localData);
-        const remoteFingerprint = __tmBuildDocGroupSyncFingerprint(remoteData);
-        if (!remoteFingerprint || remoteFingerprint === localFingerprint) return false;
-        const localSnapshot = __tmBuildDocGroupSyncSnapshot(localData);
-        const remoteSnapshot = __tmBuildDocGroupSyncSnapshot(remoteData);
-        if (__tmIsDocGroupSnapshotEmpty(localSnapshot) && !__tmIsDocGroupSnapshotEmpty(remoteSnapshot)) return true;
-        const currentGroupId = String(options?.groupId || localData?.currentGroupId || remoteData?.currentGroupId || 'all').trim() || 'all';
-        if (__tmGetDocGroupSnapshotEntryCount(localSnapshot, currentGroupId) === 0
-            && __tmGetDocGroupSnapshotEntryCount(remoteSnapshot, currentGroupId) > 0) {
-            return true;
-        }
-        const localExplicitUpdatedAt = __tmParseUpdatedAtNumber(localData?.docGroupSettingsUpdatedAt);
-        const remoteExplicitUpdatedAt = __tmParseUpdatedAtNumber(remoteData?.docGroupSettingsUpdatedAt);
-        if (remoteExplicitUpdatedAt > 0 || localExplicitUpdatedAt > 0) {
-            if (remoteExplicitUpdatedAt > localExplicitUpdatedAt) return true;
-            if (localExplicitUpdatedAt > remoteExplicitUpdatedAt) return false;
-        }
-        const localUpdatedAt = __tmGetDocGroupSettingsUpdatedAt(localData, {
-            fallbackSettingsUpdatedAt: options?.localSettingsUpdatedAt,
-            useSettingsFallback: options?.allowSettingsFallback === true,
-        });
-        const remoteUpdatedAt = __tmGetDocGroupSettingsUpdatedAt(remoteData, {
-            fallbackSettingsUpdatedAt: options?.remoteSettingsUpdatedAt,
-            useSettingsFallback: options?.allowSettingsFallback === true,
-        });
-        if (remoteUpdatedAt > 0 || localUpdatedAt > 0) {
-            if (remoteUpdatedAt > localUpdatedAt) return true;
-            if (localUpdatedAt > remoteUpdatedAt) return false;
-        }
-        const localSettingsUpdatedAt = __tmParseUpdatedAtNumber(options?.localSettingsUpdatedAt);
-        const remoteSettingsUpdatedAt = __tmParseUpdatedAtNumber(options?.remoteSettingsUpdatedAt);
-        return remoteSettingsUpdatedAt > 0
-            && localSettingsUpdatedAt > 0
-            && remoteSettingsUpdatedAt > localSettingsUpdatedAt;
-    }
-
     function __tmBuildDocScopeFingerprint(docIds, groupId = SettingsStore?.data?.currentGroupId) {
         try {
             const ids = __tmNormalizeDocIdListForSync(docIds).slice().sort((a, b) => a.localeCompare(b));
@@ -326,11 +228,6 @@
         targetData.docPinnedByGroup = __tmSafeCloneJson(snapshot.docPinnedByGroup, {});
         targetData.docTabsManualArchivedByGroup = __tmSafeCloneJson(snapshot.docTabsManualArchivedByGroup, {});
         targetData.docTabsManualUnarchivedByGroup = __tmSafeCloneJson(snapshot.docTabsManualUnarchivedByGroup, {});
-        const remoteDocGroupUpdatedAt = __tmGetDocGroupSettingsUpdatedAt(source, {
-            fallbackSettingsUpdatedAt: source?.settingsUpdatedAt,
-            useSettingsFallback: false,
-        });
-        if (remoteDocGroupUpdatedAt > 0) targetData.docGroupSettingsUpdatedAt = remoteDocGroupUpdatedAt;
         const remoteUpdatedAt = __tmParseUpdatedAtNumber(source?.settingsUpdatedAt);
         if (opt.syncOverallUpdatedAt !== false && remoteUpdatedAt > 0) targetData.settingsUpdatedAt = remoteUpdatedAt;
     }
@@ -429,6 +326,9 @@
         if (!localSettingsBusy) {
             remoteSettings = await __tmReadJsonFile(SETTINGS_FILE_PATH);
             if (remoteSettings && typeof remoteSettings === 'object') {
+                remoteSettings.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(remoteSettings.settingsFieldUpdatedAt, remoteSettings, {
+                    seedFromSettingsUpdatedAt: new Set(__TM_DOC_GROUP_SETTINGS_KEYS),
+                });
                 remoteFingerprint = __tmBuildDocGroupSyncFingerprint(remoteSettings);
             }
         }
@@ -439,8 +339,24 @@
             const syncPromise = Promise.resolve().then(async () => {
                 const previousGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
                 const previousScopeFingerprint = __tmBuildDocScopeFingerprint(state.__tmLoadedDocIdsForTasks, previousGroupId);
-                __tmApplyDocGroupSyncSnapshot(remoteSettings);
+                const previousGroups = __tmSummarizeDocGroupsForSyncLog(SettingsStore.data);
+                const previousGroupUpdatedAt = __tmGetDocGroupSettingsUpdatedAt(SettingsStore.data);
+                const appliedFields = __tmApplySettingsFieldUpdatesByMap(SettingsStore.data, remoteSettings, {
+                    includeKeys: new Set(__TM_DOC_GROUP_SETTINGS_KEYS),
+                });
+                if (!appliedFields.length) return;
+                SettingsStore.refreshDocGroupSyncState(SettingsStore.data.docGroupSettingsUpdatedAt);
+                SettingsStore.refreshSettingsFieldSyncState();
                 __tmEnsureDocGroupContextValidAfterSync();
+                void __tmLogDocGroupSync('doc-group-dropdown-merge', {
+                    syncMode: 'settings-fields',
+                    appliedSettingKeys: appliedFields,
+                    local: previousGroups,
+                    file: __tmSummarizeDocGroupsForSyncLog(remoteSettings),
+                    applied: __tmSummarizeDocGroupsForSyncLog(SettingsStore.data),
+                    docGroupSettingsUpdatedAt: { local: previousGroupUpdatedAt, file: __tmGetDocGroupSettingsUpdatedAt(remoteSettings) },
+                    fingerprints: { local: currentFingerprint, file: remoteFingerprint },
+                }, `dropdown:${currentFingerprint}:${remoteFingerprint}`);
                 try { SettingsStore.syncToLocal(); } catch (e) {}
                 try { __tmDocExpandCache.clear(); } catch (e) {}
                 try { __tmResolvedDocIdsCache = null; } catch (e) {}
@@ -1018,6 +934,7 @@
             await runWithStorageWritesSuppressed(() => SettingsStore.load({
                 preferRemoteWhiteboardSameVersion: true,
                 suppressStorageWrites,
+                reason,
             }));
         } else {
             await SettingsStore.load({ preferRemoteWhiteboardSameVersion: true });

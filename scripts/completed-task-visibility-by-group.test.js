@@ -186,13 +186,13 @@ test('group sync fingerprints include visibility and remote preferences update r
     const before = context.__tmBuildDocGroupSyncFingerprint(data);
     context.__tmSetShowCompletedTasksInSettings(false, data, 'B');
     assert.notEqual(context.__tmBuildDocGroupSyncFingerprint(data), before);
-    const remote = { ...data, docGroupSettingsUpdatedAt: 200, showCompletedTasksByGroup: { A: false, B: true, all: true } };
-    assert.equal(context.__tmShouldPreferRemoteDocGroupState({ ...data, docGroupSettingsUpdatedAt: 100 }, remote), true);
+    const remote = { ...data, showCompletedTasksByGroup: { A: false, B: true, all: true } };
+    // Remote precedence is decided by the per-field settings merge now; this
+    // applier lands the winning snapshot in settings data and runtime state.
     context.__tmApplyDocGroupSyncSnapshot(remote);
     context.__tmEnsureDocGroupContextValidAfterSync();
     assert.equal(context.state.showCompletedTasks, false);
     assert.deepEqual(plain(data.showCompletedTasksByGroup), remote.showCompletedTasksByGroup);
-    assert.equal(context.__tmIsDocGroupSnapshotEmpty({ showCompletedTasksByGroup: { all: false } }), false);
 });
 
 test('syncing older data without a map preserves local choices, while an explicit empty map resets them', () => {

@@ -640,7 +640,7 @@
                             <header class="tm-whiteboard-stream-doc-head">
                                 <div class="tm-whiteboard-stream-doc-meta">
                                     ${__tmRenderDocIcon(docId, { fallbackText: '📄', className: 'tm-whiteboard-stream-doc-icon', size: 14 })}
-                                    <span class="tm-whiteboard-stream-doc-title" onclick="event.preventDefault(); event.stopPropagation(); tmOpenDocById('${escSq(docId)}');" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.openDocument")}">${esc(docNameById.get(docId) || __tmT("task.unknownDocument"))}</span>
+                                    <span class="tm-whiteboard-stream-doc-title" onclick="event.preventDefault(); event.stopPropagation(); tmOpenDocById('${escSq(docId)}');" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.openDocument")}">${API.renderTaskContentHtml('', docNameById.get(docId) || __tmT("task.unknownDocument"))}</span>
                                     ${showMobileStreamDocCount ? `<span class="tm-badge tm-badge--count">${docTasks.length}</span>` : ''}
                                 </div>
                                 <div class="tm-whiteboard-stream-doc-actions" onclick="event.stopPropagation()">
@@ -1309,7 +1309,7 @@
                 return `
                     <section class="tm-whiteboard-doc" data-doc-id="${esc(docId)}" style="width:${Math.round(boardW)}px;min-width:${Math.round(boardW)}px;">
                         <header class="tm-whiteboard-doc-head" onclick="tmSwitchDoc('${escSq(docId)}')"${__tmBuildTooltipAttrs(__tmT("task.switchToThisDocumentTab"), { side: 'bottom', ariaLabel: false })} style="cursor:pointer;">
-                            <span style="display:inline-flex;align-items:center;gap:6px;min-width:0;">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${esc(docNameById.get(docId) || __tmT("task.unknownDocument"))}</span></span>
+                            <span style="display:inline-flex;align-items:center;gap:6px;min-width:0;">${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span>${API.renderTaskContentHtml('', docNameById.get(docId) || __tmT("task.unknownDocument"))}</span></span>
                             <span class="tm-badge tm-badge--count">${docTasks.length}</span>
                         </header>
                         <div class="tm-whiteboard-doc-body" data-doc-id="${esc(docId)}" data-frame-offset-x="${allView ? Math.round(framePlan.offsetX) : 0}" data-frame-offset-y="${allView ? Math.round(framePlan.offsetY) : 0}" style="height:${Math.round(boardH)}px;min-height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;min-width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(docId)}')">
@@ -1676,7 +1676,7 @@
                 const sectionKey = `doc:${docId}`;
                 const sectionHead = renderWhiteboardPoolSectionHead({
                     sectionKey,
-                    titleHtml: `${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span class="tm-whiteboard-pool-doc-name">${esc(docName)}</span>`,
+                    titleHtml: `${__tmRenderDocIcon(docId, { fallbackText: '📄', size: 14 })}<span class="tm-whiteboard-pool-doc-name">${API.renderTaskContentHtml(docName, docName)}</span>`,
                     count: list.length,
                     label: docName,
                 });

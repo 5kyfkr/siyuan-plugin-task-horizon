@@ -85,6 +85,7 @@ const findTaskItem = new Function(
     '__tmResolveNativeDocEventElement',
     `${findTaskItemSource}; return __tmFindNativeDocTaskListItem;`,
 )({ __tmCompat: { resolveNativeTaskListItem: () => null } }, NativeTitleElement, isExcluded, resolveEventElement);
+let hasLoadedTask = true;
 const resolveTitleInput = new Function(
     'globalThis',
     'document',
@@ -97,7 +98,7 @@ const resolveTitleInput = new Function(
     '__tmResolveAnyBlockIdFromElement',
     `${resolveTitleInputSource}; return __tmResolveNativeDocTaskContentInput;`,
 )(
-    { __tmTaskBoundary: { getTask: (taskId) => taskId === 'task-1' ? { id: taskId } : null } },
+    { __tmTaskBoundary: { getTask: (taskId) => hasLoadedTask && taskId === 'task-1' ? { id: taskId } : null } },
     { getSelection: () => ({ rangeCount: 1, getRangeAt: () => ({ startContainer: selectionText }) }) },
     NativeTitleElement,
     { flatTasks: { 'task-1': { id: 'task-1' } } },
@@ -109,6 +110,9 @@ const resolveTitleInput = new Function(
 );
 assert.equal(resolveTitleInput(editorRoot)?.taskId, 'task-1',
     'a desktop editor-root input event must resolve the task under the current selection');
+hasLoadedTask = false;
+assert.equal(resolveTitleInput(editorRoot)?.taskId, 'task-1',
+    'editing a task outside the loaded document group must still resolve its native block');
 assert.match(nativeHooks, /__TM_NATIVE_DOC_TASK_CONTENT_SYNC_DELAY_MS = 80/,
     'title projection must be short and bounded without repainting on every keystroke');
 assert.match(inputBinding, /__tmNativeDocTaskContentSyncTimers\.set\(tid/,

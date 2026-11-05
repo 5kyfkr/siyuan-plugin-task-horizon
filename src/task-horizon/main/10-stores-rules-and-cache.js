@@ -97,14 +97,14 @@
     const __TM_META_ORPHAN_CLEANUP_MIN_AGE_MS = 24 * 60 * 60 * 1000;
     const __TM_META_ORPHAN_CLEANUP_MAX_IDS = 1000;
     const __TM_META_ORPHAN_CLEANUP_BATCH_SIZE = 250;
-    const __TM_TASK_SNAPSHOT_VERSION = 4;
+    const __TM_TASK_SNAPSHOT_VERSION = 5;
     const __TM_TASK_SNAPSHOT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
     const __TM_TASK_SNAPSHOT_MAX_ENTRIES = 20;
     const __TM_TASK_SNAPSHOT_MAX_BYTES = 20 * 1024 * 1024;
     const __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES = 20 * 1024 * 1024;
     // The calendar task index now stores repeat history so recurring task
     // instances can be projected during the first calendar paint.
-    const __TM_TASK_INDEX_VERSION = 7;
+    const __TM_TASK_INDEX_VERSION = 8;
     const __TM_TASK_INDEX_MAX_BYTES = 24 * 1024 * 1024;
     const __TM_TASK_INDEX_MAX_DOCS = 1200;
     const __TM_TASK_INDEX_MAX_SINGLE_DOC_BYTES = 10 * 1024 * 1024;
@@ -1374,6 +1374,101 @@
         } finally {
             if (timeout !== null) clearTimeout(timeout);
         }
+    }
+
+    const __TM_DOC_GROUP_SYNC_LOG_PATH = `${PLUGIN_STORAGE_DIR}/doc-group-sync-debug.json`;
+    const __TM_DOC_GROUP_SYNC_LOG_LIMIT = 100;
+    const __tmDocGroupSyncLogKeys = new Set();
+    let __tmDocGroupSyncLogWrite = Promise.resolve();
+
+    function __tmDocGroupSyncLogHash(value) {
+        const text = String(value || '');
+        if (/^fnv1a:[0-9a-f]{8}$/.test(text)) return text;
+        let hash = 2166136261;
+        for (let index = 0; index < text.length; index += 1) {
+            hash = Math.imul(hash ^ text.charCodeAt(index), 16777619);
+        }
+        return `fnv1a:${(hash >>> 0).toString(16).padStart(8, '0')}`;
+    }
+
+    function __tmRedactDocGroupSyncLogRecord(record) {
+        if (!record || typeof record !== 'object') return null;
+        const out = { ...record };
+        if (out.fingerprints && typeof out.fingerprints === 'object') {
+            out.fingerprints = Object.fromEntries(Object.entries(out.fingerprints)
+                .map(([key, value]) => [key, __tmDocGroupSyncLogHash(value)]));
+        }
+        return out;
+    }
+
+    function __tmSummarizeDocGroupsForSyncLog(source) {
+        const groups = Array.isArray(source?.docGroups) ? source.docGroups : [];
+        return {
+            count: groups.length,
+            items: groups.slice(0, 50).map((group) => ({
+                id: String(group?.id || '').trim().slice(0, 80),
+                name: String(group?.name || '').trim().slice(0, 120),
+                documents: Array.isArray(group?.docs) ? group.docs.length : 0,
+                notebook: !!String(group?.notebookId || '').trim(),
+            })),
+            omitted: Math.max(0, groups.length - 50),
+        };
+    }
+
+    function __tmLogDocGroupSync(event, details = {}, dedupeKey = '') {
+        const record = __tmRedactDocGroupSyncLogRecord({
+            at: new Date().toISOString(),
+            event: String(event || 'unknown'),
+            ...((details && typeof details === 'object') ? details : {}),
+            diagnosticVersion: 4,
+            client: {
+                kind: String(globalThis.__tmHost?.getRuntimeClientKind?.() || globalThis.__taskHorizonRuntimeClientKind || 'unknown'),
+                appId: String(globalThis.__tmHost?.getStorageRequestApp?.() || '').slice(0, 80),
+                pluginVersion: String(globalThis.__taskHorizonPluginManifest?.version || 'unknown'),
+                kernelVersion: String(globalThis.siyuan?.config?.system?.kernelVersion || 'unknown'),
+            },
+        });
+        const key = dedupeKey ? __tmDocGroupSyncLogHash(dedupeKey) : '';
+        if (key && __tmDocGroupSyncLogKeys.has(key)) return __tmDocGroupSyncLogWrite;
+        if (key) {
+            __tmDocGroupSyncLogKeys.add(key);
+            if (__tmDocGroupSyncLogKeys.size > 100) __tmDocGroupSyncLogKeys.delete(__tmDocGroupSyncLogKeys.values().next().value);
+        }
+        try { console.info('[Task Horizon doc-group sync]', record); } catch (e) {}
+
+        const persist = async () => {
+            let entries = [];
+            try {
+                const previous = await __tmReadJsonFile(__TM_DOC_GROUP_SYNC_LOG_PATH, { timeoutMs: 3000 });
+                if (Array.isArray(previous?.entries)) entries = previous.entries.slice(-__TM_DOC_GROUP_SYNC_LOG_LIMIT)
+                    .map(__tmRedactDocGroupSyncLogRecord).filter(Boolean);
+            } catch (e) {}
+            entries.push(record);
+            const form = new FormData();
+            form.append('path', __TM_DOC_GROUP_SYNC_LOG_PATH);
+            form.append('isDir', 'false');
+            form.append('file', new Blob([JSON.stringify({ version: 1, entries: entries.slice(-__TM_DOC_GROUP_SYNC_LOG_LIMIT) }, null, 2)], {
+                type: 'application/json',
+            }));
+            globalThis.__tmHost?.appendStorageRequestApp?.(form);
+            const controller = typeof AbortController === 'function' ? new AbortController() : null;
+            const timeout = controller ? setTimeout(() => controller.abort(), 3000) : null;
+            try {
+                const response = await fetch('/api/file/putFile', {
+                    method: 'POST', body: form, ...(controller ? { signal: controller.signal } : {}),
+                });
+                const result = response.ok ? await response.json().catch(() => null) : null;
+                if (!response.ok || (result && result.code !== 0)) {
+                    try { console.warn('[Task Horizon doc-group sync] log write failed', { status: response.status, code: result?.code }); } catch (e) {}
+                }
+            } catch (e) {
+                try { console.warn('[Task Horizon doc-group sync] log write failed', String(e?.message || e)); } catch (e2) {}
+            } finally {
+                if (timeout !== null) clearTimeout(timeout);
+            }
+        };
+        __tmDocGroupSyncLogWrite = __tmDocGroupSyncLogWrite.then(persist, persist).catch(() => null);
+        return __tmDocGroupSyncLogWrite;
     }
 
     async function __tmWriteJsonFile(path, data) {
@@ -3753,6 +3848,8 @@
                 return String(source.taskMarker || source.task_marker || '').trim();
             }
         })();
+        // 索引只保存本任务的标题源内容，保留链接格式且不重复保存整棵子任务树。
+        const titleSource = source.markdown ? __tmExtractTaskOwnContentLine(source.markdown) : '';
         const out = {
             id,
             root_id: docId,
@@ -3763,6 +3860,7 @@
             parentTaskId,
             blockSort: String(source.blockSort || source.block_sort || source.sort || '').trim(),
             content: __tmCompactTaskIndexText(source.content || source.raw_content || source.title || source.markdown || '', 3200),
+            markdown: titleSource ? `- [${String(resolvedMarker || '').trim() || (effectiveDone ? 'X' : ' ')}] ${titleSource}` : undefined,
             done: effectiveDone,
             taskMarker: String(resolvedMarker || '').trim() || (effectiveDone ? 'X' : ''),
             priority: String(source.priority || source.custom_priority || '').trim(),
@@ -4717,6 +4815,11 @@
         return true;
     }
 
+    const __TM_DOC_GROUP_SETTINGS_KEYS = Object.freeze([
+        'selectedDocIds', 'defaultDocId', 'defaultDocIdByGroup', 'showCompletedTasksByGroup',
+        'allDocsExcludedDocIds', 'docGroups', 'docTabCustomGroups', 'otherBlockRefs',
+        'docPinnedByGroup', 'docTabsManualArchivedByGroup', 'docTabsManualUnarchivedByGroup',
+    ]);
     const __TM_SETTINGS_FIELD_SYNC_EXCLUDED_KEYS = new Set([
         'settingsUpdatedAt',
         'settingsFieldUpdatedAt',
@@ -4724,21 +4827,11 @@
         'dockChecklistCompactTitleJump',
         'mobileChecklistCompactTitleJump',
         'docGroupSettingsUpdatedAt',
+        'docGroupSyncState', // Ignore the obsolete virtual field from the previous sync implementation.
         'collapseStateUpdatedAt',
         'customFieldDefsVersion',
         'whiteboardStateVersion',
         'checklistCompactTreeGuidesUpdatedAt',
-        'selectedDocIds',
-        'defaultDocId',
-        'defaultDocIdByGroup',
-        'showCompletedTasksByGroup',
-        'allDocsExcludedDocIds',
-        'docGroups',
-        'docTabCustomGroups',
-        'otherBlockRefs',
-        'docPinnedByGroup',
-        'docTabsManualArchivedByGroup',
-        'docTabsManualUnarchivedByGroup',
         'collapsedTaskIds',
         'kanbanCollapsedTaskIds',
         'kanbanCollapsedColumnKeys',
@@ -4889,6 +4982,15 @@
         }
     }
 
+    function __tmGetSharedSettingsContentFingerprint(source) {
+        const data = { ...(source || {}) };
+        [
+            'settingsUpdatedAt', 'settingsFieldUpdatedAt', 'docGroupSettingsUpdatedAt',
+            'docGroupSyncState', 'agentMcpEnabled', 'agentMcpEnabledInitialized', 'taskTemplateLibrary',
+        ].forEach((key) => { delete data[key]; });
+        return __tmGetSettingsFieldFingerprint(data);
+    }
+
     function __tmBuildSettingsFieldSyncSnapshot(source) {
         const src = (source && typeof source === 'object') ? source : {};
         const out = {};
@@ -4909,8 +5011,10 @@
             if (ts > 0) out[key] = ts;
         });
         const fallbackUpdatedAt = __tmParseUpdatedAtNumber(src.settingsUpdatedAt);
-        if (fallbackUpdatedAt > 0 && options?.seedFromSettingsUpdatedAt === true) {
+        const seedFields = options?.seedFromSettingsUpdatedAt;
+        if (fallbackUpdatedAt > 0 && (seedFields === true || seedFields instanceof Set)) {
             Object.keys(__tmBuildSettingsFieldSyncSnapshot(src)).forEach((key) => {
+                if (seedFields instanceof Set && !seedFields.has(key)) return;
                 if (!out[key]) out[key] = fallbackUpdatedAt;
             });
         }
@@ -4975,6 +5079,7 @@
         Object.keys(remoteMap).forEach((key) => {
             if (!__tmIsSettingsFieldSyncKey(key)) return;
             if (skip.has(key)) return;
+            if (options?.includeKeys instanceof Set && !options.includeKeys.has(key)) return;
             if (!Object.prototype.hasOwnProperty.call(src, key)) return;
             const remoteTs = __tmParseUpdatedAtNumber(remoteMap[key]);
             const localTs = __tmParseUpdatedAtNumber(localMap[key]);
@@ -9229,7 +9334,6 @@
         suppressMobileCloseSyncDirty: false,
         loadedWhiteboardStateVersion: 0,
         lastWhiteboardFingerprint: '',
-        loadedDocGroupUpdatedAt: 0,
         loadedDocGroupFingerprint: '',
         loadedCollapseUpdatedAt: 0,
         loadedCollapseFingerprint: '',
@@ -9239,13 +9343,7 @@
         loadedSettingsFieldSnapshot: {},
         loadedSettingsFieldUpdatedAt: {},
 
-        refreshDocGroupSyncState(updatedAt = null) {
-            const resolvedUpdatedAt = __tmParseUpdatedAtNumber(updatedAt);
-            const nextUpdatedAt = resolvedUpdatedAt > 0
-                ? resolvedUpdatedAt
-                : __tmGetDocGroupSettingsUpdatedAt(this.data);
-            this.data.docGroupSettingsUpdatedAt = nextUpdatedAt;
-            this.loadedDocGroupUpdatedAt = nextUpdatedAt;
+        refreshDocGroupSyncState() {
             this.loadedDocGroupFingerprint = __tmBuildDocGroupSyncFingerprint(this.data);
         },
 
@@ -9317,6 +9415,8 @@
             } catch (e) {
                 payload = { ...(this.data || {}) };
             }
+            delete payload.docGroupSettingsUpdatedAt;
+            delete payload.docGroupSyncState;
             try {
                 const mode = typeof __tmGetStoredKanbanBoardMode === 'function'
                     ? __tmGetStoredKanbanBoardMode()
@@ -9376,7 +9476,11 @@
             const loadOptions = (options && typeof options === 'object') ? options : {};
             if (loadOptions.__tmInternalLoad !== true) {
                 if (this.loaded) return;
-                if (this.loadingPromise) return this.loadingPromise;
+                if (this.loadingPromise) {
+                    await this.loadingPromise;
+                    if (this.loaded) return;
+                    return this.load(loadOptions);
+                }
                 const task = this.load({ ...loadOptions, __tmInternalLoad: true });
                 const wrapped = task.finally(() => {
                     if (this.loadingPromise === wrapped) this.loadingPromise = null;
@@ -9387,12 +9491,23 @@
             if (this.loaded) return;
             const opt = loadOptions;
             const preferRemoteWhiteboardSameVersion = opt.preferRemoteWhiteboardSameVersion === true;
+            const loadGeneration = Number(this.reloadGeneration) || 0;
+            const isLoadCurrent = (phase) => {
+                const current = loadGeneration === (Number(this.reloadGeneration) || 0);
+                if (!current) void __tmLogDocGroupSync('settings-load-cancelled', {
+                    phase, loadGeneration, activeGeneration: Number(this.reloadGeneration) || 0,
+                }, `load-cancelled:${loadGeneration}:${phase}`);
+                return current;
+            };
+            let settingsFileReadStatus = 'pending';
+            let docGroupHydrationTrace = null;
 
             // 先从本地缓存加载一份作为兜底（避免云端旧版本配置缺字段导致覆盖丢失）
             // 云端数据存在时，再用云端字段覆盖本地字段
             let migratedLegacyTaskTitleClickSettings = false;
             try { migratedLegacyTaskTitleClickSettings = this.loadFromLocal() === true; } catch (e) {}
             const taskTemplateFile = await __tmReadJsonFile(TASK_TEMPLATES_FILE_PATH);
+            if (!isLoadCurrent('after-template-read')) return;
             const dedicatedTaskTemplateLibrary = Array.isArray(taskTemplateFile?.items)
                 ? __tmNormalizeTaskTemplateLibrary({ schemaVersion: taskTemplateFile.schemaVersion, items: taskTemplateFile.items })
                 : null;
@@ -9414,11 +9529,17 @@
 
                 if (res.ok) {
                     const text = await res.text();
+                    if (!isLoadCurrent('after-settings-read')) return;
+                    settingsFileReadStatus = text && text.trim() ? 'valid-json' : 'empty';
                     // 如果文件内容有效且有数据
                     if (text && text.trim() !== '') {
                         try {
                             const cloudData = JSON.parse(text);
                             if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
+                                // Bootstrap newly tracked fields from the file, never from a local cache's overall clock.
+                                cloudData.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(cloudData.settingsFieldUpdatedAt, cloudData, {
+                                    seedFromSettingsUpdatedAt: new Set(__TM_DOC_GROUP_SETTINGS_KEYS),
+                                });
                                 if (Array.isArray(cloudData.filterRules) && typeof cloudData.filterRulesDefaultsVersion !== 'number') cloudData.filterRulesDefaultsVersion = 1;
                                 migratedLegacyTaskTitleClickSettings = __tmMigrateLegacyTaskTitleClickSettings(cloudData, cloudData)
                                     || migratedLegacyTaskTitleClickSettings;
@@ -9427,12 +9548,30 @@
                                 const localSettingsBeforeCloud = __tmCloneJsonSafe(this.data, { ...(this.data || {}) });
                                 const localSettingsUpdatedAt = Number(this.data.settingsUpdatedAt) || 0;
                                 const cloudSettingsUpdatedAt = Number(cloudData.settingsUpdatedAt) || 0;
-                                const shouldApplyCloudDocGroupState = __tmShouldPreferRemoteDocGroupState(this.data, cloudData, {
-                                    localSettingsUpdatedAt,
-                                    remoteSettingsUpdatedAt: cloudSettingsUpdatedAt,
-                                    groupId: this.data.currentGroupId,
-                                    allowSettingsFallback: true,
-                                });
+                                const localDocGroupSnapshot = __tmBuildDocGroupSyncSnapshot(this.data);
+                                const fileDocGroupSnapshot = __tmBuildDocGroupSyncSnapshot(cloudData);
+                                const localDocGroupFingerprint = __tmBuildDocGroupSyncFingerprint(this.data);
+                                const fileDocGroupFingerprint = __tmBuildDocGroupSyncFingerprint(cloudData);
+                                const localSettingsNewer = localSettingsUpdatedAt > 0 && cloudSettingsUpdatedAt < localSettingsUpdatedAt;
+                                docGroupHydrationTrace = {
+                                    source: opt.suppressStorageWrites ? 'synced-file-reload' : 'settings-load',
+                                    reason: String(opt.reason || '').slice(0, 160),
+                                    settingsFileReadStatus,
+                                    mergePath: localSettingsNewer ? 'local-settings-newer' : 'settings-file-merged',
+                                    syncMode: 'settings-fields',
+                                    fieldUpdatedAt: {
+                                        local: Object.fromEntries(__TM_DOC_GROUP_SETTINGS_KEYS.map((key) => [key, Number(this.data.settingsFieldUpdatedAt?.[key]) || 0])),
+                                        file: Object.fromEntries(__TM_DOC_GROUP_SETTINGS_KEYS.map((key) => [key, Number(cloudData.settingsFieldUpdatedAt?.[key]) || 0])),
+                                    },
+                                    settingsUpdatedAt: { local: localSettingsUpdatedAt, file: cloudSettingsUpdatedAt },
+                                    docGroupSettingsUpdatedAt: {
+                                        local: __tmGetDocGroupSettingsUpdatedAt(this.data),
+                                        file: __tmGetDocGroupSettingsUpdatedAt(cloudData),
+                                    },
+                                    fingerprints: { local: localDocGroupFingerprint, file: fileDocGroupFingerprint },
+                                    local: __tmSummarizeDocGroupsForSyncLog({ docGroups: localDocGroupSnapshot.docGroups }),
+                                    file: __tmSummarizeDocGroupsForSyncLog({ docGroups: fileDocGroupSnapshot.docGroups }),
+                                };
                                 const localCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(this.data);
                                 const cloudCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(cloudData);
                                 const localWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
@@ -9456,13 +9595,7 @@
                                         __tmAssignCollapsedSessionState(this.data, cloudData);
                                         this.data.collapseStateUpdatedAt = cloudCollapseUpdatedAt;
                                     }
-                                    if (shouldApplyCloudDocGroupState) {
-                                        __tmApplyDocGroupSyncSnapshot(cloudData, {
-                                            targetData: this.data,
-                                            syncOverallUpdatedAt: false,
-                                        });
-                                    }
-                                    __tmApplySettingsFieldUpdatesByMap(this.data, cloudData, {
+                                    const appliedCloudSettingsFields = __tmApplySettingsFieldUpdatesByMap(this.data, cloudData, {
                                         skipKeys: new Set(['agentMcpEnabled', 'agentMcpEnabledInitialized']),
                                     });
                                     if (localSettingsBeforeCloud.taskTemplateLibrary) {
@@ -9489,6 +9622,13 @@
                                     __tmEnsureDocGroupContextValidAfterSync();
                                     this.normalizeColumns();
                                     this.syncToLocal();
+                                    if (opt.suppressStorageWrites || localDocGroupFingerprint !== fileDocGroupFingerprint) {
+                                        void __tmLogDocGroupSync('settings-hydration', {
+                                            ...docGroupHydrationTrace,
+                                            applied: __tmSummarizeDocGroupsForSyncLog(this.data),
+                                            appliedSettingKeys: appliedCloudSettingsFields.filter((key) => __TM_DOC_GROUP_SETTINGS_KEYS.includes(key)),
+                                        }, `hydrate:${localDocGroupFingerprint}:${fileDocGroupFingerprint}:${cloudSettingsUpdatedAt}:${localSettingsNewer}`);
+                                    }
                                     this.loadedWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
                                     this.lastWhiteboardFingerprint = __tmGetWhiteboardSettingsFingerprint(this.data);
                                     this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
@@ -9510,7 +9650,11 @@
                                     this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(cloudFieldMap, cloudData) ? {} : cloudFieldMap;
                                 }
                                 // 应用云端数据
-                                if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.selectedDocIds)) this.data.selectedDocIds = cloudData.selectedDocIds;
+                                __TM_DOC_GROUP_SETTINGS_KEYS.forEach((key) => {
+                                    if (Object.prototype.hasOwnProperty.call(cloudData, key)) {
+                                        this.data[key] = __tmCloneJsonSafe(cloudData[key], cloudData[key]);
+                                    }
+                                });
                                 if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
                                 if (typeof cloudData.uiLanguage === 'string') this.data.uiLanguage = ['en', 'zh-CN'].includes(cloudData.uiLanguage) ? cloudData.uiLanguage : 'system';
                                 if (typeof cloudData.recursiveDocLimit === 'number') this.data.recursiveDocLimit = cloudData.recursiveDocLimit;
@@ -9781,22 +9925,12 @@
                                 if (typeof cloudData.semanticDateAutoPromptEnabled === 'boolean') this.data.semanticDateAutoPromptEnabled = cloudData.semanticDateAutoPromptEnabled;
                                 if (typeof cloudData.semanticDateDefaultReminderTime === 'string') this.data.semanticDateDefaultReminderTime = cloudData.semanticDateDefaultReminderTime;
                                 if (typeof cloudData.checklistDetailWidth === 'number') this.data.checklistDetailWidth = cloudData.checklistDetailWidth;
-                                if (shouldApplyCloudDocGroupState && typeof cloudData.defaultDocId === 'string') this.data.defaultDocId = cloudData.defaultDocId;
-                                if (shouldApplyCloudDocGroupState && cloudData.defaultDocIdByGroup && typeof cloudData.defaultDocIdByGroup === 'object') this.data.defaultDocIdByGroup = cloudData.defaultDocIdByGroup;
-                                if (shouldApplyCloudDocGroupState && cloudData.showCompletedTasksByGroup && typeof cloudData.showCompletedTasksByGroup === 'object') this.data.showCompletedTasksByGroup = __tmNormalizeShowCompletedTasksByGroup(cloudData.showCompletedTasksByGroup);
                                 if (typeof cloudData.taskDeleteMode === 'string') this.data.taskDeleteMode = __tmNormalizeTaskDeleteMode(cloudData.taskDeleteMode);
                                 if (typeof cloudData.taskRecycleDocId === 'string') this.data.taskRecycleDocId = cloudData.taskRecycleDocId;
                                 if (typeof cloudData.taskCompletionArchiveMode === 'string') this.data.taskCompletionArchiveMode = __tmNormalizeTaskCompletionArchiveMode(cloudData.taskCompletionArchiveMode);
                                 if (typeof cloudData.taskCompletionArchiveDocId === 'string') this.data.taskCompletionArchiveDocId = cloudData.taskCompletionArchiveDocId;
-                                if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.allDocsExcludedDocIds)) this.data.allDocsExcludedDocIds = cloudData.allDocsExcludedDocIds;
                                 if (cloudData.priorityScoreConfig && typeof cloudData.priorityScoreConfig === 'object') this.data.priorityScoreConfig = cloudData.priorityScoreConfig;
                                 if (cloudData.quadrantConfig && typeof cloudData.quadrantConfig === 'object') this.data.quadrantConfig = cloudData.quadrantConfig;
-                                if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.docGroups)) this.data.docGroups = cloudData.docGroups;
-                                if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.docTabCustomGroups)) this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(cloudData.docTabCustomGroups);
-                                if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.otherBlockRefs)) this.data.otherBlockRefs = cloudData.otherBlockRefs;
-                                if (shouldApplyCloudDocGroupState && cloudData.docPinnedByGroup && typeof cloudData.docPinnedByGroup === 'object') this.data.docPinnedByGroup = cloudData.docPinnedByGroup;
-                                if (shouldApplyCloudDocGroupState && cloudData.docTabsManualArchivedByGroup && typeof cloudData.docTabsManualArchivedByGroup === 'object') this.data.docTabsManualArchivedByGroup = __tmNormalizeDocTabsManualArchivedByGroup(cloudData.docTabsManualArchivedByGroup);
-                                if (shouldApplyCloudDocGroupState && cloudData.docTabsManualUnarchivedByGroup && typeof cloudData.docTabsManualUnarchivedByGroup === 'object') this.data.docTabsManualUnarchivedByGroup = __tmNormalizeDocTabsManualArchivedByGroup(cloudData.docTabsManualUnarchivedByGroup);
                                 if (cloudData.currentGroupId) this.data.currentGroupId = cloudData.currentGroupId;
                                 if (cloudData.taskHeadingLevel) this.data.taskHeadingLevel = cloudData.taskHeadingLevel;
                                 if (cloudData.themeConfig && typeof cloudData.themeConfig === 'object') this.data.themeConfig = cloudData.themeConfig;
@@ -10003,6 +10137,14 @@
                                 __tmEnsureDocGroupContextValidAfterSync();
                                 this.normalizeColumns();
                                 this.syncToLocal();
+                                if (opt.suppressStorageWrites || localDocGroupFingerprint !== fileDocGroupFingerprint) {
+                                    void __tmLogDocGroupSync('settings-hydration', {
+                                        ...docGroupHydrationTrace,
+                                        appliedFileDocGroups: __tmBuildDocGroupSyncFingerprint(this.data) === fileDocGroupFingerprint,
+                                        restoredLocalSettingKeys: restoredLocalSettingFields.filter((key) => __TM_DOC_GROUP_SETTINGS_KEYS.includes(key)),
+                                        applied: __tmSummarizeDocGroupsForSyncLog(this.data),
+                                    }, `hydrate:${localDocGroupFingerprint}:${fileDocGroupFingerprint}:${cloudSettingsUpdatedAt}:${localSettingsNewer}`);
+                                }
                                 this.loadedWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
                                 this.lastWhiteboardFingerprint = __tmGetWhiteboardSettingsFingerprint(this.data);
                                 this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
@@ -10020,11 +10162,15 @@
                                 return;
                             }
                         } catch (parseError) {
+                            settingsFileReadStatus = 'invalid-json';
                         }
                     }
                 }
+                if (!res.ok) settingsFileReadStatus = `http-${res.status}`;
             } catch (e) {
+                settingsFileReadStatus = `read-error:${String(e?.name || 'error').slice(0, 32)}`;
             }
+            if (!isLoadCurrent('before-local-fallback')) return;
             const migratedLegacyTopbarDefaults = this.migrateLegacyTopbarDefaults();
             applyDedicatedTaskTemplateLibrary();
             this.loadedWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
@@ -10034,6 +10180,13 @@
             this.refreshCollapsedStateSyncState();
             this.refreshSettingsFieldSyncState();
             this.loaded = true;
+            if (settingsFileReadStatus !== 'valid-json') {
+                void __tmLogDocGroupSync('settings-hydration', {
+                    source: opt.suppressStorageWrites ? 'synced-file-reload' : 'settings-load',
+                    settingsFileReadStatus,
+                    applied: __tmSummarizeDocGroupsForSyncLog(this.data),
+                }, `hydrate-local:${settingsFileReadStatus}:${__tmBuildDocGroupSyncFingerprint(this.data)}`);
+            }
             __tmApplyEntryIconPreset(this.data.entryIconPreset);
             if (!dedicatedTaskTemplateLibrary) {
                 try { await this.saveTaskTemplates(this.data.taskTemplateLibrary); } catch (e) {}
@@ -11534,6 +11687,18 @@
             if (!this.saveDirty) return this.savePromise || undefined;
             this.saving = true;
             this.saveDirty = false;
+            const saveGeneration = Number(this.reloadGeneration) || 0;
+            const saveAbortController = typeof AbortController === 'function' ? new AbortController() : null;
+            this.activeSaveAbortController = saveAbortController;
+            let saveDiagnostics = null;
+            const isSaveCurrent = (phase = '') => {
+                const current = saveGeneration === (Number(this.reloadGeneration) || 0);
+                if (!current && phase) void __tmLogDocGroupSync('settings-save-cancelled', {
+                    phase, saveGeneration, activeGeneration: Number(this.reloadGeneration) || 0,
+                    ...(saveDiagnostics || {}),
+                }, `cancelled:${saveGeneration}:${phase}`);
+                return current;
+            };
             this.lastSaveResult = { ok: false };
             const suppressMobileCloseSyncDirty = !!this.suppressMobileCloseSyncDirty;
             this.suppressMobileCloseSyncDirty = false;
@@ -11543,7 +11708,6 @@
                 const loadedWhiteboardStateVersion = __tmParseVersionNumber(this.loadedWhiteboardStateVersion);
                 const prevDocGroupFingerprint = String(this.loadedDocGroupFingerprint || '');
                 const docGroupChangedLocal = __tmBuildDocGroupSyncFingerprint(this.data) !== prevDocGroupFingerprint;
-                const loadedDocGroupUpdatedAt = __tmParseUpdatedAtNumber(this.loadedDocGroupUpdatedAt);
                 const prevCustomFieldDefsFingerprint = String(this.lastCustomFieldDefsFingerprint || '');
                 const customFieldDefsChangedLocal = __tmGetCustomFieldDefsFingerprint(this.data.customFieldDefs) !== prevCustomFieldDefsFingerprint;
                 const loadedCustomFieldDefsVersion = __tmParseVersionNumber(this.loadedCustomFieldDefsVersion);
@@ -11552,11 +11716,13 @@
                 const collapseChangedLocal = __tmGetCollapsedSessionStateFingerprint(this.data) !== prevCollapseFingerprint;
                 const loadedCollapseUpdatedAt = __tmParseUpdatedAtNumber(this.loadedCollapseUpdatedAt);
                 const remoteSettings = await __tmReadJsonFile(SETTINGS_FILE_PATH);
+                if (!isSaveCurrent('after-settings-read')) return;
+                if (remoteSettings && typeof remoteSettings === 'object') {
+                    remoteSettings.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(remoteSettings.settingsFieldUpdatedAt, remoteSettings, {
+                        seedFromSettingsUpdatedAt: new Set(__TM_DOC_GROUP_SETTINGS_KEYS),
+                    });
+                }
                 __tmMigrateLegacyTaskTitleClickSettings(remoteSettings, remoteSettings);
-                const remoteDocGroupUpdatedAt = __tmGetDocGroupSettingsUpdatedAt(remoteSettings, {
-                    fallbackSettingsUpdatedAt: remoteSettings?.settingsUpdatedAt,
-                    useSettingsFallback: true,
-                });
                 const remoteCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(remoteSettings);
                 const remoteWhiteboardStateVersion = __tmParseVersionNumber(remoteSettings?.whiteboardStateVersion);
                 const settingsFieldChange = __tmMarkChangedSettingsFields(this.data, this.loadedSettingsFieldSnapshot, Date.now());
@@ -11575,20 +11741,6 @@
                 const __wbSaveUseRemote = __tmShouldUseRemoteWhiteboardSettings(remoteSettings, this.data, loadedWhiteboardStateVersion, whiteboardChangedLocal);
                 if (__wbSaveUseRemote) {
                     __tmAssignWhiteboardSettingsState(this.data, remoteSettings);
-                }
-                if (!docGroupChangedLocal && __tmShouldPreferRemoteDocGroupState(this.data, remoteSettings, {
-                    localSettingsUpdatedAt: this.data.settingsUpdatedAt,
-                    remoteSettingsUpdatedAt: remoteSettings?.settingsUpdatedAt,
-                    groupId: this.data.currentGroupId,
-                    allowSettingsFallback: true,
-                })) {
-                    __tmApplyDocGroupSyncSnapshot(remoteSettings, {
-                        targetData: this.data,
-                        syncOverallUpdatedAt: false,
-                    });
-                    if (remoteDocGroupUpdatedAt > 0) {
-                        this.data.docGroupSettingsUpdatedAt = remoteDocGroupUpdatedAt;
-                    }
                 }
                 if (__tmShouldPreferRemoteCollapsedSessionState(loadedCollapseUpdatedAt, remoteCollapseUpdatedAt) && !collapseChangedLocal) {
                     __tmAssignCollapsedSessionState(this.data, remoteSettings);
@@ -11675,24 +11827,44 @@
                         remoteCollapseUpdatedAt
                     );
                 }
-                if (docGroupChangedLocal) {
-                    this.data.docGroupSettingsUpdatedAt = Date.now();
-                } else {
-                    this.data.docGroupSettingsUpdatedAt = Math.max(
-                        __tmGetDocGroupSettingsUpdatedAt(this.data),
-                        loadedDocGroupUpdatedAt,
-                        remoteDocGroupUpdatedAt
-                    );
+                const payload = this.buildCloudPayload();
+                if (remoteSettings && !settingsFieldChange.changedKeys.size
+                    && __tmGetSharedSettingsContentFingerprint(payload) === __tmGetSharedSettingsContentFingerprint(remoteSettings)) {
+                    this.lastSaveResult = { ok: true, codeOk: true, skipped: true, taskTemplateFingerprint: JSON.stringify(this.data.taskTemplateLibrary) };
+                    this.syncToLocal();
+                    void __tmLogDocGroupSync('settings-save-skipped', {
+                        reason: 'unchanged-content',
+                        syncMode: 'settings-fields',
+                        settingsUpdatedAt: Number(this.data.settingsUpdatedAt) || 0,
+                        local: __tmSummarizeDocGroupsForSyncLog(this.data),
+                    }, `unchanged:${__tmBuildDocGroupSyncFingerprint(payload)}:${Number(this.data.settingsUpdatedAt) || 0}`);
+                    return;
                 }
                 this.data.settingsUpdatedAt = Date.now();
+                payload.settingsUpdatedAt = this.data.settingsUpdatedAt;
                 // 本地缓存延后到 flush，避免每次 save() 都全量写 localStorage
                 this.syncToLocal();
-                const payload = this.buildCloudPayload();
+                saveDiagnostics = {
+                    syncMode: 'settings-fields',
+                    changedSettingKeys: Array.from(settingsFieldChange.changedKeys).slice(0, 80),
+                    fieldUpdatedAt: Object.fromEntries(__TM_DOC_GROUP_SETTINGS_KEYS.map((key) => [key, Number(payload.settingsFieldUpdatedAt?.[key]) || 0])),
+                    settingsUpdatedAt: Number(payload.settingsUpdatedAt) || 0,
+                    docGroupSettingsUpdatedAt: Number(payload.docGroupSettingsUpdatedAt) || 0,
+                    local: __tmSummarizeDocGroupsForSyncLog(payload),
+                    fileBefore: __tmSummarizeDocGroupsForSyncLog(remoteSettings),
+                    fingerprints: {
+                        payload: __tmBuildDocGroupSyncFingerprint(payload),
+                        fileBefore: __tmBuildDocGroupSyncFingerprint(remoteSettings),
+                    },
+                };
                 const formDir = new FormData();
                 formDir.append('path', PLUGIN_STORAGE_DIR);
                 formDir.append('isDir', 'true');
                 globalThis.__tmHost?.appendStorageRequestApp?.(formDir);
-                await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
+                await fetch('/api/file/putFile', {
+                    method: 'POST', body: formDir, ...(saveAbortController ? { signal: saveAbortController.signal } : {}),
+                }).catch(() => null);
+                if (!isSaveCurrent('before-settings-write')) return;
 
                 const formData = new FormData();
                 formData.append('path', SETTINGS_FILE_PATH);
@@ -11700,8 +11872,11 @@
                 formData.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
                 globalThis.__tmHost?.appendStorageRequestApp?.(formData);
 
-                const settingsPutRes = await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
+                const settingsPutRes = await fetch('/api/file/putFile', {
+                    method: 'POST', body: formData, ...(saveAbortController ? { signal: saveAbortController.signal } : {}),
+                }).catch(() => null);
                 const settingsPutBody = settingsPutRes?.ok ? await settingsPutRes.json().catch(() => null) : null;
+                if (!isSaveCurrent('after-settings-response')) return;
                 const settingsPutOk = !!settingsPutRes?.ok;
                 const settingsPutCodeOk = settingsPutBody == null || settingsPutBody.code === 0;
                 this.lastSaveResult = { ok: settingsPutOk, codeOk: settingsPutCodeOk, taskTemplateFingerprint: JSON.stringify(payload.taskTemplateLibrary) };
@@ -11715,6 +11890,38 @@
                 if (settingsPutOk && localSettingsChangedForMobileCloseSync && !suppressMobileCloseSyncDirty) {
                     try { __tmMarkMobileCloseSyncDirty('settings-save'); } catch (e) {}
                 }
+                const payloadDocGroupFingerprint = __tmBuildDocGroupSyncFingerprint(payload);
+                const writeTrace = {
+                    at: new Date().toISOString(),
+                    source: 'local-settings-save',
+                    syncMode: 'settings-fields',
+                    changed: docGroupChangedLocal,
+                    saveGeneration,
+                    changedSettingKeys: Array.from(settingsFieldChange.changedKeys).slice(0, 80),
+                    fieldUpdatedAt: Object.fromEntries(__TM_DOC_GROUP_SETTINGS_KEYS.map((key) => [key, Number(payload.settingsFieldUpdatedAt?.[key]) || 0])),
+                    settingsUpdatedAt: Number(payload.settingsUpdatedAt) || 0,
+                    fileBeforeSettingsUpdatedAt: Number(remoteSettings?.settingsUpdatedAt) || 0,
+                    docGroupSettingsUpdatedAt: Number(payload.docGroupSettingsUpdatedAt) || 0,
+                    fileBeforeDocGroupUpdatedAt: __tmGetDocGroupSettingsUpdatedAt(remoteSettings),
+                    local: __tmSummarizeDocGroupsForSyncLog(payload),
+                    fileBefore: __tmSummarizeDocGroupsForSyncLog(remoteSettings),
+                    fingerprints: { payload: payloadDocGroupFingerprint, fileBefore: __tmBuildDocGroupSyncFingerprint(remoteSettings) },
+                };
+                // Diagnostics must not hold the settings save open while reading/writing the log.
+                void (async () => {
+                    const readBack = settingsPutOk ? await __tmReadJsonFile(SETTINGS_FILE_PATH, { timeoutMs: 3000 }) : null;
+                    const readBackFingerprint = readBack ? __tmBuildDocGroupSyncFingerprint(readBack) : '';
+                    await __tmLogDocGroupSync('settings-write', {
+                        ...writeTrace,
+                        fileAfter: __tmSummarizeDocGroupsForSyncLog(readBack),
+                        response: {
+                            httpStatus: Number(settingsPutRes?.status) || 0,
+                            ok: settingsPutOk,
+                            code: settingsPutBody?.code ?? null,
+                            readBackMatches: !!readBackFingerprint && readBackFingerprint === payloadDocGroupFingerprint,
+                        },
+                    }, `write:${payloadDocGroupFingerprint}:${Number(payload.settingsUpdatedAt) || 0}:${settingsPutOk}`);
+                })().catch(() => null);
                 if (settingsPutOk && __tmBuildDocGroupSyncFingerprint(this.data) !== prevDocGroupFingerprint) {
                     try { window.dispatchEvent(new CustomEvent('tm:doc-groups-updated')); } catch (e) {}
                 }
@@ -11728,6 +11935,8 @@
                 }
             } catch (e) {
             } finally {
+                if (!isSaveCurrent()) return;
+                if (this.activeSaveAbortController === saveAbortController) this.activeSaveAbortController = null;
                 this.saving = false;
                 this.loadedWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
                 this.lastWhiteboardFingerprint = __tmGetWhiteboardSettingsFingerprint(this.data);

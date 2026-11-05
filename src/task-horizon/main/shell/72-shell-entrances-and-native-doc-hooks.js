@@ -2840,30 +2840,50 @@
         const contentBlock = __tmFindLiveDocumentTaskContentBlock(taskItem);
         if (!(contentBlock instanceof Element) || !(node === contentBlock || contentBlock.contains(node))) return null;
         const taskId = String(__tmResolveAnyBlockIdFromElement(taskItem) || '').trim();
-        if (!taskId || !globalThis.__tmTaskBoundary?.getTask?.(taskId)) return null;
+        if (!taskId) return null;
         return { taskId, taskItem };
     }
 
     function __tmScheduleNativeDocTaskContentSync(taskId, taskItem, options = {}) {
         const tid = String(taskId || '').trim();
-        if (!tid || !globalThis.__tmTaskBoundary?.getTask?.(tid)) return false;
+        if (!tid) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const previous = __tmNativeDocTaskContentSyncTimers.get(tid);
         if (previous?.timer) {
             try { clearTimeout(previous.timer); } catch (e) {}
         }
         const delayMs = opts.immediate === true ? 0 : __TM_NATIVE_DOC_TASK_CONTENT_SYNC_DELAY_MS;
-        const timer = setTimeout(() => {
-            __tmNativeDocTaskContentSyncTimers.delete(tid);
+        const entry = { timer: null, taskItem, recognize: opts.recognize === true };
+        const isCurrent = () => __tmNativeDocTaskContentSyncTimers.get(tid) === entry;
+        entry.timer = setTimeout(async () => {
             try {
+                if (!isCurrent()) return;
                 __tmApplyLiveDocumentTaskContentPatch(tid, {
                     taskItem: taskItem?.isConnected ? taskItem : null,
                     source: 'native-document-input',
                 });
-                if (opts.recognize === true) __tmQueueSemanticDateTask(tid);
+                if (opts.recognize !== true) return;
+                if (!__tmIsSemanticDateAutoPromptEnabled()) return;
+                let fallbackTask = null;
+                if (!globalThis.__tmTaskBoundary?.getTask?.(tid)) {
+                    // Native edits outside the loaded group still need task-specific recognition.
+                    await __tmFlushSqlTransactionsSafe('native-document-semantic-date');
+                    if (!isCurrent()) return;
+                    fallbackTask = await API.getTaskById(tid);
+                    if (!isCurrent() || !fallbackTask) return;
+                    const livePatch = __tmReadLiveDocumentTaskContentPatch(tid, {
+                        taskItem: taskItem?.isConnected ? taskItem : null,
+                    });
+                    if (livePatch) fallbackTask = { ...fallbackTask, ...livePatch };
+                }
+                __tmQueueSemanticDateTask(tid, fallbackTask);
             } catch (e) {}
+            finally {
+                if (isCurrent()) __tmNativeDocTaskContentSyncTimers.delete(tid);
+                __tmScheduleSemanticDatePrompt();
+            }
         }, delayMs);
-        __tmNativeDocTaskContentSyncTimers.set(tid, { timer, taskItem });
+        __tmNativeDocTaskContentSyncTimers.set(tid, entry);
         return true;
     }
 
@@ -2874,12 +2894,18 @@
             try { globalThis.__tmRuntimeEvents?.off?.(document, 'focusout', __tmNativeDocTaskContentInputHandler, true); } catch (e) {}
         }
         __tmNativeDocTaskContentInputHandler = (event) => {
-            if (!event || event.isTrusted !== true || event.isComposing === true) return;
+            const eventNode = __tmResolveNativeDocEventElement(event?.target);
+            const inNativeEditor = eventNode instanceof Element
+                && (eventNode.matches?.('.protyle-wysiwyg') || eventNode.closest?.('.protyle-wysiwyg'));
+            const syntheticCompositionEnd = event?.type === 'compositionend' && !!inNativeEditor;
+            if (!event || (event.isTrusted !== true && !syntheticCompositionEnd) || event.isComposing === true) {
+                return;
+            }
             const binding = __tmResolveNativeDocTaskContentInput(event.target);
             if (!binding) return;
             __tmScheduleNativeDocTaskContentSync(binding.taskId, binding.taskItem, {
                 immediate: ['compositionend', 'focusout'].includes(String(event.type || '').trim()),
-                recognize: event.type === 'focusout',
+                recognize: ['compositionend', 'focusout'].includes(String(event.type || '').trim()),
             });
         };
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'input', __tmNativeDocTaskContentInputHandler, true); } catch (e) {}

@@ -27,7 +27,7 @@ const source = read('09-task-field-schema.js')
     + section(runtime, '    window.tmQuickAddSubmit =', '    window.tmAdd =');
 const plain = value => JSON.parse(JSON.stringify(value));
 
-async function runCase(relation, { fail = false, partial = false, newDraft = false, reminder = false, rollup = false } = {}) {
+async function runCase(relation, { fail = false, partial = false, newDraft = false, reminder = false, rollup = false, pinned = true } = {}) {
     const scope = `${relation}:source`;
     const storage = new Map();
     const ops = [], notices = [], reminders = [];
@@ -50,6 +50,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
             relation, sourceTaskId: 'source', draftScope: scope,
             docId: 'related-doc', docMode: 'doc',
             priority: 'high', customStatus: 'doing', startDate: '2026-09-27', completionTime: '2026-09-30',
+            pinned,
             dateMode: rollup ? 'rollup' : 'manual',
             customFieldValues: { tag: ['a'] }, repeatRule: { enabled: !rollup, type: rollup ? 'none' : 'daily' },
             repeatState: {}, reminderDraft: reminder ? { repeatMode: 'standalone' } : null,
@@ -63,7 +64,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         __tmEnsureEditableTaskLike: () => true,
         __tmNewTaskBlockId: () => `new-${++sequence}`,
         __tmGenerateTempTaskId: () => `client-${sequence}`,
-        __tmBuildSubtaskInheritedPatch: () => ({ priority: 'low', duration: '25', completionTime: '2026-10-10' }),
+        __tmBuildSubtaskInheritedPatch: () => ({ priority: 'low', duration: '25', completionTime: '2026-10-10', pinned: true }),
         __tmNormalizeDateOnly: value => value,
         __tmNormalizeQuickAddCustomFieldValues: value => value,
         __tmNormalizeCreateTaskCustomFieldValues: value => value || {},
@@ -108,7 +109,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         assert.equal(patch.startDate, '', 'recurring related tasks clear the start date');
         assert.equal(patch.completionTime, rollup ? '' : '2026-09-30');
         if (rollup) assert.equal(patch.dateMode, 'rollup', 'draft mode reaches the create queue');
-        assert.equal(patch.pinned, true);
+        assert.equal(patch.pinned, pinned, 'the composer overrides the inherited pin state');
         if (!rollup) assert.equal(patch.repeatRule.type, 'daily');
         assert.deepEqual(patch.customFieldValues, { tag: ['a'] });
         assert.equal(patch.remark, op.data.content === '首个任务' ? inputs.tmQuickAddRemark.value : '');
@@ -175,6 +176,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         assert.deepEqual(plain(attrs['custom-attachments'] || []), op.data.content === '首个任务' ? ['assets/related.png'] : [], 'images are part of the atomic related-task insert');
         assert.equal(attrs['custom-completionTime'], patch.completionTime, 'date is part of the atomic insert');
         assert.equal(attrs['custom-startDate'], '', 'the cleared start date reaches storage');
+        assert.equal(attrs['custom-pinned'], pinned, 'the pin choice reaches the atomic insert');
         if (!rollup) assert.equal(attrs['custom-repeatRule'].type, 'daily', 'repeat rule reaches storage');
         if (rollup) assert.equal(attrs['custom-dateMode'], 'rollup', 'mode is part of the atomic related-task insert');
         assert.deepEqual(plain(attrs['custom-customFieldValues']), { tag: ['a'] });
@@ -196,6 +198,7 @@ async function runCase(relation, { fail = false, partial = false, newDraft = fal
         await runCase(relation, { newDraft: true });
         await runCase(relation, { reminder: true });
         await runCase(relation, { rollup: true });
+        await runCase(relation, { pinned: false });
     }
-    console.log('related task composer behavior tests passed (12 cases)');
+    console.log('related task composer behavior tests passed (14 cases)');
 })().catch(error => { console.error(error); process.exitCode = 1; });
