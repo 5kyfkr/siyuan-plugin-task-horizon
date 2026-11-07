@@ -62,7 +62,8 @@ async function run() {
     assert.match(boxDocApi.calls[1].body.stmt, new RegExp(`box = '${boxId}'`));
     assert.match(boxDocApi.calls[1].body.stmt, new RegExp(`id != '${boxId}'`));
     assert.doesNotMatch(boxDocApi.calls[1].body.stmt, /path LIKE/);
-    assert.doesNotMatch(boxDocApi.calls[1].body.stmt, / LIMIT /);
+    assert.match(boxDocApi.calls[1].body.stmt, / LIMIT 500000$/,
+        'an unlimited complete scope needs an explicit SQL limit so SiYuan cannot cap it at its default page size');
 
     const invalidApi = createApi({}, []);
     assert.deepEqual(Array.from(await invalidApi.getSubDocIds('not-a-document-id')), []);

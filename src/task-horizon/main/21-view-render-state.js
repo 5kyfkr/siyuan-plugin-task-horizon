@@ -443,6 +443,7 @@
             done: false,
             loading: false,
             loaded: column.loaded === true,
+            autoFill: column.autoFill === true,
             retryCount: 0,
             retryAt: 0,
         };
@@ -661,8 +662,11 @@
                 if (!(column instanceof HTMLElement) || !(columnBody instanceof HTMLElement)) return;
                 if (column.classList.contains('tm-kanban-col--collapsed') || columnBody.hidden) return;
                 if (!__tmIsKanbanProgressiveColumnVisible(body, column)) return;
+                const nearBottom = __tmIsKanbanProgressiveColumnNearBottom(columnBody);
                 const initialLoad = entry.loaded !== true;
-                if (!initialLoad && !__tmIsKanbanProgressiveColumnNearBottom(columnBody)) return;
+                // Document-group columns must finish in the background because a deferred
+                // global batch can leave later document groups empty above the scroll end.
+                if (!initialLoad && entry.autoFill !== true && !nearBottom) return;
                 candidates.push({ entry, columnBody, index, initialLoad });
             });
             if (!candidates.length) {

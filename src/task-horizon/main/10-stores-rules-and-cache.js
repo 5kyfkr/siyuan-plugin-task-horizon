@@ -109,7 +109,9 @@
     const __TM_TASK_INDEX_MAX_DOCS = 1200;
     const __TM_TASK_INDEX_MAX_SINGLE_DOC_BYTES = 10 * 1024 * 1024;
     const __TM_TASK_INDEX_QUERY_LIMIT = 20000;
-    const __TM_DOC_SCOPE_CACHE_VERSION = 1;
+    // v2 discards complete scopes that could have been truncated by SiYuan's
+    // implicit 64-row SQL page when LIMIT was omitted.
+    const __TM_DOC_SCOPE_CACHE_VERSION = 2;
     const __TM_DOC_SCOPE_CACHE_MAX_BYTES = 5 * 1024 * 1024;
     const __TM_DOC_SCOPE_CACHE_MAX_SCOPES = 48;
     const __TM_DOC_SCOPE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;

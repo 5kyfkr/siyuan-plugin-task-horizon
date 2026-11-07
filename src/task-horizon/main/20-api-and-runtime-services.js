@@ -294,7 +294,9 @@
             if (!docPath || !box) return [];
 
             // 查询子文档
-            const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
+            // SiYuan SQL returns a small default page when LIMIT is omitted.
+            // limit:0 means "no business cap", so still emit an explicit ceiling.
+            const limitSql = ` LIMIT ${totalLimit > 0 ? totalLimit : 500000}`;
             const escapedBox = box.replace(/'/g, "''");
             let scopeSql;
             if (did === box) {
@@ -429,7 +431,7 @@
             const totalLimit = Number.isFinite(limitRaw)
                 ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
                 : recursiveDocLimit;
-            const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
+            const limitSql = ` LIMIT ${totalLimit > 0 ? totalLimit : 500000}`;
             const legacyCompat = SettingsStore.data?.legacyWin7CompatMode === true;
             const taskMarkdownCondition = legacyCompat
                 ? "(b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%' OR b.markdown LIKE '%[X]%')"
@@ -475,7 +477,7 @@
                 const totalLimit = Number.isFinite(limitRaw)
                     ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
                     : recursiveDocLimit;
-                const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
+                const limitSql = ` LIMIT ${totalLimit > 0 ? totalLimit : 500000}`;
                 const sql = `SELECT id, content, hpath FROM blocks WHERE box = '${box.replace(/'/g, "''")}' AND type = 'd' ORDER BY created DESC, hpath DESC${limitSql}`;
                 const res = await this.call('/api/query/sql', { stmt: sql });
                 if (res.code === 0 && Array.isArray(res.data)) {

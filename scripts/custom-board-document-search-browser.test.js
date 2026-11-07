@@ -12,7 +12,7 @@ const waitForVisibleDocs = (page, expected) => page.waitForFunction((labels) => 
         .filter(row => getComputedStyle(row).display !== 'none')
         .map(row => row.textContent.trim());
     return actual.length === labels.length && actual.every((label, index) => label === labels[index]);
-}, expected);
+}, expected, { timeout: 10000 });
 
 (async () => {
     const browser = await chromium.launch({ headless: true });

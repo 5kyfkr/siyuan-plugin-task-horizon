@@ -14,8 +14,15 @@ assert.ok(startup > 0);
 runtime = runtime.slice(0, startup) + `
     window.customBoardTest = { state, SettingsStore, plan: __tmBuildTaskEnhanceLoadPlan,
         mount(columns) {
+            __tmCancelProgressiveViewRender();
+            state.filteredTasks = Array.from(new Map(columns
+                .flatMap(column => Array.isArray(column?.tasks) ? column.tasks : [])
+                .map(task => [String(task?.id || ''), task])).values());
             __tmKanbanColsHtmlCache = null;
             state.modal.innerHTML = __tmBuildRenderSceneKanbanBodyHtml({ customBoardColumns: columns });
+            if (state.__tmProgressiveViewRender) {
+                __tmScheduleProgressiveViewRender('comboBoard', state.__tmProgressiveViewRender);
+            }
         }
     };
     SettingsStore.loaded = true;
@@ -82,6 +89,19 @@ runtime = runtime.slice(0, startup) + `
                 { id: 'multiple', name: '指定多个文档', groupMode: 'doc', scope: { mode: 'docs', docIds: [docA, docB] }, tasks },
                 { id: 'ungrouped', name: '不分组', groupMode: 'none', scope: { mode: 'docs', docIds: [docA] }, tasks: tasks.filter(t => t.root_id === docA) },
             ];
+            window.progressiveTasks = Array.from({ length: 24 }, (_, index) => task(
+                `progressive-${index}`,
+                index % 2 === 0 ? docA : docB,
+                '',
+                0,
+            ));
+            window.progressiveColumns = [{
+                id: 'paged',
+                name: '分组补全',
+                groupMode: 'doc',
+                scope: { mode: 'docs', docIds: [docA, docB] },
+                tasks: progressiveTasks,
+            }];
             store.data.customBoardSets = [{ id: 'set-test', name: 'Test', boards: testColumns }];
             store.data.activeCustomBoardSetId = 'set-test';
             window.createCalls = [];
@@ -106,6 +126,25 @@ runtime = runtime.slice(0, startup) + `
             await docRows.filter({ hasText: '另一文档' }).locator('.tm-kanban-group-add').click();
             assert.deepEqual(await page.evaluate(() => createCalls.at(-1)), { docId: ids.docB, headingId: '' });
 
+            await page.evaluate(() => {
+                window.unrelatedComboLane = document.querySelector('[data-col-key="custom:multiple"]');
+                window.unrelatedComboCard = unrelatedComboLane.querySelector('.tm-kanban-card');
+            });
+            const collapsibleDocRow = docRows.filter({ hasText: '另一文档' });
+            await collapsibleDocRow.click();
+            await page.waitForTimeout(120);
+            assert.equal(await collapsibleDocRow.getAttribute('aria-expanded'), 'false');
+            assert.equal(await collapsibleDocRow.evaluate(row => {
+                const items = row.closest('.tm-kanban-group')?.querySelector('[data-tm-kanban-group-items]');
+                return !!items && (items.hidden || getComputedStyle(items).display === 'none');
+            }), true, 'collapsing a document group hides only that group');
+            assert.equal(await page.evaluate(() => (
+                window.unrelatedComboLane === document.querySelector('[data-col-key="custom:multiple"]')
+                && window.unrelatedComboCard.isConnected
+            )), true, 'collapsing one sub-board group must not replace another sub-board');
+            await collapsibleDocRow.click();
+            assert.equal(await collapsibleDocRow.getAttribute('aria-expanded'), 'true');
+
             const single = lane('single');
             const headingRows = single.locator('.tm-kanban-group-title[data-group-key*="\:h2\:"]');
             assert.equal(await headingRows.count(), 3, 'same-name headings stay separate and unheaded tasks retain their own group');
@@ -129,8 +168,25 @@ runtime = runtime.slice(0, startup) + `
             return customBoardTest.plan({ viewMode: 'comboBoard', colOrder: [] });
         });
         assert.equal(ordinaryScopePlan.needH2, false, 'document-group scopes must not add unnecessary heading reads');
+
+        for (const width of [1100, 390]) {
+            await page.setViewportSize({ width, height: 850 });
+            const initialCount = await page.evaluate(() => {
+                customBoardTest.mount(progressiveColumns);
+                return document.querySelectorAll('[data-col-key="custom:paged"] .tm-kanban-card').length;
+            });
+            assert.ok(initialCount > 0 && initialCount <= 10, 'document-group columns must retain the bounded first paint');
+            await page.waitForFunction(() => (
+                document.querySelectorAll('[data-col-key="custom:paged"] .tm-kanban-card').length === progressiveTasks.length
+            ));
+            assert.deepEqual(await page.evaluate(() => Array.from(
+                document.querySelectorAll('[data-col-key="custom:paged"] > .tm-kanban-col-body > .tm-kanban-group')
+            ).map(group => group.querySelectorAll('.tm-kanban-card[data-id]').length)), [12, 12],
+            'visible document groups must finish loading without requiring a column-bottom scroll');
+        }
+
         assert.deepEqual(errors, [], 'combination-board group actions must cause no browser errors');
-        console.log('custom-board group creation and heading browser tests passed');
+        console.log('custom-board group creation, heading and progressive completion browser tests passed');
     } finally {
         if (browser) await browser.close();
         await new Promise(resolve => server.close(resolve));

@@ -3489,7 +3489,10 @@
             ev?.stopPropagation?.();
             ev?.preventDefault?.();
         } catch (e) {}
-        const isKanban = String(state.viewMode || '').trim() === 'kanban';
+        const viewMode = String(state.viewMode || '').trim();
+        const isKanban = viewMode === 'kanban';
+        const isComboBoard = viewMode === 'comboBoard';
+        const usesKanbanGroupDom = isKanban || isComboBoard;
         const isChecklist = String(state.viewMode || '').trim() === 'checklist';
         const isCalendarSidebarChecklist = __tmHasCalendarSidebarChecklist(state.modal);
 
@@ -3501,10 +3504,10 @@
         const action = isCompletedGroup
             ? (__tmIsCompletedRootGroupCollapsed(k0) ? 'expand' : 'collapse')
             : (state.collapsedGroups.has(k0) ? 'expand' : 'collapse');
-        const mode = isKanban ? 'none' : __tmGetCollapseAnimMode();
+        const mode = usesKanbanGroupDom ? 'none' : __tmGetCollapseAnimMode();
         const flipOpts = { kind: 'group', key: k0, action, lite: mode === 'lite' };
         const skipAnim = mode === 'none';
-        if (!isKanban && !isChecklist) {
+        if (!usesKanbanGroupDom && !isChecklist) {
             if (!skipAnim) {
                 try { __tmPrepareFlipAnimation(flipOpts); } catch (e) {}
             } else {
@@ -3536,7 +3539,7 @@
                 if (p && typeof p.catch === 'function') p.catch(() => null);
             } catch (e) {}
         };
-        if (isKanban) {
+        if (usesKanbanGroupDom) {
             persistCollapsedGroups();
             __tmSetKanbanGroupCollapsedInDom(k0, action === 'collapse', state.modal, { animate: true });
             return;

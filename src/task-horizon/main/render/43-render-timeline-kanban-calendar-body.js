@@ -1925,6 +1925,7 @@
                     if (progressiveKanbanRender && initialColumnRender.hasMore) {
                         __tmRegisterKanbanProgressiveColumn(kanbanProgressiveJob, {
                             key: columnKey, loaded: initialColumnRender.rendered > 0,
+                            autoFill: boardGroupMode === 'doc',
                             loadNextBatch: (modalEl) => {
                                 if (!__tmIsProgressiveViewRenderCurrent(kanbanProgressiveJob, kanbanRenderMode)) return { done: true };
                                 const modal = modalEl instanceof Element ? modalEl : state.modal;
