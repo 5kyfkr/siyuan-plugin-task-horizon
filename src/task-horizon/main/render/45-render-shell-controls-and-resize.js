@@ -352,6 +352,7 @@
         const prefix = mobile ? 'tmMobile' : 'tmDesktop';
         const closeAction = mobile ? 'tmHideMobileMenu()' : 'tmCloseDesktopMenu()';
         const viewMode = String(opts.viewMode || state.viewMode || '').trim();
+        const customBoardMode = viewMode === __TM_CUSTOM_BOARD_VIEW_MODE;
         const docOptions = opts.docOptions || __tmBuildDocGroupMenuOptions();
         const ruleOptions = opts.ruleOptions || __tmBuildRuleMenuOptions();
         const groupOptions = opts.groupOptions || __tmBuildGroupModeMenuOptions();
@@ -388,16 +389,18 @@
                 </div>` : ''}
                 ${mobile && viewMode === 'kanban' ? renderField('KanbanModeSelect', __tmT("task.kanbanMode"), __tmBuildKanbanModeMenuOptions()) : ''}
                 ${mobile && viewMode === 'whiteboard' ? renderField('WhiteboardLayoutSelect', __tmT("task.whiteboardMode"), __tmBuildWhiteboardLayoutMenuOptions(whiteboardMenuLayoutMode, true)) : ''}
-                ${opts.showSelectors !== false ? `
+                ${opts.showSelectors !== false && !customBoardMode ? `
                 <details class="tm-topbar-menu__disclosure">
                     <summary>
-                        <span class="tm-topbar-menu__summary-text" title="${__tmEscAttr(__tmT("task.groupRule2", { value1: selectedLabel(groupOptions, __tmT("task.noGrouping")), value2: selectedLabel(ruleOptions, __tmT("calendar.all")) }))}">${__tmT("task.group2")}<b>${esc(selectedLabel(groupOptions, __tmT("task.noGrouping")))}</b><span class="tm-topbar-menu__summary-sep">·</span>${__tmT("task.rule")}<b>${esc(selectedLabel(ruleOptions, __tmT("calendar.all")))}</b></span>
+                        ${customBoardMode
+                            ? `<span class="tm-topbar-menu__summary-text" title="${__tmEscAttr(selectedLabel(groupOptions, __tmT("task.noGrouping")))}">${__tmT("task.grouping")}<b>${esc(selectedLabel(groupOptions, __tmT("task.noGrouping")))}</b></span>`
+                            : `<span class="tm-topbar-menu__summary-text" title="${__tmEscAttr(__tmT("task.groupRule2", { value1: selectedLabel(groupOptions, __tmT("task.noGrouping")), value2: selectedLabel(ruleOptions, __tmT("calendar.all")) }))}">${__tmT("task.group2")}<b>${esc(selectedLabel(groupOptions, __tmT("task.noGrouping")))}</b><span class="tm-topbar-menu__summary-sep">·</span>${__tmT("task.rule")}<b>${esc(selectedLabel(ruleOptions, __tmT("calendar.all")))}</b></span>`}
                         ${__tmRenderLucideIcon('caret-down')}
                     </summary>
                     <div class="tm-topbar-menu__fields">
-                        ${opts.showDoc !== false ? renderField('DocSelect', __tmT("kernel.documents"), docOptions) : ''}
+                        ${!customBoardMode && opts.showDoc !== false ? renderField('DocSelect', __tmT("kernel.documents"), docOptions) : ''}
                         ${renderField('GroupModeSelect', __tmT("task.group"), groupOptions)}
-                        ${renderField('RuleSelect', __tmT("task.filterSortRules"), ruleOptions)}
+                        ${!customBoardMode ? renderField('RuleSelect', __tmT("task.filterSortRules"), ruleOptions) : ''}
                     </div>
                 </details>` : ''}
                 <div class="tm-topbar-menu__commands" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.taskactions")}">

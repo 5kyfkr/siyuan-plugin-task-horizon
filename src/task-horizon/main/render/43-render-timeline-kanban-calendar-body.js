@@ -483,6 +483,8 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const bodyAnimClass = String(opts.bodyAnimClass || '');
         const columnPatch = opts.columnPatch || null;
+        const customBoardColumns = Array.isArray(opts.customBoardColumns) ? opts.customBoardColumns : null;
+        const isCustomBoard = customBoardColumns !== null;
         if (columnPatch) {
             columnPatch.resultColumnKeys = [];
             columnPatch.matchedTaskIds = new Set();
@@ -499,7 +501,7 @@
                 })
                 : null;
             const isDocTabCustomGroupActive = activeDocTabCustomGroupDocIds instanceof Set && activeDocTabCustomGroupDocIds.size > 0;
-            const isAllTabsView = !(activeDocId && activeDocId !== 'all') || isDocTabCustomGroupActive;
+            const isAllTabsView = isCustomBoard || !(activeDocId && activeDocId !== 'all') || isDocTabCustomGroupActive;
             const isCompact = !!SettingsStore.data.kanbanCompactMode;
             const baseKanbanW0 = Number(SettingsStore.data.kanbanColumnWidth);
             const baseKanbanW = Number.isFinite(baseKanbanW0) ? Math.max(220, Math.min(520, Math.round(baseKanbanW0))) : 320;
@@ -533,6 +535,15 @@
             const doneOpt = { id: '__done__', name: '已完成', color: '#9e9e9e', kind: 'status' };
 
             const docNameById = new Map();
+            const docOrderById = new Map();
+            const registerDocOrder = (docs) => {
+                (Array.isArray(docs) ? docs : []).forEach((doc) => {
+                    const id = String(doc?.id || '').trim();
+                    if (id && !docOrderById.has(id)) docOrderById.set(id, docOrderById.size);
+                });
+            };
+            registerDocOrder(state.taskTree);
+            registerDocOrder(state.allDocuments);
             (Array.isArray(state.taskTree) ? state.taskTree : []).forEach(d => {
                 const id = String(d?.id || '').trim();
                 if (id) docNameById.set(id, String(d?.name || '').trim());
@@ -986,8 +997,50 @@
                     };
                 });
             };
-            const docsInOrder = __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId).map(d => String(d?.id || '').trim()).filter(Boolean);
+            const visibleTabDocs = typeof __tmGetVisibleDocTabsForCurrentGroup === 'function'
+                ? __tmGetVisibleDocTabsForCurrentGroup()
+                : __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId);
+            const currentGroupDocTabOrder = state.__tmDocTabOrderByGroup?.[currentGroupId] || null;
+            const pinnedIds = (() => {
+                try {
+                    return typeof __tmGetDocPinnedIdsForGroup === 'function'
+                        ? __tmGetDocPinnedIdsForGroup(currentGroupId).map((id) => String(id || '').trim()).filter(Boolean)
+                        : [];
+                } catch (e) {
+                    return [];
+                }
+            })();
+            const visibleTabDocIds = visibleTabDocs.map(d => String(d?.id || '').trim()).filter(Boolean);
+            const orderedVisibleFromGroup = Array.isArray(currentGroupDocTabOrder)
+                ? currentGroupDocTabOrder.map((id) => String(id || '').trim()).filter(Boolean)
+                : [];
+            const docsInOrder = Array.from(new Set([
+                ...pinnedIds,
+                ...orderedVisibleFromGroup,
+                ...visibleTabDocIds,
+            ]));
             const docRank = new Map(docsInOrder.map((id, idx) => [id, idx]));
+            const compareDocGroupOrder = (aId, bId) => {
+                const aKey = String(aId || '').trim();
+                const bKey = String(bId || '').trim();
+                const aTabOrder = docRank.get(aKey);
+                const bTabOrder = docRank.get(bKey);
+                if (Number.isFinite(aTabOrder) && Number.isFinite(bTabOrder) && aTabOrder !== bTabOrder) {
+                    return aTabOrder - bTabOrder;
+                }
+                if (Number.isFinite(aTabOrder) !== Number.isFinite(bTabOrder)) {
+                    return Number.isFinite(aTabOrder) ? -1 : 1;
+                }
+                const aDocOrder = docOrderById.get(aKey);
+                const bDocOrder = docOrderById.get(bKey);
+                if (Number.isFinite(aDocOrder) && Number.isFinite(bDocOrder) && aDocOrder !== bDocOrder) {
+                    return aDocOrder - bDocOrder;
+                }
+                if (Number.isFinite(aDocOrder) !== Number.isFinite(bDocOrder)) {
+                    return Number.isFinite(aDocOrder) ? -1 : 1;
+                }
+                return aKey.localeCompare(bKey);
+            };
 
             const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
             const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
@@ -1020,9 +1073,14 @@
                 if (!did || did === '__unknown__') return '#757575';
                 return __tmGetDocColorHex(did, isDark) || '#4f46e5';
             };
+            const kanbanRenderMode = isCustomBoard ? 'comboBoard' : 'kanban';
+            if (isCustomBoard && state.__tmCustomBoardLoading !== true
+                && !__tmIsProgressiveViewRenderCurrent(state.__tmProgressiveViewRender, kanbanRenderMode)) {
+                __tmStartProgressiveViewRender(kanbanRenderMode);
+            }
             const kanbanProgressiveJob = state.__tmProgressiveViewRender;
             const progressiveKanbanRender = !!kanbanProgressiveJob
-                && String(kanbanProgressiveJob.mode || '').trim() === 'kanban'
+                && String(kanbanProgressiveJob.mode || '').trim() === kanbanRenderMode
                 && kanbanProgressiveJob.tasksRef === state.filteredTasks;
             const kanbanColsCacheKey = (progressiveKanbanRender || columnPatch) ? null : __tmBuildKanbanColsCacheKey({
                 isAllTabsView,
@@ -1074,7 +1132,7 @@
                     </nav>
                 `;
             };
-            if (!columnPatch && !progressiveKanbanRender && __tmKanbanColsHtmlCache && __tmKanbanColsHtmlCache.key === kanbanColsCacheKey) {
+            if (!isCustomBoard && !columnPatch && !progressiveKanbanRender && __tmKanbanColsHtmlCache && __tmKanbanColsHtmlCache.key === kanbanColsCacheKey) {
                 const cachedNavHtml = String(__tmKanbanColsHtmlCache.navHtml || '');
                 return `
                     <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}${cachedNavHtml ? ' tm-body--kanban-has-board-nav' : ''}" data-kanban-appearance="${kanbanAppearance}"${laneStrengthStyle} ondragover="tmKanbanAutoScroll(event)">
@@ -1296,8 +1354,9 @@
             });
 
             const completedTodayKey = __tmNormalizeDateOnly(new Date());
-            const renderCard = (task, depthInCol, isSub, isChildRoot, parentTxt, childrenHtml, toggleHtml, isParent, inCompletedRootGroup = false) => {
-                task = resolveKanbanProjectedTask(task) || task;
+            const renderCard = (task, depthInCol, isSub, isChildRoot, parentTxt, childrenHtml, toggleHtml, isParent, inCompletedRootGroup = false, usePassedTask = false) => {
+                // Custom-board projections are already rebuilt from the task store.
+                if (!usePassedTask) task = resolveKanbanProjectedTask(task) || task;
                 const id = String(task?.id || '').trim();
                 if (!id) return '';
                 const content = String(task?.content || '').trim();
@@ -1367,6 +1426,7 @@
                     : `draggable="true" ondragstart="tmKanbanDragStart(event, '${id}')" ondragend="tmKanbanDragEnd(event, '${id}')"`;
                 const cardPointerDownAttr = `onpointerdown="tmKanbanCardPointerDown(event, '${id}')"`;
                 const cardClickAttr = `onclick="tmKanbanCardClick('${id}', event)"`;
+                const cardDoubleClickAttr = isCustomBoard ? '' : `ondblclick="tmKanbanCardDblClick('${id}', event)"`;
                 const cardContextMenuAttr = __tmIsRuntimeMobileClient()
                     ? 'oncontextmenu="event.preventDefault();event.stopPropagation();return false;"'
                     : `oncontextmenu="tmShowTaskContextMenu(event, '${id}')"`;
@@ -1390,7 +1450,7 @@
                 const completedChildren = Number(directChildStats.completed) || 0;
                 const childProgressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
                 const isChildrenCollapsed = !!(totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant);
-                const cardAttrs = `data-id="${id}" data-tm-placement-doc="${esc(String(task.docId || task.root_id || '').trim())}" data-tm-placement-parent="${esc(String(task.parentTaskId || task.parent_task_id || '').trim())}" ${cardDragAttrs} ${cardPointerDownAttr} ${cardClickAttr} ${cardContextMenuAttr} ondblclick="tmKanbanCardDblClick('${id}', event)"`;
+                const cardAttrs = `data-id="${id}" data-tm-placement-doc="${esc(String(task.docId || task.root_id || '').trim())}" data-tm-placement-parent="${esc(String(task.parentTaskId || task.parent_task_id || '').trim())}" ${cardDragAttrs} ${cardPointerDownAttr} ${cardClickAttr} ${cardContextMenuAttr} ${cardDoubleClickAttr}`;
                 const checkboxHtml = __tmRenderTaskCheckboxWrap(id, task, {
                     checked: taskClosed,
                     extraClass: isGloballyLocked ? 'tm-operating' : '',
@@ -1469,6 +1529,509 @@
                     </div>
                 `;
             };
+
+            const renderKanbanGroupItems = (itemsHtml, collapsed = false) => {
+                return `<div class="tm-kanban-group-items" data-tm-kanban-group-items aria-hidden="${collapsed ? 'true' : 'false'}"${collapsed ? ' hidden' : ''}>${String(itemsHtml || '')}</div>`;
+            };
+
+            const renderHeadingGroupCreateAction = (docId, headingId) => {
+                const did = String(docId || '').trim();
+                if (!did || did === '__unknown__') return '';
+                const hid = String(headingId || '').trim() || '__none__';
+                return `
+                    <button class="tm-group-create-btn tm-kanban-create-btn tm-kanban-group-add"
+                            type="button"
+                            title="${globalThis.__taskHorizonHostBridge.i18n.html("task.newTaskUnderThisHeading")}"
+                            aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.newTaskUnderThisHeading")}"
+                            onpointerdown="event.stopPropagation()"
+                            onclick="event.preventDefault();event.stopPropagation();tmCreateTaskForHeadingGroup('${escSq(did)}','${escSq(hid)}', event)">
+                        ${__tmRenderLucideIcon('plus')}
+                    </button>
+                `;
+            };
+
+            const renderGroupTitle = (groupKey, titleHtml, count, color, opt = {}) => {
+                const hasForcedCollapsed = typeof opt?.collapsed === 'boolean';
+                const isCollapsed = hasForcedCollapsed ? !!opt.collapsed : state.collapsedGroups?.has(groupKey);
+                const indentCh = Number(opt?.indentCh);
+                const leftIndent = Number.isFinite(indentCh) && indentCh > 0 ? `${indentCh}ch` : '0';
+                const titleColor = String(color || '').trim();
+                const groupBg = titleColor ? __tmGroupBgFromLabelColor(titleColor, isDark) : '';
+                const dropKind = String(opt?.dropKind || '').trim();
+                const dropDocId = String(opt?.dropDocId || '').trim();
+                const dropHeadingId = String(opt?.dropHeadingId || '').trim();
+                const actionHtml = String(opt?.actionHtml || '').trim();
+                const contextMenuAttrs = String(opt?.contextMenuAttrs || '');
+                const dropAttrs = dropKind
+                    ? ` data-tm-kb-drop-kind="${esc(dropKind)}"${dropDocId ? ` data-tm-kb-drop-doc="${esc(dropDocId)}"` : ''}${dropHeadingId ? ` data-tm-kb-drop-heading="${esc(dropHeadingId)}"` : ''}`
+                    : '';
+                const dropHandlers = dropKind
+                    ? ` ondragover="tmKanbanGroupDragOver(event)" ondragleave="tmKanbanGroupDragLeave(event)" ondrop="tmKanbanGroupDrop(event)"`
+                    : '';
+                return `
+                    <div class="tm-kanban-group-title${dropKind ? ' tm-kanban-group-title--droppable' : ''}" data-group-key="${esc(groupKey)}" aria-expanded="${isCollapsed ? 'false' : 'true'}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="${titleColor ? `color:${titleColor};` : ''}${groupBg ? `background:${groupBg};` : ''}"${dropAttrs}${dropHandlers}${contextMenuAttrs}>
+                        <span style="display:inline-flex;align-items:center;min-width:0;padding-left:${leftIndent};">
+                            <span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                            <span>${titleHtml}</span>
+                        </span>
+                        <span class="tm-badge tm-badge--count">${Number(count) || 0}</span>
+                        ${actionHtml}
+                    </div>
+                `;
+            };
+
+            if (isCustomBoard) {
+                if (state.__tmCustomBoardLoading === true && !customBoardColumns.length) {
+                    return `<div class="tm-body tm-body--kanban tm-body--custom-board tm-body--custom-board-loading${bodyAnimClass}" data-kanban-appearance="${kanbanAppearance}"${laneStrengthStyle}>
+                        <div class="tm-inline-loading-overlay tm-inline-loading-overlay--skeleton" data-tm-loading-mode="kanban" data-tm-loading-style="skeleton" role="status" aria-live="polite">
+                            ${typeof __tmBuildInlineLoadingSkeletonMarkup === 'function'
+                                ? __tmBuildInlineLoadingSkeletonMarkup()
+                                : `<div class="tm-inline-loading-surface"><div class="tm-inline-loading-title">${__tmT("task.loading")}</div></div>`}
+                        </div>
+                    </div>`;
+                }
+                const getCustomBoardDocTabOrderIds = (board) => {
+                    const scope = __tmNormalizeCustomBoardScope(board?.scope);
+                    const groupIds = scope.mode === 'groups'
+                        ? scope.groupIds
+                        : (scope.mode === 'tabGroup'
+                            ? [scope.groupId]
+                            : (scope.mode === 'all' ? ['all'] : [currentGroupId]));
+                    const orderByGroup = state.__tmDocTabOrderByGroup && typeof state.__tmDocTabOrderByGroup === 'object'
+                        ? state.__tmDocTabOrderByGroup
+                        : {};
+                    const ordered = groupIds.flatMap((groupId) => {
+                        const ids = orderByGroup[String(groupId || '').trim()];
+                        return Array.isArray(ids) ? ids : [];
+                    }).map((id) => String(id || '').trim()).filter(Boolean);
+                    return ordered.length ? Array.from(new Set(ordered)) : docsInOrder;
+                };
+                const createCustomBoardDocGroupComparator = (board) => {
+                    const boardDocOrderIds = getCustomBoardDocTabOrderIds(board);
+                    const boardDocRank = new Map(boardDocOrderIds.map((id, index) => [id, index]));
+                    const compare = (aId, bId) => {
+                        const aKey = String(aId || '').trim();
+                        const bKey = String(bId || '').trim();
+                        const aTabOrder = boardDocRank.get(aKey);
+                        const bTabOrder = boardDocRank.get(bKey);
+                        if (Number.isFinite(aTabOrder) && Number.isFinite(bTabOrder) && aTabOrder !== bTabOrder) {
+                            return aTabOrder - bTabOrder;
+                        }
+                        if (Number.isFinite(aTabOrder) !== Number.isFinite(bTabOrder)) {
+                            return Number.isFinite(aTabOrder) ? -1 : 1;
+                        }
+                        const aDocOrder = docOrderById.get(aKey);
+                        const bDocOrder = docOrderById.get(bKey);
+                        if (Number.isFinite(aDocOrder) && Number.isFinite(bDocOrder) && aDocOrder !== bDocOrder) {
+                            return aDocOrder - bDocOrder;
+                        }
+                        if (Number.isFinite(aDocOrder) !== Number.isFinite(bDocOrder)) {
+                            return Number.isFinite(aDocOrder) ? -1 : 1;
+                        }
+                        return aKey.localeCompare(bKey);
+                    };
+                    compare.docRank = boardDocRank;
+                    compare.docOrderIds = boardDocOrderIds;
+                    return compare;
+                };
+                const customBoardGroupInfo = (task, customBoardGroupMode) => {
+                    if (customBoardGroupMode === 'doc') {
+                        const docId = String(task?.root_id || task?.docId || '').trim() || '__unknown__';
+                        return {
+                            key: docId,
+                            labelHtml: `<span class="tm-custom-board-group-label">${__tmRenderDocIcon(docId, { size: 13, fallbackText: '📄' })}<span>${esc(__tmGetDocDisplayName(docId, __tmT("kernel.untitledDocument")))}</span></span>`,
+                            color: docId === '__unknown__' ? 'var(--tm-secondary-text)' : (__tmGetDocColorHex(docId, isDark) || 'var(--tm-primary-color)'),
+                            order: Infinity,
+                            docId,
+                            dropKind: docId === '__unknown__' ? '' : 'doc',
+                            dropDocId: docId === '__unknown__' ? '' : docId,
+                        };
+                    }
+                    if (customBoardGroupMode === 'time') {
+                        const info = getTimeGroup(task);
+                        return {
+                            key: String(info?.key || 'pending'),
+                            labelHtml: String(info?.labelHtml || esc(info?.label || __tmT("task.unscheduled"))),
+                            color: getTimeGroupLabelColor(info),
+                            order: Number.isFinite(Number(info?.sortValue)) ? Number(info.sortValue) : Infinity,
+                            dropKind: typeof __tmBuildKanbanTimeDropTarget === 'function'
+                                && __tmBuildKanbanTimeDropTarget(String(info?.key || 'pending'))
+                                ? 'time'
+                                : '',
+                            dropTimeKey: String(info?.key || 'pending'),
+                        };
+                    }
+                    if (customBoardGroupMode === 'quadrant') {
+                        const rule = resolveQuadrantRule(task);
+                        const ruleId = String(rule?.id || '__unmatched__').trim() || '__unmatched__';
+                        return {
+                            key: ruleId,
+                            labelHtml: rule
+                                ? esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule) || ruleId)
+                                : esc(__tmT("task.noMatchingQuadrant")),
+                            color: quadrantColorMap[String(rule?.color || '')] || 'var(--tm-text-color)',
+                            order: quadrantOrder.includes(ruleId) ? quadrantOrder.indexOf(ruleId) : 999,
+                            dropKind: rule ? 'quadrant' : '',
+                            dropQuadrantId: rule ? ruleId : '',
+                        };
+                    }
+                    if (customBoardGroupMode === 'task') {
+                        const content = String(task?.content || '').trim() || __tmT("kernel.untitledDocument");
+                        return {
+                            key: content,
+                            labelHtml: `📝 ${esc(content)}`,
+                            color: 'var(--tm-primary-color)',
+                            order: Infinity,
+                        };
+                    }
+                    return null;
+                };
+                const renderCustomBoardGroupedTasks = (boardId, customBoardGroupMode, rootTasks, renderRootTask, compareBoardDocGroupOrder, column) => {
+                    const groupHeadings = customBoardGroupMode === 'doc' && __tmCustomBoardUsesHeadingGroups(column);
+                    const hideDocTitle = groupHeadings && __tmNormalizeCustomBoardScope(column.scope).docIds.length === 1;
+                    const separateCompletedRootGroup = state.showCompletedTasks === true
+                        && completedTasksInlineInGroups !== true;
+                    const doneSplit = separateCompletedRootGroup
+                        ? __tmSplitTasksByDoneState(rootTasks, { forceSeparateCompletedRootGroup: true })
+                        : { active: rootTasks, done: [] };
+                    const activeRootTasks = doneSplit.active;
+                    const completedRootTasks = doneSplit.done;
+                    const renderGroupItems = (itemsHtml, collapsed = false) => `<div class="tm-kanban-group-items" data-tm-kanban-group-items aria-hidden="${collapsed ? 'true' : 'false'}"${collapsed ? ' hidden' : ''}>${String(itemsHtml || '')}</div>`;
+                    const renderCompletedGroupTitle = (groupKey, labelHtml, count) => {
+                        const collapsed = __tmIsCompletedRootGroupCollapsed(groupKey);
+                        return `<div class="tm-kanban-group-title" data-group-key="${esc(groupKey)}" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="color:var(--tm-secondary-text);">
+                            <span style="display:inline-flex;align-items:center;min-width:0;">
+                                <span class="tm-group-toggle${collapsed ? ' tm-group-toggle--collapsed' : ''}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                                <span>${labelHtml}</span>
+                            </span>
+                            <span class="tm-badge tm-badge--count">${Number(count) || 0}</span>
+                        </div>`;
+                    };
+                    const orderMap = new Map(rootTasks.map((task, index) => [String(task?.id || '').trim(), index]).filter(([id]) => !!id));
+                    const fallbackCompare = (a, b) => (orderMap.get(String(a?.id || '').trim()) ?? Infinity)
+                        - (orderMap.get(String(b?.id || '').trim()) ?? Infinity);
+                    const renderCompletedTaskGroups = (items, parentKey) => {
+                        const groups = __tmBuildCompletedTaskGroups(items, {
+                            parentKey,
+                            aggregate: true,
+                            fallbackCompare,
+                        });
+                        const renderSubgroup = (group) => {
+                            const collapsed = __tmIsCompletedRootGroupCollapsed(group.key);
+                            const labelHtml = group.kind === 'done-doc'
+                                ? __tmRenderDocGroupLabel(group.docId, group.label)
+                                : (group.kind === 'done-h2'
+                                    ? __tmRenderHeadingLevelIconLabel(group.label, group.headingLevel)
+                                    : esc(group.label));
+                            const body = group.groups
+                                ? group.groups.map(renderSubgroup).join('')
+                                : group.items.map(renderRootTask).join('');
+                            return `<div class="tm-kanban-group tm-kanban-group--completed-subgroup">
+                                ${renderCompletedGroupTitle(group.key, labelHtml, group.count)}
+                                ${renderGroupItems(body, collapsed)}
+                            </div>`;
+                        };
+                        return groups.map(renderSubgroup).join('');
+                    };
+                    const renderCustomBoardHeadingGroups = (docId, items, docGroupCollapsed, indentCh) => {
+                        const buckets = __tmBuildDocHeadingBuckets(items, noHeadingLabel);
+                        const tasksByHeading = new Map();
+                        items.forEach((task) => {
+                            const bucket = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                            if (!tasksByHeading.has(bucket.key)) tasksByHeading.set(bucket.key, []);
+                            tasksByHeading.get(bucket.key).push(task);
+                        });
+                        const groupsHtml = buckets.map((bucket) => {
+                            const headingTasks = tasksByHeading.get(bucket.key) || [];
+                            if (!headingTasks.length) return '';
+                            const headingKey = `custom:${boardId}:doc:${docId}:h2:${encodeURIComponent(bucket.key)}`;
+                            const headingCollapsed = state.collapsedGroups?.has(headingKey) === true;
+                            const headingTitle = __tmRenderHeadingLevelIconLabel(String(bucket.label || ''), headingLevel, {
+                                style: 'color:var(--tm-secondary-text);',
+                            });
+                            const headingAction = renderHeadingGroupCreateAction(docId, String(bucket.id || '').trim() || '__none__');
+                            const headingContextMenu = __tmBuildHeadingGroupContextMenuAttrs(docId, String(bucket.id || '').trim() || '__none__');
+                            const body = renderGroupItems(headingTasks.map(renderRootTask).join(''), headingCollapsed);
+                            return `<div class="tm-kanban-group">${renderGroupTitle(headingKey, headingTitle, headingTasks.length, '', { indentCh, contextMenuAttrs: headingContextMenu, actionHtml: headingAction })}${body}</div>`;
+                        }).join('');
+                        return hideDocTitle ? groupsHtml : renderGroupItems(groupsHtml, docGroupCollapsed);
+                    };
+                    const renderCompletedRootGroup = () => {
+                        if (!separateCompletedRootGroup || !completedRootTasks.length) return '';
+                        const doneGroupKey = __tmBuildCompletedRootGroupKey(`combination:${boardId}`);
+                        const collapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
+                        const body = renderCompletedTaskGroups(completedRootTasks, doneGroupKey);
+                        return `<div class="tm-kanban-group">
+                            ${renderCompletedGroupTitle(doneGroupKey, `<span>${__tmT("calendar.completedTasks")}</span>`, completedRootTasks.length)}
+                            ${renderGroupItems(body, collapsed)}
+                        </div>`;
+                    };
+                    const renderActiveGroups = () => {
+                    if (customBoardGroupMode === 'none') {
+                        return activeRootTasks.map(renderRootTask).join('');
+                    }
+                    const groups = new Map();
+                    activeRootTasks.forEach((task, index) => {
+                        const info = customBoardGroupInfo(task, customBoardGroupMode);
+                        if (!info) return;
+                        const key = String(info.key || '').trim();
+                        if (!key) return;
+                        if (!groups.has(key)) groups.set(key, { ...info, items: [], firstIndex: index });
+                        groups.get(key).items.push(task);
+                    });
+                    const orderedGroups = Array.from(groups.values()).sort((a, b) => {
+                        if (customBoardGroupMode === 'doc') {
+                            // Use the same stable order as the document-tab bar. Moving a
+                            // task changes group membership without reordering the groups.
+                            return compareBoardDocGroupOrder(a.key, b.key);
+                        }
+                        const ao = Number(a.order);
+                        const bo = Number(b.order);
+                        if (Number.isFinite(ao) && Number.isFinite(bo) && ao !== bo) return ao - bo;
+                        if (Number.isFinite(ao) !== Number.isFinite(bo)) return Number.isFinite(ao) ? -1 : 1;
+                        return Number(a.firstIndex) - Number(b.firstIndex);
+                    });
+                    return orderedGroups.map((group) => {
+                        const groupKey = `custom:${boardId}:${customBoardGroupMode}:${group.key}`;
+                        const collapsed = state.collapsedGroups?.has(groupKey) === true;
+                        const dropKind = String(group.dropKind || '').trim();
+                        const dropAttrs = dropKind
+                            ? ` data-tm-kb-drop-kind="${esc(dropKind)}"${group.dropDocId ? ` data-tm-kb-drop-doc="${esc(group.dropDocId)}"` : ''}${group.dropTimeKey ? ` data-tm-kb-drop-time="${esc(group.dropTimeKey)}"` : ''}${group.dropQuadrantId ? ` data-tm-kb-drop-quadrant="${esc(group.dropQuadrantId)}"` : ''}`
+                            : '';
+                        const dropHandlers = dropKind
+                            ? ' ondragover="tmKanbanGroupDragOver(event)" ondragleave="tmKanbanGroupDragLeave(event)" ondrop="tmKanbanGroupDrop(event)"'
+                            : '';
+                        const docId = String(group.docId || '').trim();
+                        const showHeadingGroups = groupHeadings && docId && docId !== '__unknown__';
+                        const createDocAction = docId && docId !== '__unknown__'
+                            ? `<button class="tm-group-create-btn tm-kanban-create-btn tm-kanban-group-add" type="button" title="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}" onpointerdown="event.stopPropagation()" onclick="event.preventDefault();event.stopPropagation();tmQuickAddOpenForDoc('${escSq(docId)}');">${__tmRenderLucideIcon('plus')}</button>`
+                            : '';
+                        const groupBody = showHeadingGroups
+                            ? renderCustomBoardHeadingGroups(docId, group.items, hideDocTitle ? false : collapsed, hideDocTitle ? 0 : 2)
+                            : renderGroupItems(group.items.map(renderRootTask).join(''), collapsed);
+                        if (showHeadingGroups && hideDocTitle) return groupBody;
+                        return `<div class="tm-kanban-group">
+                            <div class="tm-kanban-group-title${dropKind ? ' tm-kanban-group-title--droppable' : ''}" data-group-key="${esc(groupKey)}" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="color:${esc(group.color)};"${dropAttrs}${dropHandlers}>
+                                <span style="display:inline-flex;align-items:center;min-width:0;">
+                                    <span class="tm-group-toggle${collapsed ? ' tm-group-toggle--collapsed' : ''}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                                    <span>${group.labelHtml}</span>
+                                </span>
+                                <span class="tm-badge tm-badge--count">${group.items.length}</span>
+                                ${customBoardGroupMode === 'doc' ? createDocAction : ''}
+                            </div>
+                            ${groupBody}
+                        </div>`;
+                    }).join('');
+                    };
+                    return renderActiveGroups() + renderCompletedRootGroup();
+                };
+                const customBoardNavItems = [];
+                const customColumnsHtml = customBoardColumns.map((column) => {
+                    const boardId = String(column?.id || '').trim();
+                    const boardGroupMode = __tmNormalizeCustomBoardGroupMode(column?.groupMode);
+                    const columnKey = `custom:${boardId}`;
+                    const color = __tmNormalizeHexColor(column?.color, '') || 'var(--tm-primary-color)';
+                    const ruleLabel = column?.rule
+                        ? __tmGetCustomBoardRuleName(column.rule)
+                        : (column?.ruleId ? __tmT("task.boardRuleMissing") : __tmGetCustomBoardRuleName(null));
+                    const boardName = String(column?.name || __tmT("task.untitledSubBoard")).trim();
+                    const columnTasks = Array.isArray(column?.tasks) ? column.tasks : [];
+                    const changedTasks = columnPatch ? columnTasks.filter((task) => columnPatch.taskIds.has(String(task?.id || ''))
+                        || columnPatch.docIds?.has(String(task?.root_id || task?.docId || ''))) : [];
+                    changedTasks.forEach((task) => columnPatch.matchedTaskIds.add(String(task.id)));
+                    const renderThisColumn = !columnPatch || columnPatch.columnKeys.has(columnKey) || changedTasks.length > 0;
+                    if (columnPatch) columnPatch.resultColumnKeys.push(columnKey);
+                    const isColumnCollapsed = __tmKanbanGetCollapsedColumnSet().has(columnKey);
+                    const initialColumnVisible = isInitialColumnVisible(isColumnCollapsed);
+                    let columnCardRenderLimit = Number.POSITIVE_INFINITY;
+                    let columnRenderedCardCount = 0;
+                    let columnHasDeferredCards = false;
+                    const columnTaskMap = new Map(columnTasks.map((task) => [String(task?.id || '').trim(), task]).filter(([id]) => !!id));
+                    const childrenByParent = new Map();
+                    columnTasks.forEach((task) => {
+                        const id = String(task?.id || '').trim();
+                        const parentId = getKanbanParentTaskId(task);
+                        if (!id || !parentId || !columnTaskMap.has(parentId)) return;
+                        if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, []);
+                        childrenByParent.get(parentId).push(task);
+                    });
+                    const renderCustomBoardTaskTree = (task, depthInCol, insideCollapsedTask = false) => {
+                        const id = String(task?.id || '').trim();
+                        if (!id) return '';
+                        if (!insideCollapsedTask) {
+                            if (columnRenderedCardCount >= columnCardRenderLimit) {
+                                columnHasDeferredCards = true;
+                                return '';
+                            }
+                            columnRenderedCardCount++;
+                        }
+                        const reusable = columnPatch?.reuseEnabled ? columnPatch.reuseCards?.get(id) : null;
+                        if (reusable && reusable.columnKey === columnKey
+                            && reusable.sub === (depthInCol > 0)
+                            && !insideCollapsedTask
+                            && columnRenderedCardCount + reusable.count - 1 <= columnCardRenderLimit) {
+                            columnRenderedCardCount += reusable.count - 1;
+                            return `<div data-tm-kanban-reuse="${esc(id)}"></div>`;
+                        }
+                        const parentId = getKanbanParentTaskId(task);
+                        const parentInColumn = !!(parentId && columnTaskMap.has(parentId));
+                        const parent = parentId ? getRawKanbanTaskById(parentId) : null;
+                        const parentText = !parentInColumn && parent ? String(parent.content || '').trim() : '';
+                        const childList = childrenByParent.get(id) || [];
+                        const collapsed = !!(childList.length && __tmKanbanGetCollapsedSet().has(id));
+                        const toggleHtml = childList.length
+                            ? `<button class="tm-kanban-subtask-toggle tm-kanban-subtasks-chevron" data-tm-kanban-collapse-owner="${id}" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="tmKanbanToggleCollapse('${id}', event)" title="${collapsed ? __tmT("calendar.expandSubtasks") : __tmT("calendar.collapseSubtasks")}"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:rotate(${collapsed ? '0deg' : '90deg'});"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+                            : '';
+                        const childrenHtml = childList.length
+                            ? childList.map((child) => renderCustomBoardTaskTree(child, depthInCol + 1, insideCollapsedTask || collapsed)).join('')
+                            : '';
+                        return renderCard(
+                            task,
+                            depthInCol,
+                            depthInCol > 0,
+                            false,
+                            parentText,
+                            childrenHtml,
+                            toggleHtml,
+                            childList.length > 0,
+                            false,
+                            true
+                        );
+                    };
+                    const rootTasks = columnTasks
+                        .filter((task) => {
+                            const parentId = getKanbanParentTaskId(task);
+                            return !parentId || !columnTaskMap.has(parentId);
+                        });
+                    const renderRootTask = (task) => renderCustomBoardTaskTree(task, 0);
+                    const compareBoardDocGroupOrder = createCustomBoardDocGroupComparator(column);
+                    const renderColumnListHtml = (limit) => {
+                        columnCardRenderLimit = limit;
+                        columnRenderedCardCount = 0;
+                        columnHasDeferredCards = false;
+                        const html = renderCustomBoardGroupedTasks(boardId, boardGroupMode, rootTasks, renderRootTask, compareBoardDocGroupOrder, column);
+                        return { html, hasMore: columnHasDeferredCards, rendered: columnRenderedCardCount };
+                    };
+                    let progressiveColumnLimit = progressiveKanbanRender
+                        ? (initialColumnVisible ? kanbanProgressiveJob.initialBatchSize : 0)
+                        : Number.POSITIVE_INFINITY;
+                    if (progressiveKanbanRender) progressiveColumnLimit = Math.max(progressiveColumnLimit,
+                        Number(kanbanProgressiveJob.initialColumnLimits?.get?.(columnKey)) || 0);
+                    if (columnPatch && renderThisColumn) progressiveColumnLimit += changedTasks.filter((task) =>
+                        !columnPatch.mountedIdsByColumn?.get(columnKey)?.has(String(task.id))).length;
+                    const initialColumnRender = renderThisColumn ? renderColumnListHtml(progressiveColumnLimit)
+                        : { html: '', rendered: progressiveColumnLimit, hasMore: columnTasks.length > progressiveColumnLimit };
+                    const tasksHtml = initialColumnRender.html;
+                    if (progressiveKanbanRender && initialColumnRender.hasMore) {
+                        __tmRegisterKanbanProgressiveColumn(kanbanProgressiveJob, {
+                            key: columnKey, loaded: initialColumnRender.rendered > 0,
+                            loadNextBatch: (modalEl) => {
+                                if (!__tmIsProgressiveViewRenderCurrent(kanbanProgressiveJob, kanbanRenderMode)) return { done: true };
+                                const modal = modalEl instanceof Element ? modalEl : state.modal;
+                                const body = __tmGetKanbanProgressiveColumnElement(modal, columnKey)?.querySelector(':scope > .tm-kanban-col-body');
+                                if (!(body instanceof HTMLElement) || globalThis.__tmIsViewDomCommitBlocked?.(kanbanRenderMode)) return { retry: true };
+                                const nextLimit = progressiveColumnLimit + kanbanProgressiveJob.batchSize;
+                                const next = renderColumnListHtml(nextLimit);
+                                const patch = __tmPatchKanbanProgressiveColumn(body, next.html);
+                                if (!patch.ok) return { retry: true };
+                                progressiveColumnLimit = nextLimit;
+                                patch.addedNodes.forEach((node) => {
+                                    try { globalThis.__tmApplySearchHighlights?.(node, state.searchKeyword); } catch (e) {}
+                                    try { __tmBindFloatingTooltipsAfterLocalRerender(modal, node); } catch (e) {}
+                                });
+                                return { done: !next.hasMore };
+                            },
+                        });
+                    }
+                    if (!renderThisColumn) return '';
+                    const count = columnTasks.length;
+                    const colStyleBase = kanbanFillColumns
+                        ? `flex:1 0 ${kanbanColW}px;min-width:${kanbanColW}px;max-width:none;`
+                        : `width:${kanbanColW}px;min-width:${kanbanColW}px;max-width:${kanbanColW}px;`;
+                    const colStyle = `${colStyleBase}--tm-kanban-create-color:${color};--tm-kanban-lane-color:${color};`;
+                    const titleTextHtml = `<span class="tm-kanban-col-title-text" title="${esc(`${boardName} · ${ruleLabel}`)}">${esc(boardName)}</span>`;
+                    const headerActionsHtml = `
+                        <div class="tm-kanban-col-header-actions" onclick="event.stopPropagation()">
+                            <span class="tm-badge tm-badge--count">${count}</span>
+                            <button class="tm-kanban-col-collapse"
+                                    type="button"
+                                    title="${globalThis.__taskHorizonHostBridge.i18n.html("task.editSubBoard")}"
+                                    aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.editSubBoard")}"
+                                    onclick="tmEditCustomBoard('${escSq(boardId)}')">
+                                ${__tmRenderLucideIcon('settings-2')}
+                            </button>
+                            <button class="tm-kanban-col-collapse"
+                                    type="button"
+                                    title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.collapseBoardColumn")}"
+                                    aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.collapseBoardColumn2", { name: boardName })}"
+                                    onclick="tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)">
+                                ${__tmRenderLucideIcon('arrows-in-line-horizontal')}
+                            </button>
+                        </div>
+                    `;
+                    const titleHtml = `
+                        <div class="tm-kanban-col-title" style="color:${esc(color)};">
+                            ${titleTextHtml}
+                            ${headerActionsHtml}
+                        </div>
+                    `;
+                    customBoardNavItems.push({ key: columnKey, label: boardName, title: boardName, color, count });
+                    return `
+                        <div class="tm-kanban-col${isColumnCollapsed ? ' tm-kanban-col--collapsed' : ''}" data-kind="custom" data-status="${esc(columnKey)}" data-col-key="${esc(columnKey)}" style="${colStyle}" ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
+                            <div class="tm-kanban-col-header" data-tm-kanban-column-expanded-content${isColumnCollapsed ? ' hidden' : ''}>
+                                ${titleHtml}
+                            </div>
+                            <div class="tm-kanban-col-header tm-kanban-col-header--collapsed"
+                                 data-tm-kanban-column-collapsed-content${isColumnCollapsed ? '' : ' hidden'}
+                                 style="color:${esc(color)};"
+                                 title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.expandBoardColumn", { collapsedTitle: boardName })}"
+                                 role="button"
+                                 tabindex="0"
+                                 aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.expandBoardColumn", { collapsedTitle: boardName })}"
+                                 onclick="tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)"
+                                 onkeydown="if(event.key==='Enter'||event.key===' '){tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)}">
+                                <div class="tm-kanban-col-collapsed-label">
+                                    <span class="tm-kanban-col-collapsed-title">${esc(boardName)}</span>
+                                    <span class="tm-badge tm-badge--count">${count}</span>
+                                </div>
+                                <button class="tm-kanban-col-collapse tm-kanban-col-collapse--expand"
+                                        type="button"
+                                        title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.expandBoardColumn2")}"
+                                        aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.expandBoardColumn", { collapsedTitle: boardName })}"
+                                        onclick="tmKanbanToggleColumnCollapse('${escSq(columnKey)}', event)">
+                                    ${__tmRenderLucideIcon('arrows-out-line-horizontal')}
+                                </button>
+                            </div>
+                            <div class="tm-kanban-col-body" data-tm-kanban-column-expanded-content${isColumnCollapsed ? ' hidden' : ''} ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
+                                ${tasksHtml || (state.__tmCustomBoardLoading === true
+                                    ? `<div class="tm-kanban-group-items tm-custom-board-column-loading" aria-hidden="true">
+                                        <span class="tm-skeleton-block tm-inline-loading-kanban-card"></span>
+                                        <span class="tm-skeleton-block tm-inline-loading-kanban-card tm-inline-loading-kanban-card--sm"></span>
+                                        <span class="tm-skeleton-block tm-inline-loading-kanban-card"></span>
+                                    </div>`
+                                    : `<div class="tm-kanban-group-items"><div class="tm-kanban-empty">${__tmT("ai.empty")}</div></div>`)}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                if (columnPatch) {
+                    columnPatch.handled = true;
+                    return customColumnsHtml;
+                }
+                const emptyHtml = customBoardColumns.length ? '' : `<div class="tm-kanban-col" data-kind="custom" data-status="custom:empty" data-col-key="custom:empty" style="width:${kanbanColW}px;min-width:${kanbanColW}px;max-width:${kanbanColW}px;--tm-kanban-lane-color:var(--tm-primary-color);">
+                    <div class="tm-kanban-col-body">
+                        <div class="tm-kanban-empty">${__tmT("task.noSubBoardsYet")}</div>
+                        <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmOpenCustomBoardSetManager()" style="margin:auto;">${__tmRenderLucideIcon('plus')}<span>${__tmT("task.addSubBoard")}</span></button>
+                    </div>
+                </div>`;
+                const customBoardNavHtml = renderKanbanBoardNavHtml(customBoardNavItems);
+                const customBoardLoadingClass = state.__tmCustomBoardLoading === true ? ' tm-body--custom-board-loading' : '';
+                return `<div class="tm-body tm-body--kanban tm-body--custom-board${bodyAnimClass}${customBoardLoadingClass}${isCompact ? ' tm-body--kanban-compact' : ''}${customBoardNavHtml ? ' tm-body--kanban-has-board-nav' : ''}" data-kanban-appearance="${kanbanAppearance}"${laneStrengthStyle}>
+                    ${customBoardNavHtml}
+                    <div class="tm-kanban tm-kanban--clean${isCompact ? ' tm-kanban--compact' : ''}${kanbanFillColumns ? ' tm-kanban--fill' : ''}">${customColumnsHtml}${emptyHtml}</div>
+                    ${kanbanDetailHtml}
+                </div>`;
+            }
 
             const kanbanBoardNavItems = [];
             const colsHtml = cols.map(c => {
@@ -1633,56 +2196,6 @@
                         inCompletedRootGroup
                     );
                     return cardHtml;
-                };
-
-                const renderKanbanGroupItems = (itemsHtml, collapsed = false) => {
-                    return `<div class="tm-kanban-group-items" data-tm-kanban-group-items aria-hidden="${collapsed ? 'true' : 'false'}"${collapsed ? ' hidden' : ''}>${String(itemsHtml || '')}</div>`;
-                };
-
-                const renderHeadingGroupCreateAction = (docId, headingId) => {
-                    const did = String(docId || '').trim();
-                    if (!did || did === '__unknown__') return '';
-                    const hid = String(headingId || '').trim() || '__none__';
-                    return `
-                        <button class="tm-group-create-btn tm-kanban-create-btn tm-kanban-group-add"
-                                type="button"
-                                title="${globalThis.__taskHorizonHostBridge.i18n.html("task.newTaskUnderThisHeading")}"
-                                aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.newTaskUnderThisHeading")}"
-                                onpointerdown="event.stopPropagation()"
-                                onclick="event.preventDefault();event.stopPropagation();tmCreateTaskForHeadingGroup('${escSq(did)}','${escSq(hid)}', event)">
-                            ${__tmRenderLucideIcon('plus')}
-                        </button>
-                    `;
-                };
-
-                const renderGroupTitle = (groupKey, titleHtml, count, color, opt = {}) => {
-                    const hasForcedCollapsed = typeof opt?.collapsed === 'boolean';
-                    const isCollapsed = hasForcedCollapsed ? !!opt.collapsed : state.collapsedGroups?.has(groupKey);
-                    const indentCh = Number(opt?.indentCh);
-                    const leftIndent = Number.isFinite(indentCh) && indentCh > 0 ? `${indentCh}ch` : '0';
-                    const titleColor = String(color || '').trim();
-                    const groupBg = titleColor ? __tmGroupBgFromLabelColor(titleColor, isDark) : '';
-                    const dropKind = String(opt?.dropKind || '').trim();
-                    const dropDocId = String(opt?.dropDocId || '').trim();
-                    const dropHeadingId = String(opt?.dropHeadingId || '').trim();
-                    const actionHtml = String(opt?.actionHtml || '').trim();
-                    const contextMenuAttrs = String(opt?.contextMenuAttrs || '');
-                    const dropAttrs = dropKind
-                        ? ` data-tm-kb-drop-kind="${esc(dropKind)}"${dropDocId ? ` data-tm-kb-drop-doc="${esc(dropDocId)}"` : ''}${dropHeadingId ? ` data-tm-kb-drop-heading="${esc(dropHeadingId)}"` : ''}`
-                        : '';
-                    const dropHandlers = dropKind
-                        ? ` ondragover="tmKanbanGroupDragOver(event)" ondragleave="tmKanbanGroupDragLeave(event)" ondrop="tmKanbanGroupDrop(event)"`
-                        : '';
-                    return `
-                        <div class="tm-kanban-group-title${dropKind ? ' tm-kanban-group-title--droppable' : ''}" data-group-key="${esc(groupKey)}" aria-expanded="${isCollapsed ? 'false' : 'true'}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="${titleColor ? `color:${titleColor};` : ''}${groupBg ? `background:${groupBg};` : ''}"${dropAttrs}${dropHandlers}${contextMenuAttrs}>
-                            <span style="display:inline-flex;align-items:center;min-width:0;padding-left:${leftIndent};">
-                                <span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-                                <span>${titleHtml}</span>
-                            </span>
-                            <span class="tm-badge tm-badge--count">${Number(count) || 0}</span>
-                            ${actionHtml}
-                        </div>
-                    `;
                 };
 
                 const pinnedGroupLabelHtml = `<span style="display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--tm-pinned-color);"><span class="tm-checklist-group-pin-icon" style="transform:translateY(-1px);">${__tmRenderBadgeIcon('pin', 14)}</span><span>${__tmT("kernel.pin")}</span></span>`;

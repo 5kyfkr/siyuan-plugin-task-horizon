@@ -43,6 +43,7 @@ function createHarness() {
     let rule = { conditions: [] };
     const context = vm.createContext({
         Map, Set, state,
+        __TM_CUSTOM_BOARD_VIEW_MODE: 'comboBoard',
         SettingsStore: { data: { currentGroupId: 'all' } },
         window: { dispatchEvent() {} },
         CustomEvent: class {},

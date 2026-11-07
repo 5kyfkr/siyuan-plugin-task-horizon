@@ -1,3 +1,8 @@
+    function __tmIsKanbanDetailHostMode(value = state?.viewMode) {
+        const mode = String(value || '').trim();
+        return mode === 'kanban' || mode === 'comboBoard';
+    }
+
     function __tmBuildTaskCompleteAtDetailChipHtml(task, detailTip = null) {
         const rawValue = __tmResolveTaskCompletedAtRaw(task);
         const text = __tmFormatTaskCompletedAtTime(rawValue);
@@ -699,6 +704,15 @@
                     ].forEach((key) => {
                         if (Object.prototype.hasOwnProperty.call(structuralTask, key)) merged[key] = structuralTask[key];
                     });
+                    const projectedDocId = String(projectedTask.root_id || projectedTask.docId || '').trim();
+                    const structuralDocId = String(structuralTask.root_id || structuralTask.docId || '').trim();
+                    const projectedDocName = String(projectedTask.docName || projectedTask.doc_name || '').trim();
+                    if (projectedDocName && projectedDocId && projectedDocId === structuralDocId) {
+                        // Cross-document commits update the projected task before
+                        // stale document refreshes replace the structural mirror.
+                        merged.doc_name = projectedDocName;
+                        merged.docName = projectedDocName;
+                    }
                     const structuralCustomFieldValues = structuralTask.customFieldValues
                         && typeof structuralTask.customFieldValues === 'object'
                         && !Array.isArray(structuralTask.customFieldValues)
@@ -3353,8 +3367,19 @@
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
         const docId = String(task?.root_id || task?.docId || '').trim();
         let resolvedName = '';
+        const taskId = String(task?.id || task?.blockId || '').trim();
+        if (taskId) {
+            try {
+                const projectedTask = globalThis.__tmTaskStore?.getProjected?.(taskId) || null;
+                const projectedDocId = String(projectedTask?.root_id || projectedTask?.docId || '').trim();
+                const projectedDocName = String(projectedTask?.docName || projectedTask?.doc_name || '').trim();
+                if (projectedDocName && (!docId || !projectedDocId || projectedDocId === docId)) {
+                    resolvedName = projectedDocName;
+                }
+            } catch (e) {}
+        }
         if (docId && typeof __tmGetDocDisplayName === 'function') {
-            try { resolvedName = String(__tmGetDocDisplayName(docId, '') || '').trim(); } catch (e) {}
+            try { resolvedName = resolvedName || String(__tmGetDocDisplayName(docId, '') || '').trim(); } catch (e) {}
         }
         return resolvedName || String(task?.docName || task?.doc_name || '').trim();
     }
@@ -3388,6 +3413,65 @@
         }
         return true;
     }
+
+    function __tmApplyVisibleTaskDetailLocationOverride(taskId, location = {}) {
+        const tid = String(taskId || '').trim();
+        const nextLocation = location && typeof location === 'object' ? location : {};
+        const docId = String(nextLocation.docId || '').trim();
+        const roots = tid && typeof __tmCollectVisibleTaskDetailRoots === 'function'
+            ? __tmCollectVisibleTaskDetailRoots()
+            : [];
+        if (!tid || !docId || !roots.length) return false;
+        let touched = false;
+        roots.forEach((root) => {
+            if (!(root instanceof HTMLElement)) return;
+            const rootTaskId = String(
+                root.dataset?.tmDetailTaskId
+                || root.__tmTaskDetailTaskId
+                || root.__tmTaskDetailTask?.id
+                || ''
+            ).trim();
+            const matched = !!rootTaskId && __tmAreTaskDetailIdsEquivalent(rootTaskId, tid);
+            if (!matched) return;
+            const currentTask = root.__tmTaskDetailTask && typeof root.__tmTaskDetailTask === 'object'
+                ? root.__tmTaskDetailTask
+                : { id: rootTaskId };
+            const docName = String(nextLocation.docName || '').trim()
+                || __tmGetTaskDetailLocationDocName({ ...currentTask, root_id: docId, docId });
+            const nextTask = {
+                ...currentTask,
+                id: String(currentTask.id || rootTaskId).trim(),
+                root_id: docId,
+                docId,
+                doc_name: docName,
+                docName,
+            };
+            if (Object.prototype.hasOwnProperty.call(nextLocation, 'headingId')) {
+                const headingId = String(nextLocation.headingId || '').trim();
+                if (!headingId || headingId === '__none__') {
+                    nextTask.h2Id = '';
+                    nextTask.h2 = '';
+                    nextTask.h2Name = '';
+                    nextTask.headingLevel = '';
+                } else {
+                    nextTask.h2Id = headingId;
+                    if (String(nextLocation.headingName || '').trim()) {
+                        nextTask.h2 = String(nextLocation.headingName || '').trim();
+                        nextTask.h2Name = nextTask.h2;
+                    }
+                }
+            }
+            try { root.__tmTaskDetailTask = nextTask; } catch (e) {}
+            try { root.dataset.tmDetailTaskId = rootTaskId; } catch (e) {}
+            const synced = __tmSyncTaskDetailLocationInPlace(root, nextTask);
+            if (!synced) return;
+            try { __tmRememberTaskDetailLocationSignature(root, nextTask); } catch (e) {}
+            touched = true;
+        });
+        return touched;
+    }
+
+    try { globalThis.__tmApplyVisibleTaskDetailLocationOverride = __tmApplyVisibleTaskDetailLocationOverride; } catch (e) {}
 
     function __tmBuildTaskDetailInnerHtml(task, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
@@ -4713,7 +4797,7 @@
                     if (!refreshed) render();
                     return;
                 }
-                if (embedded && String(state.viewMode || '').trim() === 'kanban') {
+                if (embedded && __tmIsKanbanDetailHostMode()) {
                     state.kanbanDetailTaskId = effectiveNextId;
                     state.kanbanDetailAnchorTaskId = effectiveNextId;
                     if (!__tmRefreshKanbanDetailInPlace(state.modal, { source: `${bindSource}:open-child` })) render();
@@ -10516,6 +10600,7 @@ return true;
         try { __tmClearTaskDetailNoteViewState('kanban', '', 'clear-kanban-for-task-sheet'); } catch (e) {}
         state.kanbanDetailTaskId = '';
         state.kanbanDetailAnchorTaskId = '';
+        state.kanbanDetailAnchorColumnKey = '';
         try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
         try {
             modal?.querySelectorAll?.('#tmKanbanDetailFloat')?.forEach?.((floatPanel) => {
@@ -11193,7 +11278,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                 } catch (e) {}
             }
         }
-        if (String(state.viewMode || '').trim() === 'kanban' && __tmAreTaskDetailIdsEquivalent(state.kanbanDetailTaskId, tid)) {
+        if (__tmIsKanbanDetailHostMode() && __tmAreTaskDetailIdsEquivalent(state.kanbanDetailTaskId, tid)) {
             if (forceRebuild) {
                 const panel = state.modal?.querySelector?.('#tmKanbanDetailPanel');
                 const task = __tmGetTaskDetailTaskById(tid, { includeWhiteboard: true });
@@ -11536,6 +11621,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
             try { __tmClearTaskDetailNoteViewState('kanban', state.kanbanDetailTaskId, 'kanban-detail-close'); } catch (e) {}
             state.kanbanDetailTaskId = '';
             state.kanbanDetailAnchorTaskId = '';
+            state.kanbanDetailAnchorColumnKey = '';
             try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
             if (floatPanel instanceof HTMLElement) {
                 try { __tmDisposeTaskDetailRoot(panel); } catch (e) {}
@@ -11552,7 +11638,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         try {
             const modal = modalEl instanceof Element ? modalEl : state.modal;
             if (!(modal instanceof Element)) return null;
-            if (String(state.viewMode || '').trim() !== 'kanban') return null;
+            if (!__tmIsKanbanDetailHostMode()) return null;
             __tmNormalizeKanbanDetailFloatHost(modal);
             const panel = modal.querySelector('#tmKanbanDetailPanel');
             if (!(panel instanceof HTMLElement)) return null;
@@ -11574,7 +11660,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
             try {
                 const modal = modalEl instanceof Element ? modalEl : state.modal;
                 if (!(modal instanceof Element)) return;
-                if (String(state.viewMode || '').trim() !== 'kanban') return;
+                if (!__tmIsKanbanDetailHostMode()) return;
                 if (!__tmAreTaskDetailIdsEquivalent(state.kanbanDetailTaskId, snapshot.selectedId)) return;
                 const panel = modal.querySelector('#tmKanbanDetailPanel');
                 if (!(panel instanceof HTMLElement)) return;
@@ -11594,7 +11680,14 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         const panel = __tmNormalizeKanbanDetailFloatHost(modal) || modal.querySelector('#tmKanbanDetailFloat');
         const selectedId = String(state.kanbanDetailTaskId || '').trim();
         const anchorId = String(state.kanbanDetailAnchorTaskId || selectedId).trim();
-        const card = anchorId ? modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(anchorId)}"]`) : null;
+        const anchorColumnKey = String(state.kanbanDetailAnchorColumnKey || '').trim();
+        const cardSelector = anchorId ? `.tm-kanban-card[data-id="${CSS.escape(anchorId)}"]` : '';
+        const scopedCard = anchorColumnKey && cardSelector
+            ? modal.querySelector(`.tm-kanban-col[data-col-key="${CSS.escape(anchorColumnKey)}"] ${cardSelector}`)
+            : null;
+        // A task may appear in several combination-board lanes. Keep the
+        // floating detail beside the card that the user actually clicked.
+        const card = scopedCard || (cardSelector ? modal.querySelector(cardSelector) : null);
         if (!(panel instanceof HTMLElement) || !(card instanceof HTMLElement)) return false;
 
         const cardRect = card.getBoundingClientRect();
@@ -11671,7 +11764,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
             try {
                 if (!force && finished) return;
                 if (Number(floatPanel.__tmKanbanDetailSettleToken || 0) !== settleToken) return;
-                if (String(state.viewMode || '').trim() !== 'kanban') return;
+                if (!__tmIsKanbanDetailHostMode()) return;
                 if (!String(state.kanbanDetailTaskId || '').trim()) return;
                 if (!(modal.querySelector('#tmKanbanDetailFloat') instanceof HTMLElement)) return;
                 __tmPositionKanbanDetailFloat(modal);
@@ -11699,7 +11792,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
     function __tmRefreshKanbanDetailInPlace(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
-        if (String(state.viewMode || '').trim() !== 'kanban') return false;
+        if (!__tmIsKanbanDetailHostMode()) return false;
         __tmNormalizeKanbanDetailFloatHost(modal);
         const panel = modal.querySelector('#tmKanbanDetailPanel');
         const rawSelectedId = String(state.kanbanDetailTaskId || '').trim();
@@ -11724,6 +11817,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         }
         if (__tmShouldPreserveTaskDetailEditorDuringRefresh(panel, selectedId)) {
             try { panel.__tmTaskDetailTask = task; } catch (e) {}
+            try { __tmSyncTaskDetailLocationInPlace(panel, task); } catch (e) {}
             try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
             try { __tmBindKanbanDetailFloatingHandlers(modal); } catch (e) {}
             if (shouldSchedulePosition) {
@@ -11780,13 +11874,24 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         const rawTid = String(taskId || '').trim();
         const tid = __tmResolveTaskDetailEffectiveId(rawTid) || rawTid;
         if (!(modal instanceof Element) || !tid) return false;
-        if (String(state.viewMode || '').trim() !== 'kanban') return false;
+        if (!__tmIsKanbanDetailHostMode()) return false;
         const body = modal.querySelector('.tm-body.tm-body--kanban');
         if (!(body instanceof HTMLElement)) return false;
         __tmNormalizeKanbanDetailFloatHost(modal);
+        const projectedTask = globalThis.__tmTaskStore?.getProjected?.(tid) || null;
         const suppliedTask = (opts.task && typeof opts.task === 'object') ? opts.task : null;
         const suppliedTaskId = String(suppliedTask?.id || suppliedTask?.blockId || '').trim();
-        const task = (suppliedTask && (!suppliedTaskId || __tmAreTaskDetailIdsEquivalent(suppliedTaskId, tid))
+        const suppliedTaskMatches = !!suppliedTask
+            && (!suppliedTaskId || __tmAreTaskDetailIdsEquivalent(suppliedTaskId, tid));
+        const projectedDocId = String(projectedTask?.root_id || projectedTask?.docId || '').trim();
+        const projectedDocName = String(projectedTask?.docName || projectedTask?.doc_name || '').trim();
+        const suppliedDocId = String(suppliedTask?.root_id || suppliedTask?.docId || '').trim();
+        const suppliedDocName = String(suppliedTask?.docName || suppliedTask?.doc_name || '').trim();
+        const suppliedLocationStale = suppliedTaskMatches && !!projectedDocName && (
+            (!!projectedDocId && !!suppliedDocId && projectedDocId !== suppliedDocId)
+            || (!!suppliedDocName && suppliedDocName !== projectedDocName)
+        );
+        const task = (suppliedTaskMatches && !suppliedLocationStale
             ? suppliedTask
             : null)
             || __tmGetTaskDetailTaskById(tid, { includePending: true, preferPending: true })
@@ -11804,6 +11909,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         } catch (e) {}
         state.kanbanDetailTaskId = tid;
         state.kanbanDetailAnchorTaskId = tid;
+        state.kanbanDetailAnchorColumnKey = String(opts.anchorColumnKey || '').trim();
 
         let floatPanel = modal.querySelector('#tmKanbanDetailFloat');
         let panel = modal.querySelector('#tmKanbanDetailPanel');

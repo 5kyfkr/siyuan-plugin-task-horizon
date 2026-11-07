@@ -400,6 +400,10 @@ test('saved custom fields survive JSON storage and replace the old baseline when
         __tmNormalizeTaskRepeatHistory: (value) => value || [],
         __tmNormalizeTaskSnapshotDocIds: (ids) => [...new Set(ids)].sort(),
         __tmGetTaskCountCoverageStatus: () => ({ ok: true }),
+        __tmGetTaskSnapshotTaskCountCoverage: (_docIds, flatTasks) => ({
+            physicalTaskCount: Object.keys(flatTasks || {}).length,
+            coverage: { ok: true },
+        }),
         __tmMergeLocalTaskPatchIntoTaskTree() {},
     });
     for (const name of [

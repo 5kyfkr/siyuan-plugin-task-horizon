@@ -32,7 +32,7 @@ const newerData = { ...clone(oldData), settingsUpdatedAt: 200, docGroupSettingsU
 
 async function run({ downloadedBeforeSave = false, downloadDuringSave = false, downloadDuringRead = false, downloadBeforeResponse = false, downloadDuringWrite = false, newerSaveRunning = false } = {}) {
     let disk = clone(downloadedBeforeSave ? newerData : oldData);
-    const written = [], logs = [], failures = [];
+    const written = [], failures = [];
     let context;
     const identity = value => value || {};
     context = vm.createContext({
@@ -70,7 +70,6 @@ async function run({ downloadedBeforeSave = false, downloadDuringSave = false, d
             if (downloadDuringRead) receiveDownload();
             return result;
         },
-        __tmLogDocGroupSync: async (event, details) => { logs.push({event,details}); },
         fetch: async (_url, options) => {
             if (!options.body.get('file')) {
                 if (downloadDuringSave) {
@@ -103,7 +102,6 @@ async function run({ downloadedBeforeSave = false, downloadDuringSave = false, d
         }
     }
     context.window = context;
-    vm.runInContext(slice(storeSource, '    function __tmSummarizeDocGroupsForSyncLog(', '    function __tmLogDocGroupSync('), context);
     vm.runInContext(slice(syncSource, '    function __tmCancelSettingsStorePendingSave(', '    function __tmCancelSimpleStorePendingSave('), context);
     vm.runInContext(slice(syncSource, '    function __tmBuildDocGroupSyncSnapshot(', '    function __tmBuildDocScopeFingerprint('), context);
     vm.runInContext(slice(syncSource, '    function __tmApplyDocGroupSyncSnapshot(', '    function __tmEnsureDocGroupContextValidAfterSync('), context);
@@ -127,7 +125,7 @@ async function run({ downloadedBeforeSave = false, downloadDuringSave = false, d
     assert.deepEqual(failures, [], 'the production save must not swallow a fixture error');
     if (!downloadDuringSave && !downloadDuringRead && !downloadBeforeResponse && !downloadDuringWrite) assert.equal(store.lastSaveResult.ok, true);
     await Promise.resolve();
-    return { written, disk, memory: clone(store.data), logs, failures, store };
+    return { written, disk, memory: clone(store.data), failures, store };
 }
 
 
@@ -138,17 +136,11 @@ test('ordinary settings save merges group changes already downloaded to the loca
     assert.equal(h.disk.settingsFieldUpdatedAt.docGroups, 200);
 });
 
-test('ordinary saves record unchanged group contents and the settings fields causing the write', async () => {
+test('ordinary settings saves persist current group contents', async () => {
     const h = await run();
     assert.equal(h.disk.settingsUpdatedAt, 1000);
     assert.equal(h.disk.settingsFieldUpdatedAt.docGroups, 100);
     assert.equal(h.disk.docGroups.length, 1);
-    const event = h.logs.find(item => item.event === 'settings-write');
-    assert.ok(event, 'ordinary settings writes must no longer be invisible');
-    assert.equal(event.details.changed, false);
-    assert.deepEqual(Array.from(event.details.changedSettingKeys), ['currentGroupId']);
-    assert.equal(event.details.local.items[0].name, 'Daily');
-    assert.equal(event.details.response.readBackMatches, true);
 });
 
 for (const phase of ['read', 'directory']) {
@@ -158,7 +150,6 @@ for (const phase of ['read', 'directory']) {
         assert.equal(h.disk.docGroups.length, 2);
         assert.equal(h.disk.docGroups[0].name, 'Renamed');
         assert.equal(h.memory.docGroups.length, 2);
-        assert.ok(h.logs.some(item => item.event === 'settings-save-cancelled'));
     });
 
     test('a cancelled ' + phase + ' save cannot clear the next save owner or pending changes', async () => {
@@ -177,7 +168,6 @@ test('a late response from a pre-sync write cannot reset the post-sync save owne
     assert.equal(h.store.saving, true);
     assert.equal(h.store.saveDirty, true);
     assert.deepEqual(h.store.lastSaveResult, { owner: 'new-save' });
-    assert.ok(h.logs.some(item => item.event === 'settings-save-cancelled' && item.details.phase === 'after-settings-response'));
 });
 
 test('sync aborts a settings write that has not reached the file API yet', async () => {
@@ -185,8 +175,5 @@ test('sync aborts a settings write that has not reached the file API yet', async
     assert.equal(h.written.length, 0, 'the invalidated request must not write its stale payload');
     assert.equal(h.disk.docGroups.length, 2);
     assert.equal(h.disk.docGroups[0].name, 'Renamed');
-    assert.ok(h.logs.some(item => item.event === 'settings-save-cancelled'
-        && item.details.phase === 'after-settings-response'
-        && item.details.local.items[0].name === 'Daily'));
 });
 

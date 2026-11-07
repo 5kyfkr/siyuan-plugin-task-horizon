@@ -2502,9 +2502,22 @@
         }
     };
 
+    function __tmPersistViewControlSettings() {
+        try {
+            const pending = SettingsStore.save();
+            Promise.resolve(pending).catch(() => null);
+        } catch (e) {}
+    }
+
+    function __tmRefreshViewControlSettingsInPlace() {
+        try { state.__tmRefreshEnabledViewSettingsLight?.(); } catch (e) {}
+        try { globalThis.__tmRefreshViewSwitcherControlsInPlace?.(state.modal); } catch (e) {}
+    }
+
     window.updateEnabledView = async function(mode, enabled) {
         const id = String(mode || '').trim();
         if (!__TM_ALL_VIEWS.some(v => v.id === id)) return;
+        const previousView = String(state.viewMode || '').trim();
         const current = __tmGetEnabledViews();
         let next = current.slice();
         if (enabled) {
@@ -2512,18 +2525,51 @@
         } else {
             if (next.length <= 1) {
                 try { hint(__tmT("settings.keepAtLeastOneView"), 'warning'); } catch (e) {}
-                showSettings();
-                return;
+                try { state.__tmRefreshEnabledViewSettingsLight?.(); } catch (e) {}
+                return false;
             }
             next = next.filter(v => v !== id);
         }
         SettingsStore.data.enabledViews = __tmNormalizeEnabledViews(next);
         SettingsStore.data.defaultViewMode = __tmGetSafeViewMode(SettingsStore.data.defaultViewMode);
         state.viewMode = __tmGetSafeViewMode(state.viewMode);
-        await SettingsStore.save();
+        __tmRefreshViewControlSettingsInPlace();
         __tmDispatchDockSettingsChanged('enabled-views');
-        if (state.settingsModal) showSettings();
-        if (state.modal && document.body.contains(state.modal)) render();
+        __tmPersistViewControlSettings();
+        if (previousView === state.viewMode) return true;
+        const refreshAfterViewChange = async () => {
+            if ((previousView === __TM_CUSTOM_BOARD_VIEW_MODE || state.viewMode === __TM_CUSTOM_BOARD_VIEW_MODE)) {
+                try { await loadSelectedDocuments({ source: 'enabled-view-change', preferFastFirstPaint: true }); } catch (e) {}
+            }
+            if (state.modal && document.body.contains(state.modal)) render();
+        };
+        void refreshAfterViewChange();
+        return true;
+    };
+
+    window.tmMoveEnabledView = async function(mode, direction, ev = null) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(mode || '').trim();
+        const delta = Math.sign(Number(direction) || 0);
+        const current = __tmGetEnabledViews();
+        const index = current.indexOf(id);
+        const nextIndex = index + delta;
+        if (index < 0 || !delta || nextIndex < 0 || nextIndex >= current.length) return false;
+        [current[index], current[nextIndex]] = [current[nextIndex], current[index]];
+        SettingsStore.data.enabledViews = __tmNormalizeEnabledViews(current);
+        __tmRefreshViewControlSettingsInPlace();
+        __tmDispatchDockSettingsChanged('enabled-view-order');
+        __tmPersistViewControlSettings();
+        return true;
+    };
+
+    window.updateViewSwitcherStyle = async function(value) {
+        SettingsStore.data.viewSwitcherStyle = String(value || '').trim() === 'icons' ? 'icons' : 'text';
+        SettingsStore.data.viewSwitcherStyleVersion = 1;
+        try { state.__tmRefreshViewSwitcherStyleSettingsLight?.(SettingsStore.data.viewSwitcherStyle); } catch (e) {}
+        try { globalThis.__tmRefreshViewSwitcherControlsInPlace?.(state.modal); } catch (e) {}
+        __tmDispatchDockSettingsChanged('view-switcher-style');
+        __tmPersistViewControlSettings();
     };
 
     window.updateKanbanCompactMode = async function(enabled) {
@@ -2540,7 +2586,8 @@
         await SettingsStore.save();
         try { __tmKanbanColsHtmlCache = null; } catch (e) {}
         if (state.settingsModal) showSettings();
-        if (String(state.viewMode || '') !== 'kanban' || !(state.modal instanceof Element)) return;
+        const viewMode = String(state.viewMode || '').trim();
+        if ((viewMode !== 'kanban' && viewMode !== 'comboBoard') || !(state.modal instanceof Element)) return;
         const body = state.modal.querySelector('.tm-body--kanban');
         const index = body ? __tmGetKanbanBoardNavIndex(body) : -1;
         const key = index >= 0 ? body.querySelectorAll('.tm-kanban-col')[index]?.getAttribute('data-col-key') : '';

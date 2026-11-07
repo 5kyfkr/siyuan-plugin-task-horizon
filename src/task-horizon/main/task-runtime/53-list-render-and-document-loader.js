@@ -4203,6 +4203,10 @@ if (ev) {
 
     window.tmOpenTaskDetail = async function(id, ev, options = {}) {
         const detailOpenOptions = (options && typeof options === 'object') ? options : {};
+        const clickedKanbanCard = ev?.target?.closest?.('.tm-kanban-card') || null;
+        const clickedKanbanColumnKey = String(
+            clickedKanbanCard?.closest?.('.tm-kanban-col[data-col-key]')?.dataset?.colKey || ''
+        ).trim();
         const isQuickbarDetailOpen = String(detailOpenOptions.source || '').trim() === 'quickbar-detail-open'
             || __tmIsQuickbarTaskDetailOpenEvent(ev);
         const deferFreshDetailOpen = detailOpenOptions.deferFresh === true;
@@ -4292,7 +4296,7 @@ if (ev) {
                 return true;
             }
             const kanbanDetailFloat = state.modal?.querySelector?.('#tmKanbanDetailFloat');
-            if (activeRenderMode === 'kanban'
+            if ((activeRenderMode === 'kanban' || activeRenderMode === 'comboBoard')
                 && !__tmIsMobileDevice()
                 && kanbanDetailFloat instanceof HTMLElement
                 && isSameDetailTask(state.kanbanDetailTaskId)) {
@@ -4354,10 +4358,16 @@ if (ev) {
                 try { Promise.resolve(__tmWarmKanbanDocHeadings([docId], { force: true })).catch(() => null); } catch (e) {}
             }
         }
-        if (!isQuickbarDetailOpen && activeRenderMode === 'kanban' && !__tmIsMobileDevice()) {
-            if (!__tmOpenKanbanDetailFloatingInPlace(tid, state.modal, { task })) {
+        if (!isQuickbarDetailOpen
+            && (activeRenderMode === 'kanban' || activeRenderMode === 'comboBoard')
+            && !__tmIsMobileDevice()) {
+            if (!__tmOpenKanbanDetailFloatingInPlace(tid, state.modal, {
+                task,
+                anchorColumnKey: clickedKanbanColumnKey,
+            })) {
                 state.kanbanDetailTaskId = tid;
                 state.kanbanDetailAnchorTaskId = tid;
+                state.kanbanDetailAnchorColumnKey = clickedKanbanColumnKey;
                 render();
             }
             return true;
@@ -4577,6 +4587,7 @@ if (ev) {
                 targetHeadingId: String(data.targetHeadingId || '').trim(),
                 targetHeading: String(data.targetHeading || '').trim(),
                 targetHeadingRank: Number(data.targetHeadingRank),
+                targetDocName: String(data.targetDocName || '').trim(),
                 prevSiblingTaskId: String(data.prevSiblingTaskId || '').trim(),
                 targetContentAnchorId: String(data.targetContentAnchorId || '').trim(),
                 targetLastDirectChildId: String(data.targetLastDirectChildId || '').trim(),

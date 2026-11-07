@@ -24,6 +24,7 @@ const filterCode = [
 let renderer = section(read('render/43-render-timeline-kanban-calendar-body.js'),
     'function __tmBuildRenderSceneKanbanBodyHtml(', 'function __tmBuildRenderSceneCalendarBodyHtml(');
 const decoration = section(renderer, 'const renderCard = ', 'const kanbanBoardNavItems = ');
+const sharedGroups = section(renderer, 'const renderKanbanGroupItems = ', '            if (isCustomBoard) {');
 renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, childRoot, title, children, toggle) => {
     renderedTaskIds.push(task.id);
     return '<article class="tm-kanban-card' + (sub ? ' tm-kanban-card--sub' : '')
@@ -32,7 +33,7 @@ renderer = renderer.replace(decoration, `const renderCard = (task, depth, sub, c
         + '"><span class="tm-task-content-clickable" style="color:rgb(70,70,70)">' + task.content + '</span>' + (toggle || '')
         + '<div class="tm-kanban-subtasks-list" data-tm-kanban-subtasks-list'
         + (__tmKanbanGetCollapsedSet().has(task.id) ? ' hidden' : '') + '>' + children + '</div></article>';
-};\n`);
+};\n${sharedGroups}`);
 const code = [read('32-runtime-state-and-events.js'), read('33-task-boundary-facades.js'), read('34-task-projection-engine.js'), read('21-view-render-state.js'), read('render/40-render-list-context-helpers.js'),
     section(read('render/45-render-shell-controls-and-resize.js'), 'function __tmBuildGroupModeMenuOptions()', 'function __tmBuildKanbanModeMenuOptions()'),
     section(read('10-stores-rules-and-cache.js'), 'function __tmNormalizeCompletedTasksGroupBy(', 'function __tmGetTaskSnapshotRuleForView('),
@@ -66,6 +67,7 @@ async function setup(page) {
                 flatTasks: {}, taskTree: [], filteredTasks: [], otherBlocks: [], pendingInsertedTasks: {},
                 pendingDeletedTasks: {}, showCompletedTasks: true, rule: {}, searchKeyword: '' },
             __TM_OTHER_BLOCK_TAB_ID: '__other__',
+            __TM_CUSTOM_BOARD_VIEW_MODE: 'comboBoard',
             SettingsStore: { data: { completedTasksInlineInGroups: true, kanbanAppearance: 'classic', quadrantConfig: { rules: [
                 { id: 'urgent-important', name: '重要紧急', color: 'red', importance: ['high'], timeRanges: ['within7days'] },
                 { id: 'not-urgent-important', name: '重要不紧急', color: 'yellow', importance: ['high'], timeRanges: ['beyond7days'] },

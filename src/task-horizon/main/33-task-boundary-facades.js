@@ -198,7 +198,7 @@
             const current = facade;
             await ready();
             if (current !== facade) fail('UNAVAILABLE', __tmT("task.taskHorizonHasBeenUnloaded"));
-            if (!['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard'].includes(viewType)) fail('INVALID_ARGUMENT', __tmT("task.unknownTaskView"));
+            if (!['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard', 'comboBoard'].includes(viewType)) fail('INVALID_ARGUMENT', __tmT("task.unknownTaskView"));
             if (!__tmIsViewEnabled(viewType)) fail('INVALID_ARGUMENT', __tmT("task.thisTaskViewIsDisabled"));
             if (await globalThis.__taskHorizonOpenManagerFromTopbarEntry({ awaitInitialLoad: true, source: 'public-api' }) === false) {
                 fail('UNAVAILABLE', __tmT("task.taskHorizonCannotBeOpenedRightNow"));

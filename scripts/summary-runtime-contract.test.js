@@ -46,9 +46,10 @@ assert.match(source, /completedAtTs,[\s\S]*out\.sort\(__tmSummaryCompareTasksByC
 assert.match(source, /<option value="date">按日期分组<\/option>/, 'summary grouping must offer the task date used for filtering');
 assert.match(source, /groupBy === 'date'[\s\S]*未设置日期/, 'date grouping must retain tasks without a matching date');
 assert.match(source, /const missingDate = '未设置日期'[\s\S]*localeCompare/, 'date sections must sort from missing and early dates to later dates');
+assert.match(source, /data-tm-summary="fieldStartDate">开始日期<\/label>/, 'summary fields must expose start date independently');
 assert.match(source, /data-tm-summary="fieldDueDate">截止日期<\/label>/, 'summary fields must expose due date independently');
 assert.match(source, /data-tm-summary="fieldCompletionDate">完成日期<\/label>/, 'summary fields must expose completion date independently');
-assert.match(source, /renderTaskDates[\s\S]*task\.dueDate[\s\S]*task\.completionDate/, 'summary rows must label due and completion dates separately');
+assert.match(source, /renderTaskDates[\s\S]*task\.startDate[\s\S]*task\.dueDate[\s\S]*task\.completionDate/, 'summary rows must expose start, due and completion dates separately');
 assert.doesNotMatch(source, /日期口径：已完成按完成日期，未完成按截止日期。/, 'summary filters must not display a redundant date-rule explanation');
 assert.match(source, /data-tm-summary="preview"[^>]*font-size:0\.875rem/, 'summary preview text must use the requested 14px-equivalent size');
 assert.match(source, /function __tmSummaryExpandRecurringTasks[\s\S]*__tmNormalizeTaskRepeatHistory[\s\S]*__tmBuildRecurringInstanceTask/, 'summary loading must expand recurring task history through the shared virtual-instance builder');
@@ -193,7 +194,7 @@ assert.deepEqual(
         status: 'doing',
         priority: 'high',
         groupBy: 'date',
-        fields: { taskName: true, docName: true, priority: false, status: true, dueDate: true, completionDate: false, focusDuration: true },
+        fields: { taskName: true, docName: true, priority: false, status: true, startDate: true, dueDate: true, completionDate: false, focusDuration: true },
     }))),
     {
     preset: 'custom',
@@ -205,13 +206,14 @@ assert.deepEqual(
         priorityIds: ['high'],
         customFieldFilters: {},
         groupBy: 'date',
-        fields: { taskName: true, docName: true, priority: false, status: true, dueDate: true, completionDate: false, focusDuration: true, customFieldIds: [] },
+        fields: { taskName: true, docName: true, priority: false, status: true, startDate: true, dueDate: true, completionDate: false, focusDuration: true, customFieldIds: [] },
     },
     'a valid custom summary range and all filter fields must survive normalization',
 );
 const legacyDateFilter = savedFilterContext.normalizeSavedFilter({ fields: { date: true } });
 assert.equal(legacyDateFilter.fields.dueDate, true, 'legacy date-field selections must enable due date display');
 assert.equal(legacyDateFilter.fields.completionDate, true, 'legacy date-field selections must enable completion date display');
+assert.equal(legacyDateFilter.fields.startDate, false, 'legacy date-field selections must not implicitly enable start date display');
 const repairedFilter = savedFilterContext.normalizeSavedFilter({ preset: 'broken', priority: 'urgent', groupBy: 'broken', start: 'not-a-date' });
 assert.equal(repairedFilter.preset, 'this_week', 'an invalid saved preset must fall back to the original weekly default');
 assert.deepEqual(Array.from(repairedFilter.priorityIds), ['__all__'], 'an invalid saved priority must fall back to all priorities');
@@ -227,7 +229,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(savedFilterContext.normalizeSavedFilt
     fields: { customFieldIds: ['tags', 'tags', 'removed'] },
 }))), {
     preset: 'this_week', start: '', end: '', groupId: '__all__', docId: '__all__', statusIds: ['__all__'], priorityIds: ['__all__'], customFieldFilters: { tags: { optionIds: ['one', 'two'], includeEmpty: true } }, groupBy: 'status',
-    fields: { taskName: true, docName: false, priority: false, status: false, dueDate: false, completionDate: false, focusDuration: false, customFieldIds: ['tags', 'removed'] },
+        fields: { taskName: true, docName: false, priority: false, status: false, startDate: false, dueDate: false, completionDate: false, focusDuration: false, customFieldIds: ['tags', 'removed'] },
 }, 'custom option filters and selected custom field display IDs must be deduplicated and preserved');
 
 const multiPickerSource = segment('function __tmSummaryNormalizeOptionIds', 'function __tmSummaryNormalizeSavedFilter');
@@ -362,14 +364,65 @@ const collectedRangeTasks = collectorContext.collectTasks(summaryTaskContext, su
 assert.deepEqual(
     Array.from(collectedRangeTasks, (task) => task.id).sort(),
     ['active-in-range', 'done-in-range'],
-    'bounded summaries must filter unfinished tasks by due date and completed tasks by completion date',
+    'bounded summaries must filter unfinished tasks by planned date overlap and completed tasks by completion date',
 );
 assert.equal(collectedRangeTasks.find((task) => task.id === 'active-in-range')?.dueDate, '2026-11-05', 'summary rows must retain the due date');
 assert.equal(collectedRangeTasks.find((task) => task.id === 'done-in-range')?.completionDate, '2026-11-04', 'summary rows must retain the completion date');
 const collectedUndoneTasks = collectorContext.collectTasks(summaryTaskContext, { ...summaryFilter, status: '__undone__' });
-assert.deepEqual(Array.from(collectedUndoneTasks, (task) => task.id), ['active-in-range'], 'unfinished status filtering must compose with due-date filtering');
+assert.deepEqual(Array.from(collectedUndoneTasks, (task) => task.id), ['active-in-range'], 'unfinished status filtering must compose with planned-date filtering');
 const collectedAllTimeTasks = collectorContext.collectTasks(summaryTaskContext, { ...summaryFilter, start: '', end: '' });
 assert.ok(collectedAllTimeTasks.some((task) => task.id === 'active-no-date'), 'all-time summaries must retain unfinished tasks without a due date');
+
+const dateRangeCases = [
+    ['starts-in-range', { startDate: '2026-11-04', completionTime: '2026-11-12' }, true],
+    ['covers-range', { startDate: '2026-10-28', completionTime: '2026-11-15' }, true],
+    ['ends-in-range', { startDate: '2026-10-28', completionTime: '2026-11-05' }, true],
+    ['inside-range', { startDate: '2026-11-03', completionTime: '2026-11-06' }, true],
+    ['before-range', { startDate: '2026-10-25', completionTime: '2026-11-01' }, false],
+    ['after-range', { startDate: '2026-11-09', completionTime: '2026-11-15' }, false],
+    ['starts-on-last-day', { startDate: '2026-11-08', completionTime: '2026-11-12' }, true],
+    ['ends-on-first-day', { startDate: '2026-10-28', completionTime: '2026-11-02' }, true],
+    ['start-only-inside', { startDate: '2026-11-04' }, true],
+    ['start-only-before', { startDate: '2026-11-01' }, false],
+    ['start-only-after', { startDate: '2026-11-09' }, false],
+    ['due-only-inside', { completionTime: '2026-11-05' }, true],
+    ['no-dates', {}, false],
+    ['snake-case-dates', { start_date: '2026-11-04', completion_time: '2026-11-12' }, true],
+    ['reversed-dates', { startDate: '2026-11-15', completionTime: '2026-10-28' }, true],
+    ['dates-with-time', { startDate: '2026-11-08T23:59:59+08:00', completionTime: '2026-11-12T12:00:00+08:00' }, true],
+    ['done-in-period', { done: true, startDate: '2026-10-01', completionTime: '2026-10-20', taskCompleteAt: '2026-11-04T10:00:00+08:00' }, true],
+    ['done-before-period', { done: true, startDate: '2026-10-28', completionTime: '2026-11-15', taskCompleteAt: '2026-11-01T10:00:00+08:00' }, false],
+    ['done-after-period', { done: true, startDate: '2026-10-28', completionTime: '2026-11-15', taskCompleteAt: '2026-11-09T10:00:00+08:00' }, false],
+    ['done-without-completion-date', { done: true, startDate: '2026-10-28', completionTime: '2026-11-15' }, false],
+];
+const dateRangeContext = {
+    docNameMap: {},
+    docGroupIdsMap: {},
+    summaryTasks: dateRangeCases.map(([id, dates]) => ({ id, content: id, docId: 'doc', done: false, ...dates })),
+};
+const dateRangeTasks = collectorContext.collectTasks(dateRangeContext, summaryFilter);
+const dateRangeTaskIds = new Set(dateRangeTasks.map((task) => task.id));
+dateRangeCases.forEach(([id, , expected]) => {
+    assert.equal(dateRangeTaskIds.has(id), expected, `summary date matching: ${id}`);
+});
+assert.equal(dateRangeTasks.find((task) => task.id === 'covers-range')?.dateKey, '2026-11-15', 'overlap filtering must preserve the original date used for grouping');
+assert.equal(dateRangeTasks.find((task) => task.id === 'covers-range')?.startDate, '2026-10-28', 'summary rows must retain the start date');
+assert.equal(dateRangeTasks.find((task) => task.id === 'covers-range')?.dueDate, '2026-11-15', 'overlap filtering must preserve the actual due date');
+const openStartTasks = collectorContext.collectTasks(dateRangeContext, { ...summaryFilter, start: '' });
+assert.ok(openStartTasks.some((task) => task.id === 'covers-range'), 'an end-only filter must include tasks that start before its end');
+assert.ok(openStartTasks.some((task) => task.id === 'before-range'), 'an end-only filter must allow earlier tasks');
+assert.ok(!openStartTasks.some((task) => task.id === 'after-range'), 'an end-only filter must exclude tasks starting after its end');
+assert.ok(!openStartTasks.some((task) => task.id === 'no-dates'), 'an end-only filter must exclude tasks without dates');
+const openEndTasks = collectorContext.collectTasks(dateRangeContext, { ...summaryFilter, end: '' });
+assert.ok(openEndTasks.some((task) => task.id === 'covers-range'), 'a start-only filter must include tasks ending after its start');
+assert.ok(openEndTasks.some((task) => task.id === 'after-range'), 'a start-only filter must allow later tasks');
+assert.ok(!openEndTasks.some((task) => task.id === 'before-range'), 'a start-only filter must exclude tasks ending before its start');
+assert.ok(!openEndTasks.some((task) => task.id === 'no-dates'), 'a start-only filter must exclude tasks without dates');
+const allDateRangeTasks = collectorContext.collectTasks(dateRangeContext, { ...summaryFilter, start: '', end: '' });
+assert.equal(allDateRangeTasks.length, dateRangeCases.length, 'an all-time summary must retain all tasks regardless of their dates');
+const activeDateRangeTasks = collectorContext.collectTasks(dateRangeContext, { ...summaryFilter, status: '__undone__' });
+assert.ok(activeDateRangeTasks.some((task) => task.id === 'covers-range'), 'unfinished status filtering must retain overlapping tasks');
+assert.ok(activeDateRangeTasks.every((task) => !task.done), 'unfinished status filtering must exclude completed tasks');
 
 collectorCustomFieldDefs = [
     { id: 'tags', name: '标签', type: 'multi', options: [{ id: 'tag-a', name: '甲' }, { id: 'tag-b', name: '乙' }] },
@@ -458,8 +511,8 @@ const markdownContext = {
 vm.createContext(markdownContext);
 vm.runInContext(`${markdownSource}\nthis.generateMarkdown = __tmSummaryGenerateMarkdown;`, markdownContext);
 const markdownTasks = [
-    { content: '未完成任务', done: false, dueDate: '2026-11-05', completionDate: '', dateKey: '2026-11-05', docName: '文档', priority: 'none', level: 0, customFieldValues: { tags: '甲、乙', category: '未设置' } },
-    { content: '已完成任务', done: true, dueDate: '2026-10-20', completionDate: '2026-11-04', dateKey: '2026-11-04', docName: '文档', priority: 'none', level: 0 },
+    { content: '未完成任务', done: false, startDate: '2026-10-28', dueDate: '2026-11-05', completionDate: '', dateKey: '2026-11-05', docName: '文档', priority: 'none', level: 0, customFieldValues: { tags: '甲、乙', category: '未设置' } },
+    { content: '已完成任务', done: true, startDate: '2026-10-20', dueDate: '2026-10-20', completionDate: '2026-11-04', dateKey: '2026-11-04', docName: '文档', priority: 'none', level: 0 },
 ];
 const markdownFilter = {
     preset: 'this_week_report',
@@ -470,8 +523,19 @@ const markdownFilter = {
     status: '__all__',
     priority: '__all__',
     groupBy: 'status',
-    fields: { taskName: true, docName: false, priority: false, status: false, dueDate: true, completionDate: false, focusDuration: false, customFieldIds: [] },
+    fields: { taskName: true, docName: false, priority: false, status: false, startDate: false, dueDate: true, completionDate: false, focusDuration: false, customFieldIds: [] },
 };
+const startOnlyMarkdown = markdownContext.generateMarkdown(markdownTasks, {
+    ...markdownFilter,
+    fields: { ...markdownFilter.fields, startDate: true, dueDate: false },
+}, {
+    statusMap: new Map(),
+    groupNameMap: { '__all__': '全部分组' },
+    docNameMap: { doc: '文档' },
+});
+assert.match(startOnlyMarkdown, /未完成任务 \[2026-10-28\]/, 'start date must be controlled independently and appear after the task name');
+assert.doesNotMatch(startOnlyMarkdown, /\[2026-11-05\]/, 'enabling start date must not implicitly enable due date');
+assert.doesNotMatch(startOnlyMarkdown, /\[2026-11-04\]/, 'enabling start date must not implicitly enable completion date');
 const dueOnlyMarkdown = markdownContext.generateMarkdown(markdownTasks, markdownFilter, {
     statusMap: new Map(),
     groupNameMap: { '__all__': '全部分组' },

@@ -12,8 +12,10 @@
     "table-responsive-resize-behavior.test.js",
     "theme-appearance-refresh-behavior.test.js",
     "shortcut-navigation.test.js",
+    "settings-view-controls-performance-contract.test.js",
     "remark-undo-history.test.js",
     "doc-group-scope-read-failure-behavior.test.js",
+    "custom-board-runtime-contract.test.js",
     "doc-group-sync-debug-log.test.js",
     "doc-group-settings-field-sync.test.js",
     "settings-sync-save-race-behavior.test.js",
@@ -104,6 +106,10 @@
     "settings-excel-attachments-behavior.test.js"
   ],
   "browser": [
+    "custom-board-cache-render-browser.test.js",
+    "mobile-kanban-loading-browser.test.js",
+    "custom-board-group-create-browser.test.js",
+    "custom-board-document-search-browser.test.js",
     "settings-sync-load-race-browser.test.js",
     "doc-group-delete-mobile-browser.test.js",
     "calendar-caldav-browser.test.js",

@@ -33,6 +33,10 @@ const helpers = source.slice(helperStart, helperEnd);
 const functions = ['__tmEstimateJsonByteSize', '__tmParseUpdatedAtNumber', '__tmNormalizeTaskSnapshotDocIds',
     '__tmBuildTaskSnapshotScopeKey', '__tmIsUsableTaskSnapshot', '__tmIsPreservedTaskSnapshot',
     '__tmGetPreservedTaskSnapshotBucket', '__tmSelectPreservedTaskSnapshotCandidates',
+    '__tmGetExpectedTaskCountFromMap', '__tmGetExpectedTaskCountMapFromOptions', '__tmGetExpectedTaskTotalForDocs',
+    '__tmIsTaskSnapshotRecurringInstance', '__tmGetTaskSnapshotPhysicalTaskCount',
+    '__tmGetTaskSnapshotTaskCountCoverage',
+    '__tmCanPersistTaskSnapshotProjection',
     '__tmCreateEmptyTaskSnapshotStore', '__tmGetTaskSnapshotStoreUpdatedAt', '__tmBuildTaskSnapshotStore',
     '__tmValidateTaskSnapshotForScope', '__tmLoadTaskSnapshotForScope', '__tmBuildTaskSnapshotPersistSignature',
     '__tmTaskSnapshotStoreNeedsCompaction', '__tmWithDerivedCacheWriteLock',
@@ -79,6 +83,38 @@ async function main() {
         assert.equal(legacyAlias[field], old, 'alias-only legacy records must still restore ' + field);
     }
     const now = Date.now();
+    const repeatSnapshotTasks = {
+        physicalA: { id: 'physical-a', root_id: '20260905000000-0000001' },
+        repeatA1: { id: 'repeatinst:source-a:one', root_id: '20260905000000-0000001', isRecurringInstance: true },
+        repeatA2: { id: 'repeatinst:source-a:two', root_id: '20260905000000-0000001' },
+        physicalB: { id: 'physical-b', root_id: '20260905000000-0000010' },
+    };
+    const repeatTaskCountMap = new Map([
+        ['20260905000000-0000001', 1],
+        ['20260905000000-0000010', 1],
+    ]);
+    const repeatCoverage = context.__tmGetTaskSnapshotTaskCountCoverage([
+        '20260905000000-0000001', '20260905000000-0000010',
+    ], repeatSnapshotTasks, { taskCountMap: repeatTaskCountMap });
+    assert.equal(repeatCoverage.physicalTaskCount, 2);
+    assert.equal(repeatCoverage.coverage.ok, true,
+        'virtual recurring instances must not count as extra physical tasks during coverage validation');
+    const incompleteSnapshotTasks = { ...repeatSnapshotTasks };
+    delete incompleteSnapshotTasks.physicalB;
+    const incompleteCoverage = context.__tmGetTaskSnapshotTaskCountCoverage([
+        '20260905000000-0000001', '20260905000000-0000010',
+    ], incompleteSnapshotTasks, { taskCountMap: repeatTaskCountMap });
+    assert.equal(incompleteCoverage.coverage.ok, false,
+        'virtual recurring instances must not hide missing physical tasks');
+    Object.assign(context, {
+        SettingsStore: { data: { currentGroupId: 'group-0' } },
+        state: { taskTree: [{ id: '20260905000000-0000001' }] },
+    });
+    assert.equal(context.__tmCanPersistTaskSnapshotProjection([
+        '20260905000000-0000001', '20260905000000-0000010',
+    ], repeatSnapshotTasks, { taskCountMap: repeatTaskCountMap }), true,
+    'snapshot persistence must use the same physical-task coverage semantics');
+
     const document = {
         id: '20260905000000-0000001', name: '任务文档', tasks: [{
             id: '20260905000000-0000002', content: '检查任务', custom_priority: 'high',

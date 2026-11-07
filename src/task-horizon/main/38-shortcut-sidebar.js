@@ -107,8 +107,10 @@ SOFTWARE.
             const activeId = __tmShortcuts.activeId();
             viewport.innerHTML = __tmShortcuts.items().map(item => {
                 const issues = __tmShortcuts.issues(item), labels = __tmShortcuts.names(item);
-                const path = [labels.group, ...(item.tabGroupId ? [labels.tabGroup] : []), labels.doc, labels.view,
-                    ...(item.viewId === 'kanban' ? [labels.kanbanBoardMode] : []), labels.groupMode, labels.rule].join(' → ');
+                const path = item.viewId === 'comboBoard'
+                    ? [labels.view, labels.comboBoardSet].join(' → ')
+                    : [labels.group, ...(item.tabGroupId ? [labels.tabGroup] : []), labels.doc, labels.view,
+                        ...(item.viewId === 'kanban' ? [labels.kanbanBoardMode] : []), labels.groupMode, labels.rule].join(' → ');
                 return `<div class="tm-shortcut-row ${issues.length ? 'is-invalid' : ''}"><button type="button" class="tm-shortcut-go" data-shortcut-id="${esc(item.id)}" title="${esc(item.name + (issues.length ? __tmT("task.invalid") : '') + '\n' + path)}" aria-label="${esc(item.name + (issues.length ? __tmT("task.invalid2") : ''))}" ${activeId === item.id ? 'aria-current="page"' : ''}>${iconHtml(item.icon)}<span class="tm-shortcut-name">${esc(item.name)}</span>${issues.length ? `<span class="tm-shortcut-invalid">${__tmT("task.invalid3")}</span>` : `<span class="tm-shortcut-count" data-shortcut-count="${esc(item.id)}">${cachedCount(item) ?? ''}</span>`}</button>${button('edit', __tmT("task.edit2", { name: esc(item.name) }), 'dots-three').replace('data-shortcut-action="edit"', `data-shortcut-edit="${esc(item.id)}"`)}</div>`;
             }).join('') || `<div class="tm-shortcut-empty">${__tmT("task.saveFrequentlyUsedDocumentScopesViewsAndRulesHere")}</div>`;
             viewport.scrollTop = top;
@@ -459,36 +461,52 @@ SOFTWARE.
         async function edit(item = null) {
             await __tmEnsureFilterRulesLoaded();
             const current = __tmShortcuts.context();
+            const activeComboBoardSetId = String(SettingsStore.data.activeCustomBoardSetId || '').trim();
             const draft = item ? { ...item, icon: { ...item.icon } } : {
                 id: '', name: '', icon: { type: 'phosphor', name: 'star' }, groupId: SettingsStore.data.currentGroupId || 'all',
                 tabGroupId: current?.tabGroupId || __tmParseDocTabCustomGroupActiveId(state.activeDocId) || '',
                 docId: __tmIsDocTabCustomGroupActiveId(state.activeDocId) ? 'all' : state.activeDocId || 'all',
                 viewId: state.homepageOpen ? 'home' : state.viewMode || 'checklist', ruleId: String(state.currentRule || ''),
-                groupMode: __tmGetCurrentGroupModeValue(), kanbanBoardMode: __tmGetKanbanBoardMode(), targetNames: {} };
+                groupMode: __tmGetCurrentGroupModeValue(), kanbanBoardMode: __tmGetKanbanBoardMode(),
+                comboBoardSetId: activeComboBoardSetId, targetNames: {} };
             const labels = __tmShortcuts.names(draft);
+            const comboBoardSets = Array.isArray(SettingsStore.data.customBoardSets) ? SettingsStore.data.customBoardSets : [];
+            const missingComboBoardSetOption = draft.comboBoardSetId
+                && !comboBoardSets.some(set => set.id === draft.comboBoardSetId)
+                ? `<option value="${esc(draft.comboBoardSetId)}" selected disabled>${esc(__tmT("task.boardSetWasDeletedOrUnavailable", { set: draft.comboBoardSetId }))}</option>`
+                : '';
+            const comboBoardSetOptions = missingComboBoardSetOption + comboBoardSets
+                .map(set => `<option value="${esc(set.id)}" ${set.id === draft.comboBoardSetId ? 'selected' : ''}>${esc(set.name)}</option>`)
+                .join('');
             const root = showPopup(item ? __tmT("task.editShortcut") : __tmT("task.newShortcut"), `
                 <div class="tm-shortcut-name-fields"><label>${__tmT("task.icon")}<button type="button" class="tm-shortcut-icon-select" data-icon-toggle aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.chooseShortcutIcon")}" aria-expanded="false">${iconHtml(draft.icon)}</button></label><label>${__tmT("ai.name")}<input class="b3-text-field" data-field="name" maxlength="32" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.forExampleToday")}" value="${esc(draft.name)}"></label></div>
                 <div class="tm-shortcut-icon-picker" hidden><div class="tm-shortcut-icon-sources"><button type="button" data-phosphor>${__tmT("task.builtInIcons")}</button><button type="button" data-emoji>${__tmT("task.siyuanEmoji")}</button></div><input class="b3-text-field" data-icon-search placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.searchChineseOrEnglishNames")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.searchicon")}"><div class="tm-shortcut-icon-grid"></div></div>
                 <p class="tm-shortcut-hint">${__tmT("task.theseSettingsApplyToThisShortcutOnlyAndDo")}</p>
-                <label>${__tmT("calendar.documentGroups")}<select class="b3-select" data-field="groupId">${optionHtml(__tmShortcuts.groups(), draft.groupId, labels.group)}</select></label>
-                <label data-tab-field>${__tmT("task.tabGroups2")}<select class="b3-select" data-field="tabGroupId"></select></label>
-                <label>${__tmT("task.documentTab")}<select class="b3-select" data-field="docId"></select></label>
+                <label data-standard-context-field>${__tmT("calendar.documentGroups")}<select class="b3-select" data-field="groupId">${optionHtml(__tmShortcuts.groups(), draft.groupId, labels.group)}</select></label>
+                <label data-standard-context-field data-tab-field>${__tmT("task.tabGroups2")}<select class="b3-select" data-field="tabGroupId"></select></label>
+                <label data-standard-context-field>${__tmT("task.documentTab")}<select class="b3-select" data-field="docId"></select></label>
                 <label>${__tmT("calendar.views")}<select class="b3-select" data-field="viewId">${optionHtml([{ id: 'home', name: __tmT("task.home") }, ...__TM_ALL_VIEWS.filter(view => __tmIsViewEnabled(view.id)).map(view => ({ id: view.id, name: view.label }))], draft.viewId, labels.view)}</select></label>
+                <label data-combo-board-field ${draft.viewId === 'comboBoard' ? '' : 'hidden'}>${__tmT("task.boardSet")}<select class="b3-select" data-field="comboBoardSetId">${comboBoardSetOptions || `<option value="">${__tmT("task.noBoardSets")}</option>`}</select></label>
                 <label data-kanban-field hidden>${__tmT("task.kanbanMode")}<select class="b3-select" data-field="kanbanBoardMode">${optionHtml([
                     { id: '', name: __tmT("task.keepCurrentKanbanMode") }, { id: 'heading', name: __tmT("calendar.title") }, { id: 'time', name: __tmT("task.time") }, { id: 'status', name: __tmT("kernel.status") }, { id: 'quadrant', name: __tmT("task.quadrants") }
                 ], draft.kanbanBoardMode || '')}</select></label>
-                <label>${__tmT("task.taskGrouping")}<select class="b3-select" data-field="groupMode">${optionHtml([
+                <label data-standard-context-field>${__tmT("task.taskGrouping")}<select class="b3-select" data-field="groupMode">${optionHtml([
                     { id: '', name: __tmT("task.keepCurrentGroup") }, ...['none', 'doc', 'time', 'quadrant', 'task']
                         .map(id => ({ id, name: id === 'quadrant' && draft.viewId === 'kanban' && draft.kanbanBoardMode === 'quadrant' ? __tmT("task.quadrantBoardIsPinned") : __tmGetGroupModeLabel(id), disabled: id === 'quadrant' && draft.viewId === 'kanban' && draft.kanbanBoardMode === 'quadrant' }))
                 ], draft.groupMode || '')}</select></label>
-                <p class="tm-shortcut-hint" data-group-hint hidden>${__tmT("task.theCurrentViewDoesNotUseTaskGrouping")}</p>
-                <label>${__tmT("task.filterRule")}<select class="b3-select" data-field="ruleId">${optionHtml([{ id: '', name: __tmT("task.noRule") }, ...__tmShortcuts.rules().filter(rule => rule.enabled !== false)], draft.ruleId, labels.rule)}</select></label>
+                <p class="tm-shortcut-hint" data-standard-context-field data-group-hint hidden>${__tmT("task.theCurrentViewDoesNotUseTaskGrouping")}</p>
+                <label data-standard-context-field>${__tmT("task.filterRule")}<select class="b3-select" data-field="ruleId">${optionHtml([{ id: '', name: __tmT("task.noRule") }, ...__tmShortcuts.rules().filter(rule => rule.enabled !== false)], draft.ruleId, labels.rule)}</select></label>
                 <p class="tm-shortcut-status" role="status"></p><p class="tm-shortcut-path"></p>`,
                 `${item ? `<button type="button" class="b3-button b3-button--cancel tm-shortcut-delete" data-delete>${__tmT("common.delete")}</button>` : ''}${cancelButton}${saveButton(__tmT("task.saveOpen"))}`);
             let loading = false, documentError = '', currentDocs = [], saving = false;
             const field = name => q(`[data-field="${name}"]`, root);
             const sync = () => {
-                for (const key of ['name', 'groupId', 'tabGroupId', 'docId', 'viewId', 'kanbanBoardMode', 'groupMode', 'ruleId']) draft[key] = field(key).value.trim();
+                for (const key of ['name', 'groupId', 'tabGroupId', 'docId', 'viewId', 'kanbanBoardMode', 'groupMode', 'ruleId', 'comboBoardSetId']) {
+                    draft[key] = field(key)?.value.trim() || '';
+                }
+                const isComboBoard = draft.viewId === 'comboBoard';
+                root.querySelectorAll('[data-standard-context-field]').forEach(element => { element.hidden = isComboBoard; });
+                q('[data-combo-board-field]', root).hidden = !isComboBoard;
                 if (draft.viewId === 'kanban' && draft.kanbanBoardMode === 'quadrant' && draft.groupMode === 'quadrant') draft.groupMode = 'none';
                 const groupModeSelect = field('groupMode');
                 if (groupModeSelect) {
@@ -497,22 +515,30 @@ SOFTWARE.
                             .map(id => ({ id, name: id === 'quadrant' && draft.viewId === 'kanban' && draft.kanbanBoardMode === 'quadrant' ? __tmT("task.quadrantBoardIsPinned") : __tmGetGroupModeLabel(id), disabled: id === 'quadrant' && draft.viewId === 'kanban' && draft.kanbanBoardMode === 'quadrant' }))
                     ], draft.groupMode || '');
                 }
-                q('[data-kanban-field]', root).hidden = draft.viewId !== 'kanban';
-                const usesGrouping = draft.viewId !== 'home';
+                q('[data-kanban-field]', root).hidden = isComboBoard || draft.viewId !== 'kanban';
+                const usesGrouping = !isComboBoard && draft.viewId !== 'home';
                 field('groupMode').disabled = !usesGrouping;
                 const groupHint = q('[data-group-hint]', root);
                 groupHint.textContent = draft.viewId === 'calendar' ? __tmT("task.taskListGroupingUsedInTheCalendarSidebar") : __tmT("task.theCurrentViewDoesNotUseTaskGrouping");
-                groupHint.hidden = usesGrouping && draft.viewId !== 'calendar';
+                groupHint.hidden = isComboBoard || (usesGrouping && draft.viewId !== 'calendar');
                 const issues = __tmShortcuts.issues(draft);
-                if (!loading && draft.docId !== 'all' && !currentDocs.some(doc => doc.id === draft.docId)) issues.push(__tmT("task.theDocumentWasDeletedOrIsOutsideTheSelected"));
+                if (!isComboBoard && !loading && draft.docId !== 'all' && !currentDocs.some(doc => doc.id === draft.docId)) issues.push(__tmT("task.theDocumentWasDeletedOrIsOutsideTheSelected"));
                 const message = documentError || issues.join('；');
                 q('.tm-shortcut-status', root).textContent = loading ? __tmT("task.loadingDocuments2") : message;
                 q('[data-save]', root).disabled = saving || loading || !draft.name || !!message;
                 const names = __tmShortcuts.names(draft);
-                q('.tm-shortcut-path', root).textContent = [names.group, ...(draft.tabGroupId ? [names.tabGroup] : []), names.doc, names.view,
-                    ...(draft.viewId === 'kanban' ? [names.kanbanBoardMode] : []), names.groupMode, names.rule].join(' → ');
+                q('.tm-shortcut-path', root).textContent = isComboBoard
+                    ? [names.view, names.comboBoardSet].join(' → ')
+                    : [names.group, ...(draft.tabGroupId ? [names.tabGroup] : []), names.doc, names.view,
+                        ...(draft.viewId === 'kanban' ? [names.kanbanBoardMode] : []), names.groupMode, names.rule].join(' → ');
             };
             const targets = async (changed = false) => {
+                if (draft.viewId === 'comboBoard') {
+                    loading = false;
+                    documentError = '';
+                    sync();
+                    return;
+                }
                 draft.groupId = field('groupId').value;
                 if (changed) draft.tabGroupId = '';
                 const tabs = __tmShortcuts.tabGroups(draft.groupId);
@@ -532,6 +558,16 @@ SOFTWARE.
             root.addEventListener('change', event => {
                 if (event.target === field('groupId')) void targets(true);
                 else if (event.target === field('tabGroupId')) { draft.tabGroupId = field('tabGroupId').value;draft.docId = 'all';void targets(); }
+                else if (event.target === field('viewId')) {
+                    sync();
+                    if (draft.viewId === 'comboBoard') {
+                        loading = false;
+                        documentError = '';
+                        sync();
+                    } else {
+                        void targets();
+                    }
+                }
                 else sync();
             });
             const picker = q('.tm-shortcut-icon-picker', root);

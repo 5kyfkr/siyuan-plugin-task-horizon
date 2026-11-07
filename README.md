@@ -2,9 +2,19 @@
 
 # Task Horizon
 
-Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siyuan). Collect tasks from your documents and work with them in checklist, table, timeline, Kanban, calendar, and whiteboard views. A homepage brings together project progress, recent completions, and focus statistics.
+Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siyuan). Collect tasks from your documents and work with them in checklist, table, timeline, Kanban, board sets, calendar, and whiteboard views. A homepage brings together project progress, recent completions, and focus statistics.
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
+
+## What's new in 3.4.2
+
+- **Board sets:** add a **Board sets** view that combines independent sub-boards in one workspace. Each sub-board can use its own document scope (all documents, multiple document groups, a tab group, or selected documents), filter rule, grouping, color, and order. Manage and switch sets from the top bar, save them as shortcuts, and restore the last opened set. The free version includes one board set; full features unlock more. A task may appear on several sub-boards, while card-to-card nesting stays within the same sub-board.
+- **Views and loading:** reorder enabled views and switch the desktop top and narrow-screen bottom switchers between text and icons; icon buttons show their names on hover. Mobile and Dock top bars can fold secondary actions to preserve space. Board sets and Kanban paint from cached projections or skeletons, including a skeleton-first mobile Kanban, refresh changed documents in batches, and restore cached filtered views only when their task data is still current. Task-count metadata and snapshots resolve in parallel, and normalized status lookups are reused, speeding up priority-score sorting and cache recovery while keeping virtual recurring instances from breaking task-count checks.
+- **Summary:** a bounded summary date filter now includes unfinished tasks when any part of their start-to-due range overlaps the selected interval. Start date can be shown as an independent optional column; completed tasks continue to use their completion date.
+- **Fixes:** remove duplicate disclosure arrows from the attachment document creator and document-group picker. Keep the open task-detail location synchronized after cross-document moves, and improve mobile and IME timing for semantic-date suggestions.
+
+<details>
+<summary>Previous releases</summary>
 
 ## What's new in 3.4.1
 
@@ -13,9 +23,6 @@ The same plugin includes English and Simplified Chinese. Existing installations 
 - **Summary:** filter by custom single- and multi-select columns, including **Not set**, and choose which of those columns appear. Status and importance accept multiple selections, and weekly and daily reports show group counts with the configured fields.
 - **Views and document groups:** document and heading group names render block references and links in checklist, table, timeline, Kanban, and whiteboard, and still open their document. Document-group settings now merge field by field when switching or syncing groups, so a sync or reload no longer restores stale groups; unchanged settings are not rewritten, and name-only changes refresh views without reloading tasks. Deleting a document group now asks for confirmation in a dialog that fits narrow screens.
 - **Semantic dates and task creation:** editing a task in its original document now offers date recognition even when the task is outside the current group, without adding it to the group. Queued tasks share a single confirmation (up to 50 tasks) and remain pending while the plugin page is hidden. Creating a subtask or sibling task shows the pin control again and follows the default pin setting.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.4.0
 
@@ -97,6 +104,7 @@ See the [full Chinese usage guide](https://ld246.com/article/1793325419094).
 | Table | Compare and edit tasks using configurable columns |
 | Timeline | Task date ranges and dependencies |
 | Kanban | Group tasks into columns and move tasks between them |
+| Board sets | Combine independent Kanban-style sub-boards with separate scopes, rules, and grouping |
 | Calendar | Tasks, schedules, reminders, and supported focus records |
 | Whiteboard | Arrange task cards, notes, frames, drawings, and connections |
 

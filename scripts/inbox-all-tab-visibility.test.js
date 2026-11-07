@@ -25,7 +25,8 @@ let rule = { conditions: [] };
 let saves = 0;
 const storage = new Map();
 const context = vm.createContext({
-    Map, Set, state, SettingsStore: { data, save: async () => { saves++; } },
+    Map, Set, state, __TM_CUSTOM_BOARD_VIEW_MODE: 'comboBoard',
+    SettingsStore: { data, save: async () => { saves++; } },
     Storage: { get: (key, fallback) => storage.has(key) ? storage.get(key) : fallback, set: (key, value) => storage.set(key, value) },
     CustomEvent: class {}, document: { body: { contains: () => false } },
     __tmTaskStore: { getFlatMap: () => flatTasks },
@@ -122,6 +123,7 @@ Object.assign(context, {
     __tmGetEffectiveGroupModeValue: () => 'doc', __tmGetTaskSnapshotRuleForView: () => rule,
     __tmStableSettingsJsonValue: value => value, __tmGetShowCompletedTasksFromSettings: () => true,
     __tmNormalizeCompletedTasksGroupBy: () => 'date', __tmBuildTaskSnapshotViewStructureSignature: () => '',
+    __tmBuildTaskProjectionDataSignature: tasks => tasks.map(task => task.id).sort().join(','),
     __tmNormalizeWhiteboardSequenceScope: () => '', __tmRuleSortsUseCustomOrderField: () => false,
     __tmParseVersionNumber: value => Number(value) || 0,
     __tmNormalizeTaskMetaAttrKeySettings: () => ({}), __tmNormalizeTaskMetaAttrAliasSettings: () => ({}),

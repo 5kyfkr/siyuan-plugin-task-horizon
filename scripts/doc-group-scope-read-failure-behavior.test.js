@@ -78,12 +78,15 @@ async function managerLoadOptions(hasTasks) {
 }
 
 async function retryScope(readScope, options = {}, isCurrent = () => true) {
-    const start = loader.indexOf('        const resolveScopeOptions =', loader.indexOf('async function loadSelectedDocuments('));
+    const start = loader.indexOf('        let allDocIds = [];', loader.indexOf('async function loadSelectedDocuments('));
     const end = loader.indexOf('        const editorOrderSnapshots =', start);
     assert.ok(start >= 0 && end > start);
     const context = vm.createContext({
         options, state: {}, currentGroupId: 'work', isSwitchDocGroupLoad: false, preferFastFirstPaint: true, forceFreshTasks: false,
+        customBoardMode: false,
+        resolveScopeOptions: {},
         retryEmptyDocScope: options.retryEmptyDocScope === true, waitForDocScopeResolve: false,
+        __tmEnsureFilterRulesLoaded: async () => [],
         resolveDocIdsFromGroups: readScope, __tmBuildDocGroupLoaderContext: () => ({ entries: [{ id: 'notebook-a', kind: 'notebook' }] }),
         __tmRefreshNotebookCache: async () => {}, isTokenCurrent: isCurrent, setTimeout: fn => { fn(); return 1; },
     });

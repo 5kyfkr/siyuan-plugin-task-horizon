@@ -21,6 +21,7 @@ function section(source, start, end) {
 // Exercise production grouping, tree rendering, settings switches and disclosure.
 // Host services and card decorations are the only stubs.
 const harnessSource = `
+const __TM_CUSTOM_BOARD_VIEW_MODE = 'comboBoard';
 const state = { viewMode: 'whiteboard', activeDocId: 'all', filteredTasks: [], taskTree: [], collapsedGroups: new Set(), expandedCompletedGroups: new Set() };
 const SettingsStore = { data: { currentGroupId: 'all', pinTasksWithinGroups: true }, save: async () => {}, syncToLocal() {} };
 const Storage = { set() {} };

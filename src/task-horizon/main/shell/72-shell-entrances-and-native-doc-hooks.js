@@ -2897,8 +2897,9 @@
             const eventNode = __tmResolveNativeDocEventElement(event?.target);
             const inNativeEditor = eventNode instanceof Element
                 && (eventNode.matches?.('.protyle-wysiwyg') || eventNode.closest?.('.protyle-wysiwyg'));
-            const syntheticCompositionEnd = event?.type === 'compositionend' && !!inNativeEditor;
-            if (!event || (event.isTrusted !== true && !syntheticCompositionEnd) || event.isComposing === true) {
+            const nativeEditorCompositionEnd = event?.type === 'compositionend' && !!inNativeEditor;
+            if (!event || (event.isTrusted !== true && !nativeEditorCompositionEnd)
+                || (event.isComposing === true && !nativeEditorCompositionEnd)) {
                 return;
             }
             const binding = __tmResolveNativeDocTaskContentInput(event.target);

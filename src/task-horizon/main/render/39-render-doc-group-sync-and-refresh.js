@@ -339,8 +339,6 @@
             const syncPromise = Promise.resolve().then(async () => {
                 const previousGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
                 const previousScopeFingerprint = __tmBuildDocScopeFingerprint(state.__tmLoadedDocIdsForTasks, previousGroupId);
-                const previousGroups = __tmSummarizeDocGroupsForSyncLog(SettingsStore.data);
-                const previousGroupUpdatedAt = __tmGetDocGroupSettingsUpdatedAt(SettingsStore.data);
                 const appliedFields = __tmApplySettingsFieldUpdatesByMap(SettingsStore.data, remoteSettings, {
                     includeKeys: new Set(__TM_DOC_GROUP_SETTINGS_KEYS),
                 });
@@ -348,15 +346,6 @@
                 SettingsStore.refreshDocGroupSyncState(SettingsStore.data.docGroupSettingsUpdatedAt);
                 SettingsStore.refreshSettingsFieldSyncState();
                 __tmEnsureDocGroupContextValidAfterSync();
-                void __tmLogDocGroupSync('doc-group-dropdown-merge', {
-                    syncMode: 'settings-fields',
-                    appliedSettingKeys: appliedFields,
-                    local: previousGroups,
-                    file: __tmSummarizeDocGroupsForSyncLog(remoteSettings),
-                    applied: __tmSummarizeDocGroupsForSyncLog(SettingsStore.data),
-                    docGroupSettingsUpdatedAt: { local: previousGroupUpdatedAt, file: __tmGetDocGroupSettingsUpdatedAt(remoteSettings) },
-                    fingerprints: { local: currentFingerprint, file: remoteFingerprint },
-                }, `dropdown:${currentFingerprint}:${remoteFingerprint}`);
                 try { SettingsStore.syncToLocal(); } catch (e) {}
                 try { __tmDocExpandCache.clear(); } catch (e) {}
                 try { __tmResolvedDocIdsCache = null; } catch (e) {}
@@ -535,6 +524,7 @@
             checklistDetailDismissed: !!state.checklistDetailDismissed,
             kanbanDetailTaskId: String(state.kanbanDetailTaskId || '').trim(),
             kanbanDetailAnchorTaskId: String(state.kanbanDetailAnchorTaskId || '').trim(),
+            kanbanDetailAnchorColumnKey: String(state.kanbanDetailAnchorColumnKey || '').trim(),
             multiSelectModeEnabled: !!state.multiSelectModeEnabled,
             multiSelectedTaskIds: Array.isArray(state.multiSelectedTaskIds) ? state.multiSelectedTaskIds.slice() : [],
             multiBulkEditFieldKey: String(state.multiBulkEditFieldKey || '').trim(),
@@ -569,6 +559,7 @@
         state.checklistDetailDismissed = !!saved.checklistDetailDismissed;
         state.kanbanDetailTaskId = String(saved.kanbanDetailTaskId || '').trim();
         state.kanbanDetailAnchorTaskId = String(saved.kanbanDetailAnchorTaskId || '').trim();
+        state.kanbanDetailAnchorColumnKey = String(saved.kanbanDetailAnchorColumnKey || '').trim();
         state.multiSelectModeEnabled = !!saved.multiSelectModeEnabled;
         state.multiSelectedTaskIds = Array.isArray(saved.multiSelectedTaskIds)
             ? saved.multiSelectedTaskIds.map((id) => String(id || '').trim()).filter(Boolean)
@@ -594,6 +585,7 @@
             checklistDetailDismissed: !!state.checklistDetailDismissed,
             kanbanDetailTaskId: String(state.kanbanDetailTaskId || '').trim(),
             kanbanDetailAnchorTaskId: String(state.kanbanDetailAnchorTaskId || '').trim(),
+            kanbanDetailAnchorColumnKey: String(state.kanbanDetailAnchorColumnKey || '').trim(),
             homepageOpen: !!state.homepageOpen,
         };
         return current.viewMode === (String(saved.viewMode || 'list').trim() || 'list')
@@ -603,6 +595,7 @@
             && current.checklistDetailDismissed === !!saved.checklistDetailDismissed
             && current.kanbanDetailTaskId === String(saved.kanbanDetailTaskId || '').trim()
             && current.kanbanDetailAnchorTaskId === String(saved.kanbanDetailAnchorTaskId || '').trim()
+            && current.kanbanDetailAnchorColumnKey === String(saved.kanbanDetailAnchorColumnKey || '').trim()
             && current.homepageOpen === !!saved.homepageOpen;
     }
 

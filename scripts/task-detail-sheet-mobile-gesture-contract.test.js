@@ -14,8 +14,8 @@ const styleSource = fs.readFileSync(path.join(root, 'task-horizon.css'), 'utf8')
 
 assert.match(
     policySource,
-    /taskDetailSheetViewModes\s*=\s*new Set\(\['list', 'kanban', 'whiteboard', 'calendar', 'timeline'\]\)/,
-    'table, kanban, whiteboard, calendar, and timeline views must share the mobile task detail sheet',
+    /taskDetailSheetViewModes\s*=\s*new Set\(\['list', 'kanban', 'comboBoard', 'whiteboard', 'calendar', 'timeline'\]\)/,
+    'table, kanban, combination board, whiteboard, calendar, and timeline views must share the mobile task detail sheet',
 );
 assert.match(
     renderSource,

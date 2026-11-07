@@ -367,8 +367,9 @@
         const listLike = __tmIsListLikeViewMode(value);
         const policy = listLike ? __tmGetViewRenderWindowPolicy(value) : null;
         if (listLike && tasks.length <= policy.initial) return null;
-        if (value !== 'kanban' && !listLike) return null;
-        if (value === 'kanban' && tasks.length <= __TM_KANBAN_PROGRESSIVE_BATCH_SIZE) return null;
+        const kanbanLike = value === 'kanban' || value === 'comboBoard';
+        if (!kanbanLike && !listLike) return null;
+        if (kanbanLike && tasks.length <= __TM_KANBAN_PROGRESSIVE_BATCH_SIZE) return null;
         const viewWindowJob = __tmCreateViewWindowJob(value, { reset: true });
         if (!viewWindowJob) return null;
         if (value === 'timeline') return viewWindowJob;
@@ -391,7 +392,7 @@
     }
 
     function __tmSyncKanbanProgressiveFieldMutation(job, mutation = {}) {
-        if (state?.viewMode !== 'kanban' || !__tmIsViewWindowJobCurrent(job, { mode: 'kanban' })) return false;
+        if (state?.viewMode !== job?.mode || !__tmIsViewWindowJobCurrent(job, { mode: job?.mode })) return false;
         if (!['taskPatch', 'contentPatch', 'setDone'].includes(String(mutation.type || ''))
             || mutation.data?.deferProjection === true || mutation.changeSet?.structural === true) return false;
         const revision = __tmGetViewWindowRevisionToken();
@@ -419,7 +420,7 @@
         const body = modal?.querySelector?.('.tm-body--kanban');
         const stage = modal?.querySelector?.('.tm-main-stage');
         const width = Math.max(1, Number(body?.clientWidth || stage?.clientWidth || modal?.clientWidth || globalThis.innerWidth) || 960);
-        const left = Math.max(0, Number(body?.scrollLeft ?? state?.viewScroll?.kanban?.left) || 0);
+        const left = Math.max(0, Number(body?.scrollLeft ?? state?.viewScroll?.[String(state.viewMode || 'kanban')]?.left) || 0);
         const expandedWidth = Math.max(220, Number(columnWidth) || 320);
         let cursor = 0;
         return (collapsed) => {
@@ -431,7 +432,7 @@
     }
 
     function __tmRegisterKanbanProgressiveColumn(job, column) {
-        if (!__tmIsProgressiveViewRenderCurrent(job, 'kanban')) return false;
+        if (!__tmIsProgressiveViewRenderCurrent(job, job?.mode || 'kanban')) return false;
         if (!column || typeof column.loadNextBatch !== 'function') return false;
         const key = String(column.key || '').trim();
         if (!key) return false;
@@ -637,18 +638,18 @@
     }
 
     function __tmScheduleKanbanProgressiveViewportCheck(job, delay = 0) {
-        if (!__tmIsProgressiveViewRenderCurrent(job, 'kanban')) return false;
+        if (!__tmIsProgressiveViewRenderCurrent(job, job?.mode || 'kanban')) return false;
         if (job.viewportTimer) return true;
         const run = () => {
             job.viewportTimer = 0;
-            if (!__tmIsProgressiveViewRenderCurrent(job, 'kanban')) return;
+            if (!__tmIsProgressiveViewRenderCurrent(job, job?.mode || 'kanban')) return;
             const modal = state?.modal instanceof Element ? state.modal : null;
             const body = modal?.querySelector?.('.tm-body.tm-body--kanban');
             if (!(body instanceof HTMLElement)) return;
             const columns = Array.isArray(job.columns) ? job.columns : [];
             if (!columns.length) return;
             if (columns.every((entry) => entry?.done === true)) {
-                __tmFinishProgressiveViewRender(job, 'kanban');
+                __tmFinishProgressiveViewRender(job, job.mode);
                 return;
             }
             const candidates = [];
@@ -711,7 +712,7 @@
                 target.entry.retryAt = 0;
                 if (!result || result.done === true) target.entry.done = true;
             }
-            if (!__tmIsProgressiveViewRenderCurrent(job, 'kanban')) return;
+            if (!__tmIsProgressiveViewRenderCurrent(job, job?.mode || 'kanban')) return;
             // Give the browser a frame between column patches. This prevents a large completed board
             // from monopolizing the input frame budget while still filling a visible, short column.
             __tmScheduleKanbanProgressiveViewportCheck(job, nextDelay);
@@ -721,7 +722,7 @@
     }
 
     function __tmBindKanbanProgressiveViewport(job) {
-        if (!__tmIsProgressiveViewRenderCurrent(job, 'kanban')) return false;
+        if (!__tmIsProgressiveViewRenderCurrent(job, job?.mode || 'kanban')) return false;
         const modal = state?.modal instanceof Element ? state.modal : null;
         const nextBody = modal?.querySelector?.('.tm-body.tm-body--kanban');
         if (!(modal instanceof Element) || !(nextBody instanceof HTMLElement)) return false;
@@ -763,7 +764,7 @@
 
     function __tmRequestKanbanProgressiveColumnLoad(columnKey) {
         const job = state?.__tmProgressiveViewRender;
-        if (!__tmIsProgressiveViewRenderCurrent(job, 'kanban')) return false;
+        if (!__tmIsProgressiveViewRenderCurrent(job, job?.mode || 'kanban')) return false;
         const key = String(columnKey || '').trim();
         const entry = Array.isArray(job.columns)
             ? job.columns.find((item) => String(item?.key || '').trim() === key)
@@ -806,7 +807,7 @@
     function __tmScheduleProgressiveViewRender(mode = '', job = null) {
         if (!__tmIsProgressiveViewRenderCurrent(job, mode)) return false;
         if (String(mode || '').trim() === 'timeline') return true;
-        if (String(mode || '').trim() !== 'kanban') return false;
+        if (!['kanban', 'comboBoard'].includes(String(mode || '').trim())) return false;
         // Table, checklist, and timeline already share the near-bottom append-only loader.
         // Kanban needs a column-aware equivalent because each visible column scrolls independently.
         __tmBindKanbanProgressiveViewport(job);
@@ -919,13 +920,13 @@
     }
 
     function __tmRememberViewSwitchWindow(mode) {
-        if (!__tmIsListLikeViewMode(mode) && mode !== 'kanban' && mode !== 'whiteboard') return false;
+        if (!__tmIsListLikeViewMode(mode) && mode !== 'kanban' && mode !== 'comboBoard' && mode !== 'whiteboard') return false;
         const modal = state?.modal;
         // Rapid switches may change state before the previous body is replaced.
         // Only record a window that actually belongs to the displayed view.
         if (!modal?.isConnected || modal.getAttribute('data-tm-render-mode') !== mode || state.viewMode !== mode) return false;
         const saved = { contextKey: __tmGetViewSwitchWindowContextKey(mode) };
-        if (mode === 'kanban') {
+        if (mode === 'kanban' || mode === 'comboBoard') {
             saved.columnLimits = new Map();
             modal.querySelectorAll('.tm-body--kanban .tm-kanban-col[data-col-key]').forEach((column) => {
                 let count = 0;
@@ -952,7 +953,7 @@
     function __tmRestoreViewSwitchWindow(mode, job = null) {
         const saved = state.__tmViewSwitchWindows?.get?.(mode);
         if (!saved || state.viewMode !== mode || saved.contextKey !== __tmGetViewSwitchWindowContextKey(mode)) return null;
-        if (mode === 'kanban') {
+        if (mode === 'kanban' || mode === 'comboBoard') {
             if (job && saved.columnLimits instanceof Map) job.initialColumnLimits = new Map(saved.columnLimits);
         } else if (__tmIsListLikeViewMode(mode)) {
             if (!__tmRestoreViewRenderWindow(saved.window)) return null;

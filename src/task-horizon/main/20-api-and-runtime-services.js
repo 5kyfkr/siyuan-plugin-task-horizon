@@ -4097,6 +4097,15 @@
             && __tmStatusOptionsRuntimeCache.markerMap instanceof Map) {
             return __tmStatusOptionsRuntimeCache;
         }
+        // Default-status resolution can pass this already-normalized array back here.
+        if (input === __tmStatusOptionsRuntimeCache.options
+            && __tmStatusOptionsRuntimeCache.settingsVersion === settingsVersion
+            && __tmStatusOptionsRuntimeCache.legacyCompat === legacyCompat
+            && Array.isArray(__tmStatusOptionsRuntimeCache.options)
+            && __tmStatusOptionsRuntimeCache.idMap instanceof Map
+            && __tmStatusOptionsRuntimeCache.markerMap instanceof Map) {
+            return __tmStatusOptionsRuntimeCache;
+        }
         let fingerprint = '';
         try {
             fingerprint = JSON.stringify(input);
@@ -4667,6 +4676,9 @@
         aiSidebarOpen: !!Storage.get('tm_ai_sidebar_open', false),
         aiSidebarWidth: Math.max(320, Math.min(720, Math.round(Number(Storage.get('tm_ai_sidebar_width', 380)) || 380))),
         aiMobilePanelOpen: false,
+        customBoardProjection: [],
+        __tmCustomBoardLoading: false,
+        __tmCustomBoardLoadingToken: 0,
         quickAddModal: null,
         quickAddDocPicker: null,
         quickAdd: null,
@@ -4680,6 +4692,7 @@
         checklistDetailDismissed: false,
         kanbanDetailTaskId: '',
         kanbanDetailAnchorTaskId: '',
+        kanbanDetailAnchorColumnKey: '',
         multiSelectModeEnabled: false,
         multiSelectedTaskIds: [],
         multiBulkEditFieldKey: '',
@@ -6316,6 +6329,19 @@
             commandID: String(op?.id || '').trim(),
         }, __tmT("task.taskMove"));
         const result = __tmRequireQueuedMoveResult(receipt.value, taskId);
+        const receiptDocId = String(result.placement.documentId || payload.targetDocId || '').trim();
+        const receiptDocName = String(payload.targetDocName || '').trim();
+        const receiptTask = {
+            ...((result.task && typeof result.task === 'object') ? result.task : {}),
+            id: String(result.task?.id || taskId).trim(),
+            root_id: receiptDocId,
+            docId: receiptDocId,
+        };
+        if (receiptDocName) {
+            receiptTask.doc_name = receiptDocName;
+            receiptTask.docName = receiptDocName;
+        }
+        result.task = receiptTask;
         result.changeSet = receipt.changeSet;
         if ((mode === 'child' || mode === 'child-top')
             && result.placement.parentListId
@@ -9054,6 +9080,7 @@
             checklist: __tmT("task.preparingTheChecklistView"),
             timeline: __tmT("task.preparingTheTimeline"),
             kanban: __tmT("task.preparingTheKanbanView"),
+            comboBoard: __tmT("task.preparingTheCombinationBoard"),
             calendar: __tmT("task.preparingTheCalendarView"),
             whiteboard: __tmT("task.preparingTheWhiteboardView"),
         };
@@ -9088,7 +9115,7 @@
                 </div>
             `;
         }
-        if (mode === 'kanban') {
+        if (mode === 'kanban' || mode === 'comboBoard') {
             const cols = Array.from({ length: 3 }, (_, index) => `
                 <div class="tm-inline-loading-kanban-col">
                     <span class="tm-skeleton-block tm-inline-loading-kanban-head" style="width:${62 + index * 8}%;"></span>
@@ -14062,6 +14089,7 @@
             checklistDetailDismissed: !!state.checklistDetailDismissed,
             kanbanDetailTaskId: String(state.kanbanDetailTaskId || ''),
             kanbanDetailAnchorTaskId: String(state.kanbanDetailAnchorTaskId || ''),
+            kanbanDetailAnchorColumnKey: String(state.kanbanDetailAnchorColumnKey || ''),
             multiSelectModeEnabled: !!state.multiSelectModeEnabled,
             multiSelectedTaskIds: Array.isArray(state.multiSelectedTaskIds) ? state.multiSelectedTaskIds.slice() : [],
             multiBulkEditFieldKey: String(state.multiBulkEditFieldKey || ''),
@@ -14092,6 +14120,7 @@
         state.checklistDetailDismissed = !!snap.checklistDetailDismissed;
         state.kanbanDetailTaskId = String(snap.kanbanDetailTaskId || '');
         state.kanbanDetailAnchorTaskId = String(snap.kanbanDetailAnchorTaskId || '');
+        state.kanbanDetailAnchorColumnKey = String(snap.kanbanDetailAnchorColumnKey || '');
         state.multiSelectModeEnabled = !!snap.multiSelectModeEnabled;
         state.multiSelectedTaskIds = Array.isArray(snap.multiSelectedTaskIds)
             ? snap.multiSelectedTaskIds.map((id) => String(id || '').trim()).filter(Boolean)
@@ -18274,6 +18303,12 @@ if (opts.refresh === false) return;
         const currentRule = state.currentRule
             ? (Array.isArray(state.filterRules) ? state.filterRules.find((rule) => String(rule?.id || '').trim() === String(state.currentRule || '').trim()) : null)
             : null;
+        const comboBoardHomepageSet = state.homepageOpen === true
+            && String(state.viewMode || '').trim() === 'comboBoard'
+            && typeof __tmGetActiveCustomBoardSet === 'function'
+            ? __tmGetActiveCustomBoardSet()
+            : null;
+        const comboBoardHomepageName = String(comboBoardHomepageSet?.name || '').trim();
         const measureHost = rootEl instanceof HTMLElement
             ? (rootEl.closest('.tm-body.tm-body--homepage') || rootEl.parentElement || rootEl)
             : null;
@@ -18290,7 +18325,7 @@ if (opts.refresh === false) return;
             currentRuleId: String(currentRule?.id || '').trim(),
             currentRuleName: String(currentRule?.name || '').trim(),
             currentDocId: activeDocId,
-            currentDocName: docName,
+            currentDocName: comboBoardHomepageName || docName,
             tomatoIntegrationEnabled: !!SettingsStore.data.enableTomatoIntegration,
             tomatoHistoryVersion: __tmTomatoHistoryVersion,
             durationFormat: String(SettingsStore.data.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours',
@@ -22217,6 +22252,7 @@ if (!state.homepageOpen) return;
         const featureRows = [
             [__tmT("task.checklistKanbanTableCalendarTimeline"), __tmT("task.fullyAvailable"), __tmT("task.fullyAvailable")],
             [__tmT("task.basicTaskCreationEditingAndFiltering"), __tmT("task.fullyAvailable"), __tmT("task.fullyAvailable")],
+            [__tmT("task.combinationBoardSets"), __tmT("task.oneCombinationBoardSet"), __tmT("task.multipleCombinationBoardSets")],
             [__tmT("task.pluginIconPresets"), __tmT("task.classicIconOnly"), __tmT("task.allPresets")],
             [__tmT("task.whiteboardBasicsGlobalWhiteboard"), __tmT("task.fullyAvailable"), __tmT("task.fullyAvailable")],
             [__tmT("task.whiteboardHandwritingGroupFramesStickyNotes"), __tmT("task.notIncluded"), __tmT("task.available")],
@@ -22226,6 +22262,7 @@ if (!state.homepageOpen) return;
             [__tmT("task.maintenanceSupport"), __tmT("task.standard"), __tmT("task.priorityResponse")],
         ];
         const advancedItems = [
+            [__tmT("task.combinationBoardSets"), __tmT("task.fullFeatureCombinationBoardBenefit")],
             [__tmT("task.whiteboardEnhancements"), __tmT("task.basicGlobalWhiteboardFeaturesRemainAvailableTheFreeVersion")],
             [__tmT("task.aiAssistance"), __tmT("task.theAiSettingsPageIsVisibleAndConfigurableThe")],
         ];
@@ -22879,22 +22916,52 @@ if (!state.homepageOpen) return;
     };
 
     const __TM_ALL_VIEWS = Object.freeze([
-        { id: 'list', label: __tmT("task.table"), longLabel: __tmT("task.tableView") },
-        { id: 'checklist', label: __tmT("task.checklist"), longLabel: __tmT("task.checklistView") },
-        { id: 'timeline', label: __tmT("task.timeline"), longLabel: __tmT("task.timelineView") },
-        { id: 'kanban', label: __tmT("task.kanban"), longLabel: __tmT("task.kanbanView") },
-        { id: 'calendar', label: __tmT("calendar.calendar"), longLabel: __tmT("calendar.calendarView") },
-        { id: 'whiteboard', label: __tmT("task.whiteboard"), longLabel: __tmT("task.whiteboardView") },
+        { id: 'list', label: __tmT("task.table"), longLabel: __tmT("task.tableView"), icon: 'list' },
+        { id: 'checklist', label: __tmT("task.checklist"), longLabel: __tmT("task.checklistView"), icon: 'list-checks' },
+        { id: 'timeline', label: __tmT("task.timeline"), longLabel: __tmT("task.timelineView"), icon: 'chart-gantt' },
+        { id: 'kanban', label: __tmT("task.kanban"), longLabel: __tmT("task.kanbanView"), icon: 'columns-3' },
+        { id: 'comboBoard', label: __tmT("task.combinationBoard"), longLabel: __tmT("task.combinationBoard"), icon: 'layout-dashboard' },
+        { id: 'calendar', label: __tmT("calendar.calendar"), longLabel: __tmT("calendar.calendarView"), icon: 'calendar-days' },
+        { id: 'whiteboard', label: __tmT("task.whiteboard"), longLabel: __tmT("task.whiteboardView"), icon: 'panels-top-left' },
     ]);
+
+    const __TM_PROTOTYPE_VIEW_ICON_PATHS = Object.freeze({
+        // Tabler Table at 16×16 optical size.
+        list: '<path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6M4 10h16M10 4v16"/>',
+        // Tabler ListCheck: three aligned checkmarks and list rows.
+        checklist: '<path d="M3.5 5.5 5 7l2.5-2.5M3.5 11.5 5 13l2.5-2.5M3.5 17.5 5 19l2.5-2.5M11 6h9M11 12h9M11 18h9"/>',
+        timeline: '<path d="M10 6h8M12 16h6M3 3v16a2 2 0 0 0 2 2h16M8 11h7"/>',
+        // Tabler LayoutKanban, chosen for clearer 15px recognition.
+        kanban: '<path d="M4 4h6M14 4h6"/><rect x="4" y="8" width="6" height="12" rx="2"/><rect x="14" y="8" width="6" height="7" rx="2"/>',
+        calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01M16 17h.01"/>',
+        // Drawing canvas with a pencil in the upper-right corner.
+        whiteboard: '<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L10 16l-4 1 1-4Z"/><path d="m15 5 3 3"/>',
+        // Equal gutters with every rectangle edge on the shared 16px pixel grid.
+        comboBoard: '<rect x="3" y="3" width="7.5" height="10.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="4.5" rx="1.5"/><rect x="13.5" y="10.5" width="7.5" height="10.5" rx="1.5"/><rect x="3" y="16.5" width="7.5" height="4.5" rx="1.5"/>',
+    });
+
+    const __tmRenderPrototypeViewIcon = (viewId) => {
+        const normalizedId = String(viewId || '').trim();
+        const shape = __TM_PROTOTYPE_VIEW_ICON_PATHS[normalizedId] || '';
+        const viewBox = {
+            checklist: '1.32 1.32 21.36 21.36',
+            kanban: '1 1 22 22',
+            list: '.5 .5 23 23',
+            whiteboard: '-.5 -.5 25 25',
+        }[normalizedId] || '0 0 24 24';
+        return `<svg class="tm-view-seg-item__svg" data-tm-view-icon="${__tmEscAttr(normalizedId)}" viewBox="${viewBox}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shape}</svg>`;
+    };
 
     const __tmNormalizeEnabledViews = (views) => {
         const allow = new Set(__TM_ALL_VIEWS.map(v => v.id));
         const arr = Array.isArray(views) ? views.map(v => String(v || '').trim()).filter(v => allow.has(v)) : [];
-        const unique = [];
-        for (const id of arr) {
-            if (!unique.includes(id)) unique.push(id);
-        }
-        return unique.length ? unique : ['list'];
+        const seen = new Set();
+        const ordered = arr.filter((id) => {
+            if (seen.has(id)) return false;
+            seen.add(id);
+            return true;
+        });
+        return ordered.length ? ordered : ['list'];
     };
 
     const __tmGetEnabledViews = () => __tmNormalizeEnabledViews(SettingsStore?.data?.enabledViews);
@@ -24121,6 +24188,8 @@ if (!state.homepageOpen) return;
             : __tmGetSafeViewMode(state.viewMode || SettingsStore.data.defaultViewMode || 'checklist');
         const buttonStyle = opts.compact ? ' style="line-height:28px; padding:0 10px;"' : '';
         const useMobileBottomSwitch = opts.mobileBottom === true;
+        const iconOnly = (opts.desktopTopbar === true || opts.mobileBottom === true)
+            && String(SettingsStore?.data?.viewSwitcherStyle || 'text') === 'icons';
         const buttons = __tmGetEnabledViews().map((viewId) => {
             const view = __TM_ALL_VIEWS.find(v => v.id === viewId);
             if (!view) return '';
@@ -24131,10 +24200,41 @@ if (!state.homepageOpen) return;
             const onclick = useMobileBottomSwitch
                 ? `return tmSwitchViewModeFromMobileBottomNav('${escSq(view.id)}', event)`
                 : `tmSwitchViewMode('${escSq(view.id)}')`;
-            return `<button type="button" class="tm-view-seg-item bc-tabs-trigger ${active ? 'tm-view-seg-item--active' : ''}" data-state="${active ? 'active' : 'inactive'}" data-tm-view-mode="${__tmEscAttr(view.id)}" onclick="${onclick}"${extra} role="tab" aria-selected="${active ? 'true' : 'false'}"${buttonStyle}>${view.label}</button>`;
+            const label = iconOnly
+                ? `<span class="tm-view-seg-item__icon" aria-hidden="true">${__tmRenderPrototypeViewIcon(view.id)}</span><span class="tm-sr-only">${view.longLabel}</span>`
+                : view.label;
+            const tooltip = iconOnly ? __tmBuildTooltipAttrs(view.longLabel, { side: 'bottom', ariaLabel: false }) : '';
+            return `<button type="button" class="tm-view-seg-item bc-tabs-trigger ${iconOnly ? 'tm-view-seg-item--icon-only' : ''} ${active ? 'tm-view-seg-item--active' : ''}" data-state="${active ? 'active' : 'inactive'}" data-tm-view-mode="${__tmEscAttr(view.id)}" onclick="${onclick}"${extra} role="tab" aria-label="${__tmEscAttr(view.longLabel)}" aria-selected="${active ? 'true' : 'false'}"${buttonStyle}${tooltip}>${label}</button>`;
         }).join('');
         return buttons;
     };
+
+    const __tmRefreshViewSwitcherControlsInPlace = (modalEl = state.modal) => {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        let refreshed = 0;
+        modal.querySelectorAll('.tm-view-segmented').forEach((segmented) => {
+            if (!(segmented instanceof HTMLElement)) return;
+            const isMobileBottom = segmented.classList.contains('tm-mobile-bottom-view-switcher');
+            const isMobileMenu = segmented.classList.contains('tm-mobile-view-switcher');
+            const hasViewButtons = Array.from(segmented.children).some((child) => (
+                child instanceof Element && child.matches('[data-tm-view-mode]')
+            ));
+            if (!isMobileBottom && !isMobileMenu && !hasViewButtons) return;
+            segmented.innerHTML = __tmRenderViewSwitcherButtons({
+                compact: isMobileBottom || isMobileMenu,
+                desktopTopbar: !isMobileBottom && !isMobileMenu,
+                mobileBottom: isMobileBottom,
+            });
+            const menuViews = segmented.closest('.tm-topbar-menu__views');
+            if (menuViews instanceof HTMLElement) {
+                menuViews.style.setProperty('--tm-menu-view-count', String(Math.max(1, __tmGetEnabledViews().length)));
+            }
+            refreshed += 1;
+        });
+        return refreshed > 0;
+    };
+    try { globalThis.__tmRefreshViewSwitcherControlsInPlace = __tmRefreshViewSwitcherControlsInPlace; } catch (e) {}
 
     const __tmRenderTopbarSelect = (opts = {}) => {
         const id = String(opts.id || '').trim();
@@ -29150,13 +29250,14 @@ return true;
     // The renderer still decides membership, order, counts and changed markup.
     function __tmTryRefreshKanbanColumns(modalEl, taskIds = [], options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const mode = String(state.viewMode || 'kanban');
         const ids = new Set((Array.isArray(taskIds) ? taskIds : []).map((id) => String(id || '').trim()).filter(Boolean));
         const docIds = new Set((Array.isArray(options.docIds) ? options.docIds : []).map((id) => String(id || '').trim()).filter(Boolean));
-        if (!(modal instanceof Element) || state.viewMode !== 'kanban') return false;
+        if (!(modal instanceof Element) || !['kanban', 'comboBoard'].includes(state.viewMode)) return false;
         if (!ids.size && !docIds.size) return false;
         if (typeof state.renderKanbanBodyHtml !== 'function') return false;
-        if (options.__tmQueuedCommit !== true && globalThis.__tmIsViewDomCommitBlocked?.('kanban')) {
-            const gate = __tmGetViewScrollGate('kanban');
+        if (options.__tmQueuedCommit !== true && globalThis.__tmIsViewDomCommitBlocked?.(mode)) {
+            const gate = __tmGetViewScrollGate(mode);
             const pendingScope = gate?.pendingCommit?.__tmKanbanScope;
             const scope = pendingScope?.modal === modal ? pendingScope : {
                 modal, ids: new Set(), parents: new Set(), docIds: new Set(), full: !!gate?.pendingCommit,
@@ -29177,7 +29278,7 @@ return true;
             commit.__tmKanbanScope = scope;
             // Refreshes supersede pagination; complete refreshes use the same
             // priority so a later layout change can still replace this scope.
-            globalThis.__tmQueueViewDomCommit?.('kanban', commit, { reason: options.reason || 'kanban-columns', priority: 1 });
+            globalThis.__tmQueueViewDomCommit?.(mode, commit, { reason: options.reason || 'kanban-columns', priority: 1 });
             return true;
         }
         const body = modal.querySelector('.tm-body.tm-body--kanban');
@@ -29248,7 +29349,7 @@ return true;
         let refreshJob = null;
         let staged = null;
         try {
-            refreshJob = __tmStartProgressiveViewRender('kanban');
+            refreshJob = __tmStartProgressiveViewRender(mode);
             if (refreshJob) {
                 refreshJob.initialColumnLimits = new Map(mountedLimits);
             }
@@ -29278,7 +29379,7 @@ return true;
             next, current: columns[currentKeys.indexOf(next.getAttribute('data-col-key'))],
         }));
         if (!replacements.length && ((docIds.size && !ids.size) || (!matchedIds.size && !columnPatch.matchedTaskIds.size))) {
-            try { __tmScheduleProgressiveViewRender('kanban', refreshJob); } catch (e) {}
+            try { __tmScheduleProgressiveViewRender(mode, refreshJob); } catch (e) {}
             return true;
         }
         if (!replacements.length || replacements.some(({ current, next }) => !current || !next.matches('.tm-kanban-col'))) {
@@ -29319,7 +29420,7 @@ return true;
             try { __tmScheduleKanbanBottomNavAvoidance(modal); } catch (e) {}
             try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal, false, body, { alreadyApplied: true }); } catch (e) {}
         }
-        try { __tmScheduleProgressiveViewRender('kanban', refreshJob); } catch (e) {}
+        try { __tmScheduleProgressiveViewRender(mode, refreshJob); } catch (e) {}
         return true;
     }
     try { globalThis.__tmTryRefreshKanbanColumns = __tmTryRefreshKanbanColumns; } catch (e) {}
@@ -29474,16 +29575,17 @@ return true;
 
     function __tmRerenderKanbanInPlace(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const mode = String(state.viewMode || 'kanban');
         const opts = (options && typeof options === 'object') ? options : {};
-        if (opts.__tmQueuedCommit !== true && globalThis.__tmIsViewDomCommitBlocked?.('kanban')) {
-            globalThis.__tmQueueViewDomCommit?.('kanban', () => __tmRerenderKanbanInPlace(modal, {
+        if (opts.__tmQueuedCommit !== true && globalThis.__tmIsViewDomCommitBlocked?.(mode)) {
+            globalThis.__tmQueueViewDomCommit?.(mode, () => __tmRerenderKanbanInPlace(modal, {
                 ...opts,
                 __tmQueuedCommit: true,
             }), { reason: String(opts.reason || 'kanban-rerender').trim() || 'kanban-rerender', priority: 1 });
             return true;
         }
         if (!(modal instanceof Element)) return false;
-        if (String(state.viewMode || '').trim() !== 'kanban') return false;
+        if (!['kanban', 'comboBoard'].includes(String(state.viewMode || '').trim())) return false;
         const renderBodyHtml = state.renderKanbanBodyHtml;
         if (typeof renderBodyHtml !== 'function') return false;
         const body = modal.querySelector('.tm-body.tm-body--kanban');
@@ -29515,7 +29617,7 @@ return true;
                 if (statusMatch) colsSnapshot[statusMatch[1]] = Number(value) || 0;
             });
             state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
-            state.viewScroll.kanban = { left: bodyLeft, cols: colsSnapshot };
+            state.viewScroll[mode] = { left: bodyLeft, cols: colsSnapshot };
         } catch (e) {}
         const detailScrollSnapshot = __tmCaptureKanbanDetailScrollSnapshot(modal);
         const detailPanel = modal.querySelector('#tmKanbanDetailPanel');
@@ -29527,7 +29629,7 @@ return true;
         }
         let refreshRenderJob = null;
         try {
-            refreshRenderJob = __tmStartProgressiveViewRender('kanban');
+            refreshRenderJob = __tmStartProgressiveViewRender(mode);
             if (refreshRenderJob) refreshRenderJob.initialColumnLimits = mountedColumnLimits;
         } catch (e) {}
         let nextBody = null;
@@ -29579,7 +29681,7 @@ return true;
         };
         try { restore(); } catch (e) {}
         try { requestAnimationFrame(restore); } catch (e) {}
-        try { __tmScheduleProgressiveViewRender('kanban', refreshRenderJob); } catch (e) {}
+        try { __tmScheduleProgressiveViewRender(mode, refreshRenderJob); } catch (e) {}
         return true;
     }
 
@@ -29732,7 +29834,7 @@ return true;
         if (state.viewMode === 'timeline') return __tmRerenderTimelineInPlace(modal);
         if (state.viewMode === 'list') return __tmRerenderListInPlace(modal);
         if (state.viewMode === 'checklist') return __tmRerenderChecklistInPlace(modal);
-        if (state.viewMode === 'kanban') return __tmRerenderKanbanInPlace(modal);
+        if (state.viewMode === 'kanban' || state.viewMode === 'comboBoard') return __tmRerenderKanbanInPlace(modal, options);
         if (state.viewMode === 'whiteboard') return __tmRerenderWhiteboardInPlace(modal, options);
         return false;
     }

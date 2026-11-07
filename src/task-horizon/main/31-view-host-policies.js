@@ -62,7 +62,7 @@
         return (Number(window.innerWidth || 0) > 0) ? window.innerWidth <= 768 : false;
     };
 
-    const taskDetailSheetViewModes = new Set(['list', 'kanban', 'whiteboard', 'calendar', 'timeline']);
+    const taskDetailSheetViewModes = new Set(['list', 'kanban', 'comboBoard', 'whiteboard', 'calendar', 'timeline']);
 
     const getHostWidth = (modalEl = null) => {
         const modal = modalEl instanceof Element ? modalEl : state?.modal;

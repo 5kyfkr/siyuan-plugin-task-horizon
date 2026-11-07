@@ -476,8 +476,9 @@
         return false;
     }
 
-    function __tmLicenseShowFullFeaturePrompt(featureName) {
+    function __tmLicenseShowFullFeaturePrompt(featureName, options = {}) {
         const name = String(featureName || __tmT("task.thisFeature")).trim() || __tmT("task.thisFeature");
+        const opts = (options && typeof options === 'object') ? options : {};
         try {
             const existing = document.querySelector('.tm-prompt-modal.tm-license-feature-prompt');
             if (existing) existing.remove();
@@ -511,6 +512,7 @@
             modal.querySelector('[data-tm-license-feature-close]')?.addEventListener('click', close);
             modal.querySelector('[data-tm-license-feature-benefits]')?.addEventListener('click', () => {
                 close();
+                try { opts.onViewBenefits?.(); } catch (e) {}
                 __tmLicenseOpenBenefitsSettings();
             });
             modal.addEventListener('click', (event) => {
@@ -664,11 +666,11 @@
         const state = __tmLicenseBuildState(__tmLicenseRecord);
         return state.active === true && state.features.includes(String(feature || '').trim());
     };
-    window.tmRequireFullFeature = function(feature, label) {
+    window.tmRequireFullFeature = function(feature, label, options = {}) {
         const name = String(label || feature || __tmT("task.thisFeature")).trim() || __tmT("task.thisFeature");
         const state = __tmLicenseBuildState(__tmLicenseRecord);
         if (state.active === true && state.features.includes('pro')) return true;
-        __tmLicenseShowFullFeaturePrompt(name);
+        __tmLicenseShowFullFeaturePrompt(name, options);
         return false;
     };
     window.tmLicenseLoad = function(force = false) {

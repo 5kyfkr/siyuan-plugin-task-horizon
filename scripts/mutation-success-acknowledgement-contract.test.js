@@ -12,6 +12,7 @@ const apiRuntime = read('src/task-horizon/main/20-api-and-runtime-services.js');
 const renderRuntime = read('src/task-horizon/main/40-render-runtime.js');
 const taskLoader = read('src/task-horizon/main/task-runtime/53-list-render-and-document-loader.js');
 const createRuntime = read('src/task-horizon/main/task-runtime/53b-task-create-and-quick-add-runtime.js');
+const detailRuntime = read('src/task-horizon/main/task-runtime/52-task-detail-runtime.js');
 const lifecycle = read('src/task-horizon/main/shell/80-shell-lifecycle.js');
 const calendarView = read('calendar-view.js');
 const fieldEditRuntime = read('src/task-horizon/main/task-runtime/53a-list-field-edit-runtime.js');
@@ -36,6 +37,7 @@ const rowMove = segment(dialogs, 'async function __tmQueueTaskRowMove', 'async f
 const rowDropCore = segment(dialogs, 'async function __tmHandleTaskRowDropCore', 'window.tmTaskRowDragOver');
 const rowDrop = segment(dialogs, 'window.tmTaskRowDrop = async function', 'window.tmDocTabDrop = async function');
 const moveQueue = segment(taskLoader, 'function __tmQueueMoveTask', 'function __tmQueueBatchMoveTasks');
+const queuedMoveExecution = segment(apiRuntime, 'async function __tmExecuteQueuedMoveKernel', 'async function __tmMoveTaskToPlacement');
 const batchMoveQueue = segment(taskLoader, 'function __tmQueueBatchMoveTasks', 'function __tmGetTaskForDetachSubtask');
 const docTabDrop = segment(dialogs, 'window.tmDocTabDrop = async function', 'function __tmIsWhiteboardTaskDragSource');
 const headingCreate = segment(createRuntime, 'window.tmCreateTaskForHeadingGroup = async function', 'async function __tmAppendBlockOnce');
@@ -48,6 +50,8 @@ const kanbanDragStart = segment(renderRuntime, 'window.tmKanbanDragStart = funct
 const kanbanDrop = segment(renderRuntime, 'window.tmKanbanDrop = async function', 'window.tmKanbanPickDate = async function');
 const insertTaskAsChildLocal = segment(createRuntime, 'function __tmInsertTaskAsChildLocal', 'function __tmIsDocInCurrentTaskScope');
 const optimisticMove = segment(createRuntime, 'function __tmApplyMoveOptimisticLocal', 'function __tmRollbackMoveOptimisticLocal');
+const movePayloadProjection = segment(createRuntime, 'function __tmApplyMovePayloadToTaskRecursive', 'function __tmApplyQueuedTaskMovePatchToTask');
+const locationOverride = segment(detailRuntime, 'function __tmApplyVisibleTaskDetailLocationOverride', 'try { globalThis.__tmApplyVisibleTaskDetailLocationOverride');
 const floatingPriorityDrop = segment(calendarView, 'async function applyFloatingMiniTaskPriority', 'function clearFloatingMiniAutoFlipTimer');
 const floatingDateDrop = segment(calendarView, 'async function applyFloatingMiniCalendarDate', 'async function finalizeFloatingMiniCalendarTouchDrop');
 const allDayDueDateDrop = segment(calendarView, 'async function maybeUpdateEmptyTaskDueDateFromAllDayDrop', 'function parseTaskDropPayload');
@@ -69,6 +73,10 @@ assert.match(rowDropCore, /if \(moveAsChild\)[\s\S]*return \{[\s\S]*batchCount:[
 assert.match(rowDropCore, /payload\.preserveTargetCollapse = true/, 'multi-select child drops must preserve the target collapse state');
 assert.doesNotMatch(rowDropCore, /collapsedTaskIds\?\.delete/, 'multi-select child drops must not expand the target after settlement');
 assert.match(moveQueue, /preserveTargetCollapse: data\.preserveTargetCollapse === true/, 'single task move queues must carry the target collapse policy');
+assert.match(moveQueue, /targetDocName: String\(data\.targetDocName \|\| ''\)\.trim\(\)/, 'document moves must carry the resolved destination name into the optimistic projection');
+assert.match(queuedMoveExecution, /receiptDocId[\s\S]*receiptDocName[\s\S]*receiptTask\.doc_name = receiptDocName[\s\S]*receiptTask\.docName = receiptDocName[\s\S]*result\.task = receiptTask/,
+    'authoritative document-move receipts must retain the resolved destination name instead of falling back to the source document');
+assert.match(movePayloadProjection, /payload\.targetDocName[\s\S]*nextTask\.docName[\s\S]*nextTask\.doc_name/, 'optimistic document moves must replace the old location name with the resolved destination name');
 assert.match(batchMoveQueue, /preserveTargetCollapse: data\.preserveTargetCollapse === true/, 'batch task move queues must carry the target collapse policy');
 assert.match(optimisticMove, /preserveCollapsed: payload\?\.preserveTargetCollapse === true/g, 'optimistic child placement must receive the drag collapse policy');
 assert.match(insertTaskAsChildLocal, /if \(opts\.preserveCollapsed !== true\)[\s\S]*collapsedTaskIds\?\.delete/, 'local child insertion must retain collapsed targets when requested');
@@ -107,6 +115,13 @@ assert.doesNotMatch(kanbanChildCandidate, /sourceIds\.length !== 1/, 'kanban chi
 assert.match(kanbanDragStart, /const dragTaskIds = __tmBuildTaskDragSelectionIds\(taskId\);[\s\S]*state\.__tmKanbanDragIds = sourceIds;/, 'native kanban dragging must retain the selected task roots');
 assert.match(kanbanDragStart, /setData\('application\/x-tm-task-ids', JSON\.stringify\(sourceIds\)\)/, 'native kanban dragging must publish all selected task ids');
 assert.match(kanbanDrop, /const draggedIds = __tmGetDraggedTaskIds\(ev\);[\s\S]*await __tmHandleTaskRowDropCore\(ev, targetId, 'child'\)/, 'kanban child drops must reuse the settled batch row-move core');
+assert.match(kanbanDrop, /targetDocName[\s\S]*refreshDetailAfterDocumentMove[\s\S]*forceRebuild: true/, 'document-board drops must refresh the open task detail after settlement');
+assert.match(kanbanDrop, /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) => applyVisibleDocumentLocation\(tid, location\)\)\)[\s\S]*?setTimeout\(\(\) => applyVisibleDocumentLocation\(tid, location\), 160\)/,
+    'document-board detail refresh must reapply the confirmed location after projection repaints');
+assert.match(kanbanDrop, /moveTask\(tid, item\.payload,[\s\S]*?onSuccess: \(\) => refreshDetailAfterDocumentMove\(tid, location\)[\s\S]*?applyVisibleDocumentLocation\(tid, location\)/,
+    'document-board detail locations must update optimistically instead of waiting for queue settlement');
+assert.equal((kanbanDrop.match(/startDocumentMove\(item, \{/g) || []).length, 3,
+    'document, document-top, and heading drops must all use the shared optimistic move path');
 assert.match(kanbanDrop, /const batchCount = Math\.max\(1, Number\(result\?\.batchCount\) \|\| 0\);[\s\S]*hint\(batchCount > 1/, 'kanban child-drop success must report the settled batch count');
 assert.match(kanbanDrop, /let movingHint = hint\([\s\S]*正在移动[\s\S]*await __tmHandleTaskRowDropCore/, 'kanban child drops must show progress before waiting for the settled batch move');
 assert.doesNotMatch(kanbanDrop, /collapsed\.delete\(targetId\)|__tmKanbanPersistCollapsed/, 'kanban child drops must retain the target collapse state');
@@ -306,10 +321,57 @@ async function verifyKanbanChildDropSettlement() {
     ]);
 }
 
+function verifyVisibleDetailLocationOverride() {
+    class Element {}
+    class HTMLElement extends Element {}
+    const root = new HTMLElement();
+    root.dataset = { tmDetailTaskId: 'task-a' };
+    root.__tmTaskDetailTask = {
+        id: 'task-a',
+        root_id: 'doc-old',
+        docId: 'doc-old',
+        doc_name: '旧文档',
+        docName: '旧文档',
+    };
+    let syncedDocName = '';
+    let rememberedDocName = '';
+    const context = {
+        console,
+        Element,
+        HTMLElement,
+        state: { viewMode: 'comboBoard', kanbanDetailTaskId: 'task-a', detailTaskId: '' },
+        __tmCollectVisibleTaskDetailRoots: () => [root],
+        __tmAreTaskDetailIdsEquivalent: (left, right) => String(left || '').trim() === String(right || '').trim(),
+        __tmGetTaskDetailLocationDocName: (task) => String(task?.docName || ''),
+        __tmSyncTaskDetailLocationInPlace: (_root, task) => {
+            syncedDocName = String(task?.docName || '');
+            return true;
+        },
+        __tmRememberTaskDetailLocationSignature: (_root, task) => {
+            rememberedDocName = String(task?.docName || '');
+            return rememberedDocName;
+        },
+    };
+    context.globalThis = context;
+    vm.runInNewContext(`${locationOverride}\nthis.applyLocationOverride = __tmApplyVisibleTaskDetailLocationOverride;`, context);
+    assert.equal(context.applyLocationOverride('task-a', {
+        docId: 'doc-new',
+        docName: '新文档',
+        headingId: '',
+    }), true);
+    assert.equal(root.__tmTaskDetailTask.root_id, 'doc-new');
+    assert.equal(root.__tmTaskDetailTask.docId, 'doc-new');
+    assert.equal(root.__tmTaskDetailTask.docName, '新文档');
+    assert.equal(root.__tmTaskDetailTask.doc_name, '新文档');
+    assert.equal(syncedDocName, '新文档');
+    assert.equal(rememberedDocName, '新文档');
+}
+
 Promise.resolve().then(async () => {
     verifyLocalChildInsertionCollapsePolicy();
     await verifyMultiSelectChildMoveSettlement();
     await verifyKanbanChildDropSettlement();
+    verifyVisibleDetailLocationOverride();
 }).then(() => {
     console.log('mutation success acknowledgement contract tests passed');
 }).catch((error) => {

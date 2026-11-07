@@ -2008,7 +2008,11 @@
         const mode = String(globalThis.__tmTaskStore?.normalizeMoveMode?.(rawMode) || (rawMode === 'doc' ? 'docTop' : rawMode)).trim();
         const targetDocId = String(payload.targetDocId || '').trim();
         const headingId = String(payload.headingId || '').trim();
-        const docName = state.allDocuments.find((item) => String(item?.id || '').trim() === targetDocId)?.name || nextTask.docName || nextTask.doc_name || '';
+        const docName = state.allDocuments.find((item) => String(item?.id || '').trim() === targetDocId)?.name
+            || String(payload.targetDocName || '').trim()
+            || nextTask.docName
+            || nextTask.doc_name
+            || '';
         const targetParentTaskId = String(payload.targetParentTaskId || '').trim();
         const targetTaskId = String(payload.targetTaskId || '').trim();
         const targetListId = __tmResolveMoveTargetListId(payload);

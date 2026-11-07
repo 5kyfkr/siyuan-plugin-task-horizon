@@ -64,6 +64,9 @@ const fixtureScript = `
     window.task = { id:'20261025080000-task001', root_id:'20261025080000-parent1', content:'项目复盘会议记录', attachments:['assets/说明.pdf'] };
     window.docs = [
         { id:task.root_id, name:'项目计划', path:'/工作/项目计划', notebook:'box-1' },
+        { id:'20261025080000-child1', name:'复盘附件', path:'/工作/项目计划/复盘附件', notebook:'box-1' },
+        { id:'20261025080000-child2', name:'会议纪要', path:'/工作/项目计划/复盘附件/会议纪要', notebook:'box-1' },
+        { id:'20261025080000-root1', name:'独立文档', path:'/工作/独立文档', notebook:'box-1' },
         { id:'20261025080000-parent2', name:'项目资料', path:'/归档/项目资料', notebook:'box-2' },
     ];
     window.creates = []; window.patches = []; window.opened = []; window.hints = [];
@@ -75,7 +78,10 @@ const fixtureScript = `
         lsNotebooks: async () => [{id:'box-1',name:'工作笔记本'}, {id:'box-2',name:'归档笔记本'}],
         getTaskTitlePresentation: () => ({ text:task.content }),
         searchAssets: async () => [{ path:'assets/设计稿.pdf', name:'设计稿.pdf' }],
-        searchDocs: async () => [{ path:'block:' + docs[1].id, name:docs[1].name }],
+        searchDocs: async () => {
+            const doc = docs.find(item => item.id === '20261025080000-parent2');
+            return [{ path:'block:' + doc.id, name:doc.name }];
+        },
         call: async (endpoint, payload) => {
             if (endpoint === '/api/filetree/getDocPaths') return {code:0, data:{documents:[{id:payload.ids[0]}], missingIDs:[]}};
             if (endpoint !== '/api/filetree/createDocByParent' || 'path' in payload || 'hPath' in payload) {
@@ -154,8 +160,38 @@ async function run() {
         await page.getByLabel('文档标题', { exact: true }).fill('复盘纪要');
         await page.locator('[data-tm-attachment-create-location]').click();
         await page.locator('.tm-document-location-picker [data-tm-doc-picker-tree][aria-busy="false"]').waitFor();
+        await page.addStyleTag({ content: '.tm-document-location-picker summary { list-style: disclosure-closed !important; } .tm-document-location-picker summary::before { content: "\\25B6" !important; display: inline !important; }' });
         assert.equal(await page.locator('.tm-document-location-picker').count(), 1);
         assert.equal(await page.locator('.tm-task-attachment-picker-modal').count(), 1);
+        const branchLayout = await page.locator('.tm-document-location-picker .tm-doc-group-manager__picker-branch').first().evaluate(branch => {
+            const summary = branch.querySelector(':scope > summary');
+            const parentRow = summary.querySelector('.tm-doc-group-manager__picker-row');
+            const childSummary = branch.querySelector(':scope > .tm-doc-group-manager__picker-children > .tm-doc-group-manager__picker-branch > summary');
+            const notebook = branch.closest('.tm-doc-group-manager__picker-notebook');
+            const rootLeafRow = notebook.querySelector(':scope > .tm-doc-group-manager__picker-notebook-docs > .tm-doc-group-manager__picker-item:not(.tm-doc-group-manager__picker-branch) > .tm-doc-group-manager__picker-row');
+            return {
+                summaryDisplay: getComputedStyle(summary).display,
+                markerContent: getComputedStyle(summary, '::marker').content,
+                markerDisplay: getComputedStyle(summary, '::marker').display,
+                beforeContent: getComputedStyle(summary, '::before').content,
+                childMarkerContent: getComputedStyle(childSummary, '::marker').content,
+                childBeforeContent: getComputedStyle(childSummary, '::before').content,
+                parentToggleCount: parentRow.querySelectorAll('.tm-doc-group-manager__picker-chevron').length,
+                childToggleCount: childSummary.querySelectorAll('.tm-doc-group-manager__picker-chevron').length,
+                checkboxVisible: !!parentRow.querySelector('[data-tm-doc-picker-checkbox]'),
+                parentCheckboxLeft: parentRow.querySelector('[data-tm-doc-picker-checkbox]').getBoundingClientRect().left,
+                rootLeafCheckboxLeft: rootLeafRow.querySelector('[data-tm-doc-picker-checkbox]').getBoundingClientRect().left
+            };
+        });
+        assert.equal(branchLayout.summaryDisplay, 'block');
+        assert.equal(branchLayout.markerContent, 'none');
+        assert.equal(branchLayout.beforeContent, 'none');
+        assert.equal(branchLayout.childMarkerContent, 'none');
+        assert.equal(branchLayout.childBeforeContent, 'none');
+        assert.equal(branchLayout.parentToggleCount, 1);
+        assert.equal(branchLayout.childToggleCount, 1);
+        assert.equal(branchLayout.checkboxVisible, true);
+        assert.equal(branchLayout.parentCheckboxLeft, branchLayout.rootLeafCheckboxLeft);
         await page.keyboard.press('Escape');
         assert.equal(await page.locator('.tm-task-attachment-picker-modal').count(), 1);
         await page.locator('[data-tm-attachment-create-location]').click();

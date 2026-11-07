@@ -636,6 +636,11 @@
         const getActiveModal = () => runtimeState?.getModal?.() || state.modal;
         const getCurrentViewMode = (fallback = '') => runtimeState?.getViewMode?.(fallback) || String(state.viewMode || '').trim() || String(fallback || '').trim();
         const skipRender = !!(options && options.skipRender);
+        const customBoardLoad = !skipRender && getCurrentViewMode('') === 'comboBoard';
+        if (customBoardLoad && !(Array.isArray(state.customBoardProjection) && state.customBoardProjection.length)) {
+            state.__tmCustomBoardLoading = true;
+            state.__tmCustomBoardLoadingToken = token;
+        }
         const skipStorageWrites = !!(options && options.skipStorageWrites === true)
             || globalThis.__tmSuppressStorageWrites === true;
         const deferProjection = !!(options && options.deferProjection === true);
@@ -1039,22 +1044,8 @@
         try { __tmNormalizeCompletedVisibilitySettings(SettingsStore.data); } catch (e) {}
         __tmApplyCompletedVisibilityToRuntime();
 
-        // 加载筛选规则
-        state.filterRules = await __tmEnsureFilterRulesLoaded();
-        const currentRule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
-        const enhanceLoadPlan = __tmBuildTaskEnhanceLoadPlan({
-            viewMode: getCurrentViewMode(''),
-            colOrder: Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [],
-            rule: currentRule,
-            forceFlowRank: forceSyncFlowRank,
-        });
-        const bulkCustomFieldPlan = enhanceLoadPlan.customFieldLoadPlan;
-        state.deferredListCustomFieldIds = getCurrentViewMode('') === 'list'
-            ? bulkCustomFieldPlan.deferredListFieldIds.slice()
-            : [];
-        state.__tmQueryDoneOnly = !!(currentRule && currentRule.conditions && currentRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '') && String(c.value) !== '__all__'));
-
-        // 1. 解析所有需要查询的文档ID
+        const customBoardMode = String(state.viewMode || '').trim() === __TM_CUSTOM_BOARD_VIEW_MODE;
+        const customBoardSet = customBoardMode ? __tmGetActiveCustomBoardSet() : null;
         const resolveScopeOptions = {
             forceRefreshScope: !!state.isRefreshing || !!(options && options.forceRefreshScope === true),
             skipPersistedScope: isSwitchDocGroupLoad || !!(options && options.skipPersistedScope === true),
@@ -1062,10 +1053,89 @@
             verifyCachedScope: !isSwitchDocGroupLoad,
             preferFastScope: !isSwitchDocGroupLoad && !!preferFastFirstPaint && !forceFreshTasks && !state.isRefreshing,
         };
+        const filterRulesPromise = __tmEnsureFilterRulesLoaded();
+        const docTabOrderGroupIds = customBoardMode
+            ? Array.from(new Set([
+                currentGroupId,
+                ...(Array.isArray(customBoardSet?.boards) ? customBoardSet.boards : [])
+                    .filter((board) => __tmNormalizeCustomBoardGroupMode(board?.groupMode) === 'doc')
+                    .flatMap((board) => {
+                        const scope = __tmNormalizeCustomBoardScope(board?.scope);
+                        if (scope.mode === 'groups') return scope.groupIds;
+                        if (scope.mode === 'tabGroup') return [scope.groupId];
+                        if (scope.mode === 'all') return ['all'];
+                        return [currentGroupId];
+                    })
+                    .map((groupId) => String(groupId || '').trim())
+                    .filter(Boolean),
+            ]))
+            : [currentGroupId];
+        const docTabOrderEntriesPromise = customBoardMode && typeof __tmResolveCurrentGroupAllDocEntries === 'function'
+            ? Promise.all(docTabOrderGroupIds.map(async (groupId) => ({
+                groupId,
+                entries: await __tmResolveCurrentGroupAllDocEntries({
+                    groupId,
+                    includeCurrent: true,
+                }).catch(() => []),
+            })))
+            : Promise.resolve([]);
+        const customBoardScopesPromise = customBoardMode
+            ? Promise.resolve()
+                .then(() => __tmResolveCustomBoardSetDocumentScopes(customBoardSet, resolveScopeOptions))
+                .then((result) => ({ ok: true, result }))
+                .catch((error) => ({ ok: false, error }))
+            : null;
+        // Filter rules and document-group tab orders are independent.
+        const [loadedFilterRules, docTabOrderEntriesByGroup] = await Promise.all([
+            filterRulesPromise,
+            docTabOrderEntriesPromise,
+        ]);
+        if (!isTokenCurrent()) return;
+        state.filterRules = loadedFilterRules;
+        if (customBoardMode) {
+            const docTabOrderByGroup = {};
+            (Array.isArray(docTabOrderEntriesByGroup) ? docTabOrderEntriesByGroup : []).forEach((entry) => {
+                const groupId = String(entry?.groupId || '').trim();
+                const ids = (Array.isArray(entry?.entries) ? entry.entries : [])
+                    .map((doc) => String(doc?.id || '').trim())
+                    .filter(Boolean);
+                if (groupId) docTabOrderByGroup[groupId] = ids;
+            });
+            state.__tmDocTabOrderByGroup = docTabOrderByGroup;
+        }
+        const currentRule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
+        const customBoardRules = customBoardMode
+            ? (Array.isArray(customBoardSet?.boards) ? customBoardSet.boards : [])
+                .map((board) => state.filterRules.find((rule) => rule?.enabled !== false && String(rule?.id || '').trim() === String(board?.ruleId || '').trim()))
+                .filter(Boolean)
+            : [];
+        const enhanceLoadPlan = __tmBuildTaskEnhanceLoadPlan({
+            viewMode: getCurrentViewMode(''),
+            colOrder: Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [],
+            rule: currentRule,
+            additionalRules: customBoardRules,
+            forceFlowRank: forceSyncFlowRank,
+        });
+        const bulkCustomFieldPlan = enhanceLoadPlan.customFieldLoadPlan;
+        state.deferredListCustomFieldIds = getCurrentViewMode('') === 'list'
+            ? bulkCustomFieldPlan.deferredListFieldIds.slice()
+            : [];
+        state.__tmQueryDoneOnly = !customBoardMode && !!(currentRule && currentRule.conditions && currentRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '') && String(c.value) !== '__all__'));
+
+        // 1. 解析所有需要查询的文档ID
         let allDocIds = [];
         let scopeReadError = null;
         try {
-            allDocIds = await resolveDocIdsFromGroups(resolveScopeOptions);
+            if (customBoardMode) {
+                const scopeResult = await customBoardScopesPromise;
+                if (!scopeResult?.ok) throw scopeResult?.error || new Error('custom-board-scope');
+                const resolvedScopes = scopeResult.result;
+                state.__tmCustomBoardSourceDocIdsByBoard = resolvedScopes.boardDocIds;
+                allDocIds = resolvedScopes.docIds;
+            } else {
+                state.__tmCustomBoardSourceDocIdsByBoard = null;
+                allDocIds = await resolveDocIdsFromGroups(resolveScopeOptions);
+            }
         } catch (error) {
             if (!retryEmptyDocScope && !waitForDocScopeResolve) throw error;
             scopeReadError = error;
@@ -1074,7 +1144,7 @@
         // settings are ready but before notebook/file-tree queries are usable.
         // An empty result is otherwise cached as a valid empty group and the
         // first render stays blank until the user manually refreshes.
-        if (allDocIds.length === 0 && (retryEmptyDocScope || waitForDocScopeResolve)) {
+        if (!customBoardMode && allDocIds.length === 0 && (retryEmptyDocScope || waitForDocScopeResolve)) {
             let configuredScope = false;
             try {
                 const scopeContext = __tmBuildDocGroupLoaderContext({
@@ -1108,6 +1178,39 @@
                         scopeReadError = null;
                     } catch (e) {
                         scopeReadError = e;
+                    }
+                }
+            }
+        }
+        if (customBoardMode && allDocIds.length === 0 && (retryEmptyDocScope || waitForDocScopeResolve)) {
+            const configuredScope = (Array.isArray(customBoardSet?.boards) ? customBoardSet.boards : []).some((board) => {
+                const scope = __tmNormalizeCustomBoardScope(board?.scope);
+                if (scope.mode === 'all') return true;
+                if (scope.mode === 'groups') return scope.groupIds.length > 0;
+                if (scope.mode === 'docs') return scope.docIds.length > 0;
+                return !!scope.tabGroupId && (Array.isArray(SettingsStore.data.docTabCustomGroups) ? SettingsStore.data.docTabCustomGroups : [])
+                    .some((group) => String(group?.id || '').trim() === scope.tabGroupId);
+            });
+            if (configuredScope) {
+                const retryCount = Math.max(1, Math.min(4, Math.round(Number(options?.emptyDocScopeRetryCount) || 3)));
+                const retryDelays = [120, 280, 600, 1000];
+                for (let retryIndex = 0; retryIndex < retryCount && allDocIds.length === 0; retryIndex += 1) {
+                    try { await new Promise((resolve) => setTimeout(resolve, retryDelays[retryIndex] || 600)); } catch (e) {}
+                    if (!isTokenCurrent()) return;
+                    try { await __tmRefreshNotebookCache(true); } catch (e) {}
+                    try {
+                        const resolvedScopes = await __tmResolveCustomBoardSetDocumentScopes(customBoardSet, {
+                            ...resolveScopeOptions,
+                            forceRefreshScope: true,
+                            skipPersistedScope: true,
+                            skipResolvedDocIdsCache: true,
+                            verifyCachedScope: false,
+                        });
+                        state.__tmCustomBoardSourceDocIdsByBoard = resolvedScopes.boardDocIds;
+                        allDocIds = resolvedScopes.docIds;
+                        scopeReadError = null;
+                    } catch (error) {
+                        scopeReadError = error;
                     }
                 }
             }
@@ -1164,53 +1267,8 @@
             return taskCountMapMeta;
         };
         let snapshotFirstRenderCommitted = false;
-        if (preferFastFirstPaint && !skipSnapshotFirstPaint && !skipRender && !forceFullLoadBudget && !forceFreshTasks && !stableSwitchNeedsCompleteLoad) {
-            try {
-                const countMeta = await ensureTaskCountMapForCacheRestore('snapshot-cache');
-                const snapshotService = globalThis.__tmTaskSnapshotService || null;
-                try { await snapshotService?.refreshCache?.({ source: 'snapshot-first-paint' }); } catch (e) {}
-                const snapshot = await snapshotService?.load?.({
-                    docIds: allDocIds,
-                    groupId: currentGroupId,
-                    cachedOnly: snapshotFirstPaintCachedOnly,
-                });
-                const snapshotMeta = snapshotService?.restore?.(snapshot, {
-                    docIds: allDocIds,
-                    groupId: currentGroupId,
-                    taskCountMap: countMeta?.map
-                });
-                if (snapshotMeta && isTokenCurrent()) {
-                    await globalThis.__tmProjectVisibility?.prepareTaskHeadings(Object.values(state.flatTasks || {}));
-                    if (!isTokenCurrent()) return;
-                    try { recalcStats(); } catch (e) {}
-                    let viewSnapshotMeta = null;
-                    try {
-                        viewSnapshotMeta = snapshotService?.restoreViewState?.(snapshot, {
-                            groupId: currentGroupId,
-                            viewMode: getCurrentViewMode('list'),
-                            activeDocId: state.activeDocId,
-                        });
-                    } catch (e) {
-                        viewSnapshotMeta = null;
-                    }
-                    prepareSwitchGroupFirstPaintWindow();
-                    if (!deferProjection) __tmRecomputeTaskProjection({ reason: 'document-loader' });
-                    prepareSwitchGroupFirstPaintWindow();
-                    const activeModal = getActiveModal();
-                    if (activeModal && isTokenCurrent()) {
-                        try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
-                        renderLoadedState();
-                        snapshotFirstRenderCommitted = true;
-                        const verifyScheduled = scheduleSilentVerifyAfterCacheFirstPaint('snapshot-cache', {
-                            delayMs: viewSnapshotMeta ? 520 : 260,
-                        });
-                        if (!verifyScheduled) scheduleFullLoadAfterFastFirstPaint('snapshot-cache');
-
-                        return;
-                    }
-                }
-            } catch (e) {}
-        }
+        // Memory restores avoid materializing the persisted snapshot store. The
+        // background verifier still confirms freshness after the first paint.
         const shouldLoadOtherBlocksLater = allowDeferredBootWork
             && !shouldLoadOtherBlocksInline
             && currentGroupId !== 'all'
@@ -1276,10 +1334,13 @@
                     try { __tmScheduleTaskIndexPrewarm({ currentDocIds: deferredDocIds, currentGroupId: currentGroupId || 'all' }); } catch (e) {}
                 }
                 try { window.tmWarmCalendarTaskCacheIfStale?.({ refresh: false, maxAgeMs: 20000 }); } catch (e) {}
+                const customBoardHeadingGroupingActive = String(state.viewMode || '').trim() === __TM_CUSTOM_BOARD_VIEW_MODE
+                    && typeof __tmCustomBoardUsesHeadingGroups === 'function'
+                    && (customBoardSet?.boards || []).some(__tmCustomBoardUsesHeadingGroups);
                 const kanbanHeadingGroupingActive = typeof __tmGetKanbanBoardMode === 'function'
                     ? __tmGetKanbanBoardMode() === 'heading'
                     : !!SettingsStore.data.kanbanHeadingGroupMode;
-                if (kanbanHeadingGroupingActive || SettingsStore.data.docH2SubgroupEnabled !== false) {
+                if (customBoardHeadingGroupingActive || kanbanHeadingGroupingActive || SettingsStore.data.docH2SubgroupEnabled !== false) {
                     try {
                         Promise.resolve().then(async () => {
                             if (kanbanHeadingGroupingActive) {
@@ -1389,13 +1450,63 @@
                 }
             } catch (e) {}
         }
+        if (preferFastFirstPaint && !skipSnapshotFirstPaint && !skipRender && !forceFullLoadBudget && !forceFreshTasks && !stableSwitchNeedsCompleteLoad) {
+            try {
+                const countMetaPromise = ensureTaskCountMapForCacheRestore('snapshot-cache');
+                const snapshotService = globalThis.__tmTaskSnapshotService || null;
+                try { await snapshotService?.refreshCache?.({ source: 'snapshot-first-paint' }); } catch (e) {}
+                const [countMeta, snapshot] = await Promise.all([
+                    countMetaPromise,
+                    snapshotService?.load?.({
+                        docIds: allDocIds,
+                        groupId: currentGroupId,
+                        cachedOnly: snapshotFirstPaintCachedOnly,
+                    }),
+                ]);
+                const snapshotMeta = snapshotService?.restore?.(snapshot, {
+                    docIds: allDocIds,
+                    groupId: currentGroupId,
+                    taskCountMap: countMeta?.map
+                });
+                if (snapshotMeta && isTokenCurrent()) {
+                    await globalThis.__tmProjectVisibility?.prepareTaskHeadings(Object.values(state.flatTasks || {}));
+                    if (!isTokenCurrent()) return;
+                    try { recalcStats(); } catch (e) {}
+                    let viewSnapshotMeta = null;
+                    try {
+                        viewSnapshotMeta = snapshotService?.restoreViewState?.(snapshot, {
+                            groupId: currentGroupId,
+                            viewMode: getCurrentViewMode('list'),
+                            activeDocId: state.activeDocId,
+                        });
+                    } catch (e) {
+                        viewSnapshotMeta = null;
+                    }
+                    prepareSwitchGroupFirstPaintWindow();
+                    if (!deferProjection && (!viewSnapshotMeta || customBoardMode)) __tmRecomputeTaskProjection({ reason: 'document-loader' });
+                    prepareSwitchGroupFirstPaintWindow();
+                    const activeModal = getActiveModal();
+                    if (activeModal && isTokenCurrent()) {
+                        try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
+                        renderLoadedState();
+                        snapshotFirstRenderCommitted = true;
+                        const verifyScheduled = scheduleSilentVerifyAfterCacheFirstPaint('snapshot-cache', {
+                            delayMs: viewSnapshotMeta ? 520 : 260,
+                        });
+                        if (!verifyScheduled) scheduleFullLoadAfterFastFirstPaint('snapshot-cache');
+
+                        return;
+                    }
+                }
+            } catch (e) {}
+        }
         const canUseTaskIndex = !skipTaskIndexFirstPaint
             && !forceFreshTasks
             && !forceFullLoadBudget
             && !state.isRefreshing;
         if (canUseTaskIndex) {
             try {
-                const countMeta = await ensureTaskCountMapForCacheRestore('task-index-cache');
+                const countMetaPromise = ensureTaskCountMapForCacheRestore('task-index-cache');
                 const currentViewModeForTaskIndex = getCurrentViewMode('list');
                 const allowPartialTaskIndex = currentViewModeForTaskIndex !== 'calendar'
                     && !stabilizeSwitchGroupView
@@ -1405,7 +1516,7 @@
                     groupId: currentGroupId,
                     queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
                     docUpdatedMap: taskIndexDocUpdatedMap,
-                    taskCountMap: countMeta?.map,
+                    taskCountMapPromise: countMetaPromise,
                     strictDocUpdated: stabilizeSwitchGroupView,
                     cachedOnly: taskIndexFirstPaintCachedOnly,
                     allowPartial: allowPartialTaskIndex,
@@ -2540,5 +2651,24 @@
         } finally {
             clearInlineLoadingWatchdog();
             clearInlineLoadingForCurrentToken();
+            if (Number(state.__tmCustomBoardLoadingToken) === token) {
+                const stillLoading = state.__tmCustomBoardLoading === true;
+                if (stillLoading && !skipRender && getCurrentViewMode('') === 'comboBoard') {
+                    try { __tmBuildCustomBoardProjection({ allowWhileLoading: true }); } catch (e) {}
+                }
+                state.__tmCustomBoardLoading = false;
+                state.__tmCustomBoardLoadingToken = 0;
+                if (stillLoading && !skipRender && getCurrentViewMode('') === 'comboBoard') {
+                    try { __tmRememberCurrentCustomBoardProjectionCache(); } catch (e) {}
+                    const modal = getActiveModal();
+                    if (modal && isTokenCurrent()) {
+                        try {
+                            requestAnimationFrame(() => {
+                                if (isTokenCurrent() && !state.__tmCustomBoardLoading) render();
+                            });
+                        } catch (e) {}
+                    }
+                }
+            }
         }
     }

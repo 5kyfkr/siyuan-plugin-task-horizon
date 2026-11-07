@@ -1326,6 +1326,43 @@ async function testCheckboxBoundStatusDeletion() {
     await context.window.deleteStatusOption(-1);
 }
 
+function testStatusOptionsCacheReusesNormalizedArray() {
+    const input = [{ id: 'todo', name: '待办', marker: ' ' }];
+    let normalizeCalls = 0;
+    const context = vm.createContext({
+        Map,
+        SettingsStore: { data: { customStatusOptions: input, settingsUpdatedAt: 7, legacyWin7CompatMode: false } },
+        __tmStatusOptionsRuntimeCache: {
+            input: null,
+            fingerprint: '',
+            settingsVersion: 0,
+            legacyCompat: false,
+            options: [],
+            idMap: new Map(),
+            markerMap: new Map(),
+        },
+        __tmIsLegacyWin7CompatMode: () => false,
+        __tmNormalizeCustomStatusOptions(options) {
+            normalizeCalls += 1;
+            return options.map((option) => ({ ...option }));
+        },
+        __tmBuildStatusOptionsLookupMaps(options) {
+            const idMap = new Map(options.map((option) => [option.id, option]));
+            const markerMap = new Map(options.map((option) => [option.marker, option]));
+            return { idMap, markerMap };
+        },
+    });
+    vm.runInContext(extractFunction(apiSource, '__tmGetStatusOptionsRuntimeArtifacts'), context);
+
+    const first = context.__tmGetStatusOptionsRuntimeArtifacts(null);
+    const second = context.__tmGetStatusOptionsRuntimeArtifacts(first.options);
+    const third = context.__tmGetStatusOptionsRuntimeArtifacts(null);
+
+    assert.equal(second, first, 'normalized options must reuse their cached artifacts');
+    assert.equal(third, first, 'the original settings array must remain the cache key');
+    assert.equal(normalizeCalls, 1, 'a normalized options array must not be normalized again');
+}
+
 function testMissingCheckboxStatusRecovery() {
     const context = vm.createContext({
         __tmNormalizeCustomStatusOptions: (items, fillNative = true) => statusRules.normalizeOptions(items, false, fillNative),
@@ -1592,6 +1629,7 @@ async function run() {
     await testDuplicateMarkerSettingsWarning();
     testNativeStatusCompatibility();
     await testMarkerRulesAndStatusResolution();
+    testStatusOptionsCacheReusesNormalizedArray();
     testTaskDetailPreservesConfiguredStatusMarkers();
     testStatusTransitionCompletionTime();
     testCanceledTasksUseCompletedGroups();

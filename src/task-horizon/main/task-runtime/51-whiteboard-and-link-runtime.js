@@ -3628,7 +3628,7 @@
                     roots.push({ scope: 'task-sheet', root: panel, taskId });
                 }
             }
-            if (String(state.viewMode || '').trim() === 'kanban') {
+            if (__tmIsKanbanDetailHostMode()) {
                 const panel = modal.querySelector('#tmKanbanDetailPanel');
                 const taskId = String(panel?.__tmTaskDetailTask?.id || panel?.dataset?.tmDetailTaskId || state.kanbanDetailTaskId || '').trim();
                 if (panel instanceof HTMLElement && panel.__tmTaskDetailClosed !== true && taskId) roots.push({ scope: 'kanban', root: panel, taskId });
@@ -4003,8 +4003,8 @@ __tmScheduleViewRefresh(pending);
             __tmRenderChecklistPreserveScroll({ docIds: options.docIds, reason });
             return;
         }
-        if (state.viewMode === 'kanban' || state.viewMode === 'whiteboard') {
-            if (state.viewMode === 'kanban'
+        if (state.viewMode === 'kanban' || state.viewMode === 'comboBoard' || state.viewMode === 'whiteboard') {
+            if ((state.viewMode === 'kanban' || state.viewMode === 'comboBoard')
                 && globalThis.__tmTryRefreshKanbanColumns?.(state.modal, options.taskIds, { reason, docIds: options.docIds }) === true) return;
             if (!__tmRerenderCurrentViewInPlace(state.modal, { taskIds: options.taskIds, reason })) render();
             return;
@@ -4179,6 +4179,23 @@ __tmScheduleViewRefresh(pending);
 
     function __tmBuildTaskProjectionContext(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        const isCustomBoardMode = String(state.viewMode || '').trim() === __TM_CUSTOM_BOARD_VIEW_MODE;
+        const activeBoardSet = isCustomBoardMode && typeof __tmGetActiveCustomBoardSet === 'function'
+            ? __tmGetActiveCustomBoardSet()
+            : null;
+        const customBoardRules = isCustomBoardMode
+            ? (Array.isArray(activeBoardSet?.boards) ? activeBoardSet.boards : [])
+                .map((board) => (Array.isArray(state.filterRules) ? state.filterRules : [])
+                    .find((rule) => String(rule?.id || '').trim() === String(board?.ruleId || '').trim()))
+                .filter(Boolean)
+            : [];
+        const baseRule = opts.rule || (isCustomBoardMode ? null : __tmGetCurrentProjectionRule());
+        const projectionRule = isCustomBoardMode
+            ? {
+                conditions: customBoardRules.flatMap((rule) => Array.isArray(rule?.conditions) ? rule.conditions : []),
+                sort: customBoardRules.flatMap((rule) => Array.isArray(rule?.sort) ? rule.sort : []),
+            }
+            : baseRule;
         let kanbanMode = '';
         try { kanbanMode = typeof __tmGetKanbanBoardMode === 'function' ? String(__tmGetKanbanBoardMode() || '').trim() : ''; } catch (e) {}
         let kanbanCardFields = [];
@@ -4189,8 +4206,8 @@ __tmScheduleViewRefresh(pending);
                 ? 'task'
                 : (state.groupByTime ? 'time' : (state.quadrantEnabled ? 'quadrant' : 'none')));
         return {
-            rule: opts.rule || __tmGetCurrentProjectionRule(),
-            viewMode: String(state.viewMode || '').trim(),
+            rule: projectionRule,
+            viewMode: isCustomBoardMode ? 'kanban' : String(state.viewMode || '').trim(),
             groupMode,
             searchActive: !!String(state.searchKeyword || '').trim(),
             dateFilterActive: globalThis.__tmDateFilter?.active() === true,

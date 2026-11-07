@@ -42,6 +42,8 @@
         const __tmRenderKanbanBodyHtml = (renderOptions = {}) => __tmBuildRenderSceneKanbanBodyHtml({
             bodyAnimClass: __tmGetBodyAnimClassForRender(renderOptions),
             columnPatch: renderOptions.columnPatch,
+            customBoardColumns: renderOptions.customBoardColumns
+                ?? (state.viewMode === 'comboBoard' ? state.customBoardProjection : undefined),
         });
 
         const __tmRenderCalendarBodyHtml = () => __tmBuildRenderSceneCalendarBodyHtml({
@@ -93,6 +95,8 @@
                 ? __tmRenderTimelineBodyHtml(__tmTimelineRowModel)
                 : renderMode === 'kanban'
                     ? __tmRenderKanbanBodyHtml({ withBodyAnimation: true })
+                    : renderMode === 'comboBoard'
+                        ? __tmRenderKanbanBodyHtml({ withBodyAnimation: true, customBoardColumns: state.customBoardProjection })
                     : __tmRenderListBodyHtml();
         const showCalendarSideDock = !state.homepageOpen && !state.attachmentLibraryOpen && __tmShouldShowCalendarSideDock() && !isMobile;
         const showAiSideDock = !state.attachmentLibraryOpen && __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile && !isDockHost;

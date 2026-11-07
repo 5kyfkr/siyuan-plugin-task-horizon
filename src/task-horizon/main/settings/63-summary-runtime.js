@@ -372,8 +372,13 @@
             const completionDate = __tmSummaryDateKeyFromTs(completedAtTs);
             const dueDate = __tmSummaryDateOnlyText(task.completionTime || task.completion_time || '');
             const dateKey = done ? completionDate : dueDate;
-            if (start && (!dateKey || dateKey < start)) return;
-            if (end && (!dateKey || dateKey > end)) return;
+            const startDate = __tmSummaryDateOnlyText(task.startDate || task.start_date || '');
+            const rangeStart = done ? completionDate : (startDate || dueDate);
+            const rangeEnd = done ? completionDate : (dueDate || startDate);
+            const from = rangeStart < rangeEnd ? rangeStart : rangeEnd;
+            const to = rangeStart > rangeEnd ? rangeStart : rangeEnd;
+            if (start && (!to || to < start)) return;
+            if (end && (!from || from > end)) return;
 
             if (!statusIds.includes('__all__')) {
                 const taskStatusId = __tmResolveTaskStatusId(task);
@@ -444,6 +449,7 @@
                 focusDuration: __tmSummaryFormatFocusDuration(task),
                 completedAtTs,
                 dateKey,
+                startDate,
                 dueDate,
                 completionDate,
                 docId,
@@ -492,6 +498,7 @@
         const showDocName = fields.docName !== false;
         const showPriority = fields.priority !== false;
         const showStatus = fields.status !== false;
+        const showStartDate = fields.startDate === true;
         const showDueDate = fields.dueDate === true;
         const showCompletionDate = fields.completionDate === true;
         const showFocusDuration = fields.focusDuration !== false;
@@ -506,8 +513,12 @@
         const renderTaskDates = (task, options = {}) => {
             const omitPrimary = options.omitPrimary === true;
             const parts = [];
+            const startDate = String(task.startDate || '').trim();
             const dueDate = String(task.dueDate || '').trim();
             const completionDate = String(task.completionDate || '').trim();
+            if (showStartDate && startDate) {
+                parts.push(`[${startDate}]`);
+            }
             if (showDueDate && dueDate && !(omitPrimary && !task.done)) {
                 parts.push(`[${dueDate}]`);
             }
@@ -847,6 +858,7 @@
                 docName: booleanOr('docName', false),
                 priority: booleanOr('priority', false),
                 status: booleanOr('status', false),
+                startDate: booleanOr('startDate', false),
                 dueDate: booleanOr('dueDate', legacyDate),
                 completionDate: booleanOr('completionDate', legacyDate),
                 focusDuration: booleanOr('focusDuration', false),
@@ -908,6 +920,7 @@
             fieldDocName: filter.fields?.docName === true,
             fieldPriority: filter.fields?.priority === true,
             fieldStatus: filter.fields?.status === true,
+            fieldStartDate: filter.fields?.startDate === true,
             fieldDueDate: filter.fields?.dueDate === true,
             fieldCompletionDate: filter.fields?.completionDate === true,
             fieldFocusDuration: filter.fields?.focusDuration === true,
@@ -952,6 +965,7 @@
                 docName: q('[data-tm-summary="fieldDocName"]')?.checked !== false,
                 priority: q('[data-tm-summary="fieldPriority"]')?.checked !== false,
                 status: q('[data-tm-summary="fieldStatus"]')?.checked !== false,
+                startDate: q('[data-tm-summary="fieldStartDate"]')?.checked === true,
                 dueDate: q('[data-tm-summary="fieldDueDate"]')?.checked === true,
                 completionDate: q('[data-tm-summary="fieldCompletionDate"]')?.checked === true,
                 focusDuration: q('[data-tm-summary="fieldFocusDuration"]')?.checked !== false,
@@ -1239,6 +1253,7 @@
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDocName">${__tmT("task.documentName")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldPriority">${__tmT("kernel.importance")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldStatus">${__tmT("kernel.status")}</label>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldStartDate">${__tmT("kernel.startDate")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDueDate">${__tmT("kernel.dueDate")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldCompletionDate">${__tmT("calendar.completionDate")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldFocusDuration">${__tmT("settings.focusTime2")}</label>

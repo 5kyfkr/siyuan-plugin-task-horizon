@@ -18,6 +18,7 @@
     "main/32-runtime-state-and-events.js",
     "main/33-task-boundary-facades.js",
     "main/34-task-projection-engine.js",
+    "main/35-custom-board-runtime.js",
     "main/35-task-projection-service.js",
     "main/36-focus-statistics-service.js",
     "main/37-project-visibility-service.js",

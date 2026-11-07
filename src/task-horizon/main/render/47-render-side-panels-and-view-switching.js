@@ -683,9 +683,14 @@
             stage.classList.add('tm-main-stage--view-switch-pending');
             stage.setAttribute('aria-busy', 'true');
         }
-        // Selection and aria-busy provide immediate feedback. Most view changes
-        // only redraw loaded data; avoid flashing a data-loading indicator.
-        try { __tmSetInlineLoading(true, { owner: 'view-switch', styleKind: 'topbar', delayMs: 180 }); } catch (e) {}
+        // Paint the mobile Kanban skeleton before synchronous card rendering
+        // starts; a delayed timer cannot run while that work blocks the thread.
+        const mobileKanban = String(nextMode || '').trim() === 'kanban'
+            && (__tmIsRuntimeMobileClient() || __tmIsMobileDevice());
+        try {
+            if (mobileKanban) __tmSetInlineLoading(true, { owner: 'view-switch', styleKind: 'skeleton', delayMs: 0 });
+            else __tmSetInlineLoading(true, { owner: 'view-switch', styleKind: 'topbar', delayMs: 180 });
+        } catch (e) {}
         return modal;
     }
 
@@ -1102,12 +1107,41 @@
         } else if (prev === next) {
             return;
         }
+        let customBoardProjectionRestored = false;
+        let normalProjectionRestored = false;
         // The desktop topbar action catalog and persistent side-dock shell
         // change with the calendar view, so do a full shell render at this
         // boundary instead of carrying the task-view dock through a body swap.
-        if (prev === 'calendar' || next === 'calendar') forceFullRender = true;
+        if (prev === 'calendar' || next === 'calendar' || prev === __TM_CUSTOM_BOARD_VIEW_MODE || next === __TM_CUSTOM_BOARD_VIEW_MODE) forceFullRender = true;
         try { __tmRememberViewSwitchWindow(prev); } catch (e) {}
+        if (prev !== __TM_CUSTOM_BOARD_VIEW_MODE && next === __TM_CUSTOM_BOARD_VIEW_MODE) {
+            try { __tmRememberCustomBoardReturnScope(); } catch (e) {}
+        }
         state.viewMode = next;
+        try { void __tmShortcuts?.persistSession?.(); } catch (e) {}
+        if (prev === __TM_CUSTOM_BOARD_VIEW_MODE || next === __TM_CUSTOM_BOARD_VIEW_MODE) {
+            if (next === __TM_CUSTOM_BOARD_VIEW_MODE) {
+                try { customBoardProjectionRestored = __tmTryRestoreCachedCustomBoardProjection() === true; } catch (e) {}
+                if (!customBoardProjectionRestored) {
+                    state.customBoardProjection = __tmBuildCustomBoardProjectionShell();
+                    state.__tmCustomBoardLoading = true;
+                    state.__tmCustomBoardLoadingToken = Number(state.openToken) || 0;
+                    state.filteredTasks = [];
+                    state.filteredDocIdsForTabs = [];
+                    state.__tmCustomBoardSourceDocIdsByBoard = null;
+                    try { __tmUpdateFilteredTaskRenderWindowState([]); } catch (e) {}
+                }
+            } else {
+                state.customBoardProjection = [];
+                state.__tmCustomBoardLoading = false;
+                state.__tmCustomBoardLoadingToken = 0;
+                state.filteredTasks = [];
+                state.filteredDocIdsForTabs = [];
+                state.__tmCustomBoardSourceDocIdsByBoard = null;
+                try { __tmUpdateFilteredTaskRenderWindowState([]); } catch (e) {}
+                try { normalProjectionRestored = __tmTryRestoreCustomBoardReturnScope(); } catch (e) {}
+            }
+        }
         if (next !== 'whiteboard' && state.whiteboardTraversal) window.tmWhiteboardExitTraversal?.();
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
@@ -1165,6 +1199,21 @@
             }
             try { __tmScheduleProgressiveViewRender(next, progressiveJob); } catch (e) {}
             try { __tmShortcutSidebar.refresh(); } catch (e) {}
+            if (next === __TM_CUSTOM_BOARD_VIEW_MODE && !customBoardProjectionRestored) {
+                Promise.resolve().then(() => {
+                    if (state.__tmViewSwitchCommitGeneration !== generation || String(state.viewMode || '') !== next) return;
+                    return loadSelectedDocuments({ source: 'custom-board-view-switch', preferFastFirstPaint: true });
+                }).catch((error) => {
+                    try { console.error('[组合板] 视图任务加载失败:', error); } catch (e) {}
+                });
+            } else if (prev === __TM_CUSTOM_BOARD_VIEW_MODE && next !== __TM_CUSTOM_BOARD_VIEW_MODE && !normalProjectionRestored) {
+                Promise.resolve().then(() => {
+                    if (state.__tmViewSwitchCommitGeneration !== generation || String(state.viewMode || '') !== next) return;
+                    return loadSelectedDocuments({ source: 'custom-board-view-switch', preferFastFirstPaint: true });
+                }).catch((error) => {
+                    try { console.error('[组合板] 视图任务加载失败:', error); } catch (e) {}
+                });
+            }
             if (next === 'timeline') {
                 try { __tmScheduleTimelineDateHydrationAfterViewSwitch(generation); } catch (e) {}
             }

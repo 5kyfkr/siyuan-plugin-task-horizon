@@ -33,6 +33,7 @@ const state = {
 };
 const context = vm.createContext({
     console, Date: Clock, Map, Set, WeakMap, Intl, state,
+    __TM_CUSTOM_BOARD_VIEW_MODE: 'comboBoard',
     window: { dispatchEvent() {} }, CustomEvent: class {},
     SettingsStore: { data: { currentGroupId: 'all', columnOrder: [] } },
     MetaStore: { get: () => null },

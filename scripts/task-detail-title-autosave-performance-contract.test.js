@@ -34,7 +34,7 @@ const panelPatch = sliceBetween('function __tmPatchTaskDetailPanelInPlace(', 'fu
 assert.match(panelPatch, /hasOwnProperty\.call\(nextPatch, 'content'\)[\s\S]*__tmPatchTaskTitleEditor\(titleTextarea, task\)/, 'title patches must use the shared focus and draft protection');
 
 const visibleRefresh = sliceBetween('function __tmRefreshVisibleTaskDetailForTask(', 'let __tmKanbanDetailOutsideClickHandler', 'visible task detail refresh');
-const kanbanRefreshStart = visibleRefresh.indexOf("if (String(state.viewMode || '').trim() === 'kanban'");
+const kanbanRefreshStart = visibleRefresh.indexOf('if (__tmIsKanbanDetailHostMode()');
 const kanbanRefreshEnd = visibleRefresh.indexOf('const overlay =', kanbanRefreshStart);
 assert.ok(kanbanRefreshStart >= 0 && kanbanRefreshEnd > kanbanRefreshStart, 'kanban detail refresh must remain extractable');
 const kanbanRefresh = visibleRefresh.slice(kanbanRefreshStart, kanbanRefreshEnd);

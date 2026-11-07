@@ -660,7 +660,7 @@ if (shouldMarkDirty) {
         const existingModalBeforeOpen = state.modal instanceof HTMLElement ? state.modal : null;
         let forceRenderForHostHandoff = false;
         try {
-            const allow = new Set(['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard']);
+            const allow = new Set(['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard', 'comboBoard']);
             const isMobileDevice = __tmIsMobileDevice();
             const preserve = restoredShortcut || !!(options && options.preserveViewMode);
             const current = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
@@ -769,11 +769,19 @@ if (shouldMarkDirty) {
             && !(options && options.skipEnsureTabOpened)
             && !(reusedExistingModal && hasDataReadyForSoftReuse0 && !quickbarDirty0 && !hasPendingLocalTaskWrites0 && !forceShellRenderOnOpen);
         state.wasHidden = false;
+        const showMobileKanbanSkeleton = runtimeMobile && shouldShowInlineLoading
+            && !hasDataReadyForSoftReuse0
+            && !state.homepageOpen && !state.attachmentLibraryOpen
+            && String(state.viewMode || '').trim() === 'kanban';
+        if (showMobileKanbanSkeleton) {
+            __tmSetInlineLoading(true, { token, styleKind: 'skeleton', delayMs: 140 });
+        }
 
         if (hardenMobileStartupLoad) {
             const readyDeadline = Date.now() + 10000;
             while (globalThis?.siyuan?.isReady !== true && Date.now() < readyDeadline) {
                 if (!(globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) {
+                    if (showMobileKanbanSkeleton && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false);
                     settleOpenGate(false);
                     return false;
                 }
@@ -812,6 +820,7 @@ if (shouldMarkDirty) {
         // 检查是否至少有一个分组包含文档
         const hasDocs = await checkAnyGroupHasDocs();
         if (!hasDocs) {
+            if (showMobileKanbanSkeleton && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false);
             hint(__tmT("task.addDocumentsToDisplayInTheSettingsFirst"), 'warning');
             const activeModal = globalThis.__tmRuntimeState?.getModal?.() || state.modal;
             if (activeModal && (globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) showSettings();
@@ -821,6 +830,7 @@ if (shouldMarkDirty) {
 
         if (!(globalThis.__tmRuntimeState?.getModal?.() || state.modal)
             || !(globalThis.__tmRuntimeState?.isCurrentOpenToken?.(token) ?? token === (Number(state.openToken) || 0))) {
+            if (showMobileKanbanSkeleton && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false);
             settleOpenGate(false);
             return;
         }
@@ -829,6 +839,7 @@ if (shouldMarkDirty) {
                 requestAnimationFrame(() => requestAnimationFrame(resolve));
             });
         } catch (e) {}
+        if (runtimeMobile) __tmWakeSemanticDatePromptsOnPluginEnter();
         const hasDataReadyForSoftReuse = (() => {
             try {
                 const treeReady = Array.isArray(state.taskTree) && state.taskTree.length > 0;
@@ -962,7 +973,7 @@ if (shouldMarkDirty) {
             skipFullLoadAfterFastFirstPaint: forceFreshOpenLoad ? false : true,
             showInlineLoading: shouldShowInlineLoading,
             loadingStyleKind: canSkipRenderOnReuse ? 'topbar' : 'skeleton',
-            loadingDelayMs: canSkipRenderOnReuse ? undefined : 900,
+            loadingDelayMs: canSkipRenderOnReuse ? undefined : (showMobileKanbanSkeleton ? 0 : 900),
             waitNotebookCache: hardenMobileStartupLoad,
             waitForDocScopeResolve: hardenMobileStartupLoad,
             retryEmptyDocScope: retryInitialDocScope,
@@ -1013,6 +1024,8 @@ if (shouldMarkDirty) {
 
     // 插件卸载清理
     function __tmCleanup() {
+        try { state.__tmCompactTopbarResizeObserver?.disconnect?.(); } catch (e) {}
+        state.__tmCompactTopbarResizeObserver = null;
         try { __tmPublicApiRuntime.cleanup(); } catch (e) {}
         try { __tmCleanupKanbanLaneAppearance(); } catch (e) {}
         try {

@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8').replace(/\r\n/g, '\n');
@@ -144,6 +145,30 @@ assert.match(
 );
 assert.match(detailSource, /function __tmSyncTaskDetailLocationInPlace\(/,
     'task detail location rendering must have a reusable in-place sync path');
+assert.match(detailSource, /projectedDocId[\s\S]*structuralDocId[\s\S]*projectedDocName[\s\S]*merged\.doc_name = projectedDocName[\s\S]*merged\.docName = projectedDocName/,
+    'detail task reads must prefer the projected document name when the structural mirror is stale');
+assert.match(detailSource, /function __tmGetTaskDetailLocationDocName\([\s\S]*getProjected\?\.\(taskId\)[\s\S]*resolvedName = projectedDocName[\s\S]*__tmGetDocDisplayName\(docId/,
+    'detail location chips must resolve the projected document name before falling back to cached document metadata');
+const locationDocNameStart = detailSource.indexOf('function __tmGetTaskDetailLocationDocName(');
+const locationDocNameEnd = detailSource.indexOf('function __tmSyncTaskDetailLocationInPlace(', locationDocNameStart);
+const locationProbe = { __tmGetDocDisplayName: () => '旧文档' };
+locationProbe.globalThis = locationProbe;
+locationProbe.__tmTaskStore = {
+    getProjected: () => ({ id: 'task-a', root_id: 'doc-new', docName: '新文档' }),
+};
+vm.runInNewContext(
+    `${detailSource.slice(locationDocNameStart, locationDocNameEnd)}\nthis.resolveLocationDocName = __tmGetTaskDetailLocationDocName;`,
+    locationProbe,
+);
+assert.equal(
+    locationProbe.resolveLocationDocName({ id: 'task-a', root_id: 'doc-new', docName: '旧文档' }),
+    '新文档',
+    'a stale structural document name must not override the current projected location',
+);
+assert.match(detailSource, /function __tmOpenKanbanDetailFloatingInPlace\([\s\S]*suppliedLocationStale[\s\S]*suppliedTaskMatches && !suppliedLocationStale[\s\S]*__tmGetTaskDetailTaskById\(tid/,
+    'opening task detail with a stale card object must resolve the complete current task before rendering its location');
+assert.match(detailSource, /function __tmApplyVisibleTaskDetailLocationOverride\([\s\S]*root_id: docId[\s\S]*docName[\s\S]*__tmSyncTaskDetailLocationInPlace\(root, nextTask\)[\s\S]*__tmRememberTaskDetailLocationSignature\(root, nextTask\)/,
+    'confirmed document moves must be able to update the open detail chip without depending on a delayed task-store reconcile');
 assert.match(detailSource, /structuralCustomFieldValues[\s\S]*projectedCustomFieldValues[\s\S]*mergedCustomFieldValues/,
     'projected detail reads must preserve structural custom field values when the projection is not loaded');
 assert.match(detailSource, /projectedLoadedCustomFieldIds[\s\S]*delete mergedCustomFieldValues\[fieldId\]/,
@@ -162,6 +187,12 @@ const sheetRefresh = detailSource.slice(
 );
 assert.match(sheetRefresh, /__tmShouldPreserveTaskDetailEditorDuringRefresh\(panel, selectedId\)[\s\S]*__tmSyncTaskDetailLocationInPlace\(panel, task\)/,
     'task detail sheet refreshes must update location chips while preserving active edits');
+const kanbanRefresh = detailSource.slice(
+    detailSource.indexOf('function __tmRefreshKanbanDetailInPlace('),
+    detailSource.indexOf('function __tmOpenKanbanDetailFloatingInPlace('),
+);
+assert.match(kanbanRefresh, /__tmShouldPreserveTaskDetailEditorDuringRefresh\(panel, selectedId\)[\s\S]*__tmSyncTaskDetailLocationInPlace\(panel, task\)[\s\S]*__tmRememberTaskDetailLocationSignature\(panel, task\)/,
+    'kanban and combination-board detail refreshes must update location chips before recording the new location signature');
 assert.match(
     read('src', 'task-horizon', 'main', '40-render-runtime.js'),
     /renderMode === 'checklist'[\s\S]*__tmGetChecklistDetailTaskById\(selectedId, \{ includePending: true, preferPending: true, includeWhiteboard: true \}\)/,

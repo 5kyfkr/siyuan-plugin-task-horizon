@@ -1,3 +1,118 @@
+    function __tmSetCompactTopbarIconsCollapsed(bar, collapsed) {
+        if (!(bar instanceof HTMLElement)) return false;
+        const next = collapsed === true;
+        const button = bar.querySelector('[data-tm-compact-topbar-fold="true"]');
+        if (!(button instanceof HTMLElement)) return false;
+        const label = next ? __tmT("task.expandTopbarIcons") : __tmT("task.collapseTopbarIcons");
+        bar.classList.toggle('tm-compact-topbar-icons-collapsed', next);
+        bar.classList.toggle('tm-compact-topbar-icons-expanded', !next);
+        button.classList.toggle('is-collapsed', next);
+        button.setAttribute('aria-expanded', next ? 'false' : 'true');
+        button.setAttribute('aria-label', label);
+        button.setAttribute('data-tm-tooltip-label', label);
+        return next;
+    }
+
+    function __tmSyncCompactTopbarIconsLayout(bar = null) {
+        const hostBar = bar instanceof HTMLElement
+            ? bar
+            : state.modal?.querySelector?.('.tm-filter-rule-bar');
+        if (!(hostBar instanceof HTMLElement) || state.__tmCompactTopbarSyncing === true) return false;
+        const button = hostBar.querySelector('[data-tm-compact-topbar-fold="true"]');
+        if (!(button instanceof HTMLElement)) {
+            hostBar.classList.remove('tm-compact-topbar-icons-collapsed');
+            hostBar.classList.remove('tm-compact-topbar-icons-expanded');
+            return false;
+        }
+        state.__tmCompactTopbarSyncing = true;
+        const previousVisibility = hostBar.style.visibility;
+        const wasCollapsed = hostBar.classList.contains('tm-compact-topbar-icons-collapsed');
+        let collision = false;
+        try {
+            hostBar.style.visibility = 'hidden';
+            hostBar.classList.remove('tm-compact-topbar-icons-collapsed');
+            hostBar.classList.add('tm-compact-topbar-icons-expanded');
+            void hostBar.offsetWidth;
+            const brand = hostBar.querySelector('.tm-topbar-row--brand');
+            const right = hostBar.querySelector('.tm-topbar-right');
+            if (brand instanceof HTMLElement && right instanceof HTMLElement) {
+                const title = brand.querySelector('.tm-title');
+                const comboControls = brand.querySelector('.tm-custom-board-topbar');
+                const hostRect = hostBar.getBoundingClientRect();
+                const hostStyle = getComputedStyle(hostBar);
+                const hostPaddingRight = Number.parseFloat(hostStyle.paddingRight) || 0;
+                const foldButtonRect = button.getBoundingClientRect();
+                const foldButtonWidth = Math.max(30, Number(foldButtonRect.width) || 0);
+                const rightRect = right.getBoundingClientRect();
+                const rightRequiredWidth = Math.max(
+                    foldButtonWidth,
+                    Number(rightRect.width) || 0,
+                    Number(right.scrollWidth) || 0,
+                );
+                const brandContentRight = Math.max(
+                    ...(title instanceof HTMLElement
+                        ? Array.from(title.children).map((child) => child.getBoundingClientRect().right)
+                        : Array.from(brand.children).map((child) => child.getBoundingClientRect().right)),
+                    ...(comboControls instanceof HTMLElement ? [comboControls.getBoundingClientRect().right] : []),
+                );
+                const availableRight = hostRect.right - hostPaddingRight;
+                collision = brandContentRight + rightRequiredWidth + 2 > availableRight
+                    || hostBar.scrollWidth > hostBar.clientWidth + 1;
+            }
+            const manualCollapsed = state.__tmCompactTopbarManualCollapsed !== false;
+            __tmSetCompactTopbarIconsCollapsed(hostBar, manualCollapsed || collision);
+            state.__tmCompactTopbarAutoCollapsed = collision;
+        } finally {
+            hostBar.style.visibility = previousVisibility;
+            state.__tmCompactTopbarSyncing = false;
+        }
+        if (wasCollapsed && !hostBar.classList.contains('tm-compact-topbar-icons-collapsed')) {
+            try { __tmRebindTopbarTooltips?.(state.modal); } catch (e) {}
+        }
+        return collision;
+    }
+
+    function __tmObserveCompactTopbarIconsLayout(modal = state.modal) {
+        try { state.__tmCompactTopbarResizeObserver?.disconnect?.(); } catch (e) {}
+        state.__tmCompactTopbarResizeObserver = null;
+        const bar = modal?.querySelector?.('.tm-filter-rule-bar');
+        if (!(bar instanceof HTMLElement) || !bar.querySelector('[data-tm-compact-topbar-fold="true"]')) return false;
+        __tmSyncCompactTopbarIconsLayout(bar);
+        try {
+            const observer = new ResizeObserver(() => {
+                try { requestAnimationFrame(() => __tmSyncCompactTopbarIconsLayout(bar)); } catch (e) {
+                    try { __tmSyncCompactTopbarIconsLayout(bar); } catch (e2) {}
+                }
+            });
+            observer.observe(bar);
+            observer.observe(bar.querySelector('.tm-topbar-row--main') || bar);
+            state.__tmCompactTopbarResizeObserver = observer;
+        } catch (e) {}
+        try {
+            requestAnimationFrame(() => {
+                __tmSyncCompactTopbarIconsLayout(bar);
+                bar.classList.add('tm-compact-topbar-layout-ready');
+            });
+        } catch (e) {
+            bar.classList.add('tm-compact-topbar-layout-ready');
+        }
+        return true;
+    }
+
+    window.tmToggleCompactTopbarIcons = function(event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const button = event?.currentTarget instanceof Element
+            ? event.currentTarget
+            : document.querySelector('[data-tm-compact-topbar-fold="true"]');
+        const bar = button?.closest?.('.tm-filter-rule-bar');
+        if (!(button instanceof HTMLElement) || !(bar instanceof HTMLElement)) return false;
+        const currentlyCollapsed = bar.classList.contains('tm-compact-topbar-icons-collapsed');
+        state.__tmCompactTopbarManualCollapsed = !currentlyCollapsed;
+        __tmSyncCompactTopbarIconsLayout(bar);
+        return false;
+    };
+
     function __tmFinishRenderSoftSwap(swap) {
         if (!swap) return;
         const { previousModal, previousStyle, nextModal } = swap;
@@ -43,6 +158,9 @@
     }
 
     function __tmRenderNow(renderCleanup = {}) {
+        const renderMode = state.attachmentLibraryOpen
+            ? 'attachments'
+            : (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
         try {
             const dismissingModal = state.modal;
             if ((state.mobileBottomViewbarDismissDragging === true
@@ -67,6 +185,8 @@
         try { __tmEnsureAllDocTabTouchDelegation(); } catch (e) {}
         try { __tmEnsureTopbarManagerIconTouchDelegation(); } catch (e) {}
         try { __tmEnsureDocTabsAutoHideTouchDelegation(); } catch (e) {}
+        try { state.__tmCompactTopbarResizeObserver?.disconnect?.(); } catch (e) {}
+        state.__tmCompactTopbarResizeObserver = null;
         try { state.dockTaskPointerGestureCleanup?.(); } catch (e) {}
         try { __tmCleanupKanbanLaneAppearance({ preserveBackground: true }); } catch (e) {}
         try { state.multiSelectPointerGestureCleanup?.(); } catch (e) {}
@@ -141,6 +261,7 @@
         const prevWasCalendar = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmCalendarRoot'));
         const shouldRestoreCalendarScroll = prevWasCalendar;
         const prevWasKanban = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-body.tm-body--kanban'));
+        const prevWasCustomBoard = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-body--custom-board'));
         const prevWasWhiteboard = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-body.tm-body--whiteboard'));
         const prevWasChecklist = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-checklist-scroll'));
         const prevWasHomepage = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmHomepageRoot'));
@@ -272,7 +393,7 @@
             state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
             if (prevModalSnapshot) {
                 if (prevWasTimeline) state.viewScroll.timeline = { top: Number(savedTimelineScrollTop) || 0, left: Number(savedTimelineScrollLeft) || 0 };
-                else if (prevWasKanban) state.viewScroll.kanban = { left: Number(savedKanbanScrollLeft) || 0, cols: savedKanbanColScrollTopByStatus || {} };
+                else if (prevWasKanban) state.viewScroll[prevWasCustomBoard ? 'comboBoard' : 'kanban'] = { left: Number(savedKanbanScrollLeft) || 0, cols: savedKanbanColScrollTopByStatus || {} };
                 else if (prevWasWhiteboard) state.viewScroll.whiteboard = {
                     sidebarTop: Number(savedWhiteboardSidebarScrollTop) || 0,
                     top: Number(savedWhiteboardBodyScrollTop) || 0,
@@ -423,7 +544,9 @@
         const docTabsCanMultirow = true;
         const docTabsCollapsed = !docTabsCanMultirow || state.docTabsCollapsed !== false;
         const docTabsAutoHide = SettingsStore.data.docTabsAutoHideEnabled === true;
-        const docTabsHidden = docTabsAutoHide ? state.docTabsAutoVisible !== true : !!state.docTabsHidden;
+        const docTabsHidden = __tmIsCustomBoardShellContext(renderMode)
+            || (docTabsAutoHide ? state.docTabsAutoVisible !== true : !!state.docTabsHidden);
+        const isKanbanRenderMode = renderMode === 'kanban' || renderMode === 'comboBoard';
         const taskCheckboxCircleStyleEnabled = SettingsStore.data.taskCheckboxCircleStyleEnabled === true;
         const docTabsClass = [
             docTabsHidden ? 'tm-doc-tabs--hidden' : '',
@@ -593,7 +716,6 @@
         }
         const kanbanModeMenuOptions = __tmBuildKanbanModeMenuOptions();
         const {
-            renderMode,
             mainBodyHtml,
             showCalendarSideDock,
             showAiSideDock,
@@ -647,6 +769,8 @@
             isDesktopNarrow,
             mountEl: __tmMountEl,
         });
+        const comboBoardMode = renderMode === 'comboBoard';
+        const compactTopbarMode = !!(isMobile || isDockHost || isDesktopNarrow);
         const whiteboardLayoutMenuOptions = __tmBuildWhiteboardLayoutMenuOptions(whiteboardAllTabsLayoutMode);
         // A desktop Dock can use the compact/mobile-shaped layout when narrow,
         // but it is still a desktop host and should keep desktop-only controls.
@@ -772,9 +896,10 @@
                                     ${__tmBuildTooltipAttrs(managerIconTooltip, { side: 'bottom' })}
                                 >${__tmRenderTaskHorizonTopbarIcon(16)}</button>
                                 ${`<button type="button" class="tm-btn tm-btn-info tm-homepage-entry-btn bc-btn bc-btn--sm ${state.homepageOpen ? 'is-active' : ''}" onclick="tmToggleHomepage(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(state.homepageOpen ? __tmT("task.backToWorkspace") : __tmT("task.homeOverview"), { side: 'bottom' })}>${__tmRenderHomepageEntryIcon(15)}</button>`}
-                                ${useCompactTopbarBrand ? '' : `<span class="tm-manager-title-label" onclick="tmHandleManagerTitleClick(event)">${__tmT("common.taskManager")}</span>`}
+                                ${comboBoardMode ? __tmRenderCustomBoardSetTopbar() : ''}
+                                ${(useCompactTopbarBrand || comboBoardMode) ? '' : `<span class="tm-manager-title-label" onclick="tmHandleManagerTitleClick(event)">${__tmT("common.taskManager")}</span>`}
                             </div>
-                            ${showInlineDocGroupQuickSelect || showAdaptiveTabDocGroupQuickSelect ? __tmRenderTopbarSelect({
+                            ${!comboBoardMode && (showInlineDocGroupQuickSelect || showAdaptiveTabDocGroupQuickSelect) ? __tmRenderTopbarSelect({
                                 id: 'tmTopbarDocQuickSelect',
                                 label: __tmT("kernel.documents"),
                                 options: docGroupMenuOptions,
@@ -787,22 +912,24 @@
 
                         <!-- 桌面端工具栏 -->
                         <div class="tm-desktop-toolbar tm-header-selectors" style="display:${isMobile ? 'none' : 'flex'};align-items:center;gap:8px;flex:1;min-width:0;">
-                            ${showInlineDocGroupQuickSelect ? '' : `
+                            ${!comboBoardMode && !showInlineDocGroupQuickSelect ? `
                             <div class="tm-rule-selector" style="margin-left: 6px;">
                                 <span class="tm-rule-label bc-field__label">${__tmT("task.document")}</span>
                                 ${__tmRenderTopbarSelect({ id: 'tmTopbarDocSelect', label: __tmT("kernel.documents"), options: docGroupMenuOptions })}
                             </div>
-                            `}
+                            ` : ''}
 
+                            ${!comboBoardMode ? `
                             <div class="tm-rule-selector">
                                 <span class="tm-rule-label bc-field__label">${__tmT("task.rules2")}</span>
                                 ${__tmRenderTopbarSelect({ id: 'tmTopbarRuleSelect', label: __tmT("task.rules"), options: ruleMenuOptions })}
                             </div>
                             ${currentRule ? `<div class="tm-rule-display"><span class="tm-rule-stats">${__tmT("task.tasks2", { filteredCount: filteredCount })}</span></div>` : ''}
-                            <div class="tm-rule-selector">
+                            ` : ''}
+                            ${!comboBoardMode ? `<div class="tm-rule-selector">
                                 <span class="tm-rule-label bc-field__label">${__tmT("task.grouping")}</span>
                                 ${__tmRenderTopbarSelect({ id: 'tmTopbarGroupModeSelect', label: __tmT("task.group"), options: groupModeMenuOptions })}
-                            </div>
+                            </div>` : ''}
 
                         </div>
 
@@ -817,17 +944,20 @@
                             ${calendarSidebarCompactButtonHtml}
 
                         <!-- 移动端菜单按钮 -->
-                            <div class="tm-mobile-menu-btn" style="display:${isMobile ? 'flex' : 'none'};">
+                            <div class="tm-mobile-menu-btn" style="display:${isMobile || isDockHost ? 'flex' : 'none'};">
                             <div style="display:flex;align-items:center;gap:${showMobileLandscapeTimelineTopbar ? '6px' : '10px'};">
+                                ${compactTopbarMode ? `<button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-mobile-topbar-fold" onclick="return tmToggleCompactTopbarIcons(event)" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.collapseTopbarIcons")}" aria-controls="tmCompactMobileSecondaryActions" aria-expanded="true" data-tm-compact-topbar-fold="true" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("task.collapseTopbarIcons"), { side: 'bottom' })}>${__tmRenderLucideIcon('chevron-right', '', { size: 15 })}</button>` : ''}
+                                <div class="tm-mobile-topbar-secondary-actions" id="tmCompactMobileSecondaryActions">
                                 ${showMobileLandscapeTimelineTopbar ? timelineCompactToolbarButtonsHtml : ''}
                                 ${isMobile ? topbarAddBtnHtml : ''}
-                                ${isMobile ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("ai.refresh"), { side: 'bottom' })}>${__tmRenderLucideIcon('arrow-clockwise')}</button>` : ''}
+                                ${isMobile ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-mobile-topbar-refresh" onclick="tmRefresh()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("ai.refresh"), { side: 'bottom' })}>${__tmRenderLucideIcon('arrow-clockwise')}</button>` : ''}
                                 <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-mobile-topbar-settings" onclick="tmHideMobileMenu(); showSettings()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.settings")}" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("common.settings"), { side: 'bottom' })}>${__tmRenderLucideIcon('settings')}</button>
+                                </div>
                                 ${!isMobile ? `
-                                ` : ''}<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("task.menu"), { side: 'bottom' })}>
+                                ` : ''}<button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-mobile-topbar-menu" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("task.menu"), { side: 'bottom' })}>
                                     ${__tmRenderLucideIcon('menu')}
                                 </button>
-                                ${isMobile && !isDockHost ? `<button class="tm-btn tm-btn-gray bc-btn bc-btn--sm bc-btn--ghost" onclick="tmClose(event)" ontouchend="tmClose(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("common.close"), { side: 'bottom' })}>${__tmRenderLucideIcon('x')}</button>` : ''}
+                                ${isMobile && !isDockHost ? `<button class="tm-btn tm-btn-gray bc-btn bc-btn--sm bc-btn--ghost tm-mobile-topbar-close" onclick="tmClose(event)" ontouchend="tmClose(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("common.close"), { side: 'bottom' })}>${__tmRenderLucideIcon('x')}</button>` : ''}
                             </div>
                         </div>
                         </div>
@@ -848,7 +978,7 @@
                         </span>
                         ${!showMobileBottomViewBar ? `
                         <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.views")}">
-                            ${__tmRenderViewSwitcherButtons()}
+                            ${__tmRenderViewSwitcherButtons({ desktopTopbar: true })}
                         </div>
                         ` : ''}
                         ${desktopTopbarActionButtonsHtml}
@@ -866,11 +996,12 @@
                                 mobile: true,
                                 viewMode: renderMode,
                                 showViews: !showMobileBottomViewBar,
-                                showDoc: !showInlineDocGroupQuickSelect,
+                                showDoc: !comboBoardMode && !showInlineDocGroupQuickSelect,
                                 docOptions: docGroupMenuOptions,
                                 ruleOptions: ruleMenuOptions,
                                 groupOptions: groupModeMenuOptions,
                             })}
+                            ${renderMode === 'comboBoard' ? `<div class="tm-custom-board-mobile-controls">${__tmRenderCustomBoardSetTopbar()}</div>` : ''}
                         </div>
                     </div>
 
@@ -997,10 +1128,12 @@
                         user-select: none;
                     }
                     .tm-view-segmented .tm-view-seg-item,
-                    .tm-view-segmented .bc-tabs-trigger,
+                    .tm-view-segmented .bc-tabs-trigger {
+                        color: var(--muted-foreground) !important;
+                    }
                     .tm-view-segmented .tm-view-seg-item--active,
                     .tm-view-segmented .bc-tabs-trigger.tm-view-seg-item--active {
-                        color: var(--tm-topbar-control-default-text, var(--tm-topbar-control-text)) !important;
+                        color: var(--foreground) !important;
                     }
                     .tm-view-segmented .tm-view-seg-item svg,
                     .tm-view-segmented .bc-tabs-trigger svg {
@@ -1187,7 +1320,7 @@
                         z-index: 1;
                     }
                     .tm-modal.tm-modal--doc-tabs-hidden .tm-filter-rule-bar {
-                        border-bottom: 0;
+                        border-bottom-color: transparent;
                     }
                     .tm-doc-tabs.tm-doc-tabs--hidden {
                         max-height: 0 !important;
@@ -1801,6 +1934,18 @@
                         border-color: color-mix(in srgb, var(--tm-topbar-control-border) 72%, transparent) !important;
                         box-shadow: 0 4px 12px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
                     }
+                    .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher .tm-view-seg-item.tm-view-seg-item--icon-only,
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .tm-view-seg-item.tm-view-seg-item--icon-only {
+                        flex: 1 1 0% !important;
+                        width: auto !important;
+                        min-width: 34px !important;
+                        max-width: none !important;
+                        height: 30px !important;
+                        min-height: 30px !important;
+                        max-height: 30px !important;
+                        padding: 0 !important;
+                        line-height: 0 !important;
+                    }
                     .tm-modal.tm-modal--keyboard-open .tm-mobile-bottom-viewbar {
                         display: none !important;
                         pointer-events: none !important;
@@ -2006,13 +2151,14 @@
                 ` : ''}
             </div>
         `;
+        try { __tmObserveCompactTopbarIconsLayout(state.modal); } catch (e) {}
         const reusedCalendarSideDock = __tmCommitCalendarSideDockFullRenderTransfer(
             preservedCalendarSideDockTransfer,
             state.modal,
             showCalendarSideDock
         );
         try { globalThis.__tmApplySearchHighlights?.(state.modal, state.searchKeyword); } catch (e) {}
-        try { if (renderMode === 'kanban' && typeof __tmNormalizeKanbanDetailFloatHost === 'function') __tmNormalizeKanbanDetailFloatHost(state.modal); } catch (e) {}
+        try { if (isKanbanRenderMode && typeof __tmNormalizeKanbanDetailFloatHost === 'function') __tmNormalizeKanbanDetailFloatHost(state.modal); } catch (e) {}
         try { __tmBindPluginHostGestureIsolation(state.modal); } catch (e) {}
         try { __tmBindChecklistSheetTouchFallback(state.modal); } catch (e) {}
         try { if (renderMode === 'whiteboard') __tmBindWhiteboardViewportInput(state.modal); } catch (e) {}
@@ -2029,10 +2175,10 @@
         __tmShortcutSidebar.mount(state.modal);
         // Lane backgrounds paint synchronously and need a connected, sized
         // board. Initial/reload renders build the shell off-document above.
-        try { if (renderMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
+        try { if (isKanbanRenderMode) __tmBindKanbanPan(state.modal); } catch (e) {}
         try { if (renderMode === 'checklist') globalThis.__tmSyncChecklistWrappedTitleClasses?.(state.modal); } catch (e) {}
         try {
-            if (renderMode === 'kanban' || renderMode === 'whiteboard') {
+            if (isKanbanRenderMode || renderMode === 'whiteboard') {
                 globalThis.__tmSyncKanbanSubtaskWrappedTitleClasses?.(state.modal);
                 // Any later DOM rebuild (progressive batches, projections, deletes,
                 // detail panels) is covered by this shell-level watcher.
@@ -2062,13 +2208,13 @@
             state.searchBarSelectAfterRender = true;
             try { window.__tmFocusInlineSearchBar?.({ selectText: selectSearchText }); } catch (e) {}
         }
-        try { if (renderMode === 'kanban') __tmScheduleKanbanBottomNavAvoidance(state.modal); } catch (e) {}
+        try { if (isKanbanRenderMode) __tmScheduleKanbanBottomNavAvoidance(state.modal); } catch (e) {}
         // A full render replaces the kanban scroll host. Resume the current progressive job
         // against the new DOM so mode/settings refreshes cannot strand deferred columns.
         try {
-            if (renderMode === 'kanban' && typeof __tmScheduleProgressiveViewRender === 'function') {
+            if (isKanbanRenderMode && typeof __tmScheduleProgressiveViewRender === 'function') {
                 const progressiveJob = state.__tmProgressiveViewRender;
-                if (progressiveJob) __tmScheduleProgressiveViewRender('kanban', progressiveJob);
+                if (progressiveJob) __tmScheduleProgressiveViewRender(renderMode, progressiveJob);
             }
         } catch (e) {}
         rememberViewDomRenderSignature();
@@ -2173,7 +2319,7 @@
             }
         } catch (e) {}
         try {
-            if (renderMode === 'kanban') {
+            if (isKanbanRenderMode) {
                 const selectedId = String(state.kanbanDetailTaskId || '').trim();
                 const selectedTask = selectedId
                     ? (globalThis.__tmTaskBoundary?.getTask?.(selectedId) || null)
@@ -2242,7 +2388,7 @@
             const isHomepage = renderMode === 'home';
             const isTimeline = renderMode === 'timeline';
             const isChecklist = renderMode === 'checklist';
-            const isKanban = renderMode === 'kanban';
+            const isKanban = isKanbanRenderMode;
             const isWhiteboard = renderMode === 'whiteboard';
             const pickNum = (v, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
             const listTop = pickNum(state.viewScroll?.list?.top, 0);
@@ -2253,9 +2399,11 @@
             const timelineLeft = pickNum(state.viewScroll?.timeline?.left, 0);
             const calendarTop = pickNum(state.viewScroll?.calendar?.top, 0);
             const calendarLeft = pickNum(state.viewScroll?.calendar?.left, 0);
-            const kanbanLeft = pickNum(state.viewScroll?.kanban?.left, 0);
-            const kanbanCols = (state.viewScroll?.kanban?.cols && typeof state.viewScroll.kanban.cols === 'object')
-                ? state.viewScroll.kanban.cols
+            const kanbanScrollKey = renderMode === 'comboBoard' ? 'comboBoard' : 'kanban';
+            const kanbanScrollState = state.viewScroll?.[kanbanScrollKey] || {};
+            const kanbanLeft = pickNum(kanbanScrollState.left, 0);
+            const kanbanCols = (kanbanScrollState.cols && typeof kanbanScrollState.cols === 'object')
+                ? kanbanScrollState.cols
                 : {};
             const wbSidebarTop = pickNum(state.viewScroll?.whiteboard?.sidebarTop, 0);
             const wbBodyTop = pickNum(state.viewScroll?.whiteboard?.top, 0);
@@ -3087,7 +3235,8 @@
         } catch (e) {}
         try {
             state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
-            state.viewScroll.kanban = {
+            const scrollKey = String(state.viewMode || '').trim() === 'comboBoard' ? 'comboBoard' : 'kanban';
+            state.viewScroll[scrollKey] = {
                 left: Number(body.scrollLeft || 0) || 0,
                 cols,
             };
@@ -3988,7 +4137,16 @@
             const quadrantDrop = kind === 'quadrant'
                 ? __tmBuildQuadrantDropPatch(globalThis.__tmTaskBoundary?.getTask?.(__tmGetDraggedTaskId(ev)), String(col.dataset.quadrant || ''))
                 : null;
-            const dropForbidden = timeDropForbidden || (quadrantDrop && !quadrantDrop.ok && quadrantDrop.reason !== 'noop');
+            const customDropOnCard = kind === 'custom'
+                && ev?.target instanceof Element
+                && !!ev.target.closest('.tm-kanban-card[data-id]');
+            if (kind === 'custom') {
+                __tmKanbanClearSurfaceDragOver();
+                ev.dataTransfer.dropEffect = customDropOnCard ? 'move' : 'none';
+                return;
+            }
+            const dropForbidden = timeDropForbidden
+                || (quadrantDrop && !quadrantDrop.ok && quadrantDrop.reason !== 'noop');
             if (!col.classList.contains('tm-kanban-col--dragover')) {
                 __tmKanbanClearSurfaceDragOver();
                 col.classList.add('tm-kanban-col--dragover');
@@ -4114,7 +4272,8 @@
         const onDragOver = (ev) => {
             const active = String(state.__tmKanbanDragId || state.draggingTaskId || '').trim();
             if (!active) return;
-            if (!(globalThis.__tmRuntimeState?.isViewMode?.('kanban') ?? (String(state.viewMode || '').trim() === 'kanban'))) return;
+            const mode = String(state.viewMode || '').trim();
+            if (mode !== 'kanban' && mode !== 'comboBoard') return;
             try { __tmKanbanAutoScrollByPoint(ev?.clientX, ev?.clientY, ev?.target); } catch (e) {}
         };
         state.__tmKanbanDocumentAutoScrollBound = onDragOver;
@@ -4159,6 +4318,13 @@
         __tmKanbanClearSurfaceDragOver();
         __tmUpdateKanbanChildDropCandidate(target);
         if (!(target instanceof Element)) return;
+        const targetColumn = target.closest('.tm-kanban-col');
+        const targetColumnKind = String(targetColumn?.getAttribute?.('data-kind') || '').trim();
+        if (targetColumnKind === 'custom') {
+            // Combination-board lanes only accept card-to-card child drops.
+            // The target card owns the highlight, so the lane background stays unchanged.
+            return;
+        }
         const groupHost = target.closest('.tm-kanban-group-title, .tm-kanban-group');
         const groupTitle = groupHost?.classList?.contains?.('tm-kanban-group-title')
             ? groupHost
@@ -4167,7 +4333,7 @@
             try { groupTitle.classList.add('tm-kanban-group-title--dragover'); } catch (e) {}
             return;
         }
-        const col = target.closest('.tm-kanban-col');
+        const col = targetColumn;
         if (col instanceof Element) {
             try { col.classList.add('tm-kanban-col--dragover'); } catch (e) {}
         }
@@ -5334,7 +5500,8 @@
     }
 
     window.tmKanbanCardPointerDown = function(ev, id) {
-        if (state.viewMode !== 'kanban') return;
+        const kanbanHostMode = String(state.viewMode || '').trim();
+        if (kanbanHostMode !== 'kanban' && kanbanHostMode !== 'comboBoard') return;
         if (!__tmIsKanbanTouchPointer(ev)) return;
         if (ev && typeof ev.button === 'number' && ev.button !== 0) return;
         if (ev?.isPrimary === false) return;
@@ -5601,6 +5768,7 @@
             state.draggingTaskIds = dragTaskIds.length ? dragTaskIds : [taskId];
             state.__tmKanbanDragId = taskId;
             state.__tmKanbanDragIds = state.draggingTaskIds;
+            state.__tmKanbanDragSourceEl = cardEl;
             try { __tmBindKanbanDocumentAutoScroll(); } catch (e2) {}
             try { __tmSetCalendarSideDockDragHidden(true); } catch (e2) {}
             try { cardEl.classList.add('tm-kanban-card--dragging'); } catch (e2) {}
@@ -5679,6 +5847,7 @@
                 try { ghostMeta.ghost.remove(); } catch (e2) {}
             }
             try { cardEl.classList.remove('tm-kanban-card--dragging'); } catch (e2) {}
+            try { delete state.__tmKanbanDragSourceEl; } catch (e2) {}
             cardEl.classList.remove('tm-task-touch-press');
             try { __tmKanbanClearDragOver(); } catch (e2) {}
             try { __tmSetCalendarSideDockDragHidden(false); } catch (e2) {}
@@ -6420,6 +6589,9 @@
             kind = String(dropTarget.dataset?.tmKbDropKind || '').trim();
             targetDocId = String(dropTarget.dataset?.tmKbDropDoc || '').trim();
             targetHeadingId = String(dropTarget.dataset?.tmKbDropHeading || '').trim();
+            targetTimeKey = String(dropTarget.dataset?.tmKbDropTime || '').trim();
+            targetQuadrantId = String(dropTarget.dataset?.tmKbDropQuadrant || '').trim();
+            st = String(dropTarget.dataset?.tmKbDropStatus || '').trim();
         }
 
         // 如果没有从组标题获取到数据，则从列元素读取
@@ -6432,6 +6604,42 @@
             targetQuadrantId = String(col?.dataset?.quadrant || '').trim();
             st = String(col?.dataset?.status || '').trim();
         }
+        const targetDocMeta = targetDocId
+            ? ((Array.isArray(state.allDocuments) ? state.allDocuments : [])
+                .find((doc) => String(doc?.id || '').trim() === targetDocId)
+                || (Array.isArray(state.taskTree) ? state.taskTree : [])
+                    .find((doc) => String(doc?.id || '').trim() === targetDocId)
+                || null)
+            : null;
+        const targetDocName = targetDocMeta && typeof __tmGetDocDisplayName === 'function'
+            ? String(__tmGetDocDisplayName(targetDocMeta, '') || '').trim()
+            : '';
+        const applyVisibleDocumentLocation = (taskId, location = {}) => {
+            if (typeof __tmApplyVisibleTaskDetailLocationOverride !== 'function') return false;
+            try {
+                return __tmApplyVisibleTaskDetailLocationOverride(taskId, location) === true;
+            } catch (e) {
+                return false;
+            }
+        };
+        const refreshDetailAfterDocumentMove = (taskId, location = {}) => {
+            const tid = String(taskId || '').trim();
+            if (!tid) return false;
+            if (typeof __tmRefreshVisibleTaskDetailForTask !== 'function') return false;
+            let refreshed = false;
+            try {
+                refreshed = __tmRefreshVisibleTaskDetailForTask(tid, {
+                    forceRebuild: true,
+                    source: 'kanban-document-board-drop',
+                }) === true;
+            } catch (e) {}
+            applyVisibleDocumentLocation(tid, location);
+            try {
+                requestAnimationFrame(() => requestAnimationFrame(() => applyVisibleDocumentLocation(tid, location)));
+            } catch (e) {}
+            try { setTimeout(() => applyVisibleDocumentLocation(tid, location), 160); } catch (e) {}
+            return refreshed;
+        };
 
         __tmKanbanClearSurfaceDragOver();
         let id = '';
@@ -6440,6 +6648,36 @@
         if (!id) return;
         const draggedIds = __tmGetDraggedTaskIds(ev);
         const baseIds = draggedIds.length ? draggedIds : [id];
+        if (String(state.viewMode || '').trim() === 'comboBoard' && dropTarget) {
+            const sourceColKey = String(state.__tmKanbanDragSourceEl?.closest?.('.tm-kanban-col')?.getAttribute?.('data-col-key') || '').trim();
+            const targetColKey = String(dropTarget.closest('.tm-kanban-col[data-kind="custom"]')?.getAttribute?.('data-col-key') || '').trim();
+            if (!sourceColKey || !targetColKey || sourceColKey !== targetColKey) {
+                hint(__tmT("task.combinationBoardCardsCanOnlyBeNestedWithinTheSameSubBoard"), 'info');
+                return;
+            }
+        }
+        const startDocumentMove = (item, location) => {
+            const tid = String(item?.tid || '').trim();
+            const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
+            if (typeof moveTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyMovetask"));
+            const previousTask = tid ? globalThis.__tmTaskBoundary?.getTask?.(tid) || null : null;
+            const previousDocId = String(previousTask?.root_id || previousTask?.docId || '').trim();
+            const rollbackLocation = {
+                docId: previousDocId,
+                docName: String(previousTask?.docName || previousTask?.doc_name || '').trim(),
+                headingId: String(previousTask?.h2Id || '').trim(),
+                headingName: String(previousTask?.h2 || previousTask?.h2Name || '').trim(),
+            };
+            moveTask(tid, item.payload, {
+                wait: false,
+                onSuccess: () => refreshDetailAfterDocumentMove(tid, location),
+                onError: (err) => {
+                    hint(__tmT("task.operationFailed2", { value1: err?.message || err || __tmT("plugin.unknownError") }), 'error');
+                    refreshDetailAfterDocumentMove(tid, rollbackLocation);
+                },
+            });
+            applyVisibleDocumentLocation(tid, location);
+        };
         const kanbanBoardMode = __tmGetKanbanBoardMode();
         const readySourceIds = Array.isArray(readyChildDrop?.sourceIds)
             ? readyChildDrop.sourceIds.map((taskId) => String(taskId || '').trim()).filter(Boolean)
@@ -6455,6 +6693,14 @@
             : candidateChildDropTargetId;
         if (childDropTargetId) {
             const targetId = childDropTargetId;
+            if (String(state.viewMode || '').trim() === 'comboBoard') {
+                const sourceColKey = String(state.__tmKanbanDragSourceEl?.closest?.('.tm-kanban-col')?.getAttribute?.('data-col-key') || '').trim();
+                const targetColKey = String(eventChildDropCard?.closest?.('.tm-kanban-col')?.getAttribute?.('data-col-key') || '').trim();
+                if (!sourceColKey || !targetColKey || sourceColKey !== targetColKey) {
+                    hint(__tmT("task.combinationBoardCardsCanOnlyBeNestedWithinTheSameSubBoard"), 'info');
+                    return;
+                }
+            }
             const validation = __tmCanHandleTaskRowBatchDrop(baseIds, targetId);
             const targetTask = __tmKanbanGetTaskById(targetId);
             const allAlreadyChildren = baseIds.every((taskId) => {
@@ -6462,7 +6708,8 @@
                 return !!(sourceTask && __tmKanbanGetParentTaskId(sourceTask) === targetId);
             });
             if (validation.ok && targetTask && !allAlreadyChildren) {
-                const shouldSyncStatus = kanbanBoardMode === 'status'
+                const shouldSyncStatus = String(state.viewMode || '').trim() === 'kanban'
+                    && kanbanBoardMode === 'status'
                     && SettingsStore.data.kanbanDragSyncSubtasks === true;
                 const targetStatus = shouldSyncStatus
                     ? __tmKanbanResolveTaskStatusColumnKey(targetTask)
@@ -6576,6 +6823,10 @@
             }
             return;
         }
+        if (kind === 'custom') {
+            hint(__tmT("task.combinationBoardCardsCanOnlyBeNestedWithinTheSameSubBoard"), 'info');
+            return;
+        }
         if (kind === 'time') {
             if (baseIds.some((tid) => __tmIsCheckinTask(globalThis.__tmTaskBoundary?.getTask?.(String(tid || '').trim())))) {
                 hint(__tmT("task.checkInTasksAreGroupedByRecurrencePlanAdjust"), 'info');
@@ -6664,17 +6915,15 @@
                     tid,
                     payload: {
                         targetDocId,
+                        targetDocName,
                         mode: 'docTop',
                     },
                 }));
                 for (const item of moveItems) {
-                    const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
-                    if (typeof moveTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyMovetask"));
-                    moveTask(item.tid, item.payload, {
-                        wait: false,
-                        onError: (err) => {
-                            hint(__tmT("task.operationFailed2", { value1: err?.message || err || __tmT("plugin.unknownError") }), 'error');
-                        },
+                    startDocumentMove(item, {
+                        docId: targetDocId,
+                        docName: targetDocName,
+                        headingId: '',
                     });
                 }
             } catch (e) {
@@ -6694,17 +6943,15 @@
                     tid,
                     payload: {
                         targetDocId,
+                        targetDocName,
                         mode: 'docTop',
                     },
                 }));
                 for (const item of moveItems) {
-                    const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
-                    if (typeof moveTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyMovetask"));
-                    moveTask(item.tid, item.payload, {
-                        wait: false,
-                        onError: (err) => {
-                            hint(__tmT("task.operationFailed2", { value1: err?.message || err || __tmT("plugin.unknownError") }), 'error');
-                        },
+                    startDocumentMove(item, {
+                        docId: targetDocId,
+                        docName: targetDocName,
+                        headingId: '',
                     });
                 }
             } catch (e) {
@@ -6728,9 +6975,10 @@
                         return {
                             tid,
                             payload: {
-                            targetDocId,
-                            headingId: targetHeadingId,
-                            mode: 'heading',
+                                targetDocId,
+                                targetDocName,
+                                headingId: targetHeadingId,
+                                mode: 'heading',
                             },
                         };
                     }
@@ -6738,18 +6986,16 @@
                         tid,
                         payload: {
                             targetDocId,
+                            targetDocName,
                             mode: 'docTop',
                         },
                     };
                 });
                 for (const item of moveItems) {
-                    const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');
-                    if (typeof moveTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyMovetask"));
-                    moveTask(item.tid, item.payload, {
-                            wait: false,
-                            onError: (err) => {
-                                hint(__tmT("task.operationFailed2", { value1: err?.message || err || __tmT("plugin.unknownError") }), 'error');
-                            },
+                    startDocumentMove(item, {
+                        docId: targetDocId,
+                        docName: targetDocName,
+                        headingId: targetHeadingId,
                     });
                 }
             } catch (e) {
@@ -8410,6 +8656,7 @@
             if (removeIds.has(String(state.kanbanDetailTaskId || '').trim())) {
                 state.kanbanDetailTaskId = '';
                 state.kanbanDetailAnchorTaskId = '';
+                state.kanbanDetailAnchorColumnKey = '';
             }
             try { recalcStats(); } catch (e) {}
             try { __tmRecomputeTaskProjection({ reason: 'render-view-state' }); } catch (e) {}

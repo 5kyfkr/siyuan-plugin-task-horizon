@@ -30,6 +30,7 @@ const state = {
 };
 const context = vm.createContext({
     console, Date: Clock, Map, Set, state,
+    __TM_CUSTOM_BOARD_VIEW_MODE: 'comboBoard',
     SettingsStore: { data: { currentGroupId: 'all' } },
     window: { dispatchEvent() {} }, CustomEvent: class {},
     __tmTaskStore: { revision: () => 0, getFlatMap: () => flatTasks },

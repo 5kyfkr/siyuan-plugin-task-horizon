@@ -64,10 +64,20 @@ const createWindow = () => {
 async function main() {
     const first = createWindow();
     const second = createWindow();
-    first.context.__tmRememberDocScope('scope-A', [docId(1)]);
+    first.context.__tmRememberDocScope('scope-A', [docId(1), docId(2)], {
+        boardDocIds: {
+            'board-a': [docId(1)],
+            'board-b': [docId(2)],
+        },
+    });
     first.context.__tmRememberDocScope('scope-B', [docId(2)]);
     await first.flush();
     assert.deepEqual(Object.keys(host.disk.scopes).sort(), ['scope-A', 'scope-B'], 'debouncing must persist every pending scope, not just the final closure');
+    assert.deepEqual(Array.from(host.disk.scopes['scope-A'].boardDocIds['board-a']), [docId(1)],
+        'composite board-set scopes must persist per-board document membership in the existing scope cache');
+    await second.context.__tmLoadDocScopeCacheStore({ force: true });
+    assert.deepEqual(Array.from(second.context.__tmGetCachedDocScope('scope-A')?.boardDocIds?.['board-b'] || []), [docId(2)],
+        'the existing scope cache reader must return optional per-board membership metadata');
 
     first.context.__tmRememberDocScope('scope-C', [docId(3)]);
     second.context.__tmRememberDocScope('scope-D', [docId(4)]);

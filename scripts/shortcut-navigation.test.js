@@ -35,9 +35,17 @@ const noOp = () => {};
 function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
     const state = {activeDocId:'all',viewMode:'checklist',currentRule:null,groupByDocName:true,openToken:0,taskTree:[{id:'doc-a'}],filterRules:[{id:'today',enabled:true},{id:'off',enabled:false}]};
     const profiles = {global:{ruleId:'global-rule',groupMode:'doc'},groups:{work:{ruleId:'group-rule',groupMode:'doc'}},allTabs:{},docTabGroups:{},docTabGroupAllTabs:{},docs:{}};
-    const store = {loaded:true,data:{currentGroupId:'all',currentRule:'global-rule',groupMode:'doc',groupByDocName:true,groupByTime:false,groupByTaskName:false,quadrantConfig:{enabled:false},kanbanBoardMode:'status',kanbanHeadingGroupMode:false,docGroups:[{id:'work',name:'工作'}],docTabCustomGroups:[],viewProfiles:profiles,shortcutItems:[],shortcutNavigationSessions:JSON.parse(storage.get('settings-file')||'{}').shortcutNavigationSessions||{}},save:async()=>{storage.set('settings-file',JSON.stringify({shortcutNavigationSessions:store.data.shortcutNavigationSessions}));}};
+    const cachedSessions = JSON.parse(storage.get('tm_shortcut_navigation_sessions') || 'null');
+    const fileSessions = JSON.parse(storage.get('settings-file') || '{}').shortcutNavigationSessions;
+    const store = {loaded:true,data:{currentGroupId:'all',currentRule:'global-rule',groupMode:'doc',groupByDocName:true,groupByTime:false,groupByTaskName:false,quadrantConfig:{enabled:false},kanbanBoardMode:'status',kanbanHeadingGroupMode:false,docGroups:[{id:'work',name:'工作'}],docTabCustomGroups:[],viewProfiles:profiles,shortcutItems:[],shortcutNavigationSessions:cachedSessions && typeof cachedSessions === 'object' ? cachedSessions : fileSessions || {},customBoardSets:[{id:'set-work',name:'工作看板',boards:[{id:'board-today'}]},{id:'set-life',name:'生活看板',boards:[]}],activeCustomBoardSetId:'set-work'},
+        syncLocalFields:(fields)=>{if((Array.isArray(fields)?fields:[fields]).includes('shortcutNavigationSessions'))storage.set('tm_shortcut_navigation_sessions',JSON.stringify(store.data.shortcutNavigationSessions));},
+        save:async()=>{storage.set('settings-file',JSON.stringify({shortcutNavigationSessions:store.data.shortcutNavigationSessions}));}};
     const events = [], invalid = [], loads = [];
     const ctx = vm.createContext({state,SettingsStore:store,console,Map,Set,Date,Math,Promise,setTimeout,clearTimeout,
+        __TM_CUSTOM_BOARD_VIEW_MODE:'comboBoard',
+        __tmNormalizeCustomBoardGroupMode:(value,fallback='doc')=>['none','doc','time','quadrant','task'].includes(String(value||'').trim())
+            ? String(value||'').trim()
+            : fallback,
         __TM_TASK_SNAPSHOT_VERSION:4,__TM_TASK_SNAPSHOT_MAX_AGE_MS:3*86400000,
         __tmIsLikelyBlockId:value=>/^\d{14}-[a-z0-9]{7}$/.test(value),
         __tmIsRuntimeMobileClient:()=>host.mobile,
@@ -48,8 +56,8 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
         __tmGetTodayDateKey:()=> '2026-10-15',
         __tmSortDocEntriesForTabs:docs=>docs,__tmGetDocTabSortMode:()=> 'manual',
         __tmGetDocPinnedIdsForGroup:()=>[],__tmResolveOptimisticTaskId:id=>id==='temp-parent'?'parent':id,
-        __TM_ALL_VIEWS:['checklist','calendar','whiteboard','kanban'].map(id=>({id,label:id})),
-        __tmIsViewEnabled:id=>['checklist','calendar','whiteboard','kanban'].includes(id),
+        __TM_ALL_VIEWS:['checklist','calendar','whiteboard','kanban','comboBoard'].map(id=>({id,label:id})),
+        __tmIsViewEnabled:id=>['checklist','calendar','whiteboard','kanban','comboBoard'].includes(id),
         __tmGetDocTabCustomGroupScopeId:group=>group.docGroupId,
         __tmGetDocTabCustomGroupDocIdSet:()=>new Set(),
         __tmBuildDocTabCustomGroupActiveId:id=>'tab:'+id,
@@ -82,6 +90,8 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
     return {ctx,core:ctx.core,state,store,events,invalid,loads,shortcut,profiles};
 }
 (async()=>{
+    assert.doesNotMatch(source,/globalThis\.__tmGet(?:ActiveCustomBoardSet|AccessibleCustomBoardSets)/,
+        'shortcut session code must call custom-board helpers in the shared bundle scope');
     const f=fixture(),{core,state,store,shortcut,invalid}=f;
     store.data.shortcutItems=[shortcut('today'),shortcut('missing',{groupId:'deleted'}),shortcut('off',{ruleId:'off'}),shortcut('deleted-doc',{docId:'deleted'}),shortcut('hidden-view',{viewId:'timeline'})];
     const defaults=JSON.stringify(store.data.viewProfiles);
@@ -416,6 +426,53 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
     assert.notEqual(boards.core.countKey(headingItem),boards.core.countKey({...headingItem,kanbanBoardMode:'time'}));
     boards.core.clearContext();
     assert.equal(boards.ctx.__tmGetKanbanBoardMode(),'status','leaving shortcuts restores the persistent board mode');
+    const combos=fixture();
+    combos.store.data.shortcutItems=[combos.shortcut('combo-work',{
+        viewId:'comboBoard',comboBoardSetId:'set-work',groupId:'work',docId:'doc-a',ruleId:'today',groupMode:'time'
+    })];
+    const normalizedCombo=combos.core.items()[0];
+    assert.deepEqual(
+        {groupId:normalizedCombo.groupId,docId:normalizedCombo.docId,ruleId:normalizedCombo.ruleId,groupMode:normalizedCombo.groupMode},
+        {groupId:'all',docId:'all',ruleId:'',groupMode:''},
+        'combination-board shortcuts keep only the selected board set'
+    );
+    const comboGroupBefore=combos.store.data.currentGroupId;
+    assert.equal(await combos.core.open('combo-work'),true);
+    assert.equal(combos.state.viewMode,'comboBoard');
+    assert.equal(combos.store.data.activeCustomBoardSetId,'set-work');
+    assert.equal(combos.store.data.currentGroupId,comboGroupBefore,'combination-board shortcuts do not replace the current document group');
+    assert.equal(combos.core.activeId(),'combo-work');
+    assert.equal(combos.loads.length,1,'combination-board shortcuts load through the custom-board projection');
+    combos.store.data.activeCustomBoardSetId='set-life';
+    assert.equal(combos.core.activeId(),'','changing the active board set clears the shortcut highlight');
+    combos.store.data.shortcutItems.push(combos.shortcut('missing-set',{viewId:'comboBoard',comboBoardSetId:'deleted-set'}));
+    assert.match(combos.core.issues(combos.core.items().find(item=>item.id==='missing-set')).join(' '),/deleted-set/);
+    const comboSessionStorage=new Map();
+    const comboPersist=fixture(comboSessionStorage);
+    comboPersist.store.data.shortcutItems=[];
+    comboPersist.ctx.__tmGetActiveCustomBoardSet=()=>({id:'set-life',name:'生活看板',boards:[]});
+    comboPersist.state.viewMode='comboBoard';
+    await comboPersist.core.persistSession();
+    const cachedComboSessions=JSON.parse(comboSessionStorage.get('tm_shortcut_navigation_sessions')||'{}');
+    assert.deepEqual(cachedComboSessions.__comboBoardLast,{viewId:'comboBoard',comboBoardSetId:'set-life'},
+        'the last combination board is written to the existing local settings cache before cloud sync');
+    const comboRestored=fixture(comboSessionStorage);
+    comboRestored.ctx.__tmGetAccessibleCustomBoardSets=()=>comboRestored.store.data.customBoardSets;
+    comboRestored.ctx.__tmGetActiveCustomBoardSet=()=>comboRestored.store.data.customBoardSets.find(set=>set.id===comboRestored.store.data.activeCustomBoardSetId)||comboRestored.store.data.customBoardSets[0];
+    assert.equal(await comboRestored.core.restoreSession(),true,'a generic last-view session restores the combination board without a saved shortcut');
+    assert.equal(comboRestored.state.viewMode,'comboBoard','plugin reload preserves the combination-board view instead of the configured default view');
+    assert.equal(comboRestored.store.data.activeCustomBoardSetId,'set-life','the last opened combination-board set is restored');
+    const expiredComboRestored=fixture(comboSessionStorage);
+    expiredComboRestored.ctx.__tmGetAccessibleCustomBoardSets=()=>[expiredComboRestored.store.data.customBoardSets[0]];
+    expiredComboRestored.ctx.__tmGetActiveCustomBoardSet=()=>expiredComboRestored.store.data.customBoardSets[0];
+    assert.equal(await expiredComboRestored.core.restoreSession(),true);
+    assert.equal(expiredComboRestored.store.data.activeCustomBoardSetId,'set-work','an expired combo-board session falls back to the first accessible set while preserving combo-board mode');
+    expiredComboRestored.state.viewMode='checklist';
+    expiredComboRestored.state.shortcutContext=null;
+    await expiredComboRestored.core.persistSession();
+    const replacedSessions=JSON.parse(JSON.stringify(expiredComboRestored.store.data.shortcutNavigationSessions||{}));
+    assert.equal(Object.prototype.hasOwnProperty.call(replacedSessions,'__comboBoardLast'),false,
+        'leaving the combination-board view clears the stale combo restore marker');
     const docA='20261015000000-aaaaaaa',docB='20261015000000-bbbbbbb';
     const snapshot={version:4,groupId:'work',createdAt:Date.now(),scopeKey:'work|'+[docA,docB].join(','),docIds:[docA,docB],
         taskTree:[{id:docA,tasks:[{id:'now',today:true},{id:'later',today:false}]},{id:docB,tasks:[]}]};
@@ -474,6 +531,8 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
     assert.equal(interrupted.ctx.__tmGetCurrentGroupModeValue(),'time','an older cached opening cannot override the latest grouping');
     assert.equal(interrupted.ctx.__tmGetKanbanBoardMode(),'time','an older cached opening cannot override the latest board mode');
     const sidebarSource=fs.readFileSync(path.join(main,'38-shortcut-sidebar.js'),'utf8');
+    assert.match(sidebarSource,/data-standard-context-field/,'normal shortcut context controls must be hidden for combination boards');
+    assert.match(sidebarSource,/data-combo-board-field/,'combination-board shortcuts must expose a board-set selector');
     const exportMarker='return { mount, refresh, closeDrawer, showInvalid, edit, dispose, syncEnabled, iconHtml };';
     assert.ok(sidebarSource.includes(exportMarker));
     const testSidebar=sidebarSource.replace(exportMarker,'return { preferences, restorePreferences, persistPreferences };');

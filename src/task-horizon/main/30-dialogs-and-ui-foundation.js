@@ -2823,6 +2823,7 @@
 
     async function __tmApplyCurrentContextViewProfile(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        const preserveCustomBoardMode = String(state.viewMode || '').trim() === __TM_CUSTOM_BOARD_VIEW_MODE;
         try { await __tmEnsureFilterRulesLoaded(); } catch (e) {}
         const prevCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
         const resolved = __tmGetEffectiveViewProfileForContext();
@@ -2836,6 +2837,7 @@
             defaultViewMode: shortcut ? (shortcut.viewId === 'home' ? null : shortcut.viewId) : contextViewDefaults.defaultViewMode,
             defaultKanbanBoardMode: shortcut ? shortcut.kanbanBoardMode || null : contextViewDefaults.defaultKanbanBoardMode
         }, shortcut ? { ...opts, runtimeOnly: true } : opts);
+        if (preserveCustomBoardMode) state.viewMode = __TM_CUSTOM_BOARD_VIEW_MODE;
         const nextCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
         const customFieldReloadNeeded = __tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan);
         if (!customFieldReloadNeeded) {
@@ -2865,6 +2867,7 @@
     }
 
     function __tmPersistGlobalViewProfileFromCurrentState(force = false) {
+        if (String(state.viewMode || '').trim() === __TM_CUSTOM_BOARD_VIEW_MODE) return false;
         const resolved = __tmGetEffectiveViewProfileForContext();
         if (!force && resolved.source !== 'default') return false;
         const store = __tmGetViewProfilesStore();
@@ -10739,6 +10742,10 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     // 修改原有的applyFilters函数以支持规则
     function applyFilters() {
+        if (String(state.viewMode || '').trim() === __TM_CUSTOM_BOARD_VIEW_MODE) {
+            __tmBuildCustomBoardProjection();
+            return;
+        }
         let tasks = [];
         let allTasksForTabs = [];
 
@@ -18781,6 +18788,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         return { modal, topbar, tabs };
     }
 
+    function __tmDocTabsForcedHiddenForActiveView() {
+        const mode = globalThis.__tmRuntimeState?.getActiveRenderMode?.('')
+            || (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
+        return __tmIsCustomBoardShellContext(mode);
+    }
+
     function __tmIsDocTabsAutoHideInteractiveTarget(target) {
         if (!(target instanceof Element)) return false;
         return !!target.closest([
@@ -18809,7 +18822,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         const { modal, tabs } = __tmGetDocTabsAutoHideZone(modalEl);
         if (!(tabs instanceof HTMLElement)) return false;
         const autoHide = __tmDocTabsAutoHideEnabled();
-        const hidden = autoHide ? state.docTabsAutoVisible !== true : !!state.docTabsHidden;
+        const hidden = __tmDocTabsForcedHiddenForActiveView()
+            || (autoHide ? state.docTabsAutoVisible !== true : !!state.docTabsHidden);
         try {
             tabs.classList.toggle('tm-doc-tabs--hidden', hidden);
             tabs.classList.toggle('tm-doc-tabs--auto-hide', autoHide);
@@ -18831,6 +18845,12 @@ return Number(state.contextInteractionQuietUntil || 0);
     function __tmSetDocTabsAutoVisible(visible, options = {}) {
         if (!__tmDocTabsAutoHideEnabled()) return false;
         __tmClearDocTabsAutoHideHoverTimer();
+        if (__tmDocTabsForcedHiddenForActiveView()) {
+            state.docTabsAutoVisible = false;
+            state.docTabsAutoHideSuppressClickUntil = 0;
+            __tmApplyDocTabsVisibilityClasses(options?.modal || state.modal);
+            return true;
+        }
         const next = visible === true;
         const unchanged = (state.docTabsAutoVisible === true) === next;
         if (unchanged) {
@@ -19009,6 +19029,11 @@ return Number(state.contextInteractionQuietUntil || 0);
     window.tmToggleDocTabs = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
+        if (__tmDocTabsForcedHiddenForActiveView()) {
+            state.docTabsAutoVisible = false;
+            __tmApplyDocTabsVisibilityClasses(state.modal);
+            return false;
+        }
         if (__tmDocTabsAutoHideEnabled()) {
             __tmSetDocTabsAutoVisible(state.docTabsAutoVisible !== true, { suppressOutsideClick: true });
             return;
@@ -19181,6 +19206,13 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         const body = (() => {
             switch (normalizedName) {
+                case 'list': return '<path d="M9 6h11" /><path d="M9 12h11" /><path d="M9 18h11" /><path d="M4 6h.01" /><path d="M4 12h.01" /><path d="M4 18h.01" />';
+                case 'list-checks': return '<path d="M9 6h11" /><path d="M9 12h11" /><path d="M9 18h11" /><path d="m3.5 5.75 1.25 1.25 2-2" /><path d="m3.5 11.75 1.25 1.25 2-2" /><path d="m3.5 17.75 1.25 1.25 2-2" />';
+                case 'chart-gantt': return '<path d="M3.5 6h4" /><path d="M10 6h10.5" /><path d="M3.5 12h10" /><path d="M16 12h4.5" /><path d="M3.5 18h2" /><path d="M8 18h12.5" /><path d="M2.5 3.5v17" />';
+                case 'columns-3': return '<rect x="3" y="4" width="5" height="16" rx="1.5" /><rect x="9.5" y="4" width="5" height="16" rx="1.5" /><rect x="16" y="4" width="5" height="16" rx="1.5" />';
+                case 'panels-top-left': return '<rect x="3" y="3" width="11" height="18" rx="1.5" /><rect x="16" y="3" width="5" height="8" rx="1.5" /><rect x="16" y="13" width="5" height="8" rx="1.5" />';
+                case 'layout-dashboard': return '<rect x="3" y="3" width="8" height="8" rx="1.5" /><rect x="13" y="3" width="8" height="5" rx="1.5" /><rect x="13" y="10" width="8" height="11" rx="1.5" /><rect x="3" y="13" width="8" height="8" rx="1.5" />';
+                case 'settings-2': return '<path d="M4 7h8" /><path d="M16 7h4" /><circle cx="14" cy="7" r="2" /><path d="M4 17h4" /><path d="M12 17h8" /><circle cx="10" cy="17" r="2" />';
                 case 'clipboard-list': return '<path d="M9.5 4h5" /><path d="M9 2.75h6a1.75 1.75 0 0 1 1.75 1.75v1.25h1A2.75 2.75 0 0 1 20.5 8.5v10.75A2.75 2.75 0 0 1 17.75 22H6.25A2.75 2.75 0 0 1 3.5 19.25V8.5A2.75 2.75 0 0 1 6.25 5.75h1V4.5A1.75 1.75 0 0 1 9 2.75Z" /><path d="M9 10h6" /><path d="M9 14h6" /><path d="M9 18h3.5" />';
                 case 'calendar-days': return '<path d="M7.5 3.5v3" /><path d="M16.5 3.5v3" /><path d="M4.75 6.5h14.5A2.75 2.75 0 0 1 22 9.25v9.5A2.75 2.75 0 0 1 19.25 21.5H4.75A2.75 2.75 0 0 1 2 18.75v-9.5A2.75 2.75 0 0 1 4.75 6.5Z" /><path d="M2 10h20" /><path d="M7.5 14h.01" /><path d="M12 14h.01" /><path d="M16.5 14h.01" /><path d="M7.5 18h.01" /><path d="M12 18h.01" /><path d="M16.5 18h.01" />';
                 case 'calendar-plus-2': return '<path d="M7.5 3.5v3" /><path d="M16.5 3.5v3" /><path d="M4.75 6.5h14.5A2.75 2.75 0 0 1 22 9.25v9.5A2.75 2.75 0 0 1 19.25 21.5H4.75A2.75 2.75 0 0 1 2 18.75v-9.5A2.75 2.75 0 0 1 4.75 6.5Z" /><path d="M2 10h20" /><path d="M12 13.5v5" /><path d="M9.5 16h5" />';

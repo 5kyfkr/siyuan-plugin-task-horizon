@@ -1376,101 +1376,6 @@
         }
     }
 
-    const __TM_DOC_GROUP_SYNC_LOG_PATH = `${PLUGIN_STORAGE_DIR}/doc-group-sync-debug.json`;
-    const __TM_DOC_GROUP_SYNC_LOG_LIMIT = 100;
-    const __tmDocGroupSyncLogKeys = new Set();
-    let __tmDocGroupSyncLogWrite = Promise.resolve();
-
-    function __tmDocGroupSyncLogHash(value) {
-        const text = String(value || '');
-        if (/^fnv1a:[0-9a-f]{8}$/.test(text)) return text;
-        let hash = 2166136261;
-        for (let index = 0; index < text.length; index += 1) {
-            hash = Math.imul(hash ^ text.charCodeAt(index), 16777619);
-        }
-        return `fnv1a:${(hash >>> 0).toString(16).padStart(8, '0')}`;
-    }
-
-    function __tmRedactDocGroupSyncLogRecord(record) {
-        if (!record || typeof record !== 'object') return null;
-        const out = { ...record };
-        if (out.fingerprints && typeof out.fingerprints === 'object') {
-            out.fingerprints = Object.fromEntries(Object.entries(out.fingerprints)
-                .map(([key, value]) => [key, __tmDocGroupSyncLogHash(value)]));
-        }
-        return out;
-    }
-
-    function __tmSummarizeDocGroupsForSyncLog(source) {
-        const groups = Array.isArray(source?.docGroups) ? source.docGroups : [];
-        return {
-            count: groups.length,
-            items: groups.slice(0, 50).map((group) => ({
-                id: String(group?.id || '').trim().slice(0, 80),
-                name: String(group?.name || '').trim().slice(0, 120),
-                documents: Array.isArray(group?.docs) ? group.docs.length : 0,
-                notebook: !!String(group?.notebookId || '').trim(),
-            })),
-            omitted: Math.max(0, groups.length - 50),
-        };
-    }
-
-    function __tmLogDocGroupSync(event, details = {}, dedupeKey = '') {
-        const record = __tmRedactDocGroupSyncLogRecord({
-            at: new Date().toISOString(),
-            event: String(event || 'unknown'),
-            ...((details && typeof details === 'object') ? details : {}),
-            diagnosticVersion: 4,
-            client: {
-                kind: String(globalThis.__tmHost?.getRuntimeClientKind?.() || globalThis.__taskHorizonRuntimeClientKind || 'unknown'),
-                appId: String(globalThis.__tmHost?.getStorageRequestApp?.() || '').slice(0, 80),
-                pluginVersion: String(globalThis.__taskHorizonPluginManifest?.version || 'unknown'),
-                kernelVersion: String(globalThis.siyuan?.config?.system?.kernelVersion || 'unknown'),
-            },
-        });
-        const key = dedupeKey ? __tmDocGroupSyncLogHash(dedupeKey) : '';
-        if (key && __tmDocGroupSyncLogKeys.has(key)) return __tmDocGroupSyncLogWrite;
-        if (key) {
-            __tmDocGroupSyncLogKeys.add(key);
-            if (__tmDocGroupSyncLogKeys.size > 100) __tmDocGroupSyncLogKeys.delete(__tmDocGroupSyncLogKeys.values().next().value);
-        }
-        try { console.info('[Task Horizon doc-group sync]', record); } catch (e) {}
-
-        const persist = async () => {
-            let entries = [];
-            try {
-                const previous = await __tmReadJsonFile(__TM_DOC_GROUP_SYNC_LOG_PATH, { timeoutMs: 3000 });
-                if (Array.isArray(previous?.entries)) entries = previous.entries.slice(-__TM_DOC_GROUP_SYNC_LOG_LIMIT)
-                    .map(__tmRedactDocGroupSyncLogRecord).filter(Boolean);
-            } catch (e) {}
-            entries.push(record);
-            const form = new FormData();
-            form.append('path', __TM_DOC_GROUP_SYNC_LOG_PATH);
-            form.append('isDir', 'false');
-            form.append('file', new Blob([JSON.stringify({ version: 1, entries: entries.slice(-__TM_DOC_GROUP_SYNC_LOG_LIMIT) }, null, 2)], {
-                type: 'application/json',
-            }));
-            globalThis.__tmHost?.appendStorageRequestApp?.(form);
-            const controller = typeof AbortController === 'function' ? new AbortController() : null;
-            const timeout = controller ? setTimeout(() => controller.abort(), 3000) : null;
-            try {
-                const response = await fetch('/api/file/putFile', {
-                    method: 'POST', body: form, ...(controller ? { signal: controller.signal } : {}),
-                });
-                const result = response.ok ? await response.json().catch(() => null) : null;
-                if (!response.ok || (result && result.code !== 0)) {
-                    try { console.warn('[Task Horizon doc-group sync] log write failed', { status: response.status, code: result?.code }); } catch (e) {}
-                }
-            } catch (e) {
-                try { console.warn('[Task Horizon doc-group sync] log write failed', String(e?.message || e)); } catch (e2) {}
-            } finally {
-                if (timeout !== null) clearTimeout(timeout);
-            }
-        };
-        __tmDocGroupSyncLogWrite = __tmDocGroupSyncLogWrite.then(persist, persist).catch(() => null);
-        return __tmDocGroupSyncLogWrite;
-    }
-
     async function __tmWriteJsonFile(path, data) {
         const targetPath = String(path || '').trim();
         if (!targetPath) return false;
@@ -2331,6 +2236,20 @@
         return `${docId || 'doc'}:${__tmHashTaskSnapshotText(text)}:${text.length}`;
     }
 
+    function __tmBuildTaskProjectionDataSignature(tasks = []) {
+        try {
+            const records = (Array.isArray(tasks) ? tasks : []).map((task) => Object.fromEntries(
+                Object.keys(task || {}).sort()
+                    .filter((key) => key !== 'children' && !key.startsWith('__'))
+                    .map((key) => [key, task[key]])
+            )).sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+            const text = JSON.stringify(__tmStableSettingsJsonValue(records));
+            return `${records.length}:${__tmHashTaskSnapshotText(text)}:${text.length}`;
+        } catch (e) {
+            return '';
+        }
+    }
+
     function __tmBuildTaskSnapshotOtherBlockDataKey(otherBlocks) {
         const list = Array.isArray(otherBlocks) ? otherBlocks : [];
         if (!list.length) return '';
@@ -2588,6 +2507,27 @@
             return { ok: false, reason: 'overfilled-task-count', actual, expected, overageTolerance, delta: actual - expected };
         }
         return { ok: true, reason: 'ok', actual, expected, overageTolerance, delta: actual - expected };
+    }
+
+    function __tmIsTaskSnapshotRecurringInstance(task) {
+        return task?.isRecurringInstance === true
+            || String(task?.id || '').startsWith('repeatinst:');
+    }
+
+    function __tmGetTaskSnapshotPhysicalTaskCount(flatTasks = {}) {
+        let count = 0;
+        Object.values(flatTasks && typeof flatTasks === 'object' ? flatTasks : {}).forEach((task) => {
+            if (!__tmIsTaskSnapshotRecurringInstance(task)) count += 1;
+        });
+        return count;
+    }
+
+    function __tmGetTaskSnapshotTaskCountCoverage(docIds = [], flatTasks = {}, options = {}) {
+        const physicalTaskCount = __tmGetTaskSnapshotPhysicalTaskCount(flatTasks);
+        return {
+            physicalTaskCount,
+            coverage: __tmGetTaskCountCoverageStatus(docIds, physicalTaskCount, options),
+        };
     }
 
     function __tmRememberSmallCache(map, key, value, limit = 400) {
@@ -2976,6 +2916,7 @@
                 ? __tmBuildCustomTaskOrderFingerprint(rule, opts.docIds || state?.__tmLoadedDocIdsForTasks || [])
                 : '',
             customFieldDefsVersion: __tmParseVersionNumber(data.customFieldDefsVersion),
+            projectVisibilityRevision: Number(globalThis.__tmProjectVisibility?.getRevision?.() || 0),
             taskMetaAttrKeys: __tmStableSettingsJsonValue(__tmNormalizeTaskMetaAttrKeySettings(data.taskMetaAttrKeys)),
             taskMetaAttrKeyAliases: __tmStableSettingsJsonValue(__tmNormalizeTaskMetaAttrAliasSettings(data.taskMetaAttrKeyAliases)),
         };
@@ -2999,6 +2940,7 @@
                 version: 1,
                 createdAt: Date.now(),
                 signature: __tmBuildTaskSnapshotViewSignature(options),
+                taskDataSignature: __tmBuildTaskProjectionDataSignature(Object.values(state.flatTasks || {})),
                 filteredTaskIds,
                 filteredDocIdsForTabs,
                 listRenderSignature: String(state?.listRenderSignature || ''),
@@ -3086,6 +3028,8 @@
         if (!expected) {
             return null;
         }
+        if (!view.taskDataSignature
+            || view.taskDataSignature !== __tmBuildTaskProjectionDataSignature(Object.values(state.flatTasks || {}))) return null;
         const ids = Array.isArray(view.filteredTaskIds) ? view.filteredTaskIds.map((id) => String(id || '').trim()) : null;
         if (!ids) {
             return null;
@@ -3773,10 +3717,9 @@
         }
         __tmMergeLocalTaskPatchIntoTaskTree(taskTree);
         const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
-        const coverage = __tmGetTaskCountCoverageStatus(snap.docIds || [], Object.keys(flatTasks).length, opts);
-        if (!coverage.ok) {
-            return null;
-        }
+        const taskCountCoverage = __tmGetTaskSnapshotTaskCountCoverage(snap.docIds || [], flatTasks, opts);
+        const coverage = taskCountCoverage.coverage;
+        if (!coverage.ok) return null;
         state.taskTree = taskTree;
         state.otherBlocks = __tmCloneTaskSnapshotValue(Array.isArray(snap.otherBlocks) ? snap.otherBlocks : [], 0) || [];
         __tmReplaceFlatTasksThroughTaskStore(flatTasks, { authoritative: true });
@@ -4254,13 +4197,26 @@
             if (!ids.length) return;
             const updatedAt = Number(entry.updatedAt || entry.t || 0) || 0;
             if (updatedAt > 0 && (now - updatedAt) > __TM_DOC_SCOPE_CACHE_MAX_AGE_MS) return;
-            scopes[key] = {
+            const normalizedEntry = {
                 key,
                 groupId: String(entry.groupId || '').trim(),
                 docIds: ids,
                 updatedAt: updatedAt || now,
                 docCount: ids.length,
             };
+            const rawBoardDocIds = entry.boardDocIds && typeof entry.boardDocIds === 'object' && !Array.isArray(entry.boardDocIds)
+                ? entry.boardDocIds
+                : null;
+            if (rawBoardDocIds) {
+                const boardDocIds = {};
+                Object.entries(rawBoardDocIds).forEach(([boardId0, ids0]) => {
+                    const boardId = String(boardId0 || '').trim();
+                    const boardIds = __tmNormalizeDocScopeDocIds(ids0 || []);
+                    if (boardId && boardIds.length) boardDocIds[boardId] = boardIds;
+                });
+                if (Object.keys(boardDocIds).length) normalizedEntry.boardDocIds = boardDocIds;
+            }
+            scopes[key] = normalizedEntry;
         });
         return {
             version: __TM_DOC_SCOPE_CACHE_VERSION,
@@ -4292,6 +4248,18 @@
                 updatedAt: Number(entry.updatedAt || 0) || Date.now(),
                 docCount: Math.max(0, Math.round(Number(entry.docCount || entry.docIds?.length || 0) || 0)),
             };
+            const rawBoardDocIds = entry.boardDocIds && typeof entry.boardDocIds === 'object' && !Array.isArray(entry.boardDocIds)
+                ? entry.boardDocIds
+                : null;
+            if (rawBoardDocIds) {
+                const boardDocIds = {};
+                Object.entries(rawBoardDocIds).forEach(([boardId0, ids0]) => {
+                    const boardId = String(boardId0 || '').trim();
+                    const boardIds = __tmNormalizeDocScopeDocIds(ids0 || []);
+                    if (boardId && boardIds.length) boardDocIds[boardId] = boardIds;
+                });
+                if (Object.keys(boardDocIds).length) normalized.boardDocIds = boardDocIds;
+            }
             const addedBytes = __tmEstimateJsonByteSize(key) + __tmEstimateJsonByteSize(normalized) + 2;
             if (bytes + addedBytes > __TM_DOC_SCOPE_CACHE_MAX_BYTES) break;
             out.scopes[key] = normalized;
@@ -4374,12 +4342,19 @@
             const entry = store?.scopes?.[key];
             if (!entry || !Array.isArray(entry.docIds) || !entry.docIds.length) return null;
             if ((Date.now() - Number(entry.updatedAt || 0)) > __TM_DOC_SCOPE_CACHE_MAX_AGE_MS) return null;
-            return {
+            const cached = {
                 key,
                 groupId: String(entry.groupId || '').trim(),
                 docIds: __tmNormalizeDocScopeDocIds(entry.docIds),
                 updatedAt: Number(entry.updatedAt || 0) || 0,
             };
+            if (entry.boardDocIds && typeof entry.boardDocIds === 'object' && !Array.isArray(entry.boardDocIds)) {
+                cached.boardDocIds = Object.fromEntries(Object.entries(entry.boardDocIds).map(([boardId, ids0]) => [
+                    String(boardId || '').trim(),
+                    __tmNormalizeDocScopeDocIds(ids0 || []),
+                ]).filter(([boardId, ids0]) => !!boardId && ids0.length > 0));
+            }
+            return cached;
         } catch (e) {
             return null;
         }
@@ -4402,6 +4377,15 @@
             updatedAt: Math.max(Date.now(), Number(store.scopes[key]?.updatedAt || 0) + 1),
             docCount: ids.length,
         };
+        if (opts.boardDocIds && typeof opts.boardDocIds === 'object' && !Array.isArray(opts.boardDocIds)) {
+            const boardDocIds = {};
+            Object.entries(opts.boardDocIds).forEach(([boardId0, ids0]) => {
+                const boardId = String(boardId0 || '').trim();
+                const boardIds = __tmNormalizeDocScopeDocIds(ids0 || []);
+                if (boardId && boardIds.length) boardDocIds[boardId] = boardIds;
+            });
+            if (Object.keys(boardDocIds).length) entry.boardDocIds = boardDocIds;
+        }
         store.scopes[key] = entry;
         __tmDocScopeCachePending.set(key, entry);
         const nextStore = __tmPruneDocScopeCacheToLimits(store);
@@ -4649,10 +4633,17 @@
                 __tmScheduleWarmTaskIndexStore(2200);
                 return null;
             }
-            const store = opts.cachedOnly
-                ? __tmTaskIndexStoreCache
-                : await __tmLoadTaskIndexStore({ force: !!opts.force });
-            return __tmRestoreTaskIndexIntoState(store, opts);
+            const storePromise = opts.cachedOnly
+                ? Promise.resolve(__tmTaskIndexStoreCache)
+                : __tmLoadTaskIndexStore({ force: !!opts.force });
+            const countPromise = opts.taskCountMapPromise
+                ? Promise.resolve(opts.taskCountMapPromise).then((meta) => meta?.map || null).catch(() => null)
+                : Promise.resolve(null);
+            const [store, promisedTaskCountMap] = await Promise.all([storePromise, countPromise]);
+            return __tmRestoreTaskIndexIntoState(store, {
+                ...opts,
+                taskCountMap: opts.taskCountMap || promisedTaskCountMap || undefined,
+            });
         } catch (e) {
             return null;
         }
@@ -5845,6 +5836,7 @@
         const rule = (opts.rule && typeof opts.rule === 'object')
             ? opts.rule
             : (typeof __tmGetCurrentRule === 'function' ? __tmGetCurrentRule() : null);
+        const additionalRules = Array.isArray(opts.additionalRules) ? opts.additionalRules.filter((item) => item && typeof item === 'object') : [];
         const ruleFieldIds = new Set();
         const columnFieldIds = new Set();
         const pushField = (targetSet, fieldValue) => {
@@ -5857,6 +5849,10 @@
         });
         (Array.isArray(rule?.sort) ? rule.sort : []).forEach((sortRule) => {
             pushField(ruleFieldIds, sortRule?.field);
+        });
+        additionalRules.forEach((additionalRule) => {
+            (Array.isArray(additionalRule.conditions) ? additionalRule.conditions : []).forEach((condition) => pushField(ruleFieldIds, condition?.field));
+            (Array.isArray(additionalRule.sort) ? additionalRule.sort : []).forEach((sortRule) => pushField(ruleFieldIds, sortRule?.field));
         });
         const bulkFieldIdsSet = new Set(ruleFieldIds);
         if (String(state?.searchKeyword || '').trim()) {
@@ -5884,8 +5880,8 @@
                 bulkFieldIdsSet.add(fieldId);
             });
         }
-        if (viewMode === 'kanban' || viewMode === 'whiteboard') {
-            __tmGetTaskCardFieldList(viewMode).forEach((fieldKey) => pushField(bulkFieldIdsSet, fieldKey));
+        if (viewMode === 'kanban' || viewMode === 'comboBoard' || viewMode === 'whiteboard') {
+            __tmGetTaskCardFieldList(viewMode === 'comboBoard' ? 'kanban' : viewMode).forEach((fieldKey) => pushField(bulkFieldIdsSet, fieldKey));
         }
         const deferredListFieldIds = [];
         if (viewMode === 'list') {
@@ -5910,6 +5906,7 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const viewMode = String(opts.viewMode || state?.viewMode || '').trim();
         let rule = (opts.rule && typeof opts.rule === 'object') ? opts.rule : null;
+        const additionalRules = Array.isArray(opts.additionalRules) ? opts.additionalRules.filter((item) => item && typeof item === 'object') : [];
         if (!rule && typeof __tmGetCurrentRule === 'function') {
             try { rule = __tmGetCurrentRule(); } catch (e) {}
         }
@@ -5919,6 +5916,12 @@
         const normalizedRuleSorts = typeof __tmGetNormalizedRuleSorts === 'function'
             ? __tmGetNormalizedRuleSorts(rule)
             : (Array.isArray(rule?.sort) ? rule.sort : []);
+        additionalRules.forEach((additionalRule) => {
+            const sorts = typeof __tmGetNormalizedRuleSorts === 'function'
+                ? __tmGetNormalizedRuleSorts(additionalRule)
+                : (Array.isArray(additionalRule?.sort) ? additionalRule.sort : []);
+            normalizedRuleSorts.push(...sorts);
+        });
         const isUngroup = !state.groupByDocName
             && !state.groupByTaskName
             && !state.groupByTime
@@ -5936,7 +5939,12 @@
         const colOrder = Array.isArray(opts.colOrder)
             ? opts.colOrder
             : (Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder : []);
-        const docHeadingSubgroupActive = !!state.groupByDocName && SettingsStore?.data?.docH2SubgroupEnabled !== false;
+        const customBoardHeadingGroupingActive = viewMode === 'comboBoard'
+            && typeof __tmGetActiveCustomBoardSet === 'function'
+            && typeof __tmCustomBoardUsesHeadingGroups === 'function'
+            && (__tmGetActiveCustomBoardSet()?.boards || []).some(__tmCustomBoardUsesHeadingGroups);
+        const docHeadingSubgroupActive = customBoardHeadingGroupingActive
+            || (!!state.groupByDocName && SettingsStore?.data?.docH2SubgroupEnabled !== false);
         const kanbanHeadingGroupingActive = typeof __tmGetKanbanBoardMode === 'function'
             ? __tmGetKanbanBoardMode() === 'heading'
             : !!SettingsStore?.data?.kanbanHeadingGroupMode;
@@ -5969,6 +5977,7 @@
                 viewMode,
                 colOrder,
                 rule,
+                additionalRules,
             }),
         };
     }
@@ -8808,6 +8817,54 @@
         return preset;
     }
 
+    function __tmNormalizeCustomBoardGroupMode(value, fallback = 'doc') {
+        const mode = String(value || '').trim();
+        return ['none', 'doc', 'time', 'quadrant', 'task'].includes(mode)
+            ? mode
+            : (['none', 'doc', 'time', 'quadrant', 'task'].includes(String(fallback || '').trim())
+                ? String(fallback || '').trim()
+                : 'doc');
+    }
+
+    function __tmMigrateCustomBoardFeatureSettings(data) {
+        if (!data || typeof data !== 'object') return false;
+        let changed = false;
+        const customBoardGroupMode = __tmNormalizeCustomBoardGroupMode(data.customBoardGroupMode, 'doc');
+        if (data.customBoardGroupMode !== customBoardGroupMode) {
+            data.customBoardGroupMode = customBoardGroupMode;
+            changed = true;
+        }
+        const version = Math.max(0, Math.round(Number(data.customBoardFeatureVersion) || 0));
+        if (version < 1) {
+            const enabledViews = typeof __tmNormalizeEnabledViews === 'function'
+                ? __tmNormalizeEnabledViews(data.enabledViews)
+                : (Array.isArray(data.enabledViews) ? data.enabledViews.slice() : []);
+            if (!enabledViews.includes('comboBoard')) enabledViews.push('comboBoard');
+            data.enabledViews = typeof __tmNormalizeEnabledViews === 'function'
+                ? __tmNormalizeEnabledViews(enabledViews)
+                : enabledViews;
+            data.customBoardFeatureVersion = 1;
+            changed = true;
+        }
+        const viewSwitcherStyleVersion = Math.max(0, Math.round(Number(data.viewSwitcherStyleVersion) || 0));
+        if (viewSwitcherStyleVersion < 1) {
+            data.viewSwitcherStyle = 'icons';
+            data.viewSwitcherStyleVersion = 1;
+            changed = true;
+        } else {
+            data.viewSwitcherStyle = data.viewSwitcherStyle === 'text' ? 'text' : 'icons';
+        }
+        const customBoardSets = typeof __tmNormalizeCustomBoardSets === 'function'
+            ? __tmNormalizeCustomBoardSets(data.customBoardSets)
+            : (Array.isArray(data.customBoardSets) ? data.customBoardSets : []);
+        if (customBoardSets !== data.customBoardSets) data.customBoardSets = customBoardSets;
+        const activeId = String(data.activeCustomBoardSetId || '').trim();
+        data.activeCustomBoardSetId = customBoardSets.some((set) => set.id === activeId)
+            ? activeId
+            : (customBoardSets[0]?.id || '');
+        return changed;
+    }
+
     // 设置存储（使用云端同步存储，支持跨设备同步）
     const SettingsStore = {
         data: {
@@ -8838,7 +8895,13 @@
             dockChecklistCompactMetaFields: ['completionTime', 'scheduleTime', 'status'],
             mobileChecklistCompactMetaFields: ['completionTime', 'scheduleTime', 'status'],
             checklistCompactRightFontSize: 'large',
-            enabledViews: ['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard'],
+            enabledViews: ['list', 'checklist', 'timeline', 'kanban', 'comboBoard', 'calendar', 'whiteboard'],
+            customBoardGroupMode: 'doc',
+            customBoardFeatureVersion: 0,
+            viewSwitcherStyle: 'icons',
+            viewSwitcherStyleVersion: 0,
+            customBoardSets: [],
+            activeCustomBoardSetId: '',
             kanbanCompactMode: false,
             kanbanAppearance: 'lanes',
             kanbanLaneColorStrength: 15,
@@ -9492,15 +9555,7 @@
             const opt = loadOptions;
             const preferRemoteWhiteboardSameVersion = opt.preferRemoteWhiteboardSameVersion === true;
             const loadGeneration = Number(this.reloadGeneration) || 0;
-            const isLoadCurrent = (phase) => {
-                const current = loadGeneration === (Number(this.reloadGeneration) || 0);
-                if (!current) void __tmLogDocGroupSync('settings-load-cancelled', {
-                    phase, loadGeneration, activeGeneration: Number(this.reloadGeneration) || 0,
-                }, `load-cancelled:${loadGeneration}:${phase}`);
-                return current;
-            };
-            let settingsFileReadStatus = 'pending';
-            let docGroupHydrationTrace = null;
+            const isLoadCurrent = () => loadGeneration === (Number(this.reloadGeneration) || 0);
 
             // 先从本地缓存加载一份作为兜底（避免云端旧版本配置缺字段导致覆盖丢失）
             // 云端数据存在时，再用云端字段覆盖本地字段
@@ -9530,7 +9585,6 @@
                 if (res.ok) {
                     const text = await res.text();
                     if (!isLoadCurrent('after-settings-read')) return;
-                    settingsFileReadStatus = text && text.trim() ? 'valid-json' : 'empty';
                     // 如果文件内容有效且有数据
                     if (text && text.trim() !== '') {
                         try {
@@ -9548,30 +9602,7 @@
                                 const localSettingsBeforeCloud = __tmCloneJsonSafe(this.data, { ...(this.data || {}) });
                                 const localSettingsUpdatedAt = Number(this.data.settingsUpdatedAt) || 0;
                                 const cloudSettingsUpdatedAt = Number(cloudData.settingsUpdatedAt) || 0;
-                                const localDocGroupSnapshot = __tmBuildDocGroupSyncSnapshot(this.data);
-                                const fileDocGroupSnapshot = __tmBuildDocGroupSyncSnapshot(cloudData);
-                                const localDocGroupFingerprint = __tmBuildDocGroupSyncFingerprint(this.data);
-                                const fileDocGroupFingerprint = __tmBuildDocGroupSyncFingerprint(cloudData);
                                 const localSettingsNewer = localSettingsUpdatedAt > 0 && cloudSettingsUpdatedAt < localSettingsUpdatedAt;
-                                docGroupHydrationTrace = {
-                                    source: opt.suppressStorageWrites ? 'synced-file-reload' : 'settings-load',
-                                    reason: String(opt.reason || '').slice(0, 160),
-                                    settingsFileReadStatus,
-                                    mergePath: localSettingsNewer ? 'local-settings-newer' : 'settings-file-merged',
-                                    syncMode: 'settings-fields',
-                                    fieldUpdatedAt: {
-                                        local: Object.fromEntries(__TM_DOC_GROUP_SETTINGS_KEYS.map((key) => [key, Number(this.data.settingsFieldUpdatedAt?.[key]) || 0])),
-                                        file: Object.fromEntries(__TM_DOC_GROUP_SETTINGS_KEYS.map((key) => [key, Number(cloudData.settingsFieldUpdatedAt?.[key]) || 0])),
-                                    },
-                                    settingsUpdatedAt: { local: localSettingsUpdatedAt, file: cloudSettingsUpdatedAt },
-                                    docGroupSettingsUpdatedAt: {
-                                        local: __tmGetDocGroupSettingsUpdatedAt(this.data),
-                                        file: __tmGetDocGroupSettingsUpdatedAt(cloudData),
-                                    },
-                                    fingerprints: { local: localDocGroupFingerprint, file: fileDocGroupFingerprint },
-                                    local: __tmSummarizeDocGroupsForSyncLog({ docGroups: localDocGroupSnapshot.docGroups }),
-                                    file: __tmSummarizeDocGroupsForSyncLog({ docGroups: fileDocGroupSnapshot.docGroups }),
-                                };
                                 const localCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(this.data);
                                 const cloudCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(cloudData);
                                 const localWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
@@ -9598,6 +9629,14 @@
                                     const appliedCloudSettingsFields = __tmApplySettingsFieldUpdatesByMap(this.data, cloudData, {
                                         skipKeys: new Set(['agentMcpEnabled', 'agentMcpEnabledInitialized']),
                                     });
+                                    this.data.customBoardFeatureVersion = Math.max(
+                                        Number(this.data.customBoardFeatureVersion) || 0,
+                                        Number(cloudData.customBoardFeatureVersion) || 0
+                                    );
+                                    this.data.viewSwitcherStyleVersion = Math.max(
+                                        Number(this.data.viewSwitcherStyleVersion) || 0,
+                                        Number(cloudData.viewSwitcherStyleVersion) || 0
+                                    );
                                     if (localSettingsBeforeCloud.taskTemplateLibrary) {
                                         this.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary(
                                             localSettingsBeforeCloud.taskTemplateLibrary
@@ -9619,16 +9658,10 @@
                                     this.data.customFieldDefs = resolvedCustomFieldSchema.defs;
                                     this.data.customFieldDefsVersion = resolvedCustomFieldSchema.version;
                                     const migratedLegacyTopbarDefaults = this.migrateLegacyTopbarDefaults();
+                                    const migratedCustomBoardFeatureSettings = __tmMigrateCustomBoardFeatureSettings(this.data);
                                     __tmEnsureDocGroupContextValidAfterSync();
                                     this.normalizeColumns();
                                     this.syncToLocal();
-                                    if (opt.suppressStorageWrites || localDocGroupFingerprint !== fileDocGroupFingerprint) {
-                                        void __tmLogDocGroupSync('settings-hydration', {
-                                            ...docGroupHydrationTrace,
-                                            applied: __tmSummarizeDocGroupsForSyncLog(this.data),
-                                            appliedSettingKeys: appliedCloudSettingsFields.filter((key) => __TM_DOC_GROUP_SETTINGS_KEYS.includes(key)),
-                                        }, `hydrate:${localDocGroupFingerprint}:${fileDocGroupFingerprint}:${cloudSettingsUpdatedAt}:${localSettingsNewer}`);
-                                    }
                                     this.loadedWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
                                     this.lastWhiteboardFingerprint = __tmGetWhiteboardSettingsFingerprint(this.data);
                                     this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
@@ -9639,7 +9672,7 @@
                                     if (!dedicatedTaskTemplateLibrary) {
                                         try { await this.saveTaskTemplates(this.data.taskTemplateLibrary); } catch (e) {}
                                     }
-                                    if (migratedLegacyTopbarDefaults || migratedLegacyTaskTitleClickSettings || resolvedCustomFieldSchema.repairRemote === true) {
+                                    if (migratedLegacyTopbarDefaults || migratedCustomBoardFeatureSettings || migratedLegacyTaskTitleClickSettings || resolvedCustomFieldSchema.repairRemote === true) {
                                         try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
                                     }
                                     return;
@@ -9678,6 +9711,12 @@
                                 if (Array.isArray(cloudData.mobileChecklistCompactMetaFields)) this.data.mobileChecklistCompactMetaFields = cloudData.mobileChecklistCompactMetaFields;
                                 if (typeof cloudData.checklistCompactRightFontSize === 'string') this.data.checklistCompactRightFontSize = __tmNormalizeChecklistCompactRightFontSize(cloudData.checklistCompactRightFontSize);
                                 if (Array.isArray(cloudData.enabledViews)) this.data.enabledViews = __tmNormalizeEnabledViews(cloudData.enabledViews);
+                                if (typeof cloudData.customBoardGroupMode === 'string') this.data.customBoardGroupMode = __tmNormalizeCustomBoardGroupMode(cloudData.customBoardGroupMode);
+                                if (typeof cloudData.customBoardFeatureVersion === 'number') this.data.customBoardFeatureVersion = Math.max(0, Math.round(cloudData.customBoardFeatureVersion));
+                                if (typeof cloudData.viewSwitcherStyleVersion === 'number') this.data.viewSwitcherStyleVersion = Math.max(0, Math.round(cloudData.viewSwitcherStyleVersion));
+                                if (Array.isArray(cloudData.customBoardSets) && typeof __tmNormalizeCustomBoardSets === 'function') this.data.customBoardSets = __tmNormalizeCustomBoardSets(cloudData.customBoardSets);
+                                if (typeof cloudData.activeCustomBoardSetId === 'string') this.data.activeCustomBoardSetId = cloudData.activeCustomBoardSetId;
+                                if (cloudData.viewSwitcherStyle === 'icons' || cloudData.viewSwitcherStyle === 'text') this.data.viewSwitcherStyle = cloudData.viewSwitcherStyle;
                                 if (typeof cloudData.kanbanCompactMode === 'boolean') this.data.kanbanCompactMode = cloudData.kanbanCompactMode;
                                 if (typeof cloudData.kanbanAppearance === 'string') this.data.kanbanAppearance = cloudData.kanbanAppearance === 'classic' ? 'classic' : 'lanes';
                                 if (typeof cloudData.kanbanLaneColorStrength === 'number') this.data.kanbanLaneColorStrength = __tmNormalizeKanbanLaneColorStrength(cloudData.kanbanLaneColorStrength);
@@ -10133,18 +10172,11 @@
                                 }
 
                                 const migratedLegacyTopbarDefaults = this.migrateLegacyTopbarDefaults();
+                                const migratedCustomBoardFeatureSettings = __tmMigrateCustomBoardFeatureSettings(this.data);
                                 // 同步到本地缓存
                                 __tmEnsureDocGroupContextValidAfterSync();
                                 this.normalizeColumns();
                                 this.syncToLocal();
-                                if (opt.suppressStorageWrites || localDocGroupFingerprint !== fileDocGroupFingerprint) {
-                                    void __tmLogDocGroupSync('settings-hydration', {
-                                        ...docGroupHydrationTrace,
-                                        appliedFileDocGroups: __tmBuildDocGroupSyncFingerprint(this.data) === fileDocGroupFingerprint,
-                                        restoredLocalSettingKeys: restoredLocalSettingFields.filter((key) => __TM_DOC_GROUP_SETTINGS_KEYS.includes(key)),
-                                        applied: __tmSummarizeDocGroupsForSyncLog(this.data),
-                                    }, `hydrate:${localDocGroupFingerprint}:${fileDocGroupFingerprint}:${cloudSettingsUpdatedAt}:${localSettingsNewer}`);
-                                }
                                 this.loadedWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
                                 this.lastWhiteboardFingerprint = __tmGetWhiteboardSettingsFingerprint(this.data);
                                 this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
@@ -10156,22 +10188,22 @@
                                 if (!dedicatedTaskTemplateLibrary) {
                                     try { await this.saveTaskTemplates(this.data.taskTemplateLibrary); } catch (e) {}
                                 }
-                                if (migratedLegacyTopbarDefaults || migratedLegacyTaskTitleClickSettings || restoredLocalSettingFields.length > 0 || resolvedCustomFieldSchema.repairRemote === true) {
+                                if (migratedLegacyTopbarDefaults || migratedCustomBoardFeatureSettings || migratedLegacyTaskTitleClickSettings || restoredLocalSettingFields.length > 0 || resolvedCustomFieldSchema.repairRemote === true) {
                                     try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
                                 }
                                 return;
                             }
                         } catch (parseError) {
-                            settingsFileReadStatus = 'invalid-json';
+                            // Invalid settings files fall back to the local cache below.
                         }
                     }
                 }
-                if (!res.ok) settingsFileReadStatus = `http-${res.status}`;
             } catch (e) {
-                settingsFileReadStatus = `read-error:${String(e?.name || 'error').slice(0, 32)}`;
+                // Unreadable settings fall back to the local cache below.
             }
             if (!isLoadCurrent('before-local-fallback')) return;
             const migratedLegacyTopbarDefaults = this.migrateLegacyTopbarDefaults();
+            const migratedCustomBoardFeatureSettings = __tmMigrateCustomBoardFeatureSettings(this.data);
             applyDedicatedTaskTemplateLibrary();
             this.loadedWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
             this.lastWhiteboardFingerprint = __tmGetWhiteboardSettingsFingerprint(this.data);
@@ -10180,18 +10212,11 @@
             this.refreshCollapsedStateSyncState();
             this.refreshSettingsFieldSyncState();
             this.loaded = true;
-            if (settingsFileReadStatus !== 'valid-json') {
-                void __tmLogDocGroupSync('settings-hydration', {
-                    source: opt.suppressStorageWrites ? 'synced-file-reload' : 'settings-load',
-                    settingsFileReadStatus,
-                    applied: __tmSummarizeDocGroupsForSyncLog(this.data),
-                }, `hydrate-local:${settingsFileReadStatus}:${__tmBuildDocGroupSyncFingerprint(this.data)}`);
-            }
             __tmApplyEntryIconPreset(this.data.entryIconPreset);
             if (!dedicatedTaskTemplateLibrary) {
                 try { await this.saveTaskTemplates(this.data.taskTemplateLibrary); } catch (e) {}
             }
-            if (migratedLegacyTopbarDefaults || migratedLegacyTaskTitleClickSettings) {
+            if (migratedLegacyTopbarDefaults || migratedCustomBoardFeatureSettings || migratedLegacyTaskTitleClickSettings) {
                 try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
             }
         },
@@ -10244,7 +10269,18 @@
             this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(Storage.get('tm_dock_checklist_compact_meta_fields', this.data.dockChecklistCompactMetaFields));
             this.data.mobileChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(Storage.get('tm_mobile_checklist_compact_meta_fields', this.data.mobileChecklistCompactMetaFields));
             this.data.checklistCompactRightFontSize = __tmNormalizeChecklistCompactRightFontSize(Storage.get('tm_checklist_compact_right_font_size', this.data.checklistCompactRightFontSize));
-            this.data.enabledViews = __tmNormalizeEnabledViews(Storage.get('tm_enabled_views', this.data.enabledViews));
+            const storedEnabledViews = Storage.get('tm_enabled_views', this.data.enabledViews);
+            this.data.enabledViews = __tmNormalizeEnabledViews(storedEnabledViews);
+            this.data.customBoardGroupMode = __tmNormalizeCustomBoardGroupMode(Storage.get('tm_custom_board_group_mode', this.data.customBoardGroupMode));
+            if (Number(Storage.get('tm_enabled_views_version', 0)) < 1 && Array.isArray(storedEnabledViews) && !this.data.enabledViews.includes('comboBoard')) {
+                this.data.enabledViews.push('comboBoard');
+            }
+            this.data.customBoardFeatureVersion = Math.max(0, Math.round(Number(Storage.get('tm_custom_board_feature_version', this.data.customBoardFeatureVersion)) || 0));
+            this.data.viewSwitcherStyleVersion = Math.max(0, Math.round(Number(Storage.get('tm_view_switcher_style_version', this.data.viewSwitcherStyleVersion)) || 0));
+            const customBoardSets = Storage.get('tm_custom_board_sets', this.data.customBoardSets);
+            this.data.customBoardSets = typeof __tmNormalizeCustomBoardSets === 'function' ? __tmNormalizeCustomBoardSets(customBoardSets) : (Array.isArray(customBoardSets) ? customBoardSets : []);
+            this.data.activeCustomBoardSetId = String(Storage.get('tm_active_custom_board_set_id', this.data.activeCustomBoardSetId) || '').trim();
+            this.data.viewSwitcherStyle = Storage.get('tm_view_switcher_style', this.data.viewSwitcherStyle) === 'icons' ? 'icons' : 'text';
             this.data.kanbanCompactMode = !!Storage.get('tm_kanban_compact_mode', this.data.kanbanCompactMode);
             this.data.kanbanAppearance = Storage.get('tm_kanban_appearance', this.data.kanbanAppearance) === 'classic' ? 'classic' : 'lanes';
             this.data.kanbanLaneColorStrength = __tmNormalizeKanbanLaneColorStrength(Storage.get('tm_kanban_lane_color_strength', this.data.kanbanLaneColorStrength));
@@ -10287,6 +10323,10 @@
             this.data.shortcutItems = __tmShortcuts.normalize(Storage.get('tm_shortcut_items', []));
             this.data.shortcutSidebarEnabled = Storage.get('tm_shortcut_sidebar_enabled', this.data.shortcutSidebarEnabled) !== false;
             this.data.shortcutSidebarPreferences = Storage.get('tm_shortcut_sidebar_saved_preferences', this.data.shortcutSidebarPreferences) || {};
+            const cachedShortcutSessions = Storage.get('tm_shortcut_navigation_sessions', this.data.shortcutNavigationSessions);
+            this.data.shortcutNavigationSessions = cachedShortcutSessions && typeof cachedShortcutSessions === 'object' && !Array.isArray(cachedShortcutSessions)
+                ? cachedShortcutSessions
+                : {};
             this.data.fontSize = Storage.get('tm_font_size', 14);
             this.data.fontSizeMobile = Storage.get('tm_font_size_mobile', this.data.fontSize);
             this.data.rowHeightMode = Storage.get('tm_row_height_mode', this.data.rowHeightMode);
@@ -10818,6 +10858,12 @@
                 whiteboardNavigatorHidden: () => Storage.set('tm_whiteboard_navigator_hidden', !!this.data.whiteboardNavigatorHidden),
                 whiteboardAllTabsDocOrderByGroup: () => Storage.set('tm_whiteboard_all_tabs_doc_order_by_group', this.data.whiteboardAllTabsDocOrderByGroup || {}),
                 whiteboardGlobalBoardsByGroup: () => Storage.set('tm_whiteboard_global_boards_by_group', this.data.whiteboardGlobalBoardsByGroup || {}),
+                shortcutNavigationSessions: () => Storage.set(
+                    'tm_shortcut_navigation_sessions',
+                    this.data.shortcutNavigationSessions && typeof this.data.shortcutNavigationSessions === 'object'
+                        ? this.data.shortcutNavigationSessions
+                        : {}
+                ),
             };
             fields.forEach((field) => {
                 try { writers[field]?.(); } catch (e) {}
@@ -10842,6 +10888,10 @@
             Storage.set('tm_group_by_docname', this.data.groupByDocName);
             Storage.set('tm_group_by_time', this.data.groupByTime);
             this.data.enabledViews = __tmNormalizeEnabledViews(this.data.enabledViews);
+            this.data.customBoardGroupMode = __tmNormalizeCustomBoardGroupMode(this.data.customBoardGroupMode);
+            this.data.customBoardSets = typeof __tmNormalizeCustomBoardSets === 'function' ? __tmNormalizeCustomBoardSets(this.data.customBoardSets) : (Array.isArray(this.data.customBoardSets) ? this.data.customBoardSets : []);
+            if (!this.data.customBoardSets.some((set) => set.id === this.data.activeCustomBoardSetId)) this.data.activeCustomBoardSetId = this.data.customBoardSets[0]?.id || '';
+            this.data.viewSwitcherStyle = this.data.viewSwitcherStyle === 'icons' ? 'icons' : 'text';
             this.data.defaultViewMode = __tmGetSafeViewMode(this.data.defaultViewMode);
             this.data.defaultViewModeMobile = __tmGetSafeViewMode(this.data.defaultViewModeMobile || this.data.defaultViewMode);
             this.data.mobileAutoOpenOnStartup = this.data.mobileAutoOpenOnStartup === true;
@@ -10874,6 +10924,13 @@
             Storage.set('tm_schedule_time_field_defaults_version', Number(this.data.scheduleTimeFieldDefaultsVersion) || 0);
             Storage.set('tm_checklist_compact_right_font_size', this.data.checklistCompactRightFontSize);
             Storage.set('tm_enabled_views', this.data.enabledViews);
+            Storage.set('tm_enabled_views_version', 1);
+            Storage.set('tm_custom_board_group_mode', this.data.customBoardGroupMode);
+            Storage.set('tm_custom_board_feature_version', Number(this.data.customBoardFeatureVersion) || 0);
+            Storage.set('tm_custom_board_sets', this.data.customBoardSets);
+            Storage.set('tm_active_custom_board_set_id', this.data.activeCustomBoardSetId);
+            Storage.set('tm_view_switcher_style', this.data.viewSwitcherStyle);
+            Storage.set('tm_view_switcher_style_version', Number(this.data.viewSwitcherStyleVersion) || 0);
             Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
             Storage.set('tm_kanban_appearance', this.data.kanbanAppearance === 'classic' ? 'classic' : 'lanes');
             Storage.set('tm_kanban_lane_color_strength', __tmNormalizeKanbanLaneColorStrength(this.data.kanbanLaneColorStrength));
@@ -10912,6 +10969,12 @@
             Storage.set('tm_shortcut_items', this.data.shortcutItems || []);
             Storage.set('tm_shortcut_sidebar_enabled', this.data.shortcutSidebarEnabled !== false);
             Storage.set('tm_shortcut_sidebar_saved_preferences', this.data.shortcutSidebarPreferences || {});
+            Storage.set(
+                'tm_shortcut_navigation_sessions',
+                this.data.shortcutNavigationSessions && typeof this.data.shortcutNavigationSessions === 'object'
+                    ? this.data.shortcutNavigationSessions
+                    : {}
+            );
             Storage.set('tm_font_size', this.data.fontSize);
             Storage.set('tm_font_size_mobile', this.data.fontSizeMobile);
             Storage.set('tm_row_height_mode', String(this.data.rowHeightMode || 'auto').trim() || 'auto');
@@ -11690,15 +11753,7 @@
             const saveGeneration = Number(this.reloadGeneration) || 0;
             const saveAbortController = typeof AbortController === 'function' ? new AbortController() : null;
             this.activeSaveAbortController = saveAbortController;
-            let saveDiagnostics = null;
-            const isSaveCurrent = (phase = '') => {
-                const current = saveGeneration === (Number(this.reloadGeneration) || 0);
-                if (!current && phase) void __tmLogDocGroupSync('settings-save-cancelled', {
-                    phase, saveGeneration, activeGeneration: Number(this.reloadGeneration) || 0,
-                    ...(saveDiagnostics || {}),
-                }, `cancelled:${saveGeneration}:${phase}`);
-                return current;
-            };
+            const isSaveCurrent = () => saveGeneration === (Number(this.reloadGeneration) || 0);
             this.lastSaveResult = { ok: false };
             const suppressMobileCloseSyncDirty = !!this.suppressMobileCloseSyncDirty;
             this.suppressMobileCloseSyncDirty = false;
@@ -11716,7 +11771,7 @@
                 const collapseChangedLocal = __tmGetCollapsedSessionStateFingerprint(this.data) !== prevCollapseFingerprint;
                 const loadedCollapseUpdatedAt = __tmParseUpdatedAtNumber(this.loadedCollapseUpdatedAt);
                 const remoteSettings = await __tmReadJsonFile(SETTINGS_FILE_PATH);
-                if (!isSaveCurrent('after-settings-read')) return;
+                if (!isSaveCurrent()) return;
                 if (remoteSettings && typeof remoteSettings === 'object') {
                     remoteSettings.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(remoteSettings.settingsFieldUpdatedAt, remoteSettings, {
                         seedFromSettingsUpdatedAt: new Set(__TM_DOC_GROUP_SETTINGS_KEYS),
@@ -11832,31 +11887,12 @@
                     && __tmGetSharedSettingsContentFingerprint(payload) === __tmGetSharedSettingsContentFingerprint(remoteSettings)) {
                     this.lastSaveResult = { ok: true, codeOk: true, skipped: true, taskTemplateFingerprint: JSON.stringify(this.data.taskTemplateLibrary) };
                     this.syncToLocal();
-                    void __tmLogDocGroupSync('settings-save-skipped', {
-                        reason: 'unchanged-content',
-                        syncMode: 'settings-fields',
-                        settingsUpdatedAt: Number(this.data.settingsUpdatedAt) || 0,
-                        local: __tmSummarizeDocGroupsForSyncLog(this.data),
-                    }, `unchanged:${__tmBuildDocGroupSyncFingerprint(payload)}:${Number(this.data.settingsUpdatedAt) || 0}`);
                     return;
                 }
                 this.data.settingsUpdatedAt = Date.now();
                 payload.settingsUpdatedAt = this.data.settingsUpdatedAt;
                 // 本地缓存延后到 flush，避免每次 save() 都全量写 localStorage
                 this.syncToLocal();
-                saveDiagnostics = {
-                    syncMode: 'settings-fields',
-                    changedSettingKeys: Array.from(settingsFieldChange.changedKeys).slice(0, 80),
-                    fieldUpdatedAt: Object.fromEntries(__TM_DOC_GROUP_SETTINGS_KEYS.map((key) => [key, Number(payload.settingsFieldUpdatedAt?.[key]) || 0])),
-                    settingsUpdatedAt: Number(payload.settingsUpdatedAt) || 0,
-                    docGroupSettingsUpdatedAt: Number(payload.docGroupSettingsUpdatedAt) || 0,
-                    local: __tmSummarizeDocGroupsForSyncLog(payload),
-                    fileBefore: __tmSummarizeDocGroupsForSyncLog(remoteSettings),
-                    fingerprints: {
-                        payload: __tmBuildDocGroupSyncFingerprint(payload),
-                        fileBefore: __tmBuildDocGroupSyncFingerprint(remoteSettings),
-                    },
-                };
                 const formDir = new FormData();
                 formDir.append('path', PLUGIN_STORAGE_DIR);
                 formDir.append('isDir', 'true');
@@ -11864,7 +11900,7 @@
                 await fetch('/api/file/putFile', {
                     method: 'POST', body: formDir, ...(saveAbortController ? { signal: saveAbortController.signal } : {}),
                 }).catch(() => null);
-                if (!isSaveCurrent('before-settings-write')) return;
+                if (!isSaveCurrent()) return;
 
                 const formData = new FormData();
                 formData.append('path', SETTINGS_FILE_PATH);
@@ -11876,7 +11912,7 @@
                     method: 'POST', body: formData, ...(saveAbortController ? { signal: saveAbortController.signal } : {}),
                 }).catch(() => null);
                 const settingsPutBody = settingsPutRes?.ok ? await settingsPutRes.json().catch(() => null) : null;
-                if (!isSaveCurrent('after-settings-response')) return;
+                if (!isSaveCurrent()) return;
                 const settingsPutOk = !!settingsPutRes?.ok;
                 const settingsPutCodeOk = settingsPutBody == null || settingsPutBody.code === 0;
                 this.lastSaveResult = { ok: settingsPutOk, codeOk: settingsPutCodeOk, taskTemplateFingerprint: JSON.stringify(payload.taskTemplateLibrary) };
@@ -11890,38 +11926,6 @@
                 if (settingsPutOk && localSettingsChangedForMobileCloseSync && !suppressMobileCloseSyncDirty) {
                     try { __tmMarkMobileCloseSyncDirty('settings-save'); } catch (e) {}
                 }
-                const payloadDocGroupFingerprint = __tmBuildDocGroupSyncFingerprint(payload);
-                const writeTrace = {
-                    at: new Date().toISOString(),
-                    source: 'local-settings-save',
-                    syncMode: 'settings-fields',
-                    changed: docGroupChangedLocal,
-                    saveGeneration,
-                    changedSettingKeys: Array.from(settingsFieldChange.changedKeys).slice(0, 80),
-                    fieldUpdatedAt: Object.fromEntries(__TM_DOC_GROUP_SETTINGS_KEYS.map((key) => [key, Number(payload.settingsFieldUpdatedAt?.[key]) || 0])),
-                    settingsUpdatedAt: Number(payload.settingsUpdatedAt) || 0,
-                    fileBeforeSettingsUpdatedAt: Number(remoteSettings?.settingsUpdatedAt) || 0,
-                    docGroupSettingsUpdatedAt: Number(payload.docGroupSettingsUpdatedAt) || 0,
-                    fileBeforeDocGroupUpdatedAt: __tmGetDocGroupSettingsUpdatedAt(remoteSettings),
-                    local: __tmSummarizeDocGroupsForSyncLog(payload),
-                    fileBefore: __tmSummarizeDocGroupsForSyncLog(remoteSettings),
-                    fingerprints: { payload: payloadDocGroupFingerprint, fileBefore: __tmBuildDocGroupSyncFingerprint(remoteSettings) },
-                };
-                // Diagnostics must not hold the settings save open while reading/writing the log.
-                void (async () => {
-                    const readBack = settingsPutOk ? await __tmReadJsonFile(SETTINGS_FILE_PATH, { timeoutMs: 3000 }) : null;
-                    const readBackFingerprint = readBack ? __tmBuildDocGroupSyncFingerprint(readBack) : '';
-                    await __tmLogDocGroupSync('settings-write', {
-                        ...writeTrace,
-                        fileAfter: __tmSummarizeDocGroupsForSyncLog(readBack),
-                        response: {
-                            httpStatus: Number(settingsPutRes?.status) || 0,
-                            ok: settingsPutOk,
-                            code: settingsPutBody?.code ?? null,
-                            readBackMatches: !!readBackFingerprint && readBackFingerprint === payloadDocGroupFingerprint,
-                        },
-                    }, `write:${payloadDocGroupFingerprint}:${Number(payload.settingsUpdatedAt) || 0}:${settingsPutOk}`);
-                })().catch(() => null);
                 if (settingsPutOk && __tmBuildDocGroupSyncFingerprint(this.data) !== prevDocGroupFingerprint) {
                     try { window.dispatchEvent(new CustomEvent('tm:doc-groups-updated')); } catch (e) {}
                 }
@@ -18876,7 +18880,7 @@
         return out;
     }
 
-    function __tmCanPersistTaskSnapshotProjection(docIds = [], taskCount = 0, options = {}) {
+    function __tmCanPersistTaskSnapshotProjection(docIds = [], flatTasks = {}, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         if (opts.forceFullLoadBudget === true) return false;
         const ids = __tmNormalizeTaskSnapshotDocIds(docIds || []);
@@ -18901,7 +18905,7 @@
             } catch (e) {}
         }
         try {
-            const coverage = __tmGetTaskCountCoverageStatus(ids, taskCount, opts);
+            const coverage = __tmGetTaskSnapshotTaskCountCoverage(ids, flatTasks, opts).coverage;
             if (!coverage.ok) return false;
         } catch (e) {}
         return true;
@@ -19002,12 +19006,11 @@
                         || hasUnexpectedTreeDoc) {
                         return;
                     }
-                    let taskCount = 0;
+                    let flatTasks = {};
                     try {
-                        const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(state.taskTree);
-                        taskCount = Object.keys(flatTasks).length;
+                        flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(state.taskTree);
                     } catch (e) {}
-                    if (!__tmCanPersistTaskSnapshotProjection(docIds, taskCount, opts)) return;
+                    if (!__tmCanPersistTaskSnapshotProjection(docIds, flatTasks, opts)) return;
                     if (opts.mergeLocalPatchesBeforeSave !== false) {
                         try { __tmMergeLocalTaskPatchIntoTaskStateForSnapshot(); } catch (e) {}
                     }
@@ -19056,7 +19059,7 @@
                         previousSnapshot: rawStore?.snapshots?.[payload?.scopeKey],
                     }) || payload;
                     const payloadFlatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(Array.isArray(payload?.taskTree) ? payload.taskTree : []);
-                    if (!__tmCanPersistTaskSnapshotProjection(payload?.docIds || docIds, Object.keys(payloadFlatTasks).length, opts)) return;
+                    if (!__tmCanPersistTaskSnapshotProjection(payload?.docIds || docIds, payloadFlatTasks, opts)) return;
                     const pools = { docs: {}, otherBlockSets: {} };
                     const record = __tmBuildTaskSnapshotRecordForStore(payload, pools, { owned: true });
                     if (!record) return;

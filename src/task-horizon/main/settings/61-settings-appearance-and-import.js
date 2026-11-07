@@ -282,19 +282,19 @@
         ];
 
         const renderMetric = (item) => `
-            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-bg-color);">
-                <span style="font-size:12px;color:var(--tm-secondary-text);">${esc(item.label)}</span>
-                <span style="display:inline-flex;align-items:center;gap:8px;">
+            <label class="tm-settings-topbar-metric">
+                <span class="tm-settings-topbar-metric-label">${esc(item.label)}</span>
+                <span class="tm-settings-topbar-metric-control">
                     <input
+                        class="bc-input tm-settings-topbar-metric-input"
                         type="number"
                         min="${item.min}"
                         max="${item.max}"
                         step="1"
                         value="${Number(item.value) || 0}"
                         onchange="tmUpdateAppearanceMetric('${esc(item.key)}', this.value)"
-                        style="width:84px;padding:6px 8px;border:1px solid var(--tm-input-border);border-radius:8px;background:var(--tm-input-bg);color:var(--tm-text-color);font-size:12px;box-sizing:border-box;"
                     >
-                    <span style="font-size:12px;color:var(--tm-secondary-text);min-width:28px;text-align:right;">${esc(item.unit || 'px')}</span>
+                    <span class="tm-settings-topbar-metric-unit">${esc(item.unit || 'px')}</span>
                 </span>
             </label>
         `;
@@ -429,11 +429,20 @@
                     <div id="tmAppearancePreviewDark" style="width:180px;height:22px;border-radius:8px;background:${previewDark};border:1px solid rgba(0,0,0,0.06);"></div>
                 </div>
             </div>
-            <div style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
-                    <div style="font-weight:600;">${__tmT("settings.topBarControlStyle")}</div>
+            <div class="tm-settings-topbar-controls">
+                <div class="tm-setting-field-row tm-settings-topbar-control-row" ${__tmSettingsSearchAttrs('appearance', __tmT("settings.viewSwitcherStyle"), __tmT("settings.viewSwitcherStyleDescription"), { section: 'appearance', key: 'topbar-view-switcher-style' })}>
+                    <div class="tm-setting-field-copy">
+                        <div class="tm-setting-field-title">${__tmT("settings.viewSwitcherStyle")}</div>
+                        <div class="tm-setting-field-desc">${__tmT("settings.viewSwitcherStyleDescription")}</div>
+                    </div>
+                    <div class="tm-setting-field-control">
+                        <div class="bc-tabs-list tm-settings-choice-group" role="radiogroup" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("settings.viewSwitcherStyle")}">
+                        <button type="button" class="bc-tabs-trigger" role="radio" data-tm-view-switcher-style-option="icons" data-state="${SettingsStore.data.viewSwitcherStyle === 'icons' ? 'active' : 'inactive'}" aria-checked="${SettingsStore.data.viewSwitcherStyle === 'icons' ? 'true' : 'false'}" onclick="updateViewSwitcherStyle('icons')">${__tmT("settings.viewSwitcherIcons")}</button>
+                        <button type="button" class="bc-tabs-trigger" role="radio" data-tm-view-switcher-style-option="text" data-state="${SettingsStore.data.viewSwitcherStyle === 'text' ? 'active' : 'inactive'}" aria-checked="${SettingsStore.data.viewSwitcherStyle === 'text' ? 'true' : 'false'}" onclick="updateViewSwitcherStyle('text')">${__tmT("settings.viewSwitcherText")}</button>
+                        </div>
+                    </div>
                 </div>
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
+                <div class="tm-settings-topbar-metric-grid">
                     ${metrics.map(renderMetric).join('')}
                 </div>
             </div>

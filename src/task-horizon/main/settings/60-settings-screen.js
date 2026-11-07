@@ -1771,7 +1771,7 @@
                 const onchange = onToggle ? String(onToggle(item, checked, itemDisabled) || '').trim() : '';
                 return `
                     <label class="tm-settings-chip${classes ? ` ${classes}` : ''}" title="${esc(title)}"${itemDisabled ? ' aria-disabled="true"' : ''}>
-                        <input class="tm-settings-chip__input" type="checkbox" ${checked ? 'checked' : ''} ${itemDisabled ? 'disabled' : ''} onchange="${esc(onchange)}">
+                        <input class="tm-settings-chip__input" type="checkbox" value="${esc(key)}" data-tm-settings-chip-key="${esc(key)}" ${checked ? 'checked' : ''} ${itemDisabled ? 'disabled' : ''} onchange="${esc(onchange)}">
                         <span class="tm-settings-chip__check" aria-hidden="true"></span>
                         <span class="tm-settings-chip__label">${esc(label)}</span>
                     </label>
@@ -2094,6 +2094,74 @@
                 if (countEl) countEl.textContent = __tmT("settings.selected3", { length: inputs.filter((input) => input.checked).length, length2: inputs.length });
             });
             try { __tmRefreshSettingsFieldPreviews(modal); } catch (e) {}
+        };
+        state.__tmRefreshEnabledViewSettingsLight = () => {
+            const modal = state.settingsModal;
+            if (!(modal instanceof HTMLElement) || !document.body.contains(modal)) return false;
+            const scope = modal.querySelector('[data-tm-settings-search-key="main-enabled-views"]');
+            if (!(scope instanceof HTMLElement)) return false;
+            const enabledViews = __tmGetEnabledViews();
+            const enabledSet = new Set(enabledViews);
+            const viewById = new Map(__TM_ALL_VIEWS.map((view) => [view.id, view]));
+            const grid = scope.querySelector('.tm-settings-chip-grid');
+            if (grid instanceof HTMLElement) {
+                const chipsByKey = new Map();
+                grid.querySelectorAll('.tm-settings-chip').forEach((chip) => {
+                    const key = String(chip.querySelector('[data-tm-settings-chip-key]')?.getAttribute('data-tm-settings-chip-key') || '').trim();
+                    if (key) chipsByKey.set(key, chip);
+                });
+                const orderedKeys = [
+                    ...enabledViews,
+                    ...__TM_ALL_VIEWS.map((view) => view.id).filter((id) => !enabledSet.has(id)),
+                ];
+                orderedKeys.forEach((key) => {
+                    const chip = chipsByKey.get(key);
+                    if (chip instanceof HTMLElement) grid.appendChild(chip);
+                });
+                chipsByKey.forEach((chip, key) => {
+                    const input = chip.querySelector('[data-tm-settings-chip-key]');
+                    if (!(input instanceof HTMLInputElement)) return;
+                    const checked = enabledSet.has(key);
+                    const disabled = checked && enabledViews.length <= 1;
+                    input.checked = checked;
+                    input.disabled = disabled;
+                    chip.classList.toggle('is-selected', checked);
+                    chip.classList.toggle('is-disabled', disabled);
+                    if (disabled) chip.setAttribute('aria-disabled', 'true');
+                    else chip.removeAttribute('aria-disabled');
+                });
+            }
+            const orderList = scope.querySelector('.tm-view-order__list');
+            if (orderList instanceof HTMLElement) {
+                orderList.innerHTML = enabledViews.map((id, index) => {
+                    const view = viewById.get(id);
+                    if (!view) return '';
+                    const upLabel = __tmT("settings.moveUp2", { value1: view.longLabel });
+                    const downLabel = __tmT("settings.moveDown2", { value1: view.longLabel });
+                    return `<div class="tm-view-order__row" data-tm-view-order-row="${__tmEscAttr(view.id)}">
+                        <span class="tm-view-order__index" aria-hidden="true">${index + 1}</span>
+                        <span class="tm-view-order__icon" aria-hidden="true">${__tmRenderPrototypeViewIcon(view.id)}</span>
+                        <span class="tm-view-order__label">${esc(view.longLabel)}</span>
+                        <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost tm-view-order__button" onclick="tmMoveEnabledView('${escSq(view.id)}', -1, event)" aria-label="${__tmEscAttr(upLabel)}" title="${__tmEscAttr(upLabel)}" ${index <= 0 ? 'disabled' : ''}>${__tmRenderLucideIcon('arrow-up', '', { size: 14 })}</button>
+                        <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost tm-view-order__button" onclick="tmMoveEnabledView('${escSq(view.id)}', 1, event)" aria-label="${__tmEscAttr(downLabel)}" title="${__tmEscAttr(downLabel)}" ${index >= enabledViews.length - 1 ? 'disabled' : ''}>${__tmRenderLucideIcon('arrow-down', '', { size: 14 })}</button>
+                    </div>`;
+                }).join('');
+            }
+            try { state.__tmSettingsChipLightRefresh?.(); } catch (e) {}
+            return true;
+        };
+        state.__tmRefreshViewSwitcherStyleSettingsLight = (value) => {
+            const modal = state.settingsModal;
+            if (!(modal instanceof HTMLElement) || !document.body.contains(modal)) return false;
+            const scope = modal.querySelector('[data-tm-settings-search-key="topbar-view-switcher-style"]');
+            if (!(scope instanceof HTMLElement)) return false;
+            const selected = String(value || '').trim() === 'icons' ? 'icons' : 'text';
+            scope.querySelectorAll('[data-tm-view-switcher-style-option]').forEach((button) => {
+                const active = String(button.getAttribute('data-tm-view-switcher-style-option') || '').trim() === selected;
+                button.dataset.state = active ? 'active' : 'inactive';
+                button.setAttribute('aria-checked', active ? 'true' : 'false');
+            });
+            return true;
         };
         const renderAiSettingsPanel = () => {
             const experienceMode = String(SettingsStore.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent';
@@ -3000,23 +3068,46 @@
                             { style: 'margin-bottom:10px;', controlMode: 'stack' }
                         )}
                         <div style="margin-bottom:10px;" ${__tmSettingsSearchAttrs('main', __tmT("settings.visibleViews"), __tmT("settings.chooseWhichViewsAreEnabledAmongTableChecklistTimeline"), { section: 'layout', key: 'main-enabled-views' })}>
-                            ${renderSettingsChipSetting('', '', [
-                                __tmBuildSettingsChipGroup(__tmT("settings.visibleViews"), __TM_ALL_VIEWS.map((view) => {
-                                    const enabledViews = __tmGetEnabledViews();
-                                    const checked = enabledViews.includes(view.id);
-                                    const disabled = checked && enabledViews.length <= 1;
-                                    return {
-                                        key: view.id,
-                                        label: view.longLabel,
-                                        disabled,
-                                        title: view.longLabel
-                                    };
-                                }), {
-                                    selectedSet: new Set(__tmGetEnabledViews()),
-                                    onToggle: (item) => `updateEnabledView('${escSq(String(item?.key || '').trim())}', this.checked)`
-                                })
-                            ])}
-                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:6px;">${__tmT("settings.theTopBarAndMobileViewSwitcherHideViews")}</div>
+                            ${(() => {
+                                const enabledViews = __tmGetEnabledViews();
+                                const enabledSet = new Set(enabledViews);
+                                const viewById = new Map(__TM_ALL_VIEWS.map((view) => [view.id, view]));
+                                const orderedVisibleViews = enabledViews.map((id) => viewById.get(id)).filter(Boolean);
+                                const orderedHiddenViews = __TM_ALL_VIEWS.filter((view) => !enabledSet.has(view.id));
+                                const chipItems = [...orderedVisibleViews, ...orderedHiddenViews].map((view) => ({
+                                    key: view.id,
+                                    label: view.longLabel,
+                                    disabled: enabledSet.has(view.id) && enabledViews.length <= 1,
+                                    title: view.longLabel
+                                }));
+                                const orderRows = orderedVisibleViews.map((view, index) => {
+                                    const upLabel = __tmT("settings.moveUp2", { value1: view.longLabel });
+                                    const downLabel = __tmT("settings.moveDown2", { value1: view.longLabel });
+                                    return `<div class="tm-view-order__row" data-tm-view-order-row="${__tmEscAttr(view.id)}">
+                                        <span class="tm-view-order__index" aria-hidden="true">${index + 1}</span>
+                                        <span class="tm-view-order__icon" aria-hidden="true">${__tmRenderPrototypeViewIcon(view.id)}</span>
+                                        <span class="tm-view-order__label">${esc(view.longLabel)}</span>
+                                        <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost tm-view-order__button" onclick="tmMoveEnabledView('${escSq(view.id)}', -1, event)" aria-label="${__tmEscAttr(upLabel)}" title="${__tmEscAttr(upLabel)}" ${index <= 0 ? 'disabled' : ''}>${__tmRenderLucideIcon('arrow-up', '', { size: 14 })}</button>
+                                        <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost tm-view-order__button" onclick="tmMoveEnabledView('${escSq(view.id)}', 1, event)" aria-label="${__tmEscAttr(downLabel)}" title="${__tmEscAttr(downLabel)}" ${index >= orderedVisibleViews.length - 1 ? 'disabled' : ''}>${__tmRenderLucideIcon('arrow-down', '', { size: 14 })}</button>
+                                    </div>`;
+                                }).join('');
+                                return `
+                                    ${renderSettingsChipSetting('', '', [
+                                        __tmBuildSettingsChipGroup(__tmT("settings.visibleViews"), chipItems, {
+                                            selectedSet: enabledSet,
+                                            onToggle: (item) => `updateEnabledView('${escSq(String(item?.key || '').trim())}', this.checked)`
+                                        })
+                                    ])}
+                                    <div class="tm-view-order" data-tm-view-order>
+                                        <div class="tm-view-order__head">
+                                            <strong>${__tmT("settings.viewOrder")}</strong>
+                                            <span>${__tmT("settings.useTheArrowsToSetTheOrderInTheTopAndBottom")}</span>
+                                        </div>
+                                        <div class="tm-view-order__list">${orderRows}</div>
+                                    </div>
+                                    <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:6px;">${__tmT("settings.theTopBarAndMobileViewSwitcherHideViews")}</div>
+                                `;
+                            })()}
                         </div>
                         ${renderSingleSwitchSetting(
                             __tmT("settings.kanbanCompactMode"),

@@ -9,6 +9,7 @@ const main = path.join(__dirname, '..', 'src/task-horizon/main');
 const read = file => fs.readFileSync(path.join(main, file), 'utf8');
 const api = read('20-api-and-runtime-services.js');
 const native = read('shell/72-shell-entrances-and-native-doc-hooks.js');
+const lifecycle = read('shell/80-shell-lifecycle.js');
 const segment = (source, from, to) => {
     const start = source.indexOf(from), end = source.indexOf(to, start + from.length);
     assert.ok(start >= 0 && end > start, from);
@@ -92,6 +93,8 @@ function harness() {
 }
 
 (async () => {
+    assert.match(lifecycle, /requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\);[\s\S]*if \(runtimeMobile\) __tmWakeSemanticDatePromptsOnPluginEnter\(\)/,
+        'mobile manager entry must wake native document suggestions after its view mounts');
     const h = harness();
     h.task('unrelated', '明天9点开会');
     h.task('edited', '8点吃饭');
@@ -269,7 +272,7 @@ function harness() {
     const outsideCount = h.shown.length;
     h.focus(true);
     nativeHandlers.get('input')({ type: 'input', isTrusted: true, isComposing: true });
-    nativeHandlers.get('compositionend')({ type: 'compositionend', isTrusted: false, isComposing: false }); await h.flush();
+    nativeHandlers.get('compositionend')({ type: 'compositionend', isTrusted: false, isComposing: true }); await h.flush();
     assert.equal(h.shown.length, outsideCount, 'off-group typing and IME completion must wait for blur');
     assert.deepEqual(nativeReads, ['outside-group'], 'off-group composition end must read only the edited task');
     h.focus(false); await h.flush();
