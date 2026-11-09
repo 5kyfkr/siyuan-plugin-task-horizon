@@ -1,16 +1,13 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
 const { chromium, i18nPrelude } = require('./i18n-browser-fixture');
 
 const root = path.resolve(__dirname, '..');
 const modulePath = path.join(root, 'src/task-horizon/main/task-runtime/51a-task-title-editor-runtime.js');
-const lutePath = process.env.SIYUAN_LUTE_PATH || path.resolve(root, '../siyuan-3.8.8/app/stage/protyle/js/lute/lute.min.js');
 
 async function main() {
-    assert.ok(fs.existsSync(lutePath), 'Set SIYUAN_LUTE_PATH to the real SiYuan lute.min.js');
     const browser = await chromium.launch({
         headless: true,
         ...(process.env.PLAYWRIGHT_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE } : {}),
@@ -27,9 +24,22 @@ async function main() {
         await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1">
             <div id="fixture"></div>`);
         await page.addScriptTag({ content: i18nPrelude });
-        await page.addScriptTag({ path: lutePath });
         await page.addScriptTag({ content: `
             window.esc = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            window.Lute = {
+                New: () => ({
+                    SetTextMark() {},
+                    SetHTMLTag2TextMark() {},
+                    SetBlockRef() {},
+                    SetKramdownIAL() {},
+                    SetLinkRef() {},
+                    SetSanitize() {},
+                    SetProtyleWYSIWYG() {},
+                    InlineMd2BlockDOM: value => esc(value),
+                    BlockDOM2Md: value => String(value || '').replace(/<[^>]*>/g, ''),
+                    HTML2BlockDOM: value => String(value || ''),
+                }),
+            };
             window.API = {
                 extractTaskContentLine: value => String(value || '').replace(/^\\s*[-*+]\\s+\\[[^\\]]?\\]\\s*/, ''),
                 getTaskContentBlockId: async () => '',
