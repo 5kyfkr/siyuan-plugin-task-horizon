@@ -1,7 +1,6 @@
     // 名称的编辑值始终是源内容；纯文本只用于展示和检索。
     let __tmTaskTitleLute = null;
     let __tmTaskTitlePopover = null;
-
     function __tmGetTaskTitleMarkdown(task) {
         const markdown = String(task?.markdown || '').trim();
         return String((markdown && API.extractTaskContentLine(markdown)) || task?.content || '').trim();
@@ -168,6 +167,22 @@
         return !!(__tmTaskTitlePopover && root?.contains?.(__tmTaskTitlePopover.owner));
     }
 
+    function __tmRequestTaskTitleMobileKeyboard(element) {
+        const bridge = globalThis.JSHarmony || globalThis.JSAndroid;
+        if (!bridge || typeof bridge.showKeyboard !== 'function') return false;
+        const now = Date.now();
+        if (Number(element?.__tmTitleKeyboardRequestAt || 0) > now - 500) return false;
+        try { element.__tmTitleKeyboardRequestAt = now; } catch (e) {}
+        try { bridge.setWebViewFocusable?.(true); } catch (e) {}
+        try {
+            bridge.showKeyboard();
+            globalThis.dispatchEvent?.(new CustomEvent('siyuan-mobile-keyboard-change', { detail: true }));
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
     function __tmPatchTaskTitleEditor(element, task) {
         if (!__tmIsTaskTitleEditor(element)) return false;
         if (__tmTaskTitleOwnsFocus(element) || element.dataset.composing === 'true' || element.__tmTitleEditor?.dirty()) return true;
@@ -328,6 +343,12 @@
             const node = event.target.closest?.('[data-type~="a"], [data-type~="block-ref"]');
             if (!node) return;
             event.preventDefault(); event.stopPropagation(); showPopover(node);
+        });
+        on(element, 'click', event => {
+            if (readOnly) return;
+            const target = event?.target instanceof Element ? event.target : null;
+            if (target?.closest?.('[data-type~="a"], [data-type~="block-ref"]')) return;
+            __tmRequestTaskTitleMobileKeyboard(element);
         });
         on(element, 'keydown', event => {
             const node = event.target.closest?.('[data-type~="a"], [data-type~="block-ref"]');

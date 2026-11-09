@@ -867,15 +867,42 @@ async function setup(page) {
                 const visible = () => Array.from(state.modal.querySelectorAll('.tm-kanban-card'))
                     .filter((card) => !card.closest('[hidden]')).map((card) => card.dataset.id);
                 const snapshots = [];
+                const fixedNormalizeDateOnly = __tmNormalizeDateOnly;
+                __tmNormalizeDateOnly = (value) => {
+                    const date = value instanceof Date ? value : new Date(value);
+                    if (Number.isNaN(date.getTime())) return String(value || '').slice(0, 10);
+                    return [
+                        date.getFullYear(),
+                        String(date.getMonth() + 1).padStart(2, '0'),
+                        String(date.getDate()).padStart(2, '0'),
+                    ].join('-');
+                };
                 for (const field of RuleManager.getAvailableFields()) {
                     let match = 'match', miss = 'miss', operator = '=';
                     if (field.type === 'boolean') { match = field.value !== 'done'; miss = !match; }
                     else if (field.type === 'number') { match = 10; miss = 1; }
                     else if (field.type === 'datetime') { match = '2026-10-15'; miss = '2026-11-20'; operator = 'before'; }
+                    else if (field.type === 'daterange') {
+                        const date = (days) => {
+                            const value = new Date();
+                            value.setDate(value.getDate() + days);
+                            return [
+                                value.getFullYear(),
+                                String(value.getMonth() + 1).padStart(2, '0'),
+                                String(value.getDate()).padStart(2, '0'),
+                            ].join('-');
+                        };
+                        match = { startDate: date(-1), completionTime: date(4) };
+                        miss = { startDate: date(1), completionTime: date(2) };
+                        operator = 'range_contains_relative_days';
+                    }
                     else if (field.type === 'select') { match = field.options[0]; miss = field.options[1]; }
-                    const fieldPatch = (value) => field.customFieldId
-                        ? { customFieldValues: { [field.customFieldId]: field.multi ? [value] : value } }
-                        : { [field.value === 'taskDate' ? 'completionTime' : field.value]: value };
+                    const fieldPatch = (value) => {
+                        if (field.value === 'taskDateRange') return value;
+                        return field.customFieldId
+                            ? { customFieldValues: { [field.customFieldId]: field.multi ? [value] : value } }
+                            : { [field.value === 'taskDate' ? 'completionTime' : field.value]: value };
+                    };
                     setModel([
                         { id: 'parent', ...fieldPatch(match) },
                         { id: 'child', parentTaskId: 'parent', ...fieldPatch(miss) },
@@ -883,9 +910,17 @@ async function setup(page) {
                         { id: 'unrelated', ...fieldPatch(miss) },
                     ]);
                     state.rule = { id: 'field-' + field.value, conditions: [{ field: field.value, operator,
-                        value: field.type === 'datetime' ? '2026-10-20' : match }] };
+                        value: field.type === 'datetime'
+                            ? '2026-10-20'
+                            : field.type === 'daterange' ? { fromDays: 1, toDays: 3 } : match }] };
                     applyFilters();
-                    if (state.filteredTasks.map((task) => task.id).join() !== 'parent') throw new Error(field.value + ': fixture must match only the parent');
+                    if (state.filteredTasks.map((task) => task.id).join() !== 'parent') {
+                        throw new Error(field.value + ': fixture must match only the parent ' + JSON.stringify({
+                            filtered: state.filteredTasks.map((task) => task.id),
+                            parent: state.flatTasks.parent,
+                            child: state.flatTasks.child,
+                        }));
+                    }
                     mount();
                     const initial = visible();
                     for (const taskId of ['child', 'grandchild']) {
@@ -900,13 +935,14 @@ async function setup(page) {
                     commitView();
                     snapshots.push({ field: field.value, initial, afterFullRender: visible() });
                 }
+                __tmNormalizeDateOnly = fixedNormalizeDateOnly;
                 state.searchKeyword = state.flatTasks.parent.content;
                 __tmTaskMatchesSearch = (task, keyword) => task.content.includes(keyword);
                 __tmScheduleOptimisticProjectionFrame('kanban', 'child', { remark: 'search edit' });
                 await new Promise((resolve) => requestAnimationFrame(resolve));
                 return { snapshots, searched: visible() };
             });
-            assert.equal(results.snapshots.length, 21, 'cover every built-in and custom field');
+            assert.equal(results.snapshots.length, 22, 'cover every built-in and custom field');
             for (const snapshot of results.snapshots) {
                 assert.deepEqual(snapshot.initial, ['parent', 'child', 'grandchild'], snapshot.field);
                 assert.deepEqual(snapshot.afterFullRender, snapshot.initial, snapshot.field + ': local and full rendering must agree');

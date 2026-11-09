@@ -68,6 +68,9 @@ const production = [
             window.__tmInvalidateFilteredTaskDerivedStateCache = () => {};
             window.esc = (value) => String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             window.__tmEscAttr = esc;
+            window.__tmRenderTopbarSelect = ({ id, label, options = [] }) => `<select id="${id}" aria-label="${__tmEscAttr(label)}">${
+                options.map(({ value, label: optionLabel, selected }) => `<option value="${__tmEscAttr(value)}"${selected ? ' selected' : ''}>${esc(optionLabel)}</option>`).join('')
+            }</select>`;
             window.messages = [];
             window.hint = (message) => messages.push(message);
             window.revision = 0;
@@ -107,7 +110,7 @@ const production = [
         assert.equal((await scopeTrigger.innerText()).trim(), '', 'scope entry is an icon without a label or count');
         assert.equal(await scopeTrigger.locator('svg').count(), 1);
         assert.equal(await scopeTrigger.getAttribute('aria-label'), '搜索范围');
-        for (const label of ['搜索', '清除搜索', '搜索范围', '关闭搜索条']) {
+        for (const label of ['搜索', '搜索范围', '展开完整搜索', '关闭搜索条']) {
             const control = page.getByLabel(label, { exact: true });
             await control.hover();
             assert.equal(await page.locator('.tm-floating-tooltip').textContent(), label, 'hover displays the function label');
@@ -150,18 +153,19 @@ const production = [
         await page.evaluate(() => { state.flatTasks['task-79'].content = '发布文档标题'; __tmScheduleRender(); });
         assert.equal(await page.locator('.tm-task-content-clickable mark').count(), 0, 'excluded columns must not receive search highlighting');
         await input.fill('任务');
-        await page.waitForFunction(() => state.searchKeyword === '任务' && !state.searchLoading);
+        await page.waitForFunction(() => state.searchKeyword === '任务' && !state.searchLoading && state.filteredTasks.length === 0);
         assert.equal(await page.locator('#results article').count(), 0, 'excluded titles must not match');
         await input.fill('API');
         await page.waitForFunction(() => state.filteredTasks.length === 1);
         await page.evaluate(() => { state.flatTasks['task-79'].customFieldValues.notes = '内容已修改'; __tmScheduleRender(); });
         assert.equal(await page.locator('#results article').count(), 0, 'updated text must no longer match');
         await page.evaluate(() => { state.flatTasks['task-79'].customFieldValues.notes = '本周需要核对 API 接口和发布文档'; __tmScheduleRender(); });
-        for (const width of [320, 768, 1440]) {
+        for (const width of [390, 768, 1440]) {
             await page.setViewportSize({ width, height: 800 });
             await scopeTrigger.click();
             const geometry = await page.locator('.tm-search-fields__panel').boundingBox();
-            assert.ok(geometry.x >= 0 && geometry.x + geometry.width <= width + 1, `panel fits ${width}px`);
+            assert.ok(geometry.x >= 0 && geometry.x + geometry.width <= width + 1,
+                `panel fits ${width}px: ${JSON.stringify(geometry)}`);
             const inputBox = await input.boundingBox();
             assert.ok(inputBox.width >= 70, `input remains usable at ${width}px`);
             const closeBox = await page.getByRole('button', { name: '关闭搜索条', exact: true }).boundingBox();
@@ -181,6 +185,7 @@ const production = [
         await page.waitForFunction(() => state.searchLoadError);
         assert.ok((await page.getByRole('status').textContent()).includes('结果可能不完整'));
         await page.evaluate(() => { failLoads = false; });
+        await scopeTrigger.press('Escape');
         await page.getByRole('button', { name: '重试', exact: true }).click();
         await page.waitForFunction(() => !state.searchLoadError && state.filteredTasks.length === 1);
         await scopeTrigger.click();

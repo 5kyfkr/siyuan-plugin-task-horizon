@@ -198,6 +198,10 @@ context.SettingsStore.data.customBoardSets = [];
     assert.deepEqual(Array.from(secondScope.boardDocIds['board-a']), ['doc-a1']);
     assert.ok(Array.from(compositeScopeCache.values()).some((entry) => entry.boardDocIds?.['board-b']?.includes('doc-b1')),
         'composite combination-board scopes must persist per-board membership through the existing doc-scope cache API');
+    assert.equal(vm.runInContext(
+        "__tmNormalizeCachedCustomBoardDocIds({ 'board-a': [] }, [{ id: 'board-a' }])",
+        context,
+    ), null, 'an all-empty persisted scope must not suppress a fresh combination-board scope read');
     context.SettingsStore.data.customBoardSets = [];
     context.SettingsStore.data.activeCustomBoardSetId = '';
 
@@ -256,6 +260,8 @@ context.SettingsStore.data.customBoardSets = [];
         'narrow combination-board controls must retain explicit gaps between adjacent buttons');
     assert.match(stylesSource, /@container tm-modal \(max-width: 760px\)[\s\S]*?\[data-tm-render-mode="comboBoard"\][\s\S]*?grid-template-columns:\s*minmax\(0, max-content\) var\(--tm-combo-manage-track\)[\s\S]*?\.bc-select-trigger__chevron\s*\{[^}]*display:\s*none;/,
         'container-width layout must reserve the manager button column and hide the chevron');
+    assert.doesNotMatch(renderRuntimeSource, /tm-custom-board-mobile-controls/,
+        'the narrow topbar menu must not duplicate board-set switching and management in a footer');
     assert.match(renderRuntimeSource, /compactTopbarMode = !!\(isMobile \|\| isDockHost \|\| isDesktopNarrow\)[\s\S]*data-tm-compact-topbar-fold="true"/,
         'all mobile and Dock views must expose the topbar icon fold control');
     assert.match(renderRuntimeSource, /tm-mobile-topbar-secondary-actions[\s\S]*<\/div>[\s\S]*tm-mobile-topbar-menu/,
@@ -672,6 +678,9 @@ context.SettingsStore.data.customBoardSets = [];
         'session memory caches must be attempted before reading the persistent snapshot store');
     assert.match(runtimeSource, /function __tmBuildCustomBoardDocumentFingerprints[\s\S]*?__tmBuildTaskProjectionDataSignature/,
         'combination-board cache invalidation must distinguish changed document content from repeated authoritative reads');
+    assert.match(runtimeSource,
+        /function __tmRememberCurrentCustomBoardProjectionCache[\s\S]*?sourceDocIds\.length === 0[\s\S]*?return false/,
+        'a transient all-empty combination-board load must not cache an empty projection');
     assert.match(runtimeSource, /for \(let offset = 0; offset < refreshDocIds\.length; offset \+= 12\)/,
         'stale combination-board caches must refresh large change sets in bounded batches');
     assert.match(viewSwitchSource, /normalProjectionRestored = __tmTryRestoreCustomBoardReturnScope\(\)/,
@@ -682,8 +691,14 @@ context.SettingsStore.data.customBoardSets = [];
         'combination-board partial refreshes must reuse unchanged live cards');
     assert.match(viewSwitchSource, /state\.viewMode = next;[\s\S]*?customBoardProjectionRestored = __tmTryRestoreCachedCustomBoardProjection\(\) === true;[\s\S]*?if \(!customBoardProjectionRestored\)\s*\{[\s\S]*?__tmBuildCustomBoardProjectionShell\(\)/,
         'combination-board projections must restore synchronously before the target view is rendered');
-    assert.match(viewSwitchSource, /if \(next === __TM_CUSTOM_BOARD_VIEW_MODE && !customBoardProjectionRestored\)[\s\S]*?loadSelectedDocuments\(\{ source: 'custom-board-view-switch'/,
+    assert.match(viewSwitchSource, /if \(next === __TM_CUSTOM_BOARD_VIEW_MODE && !customBoardProjectionRestored\)[\s\S]*?loadSelectedDocuments\(\{[\s\S]*?source: 'custom-board-view-switch'/,
         're-entering a cached combination board must not call the general document loader');
+    assert.match(runtimeSource,
+        /async function __tmReloadCustomBoardTasks\(\)[\s\S]*?loadSelectedDocuments\(\{[\s\S]*?source: 'custom-board-change'[\s\S]*?retryEmptyDocScope: true/,
+        'first opening an uncached board set must retry a transient empty document scope');
+    assert.match(viewSwitchSource,
+        /if \(next === __TM_CUSTOM_BOARD_VIEW_MODE && !customBoardProjectionRestored\)[\s\S]*?loadSelectedDocuments\(\{[\s\S]*?source: 'custom-board-view-switch'[\s\S]*?retryEmptyDocScope: true/,
+        'entering a combination board must recover from a transient empty document scope');
     assert.match(viewSwitchSource, /else if \(prev === __TM_CUSTOM_BOARD_VIEW_MODE && next !== __TM_CUSTOM_BOARD_VIEW_MODE && !normalProjectionRestored\)[\s\S]*?loadSelectedDocuments\(\{ source: 'custom-board-view-switch'/,
         'leaving combination boards must load documents only when the existing memory scope cannot restore the regular view');
     assert.doesNotMatch(runtimeSource, /CUSTOM_BOARD_PROJECTION_CACHE_TTL/,

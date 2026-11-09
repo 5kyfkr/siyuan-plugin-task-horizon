@@ -466,6 +466,7 @@
         const sourceDocIds = __tmGetCachedCustomBoardSourceDocIds({ sourceDocIdsByBoard });
         const signature = __tmBuildCustomBoardProjectionCacheSignature(boardSet);
         if (!setId || !columns || !signature) return false;
+        if (Array.isArray(boardSet?.boards) && boardSet.boards.length > 0 && sourceDocIds.length === 0) return false;
         const previous = __tmCustomBoardProjectionCache.get(setId);
         const fingerprints = previous?.taskDataReadToken
             && globalThis.__tmTaskStore?.isReadCurrent?.(previous.taskDataReadToken) === true
@@ -644,6 +645,7 @@
                         showInlineLoading: false,
                         preferFastFirstPaint: false,
                         skipFullLoadAfterFastFirstPaint: true,
+                        retryEmptyDocScope: true,
                     });
                     refreshed = loaded !== false;
                 } catch (e) {
@@ -679,7 +681,11 @@
         state.__tmCustomBoardSourceDocIdsByBoard = null;
         try { render(); } catch (e) {}
         try {
-            await loadSelectedDocuments({ source: 'custom-board-change', preferFastFirstPaint: true });
+            await loadSelectedDocuments({
+                source: 'custom-board-change',
+                preferFastFirstPaint: true,
+                retryEmptyDocScope: true,
+            });
         } catch (e) {
             try { hint(String(e?.message || e), 'warning'); } catch (e2) {}
         }
@@ -1001,11 +1007,13 @@
         const boardIds = new Set((Array.isArray(boards) ? boards : []).map((board) => String(board?.id || '').trim()).filter(Boolean));
         if (!boardIds.size) return null;
         const normalized = {};
+        let hasDocIds = false;
         for (const boardId of boardIds) {
             const ids = Array.isArray(rawBoardDocIds[boardId]) ? rawBoardDocIds[boardId] : [];
             normalized[boardId] = __tmNormalizeDocScopeDocIds(ids);
+            if (normalized[boardId].length > 0) hasDocIds = true;
         }
-        return normalized;
+        return hasDocIds ? normalized : null;
     }
 
     function __tmCustomBoardScopeMapsMatch(left, right) {

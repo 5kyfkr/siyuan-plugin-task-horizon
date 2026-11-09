@@ -20,7 +20,6 @@ const context = vm.createContext({
     __tmGetStatusOptions: (options) => options,
     __tmGetDefaultUndoneStatusId: () => 'todo',
     __tmParseCustomFieldColumnKey: (key) => key.startsWith('customField:') ? key.slice(12) : '',
-    __tmParseTimeToTs: (value) => Date.parse(value) || 0,
     __tmNormalizeActualTomatoCountValue: (value) => String(value || ''),
     __tmNormalizeTomatoCountValue: (value) => String(value ?? ''),
     __tmEnsureTaskPriorityScore: (task) => Number(task.priorityScore || 0),
@@ -30,6 +29,13 @@ const context = vm.createContext({
     __tmIsTaskCanceled: (task) => task.taskMarker === '-',
     __tmGetTaskCustomFieldValue: (task, id) => task.customFieldValues?.[id] ?? '',
 });
+const taskModel = read('task-runtime/50-task-model-and-repeat-utils.js');
+const parseTimeStart = taskModel.indexOf('    function __tmParseTimeToTs(');
+assert.ok(parseTimeStart >= 0);
+vm.runInContext(taskModel.slice(parseTimeStart, taskModel.indexOf('\n    }', parseTimeStart) + 6), context);
+const normalizeDateStart = taskModel.indexOf('    function __tmNormalizeDateOnly(');
+assert.ok(normalizeDateStart >= 0);
+vm.runInContext(taskModel.slice(normalizeDateStart, taskModel.indexOf('\n    }', normalizeDateStart) + 6), context);
 vm.runInContext(stores.slice(from, to) + '\nglobalThis.ruleManager = RuleManager;', context);
 vm.runInContext(read('09-task-field-schema.js'), context);
 vm.runInContext(read('34-task-projection-engine.js'), context);
@@ -207,5 +213,77 @@ for (const field of manager.getAvailableFields().filter((field) => field.type ==
         assert.deepEqual(Array.from(manager.applyRuleFilter(tasks, rule, { nowDate: now }), (task) => task.id), expected,
             `${field.value} / ${operator}: date rules must match the expected interval`);
     }
+}
+
+const relativeDateRows = [
+    ['previous-end', '2026-10-15 23:59'],
+    ['tomorrow-start', '2026-10-16 00:00'],
+    ['tomorrow-noon', '2026-10-16 12:00'],
+    ['tomorrow-end', '2026-10-16 23:59'],
+    ['day-after-start', '2026-10-17 00:00'],
+    ['day-after-end', '2026-10-17 23:59'],
+    ['seventh-end', '2026-10-22 23:59'],
+    ['eighth-start', '2026-10-23 00:00'],
+];
+const relativeDateCases = [
+    ['range_tomorrow', '', ['tomorrow-start', 'tomorrow-noon', 'tomorrow-end']],
+    ['range_day_after_tomorrow', '', ['day-after-start', 'day-after-end']],
+    ['range_relative_days', { fromDays: 1, toDays: 7 },
+        ['tomorrow-start', 'tomorrow-noon', 'tomorrow-end', 'day-after-start', 'day-after-end', 'seventh-end']],
+    ['range_relative_days', { fromDays: 7, toDays: 1 },
+        ['tomorrow-start', 'tomorrow-noon', 'tomorrow-end', 'day-after-start', 'day-after-end', 'seventh-end']],
+    ['between', { from: '2026-10-16', to: '2026-10-17' },
+        ['tomorrow-start', 'tomorrow-noon', 'tomorrow-end', 'day-after-start', 'day-after-end']],
+    ['=', '2026-10-16', ['tomorrow-start', 'tomorrow-noon', 'tomorrow-end']],
+    ['!=', '2026-10-16',
+        ['previous-end', 'day-after-start', 'day-after-end', 'seventh-end', 'eighth-start']],
+    ['before', '2026-10-16', ['previous-end']],
+    ['after', '2026-10-16', ['day-after-start', 'day-after-end', 'seventh-end', 'eighth-start']],
+];
+for (const field of manager.getAvailableFields().filter((field) => field.type === 'datetime')) {
+    const tasks = relativeDateRows.map(([id, value]) => ({
+        id,
+        startDate: value,
+        completionTime: value,
+        created: value,
+        updated: value,
+        taskCompleteAt: value,
+        [field.value === 'taskDate' ? 'completionTime' : field.value]: value,
+    }));
+    for (const [operator, value, expected] of relativeDateCases) {
+        const rule = { conditions: [{ field: field.value, operator, value }] };
+        assert.deepEqual(Array.from(manager.applyRuleFilter(tasks, rule, { nowDate: now }), (task) => task.id), expected,
+            `${field.value} / ${operator}: relative ranges and date-only between must include whole days`);
+    }
+}
+const shiftedTasks = relativeDateRows.map(([id, value]) => ({ id, completionTime: value }));
+const shiftedRule = {
+    conditions: [{ field: 'completionTime', operator: 'range_relative_days', value: { fromDays: 1, toDays: 7 } }],
+};
+assert.deepEqual(
+    Array.from(manager.applyRuleFilter(shiftedTasks, shiftedRule, { nowDate: new Date(2026, 9, 16, 12) }), (task) => task.id),
+    ['day-after-start', 'day-after-end', 'seventh-end', 'eighth-start'],
+    'relative day offsets must follow the current date instead of a saved fixed date');
+
+assert.equal(manager.getFieldInfo('taskDateRange')?.type, 'daterange');
+const containingSpanTasks = [
+    { id: 'exact', startDate: '2026-10-16 23:00', completionTime: '2026-10-18 01:00' },
+    { id: 'wider', startDate: '2026-10-14', completionTime: '2026-10-20' },
+    { id: 'reversed', startDate: '2026-10-18', completionTime: '2026-10-16' },
+    { id: 'partial', startDate: '2026-10-17', completionTime: '2026-10-19' },
+    { id: 'before', startDate: '2026-10-13', completionTime: '2026-10-17' },
+    { id: 'missing-start', completionTime: '2026-10-20' },
+    { id: 'missing-end', startDate: '2026-10-14' },
+];
+const containingSpanRule = {
+    conditions: [{ field: 'taskDateRange', operator: 'range_contains_relative_days', value: { fromDays: 1, toDays: 3 } }],
+};
+assert.deepEqual(
+    Array.from(manager.applyRuleFilter(containingSpanTasks, containingSpanRule, { nowDate: now }), (task) => task.id),
+    ['exact', 'wider', 'reversed'],
+    'task start and due dates must contain the complete relative range');
+for (const patch of [{ startDate: 'changed' }, { completionTime: 'changed' }]) {
+    assert.equal(engine.analyzePatch(patch, { ...base, rule: containingSpanRule }).filter, true,
+        'editing either endpoint must recompute task range containment');
 }
 console.log(`task rule filter dependencies: ${manager.getAvailableFields().length} fields, ${checked} field/operator combinations passed`);

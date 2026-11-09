@@ -16,6 +16,8 @@ runtime = runtime.slice(0, startup) + `
         restore: __tmTryRestoreCachedCustomBoardProjection,
         changed: () => __tmGetChangedCachedCustomBoardDocIds(__tmCustomBoardProjectionCache.get('set-test')),
         tryRefresh: globalThis.__tmTryRefreshKanbanColumns,
+        refreshFields: __tmRefreshTaskFieldsAcrossViews,
+        cardFields: () => __tmGetTaskCardFieldList('kanban'),
         returnScope: __tmRememberCustomBoardReturnScope, cancel: __tmCancelProgressiveViewRender,
         html: () => __tmBuildRenderSceneKanbanBodyHtml({ customBoardColumns: state.customBoardProjection }),
         snapshotView: __tmBuildTaskSnapshotViewState, restoreSnapshotView: __tmRestoreTaskSnapshotViewState,
@@ -55,7 +57,7 @@ runtime = runtime.slice(0, startup) + `
             }));
             Object.assign(store.data, { currentGroupId: 'all', newTaskDocId: '', selectedDocIds: docs,
                 enabledViews: ['checklist', 'kanban', 'comboBoard'], kanbanAppearance: 'lanes', kanbanFillColumns: false,
-                enableTomatoIntegration: false, docH2SubgroupEnabled: false, excludeCompletedTasks: true });
+                kanbanCardFields: ['remark'], enableTomatoIntegration: false, docH2SubgroupEnabled: false, excludeCompletedTasks: true });
             Object.assign(state, { viewMode: 'checklist', viewModeInitialized: true, activeDocId: 'all',
                 showCompletedTasks: false, otherBlocks: [], currentRule: null, filterRules: [], rule: {},
                 searchKeyword: '', homepageOpen: false, attachmentLibraryOpen: false, groupByDocName: true });
@@ -102,6 +104,41 @@ runtime = runtime.slice(0, startup) + `
             return { changed: comboTest.changed(), restored: comboTest.restore() };
         });
         assert.deepEqual(unchanged, { changed: [], restored: true }, 'identical authoritative data must not invalidate cached document contents');
+
+        const remarkPatch = await page.evaluate(() => {
+            const taskId = tasks[0].id;
+            __tmTaskStore.applyMutation({
+                type: 'taskPatch',
+                taskId,
+                opId: 'browser-remark',
+                phase: 'commit',
+                patch: { remark: '组合板即时备注' },
+            });
+            tasks[0].remark = '组合板即时备注';
+            tasks[0].custom_remark = '组合板即时备注';
+            __tmIsPluginVisibleNow = () => true;
+            return {
+                taskId,
+                viewMode: comboTest.state.viewMode,
+                visible: __tmIsPluginVisibleNow(),
+                fields: comboTest.cardFields(),
+                cards: comboTest.state.modal.querySelectorAll(`.tm-kanban-card[data-id="${CSS.escape(taskId)}"]`).length,
+                remark: __tmTaskStore.getProjected?.(taskId)?.remark || '',
+                patched: comboTest.refreshFields(taskId, { remark: '组合板即时备注' }, {
+                    projectionManaged: true,
+                    projectionRequired: false,
+                    fallback: false,
+                    skipDetailPatch: true,
+                }),
+            };
+        });
+        assert.equal(remarkPatch.patched, true, JSON.stringify(remarkPatch));
+        for (const boardId of ['a', 'b']) {
+            assert.match(
+                await page.locator(`[data-col-key="custom:${boardId}"] [data-id="${remarkPatch.taskId}"]`).textContent(),
+                /组合板即时备注/,
+            );
+        }
 
         await page.evaluate(() => {
             comboTest.project();

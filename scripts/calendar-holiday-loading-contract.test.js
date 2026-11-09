@@ -66,6 +66,33 @@ const buildCnHolidayEvents = readFunction('buildCnHolidayEvents', {
     toMs,
     Map,
 });
+const parseHolidayCnYearPayload = readFunction('parseHolidayCnYearPayload', {
+    __tmT: (key) => key === 'calendar.adjustedWorkingDay' ? '调休工作日' : '公共假日',
+});
+
+const parsedHolidayCn2027 = parseHolidayCnYearPayload({
+    year: 2027,
+    days: [
+        { name: '春节', date: '2027-02-06', isOffDay: true },
+        { name: '春节', date: '2027-01-31', isOffDay: false },
+        { name: '无效日期', date: '2027-02-30', isOffDay: true },
+        { name: '其他年度', date: '2028-01-01', isOffDay: true },
+        { name: '无效类型', date: '2027-03-01', isOffDay: 'yes' },
+    ],
+}, 2027);
+assert.deepEqual(
+    JSON.parse(JSON.stringify(parsedHolidayCn2027)),
+    [
+        { date: '2027-02-06', type: 2, name: '春节', lunar: '', extra_info: '' },
+        { date: '2027-01-31', type: 4, name: '春节', lunar: '', extra_info: '' },
+    ],
+    'holiday-cn payloads must map official rest days and makeup workdays',
+);
+assert.match(
+    source,
+    /cdn\.jsdelivr\.net\/gh\/NateScarlet\/holiday-cn@master[\s\S]*raw\.githubusercontent\.com\/NateScarlet\/holiday-cn\/master[\s\S]*tryFetchTimor\('https:\/\/timor\.cn'\)[\s\S]*tryFetchTimor\('https:\/\/timor\.tech'\)/,
+    'holiday-cn must be the primary official-data source before the legacy timor hosts',
+);
 
 const days = [
     { date: '2026-09-20', type: 4, name: '中秋节前补班' },

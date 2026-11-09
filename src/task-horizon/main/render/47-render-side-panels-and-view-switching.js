@@ -6,7 +6,20 @@
             || globalThis.__tmRuntimeState?.getViewMode?.('')
             || '';
         if (!SettingsStore.data.calendarSideDockEnabled) return false;
-        return mode === 'list' || mode === 'checklist' || mode === 'timeline' || mode === 'kanban' || mode === 'whiteboard';
+        return __tmCalendarSideDockSupportsViewMode(mode);
+    }
+
+    const __TM_CALENDAR_SIDE_DOCK_VIEW_MODES = new Set([
+        'list',
+        'checklist',
+        'timeline',
+        'kanban',
+        'comboBoard',
+        'whiteboard',
+    ]);
+
+    function __tmCalendarSideDockSupportsViewMode(modeInput) {
+        return __TM_CALENDAR_SIDE_DOCK_VIEW_MODES.has(String(modeInput || '').trim());
     }
 
     function __tmHasMountedCalendarSideDock() {
@@ -637,7 +650,7 @@
         const isDesktopCalendarHost = !isRuntimeMobile && (!isMobile || isDockHost);
         const show = __tmIsTopbarButtonVisible('calendarSidebar')
             && isDesktopCalendarHost
-            && ['list', 'checklist', 'timeline', 'kanban', 'whiteboard'].includes(mode);
+            && __tmCalendarSideDockSupportsViewMode(mode);
         const showCompact = mode === 'calendar'
             && __tmIsTopbarButtonVisible('calendarSidebar')
             && (isMobile || isRuntimeMobile || hostUsesMobileUI || isDockHost);
@@ -1094,6 +1107,12 @@
         const next = __tmGetSafeViewMode(mode);
         if (typeof __tmShortcuts !== 'undefined') __tmShortcuts.updateContext({ viewId: next });
         const prev = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+        if (state.whiteboardClickLinkMode === true) {
+            state.whiteboardClickLinkMode = false;
+            state.whiteboardLinkFromTaskId = '';
+            state.whiteboardLinkFromDocId = '';
+            state.whiteboardLinkPreview = null;
+        }
         let forceFullRender = false;
         state.viewModeInitialized = true;
         if (state.homepageOpen) {
@@ -1202,7 +1221,11 @@
             if (next === __TM_CUSTOM_BOARD_VIEW_MODE && !customBoardProjectionRestored) {
                 Promise.resolve().then(() => {
                     if (state.__tmViewSwitchCommitGeneration !== generation || String(state.viewMode || '') !== next) return;
-                    return loadSelectedDocuments({ source: 'custom-board-view-switch', preferFastFirstPaint: true });
+                    return loadSelectedDocuments({
+                        source: 'custom-board-view-switch',
+                        preferFastFirstPaint: true,
+                        retryEmptyDocScope: true,
+                    });
                 }).catch((error) => {
                     try { console.error('[组合板] 视图任务加载失败:', error); } catch (e) {}
                 });

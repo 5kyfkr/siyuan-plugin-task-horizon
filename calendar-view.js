@@ -62,7 +62,7 @@
     const CALENDAR_SUBSCRIPTION_DEBOUNCE_MS = 30000;
     const CALENDAR_SUBSCRIPTION_TIMEOUT_MS = 180000;
     const CALENDAR_SUBSCRIPTION_MAX_ATTEMPTS = 3;
-    const CN_HOLIDAY_CACHE_VERSION = 2;
+    const CN_HOLIDAY_CACHE_VERSION = 3;
     // View changes should reuse the same schedule/history snapshot. Mutations
     // invalidate these caches explicitly, so a longer read TTL does not delay
     // edits while it prevents every month/week/list switch from hitting the
@@ -3159,9 +3159,10 @@
         return s;
     }
 
-    function formatCnLunarDateKey(dateKey) {
+    function formatCnLunarDateKey(dateKey, options) {
         const d = parseDateOnly(dateKey);
         if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
+        const opts = options && typeof options === 'object' ? options : {};
         try {
             const shared = globalThis.__tmGetChineseLunarDateInfo;
             if (typeof shared === 'function') {
@@ -3172,6 +3173,7 @@
                     if (month && day) return `${info.isLeap ? '闰' : ''}${month}${day}`;
                 }
             }
+            if (opts.authoritativeOnly === true) return '';
             if (__tmCnLunarDateFormatterUnsupported || typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') return '';
             if (!__tmCnLunarDateFormatter) {
                 __tmCnLunarDateFormatter = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', { month: 'long', day: 'numeric' });
@@ -26293,7 +26295,10 @@
         const end = new Date(y + 1, 0, 1);
         while (day < end) {
             const key = formatDateKey(day);
-            const lunar = formatCnLunarDateKey(key);
+            // ICU disagrees with the authoritative lunar table for some future
+            // years (including 2027). Predictions must either use the shared
+            // plugin conversion or omit lunar-derived entries.
+            const lunar = formatCnLunarDateKey(key, { authoritativeOnly: true });
             if (day.getMonth() === 0 && day.getDate() === 1) add(day, __tmT("calendar.newYearSDay"));
             if (day.getMonth() === 4 && day.getDate() === 1) add(day, __tmT("calendar.labourDay"));
             if (day.getMonth() === 9 && day.getDate() === 1) add(day, __tmT("calendar.nationalDay"));
@@ -26334,6 +26339,31 @@
             }
         });
         return Array.from(map.values()).sort((left, right) => String(left?.date || '').localeCompare(String(right?.date || '')));
+    }
+
+    function parseHolidayCnYearPayload(json, year) {
+        const y = Number(year);
+        if (!Number.isFinite(y) || !Array.isArray(json?.days)) return [];
+        const out = [];
+        for (const item of json.days) {
+            if (!item || typeof item !== 'object') continue;
+            const date = String(item.date || '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number(date.slice(0, 4)) !== y) continue;
+            const [dateYear, dateMonth, dateDay] = date.split('-').map(Number);
+            const parsedDate = new Date(dateYear, dateMonth - 1, dateDay, 12);
+            if (parsedDate.getFullYear() !== dateYear || parsedDate.getMonth() !== dateMonth - 1 || parsedDate.getDate() !== dateDay) continue;
+            const isOffDay = item.isOffDay;
+            if (typeof isOffDay !== 'boolean') continue;
+            const type = isOffDay ? 2 : 4;
+            out.push({
+                date,
+                type,
+                name: String(item.name || '').trim() || (type === 4 ? __tmT("calendar.adjustedWorkingDay") : __tmT("calendar.publicHoliday")),
+                lunar: '',
+                extra_info: '',
+            });
+        }
+        return out;
     }
 
     async function loadCnHolidayYearUncached(year, options = {}) {
@@ -26444,15 +26474,27 @@
             const json = await res.json();
             return parseTimorYearPayload(json);
         };
+        const tryFetchHolidayCn = async (url) => {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            return parseHolidayCnYearPayload(json, y);
+        };
 
         let data = [];
-        // timor.cn currently serves the browser-friendly CORS endpoint;
-        // prefer it so a 403 from the legacy timor.tech host cannot delay or
-        // mask the holiday payload on a cold month view.
-        const timorBases = ['https://timor.cn', 'https://timor.tech'];
-        for (const base of timorBases) {
+        // holiday-cn automatically mirrors the State Council notice and
+        // currently publishes the new year sooner than timor. Keep both the
+        // CDN and GitHub raw endpoints, then retain timor as compatibility
+        // fallbacks.
+        const holidaySources = [
+            () => tryFetchHolidayCn(`https://cdn.jsdelivr.net/gh/NateScarlet/holiday-cn@master/${y}.json`),
+            () => tryFetchHolidayCn(`https://raw.githubusercontent.com/NateScarlet/holiday-cn/master/${y}.json`),
+            () => tryFetchTimor('https://timor.cn'),
+            () => tryFetchTimor('https://timor.tech'),
+        ];
+        for (const loadSource of holidaySources) {
             if (Array.isArray(data) && data.length) break;
-            try { data = await tryFetchTimor(base); } catch (e) {}
+            try { data = await loadSource(); } catch (e) {}
         }
         if (Array.isArray(data) && data.length) {
             const ts = Date.now();

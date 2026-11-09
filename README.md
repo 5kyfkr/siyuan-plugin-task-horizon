@@ -6,15 +6,23 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.4.3
+
+- **Full search:** expand the search bar into a full search workspace that finds tasks across all document groups and archived documents. Filter results by status, sort by relevance or creation time, load more while scrolling, and open a result directly in task details.
+- **Date filters:** add **Tomorrow**, **Day after tomorrow**, and relative date ranges. Date conditions now use full local calendar days, and a start-to-due range condition can match tasks that contain the selected relative range.
+- **Whiteboard:** add a **Link cards** mode. Click the first card, then the next card to connect them in order; the next card becomes the new starting point so you can build a continuous chain. The mode stays active until you click the canvas or press Esc. On mobile and in the Dock, zoom and fullscreen move to **More** to keep the toolbar compact.
+- **Board sets and mobile details:** enable the calendar side dock in board sets and use the same view-mode policy for its top-bar button and mounting. Update remarks on mounted board-set cards immediately after saving task details. Retry a transient empty document scope on the first board-set switch and avoid caching that empty result, instead of requiring a manual refresh. Remove duplicate board-set switching and configuration from the narrow-screen menu footer. Fix clipped CJK labels in top-bar selects, and make task or subtask title taps on mobile focus the title editor and open the keyboard.
+- **Calendar:** prefer holiday-cn's mirror of China's official State Council holiday notices, and add the 2027 holiday and make-up-workday schedule.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.4.2
 
 - **Board sets:** add a **Board sets** view that combines independent sub-boards in one workspace. Each sub-board can use its own document scope (all documents, multiple document groups, a tab group, or selected documents), filter rule, grouping, color, and order. Manage and switch sets from the top bar, save them as shortcuts, and restore the last opened set. The free version includes one board set; full features unlock more. A task may appear on several sub-boards, while card-to-card nesting stays within the same sub-board.
 - **Views and loading:** reorder enabled views and switch the desktop top and narrow-screen bottom switchers between text and icons; icon buttons show their names on hover. Mobile and Dock top bars can fold secondary actions to preserve space. Board sets and Kanban paint from cached projections or skeletons, including a skeleton-first mobile Kanban, refresh changed documents in batches, and restore cached filtered views only when their task data is still current. Task-count metadata and snapshots resolve in parallel, and normalized status lookups are reused, speeding up priority-score sorting and cache recovery while keeping virtual recurring instances from breaking task-count checks.
 - **Summary:** a bounded summary date filter now includes unfinished tasks when any part of their start-to-due range overlaps the selected interval. Start date can be shown as an independent optional column; completed tasks continue to use their completion date.
 - **Fixes:** remove duplicate disclosure arrows from the attachment document creator and document-group picker. Keep the open task-detail location synchronized after cross-document moves, and improve mobile and IME timing for semantic-date suggestions. Complete document scopes now include an explicit SQL limit so SiYuan's default page size cannot truncate them; document-grouped board-set columns finish loading later groups without requiring a scroll, and collapsing one document group no longer replaces other sub-board lanes.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.4.1
 

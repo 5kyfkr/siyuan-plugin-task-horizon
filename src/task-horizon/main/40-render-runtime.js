@@ -802,7 +802,7 @@
         const showCalendarSideDockTopbarAction = !!(
             __tmIsTopbarButtonVisible('calendarSidebar')
             && isDesktopCalendarHost
-            && ['list', 'checklist', 'timeline', 'kanban', 'whiteboard'].includes(renderMode)
+            && __tmCalendarSideDockSupportsViewMode(renderMode)
         );
         const topbarActionCatalog = {
             add: {
@@ -1001,7 +1001,6 @@
                                 ruleOptions: ruleMenuOptions,
                                 groupOptions: groupModeMenuOptions,
                             })}
-                            ${renderMode === 'comboBoard' ? `<div class="tm-custom-board-mobile-controls">${__tmRenderCustomBoardSetTopbar()}</div>` : ''}
                         </div>
                     </div>
 

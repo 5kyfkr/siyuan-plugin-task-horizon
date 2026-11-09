@@ -3323,6 +3323,7 @@
         if (state.viewMode !== 'whiteboard') {
             return;
         }
+        if (state.whiteboardClickLinkMode === true && Number(ev?.button) !== 2) return;
         const activeTool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         if (__tmIsWhiteboardDrawingTool(activeTool) && __tmStartWhiteboardDrawingPointer(ev)) {
             return;
@@ -4079,6 +4080,7 @@
 
     window.tmWhiteboardCardMouseDown = function(ev, taskId, docId) {
         if (state.viewMode !== 'whiteboard') return;
+        if (state.whiteboardClickLinkMode === true) return;
         if (ev?.currentTarget?.closest?.('[data-tm-whiteboard-frozen="1"]')) return;
         if (!ev?.__tmFromLongPress && Date.now() < (Number(state.whiteboardSuppressSyntheticMouseUntil) || 0)) return;
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
@@ -4411,6 +4413,7 @@
 
     window.tmWhiteboardCardPointerDown = function(ev, taskId, docId) {
         if (state.viewMode !== 'whiteboard') return;
+        if (state.whiteboardClickLinkMode === true) return;
         if (ev?.currentTarget?.closest?.('[data-tm-whiteboard-frozen="1"]')) return;
         if (String(ev?.pointerType || '') !== 'touch') return;
         try { __tmCalendarFloatingDragEnd(); } catch (e) {}
@@ -4492,10 +4495,63 @@
         try {
             if (typeof __tmIsTaskDetailNoteViewEventTarget === 'function' && __tmIsTaskDetailNoteViewEventTarget(ev?.target)) return;
         } catch (e) {}
-        const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
-        if (tool !== 'pan' && tool !== 'select') return;
         const id = String(taskId || '').trim();
         if (!id) return;
+        if (state.whiteboardClickLinkMode === true) {
+            try { ev?.stopPropagation?.(); } catch (e) {}
+            const docId = String(
+                ev?.currentTarget?.getAttribute?.('data-doc-id')
+                || ev?.currentTarget?.closest?.('.tm-whiteboard-node[data-doc-id]')?.getAttribute?.('data-doc-id')
+                || ''
+            ).trim();
+            if (!docId) return;
+            if (state.whiteboardClickLinkBusy === true) return;
+            let fromId = String(state.whiteboardLinkFromTaskId || '').trim();
+            if (fromId) {
+                let sourceVisible = false;
+                try {
+                    sourceVisible = !!state.modal?.querySelector?.(`.tm-whiteboard-node[data-task-id="${CSS.escape(fromId)}"]`);
+                } catch (e) {}
+                if (!sourceVisible) {
+                    __tmResetLinkDragState();
+                    fromId = '';
+                }
+            }
+            if (!fromId) {
+                __tmResetLinkDragState();
+                state.whiteboardLinkFromTaskId = id;
+                state.whiteboardLinkFromDocId = docId;
+                state.whiteboardLinkFromSide = 'out';
+                state.whiteboardLinkFromAnchor = 'right';
+                state.whiteboardLinkPress = { taskId: id, docId, side: 'out', click: true, at: Date.now() };
+                state.whiteboardSelectedTaskId = '';
+                state.whiteboardSelectedNoteId = '';
+                state.whiteboardSelectedFrameId = '';
+                state.whiteboardSelectedLinkId = '';
+                state.whiteboardSelectedLinkDocId = '';
+                __tmClearWhiteboardMultiSelection();
+                __tmApplyWhiteboardCardSelectionDom('');
+                render();
+                return;
+            }
+            if (fromId === id) return;
+            state.whiteboardClickLinkBusy = true;
+            state.whiteboardClickLinkDeferRender = true;
+            void Promise.resolve(window.tmTaskLinkDotDrop?.(ev, id, docId, 'left')).finally(() => {
+                state.whiteboardClickLinkBusy = false;
+                state.whiteboardClickLinkDeferRender = false;
+                if (state.whiteboardClickLinkMode !== true) return;
+                state.whiteboardLinkFromTaskId = id;
+                state.whiteboardLinkFromDocId = docId;
+                state.whiteboardLinkFromSide = 'out';
+                state.whiteboardLinkFromAnchor = 'right';
+                state.whiteboardLinkPress = { taskId: id, docId, side: 'out', click: true, at: Date.now() };
+                render();
+            });
+            return;
+        }
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+        if (tool !== 'pan' && tool !== 'select') return;
         try { ev?.stopPropagation?.(); } catch (e) {}
         if (tool === 'select') {
             state.whiteboardSelectedTaskId = '';
@@ -5922,10 +5978,39 @@
         __tmCreateWhiteboardElement(tool, { body: docBody, docId: did, localX, localY });
     };
 
+    function __tmExitWhiteboardClickLinkMode() {
+        const active = state.whiteboardClickLinkMode === true;
+        state.whiteboardClickLinkMode = false;
+        if (active) __tmResetLinkDragState();
+        return active;
+    }
+
+    window.tmWhiteboardToggleClickLinkMode = function(ev) {
+        try { ev?.preventDefault?.(); ev?.stopPropagation?.(); } catch (e) {}
+        const next = state.whiteboardClickLinkMode !== true;
+        state.whiteboardClickLinkMode = next;
+        __tmResetLinkDragState();
+        state.whiteboardBottomMoreOpen = false;
+        if (next) {
+            state.whiteboardSelectedTaskId = '';
+            state.whiteboardSelectedNoteId = '';
+            state.whiteboardSelectedFrameId = '';
+            state.whiteboardSelectedLinkId = '';
+            state.whiteboardSelectedLinkDocId = '';
+            __tmClearWhiteboardMultiSelection();
+            __tmApplyWhiteboardCardSelectionDom('');
+        }
+        render();
+    };
+
     window.tmWhiteboardBoardClick = async function(ev) {
         if (Number(state.whiteboardSuppressClickUntil || 0) > Date.now()) return;
         const target = ev?.target;
         if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-frame,.tm-whiteboard-edge,.tm-whiteboard-doc-resize,.tm-whiteboard-link-tools,.tm-whiteboard-multi-tools')) return;
+        if (__tmExitWhiteboardClickLinkMode()) {
+            render();
+            return;
+        }
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         const isNoteCreateTool = tool === 'text' || tool === 'sticky';
         if (state.whiteboardNoteEditor) {
@@ -8268,6 +8353,7 @@
             } catch (e) {}
         }
         const isTimelineDrop = String(state.viewMode || '').trim() === 'timeline';
+        const deferClickLinkRender = state.whiteboardClickLinkDeferRender === true;
         const timelineDependencyScope = isTimelineDrop ? __tmResolveTimelineDependencyScope() : null;
         const whiteboardBoardKey = __tmGetWhiteboardActiveBoardKey();
         if (isTimelineDrop) {
@@ -8284,7 +8370,7 @@
         };
         const renderAfterDrop = () => {
             resetAfterDrop();
-            if (!isTimelineDrop) render();
+            if (!isTimelineDrop && !deferClickLinkRender) render();
         };
         const commitDrop = async () => {
             if (isTimelineDrop && timelineDependencyScope.boardKey) {
@@ -8642,6 +8728,12 @@
                 if (await handleWhiteboardDeleteShortcut(ev)) return;
             }
             if (key !== 'escape') return;
+            if (state.whiteboardClickLinkMode === true && !isEditableShortcutTarget(ev?.target)) {
+                try { ev.preventDefault(); ev.stopPropagation(); } catch (e) {}
+                __tmExitWhiteboardClickLinkMode();
+                render();
+                return;
+            }
             if (state.viewMode === 'whiteboard' && state.whiteboardTraversal && !isEditableShortcutTarget(ev?.target)) {
                 ev.preventDefault();
                 ev.stopPropagation();
@@ -8677,6 +8769,7 @@
 
     window.tmWhiteboardSetTool = async function(tool, ev) {
         if (ev?.type === 'click' && Number(state.whiteboardSuppressClickUntil || 0) > Date.now()) return;
+        __tmExitWhiteboardClickLinkMode();
         const t = String(tool || 'pan').trim();
         const next = (t === 'select' || t === 'text' || t === 'sticky' || t === 'pen' || t === 'highlighter' || t === 'eraser' || t === 'frame' || t === 'pan') ? t : 'pan';
         if (__tmIsWhiteboardDrawingTool(next) && !__tmIsWhiteboardDrawingEnabled()) return;

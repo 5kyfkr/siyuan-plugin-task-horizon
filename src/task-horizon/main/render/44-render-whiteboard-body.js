@@ -1063,9 +1063,14 @@
                         : '';
                     const kanbanCardCls = `tm-kanban-card${depth > 0 ? ' tm-kanban-card--sub tm-kanban-subtask-row' : ''}${(depth === 0 && detachedOrDetachedLike) ? ' tm-kanban-card--childroot' : ''}${totalChildren ? ' tm-kanban-card--parent' : ''}${__tmIsTaskClosedForDisplay(task) ? ' tm-kanban-card--done' : ''}${isTaskOverdue ? ' tm-kanban-card--overdue' : ''}${isDependencyAffected ? ' tm-kanban-card--dependency-affected' : ''}${hasTaskDate ? ' tm-kanban-card--has-date' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${multiSelectCls}${tomatoFocusCls}`;
                     const frozenCls = isFrozen ? ' tm-whiteboard-card--frozen' : '';
+                    const taskClickLinkMode = state.whiteboardClickLinkMode === true && !isFrozen;
+                    const clickLinkCls = taskClickLinkMode ? ' tm-whiteboard-node--click-link' : '';
+                    const clickLinkSourceCls = taskClickLinkMode && state.whiteboardLinkFromTaskId === tid
+                        ? ' tm-whiteboard-node--click-link-source'
+                        : '';
                     const cls = depth === 0
-                        ? `tm-whiteboard-card tm-whiteboard-node tm-whiteboard-node--root ${kanbanCardCls}${parentCls}${linkCls}${selected ? ' tm-whiteboard-card--selected' : ''}${isGhost ? ' tm-whiteboard-card--ghost' : ''}${frozenCls}`
-                        : `tm-whiteboard-subcard tm-whiteboard-node tm-whiteboard-node--sub ${kanbanCardCls}${parentCls}${linkCls}${selected ? ' tm-whiteboard-card--selected' : ''}${frozenCls}`;
+                        ? `tm-whiteboard-card tm-whiteboard-node tm-whiteboard-node--root ${kanbanCardCls}${parentCls}${linkCls}${selected ? ' tm-whiteboard-card--selected' : ''}${isGhost ? ' tm-whiteboard-card--ghost' : ''}${frozenCls}${clickLinkCls}${clickLinkSourceCls}`
+                        : `tm-whiteboard-subcard tm-whiteboard-node tm-whiteboard-node--sub ${kanbanCardCls}${parentCls}${linkCls}${selected ? ' tm-whiteboard-card--selected' : ''}${frozenCls}${clickLinkCls}${clickLinkSourceCls}`;
                     const canMoveBack = selected && !!parentId && detachedOrDetachedLike;
                     const toolsHtml = selected && !isFrozen ? `
                         <div class="tm-whiteboard-card-tools">
@@ -1135,9 +1140,11 @@
                         collapsed: !!(collapsed && totalChildren),
                     });
                     const titleInnerHtml = `${API.renderTaskContentHtml(task?.markdown, content || __tmT("kernel.noContent"))}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
-                    const titleAction = isFrozen || isRetained || isCollectionOverlay
-                        ? `onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(tid)}')"`
-                        : `onclick="tmTaskTitleClick('${escSq(tid)}', event, { surface: 'whiteboard' })"`;
+                    const titleAction = taskClickLinkMode
+                        ? `onclick="tmWhiteboardSelectTask('${escSq(tid)}', event)"`
+                        : (isFrozen || isRetained || isCollectionOverlay
+                            ? `onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(tid)}')"`
+                            : `onclick="tmTaskTitleClick('${escSq(tid)}', event, { surface: 'whiteboard' })"`);
                     const titleAttrs = `${titleAction}${__tmBuildTooltipAttrs(API.getTaskTitlePresentation(task?.markdown, content || __tmT("kernel.noContent")).text, { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
                     const parentTaskTitleCls = depth === 0 ? ' tm-parent-task-title' : '';
                     const subtaskCountButtonHtml = totalChildren
@@ -2189,9 +2196,12 @@
             const whiteboardTool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
             const whiteboardDrawingToolsEnabled = !isAllTabsView || isGlobalBoardMode;
             const whiteboardDrawingModeActive = whiteboardDrawingToolsEnabled && !drawingConfig.hidden && (whiteboardTool === 'pen' || whiteboardTool === 'highlighter' || whiteboardTool === 'eraser');
-            const viewportToolClass = whiteboardTool === 'pan'
+            const compactWhiteboardToolbar = !!(isMobile || isDockHost);
+            const whiteboardClickLinkMode = state.whiteboardClickLinkMode === true;
+            const baseViewportToolClass = whiteboardTool === 'pan'
                 ? ' tm-whiteboard-viewport--tool-pan'
                 : (whiteboardDrawingModeActive ? ` tm-whiteboard-viewport--tool-${whiteboardTool}` : (whiteboardTool === 'frame' ? ' tm-whiteboard-viewport--tool-frame' : ''));
+            const viewportToolClass = `${baseViewportToolClass}${whiteboardClickLinkMode ? ' tm-whiteboard-viewport--click-link' : ''}`;
             const sidebarWidth = Math.max(220, Math.min(520, Math.round(Number(SettingsStore.data.whiteboardSidebarWidth) || 300)));
             const layoutClass = sidebarCollapsed ? ' tm-whiteboard-layout--sidebar-collapsed' : '';
             const navigatorHidden = !!SettingsStore.data.whiteboardNavigatorHidden;
@@ -2209,6 +2219,7 @@
                 const dragAttrs = createTool ? ` data-tm-whiteboard-create-tool="${createTool}" onpointerdown="tmWhiteboardToolPointerDown(event, '${createTool}')"` : '';
                 return `<button type="button" class="${cls}" onclick="${onclick}"${dragAttrs}${ariaPressed}${__tmBuildTooltipAttrs(createTool ? __tmT("task.dragOntoTheWhiteboardToCreate", { label: label }) : label, { side: 'top' })}>${__tmPhosphorBoldSvg(icon, { size: 20, className: 'tm-whiteboard-toolbar-btn__icon', style: 'width:20px;height:20px;min-width:20px;min-height:20px;max-width:20px;max-height:20px;' })}</button>`;
             };
+            const renderWhiteboardToolbarSeparator = () => '<span class="tm-whiteboard-toolbar-separator" aria-hidden="true"></span>';
             const renderWhiteboardBottomMoreItem = ({ label, icon, onclick, danger = false, disabled = false }) => {
                 const cls = `tm-whiteboard-bottom-more-item${danger ? ' tm-whiteboard-bottom-more-item--danger' : ''}`;
                 return `<button type="button" class="${cls}" onclick="${onclick}"${disabled ? ' disabled' : ''}>${__tmPhosphorBoldSvg(icon, { size: 16, className: 'tm-whiteboard-bottom-more-item__icon' })}<span>${esc(label)}</span></button>`;
@@ -2309,6 +2320,7 @@
                             <button class="tm-btn tm-btn-info tm-whiteboard-sidebar-toggle" onclick="tmWhiteboardToggleSidebar(event)" title="${sidebarToggleLabel}">${sidebarToggleGlyph}</button>
                             <div id="tmWhiteboardViewport" class="tm-whiteboard-viewport${viewportToolClass}" onpointerdown="tmWhiteboardViewportMouseDown(event)" oncontextmenu="return tmWhiteboardViewportContextMenu(event)" onclick="tmWhiteboardBoardClick(event)" ondblclick="tmWhiteboardBoardDblClick(event)" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event)">
                                 <button type="button" class="tm-btn tm-btn-info tm-whiteboard-traversal-exit" hidden onclick="tmWhiteboardExitTraversal(event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.exitLinkTraversalEsc")}">${__tmT("task.exitTraversal")}</button>
+                                ${whiteboardClickLinkMode ? `<div class="tm-whiteboard-click-link-hint" role="status" aria-live="polite"><span>${esc(state.whiteboardLinkFromTaskId ? __tmT("task.chooseSuccessorCard") : __tmT("task.choosePredecessorCard"))}</span><button type="button" class="tm-whiteboard-click-link-hint__close" onclick="event.stopPropagation();tmWhiteboardToggleClickLinkMode(event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.exitCardLinkMode")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.exitCardLinkMode")}">${__tmPhosphorBoldSvg('x', { size: 14 })}</button></div>` : ''}
                                 <div id="tmWhiteboardWorld" class="tm-whiteboard-world" style="transform:translate(${view.x}px, ${view.y}px) scale(${view.zoom});">
                                     <div class="tm-whiteboard tm-kanban--clean${isKanbanCompact ? ' tm-kanban--compact' : ''}">
                                         ${docsHtml || `<div style="padding:18px;color:var(--tm-secondary-text);">${__tmT("task.noTasksAvailableForTheWhiteboardView")}</div>`}
@@ -2323,22 +2335,22 @@
                                 </div>
                                 <button id="tmWhiteboardNavigatorReveal" type="button" class="tm-whiteboard-navigator-reveal${navigatorHidden ? ' tm-whiteboard-navigator-reveal--visible' : ''}" onclick="tmWhiteboardSetNavigatorHidden(false, event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.showOverview")}">${__tmRenderLucideIcon('map')}</button>
                                 ${renderWhiteboardDrawingToolbar()}
-                                <div class="tm-whiteboard-bottom-toolbar">
+                                <div class="tm-whiteboard-bottom-toolbar${compactWhiteboardToolbar ? ' tm-whiteboard-bottom-toolbar--compact' : ''}">
                                     ${renderWhiteboardToolbarButton({ label: __tmT("task.panMode"), icon: 'hand', onclick: "tmWhiteboardSetTool('pan')", active: whiteboardTool === 'pan', pressed: whiteboardTool === 'pan' })}
                                     ${renderWhiteboardToolbarButton({ label: __tmT("task.multiSelectMode"), icon: 'selection-plus', onclick: "tmWhiteboardSetTool('select')", active: whiteboardTool === 'select', pressed: whiteboardTool === 'select' })}
+                                    ${(!isAllTabsView || isGlobalBoardMode) ? `${renderWhiteboardToolbarButton({ label: __tmT("task.cardLinkMode"), icon: 'flow-arrow', onclick: 'tmWhiteboardToggleClickLinkMode(event)', active: whiteboardClickLinkMode, pressed: whiteboardClickLinkMode, extraClass: 'tm-whiteboard-toolbar-btn--card-link' })}${renderWhiteboardToolbarSeparator()}` : ''}
                                     ${renderWhiteboardToolbarButton({ label: __tmT("task.textMode"), icon: 'cursor-text', onclick: "tmWhiteboardSetTool('text', event)", createTool: 'text', active: whiteboardTool === 'text', pressed: whiteboardTool === 'text' })}
                                     ${renderWhiteboardToolbarButton({ label: __tmT("task.stickyNoteMode"), icon: 'note-pencil', onclick: "tmWhiteboardSetTool('sticky', event)", createTool: 'sticky', active: whiteboardTool === 'sticky', pressed: whiteboardTool === 'sticky' })}
                                     ${renderWhiteboardToolbarButton({ label: __tmT("task.groupFrame"), icon: 'bounding-box', onclick: "tmWhiteboardSetTool('frame', event)", createTool: 'frame', active: whiteboardTool === 'frame', pressed: whiteboardTool === 'frame' })}
-                                    ${whiteboardDrawingToolsEnabled ? renderWhiteboardToolbarButton({ label: __tmT("task.handwritingMode"), icon: 'pencil', onclick: "tmWhiteboardSetTool('pen')", active: whiteboardDrawingModeActive, pressed: whiteboardDrawingModeActive }) : ''}
-                                    ${renderWhiteboardToolbarButton({ label: __tmT("task.zoomOut2"), icon: 'minus', onclick: 'tmWhiteboardZoomOut()' })}
-                                    ${renderWhiteboardToolbarButton({ label: __tmT("task.zoomIn2"), icon: 'plus', onclick: 'tmWhiteboardZoomIn()' })}
-                                    ${renderWhiteboardToolbarButton({ label: whiteboardPluginFullscreen ? __tmT("task.exitFullscreen") : __tmT("task.fullscreen"), icon: whiteboardPluginFullscreen ? 'corners-in' : 'corners-out', onclick: 'tmWhiteboardTogglePluginFullscreen(event)', active: whiteboardPluginFullscreen, pressed: whiteboardPluginFullscreen })}
+                                    ${whiteboardDrawingToolsEnabled ? `${renderWhiteboardToolbarButton({ label: __tmT("task.handwritingMode"), icon: 'pencil', onclick: "tmWhiteboardSetTool('pen')", active: whiteboardDrawingModeActive, pressed: whiteboardDrawingModeActive, extraClass: 'tm-whiteboard-toolbar-btn--handwriting' })}${renderWhiteboardToolbarSeparator()}` : ''}
+                                    ${compactWhiteboardToolbar ? '' : `${renderWhiteboardToolbarButton({ label: __tmT("task.zoomOut2"), icon: 'minus', onclick: 'tmWhiteboardZoomOut()' })}${renderWhiteboardToolbarButton({ label: __tmT("task.zoomIn2"), icon: 'plus', onclick: 'tmWhiteboardZoomIn()' })}${renderWhiteboardToolbarButton({ label: whiteboardPluginFullscreen ? __tmT("task.exitFullscreen") : __tmT("task.fullscreen"), icon: whiteboardPluginFullscreen ? 'corners-in' : 'corners-out', onclick: 'tmWhiteboardTogglePluginFullscreen(event)', active: whiteboardPluginFullscreen, pressed: whiteboardPluginFullscreen })}`}
                                     <div class="tm-whiteboard-bottom-more">
                                         ${renderWhiteboardToolbarButton({ label: __tmT("task.moreWhiteboardActions"), icon: 'dots-three', onclick: 'tmWhiteboardToggleBottomMore(event)', active: whiteboardBottomMoreOpen, pressed: whiteboardBottomMoreOpen })}
                                     </div>
                                 </div>
                                 ${whiteboardBottomMoreOpen ? `<div class="tm-whiteboard-bottom-more-panel">
                                     ${renderWhiteboardBottomMoreItem({ label: state.whiteboardPngExportPending ? __tmT("task.exporting") : __tmT("task.exportPng"), icon: 'export', onclick: 'tmWhiteboardExportPng(event)', disabled: !!state.whiteboardPngExportPending })}
+                                    ${compactWhiteboardToolbar ? `${renderWhiteboardBottomMoreItem({ label: __tmT("task.zoomOut2"), icon: 'minus', onclick: 'tmWhiteboardZoomOut()' })}${renderWhiteboardBottomMoreItem({ label: __tmT("task.zoomIn2"), icon: 'plus', onclick: 'tmWhiteboardZoomIn()' })}${renderWhiteboardBottomMoreItem({ label: whiteboardPluginFullscreen ? __tmT("task.exitFullscreen") : __tmT("task.fullscreen"), icon: whiteboardPluginFullscreen ? 'corners-in' : 'corners-out', onclick: 'tmWhiteboardTogglePluginFullscreen(event)' })}` : ''}
                                     ${whiteboardDrawingToolsEnabled ? renderWhiteboardBottomMoreItem({ label: drawingConfig.hidden ? __tmT("task.showHandwriting") : __tmT("task.hideHandwriting"), icon: drawingConfig.hidden ? 'eye' : 'eye-slash', onclick: 'tmWhiteboardToggleDrawingLayer(event)' }) : ''}
                                     ${renderWhiteboardBottomMoreItem({ label: __tmT("task.backToCanvasCenter"), icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView(event)' })}
                                     ${renderWhiteboardBottomMoreItem({ label: __tmT("task.clearCardConnections"), icon: 'link-simple-break', onclick: 'tmWhiteboardClearLinks(event)', danger: true })}

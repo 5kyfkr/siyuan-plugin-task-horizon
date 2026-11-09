@@ -42,7 +42,7 @@
             if (!field) return;
             set.add(field);
             if (field === 'priorityScore') SCORE_SOURCE_FIELDS.forEach((item) => set.add(item));
-            if (field === 'taskDate' || field === 'completionTime') {
+            if (field === 'taskDate' || field === 'completionTime' || field === 'taskDateRange') {
                 ['startDate', 'completionTime', 'repeatRule', 'repeatState', 'repeatHistory'].forEach((item) => set.add(item));
             }
             if (field === 'tomatoCount') {
@@ -56,7 +56,8 @@
             if (rule && typeof rule === 'object') {
                 (Array.isArray(rule.conditions) ? rule.conditions : []).forEach((condition) => {
                     addRuleDependency(filterFields, condition?.field);
-                    if (condition?.operator === 'range_overlap_today') {
+                    if (condition?.operator === 'range_overlap_today'
+                        || condition?.operator === 'range_contains_relative_days') {
                         filterFields.add('startDate');
                         filterFields.add('completionTime');
                     }

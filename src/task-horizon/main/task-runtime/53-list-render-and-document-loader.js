@@ -4209,6 +4209,7 @@ if (ev) {
         ).trim();
         const isQuickbarDetailOpen = String(detailOpenOptions.source || '').trim() === 'quickbar-detail-open'
             || __tmIsQuickbarTaskDetailOpenEvent(ev);
+        const forceStandaloneDetail = detailOpenOptions.forceStandalone === true;
         const deferFreshDetailOpen = detailOpenOptions.deferFresh === true;
         const shouldFreshenDetailOpen = !deferFreshDetailOpen
             && (detailOpenOptions.forceFresh === true || isQuickbarDetailOpen);
@@ -4271,7 +4272,8 @@ if (ev) {
 
         // 文档 quickbar 与首页都可能遇到残留的工作区视图状态，只有工作区内部请求才走 Sheet/看板浮层。
         const activeRenderMode = globalThis.__tmRuntimeState?.getActiveRenderMode?.('') || (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
-        const useTaskDetailSheetMode = !isQuickbarDetailOpen
+        const useTaskDetailSheetMode = !forceStandaloneDetail
+            && !isQuickbarDetailOpen
             && !!globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.(activeRenderMode, state.modal);
         const detailButton = ev?.target?.closest?.('.tm-kanban-more');
         const detailCard = detailButton?.closest?.('.tm-kanban-card');
@@ -4358,7 +4360,8 @@ if (ev) {
                 try { Promise.resolve(__tmWarmKanbanDocHeadings([docId], { force: true })).catch(() => null); } catch (e) {}
             }
         }
-        if (!isQuickbarDetailOpen
+        if (!forceStandaloneDetail
+            && !isQuickbarDetailOpen
             && (activeRenderMode === 'kanban' || activeRenderMode === 'comboBoard')
             && !__tmIsMobileDevice()) {
             if (!__tmOpenKanbanDetailFloatingInPlace(tid, state.modal, {

@@ -8525,18 +8525,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             ? rule.conditions.map(c => {
                 const field = RuleManager.getFieldInfo(c.field);
                 const operatorLabel = (RuleManager.getOperators(field?.type || 'text').find(op => op.value === c.operator)?.label || c.operator);
-                const noValueDatetimeOperators = new Set([
-                    'overdue',
-                    'range_today',
-                    'range_overlap_today',
-                    'range_week',
-                    'range_month',
-                    'range_year',
-                    'before_today',
-                    'after_today',
-                    'on_or_before_today',
-                    'on_or_after_today',
-                ]);
+                const isDateRangeField = field?.type === 'datetime' || field?.type === 'daterange';
                 const noValueOperators = new Set(['is_empty', 'is_not_empty']);
                 let valueDisplay = c.value;
 
@@ -8563,6 +8552,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                 } else if (field?.type === 'datetime' && String(c.operator || '').trim() === 'range_next_days') {
                     const days = Number(c.value);
                     valueDisplay = Number.isFinite(days) && days >= 0 ? __tmT("task.daysAhead", { value1: Math.floor(days) }) : __tmT("task.daysAhead2");
+                } else if (isDateRangeField && ['range_relative_days', 'range_contains_relative_days'].includes(String(c.operator || '').trim())) {
+                    const range = RuleManager.normalizeRelativeDayRange(c.value);
+                    valueDisplay = `${range.fromDays} ${__tmT("task.daysAhead3")} ${__tmT("task.to")} ${range.toDays} ${__tmT("task.daysAhead3")}`;
                 }
 
                 // 多值显示处理
@@ -8588,7 +8580,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 if (field?.type === 'datetime' && String(c.operator || '').trim() === 'range_next_days') {
                     return __tmT("task.todayTo", { field: field?.label || c.field, valueDisplay: valueDisplay });
                 }
-                const suffix = (field?.type === 'datetime' && noValueDatetimeOperators.has(String(c.operator || '').trim()))
+                const suffix = (field?.type === 'datetime' && RuleManager.isNoValueDatetimeOperator(c.operator))
                     || noValueOperators.has(String(c.operator || '').trim())
                     ? ''
                     : ` ${valueDisplay}`;
@@ -8729,19 +8721,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (operator === 'is_empty' || operator === 'is_not_empty') {
             return `<span class="tm-rule-condition-value tm-rule-condition-value-empty">${__tmT("task.noInputNeeded")}</span>`;
         }
-        const noValueDatetimeOperators = new Set([
-            'overdue',
-            'range_today',
-            'range_overlap_today',
-            'range_week',
-            'range_month',
-            'range_year',
-            'before_today',
-            'after_today',
-            'on_or_before_today',
-            'on_or_after_today',
-        ]);
-        if (fieldType === 'datetime' && noValueDatetimeOperators.has(operator)) {
+        if (fieldType === 'datetime' && RuleManager.isNoValueDatetimeOperator(operator)) {
             return `<span class="tm-rule-condition-value tm-rule-condition-value-empty">${__tmT("task.noInputNeeded")}</span>`;
         }
         if (fieldType === 'datetime' && (operator === 'range_recent_days' || operator === 'range_next_days')) {
@@ -8761,6 +8741,37 @@ return Number(state.contextInteractionQuietUntil || 0);
                            data-index="${index}">
                     <span style="white-space:nowrap;">${suffix}</span>
                 </label>
+            `;
+        }
+        if ((fieldType === 'datetime' && operator === 'range_relative_days')
+            || (fieldType === 'daterange' && operator === 'range_contains_relative_days')) {
+            const range = RuleManager.normalizeRelativeDayRange(condition.value);
+            return `
+                <div class="tm-time-range">
+                    <input type="number"
+                           min="0"
+                           step="1"
+                           class="tm-time-input"
+                           style="width:72px;"
+                           value="${range.fromDays}"
+                           aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.relativeRangeStartDays")}"
+                           data-tm-change="updateConditionValueRange"
+                           data-index="${index}"
+                           data-range-key="fromDays">
+                    <span style="white-space:nowrap;">${__tmT("task.daysAhead3")}</span>
+                    <span class="tm-time-separator">${__tmT("task.to")}</span>
+                    <input type="number"
+                           min="0"
+                           step="1"
+                           class="tm-time-input"
+                           style="width:72px;"
+                           value="${range.toDays}"
+                           aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.relativeRangeEndDays")}"
+                           data-tm-change="updateConditionValueRange"
+                           data-index="${index}"
+                           data-range-key="toDays">
+                    <span style="white-space:nowrap;">${__tmT("task.daysAhead3")}</span>
+                </div>
             `;
         }
         if (fieldType === 'boolean') {
@@ -10327,7 +10338,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             const fieldInfo = RuleManager.getFieldInfo(field);
             const operators = RuleManager.getOperators(fieldInfo?.type || 'text');
             condition.operator = operators[0].value;
-            condition.value = (fieldInfo?.type === 'boolean') ? 'true' : '';
+            condition.value = condition.operator === 'range_contains_relative_days'
+                ? { fromDays: 1, toDays: 7 }
+                : (fieldInfo?.type === 'boolean') ? 'true' : '';
             if (fieldInfo?.multi && (condition.operator === 'in' || condition.operator === 'not_in')) {
                 condition.matchMode = 'any';
             } else {
@@ -10360,18 +10373,11 @@ return Number(state.contextInteractionQuietUntil || 0);
             else if (operator === 'between') {
                 condition.value = { from: '', to: '' };
             }
-            else if (fieldInfo?.type === 'datetime' && [
-                'overdue',
-                'range_today',
-                'range_overlap_today',
-                'range_week',
-                'range_month',
-                'range_year',
-                'before_today',
-                'after_today',
-                'on_or_before_today',
-                'on_or_after_today',
-            ].includes(operator)) {
+            else if (operator === 'range_relative_days' || operator === 'range_contains_relative_days') {
+                condition.value = { fromDays: 1, toDays: 7 };
+                delete condition.matchMode;
+            }
+            else if (fieldInfo?.type === 'datetime' && RuleManager.isNoValueDatetimeOperator(operator)) {
                 condition.value = '';
                 delete condition.matchMode;
             }
@@ -10469,10 +10475,26 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     window.updateConditionValueRange = function(index, key, value) {
         if (state.editingRule && state.editingRule.conditions[index]) {
-            if (!state.editingRule.conditions[index].value || typeof state.editingRule.conditions[index].value !== 'object') {
-                state.editingRule.conditions[index].value = { from: '', to: '' };
+            const condition = state.editingRule.conditions[index];
+            if (['range_relative_days', 'range_contains_relative_days'].includes(String(condition.operator || '').trim())) {
+                const current = RuleManager.normalizeRelativeDayRange(condition.value);
+                const raw = String(value ?? '').trim();
+                if (!raw) {
+                    __tmRerenderRulesManagerUI('conditions');
+                    return;
+                }
+                const nextDays = RuleManager.normalizeRelativeDayOffset(raw, current[key]);
+                const range = key === 'fromDays'
+                    ? { fromDays: nextDays, toDays: Math.max(nextDays, current.toDays) }
+                    : { fromDays: Math.min(current.fromDays, nextDays), toDays: nextDays };
+                condition.value = range;
+                __tmRerenderRulesManagerUI('conditions');
+                return;
             }
-            state.editingRule.conditions[index].value[key] = value;
+            if (!condition.value || typeof condition.value !== 'object') {
+                condition.value = { from: '', to: '' };
+            }
+            condition.value[key] = value;
         }
     };
 
@@ -14603,6 +14625,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             const stageLeft = Number(rect.left) || 0;
             const top = Math.max(0, Math.round((Number(rect.top) || 0) + 8));
             const stageWidth = Math.max(0, Number(rect.width) || 0);
+            const stageHeight = Math.max(0, Number(rect.height) || 0);
             const viewportWidth = Math.max(0, Number(window.innerWidth || document.documentElement?.clientWidth || 0));
             const width = viewportWidth > 0 ? Math.min(stageWidth, viewportWidth) : stageWidth;
             const maxLeft = viewportWidth > width ? viewportWidth - width : 0;
@@ -14613,6 +14636,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             bar.style.setProperty('--tm-inline-searchbar-left', `${left}px`);
             bar.style.setProperty('--tm-inline-searchbar-top', `${top}px`);
             bar.style.setProperty('--tm-inline-searchbar-width', `${width}px`);
+            bar.style.setProperty('--tm-inline-searchbar-height', `${Math.max(0, stageHeight - 16)}px`);
             return true;
         } catch (e) {
             return false;
@@ -14633,6 +14657,16 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (scope && !scope.contains(event.target)) window.tmToggleSearchScope?.(null, false);
         };
         document.addEventListener('pointerdown', state.searchBarDismissFieldsHandler, true);
+        state.searchBarOutsideHandler = (event) => {
+            if (!state.searchBarOpen) return;
+            const bar = document.getElementById('tmInlineSearchbarPortal');
+            if (bar?.contains?.(event.target)) return;
+            if (event.target instanceof Element
+                && event.target.closest('#tmTopbarFloatingMenu,.tm-topbar-select')) return;
+            if (document.getElementById('tm-task-detail-overlay')) return;
+            window.tmCloseInlineSearch?.();
+        };
+        document.addEventListener('pointerdown', state.searchBarOutsideHandler, true);
     }
 
     function __tmUnbindInlineSearchBarPortalPositionEvents() {
@@ -14641,11 +14675,22 @@ return Number(state.contextInteractionQuietUntil || 0);
         try { window.removeEventListener('resize', handler); } catch (e) {}
         try { document.removeEventListener('scroll', handler, true); } catch (e) {}
         document.removeEventListener('pointerdown', state.searchBarDismissFieldsHandler, true);
+        try { document.removeEventListener('pointerdown', state.searchBarOutsideHandler, true); } catch (e) {}
         state.searchBarDismissFieldsHandler = null;
+        state.searchBarOutsideHandler = null;
         state.searchBarPortalPositionHandler = null;
     }
 
     function __tmBuildInlineSearchBarPortalHtml(value) {
+        const statusOptions = [
+            { value: 'all', label: __tmT("calendar.all"), selected: state.searchWorkspaceStatus === 'all', action: "tmChangeSearchWorkspaceStatus('all')" },
+            { value: 'open', label: __tmT("task.unfinished"), selected: state.searchWorkspaceStatus === 'open', action: "tmChangeSearchWorkspaceStatus('open')" },
+            { value: 'done', label: __tmT("task.done").trim(), selected: state.searchWorkspaceStatus === 'done', action: "tmChangeSearchWorkspaceStatus('done')" },
+        ];
+        const sortOptions = [
+            { value: 'relevance', label: __tmT("task.sortByRelevance"), selected: state.searchWorkspaceSort === 'relevance', action: "tmChangeSearchWorkspaceSort('relevance')" },
+            { value: 'created', label: __tmT("task.sortByCreatedTime"), selected: state.searchWorkspaceSort === 'created', action: "tmChangeSearchWorkspaceSort('created')" },
+        ];
         return `
             <form class="tm-inline-searchbar__inner" onsubmit="return tmApplyInlineSearch(event)">
                 <input
@@ -14663,12 +14708,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                 <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-inline-searchbar__btn tm-inline-searchbar__btn--icon" type="submit"${__tmBuildTooltipAttrs(__tmT("task.search"), { side: 'bottom' })}>
                     <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('search', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
                 </button>
-                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-inline-searchbar__btn tm-inline-searchbar__btn--icon" type="button" onclick="tmClearInlineSearch(event)"${__tmBuildTooltipAttrs(__tmT("task.clearSearch"), { side: 'bottom' })}>
-                    <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('x-circle', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
-                </button>
                 <div class="tm-search-fields" onkeydown="if(event.key === 'Escape')tmToggleSearchScope(event,false)">
                     <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-inline-searchbar__btn tm-inline-searchbar__btn--icon tm-search-fields__trigger" aria-expanded="false" aria-controls="tmSearchScopePanel" onclick="tmToggleSearchScope(event)"${__tmBuildTooltipAttrs(__tmT("task.searchScope"), { side: 'bottom' })}>
-                        <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('dots-three', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
+                        <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('funnel', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
                     </button>
                     <div id="tmSearchScopePanel" class="tm-search-fields__panel" hidden>
                         <div class="tm-search-fields__heading"><span>${__tmT("task.searchScope")}</span><button type="button" class="tm-search-fields__reset" onclick="tmResetSearchFields(event)">${__tmT("task.restoreDefault")}</button></div>
@@ -14676,13 +14718,326 @@ return Number(state.contextInteractionQuietUntil || 0);
                         <div class="tm-search-fields__hint">${__tmT("task.searchWithinTheSelectedScopes")}</div>
                     </div>
                 </div>
+                <button id="tmSearchWorkspaceToggle" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-inline-searchbar__btn tm-inline-searchbar__btn--icon" type="button" aria-expanded="${state.searchWorkspaceExpanded ? 'true' : 'false'}" onclick="tmToggleSearchWorkspace(event)"${__tmBuildTooltipAttrs(state.searchWorkspaceExpanded ? __tmT("task.collapseSearchWorkspace") : __tmT("task.openSearchWorkspace"), { side: 'bottom' })}>
+                    <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
+                </button>
                 <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-inline-searchbar__btn tm-inline-searchbar__btn--icon" type="button" onclick="tmCloseInlineSearch(event)"${__tmBuildTooltipAttrs(__tmT("task.closeSearchBar"), { side: 'bottom' })}>
                     <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('x', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
                 </button>
                 <div class="tm-inline-searchbar__status" role="status" hidden></div>
+                <div id="tmSearchWorkspacePanel" class="tm-search-workspace" hidden>
+                    <div class="tm-search-workspace__toolbar">
+                        ${__tmRenderTopbarSelect({ id: 'tmSearchWorkspaceStatusSelect', label: __tmT("kernel.status"), className: 'tm-search-workspace__select', options: statusOptions })}
+                        ${__tmRenderTopbarSelect({ id: 'tmSearchWorkspaceSortSelect', label: __tmT("task.sort"), className: 'tm-search-workspace__select', options: sortOptions })}
+                        <span class="tm-search-workspace__state" data-tm-search-workspace-state role="status" aria-live="polite"></span>
+                    </div>
+                    <div class="tm-search-workspace__results" data-tm-search-workspace-results role="list" aria-label="${__tmT("task.searchResults", { length: '' })}"></div>
+                </div>
             </form>
         `;
     }
+
+    let __tmSearchWorkspaceScopeCache = null;
+
+    function __tmSearchWorkspacePlainText(value) {
+        try {
+            const template = document.createElement('template');
+            template.innerHTML = String(value || '');
+            return String(template.content.textContent || '').replace(/\s+/g, ' ').trim();
+        } catch (e) {
+            return String(value || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+    }
+
+    function __tmBuildSearchWorkspaceHighlightedHtml(value, keyword) {
+        const text = esc(__tmSearchWorkspacePlainText(value));
+        const query = String(keyword || '').trim();
+        if (!query) return text;
+        const source = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return text.replace(new RegExp(source, 'gi'), (match) => `<mark class="tm-search-highlight">${match}</mark>`);
+    }
+
+    function __tmCancelSearchWorkspaceRequest() {
+        state.searchWorkspaceRequestId = Math.max(0, Number(state.searchWorkspaceRequestId) || 0) + 1;
+        try { if (state.searchWorkspaceTimer) clearTimeout(state.searchWorkspaceTimer); } catch (e) {}
+        state.searchWorkspaceTimer = 0;
+        state.searchWorkspaceLoading = false;
+    }
+
+    async function __tmResolveSearchWorkspaceScope() {
+        const groupId = 'all';
+        const groupsSignature = JSON.stringify(Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : []);
+        const cacheKey = `${groupId}\u0001${groupsSignature}`;
+        if (__tmSearchWorkspaceScopeCache?.key === cacheKey) return __tmSearchWorkspaceScopeCache;
+        if (typeof resolveDocIdsFromGroups !== 'function') return null;
+        const docIds = await resolveDocIdsFromGroups({ groupId, completeScope: true });
+        const allDocuments = typeof __tmEnsureAllDocumentsLoaded === 'function'
+            ? await __tmEnsureAllDocumentsLoaded(false)
+            : (Array.isArray(state.allDocuments) ? state.allDocuments : []);
+        const docMap = new Map();
+        (Array.isArray(allDocuments) ? allDocuments : []).forEach((doc) => {
+            const id = String(doc?.id || '').trim();
+            if (id) docMap.set(id, doc);
+        });
+        (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
+            const id = String(doc?.id || '').trim();
+            if (id && !docMap.has(id)) docMap.set(id, doc);
+        });
+        const paths = [];
+        const seenPaths = new Set();
+        (Array.isArray(docIds) ? docIds : []).forEach((id) => {
+            const doc = docMap.get(String(id || '').trim());
+            const notebook = String(doc?.notebook || doc?.box || '').trim();
+            const path = String(doc?.path || doc?.hpath || '').trim();
+            if (!notebook || !path) return;
+            const fullPath = `${notebook}${path.startsWith('/') ? path : `/${path}`}`;
+            if (seenPaths.has(fullPath)) return;
+            seenPaths.add(fullPath);
+            paths.push(fullPath);
+        });
+        const archivedDocIds = new Set(__tmGetManualArchivedDocIdsForGroup(groupId));
+        (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
+            try {
+                if (__tmDocShouldShowInDocTabs(doc, {
+                    archiveMode: true,
+                    groupId,
+                    currentRule: __tmGetCurrentRule(),
+                })) archivedDocIds.add(String(doc?.id || '').trim());
+            } catch (e) {}
+        });
+        __tmSearchWorkspaceScopeCache = { key: cacheKey, groupId, paths, docMap, archivedDocIds };
+        return __tmSearchWorkspaceScopeCache;
+    }
+
+    function __tmMapSearchWorkspaceResult(block, scope) {
+        const id = String(block?.id || '').trim();
+        const docId = String(block?.rootID || block?.root_id || '').trim();
+        if (!id || !docId) return null;
+        const markdown = String(block?.markdown || '').trim();
+        const parsed = API.parseTaskStatus(markdown || block?.content || '');
+        const task = {
+            id,
+            root_id: docId,
+            content: parsed.content || __tmSearchWorkspacePlainText(block?.content),
+            raw_content: parsed.content || __tmSearchWorkspacePlainText(block?.content),
+            markdown,
+            created: String(block?.created || '').trim(),
+            updated: String(block?.updated || '').trim(),
+            done: parsed.done === true,
+            taskMarker: parsed.marker || '',
+        };
+        try { MetaStore.applyToTask(task); } catch (e) {}
+        let done = parsed.done === true;
+        try {
+            done = typeof __tmIsTaskDoneEffective === 'function'
+                ? __tmIsTaskDoneEffective(task)
+                : done;
+        } catch (e) {}
+        const doc = scope?.docMap?.get(docId) || null;
+        return {
+            id,
+            docId,
+            done,
+            content: task.content,
+            snippet: __tmSearchWorkspacePlainText(block?.content || block?.fcontent || markdown),
+            docName: String(doc?.name || block?.name || block?.hPath || block?.hpath || '').trim(),
+            notebookName: __tmGetNotebookDisplayName(String(block?.box || doc?.notebook || doc?.box || '').trim()),
+            archived: scope?.archivedDocIds?.has(docId) === true,
+        };
+    }
+
+    function __tmRenderSearchWorkspace() {
+        const bar = document.getElementById('tmInlineSearchbarPortal');
+        const panel = bar?.querySelector?.('#tmSearchWorkspacePanel');
+        if (!panel) return;
+        panel.hidden = !state.searchWorkspaceExpanded;
+        bar.classList.toggle('tm-inline-searchbar--expanded', state.searchWorkspaceExpanded);
+        const toggle = bar.querySelector('#tmSearchWorkspaceToggle');
+        if (toggle instanceof HTMLElement) {
+            const label = state.searchWorkspaceExpanded ? __tmT("task.collapseSearchWorkspace") : __tmT("task.openSearchWorkspace");
+            toggle.setAttribute('aria-expanded', String(state.searchWorkspaceExpanded));
+            toggle.setAttribute('aria-label', label);
+            toggle.setAttribute('data-tm-floating-tooltip-label', label);
+            toggle.innerHTML = `<span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('caret-down', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>`;
+        }
+        if (!state.searchWorkspaceExpanded) return;
+        const stateEl = panel.querySelector('[data-tm-search-workspace-state]');
+        const resultsEl = panel.querySelector('[data-tm-search-workspace-results]');
+        if (!stateEl || !resultsEl) return;
+        if (resultsEl.dataset.tmScrollBound !== '1') {
+            resultsEl.dataset.tmScrollBound = '1';
+            resultsEl.addEventListener('scroll', () => {
+                if (!state.searchWorkspaceExpanded || state.searchWorkspaceLoading || !state.searchWorkspaceHasMore) return;
+                if (resultsEl.scrollTop + resultsEl.clientHeight < resultsEl.scrollHeight - 80) return;
+                __tmRunSearchWorkspace(false);
+            }, { passive: true });
+        }
+        const query = String(state.searchKeyword || '').trim();
+        const results = Array.isArray(state.searchWorkspaceResults) ? state.searchWorkspaceResults : [];
+        if (state.searchWorkspaceLoading) {
+            stateEl.textContent = __tmT("task.loadingSearchContent");
+        } else if (state.searchWorkspaceError) {
+            stateEl.innerHTML = `${esc(__tmT("task.failedToLoadSearchContentResultsMayBeIncomplete"))} <button type="button" class="tm-search-workspace__retry" onclick="tmSearchWorkspaceRetry(event)">${esc(__tmT("common.retry"))}</button>`;
+        } else {
+            stateEl.textContent = __tmT("task.searchResults", { length: results.length });
+        }
+        if (!query) {
+            resultsEl.innerHTML = `<div class="tm-search-workspace__empty">${esc(__tmT("task.enterKeywords"))}</div>`;
+            return;
+        }
+        if (!results.length) {
+            resultsEl.innerHTML = `<div class="tm-search-workspace__empty">${esc(state.searchWorkspaceError ? __tmT("task.failedToLoadSearchContentResultsMayBeIncomplete") : __tmT("task.noSearchResults"))}</div>`;
+            return;
+        }
+        resultsEl.innerHTML = results.map((task) => `
+            <div role="listitem" tabindex="0" class="tm-search-workspace__row" data-tm-search-workspace-task="${esc(task.id)}" onclick="tmOpenSearchWorkspaceResult(event, '${esc(task.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();tmOpenSearchWorkspaceResult(event,'${esc(task.id)}');}">
+                ${__tmRenderTaskCheckboxWrap(task.id, task, {
+                    checked: task.done,
+                    disabled: true,
+                    stopClick: true,
+                    stopPointerDown: true,
+                    extraClass: 'tm-search-workspace__checkbox',
+                })}
+                <span class="tm-search-workspace__main">
+                    <span class="tm-search-workspace__title">${__tmBuildSearchWorkspaceHighlightedHtml(task.content, query)}</span>
+                    <span class="tm-search-workspace__snippet">${__tmBuildSearchWorkspaceHighlightedHtml(task.snippet, query)}</span>
+                </span>
+                <span class="tm-search-workspace__meta">
+                    ${task.archived ? `<span class="tm-search-workspace__archive">${esc(__tmT("task.archivedDocument"))}</span>` : ''}
+                    <span>${task.done ? esc(__tmT("task.done").trim()) : esc(__tmT("task.unfinished"))}</span>
+                    <span class="tm-search-workspace__doc">${esc(task.docName || task.notebookName)}</span>
+                </span>
+            </div>
+        `).join('');
+    }
+
+    async function __tmRunSearchWorkspace(reset = true) {
+        const query = String(state.searchKeyword || '').trim();
+        if (!query) {
+            __tmCancelSearchWorkspaceRequest();
+            state.searchWorkspaceResults = [];
+            state.searchWorkspacePage = 1;
+            state.searchWorkspaceHasMore = false;
+            state.searchWorkspaceError = false;
+            __tmRenderSearchWorkspace();
+            return;
+        }
+        const requestId = (Number(state.searchWorkspaceRequestId) || 0) + 1;
+        state.searchWorkspaceRequestId = requestId;
+        state.searchWorkspaceLoading = true;
+        state.searchWorkspaceError = false;
+        if (reset) {
+            state.searchWorkspaceResults = [];
+            state.searchWorkspacePage = 1;
+            state.searchWorkspaceHasMore = false;
+        }
+        __tmRenderSearchWorkspace();
+        try {
+            const scope = await __tmResolveSearchWorkspaceScope();
+            if (requestId !== state.searchWorkspaceRequestId) return;
+            if (!scope || !scope.paths.length) throw new Error(__tmT("task.noSearchScope"));
+            let page = reset ? 1 : Math.max(1, Number(state.searchWorkspacePage) || 1);
+            let pageCount = 1;
+            let hasMore = false;
+            const resultMap = new Map((reset ? [] : state.searchWorkspaceResults).map((item) => [item.id, item]));
+            for (let attempt = 0; attempt < 4; attempt += 1) {
+                const response = await API.call('/api/search/fullTextSearchBlock', {
+                    query,
+                    method: 0,
+                    page,
+                    pageSize: 50,
+                    paths: scope.paths,
+                    types: { listItem: true },
+                    subTypes: { listItem: { t: true } },
+                    groupBy: 0,
+                    orderBy: state.searchWorkspaceSort === 'created' ? 2 : 0,
+                    searchHPath: false,
+                });
+                if (requestId !== state.searchWorkspaceRequestId) return;
+                if (response?.code !== 0 || !response?.data) {
+                    throw new Error(response?.msg || __tmT("task.searchFailed", { value1: '', value2: '' }));
+                }
+                pageCount = Math.max(1, Number(response.data.pageCount) || 1);
+                hasMore = page < pageCount;
+                (Array.isArray(response.data.blocks) ? response.data.blocks : []).forEach((block) => {
+                    const item = __tmMapSearchWorkspaceResult(block, scope);
+                    if (!item) return;
+                    if (state.searchWorkspaceStatus === 'open' && item.done) return;
+                    if (state.searchWorkspaceStatus === 'done' && !item.done) return;
+                    resultMap.set(item.id, item);
+                });
+                page += 1;
+                if (state.searchWorkspaceStatus === 'all' || !hasMore
+                    || Array.from(resultMap.values()).length >= (reset ? 20 : state.searchWorkspaceResults.length + 20)) break;
+            }
+            state.searchWorkspaceResults = Array.from(resultMap.values());
+            state.searchWorkspacePage = page;
+            state.searchWorkspaceHasMore = hasMore;
+        } catch (e) {
+            if (requestId !== state.searchWorkspaceRequestId) return;
+            state.searchWorkspaceError = true;
+        } finally {
+            if (requestId === state.searchWorkspaceRequestId) {
+                state.searchWorkspaceLoading = false;
+                __tmRenderSearchWorkspace();
+            }
+        }
+    }
+
+    function __tmScheduleSearchWorkspace() {
+        try { if (state.searchWorkspaceTimer) clearTimeout(state.searchWorkspaceTimer); } catch (e) {}
+        state.searchWorkspaceTimer = setTimeout(() => {
+            state.searchWorkspaceTimer = 0;
+            __tmRunSearchWorkspace(true);
+        }, 220);
+    }
+
+    window.tmToggleSearchWorkspace = function(event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const input = __tmGetInlineSearchInput();
+        if (input instanceof HTMLInputElement) state.searchKeyword = input.value;
+        state.searchWorkspaceExpanded = !state.searchWorkspaceExpanded;
+        window.tmToggleSearchScope?.(null, false);
+        if (state.searchWorkspaceExpanded) {
+            window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
+            __tmRunSearchWorkspace(true);
+            window.__tmFocusInlineSearchBar?.({ selectText: false });
+        } else {
+            __tmCancelSearchWorkspaceRequest();
+            window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
+            tmSearch(state.searchKeyword);
+        }
+    };
+
+    window.tmChangeSearchWorkspaceStatus = function(value) {
+        const next = String(value || '').trim();
+        state.searchWorkspaceStatus = ['open', 'done'].includes(next) ? next : 'all';
+        __tmRunSearchWorkspace(true);
+    };
+
+    window.tmChangeSearchWorkspaceSort = function(value) {
+        state.searchWorkspaceSort = String(value || '').trim() === 'created' ? 'created' : 'relevance';
+        __tmRunSearchWorkspace(true);
+    };
+
+    window.tmSearchWorkspaceRetry = function(event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        __tmRunSearchWorkspace(true);
+    };
+
+    window.tmOpenSearchWorkspaceResult = function(event, taskId) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        if (typeof window.tmOpenTaskDetail !== 'function') {
+            hint(__tmT("task.taskDetailsUnavailable"), 'error');
+            return;
+        }
+        window.tmOpenTaskDetail(String(taskId || '').trim(), event, {
+            source: 'search-workspace',
+            forceStandalone: true,
+        });
+    };
 
     function __tmRemoveInlineSearchBarPortal() {
         const bar = document.getElementById('tmInlineSearchbarPortal');
@@ -14690,6 +15045,11 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.searchRequest = null;
         state.searchLoading = false;
         state.searchLoadError = false;
+        __tmCancelSearchWorkspaceRequest();
+        state.searchWorkspaceExpanded = false;
+        state.searchWorkspaceResults = [];
+        state.searchWorkspacePage = 1;
+        state.searchWorkspaceHasMore = false;
         __tmCancelInlineSearchLiveTimer();
         __tmUnbindInlineSearchBarPortalPositionEvents();
         try { document.getElementById('tmInlineSearchbarPortal')?.remove?.(); } catch (e) {}
@@ -14697,6 +15057,9 @@ return Number(state.contextInteractionQuietUntil || 0);
     try { window.__tmRemoveInlineSearchBarPortal = __tmRemoveInlineSearchBarPortal; } catch (e) {}
 
     function __tmGetInlineSearchBarPortalHost() {
+        try {
+            if (typeof __tmIsDockHost === 'function' && __tmIsDockHost()) return document.body;
+        } catch (e) {}
         try {
             const tabRoot = state.modal?.closest?.('.tm-tab-root');
             if (tabRoot instanceof HTMLElement) return tabRoot;
@@ -14724,9 +15087,14 @@ return Number(state.contextInteractionQuietUntil || 0);
             bar.className = 'tm-inline-searchbar tm-inline-searchbar--portal';
             bar.setAttribute('role', 'search');
             bar.innerHTML = __tmBuildInlineSearchBarPortalHtml(state.searchKeyword);
+        } else if (!bar.querySelector('#tmSearchWorkspacePanel') || !bar.querySelector('#tmSearchWorkspaceToggle')) {
+            bar.innerHTML = __tmBuildInlineSearchBarPortalHtml(state.searchKeyword);
         }
         const portalHost = __tmGetInlineSearchBarPortalHost();
         if (portalHost instanceof HTMLElement && bar.parentElement !== portalHost) portalHost.appendChild(bar);
+        try {
+            bar.classList.toggle('tm-inline-searchbar--dock', !!(__tmIsDockHost?.()));
+        } catch (e) {}
         const input = bar.querySelector('#tmInlineSearchInput');
         if (input instanceof HTMLInputElement && document.activeElement !== input && options?.syncValue !== false) {
             try { input.value = String(state.searchKeyword || ''); } catch (e) {}
@@ -14752,7 +15120,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             retry.onclick = () => window.tmSearch(__tmGetInlineSearchInput()?.value ?? state.searchKeyword);
             status.appendChild(retry);
         }
-        bar.setAttribute('aria-busy', state.searchLoading ? 'true' : 'false');
+        bar.setAttribute('aria-busy', state.searchLoading || state.searchWorkspaceLoading ? 'true' : 'false');
+        __tmRenderSearchWorkspace();
         __tmBindFloatingTooltips(bar);
         __tmBindInlineSearchBarPortalPositionEvents();
         __tmPositionInlineSearchBarPortal();
@@ -14783,7 +15152,9 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     // 搜索条
     window.tmShowSearchModal = function() {
+        if (state.searchWorkspaceExpanded) __tmCancelSearchWorkspaceRequest();
         state.searchBarOpen = true;
+        state.searchWorkspaceExpanded = false;
         state.searchBarFocusAfterRender = true;
         state.searchBarSelectAfterRender = true;
         try { state.__searchUnstack?.(); } catch (e) {}
@@ -14797,11 +15168,13 @@ return Number(state.contextInteractionQuietUntil || 0);
         __tmCancelInlineSearchLiveTimer();
         const input = __tmGetInlineSearchInput();
         const keyword = input instanceof HTMLInputElement ? input.value : '';
+        state.searchKeyword = String(keyword || '').trim();
         state.searchBarOpen = true;
         state.searchBarFocusAfterRender = false;
         state.searchBarSelectAfterRender = false;
         window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
-        tmSearch(keyword);
+        if (state.searchWorkspaceExpanded) __tmRunSearchWorkspace(true);
+        else tmSearch(keyword);
         return false;
     };
 
@@ -14809,6 +15182,14 @@ return Number(state.contextInteractionQuietUntil || 0);
         const input = event?.target instanceof HTMLInputElement ? event.target : __tmGetInlineSearchInput();
         const keyword = input instanceof HTMLInputElement ? input.value : '';
         state.searchBarOpen = true;
+        state.searchKeyword = keyword;
+        if (state.searchWorkspaceExpanded) {
+            __tmCancelSearchWorkspaceRequest();
+            state.searchWorkspaceLoading = true;
+            __tmRenderSearchWorkspace();
+            __tmScheduleSearchWorkspace();
+            return;
+        }
         __tmCancelInlineSearchLiveTimer();
         state.searchBarLiveSearchTimer = setTimeout(() => {
             state.searchBarLiveSearchTimer = 0;
@@ -14827,11 +15208,20 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (input instanceof HTMLInputElement) {
             try { input.value = ''; } catch (e) {}
         }
+        state.searchKeyword = '';
         state.searchBarOpen = true;
         state.searchBarFocusAfterRender = false;
         state.searchBarSelectAfterRender = false;
         window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
-        tmSearch('');
+        if (state.searchWorkspaceExpanded) {
+            __tmCancelSearchWorkspaceRequest();
+            state.searchWorkspaceResults = [];
+            state.searchWorkspaceHasMore = false;
+            state.searchWorkspaceError = false;
+            __tmRenderSearchWorkspace();
+        } else {
+            tmSearch('');
+        }
         return false;
     };
 
@@ -14844,6 +15234,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.searchLoading = false;
         state.searchLoadError = false;
         state.searchBarOpen = false;
+        state.searchWorkspaceExpanded = false;
         state.searchBarFocusAfterRender = false;
         state.searchBarSelectAfterRender = true;
         try { state.__searchUnstack?.(); } catch (e) {}
@@ -14859,6 +15250,10 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     window.tmHandleInlineSearchKeydown = function(event) {
         if (event?.key === 'Escape') {
+            if (state.searchWorkspaceExpanded) {
+                window.tmToggleSearchWorkspace?.(event);
+                return false;
+            }
             return window.tmCloseInlineSearch?.(event);
         }
         return true;
@@ -19148,7 +19543,11 @@ return Number(state.contextInteractionQuietUntil || 0);
     __tmPhosphorBoldPaths['ruler'] = 'M238.15,70.54,185.46,17.86a20,20,0,0,0-28.29,0L17.85,157.17a20,20,0,0,0,0,28.29l52.69,52.68a20,20,0,0,0,28.29,0L238.15,98.83A20,20,0,0,0,238.15,70.54ZM84.68,218.34l-47-47L64,145l23.52,23.52a12,12,0,0,0,17-17L81,128l15-15,23.51,23.52a12,12,0,0,0,17-17L113,96l15-15,23.52,23.52a12,12,0,0,0,17-17L145,64l26.35-26.34,47,47Z';
     __tmPhosphorBoldPaths['caret-down'] = 'M216.49,104.49l-80,80a12,12,0,0,1-17,0l-80-80a12,12,0,0,1,17-17L128,159l71.51-71.52a12,12,0,0,1,17,17Z';
     __tmPhosphorBoldPaths['magnifying-glass'] = __tmPhosphorBoldPaths['search'];
+    // Phosphor 2.1.1 assets/bold/funnel-bold.svg.
+    __tmPhosphorBoldPaths['funnel'] = 'M234.29,47.91A20,20,0,0,0,216,36H40A20,20,0,0,0,25.2,69.45l.12.14L92,140.75V216a20,20,0,0,0,31.1,16.64l32-21.33A20,20,0,0,0,164,194.66V140.75l66.67-71.16.12-.14A20,20,0,0,0,234.29,47.91Zm-91,79.89A12,12,0,0,0,140,136v56.52l-24,16V136a12,12,0,0,0-3.25-8.2L49.23,60H206.77Z';
     __tmPhosphorBoldPaths['link-simple'] = 'M87.5,151.52l64-64a12,12,0,0,1,17,17l-64,64a12,12,0,0,1-17-17Zm131-114a60.08,60.08,0,0,0-84.87,0L103.51,67.61a12,12,0,0,0,17,17l30.07-30.06a36,36,0,0,1,50.93,50.92L171.4,135.52a12,12,0,1,0,17,17l30.08-30.06A60.09,60.09,0,0,0,218.45,37.55ZM135.52,171.4l-30.07,30.08a36,36,0,0,1-50.92-50.93l30.06-30.07a12,12,0,0,0-17-17L37.55,133.58a60,60,0,0,0,84.88,84.87l30.06-30.07a12,12,0,0,0-17-17Z';
+    // Phosphor 2.1.1 assets/bold/flow-arrow-bold.svg.
+    __tmPhosphorBoldPaths['flow-arrow'] = 'M248.49,71.51l-32-32a12,12,0,0,0-17,17L211,68h-3c-52,0-64.8,30.71-75.08,55.38-8.82,21.17-15.45,37.05-42.75,40.09a44,44,0,1,0,.28,24.08c43.34-3.87,55.07-32,64.63-54.93C164.9,109,172,92,208,92h3l-11.52,11.51a12,12,0,0,0,17,17l32-32A12,12,0,0,0,248.49,71.51ZM48,196a20,20,0,1,1,20-20A20,20,0,0,1,48,196Z';
     __tmPhosphorBoldPaths['sun'] = 'M116,36V20a12,12,0,0,1,24,0V36a12,12,0,0,1-24,0Zm80,92a68,68,0,1,1-68-68A68.07,68.07,0,0,1,196,128Zm-24,0a44,44,0,1,0-44,44A44.05,44.05,0,0,0,172,128ZM51.51,68.49a12,12,0,1,0,17-17l-12-12a12,12,0,0,0-17,17Zm0,119-12,12a12,12,0,0,0,17,17l12-12a12,12,0,1,0-17-17ZM196,72a12,12,0,0,0,8.49-3.51l12-12a12,12,0,0,0-17-17l-12,12A12,12,0,0,0,196,72Zm8.49,115.51a12,12,0,0,0-17,17l12,12a12,12,0,0,0,17-17ZM48,128a12,12,0,0,0-12-12H20a12,12,0,0,0,0,24H36A12,12,0,0,0,48,128Zm80,80a12,12,0,0,0-12,12v16a12,12,0,0,0,24,0V220A12,12,0,0,0,128,208Zm108-92H220a12,12,0,0,0,0,24h16a12,12,0,0,0,0-24Z';
     __tmPhosphorBoldPaths['sun-horizon'] = 'M240,148H203.89c.07-1.33.11-2.66.11-4a76,76,0,0,0-152,0c0,1.34,0,2.67.11,4H16a12,12,0,0,0,0,24H240a12,12,0,0,0,0-24ZM76,144a52,52,0,0,1,104,0c0,1.34-.07,2.67-.17,4H76.17C76.07,146.67,76,145.34,76,144Zm144,56a12,12,0,0,1-12,12H48a12,12,0,0,1,0-24H208A12,12,0,0,1,220,200ZM12.62,92.21a12,12,0,0,1,15.17-7.59l12,4a12,12,0,1,1-7.58,22.77l-12-4A12,12,0,0,1,12.62,92.21Zm56-48.41a12,12,0,1,1,22.76-7.59l4,12A12,12,0,1,1,72.62,55.8Zm140,60a12,12,0,0,1,7.59-15.18l12-4a12,12,0,0,1,7.58,22.77l-12,4a12,12,0,0,1-15.17-7.59Zm-48-55.59,4-12a12,12,0,1,1,22.76,7.59l-4,12a12,12,0,1,1-22.76-7.59Z';
     __tmPhosphorBoldPaths['calendar-plus'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28ZM68,52a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16V76H52V52ZM52,204V100H204V204Zm112-52a12,12,0,0,1-12,12H140v12a12,12,0,0,1-24,0V164H104a12,12,0,0,1,0-24h12V128a12,12,0,0,1,24,0v12h12A12,12,0,0,1,164,152Z';

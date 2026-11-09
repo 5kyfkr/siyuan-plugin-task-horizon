@@ -396,3 +396,41 @@ for (const [field, value, expected] of timelineCases) {
         assert.ok(calls.includes(expected), `expected ${expected}, received ${calls.join(', ') || 'no cell updates'}`);
     });
 }
+
+test('combination-board detail remark patches update mounted Kanban cards in place', () => {
+    const calls = [];
+    const context = vm.createContext({
+        state: { viewMode: 'comboBoard', homepageOpen: false, modal: null },
+        __tmIsPluginVisibleNow: () => true,
+        __tmPatchAffectsCalendar: () => false,
+        __tmShouldSuppressChecklistDetailSaveRefresh: () => false,
+        __tmViewControllers: {
+            list: { patchTask: () => false },
+            checklist: { patchTask: () => false },
+            timeline: { patchTask: () => false },
+            kanban: {
+                patchTask: (taskId, patch) => {
+                    calls.push({ taskId, patch });
+                    return true;
+                },
+            },
+            whiteboard: { patchTask: () => false },
+            detail: { patchTask: () => false },
+        },
+    });
+    const start = viewSource.indexOf('    function __tmRefreshTaskFieldsAcrossViews(');
+    const end = viewSource.indexOf('\n    function __tmGetTaskSuppressionIds(', start);
+    assert.ok(start >= 0 && end > start, 'missing task field refresh coordinator');
+    vm.runInContext(
+        viewSource.slice(start, end) + '\nthis.refreshTaskFields = __tmRefreshTaskFieldsAcrossViews;',
+        context,
+    );
+
+    assert.equal(context.refreshTaskFields('task-a', { remark: '新备注' }, {
+        projectionManaged: true,
+        projectionRequired: false,
+        fallback: false,
+        skipDetailPatch: true,
+    }), true);
+    assert.deepEqual(calls, [{ taskId: 'task-a', patch: { remark: '新备注' } }]);
+});

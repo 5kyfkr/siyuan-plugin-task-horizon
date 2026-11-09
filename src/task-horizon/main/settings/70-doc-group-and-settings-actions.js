@@ -3360,6 +3360,10 @@
         const next = __tmNormalizeWhiteboardAllTabsLayoutMode(mode);
         const prev = __tmGetWhiteboardAllTabsLayoutMode();
         if (next === prev) return;
+        state.whiteboardClickLinkMode = false;
+        state.whiteboardLinkFromTaskId = '';
+        state.whiteboardLinkFromDocId = '';
+        state.whiteboardLinkPreview = null;
         SettingsStore.data.whiteboardAllTabsLayoutMode = next;
         state.whiteboardAllTabsDocDragId = '';
         try { SettingsStore.syncToLocal(); } catch (e) {}

@@ -13,16 +13,38 @@ global.AbortController = class AbortController {
     constructor() { this.signal = {}; }
     abort() {}
 };
+const authoritativeLunarDates = new Map([
+    ['2027-02-05', { relatedYear: 2026, month: 12, day: 29, isLeap: false }],
+    ['2027-02-06', { relatedYear: 2027, month: 1, day: 1, isLeap: false }],
+    ['2027-06-09', { relatedYear: 2027, month: 5, day: 5, isLeap: false }],
+    ['2027-09-15', { relatedYear: 2027, month: 8, day: 15, isLeap: false }],
+]);
+global.__tmGetChineseLunarDateInfo = (date) => authoritativeLunarDates.get([
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+].join('-')) || null;
 
 require(path.resolve(__dirname, '..', 'calendar-view.js'));
 
 const api = global.__tmCalendar;
+delete global.__tmGetChineseLunarDateInfo;
+assert.equal(
+    api.buildPredictedCnHolidayDays(2027).some((item) => item.name === '春节'),
+    false,
+    'future lunar festivals must not fall back to unreliable ICU calendar data',
+);
+global.__tmGetChineseLunarDateInfo = (date) => authoritativeLunarDates.get([
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+].join('-')) || null;
 const predicted2027 = api.buildPredictedCnHolidayDays(2027);
 const predictedByName = new Map(predicted2027.map((item) => [item.name, item.date]));
 assert.equal(predictedByName.get('元旦'), '2027-01-01', 'future fixed-date holidays must be available before the official schedule update');
 assert.equal(predictedByName.get('劳动节'), '2027-05-01', 'future Labor Day must be available before the official schedule update');
 assert.equal(predictedByName.get('国庆节'), '2027-10-01', 'future National Day must be available before the official schedule update');
-assert.ok(predictedByName.get('春节'), 'future Spring Festival must be derived from the lunar date');
+assert.equal(predictedByName.get('春节'), '2027-02-06', 'future Spring Festival must use the authoritative lunar date');
 assert.ok(predictedByName.get('端午节'), 'future Dragon Boat Festival must be derived from the lunar date');
 assert.ok(predictedByName.get('中秋节'), 'future Mid-Autumn Festival must be derived from the lunar date');
 assert.ok(predictedByName.get('清明节'), 'future Qingming Festival must be derived from the solar term');
@@ -36,26 +58,26 @@ const predictedEvents2027 = api.buildCnHolidayEvents(
 );
 const predictedDayEvents2027 = api.buildCnHolidayEvents(
     predicted2027,
+    new Date(2027, 1, 6),
     new Date(2027, 1, 7),
-    new Date(2027, 1, 8),
     'timeGridDay',
     { cnHolidayColor: '#ff3333' },
 );
-assert.ok(predictedEvents2027.some((event) => event.start === '2027-02-07' && event.title === '春节'), 'predicted Spring Festival must render as a holiday event');
+assert.ok(predictedEvents2027.some((event) => event.start === '2027-02-06' && event.title === '春节'), 'predicted Spring Festival must render as a holiday event');
 assert.ok(predictedEvents2027.some((event) => event.start === '2027-05-01' && event.title === '劳动节'), 'predicted Labor Day must render as a holiday event');
 assert.equal(predictedDayEvents2027.filter((event) => event.display === 'background').length, 0, 'predicted festivals must not render a confirmed rest background');
 assert.equal(
-    api.getCnHolidayDisplayInfo(predicted2027.find((item) => item.name === '春节'), '2027-02-07').status,
+    api.getCnHolidayDisplayInfo(predicted2027.find((item) => item.name === '春节'), '2027-02-06').status,
     '',
     'predicted festivals must not display a rest badge before official holiday data exists',
 );
 assert.equal(
-    predictedEvents2027.find((event) => event.start === '2027-02-07').extendedProps.__tmCnHolidayPredicted,
+    predictedEvents2027.find((event) => event.start === '2027-02-06').extendedProps.__tmCnHolidayPredicted,
     true,
     'predicted festival events must retain their prediction marker',
 );
 assert.equal(
-    api.getCnHolidayDisplayInfo({ date: '2027-02-07', type: 2, name: '春节', predicted: true }, '2027-02-07').status,
+    api.getCnHolidayDisplayInfo({ date: '2027-02-06', type: 2, name: '春节', predicted: true }, '2027-02-06').status,
     '',
     'future festival cache entries must not be interpreted as confirmed rest days',
 );

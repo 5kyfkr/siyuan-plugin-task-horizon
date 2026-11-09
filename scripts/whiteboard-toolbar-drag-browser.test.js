@@ -36,21 +36,33 @@ runtime = runtime.slice(0, startup) + `
                 docGroups:[{id:'work',name:'测试工作组',docIds:[docId]}],
                 docTabsManualArchiveOnly:true, whiteboardAllTabsLayoutMode:'global',
                 whiteboardTool:tool, whiteboardCardFields:[],
-                whiteboardPlacedTaskIds:{member:true}, whiteboardNodePos:{member:{x:260,y:160}},
-                whiteboardNotes:[], whiteboardFrames:[], whiteboardView:{x:30,y:25,zoom},
+                whiteboardPlacedTaskIds:{member:true,member2:true,member3:true},
+                whiteboardNodePos:{member:{x:40,y:160},member2:{x:320,y:160},member3:{x:600,y:160}},
+                whiteboardLinks:[], whiteboardNotes:[], whiteboardFrames:[], whiteboardView:{x:30,y:25,zoom},
+                whiteboardNavigatorHidden:true,
             });
-            const task = {id:'member',root_id:docId,content:'合成测试任务',done:false,children:[]};
-            state.taskTree=[{id:docId,name:'测试白板',tasks:[task]}];
-            state.allDocuments=state.taskTree.slice();state.flatTasks={member:task};
+            const tasks = [
+                {id:'member',root_id:docId,content:'合成测试任务',done:false,children:[]},
+                {id:'member2',root_id:docId,content:'合成测试任务 2',done:false,children:[]},
+                {id:'member3',root_id:docId,content:'合成测试任务 3',done:false,children:[]},
+            ];
+            state.taskTree=[{id:docId,name:'测试白板',tasks}];
+            state.allDocuments=state.taskTree.slice();
+            state.flatTasks=Object.fromEntries(tasks.map(task=>[task.id,task]));
             state.__tmLoadedDocIdsForTasks=[docId];
             state.__tmGlobalWhiteboardAuthoritativeScope={groupId:'work',docIds:[docId],complete:true};
-            __tmTaskStore.acceptAuthoritative([task],{replaceAll:true,replaceDocuments:true,docIds:[docId],replaceStructure:true});
+            __tmTaskStore.acceptAuthoritative(tasks,{replaceAll:true,replaceDocuments:true,docIds:[docId],replaceStructure:true});
             Object.assign(state,{viewMode:'whiteboard',activeDocId:global?'all':docId,
                 searchKeyword:'',filterRules:[],rule:{},showCompletedTasks:false,otherBlocks:[],
                 whiteboardHistoryUndoStack:[],whiteboardSuppressClickUntil:0,
                 whiteboardSelectedTaskId:'',whiteboardSelectedNoteId:'',whiteboardSelectedFrameId:''});
             __tmSetWhiteboardGlobalBoardState('work',{
-                placedTaskIds:{member:true},nodePos:{member:{docId,x:260,y:160}},
+                placedTaskIds:{member:true,member2:true,member3:true},
+                nodePos:{
+                    member:{docId,x:40,y:160},
+                    member2:{docId,x:320,y:160},
+                    member3:{docId,x:600,y:160},
+                },
                 notes:[],frames:[],view:{x:30,y:25,zoom},
             },{keepEmpty:true});
             syntheticEntitlementChecks.length=0;
@@ -97,6 +109,61 @@ runtime = runtime.slice(0, startup) + `
         });
         await reset();
         assert.equal(await page.locator('[data-tm-whiteboard-create-tool]').count(),3);
+        const toolbar = page.locator('.tm-whiteboard-bottom-toolbar');
+        const toolbarMetrics = await toolbar.evaluate(node => ({
+            buttonCount: node.querySelectorAll('.tm-whiteboard-toolbar-btn').length,
+            separatorCount: node.querySelectorAll('.tm-whiteboard-toolbar-separator').length,
+            scrollWidth: node.scrollWidth,
+            clientWidth: node.clientWidth,
+        }));
+        assert.equal(toolbarMetrics.buttonCount,11,'desktop must keep zoom and fullscreen buttons inline');
+        assert.equal(toolbarMetrics.separatorCount,2);
+        assert.ok(toolbarMetrics.scrollWidth <= toolbarMetrics.clientWidth + 1,`desktop whiteboard toolbar must not overflow: ${JSON.stringify(toolbarMetrics)}`);
+        assert.deepEqual(await toolbar.evaluate(node => {
+            const link = node.querySelector('.tm-whiteboard-toolbar-btn--card-link');
+            const handwriting = node.querySelector('.tm-whiteboard-toolbar-btn--handwriting');
+            return [
+                link?.nextElementSibling?.classList.contains('tm-whiteboard-toolbar-separator'),
+                handwriting?.nextElementSibling?.classList.contains('tm-whiteboard-toolbar-separator'),
+            ];
+        }),[true,true],'separators must follow card-link and handwriting tools');
+        const toolbarBox=await toolbar.boundingBox();
+        await page.screenshot({path:path.join(output,'desktop-toolbar.png'),clip:toolbarBox});
+        await page.locator('.tm-whiteboard-bottom-more .tm-whiteboard-toolbar-btn').click();
+        assert.equal(await page.locator('.tm-whiteboard-bottom-more-panel .tm-whiteboard-bottom-more-item').count(),4,'desktop More menu must not duplicate zoom or fullscreen');
+        await page.locator('.tm-whiteboard-bottom-more .tm-whiteboard-toolbar-btn').click();
+        for (const global of [true,false]) {
+            await reset({global});
+            await page.locator('.tm-whiteboard-toolbar-btn--card-link').click();
+            for (const id of ['member','member2','member3']) {
+                await page.locator(`.tm-whiteboard-node[data-task-id="${id}"] .tm-task-content-clickable`).click();
+                if (id !== 'member') {
+                    await page.waitForFunction(
+                        ({id,global})=>{
+                            const links=global?toolbarTest.board().links:toolbarTest.SettingsStore.data.whiteboardLinks;
+                            return toolbarTest.state.whiteboardClickLinkMode===true
+                                && toolbarTest.state.whiteboardLinkFromTaskId===id
+                                && links.length===(id==='member2'?1:2);
+                        },
+                        {id,global},
+                    );
+                }
+            }
+            const links=await page.evaluate(global=>global?toolbarTest.board().links:toolbarTest.SettingsStore.data.whiteboardLinks,global);
+            assert.deepEqual(links.map(link=>({
+                from:link.from,
+                to:link.to,
+                fromAnchor:link.fromAnchor||'right',
+                toAnchor:link.toAnchor||'left',
+            })),[
+                {from:'member',to:'member2',fromAnchor:'right',toAnchor:'left'},
+                {from:'member2',to:'member3',fromAnchor:'right',toAnchor:'left'},
+            ],'continuous card-link mode must chain in click order from right output to left input');
+            assert.equal(await page.evaluate(()=>toolbarTest.state.whiteboardClickLinkMode),true,'continuous card-link mode must remain active');
+            await page.keyboard.press('Escape');
+            assert.equal(await page.evaluate(()=>toolbarTest.state.whiteboardClickLinkMode),false,'Escape must leave continuous card-link mode');
+        }
+        await reset();
         await tool('text').click();
         assert.equal(await page.evaluate(() => toolbarTest.SettingsStore.data.whiteboardTool),'text');
         assert.equal(await page.locator('.tm-whiteboard-note-editor').count(),0);
@@ -226,6 +293,15 @@ runtime = runtime.slice(0, startup) + `
         assert.equal(await page.evaluate(() => toolbarTest.board().frames.length),0);
 
         await page.setViewportSize({width:390,height:844});await reset();
+        const mobileToolbar=page.locator('.tm-whiteboard-bottom-toolbar');
+        const mobileMetrics=await mobileToolbar.evaluate(node=>({buttonCount:node.querySelectorAll('.tm-whiteboard-toolbar-btn').length,scrollWidth:node.scrollWidth,clientWidth:node.clientWidth}));
+        assert.equal(mobileMetrics.buttonCount,8,'mobile must move zoom and fullscreen into More');
+        assert.ok(mobileMetrics.scrollWidth <= mobileMetrics.clientWidth + 1,'mobile whiteboard toolbar must not overflow');
+        const mobileToolbarBox=await mobileToolbar.boundingBox();
+        await page.screenshot({path:path.join(output,'mobile-toolbar.png'),clip:mobileToolbarBox});
+        await page.locator('.tm-whiteboard-bottom-more .tm-whiteboard-toolbar-btn').click();
+        assert.equal(await page.locator('.tm-whiteboard-bottom-more-panel .tm-whiteboard-bottom-more-item').count(),7,'mobile More menu must contain zoom and fullscreen');
+        await reset();
         const touch=await page.context().newCDPSession(page);
         const r=await tool('text').boundingBox(), point=await target();
         await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:r.x+r.width/2,y:r.y+r.height/2}]});

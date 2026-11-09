@@ -11,12 +11,18 @@ const controls = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/4
 const switching = fs.readFileSync(path.join(root, 'src/task-horizon/main/render/47-render-side-panels-and-view-switching.js'), 'utf8');
 const foundation = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialogs-and-ui-foundation.js'), 'utf8');
 const whiteboard = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/51-whiteboard-and-link-runtime.js'), 'utf8');
+const styles = fs.readFileSync(path.join(root, 'task-horizon.css'), 'utf8');
 const slice = (source, start, end) => {
     const from = source.indexOf(start);
     const to = source.indexOf(end, from + start.length);
     assert.ok(from >= 0 && to > from, `missing runtime segment: ${start}`);
     return source.slice(from, to);
 };
+
+test('topbar selects keep a full line box for CJK labels', () => {
+    const triggerStyles = styles.match(/\.tm-topbar-select\s+\.bc-select-trigger\s*\{([^}]*)\}/)?.[1] || '';
+    assert.match(triggerStyles, /line-height:\s*1\.5;/, 'Basecoat unit line height clips CJK glyphs inside overflow-hidden values');
+});
 
 function fixture({ mobile = false, dock = false } = {}) {
     class Element {}
@@ -37,6 +43,7 @@ function fixture({ mobile = false, dock = false } = {}) {
         SettingsStore: { data: {} },
         window: { matchMedia: () => ({ matches: false }) },
         document: { createElement: () => Object.assign(new HTMLElement(), { style: { setProperty() {} } }) },
+        __TM_CUSTOM_BOARD_VIEW_MODE: 'comboBoard',
         __TM_BODY_ONLY_VIEW_SWITCH_MODES: new Set(['list', 'checklist', 'kanban', 'whiteboard']),
         __tmIsMobileDevice: () => mobile,
         __tmIsRuntimeMobileClient: () => mobile,

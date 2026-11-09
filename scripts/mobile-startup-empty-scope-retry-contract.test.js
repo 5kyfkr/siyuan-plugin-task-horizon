@@ -15,8 +15,10 @@ assert.notEqual(loadStart, -1, 'document loader must exist');
 assert.notEqual(emptyStateStart, -1, 'document loader must keep an explicit empty-state path');
 
 const beforeEmptyState = source.slice(loadStart, emptyStateStart);
-assert.match(beforeEmptyState, /if \(allDocIds\.length === 0 && \(retryEmptyDocScope \|\| waitForDocScopeResolve\)\)/,
-    'startup recovery must run before committing an empty task tree');
+assert.match(beforeEmptyState, /if \(!customBoardMode && allDocIds\.length === 0 && \(retryEmptyDocScope \|\| waitForDocScopeResolve\)\)/,
+    'startup recovery must run before committing an empty normal task tree');
+assert.match(beforeEmptyState, /if \(customBoardMode && allDocIds\.length === 0 && \(retryEmptyDocScope \|\| waitForDocScopeResolve\)\)/,
+    'startup recovery must run before committing an empty combination-board task tree');
 assert.match(beforeEmptyState, /configuredScope = !!\([\s\S]*scopeContext\?\.entries[\s\S]*scopeContext\?\.otherBlockRefs/,
     'empty-scope retries must require configured document sources');
 assert.match(beforeEmptyState, /const quickAddDocId = String\(scopeContext\?\.quickAddDocId/,

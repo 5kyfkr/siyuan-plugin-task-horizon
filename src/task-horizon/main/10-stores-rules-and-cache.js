@@ -12677,6 +12677,7 @@
                 { value: 'startDate', label: __tmT("kernel.startDate"), type: 'datetime' },
                 { value: 'completionTime', label: __tmT("kernel.dueDate"), type: 'datetime' },
                 { value: 'taskDate', label: __tmT("task.taskDatesInclCheckInPlan"), type: 'datetime' },
+                { value: 'taskDateRange', label: __tmT("task.taskDateRange"), type: 'daterange' },
                 { value: 'taskCompleteAt', label: __tmT("kernel.completionTime"), type: 'datetime' },
                 { value: 'created', label: __tmT("task.createdTime"), type: 'datetime' },
                 { value: 'updated', label: __tmT("task.updatedTime"), type: 'datetime' },
@@ -12705,6 +12706,7 @@
             const key = String(fieldInfo?.value || fieldValue || '').trim();
             if (!key) return false;
             return String(fieldInfo?.type || '').trim() === 'datetime'
+                || String(fieldInfo?.type || '').trim() === 'daterange'
                 || key === 'startDate'
                 || key === 'created'
                 || key === 'updated'
@@ -12794,6 +12796,90 @@
             return timeValue;
         },
 
+        normalizeRelativeDayOffset(value, fallback = 0) {
+            const numeric = Number(value);
+            return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : fallback;
+        },
+
+        normalizeRelativeDayRange(value) {
+            const fromDays = this.normalizeRelativeDayOffset(value?.fromDays, 1);
+            const toDays = this.normalizeRelativeDayOffset(value?.toDays, 7);
+            return fromDays <= toDays
+                ? { fromDays, toDays }
+                : { fromDays: toDays, toDays: fromDays };
+        },
+
+        buildLocalDayRangeRuntime(nowDate, fromDays, toDays) {
+            const range = this.normalizeRelativeDayRange({ fromDays, toDays });
+            return {
+                ...range,
+                startTs: new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + range.fromDays).getTime(),
+                endTs: new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + range.toDays + 1).getTime(),
+            };
+        },
+
+        parseDateOnlyDayStart(value, offsetDays = 0) {
+            const text = String(value || '').trim();
+            const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+                || /^(\d{4})(\d{2})(\d{2})$/.exec(text);
+            if (!match) return null;
+            const year = Number(match[1]);
+            const month = Number(match[2]) - 1;
+            const date = Number(match[3]);
+            const dayStart = new Date(year, month, date);
+            if (dayStart.getFullYear() !== year || dayStart.getMonth() !== month || dayStart.getDate() !== date) {
+                return null;
+            }
+            return new Date(year, month, date + offsetDays).getTime();
+        },
+
+        buildDateRangeRuntime(value) {
+            let from = '';
+            let to = '';
+            if (value && typeof value === 'object') {
+                from = value.from || '';
+                to = value.to || '';
+            } else {
+                const parts = String(value || '').split(',');
+                from = parts[0] || '';
+                to = parts[1] || '';
+            }
+            const boundary = (raw, isEnd) => {
+                const dayStartTs = this.parseDateOnlyDayStart(raw);
+                if (dayStartTs === null) {
+                    return { ts: __tmParseTimeToTs(raw) || 0, exclusive: false };
+                }
+                if (!isEnd) return { ts: dayStartTs, exclusive: false };
+                return {
+                    ts: this.parseDateOnlyDayStart(raw, 1),
+                    exclusive: true,
+                };
+            };
+            const fromBoundary = boundary(from, false);
+            const toBoundary = boundary(to, true);
+            return {
+                fromTs: Number.isFinite(fromBoundary.ts) ? fromBoundary.ts : 0,
+                toTs: Number.isFinite(toBoundary.ts) ? toBoundary.ts : 0,
+                toExclusive: toBoundary.exclusive,
+            };
+        },
+
+        buildDateValueRuntime(value) {
+            const dayStartTs = this.parseDateOnlyDayStart(value);
+            if (dayStartTs !== null) {
+                return {
+                    targetTs: dayStartTs,
+                    nextDayStartTs: this.parseDateOnlyDayStart(value, 1),
+                    dateOnly: true,
+                };
+            }
+            const targetTs = __tmParseTimeToTs(value) || 0;
+            return {
+                targetTs: Number.isFinite(targetTs) ? targetTs : 0,
+                dateOnly: false,
+            };
+        },
+
         buildConditionRuntime(condition, options = {}) {
             const opts = (options && typeof options === 'object') ? options : {};
             const field = String(condition?.field || '').trim();
@@ -12822,6 +12908,10 @@
                         const startTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
                         return { startTs, endTs: startTs + 24 * 60 * 60 * 1000 };
                     }
+                    case 'range_tomorrow':
+                        return this.buildLocalDayRangeRuntime(nowDate, 1, 1);
+                    case 'range_day_after_tomorrow':
+                        return this.buildLocalDayRangeRuntime(nowDate, 2, 2);
                     case 'range_overlap_today': {
                         const todayStartTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
                         const tomorrowStartTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + 1).getTime();
@@ -12867,6 +12957,14 @@
                         const endTs = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate() + days + 1).getTime();
                         return { startTs, endTs };
                     }
+                    case 'range_relative_days': {
+                        const range = this.normalizeRelativeDayRange(value);
+                        return this.buildLocalDayRangeRuntime(nowDate, range.fromDays, range.toDays);
+                    }
+                    case 'range_contains_relative_days': {
+                        const range = this.normalizeRelativeDayRange(value);
+                        return this.buildLocalDayRangeRuntime(nowDate, range.fromDays, range.toDays);
+                    }
                     case 'range_year': {
                         const startTs = new Date(nowDate.getFullYear(), 0, 1).getTime();
                         const endTs = new Date(nowDate.getFullYear() + 1, 0, 1).getTime();
@@ -12875,28 +12973,10 @@
                     case 'before':
                     case 'after':
                     case '=':
-                    case '!=': {
-                        const targetTs = __tmParseTimeToTs(value) || 0;
-                        return { targetTs: Number.isFinite(targetTs) ? targetTs : 0 };
-                    }
-                    case 'between': {
-                        let from = '';
-                        let to = '';
-                        if (value && typeof value === 'object') {
-                            from = value.from || '';
-                            to = value.to || '';
-                        } else {
-                            const parts = String(value || '').split(',');
-                            from = parts[0] || '';
-                            to = parts[1] || '';
-                        }
-                        const fromTs = __tmParseTimeToTs(from) || 0;
-                        const toTs = __tmParseTimeToTs(to) || 0;
-                        return {
-                            fromTs: Number.isFinite(fromTs) ? fromTs : 0,
-                            toTs: Number.isFinite(toTs) ? toTs : 0,
-                        };
-                    }
+                    case '!=':
+                        return this.buildDateValueRuntime(value);
+                    case 'between':
+                        return this.buildDateRangeRuntime(value);
                     default:
                         return null;
                 }
@@ -12985,6 +13065,26 @@
             return false;
         },
 
+        isNoValueDatetimeOperator(operator) {
+            switch (String(operator || '').trim()) {
+                case 'overdue':
+                case 'range_today':
+                case 'range_tomorrow':
+                case 'range_day_after_tomorrow':
+                case 'range_overlap_today':
+                case 'range_week':
+                case 'range_month':
+                case 'range_year':
+                case 'before_today':
+                case 'after_today':
+                case 'on_or_before_today':
+                case 'on_or_after_today':
+                    return true;
+                default:
+                    return false;
+            }
+        },
+
         // 获取可用操作符
         getOperators(fieldType) {
             const baseOperators = [
@@ -13008,12 +13108,15 @@
 
             const datetimeOperators = [
                 { value: 'range_today', label: __tmT("common.today") },
+                { value: 'range_tomorrow', label: __tmT("calendar.tomorrow") },
+                { value: 'range_day_after_tomorrow', label: __tmT("task.dayAfterTomorrow") },
                 { value: 'range_overlap_today', label: __tmT("task.coversToday") },
                 { value: 'overdue', label: __tmT("task.overdue") },
                 { value: 'range_week', label: __tmT("task.thisWeek") },
                 { value: 'range_month', label: __tmT("task.thisMonth") },
                 { value: 'range_recent_days', label: __tmT("task.todayToNDaysAgo") },
                 { value: 'range_next_days', label: __tmT("task.todayToNDaysAhead") },
+                { value: 'range_relative_days', label: __tmT("task.relativeDateRange") },
                 { value: 'range_year', label: __tmT("task.thisYear") },
                 { value: 'before_today', label: __tmT("task.beforeToday") },
                 { value: 'after_today', label: __tmT("task.afterToday") },
@@ -13029,6 +13132,8 @@
                     return [...baseOperators, ...numberOperators];
                 case 'datetime':
                     return [...baseOperators, ...datetimeOperators];
+                case 'daterange':
+                    return [{ value: 'range_contains_relative_days', label: __tmT("task.containsRelativeRange") }];
                 case 'boolean':
                     return [
                         { value: '=', label: __tmT("task.yes") },
@@ -13113,6 +13218,9 @@
                 ? condition
                 : this.buildConditionRuntime(condition, opts);
             const { field, operator, value, fieldInfo, isSelectField } = runtime;
+            if (operator === 'range_contains_relative_days') {
+                return this.taskDateRangeContainsRelative(task, runtime, opts);
+            }
             let taskValue = this.getTaskFieldValue(task, fieldInfo || field, opts);
             if (field === 'customStatus') {
                 const raw = String(taskValue || '').trim();
@@ -13289,6 +13397,18 @@
             return true;
         },
 
+        taskDateRangeContainsRelative(task, runtime, options = {}) {
+            const opts = (options && typeof options === 'object') ? options : {};
+            const start = __tmNormalizeDateOnly(this.getTaskFieldValue(task, 'startDate', opts));
+            const end = __tmNormalizeDateOnly(this.getTaskFieldValue(task, 'completionTime', opts));
+            if (!start || !end) return false;
+            const taskFrom = start < end ? start : end;
+            const taskTo = start < end ? end : start;
+            const rangeFrom = __tmNormalizeDateOnly(new Date(Number(runtime?.timeRuntime?.startTs || 0)));
+            const rangeTo = __tmNormalizeDateOnly(new Date(Number(runtime?.timeRuntime?.endTs || 0) - 1));
+            return !!rangeFrom && !!rangeTo && taskFrom <= rangeFrom && taskTo >= rangeTo;
+        },
+
         // 评估时间条件
         evaluateTimeCondition(task, runtime, options = {}) {
             const opts = (options && typeof options === 'object') ? options : {};
@@ -13321,6 +13441,10 @@
                 case 'range_today': {
                     return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
                 }
+                case 'range_tomorrow':
+                case 'range_day_after_tomorrow': {
+                    return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
+                }
                 case 'before_today': {
                     return taskTs < Number(timeRuntime?.todayStartTs || 0);
                 }
@@ -13345,6 +13469,9 @@
                 case 'range_next_days': {
                     return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
                 }
+                case 'range_relative_days': {
+                    return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
+                }
                 case 'range_year': {
                     return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
                 }
@@ -13352,13 +13479,28 @@
                     return taskTs < Number(timeRuntime?.targetTs || 0);
                 }
                 case 'after': {
-                    return taskTs > Number(timeRuntime?.targetTs || 0);
+                    return timeRuntime?.dateOnly
+                        ? taskTs >= Number(timeRuntime?.nextDayStartTs || 0)
+                        : taskTs > Number(timeRuntime?.targetTs || 0);
                 }
                 case 'between': {
-                    return taskTs >= Number(timeRuntime?.fromTs || 0) && taskTs <= Number(timeRuntime?.toTs || 0);
+                    const withinUpperBound = timeRuntime?.toExclusive
+                        ? taskTs < Number(timeRuntime?.toTs || 0)
+                        : taskTs <= Number(timeRuntime?.toTs || 0);
+                    return taskTs >= Number(timeRuntime?.fromTs || 0) && withinUpperBound;
                 }
-                case '=': return taskTs === Number(timeRuntime?.targetTs || 0);
-                case '!=': return taskTs !== Number(timeRuntime?.targetTs || 0);
+                case '=': {
+                    if (timeRuntime?.dateOnly) {
+                        return taskTs >= Number(timeRuntime?.targetTs || 0) && taskTs < Number(timeRuntime?.nextDayStartTs || 0);
+                    }
+                    return taskTs === Number(timeRuntime?.targetTs || 0);
+                }
+                case '!=': {
+                    if (timeRuntime?.dateOnly) {
+                        return taskTs < Number(timeRuntime?.targetTs || 0) || taskTs >= Number(timeRuntime?.nextDayStartTs || 0);
+                    }
+                    return taskTs !== Number(timeRuntime?.targetTs || 0);
+                }
             }
 
             return true;

@@ -8811,7 +8811,7 @@ refreshed = checklistPatched || refreshed;
             }
         }
         if (viewMode === 'timeline' && hasControllerPatch) refreshed = !!__tmViewControllers.timeline.patchTask(tid, controllerPatch) || refreshed;
-        if (viewMode === 'kanban' && hasControllerPatch) refreshed = !!__tmViewControllers.kanban.patchTask(tid, controllerPatch) || refreshed;
+        if ((viewMode === 'kanban' || viewMode === 'comboBoard') && hasControllerPatch) refreshed = !!__tmViewControllers.kanban.patchTask(tid, controllerPatch) || refreshed;
         if (viewMode === 'whiteboard' && hasControllerPatch) refreshed = !!__tmViewControllers.whiteboard.patchTask(tid, controllerPatch) || refreshed;
         const fastProjectionApplied = !projectionManaged && needsProjectionRefresh && (
             (viewMode === 'checklist'
