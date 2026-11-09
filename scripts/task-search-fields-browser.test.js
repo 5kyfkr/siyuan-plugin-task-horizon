@@ -197,7 +197,9 @@ const production = [
         await scopeTrigger.click();
         assert.equal(await page.getByRole('checkbox', { name: '标题', exact: true }).isChecked(), true);
         await page.mouse.click(8, 750);
-        assert.equal(await scopeTrigger.getAttribute('aria-expanded'), 'false', 'outside click dismisses the menu');
+        await page.waitForFunction(() => !document.querySelector('#tmInlineSearchbarPortal'));
+        assert.equal(await page.locator('#tmInlineSearchbarPortal').count(), 0, 'outside click dismisses the search portal');
+        await page.evaluate(() => tmShowSearchModal());
         await scopeTrigger.click();
         await select('项目说明');
         await select('标题');
