@@ -256,14 +256,24 @@ context.SettingsStore.data.customBoardSets = [];
         'the board-set selector must not return to a fixed desktop-style width');
     assert.match(stylesSource, /\.tm-modal:is\(\.tm-modal--mobile, \.tm-modal--dock\)[\s\S]*?\.tm-custom-board-set-select \.bc-select-trigger__chevron\s*\{[^}]*display:\s*none;/,
         'narrow combination-board selectors must hide the unused expansion chevron');
-    assert.match(stylesSource, /\.tm-modal:is\(\.tm-modal--mobile, \.tm-modal--dock\)[\s\S]*?\.tm-custom-board-topbar\s*\{[^}]*gap:\s*6px;[^}]*\}[\s\S]*?\.tm-topbar-right\s*\{[^}]*gap:\s*8px !important;/,
+    assert.match(stylesSource, /\.tm-modal:is\(\.tm-modal--mobile, \.tm-modal--dock\)[\s\S]*?\.tm-custom-board-topbar\s*\{[^}]*gap:\s*6px;[^}]*\}[\s\S]*?\.tm-topbar-right\s*\{[^}]*gap:\s*var\(--tm-topbar-icon-gap\) !important;/,
         'narrow combination-board controls must retain explicit gaps between adjacent buttons');
+    assert.match(stylesSource, /\.tm-filter-rule-bar\s*\{[^}]*--tm-topbar-icon-gap:\s*6px;/,
+        'topbar buttons must share the compact spacing used by the combination board');
+    assert.match(stylesSource, /\.tm-filter-rule-bar \.tm-topbar-right\s*\{[^}]*gap:\s*var\(--tm-topbar-icon-gap\);/,
+        'the right-side icon cluster must use the shared compact gap');
+    assert.match(stylesSource, /\.tm-filter-rule-bar \.tm-compact-topbar-actions\s*\{[^}]*gap:\s*var\(--tm-topbar-icon-gap\);/,
+        'compact desktop icon actions must use the shared compact gap');
+    assert.match(stylesSource, /\.tm-filter-rule-bar \.tm-mobile-menu-btn > div\s*\{[^}]*gap:\s*var\(--tm-topbar-icon-gap\) !important;/,
+        'mobile and Dock action buttons must keep the same compact spacing when collapsed');
     assert.match(stylesSource, /@container tm-modal \(max-width: 760px\)[\s\S]*?\[data-tm-render-mode="comboBoard"\][\s\S]*?grid-template-columns:\s*minmax\(0, max-content\) var\(--tm-combo-manage-track\)[\s\S]*?\.bc-select-trigger__chevron\s*\{[^}]*display:\s*none;/,
         'container-width layout must reserve the manager button column and hide the chevron');
     assert.doesNotMatch(renderRuntimeSource, /tm-custom-board-mobile-controls/,
         'the narrow topbar menu must not duplicate board-set switching and management in a footer');
     assert.match(renderRuntimeSource, /compactTopbarMode = !!\(isMobile \|\| isDockHost \|\| isDesktopNarrow\)[\s\S]*data-tm-compact-topbar-fold="true"/,
         'all mobile and Dock views must expose the topbar icon fold control');
+    assert.match(renderRuntimeSource, /\$\{isMobile \? topbarAddBtnHtml : ''\}\s*<div class="tm-mobile-topbar-secondary-actions"/,
+        'the new-task action must stay visible outside the collapsible mobile action group');
     assert.match(renderRuntimeSource, /tm-mobile-topbar-secondary-actions[\s\S]*<\/div>[\s\S]*tm-mobile-topbar-menu/,
         'the menu icon must remain outside the collapsible action group');
     assert.match(renderRuntimeSource, /foldButtonWidth[\s\S]*rightRequiredWidth[\s\S]*brandContentRight \+ rightRequiredWidth \+ 2 > availableRight[\s\S]*manualCollapsed \|\| collision/,
@@ -286,7 +296,7 @@ context.SettingsStore.data.customBoardSets = [];
         'the narrow combo topbar must reserve the right action group before shrinking the brand controls');
     assert.match(stylesSource, /\[data-tm-render-mode="comboBoard"\] \.tm-title\s*\{[^}]*display:\s*grid !important;[^}]*grid-template-columns:\s*30px var\(--tm-combo-home-track\) var\(--tm-combo-choice-track\);/,
         'the narrow combo title must reserve brand, home and selector tracks explicitly');
-    assert.match(stylesSource, /\[data-tm-render-mode="comboBoard"\] \.tm-mobile-menu-btn > div\s*\{[^}]*gap:\s*6px !important;/,
+    assert.match(stylesSource, /\[data-tm-render-mode="comboBoard"\] \.tm-mobile-menu-btn > div\s*\{[^}]*gap:\s*var\(--tm-topbar-icon-gap\) !important;/,
         'mobile add, refresh, settings, menu and close buttons must use a compact non-overlapping gap');
     assert.match(servicesSource, /comboBoard: __tmT\("task\.preparingTheCombinationBoard"\)/,
         'combination-board loading must not reuse the Kanban loading label');
@@ -574,6 +584,8 @@ context.SettingsStore.data.customBoardSets = [];
 
     const rootTask = { id: 'root-task', root_id: 'doc-a1', content: 'Parent', done: false };
     const matchingChild = { id: 'matching-child', root_id: 'doc-a1', parentTaskId: 'root-task', content: 'needle', done: false };
+    const siblingTask = { id: 'sibling-task', root_id: 'doc-a1', parentTaskId: 'root-task', content: 'Sibling', done: false };
+    const siblingChild = { id: 'sibling-child', root_id: 'doc-a1', parentTaskId: 'sibling-task', content: 'Nested sibling', done: false };
     const unrelatedTask = { id: 'unrelated', root_id: 'doc-a1', content: 'Other', done: false };
     context.SettingsStore.data.customBoardSets = [{
         id: 'set-projection',
@@ -586,7 +598,13 @@ context.SettingsStore.data.customBoardSets = [];
         conditions: [{ field: 'content', operator: '=', value: 'needle' }],
         sort: [],
     }];
-    context.state.flatTasks = { 'root-task': rootTask, 'matching-child': matchingChild, unrelated: unrelatedTask };
+    context.state.flatTasks = {
+        'root-task': rootTask,
+        'matching-child': matchingChild,
+        'sibling-task': siblingTask,
+        'sibling-child': siblingChild,
+        unrelated: unrelatedTask,
+    };
     context.state.__tmCustomBoardSourceDocIdsByBoard = { 'board-projection': ['doc-a1'] };
     context.state.showCompletedTasks = false;
     let taskStoreGlobalRevision = 1;
@@ -616,6 +634,32 @@ context.SettingsStore.data.customBoardSets = [];
     const projected = vm.runInContext('__tmBuildCustomBoardProjection()', context);
     assert.deepEqual(Array.from(projected[0].tasks, (task) => task.id), ['root-task', 'matching-child'],
         'matching a child must preserve its parent path, while excluding unrelated siblings');
+    context.state.filterRules[0].conditions = [{ field: 'content', operator: '=', value: 'Parent' }];
+    const matchingParentProjected = vm.runInContext('__tmBuildCustomBoardProjection()', context);
+    assert.deepEqual(Array.from(matchingParentProjected[0].tasks, (task) => task.id), ['root-task'],
+        'matching a parent must not include non-matching descendants when the full-tree switch is off');
+    context.state.filterRules[0].conditions = [{ field: 'content', operator: '=', value: 'needle' }];
+    context.state.filterRules[0].keepMatchedTaskSubtree = true;
+    const wholeTreeProjected = vm.runInContext('__tmBuildCustomBoardProjection()', context);
+    assert.deepEqual(
+        Array.from(wholeTreeProjected[0].tasks, (task) => task.id),
+        ['root-task', 'matching-child', 'sibling-task', 'sibling-child'],
+        'an enabled full-tree filter must show the top-level parent and all descendants',
+    );
+    context.__tmDateFilter = {
+        active: () => true,
+        matches: (task) => task.id === 'matching-child',
+        setCandidates() {},
+    };
+    const dateWholeTreeProjected = vm.runInContext('__tmBuildCustomBoardProjection()', context);
+    assert.deepEqual(
+        Array.from(dateWholeTreeProjected[0].tasks, (task) => task.id),
+        ['root-task', 'matching-child', 'sibling-task', 'sibling-child'],
+        'date filtering must honor the full parent-tree switch in combination boards',
+    );
+    delete context.__tmDateFilter;
+    context.state.filterRules[0].keepMatchedTaskSubtree = false;
+    vm.runInContext('__tmBuildCustomBoardProjection()', context);
     context.state.__tmLoadedDocIdsForTasks = ['doc-a1'];
     assert.equal(vm.runInContext('__tmRememberCurrentCustomBoardProjectionCache()', context), true,
         'a completed combination-board projection must be retained for the active set');

@@ -6,6 +6,16 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.4.4
+
+- **Filters:** add a **N days ahead and later** date condition that starts with the selected full day and includes every later date. Add a per-rule **Keep the full parent task tree when a subtask matches** option that shows the matched task's top-level parent and all descendants; completion visibility still applies.
+- **Rule management:** simplify rule summaries and the rule editor with wider field, operator, and sort controls, consistent dropdown styling, and a compact mobile layout. Remove the redundant separate apply row.
+- **Board sets:** keep the manager inside the viewport as more sub-boards are added, with an independently scrolling sub-board list and delete controls separated from the list. Deleting a sub-board now removes only its column definition while preserving its filter rule and tasks.
+- **Narrow top bars:** keep the **New task** button visible by default and use consistent compact spacing for top-bar icons.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.4.3
 
 - **Full search:** expand the search bar into a full search workspace that finds tasks across all document groups and archived documents. Filter results by status, sort by relevance or creation time, load more while scrolling, and open a result directly in task details.
@@ -13,9 +23,6 @@ The same plugin includes English and Simplified Chinese. Existing installations 
 - **Whiteboard:** add a **Link cards** mode. Click the first card, then the next card to connect them in order; the next card becomes the new starting point so you can build a continuous chain. The mode stays active until you click the canvas or press Esc. On mobile and in the Dock, zoom and fullscreen move to **More** to keep the toolbar compact.
 - **Board sets and mobile details:** enable the calendar side dock in board sets and use the same view-mode policy for its top-bar button and mounting. Update remarks on mounted board-set cards immediately after saving task details. Retry a transient empty document scope on the first board-set switch and avoid caching that empty result, instead of requiring a manual refresh. Remove duplicate board-set switching and configuration from the narrow-screen menu footer. Fix clipped CJK labels in top-bar selects, and make task or subtask title taps on mobile focus the title editor and open the keyboard.
 - **Calendar:** prefer holiday-cn's mirror of China's official State Council holiday notices, and add the 2027 holiday and make-up-workday schedule.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.4.2
 

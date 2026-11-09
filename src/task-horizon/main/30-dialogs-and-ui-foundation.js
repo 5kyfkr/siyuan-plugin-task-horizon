@@ -5194,7 +5194,9 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     function showConfirm(title, message, options = {}) {
         return new Promise((resolve) => {
-            const existing = document.querySelector('.tm-prompt-modal');
+            // A custom-board manager/editor owns a persistent form. Confirmations
+            // must stack above it instead of tearing that form out of the DOM.
+            const existing = document.querySelector('.tm-prompt-modal:not(.tm-custom-board-modal)');
             if (existing) existing.remove();
 
             const modal = document.createElement('div');
@@ -8552,6 +8554,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                 } else if (field?.type === 'datetime' && String(c.operator || '').trim() === 'range_next_days') {
                     const days = Number(c.value);
                     valueDisplay = Number.isFinite(days) && days >= 0 ? __tmT("task.daysAhead", { value1: Math.floor(days) }) : __tmT("task.daysAhead2");
+                } else if (field?.type === 'datetime' && String(c.operator || '').trim() === 'range_n_days_ahead') {
+                    const days = Number(c.value);
+                    valueDisplay = __tmT("task.daysAheadAndAfter", { value1: Number.isFinite(days) && days >= 0 ? Math.floor(days) : 7 });
                 } else if (isDateRangeField && ['range_relative_days', 'range_contains_relative_days'].includes(String(c.operator || '').trim())) {
                     const range = RuleManager.normalizeRelativeDayRange(c.value);
                     valueDisplay = `${range.fromDays} ${__tmT("task.daysAhead3")} ${__tmT("task.to")} ${range.toDays} ${__tmT("task.daysAhead3")}`;
@@ -8594,17 +8599,22 @@ return Number(state.contextInteractionQuietUntil || 0);
                 return `${i + 1}. ${fieldLabel} (${s.order === 'desc' ? __tmT("task.descending") : __tmT("task.ascending")})`;
             }).join(' → ')
             : __tmT("task.noSorting");
+        const keepsParentTree = rule.keepMatchedTaskSubtree === true;
+        const parentTreeStatus = __tmT("task.keepParentTreeStatus", {
+            value1: __tmT(keepsParentTree ? "task.ruleStatusOn" : "task.ruleStatusOff"),
+        });
 
         return `
-            <div class="tm-rule-group">
+            <div class="tm-rule-group tm-rule-group--summary">
                 <div class="tm-rule-group-header">
                     <div class="tm-rule-group-title">
                         <input class="b3-switch fn__flex-center" type="checkbox" ${rule.enabled ? 'checked' : ''}
                                data-tm-change="toggleRuleEnabled"
                                data-rule-id="${esc(String(rule.id))}"
                                style="margin-right: 8px;">
-                        ${esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule))}
+                        <span class="tm-rule-group-title-text">${esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule))}</span>
                         ${state.currentRule === rule.id ? `<span style="color: var(--tm-success-color); margin-left: 8px;">${__tmT("task.currentlyApplied")}</span>` : ''}
+                        <span class="tm-rule-subtree-status ${keepsParentTree ? 'is-on' : 'is-off'}">${esc(parentTreeStatus)}</span>
                     </div>
                     <div class="tm-rule-group-controls">
                         <button class="tm-rule-btn tm-rule-btn-secondary tm-rule-sort-move-btn" data-tm-action="moveRule" data-rule-id="${esc(String(rule.id))}" data-delta="-1" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.moveUprules")}" aria-label="${esc(__tmT("task.moveRuleUp", { name: rule.name }))}" ${index === 0 ? 'disabled' : ''}><span aria-hidden="true">↑</span></button>
@@ -8614,15 +8624,13 @@ return Number(state.contextInteractionQuietUntil || 0);
                     </div>
                 </div>
 
-                <div style="font-size: 12px; color: var(--tm-secondary-text); margin-bottom: 8px;">
-                    <strong>${__tmT("task.filterConditions")}</strong>${conditionText}
-                </div>
-                <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
-                    <strong>${__tmT("task.sortRules")}</strong>${sortText}
-                </div>
-
-                <div class="tm-rule-actions">
-                    <button class="tm-rule-btn tm-rule-btn-primary" data-tm-action="applyRuleNow" data-rule-id="${esc(String(rule.id))}">${__tmT("task.applyNow")}</button>
+                <div class="tm-rule-summary">
+                    <div class="tm-rule-summary-row">
+                        <strong>${__tmT("task.filterConditions")}</strong><span>${conditionText}</span>
+                    </div>
+                    <div class="tm-rule-summary-row">
+                        <strong>${__tmT("task.sortRules")}</strong><span>${sortText}</span>
+                    </div>
                 </div>
             </div>
         `;
@@ -8632,12 +8640,26 @@ return Number(state.contextInteractionQuietUntil || 0);
     function renderRuleEditor(rule) {
         const availableFields = RuleManager.getAvailableFields();
         const sortFields = RuleManager.getSortFields();
+        const keepsParentTree = rule.keepMatchedTaskSubtree === true;
 
         return `
-            <div class="tm-rule-group">
+            <div class="tm-rule-group tm-rule-group--editor">
                 <div class="tm-rule-group-header">
-                    <input type="text" class="tm-rule-input" value="${esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule))}"
+                    <input type="text" class="tm-rule-input bc-input" value="${esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule))}"
                            placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("task.rulesname")}" data-tm-call="updateEditingRuleName">
+                </div>
+
+                <div class="tm-rule-section tm-rule-subtree-setting-section">
+                    <label class="tm-rule-subtree-setting">
+                        <span class="tm-rule-subtree-setting-copy">
+                            <strong class="tm-rule-subtree-setting-title">${__tmT("task.keepWholeTaskSubtreeForRule")}</strong>
+                            <small class="tm-rule-subtree-setting-description">${__tmT("task.keepWholeTaskSubtreeForRuleDescription")}</small>
+                        </span>
+                        <span class="tm-rule-subtree-toggle">
+                            <span class="tm-rule-subtree-state-text">${__tmT(keepsParentTree ? "task.ruleStatusOn" : "task.ruleStatusOff")}</span>
+                            <input class="b3-switch fn__flex-center" type="checkbox" ${keepsParentTree ? 'checked' : ''} onchange="tmToggleRuleKeepMatchedTaskSubtree(this.checked, this)">
+                        </span>
+                    </label>
                 </div>
 
                 <div class="tm-rule-section">
@@ -8667,11 +8689,16 @@ return Number(state.contextInteractionQuietUntil || 0);
             </div>
         `;
     }
+    try { RuleManager.renderEditorContent = renderRuleEditor; } catch (e) {}
+
+    function __tmRenderRuleSelectControl(selectHtml) {
+        return `<span class="tm-rule-select-control">${selectHtml}<span class="tm-rule-select-chevron" aria-hidden="true">${__tmRenderLucideIcon('caret-down', '', { size: 14 })}</span></span>`;
+    }
 
     // 渲染条件列表
     function renderConditions(conditions) {
         if (conditions.length === 0) {
-            return `<div style="text-align: center; padding: 10px; color: var(--tm-secondary-text);">${__tmT("task.noFilterConditionsYet")}</div>`;
+            return `<div class="tm-rule-empty-state">${__tmT("task.noFilterConditionsYet")}</div>`;
         }
 
         const availableFields = RuleManager.getAvailableFields();
@@ -8683,7 +8710,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             // 第 0 行显示"当"作为左到右求值的种子，后续行用 [且/或] 连接到累计结果。
             const joinSlot = index === 0
                 ? `<span class="tm-rule-condition-join tm-rule-condition-where">${__tmT("task.when")}</span>`
-                : `<select class="tm-rule-condition-join tm-rule-condition-operator" data-tm-change="updateConditionJoin" data-index="${index}">
+                : `<select class="tm-rule-condition-join tm-rule-condition-operator bc-select" data-tm-change="updateConditionJoin" data-index="${index}">
                         <option value="and" ${join === 'and' ? 'selected' : ''}>${__tmT("task.and")}</option>
                         <option value="or" ${join === 'or' ? 'selected' : ''}>${__tmT("task.or")}</option>
                     </select>`;
@@ -8691,20 +8718,20 @@ return Number(state.contextInteractionQuietUntil || 0);
             return `
                 <div class="tm-rule-condition">
                     ${joinSlot}
-                    <select class="tm-rule-condition-field" data-tm-change="updateConditionField" data-index="${index}">
+                    ${__tmRenderRuleSelectControl(`<select class="tm-rule-condition-field bc-select" data-tm-change="updateConditionField" data-index="${index}">
                         ${availableFields.map(f =>
                             `<option value="${esc(f.value)}" ${condition.field === f.value ? 'selected' : ''}>
                                 ${esc(f.label)}
                             </option>`
                         ).join('')}
-                    </select>
-                    <select class="tm-rule-condition-operator" data-tm-change="updateConditionOperator" data-index="${index}">
+                    </select>`)}
+                    ${__tmRenderRuleSelectControl(`<select class="tm-rule-condition-operator bc-select" data-tm-change="updateConditionOperator" data-index="${index}">
                         ${operators.map(op =>
                             `<option value="${esc(op.value)}" ${condition.operator === op.value ? 'selected' : ''}>
                                 ${esc(op.label)}
                             </option>`
                         ).join('')}
-                    </select>
+                    </select>`)}
                     ${renderConditionValue(condition, index, field)}
                     <button class="tm-rule-btn tm-rule-btn-danger" data-tm-action="removeCondition" data-index="${index}">
                         ×
@@ -8734,13 +8761,30 @@ return Number(state.contextInteractionQuietUntil || 0);
                     <input type="number"
                            min="0"
                            step="1"
-                           class="tm-time-input"
-                           style="width:80px;"
+                           class="tm-time-input tm-rule-compact-number"
                            value="${esc(normalizedDays)}"
                            data-tm-change="updateConditionValue"
                            data-index="${index}">
                     <span style="white-space:nowrap;">${suffix}</span>
                 </label>
+            `;
+        }
+        if (fieldType === 'datetime' && operator === 'range_n_days_ahead') {
+            const days = Number(condition.value);
+            const normalizedDays = Number.isFinite(days) && days >= 0 ? String(Math.floor(days)) : '7';
+            return `
+                <div class="tm-time-range">
+                    <input type="number"
+                           min="0"
+                           step="1"
+                           class="tm-time-input"
+                           style="width:80px;"
+                           value="${normalizedDays}"
+                           aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.daysFromToday")}"
+                           data-tm-change="updateConditionValue"
+                           data-index="${index}">
+                    <span style="white-space:nowrap;">${__tmT("task.daysAhead3")}</span>
+                </div>
             `;
         }
         if ((fieldType === 'datetime' && operator === 'range_relative_days')
@@ -8751,8 +8795,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     <input type="number"
                            min="0"
                            step="1"
-                           class="tm-time-input"
-                           style="width:72px;"
+                           class="tm-time-input tm-rule-compact-number"
                            value="${range.fromDays}"
                            aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.relativeRangeStartDays")}"
                            data-tm-change="updateConditionValueRange"
@@ -8763,8 +8806,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                     <input type="number"
                            min="0"
                            step="1"
-                           class="tm-time-input"
-                           style="width:72px;"
+                           class="tm-time-input tm-rule-compact-number"
                            value="${range.toDays}"
                            aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.relativeRangeEndDays")}"
                            data-tm-change="updateConditionValueRange"
@@ -8776,11 +8818,11 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         if (fieldType === 'boolean') {
             return `
-                <select class="tm-rule-condition-value" data-tm-change="updateConditionValue" data-index="${index}">
+                ${__tmRenderRuleSelectControl(`<select class="tm-rule-condition-value bc-select" data-tm-change="updateConditionValue" data-index="${index}">
                     ${fieldInfo?.value === 'done' ? `<option value="__all__" ${String(condition.value) === '__all__' ? 'selected' : ''}>${__tmT("task.allStatusesIgnoresTheShowCompletedSwitch")}</option>` : ''}
                     <option value="true" ${condition.value === true || condition.value === 'true' ? 'selected' : ''}>${esc(fieldInfo?.optionLabels?.true || __tmT("task.yes"))}</option>
                     <option value="false" ${condition.value === false || condition.value === 'false' ? 'selected' : ''}>${esc(fieldInfo?.optionLabels?.false || __tmT("task.no"))}</option>
-                </select>
+                </select>`)}
             `;
         }
 
@@ -8861,14 +8903,14 @@ return Number(state.contextInteractionQuietUntil || 0);
             const singleValue = Array.isArray(condition.value) ? '' : condition.value;
 
             return `
-                <select class="tm-rule-condition-value" data-tm-change="updateConditionValue" data-index="${index}">
+                ${__tmRenderRuleSelectControl(`<select class="tm-rule-condition-value bc-select" data-tm-change="updateConditionValue" data-index="${index}">
                     <option value="">${__tmT("task.select2")}</option>
                     ${allOptions.map(opt =>
                         `<option value="${esc(String(opt))}" ${singleValue === opt ? 'selected' : ''}>
                             ${esc(opt === '' ? RuleManager.getSelectFieldLabel(fieldInfo, '') : (optionLabels[opt] || opt))}
                         </option>`
                     ).join('')}
-                </select>
+                </select>`)}
             `;
         }
 
@@ -8925,14 +8967,14 @@ return Number(state.contextInteractionQuietUntil || 0);
             const isCustomOrderSort = String(sortRule?.field || '').trim() === __TM_CUSTOM_ORDER_SORT_FIELD;
             return `
             <div class="tm-rule-sort-item">
-                <select class="tm-rule-sort-field" data-tm-change="updateSortField" data-index="${index}">
+                ${__tmRenderRuleSelectControl(`<select class="tm-rule-sort-field bc-select" data-tm-change="updateSortField" data-index="${index}">
                     ${sortFields.map(f =>
                         `<option value="${f.value}" ${sortRule.field === f.value ? 'selected' : ''}>
                             ${f.label}
                         </option>`
                     ).join('')}
-                </select>
-                <select class="tm-rule-sort-order" data-tm-change="updateSortOrder" data-index="${index}" ${isCustomOrderSort ? 'disabled' : ''}>
+                </select>`)}
+                <select class="tm-rule-sort-order bc-select" data-tm-change="updateSortOrder" data-index="${index}" ${isCustomOrderSort ? 'disabled' : ''}>
                     <option value="asc" ${sortRule.order === 'asc' ? 'selected' : ''}>${__tmT("task.ascending")}</option>
                     <option value="desc" ${sortRule.order === 'desc' ? 'selected' : ''}>${__tmT("task.descending")}</option>
                 </select>
@@ -10313,6 +10355,13 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
     };
 
+    window.tmToggleRuleKeepMatchedTaskSubtree = function(enabled, input = null) {
+        if (!state.editingRule) return;
+        state.editingRule.keepMatchedTaskSubtree = !!enabled;
+        const text = input?.closest?.('.tm-rule-subtree-toggle')?.querySelector?.('.tm-rule-subtree-state-text');
+        if (text) text.textContent = __tmT(enabled ? "task.ruleStatusOn" : "task.ruleStatusOff");
+    };
+
     window.addCondition = function() {
         if (!state.editingRule) return;
 
@@ -10381,8 +10430,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                 condition.value = '';
                 delete condition.matchMode;
             }
-            else if (fieldInfo?.type === 'datetime' && (operator === 'range_recent_days' || operator === 'range_next_days')) {
-                const currentDays = Number(condition.value);
+            else if (fieldInfo?.type === 'datetime' && RuleManager.isRelativeDayCountOperator(operator)) {
+                const rawDays = String(condition.value ?? '').trim();
+                const currentDays = rawDays ? Number(rawDays) : Number.NaN;
                 condition.value = Number.isFinite(currentDays) && currentDays >= 0 ? String(Math.floor(currentDays)) : '7';
                 delete condition.matchMode;
             }
@@ -10424,8 +10474,9 @@ return Number(state.contextInteractionQuietUntil || 0);
     window.updateConditionValue = function(index, value) {
         if (state.editingRule && state.editingRule.conditions[index]) {
             const condition = state.editingRule.conditions[index];
-            if (['range_recent_days', 'range_next_days'].includes(String(condition.operator || '').trim())) {
-                const days = Number(value);
+            if (RuleManager.isRelativeDayCountOperator(condition.operator)) {
+                const rawDays = String(value ?? '').trim();
+                const days = rawDays ? Number(rawDays) : Number.NaN;
                 condition.value = Number.isFinite(days) && days >= 0 ? String(Math.floor(days)) : '7';
                 return;
             }
@@ -11080,6 +11131,27 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         const matchedSet = new Set();
         matched.forEach((t) => matchedSet.add(t.id));
+        const keepWholeMatchedTaskSubtree = rule?.keepMatchedTaskSubtree === true;
+        const getTopLevelTaskId = (task) => {
+            let currentId = String(task?.id || '').trim();
+            let parentId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+            const seen = new Set();
+            while (currentId && parentId && !seen.has(parentId)) {
+                seen.add(parentId);
+                const parent = taskMap[parentId];
+                if (!parent) break;
+                currentId = parentId;
+                parentId = String(parent.parentTaskId || parent.parent_task_id || '').trim();
+            }
+            return currentId;
+        };
+        const matchedRootIds = new Set();
+        if (keepWholeMatchedTaskSubtree) {
+            matched.forEach((task) => {
+                const rootId = getTopLevelTaskId(task);
+                if (rootId) matchedRootIds.add(rootId);
+            });
+        }
 
         const buildAncestorSet = (list) => {
             const out = new Set();
@@ -11121,20 +11193,23 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         const ordered = [];
         const added = new Set();
-        const traverse = (list, ancestorMatched = false) => {
+        const traverse = (list, ancestorMatched = false, keepWholeRoot = false) => {
             const siblings = sortSiblings(list);
             siblings.forEach((t) => {
                 // 匹配父任务后展开子树时，也必须保留完成状态的可见性边界。
                 if (!t || !isTaskVisibleByCompletion(t)) return;
                 const isMatched = matchedSet.has(t.id);
                 const isAncestor = ancestorSet.has(t.id);
-                const show = isMatched || isAncestor || (!dateFilterActive && ancestorMatched);
+                const isMatchedRoot = keepWholeMatchedTaskSubtree && matchedRootIds.has(String(t.id || '').trim());
+                const showWholeRoot = keepWholeRoot || isMatchedRoot;
+                const show = isMatched || isAncestor || showWholeRoot
+                    || (!hasRuleConditions && !dateFilterActive && ancestorMatched);
                 if (show && !added.has(t.id)) {
                     added.add(t.id);
                     ordered.push(t);
                 }
                 if (t.children && t.children.length > 0) {
-                    traverse(t.children, ancestorMatched || isMatched);
+                    traverse(t.children, ancestorMatched || isMatched, showWholeRoot);
                 }
             });
         };
@@ -11158,7 +11233,11 @@ return Number(state.contextInteractionQuietUntil || 0);
                 const task = allTasksForTabs[i];
                 const taskId = String(task?.id || '').trim();
                 if (!taskId) continue;
-                if (matchedSet.has(taskId) || ancestorSet.has(taskId)) {
+                const inMatchedWholeTree = keepWholeMatchedTaskSubtree
+                    && matchedRootIds.has(getTopLevelTaskId(task))
+                    && isTaskVisibleByCompletion(task)
+                    && !globalThis.__tmProjectVisibility?.isTaskHidden(task);
+                if (matchedSet.has(taskId) || ancestorSet.has(taskId) || inMatchedWholeTree) {
                     visibleAllTasks.push(task);
                 }
             }

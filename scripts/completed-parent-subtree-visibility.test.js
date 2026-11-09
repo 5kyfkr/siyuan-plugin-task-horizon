@@ -114,8 +114,8 @@ for (const scope of ['all', 'doc', 'group']) {
     state.searchKeyword = '';
 
     harness.setRule({ conditions: [{ field: 'priority' }], matchIds: ['323232', '2121212'] });
-    assert.deepEqual(harness.visible(), scope === 'all' ? ['323232'] : ['323232', 'visible-child'],
-        `${scope}: rule filtering must preserve the completion boundary`);
+    assert.deepEqual(harness.visible(), ['323232'],
+        `${scope}: rule filtering must preserve the completion boundary without adding unmatched siblings`);
     harness.setRule({ conditions: [] });
 
     flatTasks['122121'].done = false;
@@ -177,6 +177,51 @@ assert.deepEqual(aliases.visible(), ['323232', 'visible-child', '232'], 'legacy 
 const orphan = createHarness();
 orphan.flatTasks['232'].parentTaskId = 'unloaded-parent';
 assert.ok(orphan.visible().includes('232'), 'an unavailable ancestor must not hide an otherwise visible task');
+
+for (const scope of ['all', 'doc', 'group']) {
+    const matchedParent = createHarness();
+    matchedParent.state.activeDocId = scope;
+    matchedParent.flatTasks['122121'].done = false;
+    matchedParent.setRule({
+        conditions: [{ field: 'priority' }],
+        matchIds: ['122121'],
+        keepMatchedTaskSubtree: false,
+    });
+    assert.deepEqual(
+        matchedParent.visible(),
+        ['323232', '122121'],
+        `${scope}: a matching parent must not pull non-matching children into a filtered result`,
+    );
+}
+
+for (const scope of ['all', 'doc', 'group']) {
+    const wholeTree = createHarness();
+    wholeTree.state.activeDocId = scope;
+    wholeTree.flatTasks['122121'].done = false;
+    wholeTree.flatTasks['b1'].done = false;
+    wholeTree.setRule({
+        conditions: [{ field: 'priority' }],
+        matchIds: ['2121212'],
+        keepMatchedTaskSubtree: true,
+    });
+    assert.deepEqual(
+        wholeTree.visible(),
+        ['323232', '122121', '2121212', 'b1', '12121212', 'visible-child'],
+        `${scope}: an enabled full-tree filter must show the top-level parent and all descendants`,
+    );
+
+    wholeTree.setRule({ conditions: [], keepMatchedTaskSubtree: true });
+    wholeTree.context.__tmDateFilter = {
+        active: () => true,
+        matches: (task) => task.id === '2121212',
+        setCandidates() {},
+    };
+    assert.deepEqual(
+        wholeTree.visible(),
+        ['323232', '122121', '2121212', 'b1', '12121212', 'visible-child'],
+        `${scope}: date filtering must honor the full parent-tree switch`,
+    );
+}
 
 console.log('completed parent subtree visibility tests passed');
 

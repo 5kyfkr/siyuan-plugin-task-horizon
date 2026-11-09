@@ -303,15 +303,15 @@
                         ${activeSet ? `
                             <div class="tm-custom-board-manager__detail-head">
                                 <label class="tm-custom-board-manager__name"><span>${__tmT("task.boardSetName")}</span><input class="b3-text-field" data-field="name" value="${__tmEscAttr(activeSet.name)}" onblur="tmRenameCustomBoardSet(this.value)" onkeydown="if(event.key==='Enter'){this.blur()}" maxlength="60"></label>
+                                <div class="tm-custom-board-manager__danger-row">
+                                    <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost tm-custom-board-manager-icon-btn tm-custom-board-manager-icon-btn--danger" onclick="tmDeleteCustomBoardSet()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.deleteBoardSet")}"${__tmBuildTooltipAttrs(__tmT("task.deleteBoardSet"), { side: 'top', ariaLabel: false })}>${__tmRenderLucideIcon('trash-2', '', { size: 14 })}<span class="tm-custom-board-manager__delete-set-label">${__tmT("task.deleteBoardSet")}</span></button>
+                                </div>
                             </div>
                             <div class="tm-custom-board-manager__subboard-head">
                                 <div><strong>${__tmT("task.subBoards")}</strong><small>${__tmT("task.subBoardsCount", { count: activeSet.boards.length })}</small></div>
                                 <button type="button" class="bc-btn bc-btn--sm bc-btn--primary" onclick="tmEditCustomBoard('')">${__tmRenderLucideIcon('plus', '', { size: 14 })}<span>${__tmT("task.addSubBoard")}</span></button>
                             </div>
                             <div class="tm-custom-board-manager__list">${boardRows || `<p class="tm-custom-board-manager__empty">${__tmT("task.noSubBoardsYet")}</p>`}</div>
-                            <div class="tm-custom-board-manager__danger-row">
-                                <button type="button" class="bc-btn bc-btn--sm bc-btn--ghost tm-custom-board-manager-icon-btn tm-custom-board-manager-icon-btn--danger" onclick="tmDeleteCustomBoardSet()">${__tmRenderLucideIcon('trash-2', '', { size: 14 })}<span>${__tmT("task.deleteBoardSet")}</span></button>
-                            </div>
                         ` : `
                             <div class="tm-custom-board-manager__detail-empty">
                                 ${__tmRenderLucideIcon('layout-dashboard', '', { size: 28 })}
@@ -870,11 +870,17 @@
         const board = set.boards.find((item) => item.id === String(boardId || '').trim());
         if (!board) return;
         const ok = await showConfirm(__tmT("task.deleteSubBoard"), __tmT("task.deleteSubBoardConfirm", { name: board.name }));
-        if (!ok) { __tmRefreshCustomBoardSetManagerInPlace(); return; }
-        set.boards = set.boards.filter((item) => item.id !== board.id);
-        SettingsStore.data.customBoardSets = __tmGetCustomBoardSets();
-        await SettingsStore.save();
+        if (!ok) return;
+        // Delete only the sub-board column definition. The referenced filter rule,
+        // document groups, tasks, and the normal task-loading rules stay intact.
+        const setId = String(set.id || '').trim();
+        SettingsStore.data.customBoardSets = __tmGetCustomBoardSets().map((item) => (
+            item.id === setId
+                ? { ...item, boards: item.boards.filter((candidate) => candidate.id !== board.id) }
+                : item
+        ));
         __tmRefreshCustomBoardSetManagerInPlace();
+        await SettingsStore.save();
         await __tmReloadCustomBoardTasks();
     };
 
@@ -1309,8 +1315,9 @@
             if (Array.isArray(visibleByProject)) scopeTasks = visibleByProject;
             scopeTasks = scopeTasks.filter((task) => !isHiddenByVisibility(task) && !isHiddenByCompletion(task, rule));
             const ruleUnavailable = !!board.ruleId && !rule;
+            const hasRuleConditions = !!(rule && Array.isArray(rule.conditions) && rule.conditions.length);
             let matched = ruleUnavailable ? [] : scopeTasks;
-            if (typeof RuleManager !== 'undefined' && rule && Array.isArray(rule.conditions) && rule.conditions.length) {
+            if (typeof RuleManager !== 'undefined' && hasRuleConditions) {
                 matched = RuleManager.applyRuleFilter(matched, rule, ruleRuntime);
             }
             if (keyword && typeof __tmTaskMatchesSearch === 'function') {
@@ -1325,6 +1332,27 @@
                 : (Array.isArray(rule?.sort) ? rule.sort : []);
             const matchedIds = new Set(matched.map((task) => String(task?.id || '').trim()).filter(Boolean));
             const scopeById = new Map(scopeTasks.map((task) => [String(task?.id || '').trim(), task]).filter(([id]) => !!id));
+            const keepWholeMatchedTaskSubtree = rule?.keepMatchedTaskSubtree === true;
+            const getScopeRootId = (task) => {
+                let currentId = String(task?.id || '').trim();
+                let parentId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+                const seen = new Set();
+                while (currentId && parentId && !seen.has(parentId)) {
+                    seen.add(parentId);
+                    const parent = scopeById.get(parentId);
+                    if (!parent) break;
+                    currentId = parentId;
+                    parentId = String(parent.parentTaskId || parent.parent_task_id || '').trim();
+                }
+                return currentId;
+            };
+            const matchedRootIds = new Set();
+            if (keepWholeMatchedTaskSubtree) {
+                matched.forEach((task) => {
+                    const rootId = getScopeRootId(task);
+                    if (rootId) matchedRootIds.add(rootId);
+                });
+            }
             const ancestorIds = new Set();
             matched.forEach((task) => {
                 let parentId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
@@ -1356,16 +1384,19 @@
             };
             const tasks = [];
             const visited = new Set();
-            const traverse = (siblings, ancestorMatched = false) => {
+            const traverse = (siblings, ancestorMatched = false, keepWholeRoot = false) => {
                 sortSiblings(siblings).forEach((task) => {
                     const id = String(task?.id || '').trim();
                     if (!id || visited.has(id)) return;
                     visited.add(id);
                     if (isHiddenByVisibility(task) || isHiddenByCompletion(task, rule)) return;
                     const isMatched = matchedIds.has(id);
-                    const shouldShow = isMatched || ancestorIds.has(id) || (!dateFilterActive && ancestorMatched);
+                    const isMatchedRoot = keepWholeMatchedTaskSubtree && matchedRootIds.has(id);
+                    const showWholeRoot = keepWholeRoot || isMatchedRoot;
+                    const shouldShow = isMatched || ancestorIds.has(id) || showWholeRoot
+                        || (!hasRuleConditions && !dateFilterActive && ancestorMatched);
                     if (shouldShow) tasks.push(task);
-                    traverse(childrenByParentId.get(id) || [], ancestorMatched || isMatched);
+                    traverse(childrenByParentId.get(id) || [], ancestorMatched || isMatched, showWholeRoot);
                 });
             };
             traverse(scopeTasks.filter((task) => {

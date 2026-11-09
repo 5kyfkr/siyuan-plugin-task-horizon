@@ -12912,6 +12912,10 @@
                         return this.buildLocalDayRangeRuntime(nowDate, 1, 1);
                     case 'range_day_after_tomorrow':
                         return this.buildLocalDayRangeRuntime(nowDate, 2, 2);
+                    case 'range_n_days_ahead': {
+                        const days = this.normalizeRelativeDayOffset(value, 7);
+                        return this.buildLocalDayRangeRuntime(nowDate, days, days);
+                    }
                     case 'range_overlap_today': {
                         const todayStartTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
                         const tomorrowStartTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + 1).getTime();
@@ -13085,6 +13089,11 @@
             }
         },
 
+        isRelativeDayCountOperator(operator) {
+            return ['range_recent_days', 'range_next_days', 'range_n_days_ahead']
+                .includes(String(operator || '').trim());
+        },
+
         // 获取可用操作符
         getOperators(fieldType) {
             const baseOperators = [
@@ -13110,6 +13119,7 @@
                 { value: 'range_today', label: __tmT("common.today") },
                 { value: 'range_tomorrow', label: __tmT("calendar.tomorrow") },
                 { value: 'range_day_after_tomorrow', label: __tmT("task.dayAfterTomorrow") },
+                { value: 'range_n_days_ahead', label: __tmT("task.nDaysAheadAndAfter") },
                 { value: 'range_overlap_today', label: __tmT("task.coversToday") },
                 { value: 'overdue', label: __tmT("task.overdue") },
                 { value: 'range_week', label: __tmT("task.thisWeek") },
@@ -13444,6 +13454,9 @@
                 case 'range_tomorrow':
                 case 'range_day_after_tomorrow': {
                     return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
+                }
+                case 'range_n_days_ahead': {
+                    return taskTs >= Number(timeRuntime?.startTs || 0);
                 }
                 case 'before_today': {
                     return taskTs < Number(timeRuntime?.todayStartTs || 0);

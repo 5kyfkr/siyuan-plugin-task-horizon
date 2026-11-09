@@ -2536,7 +2536,7 @@
                     ${activeTab === 'ai' ? `${renderSettingsSubtabs()}${renderAiSettingsPanel()}` : ''}
 
                     ${activeTab === 'rules' ? `
-                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('rules', __tmT("settings.filterRules"), __tmT("settings.createEditApplyAndDeleteFilterRules"))}>
+                        <div class="tm-settings-panel tm-settings-panel--rules" ${__tmSettingsSearchAttrs('rules', __tmT("settings.filterRules"), __tmT("settings.createEditApplyAndDeleteFilterRules"))}>
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                 <div style="font-weight: 600;">${__tmT("settings.filterRules2")}</div>
                                 <div style="display:flex;gap:8px;align-items:center;">

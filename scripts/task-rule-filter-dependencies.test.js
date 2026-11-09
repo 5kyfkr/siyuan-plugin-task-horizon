@@ -264,6 +264,18 @@ assert.deepEqual(
     Array.from(manager.applyRuleFilter(shiftedTasks, shiftedRule, { nowDate: new Date(2026, 9, 16, 12) }), (task) => task.id),
     ['day-after-start', 'day-after-end', 'seventh-end', 'eighth-start'],
     'relative day offsets must follow the current date instead of a saved fixed date');
+const nDaysTasks = [
+    { id: 'day-six-end', completionTime: '2026-10-21 23:59' },
+    { id: 'day-seven-start', completionTime: '2026-10-22 00:00' },
+    { id: 'day-seven-end', completionTime: '2026-10-22 23:59' },
+    { id: 'day-eight-start', completionTime: '2026-10-23 00:00' },
+    { id: 'far-future', completionTime: '2027-11-09 12:00' },
+];
+const nDaysRule = { conditions: [{ field: 'completionTime', operator: 'range_n_days_ahead', value: '7' }] };
+assert.deepEqual(
+    Array.from(manager.applyRuleFilter(nDaysTasks, nDaysRule, { nowDate: now }), (task) => task.id),
+    ['day-seven-start', 'day-seven-end', 'day-eight-start', 'far-future'],
+    'N days ahead must include that complete day and every later date');
 
 assert.equal(manager.getFieldInfo('taskDateRange')?.type, 'daterange');
 const containingSpanTasks = [
