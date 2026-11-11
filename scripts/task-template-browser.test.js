@@ -207,7 +207,6 @@ async function run() {
                 window.templateSaves += 1;
                 this.data.taskTemplateLibrary = library;
                 window.settingsSaveResult = { ok:true, taskTemplateFingerprint: JSON.stringify(this.data.taskTemplateLibrary) };
-                this.loadedSettingsFieldSnapshot = { ...(this.loadedSettingsFieldSnapshot || {}), taskTemplateLibrary: this.data.taskTemplateLibrary };
             };
         });
         await manager.locator('[data-template-save]').click();

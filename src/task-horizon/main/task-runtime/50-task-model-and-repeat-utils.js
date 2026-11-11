@@ -925,7 +925,11 @@
 
     function __tmIsCheckinTask(taskLike) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
-        const rule = __tmNormalizeTaskRepeatRule(task.repeatRule || task.repeat_rule || '', {
+        const rawRule = task.repeatRule || task.repeat_rule || '';
+        // Completion checks call this for every task; most have no repeat rule,
+        // which normalizes to a disabled rule anyway.
+        if (!rawRule || (typeof rawRule === 'string' && !rawRule.trim())) return false;
+        const rule = __tmNormalizeTaskRepeatRule(rawRule, {
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });
@@ -987,7 +991,10 @@
     function __tmIsRecurringNativeDoneHeld(taskLike) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
         if (typeof __tmIsCheckinTask === 'function' && __tmIsCheckinTask(task)) return false;
-        const repeatState = __tmNormalizeTaskRepeatState(task?.repeatState || task?.repeat_state || '');
+        const rawState = task?.repeatState || task?.repeat_state || '';
+        // Without stored repeat state there is no pending native reset to hold.
+        if (!rawState || (typeof rawState === 'string' && !rawState.trim())) return false;
+        const repeatState = __tmNormalizeTaskRepeatState(rawState);
         if (repeatState.pendingNativeDoneReset !== true) return false;
         const marker = typeof __tmResolveTaskMarker === 'function' ? __tmResolveTaskMarker(task) : (task.taskMarker ?? task.task_marker);
         if (marker === '/' || marker === '-') return false;

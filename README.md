@@ -6,15 +6,23 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.4.5
+
+- **Calendar and schedules:** In the schedule editor, select **Go to** under **Linked task** to jump straight to the original task in SiYuan. The editor also fits better in narrow panels.
+- **Board sets:** Fix unresponsive dropdowns when editing sub-boards on mobile. Preserve document group order when switching board sets.
+- **Narrow layouts:** Hide the parent task tree badge in rule management and hide the view switcher's scrollbar while keeping horizontal scrolling.
+- **Settings sync:** Use the plugin settings file as the source of truth to reduce inconsistencies caused by merging individual settings. Refresh controls such as the view switcher and shortcut sidebar after sync.
+- **Task loading:** Improve cache reuse and first paint, and reduce repeated reads of documents with no tasks when switching views or board sets. Fix freezes across many documents and truncated results in batch queries.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.4.4
 
 - **Filters:** add a **N days ahead and later** date condition that starts with the selected full day and includes every later date. Add a per-rule **Keep the full parent task tree when a subtask matches** option that shows the matched task's top-level parent and all descendants; completion visibility still applies.
 - **Rule management:** simplify rule summaries and the rule editor with wider field, operator, and sort controls, consistent dropdown styling, and a compact mobile layout. Remove the redundant separate apply row.
 - **Board sets:** keep the manager inside the viewport as more sub-boards are added, with an independently scrolling sub-board list and delete controls separated from the list. Deleting a sub-board now removes only its column definition while preserving its filter rule and tasks.
 - **Narrow top bars:** keep the **New task** button visible by default and use consistent compact spacing for top-bar icons.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.4.3
 

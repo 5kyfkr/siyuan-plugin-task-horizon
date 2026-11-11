@@ -2505,7 +2505,8 @@
     function __tmPersistViewControlSettings() {
         try {
             const pending = SettingsStore.save();
-            Promise.resolve(pending).catch(() => null);
+            const immediate = SettingsStore.saveNow?.();
+            Promise.resolve(immediate || pending).catch(() => null);
         } catch (e) {}
     }
 

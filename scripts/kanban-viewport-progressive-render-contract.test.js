@@ -37,7 +37,7 @@ assert.match(kanbanRuntime, /insideCollapsedTask \|\| collapsed/, 'hidden descen
 assert.match(kanbanRuntime, /done: false, retry: true/, 'a replaced shell must not permanently finish a pending column');
 assert.match(kanbanRuntime, /__tmPatchKanbanProgressiveColumn[\s\S]*__tmSyncKanbanBottomNavAvoidance\(modal\)/, 'each progressive column batch must refresh mobile bottom-nav avoidance after content grows');
 assert.match(renderRuntime, /__tmRequestKanbanProgressiveColumnLoad\?\.\(colKey\)/, 'expanding a deferred column must request its first batch');
-assert.match(renderRuntime, /__tmScheduleProgressiveViewRender\('kanban', progressiveJob\)/, 'full renders must resume the current kanban progressive job');
+assert.match(renderRuntime, /if \(isKanbanRenderMode && typeof __tmScheduleProgressiveViewRender === 'function'\)[\s\S]*?if \(progressiveJob\) __tmScheduleProgressiveViewRender\(renderMode, progressiveJob\)/, 'full renders must resume the progressive job for the current kanban or board-set mode');
 const bottomNavAvoidance = renderRuntime.slice(
     renderRuntime.indexOf('function __tmSyncKanbanBottomNavAvoidance'),
     renderRuntime.indexOf('function __tmScheduleKanbanBottomNavAvoidance'),

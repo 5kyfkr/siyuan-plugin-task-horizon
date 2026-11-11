@@ -1718,6 +1718,15 @@
                             border: none;
                             box-shadow: none;
                             flex-wrap: nowrap;
+                            scrollbar-width: none;
+                            -ms-overflow-style: none;
+                        }
+
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher::-webkit-scrollbar,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher::-webkit-scrollbar {
+                            display: none;
+                            width: 0;
+                            height: 0;
                         }
 
                         .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher .tm-view-seg-item,
@@ -1837,6 +1846,13 @@
                         border: none;
                         box-shadow: none;
                         flex-wrap: nowrap;
+                        scrollbar-width: none;
+                        -ms-overflow-style: none;
+                    }
+                    .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher::-webkit-scrollbar {
+                        display: none;
+                        width: 0;
+                        height: 0;
                     }
                     .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher .tm-view-seg-item,
                     .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher .bc-tabs-trigger {
@@ -1909,6 +1925,13 @@
                         border: none;
                         box-shadow: none;
                         flex-wrap: nowrap;
+                        scrollbar-width: none;
+                        -ms-overflow-style: none;
+                    }
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher::-webkit-scrollbar {
+                        display: none;
+                        width: 0;
+                        height: 0;
                     }
                     .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .tm-view-seg-item,
                     .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .bc-tabs-trigger {
@@ -5305,6 +5328,12 @@
     function __tmShouldIsolatePluginHostGestures(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
+        const isTouchStandaloneDialog = (modal.classList.contains('tm-custom-board-modal')
+            || modal.classList.contains('tm-custom-board-option-picker'))
+            && (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient()
+                || typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice()
+                || !!window.matchMedia?.('(pointer: coarse)')?.matches);
+        if (isTouchStandaloneDialog) return true;
         const isDockHost = modal.classList.contains('tm-modal--dock')
             || !!modal.closest?.('[data-tm-host-mode="dock"]');
         const isRuntimeMobile = modal.classList.contains('tm-modal--runtime-mobile')

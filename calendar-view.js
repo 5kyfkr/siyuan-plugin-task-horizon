@@ -35937,6 +35937,14 @@
                 }
                 return await openCalendarLinkedTask(taskId, event);
             };
+            const jumpToLinkedTask = async (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const taskId = String(linkedTaskId || linkedBlockId || '').trim();
+                close();
+                if (!taskId) return false;
+                try { return await jumpCalendarLinkedTask(taskId, event); } catch (e) { return false; }
+            };
             const titleForTask = (task, fallback = '') => {
                 try { return __tmNormalizeTaskTitleFromRow(task) || String(task?.title || task?.name || fallback || '').trim(); } catch (e) {
                     return String(task?.title || task?.name || fallback || '').trim();
@@ -35956,7 +35964,7 @@
                     const shapeClass = getCalendarRelationCheckboxShapeClass();
                     const checked = isCalendarRelationTaskDone(task);
                     const canceled = globalThis.__tmCalendarKanbanCardHelpers?.isCanceled?.(task) === true;
-                    return `<div class="tm-proto-inline-relation-current"><div class="tm-proto-inline-relation-main"><input class="tm-task-checkbox tm-proto-inline-relation-check ${shapeClass}${canceled ? ' tm-task-checkbox--canceled' : ''}" type="checkbox" data-tm-proto-edit-relation-task-check="${esc(id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.donelinkedTask")}"${checked ? ' checked' : ''}><span><b>${esc(title)}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</span></div><div class="tm-proto-inline-relation-actions"><button type="button" class="tm-proto-inline-relation-open" data-tm-proto-edit-relation="open">${__tmT("calendar.taskDetails")}</button><button type="button" data-tm-proto-edit-relation="replace">${__tmT("calendar.replace")}</button><button type="button" data-tm-proto-edit-relation="unlink" class="is-danger">${__tmT("calendar.unlink")}</button></div></div>`;
+                    return `<div class="tm-proto-inline-relation-current"><div class="tm-proto-inline-relation-main"><input class="tm-task-checkbox tm-proto-inline-relation-check ${shapeClass}${canceled ? ' tm-task-checkbox--canceled' : ''}" type="checkbox" data-tm-proto-edit-relation-task-check="${esc(id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.donelinkedTask")}"${checked ? ' checked' : ''}><span><b>${esc(title)}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</span></div><div class="tm-proto-inline-relation-actions"><button type="button" class="tm-proto-inline-relation-open" data-tm-proto-edit-relation="open" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.openTaskDetails")}">${__tmT("calendar.details")}</button><button type="button" class="tm-proto-inline-relation-jump" data-tm-proto-edit-relation="jump" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.openNote")}">${__tmT("calendar.goTo2")}</button><button type="button" data-tm-proto-edit-relation="replace">${__tmT("calendar.replace")}</button><button type="button" data-tm-proto-edit-relation="unlink" class="is-danger">${__tmT("calendar.unlink")}</button></div></div>`;
                 }
                 if (!relationSearching) return `<button type="button" class="tm-proto-inline-relation-start" data-tm-proto-edit-relation="search">⌕ <span>${__tmT("calendar.searchForATaskToLink")}</span></button>`;
                 const keyword = relationQuery.toLocaleLowerCase('zh-CN').trim();
@@ -36763,6 +36771,7 @@
                     const id = String(linkedTaskId || linkedBlockId || '').trim();
                     if (id) { try { await openLinkedTaskDetail(id, event); } catch (e) {} }
                 });
+                pop.querySelector('[data-tm-proto-edit-relation="jump"]')?.addEventListener('click', jumpToLinkedTask);
                 pop.querySelector('[data-tm-proto-edit-relation="cancel"]')?.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); relationSearching = false; relationQuery = ''; syncRelation(); });
                 pop.querySelector('[data-tm-proto-edit-relation="unlink"]')?.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); linkedTaskId = ''; linkedBlockId = ''; linkedDocId = ''; relationExplicitlyUnlinked = true; relationSearching = false; syncInlineColorToContext(); syncRelation(); });
                 pop.querySelector('[data-tm-proto-edit-field="taskSearch"]')?.addEventListener('input', (event) => {
@@ -36949,6 +36958,7 @@
                     const id = String(linkedTaskId || linkedBlockId || '').trim();
                     if (id) { try { await openLinkedTaskDetail(id, event); } catch (e) {} }
                 });
+                pop.querySelector('[data-tm-proto-edit-relation="jump"]')?.addEventListener('click', jumpToLinkedTask);
                 pop.querySelector('[data-tm-proto-edit-relation="cancel"]')?.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); relationSearching = false; relationQuery = ''; syncRelation(); });
                 pop.querySelector('[data-tm-proto-edit-relation="unlink"]')?.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); linkedTaskId = ''; linkedBlockId = ''; linkedDocId = ''; relationExplicitlyUnlinked = true; relationSearching = false; syncInlineColorToContext(); syncRelation(); });
                 pop.querySelector('[data-tm-proto-edit-field="taskSearch"]')?.addEventListener('input', (event) => {

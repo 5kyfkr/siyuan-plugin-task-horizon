@@ -40,7 +40,11 @@ assert.match(renderBody, /if \(reusedCalendarSideDock\) \{[\s\S]*?__tmSyncPersis
 assert.match(switchGroup, /__tmRenderPreservingCalendarSideDock\(\)[\s\S]*?snapshotRendered = true/, 'snapshot-backed group switching must preserve the existing calendar dock');
 assert.match(groupVerify, /__tmRerenderCurrentViewInPlace\(modal\)\) __tmRenderPreservingCalendarSideDock\(\)/, 'deferred group freshness fallback must also preserve the calendar dock');
 assert.match(loaderRuntime, /const isSwitchDocGroupLoad =[\s\S]*?'legacy-switch-doc-group'[\s\S]*?const renderLoadedState = \(\) => \{[\s\S]*?__tmRenderPreservingCalendarSideDock\(\)/, 'all current and legacy group loader sources must use the preserving render wrapper');
-assert.equal((loadSelected.match(/\brender\(\)/g) || []).length, 1, 'document loading must not bypass the source-aware render wrapper');
+const renderWrapper = segment(loadSelected, 'const renderLoadedState = () => {', 'const isSnapshotCacheVerifyLoad');
+const boardFinalize = loadSelected.slice(loadSelected.lastIndexOf('        } finally {'));
+assert.equal((renderWrapper.match(/\brender\(\)/g) || []).length, 1, 'the source-aware render wrapper must own the normal full render');
+assert.match(boardFinalize, /stillLoading && !skipRender && getCurrentViewMode\(''\) === 'comboBoard'[\s\S]*?requestAnimationFrame\(\(\) => \{\s*if \(isTokenCurrent\(\) && !state\.__tmCustomBoardLoading\) render\(\)/, 'board-set final rendering must be limited to the current completed board load');
+assert.doesNotMatch(loadSelected.replace(renderWrapper, '').replace(boardFinalize, ''), /\brender\(\)/, 'other document loading paths must use the source-aware render wrapper');
 assert.match(legacySwitch, /source: 'legacy-switch-doc-group'[\s\S]*?await savePromise;[\s\S]*?__tmRenderPreservingCalendarSideDock\(\)/, 'legacy group switching must preserve the calendar dock on its final render');
 
 console.log('doc group calendar sidebar refresh isolation contract tests passed');

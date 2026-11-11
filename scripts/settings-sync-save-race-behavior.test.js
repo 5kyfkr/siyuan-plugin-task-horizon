@@ -21,13 +21,12 @@ const method = name => {
 };
 const clone = value => JSON.parse(JSON.stringify(value));
 const oldData = {
-    settingsUpdatedAt: 100, docGroupSettingsUpdatedAt: 100, settingsFieldUpdatedAt: { docGroups: 100 }, currentGroupId: 'all',
+    settingsUpdatedAt: 100, docGroupSettingsUpdatedAt: 100, currentGroupId: 'all',
     docGroups: [{ id: 'daily', name: 'Daily', docs: [{ id: 'example-doc', recursive: false }] }],
     selectedDocIds: [], defaultDocIdByGroup: {}, customFieldDefs: [], customFieldDefsVersion: 0,
     whiteboardStateVersion: 0, collapseStateUpdatedAt: 0,
 };
 const newerData = { ...clone(oldData), settingsUpdatedAt: 200, docGroupSettingsUpdatedAt: 200,
-    settingsFieldUpdatedAt: { docGroups: 200 },
     docGroups: [{ ...clone(oldData.docGroups[0]), name: 'Renamed' }, { id: 'new', name: 'New group', docs: [] }] };
 
 async function run({ downloadedBeforeSave = false, downloadDuringSave = false, downloadDuringRead = false, downloadBeforeResponse = false, downloadDuringWrite = false, newerSaveRunning = false } = {}) {
@@ -106,7 +105,7 @@ async function run({ downloadedBeforeSave = false, downloadDuringSave = false, d
     vm.runInContext(slice(syncSource, '    function __tmBuildDocGroupSyncSnapshot(', '    function __tmBuildDocScopeFingerprint('), context);
     vm.runInContext(slice(syncSource, '    function __tmApplyDocGroupSyncSnapshot(', '    function __tmEnsureDocGroupContextValidAfterSync('), context);
     vm.runInContext(slice(storeSource, '    const __TM_DOC_GROUP_SETTINGS_KEYS', '    const __TM_LEGACY_TASK_TITLE_SETTING_KEYS'), context);
-    vm.runInContext(slice(storeSource, '    function __tmIsSettingsFieldSyncKey(', '    function __tmNormalizeWhiteboardLinkArray('), context);
+    vm.runInContext(slice(storeSource, '    function __tmStableSettingsJsonValue(', '    function __tmNormalizeWhiteboardLinkArray('), context);
     const store = context.SettingsStore = {
         data: { ...clone(oldData), currentGroupId: 'daily' },
         saveDirty: true, saving: false, loadedDocGroupUpdatedAt: 100,
@@ -115,10 +114,9 @@ async function run({ downloadedBeforeSave = false, downloadDuringSave = false, d
         syncToLocal() {}, normalizeColumns() {},
         buildCloudPayload() { return clone(this.data); },
         refreshDocGroupSyncState() { this.loadedDocGroupFingerprint = context.__tmBuildDocGroupSyncFingerprint(this.data); },
-        refreshCustomFieldSyncState() {}, refreshCollapsedStateSyncState() {}, refreshSettingsFieldSyncState() {},
+        refreshCustomFieldSyncState() {}, refreshCollapsedStateSyncState() {}, refreshSettingsSyncState() {},
     };
     store.loadedDocGroupFingerprint = context.__tmBuildDocGroupSyncFingerprint(oldData);
-    store.loadedSettingsFieldSnapshot = context.__tmBuildSettingsFieldSyncSnapshot(oldData);
     const flush = method('flushSave').replace('            } catch (e) {\n            } finally {', '            } catch (e) { probeErrors.push(String(e.stack));\n            } finally {');
     store.flushSave = vm.runInContext(`({${flush}}).flushSave`, context);
     await store.flushSave();
@@ -129,37 +127,35 @@ async function run({ downloadedBeforeSave = false, downloadDuringSave = false, d
 }
 
 
-test('ordinary settings save merges group changes already downloaded to the local file', async () => {
+test('ordinary settings save writes the current client snapshot without merging an already downloaded file', async () => {
     const h = await run({ downloadedBeforeSave: true });
-    assert.equal(h.disk.docGroups.length, 2);
-    assert.equal(h.disk.docGroups[0].name, 'Renamed');
-    assert.equal(h.disk.settingsFieldUpdatedAt.docGroups, 200);
+    assert.equal(h.disk.docGroups.length, 1);
+    assert.equal(h.disk.docGroups[0].name, 'Daily');
+    assert.equal(h.disk.settingsUpdatedAt, 1000);
 });
 
 test('ordinary settings saves persist current group contents', async () => {
     const h = await run();
     assert.equal(h.disk.settingsUpdatedAt, 1000);
-    assert.equal(h.disk.settingsFieldUpdatedAt.docGroups, 100);
+    assert.equal(Object.hasOwn(h.disk, 'settingsFieldUpdatedAt'), false);
     assert.equal(h.disk.docGroups.length, 1);
 });
 
-for (const phase of ['read', 'directory']) {
-    test('sync invalidates a pre-sync save pending at the ' + phase + ' await', async () => {
-        const h = await run({ downloadDuringRead: phase === 'read', downloadDuringSave: phase === 'directory' });
-        assert.equal(h.written.length, 0, 'the stale save must not submit its settings payload');
-        assert.equal(h.disk.docGroups.length, 2);
-        assert.equal(h.disk.docGroups[0].name, 'Renamed');
-        assert.equal(h.memory.docGroups.length, 2);
-    });
+test('sync invalidates a pre-sync save after it enters the file write queue', async () => {
+    const h = await run({ downloadDuringSave: true });
+    assert.equal(h.written.length, 0, 'the stale save must not submit its settings payload');
+    assert.equal(h.disk.docGroups.length, 2);
+    assert.equal(h.disk.docGroups[0].name, 'Renamed');
+    assert.equal(h.memory.docGroups.length, 2);
+});
 
-    test('a cancelled ' + phase + ' save cannot clear the next save owner or pending changes', async () => {
-        const h = await run({ downloadDuringRead: phase === 'read', downloadDuringSave: phase === 'directory', newerSaveRunning: true });
-        assert.equal(h.written.length, 0);
-        assert.equal(h.store.saving, true);
-        assert.equal(h.store.saveDirty, true);
-        assert.deepEqual(h.store.lastSaveResult, { owner: 'new-save' });
-    });
-}
+test('a cancelled save cannot clear the next save owner or pending changes', async () => {
+    const h = await run({ downloadDuringSave: true, newerSaveRunning: true });
+    assert.equal(h.written.length, 0);
+    assert.equal(h.store.saving, true);
+    assert.equal(h.store.saveDirty, true);
+    assert.deepEqual(h.store.lastSaveResult, { owner: 'new-save' });
+});
 
 test('a late response from a pre-sync write cannot reset the post-sync save owner', async () => {
     const h = await run({ downloadBeforeResponse: true, newerSaveRunning: true });

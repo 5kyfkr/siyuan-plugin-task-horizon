@@ -326,9 +326,6 @@
         if (!localSettingsBusy) {
             remoteSettings = await __tmReadJsonFile(SETTINGS_FILE_PATH);
             if (remoteSettings && typeof remoteSettings === 'object') {
-                remoteSettings.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(remoteSettings.settingsFieldUpdatedAt, remoteSettings, {
-                    seedFromSettingsUpdatedAt: new Set(__TM_DOC_GROUP_SETTINGS_KEYS),
-                });
                 remoteFingerprint = __tmBuildDocGroupSyncFingerprint(remoteSettings);
             }
         }
@@ -337,14 +334,16 @@
                 try { hint(__tmT("task.syncingDocumentGroupsPleaseWait"), 'info'); } catch (e) {}
             }
             const syncPromise = Promise.resolve().then(async () => {
+                const beforeFingerprint = __tmBuildDocGroupSyncFingerprint(SettingsStore.data);
                 const previousGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
                 const previousScopeFingerprint = __tmBuildDocScopeFingerprint(state.__tmLoadedDocIdsForTasks, previousGroupId);
-                const appliedFields = __tmApplySettingsFieldUpdatesByMap(SettingsStore.data, remoteSettings, {
-                    includeKeys: new Set(__TM_DOC_GROUP_SETTINGS_KEYS),
+                __tmApplyDocGroupSyncSnapshot(remoteSettings, {
+                    targetData: SettingsStore.data,
+                    syncOverallUpdatedAt: false,
                 });
-                if (!appliedFields.length) return;
+                if (__tmBuildDocGroupSyncFingerprint(SettingsStore.data) === beforeFingerprint) return;
                 SettingsStore.refreshDocGroupSyncState(SettingsStore.data.docGroupSettingsUpdatedAt);
-                SettingsStore.refreshSettingsFieldSyncState();
+                SettingsStore.refreshSettingsSyncState();
                 __tmEnsureDocGroupContextValidAfterSync();
                 try { SettingsStore.syncToLocal(); } catch (e) {}
                 try { __tmDocExpandCache.clear(); } catch (e) {}
@@ -833,7 +832,7 @@
         __tmCancelSimpleStorePendingSave(WhiteboardStore);
         try { SettingsStore.loaded = false; } catch (e) {}
         try { WhiteboardStore.loaded = false; } catch (e) {}
-        await SettingsStore.load({ preferRemoteWhiteboardSameVersion: preferRemoteSameVersion });
+        await SettingsStore.load();
         __tmRestoreManualRefreshSessionState(sessionSnapshot);
         await WhiteboardStore.load({ preferRemoteSameVersion });
         return true;
@@ -925,13 +924,19 @@
 
         if (suppressStorageWrites) {
             await runWithStorageWritesSuppressed(() => SettingsStore.load({
-                preferRemoteWhiteboardSameVersion: true,
                 suppressStorageWrites,
                 reason,
             }));
         } else {
-            await SettingsStore.load({ preferRemoteWhiteboardSameVersion: true });
+            await SettingsStore.load();
         }
+        try { state.__tmRefreshEnabledViewSettingsLight?.(); } catch (e) {}
+        try { state.__tmRefreshViewSwitcherStyleSettingsLight?.(SettingsStore.data.viewSwitcherStyle); } catch (e) {}
+        try { state.__tmSettingsChipLightRefresh?.(); } catch (e) {}
+        try { globalThis.__tmRefreshViewSwitcherControlsInPlace?.(state.modal); } catch (e) {}
+        try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: `sync:${reason}` }); } catch (e) {}
+        try { globalThis.__tmMarkDocTitleMarkersDirty?.(null, { tasks: true, scope: true, duration: true }); } catch (e) {}
+        try { globalThis.__tmRefreshShortcutSidebarEnabled?.(); } catch (e) {}
         const templateLibraryAfterReload = (() => {
             try { return JSON.stringify(SettingsStore?.data?.taskTemplateLibrary || null); } catch (e) { return ''; }
         })();

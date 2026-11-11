@@ -64,7 +64,7 @@ test('plugin bootstrap selects a synchronized override before loading dependent 
     }
 });
 
-test('language preference participates in cloud load and the existing field-clock merge', () => {
+test('language preference follows the authoritative settings file and local migration fallback', () => {
     const source = read('src/task-horizon/main/10-stores-rules-and-cache.js');
     assert.match(source, /uiLanguage: 'system'/);
     assert.match(source, /cloudData\.uiLanguage[\s\S]{0,160}this\.data\.uiLanguage/);

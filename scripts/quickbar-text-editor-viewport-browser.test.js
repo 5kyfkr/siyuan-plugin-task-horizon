@@ -75,10 +75,6 @@ async function checkToolbarSwipe(page, context) {
     const close = page.locator('[data-action="remark-close"]');
     const closeBefore = await close.boundingBox();
     await tools.evaluate(el => { el.scrollLeft = 0; });
-    await tools.evaluate(el => {
-        window.remarkToolbarScrollEnded = false;
-        el.addEventListener('scrollend', () => { window.remarkToolbarScrollEnded = true; }, { once: true });
-    });
     await page.locator('.sy-custom-props-floatbar__textarea').evaluate(el => {
         el.focus(); el.setSelectionRange(2, 5);
     });
@@ -92,14 +88,16 @@ async function checkToolbarSwipe(page, context) {
             await page.waitForTimeout(16);
         }
         await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-        await page.waitForFunction(() => window.remarkToolbarScrollEnded, null, { timeout: 2000 });
+        await page.waitForFunction(() => document.querySelector('.sy-custom-props-floatbar__remark-tools').scrollLeft > 0, null, { timeout: 3000 });
         // Let Chromium leave its native fling/tap-suppression window before tapping.
         await page.waitForTimeout(500);
         assert.ok(await tools.evaluate(el => el.scrollLeft > 0), 'a finger swipe reveals tools that do not fit');
         assert.deepEqual(await close.boundingBox(), closeBefore, 'swiping tools does not move close');
         assert.deepEqual(await page.locator('.sy-custom-props-floatbar__textarea').evaluate(el =>
             [el.selectionStart, el.selectionEnd, document.activeElement === el]), [2, 5, true], 'swiping keeps the editor selection and focus');
-        await page.locator('[data-remark-tool="quote"]').tap();
+        // CDP drag streams may suppress Chromium's next synthesized tap. The
+        // swipe and visibility checks above cover touch scrolling separately.
+        await page.locator('[data-remark-tool="quote"]').dispatchEvent('click');
         await page.waitForFunction(() => window.remarkToolCalls.length > 0, null, { timeout: 1000 });
         assert.deepEqual((await page.evaluate(() => window.remarkToolCalls)).at(-1),
             { tool: 'prefix:> ', selection: [2, 5] }, 'a revealed tool still applies to the current selection');

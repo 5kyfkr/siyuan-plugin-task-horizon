@@ -809,8 +809,29 @@
         indexTree(taskList);
         // Use current completion/placement, retaining tree ancestry when old mirrors omit parent IDs.
         try {
-            const projectedTasks = Object.values(globalThis.__tmTaskStore?.getFlatMap?.() || {})
-                .filter((task) => String(task?.root_id || task?.docId || '').trim() === did);
+            const readFlatTasks = () => Object.values(globalThis.__tmTaskStore?.getFlatMap?.() || {});
+            const docIdOf = (task) => String(task?.root_id || task?.docId || '').trim();
+            let projectedTasks;
+            if (memo) {
+                // Callers share one cache per pass, so split the task map by document
+                // once instead of rescanning every task for every document. The key
+                // cannot collide with a document ID.
+                const groupedKey = '#tasksByDoc';
+                let tasksByDoc = memo.get(groupedKey);
+                if (!tasksByDoc) {
+                    tasksByDoc = new Map();
+                    readFlatTasks().forEach((task) => {
+                        const docId = docIdOf(task);
+                        const list = tasksByDoc.get(docId);
+                        if (list) list.push(task);
+                        else tasksByDoc.set(docId, [task]);
+                    });
+                    memo.set(groupedKey, tasksByDoc);
+                }
+                projectedTasks = tasksByDoc.get(did) || [];
+            } else {
+                projectedTasks = readFlatTasks().filter((task) => docIdOf(task) === did);
+            }
             if (projectedTasks.length > 0) taskList = projectedTasks;
             else if (treeTasks.size > 0) taskList = Array.from(treeTasks.values());
         } catch (e) {
@@ -2208,6 +2229,7 @@
                 SELECT block_id, name, value
                 FROM attributes
                 WHERE block_id IN (${inSql})
+                LIMIT ${__TM_SQL_MAX_TOTAL_LIMIT}
             `;
             let rows = [];
             try {
@@ -12791,11 +12813,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         const currentRule = __tmGetCurrentRule();
         const rule = __tmGetArchiveModeFilterRule(currentRule, archiveMode);
         const hasContentFilter = __tmHasActiveDocTabContentFilter(rule);
+        const docStateCache = new Map();
         return docsForTabs
             .filter((doc) => {
                 const docId = String(doc?.id || '').trim();
                 if (docId && activeDocId && activeDocId !== 'all' && docId === activeDocId) return true;
-                const shouldShowByTaskState = __tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode, groupId: currentGroupId });
+                const shouldShowByTaskState = __tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode, groupId: currentGroupId, docStateCache });
                 if (!shouldShowByTaskState) return false;
                 if (filteredDocIdSet.size || hasContentFilter) return filteredDocIdSet.has(docId);
                 return shouldShowByTaskState;
@@ -14875,12 +14898,14 @@ return Number(state.contextInteractionQuietUntil || 0);
             paths.push(fullPath);
         });
         const archivedDocIds = new Set(__tmGetManualArchivedDocIdsForGroup(groupId));
+        const docStateCache = new Map();
         (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
             try {
                 if (__tmDocShouldShowInDocTabs(doc, {
                     archiveMode: true,
                     groupId,
                     currentRule: __tmGetCurrentRule(),
+                    docStateCache,
                 })) archivedDocIds.add(String(doc?.id || '').trim());
             } catch (e) {}
         });

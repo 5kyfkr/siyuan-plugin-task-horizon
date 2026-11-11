@@ -57,23 +57,26 @@ for (const key of assignedSettingKeys) {
 assert.doesNotMatch(settingsSource, /showCompletionTime/,
     'removed settings must not be silently recreated by the generic save action');
 assert.match(storeSource,
-    /const restoredLocalSettingFields = __tmApplySettingsFieldUpdatesByMap\(this\.data, localSettingsBeforeCloud\);[\s\S]*if \(cloudData\.taskCountBadge && typeof cloudData\.taskCountBadge === 'object'[\s\S]*this\.data\.taskCountBadge = __tmNormalizeTaskCountBadge\(cloudData\.taskCountBadge\)/,
-    'the newer synchronized task count badge configuration must load after local field restoration');
-assert.match(taskCountBadgeSettingsSource,
-    /taskCountBadge:\s*Date\.now\(\)/,
-    'task count badge edits must receive a fresh synchronization timestamp');
+    /this\.data = __tmCloneJsonSafe\(__tmDefaultSettingsData,[\s\S]*if \(cloudData\.taskCountBadge && typeof cloudData\.taskCountBadge === 'object'[\s\S]*this\.data\.taskCountBadge = __tmNormalizeTaskCountBadge\(cloudData\.taskCountBadge\)/,
+    'a valid synchronized file must replace local settings before applying its values');
+assert.doesNotMatch(taskCountBadgeSettingsSource,
+    /settingsFieldUpdatedAt/,
+    'task count badge edits must not maintain a separate synchronization clock');
 assert.match(storeSource,
     /whiteboardNavigatorHidden:\s*!!src\.whiteboardNavigatorHidden/,
     'the whiteboard navigator preference must participate in versioned whiteboard synchronization');
+assert.doesNotMatch(storeSource,
+    /__tmApplySettingsFieldUpdatesByMap\(this\.data, cloudData/,
+    'shared settings must not merge individual fields over a valid synchronized file');
 assert.match(storeSource,
-    /'whiteboardNavigatorHidden',/,
-    'the whiteboard navigator preference must not also use an unrelated generic settings timestamp');
+    /delete payload\.settingsFieldUpdatedAt/,
+    'new settings writes must remove the legacy field timestamp map');
 assert.match(storeSource,
-    /const restoredLocalSettingFields = __tmApplySettingsFieldUpdatesByMap\(this\.data, localSettingsBeforeCloud\);[\s\S]*if \(Array\.isArray\(cloudData\.taskSearchFields\)\) this\.data\.taskSearchFields = __tmGetTaskSearchFields\(cloudData\.taskSearchFields\)/,
-    'the newer synchronized task search scope must load after local field restoration');
+    /this\.data\.taskSearchFields = __tmGetTaskSearchFields\(cloudData\.taskSearchFields\)/,
+    'the synchronized task search scope must load from the authoritative file');
 assert.match(storeSource,
-    /const restoredLocalSettingFields = __tmApplySettingsFieldUpdatesByMap\(this\.data, localSettingsBeforeCloud\);[\s\S]*if \(cloudData\.docDefaultTaskHeadingByDocId && typeof cloudData\.docDefaultTaskHeadingByDocId === 'object'[\s\S]*this\.data\.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap\(cloudData\.docDefaultTaskHeadingByDocId\)/,
-    'the newer synchronized document heading map must load independently from document-group snapshots');
+    /this\.data\.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap\(cloudData\.docDefaultTaskHeadingByDocId\)/,
+    'the synchronized document heading map must load from the authoritative file');
 assert.doesNotMatch(storeSource,
     /shouldApplyCloudDocGroupState && cloudData\.docDefaultTaskHeadingByDocId/,
     'document heading preferences must not be gated by unrelated group changes');

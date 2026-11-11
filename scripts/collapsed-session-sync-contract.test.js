@@ -73,7 +73,7 @@ assert.equal(preferRemote(400, 500), true, 'a newer explicit remote collapse act
 assert.equal(preferRemote(500, 400), false, 'an older remote collapse action must not overwrite local state');
 assert.equal(preferRemote(0, 0), false, 'an unversioned remote empty state must not win by a timestamp tie');
 assert.doesNotMatch(stores, /cloudCollapseUpdatedAt\s*>=\s*localCollapseUpdatedAt/, 'collapse state merge must not let an equal or missing remote clock win');
-assert.equal((stores.match(/__tmShouldPreferRemoteCollapsedSessionState\(/g) || []).length, 4, 'all collapse merge paths must use the strict timestamp comparison');
+assert.match(stores, /__tmAssignCollapsedSessionState\(this\.data, cloudData\);\s*this\.data\.collapseStateUpdatedAt = __tmGetCollapsedSessionUpdatedAt\(cloudData\)/, 'settings loads must restore collapse state and its timestamp from the authoritative file');
 
 const SettingsStore = {
     data: {},

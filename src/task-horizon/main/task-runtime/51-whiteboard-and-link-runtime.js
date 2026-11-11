@@ -7213,6 +7213,7 @@ return false;
                       name = '${metaAttr}'
                       OR name LIKE '${attrPrefix}%'
                   )
+                LIMIT ${__TM_SQL_MAX_TOTAL_LIMIT}
             `;
             let res = null;
             try { res = await API.call('/api/query/sql', { stmt: sql }); } catch (e) { res = null; }
@@ -11507,12 +11508,14 @@ return false;
                 if (id) ids.add(id);
             });
         } catch (e) {}
+        const docStateCache = new Map();
         (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
             const docId = String(doc?.id || '').trim();
             if (!docId) return;
             if (__tmDocShouldShowInDocTabs(doc, {
                 archiveMode: true,
                 groupId: currentGroupId,
+                docStateCache,
             })) ids.add(docId);
         });
         return ids;

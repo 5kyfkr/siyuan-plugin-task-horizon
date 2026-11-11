@@ -1695,6 +1695,14 @@
 }
 
 @media (max-width: 720px) {
+    .tm-rule-group--summary .tm-rule-subtree-status {
+        display: none;
+    }
+
+    .tm-rule-group--summary .tm-rule-group-header {
+        flex-wrap: wrap;
+    }
+
     .tm-rule-group--summary .tm-rule-group-title {
         flex-basis: 100%;
     }
@@ -1703,6 +1711,20 @@
         width: 100%;
         flex-wrap: wrap;
         justify-content: flex-end;
+    }
+
+    .tm-settings-v3 .tm-settings-content .tm-rule-group--summary .tm-rule-btn {
+        min-height: 32px;
+        height: 32px;
+        padding: 3px 10px;
+        font-size: 12px;
+    }
+
+    .tm-settings-v3 .tm-settings-content .tm-rule-group--summary .tm-rule-sort-move-btn {
+        width: 32px;
+        min-width: 32px;
+        flex-basis: 32px;
+        padding: 0;
     }
 }
 
@@ -5788,6 +5810,14 @@ select.tm-btn-secondary {
     flex: none;
     box-sizing: border-box;
     box-shadow: var(--tm-topbar-control-shadow);
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.tm-view-segmented::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
 }
 
 .tm-view-seg-item {
@@ -9956,6 +9986,186 @@ select.tm-btn-secondary {
     overflow: auto;
 }
 
+.tm-custom-board-editor {
+    width: min(92vw, 620px);
+    max-height: min(84vh, 760px);
+    max-height: min(84dvh, 760px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.tm-custom-board-editor :is(input, select, button, label) {
+    pointer-events: auto;
+    touch-action: manipulation;
+}
+
+.tm-custom-board-select-control {
+    width: 100%;
+    min-width: 0;
+}
+
+.tm-custom-board-select-control--touch > select {
+    display: none;
+}
+
+.tm-custom-board-select-trigger {
+    display: flex;
+    width: 100%;
+    height: 32px;
+    min-height: 32px;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0 32px 0 10px;
+    border: 1px solid var(--tm-input-border);
+    border-radius: 4px;
+    background: var(--tm-input-bg);
+    color: var(--tm-text-color);
+    font-size: 12px;
+    text-align: start;
+    cursor: pointer;
+}
+
+.tm-custom-board-select-trigger::before,
+.tm-custom-board-select-trigger::after {
+    content: none !important;
+}
+
+.tm-custom-board-select-trigger.bc-select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: none !important;
+}
+
+.tm-custom-board-select-trigger:focus-visible {
+    border-color: var(--tm-primary-color);
+    outline: none;
+}
+
+.tm-custom-board-select-arrow {
+    position: absolute;
+    top: 50%;
+    right: 11px;
+    width: 0;
+    height: 0;
+    border-right: 4px solid transparent;
+    border-left: 4px solid transparent;
+    border-top: 5px solid var(--tm-secondary-text);
+    pointer-events: none;
+    transform: translateY(-50%);
+}
+
+.tm-custom-board-select-trigger:focus-visible ~ .tm-custom-board-select-arrow {
+    border-top-color: var(--tm-primary-color);
+}
+
+.tm-custom-board-select-trigger:disabled ~ .tm-custom-board-select-arrow {
+    opacity: 0.5;
+}
+
+.tm-custom-board-select-trigger [data-tm-custom-board-select-label] {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tm-custom-board-option-picker {
+    position: fixed;
+    inset: 0;
+    z-index: 200080;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    box-sizing: border-box;
+    background: var(--tm-modal-overlay);
+}
+
+.tm-custom-board-option-sheet {
+    display: flex;
+    width: min(100%, 520px);
+    max-height: min(72dvh, 640px);
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--tm-border-color);
+    border-radius: 8px;
+    background: var(--tm-bg-color);
+    box-shadow: var(--tm-shadow);
+}
+
+.tm-custom-board-option-header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--tm-border-color);
+    color: var(--tm-text-color);
+    font-size: 14px;
+}
+
+.tm-custom-board-option-close {
+    display: inline-flex;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--tm-secondary-text);
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.tm-custom-board-option-list {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.tm-custom-board-option {
+    display: flex;
+    width: 100%;
+    min-height: 48px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 0;
+    border-bottom: 1px solid var(--tm-border-color);
+    background: transparent;
+    color: var(--tm-text-color);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+
+.tm-custom-board-option:last-child {
+    border-bottom: 0;
+}
+
+.tm-custom-board-option.is-selected {
+    background: color-mix(in srgb, var(--tm-primary-color) 10%, var(--tm-bg-color));
+    color: var(--tm-primary-color);
+}
+
+.tm-custom-board-option-check {
+    width: 20px;
+    flex: 0 0 20px;
+    text-align: center;
+}
+
 .tm-custom-board-modal > .tm-custom-board-manager {
     width: min(94vw, 840px);
     height: min(84vh, 760px);
@@ -10243,6 +10453,25 @@ select.tm-btn-secondary {
 }
 
 @media (max-width: 680px) {
+    .tm-custom-board-modal > .tm-custom-board-editor {
+        width: min(96vw, 520px);
+        max-height: calc(100vh - 24px);
+        max-height: calc(100dvh - 24px);
+        padding: 16px;
+    }
+
+    .tm-custom-board-editor .tm-custom-board-field select,
+    .tm-custom-board-editor .tm-custom-board-scope select {
+        min-height: 44px;
+        font-size: 16px;
+    }
+
+    .tm-custom-board-editor .tm-custom-board-select-trigger {
+        height: 44px;
+        min-height: 44px;
+        font-size: 16px;
+    }
+
     .tm-custom-board-modal > .tm-custom-board-manager {
         width: min(96vw, 520px);
         height: min(92vh, 760px);

@@ -1030,10 +1030,15 @@
                         AND root_id IN (${idList})
                         AND ${compatTaskMarkdownCondition}
                     GROUP BY root_id
+                    LIMIT ${chunk.length}
                 `;
+                // Callers read zero as "this document has no tasks", so a failed
+                // read must leave its documents unknown instead of zero.
+                let counted = false;
                 try {
                     const res = await this.call('/api/query/sql', { stmt: sql });
-                    if (res && res.code === 0 && Array.isArray(res.data)) {
+                    if (res && res.code === 0 && Array.isArray(res.data) && res.truncated !== true) {
+                        counted = true;
                         res.data.forEach((row) => {
                             const docId = String(row?.root_id || '').trim();
                             if (!docId || !map.has(docId)) return;
@@ -1041,6 +1046,7 @@
                         });
                     }
                 } catch (e) {}
+                if (!counted) chunk.forEach((docId) => map.delete(docId));
                 if (chunks.length > 1) {
                     try { await new Promise((resolve) => setTimeout(resolve, 0)); } catch (e) {}
                 }
@@ -1088,6 +1094,7 @@
                         GROUP BY root_id
                     ) task_stats ON task_stats.root_id = d.id
                     WHERE d.type = 'd' AND d.id IN (${idList})
+                    LIMIT ${chunk.length}
                 `;
                 try {
                     const res = await this.call('/api/query/sql', { stmt: sql });
@@ -1173,7 +1180,9 @@
             const docJoinSql = skipDocJoin
                 ? ''
                 : 'INNER JOIN blocks AS doc ON task.root_id = doc.id';
-            const limitClause = fullTree ? '' : `\n                LIMIT ${lim}`;
+            // SiYuan caps a statement without an outer LIMIT at its search result
+            // limit (64 by default), so "no limit" still needs an explicit ceiling.
+            const limitClause = `\n                LIMIT ${fullTree ? __TM_SQL_MAX_TOTAL_LIMIT : lim}`;
 
             const sql = legacyCompat ? `
                 SELECT
@@ -2950,7 +2959,7 @@
                     if (Array.isArray(domTaskIds) && domTaskIds.length > 0) return domTaskIds;
                 } catch (e) {}
             }
-            const sql = `SELECT id, type, subtype FROM blocks WHERE parent_id = '${tid}' ORDER BY sort ASC, created ASC, id ASC`;
+            const sql = `SELECT id, type, subtype FROM blocks WHERE parent_id = '${tid}' ORDER BY sort ASC, created ASC, id ASC LIMIT ${__TM_SQL_MAX_TOTAL_LIMIT}`;
             const res = await this.call('/api/query/sql', { stmt: sql });
             const rows = (res.code === 0 && Array.isArray(res.data)) ? res.data : [];
             const out = [];
@@ -3081,6 +3090,7 @@
                 FROM task_ancestors
                 WHERE depth = 0 OR (type = 'i' AND subtype = 't')
                 ORDER BY source_id ASC, depth ASC
+                LIMIT ${blockIds.length * 17}
             `;
             const res = await this.call('/api/query/sql', { stmt: sql });
             if (res.code !== 0 || !Array.isArray(res.data)) {
@@ -13724,6 +13734,7 @@
                 FROM attributes
                 WHERE name = 'bookmark'
                     AND block_id IN (${idSql})
+                LIMIT ${__TM_SQL_MAX_TOTAL_LIMIT}
             `;
             let rows = [];
             try {
@@ -24807,11 +24818,43 @@ if (!state.homepageOpen) return;
         return __tmNormalizeDocDisplayNameMode(SettingsStore?.data?.docDisplayNameMode);
     }
 
+    // Document names are resolved once per rendered row, so scanning the list on
+    // every call is quadratic in large workspaces. Positions are rebuilt when the
+    // list is replaced or resized. A hit is re-checked against the list, so an
+    // in-place reorder is noticed and rebuilt instead of returning another document.
+    function __tmCreateDocPositionIndex() {
+        let source = null;
+        let length = -1;
+        let positions = new Map();
+        const rebuild = (list) => {
+            positions = new Map();
+            list.forEach((doc, index) => {
+                const key = String(doc?.id || '').trim();
+                if (key && !positions.has(key)) positions.set(key, index);
+            });
+            source = list;
+            length = list.length;
+        };
+        const matches = (doc, id) => !!doc && String(doc.id || '').trim() === id;
+        return (list, id) => {
+            if (!Array.isArray(list)) return null;
+            if (source !== list || length !== list.length) rebuild(list);
+            let doc = list[positions.get(id)];
+            if (doc && !matches(doc, id)) {
+                rebuild(list);
+                doc = list[positions.get(id)];
+            }
+            return matches(doc, id) ? doc : null;
+        };
+    }
+    const __tmFindLoadedDocById = __tmCreateDocPositionIndex();
+    const __tmFindKnownDocById = __tmCreateDocPositionIndex();
+
     function __tmFindDocMetaById(docId) {
         const id = String(docId || '').trim();
         if (!id) return null;
-        return state.taskTree?.find?.((doc) => String(doc?.id || '').trim() === id)
-            || state.allDocuments?.find?.((doc) => String(doc?.id || '').trim() === id)
+        return __tmFindLoadedDocById(state.taskTree, id)
+            || __tmFindKnownDocById(state.allDocuments, id)
             || null;
     }
 

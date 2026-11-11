@@ -17,7 +17,7 @@
     "doc-group-scope-read-failure-behavior.test.js",
     "custom-board-runtime-contract.test.js",
     "doc-group-sync-debug-log.test.js",
-    "doc-group-settings-field-sync.test.js",
+    "doc-group-settings-file-authority.test.js",
     "settings-sync-save-race-behavior.test.js",
     "kernel-contract.test.js",
     "duration-utils.test.js",

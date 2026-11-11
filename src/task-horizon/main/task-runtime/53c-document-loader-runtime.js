@@ -1093,15 +1093,29 @@
         if (!isTokenCurrent()) return;
         state.filterRules = loadedFilterRules;
         if (customBoardMode) {
-            const docTabOrderByGroup = {};
+            // Keep the orders already known for other groups. Board sets are restored
+            // from memory without running this loader, so replacing the map here
+            // dropped the tab order of every group the previous set had used, and
+            // their document groups then fell back to load order. Orders are only
+            // kept while the settings that produce them are unchanged.
+            const docTabOrderKey = JSON.stringify([
+                SettingsStore.data.docTabSortMode, SettingsStore.data.docPinnedByGroup,
+                SettingsStore.data.docGroupSettingsUpdatedAt, SettingsStore.data.newTaskDocId,
+            ]);
+            const docTabOrderByGroup = (state.__tmDocTabOrderKey === docTabOrderKey
+                && state.__tmDocTabOrderByGroup && typeof state.__tmDocTabOrderByGroup === 'object')
+                ? { ...state.__tmDocTabOrderByGroup }
+                : {};
             (Array.isArray(docTabOrderEntriesByGroup) ? docTabOrderEntriesByGroup : []).forEach((entry) => {
                 const groupId = String(entry?.groupId || '').trim();
                 const ids = (Array.isArray(entry?.entries) ? entry.entries : [])
                     .map((doc) => String(doc?.id || '').trim())
                     .filter(Boolean);
-                if (groupId) docTabOrderByGroup[groupId] = ids;
+                // An empty result here is a failed read, not an empty group.
+                if (groupId && (ids.length || !Array.isArray(docTabOrderByGroup[groupId]))) docTabOrderByGroup[groupId] = ids;
             });
             state.__tmDocTabOrderByGroup = docTabOrderByGroup;
+            state.__tmDocTabOrderKey = docTabOrderKey;
         }
         const currentRule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
         const customBoardRules = customBoardMode
@@ -1454,7 +1468,7 @@
             try {
                 const countMetaPromise = ensureTaskCountMapForCacheRestore('snapshot-cache');
                 const snapshotService = globalThis.__tmTaskSnapshotService || null;
-                try { await snapshotService?.refreshCache?.({ source: 'snapshot-first-paint' }); } catch (e) {}
+                try { await snapshotService?.refreshCache?.({ source: 'snapshot-first-paint', background: true }); } catch (e) {}
                 const [countMeta, snapshot] = await Promise.all([
                     countMetaPromise,
                     snapshotService?.load?.({

@@ -327,6 +327,7 @@
     }
 
     function __tmShowCustomBoardDialog(html) {
+        try { window.tmCloseCustomBoardOptionPicker?.(); } catch (e) {}
         document.querySelectorAll('.tm-custom-board-modal').forEach((item) => {
             try { item.__tmRemoveFromModalStack?.(); } catch (e) {}
             item.remove();
@@ -341,14 +342,154 @@
         modal.addEventListener('click', (event) => {
             if (event.target === modal) window.tmCloseCustomBoardDialog();
         });
+        try { __tmBindPluginHostGestureIsolation(modal); } catch (e) {}
         const removeFromStack = __tmModalStackBind(() => window.tmCloseCustomBoardDialog());
         modal.__tmRemoveFromModalStack = removeFromStack;
         const firstInput = modal.querySelector('[data-field="name"]');
-        if (firstInput) {
+        const usesTouchInput = (() => {
+            try {
+                if (__tmIsRuntimeMobileClient() || __tmIsMobileDevice()) return true;
+                if (window.matchMedia?.('(pointer: coarse)')?.matches) return true;
+            } catch (e) {}
+            return false;
+        })();
+        __tmDecorateCustomBoardSelects(modal, usesTouchInput);
+        // Focusing a text field on touch devices opens the software keyboard and
+        // can make the following native selects appear unresponsive.
+        if (firstInput && !usesTouchInput) {
             try { requestAnimationFrame(() => firstInput.focus({ preventScroll: true })); } catch (e) { try { firstInput.focus(); } catch (e2) {} }
         }
         return modal;
     }
+
+    function __tmSyncCustomBoardNativeSelectTriggers(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : document.getElementById('tmCustomBoardEditor');
+        if (!(modal instanceof Element)) return;
+        modal.querySelectorAll('[data-tm-custom-board-select-trigger="1"]').forEach((trigger) => {
+            const select = trigger.__tmCustomBoardNativeSelect;
+            if (!(select instanceof HTMLSelectElement)) return;
+            const selected = select.options[select.selectedIndex] || select.options[0] || null;
+            const label = trigger.querySelector('[data-tm-custom-board-select-label]');
+            if (label) label.textContent = selected?.textContent?.trim() || '';
+            trigger.disabled = select.disabled || !select.options.length;
+            trigger.setAttribute('aria-expanded', 'false');
+        });
+    }
+
+    function __tmDecorateCustomBoardSelects(modalEl, interactive) {
+        const modal = modalEl instanceof Element ? modalEl : null;
+        if (!modal) return;
+        const useInteractiveTrigger = interactive === true;
+        modal.querySelectorAll('select[data-field]').forEach((select) => {
+            if (!(select instanceof HTMLSelectElement) || select.closest('[data-tm-custom-board-select-shell="1"]')) return;
+            const shell = document.createElement('span');
+            shell.className = 'tm-rule-select-control tm-custom-board-select-control';
+            shell.classList.toggle('tm-custom-board-select-control--touch', useInteractiveTrigger);
+            shell.dataset.tmCustomBoardSelectShell = '1';
+            select.classList.add('bc-select');
+            select.parentNode.insertBefore(shell, select);
+            shell.appendChild(select);
+            if (useInteractiveTrigger) {
+                const trigger = document.createElement('button');
+                trigger.type = 'button';
+                trigger.className = 'bc-select tm-custom-board-select-trigger';
+                trigger.dataset.tmCustomBoardSelectTrigger = '1';
+                trigger.dataset.tmCustomBoardField = String(select.dataset.field || '');
+                trigger.setAttribute('aria-haspopup', 'listbox');
+                trigger.setAttribute('aria-expanded', 'false');
+                trigger.innerHTML = `<span data-tm-custom-board-select-label></span>`;
+                trigger.__tmCustomBoardNativeSelect = select;
+                trigger.addEventListener('click', (event) => {
+                    try { event.preventDefault(); } catch (e) {}
+                    try { event.stopPropagation(); } catch (e) {}
+                    trigger.setAttribute('aria-expanded', 'true');
+                    window.tmOpenCustomBoardOptionPicker(trigger);
+                });
+                shell.appendChild(trigger);
+            }
+            const chevron = document.createElement('span');
+            chevron.className = 'tm-custom-board-select-arrow';
+            chevron.setAttribute('aria-hidden', 'true');
+            shell.appendChild(chevron);
+        });
+        if (useInteractiveTrigger) __tmSyncCustomBoardNativeSelectTriggers(modal);
+    }
+
+    window.tmCloseCustomBoardOptionPicker = function() {
+        const picker = document.getElementById('tmCustomBoardOptionPicker');
+        try { picker?.__tmRemoveFromModalStack?.(); } catch (e) {}
+        picker?.remove();
+        if (state.__tmCustomBoardOptionPickerUnstack) {
+            try { state.__tmCustomBoardOptionPickerUnstack(); } catch (e) {}
+            state.__tmCustomBoardOptionPickerUnstack = null;
+        }
+        const trigger = state.__tmCustomBoardOptionPickerTrigger;
+        if (trigger instanceof Element) trigger.setAttribute('aria-expanded', 'false');
+        state.__tmCustomBoardOptionPickerTrigger = null;
+    };
+
+    window.tmOpenCustomBoardOptionPicker = function(trigger) {
+        const select = trigger?.__tmCustomBoardNativeSelect;
+        if (!(select instanceof HTMLSelectElement) || select.disabled || !select.options.length) return;
+        window.tmCloseCustomBoardOptionPicker();
+        state.__tmCustomBoardOptionPickerTrigger = trigger;
+        const fieldLabel = select.closest('.tm-custom-board-field')?.querySelector(':scope > span')?.textContent?.trim()
+            || select.getAttribute('aria-label')
+            || __tmT("task.select2");
+        const selectedValue = select.value;
+        const optionsHtml = Array.from(select.options).map((option, index) => `
+            <button type="button" class="tm-custom-board-option${option.value === selectedValue ? ' is-selected' : ''}"
+                role="option" aria-selected="${option.value === selectedValue ? 'true' : 'false'}"
+                data-tm-custom-board-option-index="${index}">
+                <span>${esc(option.textContent || '')}</span>
+                <span class="tm-custom-board-option-check" aria-hidden="true">${option.value === selectedValue ? '✓' : ''}</span>
+            </button>
+        `).join('');
+        const picker = document.createElement('div');
+        picker.id = 'tmCustomBoardOptionPicker';
+        picker.className = 'tm-custom-board-option-picker';
+        picker.setAttribute('role', 'dialog');
+        picker.setAttribute('aria-modal', 'true');
+        picker.setAttribute('aria-label', fieldLabel);
+        picker.innerHTML = `
+            <section class="tm-custom-board-option-sheet">
+                <div class="tm-custom-board-option-header">
+                    <strong>${esc(fieldLabel)}</strong>
+                    <button type="button" class="tm-custom-board-option-close" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.close")}">×</button>
+                </div>
+                <div class="tm-custom-board-option-list" role="listbox">${optionsHtml}</div>
+            </section>
+        `;
+        document.body.appendChild(picker);
+        const close = () => window.tmCloseCustomBoardOptionPicker();
+        picker.addEventListener('click', (event) => {
+            if (event.target === picker) close();
+        });
+        picker.querySelector('.tm-custom-board-option-close')?.addEventListener('click', close);
+        picker.querySelectorAll('[data-tm-custom-board-option-index]').forEach((button) => {
+            button.addEventListener('click', (event) => {
+                try { event.preventDefault(); } catch (e) {}
+                try { event.stopPropagation(); } catch (e) {}
+                const option = select.options[Number(button.dataset.tmCustomBoardOptionIndex) || 0];
+                if (!option) return;
+                select.value = option.value;
+                try { select.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+                const modal = document.getElementById('tmCustomBoardEditor');
+                __tmSyncCustomBoardNativeSelectTriggers(modal);
+                try {
+                    requestAnimationFrame(() => __tmSyncCustomBoardNativeSelectTriggers(modal));
+                } catch (e) {}
+                close();
+            });
+        });
+        state.__tmCustomBoardOptionPickerUnstack = __tmModalStackBind(close);
+        picker.__tmRemoveFromModalStack = () => {
+            try { state.__tmCustomBoardOptionPickerUnstack?.(); } catch (e) {}
+            state.__tmCustomBoardOptionPickerUnstack = null;
+        };
+        try { __tmBindPluginHostGestureIsolation(picker); } catch (e) {}
+        try { __tmApplyPopupOpenAnimation(picker, picker.querySelector('.tm-custom-board-option-sheet')); } catch (e) {}
+    };
 
     function __tmGetCustomBoardDocumentOptions() {
         const docs = new Map();
@@ -515,18 +656,13 @@
     function __tmGetMissingCachedCustomBoardTaskDocIds(entry = null) {
         const requiredIds = __tmGetCachedCustomBoardSourceDocIds(entry);
         if (!requiredIds.length) return [];
+        // A loaded document without tasks has no task-tree entry and no tasks in
+        // the store, so only "not loaded" can mean its tasks are missing. Treating
+        // it as missing made every cache refresh re-read all task-less documents.
         const loadedIds = new Set((Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks : [])
             .map((id) => String(id || '').trim())
             .filter(Boolean));
-        const taskTreeIds = new Set((Array.isArray(state.taskTree) ? state.taskTree : [])
-            .map((doc) => String(doc?.id || '').trim())
-            .filter(Boolean));
-        const flatTasks = globalThis.__tmTaskStore?.getFlatMap?.() || state.flatTasks || {};
-        Object.values(flatTasks).forEach((task) => {
-            const id = String(task?.root_id || task?.docId || '').trim();
-            if (id) taskTreeIds.add(id);
-        });
-        return requiredIds.filter((id) => !loadedIds.has(id) || !taskTreeIds.has(id));
+        return requiredIds.filter((id) => !loadedIds.has(id));
     }
 
     function __tmIsCachedCustomBoardTaskDataCurrent(entry = null) {
@@ -714,6 +850,7 @@
     }
 
     window.tmCloseCustomBoardDialog = function() {
+        try { window.tmCloseCustomBoardOptionPicker?.(); } catch (e) {}
         const modal = document.querySelector('.tm-custom-board-modal');
         try { modal?.__tmRemoveFromModalStack?.(); } catch (e) {}
         modal?.remove();

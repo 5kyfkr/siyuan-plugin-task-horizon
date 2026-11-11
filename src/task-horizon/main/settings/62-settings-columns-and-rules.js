@@ -2070,6 +2070,7 @@
                         FROM attributes
                         WHERE block_id IN (${idList})
                           AND name IN (${nameList})
+                        LIMIT ${__TM_SQL_MAX_TOTAL_LIMIT}
                     `,
                 });
                 if (!(res && res.code === 0 && Array.isArray(res.data))) continue;

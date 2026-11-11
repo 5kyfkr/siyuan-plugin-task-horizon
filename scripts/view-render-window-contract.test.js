@@ -197,7 +197,7 @@ assert.doesNotMatch(refreshCapture, /listRender(?:Limit|Step)/, 'manual refresh 
 assert.doesNotMatch(refreshRestore, /saved\.listRender(?:Limit|Step)/, 'manual refresh must not restore render windows');
 
 assert.match(viewSwitch, /state\.viewMode = next;[\s\S]*__tmScheduleViewSwitchCommit\(generation, next,[\s\S]*progressiveJob = __tmStartProgressiveViewRender\(next\);[\s\S]*__tmResetViewRenderWindow\(next\)/, 'deferred view entry must reset its initial render window after the interface paint');
-assert.match(runtime, /value === 'kanban' && tasks\.length <= __TM_KANBAN_PROGRESSIVE_BATCH_SIZE/, 'kanban snapshots larger than the first ten cards need a progressive job');
+assert.match(runtime, /kanbanLike = value === 'kanban' \|\| value === 'comboBoard'[\s\S]*if \(kanbanLike && tasks\.length <= __TM_KANBAN_PROGRESSIVE_BATCH_SIZE\)/, 'kanban and board-set snapshots larger than the first ten cards need a progressive job');
 assert.match(runtime, /Table, checklist, and timeline already share the near-bottom append-only loader/, 'list-like views must not retain a frame-driven fill loop');
 assert.doesNotMatch(runtime, /job\.frameId = requestAnimationFrame\(run\)/, 'progressive view rendering must not continuously refill table or timeline rows');
 assert.match(viewSwitch, /__tmScheduleProgressiveViewRender\(next, progressiveJob\)/, 'view switches must retain the shared kanban continuation hook');

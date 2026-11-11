@@ -76,7 +76,7 @@
             if (withNames) {
                 const missing = docs.filter(doc => !documentName(doc.id) && /^[0-9]+-[a-zA-Z0-9]+$/.test(doc.id));
                 if (missing.length) {
-                    const response = await API.call('/api/query/sql', { stmt: `SELECT id, content FROM blocks WHERE type = 'd' AND id IN (${missing.map(doc => `'${doc.id}'`).join(',')})` });
+                    const response = await API.call('/api/query/sql', { stmt: `SELECT id, content FROM blocks WHERE type = 'd' AND id IN (${missing.map(doc => `'${doc.id}'`).join(',')}) LIMIT ${missing.length}` });
                     if (response?.code !== 0) throw new Error(__tmT("task.couldNotLoadTheDocumentName"));
                     for (const row of response.data || []) documentNames.set(row.id, String(row.content || '').trim() || __tmT("kernel.untitledDocument"));
                 }

@@ -355,7 +355,7 @@ assert.match(timelinePatchTask, /hasOwnProperty\.call\(patch, 'milestone'\)[\s\S
 assert.doesNotMatch(timelinePatchTask, /__tmScheduleViewRefresh|__tmRerenderCurrentViewInPlace|\brender\s*\(/, 'milestone changes must not reload or rerender the full timeline view');
 
 const taskDetailSheetPolicy = segment(viewHostPolicies, 'const taskDetailSheetViewModes', 'const shouldUseDockPointerTaskDrag');
-assert.match(taskDetailSheetPolicy, /new Set\(\['list', 'kanban', 'whiteboard', 'calendar', 'timeline'\]\)/, 'timeline must remain eligible for the shared compact task-detail sheet');
+assert.match(taskDetailSheetPolicy, /new Set\(\['list', 'kanban', 'comboBoard', 'whiteboard', 'calendar', 'timeline'\]\)/, 'timeline and board sets must remain eligible for the shared compact task-detail sheet');
 assert.match(taskDetailSheetPolicy, /const desktopDock[\s\S]*if \(desktopDock\) return true;[\s\S]*mobileLike[\s\S]*width < 768/, 'desktop Dock and narrow mobile hosts must select task-detail sheet mode');
 const openTaskDetail = segment(taskDetailLoader, 'window.tmOpenTaskDetail = async function', 'window.tmToggleTaskDetailCompletedSubtasks');
 assert.match(openTaskDetail, /shouldUseTaskDetailSheetMode\?\.\(activeRenderMode, state\.modal\)[\s\S]*await __tmOpenTaskDetailSheetInPlace\(tid,/, 'the shared task-detail opener must route timeline requests to the existing mobile and Dock drawer');
@@ -507,7 +507,7 @@ assert.match(services, /function __tmEnqueueTimelineMutation[\s\S]*previous\.cat
 assert.match(calendarSupport, /opts\.timelineMutation !== true[\s\S]*__tmEnqueueTimelineMutation\([\s\S]*__tmUpdateTaskDatesCore/, 'timeline date persistence must opt into the shared serial queue at the common date service');
 const timelineLinkDrop = segment(interactions, 'window.tmTaskLinkDotDrop = async function', 'window.tmWhiteboardRemoveLink = async function');
 assert.match(timelineLinkDrop, /isTimelineDrop[\s\S]*__tmEnqueueTimelineMutation\(commitDrop/, 'timeline link creation must use the shared serial queue');
-assert.match(timelineLinkDrop, /if \(!isTimelineDrop\) render\(\)/, 'timeline link creation must avoid a full plugin render');
+assert.match(timelineLinkDrop, /if \(!isTimelineDrop && !deferClickLinkRender\) render\(\)/, 'timeline link creation and deferred click-link interactions must avoid a full plugin render');
 const timelineLinkRemove = segment(interactions, 'window.tmTimelineRemoveLink = async function', 'function __tmIsWhiteboardCompactSidebarHost');
 assert.match(timelineLinkRemove, /__tmEnqueueTimelineMutation\(async \(\) =>[\s\S]*__tmTimelineRenderDeps/, 'timeline link removal must serialize persistence and redraw only dependency lines');
 assert.doesNotMatch(timelineLinkRemove, /\brender\s*\(/, 'timeline link removal must not trigger a full plugin render');

@@ -26,30 +26,28 @@ function fn(source, name) {
     return source.slice(from, end + 6);
 }
 
-// Use the real local-load statements and field merge rules to verify migration and cross-device saves.
+// Use the real local-load statements to verify migration and file-authoritative cross-device saves.
 const preferenceHarness = vm.createContext({ Date, Set, Map });
 vm.runInContext([
     `const __TM_DOC_GROUP_SETTINGS_FIELD_KEY = 'docGroupSyncState';
      function __tmBuildDocGroupSyncSnapshot() { return {}; }`,
     section(stores, '    const __TM_QUICK_ADD_FIELD_VISIBILITY_KEY =', '    const __TM_QUICK_ADD_RECENT_DOCS_LIMIT ='),
-    section(stores, '    const __TM_SETTINGS_FIELD_SYNC_EXCLUDED_KEYS =', '    const __TM_LEGACY_TASK_TITLE_SETTING_KEYS ='),
-    fn(stores, '__tmCloneJsonSafe'), fn(stores, '__tmParseUpdatedAtNumber'),
-    section(stores, '    function __tmIsSettingsFieldSyncKey(', '    function __tmNormalizeWhiteboardLinkArray('),
+    fn(stores, '__tmCloneJsonSafe'),
     `function loadPreferences() { ${stores.split('\n').filter(line => /this\.data\.quickAdd(?:Mobile)?FieldVisibility = .*Storage\.get/.test(line)).join('\n')} }`,
     `const storedPreferences = new Map([['tm_quick_add_field_visibility', { date: false }]]);
      const Storage = { get: (key, fallback) => storedPreferences.has(key) ? storedPreferences.get(key) : fallback };
      const migrated = { data: { quickAddFieldVisibility: {}, quickAddMobileFieldVisibility: null } };
      loadPreferences.call(migrated);
      const baseline = { quickAddFieldVisibility: {}, quickAddMobileFieldVisibility: {} };
-     const desktop = __tmCloneJsonSafe(baseline), mobile = __tmCloneJsonSafe(baseline);
-     desktop.quickAddFieldVisibility.date = false;
-     mobile.quickAddMobileFieldVisibility.customFields = false;
-     const desktopChange = __tmMarkChangedSettingsFields(desktop, baseline, 3000);
-     const mobileChange = __tmMarkChangedSettingsFields(mobile, baseline, 4000);
-     __tmApplySettingsFieldUpdatesByMap(desktop, mobile, { skipKeys: desktopChange.changedKeys });
-     __tmApplySettingsFieldUpdatesByMap(mobile, desktop, { skipKeys: mobileChange.changedKeys });
-     globalThis.preferenceResult = { migrated: migrated.data, desktop, mobile };
-     const cloudMobile = { data: { quickAddFieldVisibility: {}, quickAddMobileFieldVisibility: { date: true } } };
+     const desktop = { data: __tmCloneJsonSafe(baseline) }, mobile = { data: __tmCloneJsonSafe(baseline) };
+     desktop.data.quickAddFieldVisibility.date = false;
+     let synchronizedFile = __tmCloneJsonSafe(desktop.data);
+     mobile.data = __tmCloneJsonSafe(synchronizedFile);
+     mobile.data.quickAddMobileFieldVisibility.customFields = false;
+     synchronizedFile = __tmCloneJsonSafe(mobile.data);
+     desktop.data = __tmCloneJsonSafe(synchronizedFile);
+     globalThis.preferenceResult = { migrated: migrated.data, desktop: desktop.data, mobile: mobile.data };
+     const cloudMobile = { data: { ...__tmCloneJsonSafe(synchronizedFile), quickAddMobileFieldVisibility: { date: true } } };
      loadPreferences.call(cloudMobile);
      globalThis.cloudMobileResult = cloudMobile.data;`,
 ].join('\n'), preferenceHarness);
@@ -60,7 +58,7 @@ for (const client of [preferenceResult.desktop, preferenceResult.mobile]) {
     assert.deepEqual(client.quickAddMobileFieldVisibility, { customFields: false }, 'sync preserves the mobile edit');
 }
 assert.deepEqual(JSON.parse(JSON.stringify(preferenceHarness.cloudMobileResult.quickAddMobileFieldVisibility)), { date: true }, 'a missing local mobile key retains the cloud mobile preference');
-console.log('PASS legacy preference migration and independent desktop/mobile sync');
+console.log('PASS legacy preference migration and file-authoritative desktop/mobile sync');
 
 const production = [
     section(read('30-dialogs-and-ui-foundation.js'), '    function __tmNormalizeLucideIconName(', '    function __tmRenderInlineIcon('),

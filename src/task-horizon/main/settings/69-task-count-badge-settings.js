@@ -37,10 +37,6 @@
         const cfg = __tmNormalizeTaskCountBadge(SettingsStore.data.taskCountBadge);
         if (!Object.prototype.hasOwnProperty.call(cfg, key)) return;
         SettingsStore.data.taskCountBadge = __tmNormalizeTaskCountBadge({ ...cfg, [key]: value });
-        SettingsStore.data.settingsFieldUpdatedAt = {
-            ...(SettingsStore.data.settingsFieldUpdatedAt || {}),
-            taskCountBadge: Date.now(),
-        };
         globalThis.__tmTaskCountBadge.configure();
         await SettingsStore.save();
         if (state.settingsModal) showSettings();

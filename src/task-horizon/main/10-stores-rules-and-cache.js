@@ -3169,12 +3169,18 @@
     }
 
     function __tmSelectPreservedTaskSnapshotCandidates(candidates = []) {
+        // One group is loaded with several document scopes: the combination board
+        // leaves out the quick-add document that the other views include, and each
+        // board set has its own scope. Keeping only the newest scope made every view
+        // evict the others' snapshots on save, so no view could restore from cache.
+        const scopesPerGroup = 3;
         const out = [];
-        const seenBuckets = new Set();
+        const bucketCounts = new Map();
         (Array.isArray(candidates) ? candidates : []).forEach((snap) => {
             const bucket = __tmGetPreservedTaskSnapshotBucket(snap);
-            if (bucket && seenBuckets.has(bucket)) return;
-            if (bucket) seenBuckets.add(bucket);
+            const kept = bucket ? (bucketCounts.get(bucket) || 0) : 0;
+            if (bucket && kept >= scopesPerGroup) return;
+            if (bucket) bucketCounts.set(bucket, kept + 1);
             out.push(snap);
         });
         return out;
@@ -3584,6 +3590,13 @@
 
     async function __tmRefreshTaskSnapshotStoreCacheIfChanged(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.background === true && __tmTaskSnapshotStoreCache && opts.force !== true) {
+            // The check lists the storage directory, and the kernel can take seconds
+            // to answer while it is busy. A first paint uses the store already in
+            // memory; if the file did change, the check reloads it for the next read.
+            void __tmRefreshTaskSnapshotStoreCacheIfChanged({ ...opts, background: false });
+            return { changed: false, deferred: true };
+        }
         try {
             const localUpdatedAt = Number(__tmTaskSnapshotStoreCache?.updatedAt || 0) || 0;
             const localVersionSignature = __tmGetTaskSnapshotStoreVersionSignature(__tmTaskSnapshotStoreCache);
@@ -4471,9 +4484,13 @@
         const softStaleDocIds = [];
         const docUpdatedMap = opts.docUpdatedMap instanceof Map ? opts.docUpdatedMap : null;
         const ids = __tmNormalizeTaskSnapshotDocIds(docIds);
+        const expectedCountMap = __tmGetExpectedTaskCountMapFromOptions(opts);
         ids.forEach((docId) => {
             const entry = docs[docId];
             if (!entry) {
+                // Documents without tasks are pruned from the index, so a current
+                // count of zero means nothing is missing for this document.
+                if (__tmGetExpectedTaskCountFromMap(expectedCountMap, docId) === 0) return;
                 missingDocIds.push(docId);
                 return;
             }
@@ -4813,46 +4830,6 @@
         'allDocsExcludedDocIds', 'docGroups', 'docTabCustomGroups', 'otherBlockRefs',
         'docPinnedByGroup', 'docTabsManualArchivedByGroup', 'docTabsManualUnarchivedByGroup',
     ]);
-    const __TM_SETTINGS_FIELD_SYNC_EXCLUDED_KEYS = new Set([
-        'settingsUpdatedAt',
-        'settingsFieldUpdatedAt',
-        'checklistCompactTitleOpenDetailPage',
-        'dockChecklistCompactTitleJump',
-        'mobileChecklistCompactTitleJump',
-        'docGroupSettingsUpdatedAt',
-        'docGroupSyncState', // Ignore the obsolete virtual field from the previous sync implementation.
-        'collapseStateUpdatedAt',
-        'customFieldDefsVersion',
-        'whiteboardStateVersion',
-        'checklistCompactTreeGuidesUpdatedAt',
-        'collapsedTaskIds',
-        'kanbanCollapsedTaskIds',
-        'kanbanCollapsedColumnKeys',
-        'collapsedGroups',
-        'expandedCompletedGroups',
-        'customFieldDefs',
-        'whiteboardLinks',
-        'whiteboardDetachedChildren',
-        'whiteboardNotes',
-        'whiteboardDrawings',
-        'whiteboardFrames',
-        'whiteboardDrawingConfig',
-        'whiteboardTool',
-        'whiteboardSidebarCollapsed',
-        'whiteboardSidebarWidth',
-        'whiteboardShowDone',
-        'whiteboardNavigatorHidden',
-        'whiteboardCardFields',
-        'whiteboardView',
-        'whiteboardNodePos',
-        'whiteboardPlacedTaskIds',
-        'whiteboardDocFrameSize',
-        'whiteboardAllTabsLayoutMode',
-        'whiteboardAllTabsDocOrderByGroup',
-        'whiteboardGlobalBoardsByGroup',
-        'whiteboardSequenceMode',
-        'whiteboardSequenceScope',
-    ]);
 
     const __TM_LEGACY_TASK_TITLE_SETTING_KEYS = Object.freeze([
         'checklistCompactTitleOpenDetailPage',
@@ -4915,19 +4892,6 @@
             out.dockTaskTitleClickAction = dockAction === globalAction ? 'inherit' : dockAction;
             out.mobileTaskTitleClickAction = mobileAction === globalAction ? 'inherit' : mobileAction;
 
-            const rawMap = (src.settingsFieldUpdatedAt && typeof src.settingsFieldUpdatedAt === 'object' && !Array.isArray(src.settingsFieldUpdatedAt))
-                ? src.settingsFieldUpdatedAt
-                : {};
-            const nextMap = (out.settingsFieldUpdatedAt && typeof out.settingsFieldUpdatedAt === 'object' && !Array.isArray(out.settingsFieldUpdatedAt))
-                ? { ...out.settingsFieldUpdatedAt }
-                : {};
-            const globalTs = __tmParseUpdatedAtNumber(rawMap.checklistCompactTitleOpenDetailPage);
-            const dockTs = Math.max(globalTs, __tmParseUpdatedAtNumber(rawMap.dockChecklistCompactTitleJump));
-            const mobileTs = Math.max(globalTs, __tmParseUpdatedAtNumber(rawMap.mobileChecklistCompactTitleJump));
-            if (globalTs > 0) nextMap.taskTitleClickAction = Math.max(__tmParseUpdatedAtNumber(nextMap.taskTitleClickAction), globalTs);
-            if (dockTs > 0) nextMap.dockTaskTitleClickAction = Math.max(__tmParseUpdatedAtNumber(nextMap.dockTaskTitleClickAction), dockTs);
-            if (mobileTs > 0) nextMap.mobileTaskTitleClickAction = Math.max(__tmParseUpdatedAtNumber(nextMap.mobileTaskTitleClickAction), mobileTs);
-            out.settingsFieldUpdatedAt = nextMap;
             migrated = true;
         } else {
             out.taskTitleClickAction = __tmNormalizeTaskTitleClickAction(out.taskTitleClickAction, 'jump');
@@ -4935,24 +4899,10 @@
             out.mobileTaskTitleClickAction = __tmNormalizeTaskTitleClickOverride(out.mobileTaskTitleClickAction, 'inherit');
         }
 
-        const fieldMap = (out.settingsFieldUpdatedAt && typeof out.settingsFieldUpdatedAt === 'object' && !Array.isArray(out.settingsFieldUpdatedAt))
-            ? { ...out.settingsFieldUpdatedAt }
-            : {};
         __TM_LEGACY_TASK_TITLE_SETTING_KEYS.forEach((key) => {
             if (Object.prototype.hasOwnProperty.call(out, key)) delete out[key];
-            if (Object.prototype.hasOwnProperty.call(fieldMap, key)) delete fieldMap[key];
         });
-        out.settingsFieldUpdatedAt = fieldMap;
         return migrated;
-    }
-
-    function __tmIsSettingsFieldSyncKey(key) {
-        const normalized = String(key || '').trim();
-        if (!normalized) return false;
-        if (__TM_SETTINGS_FIELD_SYNC_EXCLUDED_KEYS.has(normalized)) return false;
-        if (normalized.startsWith('__')) return false;
-        if (normalized.endsWith('UpdatedAt')) return false;
-        return true;
     }
 
     function __tmStableSettingsJsonValue(value) {
@@ -4982,107 +4932,6 @@
             'docGroupSyncState', 'agentMcpEnabled', 'agentMcpEnabledInitialized', 'taskTemplateLibrary',
         ].forEach((key) => { delete data[key]; });
         return __tmGetSettingsFieldFingerprint(data);
-    }
-
-    function __tmBuildSettingsFieldSyncSnapshot(source) {
-        const src = (source && typeof source === 'object') ? source : {};
-        const out = {};
-        Object.keys(src).forEach((key) => {
-            if (!__tmIsSettingsFieldSyncKey(key)) return;
-            out[key] = __tmCloneJsonSafe(src[key], src[key]);
-        });
-        return out;
-    }
-
-    function __tmNormalizeSettingsFieldUpdatedAtMap(input, source = null, options = {}) {
-        const src = (source && typeof source === 'object') ? source : {};
-        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
-        const out = {};
-        Object.keys(raw).forEach((key) => {
-            if (!__tmIsSettingsFieldSyncKey(key)) return;
-            const ts = __tmParseUpdatedAtNumber(raw[key]);
-            if (ts > 0) out[key] = ts;
-        });
-        const fallbackUpdatedAt = __tmParseUpdatedAtNumber(src.settingsUpdatedAt);
-        const seedFields = options?.seedFromSettingsUpdatedAt;
-        if (fallbackUpdatedAt > 0 && (seedFields === true || seedFields instanceof Set)) {
-            Object.keys(__tmBuildSettingsFieldSyncSnapshot(src)).forEach((key) => {
-                if (seedFields instanceof Set && !seedFields.has(key)) return;
-                if (!out[key]) out[key] = fallbackUpdatedAt;
-            });
-        }
-        const treeGuidesUpdatedAt = __tmParseUpdatedAtNumber(src.checklistCompactTreeGuidesUpdatedAt);
-        if (treeGuidesUpdatedAt > 0 && __tmIsSettingsFieldSyncKey('checklistCompactTreeGuides')) {
-            out.checklistCompactTreeGuides = Math.max(Number(out.checklistCompactTreeGuides) || 0, treeGuidesUpdatedAt);
-        }
-        return out;
-    }
-
-    function __tmMarkChangedSettingsFields(data, loadedSnapshot, updatedAt) {
-        const target = (data && typeof data === 'object') ? data : {};
-        const current = __tmBuildSettingsFieldSyncSnapshot(target);
-        const loaded = (loadedSnapshot && typeof loadedSnapshot === 'object') ? loadedSnapshot : {};
-        const map = __tmNormalizeSettingsFieldUpdatedAtMap(target.settingsFieldUpdatedAt, target);
-        const ts = __tmParseUpdatedAtNumber(updatedAt) || Date.now();
-        const changed = new Set();
-        Object.keys(current).forEach((key) => {
-            const before = Object.prototype.hasOwnProperty.call(loaded, key) ? loaded[key] : undefined;
-            if (__tmGetSettingsFieldFingerprint(current[key]) === __tmGetSettingsFieldFingerprint(before)) return;
-            map[key] = ts;
-            changed.add(key);
-        });
-        target.settingsFieldUpdatedAt = map;
-        return { changedKeys: changed, map };
-    }
-
-    function __tmLooksLegacySeededSettingsFieldMap(input, source = null) {
-        const src = (source && typeof source === 'object') ? source : {};
-        const map = __tmNormalizeSettingsFieldUpdatedAtMap(input, src);
-        const keys = Object.keys(map);
-        if (!keys.length) return false;
-        const fallbackUpdatedAt = __tmParseUpdatedAtNumber(src.settingsUpdatedAt);
-        if (fallbackUpdatedAt <= 0) return false;
-        const hasNonFallbackTs = keys.some((key) => __tmParseUpdatedAtNumber(map[key]) !== fallbackUpdatedAt);
-        if (hasNonFallbackTs) return false;
-        const syncKeys = Object.keys(__tmBuildSettingsFieldSyncSnapshot(src));
-        if (!syncKeys.length) return false;
-        const coverage = keys.length / Math.max(1, syncKeys.length);
-        return coverage >= 0.85;
-    }
-
-    function __tmApplySettingsFieldUpdatesByMap(target, source, options = {}) {
-        const out = (target && typeof target === 'object') ? target : {};
-        const src = (source && typeof source === 'object') ? source : {};
-        if (!out || !src || !Object.keys(src).length) return [];
-        const skip = options?.skipKeys instanceof Set ? options.skipKeys : new Set(options?.skipKeys || []);
-        const localRawMap = __tmNormalizeSettingsFieldUpdatedAtMap(out.settingsFieldUpdatedAt, out);
-        const remoteRawMap = __tmNormalizeSettingsFieldUpdatedAtMap(src.settingsFieldUpdatedAt, src);
-        const localLegacySeeded = __tmLooksLegacySeededSettingsFieldMap(out.settingsFieldUpdatedAt, out);
-        const remoteLegacySeeded = __tmLooksLegacySeededSettingsFieldMap(src.settingsFieldUpdatedAt, src);
-        const localHasExplicit = Object.keys(localRawMap).length > 0 && !localLegacySeeded;
-        const remoteHasExplicit = Object.keys(remoteRawMap).length > 0 && !remoteLegacySeeded;
-        const seedBothFromSettingsUpdatedAt = !localHasExplicit && !remoteHasExplicit;
-        const localMap = __tmNormalizeSettingsFieldUpdatedAtMap(localLegacySeeded ? {} : localRawMap, out, {
-            seedFromSettingsUpdatedAt: seedBothFromSettingsUpdatedAt,
-        });
-        const remoteMap = __tmNormalizeSettingsFieldUpdatedAtMap(remoteLegacySeeded ? {} : remoteRawMap, src, {
-            seedFromSettingsUpdatedAt: seedBothFromSettingsUpdatedAt,
-        });
-        const applied = [];
-        Object.keys(remoteMap).forEach((key) => {
-            if (!__tmIsSettingsFieldSyncKey(key)) return;
-            if (skip.has(key)) return;
-            if (options?.includeKeys instanceof Set && !options.includeKeys.has(key)) return;
-            if (!Object.prototype.hasOwnProperty.call(src, key)) return;
-            const remoteTs = __tmParseUpdatedAtNumber(remoteMap[key]);
-            const localTs = __tmParseUpdatedAtNumber(localMap[key]);
-            if (remoteTs <= localTs) return;
-            out[key] = __tmCloneJsonSafe(src[key], src[key]);
-            localMap[key] = remoteTs;
-            applied.push(key);
-        });
-        out.settingsFieldUpdatedAt = localMap;
-        return applied;
     }
 
     function __tmNormalizeWhiteboardLinkArray(input) {
@@ -8872,7 +8721,6 @@
         data: {
             uiLanguage: 'system',
             settingsUpdatedAt: 0,
-            settingsFieldUpdatedAt: {},
             docGroupSettingsUpdatedAt: 0,
             collapseStateUpdatedAt: 0,
             selectedDocIds: [],
@@ -9405,8 +9253,7 @@
         loadedCustomFieldDefsVersion: 0,
         lastCustomFieldDefsFingerprint: '',
         loadedCustomFieldDefsSnapshot: [],
-        loadedSettingsFieldSnapshot: {},
-        loadedSettingsFieldUpdatedAt: {},
+        loadedSharedSettingsFingerprint: '',
 
         refreshDocGroupSyncState() {
             this.loadedDocGroupFingerprint = __tmBuildDocGroupSyncFingerprint(this.data);
@@ -9439,10 +9286,8 @@
                 : __tmGetCollapsedSessionUpdatedAt(this.data);
         },
 
-        refreshSettingsFieldSyncState() {
-            this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
-            this.loadedSettingsFieldUpdatedAt = __tmCloneJsonSafe(this.data.settingsFieldUpdatedAt, {});
-            this.loadedSettingsFieldSnapshot = __tmBuildSettingsFieldSyncSnapshot(this.data);
+        refreshSettingsSyncState() {
+            this.loadedSharedSettingsFingerprint = __tmGetSharedSettingsContentFingerprint(this.data);
         },
 
         migrateLegacyTopbarDefaults() {
@@ -9492,20 +9337,16 @@
             __tmMigrateLegacyTaskTitleClickSettings(payload, payload);
             delete payload.agentMcpEnabled;
             delete payload.agentMcpEnabledInitialized;
+            delete payload.settingsFieldUpdatedAt;
             delete payload.taskTemplateLibrary;
             return payload;
         },
 
         async saveTaskTemplates(input) {
             const previous = this.data.taskTemplateLibrary;
-            const previousFieldUpdatedAt = this.data.settingsFieldUpdatedAt?.taskTemplateLibrary;
             const library = __tmNormalizeTaskTemplateLibrary(input);
             const updatedAt = Date.now();
             this.data.taskTemplateLibrary = library;
-            this.data.settingsFieldUpdatedAt = {
-                ...(this.data.settingsFieldUpdatedAt || {}),
-                taskTemplateLibrary: updatedAt,
-            };
             const ok = await __tmWriteJsonFile(TASK_TEMPLATES_FILE_PATH, {
                 schemaVersion: 1,
                 updatedAt,
@@ -9519,21 +9360,9 @@
             };
             if (!ok) {
                 this.data.taskTemplateLibrary = previous;
-                if (this.data.settingsFieldUpdatedAt) {
-                    if (previousFieldUpdatedAt == null) delete this.data.settingsFieldUpdatedAt.taskTemplateLibrary;
-                    else this.data.settingsFieldUpdatedAt.taskTemplateLibrary = previousFieldUpdatedAt;
-                }
                 return this.lastSaveResult;
             }
             try { Storage.set('tm_task_template_library', library); } catch (e) {}
-            this.loadedSettingsFieldSnapshot = {
-                ...(this.loadedSettingsFieldSnapshot || {}),
-                taskTemplateLibrary: __tmCloneJsonSafe(library, library),
-            };
-            this.loadedSettingsFieldUpdatedAt = {
-                ...(this.loadedSettingsFieldUpdatedAt || {}),
-                taskTemplateLibrary: updatedAt,
-            };
             return this.lastSaveResult;
         },
 
@@ -9554,15 +9383,16 @@
                 return wrapped;
             }
             if (this.loaded) return;
-            const opt = loadOptions;
-            const preferRemoteWhiteboardSameVersion = opt.preferRemoteWhiteboardSameVersion === true;
+            const localRuntimeState = {
+                agentMcpEnabled: this.data?.agentMcpEnabled,
+                agentMcpEnabledInitialized: this.data?.agentMcpEnabledInitialized,
+            };
+            this.data = __tmCloneJsonSafe(__tmDefaultSettingsData, __tmDefaultSettingsData);
+            Object.assign(this.data, localRuntimeState);
             const loadGeneration = Number(this.reloadGeneration) || 0;
             const isLoadCurrent = () => loadGeneration === (Number(this.reloadGeneration) || 0);
 
-            // 先从本地缓存加载一份作为兜底（避免云端旧版本配置缺字段导致覆盖丢失）
-            // 云端数据存在时，再用云端字段覆盖本地字段
             let migratedLegacyTaskTitleClickSettings = false;
-            try { migratedLegacyTaskTitleClickSettings = this.loadFromLocal() === true; } catch (e) {}
             const taskTemplateFile = await __tmReadJsonFile(TASK_TEMPLATES_FILE_PATH);
             if (!isLoadCurrent('after-template-read')) return;
             const dedicatedTaskTemplateLibrary = Array.isArray(taskTemplateFile?.items)
@@ -9571,10 +9401,6 @@
             const applyDedicatedTaskTemplateLibrary = () => {
                 if (!dedicatedTaskTemplateLibrary) return;
                 this.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary(dedicatedTaskTemplateLibrary);
-                this.data.settingsFieldUpdatedAt = {
-                    ...(this.data.settingsFieldUpdatedAt || {}),
-                    taskTemplateLibrary: __tmParseUpdatedAtNumber(taskTemplateFile.updatedAt),
-                };
             };
             // 从云端加载设置（优先）
             try {
@@ -9592,98 +9418,13 @@
                         try {
                             const cloudData = JSON.parse(text);
                             if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
-                                // Bootstrap newly tracked fields from the file, never from a local cache's overall clock.
-                                cloudData.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(cloudData.settingsFieldUpdatedAt, cloudData, {
-                                    seedFromSettingsUpdatedAt: new Set(__TM_DOC_GROUP_SETTINGS_KEYS),
-                                });
                                 if (Array.isArray(cloudData.filterRules) && typeof cloudData.filterRulesDefaultsVersion !== 'number') cloudData.filterRulesDefaultsVersion = 1;
                                 migratedLegacyTaskTitleClickSettings = __tmMigrateLegacyTaskTitleClickSettings(cloudData, cloudData)
                                     || migratedLegacyTaskTitleClickSettings;
                                 migratedLegacyTaskTitleClickSettings = __tmMigrateScheduleTimeFieldDefaults(cloudData)
                                     || migratedLegacyTaskTitleClickSettings;
-                                const localSettingsBeforeCloud = __tmCloneJsonSafe(this.data, { ...(this.data || {}) });
-                                const localSettingsUpdatedAt = Number(this.data.settingsUpdatedAt) || 0;
                                 const cloudSettingsUpdatedAt = Number(cloudData.settingsUpdatedAt) || 0;
-                                const localSettingsNewer = localSettingsUpdatedAt > 0 && cloudSettingsUpdatedAt < localSettingsUpdatedAt;
-                                const localCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(this.data);
-                                const cloudCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(cloudData);
-                                const localWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
-                                const cloudWhiteboardStateVersion = __tmParseVersionNumber(cloudData.whiteboardStateVersion);
-                                const shouldApplyCloudWhiteboardState = __tmShouldUseRemoteWhiteboardSettings(cloudData, localSettingsBeforeCloud, localWhiteboardStateVersion, false)
-                                    || (preferRemoteWhiteboardSameVersion
-                                        && cloudWhiteboardStateVersion >= localWhiteboardStateVersion
-                                        && __tmHasWhiteboardSettingsPayload(cloudData));
-                                const localCustomFieldDefsVersion = __tmParseVersionNumber(this.data.customFieldDefsVersion);
-                                const cloudCustomFieldDefsVersion = __tmParseVersionNumber(cloudData.customFieldDefsVersion);
-                                const resolvedCustomFieldSchema = __tmResolveCustomFieldDefsOnLoad(
-                                    this.data.customFieldDefs,
-                                    cloudData.customFieldDefs,
-                                    {
-                                        localVersion: localCustomFieldDefsVersion,
-                                        remoteVersion: cloudCustomFieldDefsVersion,
-                                    }
-                                );
-                                if (localSettingsUpdatedAt > 0 && cloudSettingsUpdatedAt < localSettingsUpdatedAt) {
-                                    if (__tmShouldPreferRemoteCollapsedSessionState(localCollapseUpdatedAt, cloudCollapseUpdatedAt)) {
-                                        __tmAssignCollapsedSessionState(this.data, cloudData);
-                                        this.data.collapseStateUpdatedAt = cloudCollapseUpdatedAt;
-                                    }
-                                    const appliedCloudSettingsFields = __tmApplySettingsFieldUpdatesByMap(this.data, cloudData, {
-                                        skipKeys: new Set(['agentMcpEnabled', 'agentMcpEnabledInitialized']),
-                                    });
-                                    this.data.customBoardFeatureVersion = Math.max(
-                                        Number(this.data.customBoardFeatureVersion) || 0,
-                                        Number(cloudData.customBoardFeatureVersion) || 0
-                                    );
-                                    this.data.viewSwitcherStyleVersion = Math.max(
-                                        Number(this.data.viewSwitcherStyleVersion) || 0,
-                                        Number(cloudData.viewSwitcherStyleVersion) || 0
-                                    );
-                                    if (localSettingsBeforeCloud.taskTemplateLibrary) {
-                                        this.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary(
-                                            localSettingsBeforeCloud.taskTemplateLibrary
-                                        );
-                                    }
-                                    applyDedicatedTaskTemplateLibrary();
-                                    if (shouldApplyCloudWhiteboardState) {
-                                        __tmAssignWhiteboardSettingsState(this.data, cloudData);
-                                    }
-                                    {
-                                        const cloudTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(cloudData.checklistCompactTreeGuidesUpdatedAt)
-                                            || (typeof cloudData.checklistCompactTreeGuides === 'boolean' ? cloudSettingsUpdatedAt : 0);
-                                        const localTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(this.data.checklistCompactTreeGuidesUpdatedAt);
-                                        if (typeof cloudData.checklistCompactTreeGuides === 'boolean' && cloudTreeGuidesUpdatedAt > localTreeGuidesUpdatedAt) {
-                                            this.data.checklistCompactTreeGuides = cloudData.checklistCompactTreeGuides;
-                                            this.data.checklistCompactTreeGuidesUpdatedAt = cloudTreeGuidesUpdatedAt;
-                                        }
-                                    }
-                                    this.data.customFieldDefs = resolvedCustomFieldSchema.defs;
-                                    this.data.customFieldDefsVersion = resolvedCustomFieldSchema.version;
-                                    const migratedLegacyTopbarDefaults = this.migrateLegacyTopbarDefaults();
-                                    const migratedCustomBoardFeatureSettings = __tmMigrateCustomBoardFeatureSettings(this.data);
-                                    __tmEnsureDocGroupContextValidAfterSync();
-                                    this.normalizeColumns();
-                                    this.syncToLocal();
-                                    this.loadedWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
-                                    this.lastWhiteboardFingerprint = __tmGetWhiteboardSettingsFingerprint(this.data);
-                                    this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
-                                    this.refreshCustomFieldSyncState();
-                                    this.refreshCollapsedStateSyncState();
-                                    this.refreshSettingsFieldSyncState();
-                                    this.loaded = true;
-                                    if (!dedicatedTaskTemplateLibrary) {
-                                        try { await this.saveTaskTemplates(this.data.taskTemplateLibrary); } catch (e) {}
-                                    }
-                                    if (migratedLegacyTopbarDefaults || migratedCustomBoardFeatureSettings || migratedLegacyTaskTitleClickSettings || resolvedCustomFieldSchema.repairRemote === true) {
-                                        try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
-                                    }
-                                    return;
-                                }
                                 if (cloudSettingsUpdatedAt > 0) this.data.settingsUpdatedAt = cloudSettingsUpdatedAt;
-                                {
-                                    const cloudFieldMap = __tmNormalizeSettingsFieldUpdatedAtMap(cloudData.settingsFieldUpdatedAt, cloudData);
-                                    this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(cloudFieldMap, cloudData) ? {} : cloudFieldMap;
-                                }
                                 // 应用云端数据
                                 __TM_DOC_GROUP_SETTINGS_KEYS.forEach((key) => {
                                     if (Object.prototype.hasOwnProperty.call(cloudData, key)) {
@@ -9749,14 +9490,8 @@
                                 if (typeof cloudData.completedTasksTodayOnly === 'boolean') this.data.completedTasksTodayOnly = cloudData.completedTasksTodayOnly;
                                 if (typeof cloudData.completedTasksInlineInGroups === 'boolean') this.data.completedTasksInlineInGroups = cloudData.completedTasksInlineInGroups;
                                 if (typeof cloudData.completedTasksGroupBy === 'string') this.data.completedTasksGroupBy = __tmNormalizeCompletedTasksGroupBy(cloudData.completedTasksGroupBy);
-                                if (__tmShouldPreferRemoteCollapsedSessionState(localCollapseUpdatedAt, cloudCollapseUpdatedAt)) {
-                                    if (Array.isArray(cloudData.collapsedTaskIds)) this.data.collapsedTaskIds = cloudData.collapsedTaskIds;
-                                    if (Array.isArray(cloudData.kanbanCollapsedTaskIds)) this.data.kanbanCollapsedTaskIds = cloudData.kanbanCollapsedTaskIds;
-                                    if (Array.isArray(cloudData.kanbanCollapsedColumnKeys)) this.data.kanbanCollapsedColumnKeys = cloudData.kanbanCollapsedColumnKeys;
-                                    if (Array.isArray(cloudData.collapsedGroups)) this.data.collapsedGroups = cloudData.collapsedGroups;
-                                    if (Array.isArray(cloudData.expandedCompletedGroups)) this.data.expandedCompletedGroups = cloudData.expandedCompletedGroups;
-                                    this.data.collapseStateUpdatedAt = cloudCollapseUpdatedAt;
-                                }
+                                __tmAssignCollapsedSessionState(this.data, cloudData);
+                                this.data.collapseStateUpdatedAt = __tmGetCollapsedSessionUpdatedAt(cloudData);
                                 if (cloudData.currentRule !== undefined) this.data.currentRule = cloudData.currentRule;
                                 if (cloudData.viewProfiles !== undefined) this.data.viewProfiles = cloudData.viewProfiles;
                                 if (Array.isArray(cloudData.shortcutItems)) this.data.shortcutItems = __tmShortcuts.normalize(cloudData.shortcutItems);
@@ -10029,8 +9764,10 @@
                                 if (typeof cloudData.autoCompleteParentOnSubtasksDone === 'boolean') this.data.autoCompleteParentOnSubtasksDone = cloudData.autoCompleteParentOnSubtasksDone;
                                 if (cloudData.taskMetaAttrKeys && typeof cloudData.taskMetaAttrKeys === 'object') this.data.taskMetaAttrKeys = __tmNormalizeTaskMetaAttrKeySettings(cloudData.taskMetaAttrKeys);
                                 if (cloudData.taskMetaAttrKeyAliases && typeof cloudData.taskMetaAttrKeyAliases === 'object') this.data.taskMetaAttrKeyAliases = __tmNormalizeTaskMetaAttrAliasSettings(cloudData.taskMetaAttrKeyAliases);
-                                this.data.customFieldDefs = resolvedCustomFieldSchema.defs;
-                                this.data.customFieldDefsVersion = resolvedCustomFieldSchema.version;
+                                if (Array.isArray(cloudData.customFieldDefs)) {
+                                    this.data.customFieldDefs = __tmCloneCustomFieldDefs(cloudData.customFieldDefs);
+                                }
+                                this.data.customFieldDefsVersion = __tmParseVersionNumber(cloudData.customFieldDefsVersion);
                                 if (cloudData.columnWidths && typeof cloudData.columnWidths === 'object') {
                                     // 旧版本兼容：如果有 customTime 配置，迁移到 completionTime
                                     if (cloudData.columnWidths.customTime && !cloudData.columnWidths.completionTime) {
@@ -10078,7 +9815,7 @@
                                 if (typeof cloudData.whiteboardAllTabsLayoutMode === 'string') this.data.whiteboardAllTabsLayoutMode = cloudData.whiteboardAllTabsLayoutMode;
                                 if (typeof cloudData.whiteboardSequenceMode === 'boolean') this.data.whiteboardSequenceMode = cloudData.whiteboardSequenceMode;
                                 if (typeof cloudData.whiteboardSequenceScope === 'string') this.data.whiteboardSequenceScope = __tmNormalizeWhiteboardSequenceScope(cloudData.whiteboardSequenceScope);
-                                __tmAssignWhiteboardSettingsState(this.data, shouldApplyCloudWhiteboardState ? cloudData : localSettingsBeforeCloud);
+                                __tmAssignWhiteboardSettingsState(this.data, cloudData);
                                 if (cloudData.docColorMap && typeof cloudData.docColorMap === 'object') this.data.docColorMap = cloudData.docColorMap;
                                 if (typeof cloudData.docColorSeed === 'number') this.data.docColorSeed = cloudData.docColorSeed;
                                 if (cloudData.docDefaultColorScheme && typeof cloudData.docDefaultColorScheme === 'object') this.data.docDefaultColorScheme = cloudData.docDefaultColorScheme;
@@ -10113,7 +9850,6 @@
                                 else if (typeof cloudData.aiScheduleWindows === 'string') this.data.aiScheduleWindows = String(cloudData.aiScheduleWindows).split(/\r?\n/);
                                 if (typeof cloudData.serverSyncOnManualRefresh === 'boolean') this.data.serverSyncOnManualRefresh = cloudData.serverSyncOnManualRefresh;
                                 if (typeof cloudData.serverSyncSessionStateOnManualRefresh === 'boolean') this.data.serverSyncSessionStateOnManualRefresh = cloudData.serverSyncSessionStateOnManualRefresh;
-                                const restoredLocalSettingFields = __tmApplySettingsFieldUpdatesByMap(this.data, localSettingsBeforeCloud);
                                 // These fields were historically omitted from the normal
                                 // shared-settings hydration path. Once the synchronized file
                                 // is at least as new as local state, its values are authoritative.
@@ -10184,13 +9920,13 @@
                                 this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
                                 this.refreshCustomFieldSyncState();
                                 this.refreshCollapsedStateSyncState();
-                                this.refreshSettingsFieldSyncState();
+                                this.refreshSettingsSyncState();
                                 this.loaded = true;
                                 __tmApplyEntryIconPreset(this.data.entryIconPreset);
                                 if (!dedicatedTaskTemplateLibrary) {
                                     try { await this.saveTaskTemplates(this.data.taskTemplateLibrary); } catch (e) {}
                                 }
-                                if (migratedLegacyTopbarDefaults || migratedCustomBoardFeatureSettings || migratedLegacyTaskTitleClickSettings || restoredLocalSettingFields.length > 0 || resolvedCustomFieldSchema.repairRemote === true) {
+                                if (migratedLegacyTopbarDefaults || migratedCustomBoardFeatureSettings || migratedLegacyTaskTitleClickSettings) {
                                     try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
                                 }
                                 return;
@@ -10204,23 +9940,22 @@
                 // Unreadable settings fall back to the local cache below.
             }
             if (!isLoadCurrent('before-local-fallback')) return;
-            const migratedLegacyTopbarDefaults = this.migrateLegacyTopbarDefaults();
-            const migratedCustomBoardFeatureSettings = __tmMigrateCustomBoardFeatureSettings(this.data);
+            try { migratedLegacyTaskTitleClickSettings = this.loadFromLocal() === true || migratedLegacyTaskTitleClickSettings; } catch (e) {}
+            this.migrateLegacyTopbarDefaults();
+            __tmMigrateCustomBoardFeatureSettings(this.data);
             applyDedicatedTaskTemplateLibrary();
             this.loadedWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
             this.lastWhiteboardFingerprint = __tmGetWhiteboardSettingsFingerprint(this.data);
             this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
             this.refreshCustomFieldSyncState();
             this.refreshCollapsedStateSyncState();
-            this.refreshSettingsFieldSyncState();
+            this.loadedSharedSettingsFingerprint = '';
             this.loaded = true;
             __tmApplyEntryIconPreset(this.data.entryIconPreset);
             if (!dedicatedTaskTemplateLibrary) {
                 try { await this.saveTaskTemplates(this.data.taskTemplateLibrary); } catch (e) {}
             }
-            if (migratedLegacyTopbarDefaults || migratedCustomBoardFeatureSettings || migratedLegacyTaskTitleClickSettings) {
-                try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
-            }
+            try { await this.save({ suppressMobileCloseSyncDirty: true }); } catch (e) {}
         },
 
         // 从本地缓存加载
@@ -10229,9 +9964,7 @@
             this.data.uiLanguage = cachedLanguage === 'en' || cachedLanguage === 'zh-CN' ? cachedLanguage : 'system';
             this.data.settingsUpdatedAt = Number(Storage.get('tm_settings_updated_at', this.data.settingsUpdatedAt)) || 0;
             let migratedCalendarOpacity = false;
-            const rawSettingsFieldUpdatedAt = Storage.get('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt);
-            this.data.settingsFieldUpdatedAt = rawSettingsFieldUpdatedAt;
-            const localTaskTitleSettings = { settingsFieldUpdatedAt: rawSettingsFieldUpdatedAt };
+            const localTaskTitleSettings = {};
             [
                 ['tm_task_title_click_action', 'taskTitleClickAction'],
                 ['tm_dock_task_title_click_action', 'dockTaskTitleClickAction'],
@@ -10243,10 +9976,6 @@
                 if (Storage.has(storageKey)) localTaskTitleSettings[settingKey] = Storage.get(storageKey, undefined);
             });
             const migratedLegacyTaskTitleClickSettings = __tmMigrateLegacyTaskTitleClickSettings(this.data, localTaskTitleSettings);
-            {
-                const localFieldMap = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
-                this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(localFieldMap, this.data) ? {} : localFieldMap;
-            }
             this.data.docGroupSettingsUpdatedAt = Number(Storage.get('tm_doc_group_settings_updated_at', this.data.docGroupSettingsUpdatedAt)) || 0;
             this.data.collapseStateUpdatedAt = Number(Storage.get('tm_collapse_state_updated_at', this.data.collapseStateUpdatedAt)) || 0;
             this.data.selectedDocIds = Storage.get('tm_selected_doc_ids', []) || [];
@@ -10832,10 +10561,6 @@
             this.data.taskMetaAttrKeyAliases = __tmNormalizeTaskMetaAttrAliasSettings(this.data.taskMetaAttrKeyAliases);
             this.data.aiExperienceMode = String(this.data.aiExperienceMode || '').trim() === 'legacy' ? 'legacy' : 'agent';
             this.data.aiExperienceModeInitialized = true;
-            {
-                const normalizedFieldMap = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
-                this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(normalizedFieldMap, this.data) ? {} : normalizedFieldMap;
-            }
             this.normalizeColumns();
             try { __tmApplyTaskCheckboxPriorityColorStyle(this.data.taskCheckboxPriorityColorEnabled !== false); } catch (e) {}
             return migratedLegacyTaskTitleClickSettings || migratedCalendarOpacity || migratedScheduleTimeFields;
@@ -10876,8 +10601,7 @@
             __tmMigrateLegacyTaskTitleClickSettings(this.data, this.data);
             Storage.set('tm_settings_updated_at', Number(this.data.settingsUpdatedAt) || 0);
             Storage.set('tm_ui_language', this.data.uiLanguage);
-            this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
-            Storage.set('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt);
+            Storage.remove('tm_settings_field_updated_at');
             Storage.set('tm_doc_group_settings_updated_at', Number(this.data.docGroupSettingsUpdatedAt) || 0);
             Storage.set('tm_collapse_state_updated_at', Number(this.data.collapseStateUpdatedAt) || 0);
             Storage.set('tm_selected_doc_ids', this.data.selectedDocIds);
@@ -11476,7 +11200,6 @@
             this.data.checklistCompactTreeGuides = !!this.data.checklistCompactTreeGuides;
             this.data.checklistCompactTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(this.data.checklistCompactTreeGuidesUpdatedAt);
             __tmMigrateLegacyTaskTitleClickSettings(this.data, this.data);
-            this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
             this.data.docH2SubgroupEnabled = this.data.docH2SubgroupEnabled !== false;
             this.data.alwaysShowTaskDocHeadingGroups = !!this.data.alwaysShowTaskDocHeadingGroups;
             this.data.taskAutoWrapEnabled = this.data.taskAutoWrapEnabled !== false;
@@ -11759,6 +11482,7 @@
             this.lastSaveResult = { ok: false };
             const suppressMobileCloseSyncDirty = !!this.suppressMobileCloseSyncDirty;
             this.suppressMobileCloseSyncDirty = false;
+            let settingsPersisted = false;
             try {
                 const prevWhiteboardFingerprint = String(this.lastWhiteboardFingerprint || '');
                 const whiteboardChangedLocal = __tmGetWhiteboardSettingsFingerprint(this.data) !== prevWhiteboardFingerprint;
@@ -11768,125 +11492,43 @@
                 const prevCustomFieldDefsFingerprint = String(this.lastCustomFieldDefsFingerprint || '');
                 const customFieldDefsChangedLocal = __tmGetCustomFieldDefsFingerprint(this.data.customFieldDefs) !== prevCustomFieldDefsFingerprint;
                 const loadedCustomFieldDefsVersion = __tmParseVersionNumber(this.loadedCustomFieldDefsVersion);
-                const loadedCustomFieldDefsSnapshot = __tmCloneCustomFieldDefs(this.loadedCustomFieldDefsSnapshot);
                 const prevCollapseFingerprint = String(this.loadedCollapseFingerprint || '');
                 const collapseChangedLocal = __tmGetCollapsedSessionStateFingerprint(this.data) !== prevCollapseFingerprint;
                 const loadedCollapseUpdatedAt = __tmParseUpdatedAtNumber(this.loadedCollapseUpdatedAt);
-                const remoteSettings = await __tmReadJsonFile(SETTINGS_FILE_PATH);
-                if (!isSaveCurrent()) return;
-                if (remoteSettings && typeof remoteSettings === 'object') {
-                    remoteSettings.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(remoteSettings.settingsFieldUpdatedAt, remoteSettings, {
-                        seedFromSettingsUpdatedAt: new Set(__TM_DOC_GROUP_SETTINGS_KEYS),
-                    });
-                }
-                __tmMigrateLegacyTaskTitleClickSettings(remoteSettings, remoteSettings);
-                const remoteCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(remoteSettings);
-                const remoteWhiteboardStateVersion = __tmParseVersionNumber(remoteSettings?.whiteboardStateVersion);
-                const settingsFieldChange = __tmMarkChangedSettingsFields(this.data, this.loadedSettingsFieldSnapshot, Date.now());
-                const remoteSettingSkipKeys = new Set(settingsFieldChange.changedKeys);
-                remoteSettingSkipKeys.add('agentMcpEnabled');
-                remoteSettingSkipKeys.add('agentMcpEnabledInitialized');
-                const appliedRemoteSettingFields = __tmApplySettingsFieldUpdatesByMap(this.data, remoteSettings, {
-                    skipKeys: remoteSettingSkipKeys,
-                });
-                if (!settingsFieldChange.changedKeys.has('taskTemplateLibrary') && remoteSettings?.taskTemplateLibrary) {
-                    this.data.taskTemplateLibrary = __tmNormalizeTaskTemplateLibrary(remoteSettings.taskTemplateLibrary);
-                }
-                if (appliedRemoteSettingFields.length) {
-                    this.normalizeColumns();
-                }
-                const __wbSaveUseRemote = __tmShouldUseRemoteWhiteboardSettings(remoteSettings, this.data, loadedWhiteboardStateVersion, whiteboardChangedLocal);
-                if (__wbSaveUseRemote) {
-                    __tmAssignWhiteboardSettingsState(this.data, remoteSettings);
-                }
-                if (__tmShouldPreferRemoteCollapsedSessionState(loadedCollapseUpdatedAt, remoteCollapseUpdatedAt) && !collapseChangedLocal) {
-                    __tmAssignCollapsedSessionState(this.data, remoteSettings);
-                    this.data.collapseStateUpdatedAt = remoteCollapseUpdatedAt;
-                }
-                const remoteCustomFieldDefsVersion = __tmParseVersionNumber(remoteSettings?.customFieldDefsVersion);
-                const customFieldDefsFingerprintBeforeSync = __tmGetCustomFieldDefsFingerprint(this.data.customFieldDefs);
-                if (remoteCustomFieldDefsVersion > loadedCustomFieldDefsVersion) {
-                    this.data.customFieldDefs = customFieldDefsChangedLocal
-                        ? __tmMergeCustomFieldDefsThreeWay(
-                            loadedCustomFieldDefsSnapshot,
-                            this.data.customFieldDefs,
-                            remoteSettings?.customFieldDefs,
-                            { prefer: 'local' }
-                        )
-                        : (Array.isArray(remoteSettings?.customFieldDefs)
-                            ? __tmCloneCustomFieldDefs(remoteSettings.customFieldDefs)
-                            : this.data.customFieldDefs);
-                } else if (remoteCustomFieldDefsVersion === loadedCustomFieldDefsVersion
-                    && !customFieldDefsChangedLocal
-                    && Array.isArray(remoteSettings?.customFieldDefs)) {
-                    this.data.customFieldDefs = __tmMergeSameVersionCustomFieldDefs(
-                        this.data.customFieldDefs,
-                        remoteSettings.customFieldDefs
-                    );
-                } else if (remoteCustomFieldDefsVersion === 0
-                    && loadedCustomFieldDefsVersion > 0
-                    && Array.isArray(remoteSettings?.customFieldDefs)
-                    && remoteSettings.customFieldDefs.length) {
-                    this.data.customFieldDefs = customFieldDefsChangedLocal
-                        ? __tmMergeCustomFieldDefsThreeWay(
-                            loadedCustomFieldDefsSnapshot,
-                            this.data.customFieldDefs,
-                            remoteSettings.customFieldDefs,
-                            { prefer: 'local' }
-                        )
-                        : __tmMergeLegacyCustomFieldDefs(this.data.customFieldDefs, remoteSettings.customFieldDefs);
-                }
-                const customFieldDefsFingerprintAfterSync = __tmGetCustomFieldDefsFingerprint(this.data.customFieldDefs);
-                const customFieldDefsChangedDuringSync = customFieldDefsFingerprintAfterSync !== customFieldDefsFingerprintBeforeSync;
                 const nextCustomFieldDefsVersionBase = Math.max(
                     __tmParseVersionNumber(this.data.customFieldDefsVersion),
-                    loadedCustomFieldDefsVersion,
-                    remoteCustomFieldDefsVersion
+                    loadedCustomFieldDefsVersion
                 );
                 this.data.customFieldDefsVersion = customFieldDefsChangedLocal
                     ? nextCustomFieldDefsVersionBase + 1
                     : nextCustomFieldDefsVersionBase;
-                if (customFieldDefsChangedLocal || customFieldDefsChangedDuringSync) {
+                if (customFieldDefsChangedLocal) {
                     this.normalizeColumns();
                 }
                 if (whiteboardChangedLocal) {
                     const nextWhiteboardStateVersion = Math.max(
                         __tmParseVersionNumber(this.data.whiteboardStateVersion),
-                        loadedWhiteboardStateVersion,
-                        remoteWhiteboardStateVersion
+                        loadedWhiteboardStateVersion
                     ) + 1;
                     this.data.whiteboardStateVersion = nextWhiteboardStateVersion;
                 } else {
                     this.data.whiteboardStateVersion = Math.max(
                         __tmParseVersionNumber(this.data.whiteboardStateVersion),
-                        loadedWhiteboardStateVersion,
-                        remoteWhiteboardStateVersion
+                        loadedWhiteboardStateVersion
                     );
                 }
-                const shouldTouchWhiteboardDataFile = whiteboardChangedLocal && [
-                    'whiteboardLinks',
-                    'whiteboardDetachedChildren',
-                    'whiteboardNotes',
-                    'whiteboardDrawings',
-                    'whiteboardFrames',
-                    'whiteboardNodePos',
-                    'whiteboardPlacedTaskIds',
-                    'whiteboardDocFrameSize',
-                    'whiteboardAllTabsDocOrderByGroup',
-                    'whiteboardGlobalBoardsByGroup',
-                ].some((key) => settingsFieldChange.changedKeys.has(key));
+                const shouldTouchWhiteboardDataFile = whiteboardChangedLocal;
                 if (collapseChangedLocal) {
                     this.data.collapseStateUpdatedAt = Date.now();
                 } else {
                     this.data.collapseStateUpdatedAt = Math.max(
                         __tmGetCollapsedSessionUpdatedAt(this.data),
-                        loadedCollapseUpdatedAt,
-                        remoteCollapseUpdatedAt
+                        loadedCollapseUpdatedAt
                     );
                 }
                 const payload = this.buildCloudPayload();
-                if (remoteSettings && !settingsFieldChange.changedKeys.size
-                    && __tmGetSharedSettingsContentFingerprint(payload) === __tmGetSharedSettingsContentFingerprint(remoteSettings)) {
+                const payloadFingerprint = __tmGetSharedSettingsContentFingerprint(payload);
+                if (payloadFingerprint === String(this.loadedSharedSettingsFingerprint || '')) {
                     this.lastSaveResult = { ok: true, codeOk: true, skipped: true, taskTemplateFingerprint: JSON.stringify(this.data.taskTemplateLibrary) };
                     this.syncToLocal();
                     return;
@@ -11918,20 +11560,16 @@
                 const settingsPutOk = !!settingsPutRes?.ok;
                 const settingsPutCodeOk = settingsPutBody == null || settingsPutBody.code === 0;
                 this.lastSaveResult = { ok: settingsPutOk, codeOk: settingsPutCodeOk, taskTemplateFingerprint: JSON.stringify(payload.taskTemplateLibrary) };
-                const localSettingsChangedForMobileCloseSync = !!(
-                    (settingsFieldChange?.changedKeys instanceof Set && settingsFieldChange.changedKeys.size > 0)
-                    || whiteboardChangedLocal
-                    || docGroupChangedLocal
-                    || customFieldDefsChangedLocal
-                    || collapseChangedLocal
-                );
-                if (settingsPutOk && localSettingsChangedForMobileCloseSync && !suppressMobileCloseSyncDirty) {
+                if (!settingsPutOk || !settingsPutCodeOk) throw new Error('settings-save-failed');
+                settingsPersisted = true;
+                this.loadedSharedSettingsFingerprint = payloadFingerprint;
+                if (!suppressMobileCloseSyncDirty) {
                     try { __tmMarkMobileCloseSyncDirty('settings-save'); } catch (e) {}
                 }
-                if (settingsPutOk && __tmBuildDocGroupSyncFingerprint(this.data) !== prevDocGroupFingerprint) {
+                if (__tmBuildDocGroupSyncFingerprint(this.data) !== prevDocGroupFingerprint) {
                     try { window.dispatchEvent(new CustomEvent('tm:doc-groups-updated')); } catch (e) {}
                 }
-                if (shouldTouchWhiteboardDataFile && settingsPutOk) {
+                if (shouldTouchWhiteboardDataFile) {
                     try {
                         if (WhiteboardStore && !WhiteboardStore.loaded) await WhiteboardStore.load?.();
                         let touchedWhiteboardDataFile = !!WhiteboardStore?.syncFromSettings?.(this.data, 'settings-whiteboard');
@@ -11940,6 +11578,14 @@
                     } catch (e) {}
                 }
             } catch (e) {
+                if (!settingsPersisted) {
+                    this.saveDirty = true;
+                    this.lastSaveResult = {
+                        ok: false,
+                        codeOk: false,
+                        error: String(e?.message || e),
+                    };
+                }
             } finally {
                 if (!isSaveCurrent()) return;
                 if (this.activeSaveAbortController === saveAbortController) this.activeSaveAbortController = null;
@@ -11949,7 +11595,6 @@
                 this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
                 this.refreshCustomFieldSyncState();
                 this.refreshCollapsedStateSyncState();
-                this.refreshSettingsFieldSyncState();
                 if (this.saveDirty) {
                     try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
                     this.saveTimer = setTimeout(() => {
@@ -12057,6 +11702,7 @@
         }
     };
     globalThis.__taskHorizonSettingsStore = SettingsStore;
+    const __tmDefaultSettingsData = __tmCloneJsonSafe(SettingsStore.data, {});
 
     const __TM_TASK_CHECKBOX_PRIORITY_COLOR_STYLE_ID = 'tm-task-checkbox-priority-color-style';
 
@@ -12175,7 +11821,7 @@
                 if (SettingsStore?.data) {
                     __tmApplyWhiteboardStoreDataToSettings(this.data, SettingsStore.data);
                     SettingsStore.syncToLocal?.();
-                    SettingsStore.refreshSettingsFieldSyncState?.();
+                    SettingsStore.refreshSettingsSyncState?.();
                     SettingsStore.loadedWhiteboardStateVersion = __tmParseVersionNumber(SettingsStore.data.whiteboardStateVersion);
                     SettingsStore.lastWhiteboardFingerprint = __tmGetWhiteboardSettingsFingerprint(SettingsStore.data);
                 }
@@ -15635,6 +15281,7 @@
             WHERE a.name = '${safeName.replace(/'/g, "''")}'
               AND b.type = 'i'
               AND b.subtype = 't'
+            LIMIT ${__TM_SQL_MAX_TOTAL_LIMIT}
         `;
         const res = await API.call('/api/query/sql', { stmt: sql });
         return (res.code === 0 && Array.isArray(res.data)) ? res.data : [];

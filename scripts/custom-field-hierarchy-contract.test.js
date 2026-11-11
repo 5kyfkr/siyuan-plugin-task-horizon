@@ -253,8 +253,8 @@ assert.match(quickbarSource, /@media \(max-width: 720px\), \(pointer: coarse\)[\
 assert.match(quickbarSource, /viewportWidth[\s\S]*maxLeft[\s\S]*Math\.min\(desiredLeft, maxLeft\)/, 'Quickbar must clamp the rightmost tree control inside the mobile viewport');
 assert.match(quickbarSource, /customFieldChromeWidth = \(isTouchLike \? 36 : 22\) \+ 64[\s\S]*maxLen \* 12 \+ customFieldChromeWidth/, 'Quickbar width estimation must reserve space for hierarchy controls and selection state');
 assert.match(quickbarSource, /alignToAnchorRight[\s\S]*anchorRect\.right - menuWidth/, 'Quickbar custom-field menus on the right side must expand left from the anchor');
-assert.match(source, /remoteCustomFieldDefsVersion === loadedCustomFieldDefsVersion[\s\S]*__tmMergeSameVersionCustomFieldDefs/, 'settings save must reconcile same-version flat and hierarchical device caches');
-assert.match(source, /resolvedCustomFieldSchema\.repairRemote === true[\s\S]*this\.save\(\{ suppressMobileCloseSyncDirty: true \}\)/, 'settings load must repair flattened cloud hierarchy metadata');
+assert.doesNotMatch(source, /remoteCustomFieldDefsVersion === loadedCustomFieldDefsVersion[\s\S]*__tmMergeSameVersionCustomFieldDefs/, 'settings save must not run a second custom-field merge over the synchronized file');
+assert.match(source, /if \(Array\.isArray\(cloudData\.customFieldDefs\)\)[\s\S]*__tmCloneCustomFieldDefs\(cloudData\.customFieldDefs\)/, 'settings load must take custom-field hierarchy metadata from the synchronized file');
 assert.match(kernelSource, /taskHorizonGetCustomFieldDefinitions[\s\S]*customFieldDefinitions\(await getFieldRegistry\(\)\)/, 'Kernel must expose the shared hierarchy serializer through a read-only RPC');
 assert.match(kernelSource, /aggregate_task_stats[\s\S]*kernel.aggregateTaskCompletionStatisticsCustomTagsAlsoReturnDirectly/, 'the stats tool must document direct and ancestor rollups for AI');
 assert.match(workbenchSource, /customFieldHierarchyInstruction[\s\S]*taskHorizonGetCustomFieldDefinitions[\s\S]*ancestorIDs[\s\S]*hierarchyItems\.totalCount/, 'the AI prompt must receive live hierarchy and aggregation semantics from Kernel');

@@ -6,8 +6,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../src/task-horizon/main/40-render-runtime.js'), 'utf8');
+const wrapperStart = source.indexOf('    function __tmFinishRenderSoftSwap(');
 const wrapperEnd = source.indexOf('    function __tmRenderNow(');
-assert.ok(wrapperEnd > 0);
+assert.ok(wrapperStart >= 0 && wrapperEnd > wrapperStart);
 
 function modal(inlineStyle = null, connected = true) {
     return {
@@ -28,7 +29,7 @@ function harness(run, previous = modal('height:100%;position:relative')) {
         setTimeout(fn) { timers.push(fn); },
         __tmRenderNow(cleanup) { return run(cleanup, state, context); },
     });
-    vm.runInContext(source.slice(0, wrapperEnd), context);
+    vm.runInContext(source.slice(wrapperStart, wrapperEnd), context);
     return { context, state, previous, frames, timers };
 }
 

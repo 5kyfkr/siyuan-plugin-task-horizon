@@ -75,7 +75,7 @@ assert.ok(refreshCore.indexOf('__tmSyncWhiteboardFrozenTasksWithLiveTasks()')
         < refreshCore.indexOf("__tmRecomputeTaskProjection({ reason: 'doc-group-refresh' })"),
     'manual refresh must project after whiteboard cleanup');
 const loaderProjectionCalls = loadSelectedDocuments.match(/__tmRecomputeTaskProjection\(\{ reason: 'document-loader' \}\)/g) || [];
-const guardedLoaderProjectionCalls = loadSelectedDocuments.match(/if \(!deferProjection\) __tmRecomputeTaskProjection\(\{ reason: 'document-loader' \}\)/g) || [];
+const guardedLoaderProjectionCalls = loadSelectedDocuments.match(/if \(!deferProjection(?: && \(!viewSnapshotMeta \|\| customBoardMode\))?\) __tmRecomputeTaskProjection\(\{ reason: 'document-loader' \}\)/g) || [];
 assert.equal(guardedLoaderProjectionCalls.length, loaderProjectionCalls.length,
     'every loader-owned projection must honor the deferProjection option');
 assert.match(silentQuickbarRefresh, /loadSelectedDocuments\(\{[\s\S]*?deferProjection:\s*true/,

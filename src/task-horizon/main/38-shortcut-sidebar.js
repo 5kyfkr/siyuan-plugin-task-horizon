@@ -654,3 +654,4 @@ SOFTWARE.
         }
         return { mount, refresh, closeDrawer, showInvalid, edit, dispose, syncEnabled, iconHtml };
     })();
+    try { globalThis.__tmRefreshShortcutSidebarEnabled = __tmShortcutSidebar.syncEnabled; } catch (e) {}

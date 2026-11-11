@@ -3673,6 +3673,7 @@
     max-height:calc(100vh - 16px) !important;
     display:flex;
     flex-direction:column;
+    container:tm-schedule-editor / inline-size;
     --tm-cal-panel-2:color-mix(in srgb, var(--tm-cal-panel) 94%, var(--tm-cal-primary) 6%);
     --tm-cal-primary-soft:color-mix(in srgb, var(--tm-cal-primary) 11%, var(--tm-cal-panel));
     --tm-cal-faint:color-mix(in srgb, var(--tm-cal-muted) 68%, transparent);
@@ -4016,17 +4017,29 @@
 .tm-proto-inline-schedule-editor .tm-proto-inline-device-row button:hover{color:var(--tm-cal-text)}
 .tm-proto-inline-schedule-editor .tm-proto-inline-relation-current{border-color:var(--tm-cal-border);border-radius:6px;background:var(--tm-cal-panel)}
 .tm-proto-inline-schedule-editor .tm-proto-inline-relation-actions{display:flex;gap:4px;padding:4px 6px;border-top-color:var(--tm-cal-border)}
-.tm-proto-inline-schedule-editor .tm-proto-inline-relation-actions .tm-proto-inline-relation-open{
+.tm-proto-inline-schedule-editor .tm-proto-inline-relation-actions > button{
     display:inline-flex;
     align-items:center;
     justify-content:center;
     min-height:24px;
     padding:0 8px;
-    border:1px solid color-mix(in srgb, var(--tm-cal-primary) 24%, var(--tm-cal-border)) !important;
+    border:1px solid color-mix(in srgb, var(--tm-cal-text) 20%, var(--tm-cal-border)) !important;
     border-radius:5px;
+    background:color-mix(in srgb, var(--tm-cal-panel-2) 82%, var(--tm-cal-panel)) !important;
+    color:var(--tm-cal-text) !important;
+    font-weight:650;
+}
+.tm-proto-inline-schedule-editor .tm-proto-inline-relation-actions > button:hover,
+.tm-proto-inline-schedule-editor .tm-proto-inline-relation-actions > button:focus-visible{
+    border-color:color-mix(in srgb, var(--tm-cal-text) 34%, var(--tm-cal-border)) !important;
+    background:color-mix(in srgb, var(--tm-cal-text) 8%, var(--tm-cal-panel)) !important;
+    color:var(--tm-cal-text) !important;
+    outline:none;
+}
+.tm-proto-inline-schedule-editor .tm-proto-inline-relation-actions .tm-proto-inline-relation-open{
+    border-color:color-mix(in srgb, var(--tm-cal-primary) 24%, var(--tm-cal-border)) !important;
     background:color-mix(in srgb, var(--tm-cal-primary) 9%, var(--tm-cal-panel)) !important;
     color:var(--tm-cal-primary) !important;
-    font-weight:650;
 }
 .tm-proto-inline-schedule-editor .tm-proto-inline-relation-actions .tm-proto-inline-relation-open:hover,
 .tm-proto-inline-schedule-editor .tm-proto-inline-relation-actions .tm-proto-inline-relation-open:focus-visible{
@@ -4034,6 +4047,27 @@
     background:color-mix(in srgb, var(--tm-cal-primary) 15%, var(--tm-cal-panel)) !important;
     color:var(--tm-cal-primary) !important;
     outline:none;
+}
+@container tm-schedule-editor (max-width: 312px){
+    .tm-proto-inline-schedule-editor .tm-proto-inline-edit-row,
+    .tm-proto-inline-schedule-editor .quick-setting-row{
+        grid-template-columns:46px minmax(0,1fr);
+        gap:6px;
+    }
+    .tm-proto-inline-schedule-editor .tm-proto-inline-edit-row > b,
+    .tm-proto-inline-schedule-editor .quick-setting-label{
+        font-size:10.5px;
+        white-space:nowrap;
+    }
+    .tm-proto-inline-schedule-editor .tm-proto-inline-relation-actions{
+        gap:3px;
+        padding:4px;
+    }
+    .tm-proto-inline-schedule-editor .tm-proto-inline-relation-actions > button{
+        flex:0 0 auto;
+        padding:0 5px;
+        white-space:nowrap;
+    }
 }
 .tm-proto-inline-schedule-editor .tm-proto-inline-relation-start{height:30px;border-color:color-mix(in srgb, var(--tm-cal-muted) 42%, var(--tm-cal-border));border-radius:6px;background:transparent}
 .tm-proto-inline-schedule-editor .tm-proto-inline-relation-start:hover{border-color:var(--tm-cal-primary);background:var(--tm-cal-primary-soft);color:var(--tm-cal-primary)}

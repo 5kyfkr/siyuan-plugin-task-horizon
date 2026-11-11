@@ -37,6 +37,7 @@ function fixture(tasks, assets = new Map(), attrs = new Map()) {
     const context = vm.createContext({
         Blob, URL, Date, Uint8Array, ArrayBuffer, Map, Set,
         console: { error() {} },
+        __TM_SQL_MAX_TOTAL_LIMIT: 500000,
         __TM_TASK_ATTACHMENT_ATTR_PREFIX: 'custom-data-assets-th-',
         __TM_TASK_ATTACHMENT_META_ATTR: 'custom-data-assets-th-meta',
         __TM_TASK_ATTACHMENT_BLOCK_PREFIX: 'block:',

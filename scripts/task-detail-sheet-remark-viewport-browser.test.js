@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const detail = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/52-task-detail-runtime.js'), 'utf8');
 const services = fs.readFileSync(path.join(root, 'src/task-horizon/main/20-api-and-runtime-services.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'task-horizon.css'), 'utf8');
+const titleEditor = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/51a-task-title-editor-runtime.js'), 'utf8');
 function segment(source, startToken, endToken) {
     const start = source.indexOf(startToken);
     const end = source.indexOf(endToken, start + startToken.length);
@@ -17,6 +18,7 @@ function segment(source, startToken, endToken) {
 const viewportRuntime = segment(services, '    function __tmApplyMobileDetailSheetViewportMetrics(', '\n    const __tmRenderViewSwitcherButtons');
 const autoHeightRuntime = segment(detail, '        const supportsNativeTextareaAutoHeight =', '        const setInlinePopoverBusyState =');
 const titleRuntime = segment(detail, '        const titleTextarea =', '        const fsrsReviewButtons =');
+const titleEditorHelpers = segment(titleEditor, '    function __tmIsTaskTitleEditor(', '    function __tmRequestTaskTitleMobileKeyboard(');
 const remarkRuntime = segment(detail, '\n        const remarkShell = root.querySelector(', "\n        root.querySelectorAll('textarea[data-tm-detail-custom-text-field]')");
 
 async function settle(page) {
@@ -55,7 +57,7 @@ async function mount(page, { panelId = 'tmTaskDetailSheetPanel', fullscreen = tr
             <nav class="tm-mobile-bottom-viewbar">清单 · 表格 · 看板 · 日历</nav>
             </div>
         </div><div id="keyboard"></div>`);
-    await page.evaluate(({ panelId, long, mobile, fallbackHeight, viewportRuntime, autoHeightRuntime, titleRuntime, remarkRuntime }) => {
+    await page.evaluate(({ panelId, long, mobile, fallbackHeight, viewportRuntime, autoHeightRuntime, titleRuntime, titleEditorHelpers, remarkRuntime }) => {
         const root = document.getElementById(panelId);
         const state = { modal: document.getElementById('fixture') };
         const viewport = Object.assign(new EventTarget(), { height: innerHeight, width: innerWidth, offsetTop: 0, offsetLeft: 0 });
@@ -111,9 +113,12 @@ async function mount(page, { panelId = 'tmTaskDetailSheetPanel', fullscreen = tr
             },
             abort: () => { __tmUnbindMobileViewportAutoRefresh(); abortController.abort(); },
             restores: () => restores,
-            bindTitle() { eval(autoHeightRuntime + '\n' + titleRuntime); },
+            bindTitle() {
+                const __tmTaskTitlePopover = null;
+                eval(titleEditorHelpers + '\n' + autoHeightRuntime + '\n' + titleRuntime);
+            },
         };
-    }, { panelId, long, mobile, fallbackHeight, viewportRuntime, autoHeightRuntime, titleRuntime, remarkRuntime });
+    }, { panelId, long, mobile, fallbackHeight, viewportRuntime, autoHeightRuntime, titleRuntime, titleEditorHelpers, remarkRuntime });
     await page.locator('[data-tm-detail-remark-preview]').evaluate(el => el.click());
     await settle(page);
 }

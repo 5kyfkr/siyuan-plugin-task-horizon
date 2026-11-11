@@ -27,7 +27,7 @@ function segment(source, start, end) {
 const migrationSource = segment(
     stores,
     'const __TM_LEGACY_TASK_TITLE_SETTING_KEYS',
-    'function __tmIsSettingsFieldSyncKey',
+    'function __tmStableSettingsJsonValue',
 );
 const migrationSandbox = {
     __tmParseUpdatedAtNumber: (value) => Math.max(0, Number(value) || 0),
@@ -41,11 +41,6 @@ for (const openDetail of [false, true]) {
                 checklistCompactTitleOpenDetailPage: openDetail,
                 dockChecklistCompactTitleJump: dockJump,
                 mobileChecklistCompactTitleJump: mobileJump,
-                settingsFieldUpdatedAt: {
-                    checklistCompactTitleOpenDetailPage: 10,
-                    dockChecklistCompactTitleJump: 20,
-                    mobileChecklistCompactTitleJump: 30,
-                },
             };
             assert.equal(migrationSandbox.migrate(data, data), true);
             const globalAction = openDetail ? 'detail' : 'jump';
@@ -54,12 +49,8 @@ for (const openDetail of [false, true]) {
             assert.equal(data.taskTitleClickAction, globalAction);
             assert.equal(data.dockTaskTitleClickAction, dockAction === globalAction ? 'inherit' : dockAction);
             assert.equal(data.mobileTaskTitleClickAction, mobileAction === globalAction ? 'inherit' : mobileAction);
-            assert.equal(data.settingsFieldUpdatedAt.taskTitleClickAction, 10);
-            assert.equal(data.settingsFieldUpdatedAt.dockTaskTitleClickAction, 20);
-            assert.equal(data.settingsFieldUpdatedAt.mobileTaskTitleClickAction, 30);
             for (const key of ['checklistCompactTitleOpenDetailPage', 'dockChecklistCompactTitleJump', 'mobileChecklistCompactTitleJump']) {
                 assert.equal(Object.hasOwn(data, key), false, `${key} must be removed after migration`);
-                assert.equal(Object.hasOwn(data.settingsFieldUpdatedAt, key), false, `${key} timestamp must be removed`);
             }
         }
     }
@@ -72,7 +63,6 @@ const newSettingsWin = {
     checklistCompactTitleOpenDetailPage: false,
     dockChecklistCompactTitleJump: false,
     mobileChecklistCompactTitleJump: false,
-    settingsFieldUpdatedAt: {},
 };
 assert.equal(migrationSandbox.migrate(newSettingsWin, newSettingsWin), true, 'legacy keys beside new settings must be scheduled for cleanup');
 assert.equal(newSettingsWin.taskTitleClickAction, 'detail', 'new settings must win over legacy values');
@@ -88,8 +78,8 @@ for (const [key, defaultValue, storageKey] of [
     assert.match(stores, new RegExp(`'${storageKey}', '${key}'`), `${key} must load from local storage`);
     assert.match(stores, new RegExp(`Storage\\.set\\('${storageKey}'`), `${key} must persist locally`);
 }
-assert.match(stores, /__TM_LEGACY_TASK_TITLE_SETTING_KEYS[\s\S]*delete out\[key\][\s\S]*delete fieldMap\[key\]/,
-    'legacy settings and their field timestamps must be removed from future payloads');
+assert.match(stores, /__TM_LEGACY_TASK_TITLE_SETTING_KEYS[\s\S]*delete out\[key\]/,
+    'legacy settings must be removed from future payloads');
 assert.match(stores, /Storage\.remove\('tm_dock_checklist_compact_title_jump'\)[\s\S]*Storage\.remove\('tm_mobile_checklist_compact_title_jump'\)[\s\S]*Storage\.remove\('tm_checklist_compact_title_open_detail_page'\)/,
     'legacy local keys must be removed after migration');
 

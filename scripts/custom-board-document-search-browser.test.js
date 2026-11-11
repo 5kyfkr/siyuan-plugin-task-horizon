@@ -35,6 +35,7 @@ const waitForVisibleDocs = (page, expected) => page.waitForFunction((labels) => 
                 __tmGetGroupModeLabel: value => value,
                 __tmNormalizeHexColor: (value, fallback) => value || fallback,
                 __tmGetDocDisplayName: (doc, id) => doc?.name || id,
+                __tmRenderLucideIcon: () => '<svg viewBox="0 0 16 16" aria-hidden="true"></svg>',
                 __tmBuildTooltipAttrs: () => '',
                 __tmModalStackBind: () => () => {},
                 state: {

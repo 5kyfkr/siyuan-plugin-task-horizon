@@ -104,7 +104,7 @@ assert.match(sceneContext, /taskBranchId: String\(renderOptions\?\.taskBranchId 
 assert.match(checklistRenderer, /const taskBranchId = String\(opts\.taskBranchId \|\| ''\)\.trim\(\);[\s\S]*?descendantCount > 0 && descendantCount <= disclosureLimit[\s\S]*?data-tm-checklist-branch-fragment/, 'branch-only rendering must remain limited to the shared small-disclosure budget');
 assert.doesNotMatch(uiFoundation, /isDisclosureMotionActive|isDisclosureViewportActive|__tmCollapseMotionSettled/, 'custom scrollbars must not retain height-animation coordination hooks');
 assert.match(uiFoundation, /function __tmBindTimelineScrollVisibility[\s\S]*?onScroll: \(\) => \{[\s\S]*?__tmCancelAnimationsWithin\(modal\)/, 'timeline scrolling must cancel active two-surface FLIP animations immediately');
-assert.match(settingsActions, /if \(!isKanban && !isChecklist\)[\s\S]*?__tmPrepareFlipAnimation/, 'checklist collapse must not enter the full-list FLIP path');
+assert.match(settingsActions, /if \(!usesKanbanGroupDom && !isChecklist\)[\s\S]*?__tmPrepareFlipAnimation/, 'checklist and kanban-based group collapse must not enter the full-list FLIP path');
 assert.match(settingsActions, /__tmAnimateChecklistDisclosure\('group', k0, action, \{ animate: !skipAnim \}\)/, 'checklist groups must use local disclosure motion');
 assert.match(settingsActions, /__tmAnimateChecklistDisclosure\('task', key, action, \{ animate: !skipAnim \}\)/, 'checklist task branches must use local disclosure motion');
 assert.match(styles, /\.tm-checklist-disclosure[\s\S]*?flex-direction: column/, 'temporary checklist disclosure wrappers must preserve vertical list layout');

@@ -31,8 +31,8 @@ assert.match(
 );
 assert.match(
     renderRuntime,
-    /renderMode === 'kanban' \|\| renderMode === 'whiteboard'[\s\S]*?__tmSyncKanbanSubtaskWrappedTitleClasses\?\.\(state\.modal\)[\s\S]*?__tmEnsureKanbanSubtaskWrapAutoSync\?\.\(state\.modal\)/,
-    'kanban and whiteboard shells must install the automatic wrapped-title watcher',
+    /isKanbanRenderMode = renderMode === 'kanban' \|\| renderMode === 'comboBoard'[\s\S]*?if \(isKanbanRenderMode \|\| renderMode === 'whiteboard'\)[\s\S]*?__tmSyncKanbanSubtaskWrappedTitleClasses\?\.\(state\.modal\)[\s\S]*?__tmEnsureKanbanSubtaskWrapAutoSync\?\.\(state\.modal\)/,
+    'kanban, board-set and whiteboard shells must install the automatic wrapped-title watcher',
 );
 assert.doesNotMatch(
     kanbanRuntime,

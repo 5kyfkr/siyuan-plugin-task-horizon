@@ -43,8 +43,8 @@ function segment(source, startText, endText) {
 
 const snapshotFirstPaint = segment(
     loaderRuntime,
-    'let snapshotFirstRenderCommitted = false;',
-    'const shouldLoadOtherBlocksLater =',
+    'if (preferFastFirstPaint && !skipSnapshotFirstPaint && !skipRender',
+    'const canUseTaskIndex =',
 );
 const restoreIndex = snapshotFirstPaint.indexOf('restoreViewState?.(');
 const projectionIndex = snapshotFirstPaint.indexOf("__tmRecomputeTaskProjection({ reason: 'document-loader' })");
@@ -52,11 +52,15 @@ const renderIndex = snapshotFirstPaint.indexOf('renderLoadedState()');
 
 assert.ok(restoreIndex >= 0, 'snapshot first paint must restore the cached view metadata');
 assert.ok(projectionIndex > restoreIndex,
-    'snapshot first paint must reapply the current rule after restoring cached view metadata');
+    'snapshot first paint must choose its projection fallback after restoring cached view metadata');
 assert.ok(renderIndex > projectionIndex,
-    'snapshot first paint must render only after the current-rule projection is rebuilt');
-assert.doesNotMatch(snapshotFirstPaint, /if\s*\(\s*!viewSnapshotMeta\s*\)[\s\S]{0,300}__tmRecomputeTaskProjection/,
-    'a cached view order must not bypass current-rule sorting during plugin reload');
+    'snapshot first paint must render only after restoring or rebuilding its projection');
+assert.match(snapshotFirstPaint, /if \(!deferProjection && \(!viewSnapshotMeta \|\| customBoardMode\)\) __tmRecomputeTaskProjection/,
+    'missing view metadata and board sets must rebuild the projection unless explicitly deferred');
+assert.match(ruleRuntime, /function __tmBuildTaskSnapshotViewSignature[\s\S]*?sort: Array\.isArray\(rule\.sort\) \? rule\.sort : \[\]/,
+    'cached view signatures must include the current rule sort');
+assert.match(ruleRuntime, /function __tmRestoreTaskSnapshotViewState[\s\S]*?__tmBuildTaskSnapshotViewSignature\(options\)[\s\S]*?candidates\.find\(\(item\) => item\.signature === expected\)/,
+    'cached view order may only be restored when the current rule signature matches');
 
 const coldOpen = segment(
     shellRuntime,

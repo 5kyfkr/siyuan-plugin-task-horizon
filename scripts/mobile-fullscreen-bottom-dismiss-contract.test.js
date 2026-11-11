@@ -94,6 +94,21 @@ assert.match(
     'runtime-injected mobile styles must expose the fullscreen bar hit surface',
 );
 assert.match(
+    css,
+    /\.tm-view-segmented \{[^}]*scrollbar-width: none;[^}]*\}/,
+    'narrow view switchers must keep horizontal scrolling without a visible scrollbar track',
+);
+assert.match(
+    css,
+    /\.tm-view-segmented::-webkit-scrollbar \{[^}]*display: none;[^}]*width: 0;[^}]*height: 0;/,
+    'WebKit must hide the view switcher scrollbar without reserving its track',
+);
+assert.match(
+    runtimeSource,
+    /\.tm-modal\.tm-modal--mobile:not\(\.tm-modal--dock\) \.tm-mobile-bottom-view-switcher \{[^}]*scrollbar-width: none;[\s\S]*?\.tm-mobile-bottom-view-switcher::-webkit-scrollbar \{[^}]*display: none;/,
+    'runtime-injected mobile styles must hide the bottom view switcher scrollbar',
+);
+assert.match(
     runtimeSource,
     /mobileBottomViewbarDismissDragging === true[\s\S]*document\.body\.contains\(dismissingModal\)\) return;/,
     'render must stay paused while a bottom-bar touch stream is in flight',

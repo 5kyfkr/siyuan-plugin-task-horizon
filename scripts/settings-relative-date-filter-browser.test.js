@@ -222,6 +222,17 @@ const server = http.createServer((req, res) => {
             'summary rules must not reserve a separate bottom action row');
         await compactRule.screenshot({ path: path.join(root, 'output/playwright/settings-rule-summary-compact.png') });
         await page.setViewportSize({ width: 390, height: 844 });
+        assert.equal(await compactRule.locator('.tm-rule-subtree-status').isVisible(), false,
+            'the parent-tree badge must be hidden in narrow rule summaries');
+        assert.equal(await compactRule.evaluate(el => {
+            const title = el.querySelector('.tm-rule-group-title').getBoundingClientRect();
+            const controls = el.querySelector('.tm-rule-group-controls').getBoundingClientRect();
+            return controls.top >= title.bottom;
+        }), true, 'narrow rule titles and actions must stack without overlapping');
+        const mobileActionHeights = await compactRule.locator('.tm-rule-group-controls > .tm-rule-btn')
+            .evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().height));
+        assert.equal(mobileActionHeights.every(height => height <= 34), true,
+            'narrow rule actions must use compact button heights');
         assert.equal(await compactRule.evaluate(el => el.scrollWidth <= el.clientWidth + 1), true,
             'compact rule controls must fit the mobile settings width');
         assert.deepEqual(errors, []);

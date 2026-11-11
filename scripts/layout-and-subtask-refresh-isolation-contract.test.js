@@ -57,7 +57,7 @@ assert.doesNotMatch(kanbanColumnCollapse, /__tmRerenderKanbanInPlace|__tmRerende
 assert.doesNotMatch(renderRuntime, /__tmKanbanPendingSnapColumnKey/, 'the removed column rerender snap state must not remain as dead code');
 
 const groupCollapse = segment(settingsActions, 'window.tmToggleGroupCollapse = async function(groupKey, ev)', 'window.tmToggleCollapse = async function(id, ev)');
-const kanbanGroupCollapse = segment(groupCollapse, 'if (isKanban) {', 'if (isChecklist) {');
+const kanbanGroupCollapse = segment(groupCollapse, 'if (usesKanbanGroupDom) {', 'if (isChecklist) {');
 assert.match(kanbanGroupCollapse, /__tmSetKanbanGroupCollapsedInDom\(k0, action === 'collapse', state\.modal, \{ animate: true \}\)/, 'user group collapse must animate the mounted group');
 assert.doesNotMatch(kanbanGroupCollapse, /__tmRerenderKanbanInPlace|__tmRerenderCurrentViewInPlace|__tmScheduleViewRefresh|\brender\s*\(/, 'kanban group collapse must not redraw the kanban');
 
@@ -69,7 +69,8 @@ assert.match(kanbanRenderer, /data-tm-kanban-column-expanded-content/, 'expanded
 assert.match(kanbanRenderer, /data-tm-kanban-column-collapsed-content/, 'collapsed column header must remain mounted');
 assert.doesNotMatch(kanbanRenderer, /data-tm-kanban-(?:collapsed|column-collapsed)=/, 'write-only kanban state attributes must not return');
 assert.doesNotMatch(kanbanRenderer, /data-tm-kanban-(?:expanded-(?:width|min-width|max-width|flex)|collapsed-width)=/, 'column sizing must stay in CSS instead of write-only data attributes');
-assert.doesNotMatch(kanbanRenderer, /__tmKanbanGetCollapsedColumnSet\(\)\.has\(columnKey\)/, 'progressive loading must finish a mounted column even while it is hidden');
+const kanbanProgressiveBatch = segment(kanbanRenderer, 'loadNextBatch: (modalEl, loadOptions = {}) => {', '\n                    });');
+assert.doesNotMatch(kanbanProgressiveBatch, /__tmKanbanGetCollapsedColumnSet\(\)\.has\(columnKey\)/, 'progressive loading must finish a mounted column even while it is hidden');
 assert.match(styles, /\[data-tm-kanban-column-expanded-content\]\[hidden\][\s\S]*display: none !important;/, 'mounted kanban alternatives must honor hidden even when component display rules are more specific');
 assert.equal((styles.match(/^\s*width: var\(--tm-kanban-collapsed-col-width\)/gm) || []).length, 1, 'collapsed column width must have a single CSS source of truth');
 assert.match(styles, /\.tm-kanban\.tm-kanban--clean\s*\{\s*--tm-kanban-subtask-indent:\s*14px;/, 'kanban subtasks must use the compact checklist hierarchy distance without changing whiteboard spacing');

@@ -736,7 +736,7 @@ async function checkRecommendedRules(page) {
         await page.evaluate(() => { __hasPro = true; delete window.__tmRuntimeHost; __settingsTest.SettingsStore.data.aiExperienceMode = 'agent'; });
         await page.evaluate(() => tmOpenSettingsV2Page('general'));
         const defaultChoices = page.locator('[onchange="updateDefaultViewMode(this.value)"] + .tm-settings-choice-group');
-        assert.equal(await defaultChoices.getByRole('radio').count(), 6, 'default view is a button group');
+        assert.equal(await defaultChoices.getByRole('radio').count(), 7, 'default view is a button group');
         await page.evaluate(() => {
             window.__choiceChanges = 0;
             document.querySelector('[onchange="updateDefaultViewMode(this.value)"]').addEventListener('change', () => window.__choiceChanges++);
@@ -746,6 +746,8 @@ async function checkRecommendedRules(page) {
         assert.equal(await page.evaluate(() => document.activeElement.dataset.choiceValue), 'kanban', 'focus survives full redraw');
         await defaultChoices.getByRole('radio', { name: '看板视图', exact: true }).click();
         assert.equal(await page.evaluate(() => __choiceChanges), 1, 'a selection dispatches exactly one change');
+        await page.keyboard.press('ArrowRight');
+        await page.waitForFunction(() => __settingsTest.SettingsStore.data.defaultViewMode === 'comboBoard');
         await page.keyboard.press('ArrowRight');
         await page.waitForFunction(() => __settingsTest.SettingsStore.data.defaultViewMode === 'calendar');
         await page.keyboard.press('End');

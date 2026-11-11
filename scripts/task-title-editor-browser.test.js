@@ -12,7 +12,9 @@ const uiSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/30-dialo
 const storesSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/10-stores-rules-and-cache.js'), 'utf8');
 const navigationSource = fs.readFileSync(path.join(root, 'src/task-horizon/main/task-runtime/51-whiteboard-and-link-runtime.js'), 'utf8');
 assert.doesNotMatch(apiSource + detailSource + navigationSource, /__tmLogTaskTitleUnderline|__tmTraceTaskTitleRender|__tmTitleUnderline|diagnostics-v\d/, 'temporary diagnostic state, scans and call sites are removed');
-const lutePath = process.env.SIYUAN_LUTE_PATH || path.resolve(root, '../siyuan-3.8.8/app/stage/protyle/js/lute/lute.min.js');
+const lutePath = process.env.SIYUAN_LUTE_PATH || ['3.8.9', '3.8.8']
+    .map(version => path.resolve(root, `../siyuan-${version}/app/stage/protyle/js/lute/lute.min.js`))
+    .find(candidate => fs.existsSync(candidate));
 function between(source, start, end) {
     const a = source.indexOf(start), b = source.indexOf(end, a + start.length);
     assert.ok(a >= 0 && b > a, start);
@@ -20,7 +22,7 @@ function between(source, start, end) {
 }
 
 async function main() {
-    assert.ok(fs.existsSync(lutePath), 'Set SIYUAN_LUTE_PATH to the real SiYuan lute.min.js; do not replace it with a parser mock');
+    assert.ok(lutePath && fs.existsSync(lutePath), 'Set SIYUAN_LUTE_PATH to the real SiYuan lute.min.js; do not replace it with a parser mock');
     const browser = await chromium.launch({ headless: true,
         ...(process.env.PLAYWRIGHT_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE } : {}) });
     const errors = [];

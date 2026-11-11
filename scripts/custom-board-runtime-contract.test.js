@@ -241,7 +241,7 @@ context.SettingsStore.data.customBoardSets = [];
     assert.equal(vm.runInContext('__tmMigrateCustomBoardFeatureSettings(disabledSettings)', context), false);
     assert.ok(!disabledSettings.enabledViews.includes('comboBoard'),
         'an explicit post-migration view choice must not re-enable the combination board');
-    assert.ok((storeSource.match(/__tmMigrateCustomBoardFeatureSettings\(this\.data\)/g) || []).length >= 3,
+    assert.ok((storeSource.match(/__tmMigrateCustomBoardFeatureSettings\(this\.data\)/g) || []).length >= 2,
         'custom-board migration must run after cloud hydration and on the local fallback path');
     assert.match(storeSource,
         /enabledViews: \['list', 'checklist', 'timeline', 'kanban', 'comboBoard', 'calendar', 'whiteboard'\]/,
@@ -401,6 +401,26 @@ context.SettingsStore.data.customBoardSets = [];
         'mobile board-set cards must not repeat the sub-board count shown below the name');
     assert.match(stylesSource, /@media \(max-width: 680px\)[\s\S]*?\.tm-custom-board-manager__detail \.tm-custom-board-manager__list\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/,
         'the mobile sub-board list must own vertical scrolling instead of clipping rows');
+    assert.match(runtimeSource, /__tmBindPluginHostGestureIsolation\(modal\)/,
+        'mobile sub-board dialogs must isolate host touch gestures');
+    assert.match(runtimeSource, /const usesTouchInput = \([\s\S]*?if \(firstInput && !usesTouchInput\)/,
+        'mobile sub-board dialogs must not autofocus text fields before a native select is tapped');
+    assert.match(runtimeSource, /function __tmDecorateCustomBoardSelects[\s\S]*?tm-rule-select-control[\s\S]*?tm-custom-board-select-arrow/,
+        'sub-board selects must reuse the rule-management select control');
+    assert.match(runtimeSource, /trigger\.className\s*=\s*'bc-select tm-custom-board-select-trigger'/,
+        'the option trigger must retain the shared Basecoat select class');
+    assert.match(runtimeSource, /select\.classList\.add\('bc-select'\)/,
+        'sub-board selects must inherit the native Basecoat select treatment');
+    assert.match(renderRuntimeSource, /tm-custom-board-modal[\s\S]*?isTouchStandaloneDialog/,
+        'standalone sub-board dialogs must stop host touch handlers on touch devices');
+    assert.match(stylesSource, /\.tm-custom-board-editor \.tm-custom-board-field select,[\s\S]*?min-height:\s*44px;[\s\S]*?font-size:\s*16px;/,
+        'mobile sub-board selects must expose a full native touch target');
+    assert.match(stylesSource, /\.tm-custom-board-select-control\s*\{[^}]*width:\s*100%;/,
+        'the shared sub-board select control must fill the editor field');
+    assert.match(stylesSource, /\.tm-custom-board-select-trigger::before,[\s\S]*?\.tm-custom-board-select-trigger::after\s*\{[^}]*content:\s*none !important;/,
+        'the Basecoat trigger must not add a second pseudo-element arrow');
+    assert.match(stylesSource, /\.tm-custom-board-select-trigger\.bc-select\s*\{[^}]*background-image:\s*none !important;/,
+        'the Basecoat trigger must not retain its background arrow');
     assert.match(runtimeSource, /window\.tmSelectCustomBoardSet = async function[\s\S]*__tmCanAccessCustomBoardSetIndexAfterLicenseCheck[\s\S]*__tmPromptCustomBoardSetAccessRestriction/,
         'the manager must block entering inaccessible board sets');
     assert.match(runtimeSource, /window\.tmSelectCustomBoardSetFromTopbar = async function[\s\S]*__tmCanAccessCustomBoardSetIndexAfterLicenseCheck/,

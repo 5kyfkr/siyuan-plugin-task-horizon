@@ -22,8 +22,8 @@ const enabledView = segment(actions, 'window.updateEnabledView = async function'
 const moveView = segment(actions, 'window.tmMoveEnabledView = async function', 'window.updateViewSwitcherStyle = async function');
 const switcherStyle = segment(actions, 'window.updateViewSwitcherStyle = async function', 'window.updateKanbanCompactMode = async function');
 
-assert.match(actions, /function __tmPersistViewControlSettings\(\)[\s\S]*SettingsStore\.save\(\)[\s\S]*Promise\.resolve\(pending\)/,
-    'view controls must persist in the background instead of awaiting the settings debounce');
+assert.match(actions, /function __tmPersistViewControlSettings\(\)[\s\S]*SettingsStore\.save\(\)[\s\S]*SettingsStore\.saveNow\?\.\(\)[\s\S]*Promise\.resolve\(immediate \|\| pending\)/,
+    'view controls must start an immediate file flush without blocking the UI update');
 assert.match(actions, /function __tmRefreshViewControlSettingsInPlace\(\)[\s\S]*__tmRefreshEnabledViewSettingsLight[\s\S]*__tmRefreshViewSwitcherControlsInPlace/,
     'view controls must refresh the settings block and mounted switcher in place');
 assert.doesNotMatch(enabledView, /showSettings\(\)/, 'enabling or disabling a view must not rebuild the settings modal');

@@ -432,7 +432,6 @@
                     } catch (failure) {
                         if (JSON.stringify(SettingsStore.data.taskTemplateLibrary) === JSON.stringify(next)) {
                             SettingsStore.data.taskTemplateLibrary = previous;
-                            if (SettingsStore.loadedSettingsFieldSnapshot) SettingsStore.loadedSettingsFieldSnapshot.taskTemplateLibrary = previous;
                             Storage.set('tm_task_template_library', previous);
                         }
                         throw failure;
