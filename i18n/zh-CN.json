@@ -2339,8 +2339,6 @@
   "task.preparingTheWhiteboardView": "正在准备白板视图",
   "task.preparingTheTaskView": "正在准备任务视图",
   "task.loading": "加载中",
-  "task.collapseTopbarIcons": "收起顶栏图标",
-  "task.expandTopbarIcons": "展开顶栏图标",
   "task.writeRepeatDate": "写入循环日期",
   "task.theRecurringTaskApiIsNotReady": "循环任务接口未就绪",
   "task.failedToWriteTheRepeatDateNoReminderWas": "{taskTitle}：循环日期写入失败，未创建提醒（{value2}）",

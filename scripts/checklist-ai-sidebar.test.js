@@ -74,6 +74,10 @@ const context = vm.createContext({
 });
 
 vm.runInContext(viewPolicySource, context, { filename: '31-view-host-policies.js' });
+const locationReadStart = detailSource.indexOf('function __tmGetTaskDetailLocationDocName(');
+const locationReadEnd = detailSource.indexOf('function __tmSyncTaskDetailLocationInPlace(', locationReadStart);
+assert.ok(locationReadStart >= 0 && locationReadEnd > locationReadStart, 'detail location resolver must remain extractable');
+vm.runInContext(detailSource.slice(locationReadStart, locationReadEnd), context);
 const detailReadStart = detailSource.indexOf('function __tmGetChecklistDetailTaskById(');
 const detailReadEnd = detailSource.indexOf('function __tmGetTaskDetailProjectedDirectChildren(', detailReadStart);
 assert.ok(detailReadStart >= 0 && detailReadEnd > detailReadStart, 'checklist detail resolver must remain extractable');

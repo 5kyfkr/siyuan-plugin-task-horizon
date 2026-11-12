@@ -399,11 +399,26 @@ runtime = runtime.slice(0, startup) + `
         await page.evaluate(()=>{kanbanTest.state.modal.classList.add('tm-modal--dock');kanbanTest.mount();});
         await settle();
         await page.getByRole('tab', {name:'需求规划',exact:true}).click();
-        await page.waitForFunction(()=>!document.querySelector('.tm-body--kanban').__tmKanbanSnapAnimRaf);
+        // A queued snap-settle timer can start after the current animation ends.
+        // Wait for navigation to finish before clicking the column's expand button.
+        await page.waitForFunction(()=>{
+            const body=document.querySelector('.tm-body--kanban');
+            if (body.__tmKanbanSnapAnimRaf || body.__tmKanbanSnapSettleTimer) return false;
+            const col=body.querySelector('[data-col-key="doc:20261012000000-aaaaaaa"]');
+            const a=body.getBoundingClientRect(),b=col.getBoundingClientRect();
+            return b.left>=a.left-1 && b.right<=a.right+1;
+        });
         assert.ok((await first.getAttribute('class')).includes('tm-kanban-col--collapsed'), 'navigation preserves collapsed state');
         assert.equal(await first.evaluate(el=>el.getBoundingClientRect().height), collapsedHeight.height, 'dock collapsed lane also uses its actual content height');
         await first.locator('.tm-kanban-col-collapse--expand').click();
         await settle();
+        // Expansion changes column snap widths. Finish that scroll, then use
+        // the column navigator before measuring the expanded Dock appearance.
+        await page.waitForFunction(()=>{
+            const body=document.querySelector('.tm-body--kanban');
+            return !body.__tmKanbanSnapAnimRaf && !body.__tmKanbanSnapSettleTimer;
+        });
+        await page.getByRole('tab', {name:'需求规划',exact:true}).click();
         try {
             await page.waitForFunction(()=>{
                 const body=document.querySelector('.tm-body--kanban');

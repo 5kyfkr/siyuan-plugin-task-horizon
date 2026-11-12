@@ -684,10 +684,13 @@
             const projectedTask = (opts.includePending !== false
                 ? globalThis.__tmTaskStore?.getProjected?.(id)
                 : null);
-            const structuralTask = globalThis.__tmTaskBoundary?.getTask?.(id, {
+            let structuralTask = globalThis.__tmTaskBoundary?.getTask?.(id, {
                 includePending: opts.includePending !== false,
                 preferPending: opts.preferPending !== false,
             }) || null;
+            if (structuralTask && opts.includePending !== false) {
+                structuralTask = globalThis.__tmTaskStore?.projectRead?.(structuralTask) || structuralTask;
+            }
             let task = projectedTask && structuralTask
                 ? (() => {
                     const merged = {
@@ -790,15 +793,24 @@
     function __tmGetChecklistDetailTaskById(taskId, options = {}) {
         const rawId = String(taskId || '').trim();
         if (!rawId) return null;
+        const projectDirectTask = (directTask) => {
+            // Keep hydrated editor fields from the boundary, while applying the
+            // latest queued move over receipts for an earlier document choice.
+            const task = options?.includePending !== false
+                ? (globalThis.__tmTaskStore?.projectRead?.(directTask) || directTask)
+                : directTask;
+            const docName = __tmGetTaskDetailLocationDocName(task);
+            return docName ? { ...task, docName, doc_name: docName } : task;
+        };
         try {
             const directTask = globalThis.__tmTaskBoundary?.getTask?.(rawId) || null;
-            if (directTask && typeof directTask === 'object') return directTask;
+            if (directTask && typeof directTask === 'object') return projectDirectTask(directTask);
         } catch (e) {}
         try {
             const resolvedId = __tmResolveTaskDetailEffectiveId(rawId);
             if (resolvedId && resolvedId !== rawId) {
                 const directTask = globalThis.__tmTaskBoundary?.getTask?.(resolvedId) || null;
-                if (directTask && typeof directTask === 'object') return directTask;
+                if (directTask && typeof directTask === 'object') return projectDirectTask(directTask);
             }
         } catch (e) {}
         try {
@@ -10876,6 +10888,9 @@ return true;
         const currentId = String(panel.dataset?.tmDetailTaskId || panel.__tmTaskDetailTaskId || panel.__tmTaskDetailTask?.id || '').trim();
         if (currentId && !__tmAreTaskDetailIdsEquivalent(currentId, tid)) return false;
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'location')) {
+            // Location chips can update while an active editor defers the
+            // structural rebuild needed for the parent line and heading layout.
+            __tmSyncTaskDetailLocationInPlace(panel, task);
             const previousLocationSignature = String(panel.__tmTaskDetailLocationSignature || '').trim();
             const nextLocationSignature = __tmBuildTaskDetailLocationSignature(task);
             if (nextLocationSignature && (!previousLocationSignature || previousLocationSignature !== nextLocationSignature)) return false;
@@ -11089,7 +11104,9 @@ return true;
             });
         }
 
-        try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'location')) {
+            try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
+        }
         return touched;
     }
 
@@ -11097,6 +11114,7 @@ return true;
         const root = rootEl instanceof HTMLElement ? rootEl : null;
         const tid = String(taskId || '').trim();
         if (!(root instanceof HTMLElement) || !tid) return false;
+        try { __tmSyncTaskDetailLocationInPlace(root, root.__tmTaskDetailTask); } catch (e) {}
         try {
             if (root.__tmTaskDetailForceRebuildRetryQueued === true) return true;
         } catch (e) {}

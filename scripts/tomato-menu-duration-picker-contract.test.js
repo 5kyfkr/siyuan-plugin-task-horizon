@@ -20,16 +20,16 @@ const pickerSources = [
 
 for (const [label, source, className] of pickerSources) {
     assert.match(source, /durationSlider\.type = 'range'/, `${label} must use a range duration picker`);
-    assert.match(source, /durationSlider\.min = '5'/, `${label} must start at five minutes`);
-    assert.match(source, /durationSlider\.max = '180'/, `${label} must cap duration at 180 minutes`);
-    assert.match(source, /durationSlider\.step = '5'/, `${label} must move in five-minute steps`);
-    assert.match(source, /getDefaultDurationMinutes\?\./, `${label} must initialize from Tomato's configured default duration`);
+    assert.match(source, /Object\.assign\(durationSlider, __tmGetTaskTimerSliderOptions\(task\)\)/, `${label} must share task-aware slider initialization`);
     assert.doesNotMatch(source, /__dockTomato\?\.getDefaultTomatoTimeMinutes\?\./, `${label} must not fall back to the legacy default-button duration`);
     assert.match(source, new RegExp(`${className.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}`), `${label} must expose the shared picker class`);
     assert.match(source, /durationSlider\.addEventListener\('click'[\s\S]*runTaskTimer|durationSlider\.addEventListener\('click'[\s\S]*__tmStartTaskDetailQuickTimer/, `${label} must start the selected duration from a non-drag slider click`);
     assert.match(source, /durationSliderDragged[\s\S]*pointermove[\s\S]*durationSliderDragged = true/, `${label} must distinguish a drag from a start click`);
     assert.doesNotMatch(source, /durationSlider[\s\S]{0,1800}setActiveCountdownDuration/, `${label} must not adjust a running timer`);
 }
+
+assert.match(detail, /__tmStartTaskDetailQuickTimer\(tid, Number\(durationSlider\.value\), 'countdown'\)/,
+    'task detail must start the selected integer duration without rounding it back to five minutes');
 
 const detailTimer = detail.slice(detail.indexOf('function __tmBuildTaskDetailMoreTimerSection'));
 assert.ok(

@@ -9247,7 +9247,9 @@ return false;
             if (!applied && !handledAsNoop) return false;
             try {
                 const task = globalThis.__tmTaskStore?.getProjected?.(tid) || null;
-                globalThis.__tmTaskMutationBus?.publish?.({
+                // External writes are already persisted. Advance the confirmed
+                // task data before the projection notifies cards and details.
+                globalThis.__tmTaskMutationBus?.apply?.({
                     type: 'taskPatch',
                     phase: 'local',
                     taskId: tid,
@@ -10838,7 +10840,8 @@ return false;
         } catch (e) {}
         const tid = String(id || '').trim();
         if (!tid) return;
-        const task = __tmTaskStateKernel.getTask(tid);
+        const localTask = __tmTaskStateKernel.getTask(tid);
+        const task = globalThis.__tmTaskStore?.projectRead?.(localTask) || localTask;
         if (!task) return;
         if (!__tmEnsureEditableTaskLike(task, __tmT("task.moveToDocument"))) return;
         const currentDocId = String(task.docId || task.root_id || '').trim();
@@ -10858,8 +10861,10 @@ return false;
             }
             try {
                 close?.();
+                const targetDoc = allDocs.find((doc) => String(doc?.id || '').trim() === nextId);
                 const payload = {
                     targetDocId: nextId,
+                    targetDocName: targetDoc ? __tmGetDocDisplayName(targetDoc, String(targetDoc.name || '').trim()) : '',
                     mode: 'docTop',
                 };
                 const moveTask = globalThis.__tmRequireTaskMutation?.('moveTask');

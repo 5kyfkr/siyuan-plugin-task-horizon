@@ -491,6 +491,7 @@ test('checklist detail updates custom fields locally while preserving the active
         __tmBuildCustomFieldDisplayHtml: (_field, value) => value || '未设置',
     });
     vm.runInContext(extract(stores, '__tmGetTaskCustomFieldValue'), h.context);
+    vm.runInContext(extract(detail, '__tmGetTaskDetailLocationDocName'), h.context);
     vm.runInContext(extract(detail, '__tmGetChecklistDetailTaskById'), h.context);
     vm.runInContext(extract(detail, '__tmPatchTaskDetailPanelInPlace'), h.context);
     const patch = { customFieldValues: { stage: 'new', notes: '其他视图的新备注' } };

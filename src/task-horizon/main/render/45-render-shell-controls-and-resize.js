@@ -405,6 +405,7 @@
                 </details>` : ''}
                 <div class="tm-topbar-menu__commands" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.taskactions")}">
                     ${renderCommand(keyword ? __tmT("task.search3", { keyword: keyword }) : __tmT("task.search"), 'search', 'tmShowSearchModal()')}
+                    ${renderCommand(__tmT("common.settings"), 'settings', 'showSettings()')}
                     ${renderCommand(__tmT("ai.summary3"), 'file-text', 'tmShowSummaryModal()')}
                     ${renderCommand(state.attachmentLibraryOpen ? __tmT("task.backToWorkspace") : __tmT("task.attachmentLibrary"), 'paperclip', 'tmToggleAttachmentLibrary()')}
                     ${__tmIsAiFeatureEnabled() ? renderCommand(__tmT("ai.aiWorkbench"), 'bot', 'tmToggleAiSidebar()', aiWorkbenchOpen ? 'is-active' : '', aiWorkbenchOpen) : ''}

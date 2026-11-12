@@ -1,118 +1,3 @@
-    function __tmSetCompactTopbarIconsCollapsed(bar, collapsed) {
-        if (!(bar instanceof HTMLElement)) return false;
-        const next = collapsed === true;
-        const button = bar.querySelector('[data-tm-compact-topbar-fold="true"]');
-        if (!(button instanceof HTMLElement)) return false;
-        const label = next ? __tmT("task.expandTopbarIcons") : __tmT("task.collapseTopbarIcons");
-        bar.classList.toggle('tm-compact-topbar-icons-collapsed', next);
-        bar.classList.toggle('tm-compact-topbar-icons-expanded', !next);
-        button.classList.toggle('is-collapsed', next);
-        button.setAttribute('aria-expanded', next ? 'false' : 'true');
-        button.setAttribute('aria-label', label);
-        button.setAttribute('data-tm-tooltip-label', label);
-        return next;
-    }
-
-    function __tmSyncCompactTopbarIconsLayout(bar = null) {
-        const hostBar = bar instanceof HTMLElement
-            ? bar
-            : state.modal?.querySelector?.('.tm-filter-rule-bar');
-        if (!(hostBar instanceof HTMLElement) || state.__tmCompactTopbarSyncing === true) return false;
-        const button = hostBar.querySelector('[data-tm-compact-topbar-fold="true"]');
-        if (!(button instanceof HTMLElement)) {
-            hostBar.classList.remove('tm-compact-topbar-icons-collapsed');
-            hostBar.classList.remove('tm-compact-topbar-icons-expanded');
-            return false;
-        }
-        state.__tmCompactTopbarSyncing = true;
-        const previousVisibility = hostBar.style.visibility;
-        const wasCollapsed = hostBar.classList.contains('tm-compact-topbar-icons-collapsed');
-        let collision = false;
-        try {
-            hostBar.style.visibility = 'hidden';
-            hostBar.classList.remove('tm-compact-topbar-icons-collapsed');
-            hostBar.classList.add('tm-compact-topbar-icons-expanded');
-            void hostBar.offsetWidth;
-            const brand = hostBar.querySelector('.tm-topbar-row--brand');
-            const right = hostBar.querySelector('.tm-topbar-right');
-            if (brand instanceof HTMLElement && right instanceof HTMLElement) {
-                const title = brand.querySelector('.tm-title');
-                const comboControls = brand.querySelector('.tm-custom-board-topbar');
-                const hostRect = hostBar.getBoundingClientRect();
-                const hostStyle = getComputedStyle(hostBar);
-                const hostPaddingRight = Number.parseFloat(hostStyle.paddingRight) || 0;
-                const foldButtonRect = button.getBoundingClientRect();
-                const foldButtonWidth = Math.max(30, Number(foldButtonRect.width) || 0);
-                const rightRect = right.getBoundingClientRect();
-                const rightRequiredWidth = Math.max(
-                    foldButtonWidth,
-                    Number(rightRect.width) || 0,
-                    Number(right.scrollWidth) || 0,
-                );
-                const brandContentRight = Math.max(
-                    ...(title instanceof HTMLElement
-                        ? Array.from(title.children).map((child) => child.getBoundingClientRect().right)
-                        : Array.from(brand.children).map((child) => child.getBoundingClientRect().right)),
-                    ...(comboControls instanceof HTMLElement ? [comboControls.getBoundingClientRect().right] : []),
-                );
-                const availableRight = hostRect.right - hostPaddingRight;
-                collision = brandContentRight + rightRequiredWidth + 2 > availableRight
-                    || hostBar.scrollWidth > hostBar.clientWidth + 1;
-            }
-            const manualCollapsed = state.__tmCompactTopbarManualCollapsed !== false;
-            __tmSetCompactTopbarIconsCollapsed(hostBar, manualCollapsed || collision);
-            state.__tmCompactTopbarAutoCollapsed = collision;
-        } finally {
-            hostBar.style.visibility = previousVisibility;
-            state.__tmCompactTopbarSyncing = false;
-        }
-        if (wasCollapsed && !hostBar.classList.contains('tm-compact-topbar-icons-collapsed')) {
-            try { __tmRebindTopbarTooltips?.(state.modal); } catch (e) {}
-        }
-        return collision;
-    }
-
-    function __tmObserveCompactTopbarIconsLayout(modal = state.modal) {
-        try { state.__tmCompactTopbarResizeObserver?.disconnect?.(); } catch (e) {}
-        state.__tmCompactTopbarResizeObserver = null;
-        const bar = modal?.querySelector?.('.tm-filter-rule-bar');
-        if (!(bar instanceof HTMLElement) || !bar.querySelector('[data-tm-compact-topbar-fold="true"]')) return false;
-        __tmSyncCompactTopbarIconsLayout(bar);
-        try {
-            const observer = new ResizeObserver(() => {
-                try { requestAnimationFrame(() => __tmSyncCompactTopbarIconsLayout(bar)); } catch (e) {
-                    try { __tmSyncCompactTopbarIconsLayout(bar); } catch (e2) {}
-                }
-            });
-            observer.observe(bar);
-            observer.observe(bar.querySelector('.tm-topbar-row--main') || bar);
-            state.__tmCompactTopbarResizeObserver = observer;
-        } catch (e) {}
-        try {
-            requestAnimationFrame(() => {
-                __tmSyncCompactTopbarIconsLayout(bar);
-                bar.classList.add('tm-compact-topbar-layout-ready');
-            });
-        } catch (e) {
-            bar.classList.add('tm-compact-topbar-layout-ready');
-        }
-        return true;
-    }
-
-    window.tmToggleCompactTopbarIcons = function(event) {
-        try { event?.preventDefault?.(); } catch (e) {}
-        try { event?.stopPropagation?.(); } catch (e) {}
-        const button = event?.currentTarget instanceof Element
-            ? event.currentTarget
-            : document.querySelector('[data-tm-compact-topbar-fold="true"]');
-        const bar = button?.closest?.('.tm-filter-rule-bar');
-        if (!(button instanceof HTMLElement) || !(bar instanceof HTMLElement)) return false;
-        const currentlyCollapsed = bar.classList.contains('tm-compact-topbar-icons-collapsed');
-        state.__tmCompactTopbarManualCollapsed = !currentlyCollapsed;
-        __tmSyncCompactTopbarIconsLayout(bar);
-        return false;
-    };
-
     function __tmFinishRenderSoftSwap(swap) {
         if (!swap) return;
         const { previousModal, previousStyle, nextModal } = swap;
@@ -185,8 +70,6 @@
         try { __tmEnsureAllDocTabTouchDelegation(); } catch (e) {}
         try { __tmEnsureTopbarManagerIconTouchDelegation(); } catch (e) {}
         try { __tmEnsureDocTabsAutoHideTouchDelegation(); } catch (e) {}
-        try { state.__tmCompactTopbarResizeObserver?.disconnect?.(); } catch (e) {}
-        state.__tmCompactTopbarResizeObserver = null;
         try { state.dockTaskPointerGestureCleanup?.(); } catch (e) {}
         try { __tmCleanupKanbanLaneAppearance({ preserveBackground: true }); } catch (e) {}
         try { state.multiSelectPointerGestureCleanup?.(); } catch (e) {}
@@ -770,7 +653,6 @@
             mountEl: __tmMountEl,
         });
         const comboBoardMode = renderMode === 'comboBoard';
-        const compactTopbarMode = !!(isMobile || isDockHost || isDesktopNarrow);
         const whiteboardLayoutMenuOptions = __tmBuildWhiteboardLayoutMenuOptions(whiteboardAllTabsLayoutMode);
         // A desktop Dock can use the compact/mobile-shaped layout when narrow,
         // but it is still a desktop host and should keep desktop-only controls.
@@ -880,8 +762,8 @@
             <div class="tm-box${showCalendarSideDock || showAiSideDock ? ' tm-box--with-cal-dock' : ''}${parentTaskNameBoldClass}">
                 <div class="tm-filter-rule-bar" style="padding: ${topbarPadding};${topbarHeightStyle}">
                         <div class="tm-topbar-row tm-topbar-row--main" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
-                        <div class="tm-topbar-row tm-topbar-row--brand" style="display:flex;align-items:center;gap:10px;min-width:0;">
-                            <div class="tm-title" style="font-size: 16px; font-weight: 700; white-space: nowrap; display:inline-flex; align-items:center; gap:4px;">
+                        <div class="tm-topbar-row tm-topbar-row--brand" style="display:flex;align-items:center;gap:var(--tm-topbar-icon-gap);min-width:0;">
+                            <div class="tm-title" style="font-size: 16px; font-weight: 700; white-space: nowrap; display:inline-flex; align-items:center; gap:var(--tm-topbar-icon-gap);">
                                 <button
                                     type="button"
                                     class="tm-manager-brand-icon"
@@ -937,7 +819,6 @@
                             ${!isMobile ? `
                             <div class="tm-compact-topbar-actions">
                                 ${compactTopbarActionButtonsHtml}
-                                <button class="tm-btn tm-btn-info tm-compact-topbar-action tm-compact-topbar-action--settings bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("common.settings"), { side: 'bottom' })}>${__tmRenderLucideIcon('settings')}</button>
                             </div>
                             ` : ''}
                             ${!isMobile && renderMode === 'timeline' && !showDesktopNarrowTimelineTopbar && !showTopbarTimelineToolbar ? timelineSidebarToggleButtonHtml : ''}
@@ -946,15 +827,10 @@
                         <!-- 移动端菜单按钮 -->
                             <div class="tm-mobile-menu-btn" style="display:${isMobile || isDockHost ? 'flex' : 'none'};">
                             <div style="display:flex;align-items:center;gap:${showMobileLandscapeTimelineTopbar ? '6px' : '10px'};">
-                                ${compactTopbarMode ? `<button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-mobile-topbar-fold" onclick="return tmToggleCompactTopbarIcons(event)" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("task.collapseTopbarIcons")}" aria-controls="tmCompactMobileSecondaryActions" aria-expanded="true" data-tm-compact-topbar-fold="true" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("task.collapseTopbarIcons"), { side: 'bottom' })}>${__tmRenderLucideIcon('chevron-right', '', { size: 15 })}</button>` : ''}
                                 ${isMobile ? topbarAddBtnHtml : ''}
-                                <div class="tm-mobile-topbar-secondary-actions" id="tmCompactMobileSecondaryActions">
                                 ${showMobileLandscapeTimelineTopbar ? timelineCompactToolbarButtonsHtml : ''}
                                 ${isMobile ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-mobile-topbar-refresh" onclick="tmRefresh()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("ai.refresh"), { side: 'bottom' })}>${__tmRenderLucideIcon('arrow-clockwise')}</button>` : ''}
-                                <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-mobile-topbar-settings" onclick="tmHideMobileMenu(); showSettings()" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.settings")}" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("common.settings"), { side: 'bottom' })}>${__tmRenderLucideIcon('settings')}</button>
-                                </div>
-                                ${!isMobile ? `
-                                ` : ''}<button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-mobile-topbar-menu" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("task.menu"), { side: 'bottom' })}>
+                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-mobile-topbar-menu" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("task.menu"), { side: 'bottom' })}>
                                     ${__tmRenderLucideIcon('menu')}
                                 </button>
                                 ${isMobile && !isDockHost ? `<button class="tm-btn tm-btn-gray bc-btn bc-btn--sm bc-btn--ghost tm-mobile-topbar-close" onclick="tmClose(event)" ontouchend="tmClose(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("common.close"), { side: 'bottom' })}>${__tmRenderLucideIcon('x')}</button>` : ''}
@@ -982,7 +858,6 @@
                         </div>
                         ` : ''}
                         ${desktopTopbarActionButtonsHtml}
-                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("common.settings"), { side: 'bottom' })}>${__tmRenderLucideIcon('settings')}</button>
                         ${!false ? `
                             <button class="tm-btn tm-btn-info tm-desktop-menu-btn bc-btn bc-btn--sm" onclick="tmToggleDesktopMenu(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(__tmT("task.menu"), { side: 'bottom' })}>
                                 ${__tmRenderLucideIcon('menu')}
@@ -1629,10 +1504,6 @@
                             gap: 6px !important;
                         }
 
-                        .tm-modal.tm-modal--mobile .tm-compact-topbar-action--settings {
-                            display: none !important;
-                        }
-
                         .tm-modal.tm-modal--mobile:not(.tm-modal--dock),
                         .tm-modal.tm-modal--dock {
                             --tm-mobile-bottom-viewbar-offset: calc(env(safe-area-inset-bottom, 0px) + 10px);
@@ -2173,7 +2044,6 @@
                 ` : ''}
             </div>
         `;
-        try { __tmObserveCompactTopbarIconsLayout(state.modal); } catch (e) {}
         const reusedCalendarSideDock = __tmCommitCalendarSideDockFullRenderTransfer(
             preservedCalendarSideDockTransfer,
             state.modal,
@@ -8947,16 +8817,6 @@
                 const arr = Array.isArray(list) ? list.map((n) => parseInt(n, 10)).filter((n) => Number.isFinite(n) && n > 0) : [];
                 return arr.length > 0 ? arr : [5, 15, 25, 30, 45, 60];
             })();
-            const configuredDefaultDuration = (() => {
-                try {
-                    return Number(timer?.getDefaultDurationMinutes?.());
-                } catch (e) {
-                    return NaN;
-                }
-            })();
-            const sliderDefaultMinutes = Math.max(5, Math.min(180, Math.round(
-                ((Number.isFinite(configuredDefaultDuration) && configuredDefaultDuration > 0) ? configuredDefaultDuration : 30) / 5
-            ) * 5));
             const timerWrap = document.createElement('div');
             timerWrap.className = 'tm-task-context-timer';
             const title = document.createElement('div');
@@ -8972,10 +8832,7 @@
             const durationSlider = document.createElement('input');
             durationSlider.type = 'range';
             durationSlider.className = 'tm-task-context-timer__slider';
-            durationSlider.min = '5';
-            durationSlider.max = '180';
-            durationSlider.step = '5';
-            durationSlider.value = String(sliderDefaultMinutes);
+            Object.assign(durationSlider, __tmGetTaskTimerSliderOptions(task));
             durationSlider.setAttribute('aria-label', __tmT("task.setStopwatchDuration"));
             const durationValue = document.createElement('output');
             durationValue.className = 'tm-task-context-timer__slider-value';

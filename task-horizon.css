@@ -3266,6 +3266,11 @@
     gap: 4px 6px;
 }
 
+#tmMobileMenu.tm-topbar-menu .tm-topbar-menu__disclosure + .tm-topbar-menu__commands {
+    padding-top: 8px;
+    border-top: 1px solid var(--tm-input-border);
+}
+
 :is(#tmDesktopMenu, #tmMobileMenu).tm-topbar-menu .tm-topbar-menu__command {
     display: inline-flex;
     align-items: center;
@@ -3859,10 +3864,6 @@
 
     .tm-modal:not(.tm-modal--dock) .tm-compact-topbar-action--refresh {
         display: inline-flex !important;
-    }
-
-    .tm-modal:not(.tm-modal--dock) .tm-compact-topbar-action--settings {
-        display: none !important;
     }
 
     /* 移动端专属项目显示 */
@@ -9693,7 +9694,7 @@ select.tm-btn-secondary {
 .tm-custom-board-topbar {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--tm-topbar-icon-gap);
     min-width: 0;
     height: 32px;
 }
@@ -9725,14 +9726,14 @@ select.tm-btn-secondary {
 }
 
 .tm-modal:is(.tm-modal--mobile, .tm-modal--dock) .tm-filter-rule-bar .tm-title {
-    column-gap: 6px !important;
+    column-gap: var(--tm-topbar-icon-gap) !important;
 }
 
 .tm-modal[data-tm-render-mode="comboBoard"]:is(.tm-modal--mobile, .tm-modal--dock) .tm-filter-rule-bar .tm-title {
     --tm-combo-home-track: 30px;
     --tm-combo-choice-track: minmax(0, 1fr);
     display: grid !important;
-    grid-template-columns: 30px var(--tm-combo-home-track) var(--tm-combo-choice-track);
+    grid-template-columns: var(--tm-combo-brand-track, 30px) var(--tm-combo-home-track) var(--tm-combo-choice-track);
     width: 100%;
     min-width: 0;
 }
@@ -9743,7 +9744,7 @@ select.tm-btn-secondary {
     grid-template-columns: minmax(0, max-content) var(--tm-combo-manage-track);
     width: max-content;
     max-width: 100%;
-    gap: 6px;
+    gap: var(--tm-topbar-icon-gap);
     min-width: 0;
     justify-self: start;
 }
@@ -9762,94 +9763,27 @@ select.tm-btn-secondary {
     gap: var(--tm-topbar-icon-gap) !important;
 }
 
-.tm-mobile-topbar-secondary-actions {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: var(--tm-topbar-icon-gap);
-    max-width: 640px;
-    min-width: 0;
-    opacity: 1;
-    overflow: hidden;
-    transform: translateX(0);
-}
-
-.tm-compact-topbar-layout-ready .tm-mobile-topbar-secondary-actions {
-    transition:
-        max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
-        opacity 150ms cubic-bezier(0.22, 1, 0.36, 1),
-        transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
-        margin 180ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.tm-filter-rule-bar.tm-compact-topbar-icons-collapsed .tm-mobile-topbar-secondary-actions {
-    width: 0;
-    max-width: 0;
-    margin-inline: -3px;
-    opacity: 0;
-    overflow: hidden;
-    pointer-events: none;
-    transform: translateX(-4px);
-}
-
-.tm-filter-rule-bar.tm-compact-topbar-icons-expanded .tm-title {
-    column-gap: 0 !important;
-}
-
-.tm-modal[data-tm-render-mode="comboBoard"] .tm-filter-rule-bar.tm-compact-topbar-icons-expanded .tm-title {
-    --tm-combo-home-track: 0px;
-    --tm-combo-choice-track: 0px;
-    column-gap: 0 !important;
-}
-
-.tm-filter-rule-bar.tm-compact-topbar-icons-expanded .tm-topbar-row--brand > :not(.tm-title),
-.tm-filter-rule-bar.tm-compact-topbar-icons-expanded .tm-title > :not(.tm-manager-brand-icon) {
-    width: 0 !important;
-    min-width: 0 !important;
-    max-width: 0 !important;
-    margin-inline: 0 !important;
-    padding: 0 !important;
-    border-width: 0 !important;
-    opacity: 0;
-    overflow: hidden;
-    pointer-events: none;
-    transform: translateX(-4px);
-}
-
-.tm-mobile-topbar-fold {
-    flex: 0 0 30px;
-}
-
-.tm-mobile-topbar-fold svg {
-    transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1) !important;
-}
-
-.tm-mobile-topbar-fold.is-collapsed svg {
-    transform: rotate(180deg) !important;
-}
-
-.tm-compact-topbar-layout-ready .tm-filter-rule-bar .tm-title {
-    transition:
-        grid-template-columns 220ms cubic-bezier(0.22, 1, 0.36, 1),
-        column-gap 180ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.tm-compact-topbar-layout-ready .tm-filter-rule-bar .tm-topbar-row--brand > :not(.tm-title),
-.tm-compact-topbar-layout-ready .tm-filter-rule-bar .tm-title > :not(.tm-manager-brand-icon) {
-    transition:
-        width 220ms cubic-bezier(0.22, 1, 0.36, 1),
-        min-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
-        max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
-        padding 180ms cubic-bezier(0.22, 1, 0.36, 1),
-        border-width 180ms cubic-bezier(0.22, 1, 0.36, 1),
-        opacity 150ms cubic-bezier(0.22, 1, 0.36, 1),
-        transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
 @container tm-modal (max-width: 760px) {
+    .tm-modal .tm-filter-rule-bar {
+        --tm-combo-brand-track: calc(30px - var(--tm-topbar-icon-gap) + 2px);
+    }
+
+    .tm-modal .tm-filter-rule-bar .tm-manager-brand-icon {
+        margin-inline-end: calc(2px - var(--tm-topbar-icon-gap));
+    }
+
+    .tm-modal:not(.tm-modal--dock) .tm-filter-rule-bar {
+        padding-left: 4px !important;
+    }
+
+    .tm-modal.tm-modal--dock .tm-filter-rule-bar {
+        padding-left: 5px !important;
+    }
+
     .tm-modal[data-tm-render-mode="comboBoard"] .tm-filter-rule-bar {
         gap: 6px !important;
         padding-inline: 8px !important;
+        padding-left: 4px !important;
     }
 
     .tm-modal[data-tm-render-mode="comboBoard"] .tm-topbar-row--main {
@@ -9862,10 +9796,10 @@ select.tm-btn-secondary {
         --tm-combo-home-track: 30px;
         --tm-combo-choice-track: minmax(0, 1fr);
         display: grid !important;
-        grid-template-columns: 30px var(--tm-combo-home-track) var(--tm-combo-choice-track);
+        grid-template-columns: var(--tm-combo-brand-track, 30px) var(--tm-combo-home-track) var(--tm-combo-choice-track);
         width: 100%;
         min-width: 0;
-        column-gap: 4px !important;
+        column-gap: var(--tm-topbar-icon-gap) !important;
     }
 
     .tm-modal[data-tm-render-mode="comboBoard"] .tm-topbar-row--brand {
@@ -9878,7 +9812,7 @@ select.tm-btn-secondary {
         display: inline-grid !important;
         grid-template-columns: minmax(0, max-content) var(--tm-combo-manage-track);
         width: max-content;
-        gap: 4px;
+        gap: var(--tm-topbar-icon-gap);
         max-width: 100%;
         min-width: 0;
         justify-self: start;
@@ -9905,16 +9839,6 @@ select.tm-btn-secondary {
 
     .tm-modal[data-tm-render-mode="comboBoard"] .tm-mobile-menu-btn > div {
         gap: var(--tm-topbar-icon-gap) !important;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .tm-compact-topbar-layout-ready .tm-mobile-topbar-secondary-actions,
-    .tm-mobile-topbar-fold svg,
-    .tm-compact-topbar-layout-ready .tm-filter-rule-bar .tm-title,
-    .tm-compact-topbar-layout-ready .tm-filter-rule-bar .tm-topbar-row--brand > :not(.tm-title),
-    .tm-compact-topbar-layout-ready .tm-filter-rule-bar .tm-title > :not(.tm-manager-brand-icon) {
-        transition: none !important;
     }
 }
 
@@ -12443,7 +12367,7 @@ select.tm-btn-secondary {
 }
 
 .tm-kanban--clean .tm-kanban-subtasks {
-    margin-top: 4px;
+    margin-top: 1px;
     padding-top: 0;
     border-top: none;
     gap: 0;
@@ -21991,6 +21915,8 @@ th[data-col] {
 
 .tm-modal input.tm-task-checkbox[type="checkbox"],
 .tm-task-detail-shell input.tm-task-checkbox[type="checkbox"],
+.tm-calendar-schedule-editor-modal input.tm-calendar-edit-relation-check[type="checkbox"],
+.tm-proto-inline-schedule-editor input.tm-proto-inline-relation-check[type="checkbox"],
 #tm-task-detail-overlay input.tm-task-checkbox[type="checkbox"] {
     -webkit-mask: none !important;
     mask: none !important;
@@ -22014,6 +21940,8 @@ th[data-col] {
 
 .tm-modal input.tm-task-checkbox[type="checkbox"]:checked,
 .tm-task-detail-shell input.tm-task-checkbox[type="checkbox"]:checked,
+.tm-calendar-schedule-editor-modal input.tm-calendar-edit-relation-check[type="checkbox"]:checked,
+.tm-proto-inline-schedule-editor input.tm-proto-inline-relation-check[type="checkbox"]:checked,
 #tm-task-detail-overlay input.tm-task-checkbox[type="checkbox"]:checked {
     background: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 18%, var(--tm-bg-color)) !important;
     background-color: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 18%, var(--tm-bg-color)) !important;
@@ -22021,6 +21949,8 @@ th[data-col] {
 
 .tm-modal input.tm-task-checkbox[type="checkbox"]:not(.tm-task-checkbox--delight),
 .tm-task-detail-shell input.tm-task-checkbox[type="checkbox"]:not(.tm-task-checkbox--delight),
+.tm-calendar-schedule-editor-modal input.tm-calendar-edit-relation-check[type="checkbox"]:not(.tm-task-checkbox--delight),
+.tm-proto-inline-schedule-editor input.tm-proto-inline-relation-check[type="checkbox"]:not(.tm-task-checkbox--delight),
 #tm-task-detail-overlay input.tm-task-checkbox[type="checkbox"]:not(.tm-task-checkbox--delight) {
     animation: none !important;
     transform: none !important;
@@ -22040,6 +21970,8 @@ th[data-col] {
 
 .tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"],
 .tm-task-detail--task-checkbox-circle input.tm-task-checkbox[type="checkbox"],
+.tm-calendar-schedule-editor-modal input.tm-calendar-edit-relation-check.tm-task-checkbox--circle[type="checkbox"],
+.tm-proto-inline-schedule-editor input.tm-proto-inline-relation-check.tm-task-checkbox--circle[type="checkbox"],
 .tm-task-detail-subtask-main input.tm-task-checkbox.tm-task-checkbox--circle[type="checkbox"] {
     --tm-task-checkbox-mark-left: 50%;
     --tm-task-checkbox-mark-top: 47%;
@@ -22052,6 +21984,8 @@ th[data-col] {
 
 .tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked,
 .tm-task-detail--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked,
+.tm-calendar-schedule-editor-modal input.tm-calendar-edit-relation-check.tm-task-checkbox--circle[type="checkbox"]:checked,
+.tm-proto-inline-schedule-editor input.tm-proto-inline-relation-check.tm-task-checkbox--circle[type="checkbox"]:checked,
 .tm-task-detail-subtask-main input.tm-task-checkbox.tm-task-checkbox--circle[type="checkbox"]:checked {
     background: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 92%, var(--tm-bg-color)) !important;
     background-color: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 92%, var(--tm-bg-color)) !important;
@@ -22059,6 +21993,8 @@ th[data-col] {
 
 .tm-modal--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked::after,
 .tm-task-detail--task-checkbox-circle input.tm-task-checkbox[type="checkbox"]:checked::after,
+.tm-calendar-schedule-editor-modal input.tm-calendar-edit-relation-check.tm-task-checkbox--circle[type="checkbox"]:checked::after,
+.tm-proto-inline-schedule-editor input.tm-proto-inline-relation-check.tm-task-checkbox--circle[type="checkbox"]:checked::after,
 .tm-task-detail-subtask-main input.tm-task-checkbox.tm-task-checkbox--circle[type="checkbox"]:checked::after {
     border-right-color: var(--primary-foreground, #f8fafc);
     border-bottom-color: var(--primary-foreground, #f8fafc);

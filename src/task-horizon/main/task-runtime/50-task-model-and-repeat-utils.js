@@ -485,6 +485,26 @@
         return Math.round(m);
     }
 
+    function __tmGetTaskTimerSliderOptions(task) {
+        const estimate = __tmParseDurationMinutes(task?.duration);
+        if (Number.isFinite(estimate) && estimate > 0) {
+            const focus = __tmGetTaskTomatoFocusValues(task);
+            const useHours = SettingsStore.data.tomatoSpentAttrMode === 'hours';
+            const spent = useHours ? focus.tomatoHours * 60 : focus.tomatoMinutes;
+            const remaining = estimate - spent;
+            if (remaining > 0) {
+                const minutes = Math.max(1, Math.round(remaining));
+                return { min: 1, max: Math.max(180, minutes), step: 1, value: minutes };
+            }
+        }
+        let minutes = 30;
+        try {
+            const configured = Number(globalThis.__tomatoTimer?.getDefaultDurationMinutes?.());
+            if (Number.isFinite(configured) && configured > 0) minutes = configured;
+        } catch (e) {}
+        return { min: 5, max: 180, step: 5, value: Math.max(5, Math.min(180, Math.round(minutes / 5) * 5)) };
+    }
+
     function __tmFormatSpentHours(hours) {
         const n = Number(hours);
         if (!Number.isFinite(n) || n <= 0) return '';

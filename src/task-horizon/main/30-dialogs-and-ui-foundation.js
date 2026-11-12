@@ -7938,31 +7938,13 @@ return Number(state.contextInteractionQuietUntil || 0);
             ...durations.map((min) => ({ label: `${min}m`, minutes: min, mode: 'countdown' })),
             { label: __tmT("homepage.stopwatch"), minutes: 0, mode: 'stopwatch', icon: 'timer' },
         ];
-        const normalizeSliderMinutes = (value) => {
-            const raw = Number(value);
-            const safe = Number.isFinite(raw) && raw > 0 ? raw : 25;
-            return Math.max(5, Math.min(180, Math.round(safe / 5) * 5));
-        };
-        const configuredDefaultDuration = (() => {
-            try {
-                return Number(timer?.getDefaultDurationMinutes?.());
-            } catch (e) {
-                return NaN;
-            }
-        })();
+        const task = globalThis.__tmTaskBoundary?.getTask?.(tid);
         const sliderRow = document.createElement('div');
         sliderRow.className = 'tm-task-detail-more-menu__timer-slider-row';
         const durationSlider = document.createElement('input');
         durationSlider.type = 'range';
         durationSlider.className = 'tm-task-detail-more-menu__timer-slider';
-        durationSlider.min = '5';
-        durationSlider.max = '180';
-        durationSlider.step = '5';
-        durationSlider.value = String(normalizeSliderMinutes(
-            Number.isFinite(configuredDefaultDuration) && configuredDefaultDuration > 0
-                ? configuredDefaultDuration
-                : 30
-        ));
+        Object.assign(durationSlider, __tmGetTaskTimerSliderOptions(task));
         durationSlider.setAttribute('aria-label', __tmT("task.setStopwatchDuration"));
         const durationValue = document.createElement('output');
         durationValue.className = 'tm-task-detail-more-menu__timer-slider-value';
@@ -8015,7 +7997,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             try { ev.stopPropagation(); } catch (e) {}
             if (durationSliderDragged) return;
             __tmCloseTaskDetailMoreMenu();
-            await __tmStartTaskDetailQuickTimer(tid, normalizeSliderMinutes(durationSlider.value), 'countdown');
+            await __tmStartTaskDetailQuickTimer(tid, Number(durationSlider.value), 'countdown');
         });
         sliderRow.append(durationSlider, durationValue);
         buttons.forEach((item) => {

@@ -61,6 +61,10 @@ const waitForVisibleDocs = (page, expected) => page.waitForFunction((labels) => 
             await page.setViewportSize({ width, height: 900 });
             for (const boardId of ['', 'board-edit']) {
                 await page.evaluate(id => { __tmRenderCustomBoardEditor(id); }, boardId);
+                // The dialog focuses its first input on the next animation frame.
+                // Let that finish before entering a query in the search field.
+                await page.waitForFunction(() => document.activeElement ===
+                    document.querySelector('#tmCustomBoardEditor [data-field="name"]'));
                 await page.locator('[data-field="scopeMode"]').selectOption('docs');
                 const search = page.locator('[data-field="docSearch"]');
                 const visibleRows = page.locator('.tm-custom-board-document-list [data-doc-name]:visible');

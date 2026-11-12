@@ -1024,8 +1024,6 @@ if (shouldMarkDirty) {
 
     // 插件卸载清理
     function __tmCleanup() {
-        try { state.__tmCompactTopbarResizeObserver?.disconnect?.(); } catch (e) {}
-        state.__tmCompactTopbarResizeObserver = null;
         try { __tmPublicApiRuntime.cleanup(); } catch (e) {}
         try { __tmCleanupKanbanLaneAppearance(); } catch (e) {}
         try {

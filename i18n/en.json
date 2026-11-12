@@ -2339,8 +2339,6 @@
   "task.preparingTheWhiteboardView": "Preparing the Whiteboard view",
   "task.preparingTheTaskView": "Preparing the task view",
   "task.loading": "Loading",
-  "task.collapseTopbarIcons": "Collapse top bar icons",
-  "task.expandTopbarIcons": "Expand top bar icons",
   "task.writeRepeatDate": "Write repeat date",
   "task.theRecurringTaskApiIsNotReady": "The recurring task API is not ready",
   "task.failedToWriteTheRepeatDateNoReminderWas": "{taskTitle}: failed to write the repeat date; no reminder was created ({value2})",

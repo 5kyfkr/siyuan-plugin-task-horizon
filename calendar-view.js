@@ -35933,7 +35933,10 @@
                 const taskId = String(id || '').trim();
                 if (!taskId) return false;
                 if (typeof window.tmOpenTaskDetail === 'function') {
-                    return await window.tmOpenTaskDetail(taskId, event, { source: 'calendar-inline-schedule-open-task' });
+                    return await window.tmOpenTaskDetail(taskId, event, {
+                        source: 'calendar-inline-schedule-open-task',
+                        forceStandalone: !isLikelyMobileRuntime(),
+                    });
                 }
                 return await openCalendarLinkedTask(taskId, event);
             };

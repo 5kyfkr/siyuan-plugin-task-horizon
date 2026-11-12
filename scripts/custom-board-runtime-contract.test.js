@@ -256,7 +256,7 @@ context.SettingsStore.data.customBoardSets = [];
         'the board-set selector must not return to a fixed desktop-style width');
     assert.match(stylesSource, /\.tm-modal:is\(\.tm-modal--mobile, \.tm-modal--dock\)[\s\S]*?\.tm-custom-board-set-select \.bc-select-trigger__chevron\s*\{[^}]*display:\s*none;/,
         'narrow combination-board selectors must hide the unused expansion chevron');
-    assert.match(stylesSource, /\.tm-modal:is\(\.tm-modal--mobile, \.tm-modal--dock\)[\s\S]*?\.tm-custom-board-topbar\s*\{[^}]*gap:\s*6px;[^}]*\}[\s\S]*?\.tm-topbar-right\s*\{[^}]*gap:\s*var\(--tm-topbar-icon-gap\) !important;/,
+    assert.match(stylesSource, /\.tm-modal:is\(\.tm-modal--mobile, \.tm-modal--dock\)[\s\S]*?\.tm-custom-board-topbar\s*\{[^}]*gap:\s*var\(--tm-topbar-icon-gap\);[^}]*\}[\s\S]*?\.tm-topbar-right\s*\{[^}]*gap:\s*var\(--tm-topbar-icon-gap\) !important;/,
         'narrow combination-board controls must retain explicit gaps between adjacent buttons');
     assert.match(stylesSource, /\.tm-filter-rule-bar\s*\{[^}]*--tm-topbar-icon-gap:\s*6px;/,
         'topbar buttons must share the compact spacing used by the combination board');
@@ -265,39 +265,21 @@ context.SettingsStore.data.customBoardSets = [];
     assert.match(stylesSource, /\.tm-filter-rule-bar \.tm-compact-topbar-actions\s*\{[^}]*gap:\s*var\(--tm-topbar-icon-gap\);/,
         'compact desktop icon actions must use the shared compact gap');
     assert.match(stylesSource, /\.tm-filter-rule-bar \.tm-mobile-menu-btn > div\s*\{[^}]*gap:\s*var\(--tm-topbar-icon-gap\) !important;/,
-        'mobile and Dock action buttons must keep the same compact spacing when collapsed');
+        'mobile and Dock action buttons must keep the same compact spacing');
     assert.match(stylesSource, /@container tm-modal \(max-width: 760px\)[\s\S]*?\[data-tm-render-mode="comboBoard"\][\s\S]*?grid-template-columns:\s*minmax\(0, max-content\) var\(--tm-combo-manage-track\)[\s\S]*?\.bc-select-trigger__chevron\s*\{[^}]*display:\s*none;/,
         'container-width layout must reserve the manager button column and hide the chevron');
     assert.doesNotMatch(renderRuntimeSource, /tm-custom-board-mobile-controls/,
         'the narrow topbar menu must not duplicate board-set switching and management in a footer');
-    assert.match(renderRuntimeSource, /compactTopbarMode = !!\(isMobile \|\| isDockHost \|\| isDesktopNarrow\)[\s\S]*data-tm-compact-topbar-fold="true"/,
-        'all mobile and Dock views must expose the topbar icon fold control');
-    assert.match(renderRuntimeSource, /\$\{isMobile \? topbarAddBtnHtml : ''\}\s*<div class="tm-mobile-topbar-secondary-actions"/,
-        'the new-task action must stay visible outside the collapsible mobile action group');
-    assert.match(renderRuntimeSource, /tm-mobile-topbar-secondary-actions[\s\S]*<\/div>[\s\S]*tm-mobile-topbar-menu/,
-        'the menu icon must remain outside the collapsible action group');
-    assert.match(renderRuntimeSource, /foldButtonWidth[\s\S]*rightRequiredWidth[\s\S]*brandContentRight \+ rightRequiredWidth \+ 2 > availableRight[\s\S]*manualCollapsed \|\| collision/,
-        'collision width must include the fold button and the complete right-side action group');
-    assert.match(renderRuntimeSource, /manualCollapsed = state\.__tmCompactTopbarManualCollapsed !== false/,
-        'the narrow topbar action group must default to collapsed for every view');
-    assert.match(renderRuntimeSource, /data-tm-compact-topbar-fold="true"[\s\S]*__tmRenderLucideIcon\('chevron-right'/,
-        'the fold button must point right when expanded and left when collapsed');
-    assert.match(stylesSource, /\.tm-mobile-topbar-fold\.is-collapsed svg\s*\{[^}]*transform:\s*rotate\(180deg\) !important;/,
-        'the fold icon must rotate into the collapsed direction instead of swapping abruptly');
-    assert.match(stylesSource, /tm-compact-topbar-layout-ready \.tm-filter-rule-bar \.tm-title\s*\{[^}]*transition:[^}]*grid-template-columns 220ms[\s\S]*?tm-topbar-row--brand > :not\(\.tm-title\)[\s\S]*?transition:[^}]*width 220ms/,
-        'the left title tracks, home icon and board-set controls must animate during collapse and expansion');
-    assert.match(stylesSource, /tm-compact-topbar-layout-ready \.tm-mobile-topbar-secondary-actions\s*\{[^}]*transition:[^}]*max-width 220ms/,
-        'the secondary icon group must animate horizontal width and opacity');
-    assert.match(stylesSource, /tm-compact-topbar-icons-collapsed \.tm-mobile-topbar-secondary-actions\s*\{[^}]*max-width:\s*0;[^}]*opacity:\s*0;/,
-        'collapsed mode must hide only the secondary icon group');
-    assert.match(stylesSource, /tm-compact-topbar-icons-expanded \.tm-topbar-row--brand > :not\(\.tm-title\),[\s\S]*?tm-compact-topbar-icons-expanded \.tm-title > :not\(\.tm-manager-brand-icon\)\s*\{[^}]*width:\s*0 !important;/,
-        'expanded mode must hide every left control except the task-manager icon for all views');
+    assert.doesNotMatch(renderRuntimeSource, /tm-mobile-topbar-fold|tm-mobile-topbar-secondary-actions|__tmCompactTopbar/,
+        'narrow topbar actions must not have a fold button, collapsible wrapper or collapse state');
+    assert.doesNotMatch(stylesSource, /tm-compact-topbar-icons-collapsed|tm-compact-topbar-icons-expanded|tm-mobile-topbar-fold/,
+        'narrow topbar actions must not retain collapse or expansion styles');
     assert.match(stylesSource, /\[data-tm-render-mode="comboBoard"\] \.tm-topbar-row--main\s*\{[^}]*display:\s*grid !important;[^}]*grid-template-columns:\s*minmax\(0, 1fr\) max-content;/,
         'the narrow combo topbar must reserve the right action group before shrinking the brand controls');
-    assert.match(stylesSource, /\[data-tm-render-mode="comboBoard"\] \.tm-title\s*\{[^}]*display:\s*grid !important;[^}]*grid-template-columns:\s*30px var\(--tm-combo-home-track\) var\(--tm-combo-choice-track\);/,
+    assert.match(stylesSource, /\[data-tm-render-mode="comboBoard"\] \.tm-title\s*\{[^}]*display:\s*grid !important;[^}]*grid-template-columns:\s*var\(--tm-combo-brand-track, 30px\) var\(--tm-combo-home-track\) var\(--tm-combo-choice-track\);/,
         'the narrow combo title must reserve brand, home and selector tracks explicitly');
     assert.match(stylesSource, /\[data-tm-render-mode="comboBoard"\] \.tm-mobile-menu-btn > div\s*\{[^}]*gap:\s*var\(--tm-topbar-icon-gap\) !important;/,
-        'mobile add, refresh, settings, menu and close buttons must use a compact non-overlapping gap');
+        'mobile add, refresh, menu and close buttons must use a compact non-overlapping gap');
     assert.match(servicesSource, /comboBoard: __tmT\("task\.preparingTheCombinationBoard"\)/,
         'combination-board loading must not reuse the Kanban loading label');
     const homepageCtxStart = servicesSource.indexOf('    function __tmBuildHomepageCtx(');

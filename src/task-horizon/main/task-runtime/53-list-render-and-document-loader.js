@@ -6018,17 +6018,6 @@ if (ev) {
                 const arr = Array.isArray(list) ? list.map(n => parseInt(n, 10)).filter(n => Number.isFinite(n) && n > 0) : [];
                 return arr.length > 0 ? arr : [5, 15, 25, 30, 45, 60];
             })();
-            const configuredDefaultDuration = (() => {
-                try {
-                    return Number(timer?.getDefaultDurationMinutes?.());
-                } catch (e) {
-                    return NaN;
-                }
-            })();
-            const sliderDefaultMinutes = Math.max(5, Math.min(180, Math.round(
-                ((Number.isFinite(configuredDefaultDuration) && configuredDefaultDuration > 0) ? configuredDefaultDuration : 30) / 5
-            ) * 5));
-
             const timerWrap = document.createElement('div');
             timerWrap.className = 'tm-task-context-timer';
             const title = document.createElement('div');
@@ -6056,10 +6045,7 @@ if (ev) {
             const durationSlider = document.createElement('input');
             durationSlider.type = 'range';
             durationSlider.className = 'tm-task-context-timer__slider';
-            durationSlider.min = '5';
-            durationSlider.max = '180';
-            durationSlider.step = '5';
-            durationSlider.value = String(sliderDefaultMinutes);
+            Object.assign(durationSlider, __tmGetTaskTimerSliderOptions(task));
             durationSlider.setAttribute('aria-label', __tmT("task.setStopwatchDuration"));
             const durationValue = document.createElement('output');
             durationValue.className = 'tm-task-context-timer__slider-value';

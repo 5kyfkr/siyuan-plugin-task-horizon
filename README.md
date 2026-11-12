@@ -6,6 +6,17 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.4.6
+
+- **Task timers:** context-menu and task-detail timer sliders now start at the task's estimated duration minus time already spent, with one-minute adjustments and support for estimates over three hours. Tasks without an estimate, or with no time remaining, use the configured default duration.
+- **Calendar and schedules:** opening linked task details from a schedule in the right sidebar now shows a centered dialog on desktop. Unify linked-task checkbox sizing and checked styles in schedule details and the editor.
+- **Kanban:** tighten the spacing above subtasks in clean-style cards.
+- **Task details and focus records:** fix document location labels staying stale or reverting after moving a task between documents. When a Pomodoro ends, refresh the linked task's spent time and Pomodoro count immediately in Kanban, checklist, and other task views, including open task details.
+- **Top bars and narrow layouts:** move **Settings** into the menu, remove the narrow top bar's icon-folding button, and refine button spacing and the board-set selector layout.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.4.5
 
 - **Calendar and schedules:** In the schedule editor, select **Go to** under **Linked task** to jump straight to the original task in SiYuan. The editor also fits better in narrow panels.
@@ -13,9 +24,6 @@ The same plugin includes English and Simplified Chinese. Existing installations 
 - **Narrow layouts:** Hide the parent task tree badge in rule management and hide the view switcher's scrollbar while keeping horizontal scrolling.
 - **Settings sync:** Use the plugin settings file as the source of truth to reduce inconsistencies caused by merging individual settings. Refresh controls such as the view switcher and shortcut sidebar after sync.
 - **Task loading:** Improve cache reuse and first paint, and reduce repeated reads of documents with no tasks when switching views or board sets. Fix freezes across many documents and truncated results in batch queries.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.4.4
 
