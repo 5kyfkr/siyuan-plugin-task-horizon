@@ -24,6 +24,7 @@ const production = [
 async function setup(page) {
     await page.goto('about:blank');
     await page.setContent('<input id="outside" aria-label="Outside composer">');
+    await page.addStyleTag({ path: path.join(root, 'task-horizon.css') });
     await page.evaluate(() => {
         window.state = {};
         window.SettingsStore = { data: { customStatusOptions: [] } };
@@ -66,6 +67,33 @@ async function setup(page) {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     try {
+        for (const width of [1000, 390, 320]) {
+            await page.setViewportSize({ width, height: 800 });
+            await setup(page);
+            const box = page.locator('.tm-quick-add-box');
+            const title = page.locator('#tmQuickAddInput');
+            const remark = page.locator('#tmQuickAddRemark');
+            const emptyBox = await box.boundingBox();
+            await remark.click();
+            assert.deepEqual(await box.boundingBox(), emptyBox, `empty remark focus keeps the dialog stable at ${width}px`);
+            await title.click();
+            assert.deepEqual(await box.boundingBox(), emptyBox, `empty remark blur keeps the dialog stable at ${width}px`);
+            for (const value of ['Note', 'First\nSecond', 'Long remark text '.repeat(30)]) {
+                await remark.fill(value);
+                const contentBox = await box.boundingBox();
+                if (value !== 'Note') assert.ok(contentBox.height > emptyBox.height, 'remark still grows for multiline or wrapped content');
+                await title.click();
+                assert.deepEqual(await box.boundingBox(), contentBox, 'remark blur preserves the content-driven dialog size');
+                await remark.click();
+                assert.deepEqual(await box.boundingBox(), contentBox, 'remark refocus preserves the content-driven dialog size');
+            }
+            await remark.fill('');
+            await title.click();
+            assert.deepEqual(await box.boundingBox(), emptyBox, 'clearing the remark restores the compact dialog');
+        }
+        console.log('PASS remark focus/blur stability and content-driven sizing at desktop/mobile widths');
+
+        await page.setViewportSize({ width: 1000, height: 800 });
         await setup(page);
         const title = page.locator('#tmQuickAddInput');
         const remark = page.locator('#tmQuickAddRemark');

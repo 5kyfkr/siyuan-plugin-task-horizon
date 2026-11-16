@@ -139,6 +139,7 @@
     "checklist-refresh-scope-browser.test.js",
     "task-quadrant-drag-browser.test.js",
     "kanban-column-refresh-browser.test.js",
+    "kanban-large-column-browser.test.js",
     "doc-group-title-browser.test.js",
     "kanban-appearance-browser.test.js",
     "settings-v2-browser.test.js",

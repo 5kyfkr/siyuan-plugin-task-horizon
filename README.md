@@ -10,7 +10,8 @@ The same plugin includes English and Simplified Chinese. Existing installations 
 
 - **Calendar and schedules:** in full search, enable **Schedule** under **Search scope** to find titles and notes, or search schedules alone. Results jump to the corresponding calendar date; recurring schedules show the current or next occurrence. Fix the first attempt to clear a task date occasionally failing while schedules load.
 - **Search:** add **Select all** and **Restore default** scope actions. When the current view has no matching tasks but full search has results, show a link to full search.
-- **Kanban and board sets:** load large Kanban boards in batches on first display. Fix the AI workbench failing to open in board sets.
+- **Kanban and board sets:** completed-only columns now load more as you scroll, independently of the checklist's **Load more** control. Improve batch rendering to reduce stutter with many completed tasks in board sets. Fix the AI workbench failing to open in board sets.
+- **New tasks:** keep the dialog height stable when the remark field gains or loses focus, while still resizing to fit its content.
 - **Semantic dates:** fix only the first task being recognized after editing several tasks and opening the manager from an icon or another entry point.
 - **Task loading and refresh:** batch document metadata and attribute reads, reduce duplicate queries and index/snapshot writes, and prevent stale data from replacing newer task state during concurrent edits or document-group switches.
 

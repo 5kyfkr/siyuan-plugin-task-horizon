@@ -3272,6 +3272,7 @@
         const escapedKey = __tmEscapeCssSelectorValue(key);
         const isCollapsed = !!collapsed;
         let found = false;
+        let hydrateDeferred = false;
         body.querySelectorAll(`.tm-kanban-group-title[data-group-key="${escapedKey}"]`).forEach((title) => {
             found = true;
             title.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
@@ -3280,6 +3281,7 @@
             if (!(group instanceof HTMLElement)) return;
             const items = Array.from(group.children || []).find((child) => child?.hasAttribute?.('data-tm-kanban-group-items'));
             if (items instanceof HTMLElement) {
+                if (!isCollapsed && items.hasAttribute('data-tm-kanban-deferred-group')) hydrateDeferred = true;
                 if (animate) {
                     __tmSetKanbanDisclosureContent(items, !isCollapsed);
                 } else {
@@ -3288,6 +3290,7 @@
                 }
             }
         });
+        if (hydrateDeferred) __tmRerenderKanbanInPlace(state.modal, { reason: 'kanban-expand-deferred-group' });
         return found;
     }
 

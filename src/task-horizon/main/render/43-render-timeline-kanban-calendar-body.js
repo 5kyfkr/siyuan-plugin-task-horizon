@@ -1537,7 +1537,14 @@
             };
 
             const renderKanbanGroupItems = (itemsHtml, collapsed = false) => {
-                return `<div class="tm-kanban-group-items" data-tm-kanban-group-items aria-hidden="${collapsed ? 'true' : 'false'}"${collapsed ? ' hidden' : ''}>${String(itemsHtml || '')}</div>`;
+                if (typeof itemsHtml === 'function') itemsHtml = collapsed && progressiveKanbanRender ? '' : itemsHtml();
+                return `<div class="tm-kanban-group-items" data-tm-kanban-group-items${progressiveKanbanRender && !itemsHtml ? (collapsed ? ' data-tm-kanban-deferred-group' : ' data-tm-kanban-deferred-group-body') : ''} aria-hidden="${collapsed ? 'true' : 'false'}"${collapsed ? ' hidden' : ''}>${String(itemsHtml || '')}</div>`;
+            };
+            const completedGroupsCache = new Map();
+            const getCompletedGroups = (items, options) => {
+                if (!completedGroupsCache.has(options.parentKey)) completedGroupsCache.set(options.parentKey,
+                    __tmBuildCompletedTaskGroups(items, options));
+                return completedGroupsCache.get(options.parentKey);
             };
 
             const renderHeadingGroupCreateAction = (docId, headingId) => {
@@ -1702,9 +1709,10 @@
                         : { active: rootTasks, done: [] };
                     const activeRootTasks = doneSplit.active;
                     const completedRootTasks = doneSplit.done;
-                    const renderGroupItems = (itemsHtml, collapsed = false) => `<div class="tm-kanban-group-items" data-tm-kanban-group-items aria-hidden="${collapsed ? 'true' : 'false'}"${collapsed ? ' hidden' : ''}>${String(itemsHtml || '')}</div>`;
+                    const renderGroupItems = renderKanbanGroupItems;
                     const renderCompletedGroupTitle = (groupKey, labelHtml, count) => {
-                        const collapsed = __tmIsCompletedRootGroupCollapsed(groupKey);
+                        const collapsed = __tmIsCompletedRootGroupKey(groupKey)
+                            ? __tmIsCompletedRootGroupCollapsed(groupKey) : state.collapsedGroups?.has(groupKey) === true;
                         return `<div class="tm-kanban-group-title" data-group-key="${esc(groupKey)}" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="color:var(--tm-secondary-text);">
                             <span style="display:inline-flex;align-items:center;min-width:0;">
                                 <span class="tm-group-toggle${collapsed ? ' tm-group-toggle--collapsed' : ''}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
@@ -1717,21 +1725,22 @@
                     const fallbackCompare = (a, b) => (orderMap.get(String(a?.id || '').trim()) ?? Infinity)
                         - (orderMap.get(String(b?.id || '').trim()) ?? Infinity);
                     const renderCompletedTaskGroups = (items, parentKey) => {
-                        const groups = __tmBuildCompletedTaskGroups(items, {
+                        const groups = getCompletedGroups(items, {
                             parentKey,
                             aggregate: true,
                             fallbackCompare,
                         });
                         const renderSubgroup = (group) => {
-                            const collapsed = __tmIsCompletedRootGroupCollapsed(group.key);
+                            const collapsed = state.collapsedGroups?.has(group.key) === true;
                             const labelHtml = group.kind === 'done-doc'
                                 ? __tmRenderDocGroupLabel(group.docId, group.label)
                                 : (group.kind === 'done-h2'
                                     ? __tmRenderHeadingLevelIconLabel(group.label, group.headingLevel)
                                     : esc(group.label));
-                            const body = group.groups
+                            const body = collapsed && progressiveKanbanRender ? '' : group.groups
                                 ? group.groups.map(renderSubgroup).join('')
                                 : group.items.map(renderRootTask).join('');
+                            if (progressiveKanbanRender && !collapsed && !body.trim()) return '';
                             return `<div class="tm-kanban-group tm-kanban-group--completed-subgroup">
                                 ${renderCompletedGroupTitle(group.key, labelHtml, group.count)}
                                 ${renderGroupItems(body, collapsed)}
@@ -1757,7 +1766,7 @@
                             });
                             const headingAction = renderHeadingGroupCreateAction(docId, String(bucket.id || '').trim() || '__none__');
                             const headingContextMenu = __tmBuildHeadingGroupContextMenuAttrs(docId, String(bucket.id || '').trim() || '__none__');
-                            const body = renderGroupItems(headingTasks.map(renderRootTask).join(''), headingCollapsed);
+                            const body = renderGroupItems(() => headingTasks.map(renderRootTask).join(''), headingCollapsed);
                             return `<div class="tm-kanban-group">${renderGroupTitle(headingKey, headingTitle, headingTasks.length, '', { indentCh, contextMenuAttrs: headingContextMenu, actionHtml: headingAction })}${body}</div>`;
                         }).join('');
                         return hideDocTitle ? groupsHtml : renderGroupItems(groupsHtml, docGroupCollapsed);
@@ -1766,15 +1775,15 @@
                         if (!separateCompletedRootGroup || !completedRootTasks.length) return '';
                         const doneGroupKey = __tmBuildCompletedRootGroupKey(`combination:${boardId}`);
                         const collapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
-                        const body = renderCompletedTaskGroups(completedRootTasks, doneGroupKey);
+                        const body = collapsed && progressiveKanbanRender ? '' : renderCompletedTaskGroups(completedRootTasks, doneGroupKey);
                         return `<div class="tm-kanban-group">
                             ${renderCompletedGroupTitle(doneGroupKey, `<span>${__tmT("calendar.completedTasks")}</span>`, completedRootTasks.length)}
                             ${renderGroupItems(body, collapsed)}
                         </div>`;
                     };
-                    const renderActiveGroups = () => {
+                    const prepareActiveGroups = () => {
                     if (customBoardGroupMode === 'none') {
-                        return activeRootTasks.map(renderRootTask).join('');
+                        return () => activeRootTasks.map(renderRootTask).join('');
                     }
                     const groups = new Map();
                     activeRootTasks.forEach((task, index) => {
@@ -1797,7 +1806,7 @@
                         if (Number.isFinite(ao) !== Number.isFinite(bo)) return Number.isFinite(ao) ? -1 : 1;
                         return Number(a.firstIndex) - Number(b.firstIndex);
                     });
-                    return orderedGroups.map((group) => {
+                    return () => orderedGroups.map((group) => {
                         const groupKey = `custom:${boardId}:${customBoardGroupMode}:${group.key}`;
                         const collapsed = state.collapsedGroups?.has(groupKey) === true;
                         const dropKind = String(group.dropKind || '').trim();
@@ -1812,9 +1821,10 @@
                         const createDocAction = docId && docId !== '__unknown__'
                             ? `<button class="tm-group-create-btn tm-kanban-create-btn tm-kanban-group-add" type="button" title="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("common.newTask")}" onpointerdown="event.stopPropagation()" onclick="event.preventDefault();event.stopPropagation();tmQuickAddOpenForDoc('${escSq(docId)}');">${__tmRenderLucideIcon('plus')}</button>`
                             : '';
-                        const groupBody = showHeadingGroups
+                        const groupBody = collapsed && progressiveKanbanRender && !hideDocTitle
+                            ? renderGroupItems('', true) : showHeadingGroups
                             ? renderCustomBoardHeadingGroups(docId, group.items, hideDocTitle ? false : collapsed, hideDocTitle ? 0 : 2)
-                            : renderGroupItems(group.items.map(renderRootTask).join(''), collapsed);
+                            : renderGroupItems(() => group.items.map(renderRootTask).join(''), collapsed);
                         if (showHeadingGroups && hideDocTitle) return groupBody;
                         return `<div class="tm-kanban-group">
                             <div class="tm-kanban-group-title${dropKind ? ' tm-kanban-group-title--droppable' : ''}" data-group-key="${esc(groupKey)}" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="color:${esc(group.color)};"${dropAttrs}${dropHandlers}>
@@ -1829,7 +1839,8 @@
                         </div>`;
                     }).join('');
                     };
-                    return renderActiveGroups() + renderCompletedRootGroup();
+                    const renderActiveGroups = prepareActiveGroups();
+                    return () => renderActiveGroups() + renderCompletedRootGroup();
                 };
                 const customBoardNavItems = [];
                 const customColumnsHtml = customBoardColumns.map((column) => {
@@ -1852,6 +1863,9 @@
                     let columnCardRenderLimit = Number.POSITIVE_INFINITY;
                     let columnRenderedCardCount = 0;
                     let columnHasDeferredCards = false;
+                    let columnDeferredCardCount = 0;
+                    let resolveDeferredTasks = false;
+                    const treeWindow = __tmCreateKanbanProgressiveTreeWindow();
                     const columnTaskMap = new Map(columnTasks.map((task) => [String(task?.id || '').trim(), task]).filter(([id]) => !!id));
                     const childrenByParent = new Map();
                     columnTasks.forEach((task) => {
@@ -1864,13 +1878,22 @@
                     const renderCustomBoardTaskTree = (task, depthInCol, insideCollapsedTask = false) => {
                         const id = String(task?.id || '').trim();
                         if (!id) return '';
+                        const subtreeStart = columnRenderedCardCount;
+                        const deferredStart = columnDeferredCardCount;
+                        const reusedCount = treeWindow.reuse(id, columnCardRenderLimit - columnRenderedCardCount);
+                        if (reusedCount !== null) {
+                            columnRenderedCardCount += reusedCount;
+                            return treeWindow.marker(id);
+                        }
                         if (!insideCollapsedTask) {
                             if (columnRenderedCardCount >= columnCardRenderLimit) {
                                 columnHasDeferredCards = true;
+                                columnDeferredCardCount++;
                                 return '';
                             }
                             columnRenderedCardCount++;
                         }
+                        if (resolveDeferredTasks) task = resolveKanbanProjectedTask(task) || task;
                         const reusable = columnPatch?.reuseEnabled ? columnPatch.reuseCards?.get(id) : null;
                         if (reusable && reusable.columnKey === columnKey
                             && reusable.sub === (depthInCol > 0)
@@ -1891,7 +1914,7 @@
                         const childrenHtml = childList.length
                             ? childList.map((child) => renderCustomBoardTaskTree(child, depthInCol + 1, insideCollapsedTask || collapsed)).join('')
                             : '';
-                        return renderCard(
+                        const html = renderCard(
                             task,
                             depthInCol,
                             depthInCol > 0,
@@ -1903,6 +1926,8 @@
                             false,
                             true
                         );
+                        if (deferredStart === columnDeferredCardCount) treeWindow.remember(id, columnRenderedCardCount - subtreeStart);
+                        return html;
                     };
                     const rootTasks = columnTasks
                         .filter((task) => {
@@ -1911,12 +1936,16 @@
                         });
                     const renderRootTask = (task) => renderCustomBoardTaskTree(task, 0);
                     const compareBoardDocGroupOrder = createCustomBoardDocGroupComparator(column);
-                    const renderColumnListHtml = (limit) => {
+                    const renderGroupedColumn = renderCustomBoardGroupedTasks(boardId, boardGroupMode, rootTasks, renderRootTask, compareBoardDocGroupOrder, column);
+                    const renderColumnListHtml = (limit, delta = false) => {
+                        resolveDeferredTasks = delta;
+                        treeWindow.begin(delta);
                         columnCardRenderLimit = limit;
                         columnRenderedCardCount = 0;
                         columnHasDeferredCards = false;
-                        const html = renderCustomBoardGroupedTasks(boardId, boardGroupMode, rootTasks, renderRootTask, compareBoardDocGroupOrder, column);
-                        return { html, hasMore: columnHasDeferredCards, rendered: columnRenderedCardCount };
+                        columnDeferredCardCount = 0;
+                        const html = renderGroupedColumn();
+                        return { html: treeWindow.compact(html), hasMore: columnHasDeferredCards, rendered: columnRenderedCardCount };
                     };
                     let progressiveColumnLimit = progressiveKanbanRender
                         ? (initialColumnVisible ? kanbanProgressiveJob.initialBatchSize : 0)
@@ -1928,19 +1957,23 @@
                     const initialColumnRender = renderThisColumn ? renderColumnListHtml(progressiveColumnLimit)
                         : { html: '', rendered: progressiveColumnLimit, hasMore: columnTasks.length > progressiveColumnLimit };
                     const tasksHtml = initialColumnRender.html;
+                    if (renderThisColumn) treeWindow.commit();
                     if (progressiveKanbanRender && initialColumnRender.hasMore) {
                         __tmRegisterKanbanProgressiveColumn(kanbanProgressiveJob, {
                             key: columnKey, loaded: initialColumnRender.rendered > 0,
-                            autoFill: boardGroupMode === 'doc',
                             loadNextBatch: (modalEl) => {
                                 if (!__tmIsProgressiveViewRenderCurrent(kanbanProgressiveJob, kanbanRenderMode)) return { done: true };
                                 const modal = modalEl instanceof Element ? modalEl : state.modal;
                                 const body = __tmGetKanbanProgressiveColumnElement(modal, columnKey)?.querySelector(':scope > .tm-kanban-col-body');
                                 if (!(body instanceof HTMLElement) || globalThis.__tmIsViewDomCommitBlocked?.(kanbanRenderMode)) return { retry: true };
                                 const nextLimit = progressiveColumnLimit + kanbanProgressiveJob.batchSize;
-                                const next = renderColumnListHtml(nextLimit);
-                                const patch = __tmPatchKanbanProgressiveColumn(body, next.html);
+                                kanbanProjectedTaskById.clear();
+                                const next = renderColumnListHtml(nextLimit, true);
+                                const patch = __tmPatchKanbanProgressiveColumn(body, next.html, {
+                                    delta: true, renderFallback: () => renderColumnListHtml(nextLimit).html,
+                                });
                                 if (!patch.ok) return { retry: true };
+                                treeWindow.commit();
                                 progressiveColumnLimit = nextLimit;
                                 patch.addedNodes.forEach((node) => {
                                     try { globalThis.__tmApplySearchHighlights?.(node, state.searchKeyword); } catch (e) {}
@@ -2129,9 +2162,12 @@
                 let columnCardRenderLimit = Number.POSITIVE_INFINITY;
                 let columnRenderedCardCount = 0;
                 let columnHasDeferredCards = false;
+                let columnDeferredCardCount = 0;
+                const treeWindow = __tmCreateKanbanProgressiveTreeWindow();
                 const takeColumnCardRenderSlot = () => {
                     if (columnRenderedCardCount >= columnCardRenderLimit) {
                         columnHasDeferredCards = true;
+                        columnDeferredCardCount++;
                         return false;
                     }
                     columnRenderedCardCount += 1;
@@ -2139,8 +2175,15 @@
                 };
 
                 const renderTree = (task, depthInCol, inheritedHideCompleted = false, inCompletedRootGroup = false, insideCollapsedTask = false) => {
-                    if (!insideCollapsedTask && !takeColumnCardRenderSlot()) return '';
                     const id = String(task?.id || '').trim();
+                    const subtreeStart = columnRenderedCardCount;
+                    const deferredStart = columnDeferredCardCount;
+                    const reusedCount = treeWindow.reuse(id, columnCardRenderLimit - columnRenderedCardCount);
+                    if (reusedCount !== null) {
+                        columnRenderedCardCount += reusedCount;
+                        return treeWindow.marker(id);
+                    }
+                    if (!insideCollapsedTask && !takeColumnCardRenderSlot()) return '';
                     const reusable = columnPatch?.reuseEnabled ? columnPatch.reuseCards?.get(id) : null;
                     if (reusable && reusable.columnKey === columnKey && reusable.sub === (depthInCol > 0)
                         && !insideCollapsedTask
@@ -2202,6 +2245,7 @@
                         depthInCol === 0 && hasDirectChildren,
                         inCompletedRootGroup
                     );
+                    if (deferredStart === columnDeferredCardCount) treeWindow.remember(id, columnRenderedCardCount - subtreeStart);
                     return cardHtml;
                 };
 
@@ -2224,11 +2268,12 @@
                     const title = group.kind === 'done-doc'
                         ? __tmRenderDocGroupLabel(group.docId, group.label)
                         : (group.kind === 'done-h2' ? __tmRenderHeadingLevelIconLabel(group.label, group.headingLevel) : esc(group.label));
-                    const body = group.groups ? renderCompletedSubgroups(group.groups)
+                    const body = collapsed && progressiveKanbanRender ? '' : group.groups ? renderCompletedSubgroups(group.groups)
                         : group.items.map((task) => renderTree(task, 0, false, true)).join('');
+                    if (progressiveKanbanRender && !collapsed && !body.trim()) return '';
                     return `<div class="tm-kanban-group tm-kanban-group--completed-subgroup">${renderGroupTitle(group.key, title, group.count, 'var(--tm-secondary-text)', { collapsed, indentCh: Math.max(0, group.depth - 1) * 2 })}${renderKanbanGroupItems(body, collapsed)}</div>`;
                 }).join('');
-                const renderCompletedTaskGroups = (items, parentKey) => renderCompletedSubgroups(__tmBuildCompletedTaskGroups(items, {
+                const renderCompletedTaskGroups = (items, parentKey) => renderCompletedSubgroups(getCompletedGroups(items, {
                     parentKey, aggregate: isAllTabsView, fallbackCompare: rootCompare,
                 }));
                 const renderCompletedRootGroup = () => {
@@ -2236,7 +2281,7 @@
                     const doneGroupKey = __tmBuildCompletedRootGroupKey(`kanban:${String(c.id || '').trim() || 'col'}`);
                     const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
                     const doneTitle = `<span style="color:var(--tm-secondary-text);">${__tmT("calendar.completedTasks")}</span>`;
-                    const doneBody = renderKanbanGroupItems(renderCompletedTaskGroups(completedRoots, doneGroupKey), doneCollapsed);
+                    const doneBody = renderKanbanGroupItems(() => renderCompletedTaskGroups(completedRoots, doneGroupKey), doneCollapsed);
                     return `<div class="tm-kanban-group">${renderGroupTitle(doneGroupKey, doneTitle, completedRoots.length, 'var(--tm-secondary-text)', { collapsed: doneCollapsed })}${doneBody}</div>`;
                 };
                 const pinWithinKanbanGroups = !!SettingsStore.data.pinTasksWithinGroups
@@ -2274,7 +2319,7 @@
                         const pinnedGroupKey = `kanban_${c.id}_doc_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
                         const renderPinnedTree = (t) => renderTree(t, 0);
-                        const pinnedBody = renderKanbanGroupItems(allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
+                        const pinnedBody = renderKanbanGroupItems(() => allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
@@ -2312,7 +2357,7 @@
                         let body = '';
                         if (!enableH2) {
                             const groupItems = sortKanbanGroupItems(items.slice(), allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
-                            body = groupItems.length ? renderKanbanGroupItems(groupItems.map(t => renderTree(t, 0)).join(''), isCollapsed) : '';
+                            body = groupItems.length ? renderKanbanGroupItems(() => groupItems.map(t => renderTree(t, 0)).join(''), isCollapsed) : '';
                         } else {
                             const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
                             const headingLabelMap = { h1: __tmT("task.heading"), h2: __tmT("task.heading2"), h3: __tmT("task.heading3"), h4: __tmT("task.heading4"), h5: __tmT("task.heading5"), h6: __tmT("task.heading6") };
@@ -2336,7 +2381,7 @@
                                 const h2Title = __tmRenderHeadingLevelIconLabel(String(bucket.label || ''), SettingsStore.data.taskHeadingLevel || 'h2', {
                                     style: 'color:var(--tm-secondary-text);'
                                 });
-                                const h2Body = renderKanbanGroupItems(bucketItems.map(t => renderTree(t, 0)).join(''), h2Collapsed);
+                                const h2Body = renderKanbanGroupItems(() => bucketItems.map(t => renderTree(t, 0)).join(''), h2Collapsed);
                                 const actionHtml = o.showHeadingCreate
                                     ? renderHeadingGroupCreateAction(docId, String(bucket?.id || '').trim())
                                     : '';
@@ -2380,7 +2425,7 @@
                         const pinnedGroupKey = `kanban_${c.id}_time_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
                         const renderPinnedTree = (t) => renderTree(t, 0);
-                        const pinnedBody = renderKanbanGroupItems(allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
+                        const pinnedBody = renderKanbanGroupItems(() => allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
@@ -2403,7 +2448,7 @@
                         const color = getTimeGroupLabelColor(g);
                         const title = `<span style="color:${color};">${esc(g.label || '')}</span>`;
                         const items = sortKanbanGroupItems((Array.isArray(g.items) ? g.items : []).slice(), needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
-                        const body = renderKanbanGroupItems(items.map(t => renderTree(t, 0)).join(''), isCollapsed);
+                        const body = renderKanbanGroupItems(() => items.map(t => renderTree(t, 0)).join(''), isCollapsed);
                         return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, items.length, color)}${body}</div>`;
                     }).join('');
                     resultHtml += timeGroupsHtml;
@@ -2428,7 +2473,7 @@
                         const pinnedGroupKey = `kanban_${c.id}_quadrant_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
                         const renderPinnedTree = (t) => renderTree(t, 0);
-                        const pinnedBody = renderKanbanGroupItems(allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
+                        const pinnedBody = renderKanbanGroupItems(() => allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
@@ -2458,7 +2503,7 @@
                             const color = quadrantColorMap[String(rule.color || '')] || 'var(--tm-text-color)';
                             const title = `<span style="color:${color};">${esc(globalThis.__taskHorizonHostBridge.i18n.builtinName('rule', rule) || k)}</span>`;
                             const items = sortKanbanGroupItems((Array.isArray(g.items) ? g.items : []).slice(), needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
-                            const body = renderKanbanGroupItems(items.map(t => renderTree(t, 0)).join(''), isCollapsed);
+                            const body = renderKanbanGroupItems(() => items.map(t => renderTree(t, 0)).join(''), isCollapsed);
                             return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, items.length, color)}${body}</div>`;
                         })
                         .join('');
@@ -2484,7 +2529,7 @@
                         const pinnedGroupKey = `kanban_${c.id}_task_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
                         const renderPinnedTree = (t) => renderTree(t, 0);
-                        const pinnedBody = renderKanbanGroupItems(allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
+                        const pinnedBody = renderKanbanGroupItems(() => allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
@@ -2510,7 +2555,7 @@
                         const color = groupDocColor || 'var(--tm-primary-color)';
                         const title = `<span style="color:${color};">📝 ${esc(g.content || '')}</span>`;
                         const items = sortKanbanGroupItems((Array.isArray(g.items) ? g.items : []).slice(), sortByIdx);
-                        const body = renderKanbanGroupItems(items.map(t => renderTree(t, 0)).join(''), isCollapsed);
+                        const body = renderKanbanGroupItems(() => items.map(t => renderTree(t, 0)).join(''), isCollapsed);
                         return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, g.items.length, color)}${body}</div>`;
                     }).join('');
                     resultHtml += taskNameGroupsHtml;
@@ -2542,7 +2587,7 @@
                         const pinnedGroupKey = `kanban_${c.id}_ungrouped_pinned`;
                         const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
                         const renderPinnedTree = (t) => renderTree(t, 0);
-                        const pinnedBody = renderKanbanGroupItems(allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
+                        const pinnedBody = renderKanbanGroupItems(() => allPinned.map(renderPinnedTree).join(''), pinnedIsCollapsed);
                         const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         result += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
@@ -2589,7 +2634,8 @@
                     childrenByParent.forEach(arr => sortKanbanItemsByCurrentRule(arr, childCompare));
                     columnOrderPrepared = true;
                 };
-                const renderColumnListHtml = (limit = Number.POSITIVE_INFINITY) => {
+                const renderColumnListHtml = (limit = Number.POSITIVE_INFINITY, delta = false) => {
+                    treeWindow.begin(delta);
                     const rawLimit = Number(limit);
                     if (Number.isFinite(rawLimit) && rawLimit <= 0) {
                         const hasDeferredCards = roots.length > 0 || completedRoots.length > 0;
@@ -2603,6 +2649,7 @@
                     columnCardRenderLimit = Number.isFinite(rawLimit) ? Math.max(1, Math.round(rawLimit)) : Number.POSITIVE_INFINITY;
                     columnRenderedCardCount = 0;
                     columnHasDeferredCards = false;
+                    columnDeferredCardCount = 0;
                     let html = '';
                     // 标题看板模式下，也支持按文档/时间/四象限/任务名分组
                     if (isCompletedStatusCol) {
@@ -2640,7 +2687,7 @@
                     }
                     html += renderCompletedRootGroup();
                     return {
-                        html,
+                        html: treeWindow.compact(html),
                         hasMore: columnHasDeferredCards,
                         rendered: columnRenderedCardCount,
                     };
@@ -2668,6 +2715,7 @@
                     ? renderColumnListHtml(progressiveColumnLimit)
                     : { html: '', rendered: progressiveColumnLimit, hasMore: list0.length > 0 };
                 listHtml = initialColumnRender.html;
+                if (renderThisColumn) treeWindow.commit();
                 if (progressiveKanbanRender && initialColumnRender.hasMore) {
                     __tmRegisterKanbanProgressiveColumn(kanbanProgressiveJob, {
                         key: columnKey,
@@ -2688,7 +2736,7 @@
                             }
                             const nextLimit = progressiveColumnLimit + Math.max(1, Math.round(Number(kanbanProgressiveJob.batchSize) || 10));
                             kanbanProjectedTaskById.clear();
-                            const nextColumnRender = renderColumnListHtml(nextLimit);
+                            const nextColumnRender = renderColumnListHtml(nextLimit, true);
                             const modal = modalEl instanceof Element ? modalEl : state.modal;
                             const column = Array.from(modal?.querySelectorAll?.('.tm-kanban-col') || [])
                                 .find((item) => String(item?.getAttribute?.('data-col-key') || '').trim() === columnKey);
@@ -2698,9 +2746,11 @@
                             if (!(body instanceof HTMLElement)) return { done: false, retry: true };
                             const patchResult = globalThis.__tmPatchKanbanProgressiveColumn?.(
                                 body,
-                                nextColumnRender.html || `<div class="tm-kanban-empty">${__tmT("ai.empty")}</div>`
+                                nextColumnRender.html || `<div class="tm-kanban-empty">${__tmT("ai.empty")}</div>`,
+                                { delta: true, renderFallback: () => renderColumnListHtml(nextLimit).html }
                             );
                             if (!patchResult?.ok) return { done: false, retry: true };
+                            treeWindow.commit();
                             progressiveColumnLimit = nextLimit;
                             try { __tmSyncKanbanBottomNavAvoidance(modal); } catch (e) {}
                             if (String(state.searchKeyword || '').trim()) {

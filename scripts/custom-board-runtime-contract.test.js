@@ -465,7 +465,7 @@ context.SettingsStore.data.customBoardSets = [];
         'changing the shared Kanban appearance must rerender an open combination board immediately');
     assert.match(kanbanRenderSource, /const separateCompletedRootGroup = state\.showCompletedTasks === true[\s\S]*?completedTasksInlineInGroups !== true[\s\S]*?__tmSplitTasksByDoneState/,
         'completed tasks must be separated unless the completed-inline setting is enabled');
-    assert.match(kanbanRenderSource, /return renderActiveGroups\(\) \+ renderCompletedRootGroup\(\);/,
+    assert.match(kanbanRenderSource, /return \(\) => renderActiveGroups\(\) \+ renderCompletedRootGroup\(\);/,
         'the completed root group must render at the bottom of each custom-board lane');
     assert.match(kanbanRenderSource, /dropKind:\s*docId === '__unknown__' \? '' : 'doc'[\s\S]*?dropKind:\s*typeof __tmBuildKanbanTimeDropTarget[\s\S]*?'time'[\s\S]*?dropKind:\s*rule \? 'quadrant'/,
         'document, time and quadrant group rows must expose matching task drop targets');

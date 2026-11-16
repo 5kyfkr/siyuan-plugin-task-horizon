@@ -11128,6 +11128,12 @@ select.tm-btn-secondary {
     gap: 6px;
 }
 
+/* A group joins the column when its first card is loaded. Empty future date
+   headers otherwise extend the scrollport past the progressive loading tail. */
+.tm-kanban-group:has(> [data-tm-kanban-deferred-group-body]) {
+    display: none;
+}
+
 .tm-kanban-group-title {
     display: flex;
     align-items: center;

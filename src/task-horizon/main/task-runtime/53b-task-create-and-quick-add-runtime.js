@@ -4213,14 +4213,6 @@ ${API.generateTaskDOM(requestedTaskId, opts.content, opts.done === true, { attrs
                     selectionStart: input.selectionStart, selectionEnd: input.selectionEnd });
                 __tmRefreshQuickAddInputLayout(modal);
             });
-            remarkInput.addEventListener('focus', () => {
-                remarkInput.rows = 2;
-                __tmRefreshQuickAddInputLayout(modal);
-            });
-            remarkInput.addEventListener('blur', () => {
-                if (!remarkInput.value) remarkInput.rows = 1;
-                __tmRefreshQuickAddInputLayout(modal);
-            });
             __tmRefreshQuickAddInputLayout(modal);
         }
 

@@ -176,13 +176,22 @@ runtime = runtime.slice(0, startup) + `
                 return document.querySelectorAll('[data-col-key="custom:paged"] .tm-kanban-card').length;
             });
             assert.ok(initialCount > 0 && initialCount <= 10, 'document-group columns must retain the bounded first paint');
-            await page.waitForFunction(() => (
-                document.querySelectorAll('[data-col-key="custom:paged"] .tm-kanban-card').length === progressiveTasks.length
-            ));
+            for (let batch = 0; batch < 4; batch++) {
+                const before = await page.locator('[data-col-key="custom:paged"] .tm-kanban-card').count();
+                if (before === 24) break;
+                await page.evaluate(() => {
+                    const body = document.querySelector('[data-col-key="custom:paged"] > .tm-kanban-col-body');
+                    body.scrollTop = body.scrollHeight;
+                    body.dispatchEvent(new Event('scroll'));
+                });
+                await page.waitForFunction(count => (
+                    document.querySelectorAll('[data-col-key="custom:paged"] .tm-kanban-card').length > count
+                ), before);
+            }
             assert.deepEqual(await page.evaluate(() => Array.from(
                 document.querySelectorAll('[data-col-key="custom:paged"] > .tm-kanban-col-body > .tm-kanban-group')
             ).map(group => group.querySelectorAll('.tm-kanban-card[data-id]').length)), [12, 12],
-            'visible document groups must finish loading without requiring a column-bottom scroll');
+            'document groups must load completely as the column is scrolled');
         }
 
         assert.deepEqual(errors, [], 'combination-board group actions must cause no browser errors');

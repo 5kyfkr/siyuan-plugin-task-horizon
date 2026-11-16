@@ -338,8 +338,8 @@
         } catch (e) {}
         try {
             if (Array.isArray(job.viewportListeners)) {
-                job.viewportListeners.forEach(({ target, type, handler }) => {
-                    try { target?.removeEventListener?.(type, handler); } catch (e) {}
+                job.viewportListeners.forEach(({ target, type, handler, capture }) => {
+                    try { target?.removeEventListener?.(type, handler, capture === true); } catch (e) {}
                 });
             }
         } catch (e) {}
@@ -443,7 +443,6 @@
             done: false,
             loading: false,
             loaded: column.loaded === true,
-            autoFill: column.autoFill === true,
             retryCount: 0,
             retryAt: 0,
         };
@@ -455,6 +454,8 @@
 
     function __tmGetKanbanProgressiveNodeKey(node) {
         if (!(node instanceof Element)) return '';
+        const reusedTaskId = node.getAttribute('data-tm-kanban-progressive-reuse');
+        if (reusedTaskId) return `task:${reusedTaskId}`;
         if (node.classList.contains('tm-kanban-card')) {
             const taskId = String(node.getAttribute('data-id') || '').trim();
             return taskId ? `task:${taskId}` : '';
@@ -481,16 +482,19 @@
         return null;
     }
 
-    function __tmMergeKanbanProgressiveChildren(liveParent, desiredParent, addedNodes) {
+    function __tmMergeKanbanProgressiveChildren(liveParent, desiredParent, addedNodes, delta = false) {
         if (!(liveParent instanceof Element) || !(desiredParent instanceof Element)) return false;
         let liveCursor = liveParent.firstElementChild;
+        const liveByKey = delta ? new Map(Array.from(liveParent.children)
+            .map((child) => [__tmGetKanbanProgressiveNodeKey(child), child])) : null;
         const desiredChildren = Array.from(desiredParent.children || []);
         for (const desiredChild of desiredChildren) {
             const desiredKey = __tmGetKanbanProgressiveNodeKey(desiredChild);
             if (!desiredKey) return false;
             const liveKey = __tmGetKanbanProgressiveNodeKey(liveCursor);
-            let liveChild = liveKey === desiredKey ? liveCursor : null;
+            let liveChild = liveKey === desiredKey ? liveCursor : liveByKey?.get(desiredKey);
             if (!liveChild) {
+                if (desiredChild.hasAttribute('data-tm-kanban-progressive-reuse')) return false;
                 let laterMatch = null;
                 for (let probe = liveCursor; probe; probe = probe.nextElementSibling) {
                     if (__tmGetKanbanProgressiveNodeKey(probe) === desiredKey) {
@@ -502,19 +506,21 @@
                 liveChild = desiredChild.cloneNode(true);
                 liveParent.insertBefore(liveChild, liveCursor);
                 addedNodes.push(liveChild);
-            } else {
+            } else if (!desiredChild.hasAttribute('data-tm-kanban-progressive-reuse')) {
                 const kind = desiredKey.startsWith('group:') ? 'group' : 'task';
                 const desiredNested = __tmGetKanbanProgressiveChildContainer(desiredChild, kind);
                 const liveNested = __tmGetKanbanProgressiveChildContainer(liveChild, kind);
                 if (desiredNested && liveNested) {
-                    if (!__tmMergeKanbanProgressiveChildren(liveNested, desiredNested, addedNodes)) return false;
+                    if (delta && kind === 'group') liveNested.toggleAttribute('data-tm-kanban-deferred-group-body',
+                        desiredNested.hasAttribute('data-tm-kanban-deferred-group-body'));
+                    if (!__tmMergeKanbanProgressiveChildren(liveNested, desiredNested, addedNodes, delta)) return false;
                 } else if (!!desiredNested !== !!liveNested) {
                     return false;
                 }
             }
             liveCursor = liveChild.nextElementSibling;
         }
-        return !liveCursor;
+        return delta || !liveCursor;
     }
 
     function __tmCaptureKanbanProgressiveScrollAnchor(body) {
@@ -573,7 +579,7 @@
         return true;
     }
 
-    function __tmPatchKanbanProgressiveColumn(body, desiredHtml) {
+    function __tmPatchKanbanProgressiveColumn(body, desiredHtml, options = {}) {
         if (!(body instanceof HTMLElement)) return { ok: false, addedNodes: [] };
         const template = document.createElement('template');
         try { template.innerHTML = String(desiredHtml || '').trim(); } catch (e) {
@@ -588,13 +594,17 @@
         ));
         placeholders.forEach((placeholder) => placeholder.remove());
         const addedNodes = [];
-        if (__tmMergeKanbanProgressiveChildren(body, desiredRoot, addedNodes)) {
+        if (__tmMergeKanbanProgressiveChildren(body, desiredRoot, addedNodes, options.delta === true)) {
             __tmRestoreKanbanProgressiveScrollAnchor(body, scrollAnchor);
             return { ok: true, addedNodes, replaced: false };
         }
 
         // A concurrent structural projection can invalidate the monotonic prefix. Replacing once
         // from the current render snapshot is safer than guessing an order and is not the normal path.
+        if (options.delta === true) {
+            if (typeof options.renderFallback !== 'function') return { ok: false, addedNodes };
+            return __tmPatchKanbanProgressiveColumn(body, options.renderFallback());
+        }
         const fallback = document.createDocumentFragment();
         Array.from(desiredRoot.children || []).forEach((child) => fallback.appendChild(child));
         try { body.replaceChildren(fallback); } catch (e) {
@@ -605,6 +615,35 @@
     }
 
     try { globalThis.__tmPatchKanbanProgressiveColumn = __tmPatchKanbanProgressiveColumn; } catch (e) {}
+
+    // View-local counts, never another task cache. Complete subtrees can be
+    // represented by one cursor; only new cards need decoration and DOM parsing.
+    function __tmCreateKanbanProgressiveTreeWindow() {
+        const mounted = new Map();
+        let pending = new Map();
+        let delta = false;
+        let collapseVersion = SettingsStore.data.collapseStateUpdatedAt;
+        return {
+            begin(append) {
+                if (collapseVersion !== SettingsStore.data.collapseStateUpdatedAt) mounted.clear();
+                collapseVersion = SettingsStore.data.collapseStateUpdatedAt;
+                delta = append === true;
+                pending = new Map();
+            },
+            reuse(id, remaining) {
+                const count = delta ? mounted.get(id) : null;
+                return count !== undefined && count <= remaining ? count : null;
+            },
+            remember(id, count) { pending.set(id, count); },
+            commit() { pending.forEach((count, id) => mounted.set(id, count)); },
+            marker(id) { return `<template data-tm-kanban-progressive-reuse="${id}"></template>`; },
+            compact(html) {
+                // Keep the last existing sibling as the insertion cursor.
+                return String(html || '').replace(/(?:<template data-tm-kanban-progressive-reuse="[^"]+"><\/template>\s*){2,}/g,
+                    (run) => run.slice(run.lastIndexOf('<template')));
+            },
+        };
+    }
 
     function __tmGetKanbanProgressiveColumnElement(modal, key) {
         const wanted = String(key || '').trim();
@@ -664,9 +703,7 @@
                 if (!__tmIsKanbanProgressiveColumnVisible(body, column)) return;
                 const nearBottom = __tmIsKanbanProgressiveColumnNearBottom(columnBody);
                 const initialLoad = entry.loaded !== true;
-                // Document-group columns must finish in the background because a deferred
-                // global batch can leave later document groups empty above the scroll end.
-                if (!initialLoad && entry.autoFill !== true && !nearBottom) return;
+                if (!initialLoad && !nearBottom) return;
                 candidates.push({ entry, columnBody, index, initialLoad });
             });
             if (!candidates.length) {
@@ -731,6 +768,7 @@
         const nextBody = modal?.querySelector?.('.tm-body.tm-body--kanban');
         if (!(modal instanceof Element) || !(nextBody instanceof HTMLElement)) return false;
         if (job.viewportBound === true && job.boundBody === nextBody) {
+            modal.querySelectorAll('.tm-kanban-col[data-col-key]').forEach((column) => job.viewportObserver?.observe(column));
             __tmScheduleKanbanProgressiveViewportCheck(job, 0);
             return true;
         }
@@ -755,13 +793,12 @@
         const onResize = () => __tmScheduleKanbanProgressiveViewportCheck(job, 96);
         try { nextBody.addEventListener('scroll', onHorizontalScroll, { passive: true }); job.viewportListeners.push({ target: nextBody, type: 'scroll', handler: onHorizontalScroll }); } catch (e) {}
         try { window.addEventListener('resize', onResize, { passive: true }); job.viewportListeners.push({ target: window, type: 'resize', handler: onResize }); } catch (e) {}
-        Array.isArray(job.columns) && job.columns.forEach((entry) => {
-            const column = __tmGetKanbanProgressiveColumnElement(modal, entry.key);
-            const columnBody = column?.querySelector?.(':scope > .tm-kanban-col-body');
-            if (!(columnBody instanceof HTMLElement)) return;
-            const onColumnScroll = () => __tmScheduleKanbanProgressiveViewportCheck(job, 96);
-            try { columnBody.addEventListener('scroll', onColumnScroll, { passive: true }); job.viewportListeners.push({ target: columnBody, type: 'scroll', handler: onColumnScroll }); } catch (e) {}
-        });
+        // Scroll does not bubble. Capture on the stable body so replacement
+        // columns keep loading after field, completion and structure refreshes.
+        const onColumnScroll = (event) => {
+            if (event.target?.classList?.contains('tm-kanban-col-body')) __tmScheduleKanbanProgressiveViewportCheck(job, 96);
+        };
+        try { nextBody.addEventListener('scroll', onColumnScroll, { passive: true, capture: true }); job.viewportListeners.push({ target: nextBody, type: 'scroll', handler: onColumnScroll, capture: true }); } catch (e) {}
         __tmScheduleKanbanProgressiveViewportCheck(job, 0);
         return true;
     }
