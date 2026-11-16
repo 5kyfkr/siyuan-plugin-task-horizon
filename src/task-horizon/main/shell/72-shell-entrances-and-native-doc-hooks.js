@@ -2856,6 +2856,7 @@
         const entry = { timer: null, taskItem, recognize: opts.recognize === true };
         const isCurrent = () => __tmNativeDocTaskContentSyncTimers.get(tid) === entry;
         entry.timer = setTimeout(async () => {
+            entry.timer = null;
             try {
                 if (!isCurrent()) return;
                 __tmApplyLiveDocumentTaskContentPatch(tid, {
@@ -2879,12 +2880,24 @@
                 __tmQueueSemanticDateTask(tid, fallbackTask);
             } catch (e) {}
             finally {
-                if (isCurrent()) __tmNativeDocTaskContentSyncTimers.delete(tid);
+                // Enter/caret movement within the editor need not blur each
+                // title. Keep edited tasks until editor blur or manager entry.
+                if (isCurrent() && (entry.recognize || !__tmIsSemanticDateAutoPromptEnabled())) {
+                    __tmNativeDocTaskContentSyncTimers.delete(tid);
+                }
                 __tmScheduleSemanticDatePrompt();
             }
         }, delayMs);
         __tmNativeDocTaskContentSyncTimers.set(tid, entry);
         return true;
+    }
+
+    function __tmFlushNativeDocTaskContentSyncForRecognition() {
+        if (!__tmIsSemanticDateAutoPromptEnabled()) return;
+        __tmNativeDocTaskContentSyncTimers.forEach((entry, taskId) => {
+            if (entry.recognize) return;
+            __tmScheduleNativeDocTaskContentSync(taskId, entry.taskItem, { immediate: true, recognize: true });
+        });
     }
 
     function __tmBindNativeDocTaskContentSync() {
@@ -2903,11 +2916,13 @@
                 return;
             }
             const binding = __tmResolveNativeDocTaskContentInput(event.target);
-            if (!binding) return;
-            __tmScheduleNativeDocTaskContentSync(binding.taskId, binding.taskItem, {
-                immediate: ['compositionend', 'focusout'].includes(String(event.type || '').trim()),
-                recognize: ['compositionend', 'focusout'].includes(String(event.type || '').trim()),
-            });
+            if (binding) {
+                __tmScheduleNativeDocTaskContentSync(binding.taskId, binding.taskItem, {
+                    immediate: ['compositionend', 'focusout'].includes(String(event.type || '').trim()),
+                    recognize: ['compositionend', 'focusout'].includes(String(event.type || '').trim()),
+                });
+            }
+            if (event.type === 'focusout' && inNativeEditor) __tmFlushNativeDocTaskContentSyncForRecognition();
         };
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'input', __tmNativeDocTaskContentInputHandler, true); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'compositionend', __tmNativeDocTaskContentInputHandler, true); } catch (e) {}

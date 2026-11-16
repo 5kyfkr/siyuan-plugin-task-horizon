@@ -100,6 +100,7 @@ const production = [
                 state.filteredTasks = tasks;
                 document.querySelector('#results').innerHTML = tasks.slice(0, 20).map((task) => `<article data-id="${task.id}"><span class="tm-task-content-clickable">${esc(task.content)}</span>${__tmBuildTaskSearchSnippet(task)}</article>`).join('');
                 __tmApplySearchHighlights(state.modal);
+                window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
             };
         });
         await page.addScriptTag({ content: production });
@@ -128,7 +129,16 @@ const production = [
         await page.waitForFunction(() => !document.querySelector('.tm-floating-tooltip'));
         await scopeTrigger.click();
         assert.equal(await page.locator('.tm-search-fields__heading > span').textContent(), '搜索范围');
-        assert.deepEqual(await page.getByRole('checkbox').allTextContents(), ['', '', '', '']);
+        assert.deepEqual(await page.getByRole('checkbox').allTextContents(), ['', '', '', '', '']);
+        await page.getByRole('button', { name: '全选', exact: true }).click();
+        assert.equal(await page.getByRole('checkbox', { checked: true }).count(), 5, 'select all includes every available text field and schedules');
+        assert.deepEqual(await page.evaluate(() => saved.taskSearchFields), ['content', 'remark', 'customField:notes', 'customField:client']);
+        assert.equal(await page.evaluate(() => saved.taskSearchIncludeSchedules), true);
+        await page.getByRole('button', { name: '恢复默认', exact: true }).click();
+        assert.equal(await page.getByRole('checkbox', { checked: true }).count(), 2);
+        assert.deepEqual(await page.evaluate(() => saved.taskSearchFields), ['content', 'remark']);
+        assert.equal(await page.evaluate(() => saved.taskSearchIncludeSchedules), false);
+        assert.equal(await page.getByRole('button', { name: '全选', exact: true }).isVisible(), true, 'default scope restores the select-all action');
         await select('项目说明');
         await select('标题');
         await select('备注');
@@ -219,10 +229,194 @@ const production = [
         assert.equal(await input.count(), 0, 'a late read cannot reopen the closed search bar');
         assert.equal(await page.evaluate(() => state.searchKeyword), '');
         assert.equal(await page.evaluate(() => state.renderCount), closedRenderCount, 'a late read cannot rerender the closed search');
+
+        await page.evaluate(() => {
+            SettingsStore.data.taskSearchFields = ['content', 'remark'];
+            SettingsStore.data.calendarEnabled = true;
+            window.__tmResolveSearchWorkspaceScope = async () => ({ paths: ['notebook/doc.sy'], docMap: new Map(), archivedDocIds: new Set() });
+            window.__tmGetNotebookDisplayName = () => '笔记本';
+            MetaStore.applyToTask = () => {};
+            window.__tmRenderTaskCheckboxWrap = () => '<input type="checkbox" disabled aria-label="任务状态">';
+            window.taskQueries = [];
+            window.failTasks = false;
+            window.API = {
+                parseTaskStatus: (markdown) => ({ content: markdown.replace(/^- \[.\] /, ''), done: false }),
+                call: async (endpoint, { query, page }) => {
+                    taskQueries.push(query);
+                    if (failTasks) throw new Error('任务读取失败');
+                    return { code: 0, data: {
+                        pageCount: window.taskPageCount || 1,
+                        blocks: query === '无匹配' ? [] : [{ id: page === 1 ? 'same-id' : 'second-page', rootID: 'doc', markdown: `- [ ] ${query}任务`, content: `${query}任务` }],
+                    } };
+                },
+            };
+            window.scheduleQueries = [];
+            window.heldScheduleQuery = null;
+            window.failSchedules = false;
+            window.__tmCalendar = {
+                searchSchedules: async (query) => {
+                    scheduleQueries.push(query);
+                    if (failSchedules) throw new Error('日程读取失败');
+                    if (query === '旧关键词') await new Promise((resolve) => { heldScheduleQuery = resolve; });
+                    if (query === '无匹配') return [];
+                    return [{ type: 'schedule', id: 'same-id', content: `${query}日程`, snippet: `${query}备注`, date: '2026-11-20', dateLabel: '2026-11-20 09:00', calendarName: '默认日历' }];
+                },
+                navigateToDate: (date) => { window.locatedDate = date; return true; },
+            };
+            window.tmSwitchViewMode = (mode) => { state.viewMode = mode; };
+            tmShowSearchModal();
+        });
+        await scopeTrigger.click();
+        const schedules = page.getByRole('checkbox', { name: '日程', exact: true });
+        assert.equal(await schedules.isChecked(), false, 'schedules are opt in');
+        await schedules.check();
+        assert.equal(await page.evaluate(() => saved.taskSearchIncludeSchedules), true, 'schedule scope is persisted separately from text fields');
+        assert.deepEqual(await page.evaluate(() => saved.taskSearchFields), ['content', 'remark']);
+        await scopeTrigger.press('Escape');
+        await input.fill('发布会');
+        await page.getByRole('button', { name: '展开完整搜索', exact: true }).click();
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceResults.length === 2);
+        assert.equal(await page.locator('[data-tm-search-workspace-task="same-id"]').count(), 1);
+        assert.equal(await page.locator('[data-tm-search-workspace-schedule="same-id"]').count(), 1, 'task and schedule IDs do not collide');
+        assert.equal(await page.locator('[data-tm-search-workspace-schedule] input[type="checkbox"]').count(), 0, 'schedule results have no task checkbox');
+        assert.equal(await page.locator('[data-tm-search-workspace-schedule] .tm-search-workspace__schedule-icon svg').count(), 1, 'schedule results use the calendar icon');
+        assert.match(await page.locator('[data-tm-search-workspace-schedule]').innerText(), /2026-11-20 09:00/);
+        await scopeTrigger.click();
+        await select('标题');
+        await select('备注');
+        assert.equal(await page.getByRole('checkbox', { name: '标题', exact: true }).isChecked(), false);
+        assert.equal(await page.getByRole('checkbox', { name: '备注', exact: true }).isChecked(), false);
+        assert.deepEqual(await page.evaluate(() => saved.taskSearchFields), [], 'all task fields can be deselected when schedules are enabled');
+        await schedules.click();
+        assert.equal(await schedules.isChecked(), true, 'the final schedule scope cannot be deselected');
+        await scopeTrigger.press('Escape');
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceResults.length === 1 && state.searchWorkspaceResults[0].type === 'schedule');
+        const scheduleOnlyTaskReads = await page.evaluate(() => taskQueries.length);
+        await input.fill('只查日程');
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceResults[0]?.content === '只查日程日程');
+        assert.equal(await page.locator('[data-tm-search-workspace-task]').count(), 0);
+        assert.equal(await page.evaluate(() => taskQueries.length), scheduleOnlyTaskReads, 'schedule-only queries never request task results');
+        await scopeTrigger.click();
+        await select('标题');
+        await select('备注');
+        await scopeTrigger.press('Escape');
+        await input.fill('发布会');
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceResults.length === 2 && state.searchWorkspaceResults[0].content === '发布会任务');
+        const scheduleReadsBeforePaging = await page.evaluate(() => scheduleQueries.length);
+        await page.evaluate(() => { taskPageCount = 2; return __tmRunSearchWorkspace(false); });
+        assert.equal(await page.locator('[data-tm-search-workspace-task]').count(), 2);
+        assert.equal(await page.locator('[data-tm-search-workspace-schedule]').count(), 1, 'pagination preserves schedules without duplication');
+        assert.equal(await page.evaluate(() => scheduleQueries.length), scheduleReadsBeforePaging, 'task pagination reuses the schedule result');
+        await page.evaluate(() => { taskPageCount = 1; });
+        for (const width of [390, 768, 1440]) {
+            await page.setViewportSize({ width, height: 800 });
+            const row = page.locator('[data-tm-search-workspace-schedule]');
+            await row.waitFor({ state: 'visible' });
+            const geometry = await row.boundingBox();
+            assert.ok(geometry.x >= 0 && geometry.x + geometry.width <= width + 1, `schedule row fits ${width}px`);
+            if (width < 720) assert.equal(await row.locator('.tm-search-workspace__schedule-date').isVisible(), true, 'compact search still displays the navigation date');
+            await page.screenshot({ path: path.join(root, 'output/playwright', `schedule-search-${width}.png`) });
+        }
+        await input.fill('旧关键词');
+        await page.waitForFunction(() => heldScheduleQuery !== null);
+        await input.fill('新关键词');
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceResults.some((item) => item.content === '新关键词日程'));
+        await page.evaluate(() => heldScheduleQuery());
+        assert.match(await page.locator('[data-tm-search-workspace-schedule]').innerText(), /新关键词日程/, 'late queries cannot replace newer results');
+        await page.evaluate(() => { failSchedules = true; });
+        await input.fill('失败');
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceError);
+        assert.equal(await page.locator('[data-tm-search-workspace-task]').count(), 1, 'a schedule read failure retains task results');
+        await page.evaluate(() => { failSchedules = false; });
+        await page.locator('.tm-search-workspace__retry').click();
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && !state.searchWorkspaceError);
+        await scopeTrigger.click();
+        await schedules.uncheck();
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && !state.searchWorkspaceResults.some((item) => item.type === 'schedule'));
+        await schedules.check();
+        await scopeTrigger.press('Escape');
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceResults.some((item) => item.type === 'schedule'));
+        await page.locator('[data-tm-search-workspace-schedule]').press('Enter');
+        assert.equal(await page.evaluate(() => locatedDate), '2026-11-20');
+        assert.equal(await page.evaluate(() => state.viewMode), 'calendar');
+        assert.equal(await input.count(), 0, 'locating a schedule dismisses the search overlay');
+        await page.evaluate(() => tmShowSearchModal());
+        await scopeTrigger.click();
+        assert.equal(await schedules.isChecked(), true, 'reopening preserves the schedule scope');
+        await page.getByRole('button', { name: '恢复默认', exact: true }).click();
+        assert.equal(await schedules.isChecked(), false, 'restoring defaults clears the schedule scope');
+        await scopeTrigger.press('Escape');
+        const moreResults = page.locator('.tm-inline-searchbar__more');
+        await input.fill('视图外');
+        await page.waitForFunction(() => state.filteredTasks.length === 0 && !document.querySelector('.tm-inline-searchbar__more').hidden);
+        assert.match(await moreResults.innerText(), /完整搜索中还有匹配结果/);
+        for (const width of [390, 1440]) {
+            await page.setViewportSize({ width, height: 800 });
+            const geometry = await moreResults.boundingBox();
+            assert.ok(geometry.x >= 0 && geometry.x + geometry.width <= width + 1, `full search hint fits ${width}px`);
+            await page.screenshot({ path: path.join(root, 'output/playwright', `compact-search-more-${width}.png`) });
+        }
+        const previewReads = await page.evaluate(() => taskQueries.length);
+        await page.evaluate(() => { __tmSyncInlineSearchBarPortal(); __tmScheduleRender(); });
+        await page.waitForTimeout(260);
+        assert.equal(await page.evaluate(() => taskQueries.length), previewReads, 'ordinary rerenders reuse the completed empty-view preview');
+        await page.getByRole('button', { name: '查看完整搜索', exact: true }).click();
+        await page.waitForFunction(() => state.searchWorkspaceExpanded && !state.searchWorkspaceLoading && state.searchWorkspaceResults.length);
+        assert.equal(await input.inputValue(), '视图外', 'the hint opens full search with the same keyword');
+        assert.equal(await moreResults.isVisible(), false, 'full search hides its own compact hint');
+        await input.press('Escape');
+        await input.fill('无匹配');
+        await page.waitForFunction(() => state.searchKeyword === '无匹配' && state.searchWorkspacePreviewKey && !state.searchWorkspaceLoading && !state.searchWorkspaceTimer);
+        assert.equal(await moreResults.isVisible(), false, 'no full search results produce no misleading hint');
+        const noMatchReads = await page.evaluate(() => taskQueries.length);
+        await input.fill('任务');
+        await page.waitForFunction(() => state.filteredTasks.length > 0);
+        await page.waitForTimeout(260);
+        assert.equal(await moreResults.isVisible(), false, 'a nonempty compact view needs no hint');
+        assert.equal(await page.evaluate(() => taskQueries.length), noMatchReads, 'a nonempty compact view does not start a full search');
+        await page.evaluate(() => { failTasks = true; });
+        await input.fill('读取失败');
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceError && !state.searchWorkspaceTimer);
+        assert.equal(await moreResults.isVisible(), false, 'a failed preview does not claim that more results exist');
+        await page.evaluate(() => { failTasks = false; });
+        await scopeTrigger.click();
+        await schedules.check();
+        await select('标题');
+        await select('备注');
+        await scopeTrigger.press('Escape');
+        await input.fill('日程独有');
+        await page.waitForFunction(() => !document.querySelector('.tm-inline-searchbar__more').hidden && state.searchWorkspaceResults[0]?.content === '日程独有日程');
+        assert.deepEqual(await page.evaluate(() => saved.taskSearchFields), []);
+        await page.getByRole('button', { name: '查看完整搜索', exact: true }).click();
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceResults.length === 1);
+        assert.equal(await page.locator('[data-tm-search-workspace-task]').count(), 0, 'the full search hint honors schedule-only scope');
+        await page.evaluate(() => { tmCloseInlineSearch(); tmShowSearchModal(); });
+        await scopeTrigger.click();
+        assert.equal(await schedules.isChecked(), true);
+        assert.equal(await page.getByRole('checkbox', { name: '标题', exact: true }).isChecked(), false, 'reopening preserves schedule-only selection');
+        assert.equal(await page.getByRole('checkbox', { name: '备注', exact: true }).isChecked(), false);
+        await scopeTrigger.press('Escape');
+        await page.evaluate(() => { heldScheduleQuery = null; });
+        await input.fill('旧关键词');
+        await page.waitForFunction(() => heldScheduleQuery !== null);
+        await input.fill('新关键词');
+        await page.waitForFunction(() => !document.querySelector('.tm-inline-searchbar__more').hidden && state.searchWorkspaceResults[0]?.content === '新关键词日程');
+        await page.evaluate(() => heldScheduleQuery());
+        assert.equal(await page.evaluate(() => state.searchWorkspaceResults[0].content), '新关键词日程', 'late compact previews cannot replace a newer hint');
+        await input.fill('');
+        assert.equal(await moreResults.isVisible(), false, 'clearing the keyword dismisses the hint immediately');
+        await input.fill('提前展开');
+        await page.waitForFunction(() => state.searchWorkspaceTimer && !state.searchWorkspaceExpanded);
+        const earlyExpandReads = await page.evaluate(() => scheduleQueries.filter((query) => query === '提前展开').length);
+        await page.getByRole('button', { name: '展开完整搜索', exact: true }).click();
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceResults[0]?.content === '提前展开日程');
+        await page.waitForTimeout(260);
+        assert.equal(await page.evaluate(() => scheduleQueries.filter((query) => query === '提前展开').length), earlyExpandReads + 1, 'manually opening full search cancels the pending compact preview');
         assert.deepEqual(errors, []);
         console.log('task search fields browser tests passed (320 / 768 / 1440px)');
     } catch (error) {
-        console.error({ errors, state: await page.evaluate(() => ({ searchKeyword: state.searchKeyword, searchLoading: state.searchLoading, searchLoadError: state.searchLoadError, loads })) });
+        await page.screenshot({ path: path.join(root, 'output/playwright/schedule-search-failure.png') });
+        console.error({ errors, state: await page.evaluate(() => ({ searchKeyword: state.searchKeyword, searchLoading: state.searchLoading, searchLoadError: state.searchLoadError, searchWorkspaceExpanded: state.searchWorkspaceExpanded, searchWorkspaceLoading: state.searchWorkspaceLoading, searchWorkspaceError: state.searchWorkspaceError, searchWorkspaceResults: state.searchWorkspaceResults, scheduleQueries: window.scheduleQueries, loads })) });
         throw error;
     } finally {
         await browser.close();

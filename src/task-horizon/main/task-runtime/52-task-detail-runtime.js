@@ -2310,7 +2310,8 @@
             if (hubState.schedulesLoading) return;
             if (hubState.schedulesLoaded && !force) return;
             hubState.schedulesLoading = true;
-            if (popover.isConnected) render();
+            // Background schedule loads must not replace date controls during a click.
+            if (popover.isConnected && hubState.tab === 'schedule') render();
             try {
                 let list = [];
                 if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.listTaskSchedulesByTaskId === 'function') {
@@ -2329,7 +2330,7 @@
                 scheduleText = '';
             } finally {
                 hubState.schedulesLoading = false;
-                if (popover.isConnected) render();
+                if (popover.isConnected && hubState.tab === 'schedule') render();
             }
         };
         const updateDatePatch = async (patch, source = 'task-time-hub') => {
@@ -7675,7 +7676,8 @@
                 if (hubState.schedulesLoading) return;
                 if (hubState.schedulesLoaded && !force) return;
                 hubState.schedulesLoading = true;
-                if (popover.isConnected) render();
+                // Background schedule loads must not replace date controls during a click.
+                if (popover.isConnected && hubState.tab === 'schedule') render();
                 try {
                     let list = [];
                     if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.listTaskSchedulesByTaskId === 'function') {
@@ -7707,7 +7709,7 @@
                     } catch (e2) {}
                 } finally {
                     hubState.schedulesLoading = false;
-                    if (popover.isConnected) render();
+                    if (popover.isConnected && hubState.tab === 'schedule') render();
                 }
             };
             const applyRepeatType = async (type) => {

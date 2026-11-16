@@ -175,18 +175,20 @@ test('ordinary dirty work and version-invalidated reads do not subscribe to inde
     assert.equal(h.state.externalTaskTxDirty, true);
 });
 
-test('missing notifications retain bounded timeout retries and a later commit can resume a parked batch', async () => {
+test('missing notifications retain bounded retries including one final quiet attempt before parking', async () => {
     const h = refreshHarness();
     await h.defer();
     await h.runTimer();
     await h.runTimer();
-    assert.equal(h.calls.reads, 3);
+    assert.equal(h.timers.size, 1, 'the final quiet retry must remain scheduled');
+    await h.runTimer();
+    assert.equal(h.calls.reads, 4);
     assert.equal(h.timers.size, 0);
     assert.equal(h.state.externalTaskTxDirty, true);
     h.controls.read = async () => true;
     h.emit([docId]);
     await h.runTimer();
-    assert.equal(h.calls.reads, 4);
+    assert.equal(h.calls.reads, 5);
     assert.equal(h.state.externalTaskTxDirty, false);
 });
 

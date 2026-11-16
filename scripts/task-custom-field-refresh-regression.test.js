@@ -110,7 +110,54 @@ const attachRegression = context.__tmAttachCustomFieldAttrsToTasks([detailTask],
         'full document loads must preserve the previous custom-field snapshot when the fresh row omits it');
 
 });
-Promise.all([queryRegression, attachRegression]).then(() => {
+
+const baseRegressions = Promise.all([queryRegression, attachRegression]);
+const queryBatchDiagnosticsRegression = baseRegressions.then(async () => {
+    vm.runInContext(extractFunction(source, '__tmQueryCustomFieldAttrRowsByTaskIds'), context);
+    vm.runInContext(extractFunction(source, '__tmAttachCustomFieldAttrsToTasks'), context);
+    const ids = Array.from({ length: 530 }, (_, index) =>
+        `20260101000000-task${String(index).padStart(4, '0')}`);
+    let calls = 0;
+    context.API.call = async () => {
+        calls += 1;
+        return { code: 0, data: [] };
+    };
+    const result = await queryCustomFields(ids, { forceFresh: true });
+    assert.equal(result.candidateTaskCount, 530);
+    assert.equal(result.hostQueryCount, 2, '530 tasks are read in two bounded SQL batches');
+    assert.equal(result.cacheMissCount, 530);
+    assert.equal(calls, 2);
+
+    const attached = await context.__tmAttachCustomFieldAttrsToTasks(
+        ids.map((id) => ({ id })),
+        { forceFresh: true },
+    );
+    assert.equal(attached.hostTaskCount, 530);
+    assert.equal(attached.hostQueryCount, 2);
+    assert.equal(calls, 4);
+});
+
+const queryCancellationRegression = queryBatchDiagnosticsRegression.then(async () => {
+    const ids = Array.from({ length: 530 }, (_, index) =>
+        `20260102000000-task${String(index).padStart(4, '0')}`);
+    let current = true;
+    let calls = 0;
+    context.API.call = async () => {
+        calls += 1;
+        current = false;
+        return { code: 0, data: [] };
+    };
+    const result = await queryCustomFields(ids, {
+        forceFresh: true,
+        isCurrent: () => current,
+    });
+    assert.equal(calls, 1, 'a stale refresh must not issue the second custom-field batch');
+    assert.equal(result.hostQueryCount, 1);
+    assert.equal(result.cancelled, true);
+    assert.equal(result.queryComplete, false);
+});
+
+Promise.all([baseRegressions, queryCancellationRegression]).then(() => {
     console.log('task custom-field refresh regression tests passed');
 }).catch((error) => {
     console.error(error);

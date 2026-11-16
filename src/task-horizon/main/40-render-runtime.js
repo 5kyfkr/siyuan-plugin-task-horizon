@@ -758,7 +758,8 @@
                 state.modal.classList.toggle('tm-modal--mobile-view-switching', mobileBottomViewbarSwitching);
             }
         } catch (e) {}
-        state.modal.innerHTML = `
+        const shellTarget = state.modal;
+        const shellHtml = `
             <div class="tm-box${showCalendarSideDock || showAiSideDock ? ' tm-box--with-cal-dock' : ''}${parentTaskNameBoldClass}">
                 <div class="tm-filter-rule-bar" style="padding: ${topbarPadding};${topbarHeightStyle}">
                         <div class="tm-topbar-row tm-topbar-row--main" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
@@ -2044,6 +2045,7 @@
                 ` : ''}
             </div>
         `;
+        shellTarget.innerHTML = shellHtml;
         const reusedCalendarSideDock = __tmCommitCalendarSideDockFullRenderTransfer(
             preservedCalendarSideDockTransfer,
             state.modal,
@@ -2544,16 +2546,18 @@
                     const finishKanbanRender = () => {
                         runFlipAnimationAfterRender();
                     };
-                    if (isKanbanSnapHost) {
-                        applyHorizontal({ snap: Math.abs(Number(kanbanLeft) || 0) > 0.5 });
+                    const restoreBoardScroll = (snap) => {
+                        applyHorizontal({snap});
                         applyColumnScrolls();
+                    };
+                    if (isKanbanSnapHost) {
+                        restoreBoardScroll(Math.abs(Number(kanbanLeft) || 0) > 0.5);
                         try { state.__tmKanbanForceRestoreColScrollOnce = false; } catch (e) {}
                         refreshKanbanDetail('render-kanban-post-bind');
                         requestAnimationFrame(() => requestAnimationFrame(finishKanbanRender));
                     } else {
                         const apply = () => {
-                            applyHorizontal({ snap: true });
-                            applyColumnScrolls();
+                            restoreBoardScroll(true);
                             try { state.__tmKanbanForceRestoreColScrollOnce = false; } catch (e) {}
                         };
                         apply();

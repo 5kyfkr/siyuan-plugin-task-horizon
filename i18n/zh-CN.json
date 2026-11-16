@@ -1,4 +1,8 @@
 {
+  "task.failedToLocateSchedule": "无法定位日程，请重试",
+  "task.moreSearchResultsAvailable": "完整搜索中还有匹配结果",
+  "task.viewFullSearch": "查看完整搜索",
+  "task.scheduleSearchHint": "在展开搜索中包含日程标题和备注",
   "title.taskName": "任务名称",
   "title.editLink": "编辑链接",
   "title.openLink": "跳转",

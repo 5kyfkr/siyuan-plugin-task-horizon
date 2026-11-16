@@ -305,6 +305,7 @@ function fixture(storage = new Map(), host = { mobile: false, dock: false }) {
         __tmEnsureSettingsLoaded:async()=>{},__tmIsMobileDevice:()=>false,__tmGetConfiguredDefaultViewMode:()=> 'checklist',
         __tmReadManagerModalRenderMode:()=>'',__tmGetExpectedManagerRenderMode:()=>cold.state.viewMode,
         __tmHasQuickbarModificationsSync:()=>false,__tmRefreshNotebookCache:async()=>{},checkAnyGroupHasDocs:async()=>true,
+        __tmWakeSemanticDatePromptsOnPluginEnter:noOp,
         setTimeout:()=>1,requestAnimationFrame:callback=>callback(),
         render:()=>{cold.state.modal=new HostElement();firstPaints.push([cold.state.viewMode,cold.state.currentRule,cold.ctx.__tmGetKanbanBoardMode()]);},
         loadSelectedDocuments:async()=>{firstLoads.push([cold.state.viewMode,cold.state.currentRule,cold.core.activeId()]);},

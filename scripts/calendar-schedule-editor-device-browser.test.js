@@ -59,10 +59,17 @@ async function checkHost(browser, scenario) {
             '    globalThis.__tmCalendar = {',
             '    window.__calendarEditorDeviceTest = { state };\n    globalThis.__tmCalendar = {',
         ) });
+        assert.equal(await page.evaluate(() => __tmCalendar.navigateToDate('2031-02-14')), true, 'search date is queued before the calendar mounts');
         assert.equal(await page.evaluate(() => __tmCalendar.mount(document.querySelector('#root'), {
             settingsStore: { loaded: true, data: { calendarDefaultViewMobile: 'timeGridDay', calendarDefaultViewDesktop: 'timeGridDay' } },
         })), true, `${scenario.name}: calendar mounts`);
         await page.locator('.tm-proto-time-col').first().waitFor();
+        const dateIsVisible = (key) => page.evaluate((key) => {
+            const view = __calendarEditorDeviceTest.state.calendar.view;
+            const target = new Date(`${key}T12:00:00`);
+            return target >= view.activeStart && target < view.activeEnd;
+        }, key);
+        assert.equal(await dateIsVisible('2031-02-14'), true, `${scenario.name}: the first mount displays the search date`);
         const point = await page.evaluate(() => {
             const column = document.querySelector('.tm-proto-time-col');
             const scroller = column.closest('.tm-proto-time-scroll');
@@ -95,6 +102,8 @@ async function checkHost(browser, scenario) {
         }, document.querySelector('.tm-proto-time-col'))), true);
         assert.equal(await editor.evaluate(node => node.classList.contains('is-mobile-fullscreen')), false,
             `${scenario.name}: ordinary creation entry retains its popover`);
+        assert.equal(await page.evaluate(() => __tmCalendar.navigateToDate('2031-03-20')), true);
+        assert.equal(await dateIsVisible('2031-03-20'), true, `${scenario.name}: a mounted calendar displays the search date`);
         assert.deepEqual(errors, [], `${scenario.name}: ${errors.join('\n')}`);
         console.log(`${scenario.name}: ${scenario.fullscreen ? 'fullscreen' : 'popover'} passed`);
     } finally {

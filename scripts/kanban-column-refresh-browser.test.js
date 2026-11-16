@@ -1463,6 +1463,35 @@ async function setup(page) {
             });
             assert.deepEqual(result, { todo: 30, doing: 20, top: 240, fresh: 'changed while away', cancelled: true, afterMore: 35 });
         }, true);
+        await run('full kanban shell starts with a bounded progressive card window', async (page) => {
+            const result = await page.evaluate(() => {
+                setModel(Array.from({ length: 120 }, (_, i) => ({ id: 'bounded-' + i, customStatus: 'todo' })));
+                __tmCancelProgressiveViewRender();
+                state.__tmProgressiveViewRender = null;
+                state.renderKanbanBodyHtml = (opts) => __tmBuildRenderSceneKanbanBodyHtml(opts);
+                state.modal.innerHTML = state.renderKanbanBodyHtml({ fullShell: true });
+                const job = state.__tmProgressiveViewRender;
+                const todo = column('status:todo');
+                const initialCards = todo.querySelectorAll('.tm-kanban-card').length;
+                const load = job.columns.find((entry) => entry.key === 'status:todo').loadNextBatch(state.modal);
+                return {
+                    mode: job.mode,
+                    initialBatchSize: job.initialBatchSize,
+                    initialCards,
+                    hasMore: job.columns.find((entry) => entry.key === 'status:todo').loadNextBatch ? true : false,
+                    afterLoadCards: todo.querySelectorAll('.tm-kanban-card').length,
+                    loadDone: load.done,
+                };
+            });
+            assert.deepEqual(result, {
+                mode: 'kanban',
+                initialBatchSize: 10,
+                initialCards: 10,
+                hasMore: true,
+                afterLoadCards: 20,
+                loadDone: false,
+            });
+        });
         await run('table checklist and timeline restore independent windows, reset on scope changes, and clamp deleted rows', async (page) => {
             const result = await page.evaluate(() => {
                 __tmIsMobileDevice = () => true;

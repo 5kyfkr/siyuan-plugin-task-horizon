@@ -265,6 +265,8 @@
         MetaStore.set(task.id, plan.patch);
         if (plan.patch.repeatHistory) __tmSyncRecurringInstanceTasks(confirmed);
         data.committedPatch = projection;
+        // A confirmed host write is distinct from the eventual linkage result.
+        op.primaryWriteConfirmed = true;
         if (data.recordUndo !== false && !__tmUndoState.applying) {
             const inverse = {};
             const before = data.nativeObserved ? { ...task, ...data.nativeObserved } : task;

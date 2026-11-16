@@ -27,12 +27,12 @@ const production = read('09-task-field-schema.js') + '\n'
     })()
     + '\nwindow.openDetailHub = openTaskTimeHubPopover;';
 
-async function setup(page, entry, theme) {
+async function setup(page, entry, theme, loadSchedules = false) {
     await page.goto('about:blank');
     await page.setContent('<meta charset="utf-8"><button id="anchor">任务日期</button><main id="detail"></main>');
     await page.addStyleTag({ path: path.join(rootPath, 'task-horizon.css') });
     await page.addStyleTag({ content: `:root{--tm-text-color:${theme === 'dark' ? '#e0e3e8' : '#242834'};--tm-secondary-text:${theme === 'dark' ? '#aeb4bf' : '#687080'};--tm-card-bg:${theme === 'dark' ? '#242830' : '#f8f9fb'};--tm-bg-color:var(--tm-card-bg);--tm-header-bg:${theme === 'dark' ? '#2c313a' : '#eef0f4'};--tm-primary-color:#528aa2;--tm-border-color:${theme === 'dark' ? '#464b55' : '#cfd3da'};--tm-input-bg:var(--tm-card-bg);--tm-input-border:var(--tm-border-color);--popover:var(--tm-card-bg);--radius:8px;--background:var(--tm-card-bg);--foreground:var(--tm-text-color)}body{margin:24px;font:14px system-ui;background:${theme === 'dark' ? '#181c22' : '#edf0f4'};color:var(--tm-text-color)}*{animation:none!important}` });
-    await page.evaluate(() => {
+    await page.evaluate(loadSchedules => {
         window.esc = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         window.__tmEscAttr = window.esc;
         window.__tmNormalizeDateOnly = value => value instanceof Date ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}` : String(value || '').slice(0, 10);
@@ -83,10 +83,20 @@ async function setup(page, entry, theme) {
             __tmTaskMutationBus.publish({ taskId: id, patch });
         };
         window.__tmGetTaskDetailTaskById = () => getBoundTask();
-    });
+        if (loadSchedules) {
+            window.scheduleLoadCount = 0;
+            window.__tmCalendar = { listTaskSchedulesByTaskId: () => {
+                scheduleLoadCount++;
+                return new Promise((resolve, reject) => {
+                    window.resolveSchedules = resolve;
+                    window.rejectSchedules = reject;
+                });
+            } };
+        }
+    }, loadSchedules);
     await page.addScriptTag({ content: production });
-    await page.evaluate(entry => {
-        const options = { task: getBoundTask(), hideSchedule: true };
+    await page.evaluate(({ entry, loadSchedules }) => {
+        const options = { task: getBoundTask(), hideSchedule: !loadSchedules };
         if (entry === 'context') Object.assign(options, { contextDate: true, placement: 'right', source: 'context-menu-completion-time' });
         if (entry.startsWith('draft')) {
             window.state = { quickAdd: { ...getBoundTask(), dateMode: 'manual', relation: entry.split('-')[1] || '' } };
@@ -94,7 +104,69 @@ async function setup(page, entry, theme) {
         }
         if (entry === 'detail') openDetailHub(document.querySelector('#anchor'), options);
         else return tmOpenTaskTimeHub('parent', document.querySelector('#anchor'), options).then(() => undefined);
-    }, entry);
+    }, { entry, loadSchedules });
+}
+
+async function checkScheduleRefreshInteractions(page) {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    for (const entry of ['standalone', 'detail']) {
+        for (const field of ['startDate', 'completionTime']) {
+            for (const outcome of ['loaded', 'failed', 'refreshed']) {
+                await setup(page, entry, 'light', true);
+                if (outcome === 'refreshed') {
+                    await page.evaluate(async () => {
+                        resolveSchedules([]);
+                        await new Promise(requestAnimationFrame);
+                    });
+                }
+                const clear = page.locator(`[data-tm-time-hub-clear-date="${field}"]`);
+                const button = await clear.elementHandle();
+                const rect = await clear.boundingBox();
+                await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+                await page.mouse.down();
+                let stayedConnected;
+                try {
+                    await page.evaluate(async outcome => {
+                        if (outcome === 'refreshed') window.dispatchEvent(new CustomEvent('tm:calendar-schedule-updated'));
+                        if (outcome === 'failed') rejectSchedules(new Error('Schedule load failed'));
+                        else resolveSchedules([]);
+                        await new Promise(requestAnimationFrame);
+                    }, outcome);
+                    stayedConnected = await button.evaluate(node => node.isConnected);
+                } finally { await page.mouse.up(); }
+                assert.equal(stayedConnected, true, `${entry} ${field} ${outcome}: loading schedules must preserve the pressed date control`);
+                await page.waitForFunction(field => getBoundTask()[field] === '', field);
+                assert.deepEqual(await page.evaluate(() => dateWrites), [{ [field]: '' }], 'the first click clears the date exactly once');
+                console.log(`PASS ${entry} ${field}: first-click clear during schedule ${outcome}`);
+            }
+        }
+
+        await setup(page, entry, 'light', true);
+        const scheduleTab = page.locator('[data-tm-time-hub-tab="schedule"]');
+        const dateTab = page.locator('[data-tm-time-hub-tab="date"]');
+        const items = page.locator('[data-tm-time-hub-schedule-id]');
+        const resolveSchedule = async id => page.evaluate(async id => {
+            resolveSchedules([{ id, start: '2099-10-31T09:00:00', end: '2099-10-31T10:00:00', calendarName: 'Test calendar' }]);
+            await new Promise(requestAnimationFrame);
+        }, id);
+        await resolveSchedule('cached');
+        await scheduleTab.click();
+        assert.equal(await items.getAttribute('data-tm-time-hub-schedule-id'), 'cached', 'switching tabs renders schedules cached on the date tab');
+        assert.equal(await page.evaluate(() => scheduleLoadCount), 1, 'switching to cached schedules does not reload them');
+        await page.evaluate(() => window.dispatchEvent(new CustomEvent('tm:calendar-schedule-updated')));
+        assert.equal(await page.locator('.tm-task-time-hub__schedule-list').innerText(), await page.evaluate(() => __tmT('task.loadingSchedules')));
+        await resolveSchedule('refreshed');
+        assert.equal(await items.getAttribute('data-tm-time-hub-schedule-id'), 'refreshed', 'the visible schedule tab still refreshes after loading');
+        await page.evaluate(() => window.dispatchEvent(new CustomEvent('tm:calendar-schedule-updated')));
+        await dateTab.click();
+        const calendar = await page.locator('.tm-task-time-hub__date-fields').elementHandle();
+        await resolveSchedule('switched');
+        assert.equal(await calendar.evaluate(node => node.isConnected), true, 'returning to dates during loading preserves the date controls');
+        await scheduleTab.click();
+        assert.equal(await items.getAttribute('data-tm-time-hub-schedule-id'), 'switched');
+        assert.equal(await page.evaluate(() => scheduleLoadCount), 3);
+        console.log(`PASS ${entry}: cached schedules, visible refresh and switching tabs during loading`);
+    }
 }
 
 async function checkTimelineReceipts(page) {
@@ -267,6 +339,7 @@ async function run() {
             assert.equal(await mode.locator('strong').innerText(), '手动');
             console.log(`PASS ${entry}: mode button, local changes and reopening`);
         }
+        await checkScheduleRefreshInteractions(page);
         await checkTimelineReceipts(page);
         assert.deepEqual(errors, [], 'date-center and timeline browser errors');
     } finally { await browser.close(); }

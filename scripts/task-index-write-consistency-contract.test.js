@@ -82,7 +82,7 @@ async function main() {
     const second = createWindow(host);
     await Promise.all([first.__tmLoadTaskIndexStore(), second.__tmLoadTaskIndexStore()]);
     assert.deepEqual(await Promise.all([
-        first.__tmMergeTaskIndexEntries([entry(1)]),
+        first.__tmMergeTaskIndexEntries([entry(1)], { immediate: true }),
         second.__tmPersistTaskIndexEntries([entry(2)]),
     ]), [true, true]);
     assert.deepEqual(Object.keys(host.disk.docs).sort(), [docId(1), docId(2)], 'stale window caches must not overwrite other documents');
@@ -90,28 +90,28 @@ async function main() {
     const cached = second.__tmTaskIndexStoreCache;
     const cachedBefore = clone(cached);
     host.writeError = true;
-    assert.equal(await second.__tmMergeTaskIndexEntries([entry(3)]), false);
+    assert.equal(await second.__tmMergeTaskIndexEntries([entry(3)], { immediate: true }), false);
     assert.equal(second.__tmTaskIndexStoreCache, cached);
     assert.deepEqual(clone(cached), cachedBefore, 'failed writes must not mutate nested cached docs');
     host.writeError = false;
     host.readError = true;
     const beforeReads = host.writes;
-    assert.equal(await second.__tmMergeTaskIndexEntries([entry(3)]), false);
+    assert.equal(await second.__tmMergeTaskIndexEntries([entry(3)], { immediate: true }), false);
     assert.equal(host.writes, beforeReads, 'an API read error must not be treated as an empty file');
     assert.equal(await second.__tmLoadTaskIndexStore({ force: true }), cached, 'failed refreshes must preserve the confirmed cache');
     assert.deepEqual(clone(cached), cachedBefore);
     host.readError = false;
 
-    await first.__tmMergeTaskIndexEntries([entry(1, '20260905010000', 200)]);
-    await second.__tmMergeTaskIndexEntries([entry(1, '20260905000000', 300)]);
+    await first.__tmMergeTaskIndexEntries([entry(1, '20260905010000', 200)], { immediate: true });
+    await second.__tmMergeTaskIndexEntries([entry(1, '20260905000000', 300)], { immediate: true });
     assert.equal(host.disk.docs[docId(1)].docUpdated, '20260905010000', 'older document revisions must not replace newer index entries');
-    await second.__tmMergeTaskIndexEntries([entry(1, '20260905010000', 100)]);
+    await second.__tmMergeTaskIndexEntries([entry(1, '20260905010000', 100)], { immediate: true });
     assert.equal(host.disk.docs[docId(1)].updatedAt, 200);
 
     host.disk.padding = 'x'.repeat(2048);
     await first.__tmLoadTaskIndexStore({ force: true });
     assert.equal(first.idle.length, 1);
-    await second.__tmMergeTaskIndexEntries([entry(4)]);
+    await second.__tmMergeTaskIndexEntries([entry(4)], { immediate: true });
     await first.idle.shift()();
     assert.ok(host.disk.docs[docId(4)], 'delayed compaction must read the latest file inside the lock');
 
@@ -130,10 +130,14 @@ async function main() {
     assert.equal(host.writes, writesBeforeCancel, 'scheduled persistence must use the token captured before building its entries');
 
     const fallback = createWindow(host, false);
-    await Promise.all([fallback.__tmMergeTaskIndexEntries([entry(6)]), fallback.__tmMergeTaskIndexEntries([entry(7)])]);
+    await Promise.all([
+        fallback.__tmMergeTaskIndexEntries([entry(6)], { immediate: true }),
+        fallback.__tmMergeTaskIndexEntries([entry(7)], { immediate: true }),
+    ]);
     assert.ok(host.disk.docs[docId(6)] && host.disk.docs[docId(7)], 'the promise tail must serialize writes without Web Locks');
     host.disk = null;
-    assert.equal(await first.__tmMergeTaskIndexEntries([entry(8)]), true, 'SiYuan HTTP 202 / code 404 permits first-time creation');
+    assert.equal(await first.__tmMergeTaskIndexEntries([entry(8)], { immediate: true }), true,
+        'SiYuan HTTP 202 / code 404 permits first-time creation');
     assert.deepEqual(Object.keys(host.disk.docs), [docId(8)]);
     console.log('task index write consistency behavioral tests passed');
 }

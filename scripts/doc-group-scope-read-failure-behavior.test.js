@@ -67,6 +67,7 @@ async function managerLoadOptions(hasTasks) {
         __tmMountEl: {}, __tmMarkContextInteractionQuiet: () => {}, __tmListenPinnedChanged: () => {},
         __tmIsRuntimeMobileClient: () => false, __tmEnsureMount: () => {}, __tmEnsureSettingsLoaded: async () => {},
         __tmHasQuickbarModificationsSync: () => false, __tmRefreshNotebookCache: async () => {},
+        __tmWakeSemanticDatePromptsOnPluginEnter: () => {},
         checkAnyGroupHasDocs: async () => true, render: () => { state.modal = new Element(); },
         loadSelectedDocuments: async options => { loads.push(options); return true; },
         setTimeout: () => 1, requestAnimationFrame: fn => fn(),

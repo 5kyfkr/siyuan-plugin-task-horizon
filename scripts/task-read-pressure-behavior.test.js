@@ -46,6 +46,16 @@ function harness(fetchImpl = async () => ({ ok: true, status: 200, text: async (
     } };
 }
 
+test('modern mode skips the obsolete per-document H2 warm queue', () => {
+    const start = stores.indexOf('    function __tmDrainDocEnhanceWarmQueue(');
+    const end = stores.indexOf('\n    function __tmCollectPrefetchDocIdsByGroups(', start);
+    const warmQueue = stores.slice(start, end);
+    assert.match(warmQueue, /legacyWin7CompatMode !== true[\s\S]*items\.length = 0[\s\S]*set\.clear\(\)/,
+        'queued modern H2 snapshots must be discarded instead of read one document at a time');
+    assert.match(warmQueue, /function __tmEnqueueDocEnhanceWarm[\s\S]*legacyWin7CompatMode !== true\) return/,
+        'modern mode must not enqueue per-document H2 prewarm work');
+});
+
 test('mixed SQL/content/attribute reads share three slots; writes bypass read backlog', async () => {
     const requests = [];
     let active = 0, peak = 0;
@@ -218,6 +228,41 @@ test('transport failure stops document enhancement without legacy fallback or ca
     assert.equal(fallback, 0);
 });
 
+test('H2-only enhancement preserves higher-level heading boundaries and all tasks', async () => {
+    const h = harness();
+    h.context.__tmNormalizeHeadingText = (line) => line.replace(/^#+\s*/, '');
+    const ids = Array.from({ length: 101 }, (_, index) => `20261115-task${index}`);
+    const docId = '20261115-doc';
+    let reads = 0;
+    let legacyCalls = 0;
+    h.api.getBlockKramdown = async () => {
+        reads += 1;
+        return [
+            '## Section A', '{: id="heading-a"}',
+            '- [ ] First', `{: id="${ids[0]}"}`,
+            '# Chapter B', '{: id="chapter-b"}',
+            ...ids.slice(1).flatMap((id) => ['- [ ] Task', `{: id="${id}"}`]),
+        ].join('\n');
+    };
+    // A partial SQL answer must not bypass the complete document parser.
+    h.api.fetchH2ContextsLegacy = async () => {
+        legacyCalls += 1;
+        return new Map(ids.slice(0, 100).map((id) => [id, { id: 'heading-a' }]));
+    };
+    const bundle = await h.api.fetchTaskEnhanceBundle(ids, {
+        needH2: true, needFlow: false, forceFresh: true,
+        taskDocMap: new Map(ids.map((id) => [id, docId])),
+    });
+    assert.equal(reads, 1, 'parse each document once for all of its tasks');
+    assert.equal(legacyCalls, 0);
+    assert.equal(bundle.h2ContextMap.size, ids.length);
+    assert.equal(bundle.h2ContextMap.get(ids[0]).id, 'heading-a');
+    for (const id of ids.slice(1)) {
+        assert.equal(bundle.h2ContextMap.get(id).id, '', 'a higher-level heading ends the previous H2 scope');
+    }
+    assert.equal(bundle.taskFlowRankMap.size, 0);
+});
+
 test('failed batch transport does not fan out, while SQL compatibility fallback remains bounded and complete', async () => {
     const h = harness();
     let cached = 0;
@@ -258,4 +303,40 @@ test('failed batch transport does not fan out, while SQL compatibility fallback 
     await assert.rejects(h.api.getTasksByDocuments(ids), /timeout/);
     assert.equal(fallback, 1, 'legacy sequential loading must stop on transport failure too');
     assert.equal(cached, 0);
+});
+
+test('a task read invalidated by SQL completion skips attribute and custom-field hydration', async () => {
+    const h = harness();
+    let current = true;
+    let hostReads = 0;
+    let customReads = 0;
+    Object.assign(h.context, {
+        SettingsStore: { data: { enableTomatoIntegration: false } },
+        __TM_TASK_INDEX_QUERY_LIMIT: 5000,
+        __TM_SQL_MAX_TOTAL_LIMIT: 500000,
+        __tmCaptureTaskReadToken: () => ({}),
+        __tmGetTaskQueryCache: () => null,
+        __tmRememberTaskQueryCache: () => {},
+        __tmCloneTaskQueryResult: (value) => structuredClone(value),
+        __tmShouldReadRepeatAttrsInline: () => false,
+        __tmBuildTaskInlineAttrNamesSql: () => "'custom-priority'",
+        __tmBuildTaskInlineAttrAggregateSql: () => "'' AS custom_priority",
+        compatTaskAliasTypeCondition: () => "type = 'i'",
+        compatTaskMarkdownCondition: () => '1 = 1',
+        __tmApplyTaskAttrHostOverrides: async () => { hostReads += 1; },
+        __tmAttachCustomFieldAttrsToTasks: async () => { customReads += 1; return {}; },
+    });
+    vm.runInContext(`API.getTasksByDocuments = ({${method('getTasksByDocuments')}}).getTasksByDocuments;`, h.context);
+    h.api.call = async () => {
+        current = false;
+        return { code: 0, data: [] };
+    };
+    const result = await h.api.getTasksByDocuments(['20261115000000-doc001'], 500, {
+        forceFresh: true,
+        isCurrent: () => current,
+    });
+    assert.equal(result.stale, true);
+    assert.deepEqual(Array.from(result.tasks), []);
+    assert.equal(hostReads, 0);
+    assert.equal(customReads, 0);
 });

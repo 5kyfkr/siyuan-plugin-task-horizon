@@ -154,6 +154,70 @@ test('disabled inline repeat reads do not turn SQL placeholders into authoritati
     assert.equal(task.repeatRule.enabled, true);
 });
 
+test('task attribute-host reads leave custom fields to the dedicated field reader', () => {
+    const { context } = createContext({});
+    context.__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR = 'custom-task-attr-host-updated-at';
+    context.__TM_TASK_ATTR_HOST_OWNER_ATTR = 'custom-task-attr-host-owner';
+    vm.runInContext(extract(stores, '__tmGetTaskMetaAttrStorageKeys'), context);
+    const keys = Array.from(context.__tmGetTaskMetaAttrStorageKeys());
+    assert.ok(keys.includes('priority'), 'inline task fields remain in the host read');
+    assert.ok(!keys.includes('custom-project'), 'custom fields must not be fetched twice');
+    assert.ok(!keys.includes('custom-tag'), 'custom fields must not be fetched twice');
+});
+
+test('normal SQL loads keep only attachment slots in the secondary host attribute read', async () => {
+    const { context } = createContext({});
+    const taskId = '20261115000000-task001';
+    let sqlReads = 0;
+    let hostReads = 0;
+    context.__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR = 'custom-task-attr-host-updated-at';
+    context.__TM_TASK_ATTR_HOST_OWNER_ATTR = 'custom-task-attr-host-owner';
+    context.__TM_TASK_ATTACHMENT_ATTR_PREFIX = 'custom-data-assets-th-';
+    context.API = {
+        call: async (url, body) => {
+            assert.equal(url, '/api/query/sql');
+            assert.match(body.stmt, /FROM attributes/);
+            sqlReads += 1;
+            return {
+                code: 0,
+                data: [
+                    { block_id: taskId, name: 'custom-data-assets-th-0', value: 'assets/a.pdf' },
+                    { block_id: taskId, name: 'custom-data-assets-th-meta', value: '{"version":1,"items":[]}' },
+                ],
+            };
+        },
+        batchGetBlockAttrs: async (ids) => {
+            hostReads += 1;
+            assert.deepEqual(Array.from(ids), [taskId]);
+            return {
+                [taskId]: {
+                    priority: 'high',
+                    'custom-project': 'duplicate',
+                    'custom-data-assets-th-0': 'assets/a.pdf',
+                    'custom-data-assets-th-meta': '{"version":1,"items":[]}',
+                },
+            };
+        },
+    };
+    vm.runInContext(extract(stores, '__tmGetTaskMetaAttrStorageKeys'), context);
+    vm.runInContext(extract(stores, '__tmQueryTaskMetaAttrRowsByBlockIds'), context);
+    const rows = await context.__tmQueryTaskMetaAttrRowsByBlockIds([taskId], { onlyAttachmentAttrs: true });
+    assert.deepEqual(Array.from(rows, (row) => row.name).sort(), [
+        'custom-data-assets-th-0',
+        'custom-data-assets-th-meta',
+    ]);
+    assert.equal(sqlReads, 1);
+    assert.equal(hostReads, 0, 'normal attachment hydration must not read every block attribute');
+
+    context.API.call = async () => ({ code: 0, data: [], truncated: true });
+    const fallbackRows = await context.__tmQueryTaskMetaAttrRowsByBlockIds([taskId], { onlyAttachmentAttrs: true });
+    assert.equal(hostReads, 1, 'truncated attachment SQL must fall back to the host batch reader');
+    assert.deepEqual(Array.from(fallbackRows, (row) => row.name).sort(), [
+        'custom-data-assets-th-0',
+        'custom-data-assets-th-meta',
+    ]);
+});
+
 test('loaded missing custom fields stay cleared while unloaded custom fields retain fallback', async () => {
     const { context, writes } = createContext({ customFieldValues: { project: 'old', tag: 'legacy' } });
     const task = { id: 'task-a', __customFieldRawValues: {}, __tmLoadedCustomFieldIds: ['project'] };

@@ -273,7 +273,7 @@
         if (!SettingsStore.data.aiSideDockEnabled) return false;
         if (state.homepageOpen) return true;
         const mode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
-        return mode === 'list' || mode === 'checklist' || mode === 'timeline' || mode === 'kanban' || mode === 'whiteboard' || mode === 'calendar';
+        return mode === 'list' || mode === 'checklist' || mode === 'timeline' || mode === 'kanban' || mode === 'comboBoard' || mode === 'whiteboard' || mode === 'calendar';
     }
 
     function __tmAiUsesOverlayPanel() {

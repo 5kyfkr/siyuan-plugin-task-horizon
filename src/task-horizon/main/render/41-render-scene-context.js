@@ -42,6 +42,7 @@
         const __tmRenderKanbanBodyHtml = (renderOptions = {}) => __tmBuildRenderSceneKanbanBodyHtml({
             bodyAnimClass: __tmGetBodyAnimClassForRender(renderOptions),
             columnPatch: renderOptions.columnPatch,
+            fullShell: renderOptions.fullShell === true,
             customBoardColumns: renderOptions.customBoardColumns
                 ?? (state.viewMode === 'comboBoard' ? state.customBoardProjection : undefined),
         });
@@ -94,7 +95,7 @@
             : renderMode === 'timeline'
                 ? __tmRenderTimelineBodyHtml(__tmTimelineRowModel)
                 : renderMode === 'kanban'
-                    ? __tmRenderKanbanBodyHtml({ withBodyAnimation: true })
+                    ? __tmRenderKanbanBodyHtml({ withBodyAnimation: true, fullShell: true })
                     : renderMode === 'comboBoard'
                         ? __tmRenderKanbanBodyHtml({ withBodyAnimation: true, customBoardColumns: state.customBoardProjection })
                     : __tmRenderListBodyHtml();

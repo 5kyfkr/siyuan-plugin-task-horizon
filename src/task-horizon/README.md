@@ -31,6 +31,16 @@
 - Closing the flyout preserves the condition. Sidebar disposal removes its portal and aborts event listeners. Regression coverage: `shortcut-date-filter.test.js` and `shortcut-date-filter-browser.test.js`.
 - The bottom view bar shares the shortcut layout's stacking context, below its scrim and sidebar; disabling the sidebar returns the bar to its original parent. Date drags track move/release/cancel in capture phase so mobile/Dock gesture isolation does not swallow the range gesture.
 
+## Schedule search
+
+- The existing search-scope panel has a separate, opt-in `taskSearchIncludeSchedules` setting. Expanded search queries tasks and schedules independently, retaining successful results if either source fails. Task pagination preserves the schedule result set and uses task IDs separately from schedule IDs.
+- Users can select schedules alone by clearing all task fields while schedules are enabled. At least one task field or schedules must remain selected; shared-settings hydration restores the schedules switch before normalizing an empty task-field selection.
+- The scope action shows Select all for the default title-and-note selection, including schedules and all enabled text columns when clicked. Any other selection offers Restore defaults.
+- When compact search has no matching tasks, it checks the existing full-search path after a debounce and shows an inline link only when additional results are confirmed. Preview requests share the full-search cancellation boundary, and opening full search cancels a pending preview.
+- `calendar-view.js` owns schedule text matching, linked-title fallback and representative occurrence dates. Repeating series show an ongoing/next occurrence, or the last occurrence after the series ends, using the shared recurrence reader.
+- Schedule rows use a calendar icon and show their navigation date in desktop and compact layouts. Clicking a result dismisses search and passes that date to the calendar's `navigateToDate` entry point, which also queues navigation until the main calendar mounts.
+- Behavioral coverage: `calendar-search.test.js`, `task-search-fields-browser.test.js`, and `calendar-schedule-editor-device-browser.test.js`.
+
 ## Calendar subscription scope
 
 - `calendarIcsScope` defaults to `all`; `selected` uses the union of `calendarIcsDocGroupIds`. An empty or deleted selection stays empty.

@@ -4305,13 +4305,17 @@ html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-detail-card {
 .tm-search-fields__option input { flex: 0 0 auto; accent-color: var(--b3-theme-primary); }
 
 .tm-search-fields__hint,
+.tm-inline-searchbar__more,
 .tm-inline-searchbar__status {
     padding: 6px;
     color: var(--tm-secondary-text);
     font-size: 12px;
 }
 
-.tm-inline-searchbar__status { flex-basis: 100%; }
+.tm-inline-searchbar__status,
+.tm-inline-searchbar__more { flex-basis: 100%; }
+
+.tm-inline-searchbar__more button { margin-inline-start: 6px; }
 
 .tm-inline-searchbar__input:focus {
     border-color: color-mix(in srgb, var(--b3-theme-primary) 56%, var(--b3-border-color));
@@ -4438,6 +4442,15 @@ html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-detail-card {
     cursor: default;
 }
 
+.tm-search-workspace__schedule-icon {
+    display: flex;
+    color: var(--tm-secondary-text);
+}
+
+.tm-search-workspace__schedule-date {
+    display: none;
+}
+
 .tm-search-workspace__main {
     display: flex;
     min-width: 0;
@@ -4494,6 +4507,10 @@ html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-detail-card {
 
 .tm-inline-searchbar--dock .tm-search-workspace__meta {
     display: none;
+}
+
+.tm-inline-searchbar--dock .tm-search-workspace__schedule-date {
+    display: block;
 }
 
 .tm-search-workspace__archive {
@@ -4596,6 +4613,10 @@ html.tm-task-horizon-mobile-dismiss-drag .tm-checklist-detail-card {
 
     .tm-search-workspace__meta {
         display: none;
+    }
+
+    .tm-search-workspace__schedule-date {
+        display: block;
     }
 }
 

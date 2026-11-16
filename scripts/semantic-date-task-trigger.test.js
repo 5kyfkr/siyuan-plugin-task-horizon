@@ -93,8 +93,6 @@ function harness() {
 }
 
 (async () => {
-    assert.match(lifecycle, /requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\);[\s\S]*if \(runtimeMobile\) __tmWakeSemanticDatePromptsOnPluginEnter\(\)/,
-        'mobile manager entry must wake native document suggestions after its view mounts');
     const h = harness();
     h.task('unrelated', '明天9点开会');
     h.task('edited', '8点吃饭');
@@ -403,6 +401,104 @@ function harness() {
     assert.equal(nativeBatch.shown.length, 1);
     assert.equal(nativeBatch.shown[0].length, 3, 'concurrent native task reads must produce one combined confirmation');
 
+    for (const entry of ['document-topbar', 'window-topbar', 'tab', 'dock', 'mobile']) {
+        const edits = harness(), handlers = new Map(), nativeTasks = new Map(), taskReads = [];
+        let visible = false, binding = null;
+        edits.context.__tmIsPluginVisibleNow = () => visible;
+        Object.assign(edits.context, {
+            __tmNativeDocTaskContentSyncTimers: new Map(), __tmNativeDocTaskContentInputHandler: null,
+            __TM_NATIVE_DOC_TASK_CONTENT_SYNC_DELAY_MS: 80,
+            __tmRuntimeEvents: { on: (target, type, handler) => handlers.set(type, handler), off() {} },
+            __tmResolveNativeDocEventElement: () => Object.assign(new edits.DetailElement('editor'), {
+                matches: selector => selector === '.protyle-wysiwyg',
+            }),
+            __tmResolveNativeDocTaskContentInput: () => binding,
+            __tmApplyLiveDocumentTaskContentPatch: () => false,
+            __tmReadLiveDocumentTaskContentPatch: () => null,
+            __tmFlushSqlTransactionsSafe: async () => true,
+            __tmTryApplyDocTopbarManagerTarget: async () => true,
+            __tmRestoreDefaultManagerContextAfterDocTopbarLocate: async () => false,
+            __tmIsRuntimeMobileClient: () => entry === 'mobile', __tmIsDockHost: () => false,
+            openManager: async () => {
+                edits.state.openToken++;
+                visible = true;
+                edits.focus(false);
+                edits.context.__tmWakeSemanticDatePromptsOnPluginEnter();
+            },
+        });
+        edits.context.API.getTaskById = async id => { taskReads.push(id); return nativeTasks.get(id); };
+        vm.runInContext([
+            segment(native, '    function __tmScheduleNativeDocTaskContentSync', '    function __tmMatchesNativeTaskShortcut'),
+            segment(api, '    async function __tmOpenManagerFromDocTopbarEntry', '    function __tmFindMobileTopBarTriggerFromEventTarget'),
+        ].join('\n'), edits.context);
+        edits.context.__tmBindNativeDocTaskContentSync();
+        const enter = async () => {
+            if (entry === 'document-topbar') await edits.context.__tmOpenManagerFromDocTopbarEntry();
+            else if (entry === 'window-topbar' || entry === 'mobile') await edits.context.__tmOpenManagerFromTopbarEntry();
+            else await edits.context.openManager();
+            await edits.flush();
+        };
+        edits.focus(true);
+        for (let index = 0; index < 3; index++) {
+            const taskId = `${entry}-${index}`;
+            nativeTasks.set(taskId, { id: taskId, root_id: 'other-doc', markdown: '- [ ] ' + batchTitles[index] });
+            binding = { taskId, taskItem: { isConnected: true } };
+            handlers.get('input')({ type: 'input', isTrusted: true });
+            // Only the first task ends an IME composition; moving the caret or
+            // pressing Enter within the editor does not blur each task title.
+            if (index === 0) handlers.get('compositionend')({ type: 'compositionend', isTrusted: true });
+            await edits.flush();
+        }
+        assert.equal(edits.shown.length, 0, entry + ': editing must not show a confirmation');
+        assert.deepEqual(taskReads, [`${entry}-0`], entry + ': ordinary input must not query SQL on each pause');
+        await enter();
+        assert.equal(edits.shown.length, 1, entry + ': entering must show one combined confirmation');
+        assert.deepEqual(Array.from(edits.shown[0], item => item.taskId),
+            [0, 1, 2].map(index => `${entry}-${index}`), entry + ': every edited task must be retained');
+        assert.equal(edits.context.__tmNativeDocTaskContentSyncTimers.size, 0);
+        edits.context.__tmCloseSemanticDateConfirmModal();
+
+        edits.focus(true);
+        for (let index = 0; index < 3; index++) {
+            const taskId = `${entry}-blur-${index}`;
+            nativeTasks.set(taskId, { id: taskId, root_id: 'other-doc', markdown: '- [ ] ' + batchTitles[index] });
+            binding = { taskId, taskItem: { isConnected: true } };
+            handlers.get('input')({ type: 'input', isTrusted: true });
+            await edits.flush();
+        }
+        binding = null;
+        edits.focus(false);
+        handlers.get('focusout')({ type: 'focusout', isTrusted: true });
+        await edits.flush();
+        assert.equal(edits.shown.length, 2, entry + ': editor blur must also flush all edited tasks when the selection has left');
+        assert.equal(edits.shown[1].length, 3);
+        edits.context.__tmCloseSemanticDateConfirmModal();
+
+        visible = false;
+        edits.focus(true);
+        for (let index = 0; index < 3; index++) {
+            const taskId = `${entry}-plain-${index}`;
+            nativeTasks.set(taskId, { id: taskId, root_id: 'other-doc', markdown: '- [ ] ' + batchTitles[index] });
+            binding = { taskId, taskItem: { isConnected: true } };
+            handlers.get('input')({ type: 'input', isTrusted: true });
+            await edits.flush();
+        }
+        assert.equal(edits.context.__tmSemanticDatePendingTasks.size, 0);
+        await enter();
+        assert.equal(edits.shown.length, 3, entry + ': input without IME or blur must wake an initially empty recognition queue');
+        assert.equal(edits.shown[2].length, 3);
+        edits.context.__tmCloseSemanticDateConfirmModal();
+
+        edits.context.SettingsStore.data.semanticDateAutoPromptEnabled = false;
+        edits.focus(true);
+        handlers.get('input')({ type: 'input', isTrusted: true });
+        await edits.flush();
+        assert.equal(edits.context.__tmNativeDocTaskContentSyncTimers.size, 0,
+            entry + ': disabled recognition must not retain native task elements');
+    }
+
+    assert.match(lifecycle, /requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\);[\s\S]*\n        __tmWakeSemanticDatePromptsOnPluginEnter\(\);/,
+        'every manager entry must wake native document suggestions after its view mounts');
     assert.doesNotMatch(read('task-runtime/53c-document-loader-runtime.js'), /__tmMaybeAutoPromptSemanticDates/, 'loading or refreshing the list must not trigger a global scan');
     console.log('semantic task-specific create, edit, native-editor trigger and race tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

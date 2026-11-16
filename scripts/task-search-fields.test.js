@@ -93,4 +93,15 @@ assert.equal(engine.analyzePatch({ customFieldValues: { client: 'new' } }, proje
 assert.equal(engine.analyzePatch({ content: 'new', remark: 'new' }, projectionContext).filter, false);
 assert.equal(engine.analyzePatch({ customFieldValues: {} }, projectionContext).filter, true, 'empty replacement must refresh selected custom columns');
 assert.equal(engine.analyzePatch({ customFieldValues: { notes: 'new' } }, { ...projectionContext, searchActive: false }).filter, false);
+
+context.SettingsStore.data.taskSearchIncludeSchedules = true;
+setFields([]);
+assert.deepEqual(fields(), [], 'schedule-only scope preserves an explicitly empty task field list');
+assert.equal(matches(task, '标题'), false, 'schedule-only search excludes matching tasks');
+assert.equal(matches(task, ''), true, 'an empty keyword leaves the current view unfiltered');
+const restored = JSON.parse(JSON.stringify(context.SettingsStore.data));
+context.SettingsStore.data = restored;
+assert.deepEqual(fields(), [], 'saved schedule-only selection survives serialization');
+context.SettingsStore.data.taskSearchIncludeSchedules = false;
+assert.deepEqual(fields(), ['content', 'remark'], 'an invalid completely empty scope falls back to task fields');
 console.log('task search fields behavior tests passed');

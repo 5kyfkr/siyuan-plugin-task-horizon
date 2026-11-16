@@ -334,25 +334,70 @@
             return '';
         },
 
+        async getDocMetaByIds(ids) {
+            const safeIds = Array.from(new Set((Array.isArray(ids) ? ids : [])
+                .map((id) => String(id || '').trim())
+                .filter((id) => /^[0-9]+-[a-zA-Z0-9]+$/.test(id)))).sort();
+            const out = new Map();
+            if (!safeIds.length) return out;
+            const chunkSize = 200;
+            for (let start = 0; start < safeIds.length; start += chunkSize) {
+                const chunk = safeIds.slice(start, start + chunkSize);
+                const requestKey = chunk.join(',');
+                let pending = __tmDocMetaReadInFlight.get(requestKey);
+                if (!pending) {
+                    pending = Promise.resolve().then(async () => {
+                        const chunkMap = new Map();
+                        const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+                        try {
+                            const res = await this.call('/api/query/sql', {
+                                stmt: `SELECT id, content, hpath, box FROM blocks WHERE type = 'd' AND id IN (${idList}) LIMIT ${chunk.length}`,
+                            });
+                            if (res.code === 0 && Array.isArray(res.data)) {
+                                res.data.forEach((row) => {
+                                    const id = String(row?.id || '').trim();
+                                    if (!id) return;
+                                    chunkMap.set(id, {
+                                        id,
+                                        name: String(row?.content || '').trim() || __tmT("kernel.untitledDocument"),
+                                        path: String(row?.hpath || '').trim(),
+                                        notebook: String(row?.box || '').trim(),
+                                    });
+                                });
+                            }
+                        } catch (e) {}
+                        for (const id of chunk) {
+                            if (chunkMap.has(id)) continue;
+                            const hpath = await this.getHPathByID(id);
+                            const name = String(hpath || '').split('/').filter(Boolean).pop() || id;
+                            chunkMap.set(id, { id, name, path: hpath, notebook: '' });
+                        }
+                        return chunkMap;
+                    });
+                    if (__tmDocMetaReadInFlight.size < 64) {
+                        __tmDocMetaReadInFlight.set(requestKey, pending);
+                        const clear = () => {
+                            if (__tmDocMetaReadInFlight.get(requestKey) === pending) {
+                                __tmDocMetaReadInFlight.delete(requestKey);
+                            }
+                        };
+                        pending.then(clear, clear);
+                    }
+                }
+                const chunkMap = await pending;
+                chunk.forEach((id) => {
+                    const meta = chunkMap.get(id);
+                    if (meta) out.set(id, { ...meta });
+                });
+            }
+            return out;
+        },
+
         async getDocMetaById(id) {
             const did = String(id || '').trim();
             if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return null;
-            try {
-                const sql = `SELECT id, content, hpath, box FROM blocks WHERE id = '${did.replace(/'/g, "''")}' AND type = 'd' LIMIT 1`;
-                const res = await this.call('/api/query/sql', { stmt: sql });
-                if (res.code === 0 && Array.isArray(res.data) && res.data.length > 0) {
-                    const row = res.data[0] || {};
-                    return {
-                        id: did,
-                        name: String(row?.content || '').trim() || __tmT("kernel.untitledDocument"),
-                        path: String(row?.hpath || '').trim(),
-                        notebook: String(row?.box || '').trim()
-                    };
-                }
-            } catch (e) {}
-            const hpath = await this.getHPathByID(did);
-            const name = String(hpath || '').split('/').filter(Boolean).pop() || did;
-            return { id: did, name, path: hpath, notebook: '' };
+            const metaById = await this.getDocMetaByIds([did]);
+            return metaById.get(did) || null;
         },
 
         async getNotebookDocumentsFromFileTree(notebookId, options = null) {
@@ -1314,9 +1359,15 @@
             let customFieldReadTime = 0;
             let attrReadTime = 0;
             let customFieldReadMeta = null;
+            const attrHostDiagnostics = {};
             const shouldLoadCustomFieldAttrs = !Array.isArray(customFieldIds) || customFieldIds.length > 0;
             const attrHostReadStart = Date.now();
-            try { await __tmApplyTaskAttrHostOverrides(tasks); } catch (e) {}
+            try {
+                await __tmApplyTaskAttrHostOverrides(tasks, {
+                    diagnostics: attrHostDiagnostics,
+                    onlyAttachmentAttrs: !legacyCompat,
+                });
+            } catch (e) {}
             attrHostReadTime = Date.now() - attrHostReadStart;
             if (shouldLoadCustomFieldAttrs) {
                 const customFieldReadStart = Date.now();
@@ -1327,6 +1378,9 @@
                     cacheHitCount: 0,
                     cacheMissCount: 0,
                     hostQueryCount: 0,
+                    hostTaskCount: 0,
+                    attrRowCount: 0,
+                    cancelled: false,
                     selfFallbackCount: 0,
                     hostAssignedCount: 0,
                     selfAssignedCount: 0,
@@ -1361,10 +1415,16 @@
                 customFieldCacheHitCount: Number(customFieldReadMeta?.cacheHitCount || 0),
                 customFieldCacheMissCount: Number(customFieldReadMeta?.cacheMissCount || 0),
                 customFieldHostQueryCount: Number(customFieldReadMeta?.hostQueryCount || 0),
+                customFieldHostTaskCount: Number(customFieldReadMeta?.hostTaskCount || 0),
+                customFieldAttrRowCount: Number(customFieldReadMeta?.attrRowCount || 0),
                 customFieldSelfFallbackCount: Number(customFieldReadMeta?.selfFallbackCount || 0),
                 customFieldHostAssignedCount: Number(customFieldReadMeta?.hostAssignedCount || 0),
                 customFieldSelfAssignedCount: Number(customFieldReadMeta?.selfAssignedCount || 0),
                 customFieldRequestedFieldCount: Number(customFieldReadMeta?.requestedFieldCount || 0),
+                attrHostTaskCount: Number(attrHostDiagnostics.taskCount || 0),
+                attrHostBatchCount: Number(attrHostDiagnostics.batchCount || 0),
+                attrHostQueryTime: Number(attrHostDiagnostics.queryMs || 0),
+                attrHostApplyTime: Number(attrHostDiagnostics.applyMs || 0),
                 readRepeatAttrsInline: __tmShouldReadRepeatAttrsInline(),
             };
         },
@@ -1382,6 +1442,20 @@
             const forceFresh = !!(options && options.forceFresh === true);
             const skipParentTaskJoin = !!(options && options.skipParentTaskJoin === true);
             const skipDocJoin = !!(options && options.skipDocJoin === true);
+            const isReadCurrent = typeof options?.isCurrent === 'function'
+                ? () => {
+                    try { return options.isCurrent() !== false; } catch (e) { return false; }
+                }
+                : () => true;
+            const staleResult = (queryTime, extra = {}) => ({
+                tasks: [],
+                queryTime,
+                sqlQueryTime: queryTime,
+                queryLimit: perDocLimit,
+                totalLimit,
+                stale: true,
+                ...extra,
+            });
             const customFieldIds = Array.isArray(options?.customFieldIds) ? options.customFieldIds : null;
             const customFieldIdsKey = Array.isArray(customFieldIds)
                 ? customFieldIds.map((id) => String(id || '').trim()).filter(Boolean).sort().join(',') || '__none__'
@@ -1411,10 +1485,16 @@
                 const sourceCustomFieldCacheHitCount = Number(out?.customFieldCacheHitCount || 0);
                 const sourceCustomFieldCacheMissCount = Number(out?.customFieldCacheMissCount || 0);
                 const sourceCustomFieldHostQueryCount = Number(out?.customFieldHostQueryCount || 0);
+                const sourceCustomFieldHostTaskCount = Number(out?.customFieldHostTaskCount || 0);
+                const sourceCustomFieldAttrRowCount = Number(out?.customFieldAttrRowCount || 0);
                 const sourceCustomFieldSelfFallbackCount = Number(out?.customFieldSelfFallbackCount || 0);
                 const sourceCustomFieldHostAssignedCount = Number(out?.customFieldHostAssignedCount || 0);
                 const sourceCustomFieldSelfAssignedCount = Number(out?.customFieldSelfAssignedCount || 0);
                 const sourceCustomFieldRequestedFieldCount = Number(out?.customFieldRequestedFieldCount || 0);
+                const sourceAttrHostTaskCount = Number(out?.attrHostTaskCount || 0);
+                const sourceAttrHostBatchCount = Number(out?.attrHostBatchCount || 0);
+                const sourceAttrHostQueryTime = Number(out?.attrHostQueryTime || 0);
+                const sourceAttrHostApplyTime = Number(out?.attrHostApplyTime || 0);
                 out.cacheHit = 1;
                 out.cacheAgeMs = Math.max(0, Date.now() - Number(cached.t || 0));
                 out.sourceQueryTime = sourceQueryTime;
@@ -1425,10 +1505,16 @@
                 out.sourceCustomFieldCacheHitCount = sourceCustomFieldCacheHitCount;
                 out.sourceCustomFieldCacheMissCount = sourceCustomFieldCacheMissCount;
                 out.sourceCustomFieldHostQueryCount = sourceCustomFieldHostQueryCount;
+                out.sourceCustomFieldHostTaskCount = sourceCustomFieldHostTaskCount;
+                out.sourceCustomFieldAttrRowCount = sourceCustomFieldAttrRowCount;
                 out.sourceCustomFieldSelfFallbackCount = sourceCustomFieldSelfFallbackCount;
                 out.sourceCustomFieldHostAssignedCount = sourceCustomFieldHostAssignedCount;
                 out.sourceCustomFieldSelfAssignedCount = sourceCustomFieldSelfAssignedCount;
                 out.sourceCustomFieldRequestedFieldCount = sourceCustomFieldRequestedFieldCount;
+                out.sourceAttrHostTaskCount = sourceAttrHostTaskCount;
+                out.sourceAttrHostBatchCount = sourceAttrHostBatchCount;
+                out.sourceAttrHostQueryTime = sourceAttrHostQueryTime;
+                out.sourceAttrHostApplyTime = sourceAttrHostApplyTime;
                 out.queryTime = 0;
                 out.sqlQueryTime = 0;
                 out.attrReadTime = 0;
@@ -1437,10 +1523,16 @@
                 out.customFieldCacheHitCount = 0;
                 out.customFieldCacheMissCount = 0;
                 out.customFieldHostQueryCount = 0;
+                out.customFieldHostTaskCount = 0;
+                out.customFieldAttrRowCount = 0;
                 out.customFieldSelfFallbackCount = 0;
                 out.customFieldHostAssignedCount = 0;
                 out.customFieldSelfAssignedCount = 0;
                 out.customFieldRequestedFieldCount = 0;
+                out.attrHostTaskCount = 0;
+                out.attrHostBatchCount = 0;
+                out.attrHostQueryTime = 0;
+                out.attrHostApplyTime = 0;
                 return out;
             }
             const docIdSet = new Set(safeDocIds);
@@ -1457,10 +1549,16 @@
                 let customFieldCacheHitCount = 0;
                 let customFieldCacheMissCount = 0;
                 let customFieldHostQueryCount = 0;
+                let customFieldHostTaskCount = 0;
+                let customFieldAttrRowCount = 0;
                 let customFieldSelfFallbackCount = 0;
                 let customFieldHostAssignedCount = 0;
                 let customFieldSelfAssignedCount = 0;
                 let customFieldRequestedFieldCount = 0;
+                let attrHostTaskCount = 0;
+                let attrHostBatchCount = 0;
+                let attrHostQueryTime = 0;
+                let attrHostApplyTime = 0;
                 for (const docId of safeDocIds) {
                     try {
                         const docRes = await this.getTasksByDocument(docId, perDocLimit, {
@@ -1476,10 +1574,16 @@
                         customFieldCacheHitCount += Number(docRes?.customFieldCacheHitCount || 0);
                         customFieldCacheMissCount += Number(docRes?.customFieldCacheMissCount || 0);
                         customFieldHostQueryCount += Number(docRes?.customFieldHostQueryCount || 0);
+                        customFieldHostTaskCount += Number(docRes?.customFieldHostTaskCount || 0);
+                        customFieldAttrRowCount += Number(docRes?.customFieldAttrRowCount || 0);
                         customFieldSelfFallbackCount += Number(docRes?.customFieldSelfFallbackCount || 0);
                         customFieldHostAssignedCount += Number(docRes?.customFieldHostAssignedCount || 0);
                         customFieldSelfAssignedCount += Number(docRes?.customFieldSelfAssignedCount || 0);
                         customFieldRequestedFieldCount = Math.max(customFieldRequestedFieldCount, Number(docRes?.customFieldRequestedFieldCount || 0));
+                        attrHostTaskCount += Number(docRes?.attrHostTaskCount || 0);
+                        attrHostBatchCount += Number(docRes?.attrHostBatchCount || 0);
+                        attrHostQueryTime += Number(docRes?.attrHostQueryTime || 0);
+                        attrHostApplyTime += Number(docRes?.attrHostApplyTime || 0);
                         (Array.isArray(docRes?.limitReachedDocIds) ? docRes.limitReachedDocIds : []).forEach((docId0) => {
                             const did = String(docId0 || '').trim();
                             if (!did || limitReachedDocIdSet.has(did)) return;
@@ -1508,10 +1612,16 @@
                     customFieldCacheHitCount,
                     customFieldCacheMissCount,
                     customFieldHostQueryCount,
+                    customFieldHostTaskCount,
+                    customFieldAttrRowCount,
                     customFieldSelfFallbackCount,
                     customFieldHostAssignedCount,
                     customFieldSelfAssignedCount,
                     customFieldRequestedFieldCount,
+                    attrHostTaskCount,
+                    attrHostBatchCount,
+                    attrHostQueryTime,
+                    attrHostApplyTime,
                     readRepeatAttrsInline: repeatAttrsInline,
                 };
                 __tmRememberTaskQueryCache(cacheKey, { t: Date.now(), v: __tmCloneTaskQueryResult(out), docIdSet, ttl: cacheTtlMs }, cacheReadToken);
@@ -1531,10 +1641,16 @@
                 let customFieldCacheHitCount = 0;
                 let customFieldCacheMissCount = 0;
                 let customFieldHostQueryCount = 0;
+                let customFieldHostTaskCount = 0;
+                let customFieldAttrRowCount = 0;
                 let customFieldSelfFallbackCount = 0;
                 let customFieldHostAssignedCount = 0;
                 let customFieldSelfAssignedCount = 0;
                 let customFieldRequestedFieldCount = 0;
+                let attrHostTaskCount = 0;
+                let attrHostBatchCount = 0;
+                let attrHostQueryTime = 0;
+                let attrHostApplyTime = 0;
                 let cacheHit = 0;
                 for (let i = 0; i < safeDocIds.length; i += docChunkSize) {
                     const chunk = safeDocIds.slice(i, i + docChunkSize);
@@ -1556,10 +1672,16 @@
                     customFieldCacheHitCount += Number(chunkRes?.customFieldCacheHitCount || 0);
                     customFieldCacheMissCount += Number(chunkRes?.customFieldCacheMissCount || 0);
                     customFieldHostQueryCount += Number(chunkRes?.customFieldHostQueryCount || 0);
+                    customFieldHostTaskCount += Number(chunkRes?.customFieldHostTaskCount || 0);
+                    customFieldAttrRowCount += Number(chunkRes?.customFieldAttrRowCount || 0);
                     customFieldSelfFallbackCount += Number(chunkRes?.customFieldSelfFallbackCount || 0);
                     customFieldHostAssignedCount += Number(chunkRes?.customFieldHostAssignedCount || 0);
                     customFieldSelfAssignedCount += Number(chunkRes?.customFieldSelfAssignedCount || 0);
                     customFieldRequestedFieldCount = Math.max(customFieldRequestedFieldCount, Number(chunkRes?.customFieldRequestedFieldCount || 0));
+                    attrHostTaskCount += Number(chunkRes?.attrHostTaskCount || 0);
+                    attrHostBatchCount += Number(chunkRes?.attrHostBatchCount || 0);
+                    attrHostQueryTime += Number(chunkRes?.attrHostQueryTime || 0);
+                    attrHostApplyTime += Number(chunkRes?.attrHostApplyTime || 0);
                     cacheHit += Number(chunkRes?.cacheHit || 0);
                     if ((i + docChunkSize) < safeDocIds.length) {
                         try { await new Promise((resolve) => setTimeout(resolve, 0)); } catch (e) {}
@@ -1582,10 +1704,16 @@
                     customFieldCacheHitCount,
                     customFieldCacheMissCount,
                     customFieldHostQueryCount,
+                    customFieldHostTaskCount,
+                    customFieldAttrRowCount,
                     customFieldSelfFallbackCount,
                     customFieldHostAssignedCount,
                     customFieldSelfAssignedCount,
                     customFieldRequestedFieldCount,
+                    attrHostTaskCount,
+                    attrHostBatchCount,
+                    attrHostQueryTime,
+                    attrHostApplyTime,
                     readRepeatAttrsInline: repeatAttrsInline,
                 };
                 __tmRememberTaskQueryCache(cacheKey, { t: Date.now(), v: __tmCloneTaskQueryResult(out), docIdSet, ttl: cacheTtlMs }, cacheReadToken);
@@ -1735,10 +1863,16 @@
                     let customFieldCacheHitCount = 0;
                     let customFieldCacheMissCount = 0;
                     let customFieldHostQueryCount = 0;
+                    let customFieldHostTaskCount = 0;
+                    let customFieldAttrRowCount = 0;
                     let customFieldSelfFallbackCount = 0;
                     let customFieldHostAssignedCount = 0;
                     let customFieldSelfAssignedCount = 0;
                     let customFieldRequestedFieldCount = 0;
+                    let attrHostTaskCount = 0;
+                    let attrHostBatchCount = 0;
+                    let attrHostQueryTime = 0;
+                    let attrHostApplyTime = 0;
                     const limitReachedDocIds = [];
                     const limitReachedDocIdSet = new Set();
                     results.forEach(r => tasks.push(...(r?.tasks || [])));
@@ -1755,10 +1889,16 @@
                         customFieldCacheHitCount += Number(r?.customFieldCacheHitCount || 0);
                         customFieldCacheMissCount += Number(r?.customFieldCacheMissCount || 0);
                         customFieldHostQueryCount += Number(r?.customFieldHostQueryCount || 0);
+                        customFieldHostTaskCount += Number(r?.customFieldHostTaskCount || 0);
+                        customFieldAttrRowCount += Number(r?.customFieldAttrRowCount || 0);
                         customFieldSelfFallbackCount += Number(r?.customFieldSelfFallbackCount || 0);
                         customFieldHostAssignedCount += Number(r?.customFieldHostAssignedCount || 0);
                         customFieldSelfAssignedCount += Number(r?.customFieldSelfAssignedCount || 0);
                         customFieldRequestedFieldCount = Math.max(customFieldRequestedFieldCount, Number(r?.customFieldRequestedFieldCount || 0));
+                        attrHostTaskCount += Number(r?.attrHostTaskCount || 0);
+                        attrHostBatchCount += Number(r?.attrHostBatchCount || 0);
+                        attrHostQueryTime += Number(r?.attrHostQueryTime || 0);
+                        attrHostApplyTime += Number(r?.attrHostApplyTime || 0);
                     });
                     const fallbackTime = Date.now() - fallbackStart;
                     const out = {
@@ -1775,10 +1915,16 @@
                         customFieldCacheHitCount,
                         customFieldCacheMissCount,
                         customFieldHostQueryCount,
+                        customFieldHostTaskCount,
+                        customFieldAttrRowCount,
                         customFieldSelfFallbackCount,
                         customFieldHostAssignedCount,
                         customFieldSelfAssignedCount,
                         customFieldRequestedFieldCount,
+                        attrHostTaskCount,
+                        attrHostBatchCount,
+                        attrHostQueryTime,
+                        attrHostApplyTime,
                         readRepeatAttrsInline: repeatAttrsInline,
                     };
                     __tmRememberTaskQueryCache(cacheKey, { t: Date.now(), v: __tmCloneTaskQueryResult(out), docIdSet, ttl: cacheTtlMs }, cacheReadToken);
@@ -1787,28 +1933,56 @@
                     throw e;
                 }
             }
+            if (!isReadCurrent()) return staleResult(queryTime);
             let tasks = __tmDedupeTaskQueryRowsById(Array.isArray(res.data) ? res.data : []).map((row) => ({ ...row }));
             if (skipDocJoin) {
                 const docInfoMap = await __tmBuildDocQueryInfoMapWithFallback(safeDocIds);
                 __tmApplyDocQueryInfoToTasks(tasks, docInfoMap);
             }
+            if (!isReadCurrent()) return staleResult(queryTime);
             let attrHostReadTime = 0;
             let customFieldReadTime = 0;
             let attrReadTime = 0;
             let customFieldReadMeta = null;
+            const attrHostDiagnostics = {};
             const shouldLoadCustomFieldAttrs = !Array.isArray(customFieldIds) || customFieldIds.length > 0;
             const attrHostReadStart = Date.now();
-            try { await __tmApplyTaskAttrHostOverrides(tasks); } catch (e) {}
+            try {
+                await __tmApplyTaskAttrHostOverrides(tasks, {
+                    diagnostics: attrHostDiagnostics,
+                    onlyAttachmentAttrs: !legacyCompat,
+                    isCurrent: isReadCurrent,
+                });
+            } catch (e) {}
             attrHostReadTime = Date.now() - attrHostReadStart;
+            if (attrHostDiagnostics.cancelled === true || !isReadCurrent()) {
+                return staleResult(queryTime, {
+                    attrReadTime: attrHostReadTime,
+                    attrHostReadTime,
+                    customFieldReadTime: 0,
+                    attrHostTaskCount: Number(attrHostDiagnostics.taskCount || 0),
+                    attrHostBatchCount: Number(attrHostDiagnostics.batchCount || 0),
+                    attrHostQueryTime: Number(attrHostDiagnostics.queryMs || 0),
+                    attrHostApplyTime: Number(attrHostDiagnostics.applyMs || 0),
+                });
+            }
             if (shouldLoadCustomFieldAttrs) {
                 const customFieldReadStart = Date.now();
-                try { customFieldReadMeta = await __tmAttachCustomFieldAttrsToTasks(tasks, { fieldIds: customFieldIds, forceFresh }); } catch (e) { customFieldReadMeta = null; }
+                try {
+                    customFieldReadMeta = await __tmAttachCustomFieldAttrsToTasks(tasks, {
+                        fieldIds: customFieldIds,
+                        forceFresh,
+                        isCurrent: isReadCurrent,
+                    });
+                } catch (e) { customFieldReadMeta = null; }
                 customFieldReadTime = Date.now() - customFieldReadStart;
             } else {
                 customFieldReadMeta = {
                     cacheHitCount: 0,
                     cacheMissCount: 0,
                     hostQueryCount: 0,
+                    hostTaskCount: 0,
+                    attrRowCount: 0,
                     selfFallbackCount: 0,
                     hostAssignedCount: 0,
                     selfAssignedCount: 0,
@@ -1817,6 +1991,20 @@
                 customFieldReadTime = 0;
             }
             attrReadTime = attrHostReadTime + customFieldReadTime;
+            if (customFieldReadMeta?.cancelled === true || !isReadCurrent()) {
+                return staleResult(queryTime, {
+                    attrReadTime,
+                    attrHostReadTime,
+                    customFieldReadTime,
+                    attrHostTaskCount: Number(attrHostDiagnostics.taskCount || 0),
+                    attrHostBatchCount: Number(attrHostDiagnostics.batchCount || 0),
+                    attrHostQueryTime: Number(attrHostDiagnostics.queryMs || 0),
+                    attrHostApplyTime: Number(attrHostDiagnostics.applyMs || 0),
+                    customFieldHostQueryCount: Number(customFieldReadMeta?.hostQueryCount || 0),
+                    customFieldHostTaskCount: Number(customFieldReadMeta?.hostTaskCount || 0),
+                    customFieldAttrRowCount: Number(customFieldReadMeta?.attrRowCount || 0),
+                });
+            }
             const limitReachedDocIdSet = new Set();
             tasks.forEach((task) => {
                 const seq = Number(task?.doc_seq);
@@ -1851,10 +2039,16 @@
                 customFieldCacheHitCount: Number(customFieldReadMeta?.cacheHitCount || 0),
                 customFieldCacheMissCount: Number(customFieldReadMeta?.cacheMissCount || 0),
                 customFieldHostQueryCount: Number(customFieldReadMeta?.hostQueryCount || 0),
+                customFieldHostTaskCount: Number(customFieldReadMeta?.hostTaskCount || 0),
+                customFieldAttrRowCount: Number(customFieldReadMeta?.attrRowCount || 0),
                 customFieldSelfFallbackCount: Number(customFieldReadMeta?.selfFallbackCount || 0),
                 customFieldHostAssignedCount: Number(customFieldReadMeta?.hostAssignedCount || 0),
                 customFieldSelfAssignedCount: Number(customFieldReadMeta?.selfAssignedCount || 0),
                 customFieldRequestedFieldCount: Number(customFieldReadMeta?.requestedFieldCount || 0),
+                attrHostTaskCount: Number(attrHostDiagnostics.taskCount || 0),
+                attrHostBatchCount: Number(attrHostDiagnostics.batchCount || 0),
+                attrHostQueryTime: Number(attrHostDiagnostics.queryMs || 0),
+                attrHostApplyTime: Number(attrHostDiagnostics.applyMs || 0),
                 readRepeatAttrsInline: repeatAttrsInline,
             };
             __tmRememberTaskQueryCache(cacheKey, { t: Date.now(), v: __tmCloneTaskQueryResult(out), docIdSet, ttl: cacheTtlMs }, cacheReadToken);
@@ -4801,6 +4995,7 @@
         searchWorkspaceSort: 'relevance',
         searchWorkspaceRequestId: 0,
         searchWorkspaceTimer: 0,
+        searchWorkspacePreviewKey: '',
         activeDocId: 'all',
         docTopbarLocateReturnGroupId: '',
         docTopbarLocateTargetActive: false,
@@ -7873,6 +8068,7 @@
                 if (requiresPlacementAcknowledgement && !acknowledged) {
                     throw new Error(__tmT("task.taskMoveFailedTheKernelDidNotReturnA2"));
                 }
+                op.primaryWriteConfirmed = true;
                 try { __tmCommitQueuedOp(op, result); } catch (e) {}
                 const opType = String(op.type || '').trim();
                 const latestIntentMatch = opType === 'setDone'
@@ -8108,7 +8304,9 @@
     }
 
     function __tmHasPendingQueuedOps(options = {}) {
-        return __tmActiveMutations.size > 0;
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.primaryOnly !== true) return __tmActiveMutations.size > 0;
+        return Array.from(__tmActiveMutations.values()).some((op) => op?.primaryWriteConfirmed !== true);
     }
 
     async function __tmWaitForQueuedOpsIdle(timeoutMs = 900) {
@@ -8403,6 +8601,7 @@
                     opId: String(op.id || '').trim(),
                     type: String(op.type || '').trim(),
                     status: String(op.status || '').trim() || 'queued',
+                    primaryWriteConfirmed: op.primaryWriteConfirmed === true,
                     laneKey: String(op.laneKey || '').trim(),
                     taskIds: collectIds(op).slice(0, 40),
                     createdAt: Number(op.createdAt) || 0,
@@ -8728,6 +8927,7 @@
         try {
             return Array.from(__tmActiveMutations.values()).some((op) => {
                 if (!op || !statusSet.has(String(op.status || '').trim())) return false;
+                if (opts.primaryOnly === true && op.primaryWriteConfirmed === true) return false;
                 return __tmOpReferencesTaskId(op, tid);
             });
         } catch (e) {}
@@ -8760,7 +8960,9 @@
         };
         const items = Array.from(__tmActiveMutations.values());
         items.forEach((op) => {
-            if (!op || !statusSet.has(String(op?.status || '').trim())) return;
+            // After the receipt the canonical projection already contains the marker and
+            // recurrence result. Do not reapply the requested checkbox while effects settle.
+            if (!op || op.primaryWriteConfirmed === true || !statusSet.has(String(op?.status || '').trim())) return;
             const type = String(op?.type || '').trim();
             if (type === 'taskPatch') {
                 mergePatch(op?.data?.taskId, op?.data?.patch);
@@ -10834,8 +11036,11 @@
     }
 
     function __tmWakeSemanticDatePromptsOnPluginEnter() {
-        if (!__tmSemanticDatePendingTasks.size && !__tmSemanticDatePromptActivePending) return false;
         if (!__tmIsSemanticDateAutoPromptEnabled() || !__tmIsPluginVisibleNow()) return false;
+        if (typeof __tmFlushNativeDocTaskContentSyncForRecognition === 'function') {
+            __tmFlushNativeDocTaskContentSyncForRecognition();
+        }
+        if (!__tmSemanticDatePendingTasks.size && !__tmSemanticDatePromptActivePending) return false;
         const token = Number(state.openToken) || 0;
         __tmSemanticDatePendingTasks.forEach((pending, taskId) => {
             __tmSemanticDatePendingTasks.set(taskId, { ...pending, token });

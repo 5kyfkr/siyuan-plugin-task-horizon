@@ -4525,6 +4525,53 @@
     let __tmTaskIndexSaveTimer = null;
     let __tmTaskIndexSaveInFlight = false;
     let __tmTaskIndexSaveGeneration = 0;
+    let __tmTaskIndexFirstDirtyAt = 0;
+    let __tmTaskIndexLastCheckpointAt = 0;
+    const __tmTaskIndexPendingDocs = new Map();
+
+    function __tmComputeTaskIndexCheckpointDelay(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const now = Math.max(0, Number(opts.now) || Date.now());
+        const firstDirtyAt = Number(opts.firstDirtyAt) > 0 ? Number(opts.firstDirtyAt) : now;
+        const lastCheckpointAt = Math.max(0, Number(opts.lastCheckpointAt) || 0);
+        const requestedDelay = Math.max(0, Number(opts.requestedDelay) || 0);
+        const quietMs = 5000;
+        const deadlineMs = 20000;
+        const minimumGapMs = 15000;
+        const floorMs = 120;
+        const untilDeadline = Math.max(0, firstDirtyAt + deadlineMs - now);
+        return Math.max(
+            floorMs,
+            lastCheckpointAt > 0 ? lastCheckpointAt + minimumGapMs - now : 0,
+            Math.min(Math.max(quietMs, requestedDelay), untilDeadline),
+        );
+    }
+
+    function __tmTaskIndexEntryIsNewerOrEqual(candidate, previous) {
+        if (!previous) return true;
+        const candidateUpdated = String(candidate?.docUpdated || '');
+        const previousUpdated = String(previous?.docUpdated || '');
+        if (candidateUpdated && previousUpdated && candidateUpdated < previousUpdated) return false;
+        if (candidateUpdated === previousUpdated
+            && Number(previous?.updatedAt || 0) > Number(candidate?.updatedAt || 0)) return false;
+        return true;
+    }
+
+    function __tmRememberTaskIndexEntriesForCheckpoint(entries, options = {}) {
+        const list = (Array.isArray(entries) ? entries : []).filter((entry) => entry && __tmIsLikelyBlockId(entry.id));
+        const readToken = options.readToken || globalThis.__tmTaskStore?.captureRead?.(list.map((entry) => entry.id)) || null;
+        if (readToken && globalThis.__tmTaskStore?.isReadCurrent?.(readToken) !== true) return [];
+        list.forEach((entry) => {
+            const id = String(entry.id || '').trim();
+            const previous = __tmTaskIndexPendingDocs.get(id);
+            // A queued projection rebuild uses the latest loaded state at save time.
+            if (previous && !previous.entry) return;
+            if (__tmTaskIndexEntryIsNewerOrEqual(entry, previous?.entry)) {
+                __tmTaskIndexPendingDocs.set(id, { entry, readToken });
+            }
+        });
+        return list.map((entry) => String(entry.id || '').trim()).filter(Boolean);
+    }
 
     function __tmWithTaskIndexWriteLock(callback) {
         return __tmWithDerivedCacheWriteLock('task-horizon:task-index-write', callback);
@@ -4721,6 +4768,10 @@
 
     function __tmInvalidateTaskIndexStoreCache() {
         __tmTaskIndexSaveGeneration += 1;
+        if (__tmTaskIndexSaveTimer) clearTimeout(__tmTaskIndexSaveTimer);
+        __tmTaskIndexSaveTimer = null;
+        __tmTaskIndexPendingDocs.clear();
+        __tmTaskIndexFirstDirtyAt = 0;
         try { __tmTaskIndexStoreCache = null; } catch (e) {}
         try { __tmTaskIndexStoreLoadPromise = null; } catch (e) {}
     }
@@ -4742,11 +4793,21 @@
         const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
         if (!docIds.length) return false;
         if (docIds.length > __TM_TASK_INDEX_MAX_DOCS) return false;
+        if (opts.pendingOnly !== true) {
+            docIds.forEach((id) => __tmTaskIndexPendingDocs.set(id, { options: opts }));
+        }
+        const now = Date.now();
+        if (!(__tmTaskIndexFirstDirtyAt > 0)) __tmTaskIndexFirstDirtyAt = now;
         try {
             if (__tmTaskIndexSaveTimer) clearTimeout(__tmTaskIndexSaveTimer);
         } catch (e) {}
         const saveGeneration = ++__tmTaskIndexSaveGeneration;
-        const delayMs = Math.max(120, Number(opts.delayMs || 700) || 700);
+        const delayMs = __tmComputeTaskIndexCheckpointDelay({
+            now,
+            firstDirtyAt: __tmTaskIndexFirstDirtyAt,
+            lastCheckpointAt: __tmTaskIndexLastCheckpointAt,
+            requestedDelay: opts.delayMs,
+        });
         __tmTaskIndexSaveTimer = setTimeout(() => {
             __tmTaskIndexSaveTimer = null;
             const runSave = () => {
@@ -4771,25 +4832,42 @@
                     }
                 } catch (e) {}
                 if (backgroundWaitMs > 0 || __tmTaskIndexSaveInFlight) {
-                    __tmSchedulePersistTaskIndex({
-                        ...opts,
-                        docIds,
-                        delayMs: Math.max(420, backgroundWaitMs || 1000),
-                    });
+                    __tmTaskIndexSaveTimer = setTimeout(() => {
+                        __tmTaskIndexSaveTimer = null;
+                        __tmScheduleIdleTask(runSave, 180);
+                    }, Math.max(420, backgroundWaitMs, __tmTaskIndexSaveInFlight ? 1200 : 0));
                     return;
                 }
 
-                const readToken = globalThis.__tmTaskStore?.captureRead?.(docIds) || null;
+                const pendingDocsAtSave = Array.from(__tmTaskIndexPendingDocs.entries());
+                const readToken = globalThis.__tmTaskStore?.captureRead?.(pendingDocsAtSave.map(([id]) => id)) || null;
+                const loadedDocIds = new Set(state.__tmLoadedDocIdsForTasks || []);
                 const docsById = new Map((Array.isArray(state.taskTree) ? state.taskTree : [])
                     .map((doc) => [String(doc?.id || '').trim(), doc])
                     .filter(([docId]) => __tmIsLikelyBlockId(docId)));
                 const allDocInfoById = new Map((Array.isArray(state.allDocuments) ? state.allDocuments : [])
                     .map((doc) => [String(doc?.id || '').trim(), doc])
                     .filter(([docId]) => __tmIsLikelyBlockId(docId)));
-                const expectedCountMap = __tmGetExpectedTaskCountMapFromOptions(opts);
-                const nextEntries = [];
-                docIds.forEach((docId) => {
+                const entriesToPersist = [];
+                const staleDocIds = [];
+                pendingDocsAtSave.forEach(([docId, pending]) => {
+                    if (pending.entry) {
+                        if (pending.readToken && globalThis.__tmTaskStore?.isReadCurrent?.(pending.readToken) !== true) {
+                            __tmTaskIndexPendingDocs.delete(docId);
+                            staleDocIds.push(docId);
+                            return;
+                        }
+                        entriesToPersist.push(pending.entry);
+                        return;
+                    }
                     const hasTaskTreeDoc = docsById.has(docId);
+                    // A group switch may unload this document before the checkpoint.
+                    if (!hasTaskTreeDoc && !loadedDocIds.has(docId)) {
+                        __tmTaskIndexPendingDocs.delete(docId);
+                        return;
+                    }
+                    const docOptions = pending.options || {};
+                    const expectedCountMap = __tmGetExpectedTaskCountMapFromOptions(docOptions);
                     const docInfo = allDocInfoById.get(docId) || {};
                     const doc = docsById.get(docId) || {
                         id: docId,
@@ -4803,17 +4881,31 @@
                     const entry = __tmBuildTaskIndexDocEntry({
                         ...doc,
                         docUpdated: String(doc?.docUpdated || doc?.updated || docInfo?.updated || docInfo?.docUpdated || '').trim(),
-                    }, { ...opts, inTaskTree: hasTaskTreeDoc });
+                    }, { ...docOptions, inTaskTree: hasTaskTreeDoc });
                     const expectedCount = __tmGetExpectedTaskCountFromMap(expectedCountMap, docId);
                     if (entry && Number.isFinite(expectedCount)
                         && Math.max(0, Math.round(Number(entry.taskCount || 0) || 0)) < expectedCount) return;
                     if (entry && __tmEstimateJsonByteSize(entry) > __TM_TASK_INDEX_MAX_SINGLE_DOC_BYTES) return;
-                    if (entry) nextEntries.push(entry);
+                    if (entry) entriesToPersist.push(entry);
                 });
-                if (!nextEntries.length || saveGeneration !== __tmTaskIndexSaveGeneration) return;
+                if (staleDocIds.length) __tmScheduleTaskIndexPrewarmForDocIds(staleDocIds);
+                if (!entriesToPersist.length || saveGeneration !== __tmTaskIndexSaveGeneration) return;
                 __tmTaskIndexSaveInFlight = true;
                 Promise.resolve()
-                    .then(() => __tmPersistTaskIndexEntries(nextEntries, { generation: saveGeneration, readToken }))
+                    .then(() => __tmPersistTaskIndexEntries(entriesToPersist, { generation: saveGeneration, readToken }))
+                    .then((saved) => {
+                        if (saved && saveGeneration === __tmTaskIndexSaveGeneration
+                            && (!readToken || globalThis.__tmTaskStore?.isReadCurrent?.(readToken) === true)) {
+                            __tmTaskIndexLastCheckpointAt = Date.now();
+                            const savedDocIds = new Set(entriesToPersist.map((entry) => entry.id));
+                            pendingDocsAtSave.forEach(([id, pending]) => {
+                                if (savedDocIds.has(id) && __tmTaskIndexPendingDocs.get(id) === pending) {
+                                    __tmTaskIndexPendingDocs.delete(id);
+                                }
+                            });
+                            if (!__tmTaskIndexPendingDocs.size) __tmTaskIndexFirstDirtyAt = 0;
+                        }
+                    })
                     .catch(() => null)
                     .finally(() => {
                         __tmTaskIndexSaveInFlight = false;
@@ -5673,7 +5765,8 @@
         const fields = Array.from(new Set((Array.isArray(input) ? input : ['content', 'remark'])
             .map((field) => String(field || '').trim())
             .filter((field) => available.has(field))));
-        return fields.length ? fields : ['content', 'remark'];
+        return fields.length || (Array.isArray(input) && input.length === 0 && SettingsStore.data.taskSearchIncludeSchedules === true)
+            ? fields : ['content', 'remark'];
     }
 
     function __tmCollectCustomFieldLoadPlan(options = {}) {
@@ -8781,6 +8874,7 @@
             expandedCompletedGroups: [],
             currentRule: null,
             taskSearchFields: ['content', 'remark'],
+            taskSearchIncludeSchedules: false,
             viewProfiles: {
                 global: { ruleId: null, groupMode: 'doc' },
                 allTabs: {},
@@ -9856,6 +9950,7 @@
                                 if (cloudData.taskCountBadge && typeof cloudData.taskCountBadge === 'object' && !Array.isArray(cloudData.taskCountBadge)) {
                                     this.data.taskCountBadge = __tmNormalizeTaskCountBadge(cloudData.taskCountBadge);
                                 }
+                                if (typeof cloudData.taskSearchIncludeSchedules === 'boolean') this.data.taskSearchIncludeSchedules = cloudData.taskSearchIncludeSchedules;
                                 if (Array.isArray(cloudData.taskSearchFields)) this.data.taskSearchFields = __tmGetTaskSearchFields(cloudData.taskSearchFields);
                                 if (cloudData.docDefaultTaskHeadingByDocId && typeof cloudData.docDefaultTaskHeadingByDocId === 'object' && !Array.isArray(cloudData.docDefaultTaskHeadingByDocId)) {
                                     this.data.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap(cloudData.docDefaultTaskHeadingByDocId);
@@ -13623,6 +13718,7 @@
     const __tmDocEnhanceWarmQueue = { items: [], set: new Set(), running: 0, timer: null };
     const __tmSqlInFlight = new Map();
     const __tmTaskReadInFlight = new Map();
+    const __tmDocMetaReadInFlight = new Map();
     let __tmTaskReadGeneration = 0;
     const __tmSqlQueue = { max: 3, active: 0, q: [] };
     const __tmAuxQueryCache = new Map();
@@ -13675,6 +13771,7 @@
     let __tmTaskSnapshotSaveTimer = null;
     let __tmTaskSnapshotSaveGeneration = 0;
     let __tmTaskSnapshotSaveInFlight = false;
+    let __tmTaskSnapshotLastCheckpointAt = 0;
     const __tmTaskSnapshotPendingDocSaves = new Map();
     let __tmTaskSnapshotStoreCache = null;
     let __tmTaskSnapshotStoreLoadPromise = null;
@@ -14506,6 +14603,45 @@
             : [];
         const missingIds = targetIds.filter((id) => !out.has(id));
         if (!missingIds.length) return out;
+        if (API && typeof API.getDocMetaByIds === 'function') {
+            let metaById = null;
+            try { metaById = await API.getDocMetaByIds(missingIds); } catch (e) {}
+            if (metaById instanceof Map) {
+                if (!Array.isArray(state.allDocuments)) state.allDocuments = [];
+                const docsById = new Map(state.allDocuments
+                    .map((doc) => [String(doc?.id || '').trim(), doc])
+                    .filter(([id]) => !!id));
+                missingIds.forEach((id) => {
+                    const meta = metaById.get(id);
+                    if (!meta) return;
+                    const docName = String(meta?.name || '').trim();
+                    const docPath = String(meta?.path || '').trim();
+                    out.set(id, {
+                        doc_name: docName,
+                        doc_path: docPath,
+                    });
+                    const existing = docsById.get(id) || null;
+                    if (existing) {
+                        if (!String(existing.name || '').trim() && docName) existing.name = docName;
+                        if (!String(existing.path || '').trim() && docPath) existing.path = docPath;
+                    } else {
+                        const nextDoc = {
+                            id,
+                            name: docName || __tmT("kernel.untitledDocument"),
+                            alias: '',
+                            icon: '',
+                            path: docPath,
+                            notebook: String(meta?.notebook || '').trim(),
+                            taskCount: 0,
+                            created: ''
+                        };
+                        state.allDocuments.push(nextDoc);
+                        docsById.set(id, nextDoc);
+                    }
+                });
+                return out;
+            }
+        }
         const chunkSize = 200;
         for (let i = 0; i < missingIds.length; i += chunkSize) {
             const chunk = missingIds.slice(i, i + chunkSize);
@@ -14687,37 +14823,68 @@
     }
 
     function __tmGetTaskMetaAttrStorageKeys() {
-        const customFieldAttrKeys = (() => {
-            try {
-                return __tmGetCustomFieldDefs()
-                    .map((field) => __tmBuildCustomFieldAttrStorageKey(field?.attrKey || field?.id || field?.name || 'field', field?.id || 'field'))
-                    .map((name) => String(name || '').trim())
-                    .filter(Boolean);
-            } catch (e) {
-                return [];
-            }
-        })();
         return Array.from(new Set(__tmGetTaskInlineAttrSpecs()
             .filter((spec) => spec && spec.enabled)
             .flatMap((spec) => Array.isArray(spec.names) ? spec.names : [spec.name])
-            .concat(customFieldAttrKeys)
             .concat([__TM_TASK_ATTR_HOST_UPDATED_AT_ATTR, __TM_TASK_ATTR_HOST_OWNER_ATTR])
             .map((name) => String(name || '').trim())
             .filter(Boolean)));
     }
 
-    async function __tmQueryTaskMetaAttrRowsByBlockIds(blockIds) {
+    async function __tmQueryTaskMetaAttrRowsByBlockIds(blockIds, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const onlyAttachmentAttrs = opts.onlyAttachmentAttrs === true;
         const safeBlockIds = Array.from(new Set((Array.isArray(blockIds) ? blockIds : [])
             .map((id) => String(id || '').trim())
             .filter((id) => /^[0-9]+-[a-zA-Z0-9]+$/.test(id))));
         if (!safeBlockIds.length) return [];
+        if (onlyAttachmentAttrs) {
+            const rows = [];
+            const chunkSize = 400;
+            for (let i = 0; i < safeBlockIds.length; i += chunkSize) {
+                const chunk = safeBlockIds.slice(i, i + chunkSize);
+                const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+                const rowLimit = Math.max(1, chunk.length * 32 + 1);
+                const sql = `
+                    SELECT block_id, name, value
+                    FROM attributes
+                    WHERE block_id IN (${idList})
+                      AND name LIKE '${__TM_TASK_ATTACHMENT_ATTR_PREFIX}%'
+                    LIMIT ${rowLimit}
+                `;
+                let res = null;
+                try {
+                    res = await API.call('/api/query/sql', { stmt: sql });
+                } catch (e) {}
+                if (res?.code === 0 && Array.isArray(res.data)
+                    && res.truncated !== true && res.queryLimit?.truncated !== true
+                    && res.data.length < rowLimit) {
+                    res.data.forEach((row) => {
+                        const blockId = String(row?.block_id || '').trim();
+                        const name = String(row?.name || '').trim();
+                        if (!blockId || !name.startsWith(__TM_TASK_ATTACHMENT_ATTR_PREFIX)) return;
+                        rows.push({ block_id: blockId, name, value: String(row?.value ?? '') });
+                    });
+                    continue;
+                }
+                const attrsById = await API.batchGetBlockAttrs(chunk, 400);
+                chunk.forEach((blockId) => {
+                    Object.entries(attrsById?.[blockId] || {}).forEach(([name, value]) => {
+                        if (!String(name).startsWith(__TM_TASK_ATTACHMENT_ATTR_PREFIX)) return;
+                        rows.push({ block_id: blockId, name, value: String(value ?? '') });
+                    });
+                });
+            }
+            return rows;
+        }
         const attrNames = new Set(__tmGetTaskMetaAttrStorageKeys());
         if (!attrNames.size) return [];
         const attrsById = await API.batchGetBlockAttrs(safeBlockIds, 400);
         const rows = [];
         safeBlockIds.forEach((blockId) => {
             Object.entries(attrsById?.[blockId] || {}).forEach(([name, value]) => {
-                if (!attrNames.has(name) && !String(name).startsWith(__TM_TASK_ATTACHMENT_ATTR_PREFIX)) return;
+                const isAttachmentAttr = String(name).startsWith(__TM_TASK_ATTACHMENT_ATTR_PREFIX);
+                if (!isAttachmentAttr && !attrNames.has(name)) return;
                 rows.push({ block_id: blockId, name, value: String(value ?? '') });
             });
         });
@@ -14871,6 +15038,12 @@
         if (!list.length) return list;
         __tmMarkTaskInlineAttrsLoaded(list);
         const opts = (options && typeof options === 'object') ? options : {};
+        const diagnostics = (opts.diagnostics && typeof opts.diagnostics === 'object') ? opts.diagnostics : null;
+        const isCurrent = typeof opts.isCurrent === 'function' ? opts.isCurrent : null;
+        const readIsCurrent = () => {
+            if (!isCurrent) return true;
+            try { return isCurrent() !== false; } catch (e) { return false; }
+        };
         await __tmPopulateTaskAttrHostIds(list);
         const taskIds = [];
         list.forEach((task) => {
@@ -14878,9 +15051,29 @@
             if (taskId) taskIds.push(taskId);
         });
         const uniqueQueryIds = Array.from(new Set(taskIds.filter(Boolean)));
+        if (diagnostics) {
+            diagnostics.taskCount = uniqueQueryIds.length;
+            diagnostics.batchCount = Math.ceil(uniqueQueryIds.length / 400);
+            diagnostics.queryMs = 0;
+            diagnostics.applyMs = 0;
+            diagnostics.cancelled = false;
+        }
         if (!uniqueQueryIds.length) return list;
-        const rows = await __tmQueryTaskMetaAttrRowsByBlockIds(uniqueQueryIds);
+        if (!readIsCurrent()) {
+            if (diagnostics) diagnostics.cancelled = true;
+            return list;
+        }
+        const queryStartedAt = Date.now();
+        const rows = await __tmQueryTaskMetaAttrRowsByBlockIds(uniqueQueryIds, {
+            onlyAttachmentAttrs: opts.onlyAttachmentAttrs === true,
+        });
+        if (diagnostics) diagnostics.queryMs = Date.now() - queryStartedAt;
+        if (!readIsCurrent()) {
+            if (diagnostics) diagnostics.cancelled = true;
+            return list;
+        }
         if (!rows.length) return list;
+        const applyStartedAt = Date.now();
         const rowMap = new Map();
         rows.forEach((row) => {
             const blockId = String(row?.block_id || '').trim();
@@ -14897,75 +15090,43 @@
             if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_ATTACHMENT_META_ATTR)) return true;
             return Object.keys(row).some((key) => __tmIsTaskAttachmentAttrKey(key));
         };
-        const getTaskAttrContext = (task) => {
-            const taskId = String(task?.id || '').trim();
-            const cached = task?.__tmTaskAttrContext;
-            if (cached && typeof cached === 'object' && String(cached.taskId || '').trim() === taskId) return cached;
-            return __tmBuildTaskAttrContext(taskId, task?.parent_id || task?.parentId || '', {
-                taskCount: Number(task?.parentListTaskCount ?? task?.parent_list_task_count ?? task?.siblingTaskCount),
-                firstTaskId: String(task?.firstTaskId || task?.first_task_id || '').trim(),
-                parentType: String(task?.parentListType || task?.parent_list_type || task?.parentType || '').trim().toLowerCase(),
-            });
-        };
-        const isTaskAttrManagedRowKey = (key) => {
-            const attrKey = String(key || '').trim();
-            if (!attrKey) return false;
-            if (attrKey === __TM_TASK_ATTR_HOST_UPDATED_AT_ATTR || attrKey === __TM_TASK_ATTR_HOST_OWNER_ATTR) return true;
-            if (__tmIsTaskMetaAttrKey(attrKey)) return true;
-            if (attrKey === __TM_TASK_REPEAT_RULE_ATTR || attrKey === __TM_TASK_REPEAT_STATE_ATTR || attrKey === __TM_TASK_REPEAT_HISTORY_ATTR) return true;
-            if (attrKey === __TM_TASK_ATTACHMENT_META_ATTR) return true;
-            if (__tmIsTaskAttachmentAttrKey(attrKey)) return true;
-            if (__tmGetCustomFieldDefByAttrStorageKey(attrKey)) return true;
-            const tomatoKeys = [
-                __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes'),
-                __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyHours, 'custom-tomato-time'),
-                __tmSafeAttrName(SettingsStore.data.tomatoCountAttrKey, 'custom-tomato-count'),
-                __tmSafeAttrName(SettingsStore.data.tomatoEstimateAttrKey, 'custom-tomato-estimate-count'),
-            ];
-            return tomatoKeys.includes(attrKey);
-        };
-        const mergeTaskAttrRowsForContext = (context) => {
-            const primaryId = String(context?.taskId || '').trim();
-            const primaryRow = primaryId ? (rowMap.get(primaryId) || null) : null;
-            const out = {};
-            Object.entries(primaryRow || {}).forEach(([key, value]) => {
-                if (!isTaskAttrManagedRowKey(key)) return;
-                out[key] = value;
-            });
-            return {
-                row: out,
-                primaryRow,
-                primaryId,
-                selectedSourceId: primaryId,
-                hasValues: shouldApplySelfRow(out),
-                primaryHasValues: shouldApplySelfRow(primaryRow),
-            };
-        };
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
             if (!taskId) return;
-            const context = getTaskAttrContext(task);
+            const context = (task.__tmTaskAttrContext
+                && String(task.__tmTaskAttrContext.taskId || '').trim() === taskId)
+                ? task.__tmTaskAttrContext
+                : __tmBuildTaskAttrContext(taskId, task?.parent_id || task?.parentId || '', {
+                    taskCount: Number(task?.parentListTaskCount ?? task?.parent_list_task_count ?? task?.siblingTaskCount),
+                    firstTaskId: String(task?.firstTaskId || task?.first_task_id || '').trim(),
+                    parentType: String(task?.parentListType || task?.parent_list_type || task?.parentType || '').trim().toLowerCase(),
+                });
             task.__tmTaskAttrContext = context;
             task.attrHostId = context.primaryHostId || taskId;
             task.attr_host_id = task.attrHostId;
-            const merged = mergeTaskAttrRowsForContext(context);
-            if (!merged.hasValues && !(opts.applyBlankSelfAttrs === true && Object.keys(merged.row || {}).some((key) => __tmIsTaskMetaAttrKey(key)))) return;
-            __tmApplyTaskMetaAttrRow(task, merged.row, {
-                preferExisting: merged.primaryId === taskId ? opts.preferExistingSelf !== false : false,
-                preferExistingVisibleDates: merged.primaryId === taskId,
+            const row = rowMap.get(taskId) || null;
+            if (!shouldApplySelfRow(row)
+                && !(opts.applyBlankSelfAttrs === true && Object.keys(row || {}).some((key) => __tmIsTaskMetaAttrKey(key)))) {
+                return;
+            }
+            __tmApplyTaskMetaAttrRow(task, row, {
+                preferExisting: opts.preferExistingSelf !== false,
+                preferExistingVisibleDates: true,
                 preserveExistingVisibleDatesOnBlank: true,
             });
-            if (merged.selectedSourceId && merged.selectedSourceId === taskId && merged.primaryId !== taskId) {
-                task.__tmPreferSelfAttrHostValues = true;
-                task.__tmPreferSelfAttrHostId = merged.primaryId;
-            }
         });
+        if (diagnostics) diagnostics.applyMs = Date.now() - applyStartedAt;
         return list;
     }
 
     async function __tmQueryCustomFieldAttrRowsByTaskIds(taskIds, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const forceFresh = opts.forceFresh === true;
+        const isCurrent = typeof opts.isCurrent === 'function' ? opts.isCurrent : null;
+        const readIsCurrent = () => {
+            if (!isCurrent) return true;
+            try { return isCurrent() !== false; } catch (e) { return false; }
+        };
         const allDefs = __tmGetCustomFieldDefs();
         const requestedFieldIdSet = Array.isArray(opts.fieldIds)
             ? new Set(opts.fieldIds.map((id) => String(id || '').trim()).filter(Boolean))
@@ -14983,6 +15144,10 @@
                 valueMapByTaskId: new Map(),
                 cacheHitCount: 0,
                 cacheMissCount: 0,
+                hostQueryCount: 0,
+                candidateTaskCount: 0,
+                attrRowCount: 0,
+                cancelled: false,
                 requestedFieldCount: 0,
             };
         }
@@ -14994,6 +15159,10 @@
                 valueMapByTaskId: new Map(),
                 cacheHitCount: 0,
                 cacheMissCount: 0,
+                hostQueryCount: 0,
+                candidateTaskCount: 0,
+                attrRowCount: 0,
+                cancelled: false,
                 requestedFieldCount: defs.length,
             };
         }
@@ -15009,6 +15178,10 @@
                 valueMapByTaskId: new Map(),
                 cacheHitCount: 0,
                 cacheMissCount: 0,
+                hostQueryCount: 0,
+                candidateTaskCount: safeTaskIds.length,
+                attrRowCount: 0,
+                cancelled: false,
                 requestedFieldCount: 0,
             };
         }
@@ -15019,7 +15192,10 @@
         const valueMapByTaskId = new Map();
         const uncachedTaskIds = [];
         let queryComplete = true;
+        let cancelled = false;
         let cacheHitCount = 0;
+        let hostQueryCount = 0;
+        let attrRowCount = 0;
         safeTaskIds.forEach((taskId) => {
             const cached = __tmCustomFieldAttrValueCache.get(taskId);
             const cachedFieldIds = Array.isArray(cached?.fieldIds)
@@ -15068,6 +15244,10 @@
                 valueMapByTaskId,
                 cacheHitCount,
                 cacheMissCount: 0,
+                hostQueryCount: 0,
+                candidateTaskCount: safeTaskIds.length,
+                attrRowCount: 0,
+                cancelled: false,
                 requestedFieldCount: defs.length,
             };
         }
@@ -15075,6 +15255,11 @@
         const queriedValueMap = new Map();
         const chunkSize = 400;
         for (let i = 0; i < uncachedTaskIds.length; i += chunkSize) {
+            if (!readIsCurrent()) {
+                queryComplete = false;
+                cancelled = true;
+                break;
+            }
             const chunk = uncachedTaskIds.slice(i, i + chunkSize);
             if (!chunk.length) continue;
             const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
@@ -15089,6 +15274,7 @@
                 LIMIT ${rowLimit}
             `;
             let res = null;
+            hostQueryCount += 1;
             try {
                 res = await API.call('/api/query/sql', { stmt: sql });
             } catch (e) {
@@ -15101,6 +15287,7 @@
                 queryComplete = false;
                 continue;
             }
+            attrRowCount += res.data.length;
             res.data.forEach((row) => {
                 const blockId = String(row?.block_id || '').trim();
                 const attrName = String(row?.name || '').trim();
@@ -15109,6 +15296,11 @@
                 if (!queriedValueMap.has(blockId)) queriedValueMap.set(blockId, {});
                 queriedValueMap.get(blockId)[fieldId] = String(row?.value ?? '');
             });
+            if (!readIsCurrent()) {
+                queryComplete = false;
+                cancelled = true;
+                break;
+            }
         }
         uncachedTaskIds.forEach((taskId) => {
             const cached = __tmCustomFieldAttrValueCache.get(taskId);
@@ -15162,6 +15354,10 @@
             valueMapByTaskId,
             cacheHitCount,
             cacheMissCount: uncachedTaskIds.length,
+            hostQueryCount,
+            candidateTaskCount: safeTaskIds.length,
+            attrRowCount,
+            cancelled,
             requestedFieldCount: defs.length,
             queryComplete,
         };
@@ -15174,6 +15370,9 @@
                 cacheHitCount: 0,
                 cacheMissCount: 0,
                 hostQueryCount: 0,
+                hostTaskCount: 0,
+                attrRowCount: 0,
+                cancelled: false,
                 selfFallbackCount: 0,
                 hostAssignedCount: 0,
                 selfAssignedCount: 0,
@@ -15196,7 +15395,10 @@
             return {
                 cacheHitCount: Number(queryResult?.cacheHitCount || 0),
                 cacheMissCount: Number(queryResult?.cacheMissCount || 0),
-                hostQueryCount: candidateIds.size,
+                hostQueryCount: Number(queryResult?.hostQueryCount || 0),
+                hostTaskCount: candidateIds.size,
+                attrRowCount: Number(queryResult?.attrRowCount || 0),
+                cancelled: queryResult?.cancelled === true,
                 selfFallbackCount: 0,
                 hostAssignedCount: 0,
                 selfAssignedCount: 0,
@@ -15262,7 +15464,10 @@
         return {
             cacheHitCount: Number(queryResult?.cacheHitCount || 0),
             cacheMissCount: Number(queryResult?.cacheMissCount || 0),
-            hostQueryCount: candidateIds.size,
+            hostQueryCount: Number(queryResult?.hostQueryCount || 0),
+            hostTaskCount: candidateIds.size,
+            attrRowCount: Number(queryResult?.attrRowCount || 0),
+            cancelled: queryResult?.cancelled === true,
             selfFallbackCount: 0,
             hostAssignedCount,
             selfAssignedCount,
@@ -15418,6 +15623,7 @@
     function __tmInvalidateAllSqlCaches() {
         __tmTaskReadGeneration += 1;
         __tmTaskReadInFlight.clear();
+        __tmDocMetaReadInFlight.clear();
         try { __tmTasksQueryCache.clear(); } catch (e) {}
         try { __tmInvalidateDocProgressCache(); } catch (e) {}
         try { __tmDocHasTaskQueryCache.clear(); } catch (e) {}
@@ -15669,6 +15875,7 @@
         __tmRuntimeCleanupRequested = true;
         __tmTaskReadGeneration += 1;
         __tmTaskReadInFlight.clear();
+        __tmDocMetaReadInFlight.clear();
         __tmTaskSnapshotPendingDocSaves.clear();
         try {
             __tmIdleTaskTimeoutHandles.forEach((timer) => {
@@ -15701,6 +15908,9 @@
                 __tmTaskIndexSaveTimer = null;
             }
             __tmTaskIndexSaveGeneration += 1;
+            __tmTaskIndexFirstDirtyAt = 0;
+            __tmTaskIndexLastCheckpointAt = 0;
+            __tmTaskIndexPendingDocs.clear();
         } catch (e) {}
         try {
             if (__tmTaskSnapshotSaveTimer) {
@@ -15828,6 +16038,11 @@
     }
 
     function __tmDrainDocEnhanceWarmQueue() {
+        if (SettingsStore.data?.legacyWin7CompatMode !== true) {
+            __tmDocEnhanceWarmQueue.items.length = 0;
+            __tmDocEnhanceWarmQueue.set.clear();
+            return;
+        }
         const cfg = __tmGetPerfTuningOptions();
         if (!cfg.warmEnhance) return;
         try {
@@ -15868,6 +16083,7 @@
     }
 
     function __tmEnqueueDocEnhanceWarm(docIds, headingLevel) {
+        if (SettingsStore.data?.legacyWin7CompatMode !== true) return;
         const cfg = __tmGetPerfTuningOptions();
         if (!cfg.warmEnhance) return;
         const ids = Array.from(new Set((docIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
@@ -15939,26 +16155,37 @@
                 await __tmExpandSourceEntryDocIds(entry, pushDocId);
             } catch (e) {}
         }
-        const stillMissingIds = targetIds.filter((id) => !out.has(id));
-        if (stillMissingIds.length && API && typeof API.getDocMetaById === 'function') {
+        const targetIds = Array.from(new Set(entries
+            .filter((entry) => String(entry?.kind || 'doc').trim() === 'doc')
+            .map((entry) => String(entry?.id || '').trim())
+            .filter((id) => __tmIsLikelyBlockId(id))));
+        const stillMissingIds = targetIds.filter((id) => !seen.has(id));
+        if (stillMissingIds.length && API
+            && (typeof API.getDocMetaByIds === 'function' || typeof API.getDocMetaById === 'function')) {
+            let metaById = null;
+            if (typeof API.getDocMetaByIds === 'function') {
+                try { metaById = await API.getDocMetaByIds(stillMissingIds); } catch (e) {}
+            }
+            if (!Array.isArray(state.allDocuments)) state.allDocuments = [];
+            const docsById = new Map(state.allDocuments
+                .map((doc) => [String(doc?.id || '').trim(), doc])
+                .filter(([id]) => !!id));
             for (const id of stillMissingIds) {
-                if (out.has(id)) continue;
                 try {
-                    const meta = await API.getDocMetaById(id);
+                    const meta = metaById?.get?.(id)
+                        || (!metaById && typeof API.getDocMetaById === 'function'
+                            ? await API.getDocMetaById(id)
+                            : null);
                     if (!meta) continue;
+                    pushDocId(id);
                     const docName = String(meta?.name || '').trim();
                     const docPath = String(meta?.path || '').trim();
-                    out.set(id, {
-                        doc_name: docName,
-                        doc_path: docPath,
-                    });
-                    if (!Array.isArray(state.allDocuments)) state.allDocuments = [];
-                    const existing = state.allDocuments.find((doc) => String(doc?.id || '').trim() === id);
+                    const existing = docsById.get(id) || null;
                     if (existing) {
                         if (!String(existing.name || '').trim() && docName) existing.name = docName;
                         if (!String(existing.path || '').trim() && docPath) existing.path = docPath;
                     } else {
-                        state.allDocuments.push({
+                        const nextDoc = {
                             id,
                             name: docName || __tmT("kernel.untitledDocument"),
                             alias: '',
@@ -15967,7 +16194,9 @@
                             notebook: String(meta?.notebook || '').trim(),
                             taskCount: 0,
                             created: ''
-                        });
+                        };
+                        state.allDocuments.push(nextDoc);
+                        docsById.set(id, nextDoc);
                     }
                 } catch (e) {}
             }
@@ -16126,8 +16355,16 @@
         return entries;
     }
 
-    async function __tmMergeTaskIndexEntries(entries) {
-        return await __tmPersistTaskIndexEntries(entries);
+    async function __tmMergeTaskIndexEntries(entries, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.immediate === true) return await __tmPersistTaskIndexEntries(entries, opts);
+        const queuedIds = __tmRememberTaskIndexEntriesForCheckpoint(entries, opts);
+        if (!queuedIds.length) return false;
+        return __tmSchedulePersistTaskIndex({
+            docIds: queuedIds,
+            delayMs: opts.delayMs,
+            pendingOnly: true,
+        });
     }
 
     function __tmScheduleTaskIndexPrewarmForDocIds(docIds, options = {}) {
@@ -16220,16 +16457,10 @@
                 }
                 staleIds.push(docId);
             });
-            let bufferedEntries = [];
-            let bufferedChunkCount = 0;
-            const flushBufferedEntries = async () => {
-                if (!bufferedEntries.length) return;
-                const nextEntries = bufferedEntries;
-                bufferedEntries = [];
-                bufferedChunkCount = 0;
-                await __tmMergeTaskIndexEntries(nextEntries);
-            };
-            for (let i = 0; i < staleIds.length; i += chunkSize) {
+            let staleIndex = 0;
+            let currentChunkSize = chunkSize;
+            while (staleIndex < staleIds.length) {
+                let chunkHasTasks = true;
                 try {
                     const txQuietWait = (typeof __tmGetExternalTaskTxQuietWaitMs === 'function')
                         ? __tmGetExternalTaskTxQuietWaitMs(160)
@@ -16244,36 +16475,51 @@
                         break;
                     }
                 } catch (e) {}
-                const chunk = staleIds.slice(i, i + chunkSize);
-                if (!chunk.length) continue;
+                const chunk = staleIds.slice(staleIndex, staleIndex + currentChunkSize);
+                if (!chunk.length) break;
+                staleIndex += chunk.length;
                 try {
+                    const saveGeneration = __tmTaskIndexSaveGeneration;
+                    const readToken = globalThis.__tmTaskStore?.captureRead?.(chunk) || null;
+                    const isCurrent = () => saveGeneration === __tmTaskIndexSaveGeneration
+                        && (!readToken || globalThis.__tmTaskStore?.isReadCurrent?.(readToken) === true);
                     const res = await API.getTasksByDocuments(chunk, queryLimit, {
                         doneOnly: false,
                         forceFresh: false,
                         skipParentTaskJoin: false,
                         skipDocJoin: true,
                         customFieldIds: bulkCustomFieldIds,
+                        isCurrent,
                     });
-                    const entries = await __tmBuildTaskIndexEntriesFromRows(chunk, Array.isArray(res?.tasks) ? res.tasks : [], {
+                    if (!isCurrent() || res?.stale === true) continue;
+                    const chunkTasks = Array.isArray(res?.tasks) ? res.tasks : [];
+                    chunkHasTasks = chunkTasks.length > 0;
+                    const entries = await __tmBuildTaskIndexEntriesFromRows(chunk, chunkTasks, {
                         queryLimit,
                     });
-                    if (entries.length) {
-                        bufferedEntries.push(...entries);
-                        bufferedChunkCount += 1;
-                    }
+                    if (!isCurrent()) continue;
+                    if (entries.length) await __tmMergeTaskIndexEntries(entries, { readToken });
                     chunk.forEach((docId) => __tmTaskIndexPrewarmState.pendingDocIds.delete(docId));
-                    if (bufferedChunkCount >= 5) await flushBufferedEntries();
+                    currentChunkSize = chunkHasTasks
+                        ? chunkSize
+                        : Math.min(30, Math.max(chunkSize, currentChunkSize * 2));
                 } catch (e) {
                     chunk.forEach((docId) => __tmTaskIndexPrewarmState.pendingDocIds.delete(docId));
+                    currentChunkSize = chunkSize;
                 }
                 try {
                     const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
                         ? __tmGetHighPriorityInteractionWaitMs(48)
                         : 0;
-                    await new Promise((resolve) => setTimeout(resolve, Math.max(80, Number(interactionWait) || 0)));
+                    // Empty chunks still create zero-task index entries, but they
+                    // do not need the full interactive cooldown. The query itself
+                    // already yields and can be the dominant cost for large scopes.
+                    await new Promise((resolve) => setTimeout(
+                        resolve,
+                        chunkHasTasks ? Math.max(80, Number(interactionWait) || 0) : 0
+                    ));
                 } catch (e) {}
             }
-            await flushBufferedEntries();
         } finally {
             __tmTaskIndexPrewarmState.running = false;
             pendingAfterRun = __tmTaskIndexPrewarmState.pendingDocIds.size > 0;
@@ -18086,6 +18332,7 @@
     async function __tmRefreshAffectedDocsIncrementally(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const commitView = opts.commitView !== false && opts.refreshView !== false;
+        const viewMode = String(state.viewMode || '').trim();
         const deferRead = (reason) => {
             try { opts.onDeferred?.(reason); } catch (e) {}
             return false;
@@ -18100,7 +18347,6 @@
             docIds: Array.isArray(opts.docIds) ? opts.docIds.slice() : [],
             blockIds: Array.isArray(opts.blockIds) ? opts.blockIds.slice() : [],
         };
-        const viewMode = String(state.viewMode || '').trim();
         if (!state.modal || !document.body.contains(state.modal)) {
             return false;
         }
@@ -18157,6 +18403,13 @@
             ? __tmCaptureEditorDocumentTaskOrder(docIds, { maxTasks: 80 })
             : [];
         const taskStoreReadToken = globalThis.__tmTaskStore?.captureRead?.(docIds) || null;
+        const isReadStillCurrent = () => {
+            if (isCurrent) {
+                try { if (isCurrent() === false) return false; } catch (e) { return false; }
+            }
+            return !taskStoreReadToken
+                || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true;
+        };
         const taskStoreReadCurrent = () => !taskStoreReadToken
             || globalThis.__tmTaskStore?.isReadCurrent?.(taskStoreReadToken) === true
             || deferRead('task-store-changed');
@@ -18209,6 +18462,7 @@
             skipParentTaskJoin: false,
             skipDocJoin: true,
             customFieldIds: bulkCustomFieldIds0,
+            isCurrent: isReadStillCurrent,
         });
         let res = await queryTasks();
         if (!guardCurrent() || !taskStoreReadCurrent()) return false;
@@ -18427,7 +18681,6 @@
                 });
             }
         });
-
         const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         let siblingOrderRanks = new Map();
         try {
@@ -18729,7 +18982,8 @@
             ? __tmNormalizeTaskSnapshotDocIds(opts.changedDocIds).filter((id) => docIds.includes(id)) : [];
         const mergedDocs = requestedDocs.length && previousPending?.changedDocIds !== null
             ? Array.from(new Set([...(previousPending?.changedDocIds || []), ...requestedDocs])) : null;
-        const pending = { changedDocIds: mergedDocs && mergedDocs.length <= 32 ? mergedDocs : null };
+        const now = Date.now();
+        const pending = { firstDirtyAt: previousPending?.firstDirtyAt ?? now, changedDocIds: mergedDocs && mergedDocs.length <= 32 ? mergedDocs : null };
         __tmTaskSnapshotPendingDocSaves.delete(pendingKey);
         __tmTaskSnapshotPendingDocSaves.set(pendingKey, pending);
         while (__tmTaskSnapshotPendingDocSaves.size > __TM_TASK_SNAPSHOT_MAX_ENTRIES) {
@@ -18742,7 +18996,10 @@
             if (__tmTaskSnapshotSaveTimer) clearTimeout(__tmTaskSnapshotSaveTimer);
         } catch (e) {}
         const saveGeneration = ++__tmTaskSnapshotSaveGeneration;
-        const delayMs = Math.max(200, Number(opts.delayMs || 900) || 900);
+        // Startup cache, not a write-ahead log: 12s quiet, a 45s soft deadline,
+        // and at least 30s between successful runtime checkpoints in this window.
+        const delayMs = Math.max(200, __tmTaskSnapshotLastCheckpointAt + 30000 - now,
+            Math.min(Math.max(12000, Number(opts.delayMs) || 0), pending.firstDirtyAt + 45000 - now));
         const scheduledGroupId = groupId;
         const scheduledDocKey = docIds.join(',');
         const scheduledActiveDocId = activeDocId;
@@ -18778,18 +19035,11 @@
                         backgroundWaitMs = Math.max(backgroundWaitMs, 420);
                     }
                 } catch (e) {}
-                if (backgroundWaitMs > 0) {
-                    __tmSchedulePersistTaskSnapshot({
-                        ...opts,
-                        docIds,
-                        groupId: scheduledGroupId,
-                        activeDocId: scheduledActiveDocId,
-                        delayMs: Math.max(320, backgroundWaitMs),
-                    });
-                    return;
-                }
-                if (__tmTaskSnapshotSaveInFlight) {
-                    __tmSchedulePersistTaskSnapshot({ ...opts, delayMs: 1200 });
+                if (backgroundWaitMs > 0 || __tmTaskSnapshotSaveInFlight) {
+                    __tmTaskSnapshotSaveTimer = setTimeout(() => {
+                        __tmTaskSnapshotSaveTimer = null;
+                        __tmScheduleIdleTask(runSave, 180);
+                    }, Math.max(320, backgroundWaitMs, __tmTaskSnapshotSaveInFlight ? 1200 : 0));
                     return;
                 }
                 __tmTaskSnapshotSaveInFlight = true;
@@ -18845,6 +19095,7 @@
                             if (saveGeneration !== __tmTaskSnapshotSaveGeneration || !isProjectionCurrent()) return;
                             const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
                             if (saved) {
+                                __tmTaskSnapshotLastCheckpointAt = Date.now();
                                 clearPending();
                                 if (saveGeneration === __tmTaskSnapshotSaveGeneration && isProjectionCurrent()) __tmTaskSnapshotStoreCache = nextStore;
                             }
@@ -18889,6 +19140,7 @@
                     if (saveGeneration !== __tmTaskSnapshotSaveGeneration || !isProjectionCurrent()) return;
                     const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
                     if (saved) {
+                        __tmTaskSnapshotLastCheckpointAt = Date.now();
                         clearPending();
                         const cachedUpdatedAt = Number(__tmTaskSnapshotStoreCache?.updatedAt || 0) || 0;
                         if (cachedUpdatedAt <= snapshotUpdatedAt && saveGeneration === __tmTaskSnapshotSaveGeneration && isProjectionCurrent()) {
@@ -18901,7 +19153,7 @@
                     __tmTaskSnapshotSaveInFlight = false;
                     });
             };
-            const idleDelayMs = Math.max(80, Math.round(Number(opts.idleDelayMs ?? Math.max(900, delayMs)) || Math.max(900, delayMs)));
+            const idleDelayMs = Math.max(80, Math.round(Number(opts.idleDelayMs) || 900));
             try { __tmScheduleIdleTask(runSave, idleDelayMs); } catch (e) { setTimeout(runSave, 0); }
         }, delayMs);
         return true;
@@ -18996,6 +19248,8 @@
         const docId = String(doc?.id || '').trim();
         if (!doc || !__tmIsLikelyBlockId(docId)) return false;
         const opts = (options && typeof options === 'object') ? options : {};
+        const readToken = opts.readToken || globalThis.__tmTaskStore?.captureRead?.([docId]) || null;
+        if (readToken && globalThis.__tmTaskStore?.isReadCurrent?.(readToken) !== true) return false;
         try {
             __tmRememberDocSessionTaskEntry(doc, { inTaskTree: true });
         } catch (e) {}
@@ -19004,11 +19258,11 @@
                 queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
                 inTaskTree: true,
             });
-            if (indexEntry) await __tmMergeTaskIndexEntries([indexEntry]);
+            if (indexEntry) await __tmMergeTaskIndexEntries([indexEntry], { readToken });
         } catch (e) {}
-        return await __tmUpdateSnapshotsContainingCreatedTaskDoc(doc, {
-            source: String(opts.source || 'task-create').trim() || 'task-create',
-        });
+        // Inactive documents remain in the session/index and are verified on opening.
+        // Never publish a freshly fetched fragment as the active group's full projection.
+        return false;
     }
 
     async function __tmFlushPendingCreatedTaskSnapshotRefreshesAfterGroupSwitch(options = {}) {
@@ -19069,6 +19323,7 @@
             if (resolvedEntries.length === 0) continue;
             const updated = await __tmApplyCreatedTaskDocSnapshotRefresh(docEntry, {
                 source: String(opts.source || 'switch-doc-group-created-task').trim() || 'switch-doc-group-created-task',
+                readToken: taskStoreReadToken,
             });
             if (!taskStoreReadCurrent()) continue;
             resolvedEntries.forEach((entry) => {
@@ -19155,41 +19410,6 @@
         };
     }
 
-    async function __tmUpdateSnapshotsContainingCreatedTaskDoc(docEntry, options = {}) {
-        const doc = (docEntry && typeof docEntry === 'object') ? docEntry : null;
-        const docId = String(doc?.id || '').trim();
-        if (!doc || !__tmIsLikelyBlockId(docId)) return false;
-        const opts = (options && typeof options === 'object') ? options : {};
-        const generation = __tmTaskSnapshotSaveGeneration;
-        const readToken = globalThis.__tmTaskStore?.captureRead?.([docId]) || null;
-        const isCurrent = () => generation === __tmTaskSnapshotSaveGeneration
-            && (!readToken || globalThis.__tmTaskStore?.isReadCurrent?.(readToken) === true)
-            && !globalThis.__tmTaskMutations?.hasPending?.();
-        try {
-            return await __tmWithTaskSnapshotWriteLock(async () => {
-                if (!isCurrent()) return false;
-                const readStartedAt = Date.now();
-                const rawStore = await __tmReadDerivedCacheFile(TASK_SNAPSHOT_FILE_PATH);
-                if (!isCurrent()) return false;
-                const store = Number(rawStore?.version) === __TM_TASK_SNAPSHOT_VERSION && rawStore?.docs
-                    ? rawStore : __tmBuildTaskSnapshotStore(rawStore);
-                const patched = __tmPatchTaskSnapshotDocuments(store, [doc], {
-                    queryLimit: opts.queryLimit || __TM_TASK_INDEX_QUERY_LIMIT, readStartedAt,
-                });
-                if (!patched || patched.stale) return false;
-                if (!patched.affectedScopes.length) return true;
-                const nextStore = __tmBuildTaskSnapshotStore(patched.store);
-                if (!patched.affectedScopes.every((key) => nextStore.snapshots[key]) || !isCurrent()) return false;
-                const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
-                if (!saved) return false;
-                if (isCurrent()) __tmTaskSnapshotStoreCache = nextStore;
-                return true;
-            });
-        } catch (e) {
-            return false;
-        }
-    }
-
     function __tmScheduleCreatedTaskSnapshotRefresh(taskId = '', options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const tid = String(taskId || opts.taskId || opts.realId || '').trim();
@@ -19197,6 +19417,7 @@
         if (!__tmIsLikelyBlockId(docId)) return false;
         const delayMs = Math.max(0, Number(Object.prototype.hasOwnProperty.call(opts, 'delayMs') ? opts.delayMs : 220) || 0);
         const run = async () => {
+            const readToken = globalThis.__tmTaskStore?.captureRead?.([docId]) || null;
             try { __tmClearGroupSessionTaskCache(docId); } catch (e) {}
             try { __tmClearDocSessionTaskCache(docId); } catch (e) {}
 
@@ -19233,6 +19454,7 @@
             if (docEntry) {
                 await __tmApplyCreatedTaskDocSnapshotRefresh(docEntry, {
                     source: String(opts.source || 'task-create').trim() || 'task-create',
+                    readToken,
                 });
                 const source = String(opts.source || 'task-create').trim() || 'task-create';
                 if (tid) {
@@ -19290,11 +19512,13 @@
                 try {
                     __tmSchedulePersistTaskSnapshot({
                         docIds: loadedDocIds,
+                        changedDocIds: [docId],
                         groupId: SettingsStore?.data?.currentGroupId || 'all',
                         queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
                         delayMs: 240,
                         idleDelayMs: 160,
                         refreshViewStateBeforeSave: false,
+                        source: String(opts.source || 'task-create').trim() || 'task-create',
                     });
                 } catch (e) {}
             }
@@ -19478,15 +19702,17 @@
 
         let refreshAttempted = false;
         let refreshSucceeded = false;
+        let refreshDeferredReason = '';
         __tmTxTaskRefreshInFlight = true;
         try {
             // Keep the batch pending while its local write is still running.
             // Reading now would compare SQL's old parent with the optimistic
             // parent, then discard the document query when that write commits.
             const localWritePending = pendingTargets?.meta?.wholeScopeDirty === true
-                ? globalThis.__tmTaskMutations?.hasPending?.() === true
-                : pendingBlockIds.some((id) => globalThis.__tmTaskMutations?.hasPendingForTask?.(id) === true);
+                ? globalThis.__tmTaskMutations?.hasPending?.({ primaryOnly: true }) === true
+                : pendingBlockIds.some((id) => globalThis.__tmTaskMutations?.hasPendingForTask?.(id, { primaryOnly: true }) === true);
             if (localWritePending) {
+                refreshDeferredReason = 'local-write-pending';
                 return false;
             }
             const classified = await __tmClassifyPendingTaskTxRefresh(pendingTargets);
@@ -19530,6 +19756,7 @@
                 deletedBlockIds: Array.isArray(pendingTargets?.meta?.deletedBlockIds) ? pendingTargets.meta.deletedBlockIds.slice() : [],
                 pendingTargets,
                 onDeferred: (reason) => {
+                    refreshDeferredReason = String(reason || '').trim() || 'deferred';
                     if (!state.externalTaskTxDirty || pendingTargets.generation !== __tmTxTaskRefreshGeneration) return;
                     __tmTxTaskRefreshMeta.indexWaitDocIds = reason === 'insert-index-not-visible'
                         ? classified.docIds.slice()
@@ -19548,13 +19775,24 @@
                 : (__tmTxTaskRefreshAttemptCount + 1);
         } catch (e) {
             refreshAttempted = true;
+            refreshDeferredReason = 'refresh-exception';
             __tmTxTaskRefreshAttemptCount += 1;
         } finally {
             __tmTxTaskRefreshInFlight = false;
             if (state.externalTaskTxDirty) {
-                if (refreshAttempted
-                    && !refreshSucceeded
+                if (refreshAttempted && !refreshSucceeded
                     && __tmTxTaskRefreshAttemptCount >= __TM_TASK_TX_MAX_REFRESH_ATTEMPTS) {
+                    if (opts.finalRetry !== true) {
+                        const finalDelayMs = Math.max(600, Number(opts.finalRetryDelayMs) || 1200);
+                        try {
+                            if (__tmTxTaskRefreshTimer) clearTimeout(__tmTxTaskRefreshTimer);
+                        } catch (e) {}
+                        __tmTxTaskRefreshTimer = setTimeout(() => {
+                            __tmTxTaskRefreshTimer = null;
+                            __tmFlushTaskIncrementalRefreshFromTx({ ...opts, finalRetry: true }).catch(() => {});
+                        }, finalDelayMs);
+                        return;
+                    }
                     return;
                 }
                 const retryMeta = __tmGetTxRefreshRetryMeta(sourceLabel, retryOptions);
@@ -19721,7 +19959,8 @@
             const buses = globalThis.__tmHost?.getEventBuses?.() || [];
             __tmSqlCacheEventBuses = [];
             __tmSqlCacheEventBusHandler = (msg) => {
-                if (String(msg?.detail?.cmd || msg?.cmd || '').trim().toLowerCase() === 'databaseindexcommit') {
+                const cmd = String(msg?.detail?.cmd || msg?.cmd || '').trim().toLowerCase();
+                if (cmd === 'databaseindexcommit') {
                     __tmWakePendingTaskRefreshAfterIndexCommit(msg);
                     return;
                 }

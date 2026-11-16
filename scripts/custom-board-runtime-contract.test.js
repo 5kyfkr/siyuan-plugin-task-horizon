@@ -759,6 +759,9 @@ context.SettingsStore.data.customBoardSets = [];
         'the topbar selector must render cached content before waiting for settings persistence');
     assert.ok(manifest.scripts.includes('main/35-custom-board-runtime.js'),
         'the custom-board runtime must be included in the plugin manifest');
+    assert.match(viewSwitchSource,
+        /function __tmShouldShowAiSidebar\(\)[\s\S]*?mode === 'comboBoard'/,
+        'the AI workbench side dock must be available in combination-board views');
 
     console.log('custom board runtime contract tests passed');
 })().catch((error) => {

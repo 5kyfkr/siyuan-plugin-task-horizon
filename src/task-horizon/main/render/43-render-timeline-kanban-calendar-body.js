@@ -1074,9 +1074,14 @@
                 return __tmGetDocColorHex(did, isDark) || '#4f46e5';
             };
             const kanbanRenderMode = isCustomBoard ? 'comboBoard' : 'kanban';
-            if (isCustomBoard && state.__tmCustomBoardLoading !== true
+            // Full shells always bind their progressive viewport after mounting. Partial
+            // column renders must not cancel the job (or its queued scroll callbacks).
+            const startFullKanbanWindow = !isCustomBoard && !columnPatch && opts.fullShell === true
+                && state.viewMode === 'kanban' && state.filteredTasks?.length > 40;
+            if (((isCustomBoard && state.__tmCustomBoardLoading !== true) || startFullKanbanWindow)
                 && !__tmIsProgressiveViewRenderCurrent(state.__tmProgressiveViewRender, kanbanRenderMode)) {
-                __tmStartProgressiveViewRender(kanbanRenderMode);
+                const job = __tmStartProgressiveViewRender(kanbanRenderMode);
+                if (startFullKanbanWindow && job) __tmRestoreViewSwitchWindow(kanbanRenderMode, job);
             }
             const kanbanProgressiveJob = state.__tmProgressiveViewRender;
             const progressiveKanbanRender = !!kanbanProgressiveJob
@@ -1510,7 +1515,7 @@
                     `
                     : '';
 
-                return `
+                const cardHtml = `
                     <div class="${cardClass}" ${cardAttrs}${pinnedCardStyle}>
                         <div class="tm-kanban-card-top tm-kanban-card-main">
                             <div class="tm-kanban-card-head">
@@ -1528,6 +1533,7 @@
                         ${subtasksSectionHtml}
                     </div>
                 `;
+                return cardHtml;
             };
 
             const renderKanbanGroupItems = (itemsHtml, collapsed = false) => {

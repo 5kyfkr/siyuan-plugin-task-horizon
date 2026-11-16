@@ -34,7 +34,7 @@ assert.match(fullRenderTransfer, /function __tmRenderPreservingCalendarSideDock\
 assert.doesNotMatch(fullRenderTransfer, /__tmRequestCalendarRefresh|refreshSideDay|refetchEvents|unmountSideDayTimeline/, 'calendar dock transfer must not reload or unmount calendar events');
 
 assert.match(renderBody, /__tmPrepareCalendarSideDockFullRenderTransfer\(prevModalSnapshot\)[\s\S]*?prevModalSnapshot\.remove\(\)/, 'render must preserve the dock before removing the previous shell');
-assert.match(renderBody, /state\.modal\.innerHTML =[\s\S]*?__tmCommitCalendarSideDockFullRenderTransfer\([\s\S]*?finalMountRoot\.appendChild\(state\.modal\)/, 'render must restore the live dock into the new shell before mounting it');
+assert.match(renderBody, /const shellTarget = state\.modal;[\s\S]*?shellTarget\.innerHTML = shellHtml;[\s\S]*?__tmCommitCalendarSideDockFullRenderTransfer\([\s\S]*?finalMountRoot\.appendChild\(state\.modal\)/, 'render must restore the live dock into the new shell before mounting it');
 assert.match(renderBody, /if \(reusedCalendarSideDock\) \{[\s\S]*?__tmSyncPersistentSideDocksAfterViewSwitch[\s\S]*?\} else \{[\s\S]*?__tmCalendarDockMount\(\)/, 'a reused dock must skip normal calendar mounting and only rebind its existing timeline root');
 
 assert.match(switchGroup, /__tmRenderPreservingCalendarSideDock\(\)[\s\S]*?snapshotRendered = true/, 'snapshot-backed group switching must preserve the existing calendar dock');

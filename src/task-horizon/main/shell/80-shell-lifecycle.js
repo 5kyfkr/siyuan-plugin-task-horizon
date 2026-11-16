@@ -839,7 +839,7 @@ if (shouldMarkDirty) {
                 requestAnimationFrame(() => requestAnimationFrame(resolve));
             });
         } catch (e) {}
-        if (runtimeMobile) __tmWakeSemanticDatePromptsOnPluginEnter();
+        __tmWakeSemanticDatePromptsOnPluginEnter();
         const hasDataReadyForSoftReuse = (() => {
             try {
                 const treeReady = Array.isArray(state.taskTree) && state.taskTree.length > 0;

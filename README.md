@@ -6,6 +6,17 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.4.7
+
+- **Calendar and schedules:** in full search, enable **Schedule** under **Search scope** to find titles and notes, or search schedules alone. Results jump to the corresponding calendar date; recurring schedules show the current or next occurrence. Fix the first attempt to clear a task date occasionally failing while schedules load.
+- **Search:** add **Select all** and **Restore default** scope actions. When the current view has no matching tasks but full search has results, show a link to full search.
+- **Kanban and board sets:** load large Kanban boards in batches on first display. Fix the AI workbench failing to open in board sets.
+- **Semantic dates:** fix only the first task being recognized after editing several tasks and opening the manager from an icon or another entry point.
+- **Task loading and refresh:** batch document metadata and attribute reads, reduce duplicate queries and index/snapshot writes, and prevent stale data from replacing newer task state during concurrent edits or document-group switches.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.4.6
 
 - **Task timers:** context-menu and task-detail timer sliders now start at the task's estimated duration minus time already spent, with one-minute adjustments and support for estimates over three hours. Tasks without an estimate, or with no time remaining, use the configured default duration.
@@ -13,9 +24,6 @@ The same plugin includes English and Simplified Chinese. Existing installations 
 - **Kanban:** tighten the spacing above subtasks in clean-style cards.
 - **Task details and focus records:** fix document location labels staying stale or reverting after moving a task between documents. When a Pomodoro ends, refresh the linked task's spent time and Pomodoro count immediately in Kanban, checklist, and other task views, including open task details.
 - **Top bars and narrow layouts:** move **Settings** into the menu, remove the narrow top bar's icon-folding button, and refine button spacing and the board-set selector layout.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.4.5
 

@@ -60,6 +60,29 @@ assert.match(api, /const __tmQueuedSetDoneOpsByTask = new Map\(\);/);
 assert.match(api, /const __tmLatestSetDoneIntentByTask = new Map\(\);/);
 assert.match(runner, /__tmDoesSetDoneOpMatchLatestIntent\(op\)[\s\S]*__tmBuildSetDoneEffectsOp\(op\)/,
     'a committed writer may run completion effects only when it still matches the final intent');
+assert.match(api, /primaryWriteConfirmed: op\.primaryWriteConfirmed === true/,
+    'pending mutation references must expose whether the primary task write is already confirmed');
+assert.match(runner, /requiresPlacementAcknowledgement && !acknowledged[\s\S]*op\.primaryWriteConfirmed = true/,
+    'every acknowledged task write must expose its confirmed primary commit before effects settle');
+assert.match(api, /opts\.primaryOnly === true && op\.primaryWriteConfirmed === true[\s\S]*return false/,
+    'background refresh barriers must ignore effects that are still settling after a confirmed primary write');
+assert.match(api, /op\.primaryWriteConfirmed === true \|\| !statusSet\.has/,
+    'settling completion effects must not be replayed as optimistic field patches');
+assert.match(api, /function __tmHasPendingQueuedOps\(options = \{\}\)[\s\S]*opts\.primaryOnly !== true\) return __tmActiveMutations\.size > 0/,
+    'whole-scope refresh barriers must also distinguish confirmed primary writes from settling effects');
+const pendingOpsContext = vm.createContext({
+    __tmActiveMutations: new Map([
+        ['confirmed', { status: 'running', primaryWriteConfirmed: true }],
+        ['unconfirmed', { status: 'running', primaryWriteConfirmed: false }],
+    ]),
+});
+vm.runInContext(`${extractFunction(api, '__tmHasPendingQueuedOps')}
+this.hasPending = __tmHasPendingQueuedOps;`, pendingOpsContext);
+assert.equal(pendingOpsContext.hasPending(), true);
+assert.equal(pendingOpsContext.hasPending({ primaryOnly: true }), true);
+pendingOpsContext.__tmActiveMutations.delete('unconfirmed');
+assert.equal(pendingOpsContext.hasPending({ primaryOnly: true }), false,
+    'only an unconfirmed primary write may block a background refresh');
 assert.match(applyOptimistic, /type === 'setDone'[\s\S]*__tmMarkLocalTaskPatchWatermark\(taskId, patch/,
     'completion optimistic state must own the same local watermark as other task patches');
 assert.match(rollbackQueued, /type === 'setDone'[\s\S]*__tmIsLatestSetDoneIntent\(taskId, intentRevision\)[\s\S]*__tmRollbackDoneOptimisticLocal/,

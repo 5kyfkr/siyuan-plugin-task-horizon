@@ -828,6 +828,7 @@
         miniRenderKey: '',
         miniAbort: null,
         navigateMiniCalendarDate: null,
+        pendingNavigationDate: null,
         taskListEl: null,
         taskPageHost: null,
         taskPageHtml: '',
@@ -14241,7 +14242,9 @@
         const occurrences = core.iterate(rule, {
             fromDateKey: formatDateKey(fromDate),
             toDateKey: formatDateKey(toDate),
-            limit: 2400,
+            // Include skipped and padded leading days without expanding a
+            // full page when a caller only needs the next occurrence.
+            limit: Math.min(2400, limit + skippedOccurrenceSet.size + Math.ceil(durationMs / 86400000) + 4),
         });
         for (const occurrence of occurrences) {
             const key = String(occurrence?.dateKey || '').trim();
@@ -22760,6 +22763,76 @@
         });
     }
 
+    function getScheduleSearchOccurrence(item, now = new Date()) {
+        const startMs = toMs(item?.start);
+        const endMs = toMs(item?.end);
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null;
+        if (getScheduleRepeatType(item) === 'none') return { start: new Date(startMs), end: new Date(endMs) };
+        const upcoming = collectScheduleOccurrencesInRange(item, now, new Date(9998, 0, 1), { limit: 1 });
+        if (upcoming.length) return upcoming[0];
+        // Finished series can outlive the iterator's page size. Advance through
+        // the shared occurrence reader instead of implementing another rule engine.
+        let cursor = startMs;
+        let last = null;
+        while (cursor < now.getTime()) {
+            const batch = collectScheduleOccurrencesInRange(item, new Date(cursor), now, { limit: 2400 })
+                .filter((occurrence) => occurrence.startMs >= cursor);
+            if (!batch.length) break;
+            last = batch[batch.length - 1];
+            cursor = last.startMs + 1;
+        }
+        return last;
+    }
+
+    async function searchSchedules(keyword) {
+        const query = String(keyword || '').trim().toLowerCase();
+        if (!query) return [];
+        const list = await loadScheduleAll();
+        if (state.scheduleCache.lastLoadError) throw new Error(__tmT("task.failedToLoadSearchContentResultsMayBeIncomplete"));
+        const { titleMap } = await __tmBuildScheduleLinkedMetadataMaps(list.filter((item) => !String(item.title || '').trim()));
+        const defs = new Map(getCalendarDefs(getSettings()).map((item) => [item.id, item]));
+        const now = new Date();
+        const results = [];
+        for (const item of list) {
+            const linkedId = getScheduleLinkedTaskId(item) || getScheduleLinkedBlockId(item);
+            const title = normalizeCalendarScheduleTitleText(item.title || titleMap.get(linkedId), __tmT("kernel.schedule"));
+            const note = String(item.note || item.remark || '').replace(/\s+/g, ' ').trim();
+            if (!title.toLowerCase().includes(query) && !note.toLowerCase().includes(query)) continue;
+            const occurrence = getScheduleSearchOccurrence(item, now);
+            if (!occurrence) continue;
+            const date = formatDateKey(occurrence.start);
+            const allDay = item.allDay === true || isAllDayRange(occurrence.start, occurrence.end);
+            const time = allDay ? __tmT("calendar.allDay") : `${pad2(occurrence.start.getHours())}:${pad2(occurrence.start.getMinutes())}`;
+            const recurring = getScheduleRepeatType(item) !== 'none';
+            const matchIndex = note.toLowerCase().indexOf(query);
+            const snippetStart = Math.max(0, matchIndex - 40);
+            results.push({
+                type: 'schedule', id: String(item.id || ''), content: title,
+                snippet: `${snippetStart ? '…' : ''}${note.slice(snippetStart, snippetStart + 180)}`,
+                date, dateLabel: `${date} ${time}${recurring ? ` · ${__tmT("calendar.repeat")}` : ''}`,
+                calendarName: String(defs.get(String(item.calendarId || 'default'))?.name || __tmT("kernel.schedule")),
+                start: occurrence.start.getTime(),
+            });
+        }
+        return results.sort((a, b) => Number(b.content.toLowerCase().includes(query)) - Number(a.content.toLowerCase().includes(query)) || a.start - b.start);
+    }
+
+    function navigateToDate(dateLike) {
+        const date = normalizeDateOnly(dateLike instanceof Date ? dateLike : parseDateOnly(dateLike));
+        if (!date) return false;
+        state.pendingNavigationDate = date;
+        const calendar = state.calendar;
+        if (!calendar || state.mainCalendarSuspended || !state.rootEl?.isConnected) return true;
+        if (state.navigateMiniCalendarDate?.(date) !== true) {
+            const viewType = String(getCalendarView(calendar)?.type || 'timeGridWeek');
+            const target = resolveMainCalendarAnchorDate(date, viewType, getSettings()) || date;
+            if (callCalendarAdapter(calendar, 'gotoDate', target) !== true) return false;
+        }
+        state.pendingNavigationDate = null;
+        if (state.wrapEl) renderMiniCalendar(state.wrapEl);
+        return true;
+    }
+
     async function listTaskSchedulesByTaskId(taskId, options = {}) {
         const tid = String(taskId || '').trim();
         if (!tid) return [];
@@ -29763,6 +29836,7 @@
                     }
                     state.queuePrototypeSurfaceRender?.({ nowIndicatorChanged: true });
                 }
+                if (state.pendingNavigationDate) navigateToDate(state.pendingNavigationDate);
                 return true;
             } catch (e) {
                 // Fall through to a full mount if the existing surface cannot
@@ -38573,7 +38647,7 @@
         })();
         state.mainCalendarHostSignature = currentHostSignature;
         const preferredInitialDate = (() => {
-            const explicit = parseDateOnly(state.opts?.date || state.opts?.initialDate);
+            const explicit = normalizeDateOnly(state.pendingNavigationDate) || parseDateOnly(state.opts?.date || state.opts?.initialDate);
             if (explicit) return resolveMainCalendarAnchorDate(explicit, preferredInitialView, s) || explicit;
             // Desktop's virtual month strip can restore its own scroll cue,
             // but Dock/mobile month grids are single-month surfaces. Reusing
@@ -39626,6 +39700,7 @@
         if (!calendar) return false;
         state.calendar = calendar;
         state.calendarAdapter = calendarAdapter;
+        if (state.pendingNavigationDate) navigateToDate(state.pendingNavigationDate);
         try {
             state.calendarOpacityThemeListener = () => {
                 try {
@@ -44143,6 +44218,8 @@
         listTaskSchedulesByDay,
         listTaskSchedulesByTaskId,
         getCachedTaskSchedules,
+        searchSchedules,
+        navigateToDate,
         deleteTaskSchedulesByTaskIds,
         removeTaskDateEventsByTaskIds,
         openScheduleEditor,

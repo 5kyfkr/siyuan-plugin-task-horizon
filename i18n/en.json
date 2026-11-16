@@ -1,4 +1,8 @@
 {
+  "task.failedToLocateSchedule": "Could not locate the schedule. Please retry.",
+  "task.moreSearchResultsAvailable": "More matches are available in full search",
+  "task.viewFullSearch": "View full search",
+  "task.scheduleSearchHint": "Include schedule titles and notes in expanded search",
   "title.taskName": "Task name",
   "title.editLink": "Edit link",
   "title.openLink": "Open",

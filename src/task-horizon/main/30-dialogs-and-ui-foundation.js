@@ -14751,6 +14751,14 @@ return Number(state.contextInteractionQuietUntil || 0);
             window.tmCloseInlineSearch?.();
         };
         document.addEventListener('pointerdown', state.searchBarOutsideHandler, true);
+        state.searchBarScheduleUpdatedHandler = () => {
+            if (SettingsStore.data.taskSearchIncludeSchedules !== true) return;
+            state.searchWorkspacePreviewKey = '';
+            if (state.searchWorkspaceExpanded) __tmScheduleSearchWorkspace();
+            else window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
+        };
+        window.addEventListener('tm:calendar-schedule-updated', state.searchBarScheduleUpdatedHandler);
+        window.addEventListener('tm:calendar-schedule-cache-updated', state.searchBarScheduleUpdatedHandler);
     }
 
     function __tmUnbindInlineSearchBarPortalPositionEvents() {
@@ -14762,7 +14770,15 @@ return Number(state.contextInteractionQuietUntil || 0);
         try { document.removeEventListener('pointerdown', state.searchBarOutsideHandler, true); } catch (e) {}
         state.searchBarDismissFieldsHandler = null;
         state.searchBarOutsideHandler = null;
+        window.removeEventListener('tm:calendar-schedule-updated', state.searchBarScheduleUpdatedHandler);
+        window.removeEventListener('tm:calendar-schedule-cache-updated', state.searchBarScheduleUpdatedHandler);
+        state.searchBarScheduleUpdatedHandler = null;
         state.searchBarPortalPositionHandler = null;
+    }
+
+    function __tmIsDefaultTaskSearchScope(fields = __tmGetTaskSearchFields()) {
+        return SettingsStore.data.taskSearchIncludeSchedules !== true
+            && fields.length === 2 && fields.includes('content') && fields.includes('remark');
     }
 
     function __tmBuildInlineSearchBarPortalHtml(value) {
@@ -14797,8 +14813,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                         <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('funnel', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
                     </button>
                     <div id="tmSearchScopePanel" class="tm-search-fields__panel" hidden>
-                        <div class="tm-search-fields__heading"><span>${__tmT("task.searchScope")}</span><button type="button" class="tm-search-fields__reset" onclick="tmResetSearchFields(event)">${__tmT("task.restoreDefault")}</button></div>
+                        <div class="tm-search-fields__heading"><span>${__tmT("task.searchScope")}</span><button type="button" class="tm-search-fields__reset" onclick="tmResetSearchFields(event)">${__tmIsDefaultTaskSearchScope() ? __tmT("task.selectAll") : __tmT("task.restoreDefault")}</button></div>
                         <div data-tm-search-field-options></div>
+                        <label class="tm-search-fields__option" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.scheduleSearchHint")}"><input type="checkbox" data-tm-search-schedules onchange="tmToggleSearchSchedules(event)"><span>${__tmT("kernel.schedule")}</span></label>
                         <div class="tm-search-fields__hint">${__tmT("task.searchWithinTheSelectedScopes")}</div>
                     </div>
                 </div>
@@ -14809,6 +14826,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                     <span class="tm-inline-searchbar__icon">${__tmPhosphorBoldSvg('x', { size: 14, className: 'tm-inline-searchbar__icon-svg' })}</span>
                 </button>
                 <div class="tm-inline-searchbar__status" role="status" hidden></div>
+                <div class="tm-inline-searchbar__more" role="status" hidden>
+                    <span>${__tmT("task.moreSearchResultsAvailable")}</span>
+                    <button type="button" class="tm-search-fields__reset" onclick="tmToggleSearchWorkspace(event)">${__tmT("task.viewFullSearch")}</button>
+                </div>
                 <div id="tmSearchWorkspacePanel" class="tm-search-workspace" hidden>
                     <div class="tm-search-workspace__toolbar">
                         ${__tmRenderTopbarSelect({ id: 'tmSearchWorkspaceStatusSelect', label: __tmT("kernel.status"), className: 'tm-search-workspace__select', options: statusOptions })}
@@ -14922,6 +14943,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         const doc = scope?.docMap?.get(docId) || null;
         return {
             id,
+            type: 'task',
             docId,
             done,
             content: task.content,
@@ -14975,7 +14997,20 @@ return Number(state.contextInteractionQuietUntil || 0);
             resultsEl.innerHTML = `<div class="tm-search-workspace__empty">${esc(state.searchWorkspaceError ? __tmT("task.failedToLoadSearchContentResultsMayBeIncomplete") : __tmT("task.noSearchResults"))}</div>`;
             return;
         }
-        resultsEl.innerHTML = results.map((task) => `
+        resultsEl.innerHTML = results.map((task, index) => task.type === 'schedule' ? `
+            <div role="listitem" tabindex="0" class="tm-search-workspace__row" data-tm-search-workspace-schedule="${esc(task.id)}" onclick="tmOpenSearchWorkspaceSchedule(event, ${index})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();tmOpenSearchWorkspaceSchedule(event,${index});}">
+                <span class="tm-search-workspace__schedule-icon" aria-label="${__tmT("kernel.schedule")}">${__tmPhosphorBoldSvg('calendar-days', { size: 14 })}</span>
+                <span class="tm-search-workspace__main">
+                    <span class="tm-search-workspace__title">${__tmBuildSearchWorkspaceHighlightedHtml(task.content, query)}</span>
+                    <span class="tm-search-workspace__snippet tm-search-workspace__schedule-date">${esc(task.dateLabel)}</span>
+                    <span class="tm-search-workspace__snippet">${__tmBuildSearchWorkspaceHighlightedHtml(task.snippet, query)}</span>
+                </span>
+                <span class="tm-search-workspace__meta">
+                    <span title="${esc(task.dateLabel)}">${esc(task.dateLabel)}</span>
+                    <span class="tm-search-workspace__doc">${esc(task.calendarName)}</span>
+                </span>
+            </div>
+        ` : `
             <div role="listitem" tabindex="0" class="tm-search-workspace__row" data-tm-search-workspace-task="${esc(task.id)}" onclick="tmOpenSearchWorkspaceResult(event, '${esc(task.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();tmOpenSearchWorkspaceResult(event,'${esc(task.id)}');}">
                 ${__tmRenderTaskCheckboxWrap(task.id, task, {
                     checked: task.done,
@@ -14997,7 +15032,43 @@ return Number(state.contextInteractionQuietUntil || 0);
         `).join('');
     }
 
+    async function __tmQuerySearchWorkspaceTasks(query, reset, requestId) {
+        if (!__tmGetTaskSearchFields().length) return { items: [], page: 1, hasMore: false };
+        const scope = await __tmResolveSearchWorkspaceScope();
+        if (!scope || !scope.paths.length || requestId !== state.searchWorkspaceRequestId) return { items: [], page: 1, hasMore: false };
+        let page = reset ? 1 : Math.max(1, Number(state.searchWorkspacePage) || 1);
+        let hasMore = false;
+        const previous = (reset ? [] : state.searchWorkspaceResults).filter((item) => item.type !== 'schedule');
+        const resultMap = new Map(previous.map((item) => [item.id, item]));
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+            const response = await API.call('/api/search/fullTextSearchBlock', {
+                query, method: 0, page, pageSize: 50, paths: scope.paths,
+                types: { listItem: true }, subTypes: { listItem: { t: true } }, groupBy: 0,
+                orderBy: state.searchWorkspaceSort === 'created' ? 2 : 0, searchHPath: false,
+            });
+            if (requestId !== state.searchWorkspaceRequestId) return null;
+            if (response?.code !== 0 || !response?.data) throw new Error(response?.msg || __tmT("task.searchFailed", { value1: '', value2: '' }));
+            hasMore = page < Math.max(1, Number(response.data.pageCount) || 1);
+            (Array.isArray(response.data.blocks) ? response.data.blocks : []).forEach((block) => {
+                const item = __tmMapSearchWorkspaceResult(block, scope);
+                if (!item || (state.searchWorkspaceStatus === 'open' && item.done) || (state.searchWorkspaceStatus === 'done' && !item.done)) return;
+                resultMap.set(item.id, item);
+            });
+            page += 1;
+            if (state.searchWorkspaceStatus === 'all' || !hasMore || resultMap.size >= previous.length + 20) break;
+        }
+        return { items: Array.from(resultMap.values()), page, hasMore };
+    }
+
+    async function __tmQuerySearchWorkspaceSchedules(query) {
+        if (!globalThis.__tmCalendar) await globalThis.__taskHorizonEnsureCalendarAssets?.();
+        if (typeof globalThis.__tmCalendar?.searchSchedules !== 'function') throw new Error(__tmT("task.calendarModuleIsNotLoaded"));
+        return globalThis.__tmCalendar.searchSchedules(query);
+    }
+
     async function __tmRunSearchWorkspace(reset = true) {
+        if (state.searchWorkspaceTimer) clearTimeout(state.searchWorkspaceTimer);
+        state.searchWorkspaceTimer = 0;
         const query = String(state.searchKeyword || '').trim();
         if (!query) {
             __tmCancelSearchWorkspaceRequest();
@@ -15019,46 +15090,23 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         __tmRenderSearchWorkspace();
         try {
-            const scope = await __tmResolveSearchWorkspaceScope();
+            const [tasks, schedules] = await Promise.allSettled([
+                __tmQuerySearchWorkspaceTasks(query, reset, requestId),
+                SettingsStore.data.taskSearchIncludeSchedules === true
+                    ? (reset ? __tmQuerySearchWorkspaceSchedules(query) : Promise.resolve(state.searchWorkspaceResults.filter((item) => item.type === 'schedule')))
+                    : Promise.resolve([]),
+            ]);
             if (requestId !== state.searchWorkspaceRequestId) return;
-            if (!scope || !scope.paths.length) throw new Error(__tmT("task.noSearchScope"));
-            let page = reset ? 1 : Math.max(1, Number(state.searchWorkspacePage) || 1);
-            let pageCount = 1;
-            let hasMore = false;
-            const resultMap = new Map((reset ? [] : state.searchWorkspaceResults).map((item) => [item.id, item]));
-            for (let attempt = 0; attempt < 4; attempt += 1) {
-                const response = await API.call('/api/search/fullTextSearchBlock', {
-                    query,
-                    method: 0,
-                    page,
-                    pageSize: 50,
-                    paths: scope.paths,
-                    types: { listItem: true },
-                    subTypes: { listItem: { t: true } },
-                    groupBy: 0,
-                    orderBy: state.searchWorkspaceSort === 'created' ? 2 : 0,
-                    searchHPath: false,
-                });
-                if (requestId !== state.searchWorkspaceRequestId) return;
-                if (response?.code !== 0 || !response?.data) {
-                    throw new Error(response?.msg || __tmT("task.searchFailed", { value1: '', value2: '' }));
-                }
-                pageCount = Math.max(1, Number(response.data.pageCount) || 1);
-                hasMore = page < pageCount;
-                (Array.isArray(response.data.blocks) ? response.data.blocks : []).forEach((block) => {
-                    const item = __tmMapSearchWorkspaceResult(block, scope);
-                    if (!item) return;
-                    if (state.searchWorkspaceStatus === 'open' && item.done) return;
-                    if (state.searchWorkspaceStatus === 'done' && !item.done) return;
-                    resultMap.set(item.id, item);
-                });
-                page += 1;
-                if (state.searchWorkspaceStatus === 'all' || !hasMore
-                    || Array.from(resultMap.values()).length >= (reset ? 20 : state.searchWorkspaceResults.length + 20)) break;
+            const taskResult = tasks.status === 'fulfilled' ? tasks.value : null;
+            state.searchWorkspaceError = tasks.status === 'rejected' || schedules.status === 'rejected';
+            state.searchWorkspaceResults = [
+                ...(taskResult?.items || (reset ? [] : state.searchWorkspaceResults.filter((item) => item.type !== 'schedule'))),
+                ...(schedules.status === 'fulfilled' ? schedules.value : []),
+            ];
+            if (taskResult) {
+                state.searchWorkspacePage = taskResult.page;
+                state.searchWorkspaceHasMore = taskResult.hasMore;
             }
-            state.searchWorkspaceResults = Array.from(resultMap.values());
-            state.searchWorkspacePage = page;
-            state.searchWorkspaceHasMore = hasMore;
         } catch (e) {
             if (requestId !== state.searchWorkspaceRequestId) return;
             state.searchWorkspaceError = true;
@@ -15066,6 +15114,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (requestId === state.searchWorkspaceRequestId) {
                 state.searchWorkspaceLoading = false;
                 __tmRenderSearchWorkspace();
+                if (!state.searchWorkspaceExpanded) window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
             }
         }
     }
@@ -15076,6 +15125,32 @@ return Number(state.contextInteractionQuietUntil || 0);
             state.searchWorkspaceTimer = 0;
             __tmRunSearchWorkspace(true);
         }, 220);
+    }
+
+    function __tmSyncSearchWorkspaceHint(bar) {
+        const more = bar.querySelector('.tm-inline-searchbar__more');
+        if (!more) return;
+        more.hidden = true;
+        const query = String(state.searchKeyword || '').trim();
+        if (state.searchWorkspaceExpanded) return;
+        if (!query || state.searchLoading || state.searchLoadError || state.filteredTasks?.length) {
+            if (state.searchWorkspacePreviewKey) __tmCancelSearchWorkspaceRequest();
+            state.searchWorkspacePreviewKey = '';
+            return;
+        }
+        const key = JSON.stringify([
+            query, __tmGetTaskSearchFields(), SettingsStore.data.taskSearchIncludeSchedules === true,
+            state.searchWorkspaceStatus, state.searchWorkspaceSort, SettingsStore.data.docGroups,
+            globalThis.__tmTaskStore?.revision?.(),
+        ]);
+        if (state.searchWorkspacePreviewKey !== key) {
+            __tmCancelSearchWorkspaceRequest();
+            state.searchWorkspacePreviewKey = key;
+            state.searchWorkspaceResults = [];
+            __tmScheduleSearchWorkspace();
+            return;
+        }
+        more.hidden = state.searchWorkspaceLoading || !state.searchWorkspaceResults?.length;
     }
 
     window.tmToggleSearchWorkspace = function(event) {
@@ -15125,6 +15200,23 @@ return Number(state.contextInteractionQuietUntil || 0);
         });
     };
 
+    window.tmOpenSearchWorkspaceSchedule = function(event, index) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const item = state.searchWorkspaceResults?.[index];
+        if (item?.type !== 'schedule') return;
+        if (!SettingsStore.data.calendarEnabled) {
+            hint(__tmT("task.theCalendarViewIsDisabledEnableItInSettings"));
+            return;
+        }
+        if (globalThis.__tmCalendar?.navigateToDate?.(item.date) !== true) {
+            hint(__tmT("task.failedToLocateSchedule"), 'error');
+            return;
+        }
+        window.tmCloseInlineSearch?.();
+        window.tmSwitchViewMode?.('calendar');
+    };
+
     function __tmRemoveInlineSearchBarPortal() {
         const bar = document.getElementById('tmInlineSearchbarPortal');
         if (state.floatingTooltipTarget && bar?.contains(state.floatingTooltipTarget)) __tmHideFloatingTooltip();
@@ -15136,6 +15228,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.searchWorkspaceResults = [];
         state.searchWorkspacePage = 1;
         state.searchWorkspaceHasMore = false;
+        state.searchWorkspacePreviewKey = '';
         __tmCancelInlineSearchLiveTimer();
         __tmUnbindInlineSearchBarPortalPositionEvents();
         try { document.getElementById('tmInlineSearchbarPortal')?.remove?.(); } catch (e) {}
@@ -15194,6 +15287,9 @@ return Number(state.contextInteractionQuietUntil || 0);
             list.dataset.signature = signature;
         }
         list.querySelectorAll('input').forEach((checkbox) => { checkbox.checked = fields.includes(checkbox.value); });
+        bar.querySelector('[data-tm-search-schedules]').checked = SettingsStore.data.taskSearchIncludeSchedules === true;
+        bar.querySelector('.tm-search-fields__heading .tm-search-fields__reset').textContent = __tmIsDefaultTaskSearchScope(fields)
+            ? __tmT("task.selectAll") : __tmT("task.restoreDefault");
         const status = bar.querySelector('.tm-inline-searchbar__status');
         status.hidden = !state.searchLoading && !state.searchLoadError;
         status.textContent = state.searchLoading ? __tmT("task.loadingSearchContent") : '';
@@ -15208,6 +15304,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         bar.setAttribute('aria-busy', state.searchLoading || state.searchWorkspaceLoading ? 'true' : 'false');
         __tmRenderSearchWorkspace();
+        __tmSyncSearchWorkspaceHint(bar);
         __tmBindFloatingTooltips(bar);
         __tmBindInlineSearchBarPortalPositionEvents();
         __tmPositionInlineSearchBarPortal();
@@ -15276,6 +15373,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             __tmScheduleSearchWorkspace();
             return;
         }
+        __tmCancelSearchWorkspaceRequest();
+        state.searchWorkspacePreviewKey = '';
+        const more = document.querySelector('#tmInlineSearchbarPortal .tm-inline-searchbar__more');
+        if (more) more.hidden = true;
         __tmCancelInlineSearchLiveTimer();
         state.searchBarLiveSearchTimer = setTimeout(() => {
             state.searchBarLiveSearchTimer = 0;
@@ -15363,14 +15464,29 @@ return Number(state.contextInteractionQuietUntil || 0);
         SettingsStore.save().catch(() => hint(__tmT("task.failedToSaveTheSearchScope")));
         const input = __tmGetInlineSearchInput();
         window.tmSearch(input instanceof HTMLInputElement ? input.value : state.searchKeyword);
+        if (state.searchWorkspaceExpanded) __tmRunSearchWorkspace(true);
     }
+
+    window.tmToggleSearchSchedules = function(event) {
+        if (!event.target.checked && !__tmGetTaskSearchFields().length) {
+            event.target.checked = true;
+            hint(__tmT("task.selectAtLeastOneSearchScope"));
+            return;
+        }
+        SettingsStore.data.taskSearchIncludeSchedules = event.target.checked === true;
+        SettingsStore.save().catch(() => hint(__tmT("task.failedToSaveTheSearchScope")));
+        __tmCancelSearchWorkspaceRequest();
+        const input = __tmGetInlineSearchInput();
+        window.tmSearch(input instanceof HTMLInputElement ? input.value : state.searchKeyword);
+        if (state.searchWorkspaceExpanded) __tmRunSearchWorkspace(true);
+    };
 
     window.tmToggleSearchField = function(event) {
         const checkbox = event.target;
         const fields = new Set(__tmGetTaskSearchFields());
         if (checkbox.checked) fields.add(checkbox.value);
         else fields.delete(checkbox.value);
-        if (!fields.size) {
+        if (!fields.size && SettingsStore.data.taskSearchIncludeSchedules !== true) {
             checkbox.checked = true;
             hint(__tmT("task.selectAtLeastOneSearchScope"));
             return;
@@ -15380,11 +15496,17 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     window.tmResetSearchFields = function(event) {
         event?.preventDefault();
-        __tmApplyTaskSearchFields(['content', 'remark']);
+        const selectAll = __tmIsDefaultTaskSearchScope();
+        SettingsStore.data.taskSearchIncludeSchedules = selectAll;
+        __tmApplyTaskSearchFields(selectAll ? __tmGetTaskSearchFieldOptions().map((field) => field.id) : ['content', 'remark']);
     };
 
     window.tmSearch = async function(keyword) {
         __tmCancelInlineSearchLiveTimer();
+        if (!state.searchWorkspaceExpanded) {
+            __tmCancelSearchWorkspaceRequest();
+            state.searchWorkspacePreviewKey = '';
+        }
         const next = String(keyword || '').trim();
         state.searchKeyword = next;
         const request = {};

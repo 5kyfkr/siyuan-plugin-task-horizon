@@ -152,7 +152,8 @@ async function verifySqlCleanup() {
     const callStart = source.indexOf('        async call(');
     const callEnd = source.indexOf('\n        },', callStart) + 11;
     const sqlContext = vm.createContext({ __tmTaskReadGeneration: 0, __tmSqlInFlight: new Map(),
-        __tmSqlQueue: {}, __tmRunSqlQueued: () => { const job = deferred(); queued.push(job); return job.promise; } });
+        __tmSqlQueue: {},
+        __tmRunSqlQueued: () => { const job = deferred(); queued.push(job); return job.promise; } });
     vm.runInContext(`globalThis.api = { ${source.slice(callStart, callEnd)} };`, sqlContext);
     const oldRequest = sqlContext.api.call('/api/query/sql', { stmt: 'SELECT id FROM blocks' });
     sqlContext.__tmSqlInFlight.clear();
