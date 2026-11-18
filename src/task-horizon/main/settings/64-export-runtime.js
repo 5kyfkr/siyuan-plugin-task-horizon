@@ -173,6 +173,7 @@
         'calendarQuickAddScheduleCustomTime',
         'calendarHourSlotHeightMode',
         'calendarEventFontSize',
+        'calendarEventFields',
         'calendarEventOpacityLight',
         'calendarEventOpacityDark',
         'calendarVisibleStartTime',

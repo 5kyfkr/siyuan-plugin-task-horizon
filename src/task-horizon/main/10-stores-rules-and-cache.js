@@ -9059,6 +9059,7 @@
             calendarQuickAddScheduleCustomTime: '09:00',
             calendarHourSlotHeightMode: 'normal',
             calendarEventFontSize: 11,
+            calendarEventFields: [],
             calendarEventOpacityLight: 0.25,
             calendarEventOpacityDark: 0.25,
             calendarVisibleStartTime: '00:00',
@@ -9775,6 +9776,7 @@
                                 if (typeof cloudData.calendarQuickAddScheduleCustomTime === 'string') this.data.calendarQuickAddScheduleCustomTime = cloudData.calendarQuickAddScheduleCustomTime;
                                 if (typeof cloudData.calendarHourSlotHeightMode === 'string') this.data.calendarHourSlotHeightMode = cloudData.calendarHourSlotHeightMode;
                                 if (typeof cloudData.calendarEventFontSize === 'number') this.data.calendarEventFontSize = __tmNormalizeCalendarEventFontSize(cloudData.calendarEventFontSize);
+                                if (Array.isArray(cloudData.calendarEventFields)) this.data.calendarEventFields = cloudData.calendarEventFields;
                                 if (typeof cloudData.calendarEventOpacityLight === 'number') this.data.calendarEventOpacityLight = Math.max(0.05, Math.min(0.6, cloudData.calendarEventOpacityLight));
                                 if (typeof cloudData.calendarEventOpacityDark === 'number') this.data.calendarEventOpacityDark = Math.max(0.05, Math.min(0.6, cloudData.calendarEventOpacityDark));
                                 if (typeof cloudData.calendarVisibleStartTime === 'string') this.data.calendarVisibleStartTime = cloudData.calendarVisibleStartTime;
@@ -10364,6 +10366,7 @@
             this.data.calendarQuickAddScheduleCustomTime = String(Storage.get('tm_calendar_quick_add_schedule_custom_time', this.data.calendarQuickAddScheduleCustomTime) || '09:00');
             this.data.calendarHourSlotHeightMode = Storage.get('tm_calendar_hour_slot_height_mode', this.data.calendarHourSlotHeightMode);
             this.data.calendarEventFontSize = __tmNormalizeCalendarEventFontSize(Storage.get('tm_calendar_event_font_size', this.data.calendarEventFontSize));
+            this.data.calendarEventFields = Storage.get('tm_calendar_event_fields', this.data.calendarEventFields);
             {
                 const normalizeCalendarEventOpacity = (value, fallback) => {
                     const parsed = Number(value);
@@ -10982,6 +10985,7 @@
             Storage.set('tm_calendar_quick_add_schedule_custom_time', String(this.data.calendarQuickAddScheduleCustomTime || '09:00').trim() || '09:00');
             Storage.set('tm_calendar_hour_slot_height_mode', String(this.data.calendarHourSlotHeightMode || 'normal').trim() || 'normal');
             Storage.set('tm_calendar_event_font_size', __tmNormalizeCalendarEventFontSize(this.data.calendarEventFontSize));
+            Storage.set('tm_calendar_event_fields', this.data.calendarEventFields || []);
             Storage.set('tm_calendar_event_opacity_light', Math.max(0.05, Math.min(0.6, Number(this.data.calendarEventOpacityLight) || 0.25)));
             Storage.set('tm_calendar_event_opacity_dark', Math.max(0.05, Math.min(0.6, Number(this.data.calendarEventOpacityDark) || 0.25)));
             Storage.set('tm_calendar_visible_start_time', String(this.data.calendarVisibleStartTime || '00:00').trim() || '00:00');
@@ -11316,6 +11320,7 @@
                 this.data.calendarHourSlotHeightMode = validCalendarHourSlotHeightModes.has(calendarHourSlotHeightMode) ? calendarHourSlotHeightMode : 'normal';
             }
             this.data.calendarEventFontSize = __tmNormalizeCalendarEventFontSize(this.data.calendarEventFontSize);
+            this.data.calendarEventFields = __tmNormalizeTaskCardFieldList(this.data.calendarEventFields, []).filter(key => key === 'status' || key === 'priority' || key.startsWith('customField:'));
             const normalizeCalendarEventOpacity = (value) => {
                 const parsed = Number(value);
                 return Number.isFinite(parsed) ? Math.max(0.05, Math.min(0.6, parsed)) : 0.25;

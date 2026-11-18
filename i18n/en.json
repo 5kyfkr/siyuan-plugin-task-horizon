@@ -1938,6 +1938,8 @@
   "calendar.scheduleBlockFontSize": "\n                            Schedule block font size\n                            ",
   "calendar.adjustsScheduleTitlesInBlockViewsTimeTextIs": "Adjusts schedule titles in block views; time text is automatically 1px smaller. Range 10-14px; the list view is unaffected.",
   "calendar.scheduleBlockFontSize2": "Schedule block font size",
+  "calendar.eventFields": "Schedule block fields",
+  "calendar.eventFieldsDescription": "Show linked task fields on timed schedule blocks only. Compact blocks show only the first field with a value.",
   "calendar.schedulesShownByDefaultInMonthView": "\n                            Schedules shown by default in month view\n                            ",
   "calendar.setsHowManySchedulesEachDateShowsDirectlyBy": "Sets how many schedules each date shows directly by default; the rest collapse into +N. Visible capacity still adapts when the window resizes.",
   "calendar.allDayRowsInWeekView": "\n                            All-day rows in week view\n                            ",

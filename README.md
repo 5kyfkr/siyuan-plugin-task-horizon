@@ -6,6 +6,17 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.4.9
+
+- **Calendar and schedules:** use **Schedule block fields** to show the linked task's status, importance, and custom select labels on timed schedules. Fix titles containing block references and remove duplicate display toggles from calendar settings.
+- **Timer records:**
+  - Change or remove the linked task, switch between focus, stopwatch, and break, and undo saved edits. Changing only the task or mode leaves overlapping records intact. Editing requires an updated Dock Tomato plugin.
+  - Task search opens in a floating dropdown without resizing the editor. Results are borderless, highlight on hover, support keyboard selection, and close when you click outside.
+  - Deleted records now disappear from the main calendar and right-side day panels.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.4.8
 
 - **Calendar and focus records:**
@@ -16,9 +27,6 @@ The same plugin includes English and Simplified Chinese. Existing installations 
   - Add **Start date** before **Due date** in card field settings, with click-to-edit and an option to keep the field visible when unset.
   - Reduce bottom spacing in clean-style cards with subtasks.
 - **Task details:** fix the new-task dialog being obscured when creating a subtask or sibling task from the top-right **More** menu.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.4.7
 

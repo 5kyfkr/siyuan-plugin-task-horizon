@@ -129,13 +129,13 @@ assert.match(
 );
 assert.match(
     source,
-    /state\.tomatoListener = \(ev\) => \{[\s\S]*clearDockHistoryRangeCache\(\);[\s\S]*scheduleReminderCalendarRefetch\(\);/,
-    'tomato history updates must invalidate range results before refetching',
+    /function handleCalendarTomatoHistoryUpdated\(event\)[\s\S]*clearDockHistoryRangeCache\(\);[\s\S]*scheduleTomatoRefetch\(\);/,
+    'history changes must invalidate data before a coalesced source refresh',
 );
 assert.match(
     source,
-    /state\.tomatoListener = \(ev\) => \{[\s\S]*dockHistoryReadInFlight[\s\S]*dockHistoryLastInvalidationAt[\s\S]*< 750/,
-    'tomato history notifications must be coalesced while a range read or recent invalidation is settling',
+    /if \(!mutation && \([\s\S]*dockHistoryReadInFlight[\s\S]*dockHistoryLastInvalidationAt[\s\S]*< 750/,
+    'read echoes may be suppressed while committed mutations always reach the calendar',
 );
 assert.match(
     source,

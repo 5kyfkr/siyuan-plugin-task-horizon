@@ -2704,7 +2704,86 @@
     let __tmWhiteboardCardSnapshotCacheTime = 0;
     const __tmWhiteboardCardSnapshotCacheTTL = 5000; // 缓存5秒
 
+    // Read the visible linked tasks as a batch, independently of which task view was opened first.
+    async function __tmReadCalendarFieldTasks(ids, fields) {
+        const tasks = new Map();
+        const missing = new Set(ids);
+        for (const id of ids) {
+            const task = globalThis.__tmTaskStore?.getProjected?.(id);
+            if (task) { tasks.set(id, task); missing.delete(id); }
+        }
+        if (missing.size) {
+            for (const task of (window.__tmCalendarAllTasksCache?.tasks || [])) {
+                if (missing.delete(task.id)) tasks.set(task.id, task);
+            }
+        }
+        if (missing.size) {
+            for (const task of await API.getTasksByIds([...missing])) {
+                MetaStore.applyToTask(task);
+                tasks.set(task.id, task);
+            }
+        }
+        const fieldIds = fields.map(__tmParseCustomFieldColumnKey).filter(id => {
+            const def = id && __tmGetCustomFieldDefMap().get(id);
+            return def && def.enabled !== false && def.type !== 'text';
+        });
+        const needsValues = fieldIds.length ? [...tasks.values()].filter(task => !task.__tmLoadedAllCustomFields &&
+            fieldIds.some(id => !task.__tmLoadedCustomFieldIds?.includes(id))) : [];
+        const rows = needsValues.length ? await __tmQueryCustomFieldAttrRowsByTaskIds(needsValues.map(task => task.id), { fieldIds }) : null;
+        const result = new Map();
+        for (const [id, task] of tasks) {
+            const raw = rows?.valueMapByTaskId?.get(id) || {};
+            const values = {};
+            for (const fid of fieldIds) values[fid] = task.customFieldValues?.[fid] ?? raw[fid];
+            result.set(id, { id, root_id: __tmResolveCustomFieldScopeDocId(task), priority: task.priority ?? task.custom_priority,
+                customStatus: task.customStatus ?? task.custom_status, taskMarker: task.taskMarker ?? task.task_marker ?? __tmResolveTaskMarkdownMarker(task),
+                done: task.done, customFieldValues: values });
+        }
+        return result;
+    }
+
+    function __tmCalendarFieldChips(task, fields, preview = false) {
+        if (!task && !preview) return [];
+        const chips = [];
+        for (const key of fields) {
+            let label, html;
+            if (key === 'priority') {
+                const value = preview ? 'high' : task.priority;
+                const info = __tmGetPriorityJiraInfo(value);
+                if (info.key === 'none') continue;
+                label = `${__tmT('kernel.importance')}: ${info.label}`;
+                html = `<span role="img" aria-label="${esc(label)}">${__tmRenderPriorityJira(value, false)}</span>`;
+            } else if (key === 'status') {
+                label = __tmT('kernel.status');
+                const defaultId = __tmGetDefaultUndoneStatusId();
+                let statusTask = task;
+                if (preview) {
+                    const options = __tmGetStatusOptions();
+                    const sample = options.find(opt => opt.marker === '/' && opt.id !== defaultId) || options.find(opt => opt.id !== defaultId);
+                    if (!sample) continue;
+                    statusTask = { customStatus: sample.id, taskMarker: sample.marker };
+                }
+                if (!statusTask.done && !statusTask.customStatus && !String(statusTask.taskMarker || '').trim()) continue;
+                const status = __tmResolveTaskStatusDisplayOption(statusTask);
+                if (status.id === defaultId) continue;
+                html = `<span class="tm-status-tag" style="${__tmBuildStatusChipStyle(status.color)}">${esc(status.name)}</span>`;
+            } else {
+                const field = __tmGetCustomFieldDefMap().get(__tmParseCustomFieldColumnKey(key));
+                if (!field || field.enabled === false || field.type === 'text' || (!preview && !__tmIsCustomFieldApplicableToTask(field, task))) continue;
+                label = field.name;
+                const value = preview ? (field.options || []).filter(opt => !opt.archived).slice(0, field.type === 'multi' ? 2 : 1).map(opt => opt.id) : task.customFieldValues?.[field.id];
+                html = __tmBuildCustomFieldTagsHtml(field, preview && field.type !== 'multi' ? value[0] : value, { maxTags: 2, allowEmpty: preview, emptyText: label });
+            }
+            if (html) chips.push({ key, label, html });
+        }
+        return chips;
+    }
+
     globalThis.__tmCalendarKanbanCardHelpers = {
+        readFieldTasks: __tmReadCalendarFieldTasks,
+        fieldChips: __tmCalendarFieldChips,
+        calendarFieldOptions: () => [{ key: 'status', label: __tmT('kernel.status') }, { key: 'priority', label: __tmT('kernel.importance') },
+            ...__tmGetCustomFieldDefs().filter(field => field.enabled !== false && field.type !== 'text').map(field => ({ key: `customField:${field.id}`, label: field.name }))],
         getFields: () => __tmGetTaskCardFieldList('kanban'),
         isFieldEnabled: (field) => __tmTaskCardFieldEnabled('kanban', field),
         isDone: (task) => __tmIsTaskDoneEffective(task),

@@ -635,6 +635,7 @@
     window.tmUpdatePriorityIconStyle = async function(value) {
         SettingsStore.data.priorityIconStyle = __tmNormalizePriorityIconStyle(value);
         await SettingsStore.save();
+        globalThis.__tmCalendar?.refreshEventFieldAppearance?.();
         if (state.settingsModal) showSettings();
         render();
     };

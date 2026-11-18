@@ -1938,6 +1938,8 @@
   "calendar.scheduleBlockFontSize": "\n                            日程块字号\n                            ",
   "calendar.adjustsScheduleTitlesInBlockViewsTimeTextIs": "调整块状视图中的日程标题，时间文字自动小 1px；范围 10–14px，列表视图不受影响。",
   "calendar.scheduleBlockFontSize2": "日程块字号",
+  "calendar.eventFields": "日程块显示字段",
+  "calendar.eventFieldsDescription": "仅在有具体时间的日程块上显示关联任务的字段。紧凑日程块只显示首个有值的字段。",
   "calendar.schedulesShownByDefaultInMonthView": "\n                            月视图默认显示日程\n                            ",
   "calendar.setsHowManySchedulesEachDateShowsDirectlyBy": "设置每个日期默认直接展示的日程条数，超出部分收纳到 +N；窗口空间变化时仍会自动调整可见容量。",
   "calendar.allDayRowsInWeekView": "\n                            周视图全天显示行数\n                            ",

@@ -6663,6 +6663,9 @@
             source.showLunar === true ? 1 : 0,
             source.showCnHoliday === true ? 1 : 0,
             normalizeCalendarMonthMinVisibleEvents(source.monthMinVisibleEvents),
+            (source.eventFields || []).join(','),
+            source.eventFields?.includes('priority') ? source.priorityIconStyle : '',
+            source.eventFields?.includes('status') ? source.checkboxUndoneStatusId : '',
             normalizeCalendarWeekAllDayVisibleRows(source.weekAllDayVisibleRows),
             source.showOtherBlockCheckbox === true ? 1 : 0,
             source.taskCheckboxCircleStyleEnabled === true ? 1 : 0,
@@ -6918,6 +6921,42 @@
         return label ? `<span class="tm-proto-reminder-time" title="${esc(__tmT("calendar.reminder", { label: label }))}" aria-label="${esc(__tmT("calendar.reminder", { label: label }))}">⏰ ${esc(label)}</span>` : '';
     }
 
+    function calendarFieldTaskId(event) {
+        const ext = event?.extendedProps || {};
+        if (event?.allDay || ext.__tmSource !== 'schedule' || ext.__tmEventDragPreview) return '';
+        const id = String(ext.__tmTaskDateEventTaskId || ext.__tmTaskId || '').trim();
+        return id.startsWith('repeatinst:') ? String(ext.__tmSourceTaskId || id.split(':')[1] || '') : id;
+    }
+
+    async function attachCalendarEventFields(events, settings) {
+        const fields = settings?.eventFields;
+        const read = globalThis.__tmCalendarKanbanCardHelpers?.readFieldTasks;
+        if (!fields?.length || !read) return;
+        const ids = [...new Set(events.map(calendarFieldTaskId).filter(Boolean))];
+        if (!ids.length) return;
+        try {
+            const tasks = await read(ids, fields);
+            for (const event of events) {
+                const task = tasks.get(calendarFieldTaskId(event));
+                if (task) event.extendedProps.__tmFieldTask = task;
+            }
+        } catch (error) { console.warn('[Task Horizon] Calendar task fields:', error); }
+    }
+
+    function calendarEventFieldMarkup(event, fields, mode) {
+        if (!fields?.length) return '';
+        const preview = mode === 'preview';
+        const id = !preview && calendarFieldTaskId(event);
+        if (!preview && !id) return '';
+        const saved = event?.extendedProps?.__tmFieldTask;
+        const base = saved?.id === id ? saved : null;
+        const task = base || (!preview && globalThis.__tmTaskStore?.getProjected?.(id));
+        const chips = globalThis.__tmCalendarKanbanCardHelpers?.fieldChips?.(task, fields, preview) || [];
+        if (!chips.length) return '';
+        const compact = mode !== 'block' && !preview;
+        return `<span class="tm-cal-fields tm-cal-fields--${compact ? 'compact' : mode}">${(compact ? chips.slice(0, 1) : chips).map(chip => `<span class="tm-cal-field" title="${esc(chip.label)}">${chip.html}</span>`).join('')}</span>`;
+    }
+
     function buildSharedPrototypeEventMarkup(eventApi, mode = 'chip', includeTime = false, extraClass = '', settings = null, options = {}) {
         const id = String(eventApi?.id || '').trim();
         if (!id) return '';
@@ -6977,13 +7016,14 @@
             : '';
         const reminderTime = buildCalendarMergedReminderMarkup(ext);
         const reminderTitle = ext.__tmMergedReminderLabel ? ` title="${esc(__tmT("calendar.reminder2", { value1: eventApi.title || '', tmMergedReminderLabel: ext.__tmMergedReminderLabel }))}"` : '';
+        const fields = settings?.eventFields?.length && mode !== 'list' ? calendarEventFieldMarkup(eventApi, settings.eventFields, mode) : '';
         const check = showCheck
             ? `<span class="tm-proto-event-check-wrap"><input class="tm-proto-event-check" type="checkbox" data-tm-proto-check="${esc(id)}" ${done ? 'checked' : ''} aria-label="${isIndependentScheduleEventExt(ext) ? __tmT("calendar.completeSchedule") : __tmT("calendar.complete")}"><span class="tm-proto-event-checkmark" aria-hidden="true"></span></span>`
             : '';
         if (mode === 'block') {
-            return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="--tm-proto-event-color:${color}"><span class="tm-proto-event-copy"><span class="tm-proto-event-title-row">${check}<span class="tm-proto-event-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${handles}</div>`;
+            return `<div class="${classes}" data-tm-proto-event="${esc(id)}" style="--tm-proto-event-color:${color}"><span class="tm-proto-event-copy"><span class="tm-proto-event-title-row">${check}<span class="tm-proto-event-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${recurringIcon}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${fields || (meta ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : '')}</span>${handles}</div>`;
         }
-        return `<div class="${classes}" data-tm-proto-event="${esc(id)}"${reminderTitle} style="--tm-proto-event-color:${color}">${check}<span class="tm-proto-event-copy"><span class="tm-proto-event-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta && mode !== 'allday' ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${recurringIcon}${reminderTime}${handles}</div>`;
+        return `<div class="${classes}" data-tm-proto-event="${esc(id)}"${reminderTitle} style="--tm-proto-event-color:${color}">${check}<span class="tm-proto-event-copy"><span class="tm-proto-event-title"${titleVisualStyle ? ` style="${titleVisualStyle}"` : ''}>${title}</span>${time ? `<span class="tm-proto-event-time">${esc(time)}</span>` : ''}${meta && mode !== 'allday' ? `<span class="tm-proto-event-meta">${esc(meta)}</span>` : ''}</span>${recurringIcon}${reminderTime}${fields}${handles}</div>`;
     }
 
     function resolveSharedPrototypeEventEnd(eventApi) {
@@ -9746,6 +9786,8 @@
             quickAddScheduleCustomTime: quickAddScheduleCustomTime0,
             hourSlotHeightMode: hourSlotHeightMode0,
             eventFontSize: eventFontSize0,
+            eventFields: Array.isArray(s.calendarEventFields) ? s.calendarEventFields : [],
+            checkboxUndoneStatusId: s.checkboxUndoneStatusId || '',
             monthMinVisibleEvents: monthMinVisibleEvents0,
             weekAllDayVisibleRows: weekAllDayVisibleRows0,
             taskDateAllDayReminderEnabled: readStoredBool('tm_calendar_taskdate_all_day_reminder_enabled', typeof s.calendarTaskDateAllDayReminderEnabled === 'boolean' ? !!s.calendarTaskDateAllDayReminderEnabled : undefined),
@@ -18894,10 +18936,9 @@
 
     function normalizeCalendarScheduleTitleText(value, fallback = __tmT("kernel.schedule")) {
         const fb = String(fallback || '').trim();
-        const text = stripCalendarTaskListStatusPrefix(value)
-            .split(/\r?\n/, 1)[0]
-            .replace(/\s+/g, ' ')
-            .trim();
+        const source = stripCalendarTaskListStatusPrefix(value).split(/\r?\n/, 1)[0];
+        if (!source) return fb;
+        const text = resolveTaskTitlePresentation(source, fb).text.replace(/\s+/g, ' ').trim();
         return text || fb;
     }
 
@@ -20205,6 +20246,10 @@
         }
         state.sideDay.adapter = null;
         state.sideDay.calendar = null;
+        if (!state.mounted && state.taskMutationUnsubscribe) {
+            state.taskMutationUnsubscribe();
+            state.taskMutationUnsubscribe = null;
+        }
         state.sideDay.rootEl = null;
         state.sideDay.resolveTask = null;
         state.sideDay.allowInactiveFullLoad = false;
@@ -22308,6 +22353,7 @@
                     transformEvents: (events, info) => applyPendingReminderDateEvents(events, info.start, info.end, getSettings()),
                     events: async (info, success, failure) => {
                 try {
+                        const historyVersion = Number(state.dockHistoryRangeVersion || 0);
                         const curSettings = getSettings();
                         const years = getCnHolidayYearsForRange(info?.start, info?.end);
                     const cachedReminderBlocks = (curSettings.linkDockTomato && curSettings.showTaskReminders !== false)
@@ -22323,6 +22369,10 @@
                         remindersNeedBackgroundRead ? loadReminderBlocks().catch(() => []) : Promise.resolve(cachedReminderBlocks),
                         loadRecordsForRange(info.start, info.end),
                     ]);
+                    if (historyVersion !== Number(state.dockHistoryRangeVersion || 0)) {
+                        failure(new Error('calendar-history-stale-result'));
+                        return;
+                    }
                     const cnHolidayDays = applyCalendarCustomHolidayOverrides(officialHolidayDays, curSettings.customHolidayOverrides);
                     const reminderReadIncomplete = remindersNeedBackgroundRead;
                     const remindersLoadedWithData = Array.isArray(reminders) && reminders.length > 0;
@@ -22757,15 +22807,11 @@
         if (!cal) return false;
         queueSidePrototypeRender();
         state.sideDay.calendar = cal;
+        if (typeof bindCalendarTaskMutationSubscription === 'function') bindCalendarTaskMutationSubscription();
         state.sideDay.adapter = sideCalendarAdapter;
         if (state.sideDay.historyListener) window.removeEventListener('tomato:history-updated', state.sideDay.historyListener);
-        state.sideDay.historyListener = () => {
-            // A mounted main calendar already refreshes both auxiliary sources.
-            if (state.calendar || !getSettings().linkDockTomato
-                || (Number(state.dockHistoryReadInFlight) || 0) > 0
-                || Date.now() < (Number(state.dockHistoryReadSuppressUntil) || 0)) return;
-            clearDockHistoryRangeCache();
-            __tmRefetchCalendarSource(cal, EVENT_SOURCE_IDS.sideAux);
+        state.sideDay.historyListener = (event) => {
+            if (!state.calendar) handleCalendarTomatoHistoryUpdated(event);
         };
         window.addEventListener('tomato:history-updated', state.sideDay.historyListener);
         scheduleClampSideDayPopover(rootEl);
@@ -23135,14 +23181,15 @@
     }
 
     function __tmNormalizeTaskTitleFromRow(row) {
-        const md = String(row?.markdown || '').trim();
-        if (md) {
-            const firstLine = md.split(/\r?\n/, 1)[0].trim();
-            const title = stripCalendarTaskListStatusPrefix(firstLine).replace(/\s+/g, ' ').trim();
-            if (title) return title;
-        }
-        const raw = String(row?.content || row?.raw_content || row?.title || '').trim();
-        return raw ? stripCalendarTaskListStatusPrefix(raw).split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim() : '';
+        const source = row?.markdown || row?.content || row?.raw_content || row?.title || row?.name || '';
+        return source ? normalizeCalendarScheduleTitleText(source, '') : '';
+    }
+
+    function searchCalendarTasks(query, { includeCompleted = false, limit = 8 } = {}) {
+        const keyword = String(query || '').trim().toLocaleLowerCase();
+        const tasks = window.__tmCalendarAllTasksCache?.tasks || [];
+        return tasks.filter(task => task?.id && (includeCompleted || !isCalendarRelationTaskDone(task))
+            && `${__tmNormalizeTaskTitleFromRow(task)} ${getCalendarTaskRelationMeta(task)}`.toLocaleLowerCase().includes(keyword)).slice(0, limit);
     }
 
     function __tmBuildTaskTitleIndexFromCalendarCache() {
@@ -23735,6 +23782,22 @@
         const existingById = new Map(existingEvents.map((eventApi) => [String(eventApi?.id || '').trim(), eventApi]).filter(([id]) => !!id));
         let touched = false;
         let needsRefresh = false;
+        if (settings.eventFields?.length) {
+            // A new or relinked schedule may have no field snapshot yet. Read only those links.
+            const missing = nextEvents.filter(next => {
+                const id = calendarFieldTaskId(next);
+                return id && existingById.get(next.id)?.extendedProps?.__tmFieldTask?.id !== id;
+            });
+            if (missing.length) attachCalendarEventFields(missing, settings).then(() => {
+                for (const next of missing) {
+                    const task = next.extendedProps.__tmFieldTask;
+                    const current = getCalendarEventById(cal, next.id);
+                    if (task && calendarFieldTaskId(current) === task.id && current.extendedProps.__tmFieldTask?.id !== task.id) current.setExtendedProp('__tmFieldTask', task);
+                }
+                if (cal === state.calendar) state.queuePrototypeSurfaceRender?.();
+                else state.sideDay?.prototypeRender?.();
+            });
+        }
         existingEvents.forEach((eventApi) => {
             const eventId = String(eventApi?.id || '').trim();
             if (eventId && nextById.has(eventId)) return;
@@ -24304,6 +24367,7 @@
         const scheduleTaskDocIdMap = linkedMetadata?.docMap instanceof Map ? linkedMetadata.docMap : new Map();
         const events = buildEventsFromSchedule(schedules, start, end, settings, scheduleTaskTitleMap, scheduleTaskDocIdMap, { viewType });
         const projected = isCalendarMonthViewType(viewType) ? dedupeMonthScheduleEvents(events) : events;
+        if (settings.eventFields?.length && viewType !== 'listMonth') await attachCalendarEventFields(projected, settings);
         return projected;
     }
 
@@ -25119,6 +25183,33 @@
         return summary;
     }
 
+    function syncCalendarEventFieldPatch(ids, patch, fields) {
+        if (!fields?.length || !patch) return;
+        const custom = Object.keys(patch.customFieldValues || {}).filter(fid => fields.includes(`customField:${fid}`));
+        const changed = ['priority', 'customStatus', 'taskMarker', 'done', 'root_id', 'docId'].filter(key => Object.hasOwn(patch, key));
+        if (!custom.length && !changed.some(key => key === 'priority' ? fields.includes('priority') : key === 'root_id' || key === 'docId' || fields.includes('status'))) return;
+        const wanted = new Set(ids);
+        for (const cal of new Set([state.calendar, state.sideDay?.calendar].filter(Boolean))) {
+            const events = getCalendarEvents(cal).filter(event => wanted.has(calendarFieldTaskId(event)));
+            if (!events.length) continue;
+            const update = () => {
+                for (const event of events) {
+                    const id = calendarFieldTaskId(event);
+                    const saved = event.extendedProps.__tmFieldTask;
+                    const base = saved?.id === id ? saved : globalThis.__tmTaskStore?.getProjected?.(id);
+                    if (!base) continue;
+                    const task = { ...base, id };
+                    for (const key of changed) task[key === 'docId' ? 'root_id' : key] = patch[key];
+                    if (custom.length) task.customFieldValues = { ...task.customFieldValues, ...Object.fromEntries(custom.map(fid => [fid, patch.customFieldValues[fid]])) };
+                    event.setExtendedProp('__tmFieldTask', task);
+                }
+            };
+            if (callCalendarAdapter(cal, 'batchRendering', update) !== true) update();
+            if (cal === state.calendar) state.queuePrototypeSurfaceRender?.();
+            else state.sideDay?.prototypeRender?.();
+        }
+    }
+
     function bindCalendarTaskMutationSubscription() {
         if (state.taskMutationUnsubscribe) return true;
         const bus = globalThis.__tmTaskMutationBus || globalThis.__tmTaskStore || null;
@@ -25131,7 +25222,7 @@
             'floating-mini-taskdate-save',
         ]);
         const listener = (mutation = {}) => {
-            if (!state.mounted) return;
+            if (!state.mounted && !state.sideDay?.calendar) return;
             const m = (mutation && typeof mutation === 'object') ? mutation : {};
             const phase = String(m.phase || '').trim();
             if (phase && !['optimistic', 'local', 'commit', 'rollback'].includes(phase)) return;
@@ -25147,6 +25238,9 @@
                 ...(Array.isArray(m.affected?.taskIds) ? m.affected.taskIds : []),
             ].map((id) => String(id || '').trim()).filter(Boolean)));
             if (!ids.length) return;
+            const fields = (state.settingsStore || state.sideDay?.settingsStore)?.data?.calendarEventFields;
+            if (fields?.length) syncCalendarEventFieldPatch(ids, m.patch || (type === 'setDone' ? { done: data.done } : null), fields);
+            if (!state.mounted) return;
             if (type === 'deleteTask' || type === 'taskLifecycle' && String(data.action || '').trim() === 'archiveDeleted') {
                 try { __tmRemoveTaskDateEventsByTaskIds(ids, { main: true, side: true }); } catch (e) {}
                 ids.forEach((id) => calendarTomatoDocCache.delete(id));
@@ -27471,6 +27565,8 @@
             end: r?.end ?? '',
             mode: r?.mode ?? '',
             sessionId: r?.sessionId ?? '',
+            taskBlockId: String(r?.taskBlockId || r?.taskId || r?.blockId || ''),
+            associationVersion: r?.associationVersion || '',
         };
         return key;
     }
@@ -27827,9 +27923,11 @@
                             try {
                                 nextRecords = await dock.history.loadRange(new Date(startMs).toISOString(), new Date(endMs).toISOString());
                             } catch (e) {
-                                nextRecords = null;
-                                rangeReadFailed = true;
+                                // An available bridge that fails is not an empty
+                                // history and must not revive legacy snapshots.
+                                throw e;
                             }
+                            if (!Array.isArray(nextRecords)) throw new Error('calendar-history-invalid-result');
                         } else {
                             rangeReadFailed = true;
                         }
@@ -27854,7 +27952,7 @@
                                     if (state.dockHistoryFallbackInflight === fallbackPending) state.dockHistoryFallbackInflight = null;
                                 }
                                 if (Array.isArray(all) && all.length > 0) {
-                                    state._dockHistoryCache = { ts: Date.now(), all };
+                                    if (version === Number(state.dockHistoryRangeVersion || 0)) state._dockHistoryCache = { ts: Date.now(), all };
                                     nextRecords = all;
                                 } else if (cachedOk) {
                                     nextRecords = cachedAll;
@@ -27895,6 +27993,7 @@
                 if (state.dockHistoryRangeInflight.get(rangeKey) === pending) state.dockHistoryRangeInflight.delete(rangeKey);
             }
         }
+        if (version !== Number(state.dockHistoryRangeVersion || 0)) return loadRecordsForRange(rangeStart, rangeEnd);
         return normalizeCalendarTomatoRecords(records, startMs, endMs)
             .filter((r) => shouldShowMode(r?.mode, s));
     }
@@ -27970,19 +28069,31 @@
     }
 
     function clearDockHistoryRangeCache() {
-        // Keep an existing in-flight read reusable. Clearing the in-flight map
-        // here would let every history notification start another load before
-        // the previous one settles; only advance the cache generation while
-        // the reader is idle.
-        if ((Number(state.dockHistoryReadInFlight) || 0) <= 0) {
-            state.dockHistoryRangeVersion = (Number(state.dockHistoryRangeVersion || 0) + 1) % Number.MAX_SAFE_INTEGER;
-        }
-        try { state.dockHistoryRangeCache.clear(); } catch (e) {}
-        try { state.dockHistoryDeferredRefetchAt.clear(); } catch (e) {}
-        state.dockHistoryReadSuppressUntil = Math.max(
-            Number(state.dockHistoryReadSuppressUntil) || 0,
-            Date.now() + 250,
-        );
+        // A committed change invalidates even reads already in flight. Their
+        // generation check prevents an old result from restoring deleted data.
+        state.dockHistoryRangeVersion = (Number(state.dockHistoryRangeVersion || 0) + 1) % Number.MAX_SAFE_INTEGER;
+        state.dockHistoryRangeCache.clear();
+        state.dockHistoryDeferredRefetchAt.clear();
+        state._dockHistoryCache = null;
+        state.dockHistoryFallbackInflight = null;
+        state.calendarSourceEventSnapshots?.forEach?.((snapshot) => {
+            snapshot.events = (snapshot.events || []).filter(event => event?.extendedProps?.__tmSource !== 'tomato');
+        });
+        state.dockHistoryReadSuppressUntil = Math.max(Number(state.dockHistoryReadSuppressUntil) || 0, Date.now() + 250);
+    }
+
+    function handleCalendarTomatoHistoryUpdated(event) {
+        if (!getSettings().linkDockTomato) return;
+        const detail = event?.detail || {};
+        const mutation = detail.mutation === true || ['file', 'localStorage', 'journal', 'projection', 'abandon'].includes(detail.source);
+        // Older bridges can emit a notification from a read. Real writes must
+        // never be dropped, including writes that arrive during another read.
+        if (!mutation && ((Number(state.dockHistoryReadInFlight) || 0) > 0
+            || Date.now() < (Number(state.dockHistoryReadSuppressUntil) || 0)
+            || Date.now() - (Number(state.dockHistoryLastInvalidationAt) || 0) < 750)) return;
+        state.dockHistoryLastInvalidationAt = Date.now();
+        clearDockHistoryRangeCache();
+        scheduleTomatoRefetch();
     }
 
     function getCalendarLiveTomatoEvent(settings = getSettings()) {
@@ -28207,24 +28318,23 @@
         finally { state.focusRecordUndoPending = false; }
     }
 
-    function calendarFocusTaskOptions(taskId, taskName) {
-        const tasks = new Map((window.__tmCalendarAllTasksCache?.tasks || []).filter(task => task?.id).map(task => [String(task.id), String(task.title || task.name || task.content || task.id)]));
-        if (taskId) tasks.set(taskId, taskName || taskId);
-        return `<option value="">${__tmT('calendar.noLinkedTask')}</option>` + Array.from(tasks, ([id, title]) => `<option value="${esc(id)}" ${id === taskId ? 'selected' : ''}>${esc(title)}</option>`).join('');
-    }
 
     function openRecordModal(eventApi, options = {}) {
         if (eventApi?.extendedProps?.__tmRunning) return;
         closeModal();
         const creating = options.create === true;
         const historyApi = globalThis.__dockTomato?.history;
+        const editableMetadata = creating || historyApi?.supportsRecordMetadataEdit === true;
         if (creating && typeof historyApi?.create !== 'function') { toast(__tmT('calendar.focusRecordApiRequired'), 'warning'); return; }
         if (creating && options.source === 'schedule' && historyApi?.supportsScheduleOverwrite !== true) { toast(__tmT('calendar.focusRecordApiRequired'), 'warning'); return; }
         const ext = eventApi?.extendedProps || {};
         const recordKey = ext.__tmRecordKey || null;
         const taskBlockId = String(options.taskBlockId || ext.taskBlockId || '').trim();
-        const taskBlockName = String(options.taskBlockName || ext.taskBlockName || '').trim();
+        const taskBlockName = normalizeCalendarScheduleTitleText(options.taskBlockName || ext.taskBlockName || '', '');
+        let selectedTaskName = taskBlockName;
         const mode = String(ext.mode || '').trim();
+        const recordModeOptions = ['countdown', 'stopwatch', mode === 'stopwatch-break' ? mode : 'break'];
+        if (mode && !recordModeOptions.includes(mode)) recordModeOptions.push(mode);
         const start = options.start instanceof Date ? options.start : (eventApi?.start instanceof Date ? eventApi.start : null);
         const end = options.end instanceof Date ? options.end : (eventApi?.end instanceof Date ? eventApi.end : null);
         const startLocal = start ? `${formatDateKey(start)}T${pad2(start.getHours())}:${pad2(start.getMinutes())}` : '';
@@ -28235,13 +28345,13 @@
         modal.innerHTML = `
             <div class="tm-calendar-edit-box">
                 <div class="tm-calendar-edit-title">${__tmT(creating ? (options.source === 'schedule' ? 'calendar.convertFocusRecord' : 'calendar.supplementFocus') : 'calendar.timerRecords')}</div>
-                <div class="tm-calendar-edit-row">
+                <div class="tm-calendar-edit-row tm-calendar-edit-row--focus-task">
                     <div class="tm-calendar-edit-label">${__tmT("kernel.task")}</div>
-                    ${creating ? `<select class="tm-calendar-edit-input" data-tm-cal-field="task" aria-label="${esc(__tmT('calendar.linkedTask'))}">${calendarFocusTaskOptions(taskBlockId, taskBlockName)}</select>` : `<div class="tm-calendar-edit-value">${esc(taskBlockName || __tmT("calendar.noLinkedTask"))}</div>`}
+                    ${editableMetadata ? `<div class="tm-calendar-edit-relation-search" data-tm-focus-task-picker><input type="hidden" data-tm-cal-field="task" value="${esc(taskBlockId)}"><div class="tm-calendar-edit-relation-searchbox"><span aria-hidden="true">&#8981;</span><input type="search" data-tm-focus-task-search value="${esc(taskBlockName)}" placeholder="${esc(__tmT('calendar.searchTaskOrDocumentNames'))}" aria-label="${esc(__tmT('calendar.linkedTask'))}" aria-expanded="false" autocomplete="off"><button type="button" data-tm-focus-task-clear aria-label="${esc(__tmT('calendar.unlink'))}">&times;</button></div><div class="tm-calendar-edit-relation-results" data-tm-focus-task-results hidden></div></div>` : `<div class="tm-calendar-edit-value">${esc(taskBlockName || __tmT("calendar.noLinkedTask"))}</div>`}
                 </div>
                 <div class="tm-calendar-edit-row">
                     <div class="tm-calendar-edit-label">${__tmT("calendar.mode")}</div>
-                    ${creating ? `<select class="tm-calendar-edit-input" data-tm-cal-field="mode" aria-label="${esc(__tmT('calendar.mode'))}"><option value="countdown">${__tmT('homepage.pomodoro')}</option><option value="stopwatch">${esc(modeLabel('stopwatch'))}</option><option value="break">${esc(modeLabel('break'))}</option></select>` : `<div class="tm-calendar-edit-value">${esc(mode ? modeLabel(mode) : '-')}</div>`}
+                    ${editableMetadata ? `<select class="tm-calendar-edit-input" data-tm-cal-field="mode" aria-label="${esc(__tmT('calendar.mode'))}">${recordModeOptions.map(value => `<option value="${value}" ${value === (mode || 'countdown') ? 'selected' : ''}>${esc(modeLabel(value))}</option>`).join('')}</select>` : `<div class="tm-calendar-edit-value">${esc(mode ? modeLabel(mode) : '-')}</div>`}
                 </div>
                 <div class="tm-calendar-edit-row">
                     <div class="tm-calendar-edit-label">${__tmT("calendar.start")}</div>
@@ -28272,12 +28382,85 @@
         const abort = new AbortController();
         state.uiAbort?.abort();
         state.uiAbort = abort;
-        if (creating && window.__tmCalendarAllTasksCache?.complete !== true && typeof window.tmEnsureCalendarTaskCache === 'function') {
-            Promise.resolve().then(() => window.tmEnsureCalendarTaskCache({ source: 'calendar-focus-record', refresh: false })).then(() => {
-                if (!modal.isConnected) return;
-                const select = modal.querySelector('[data-tm-cal-field="task"]');
-                select.innerHTML = calendarFocusTaskOptions(select.value, select.selectedOptions[0]?.textContent);
-            }).catch(() => {});
+        if (editableMetadata) {
+            const picker = modal.querySelector('[data-tm-focus-task-picker]');
+            const input = picker.querySelector('[data-tm-focus-task-search]');
+            const taskInput = picker.querySelector('[data-tm-cal-field="task"]');
+            const results = picker.querySelector('[data-tm-focus-task-results]');
+            results.classList.add('tm-calendar-focus-task-dropdown');
+            results.style.zIndex = String(getOverlayZIndex(modal, 200000) + 1);
+            const theme = getComputedStyle(picker);
+            for (const key of ['--tm-bg-color', '--tm-text-color', '--tm-secondary-text', '--tm-border-color', '--tm-primary-color']) {
+                results.style.setProperty(key, theme.getPropertyValue(key));
+            }
+            document.body.appendChild(results);
+            abort.signal.addEventListener('abort', () => results.remove(), { once: true });
+            const closeResults = () => { results.hidden = true; input.setAttribute('aria-expanded', 'false'); };
+            const positionResults = () => {
+                if (results.hidden || !input.isConnected) return;
+                const anchor = picker.getBoundingClientRect();
+                const scale = results.offsetWidth ? results.getBoundingClientRect().width / results.offsetWidth : 1;
+                const viewport = window.visualViewport;
+                const left = viewport?.offsetLeft || 0, top = viewport?.offsetTop || 0;
+                const width = Math.min(viewport?.width || innerWidth, innerWidth);
+                const height = Math.min(viewport?.height || innerHeight, innerHeight);
+                const below = top + height - anchor.bottom - 12, above = anchor.top - top - 12;
+                const upwards = below < 240 && above > below;
+                const maxHeight = Math.max(40, Math.min(240 * scale, upwards ? above : below));
+                results.style.width = `${Math.min(anchor.width, width - 24) / scale}px`;
+                results.style.maxHeight = `${maxHeight / scale}px`;
+                results.style.left = `${Math.max(left + 12, Math.min(anchor.left, left + width - results.getBoundingClientRect().width - 12)) / scale}px`;
+                results.style.top = `${(upwards ? anchor.top - results.getBoundingClientRect().height - 6 : anchor.bottom + 6) / scale}px`;
+            };
+            const renderResults = () => {
+                const query = input.value === selectedTaskName ? '' : input.value;
+                const matches = searchCalendarTasks(query, { includeCompleted: true });
+                results.innerHTML = `<button type="button" class="tm-calendar-edit-relation-result" data-tm-focus-task="">${esc(__tmT('calendar.noLinkedTask'))}</button>`
+                    + matches.map(task => `<button type="button" class="tm-calendar-edit-relation-result${String(task.id) === taskInput.value ? ' is-selected' : ''}" data-tm-focus-task="${esc(task.id)}"><span class="tm-calendar-edit-relation-copy"><b>${esc(__tmNormalizeTaskTitleFromRow(task))}</b><span>${esc(getCalendarTaskRelationMeta(task))}</span></span></button>`).join('')
+                    + (matches.length ? '' : `<div class="tm-calendar-edit-relation-empty">${esc(__tmT('calendar.noMatchingTaskFound'))}</div>`);
+                results.hidden = false;
+                input.setAttribute('aria-expanded', 'true');
+                positionResults();
+            };
+            input.addEventListener('focus', () => { renderResults(); input.select(); }, { signal: abort.signal });
+            input.addEventListener('input', event => { if (!event.isComposing) renderResults(); }, { signal: abort.signal });
+            input.addEventListener('compositionend', renderResults, { signal: abort.signal });
+            const selectTask = event => {
+                const button = event.target.closest('[data-tm-focus-task], [data-tm-focus-task-clear]');
+                if (!button) return;
+                const id = button.getAttribute('data-tm-focus-task') || '';
+                const task = (window.__tmCalendarAllTasksCache?.tasks || []).find(task => String(task.id) === id);
+                taskInput.value = id;
+                selectedTaskName = task ? __tmNormalizeTaskTitleFromRow(task) : '';
+                input.value = selectedTaskName;
+                input.focus();
+                closeResults();
+            };
+            picker.addEventListener('click', selectTask, { signal: abort.signal });
+            results.addEventListener('click', selectTask, { signal: abort.signal });
+            const owns = node => node instanceof Node && (picker.contains(node) || results.contains(node));
+            document.addEventListener('keydown', event => {
+                if (event.isComposing || !owns(event.target)) return;
+                if (event.key === 'Escape' && !results.hidden) { event.preventDefault(); event.stopPropagation(); input.value = selectedTaskName; input.focus(); closeResults(); }
+                if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+                    event.preventDefault();
+                    if (results.hidden) renderResults();
+                    const buttons = Array.from(results.querySelectorAll('button'));
+                    const index = buttons.indexOf(document.activeElement), down = event.key === 'ArrowDown';
+                    buttons[index < 0 ? (down ? 0 : buttons.length - 1) : (index + (down ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+                }
+            }, { signal: abort.signal });
+            document.addEventListener('focusin', event => { if (!owns(event.target)) { input.value = selectedTaskName; closeResults(); } }, { signal: abort.signal });
+            document.addEventListener('pointerdown', event => { if (!owns(event.target)) { input.value = selectedTaskName; closeResults(); } }, { signal: abort.signal, capture: true });
+            window.addEventListener('resize', positionResults, { signal: abort.signal });
+            document.addEventListener('scroll', event => { if (event.target !== results) positionResults(); }, { signal: abort.signal, capture: true });
+            window.visualViewport?.addEventListener('resize', positionResults, { signal: abort.signal });
+            window.visualViewport?.addEventListener('scroll', positionResults, { signal: abort.signal });
+            if (window.__tmCalendarAllTasksCache?.complete !== true && typeof window.tmEnsureCalendarTaskCache === 'function') {
+                Promise.resolve().then(() => window.tmEnsureCalendarTaskCache({ source: 'calendar-focus-record', refresh: false })).then(() => {
+                    if (modal.isConnected && !results.hidden) renderResults();
+                }).catch(() => {});
+            }
         }
         modal.addEventListener('click', (e) => {
             if (e.target === modal) closeModal();
@@ -28433,13 +28616,12 @@
             if (action === 'cancel') { closeModal(); return; }
             if (creating && action === 'save') {
                 if (btn.disabled) return;
-                const taskSelect = modal.querySelector('[data-tm-cal-field="task"]');
                 btn.disabled = true;
                 try {
                     const result = await historyApi.create({
                         start: getInputValue('start'), end: getInputValue('end'), mode: getInputValue('mode'),
                         source: options.source || 'manual', sourceScheduleId: options.scheduleId || '',
-                        taskBlockId: getInputValue('task'), taskBlockName: taskSelect?.value ? taskSelect.selectedOptions[0]?.textContent : '',
+                        taskBlockId: getInputValue('task'), taskBlockName: getInputValue('task') ? selectedTaskName : '',
                     });
                     if (!result?.ok) { toast(calendarFocusSaveError(result?.error), 'warning'); return; }
                     closeModal();
@@ -28460,7 +28642,8 @@
                 return;
             }
             if (action === 'jumpTask') {
-                const jumped = taskBlockId ? await openCalendarLinkedTask(taskBlockId, e) : false;
+                const currentTaskId = editableMetadata ? getInputValue('task') : taskBlockId;
+                const jumped = currentTaskId ? await openCalendarLinkedTask(currentTaskId, e) : false;
                 if (jumped !== false) closeModal();
                 else toast(__tmT("calendar.cannotJumpToTheTaskBlock"), 'warning');
                 return;
@@ -28479,7 +28662,7 @@
                 const ok = await history.delete(recordKey);
                 if (ok) {
                     closeModal();
-                    __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux);
+                    refreshDockTomatoCalendarData();
                     toast(__tmT("calendar.deleted"), 'success');
                 } else {
                     toast(__tmT("calendar.deleteFailed"), 'error');
@@ -28504,6 +28687,12 @@
                 // untouched endpoints so saving cannot expand into a neighbour.
                 const patch = { start: s0 === startLocal && start ? start.toISOString() : nextStart.toISOString(),
                     end: e0 === endLocal && end ? end.toISOString() : nextEnd.toISOString() };
+                if (editableMetadata) {
+                    if (getInputValue('mode') !== mode) patch.mode = getInputValue('mode');
+                    if (getInputValue('task') !== taskBlockId || selectedTaskName !== taskBlockName) {
+                        Object.assign(patch, { taskBlockId: getInputValue('task'), taskBlockName: selectedTaskName });
+                    }
+                }
                 let failure = 'SAVE_FAILED';
                 btn.disabled = true;
                 try {
@@ -28607,14 +28796,7 @@
             }
         };
         const taskSearchResultsHtml = () => {
-            const keyword = relationQuery.toLocaleLowerCase('zh-CN').trim();
-            const tasks = Array.isArray(window.__tmCalendarAllTasksCache?.tasks) ? window.__tmCalendarAllTasksCache.tasks : [];
-            const matches = tasks.filter((task) => {
-                if (isCalendarRelationTaskDone(task)) return false;
-                const title = taskDisplayTitle(task, '');
-                const relationMeta = getCalendarTaskRelationMeta(task);
-                return !keyword || `${title} ${relationMeta}`.toLocaleLowerCase('zh-CN').includes(keyword);
-            });
+            const matches = searchCalendarTasks(relationQuery);
             if (!matches.length) return `<div class="tm-calendar-edit-relation-empty">${__tmT("calendar.noMatchingTaskFound")}</div>`;
             return matches.slice(0, 8).map((task) => {
                 const id = String(task?.id || '').trim();
@@ -29705,7 +29887,7 @@
     }
 
     function scheduleTomatoRefetch() {
-        if (!state.calendar) return;
+        if (!state.calendar && !state.sideDay?.calendar) return;
         const suppressed = getReminderCalendarRefetchSuppression();
         if (suppressed) {
             if (state.tomatoRefetchTimer) return;
@@ -29718,7 +29900,7 @@
         if (state.tomatoRefetchTimer) return;
         state.tomatoRefetchTimer = setTimeout(() => {
             state.tomatoRefetchTimer = null;
-            try { __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux); } catch (e) {}
+            try { if (state.calendar) __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux); } catch (e) {}
             try {
                 if (state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) {
                     __tmRefetchCalendarSource(state.sideDay.calendar, EVENT_SOURCE_IDS.sideAux);
@@ -29756,7 +29938,6 @@
     function refreshDockTomatoCalendarData(calendarOverride = null) {
         const calendar = calendarOverride || state.calendar || state.sideDay?.calendar || null;
         try { clearDockHistoryRangeCache(); } catch (e) {}
-        try { clearReminderCalendarCache(); } catch (e) {}
         if (!calendar) return false;
         const settings = getSettings();
         const view = getCalendarView(calendar);
@@ -36420,10 +36601,7 @@
                     return `<div class="tm-proto-inline-relation-current"><div class="tm-proto-inline-relation-main"><input class="tm-task-checkbox tm-proto-inline-relation-check ${shapeClass}${canceled ? ' tm-task-checkbox--canceled' : ''}" type="checkbox" data-tm-proto-edit-relation-task-check="${esc(id)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.donelinkedTask")}"${checked ? ' checked' : ''}><span><b>${esc(title)}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</span></div><div class="tm-proto-inline-relation-actions"><button type="button" class="tm-proto-inline-relation-open" data-tm-proto-edit-relation="open" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.openTaskDetails")}">${__tmT("calendar.details")}</button><button type="button" class="tm-proto-inline-relation-jump" data-tm-proto-edit-relation="jump" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.openNote")}">${__tmT("calendar.goTo2")}</button><button type="button" data-tm-proto-edit-relation="replace">${__tmT("calendar.replace")}</button><button type="button" data-tm-proto-edit-relation="unlink" class="is-danger">${__tmT("calendar.unlink")}</button></div></div>`;
                 }
                 if (!relationSearching) return `<button type="button" class="tm-proto-inline-relation-start" data-tm-proto-edit-relation="search">⌕ <span>${__tmT("calendar.searchForATaskToLink")}</span></button>`;
-                const keyword = relationQuery.toLocaleLowerCase('zh-CN').trim();
-                const tasks = Array.isArray(window.__tmCalendarAllTasksCache?.tasks) ? window.__tmCalendarAllTasksCache.tasks : [];
-                const matches = tasks.filter((task) => !isCalendarRelationTaskDone(task)
-                    && `${titleForTask(task, '')} ${getCalendarTaskRelationMeta(task)}`.toLocaleLowerCase('zh-CN').includes(keyword));
+                const matches = searchCalendarTasks(relationQuery);
                 const results = matches.length ? matches.slice(0, 8).map((task) => {
                     const id = String(task?.id || '').trim();
                     const meta = getCalendarTaskRelationMeta(task);
@@ -38279,6 +38457,7 @@
             taskId: String(eventApi?.extendedProps?.__tmTaskId || ''),
             blockId: String(eventApi?.extendedProps?.__tmBlockId || ''),
             taskDateStartKey: String(eventApi?.extendedProps?.__tmTaskDateStartKey || ''),
+            fieldSignature: settings?.eventFields?.length ? JSON.stringify(eventApi?.extendedProps?.__tmFieldTask) : '',
             taskDateEndExclusiveKey: String(eventApi?.extendedProps?.__tmTaskDateEndExclusiveKey || ''),
             taskDateSourceStartKey: String(eventApi?.extendedProps?.__tmTaskDateSourceStartKey || ''),
             taskDateSourceCompletionKey: String(eventApi?.extendedProps?.__tmTaskDateSourceCompletionKey || ''),
@@ -38304,6 +38483,7 @@
                 || a.borderColor !== b.borderColor
                 || a.taskId !== b.taskId
                 || a.blockId !== b.blockId
+                || a.fieldSignature !== b.fieldSignature
                 || a.taskDateStartKey !== b.taskDateStartKey
                 || a.taskDateEndExclusiveKey !== b.taskDateEndExclusiveKey
                 || a.taskDateSourceStartKey !== b.taskDateSourceStartKey
@@ -38736,6 +38916,7 @@
                 String(eventApi.extendedProps?.__tmTaskId || ''),
                 String(eventApi.extendedProps?.__tmBlockId || ''),
                 resolveCalendarEventDoneState(eventApi.extendedProps || {}, { viewType }) ? 1 : 0,
+                settings.eventFields?.length ? JSON.stringify(eventApi.extendedProps?.__tmFieldTask) : '',
             ].join(':')).join('|');
             const partialContextKey = [
                 viewType,
@@ -39245,19 +39426,6 @@
                     const viewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
                     rememberMainCalendarEventSourceRequest(EVENT_SOURCE_IDS.mainAux, viewType, info);
                     const settings = getSettings();
-                    const tomatoKey = [
-                        String(viewType || ''),
-                        formatDateKey(info?.start),
-                        formatDateKey(info?.end),
-                        settings.monthAggregate ? 'agg1' : 'agg0',
-                        settings.showTomatoMaster ? 'tm1' : 'tm0',
-                        settings.showFocus ? 'f1' : 'f0',
-                        settings.showBreak ? 'b1' : 'b0',
-                        settings.showStopwatch ? 's1' : 's0',
-                        settings.showIdle ? 'i1' : 'i0',
-                        settings.linkDockTomato ? 'link1' : 'link0',
-                        settings.tomatoColorMode,
-                    ].join('|');
                     const years = getCnHolidayYearsForRange(info?.start, info?.end);
                     // Holiday days must be monotonic within a session: once a
                     // year's data has been obtained (network or localStorage),
@@ -39282,6 +39450,7 @@
                         if (Array.isArray(accumulated) && accumulated.length) return accumulated;
                         return peeked;
                     };
+                    const historyVersion = Number(state.dockHistoryRangeVersion || 0);
                     const cachedRecords = peekRecordsForRange(info.start, info.end);
                     const historyNeedsBackgroundRead = cachedRecords === null;
                     const recordsPromise = historyNeedsBackgroundRead
@@ -39331,6 +39500,10 @@
                         ? Promise.allSettled(backgroundLoads)
                         : null;
                     const [records] = await Promise.all([recordsForPaint]);
+                    if (historyVersion !== Number(state.dockHistoryRangeVersion || 0)) {
+                        failure(new Error('calendar-history-stale-result'));
+                        return;
+                    }
                     const officialHolidayDays = cachedHolidayParts.filter(Array.isArray).flat();
                     const cnHolidayDays = applyCalendarCustomHolidayOverrides(officialHolidayDays, settings.customHolidayOverrides);
                     const reminders = Array.isArray(cachedReminderBlocks) ? cachedReminderBlocks : [];
@@ -39392,16 +39565,6 @@
                     const panelOnly = settings.monthAggregate && viewType === 'dayGridMonth';
                     let a = buildEventsFromRecords(records, settings, panelOnly ? 'timeGridDay' : viewType);
                     if (panelOnly) a = a.map(event => ({ ...event, extendedProps: { ...event.extendedProps, __tmDayPanelOnly: true } }));
-                    if (String(viewType || '').startsWith('dayGrid')) {
-                        const hideMonthTomato = !!settings.monthAggregate && String(viewType || '').trim() === 'dayGridMonth';
-                        const cached = state._tomatoEventCache;
-                        const fresh = cached && cached.key === tomatoKey && Array.isArray(cached.events) && cached.events.length > 0 && (Date.now() - (cached.ts || 0) < 2 * 60 * 1000);
-                        if (!hideMonthTomato && a.length === 0 && fresh) {
-                            a = cached.events;
-                        } else if (!hideMonthTomato && a.length > 0) {
-                            state._tomatoEventCache = { key: tomatoKey, ts: Date.now(), events: a };
-                        }
-                    }
                     const d = settings.showCnHoliday ? buildCnHolidayEvents(cnHolidayDays, info.start, info.end, viewType, settings) : [];
                     const e = buildEventsFromReminders(reminders, info.start, info.end, settings);
                     const scheduleCount = Number(state.mainCalendarStatus?.schedules || 0);
@@ -39431,7 +39594,6 @@
                             heldBySource.get(source).push(event);
                         });
                         const currentBySource = new Map([
-                            ['tomato', a],
                             ['cnHoliday', d],
                             ['reminder', e],
                         ]);
@@ -40911,21 +41073,7 @@
         wrap.addEventListener('change', onFilterChange);
         state.onFilterChange = onFilterChange;
 
-        state.tomatoListener = (ev) => {
-            const s2 = getSettings();
-            if (!s2.linkDockTomato) return;
-            // Dock Tomato may broadcast history-updated while its range read is
-            // materializing. Treat that notification as an internal read echo;
-            // invalidating the cache here would create a refetch -> loadRange ->
-            // history-updated feedback loop.
-            if ((Number(state.dockHistoryReadInFlight) || 0) > 0
-                || Date.now() < (Number(state.dockHistoryReadSuppressUntil) || 0)) return;
-            const now = Date.now();
-            if (now - (Number(state.dockHistoryLastInvalidationAt) || 0) < 750) return;
-            state.dockHistoryLastInvalidationAt = now;
-            clearDockHistoryRangeCache();
-            scheduleReminderCalendarRefetch();
-        };
+        state.tomatoListener = handleCalendarTomatoHistoryUpdated;
         window.addEventListener('tomato:history-updated', state.tomatoListener);
         state.reminderRefreshListener = (ev) => {
             const s2 = getSettings();
@@ -41173,7 +41321,7 @@
              try { window.removeEventListener('tm:calendar-task-cache-ready', state.calendarTaskCacheReadyListener); } catch (e) {}
              state.calendarTaskCacheReadyListener = null;
          }
-         if (state.taskMutationUnsubscribe) {
+         if (!state.sideDay?.calendar && state.taskMutationUnsubscribe) {
             try { state.taskMutationUnsubscribe(); } catch (e) {}
             state.taskMutationUnsubscribe = null;
         }
@@ -41252,7 +41400,6 @@
         try { state.scheduleTaskTitleCache.clear(); } catch (e) {}
         try { state.cnHolidayCache?.clear?.(); } catch (e) {}
         state._dockHistoryCache = null;
-        state._tomatoEventCache = null;
         state.reminderCache = { list: null, loadedAt: 0, inflight: null };
         destroyTaskDraggable();
         try { hideFloatingMiniCalendar(); } catch (e) {}
@@ -43053,6 +43200,16 @@
         return true;
     }
 
+    function calendarFieldsPreview(fields) {
+        return `<span class="tm-field-preview__cap">${__tmT('settings.preview')}</span><div class="tm-field-preview__stage"><div class="tm-cal-fields-example"><strong>${__tmT('kernel.weeklyReport')}</strong><small>09:00 - 10:00</small>${calendarEventFieldMarkup(null, fields, 'preview')}</div></div>`;
+    }
+
+    function calendarFieldsSetting(fields) {
+        const options = globalThis.__tmCalendarKanbanCardHelpers?.calendarFieldOptions?.() || [];
+        const choices = options.map(({ key, label }) => `<label class="tm-settings-chip${fields.includes(key) ? ' is-selected' : ''}"><input class="tm-settings-chip__input" type="checkbox" data-tm-cal-setting="calendarEventFields" value="${esc(key)}" ${fields.includes(key) ? 'checked' : ''}><span class="tm-settings-chip__check" aria-hidden="true"></span><span class="tm-settings-chip__label">${esc(label)}</span></label>`).join('');
+        return `<div class="tm-calendar-settings-row tm-calendar-settings-row--stacked tm-cal-fields-setting"><div class="tm-calendar-settings-label">${__tmT('calendar.eventFields')}<div class="tm-calendar-settings-label-desc">${__tmT('calendar.eventFieldsDescription')}</div></div><div class="tm-settings-chip-grid" role="group" aria-label="${esc(__tmT('calendar.eventFields'))}">${choices}</div><div class="tm-field-preview" data-tm-calendar-field-preview>${calendarFieldsPreview(fields)}</div></div>`;
+    }
+
     function renderSettings(containerEl, settingsStore, options = {}) {
         if (!containerEl || !(containerEl instanceof Element)) return false;
         const indexOnly = options?.indexOnly === true;
@@ -43109,16 +43266,6 @@
                     <div class="tm-calendar-settings-label">${__tmT("calendar.hidePomodoroRecordsInMonthView")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.theMonthViewDoesNotExpandFocusBreakAnd")}</div>
                     </div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarMonthAggregate" ${s.monthAggregate ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">${__tmT("calendar.showBreakRecords")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showBreakPeriodsFromBottomBarPomodoroRecordsIn")}</div>
-                    </div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowBreak" ${s.showBreak ? 'checked' : ''}>
-                </div>
-                <div class="tm-calendar-settings-row">
-                    <div class="tm-calendar-settings-label">${__tmT("calendar.showIdleRecords")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showIdlePeriodsFromBottomBarPomodoroRecordsIn")}</div>
-                    </div>
-                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowIdle" ${s.showIdle ? 'checked' : ''}>
                 </div>
         ` : '';
         // Week-grid paging is compact-only, so the desktop default-view list
@@ -43242,6 +43389,7 @@
                 <section class="tm-settings-panel tm-calendar-settings-panel" data-tm-settings-section="calendar-content">
                     <div class="tm-settings-section-title">${__tmT("calendar.scheduleDisplay")}</div>
                     <div class="tm-settings-section-desc">${__tmT("calendar.controlsScheduleCreationTaskDateLinkageAndTheDisplay")}</div>
+                    ${calendarFieldsSetting(s.eventFields)}
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">${__tmT("calendar.personalHolidays")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.daysConfiguredOverrideOfficialRestDaysOrAddAny", { value1: new Date().getFullYear(), value2: countCalendarCustomHolidayOverrides(new Date().getFullYear(), s.customHolidayOverrides) })}</div>
                         </div>
@@ -43306,21 +43454,6 @@
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowLunar" ${s.showLunar ? 'checked' : ''}>
                     </div>
                     ${tomatoRows}
-                    <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">${__tmT("calendar.showTaskReminders")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showTaskRemindersCreatedByTheBottomBarPomodoro")}</div>
-                        </div>
-                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskReminders" ${s.showTaskReminders ? 'checked' : ''}>
-                    </div>
-                    <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">${__tmT("calendar.showMultiDayTasks")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.showTasksWithStartOrDueDatesInThe")}</div>
-                        </div>
-                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskDates" ${s.showTaskDates ? 'checked' : ''}>
-                    </div>
-                    <div class="tm-calendar-settings-row">
-                        <div class="tm-calendar-settings-label">${__tmT("calendar.showCompletedAllDaySchedules")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.keepCompletedAllDaySchedulesWhenOffTheyAre")}</div>
-                        </div>
-                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowCompletedAllDaySchedules" ${s.showCompletedAllDaySchedules !== false ? 'checked' : ''}>
-                    </div>
                     <div class="tm-calendar-settings-row">
                         <div class="tm-calendar-settings-label">${__tmT("calendar.hideScheduledTasksInTheAllDayArea")}<div class="tm-calendar-settings-label-desc">${__tmT("calendar.inDayWeekAndSimilarViewsTasksWithA")}</div>
                         </div>
@@ -43567,7 +43700,12 @@
                 }
                 store.data.calendarIcsChainPublicConfirmed = true;
             }
-            if (key === 'calendarFirstDay') {
+            if (key === 'calendarEventFields') {
+                const group = el.closest('.tm-cal-fields-setting');
+                store.data[key] = [...group.querySelectorAll('input:checked')].map(input => input.value);
+                el.closest('label')?.classList.toggle('is-selected', el.checked);
+                group.querySelector('[data-tm-calendar-field-preview]').innerHTML = calendarFieldsPreview(store.data[key]);
+            } else if (key === 'calendarFirstDay') {
                 store.data[key] = String(el.value || '').trim() === '0' ? 0 : 1;
             } else if (key === 'calendarInitialViewDesktop') {
                 store.data[key] = normalizeMainCalendarViewType(el.value, 'timeGridWeek');
@@ -43698,6 +43836,13 @@
                 } else if (key === 'calendarHourSlotHeightMode') {
                     const settings = getSettings();
                     try { refreshCalendarSlotHeight(settings); } catch (e2) {}
+                } else if (key === 'calendarEventFields') {
+                    for (const [cal, schedule] of [[state.calendar, EVENT_SOURCE_IDS.mainSchedule], [state.sideDay?.calendar, EVENT_SOURCE_IDS.sideSchedule]]) {
+                        if (!cal) continue;
+                        __tmRefetchCalendarSource(cal, schedule);
+                    }
+                    state.queuePrototypeSurfaceRender?.();
+                    state.sideDay?.prototypeRender?.();
                 } else if (key === 'calendarEventFontSize') {
                     applyCalendarEventFontSize(store.data.calendarEventFontSize);
                 } else if (key === 'calendarEventOpacityLight' || key === 'calendarEventOpacityDark') {
@@ -43735,10 +43880,9 @@
                     || key === 'calendarIndependentScheduleTaskCreateMode') {
                     try { renderSettings(containerEl, store); } catch (e2) {}
                 } else if (key === 'calendarTomatoColorMode') {
-                    state._tomatoEventCache = null;
                     if (state.wrapEl) renderSidebar(state.wrapEl, getSettings());
                     if (state.calendar) __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux);
-                } else if (key === 'calendarShowOtherBlockCheckbox' || key === 'calendarHideScheduledTaskDatesInAllDay' || key === 'calendarShowCompletedAllDaySchedules' || key === 'calendarShowTaskReminders' || key === 'calendarTaskDateColorMode' || key === 'calendarScheduleFollowDocColor') {
+                } else if (key === 'calendarShowOtherBlockCheckbox' || key === 'calendarHideScheduledTaskDatesInAllDay' || key === 'calendarTaskDateColorMode' || key === 'calendarScheduleFollowDocColor') {
                     try {
                         const root = state.wrapEl;
                         if (root) renderSidebar(root, getSettings());
@@ -44665,6 +44809,11 @@
         getViewType: () => String(getCalendarView(state.calendar)?.type || state._lastViewType || '').trim(),
         getDate: () => getCalendarDate(state.calendar),
         requestRefresh: scheduleCalendarRefresh,
+        refreshEventFieldAppearance: (field = 'priority') => {
+            if (!getSettings().eventFields.includes(field)) return;
+            state.queuePrototypeSurfaceRender?.();
+            state.sideDay?.prototypeRender?.();
+        },
         refreshTaskListState: () => {
             if (!isCalendarListViewType(String(getCalendarView(state.calendar)?.type || ''))) return false;
             state.queuePrototypeSurfaceRender?.();

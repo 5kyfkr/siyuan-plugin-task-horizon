@@ -462,6 +462,7 @@
         SettingsStore.data[key] = nextValue;
         __tmNormalizeCheckboxStatusBindingConfig(SettingsStore.data);
         await SettingsStore.save();
+        if (mode === 'undone') globalThis.__tmCalendar?.refreshEventFieldAppearance?.('status');
         showSettings();
         render();
     };

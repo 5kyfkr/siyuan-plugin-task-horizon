@@ -43,16 +43,30 @@ const section = (from, to) => dock.slice(dock.indexOf(from), dock.indexOf(to, do
             ${section('    function __tomatoHistoryAvailableParts(', '    async function __tomatoHistoryRefreshUI(')}
             window.__recordHarness = { read: () => cloneSyncState(records.filter(record => record.disposition !== 'discarded')), set: value => records = normalizeHistoryRecords(value) };
             window.__dockTomato = {history:{
-                supportsScheduleOverwrite: true,
+                supportsScheduleOverwrite: true, supportsRecordMetadataEdit: true,
                 create: __tomatoHistoryCreate, update: __tomatoHistoryUpdate, undo: __tomatoHistoryUndo,
                 loadRange: async () => cloneSyncState(records.filter(record => record.disposition !== 'discarded')), updateTime: async (...args) => (await __tomatoHistoryUpdate(...args)).ok,
                 delete: async () => true,
             }};
         })();` });
+        const api = read('src/task-horizon/main/20-api-and-runtime-services.js');
+        const between = (from, to) => api.slice(api.indexOf(from), api.indexOf(to, api.indexOf(from)));
+        await page.addScriptTag({ path: path.join(root, '../siyuan-3.8.9/app/stage/protyle/js/lute/lute.min.js') });
+        await page.addScriptTag({ content: `
+            window.esc = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            ${between('    function __tmGetTaskListItemMarkerPrefixMatch', '    function __tmNormalizeTaskListItemMarkdownMarker')}
+            const __tmTaskContentHtmlCache = new Map();
+            ${between('    function __tmIsTaskInlineEscaped(', '    function __tmRememberTaskStatusParse(')}
+            window.API = { extractTaskContentLine: __tmExtractTaskOwnContentLine, normalizeTaskContent: value => String(value || '').trim(),
+                ${between("        renderTaskContentHtml(markdown, fallback = '')", '        parseTaskStatus(markdown)')}
+            };
+            window.__tmGetTaskTitlePresentation = (value, fallback) => API.getTaskTitlePresentation(value, fallback);
+        ` });
+        await page.addScriptTag({ content: read('src/task-horizon/main/task-runtime/51a-task-title-editor-runtime.js') });
         const model = read('src/task-horizon/main/task-runtime/50-task-model-and-repeat-utils.js');
         await page.addScriptTag({ content: model.slice(model.indexOf('function __tmParseTaskRepeatJson'), model.indexOf('function __tmGetTaskRepeatWeekdayLabel')) });
         for (const name of ['date', 'store', 'layout', 'renderer', 'interaction', 'engine']) await page.addScriptTag({ content: read(`src/calendar/calendar-${name}.js`) });
-        await page.addScriptTag({ content: read('calendar-view.js').replace('    globalThis.__tmCalendar = {', '    window.__focusTest = { state, getSettings, buildEventsFromRecords, buildSharedPrototypeDayPanelMarkup, openRecordModal };\n    globalThis.__tmCalendar = {') });
+        await page.addScriptTag({ content: read('calendar-view.js').replace('    globalThis.__tmCalendar = {', '    window.__focusTest = { state, getSettings, buildEventsFromRecords, buildSharedPrototypeDayPanelMarkup, openRecordModal, normalizeCalendarScheduleTitleText, searchCalendarTasks };\n    globalThis.__tmCalendar = {') });
         await page.evaluate(() => {
             __tmCalendar.navigateToDate('2026-11-16');
             __tmCalendar.mount(document.querySelector('#root'), { settingsStore: { loaded: true, data: { calendarDefaultViewDesktop: 'timeGridDay', calendarLinkDockTomato: true }, save: async () => {} } });
@@ -222,15 +236,110 @@ const section = (from, to) => dock.slice(dock.indexOf(from), dock.indexOf(to, do
             await page.locator('[data-tm-cal-record-undo]').click();
             await page.waitForFunction(()=>__recordHarness.read().length===2&&new Date(__recordHarness.read().find(item=>item.recordId==='gesture-edit').end).getHours()===11);
         }
+        const referenceTitle = '\u770b\u4e00\u4e0b<span data-type="block-ref" data-id="20260623092026-2xob3p2" data-subtype="d">\u6d4b\u8bd5\u6587\u6863</span>';
+        await page.evaluate(referenceTitle => {
+            __tmCalendarAllTasksCache = { complete: true, tasks: [
+                { id: 'reference-task', content: referenceTitle, root_id: 'doc-reference', docName: 'Reference notebook' },
+                { id: 'finished-task', title: 'Finished planning', done: true, root_id: 'doc-finished', docName: 'Past project' },
+                ...Array.from({length: 80}, (_, index) => ({ id: 'extra-' + index, title: 'Candidate ' + index })),
+            ] };
+            __focusTest.openRecordModal(null, { create: true });
+        }, referenceTitle);
+        const search = page.locator('[data-tm-focus-task-search]');
+        await search.fill('\u6d4b\u8bd5\u6587\u6863');
+        const referenceResult = page.locator('[data-tm-focus-task="reference-task"]');
+        assert.equal(await referenceResult.locator('b').innerText(), '\u770b\u4e00\u4e0b\u6d4b\u8bd5\u6587\u6863');
+        assert.equal(await referenceResult.locator('[data-type="block-ref"]').count(), 0, 'search uses readable text without interpreting raw HTML');
+        await search.fill('Reference notebook');
+        await referenceResult.waitFor();
+        assert.equal(await referenceResult.locator('b').innerText(), '\u770b\u4e00\u4e0b\u6d4b\u8bd5\u6587\u6863', 'document names participate in search');
+        await referenceResult.click();
+        assert.equal(await page.locator('[data-tm-cal-field="task"]').inputValue(), 'reference-task');
+        await search.fill('Finished');
+        await page.locator('[data-tm-focus-task="finished-task"]').click();
+        assert.equal(await page.locator('[data-tm-cal-field="task"]').inputValue(), 'finished-task', 'past completed tasks are selectable');
+        assert.deepEqual(await page.evaluate(() => __focusTest.searchCalendarTasks('Finished').map(task => task.id)), [], 'schedule linking still excludes completed tasks');
+        await search.fill('no-such-task');
+        await page.locator('[data-tm-focus-task-results] .tm-calendar-edit-relation-empty').waitFor();
+        await search.press('Escape');
+        assert.equal(await page.locator('.tm-calendar-edit-modal').count(), 1, 'Escape first closes search results');
+        assert.equal(await search.inputValue(), 'Finished planning', 'cancelled search preserves selection');
+        await page.locator('[data-tm-focus-task-clear]').click();
+        assert.equal(await page.locator('[data-tm-cal-field="task"]').inputValue(), '');
+        await search.fill('\u6d4b\u8bd5');
+        await search.press('ArrowDown');
+        await page.keyboard.press('ArrowDown');
+        await page.keyboard.press('Enter');
+        assert.equal(await page.locator('[data-tm-cal-field="task"]').inputValue(), 'reference-task', 'search is usable with the keyboard');
+        await page.locator('[data-tm-cal-field="start"]').fill('2026-11-16T14:00');
+        await page.locator('[data-tm-cal-field="end"]').fill('2026-11-16T14:30');
+        await page.locator('[data-tm-cal-action="save"]').click();
+        await page.waitForFunction(() => __recordHarness.read().some(record => record.taskBlockId === 'reference-task'));
+        assert.equal(await page.evaluate(() => __recordHarness.read().find(record => record.taskBlockId === 'reference-task').taskBlockName), '\u770b\u4e00\u4e0b\u6d4b\u8bd5\u6587\u6863', 'saved record names contain readable reference text');
+        assert.equal(await page.evaluate(title => __focusTest.normalizeCalendarScheduleTitleText(title, ''), referenceTitle), '\u770b\u4e00\u4e0b\u6d4b\u8bd5\u6587\u6863', 'old saved schedule titles are normalized on display');
+        await page.evaluate(() => {
+            const record = __recordHarness.read().find(record => record.taskBlockId === 'reference-task');
+            const event = __focusTest.buildEventsFromRecords([record], __focusTest.getSettings(), 'timeGridDay')[0];
+            __focusTest.openRecordModal({ ...event, start: new Date(record.start), end: new Date(record.end) });
+        });
+        await page.locator('[data-tm-focus-task-search]').fill('Finished');
+        await page.locator('[data-tm-focus-task="finished-task"]').click();
+        await page.locator('[data-tm-cal-field="mode"]').selectOption('stopwatch');
+        await page.locator('.tm-calendar-edit-box').screenshot({ path: path.join(root, 'output/playwright/focus-record-edit.png') });
+        await page.locator('[data-tm-cal-action="save"]').click();
+        await page.waitForFunction(() => __recordHarness.read().some(record => record.taskBlockId === 'finished-task' && record.mode === 'stopwatch'));
+        const edited = await page.evaluate(() => __recordHarness.read().find(record => record.taskBlockId === 'finished-task'));
+        assert.equal(edited.timerMode, 'stopwatch');
+        assert.equal(edited.phase, 'focus');
+        await page.locator('[data-tm-cal-record-undo]').click();
+        await page.waitForFunction(() => __recordHarness.read().some(record => record.taskBlockId === 'reference-task' && record.mode === 'countdown'));
+
+        await page.evaluate(() => {
+            window.cachedPickerTasks = __tmCalendarAllTasksCache.tasks;
+            __tmCalendarAllTasksCache = { complete: false, tasks: [] };
+            window.tmEnsureCalendarTaskCache = () => new Promise(resolve => { window.finishPickerLoad = () => {
+                __tmCalendarAllTasksCache = { complete: true, tasks: cachedPickerTasks }; resolve();
+            }; });
+            __focusTest.openRecordModal(null, { create: true, taskBlockId: 'reference-task', taskBlockName: 'Reference task' });
+        });
+        await page.locator('[data-tm-focus-task-search]').fill('Past project');
+        await page.waitForFunction(() => typeof finishPickerLoad === 'function');
+        await page.evaluate(() => finishPickerLoad());
+        await page.locator('[data-tm-focus-task="finished-task"]').waitFor();
+        assert.equal(await page.locator('[data-tm-focus-task-search]').inputValue(), 'Past project', 'late cache loads preserve the search query');
+        assert.equal(await page.locator('[data-tm-cal-field="task"]').inputValue(), 'reference-task', 'late loads preserve the selected task');
+        await page.locator('.tm-calendar-edit-title').click();
+        await page.locator('[data-tm-cal-action="cancel"]').click();
         for (const width of [1024, 390, 320]) {
             await page.setViewportSize({ width, height: 900 });
             await page.evaluate(() => __focusTest.openRecordModal(null, {create:true}));
             const box = await page.locator('.tm-calendar-edit-box').boundingBox();
             assert.ok(box.x >= 0 && box.x + box.width <= width + 1, `record dialog fits ${width}px`);
+            const beforeSearch = await page.locator('.tm-calendar-edit-box').boundingBox();
+            await page.locator('[data-tm-focus-task-search]').fill('Candidate');
+            assert.deepEqual(await page.locator('.tm-calendar-edit-box').boundingBox(), beforeSearch, 'floating results do not expand or move the dialog');
+            assert.equal(await page.locator('.tm-calendar-edit-modal [data-tm-focus-task-results]').count(), 0, 'results are portaled outside the modal');
+            assert.equal(await page.locator('[data-tm-focus-task-results] button').first().evaluate(el => getComputedStyle(el).borderWidth), '0px', 'options have no native button borders');
+            const resultsBox = await page.locator('[data-tm-focus-task-results]').boundingBox();
+            assert.ok(resultsBox.x >= 0 && resultsBox.x + resultsBox.width <= width + 1, `search results fit ${width}px`);
+            assert.ok(resultsBox.height <= 241, 'task results scroll within a bounded list');
+            await page.evaluate(() => document.querySelectorAll('.tm-hint').forEach(node => node.remove()));
+            await page.screenshot({ path: path.join(root, `output/playwright/focus-task-search-${width}.png`) });
             if (width === 320) await page.screenshot({ path: path.join(root, 'output/playwright/focus-record-mobile.png') });
+            await page.locator('.tm-calendar-edit-title').click();
+            assert.equal(await page.locator('[data-tm-focus-task-results]').isVisible(), false, 'clicking outside dismisses the popup');
             await page.locator('[data-tm-cal-action="cancel"]').click();
+            assert.equal(await page.locator('[data-tm-focus-task-results]').count(), 0, 'closing the modal removes the portaled results');
         }
         await page.setViewportSize({ width:1280, height:900 });
+        await page.evaluate(() => { document.body.style.zoom = '1.25'; __focusTest.openRecordModal(null, { create: true }); });
+        await page.locator('[data-tm-focus-task-search]').fill('Candidate');
+        const anchorAtZoom = await page.locator('[data-tm-focus-task-picker]').boundingBox();
+        const popupAtZoom = await page.locator('[data-tm-focus-task-results]').boundingBox();
+        assert.ok(Math.abs(anchorAtZoom.x - popupAtZoom.x) < 2 && Math.abs(anchorAtZoom.width - popupAtZoom.width) < 2, 'floating search stays aligned at 125% host zoom');
+        await page.locator('.tm-calendar-edit-title').click();
+        await page.locator('[data-tm-cal-action="cancel"]').click();
+        await page.evaluate(() => { document.body.style.zoom = ''; });
         await page.evaluate(() => {
             document.documentElement.setAttribute('data-theme-mode', 'dark');
             for (const [name, value] of Object.entries({'--b3-theme-background':'#20252b','--b3-theme-on-background':'#d8e2ec','--b3-theme-on-surface':'#a7b5c4','--b3-theme-surface-light':'#46535e','--b3-theme-primary':'#7eb9e9'})) document.body.style.setProperty(name, value);
@@ -238,6 +347,7 @@ const section = (from, to) => dock.slice(dock.indexOf(from), dock.indexOf(to, do
         });
         await page.locator('.tm-proto-event-popover').evaluate(el => el.getAnimations({subtree:true}).forEach(animation => animation.finish()));
         await page.screenshot({ path: path.join(root, 'output/playwright/focus-record-schedule-dark.png') });
+        assert.equal(await page.locator('[data-tm-focus-task-results]').count(), 0, 'closing a modal disposes the popup');
         assert.deepEqual(errors, []);
         console.log('calendar rail, conversion draft, supplement and undo browser tests passed', railGeometry);
     } finally { await browser.close(); }

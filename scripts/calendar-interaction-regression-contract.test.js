@@ -197,7 +197,7 @@ assert.match(
 );
 assert.match(
     source,
-    /if \(action === 'jumpTask'\) \{\s*const jumped = taskBlockId \? await openCalendarLinkedTask\(taskBlockId, e\) : false;[\s\S]*if \(jumped !== false\) closeModal\(\);/,
+    /if \(action === 'jumpTask'\) \{\s*const currentTaskId = editableMetadata \? getInputValue\('task'\) : taskBlockId;\s*const jumped = currentTaskId \? await openCalendarLinkedTask\(currentTaskId, e\) : false;[\s\S]*if \(jumped !== false\) closeModal\(\);/,
     'the tomato record dialog must use the shared task navigation path',
 );
 assert.doesNotMatch(

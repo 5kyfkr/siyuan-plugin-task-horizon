@@ -9383,3 +9383,39 @@
 .tm-cal-task-event--completion-independent input.tm-cal-task-event-check[type="checkbox"]:not(.b3-switch){
     border: 2px dashed var(--tm-proto-event-color, var(--tm-cal-schedule-accent, var(--tm-primary-color))) !important;
 }
+
+.tm-cal-fields-example {
+    display:flex; flex-direction:column; gap:3px; width:min(100%, 260px); box-sizing:border-box;
+    padding:6px 9px; border-radius:5px; font-size:var(--tm-cal-event-title-font-size, 12px);
+    background:color-mix(in srgb, var(--tm-primary-color) 13%, var(--tm-bg-color));
+    color:var(--tm-text-color);
+}
+.tm-cal-fields-example small { color:var(--tm-secondary-text); }
+.tm-cal-fields { display:inline-flex; align-items:center; gap:3px; min-width:0; max-width:100%; overflow:hidden; }
+.tm-cal-field { display:inline-flex; align-items:center; flex:0 0 auto; max-width:100%; gap:2px; min-width:0; }
+.tm-cal-field .tm-status-tag {
+    display:inline-flex; align-items:center; max-width:100%; overflow:hidden; box-sizing:border-box;
+    padding:0 4px; margin:0; font-size:10px; line-height:14px; height:15px; white-space:nowrap; border-radius:3px;
+}
+.tm-cal-field > [role="img"] { display:grid; place-items:center; height:15px; line-height:1; }
+.tm-cal-field .tm-priority-jira__icon, .tm-cal-field .tm-priority-jira__icon svg { width:11px; height:11px; }
+.tm-cal-fields--block, .tm-cal-fields--compact { pointer-events:none; }
+.tm-cal-fields--compact { flex:0 1 auto; max-width:40%; }
+.tm-cal-fields--compact .tm-cal-field > :not(:first-child) { display:none; }
+.tm-proto-time-col > .tm-proto-event--block:has(.tm-cal-fields) { container:tm-event-block / size; }
+.tm-proto-event--chip:has(.tm-cal-fields) { container:tm-event-strip / inline-size; }
+@container tm-event-block (max-height:49px) { .tm-cal-fields--block { display:none; } }
+@container tm-event-block (max-width:85px) { .tm-cal-fields--block { display:none; } }
+@container tm-event-strip (max-width:105px) { .tm-cal-fields--compact { display:none; } }
+.tm-proto-surface--compact-month .tm-cal-fields--compact { display:none; }
+
+/* The record task picker floats above the modal and its clipping container. */
+.tm-calendar-edit-row > [data-tm-focus-task-picker]{min-width:0;flex:1}
+[data-tm-focus-task-search]::-webkit-search-cancel-button{display:none}
+button[data-tm-focus-task-clear]{appearance:none;border:0;box-shadow:none;background:transparent;font:inherit}
+.tm-calendar-edit-row--focus-task > .tm-calendar-edit-label{align-self:flex-start}
+@media (min-width:769px){.tm-calendar-edit-row--focus-task > .tm-calendar-edit-label{padding-top:8px}}
+.tm-calendar-focus-task-dropdown{position:fixed;box-sizing:border-box;padding:4px;margin:0;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-bg-color);color:var(--tm-text-color);box-shadow:0 8px 24px oklch(20% .01 255 / .16);overflow:auto;overscroll-behavior:contain}
+.tm-calendar-focus-task-dropdown[hidden]{display:none}
+.tm-calendar-focus-task-dropdown button.tm-calendar-edit-relation-result{appearance:none;box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:7px 9px;border:0!important;border-radius:4px;box-shadow:none!important;background:transparent;color:inherit;text-align:left;font:12px/1.4 var(--b3-font-family,system-ui,sans-serif);cursor:pointer}
+.tm-calendar-focus-task-dropdown button.tm-calendar-edit-relation-result:hover,.tm-calendar-focus-task-dropdown button.tm-calendar-edit-relation-result:focus-visible,.tm-calendar-focus-task-dropdown button.tm-calendar-edit-relation-result.is-selected{outline:0;background:color-mix(in srgb,var(--tm-primary-color) 10%,var(--tm-bg-color))}

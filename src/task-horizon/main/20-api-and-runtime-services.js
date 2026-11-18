@@ -2068,6 +2068,7 @@
                 const sql = `
                     SELECT
                         task.id,
+                        task.markdown,
                         task.parent_id,
                         task.root_id,
                         (
