@@ -1529,8 +1529,8 @@
                             </div>
                             <button class="tm-kanban-more" onclick="tmOpenTaskDetail('${id}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.taskDetails")}">${__tmRenderLucideIcon('dots-three')}</button>
                         </div>
-                        ${parentTxt ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentTxt)}"><span>${__tmT("calendar.parentTask")}</span><span style="font-weight:${SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800'};color:var(--card-foreground);">${esc(parentTxt)}</span></div>` : ''}
                         ${remarkHtml}
+                        ${parentTxt ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentTxt)}"><span>${__tmT("calendar.parentTask")}</span><span style="font-weight:${SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800'};color:var(--card-foreground);">${esc(parentTxt)}</span></div>` : ''}
                         ${subtasksSectionHtml}
                     </div>
                 `;
@@ -1540,6 +1540,19 @@
             const renderKanbanGroupItems = (itemsHtml, collapsed = false) => {
                 if (typeof itemsHtml === 'function') itemsHtml = collapsed && progressiveKanbanRender ? '' : itemsHtml();
                 return `<div class="tm-kanban-group-items" data-tm-kanban-group-items${progressiveKanbanRender && !itemsHtml ? (collapsed ? ' data-tm-kanban-deferred-group' : ' data-tm-kanban-deferred-group-body') : ''} aria-hidden="${collapsed ? 'true' : 'false'}"${collapsed ? ' hidden' : ''}>${String(itemsHtml || '')}</div>`;
+            };
+            const getKanbanColumnTint = (colorInput) => {
+                const rawColor = String(colorInput || '').trim();
+                const rgba = __tmParseCssColorToRgba(rawColor);
+                if (!rgba) {
+                    if (rawColor && (rawColor.startsWith('var(') || rawColor.startsWith('color-mix('))) {
+                        const mix = isDark ? 30 : 20;
+                        return `color-mix(in srgb, ${rawColor} ${mix}%, var(--tm-bg-color) ${100 - mix}%)`;
+                    }
+                    return '';
+                }
+                const alpha = isDark ? 0.30 : 0.20;
+                return `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${alpha})`;
             };
             const completedGroupsCache = new Map();
             const getCompletedGroups = (items, options) => {
@@ -1849,6 +1862,7 @@
                     const boardGroupMode = __tmNormalizeCustomBoardGroupMode(column?.groupMode);
                     const columnKey = `custom:${boardId}`;
                     const color = __tmNormalizeHexColor(column?.color, '') || 'var(--tm-primary-color)';
+                    const colTintBg = getKanbanColumnTint(color);
                     const ruleLabel = column?.rule
                         ? __tmGetCustomBoardRuleName(column.rule)
                         : (column?.ruleId ? __tmT("task.boardRuleMissing") : __tmGetCustomBoardRuleName(null));
@@ -1989,7 +2003,7 @@
                     const colStyleBase = kanbanFillColumns
                         ? `flex:1 0 ${kanbanColW}px;min-width:${kanbanColW}px;max-width:none;`
                         : `width:${kanbanColW}px;min-width:${kanbanColW}px;max-width:${kanbanColW}px;`;
-                    const colStyle = `${colStyleBase}--tm-kanban-create-color:${color};--tm-kanban-lane-color:${color};`;
+                    const colStyle = `${colStyleBase}--tm-kanban-create-color:${color};--tm-kanban-lane-color:${color};${colTintBg ? `--tm-kanban-col-tint:${colTintBg};` : ''}`;
                     const titleTextHtml = `<span class="tm-kanban-col-title-text" title="${esc(`${boardName} · ${ruleLabel}`)}">${esc(boardName)}</span>`;
                     const headerActionsHtml = `
                         <div class="tm-kanban-col-header-actions" onclick="event.stopPropagation()">
@@ -2799,19 +2813,7 @@
                                 ? `data-kind="doc" data-doc="${esc(String(c?.id || '').trim())}"`
                                 : `data-kind="heading" data-doc="${esc(String(c?.docId || '').trim())}" data-heading="${esc(String(c?.headingId || '__none__').trim())}"`)
                             : `data-kind="status" data-status="${esc(c.id)}"`)));
-                const colTintBg = (() => {
-                    const rawColor = String(c?.color || '').trim();
-                    const rgba = __tmParseCssColorToRgba(rawColor);
-                    if (!rgba) {
-                        if (rawColor && (rawColor.startsWith('var(') || rawColor.startsWith('color-mix('))) {
-                            const mix = isDark ? 30 : 20;
-                            return `color-mix(in srgb, ${rawColor} ${mix}%, var(--tm-bg-color) ${100 - mix}%)`;
-                        }
-                        return '';
-                    }
-                    const a = isDark ? 0.30 : 0.20;
-                    return `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${a})`;
-                })();
+                const colTintBg = getKanbanColumnTint(c?.color);
                 const colTitleColor = String(c?.color || '').trim() || 'var(--tm-text-color)';
                 const colStyleBase = kanbanFillColumns
                     ? `flex:1 0 ${kanbanColW}px;min-width:${kanbanColW}px;max-width:none;`

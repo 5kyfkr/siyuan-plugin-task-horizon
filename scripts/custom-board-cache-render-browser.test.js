@@ -68,7 +68,7 @@ runtime = runtime.slice(0, startup) + `
             __tmTaskStore.acceptAuthoritative(tasks, { replaceDocuments: true, replaceStructure: true, docIds: docs });
             comboTest.returnScope();
             store.data.customBoardSets = [{ id: 'set-test', name: 'Test', boards: [
-                { id: 'a', name: 'A', groupMode: 'none', scope: { mode: 'docs', docIds: docs } },
+                { id: 'a', name: 'A', color: '#ff0000', groupMode: 'none', scope: { mode: 'docs', docIds: docs } },
                 { id: 'b', name: 'B', groupMode: 'none', scope: { mode: 'docs', docIds: docs } },
                 { id: 'c', name: 'C', groupMode: 'none', scope: { mode: 'docs', docIds: docs.slice(1) } },
                 { id: 'd', name: 'D', groupMode: 'none', scope: { mode: 'docs', docIds: docs } },
@@ -88,6 +88,22 @@ runtime = runtime.slice(0, startup) + `
         assert.equal(first.total, 180);
         assert.ok(first.cards > 0 && first.cards <= 40, 'initial render must bound cards rather than create all repeated occurrences: ' + JSON.stringify(first));
         console.log('combination-board initial paint:', first);
+        const classicBoardTint = await page.evaluate(() => {
+            const store = comboTest.SettingsStore;
+            const previousAppearance = store.data.kanbanAppearance;
+            store.data.kanbanAppearance = 'classic';
+            comboTest.render();
+            const column = document.querySelector('.tm-kanban-col[data-kind=custom]');
+            const result = {
+                tint: getComputedStyle(column).getPropertyValue('--tm-kanban-col-tint').trim(),
+                background: getComputedStyle(column).backgroundImage,
+            };
+            store.data.kanbanAppearance = previousAppearance;
+            comboTest.render();
+            return result;
+        });
+        assert.match(classicBoardTint.tint, /255,\s*0,\s*0/, 'classic combination-board columns must use the configured sub-board color tint');
+        assert.match(classicBoardTint.background, /linear-gradient/, 'classic combination-board columns must render the tinted card-style background');
         const firstCard = await page.locator('[data-col-key="custom:a"] .tm-kanban-card').first().elementHandle();
         const nextBatch = await page.evaluate(() => {
             const before = document.querySelector('[data-col-key="custom:a"]').querySelectorAll('.tm-kanban-card').length;

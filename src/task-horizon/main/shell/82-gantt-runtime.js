@@ -1353,7 +1353,14 @@
                 });
             };
             state.__tmTimelineRefreshOffscreenNav = scheduleTimelineOffscreenNavRefresh;
-            globalThis.__tmRuntimeEvents?.on?.(timelineScrollHost, 'scroll', scheduleTimelineOffscreenNavRefresh, { passive: true });
+            let offscreenNavScrollLeft = timelineScrollHost.scrollLeft;
+            const onTimelineOffscreenNavScroll = () => {
+                const scrollLeft = timelineScrollHost.scrollLeft;
+                if (scrollLeft === offscreenNavScrollLeft && timelineScrollHost.clientWidth === timelineOffscreenNavViewportWidth) return;
+                offscreenNavScrollLeft = scrollLeft;
+                scheduleTimelineOffscreenNavRefresh();
+            };
+            globalThis.__tmRuntimeEvents?.on?.(timelineScrollHost, 'scroll', onTimelineOffscreenNavScroll, { passive: true });
             globalThis.__tmRuntimeEvents?.on?.(window, 'resize', scheduleTimelineOffscreenNavRefresh, { passive: true });
             scheduleTimelineOffscreenNavRefresh();
 
@@ -2679,7 +2686,7 @@
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'contextmenu', onContextMenu); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'click', onClick); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(document, 'pointerdown', onTimelineSelectionOutsidePointerDown, true); } catch (e) {}
-                try { globalThis.__tmRuntimeEvents?.off?.(timelineScrollHost, 'scroll', scheduleTimelineOffscreenNavRefresh, { passive: true }); } catch (e) {}
+                try { globalThis.__tmRuntimeEvents?.off?.(timelineScrollHost, 'scroll', onTimelineOffscreenNavScroll, { passive: true }); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(window, 'resize', scheduleTimelineOffscreenNavRefresh, { passive: true }); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true }); } catch (e) {}
                 try { globalThis.__tmRuntimeEvents?.off?.(selectionToolbarScrollHost, 'scroll', scheduleTimelineSelectionToolbarPosition, { passive: true }); } catch (e) {}

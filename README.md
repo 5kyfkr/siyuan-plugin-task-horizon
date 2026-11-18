@@ -6,6 +6,18 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.5.0
+
+- **Summaries**
+  - Enable **Note** to include task notes in summaries and daily and weekly reports, with line breaks preserved.
+  - Linked schedules appear under their tasks by default. You can turn them off in the display fields. Recurring schedules expand into individual occurrences within a date range with an end date. With no end date, each series is listed once with its recurrence rule.
+- **Kanban and board sets** now show the parent task name below the note on cards. Board sets in **Card style** use each sub-board's configured background color.
+- **Calendar** compact search updates task results in place so the calendar no longer flickers as you type.
+- **Timeline** keeps the task list and timeline rows aligned when scrolling vertically and avoids unnecessary horizontal updates.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.4.9
 
 - **Calendar and schedules:** use **Schedule block fields** to show the linked task's status, importance, and custom select labels on timed schedules. Fix titles containing block references and remove duplicate display toggles from calendar settings.
@@ -13,9 +25,6 @@ The same plugin includes English and Simplified Chinese. Existing installations 
   - Change or remove the linked task, switch between focus, stopwatch, and break, and undo saved edits. Changing only the task or mode leaves overlapping records intact. Editing requires an updated Dock Tomato plugin.
   - Task search opens in a floating dropdown without resizing the editor. Results are borderless, highlight on hover, support keyboard selection, and close when you click outside.
   - Deleted records now disappear from the main calendar and right-side day panels.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.4.8
 

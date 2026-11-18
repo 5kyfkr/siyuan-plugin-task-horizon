@@ -23038,6 +23038,64 @@
         return true;
     }
 
+    // Summary dates are inclusive local days. An open-ended series is represented by its rule.
+    async function listTaskSchedulesByTaskIds(taskIds, { start, end, historyOnlyDays } = {}) {
+        const ids = new Set(taskIds);
+        const rows = [];
+        if (!ids.size) return rows;
+        const from = parseDateOnly(start);
+        const until = parseDateOnly(end);
+        from?.setHours(0, 0, 0, 0);
+        until?.setHours(24, 0, 0, 0);
+        const list = await loadScheduleAll();
+        if (state.scheduleCache.lastLoadError) throw new Error(__tmT("calendar.kernelScheduleServiceReadFailed"));
+        for (const item of list) {
+            const taskId = getScheduleLinkedTaskId(item);
+            if (!ids.has(taskId)) continue;
+            const startMs = toMs(item.start), endMs = toMs(item.end);
+            if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) continue;
+            const rule = getScheduleRepeatRule(item);
+            const base = { taskId, title: item.title, allDay: item.allDay === true || isAllDayRange(new Date(startMs), new Date(endMs)) };
+            if (rule.type === 'none') {
+                if ((!from || endMs > +from) && (!until || startMs < +until)) rows.push({ ...base, startMs, endMs });
+            } else if (!until) {
+                // When only historical task rows survived filtering, place the single rule on a matching planned day.
+                const plannedDays = historyOnlyDays?.get(taskId);
+                let instanceDay = '';
+                if (plannedDays) {
+                    instanceDay = Array.from(plannedDays).sort().find(day => {
+                        if (start && day < start) return false;
+                        const date = parseDateOnly(day);
+                        date.setHours(0, 0, 0, 0);
+                        const nextDay = new Date(date);
+                        nextDay.setDate(nextDay.getDate() + 1);
+                        return collectScheduleOccurrencesInRange(item, date, nextDay, { limit: 2400 })
+                            .some(occurrence => formatDateKey(occurrence.start) === day);
+                    });
+                    if (!instanceDay) continue;
+                } else if (from && !hasScheduleOccurrenceInRange(item, from, new Date(9998, 0, 1))) continue;
+                rows.push({ ...base, startMs, endMs, repeatRule: rule, instanceDay });
+            } else {
+                // Keep each request within the shared iterator's page size, including long custom ranges.
+                const anchor = parseDateOnly(rule.anchorDate) || new Date(startMs);
+                anchor.setHours(0, 0, 0, 0);
+                const firstWindowStart = Math.max(Math.min(+anchor, startMs), from ? +from : -Infinity);
+                let cursor = new Date(firstWindowStart);
+                while (cursor < until) {
+                    const next = new Date(cursor);
+                    next.setFullYear(next.getFullYear() + 1);
+                    const stop = next < until ? next : until;
+                    for (const occurrence of collectScheduleOccurrencesInRange(item, cursor, stop, { limit: 2400 })) {
+                        if (+cursor !== firstWindowStart && occurrence.startMs < +cursor) continue;
+                        rows.push({ ...base, startMs: occurrence.startMs, endMs: occurrence.endMs });
+                    }
+                    cursor = stop;
+                }
+            }
+        }
+        return rows.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+    }
+
     async function listTaskSchedulesByTaskId(taskId, options = {}) {
         const tid = String(taskId || '').trim();
         if (!tid) return [];
@@ -44791,6 +44849,7 @@
         buildPredictedCnHolidayDays,
         listTaskSchedulesByDay,
         listTaskSchedulesByTaskId,
+        listTaskSchedulesByTaskIds,
         getCachedTaskSchedules,
         searchSchedules,
         navigateToDate,

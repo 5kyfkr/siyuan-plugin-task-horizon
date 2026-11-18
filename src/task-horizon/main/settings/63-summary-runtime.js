@@ -440,7 +440,10 @@
 
             out.push({
                 id: String(task.id || '').trim(),
+                sourceTaskId: task.isRecurringInstance ? String(task.sourceTaskId || task.recurringSourceTaskId || '').trim() : '',
+                plannedDate: task.isRecurringInstance ? __tmSummaryDateOnlyText(task.recurringSourceDue || task.recurringSourceStart || startDate) : '',
                 content: String(task.content || '').trim() || __tmT("settings.noContent"),
+                remark: String(task.remark ?? task.custom_remark ?? task.customRemark ?? '').trim(),
                 done,
                 taskMarker: __tmResolveTaskMarker(task),
                 customStatus: __tmResolveTaskStatusId(task),
@@ -463,6 +466,20 @@
 
         out.sort(__tmSummaryCompareTasksByCompletion);
         return out;
+    }
+
+    function __tmSummaryFormatScheduleText(task, schedule) {
+        const start = new Date(schedule.startMs), end = new Date(schedule.endMs);
+        const day = __tmSummaryDateFmt(start);
+        const clock = (date) => [date.getHours(), date.getMinutes()].map(n => String(n).padStart(2, '0')).join(':');
+        const lastDay = __tmSummaryDateFmt(schedule.allDay ? new Date(schedule.endMs - 1) : end);
+        const span = schedule.allDay
+            ? [day, ...(lastDay === day ? [] : [lastDay])].join('–') + ' ' + __tmT("calendar.allDay")
+            : day + ' ' + clock(start) + '-' + (day === lastDay ? '' : lastDay + ' ') + clock(end);
+        const normalize = (text) => String(text || '').trim().replace(/\s+/g, ' ');
+        const name = normalize(schedule.title);
+        const rule = schedule.repeatRule ? __tmGetTaskRepeatSummary(schedule.repeatRule, { omitTrigger: true }) : '';
+        return [name !== normalize(task.content) ? name : '', span, rule].filter(Boolean).join(' · ');
     }
 
     function __tmSummaryGenerateMarkdown(tasks, filter, ctx) {
@@ -502,6 +519,7 @@
         const showDueDate = fields.dueDate === true;
         const showCompletionDate = fields.completionDate === true;
         const showFocusDuration = fields.focusDuration !== false;
+        const showRemark = fields.remark === true;
         const customFieldDefs = (Array.isArray(ctx.customFieldDefs) ? ctx.customFieldDefs : (typeof __tmGetCustomFieldDefs === 'function' ? __tmGetCustomFieldDefs() : []))
             .filter((field) => field?.enabled !== false && ['single', 'multi'].includes(String(field?.type || '').trim()));
         const customFieldDisplayDefs = (Array.isArray(fields.customFieldIds) ? fields.customFieldIds : [])
@@ -526,6 +544,20 @@
                 parts.push(`[${completionDate}]`);
             }
             return parts.join(' ');
+        };
+        const renderTaskDetails = (task, indent = '') => {
+            const details = [];
+            if (showRemark && String(task.remark || '').trim()) {
+                const remarkLines = String(task.remark).replace(/\r\n?/g, '\n').trim().split('\n');
+                details.push(`${indent}  - ${__tmT("settings.summaryRemarkLine", { text: remarkLines[0] })}`);
+                remarkLines.slice(1).forEach((line) => details.push(`${indent}    ${line}`));
+            }
+            if (fields.schedules === false) return details;
+            (Array.isArray(task.schedules) ? task.schedules : []).forEach((schedule) => {
+                const text = __tmSummaryFormatScheduleText(task, schedule);
+                if (text) details.push(`${indent}  - ${__tmT("settings.summaryScheduleLine", { text })}`);
+            });
+            return details;
         };
 
         lines.push(isDailyReport ? __tmT("settings.todaySReport") : (preset === 'this_week_report' ? __tmT("settings.thisWeekSReport") : (preset === 'last_week_report' ? __tmT("settings.lastWeekSReport") : __tmT("settings.taskSummary"))));
@@ -572,7 +604,8 @@
                     if (t.recurringLabel) suffix.push(t.recurringLabel);
                     if (showFocusDuration && t.focusDuration) suffix.push(__tmT("settings.focusTime", { focusDuration: t.focusDuration }));
                     const dates = renderTaskDates(t);
-                    return `- [${__tmResolveTaskMarker(t)}] ${body}${dates ? ` ${dates}` : ''}${suffix.length ? `（${suffix.join('｜')}）` : ''}`;
+                    const taskLine = `- [${__tmResolveTaskMarker(t)}] ${body}${dates ? ` ${dates}` : ''}${suffix.length ? `（${suffix.join('｜')}）` : ''}`;
+                    return [taskLine, ...renderTaskDetails(t)].join('\n');
                 }).join('\n')
                 : __tmT("settings.none");
             const renderReportGroup = (title, arr, visibleTasks = arr) => {
@@ -631,6 +664,7 @@
                 if (t.recurringLabel) ext.push(t.recurringLabel);
                 if (showFocusDuration && t.focusDuration) ext.push(__tmT("settings.focusTime", { focusDuration: t.focusDuration }));
                 lines.push(`${indent}- ${checkbox} ${body}${dates ? ` ${dates}` : ''}${ext.length ? `（${ext.join('｜')}）` : ''}`);
+                renderTaskDetails(t, indent).forEach(detail => lines.push(detail));
             });
             lines.push('');
         });
@@ -862,6 +896,8 @@
                 dueDate: booleanOr('dueDate', legacyDate),
                 completionDate: booleanOr('completionDate', legacyDate),
                 focusDuration: booleanOr('focusDuration', false),
+                remark: booleanOr('remark', false),
+                schedules: booleanOr('schedules', true),
                 customFieldIds: Array.from(new Set((Array.isArray(fields.customFieldIds) ? fields.customFieldIds : [])
                     .map((id) => String(id || '').trim()).filter(Boolean))),
             },
@@ -924,6 +960,8 @@
             fieldDueDate: filter.fields?.dueDate === true,
             fieldCompletionDate: filter.fields?.completionDate === true,
             fieldFocusDuration: filter.fields?.focusDuration === true,
+            fieldRemark: filter.fields?.remark === true,
+            fieldSchedules: filter.fields?.schedules !== false,
         }).forEach(([key, checked]) => {
             const control = root.querySelector(`[data-tm-summary="${key}"]`);
             if (control) control.checked = checked;
@@ -969,6 +1007,8 @@
                 dueDate: q('[data-tm-summary="fieldDueDate"]')?.checked === true,
                 completionDate: q('[data-tm-summary="fieldCompletionDate"]')?.checked === true,
                 focusDuration: q('[data-tm-summary="fieldFocusDuration"]')?.checked !== false,
+                remark: q('[data-tm-summary="fieldRemark"]')?.checked === true,
+                schedules: q('[data-tm-summary="fieldSchedules"]')?.checked !== false,
                 customFieldIds: Array.from(root.querySelectorAll('[data-tm-summary-custom-field-display]:checked'))
                     .map((control) => String(control.value || '').trim()).filter(Boolean),
             },
@@ -1085,12 +1125,57 @@
         ctx.docTaskCount = nextCount;
     }
 
-    function __tmSummaryUpdatePreview(root, ctx) {
-        const filter = __tmSummaryReadFilter(root);
-        const tasks = __tmSummaryCollectTasks(ctx, filter);
-        const md = __tmSummaryGenerateMarkdown(tasks, filter, ctx);
-        const textarea = root.querySelector('[data-tm-summary="preview"]');
-        if (textarea) textarea.value = md;
+    function __tmSummaryAttachSchedules(tasks, schedules) {
+        const byId = new Map(tasks.map(task => [task.id, task]));
+        const byPlannedDay = new Map();
+        for (const task of tasks) {
+            if (task.sourceTaskId && task.plannedDate) byPlannedDay.set(task.sourceTaskId + '/' + task.plannedDate, task);
+        }
+        for (const schedule of schedules) {
+            const day = schedule.instanceDay || __tmSummaryDateFmt(new Date(schedule.startMs));
+            const instance = (!schedule.repeatRule || schedule.instanceDay) && byPlannedDay.get(schedule.taskId + '/' + day);
+            const owner = instance || byId.get(schedule.taskId);
+            if (owner) (owner.schedules ||= []).push(schedule);
+        }
+    }
+
+    async function __tmSummaryUpdatePreview(root, ctx, filter) {
+        const revision = ++ctx.previewRevision;
+        const current = () => state.summaryModal === root && revision === ctx.previewRevision;
+        const outputButtons = root.querySelectorAll('[data-tm-summary-action="copy"], [data-tm-summary-action="export"]');
+        outputButtons.forEach(button => { button.disabled = true; });
+        let warning = '';
+        try {
+            await __tmSummaryEnsureTasksForFilter(ctx, filter);
+            await __tmSummaryEnsureH2Contexts(ctx, filter);
+            if (!current()) return false;
+            const tasks = __tmSummaryCollectTasks(ctx, filter);
+            if (filter.fields.schedules && tasks.length) {
+                try {
+                    if (!globalThis.__tmCalendar) await globalThis.__taskHorizonEnsureCalendarAssets?.();
+                    if (!current()) return false;
+                    const ids = new Set(tasks.map(task => task.id));
+                    const historyOnlyDays = new Map();
+                    for (const task of tasks) {
+                        if (!task.sourceTaskId || !task.plannedDate || ids.has(task.sourceTaskId)) continue;
+                        if (!historyOnlyDays.has(task.sourceTaskId)) historyOnlyDays.set(task.sourceTaskId, new Set());
+                        historyOnlyDays.get(task.sourceTaskId).add(task.plannedDate);
+                    }
+                    for (const id of historyOnlyDays.keys()) ids.add(id);
+                    const schedules = await globalThis.__tmCalendar.listTaskSchedulesByTaskIds(ids, { start: filter.start, end: filter.end, historyOnlyDays });
+                    __tmSummaryAttachSchedules(tasks, schedules);
+                } catch (error) {
+                    warning = __tmT("settings.summarySchedulesUnavailable");
+                }
+            }
+            if (!current()) return false;
+            const md = __tmSummaryGenerateMarkdown(tasks, filter, ctx);
+            root.querySelector('[data-tm-summary="preview"]').value = warning ? md + '\n\n> ' + warning : md;
+            if (warning) hint(warning, 'warning');
+            return !warning;
+        } finally {
+            if (current()) outputButtons.forEach(button => { button.disabled = false; });
+        }
     }
 
     function __tmCloseSummaryModal() {
@@ -1257,6 +1342,8 @@
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldDueDate">${__tmT("kernel.dueDate")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldCompletionDate">${__tmT("calendar.completionDate")}</label>
                     <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldFocusDuration">${__tmT("settings.focusTime2")}</label>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldRemark">${__tmT("kernel.note")}</label>
+                    <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" data-tm-summary="fieldSchedules" checked>${__tmT("kernel.schedule")}</label>
                     ${customFieldDisplayMarkup}
                 </div>
                 <textarea class="tm-summary-preview" data-tm-summary="preview" style="width:100%;height:100%;box-sizing:border-box;padding:12px;font-size:0.875rem;line-height:1.55;background:var(--tm-input-bg);color:var(--tm-text-color);border:1px solid var(--tm-input-border);border-radius:8px;resize:vertical;"></textarea>
@@ -1302,6 +1389,7 @@
             groupNameMap,
             customFieldDefs,
             summaryTasks: [],
+            previewRevision: 0,
             summaryH2ResolvedIds: new Set(),
             loading: true,
         };
@@ -1332,32 +1420,14 @@
             if (target.matches('[data-tm-summary-group-option]')) {
                 __tmSummaryHandleGroupOptionChange(root, target);
                 __tmSummaryRefreshDocOptions(root, ctx);
-                const filter = __tmSummaryReadFilter(root);
-                __tmSummarySaveFilter(filter);
-                await __tmSummaryEnsureTasksForFilter(ctx, filter);
-                await __tmSummaryEnsureH2Contexts(ctx, filter);
-                if (state.summaryModal !== root) return;
-                __tmSummaryUpdatePreview(root, ctx);
-                return;
-            }
-            if (target.matches('[data-tm-summary-multi-option]')) {
+            } else if (target.matches('[data-tm-summary-multi-option]')) {
                 __tmSummaryHandleMultiOptionChange(root, target);
-                const filter = __tmSummaryReadFilter(root);
-                __tmSummarySaveFilter(filter);
-                await __tmSummaryEnsureTasksForFilter(ctx, filter);
-                await __tmSummaryEnsureH2Contexts(ctx, filter);
-                if (state.summaryModal !== root) return;
-                __tmSummaryUpdatePreview(root, ctx);
+            } else if (!target.hasAttribute('data-tm-summary') || target.matches('[data-tm-summary="preview"]')) {
                 return;
             }
-            const key = String(target.getAttribute('data-tm-summary') || '').trim();
-            if (!key) return;
             const filter = __tmSummaryReadFilter(root);
             __tmSummarySaveFilter(filter);
-            await __tmSummaryEnsureTasksForFilter(ctx, filter);
-            await __tmSummaryEnsureH2Contexts(ctx, filter);
-            if (state.summaryModal !== root) return;
-            __tmSummaryUpdatePreview(root, ctx);
+            await __tmSummaryUpdatePreview(root, ctx, filter);
         });
 
         root.addEventListener('click', async (e) => {
@@ -1371,12 +1441,7 @@
             }
             if (ctx.loading) return;
             if (action === 'refresh') {
-                const filter = __tmSummaryReadFilter(root);
-                await __tmSummaryEnsureTasksForFilter(ctx, filter);
-                await __tmSummaryEnsureH2Contexts(ctx, filter);
-                if (state.summaryModal !== root) return;
-                __tmSummaryUpdatePreview(root, ctx);
-                hint(__tmT("settings.summaryGenerated"), 'success');
+                if (await __tmSummaryUpdatePreview(root, ctx, __tmSummaryReadFilter(root))) hint(__tmT("settings.summaryGenerated"), 'success');
                 return;
             }
             if (action === 'copy') {
@@ -1459,9 +1524,9 @@
         __tmSummaryApplySavedFilter(root, savedFilter, { includeDoc: true });
         const initialFilter = __tmSummaryReadFilter(root);
         __tmSummarySaveFilter(initialFilter);
-        await __tmSummaryEnsureTasksForFilter(ctx, initialFilter);
-        await __tmSummaryEnsureH2Contexts(ctx, initialFilter);
-        if (state.summaryModal !== root) return;
-        setLoading(false);
-        __tmSummaryUpdatePreview(root, ctx);
+        try {
+            await __tmSummaryUpdatePreview(root, ctx, initialFilter);
+        } finally {
+            if (state.summaryModal === root) setLoading(false);
+        }
     };

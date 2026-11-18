@@ -2585,7 +2585,7 @@
         const rule = __tmNormalizeTaskRepeatRule(ruleInput, options);
         if (!rule.enabled || rule.type === 'none') return '';
         if (rule.type === 'fsrs') return __tmT("task.fsrsSpacedRepetition");
-        const triggerText = rule.trigger === 'complete' ? __tmT("task.afterCompletion") : (rule.trigger === 'checkin' ? __tmT("task.checkIn2") : __tmT("task.whenDue"));
+        const triggerText = options.omitTrigger === true ? '' : rule.trigger === 'complete' ? __tmT("task.afterCompletion") : (rule.trigger === 'checkin' ? __tmT("task.checkIn2") : __tmT("task.whenDue"));
         const unitText = __tmGetTaskRepeatCalendarUnitLabel(rule.type, rule.every, rule.calendarMode);
         const untilText = rule.until ? __tmT("task.until2", { until: rule.until }) : '';
         const countText = rule.maxOccurrences > 0 ? __tmT("task.timesTotal", { maxOccurrences: rule.maxOccurrences }) : '';

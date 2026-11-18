@@ -15550,6 +15550,13 @@ return Number(state.contextInteractionQuietUntil || 0);
         state.listDomRenderSignature = '';
         state.listRenderSignature = '';
         __tmInvalidateFilteredTaskDerivedStateCache();
+        if (!state.searchWorkspaceExpanded && state.viewMode === 'calendar'
+            && state.modal?.getAttribute('data-tm-render-mode') === 'calendar') {
+            // The mounted calendar updates its task page on tm:filtered-tasks-updated.
+            __tmRecomputeTaskProjection({ reason: 'calendar-inline-search' });
+            window.__tmSyncInlineSearchBarPortal?.({ syncValue: false });
+            return;
+        }
         __tmScheduleRender({ withFilters: true });
     };
 

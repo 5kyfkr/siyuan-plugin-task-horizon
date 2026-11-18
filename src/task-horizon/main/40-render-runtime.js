@@ -7,6 +7,7 @@
             setTimeout(() => {
                 // A later failed render may have restored this shell.
                 if (state.modal !== previousModal) {
+                    try { previousModal.__tmTimelineStageInteractionsCleanup?.(); } catch (e) {}
                     try { previousModal.remove(); } catch (e) {}
                 }
             }, 340);
@@ -323,6 +324,7 @@
                 }
             } catch (e) {}
             if (!useSoftSwap || keepMountSnapshot) {
+                try { prevModalSnapshot.__tmTimelineStageInteractionsCleanup?.(); } catch (e) {}
                 if (keepMountSnapshot && prevMountRoot instanceof HTMLElement) {
                     try {
                         const snapshot = keepaliveSnapshot;

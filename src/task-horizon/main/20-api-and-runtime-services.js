@@ -27431,8 +27431,11 @@ return true;
         if (!(ganttBody instanceof HTMLElement)) return false;
         const globalScrollHost = __tmGetTimelineGlobalScrollHost(modal);
         const useGlobalScroll = globalScrollHost instanceof HTMLElement;
+        const timelineScrollHost = globalScrollHost || ganttBody;
+        const compactSidebarOverlay = leftBody?.closest('.tm-timeline-sidebar-overlay');
         const cleanups = [];
         let infiniteRangeRaf = 0;
+        let syncedScrollLeft;
         const bind = (target, type, handler, options) => {
             if (!(target instanceof EventTarget) || typeof handler !== 'function') return;
             target.addEventListener(type, handler, options);
@@ -27441,15 +27444,17 @@ return true;
             });
         };
         const syncHeaderX = () => {
-            if (!(ganttHeader instanceof HTMLElement)) return;
-            const scrollLeft = useGlobalScroll
-                ? (Number(globalScrollHost?.scrollLeft) || 0)
-                : (Number(ganttBody.scrollLeft) || 0);
-            if (!useGlobalScroll) {
-                const inner = ganttHeader.querySelector('.tm-gantt-header-inner');
-                if (inner instanceof HTMLElement) inner.style.transform = `translateX(${-scrollLeft}px)`;
+            const scrollLeft = timelineScrollHost.scrollLeft;
+            if (scrollLeft === syncedScrollLeft) return false;
+            syncedScrollLeft = scrollLeft;
+            if (ganttHeader instanceof HTMLElement) {
+                if (!useGlobalScroll) {
+                    const inner = ganttHeader.querySelector('.tm-gantt-header-inner');
+                    if (inner instanceof HTMLElement) inner.style.transform = `translateX(${-scrollLeft}px)`;
+                }
+                try { ganttHeader.__tmSyncGanttStickyPeriod?.(scrollLeft); } catch (e) {}
             }
-            try { ganttHeader.__tmSyncGanttStickyPeriod?.(scrollLeft); } catch (e) {}
+            return true;
         };
         const scheduleInfiniteRangeShift = () => {
             if (state.timelineInfiniteRangeShifting || infiniteRangeRaf) return;
@@ -27495,20 +27500,47 @@ return true;
             else if (ev.deltaMode === 2) delta *= ganttBody.clientWidth;
             ganttBody.scrollLeft += delta;
         };
-        const syncCompactVerticalScroll = (source, target) => {
-            if (!(source instanceof HTMLElement) || !(target instanceof HTMLElement)) return;
-            const maxTop = Math.max(0, (Number(target.scrollHeight) || 0) - (Number(target.clientHeight) || 0));
-            const nextTop = Math.max(0, Math.min(maxTop, Number(source.scrollTop) || 0));
-            if (Math.abs(nextTop - (Number(target.scrollTop) || 0)) < 0.5) return;
-            target.scrollTop = nextTop;
+        if (!useGlobalScroll && leftBody instanceof HTMLElement) {
+            const syncBottomGutter = () => {
+                // The native horizontal scrollbar reduces the usable height on the right.
+                const gutter = ganttBody.offsetHeight - ganttBody.clientHeight - ganttBody.clientTop;
+                const inset = `${Math.max(0, gutter)}px`;
+                if (leftBody.style.marginBottom !== inset) leftBody.style.marginBottom = inset;
+            };
+            syncBottomGutter();
+            const observer = new ResizeObserver(syncBottomGutter);
+            observer.observe(ganttBody);
+            cleanups.push(() => {
+                observer.disconnect();
+                leftBody.style.removeProperty('margin-bottom');
+            });
+        }
+        const scrollTops = new Map([[timelineScrollHost, timelineScrollHost.scrollTop]]);
+        if (leftBody instanceof HTMLElement) scrollTops.set(leftBody, leftBody.scrollTop);
+        const setSyncedScrollTop = (target, top) => {
+            if (!scrollTops.has(target) || target.scrollTop === top) return;
+            if (target === leftBody && compactSidebarOverlay?.classList.contains('tm-timeline-sidebar-overlay--hidden')) return;
+            target.scrollTop = top;
+            // The browser may clamp the write at a pane's scroll boundary.
+            // Remember the actual value so its scroll event cannot mirror back.
+            scrollTops.set(target, target.scrollTop);
         };
+        const syncVerticalScroll = (source, target) => {
+            const top = source.scrollTop;
+            if (scrollTops.get(source) === top) return;
+            scrollTops.set(source, top);
+            setSyncedScrollTop(target, top);
+        };
+        const hoveredRows = [];
         const syncTimelineTaskHover = (taskId = '') => {
-            modal.querySelectorAll('.tm-timeline-task-row--hovered').forEach((row) => row.classList.remove('tm-timeline-task-row--hovered'));
+            hoveredRows.forEach((row) => row.classList.remove('tm-timeline-task-row--hovered'));
+            hoveredRows.length = 0;
             const id = String(taskId || '').trim();
             if (!id) return;
             const escapedId = CSS.escape(id);
             modal.querySelectorAll(`#tmTimelineLeftTable tbody tr[data-id="${escapedId}"], #tmGanttBody .tm-gantt-row[data-id="${escapedId}"]`).forEach((row) => {
                 row.classList.add('tm-timeline-task-row--hovered');
+                hoveredRows.push(row);
             });
         };
         const resolveTimelineHoverTaskId = (target) => {
@@ -27533,54 +27565,19 @@ return true;
             bind(pane, 'pointerout', onTimelinePointerOut);
         });
 
-        if (useGlobalScroll) {
-            bind(globalScrollHost, 'scroll', () => {
-                syncHeaderX();
+        bind(timelineScrollHost, 'scroll', () => {
+            syncVerticalScroll(timelineScrollHost, leftBody);
+            syncTimelineTaskHover();
+            if (syncHeaderX()) scheduleInfiniteRangeShift();
+        }, { passive: true });
+        if (leftBody instanceof HTMLElement) {
+            bind(leftBody, 'scroll', () => {
+                syncVerticalScroll(leftBody, timelineScrollHost);
                 syncTimelineTaskHover();
-                syncCompactVerticalScroll(globalScrollHost, leftBody);
-                scheduleInfiniteRangeShift();
             }, { passive: true });
-            if (leftBody instanceof HTMLElement) {
-                bind(leftBody, 'scroll', () => {
-                    syncTimelineTaskHover();
-                    syncCompactVerticalScroll(leftBody, globalScrollHost);
-                }, { passive: true });
-                syncCompactVerticalScroll(globalScrollHost, leftBody);
-            }
-        } else if (leftBody instanceof HTMLElement) {
-            let syncing = false;
-            const syncFromLeft = () => {
-                if (syncing) return;
-                syncTimelineTaskHover();
-                syncing = true;
-                requestAnimationFrame(() => {
-                    try { ganttBody.scrollTop = leftBody.scrollTop; } catch (e) {}
-                    syncing = false;
-                });
-            };
-            const syncFromRight = () => {
-                if (syncing) return;
-                syncTimelineTaskHover();
-                syncing = true;
-                requestAnimationFrame(() => {
-                    try { leftBody.scrollTop = ganttBody.scrollTop; } catch (e) {}
-                    syncing = false;
-                });
-            };
-            bind(leftBody, 'scroll', syncFromLeft, { passive: true });
-            bind(ganttBody, 'scroll', () => {
-                syncHeaderX();
-                syncFromRight();
-                scheduleInfiniteRangeShift();
-            }, { passive: true });
-            if (ganttHeader instanceof HTMLElement) bind(ganttHeader, 'wheel', onGanttWheel, { passive: true });
-        } else {
-            bind(ganttBody, 'scroll', () => {
-                syncHeaderX();
-                scheduleInfiniteRangeShift();
-            }, { passive: true });
-            if (ganttHeader instanceof HTMLElement) bind(ganttHeader, 'wheel', onGanttWheel, { passive: true });
+            if (useGlobalScroll) setSyncedScrollTop(leftBody, timelineScrollHost.scrollTop);
         }
+        if (!useGlobalScroll) bind(ganttHeader, 'wheel', onGanttWheel, { passive: true });
         bind(ganttBody, 'click', onGroupClick, true);
         bind(window, 'pointerup', scheduleInfiniteRangeShift, true);
         bind(window, 'pointercancel', scheduleInfiniteRangeShift, true);

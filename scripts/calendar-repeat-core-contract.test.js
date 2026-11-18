@@ -448,3 +448,39 @@ test('legacy split repairs persist once through the canonical migration save pat
         calendarContext.saveScheduleAll = previousSave;
     }
 });
+
+test('summary batch expands only linked occurrences in the selected local days', async () => {
+    const extract = name => {
+        const match = calendar.match(new RegExp('    (?:async )?function ' + name + '\\([\\s\\S]*?\\n    }'));
+        assert.ok(match, name);
+        return match[0];
+    };
+    const mon = new Date(2026, 10, 2, 9), wed = new Date(2026, 10, 4, 9);
+    const series = { title: 'Review', taskId: 'task', start: mon, end: new Date(2026, 10, 2, 10),
+        repeatRule: { enabled: true, type: 'weekly', weekdays: [1, 3, 5], anchorDate: '2026-11-02' } };
+    const single = { title: 'Call', linked_task_id: 'task', start: new Date(2026, 10, 6, 15), end: new Date(2026, 10, 6, 16) };
+    const data = [single, { ...single, linked_task_id: 'other' }, series];
+    let reads = 0;
+    const ctx = vm.createContext({ Date, Map, Set, state: { scheduleCache: {} }, loadScheduleAll: async () => { reads++; return data; },
+        toMs: calendarContext.toMs, formatDateKey: calendarContext.formatDateKey, isAllDayRange: calendarContext.isAllDayRange,
+        getScheduleRepeatRule: calendarContext.getScheduleRepeatRule, collectScheduleOccurrencesInRange: calendarApi.collectScheduleOccurrencesInRange,
+        hasScheduleOccurrenceInRange: calendarContext.hasScheduleOccurrenceInRange });
+    vm.runInContext(['parseDateOnly', 'getScheduleLinkedTaskId', 'listTaskSchedulesByTaskIds'].map(extract).join('\n'), ctx);
+    const rows = (start, end, extra) => ctx.listTaskSchedulesByTaskIds(['task'], { start, end, ...extra });
+    const week = await rows('2026-11-02', '2026-11-08');
+    assert.equal(reads, 1);
+    assert.deepEqual(Array.from(week, row => [new Date(row.startMs).getDate(), row.title]), [[2, 'Review'], [4, 'Review'], [6, 'Review'], [6, 'Call']]);
+    series.skippedOccurrences = [String(+wed)];
+    assert.deepEqual(Array.from(await rows('', '2026-11-05'), row => row.startMs), [+mon]);
+    assert.equal((await rows('2026-11-07', '2026-11-08')).length, 0);
+    const all = await rows('', '');
+    assert.equal(all.length, 2);
+    assert.deepEqual(Array.from(all[0].repeatRule.weekdays), [1, 3, 5]);
+    const historyOnlyDays = new Map([['task', new Set(['2026-11-04', '2026-11-06'])]]);
+    const history = await rows('', '', { historyOnlyDays });
+    assert.equal(history.find(row => row.repeatRule).instanceDay, '2026-11-06');
+    const firstDayOnly = await rows('2026-11-07', '');
+    assert.equal(firstDayOnly.length, 1);
+    assert.ok(firstDayOnly[0].repeatRule);
+    assert.equal((await ctx.listTaskSchedulesByTaskIds([])).length, 0);
+});
