@@ -12677,6 +12677,11 @@ select.tm-btn-secondary {
     margin-top: 2px;
 }
 
+/* Subtask rows already provide bottom spacing inside expanded root cards. */
+.tm-kanban--clean .tm-kanban-card:not(.tm-kanban-card--sub):has(> .tm-kanban-subtasks > .tm-kanban-subtasks-list:not([hidden]) > .tm-kanban-card) {
+    padding-bottom: 2px;
+}
+
 .tm-whiteboard.tm-kanban--clean .tm-whiteboard-node.tm-kanban-card {
     content-visibility: visible;
     contain-intrinsic-size: auto;
@@ -12855,7 +12860,7 @@ select.tm-btn-secondary {
     position: fixed;
     inset: 0;
     background: rgba(0,0,0,0.4);
-    z-index: 200001;
+    z-index: 100002;
     display: flex;
     align-items: center;
     justify-content: center;

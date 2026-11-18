@@ -1878,7 +1878,7 @@
             switch (key) {
                 case 'docName': return `<span class="tm-checklist-meta-compact-doc">${__tmT("kernel.weeklyReport")}</span>`;
                 case 'h2': return `<span class="tm-checklist-meta-compact-h2" title="${globalThis.__taskHorizonHostBridge.i18n.html("task.thisWeek")}">${__tmT("task.thisWeek")}</span>`;
-                case 'startDate': return `<span class="tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start">${__tmT("settings.sep")}</span>`;
+                case 'startDate': return `<span class="tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start">${__tmT("settings.sep3")}</span>`;
                 case 'completionTime': return `<span class="tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion">${__tmT("settings.sep2")}</span>`;
                 case 'scheduleTime': return `<span class="tm-checklist-meta-compact-time tm-task-schedule-time--today" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.todaySScheduleStartTime")}">8:00</span>`;
                 case 'remainingTime': return `<span class="tm-checklist-meta-compact-remaining" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.daysLeft")}">${__tmT("settings.daysLeft")}</span>`;
@@ -1919,6 +1919,7 @@
             switch (key) {
                 case 'priority': return __tmFieldPreviewPriorityChip();
                 case 'status': return __tmFieldPreviewStatusTag(__tmT("ai.inProgress"), '#2f9e77');
+                case 'startDate': return `<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date tm-kanban-chip--date-has-value" title="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.startDate")}">${__tmT("settings.sep3")}</span>`;
                 case 'date': return `<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date tm-kanban-chip--date-has-value">${__tmT("settings.sep2")}</span>`;
                 case 'scheduleTime': return `<span class="tm-kanban-chip tm-task-schedule-time--today" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.todaySScheduleStartTime")}">8:00</span>`;
                 case 'remainingTime': return `<span class="tm-kanban-chip tm-kanban-chip--muted" title="${globalThis.__taskHorizonHostBridge.i18n.html("settings.daysLeft")}">${__tmT("settings.daysLeft")}</span>`;
@@ -1944,17 +1945,19 @@
                 ${remarkHtml}
             </div>`;
         const __tmFieldPreviewCard = (keys) => {
-            const list = Array.isArray(keys) ? keys : [];
+            const selected = new Set(Array.isArray(keys) ? keys : []);
+            const list = __TM_TASK_CARD_FIELD_OPTIONS.map((item) => item.key).filter((key) => selected.has(key))
+                .concat(Array.from(selected).filter((key) => __tmParseCustomFieldColumnKey(key)));
             const metaHtml = list.map((key) => __tmFieldPreviewCardChip(key)).filter(Boolean).join('');
             const remarkHtml = list.includes('remark') ? `<div class="tm-task-card-remark">${__tmT("settings.waitingForAReply")}</div>` : '';
             const emptyHint = (!metaHtml && !remarkHtml) ? `<span class="tm-field-preview__empty">${__tmT("settings.onlyTheTitleIsShownOnTheCard")}</span>` : '';
             return __tmFieldPreviewCardFrame(metaHtml, remarkHtml) + emptyHint;
         };
         const __tmFieldPreviewStickyCard = (keys) => {
-            const labels = { priority: __tmT("kernel.importance"), status: __tmT("kernel.status"), date: __tmT("calendar.date") };
-            const chips = (Array.isArray(keys) ? keys : [])
-                .map((key) => labels[key] ? `<span class="tm-kanban-chip tm-kanban-chip--muted tm-field-preview__chip--empty">${labels[key]} —</span>` : '')
-                .filter(Boolean).join('');
+            const selected = new Set(Array.isArray(keys) ? keys : []);
+            const placeholders = { startDate: __tmT("calendar.start"), date: __tmT("calendar.due") };
+            const chips = __TM_TASK_CARD_ALWAYS_SHOW_FIELD_OPTIONS.filter((item) => selected.has(item.key))
+                .map((item) => `<span class="tm-kanban-chip tm-kanban-chip--muted tm-field-preview__chip--empty">${esc(placeholders[item.key] || `${item.label} —`)}</span>`).join('');
             return __tmFieldPreviewCardFrame(chips);
         };
         const __tmFieldPreviewTimelineBar = (keys) => {

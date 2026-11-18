@@ -375,7 +375,7 @@ return ok;
             if (!dateShouldExist) {
                 dateNode.remove();
             } else {
-                dateNode.textContent = __tmFormatTaskCardDateValue(taskForRender) || __tmT("calendar.date");
+                dateNode.textContent = __tmFormatTaskCardDateValue(taskForRender) || __tmT("calendar.due");
                 __tmApplyTaskCardDateChipState(dateNode, taskForRender);
             }
             touched = true;
@@ -441,7 +441,7 @@ return ok;
         } else if (dateShouldExist) {
             return false;
         }
-        const text = __tmFormatTaskCardDateValue(task) || __tmT("calendar.date");
+        const text = __tmFormatTaskCardDateValue(task) || __tmT("calendar.due");
         const focusHtml = __tmGetTaskTomatoSummaryHtml(task);
         dateNodes.forEach((node) => {
             if (!(node instanceof HTMLElement)) return;

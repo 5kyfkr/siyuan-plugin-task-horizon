@@ -1390,9 +1390,10 @@
                 const metaParts = [];
                 if (kanbanCardFields.has('priority') && __tmShouldRenderTaskCardPriority(task)) metaParts.push(priorityChip);
                 if (kanbanCardFields.has('status') && __tmShouldRenderTaskCardStatus(task) && statusChip) metaParts.push(statusChip);
+                if (kanbanCardFields.has('startDate')) metaParts.push(__tmRenderTaskCardStartDateHtml(task, 'kanban'));
                 if (kanbanCardFields.has('date') && __tmShouldRenderTaskCardDate(task)) {
                     const dateChipClass = `${timeTxt ? ' tm-kanban-chip--date-has-value' : ' tm-kanban-chip--date-empty'}${isTaskOverdue ? ' tm-kanban-chip--date-overdue' : ''}`;
-                    metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${id}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clickToPickADate")}">${esc(dateTxt || __tmT("calendar.date"))}</span>`);
+                    metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${id}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clickToPickADate")}">${esc(dateTxt || __tmT("calendar.due"))}</span>`);
                 }
                 if (kanbanCardFields.has('scheduleTime')) {
                     const scheduleTime = __tmRenderTaskScheduleTimeHtml(task);

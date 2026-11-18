@@ -384,7 +384,7 @@
         'calendar3DayTodayPosition', 'calendarSidebarDefaultPage', 'calendarHourSlotHeightMode',
         'calendarMonthMinVisibleEvents', 'calendarIndependentScheduleTaskCreateMode',
         'calendarNewScheduleMaxDurationMin', 'calendarQuickAddScheduleTimeMode',
-        'calendarTomatoColorMode', 'calendarTaskDateColorMode', 'calendarScheduleReminderDefaultMode',
+        'calendarTomatoColorMode', 'calendarTomatoDisplayMode', 'calendarTaskDateColorMode', 'calendarScheduleReminderDefaultMode',
         'calendarIcsProvider',
     ]);
     function __tmSyncSettingsChoice(select) {

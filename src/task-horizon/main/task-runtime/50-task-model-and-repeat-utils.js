@@ -122,6 +122,7 @@
     const __TM_TASK_CARD_FIELD_OPTIONS = [
         { key: 'priority', label: __tmT("kernel.importance") },
         { key: 'status', label: __tmT("kernel.status") },
+        { key: 'startDate', label: __tmT("kernel.startDate") },
         { key: 'date', label: __tmT("kernel.dueDate") },
         { key: 'scheduleTime', label: __tmT("calendar.scheduleTime") },
         { key: 'remainingTime', label: __tmT("task.remainingTime") },
@@ -134,6 +135,7 @@
     const __TM_TASK_CARD_ALWAYS_SHOW_FIELD_OPTIONS = [
         { key: 'priority', label: __tmT("kernel.importance") },
         { key: 'status', label: __tmT("kernel.status") },
+        { key: 'startDate', label: __tmT("kernel.startDate") },
         { key: 'date', label: __tmT("kernel.dueDate") },
     ];
 
@@ -291,6 +293,16 @@
         const value = __tmGetTaskDateFieldDisplayValue(task, field);
         const text = compact ? __tmFormatTaskCardDateValueFromValue(value) : __tmFormatTaskTime(value);
         return value && __tmIsCheckinTask(task) ? __tmT("task.checkIn", { text: text }) : text;
+    }
+
+    function __tmRenderTaskCardStartDateHtml(task, view, editable = true) {
+        const value = __tmGetTaskDateFieldDisplayValue(task, 'startDate');
+        if (!value && (__tmIsCheckinTask(task) || !__tmTaskCardAlwaysShowFieldEnabled('startDate'))) return '';
+        const canEdit = editable && !task?.__tmGhost && !task?.__tmGlobalFrozen && !task?.__tmGlobalCollectionOverlay;
+        const action = String(view || '').trim() === 'whiteboard' ? 'tmWhiteboardEditDate' : 'tmKanbanPickDate';
+        const clickAttr = canEdit ? ` onclick="${action}('${escSq(task.id)}', event)"` : '';
+        const dateClass = value ? 'tm-kanban-chip--date-has-value' : 'tm-kanban-chip--date-empty';
+        return `<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date ${dateClass}" data-tm-task-time-field="startDate" style="cursor:${canEdit ? 'pointer' : 'default'};"${clickAttr} title="${globalThis.__taskHorizonHostBridge.i18n.html("kernel.startDate")}">${esc(value ? __tmFormatTaskDateFieldDisplayValue(task, 'startDate', true) : __tmT("calendar.start"))}</span>`;
     }
 
     function __tmHasTaskCardDate(task) {

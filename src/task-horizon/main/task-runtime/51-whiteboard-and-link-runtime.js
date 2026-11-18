@@ -8222,7 +8222,8 @@ return false;
         if (node.classList.contains('tm-status-tag')) return true;
         if (node.classList.contains('tm-task-card-custom-field')) return true;
         const field = String(node.getAttribute('data-tm-task-time-field') || '').trim();
-        return field === 'date'
+        return field === 'startDate'
+            || field === 'date'
             || field === 'scheduleTime'
             || field === 'remainingTime'
             || field === 'tomatoSummary'
@@ -8268,14 +8269,17 @@ return false;
             }
         }
 
+        if (__tmTaskCardFieldEnabled(viewKey, 'startDate')) {
+            metaParts.push(__tmRenderTaskCardStartDateHtml(taskLike, viewKey, editableWhiteboard));
+        }
         if (__tmTaskCardFieldEnabled(viewKey, 'date') && __tmShouldRenderTaskCardDate(taskLike)) {
             const dateValue = __tmGetTaskCardDateValue(taskLike);
             const dateText = dateValue ? __tmFormatTaskCardDateValue(taskLike) : '';
             const dateChipClass = `${dateValue ? ' tm-kanban-chip--date-has-value' : ' tm-kanban-chip--date-empty'}${__tmIsTaskCardDateOverdue(taskLike) ? ' tm-kanban-chip--date-overdue' : ''}`;
             if (viewKey === 'whiteboard') {
-                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" style="cursor:${editableWhiteboard ? 'pointer' : 'default'};" ${editableWhiteboard ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableWhiteboard ? __tmT("calendar.clickToPickADate") : ''}">${esc(dateText || __tmT("calendar.date"))}</span>`);
+                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" style="cursor:${editableWhiteboard ? 'pointer' : 'default'};" ${editableWhiteboard ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableWhiteboard ? __tmT("calendar.clickToPickADate") : ''}">${esc(dateText || __tmT("calendar.due"))}</span>`);
             } else {
-                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${escSq(tid)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clickToPickADate")}">${esc(dateText || __tmT("calendar.date"))}</span>`);
+                metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${escSq(tid)}', event)" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.clickToPickADate")}">${esc(dateText || __tmT("calendar.due"))}</span>`);
             }
         }
 

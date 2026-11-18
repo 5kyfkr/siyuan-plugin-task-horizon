@@ -1099,9 +1099,10 @@
                     const metaParts = [];
                     if (whiteboardCardFields.has('priority') && __tmShouldRenderTaskCardPriority(task)) metaParts.push(priorityChip);
                     if (whiteboardCardFields.has('status') && __tmShouldRenderTaskCardStatus(task) && statusChip) metaParts.push(statusChip);
+                    if (whiteboardCardFields.has('startDate')) metaParts.push(__tmRenderTaskCardStartDateHtml(task, 'whiteboard', editableMeta));
                     if (whiteboardCardFields.has('date') && __tmShouldRenderTaskCardDate(task)) {
                         const dateChipClass = `${dateValue ? ' tm-kanban-chip--date-has-value' : ' tm-kanban-chip--date-empty'}${isTaskOverdue ? ' tm-kanban-chip--date-overdue' : ''}`;
-                        metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? __tmT("calendar.clickToPickADate") : ''}">${esc(dateTxt || __tmT("calendar.date"))}</span>`);
+                        metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? __tmT("calendar.clickToPickADate") : ''}">${esc(dateTxt || __tmT("calendar.due"))}</span>`);
                     }
                     if (whiteboardCardFields.has('scheduleTime')) {
                         const scheduleTime = __tmRenderTaskScheduleTimeHtml(task);

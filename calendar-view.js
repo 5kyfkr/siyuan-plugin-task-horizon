@@ -657,7 +657,8 @@
             }
             if (source === 'tomato') {
                 if (!settings?.linkDockTomato || settings?.showTomatoMaster === false) return false;
-                return !(settings?.monthAggregate && String(viewType || '').trim() === 'dayGridMonth');
+                return event.extendedProps?.__tmDayPanelOnly === true
+                    || !(settings?.monthAggregate && String(viewType || '').trim() === 'dayGridMonth');
             }
             if (source === 'cnHoliday') {
                 if (!settings?.showCnHoliday) return false;
@@ -732,7 +733,8 @@
     }
 
     function getCalendarEventById(calendar, eventId) {
-        return callCalendarAdapter(calendar, 'getEventById', eventId) || null;
+        return callCalendarAdapter(calendar, 'getEventById', eventId)
+            || (state.liveTomatoEvent?.id === eventId ? state.liveTomatoEvent : null);
     }
 
     // CalendarDataStore owns all calendar data snapshots and in-flight reads.
@@ -6664,6 +6666,7 @@
             normalizeCalendarWeekAllDayVisibleRows(source.weekAllDayVisibleRows),
             source.showOtherBlockCheckbox === true ? 1 : 0,
             source.taskCheckboxCircleStyleEnabled === true ? 1 : 0,
+            source.tomatoDisplayMode === 'card' ? 'card' : 'rail',
         ].join('|');
     }
 
@@ -7169,6 +7172,7 @@
                 || globalThis.matchMedia?.('(any-pointer: coarse)')?.matches === true);
             const syncPointerInput = (event) => {
                 if (!event.pointerType) return;
+                if (event.type === 'pointerdown' && event.target.closest?.('.tm-proto-tomato-rail')) event.stopImmediatePropagation();
                 surface.classList.toggle('tm-proto-surface--touch-input', event.pointerType === 'touch' || event.pointerType === 'pen');
             };
             surface.addEventListener('pointerover', syncPointerInput, true);
@@ -7223,9 +7227,114 @@
         };
     }
 
+    function bindCalendarTomatoRailHover(surface, getCalendar) {
+        if (!surface || surface.__tmTomatoRailHover) return;
+        surface.__tmTomatoRailHover = true;
+        const relations = surface.__tmTomatoRelations = {
+            hovered: null, selectedDay: '',
+            refresh: () => refreshCalendarTomatoRelations(surface, getCalendar()),
+        };
+        const readTarget = node => node && calendarTomatoRelationTarget(
+            getCalendarEventById(getCalendar(), node.getAttribute('data-tm-proto-event')), node);
+        surface.addEventListener('pointerdown', event => {
+            relations.selectedDay = readTarget(event.target.closest?.('[data-tm-proto-event]'))?.dayKey || '';
+        }, true);
+        surface.addEventListener('pointerover', event => {
+            const node = event.target.closest?.('[data-tm-proto-event]');
+            if (!node || node.contains(event.relatedTarget) || event.pointerType === 'touch') return;
+            relations.hovered = readTarget(node);
+            relations.refresh();
+        });
+        surface.addEventListener('pointerout', event => {
+            const node = event.target.closest?.('[data-tm-proto-event]');
+            if (!node || node.contains(event.relatedTarget)) return;
+            relations.hovered = null;
+            relations.refresh();
+        });
+        surface.addEventListener('focusin', relations.refresh);
+        surface.addEventListener('focusout', () => queueMicrotask(relations.refresh));
+        let openTimer, closeTimer;
+        const scheduleClose = () => {
+            clearTimeout(closeTimer);
+            const current = state.__tmPrototypeEventPopover;
+            closeTimer = setTimeout(() => {
+                if (current === state.__tmPrototypeEventPopover && current?.railHover) closeTrackedPrototypeEventPopover();
+            }, 180);
+        };
+        const show = target => {
+            clearTimeout(openTimer); clearTimeout(closeTimer);
+            const current = state.__tmPrototypeEventPopover;
+            if (!target?.isConnected || state.modalEl || (current && !current.railHover)) return;
+            if (current?.anchorEl === target) return;
+            const eventApi = getCalendarEventById(getCalendar(), target.getAttribute('data-tm-proto-event'));
+            if (!eventApi) return;
+            state.__tmShowPrototypeEventPopover?.(eventApi, target);
+            const next = state.__tmPrototypeEventPopover;
+            if (!next) return;
+            next.railHover = true;
+            next.el.addEventListener('pointerenter', () => clearTimeout(closeTimer));
+            next.el.addEventListener('pointerleave', scheduleClose);
+        };
+        surface.addEventListener('pointerover', event => {
+            const target = event.target.closest?.('.tm-proto-tomato-rail');
+            if (!target || event.pointerType === 'touch' || target.contains(event.relatedTarget)) return;
+            clearTimeout(openTimer); openTimer = setTimeout(() => show(target), 120);
+        });
+        surface.addEventListener('pointerout', event => {
+            if (!event.target.closest?.('.tm-proto-tomato-rail')) return;
+            clearTimeout(openTimer);
+            if (state.__tmPrototypeEventPopover?.el?.contains(event.relatedTarget)) return;
+            scheduleClose();
+        });
+        surface.addEventListener('focusin', event => {
+            const target = event.target.closest?.('.tm-proto-tomato-rail');
+            if (target) show(target);
+        });
+        surface.addEventListener('focusout', event => { if (event.target.matches?.('.tm-proto-tomato-rail')) scheduleClose(); });
+    }
+
+    function calendarTomatoRelationTarget(eventApi, anchor) {
+        if (!eventApi || !anchor) return null;
+        const ext = eventApi.extendedProps || {};
+        const taskId = String(ext.taskBlockId || ext.__tmTaskId || ext.__tmBlockId || ext.__tmReminderBlockId || '').trim();
+        const dayKey = anchor.closest?.('[data-tm-proto-day]')?.getAttribute('data-tm-proto-day')
+            || anchor.closest?.('[data-tm-proto-panel-date]')?.getAttribute('data-tm-proto-panel-date')
+            || (eventApi.start ? formatDateKey(new Date(eventApi.start)) : '');
+        return { eventId: String(eventApi.id || ''), taskId, dayKey, source: ext.__tmSource, mode: ext.mode };
+    }
+
+    function refreshCalendarTomatoRelations(surface, calendar) {
+        const relations = surface.__tmTomatoRelations;
+        const entries = Array.from(surface.querySelectorAll('[data-tm-proto-event]'), node => ({ node,
+            target: calendarTomatoRelationTarget(getCalendarEventById(calendar, node.getAttribute('data-tm-proto-event')), node),
+        }));
+        if (relations?.hovered && !entries.some(entry => entry.target?.eventId === relations.hovered.eventId && entry.target.dayKey === relations.hovered.dayKey)) relations.hovered = null;
+        const popover = state.__tmPrototypeEventPopover;
+        const current = popover?.surfaceEl === surface && popover.el?.isConnected ? popover.tomatoRelation : null;
+        const selected = surface.querySelectorAll('.tm-proto-event--resize-selected[data-tm-proto-event]');
+        const focused = surface.contains(document.activeElement) ? document.activeElement.closest?.('[data-tm-proto-event]') : null;
+        const targets = relations?.hovered ? [relations.hovered] : current ? [current] : focused
+            ? [calendarTomatoRelationTarget(getCalendarEventById(calendar, focused.getAttribute('data-tm-proto-event')), focused)]
+            : Array.from(selected, node => calendarTomatoRelationTarget(getCalendarEventById(calendar, node.getAttribute('data-tm-proto-event')), node))
+                .filter(target => !relations?.selectedDay || target?.dayKey === relations.selectedDay);
+        entries.forEach(({ node, target: candidate }) => {
+            const related = candidate?.taskId && targets.some(target => target?.taskId === candidate.taskId && target.dayKey === candidate.dayKey
+                && (target.source === 'tomato' ? candidate.source !== 'tomato'
+                    : candidate.source === 'tomato' && !['break', 'stopwatch-break', 'idle'].includes(candidate.mode)));
+            node.classList.toggle('tm-proto-tomato-related', !!related);
+        });
+    }
+
+    function highlightCalendarTomatoRelations(eventApi, anchor) {
+        const surface = anchor.closest('[data-tm-cal-surface], [data-tm-side-proto-surface]');
+        if (state.__tmPrototypeEventPopover) state.__tmPrototypeEventPopover.tomatoRelation = calendarTomatoRelationTarget(eventApi, anchor);
+        surface?.__tmTomatoRelations?.refresh();
+    }
+
     function closeTrackedPrototypeEventPopover() {
+        const refreshRelations = () => document.querySelectorAll('[data-tm-cal-surface], [data-tm-side-proto-surface]').forEach(surface => surface.__tmTomatoRelations?.refresh());
         const current = state.__tmPrototypeEventPopover;
-        if (!current) return false;
+        if (!current) { refreshRelations(); return false; }
         try { document.removeEventListener('click', current.onDocumentClick, true); } catch (e) {}
         try { document.removeEventListener('pointerdown', current.onDocumentPointerDown, true); } catch (e) {}
         try { if (current.onPopoverPointerDownAt) current.el?.removeEventListener?.('pointerdown', current.onPopoverPointerDownAt, true); } catch (e) {}
@@ -7245,6 +7354,7 @@
             }
         } catch (e) {}
         state.__tmPrototypeEventPopover = null;
+        refreshRelations();
         try {
             document.querySelectorAll('[data-tm-proto-selection-preview]').forEach((node) => node.remove());
         } catch (e) {}
@@ -7492,6 +7602,8 @@
         const firstDay = days[0];
         const lastDay = addDays(days[days.length - 1], 1);
         let events = (Array.isArray(options.events) ? options.events : []).filter(isCalendarForegroundEvent);
+        const live = typeof getCalendarLiveTomatoEvent === 'function' ? getCalendarLiveTomatoEvent(settings) : null;
+        if (live && !events.some(event => event.extendedProps?.__tmRecordKey?.recordId === live.extendedProps.__tmLiveRecordId)) events = events.concat(live);
         const eventEnd = typeof options.eventEnd === 'function' ? options.eventEnd : resolveSharedPrototypeEventEnd;
         const rangeEvents = (from, to) => {
             const start = safeDate(from);
@@ -7709,7 +7821,9 @@
             const from = new Date(date.getTime());
             const to = new Date(date.getTime() + 1440 * 60000);
             const timed = rangeEvents(from, to).filter((eventApi) => eventApi?.allDay !== true);
-            const items = timed.map((eventApi) => ({
+            const railMode = settings.tomatoDisplayMode !== 'card';
+            const railEvents = railMode ? timed.filter(eventApi => eventApi.extendedProps?.__tmSource === 'tomato') : [];
+            const items = timed.filter(eventApi => !railMode || eventApi.extendedProps?.__tmSource !== 'tomato').map((eventApi) => ({
                 eventApi,
                 start: safeDate(eventApi?.start) || from,
                 end: eventEnd(eventApi) || new Date((safeDate(eventApi?.start) || from).getTime() + 30 * 60000),
@@ -7775,17 +7889,34 @@
                     startsEvent ? 'is-fold-fragment-start' : '',
                     endsEvent ? 'is-fold-fragment-end' : '',
                 ].filter(Boolean).join(' ');
+                const geometry = railEvents.length
+                    ? `left:calc(${left}% + 4px - ${left / 100 * 10}px);width:calc(${width}% - ${5 + width / 100 * 10}px);`
+                    : `left:calc(${left}% + 4px);width:calc(${width}% - 5px);`;
                 return eventMarkup(item.eventApi, 'block', true, fragmentClass)
+                    .replace('data-tm-proto-event="', `${item.eventApi.extendedProps?.__tmRunning ? 'data-tm-live-record="1" ' : ''}data-tm-proto-event="`)
                     .replace('data-tm-proto-event="', `data-tm-proto-lane="${item.lane}" data-tm-proto-lane-count="${item.laneCount}" data-tm-proto-event="`)
-                    .replace('style="--tm-proto-event-color:', `data-tm-proto-minute="${segment.start}" data-tm-proto-end-minute="${segment.end}" style="top:${top}%;height:${Math.max(0.01, bottom - top)}%;left:calc(${left}% + 4px);width:calc(${width}% - 5px);--tm-proto-event-color:`);
+                    .replace('style="--tm-proto-event-color:', `data-tm-proto-minute="${segment.start}" data-tm-proto-end-minute="${segment.end}" style="top:${top}%;height:${Math.max(0.01, bottom - top)}%;${geometry}--tm-proto-event-color:`);
             })).join('');
+            const railMarkup = railEvents.flatMap(eventApi => {
+                const start = safeDate(eventApi.start), end = eventEnd(eventApi);
+                if (!start || !end) return [];
+                const startMinute = Math.max(0, (start - date) / 60000);
+                const endMinute = Math.min(1440, (end - date) / 60000);
+                return getPrototypeTimelineVisibleEventSegments(startMinute, endMinute, timeMetrics).map(segment => {
+                    const top = prototypeTimelineYForMinute(segment.start, timeMetrics);
+                    const bottom = prototypeTimelineYForMinute(segment.end, timeMetrics);
+                    const label = `${eventApi.title || ''} · ${formatScheduleEventRangeText(start, end, false)}`;
+                    const color = eventApi.backgroundColor || resolveModeColor(eventApi.extendedProps?.mode, settings);
+                    return `<button type="button" class="tm-proto-tomato-rail" ${eventApi.extendedProps?.__tmRunning ? 'data-tm-live-record="1" ' : ''}data-tm-proto-event="${esc(String(eventApi.id || ''))}" data-tm-proto-minute="${segment.start}" data-tm-proto-end-minute="${segment.end}" aria-label="${esc(label)}" style="top:${top / canvasHeight * 100}%;height:${Math.max(0.01, (bottom - top) / canvasHeight * 100)}%;--tm-proto-event-color:${esc(color)}"></button>`;
+                });
+            }).join('');
             const nowTop = key === currentDayKey && Number.isFinite(currentNowTop)
                 ? currentNowTop
                 : null;
             const nowMarkup = Number.isFinite(nowTop)
                 ? `<span class="tm-proto-now-indicator" data-tm-proto-minute="${currentNowMinutes}" style="top:${Math.max(0, Math.min(100, nowTop))}%" aria-hidden="true"><i></i></span>`
                 : '';
-            return `<div class="tm-proto-time-col ${key === currentDayKey ? 'is-today' : ''}${alias('tm-proto-day-panel-events')}" data-tm-proto-day="${key}" style="--tm-proto-col:${cols}">${nowMarkup}${blocks}</div>`;
+            return `<div class="tm-proto-time-col ${railMode && railEvents.length ? 'tm-proto-time-col--tomato-rail ' : ''}${key === currentDayKey ? 'is-today' : ''}${alias('tm-proto-day-panel-events')}" data-tm-proto-day="${key}" style="--tm-proto-col:${cols}">${nowMarkup}${blocks}${railMarkup}</div>`;
         }).join('');
         const toggleAction = String(options.toggleAction || 'toggleAllDay').trim() || 'toggleAllDay';
         const allDayToggle = buildSharedPrototypeAllDayToggleMarkup({ actionAttr, action: toggleAction, collapsed: allDayCollapsed });
@@ -8456,7 +8587,8 @@
                     : 'tm-proto-event tm-proto-event--block tm-proto-selection-preview tm-proto-schedule-draft';
                 preview.setAttribute(interactive ? 'data-tm-proto-draft' : 'data-tm-proto-selection-preview', '1');
                 if (!interactive) preview.setAttribute('aria-hidden', 'true');
-                preview.style.cssText = `top:${top}%;height:${Math.max(1, height)}%;left:0;width:100%;--tm-proto-event-color:var(--tm-cal-primary);`;
+                const previewWidth = column.classList.contains('tm-proto-time-col--tomato-rail') ? 'calc(100% - 11px)' : '100%';
+                preview.style.cssText = `top:${top}%;height:${Math.max(1, height)}%;left:0;width:${previewWidth};--tm-proto-event-color:var(--tm-cal-primary);`;
                 // Keep both handles outside the central tap target, including
                 // compact cards at the minimum 15-minute duration.
                 preview.style.setProperty('--tm-draft-handle-inset', `${Math.min(12, Math.max(0, (bottomPx - topPx) / 2 - 5))}px`);
@@ -9636,6 +9768,7 @@
             showStopwatch: tomatoMaster && (s.calendarShowStopwatch !== false),
             showIdle: tomatoMaster && !!s.calendarShowIdle,
             tomatoColorMode: normalizeCalendarTomatoColorMode(readStoredJsonString('tm_calendar_tomato_color_mode', s.calendarTomatoColorMode)),
+            tomatoDisplayMode: s.calendarTomatoDisplayMode === 'card' ? 'card' : 'rail',
             showOtherBlockCheckbox: readStoredBool('tm_calendar_show_other_block_checkbox', typeof s.calendarShowOtherBlockCheckbox === 'boolean' ? !!s.calendarShowOtherBlockCheckbox : undefined),
             taskCheckboxCircleStyleEnabled: state.settingsStore?.data?.taskCheckboxCircleStyleEnabled === true,
             colorFocus: String(s.calendarColorFocus || 'var(--tm-primary-color)'),
@@ -10172,6 +10305,9 @@
 
     function renderSidebar(wrap, settings) {
         if (!wrap) return;
+        wrap.querySelectorAll('[data-tm-cal-tomato-style]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.tmCalTomatoStyle === (settings.tomatoDisplayMode || 'rail'))));
+        const undoButton = wrap.querySelector('[data-tm-cal-record-undo]');
+        if (undoButton) undoButton.hidden = !state.focusRecordUndo;
         const calList = wrap.querySelector('[data-tm-cal-role="calendar-list"]');
         const tomatoList = wrap.querySelector('[data-tm-cal-role="tomato-list"]');
         const secCalendars = wrap.querySelector('[data-tm-cal-collapse="calendars"]')?.closest?.('.tm-calendar-nav-section') || null;
@@ -20021,6 +20157,8 @@
     }
 
     function unmountSideDayTimeline() {
+        if (state.sideDay.historyListener) window.removeEventListener('tomato:history-updated', state.sideDay.historyListener);
+        state.sideDay.historyListener = null;
         state.sideDay.rootEl?.querySelector('[data-tm-side-proto-surface]')?.__tmTimelinePinch?.dispose();
         state.sideDay.rootEl?.querySelector('[data-tm-side-proto-surface]')?.__tmTimelineZoom?.dispose();
         try { closeTrackedPrototypeMorePopover(); } catch (e) {}
@@ -20076,11 +20214,15 @@
     function refreshCalendarNowIndicators() {
         if (document.hidden) return;
         if (state.calendar && state.rootEl?.isConnected && !state.mainCalendarSuspended
-            && isTimeGridViewType(String(getCalendarView(state.calendar)?.type || state._lastViewType || '').trim())) {
+            && (isTimeGridViewType(String(getCalendarView(state.calendar)?.type || state._lastViewType || '').trim())
+                || state.calendarEl?.querySelector?.('.tm-proto-time-canvas'))) {
             try { state.queuePrototypeSurfaceRender?.({ nowIndicatorChanged: true }); } catch (e) {}
         }
         if (state.sideDay?.rootEl?.isConnected) {
-            try { state.sideDay.prototypeRender?.(); } catch (e) {}
+            try {
+                const surface = state.sideDay.rootEl.querySelector('[data-tm-side-proto-surface]');
+                if (!refreshCalendarTimelineMinute(surface, state.sideDay.calendar)) state.sideDay.prototypeRender?.();
+            } catch (e) { state.sideDay.prototypeRender?.(); }
             try { scheduleSideDayNowIndicatorRefreshFallback(); } catch (e) {}
         }
     }
@@ -20102,7 +20244,10 @@
             side.nowIndicatorTimer = setTimeout(() => {
                 side.nowIndicatorTimer = null;
                 side.nowIndicatorTimerTarget = 0;
-                try { side.prototypeRender(); } catch (e) {}
+                try {
+                    const surface = side.rootEl?.querySelector?.('[data-tm-side-proto-surface]');
+                    if (!refreshCalendarTimelineMinute(surface, side.calendar)) side.prototypeRender();
+                } catch (e) { side.prototypeRender(); }
                 scheduleSideDayNowIndicatorRefreshFallback();
             }, delay);
         } catch (e) {
@@ -20115,7 +20260,7 @@
         if (!main || typeof main.queuePrototypeSurfaceRender !== 'function') return;
         if (main.mainCalendarSuspended) return;
         const viewType = String(getCalendarView(main.calendar)?.type || main._lastViewType || '').trim();
-        if (!isTimeGridViewType(viewType)) {
+        if (!isTimeGridViewType(viewType) && !main.calendarEl?.querySelector?.('.tm-proto-time-canvas')) {
             if (main.nowIndicatorTimer) {
                 try { clearTimeout(main.nowIndicatorTimer); } catch (e) {}
                 main.nowIndicatorTimer = null;
@@ -21227,7 +21372,7 @@
                     node.classList.remove('tm-proto-event--resize-selected');
                 });
             } catch (e) {}
-            if (!selectedId) return;
+            if (!selectedId) { surface.__tmTomatoRelations?.refresh(); return; }
             try {
                 surface.querySelectorAll('[data-tm-proto-event]').forEach((node) => {
                     if (String(node.getAttribute('data-tm-proto-event') || '').trim() === selectedId) {
@@ -21235,6 +21380,7 @@
                     }
                 });
             } catch (e) {}
+            surface.__tmTomatoRelations?.refresh();
         };
         const ensureSidePrototypeSurface = () => {
             if (!(rootEl instanceof HTMLElement)) return null;
@@ -21258,6 +21404,7 @@
             } catch (e) {}
             if (!surface.__tmSideProtoBound) {
                 surface.__tmSideProtoBound = true;
+                bindCalendarTomatoRailHover(surface, () => state.sideDay?.calendar || cal);
                 const timelineGestureOptions = {
                     isMobile: isLikelyMobileRuntime(),
                     isBusy: () => !!sidePrototypeEventDrag || !!sidePrototypePointerSelection,
@@ -22169,11 +22316,12 @@
                     const remindersNeedBackgroundRead = curSettings.linkDockTomato
                         && curSettings.showTaskReminders !== false
                         && cachedReminderBlocks === null;
-                    const [officialHolidayDays, reminders] = await Promise.all([
+                    const [officialHolidayDays, reminders, records] = await Promise.all([
                         curSettings.showCnHoliday
                             ? Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat())
                             : Promise.resolve([]),
                         remindersNeedBackgroundRead ? loadReminderBlocks().catch(() => []) : Promise.resolve(cachedReminderBlocks),
+                        loadRecordsForRange(info.start, info.end),
                     ]);
                     const cnHolidayDays = applyCalendarCustomHolidayOverrides(officialHolidayDays, curSettings.customHolidayOverrides);
                     const reminderReadIncomplete = remindersNeedBackgroundRead;
@@ -22213,7 +22361,8 @@
                     } catch (e0) {}
                     const d = curSettings.showCnHoliday ? buildCnHolidayEvents(cnHolidayDays, info.start, info.end, 'timeGridDay', curSettings) : [];
                     const e = buildEventsFromReminders(reminders, info.start, info.end, curSettings);
-                    let auxEvents = (d || []).concat(e || []);
+                    const timers = buildEventsFromRecords(records, curSettings, 'timeGridDay');
+                    let auxEvents = (d || []).concat(e || [], timers || []);
                     const heldAuxEvents = isCalendarSourceEventSnapshotHeld(
                         EVENT_SOURCE_IDS.sideAux,
                         info.start,
@@ -22250,7 +22399,7 @@
                     if (restoredHeldCategory) {
                         holdCalendarSourceEventSnapshot(EVENT_SOURCE_IDS.sideAux, info.start, info.end);
                     }
-                    success(normalizeCalendarEngineEventInputs(auxEvents));
+                    success(normalizeCalendarEngineEventInputs(colorCalendarTomatoEvents(auxEvents, curSettings)));
                 } catch (e) {
                     failure(e);
                 }
@@ -22609,6 +22758,16 @@
         queueSidePrototypeRender();
         state.sideDay.calendar = cal;
         state.sideDay.adapter = sideCalendarAdapter;
+        if (state.sideDay.historyListener) window.removeEventListener('tomato:history-updated', state.sideDay.historyListener);
+        state.sideDay.historyListener = () => {
+            // A mounted main calendar already refreshes both auxiliary sources.
+            if (state.calendar || !getSettings().linkDockTomato
+                || (Number(state.dockHistoryReadInFlight) || 0) > 0
+                || Date.now() < (Number(state.dockHistoryReadSuppressUntil) || 0)) return;
+            clearDockHistoryRangeCache();
+            __tmRefetchCalendarSource(cal, EVENT_SOURCE_IDS.sideAux);
+        };
+        window.addEventListener('tomato:history-updated', state.sideDay.historyListener);
         scheduleClampSideDayPopover(rootEl);
         try {
             const runInitialAutoCenter = () => {
@@ -27306,6 +27465,7 @@
 
     function buildRecordKey(r) {
         const key = {
+            recordId: r?.recordId || '',
             timestamp: r?.timestamp ?? null,
             start: r?.start ?? '',
             end: r?.end ?? '',
@@ -27825,6 +27985,104 @@
         );
     }
 
+    function getCalendarLiveTomatoEvent(settings = getSettings()) {
+        if (!settings.linkDockTomato || settings.showTomatoMaster === false) { state.liveTomatoEvent = null; return null; }
+        let snapshot;
+        try { snapshot = globalThis.__tomatoTimerV2?.getState?.(); } catch (error) { state.liveTomatoEvent = null; return null; }
+        const timer = snapshot?.activeTimer;
+        const start = Number(timer?.segmentStartMs);
+        if (!timer || timer.status !== 'RUNNING' || !Number.isFinite(start) || start <= 0) { state.liveTomatoEvent = null; return null; }
+        const mode = timer.phase === 'break' ? (timer.timerMode === 'stopwatch' ? 'stopwatch-break' : 'break')
+            : timer.timerMode === 'stopwatch' ? 'stopwatch' : 'countdown';
+        if (!shouldShowMode(mode, settings)) { state.liveTomatoEvent = null; return null; }
+        let end = Date.now();
+        const limitSec = Number(timer.timerMode === 'stopwatch' ? timer.hardLimitSec : timer.plannedDurationSec);
+        if (Number.isFinite(limitSec) && limitSec > 0) end = Math.min(end, start + Math.max(0, limitSec * 1000 - (Number(timer.accumulatedMs) || 0)));
+        if (end <= start) { state.liveTomatoEvent = null; return null; }
+        const association = snapshot.integrationEnvelope?.taskAssociation || {};
+        const id = `tm-live-${String(timer.openRecordId || timer.sessionId || start)}`;
+        const event = buildEventsFromRecords([{
+            start: new Date(start).toISOString(), end: new Date(end).toISOString(), mode,
+            durationMin: (end - start) / 60000, taskBlockId: association.taskBlockId || '', taskBlockName: association.taskBlockName || '',
+        }], settings, 'timeGridDay')[0];
+        if (!event) return null;
+        event.id = id;
+        event.title += ` · ${__tmT('calendar.timerRunning')}`;
+        event.editable = event.startEditable = event.durationEditable = false;
+        event.extendedProps.__tmRecordKey = null;
+        event.extendedProps.__tmRunning = true;
+        event.extendedProps.__tmLiveRecordId = String(timer.openRecordId || '');
+        const colored = colorCalendarTomatoEvents([event], settings)[0];
+        state.liveTomatoEvent = state.liveTomatoEvent?.id === id ? Object.assign(state.liveTomatoEvent, colored) : colored;
+        return state.liveTomatoEvent;
+    }
+
+    // Share the clock's minute boundary. Unchanged running sessions only update
+    // their existing rail nodes and current-time markers; no source/history read.
+    function refreshCalendarTimelineMinute(surface, calendar) {
+        if (document.hidden) return true;
+        if (!surface?.isConnected) return false;
+        const canvases = Array.from(surface.querySelectorAll('.tm-proto-time-canvas'));
+        if (!canvases.length) return false;
+        const settings = getSettings(), live = getCalendarLiveTomatoEvent(settings);
+        const saved = live && getCalendarEvents(calendar).some(event => event.extendedProps?.__tmRecordKey?.recordId === live.extendedProps.__tmLiveRecordId);
+        const event = saved ? null : live;
+        const currentPopover = state.__tmPrototypeEventPopover;
+        if (currentPopover?.surfaceEl === surface && String(currentPopover.eventId || '').startsWith('tm-live-')
+            && (!event || currentPopover.eventId !== event.id)) closeTrackedPrototypeEventPopover();
+        const now = new Date(), today = formatDateKey(now), minute = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+        const updates = [];
+        for (const canvas of canvases) {
+            const metrics = getPrototypeTimelineMetricsFromCanvas(canvas, settings);
+            const columns = Array.from(canvas.querySelectorAll('.tm-proto-time-col'));
+            if (columns.some(col => col.classList.contains('is-today') !== (col.dataset.tmProtoDay === today))) return false;
+            const nowVisible = columns.some(col => col.dataset.tmProtoDay === today)
+                && (metrics.expanded || !metrics.collapsedRanges.some(range => minute > range.start && minute < range.end));
+            if (!!canvas.querySelector('.tm-proto-now-label') !== nowVisible) return false;
+            const expected = [];
+            if (event) for (const column of columns) {
+                const day = new Date(`${column.dataset.tmProtoDay}T00:00:00`).getTime();
+                const start = Math.max(0, (event.start.getTime() - day) / 60000), end = Math.min(1440, (event.end.getTime() - day) / 60000);
+                if (start >= end) continue;
+                if (settings.tomatoDisplayMode === 'card') return false;
+                for (const segment of getPrototypeTimelineVisibleEventSegments(start, end, metrics)) expected.push({ column, segment });
+            }
+            const nodes = Array.from(canvas.querySelectorAll('[data-tm-live-record]'));
+            if (nodes.length !== expected.length || expected.some((item, index) => nodes[index]?.parentElement !== item.column
+                || nodes[index]?.getAttribute('data-tm-proto-event') !== event?.id)) return false;
+            updates.push({ canvas, metrics, nodes, expected });
+        }
+        for (const { canvas, metrics, nodes, expected } of updates) {
+            const percent = value => prototypeTimelineYForMinute(value, metrics) / metrics.canvasHeight * 100;
+            canvas.querySelectorAll('.tm-proto-now-label, .tm-proto-now-indicator').forEach(node => {
+                node.style.top = `${percent(minute)}%`;
+                node.dataset.tmProtoMinute = String(minute);
+                if (node.classList.contains('tm-proto-now-label')) {
+                    node.textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+                    node.setAttribute('aria-label', __tmT('calendar.currentTime', {value1:pad2(now.getHours()),value2:pad2(now.getMinutes())}));
+                }
+            });
+            nodes.forEach((node, index) => {
+                const { start, end } = expected[index].segment;
+                node.style.top = `${percent(start)}%`;
+                node.style.height = `${Math.max(0.01, percent(end) - percent(start))}%`;
+                node.dataset.tmProtoMinute = String(start); node.dataset.tmProtoEndMinute = String(end);
+                node.setAttribute('aria-label', `${event.title} · ${formatScheduleEventRangeText(event.start, event.end, false)}`);
+            });
+        }
+        const popover = state.__tmPrototypeEventPopover;
+        if (popover?.surfaceEl === surface && String(popover.eventId || '').startsWith('tm-live-')) {
+            if (!event || popover.eventId !== event.id) closeTrackedPrototypeEventPopover();
+            else {
+                const title = popover.el.querySelector('.tm-proto-event-popover-title'), time = popover.el.querySelector('.tm-proto-event-popover-time');
+                if (title) title.textContent = event.title;
+                if (time) time.textContent = `${formatDateKey(event.start) === formatDateKey(event.end) ? formatDateKey(event.start) + ' ' : ''}${formatScheduleEventRangeText(event.start, event.end, false)}`;
+                popover.onViewportChange?.();
+            }
+        }
+        return true;
+    }
+
     function buildEventsFromRecords(records, settings, viewType) {
         const filtered = normalizeCalendarTomatoRecords(records)
             .filter((r) => shouldShowMode(r?.mode, settings));
@@ -27889,6 +28147,8 @@
     }
 
     function closeModal() {
+        const restore = state.focusRecordRestore;
+        state.focusRecordRestore = null;
         closeDeviceScheduleDialog();
         if (state.modalEl) {
             try { state.modalEl.remove(); } catch (e) {}
@@ -27898,6 +28158,7 @@
             try { state.uiAbort.abort(); } catch (e) {}
             state.uiAbort = null;
         }
+        restore?.();
     }
 
     function closeDeviceScheduleDialog() {
@@ -27911,15 +28172,61 @@
         }
     }
 
-    function openRecordModal(eventApi) {
+    function calendarFocusSaveError(code) {
+        return __tmT(({ INVALID_TIME:'calendar.recordPastTimeRequired', ACTIVE_RECORD:'calendar.recordActiveOverlap',
+            OVERLAP:'calendar.recordOverlap', STALE_RECORD:'calendar.recordEditStale' })[code] || 'calendar.saveFailed');
+    }
+
+    async function updateCalendarFocusTime(recordKey, patch, onFailure = null) {
+        const history = globalThis.__dockTomato?.history;
+        if (typeof history?.update === 'function') {
+            const result = await history.update(recordKey, patch);
+            if (result?.ok) rememberCalendarFocusChange(result);
+            else onFailure?.(result?.error || 'SAVE_FAILED');
+            return result?.ok === true;
+        }
+        return typeof history?.updateTime === 'function' && await history.updateTime(recordKey, patch);
+    }
+
+    function rememberCalendarFocusChange(result) {
+        if (result?.undo) state.focusRecordUndo = result.undo;
+        refreshDockTomatoCalendarData();
+        if (state.wrapEl) renderSidebar(state.wrapEl, getSettings());
+    }
+
+    async function undoCalendarFocusRecord() {
+        const receipt = state.focusRecordUndo, history = globalThis.__dockTomato?.history;
+        if (!receipt || typeof history?.undo !== 'function' || state.focusRecordUndoPending) return;
+        state.focusRecordUndoPending = true;
+        try {
+            const ok = await history.undo(receipt);
+            if (ok && state.focusRecordUndo === receipt) state.focusRecordUndo = null;
+            if (ok) rememberCalendarFocusChange(null);
+            toast(__tmT(ok ? 'calendar.recordChangeUndone' : 'calendar.recordUndoConflict'), ok ? 'success' : 'warning');
+        } catch (error) { toast(__tmT('calendar.saveFailed'), 'error'); }
+        finally { state.focusRecordUndoPending = false; }
+    }
+
+    function calendarFocusTaskOptions(taskId, taskName) {
+        const tasks = new Map((window.__tmCalendarAllTasksCache?.tasks || []).filter(task => task?.id).map(task => [String(task.id), String(task.title || task.name || task.content || task.id)]));
+        if (taskId) tasks.set(taskId, taskName || taskId);
+        return `<option value="">${__tmT('calendar.noLinkedTask')}</option>` + Array.from(tasks, ([id, title]) => `<option value="${esc(id)}" ${id === taskId ? 'selected' : ''}>${esc(title)}</option>`).join('');
+    }
+
+    function openRecordModal(eventApi, options = {}) {
+        if (eventApi?.extendedProps?.__tmRunning) return;
         closeModal();
+        const creating = options.create === true;
+        const historyApi = globalThis.__dockTomato?.history;
+        if (creating && typeof historyApi?.create !== 'function') { toast(__tmT('calendar.focusRecordApiRequired'), 'warning'); return; }
+        if (creating && options.source === 'schedule' && historyApi?.supportsScheduleOverwrite !== true) { toast(__tmT('calendar.focusRecordApiRequired'), 'warning'); return; }
         const ext = eventApi?.extendedProps || {};
         const recordKey = ext.__tmRecordKey || null;
-        const taskBlockId = String(ext.taskBlockId || '').trim();
-        const taskBlockName = String(ext.taskBlockName || '').trim();
+        const taskBlockId = String(options.taskBlockId || ext.taskBlockId || '').trim();
+        const taskBlockName = String(options.taskBlockName || ext.taskBlockName || '').trim();
         const mode = String(ext.mode || '').trim();
-        const start = eventApi?.start instanceof Date ? eventApi.start : null;
-        const end = eventApi?.end instanceof Date ? eventApi.end : null;
+        const start = options.start instanceof Date ? options.start : (eventApi?.start instanceof Date ? eventApi.start : null);
+        const end = options.end instanceof Date ? options.end : (eventApi?.end instanceof Date ? eventApi.end : null);
         const startLocal = start ? `${formatDateKey(start)}T${pad2(start.getHours())}:${pad2(start.getMinutes())}` : '';
         const endLocal = end ? `${formatDateKey(end)}T${pad2(end.getHours())}:${pad2(end.getMinutes())}` : '';
 
@@ -27927,14 +28234,14 @@
         modal.className = 'tm-calendar-edit-modal';
         modal.innerHTML = `
             <div class="tm-calendar-edit-box">
-                <div class="tm-calendar-edit-title">${__tmT("calendar.timerRecords")}</div>
+                <div class="tm-calendar-edit-title">${__tmT(creating ? (options.source === 'schedule' ? 'calendar.convertFocusRecord' : 'calendar.supplementFocus') : 'calendar.timerRecords')}</div>
                 <div class="tm-calendar-edit-row">
                     <div class="tm-calendar-edit-label">${__tmT("kernel.task")}</div>
-                    <div class="tm-calendar-edit-value">${esc(taskBlockName || __tmT("calendar.noLinkedTask"))}</div>
+                    ${creating ? `<select class="tm-calendar-edit-input" data-tm-cal-field="task" aria-label="${esc(__tmT('calendar.linkedTask'))}">${calendarFocusTaskOptions(taskBlockId, taskBlockName)}</select>` : `<div class="tm-calendar-edit-value">${esc(taskBlockName || __tmT("calendar.noLinkedTask"))}</div>`}
                 </div>
                 <div class="tm-calendar-edit-row">
                     <div class="tm-calendar-edit-label">${__tmT("calendar.mode")}</div>
-                    <div class="tm-calendar-edit-value">${esc(mode || '-')}</div>
+                    ${creating ? `<select class="tm-calendar-edit-input" data-tm-cal-field="mode" aria-label="${esc(__tmT('calendar.mode'))}"><option value="countdown">${__tmT('homepage.pomodoro')}</option><option value="stopwatch">${esc(modeLabel('stopwatch'))}</option><option value="break">${esc(modeLabel('break'))}</option></select>` : `<div class="tm-calendar-edit-value">${esc(mode ? modeLabel(mode) : '-')}</div>`}
                 </div>
                 <div class="tm-calendar-edit-row">
                     <div class="tm-calendar-edit-label">${__tmT("calendar.start")}</div>
@@ -27944,20 +28251,34 @@
                     <div class="tm-calendar-edit-label">${__tmT("calendar.end")}</div>
                     <input class="tm-calendar-edit-input" type="datetime-local" value="${esc(endLocal)}" data-tm-cal-field="end">
                 </div>
+                ${creating ? '<div class="tm-calendar-record-preview" data-tm-record-preview aria-live="polite"></div>' : ''}
                 <div class="tm-calendar-edit-actions">
                     ${taskBlockId ? `<button class="tm-btn tm-btn-secondary" data-tm-cal-action="jumpTask">${__tmT("calendar.openTask")}</button>` : ''}
                     <div style="flex:1;"></div>
-                    <button class="tm-btn tm-btn-danger" data-tm-cal-action="delete">${__tmT("common.delete")}</button>
+                    ${creating ? `<button class="tm-btn tm-btn-secondary" data-tm-cal-action="cancel">${__tmT('common.cancel')}</button>` : `<button class="tm-btn tm-btn-danger" data-tm-cal-action="delete">${__tmT("common.delete")}</button>`}
                     <button class="tm-btn tm-btn-success" data-tm-cal-action="save">${__tmT("common.save")}</button>
                 </div>
             </div>
         `;
         document.body.appendChild(modal);
         state.modalEl = modal;
+        if (options.preservePopover instanceof HTMLElement) {
+            const popover = options.preservePopover;
+            const visibility = popover.style.visibility;
+            popover.style.visibility = 'hidden';
+            state.focusRecordRestore = () => { if (popover.isConnected) popover.style.visibility = visibility; };
+        }
 
         const abort = new AbortController();
         state.uiAbort?.abort();
         state.uiAbort = abort;
+        if (creating && window.__tmCalendarAllTasksCache?.complete !== true && typeof window.tmEnsureCalendarTaskCache === 'function') {
+            Promise.resolve().then(() => window.tmEnsureCalendarTaskCache({ source: 'calendar-focus-record', refresh: false })).then(() => {
+                if (!modal.isConnected) return;
+                const select = modal.querySelector('[data-tm-cal-field="task"]');
+                select.innerHTML = calendarFocusTaskOptions(select.value, select.selectedOptions[0]?.textContent);
+            }).catch(() => {});
+        }
         modal.addEventListener('click', (e) => {
             if (e.target === modal) closeModal();
         }, { signal: abort.signal });
@@ -27969,6 +28290,25 @@
             const el = modal.querySelector(`[data-tm-cal-field="${field}"]`);
             return el ? String(el.value || '').trim() : '';
         };
+        if (creating) {
+            let previewSequence = 0;
+            const updatePreview = async () => {
+                const sequence = ++previewSequence;
+                const preview = modal.querySelector('[data-tm-record-preview]');
+                const startMs = Date.parse(getInputValue('start')), endMs = Date.parse(getInputValue('end'));
+                if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) { preview.textContent = ''; return; }
+                preview.textContent = __tmT('calendar.recordMinutes', { minutes: formatDurationMinutes((endMs - startMs) / 60000) });
+                if (options.source !== 'schedule' || typeof historyApi.loadRange !== 'function') return;
+                try {
+                    const occupied = await historyApi.loadRange(new Date(startMs).toISOString(), new Date(endMs).toISOString());
+                    if (sequence !== previewSequence || !modal.isConnected) return;
+                    const count = occupied.filter(record => record.disposition !== 'discarded' && Date.parse(record.start) < endMs && Date.parse(record.end) > startMs).length;
+                    preview.textContent = __tmT(count ? 'calendar.recordConversionPreview' : 'calendar.recordConversionNoOverlap', { minutes: formatDurationMinutes((endMs - startMs) / 60000), count });
+                } catch (error) { preview.textContent = __tmT('calendar.recordPreviewUnavailable'); }
+            };
+            modal.addEventListener('input', updatePreview, { signal: abort.signal });
+            void updatePreview();
+        }
         const syncColorToCalendar = () => {
             const calendarId = getInputValue('calendarId') || calendarId0 || 'default';
             const colorEl = modal.querySelector('[data-tm-cal-field="color"]');
@@ -28090,6 +28430,25 @@
             const btn = findActionTarget(e?.target, 'data-tm-cal-action');
             const action = String(btn?.getAttribute?.('data-tm-cal-action') || '');
             if (!action) return;
+            if (action === 'cancel') { closeModal(); return; }
+            if (creating && action === 'save') {
+                if (btn.disabled) return;
+                const taskSelect = modal.querySelector('[data-tm-cal-field="task"]');
+                btn.disabled = true;
+                try {
+                    const result = await historyApi.create({
+                        start: getInputValue('start'), end: getInputValue('end'), mode: getInputValue('mode'),
+                        source: options.source || 'manual', sourceScheduleId: options.scheduleId || '',
+                        taskBlockId: getInputValue('task'), taskBlockName: taskSelect?.value ? taskSelect.selectedOptions[0]?.textContent : '',
+                    });
+                    if (!result?.ok) { toast(calendarFocusSaveError(result?.error), 'warning'); return; }
+                    closeModal();
+                    rememberCalendarFocusChange(result);
+                    toast(__tmT('calendar.saved'), 'success');
+                } catch (error) { toast(__tmT('calendar.saveFailed'), 'error'); }
+                finally { btn.disabled = false; }
+                return;
+            }
             if (action === 'openDockHistory') {
                 const dock = globalThis.__dockTomato;
                 const dateKey = start ? formatDateKey(start) : '';
@@ -28128,6 +28487,7 @@
                 return;
             }
             if (action === 'save') {
+                if (btn.disabled) return;
                 const s0 = getInputValue('start');
                 const e0 = getInputValue('end');
                 if (!s0 || !e0) {
@@ -28140,14 +28500,21 @@
                     toast(__tmT("calendar.invalidTime"), 'warning');
                     return;
                 }
-                const ok = await history.updateTime(recordKey, { start: nextStart.toISOString(), end: nextEnd.toISOString() });
-                if (ok) {
-                    closeModal();
-                    __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux);
-                    toast(__tmT("calendar.saved"), 'success');
-                } else {
-                    toast(__tmT("calendar.saveFailed"), 'error');
-                }
+                // Native fields display minutes. Keep seconds/milliseconds for
+                // untouched endpoints so saving cannot expand into a neighbour.
+                const patch = { start: s0 === startLocal && start ? start.toISOString() : nextStart.toISOString(),
+                    end: e0 === endLocal && end ? end.toISOString() : nextEnd.toISOString() };
+                let failure = 'SAVE_FAILED';
+                btn.disabled = true;
+                try {
+                    const ok = await updateCalendarFocusTime(recordKey, patch, code => { failure = code; });
+                    if (ok) {
+                        closeModal();
+                        if (typeof history.update !== 'function') __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux);
+                        toast(__tmT("calendar.saved"), 'success');
+                    } else toast(calendarFocusSaveError(failure), 'error');
+                } catch (error) { toast(calendarFocusSaveError('SAVE_FAILED'), 'error'); }
+                finally { btn.disabled = false; }
             }
         }, { signal: abort.signal });
     }
@@ -29387,7 +29754,7 @@
     }
 
     function refreshDockTomatoCalendarData(calendarOverride = null) {
-        const calendar = calendarOverride || state.calendar || null;
+        const calendar = calendarOverride || state.calendar || state.sideDay?.calendar || null;
         try { clearDockHistoryRangeCache(); } catch (e) {}
         try { clearReminderCalendarCache(); } catch (e) {}
         if (!calendar) return false;
@@ -29396,9 +29763,9 @@
         const rangeStart = view?.activeStart || view?.currentStart;
         const rangeEnd = view?.activeEnd || view?.currentEnd;
         const refetchVisibleSources = () => {
-            if (calendar !== state.calendar) return;
+            if (calendar !== state.calendar && calendar !== state.sideDay?.calendar) return;
             let mainRefetched = false;
-            try { mainRefetched = __tmRefetchCalendarSource(calendar, EVENT_SOURCE_IDS.mainAux) === true; } catch (e) {}
+            try { mainRefetched = __tmRefetchCalendarSource(calendar, calendar === state.calendar ? EVENT_SOURCE_IDS.mainAux : EVENT_SOURCE_IDS.sideAux) === true; } catch (e) {}
             if (!mainRefetched) {
                 try { callCalendarAdapter(calendar, 'refetchEvents'); } catch (e) {}
             }
@@ -29938,11 +30305,13 @@
                                         <div class="tm-calendar-nav-header" data-tm-cal-collapse="tomato">
                                             <span>${__tmT("homepage.pomodoro")}</span>
                                             <span class="tm-calendar-nav-header-actions">
+                                                <span class="tm-calendar-tomato-style" role="group" aria-label="${esc(__tmT('calendar.recordStyle'))}"><button type="button" data-tm-cal-tomato-style="card" aria-pressed="true">${__tmT('calendar.recordCards')}</button><button type="button" data-tm-cal-tomato-style="rail" aria-pressed="false">${__tmT('calendar.recordRail')}</button></span>
                                                 <span class="tm-calendar-nav-check-wrap"><input class="tm-calendar-nav-master-check" type="checkbox" data-tm-cal-master="tomato"><span class="tm-calendar-nav-check-ui" aria-hidden="true"></span></span>
                                                 <span class="tm-calendar-nav-chevron"></span>
                                             </span>
                                         </div>
                                         <div class="tm-calendar-nav-list" data-tm-cal-role="tomato-list"></div>
+                                        <div class="tm-calendar-record-actions"><button type="button" data-tm-cal-record-add>${__tmT('calendar.supplementFocus')}</button><button type="button" data-tm-cal-record-undo hidden>${__tmT('calendar.undoRecordChange')}</button></div>
                                     </div>
                                 </div>
                                 <div class="tm-calendar-nav-scrollbar">
@@ -29967,6 +30336,7 @@
         // hidden layout anchor is no longer part of the rendering pipeline.
         const host = wrap.querySelector('[data-tm-cal-surface]');
         const prototypeSurface = wrap.querySelector('[data-tm-cal-surface]');
+        bindCalendarTomatoRailHover(prototypeSurface, () => state.calendar || calendar);
         const timelineGestureOptions = {
             isMobile: isLikelyMobileRuntime(),
             isBusy: () => !!prototypeEventDrag || !!prototypePointerSelection,
@@ -30414,7 +30784,7 @@
                     node.classList.remove('tm-proto-event--resize-selected');
                 });
             } catch (e) {}
-            if (!selectedId) return;
+            if (!selectedId) { prototypeSurface.__tmTomatoRelations?.refresh(); return; }
             try {
                 prototypeSurface.querySelectorAll('[data-tm-proto-event]').forEach((node) => {
                     if (String(node.getAttribute('data-tm-proto-event') || '').trim() === selectedId) {
@@ -30422,12 +30792,17 @@
                     }
                 });
             } catch (e) {}
+            prototypeSurface.__tmTomatoRelations?.refresh();
         };
         let renderPrototypeSurface = () => {};
         let syncPrototypeDragElement = () => {};
         let syncPrototypeDayPanelDragGeometry = () => {};
         const queuePrototypeSurfaceRender = (options = {}) => {
             if (!(prototypeSurface instanceof HTMLElement)) return;
+            if (options.nowIndicatorChanged === true && typeof refreshCalendarTimelineMinute === 'function'
+                && refreshCalendarTimelineMinute(prototypeSurface, calendar || state.calendar)) {
+                scheduleMainNowIndicatorRefresh(); return;
+            }
             if (options.taskDoneChanged === true) prototypeLastRenderKey = '';
             if (options.nowIndicatorChanged === true) {
                 // Clock changes must refresh the label and axis, even when
@@ -32378,6 +32753,7 @@
                                 node.classList.remove('tm-proto-event--resize-selected');
                             });
                         } catch (e) {}
+                        prototypeSurface.__tmTomatoRelations?.refresh();
                         const timeCol = target?.closest?.('.tm-proto-time-col');
                         const dayKey = String(timeCol?.getAttribute?.('data-tm-proto-day') || '').trim();
                         if (timeCol && dayKey) {
@@ -35768,7 +36144,7 @@
             const existingScroller = prototypeSurface?.querySelector?.('.tm-proto-day-panel > .tm-proto-timeline > .tm-proto-time-scroll');
             return buildSharedPrototypeDayPanelMarkup({
                 date,
-                events,
+                events: events.concat(getCalendarEvents(calendar).filter(event => event.extendedProps?.__tmDayPanelOnly === true)),
                 settings,
                 viewType: panelViewType,
                 compactMonth: panelViewType === 'dayGridMonth' && isCompactDockLayout(),
@@ -36742,7 +37118,7 @@
                         ${isTaskDateEditor ? `<div class="tm-proto-inline-date-time-rows tm-proto-inline-date-only-rows" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.taskDate")}"><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">${__tmT("kernel.startDate")}</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="start" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.setStartDate")}" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(taskDateStartValue))}</span></button></div><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">${__tmT("calendar.completionDate")}</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="end" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.settingscompletionDate")}" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(taskDateCompletionValue))}</span></button></div></div>` : `<div class="tm-proto-inline-date-time-rows" role="group" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.scheduleTime")}"><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">${__tmT("calendar.start")}</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="start" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.setStartDate")}" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(toInput(currentStart).slice(0, 10)))}</span></button><button type="button" class="tm-proto-inline-time-card${eventApi.allDay === true ? ' is-disabled' : ''}" data-tm-proto-edit-time-card="start" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.settingsstartTime")}" aria-haspopup="dialog"${eventApi.allDay === true ? ' disabled aria-disabled="true"' : ''}><span class="tm-proto-inline-time-value">${eventApi.allDay === true ? __tmT("calendar.allDay") : esc(toInput(currentStart).slice(11, 16))}</span></button></div><div class="tm-proto-inline-date-time-row"><span class="tm-proto-inline-date-time-label">${__tmT("calendar.end")}</span><button type="button" class="tm-proto-inline-date-card" data-tm-proto-edit-date-card="end" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.settingsendDate")}" aria-haspopup="dialog"><span class="tm-proto-inline-date-value">${esc(hubDateText(toInput(currentEnd, true).slice(0, 10)))}</span></button><button type="button" class="tm-proto-inline-time-card${eventApi.allDay === true ? ' is-disabled' : ''}" data-tm-proto-edit-time-card="end" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.settingsendTime")}" aria-haspopup="dialog"${eventApi.allDay === true ? ' disabled aria-disabled="true"' : ''}><span class="tm-proto-inline-time-value">${eventApi.allDay === true ? __tmT("calendar.allDay") : esc(toInput(currentEnd, true).slice(11, 16))}</span></button></div></div>`}
                         <input type="${type}" data-tm-proto-edit-field="start" value="${esc(toInput(currentStart))}" hidden aria-hidden="true">
                         <input type="${type}" data-tm-proto-edit-field="end" value="${esc(toInput(currentEnd, true))}" hidden aria-hidden="true">
-                        <div class="quick-range-note quick-range-summary tm-proto-event-popover-time" data-tm-proto-inline-duration>${esc(isTaskDateEditor ? __tmT("calendar.changesSyncBackToTaskDates") : (eventApi.allDay === true ? __tmT("calendar.allDay") : __tmT("calendar.across2", { durationText: durationText })))}</div>
+                        <div class="tm-proto-focus-duration-row"><div class="quick-range-note quick-range-summary tm-proto-event-popover-time" data-tm-proto-inline-duration>${esc(isTaskDateEditor ? __tmT("calendar.changesSyncBackToTaskDates") : (eventApi.allDay === true ? __tmT("calendar.allDay") : __tmT("calendar.across2", { durationText: durationText })))}</div>${!isTaskDateEditor && !isNew && eventApi.allDay !== true ? `<button type="button" class="tm-proto-convert-focus" data-tm-proto-convert-focus>${__tmT('calendar.convertFocusRecord')}</button>` : ''}</div>
                     </div>
                     <div class="bd tm-proto-event-popover-body tm-proto-inline-editor-body">
                         ${isTaskDateEditor ? `<div class="quick-setting-row tm-proto-inline-task-date-owner"><b class="quick-setting-label">${__tmT("calendar.source")}</b><span>${esc(taskDateOwnerIcon + taskDateOwnerName)}</span></div><div class="tm-proto-event-popover-actions tm-proto-inline-task-date-actions"><button type="button" class="tm-proto-popover-open-task" data-tm-proto-task-date-action="open-task">${__tmT("calendar.taskDetails")}</button><button type="button" class="tm-proto-popover-locate" data-tm-proto-task-date-action="locate">${__tmT("calendar.openNote")}</button></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.color")}</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentcolor")}"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.presetcolor")}">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.morandipreset", { color: color })}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.choosePresetColor", { color: color })}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label>` : `<div class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.linkedTask2")}</b><div data-tm-proto-inline-relation>${relationHtml()}</div></div><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.calendar")}</b><select class="quick-setting-control" data-tm-proto-edit-field="calendar">${calendarOptions}</select></label><button type="button" class="quick-settings-toggle tm-proto-inline-more-toggle" data-tm-proto-edit-more aria-expanded="false"><span>${__tmT("calendar.moreSettings")}</span><span class="chevron" aria-hidden="true">›</span></button><div class="quick-advanced tm-proto-inline-more" data-tm-proto-inline-more hidden><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("ai.warnings")}</b><select class="quick-setting-control" data-tm-proto-edit-field="reminder"><option value="inherit" ${reminderValue === 'inherit' ? 'selected' : ''}>${__tmT("calendar.useGlobalSetting")}</option><option value="off" ${reminderValue === 'off' ? 'selected' : ''}>${__tmT("calendar.remindersOff")}</option><option value="0" ${reminderValue === '0' ? 'selected' : ''}>${__tmT("calendar.onTime")}</option><option value="5" ${reminderValue === '5' ? 'selected' : ''}>${__tmT("calendar.minutesBefore5")}</option><option value="15" ${reminderValue === '15' ? 'selected' : ''}>${__tmT("calendar.minutesBefore6")}</option><option value="30" ${reminderValue === '30' ? 'selected' : ''}>${__tmT("calendar.minutesBefore7")}</option><option value="60" ${reminderValue === '60' ? 'selected' : ''}>${__tmT("calendar.hourBefore2")}</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.repeat")}</b><select class="quick-setting-control" data-tm-proto-edit-field="repeat"><option value="none" ${repeatType === 'none' ? 'selected' : ''}>${__tmT("calendar.noRepeat")}</option><option value="daily" ${repeatType === 'daily' ? 'selected' : ''}>${__tmT("calendar.daily")}</option><option value="workday" ${repeatType === 'workday' ? 'selected' : ''}>${__tmT("calendar.workdays")}</option><option value="weekly" ${repeatType === 'weekly' ? 'selected' : ''}>${__tmT("calendar.weekly")}</option><option value="monthly" ${repeatType === 'monthly' ? 'selected' : ''}>${__tmT("calendar.monthly2")}</option><option value="yearly" ${repeatType === 'yearly' ? 'selected' : ''}>${__tmT("calendar.yearly")}</option></select></label><label class="quick-setting-row tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("calendar.color")}</b><div class="tm-calendar-edit-color-wrap tm-proto-inline-color-wrap"><input class="quick-setting-control tm-calendar-edit-color-input" type="color" data-tm-proto-edit-field="color" value="${esc(initialColorInputValue)}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.currentcolor")}"><div class="tm-calendar-edit-color-presets tm-proto-inline-color-presets" data-tm-proto-color-presets aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.presetcolor")}">${SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `<button type="button" class="tm-calendar-edit-color-chip${color === initialColorInputValue ? ' is-active' : ''}" data-tm-proto-color-preset="${esc(color)}" title="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.morandipreset", { color: color })}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.choosePresetColor", { color: color })}" style="--tm-cal-color-swatch:${esc(color)};"></button>`).join('')}</div></div></label><label class="quick-setting-row top tm-proto-inline-edit-row"><b class="quick-setting-label">${__tmT("kernel.note")}</b><textarea class="quick-setting-control quick-setting-note" data-tm-proto-edit-field="note" placeholder="${linkedTaskId || linkedBlockId ? __tmT("calendar.notesAreSharedWithTheLinkedTask") : __tmT("calendar.addNote")}">${esc(noteValue)}</textarea></label><div class="tm-calendar-completion-setting" data-tm-schedule-completion></div>${isNew ? '' : `<div class="quick-setting-row tm-proto-inline-device-row"><span>${__tmT("calendar.deviceReminders")}</span><button type="button" data-tm-proto-edit-device>${__tmT("calendar.view")}</button></div>`}</div>`}
@@ -36929,6 +37305,16 @@
             };
             const bind = () => {
                 pop.querySelector('.tm-proto-event-popover-close')?.addEventListener('click', dismiss);
+                pop.querySelector('[data-tm-proto-convert-focus]')?.addEventListener('click', event => {
+                    event.preventDefault(); event.stopPropagation(); closeTimeHub();
+                    openRecordModal(null, {
+                        create: true, source: 'schedule', scheduleId,
+                        start: new Date(readValue('start')), end: new Date(readValue('end')),
+                        taskBlockId: linkedTaskId || linkedBlockId,
+                        taskBlockName: relationTitle || titleForTask(taskForId(linkedTaskId || linkedBlockId)),
+                        preservePopover: pop,
+                    });
+                });
                 if (isTaskDateEditor) {
                     pop.querySelector('[data-tm-proto-task-date-action="open-task"]')?.addEventListener('click', async (event) => {
                         event.preventDefault();
@@ -37344,6 +37730,7 @@
                 // click after pointerup. That click targets the calendar
                 // surface (rather than the canvas anchor) and would otherwise
                 // close the editor in the same event turn it was opened.
+                if (state.focusRecordRestore) return;
                 if (Number(state.__tmPrototypeEventPopoverSuppressOutsideClickUntil || 0) > Date.now()) {
                     state.__tmPrototypeEventPopoverSuppressOutsideClickUntil = 0;
                     return;
@@ -37463,6 +37850,7 @@
                 onPopoverPointerEndAt,
                 onPopoverPointerDispose: disposePopoverGestureState,
             };
+            highlightCalendarTomatoRelations(eventApi, anchorEl);
             document.addEventListener('pointerdown', onDocumentPointerDown, true);
             document.addEventListener('click', onDocumentClick, true);
             if (isNew) {
@@ -37571,6 +37959,10 @@
             // Clicking the same card again toggles its popover. Selection is
             // maintained by the calendar surface and intentionally survives
             // this close so the card remains visibly selected.
+            if (current?.railHover && current.eventId === eventId && current.anchorEl === anchorEl) {
+                current.railHover = false;
+                return true;
+            }
             if (current && current.eventId === eventId
                 && (current.anchorEl === anchorEl || (surfaceEl && current.surfaceEl === surfaceEl))) {
                 closePrototypeEventPopover();
@@ -37624,7 +38016,7 @@
             }
             const color = protoEventColor(eventApi);
             const taskId = String(ext.__tmTaskId || ext.__tmBlockId || ext.__tmReminderBlockId || '').trim();
-            const canEdit = source === 'tomato' || source === 'schedule' || !!taskId;
+            const canEdit = !ext.__tmRunning && (source === 'tomato' || source === 'schedule' || !!taskId);
             const priorityRaw = ext.priority ?? ext.__tmPriority ?? ext.__tmTaskPriority;
             const priorityText = ({ 1: __tmT("common.high"), 2: __tmT("common.medium"), 3: __tmT("common.low"), high: __tmT("common.high"), medium: __tmT("common.medium"), low: __tmT("common.low") })[String(priorityRaw || '').toLowerCase()] || '';
             const repeatRaw = String(ext.__tmRepeatType || ext.__tmRepeatCalendarMode || '').trim().toLowerCase();
@@ -37667,41 +38059,56 @@
             const position = () => {
                 if (!pop.isConnected) return;
                 const rect = anchorEl.getBoundingClientRect();
+                const isRail = anchorEl.matches('.tm-proto-tomato-rail');
                 const viewport = getPrototypePopoverViewport(anchorEl, { ignoreListVerticalClip: true });
+                // Viewport/anchor rectangles are rendered pixels; fixed styles
+                // are CSS pixels, including host/theme CSS zoom.
+                const zoom = Number(pop.currentCSSZoom) || (() => {
+                    let value = 1;
+                    for (let node = pop; node instanceof Element; node = node.parentElement) value *= Number.parseFloat(getComputedStyle(node).zoom) || 1;
+                    return value;
+                })();
                 const margin = Math.min(10, Math.max(4, viewport.width / 2));
-                const width = Math.min(280, Math.max(0, viewport.width - margin * 2));
-                pop.style.setProperty('width', `${width}px`, 'important');
-                pop.style.setProperty('max-width', `${width}px`, 'important');
+                const leftSpace = Math.max(0, rect.left - viewport.left - margin - 8);
+                const rightSpace = Math.max(0, viewport.right - margin - rect.right - 8);
+                const width = Math.min(280 * zoom, isRail ? Math.max(leftSpace, rightSpace) : Math.max(0, viewport.width - margin * 2));
+                pop.style.setProperty('width', `${width / zoom}px`, 'important');
+                pop.style.setProperty('max-width', `${width / zoom}px`, 'important');
+                pop.style.setProperty('max-height', `${Math.max(0, Math.min(420 * zoom, viewport.height - margin * 2)) / zoom}px`, 'important');
                 let left = Math.min(Math.max(viewport.left + margin, rect.left), Math.max(viewport.left + margin, viewport.right - width - margin));
                 let top = rect.bottom + 8;
                 const popRect = pop.getBoundingClientRect();
+                if (isRail) {
+                    left = rightSpace >= width ? rect.right + 8 : rect.left - width - 8;
+                    top = Math.max(viewport.top + margin, Math.min((rect.top + rect.bottom - popRect.height) / 2, viewport.bottom - margin - popRect.height));
+                }
                 const actualWidth = Math.min(popRect.width || width, Math.max(0, viewport.width - margin * 2));
                 if (popRect.width > actualWidth + 0.5) {
-                    pop.style.setProperty('width', `${actualWidth}px`, 'important');
-                    pop.style.setProperty('max-width', `${actualWidth}px`, 'important');
+                    pop.style.setProperty('width', `${actualWidth / zoom}px`, 'important');
+                    pop.style.setProperty('max-width', `${actualWidth / zoom}px`, 'important');
                     left = Math.min(Math.max(viewport.left + margin, left), Math.max(viewport.left + margin, viewport.right - actualWidth - margin));
                 }
-                if (top + popRect.height > viewport.bottom - margin) top = Math.max(viewport.top + margin, rect.top - popRect.height - 8);
+                if (!isRail && top + popRect.height > viewport.bottom - margin) top = Math.max(viewport.top + margin, rect.top - popRect.height - 8);
                 if (top < viewport.top + margin) top = viewport.top + margin;
-                pop.style.left = `${Math.round(left)}px`;
-                pop.style.top = `${Math.round(top)}px`;
+                pop.style.left = `${left / zoom}px`;
+                pop.style.top = `${top / zoom}px`;
                 const live = pop.getBoundingClientRect();
                 let correctedLeft = Number.parseFloat(pop.style.left);
                 let correctedTop = Number.parseFloat(pop.style.top);
                 if (Number.isFinite(correctedLeft) && Number.isFinite(live.left) && live.left < viewport.left + margin) {
-                    correctedLeft += viewport.left + margin - live.left;
+                    correctedLeft += (viewport.left + margin - live.left) / zoom;
                 }
                 if (Number.isFinite(correctedLeft) && Number.isFinite(live.right) && live.right > viewport.right - margin) {
-                    correctedLeft -= live.right - (viewport.right - margin);
+                    correctedLeft -= (live.right - (viewport.right - margin)) / zoom;
                 }
                 if (Number.isFinite(correctedTop) && Number.isFinite(live.top) && live.top < viewport.top + margin) {
-                    correctedTop += viewport.top + margin - live.top;
+                    correctedTop += (viewport.top + margin - live.top) / zoom;
                 }
                 if (Number.isFinite(correctedTop) && Number.isFinite(live.bottom) && live.bottom > viewport.bottom - margin) {
-                    correctedTop -= live.bottom - (viewport.bottom - margin);
+                    correctedTop -= (live.bottom - (viewport.bottom - margin)) / zoom;
                 }
-                if (Number.isFinite(correctedLeft)) pop.style.left = `${Math.round(correctedLeft)}px`;
-                if (Number.isFinite(correctedTop)) pop.style.top = `${Math.round(correctedTop)}px`;
+                if (Number.isFinite(correctedLeft)) pop.style.left = `${correctedLeft}px`;
+                if (Number.isFinite(correctedTop)) pop.style.top = `${correctedTop}px`;
             };
             position();
             try { requestAnimationFrame(position); } catch (e) {}
@@ -37788,6 +38195,7 @@
             window.addEventListener('resize', onViewportChange, { passive: true });
             try { window.visualViewport?.addEventListener('resize', onVisualViewportChange, { passive: true }); window.visualViewport?.addEventListener('scroll', onVisualViewportChange, { passive: true }); } catch (e) {}
             state.__tmPrototypeEventPopover = { el: pop, eventId, anchorEl, surfaceEl, onDocumentClick, onViewportChange, onVisualViewportChange };
+            highlightCalendarTomatoRelations(eventApi, anchorEl);
             document.addEventListener('click', onDocumentClick, true);
         };
         // Reuse the same detail popover for the side-day prototype surface.
@@ -38272,6 +38680,7 @@
             // reappear during the optimistic post-drag repaint.
             const storedEvents = getCalendarEvents(calendar).filter((eventApi) => eventApi
                 && eventApi.start
+                && eventApi.extendedProps?.__tmDayPanelOnly !== true
                 && isCalendarForegroundEvent(eventApi)
                 && !(viewType !== 'dayGridWeek' && shouldHideCompletedAllDayCalendarEvent(eventApi, settings, { viewType })));
             // Month all-day drags must use the candidate date range in the
@@ -38339,6 +38748,8 @@
                 prototypeOpenMenu,
                 prototypeShowDayPanel ? 'day-panel-open' : 'day-panel-closed',
                 prototypeShowDayPanel && prototypePanelDate instanceof Date ? protoDateKey(prototypePanelDate) : '',
+                prototypeShowDayPanel ? getCalendarEvents(calendar).filter(event => event.extendedProps?.__tmDayPanelOnly === true)
+                    .map(event => [event.id, toMs(event.start), toMs(event.end), event.title, event.backgroundColor].join(':')).join('|') : '',
                         prototypeTimeRangeExpanded ? 'time-range-expanded' : 'time-range-collapsed',
                         prototypeListState.selectionTransition,
                 String(state.cnHolidaySignature || ''),
@@ -38583,6 +38994,7 @@
             }
             try { scheduleCurrentTimeAutoCenter(prototypeSurface, calendar, settings, { scope: 'main', reason: 'prototype-render' }); } catch (e) {}
             try { schedulePrototypeDayPanelCurrentTimeAutoCenter(settings); } catch (e) {}
+            try { scheduleMainNowIndicatorRefresh(); } catch (e) {}
             prototypeSurface.__tmScheduleDraft?.restore();
             applyPrototypeSelectedEventState();
             if (activeDragPreview) {
@@ -38975,7 +39387,11 @@
                         applyCnHolidayDots(wrap);
                         applyCnLunarLabels(wrap);
                     } catch (e0) {}
-                    let a = buildEventsFromRecords(records, settings, viewType);
+                    // Keep the individual records available to the day panel,
+                    // while the month grid can continue hiding record cards.
+                    const panelOnly = settings.monthAggregate && viewType === 'dayGridMonth';
+                    let a = buildEventsFromRecords(records, settings, panelOnly ? 'timeGridDay' : viewType);
+                    if (panelOnly) a = a.map(event => ({ ...event, extendedProps: { ...event.extendedProps, __tmDayPanelOnly: true } }));
                     if (String(viewType || '').startsWith('dayGrid')) {
                         const hideMonthTomato = !!settings.monthAggregate && String(viewType || '').trim() === 'dayGridMonth';
                         const cached = state._tomatoEventCache;
@@ -39385,7 +39801,7 @@
                     try { arg.revert(); } catch (e) {}
                     return;
                 }
-                const ok = await history.updateTime(recordKey, { start: start.toISOString(), end: end.toISOString() });
+                const ok = await updateCalendarFocusTime(recordKey, { start: start.toISOString(), end: end.toISOString() });
                 if (!ok) {
                     toast(__tmT("calendar.updateFailed"), 'error');
                     try { arg.revert(); } catch (e) {}
@@ -39442,7 +39858,7 @@
                     try { arg.revert(); } catch (e) {}
                     return;
                 }
-                const ok = await history.updateTime(recordKey, { start: start.toISOString(), end: end.toISOString() });
+                const ok = await updateCalendarFocusTime(recordKey, { start: start.toISOString(), end: end.toISOString() });
                 if (!ok) {
                     toast(__tmT("calendar.updateFailed"), 'error');
                     try { arg.revert(); } catch (e) {}
@@ -39898,6 +40314,20 @@
         } catch (e) {}
 
         const onToolbarClick = (e) => {
+            const styleButton = e.target?.closest?.('[data-tm-cal-tomato-style]');
+            if (styleButton) {
+                e.preventDefault(); e.stopPropagation();
+                const store = state.settingsStore;
+                if (!store?.data) return;
+                store.data.calendarTomatoDisplayMode = styleButton.dataset.tmCalTomatoStyle === 'rail' ? 'rail' : 'card';
+                Promise.resolve(store.save?.()).catch(() => toast(__tmT('calendar.saveFailed'), 'error'));
+                renderSidebar(wrap, getSettings());
+                state.queuePrototypeSurfaceRender?.();
+                state.sideDay?.prototypeRender?.();
+                return;
+            }
+            if (e.target?.closest?.('[data-tm-cal-record-add]')) { openRecordModal(null, { create: true }); return; }
+            if (e.target?.closest?.('[data-tm-cal-record-undo]')) { void undoCalendarFocusRecord(); return; }
             const tabEl = e.target?.closest?.('[data-tm-cal-side-tab]');
             const tabKey = String(tabEl?.getAttribute?.('data-tm-cal-side-tab') || '').trim();
             if (tabKey) {

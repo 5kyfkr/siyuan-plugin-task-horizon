@@ -23213,7 +23213,7 @@ if (!state.homepageOpen) return;
     const __TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS = Object.freeze([
         { key: 'docName', label: __tmT("task.documentName2") },
         { key: 'h2', label: __tmT("task.heading2") },
-        { key: 'startDate', label: __tmT("calendar.startTime") },
+        { key: 'startDate', label: __tmT("kernel.startDate") },
         { key: 'completionTime', label: __tmT("kernel.dueDate") },
         { key: 'scheduleTime', label: __tmT("calendar.scheduleTime") },
         { key: 'remainingTime', label: __tmT("task.remainingTime") },

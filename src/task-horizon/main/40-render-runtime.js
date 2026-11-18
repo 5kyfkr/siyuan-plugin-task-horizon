@@ -6929,10 +6929,13 @@
             ? pathAnchor
             : (ev?.target instanceof Element ? ev.target.closest(dateAnchorSelector) : null))
             || (ev?.currentTarget instanceof Element ? ev.currentTarget : null);
-        const current = String(task.completionTime || '').trim() || String(task.startDate || '').trim();
+        const dateField = anchorEl?.getAttribute('data-tm-task-time-field') === 'startDate' ? 'startDate' : 'completionTime';
+        const current = dateField === 'startDate'
+            ? __tmGetTaskDateFieldDisplayValue(task, 'startDate')
+            : String(task.completionTime || '').trim() || String(task.startDate || '').trim();
         const commitKanbanDatePatch = (nextValue, reason = 'kanban-card-date-fallback') => {
             const next = String(nextValue || '').trim();
-            const patch = { completionTime: next };
+            const patch = { [dateField]: next };
             try {
                 const patchTask = globalThis.__tmRequireTaskMutation?.('patchTask');
                 if (typeof patchTask !== 'function') throw new Error(__tmT("task.taskWriteQueueIsNotReadyPatchtask"));
@@ -6956,7 +6959,7 @@
 
         if (anchorEl instanceof HTMLElement && typeof window.tmOpenTaskTimeHub === 'function') {
             await window.tmOpenTaskTimeHub(tid, anchorEl, {
-                activeField: 'completionTime',
+                activeField: dateField,
                 source: 'kanban-card',
                 background: true,
                 closeOnDateCommit: false,

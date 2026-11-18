@@ -6,6 +6,20 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.4.8
+
+- **Calendar and focus records:**
+  - Add a default **Rail** style for timer records, with a **Cards** option in the sidebar's **Pomodoro** header. Both the main calendar and right-side day panels support hover details and click-to-pin.
+  - Show running focus, break, and stopwatch segments with minute-by-minute updates. Highlight schedules and focus records linked to the same task on the same day in both directions, and improve detail positioning in narrow panels and zoomed layouts.
+  - Add **Add focus record** in the sidebar and **Convert to focus record** on schedule cards. Conversion uses the current time range and linked task while keeping the schedule. Conversion and time adjustments trim overlapping records and support undoing the latest change; update Dock Tomato to use the new record actions.
+- **Kanban and whiteboard:**
+  - Add **Start date** before **Due date** in card field settings, with click-to-edit and an option to keep the field visible when unset.
+  - Reduce bottom spacing in clean-style cards with subtasks.
+- **Task details:** fix the new-task dialog being obscured when creating a subtask or sibling task from the top-right **More** menu.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.4.7
 
 - **Calendar and schedules:** in full search, enable **Schedule** under **Search scope** to find titles and notes, or search schedules alone. Results jump to the corresponding calendar date; recurring schedules show the current or next occurrence. Fix the first attempt to clear a task date occasionally failing while schedules load.
@@ -14,9 +28,6 @@ The same plugin includes English and Simplified Chinese. Existing installations 
 - **New tasks:** keep the dialog height stable when the remark field gains or loses focus, while still resizing to fit its content.
 - **Semantic dates:** fix only the first task being recognized after editing several tasks and opening the manager from an icon or another entry point.
 - **Task loading and refresh:** batch document metadata and attribute reads, reduce duplicate queries and index/snapshot writes, and prevent stale data from replacing newer task state during concurrent edits or document-group switches.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.4.6
 

@@ -140,6 +140,7 @@
         'calendarShowIdle',
         'calendarColorFocus',
         'calendarTomatoColorMode',
+        'calendarTomatoDisplayMode',
         'calendarColorBreak',
         'calendarColorStopwatch',
         'calendarColorIdle',

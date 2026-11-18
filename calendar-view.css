@@ -2858,6 +2858,20 @@
 .tm-proto-event--allday.is-span-end{ border-radius: 0 4px 4px 0; }
 .tm-proto-event--allday.is-span-start.is-span-end{ border-radius: 4px; }
 
+.tm-calendar-tomato-style{display:inline-flex;gap:1px;border:1px solid var(--tm-cal-border,var(--b3-theme-surface-light));border-radius:5px;padding:2px}
+.tm-calendar-tomato-style button{border:0;background:transparent;color:inherit;font:inherit;font-size:11px;padding:2px 4px;border-radius:3px;cursor:pointer;white-space:nowrap}
+.tm-calendar-tomato-style button[aria-pressed="true"]{background:var(--b3-theme-primary-lightest);color:var(--b3-theme-primary)}
+.tm-calendar-record-actions{display:flex;flex-wrap:wrap;gap:8px;padding:4px 8px 8px}
+.tm-calendar-record-actions button,.tm-proto-convert-focus{border:0;background:transparent;color:var(--b3-theme-primary);font:inherit;font-size:12px;padding:2px 0;cursor:pointer;white-space:nowrap}
+.tm-calendar-record-actions button[hidden]{display:none}
+.tm-calendar-nav-section--collapsed .tm-calendar-record-actions{display:none}
+.tm-proto-focus-duration-row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.tm-proto-focus-duration-row [data-tm-proto-inline-duration]{min-width:0}
+.tm-proto-time-col > .tm-proto-tomato-rail{position:absolute;box-sizing:border-box;right:1px;width:6px;min-height:1px;margin:0;padding:0;border:0;border-radius:2px;background:var(--tm-proto-event-color);color:var(--tm-proto-event-color);z-index:7;cursor:pointer;transform:none;transition:none}
+.tm-proto-time-col > .tm-proto-tomato-rail:hover,.tm-proto-time-col > .tm-proto-tomato-rail:focus-visible{outline:2px solid var(--tm-proto-event-color);outline-offset:1px;transform:none;filter:none;z-index:9}
+.tm-proto-tomato-related{outline:2px solid var(--b3-theme-primary);outline-offset:1px}
+.tm-proto-time-col > .tm-proto-tomato-rail.tm-proto-tomato-related{outline:2px solid var(--b3-theme-primary);outline-offset:1px;z-index:8}
+.tm-calendar-record-preview{font-size:12px;color:var(--b3-theme-on-surface);padding:0 0 10px;overflow-wrap:anywhere}
 .tm-proto-time-col > .tm-proto-event--block{
     position: absolute;
     display: flex;
@@ -3778,6 +3792,9 @@
     font-variant-numeric:tabular-nums;
 }
 .tm-proto-inline-schedule-editor .quick-range-note{padding:7px 2px 0;color:color-mix(in srgb, var(--tm-cal-muted) 82%, transparent);font-size:10.5px;line-height:1.35}
+.tm-proto-inline-schedule-editor .tm-proto-focus-duration-row{padding:7px 2px 0;margin-top:3px}
+.tm-proto-inline-schedule-editor .tm-proto-focus-duration-row [data-tm-proto-inline-duration]{margin:0;padding:0}
+.tm-proto-inline-schedule-editor .tm-proto-focus-duration-row .tm-proto-convert-focus{display:inline-flex;align-items:center;line-height:1.35;margin:0;padding:0}
 .tm-proto-inline-schedule-editor .bd,
 .tm-proto-inline-schedule-editor .tm-proto-inline-editor-body{
     display:flex;
