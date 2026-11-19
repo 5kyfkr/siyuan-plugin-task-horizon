@@ -18624,8 +18624,9 @@ button.tm-task-detail-focus-stat[aria-expanded="true"] {
     inset: 0;
 }
 
+/* The detail sheet is mounted inside the main stage; keeping it absolute preserves the topbar and tab-bar boundary. */
 .tm-modal.tm-modal--mobile:not(.tm-modal--dock) #tmTaskDetailSheet {
-    position: fixed;
+    position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
@@ -18644,6 +18645,10 @@ button.tm-task-detail-focus-stat[aria-expanded="true"] {
 .tm-modal.tm-modal--mobile #tmTaskDetailSheet.tm-checklist-sheet--visual-viewport.tm-checklist-sheet--fullscreen {
     top: calc(var(--tm-sheet-visible-top, 0px) + max(8px, env(safe-area-inset-top, 0px)));
     max-height: max(0px, calc(var(--tm-sheet-visible-height) - max(8px, env(safe-area-inset-top, 0px)))) !important;
+}
+
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock) #tmTaskDetailSheet.tm-checklist-sheet--visual-viewport.tm-checklist-sheet--fullscreen {
+    max-height: none !important;
 }
 
 #tmChecklistSheet:not(.tm-checklist-sheet--fullscreen) .tm-checklist-sheet-body,

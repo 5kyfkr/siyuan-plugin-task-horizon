@@ -189,6 +189,8 @@
         'calendarShowLunar',
         'calendarSideDockEnabled',
         'calendarSideDockWidth',
+        'calendarAllDayCollapsed',
+        'calendarSideDockAllDayCollapsed',
     ]);
     const TM_SETTINGS_EXPORT_EXCLUDED_KEYS = new Set([
         'settingsUpdatedAt',

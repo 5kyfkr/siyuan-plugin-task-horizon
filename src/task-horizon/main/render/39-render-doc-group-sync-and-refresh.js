@@ -1176,6 +1176,19 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                     try { render(); } catch (e2) {}
                 }
             }
+            if (commitView && mode !== 'calendar'
+                && typeof __tmHasMountedCalendarSideDock === 'function'
+                && __tmHasMountedCalendarSideDock()) {
+                try {
+                    __tmRequestCalendarRefresh({
+                        reason: `refresh-core:${reason}:side-dock`,
+                        main: false,
+                        side: true,
+                        flushTaskPanel: false,
+                        hard: true,
+                    }, { hard: true });
+                } catch (e) {}
+            }
             try { __tmClearAutoRefreshDirtyFlags(); } catch (e) {}
             if (!suppressStorageWrites) {
                 try {

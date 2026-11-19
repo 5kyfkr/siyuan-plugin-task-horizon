@@ -4960,6 +4960,7 @@
         mobileViewportRefreshHandler: null,
         mobileViewportRefreshVisualViewport: null,
         mobileViewportRefreshModal: null,
+        mobileViewportRefreshDocTabs: null,
         timelineMobileSidebarExpanded: false,
         timelineCardFieldsHidden: false,
         timelineInfiniteRangeShifting: false,
@@ -24351,12 +24352,14 @@ if (!state.homepageOpen) return;
                 globalThis.__tmRuntimeEvents?.off?.(window, 'orientationchange', state.mobileViewportRefreshHandler);
                 globalThis.__tmRuntimeEvents?.off?.(state.mobileViewportRefreshVisualViewport, 'resize', state.mobileViewportRefreshHandler);
                 globalThis.__tmRuntimeEvents?.off?.(state.mobileViewportRefreshVisualViewport, 'scroll', state.mobileViewportRefreshHandler);
+                globalThis.__tmRuntimeEvents?.off?.(state.mobileViewportRefreshDocTabs, 'transitionend', state.mobileViewportRefreshHandler);
                 globalThis.__tmRuntimeEvents?.off?.(document, 'focusin', state.mobileViewportRefreshHandler, true);
                 globalThis.__tmRuntimeEvents?.off?.(document, 'focusout', state.mobileViewportRefreshHandler, true);
             }
         } catch (e) {}
         state.mobileViewportRefreshHandler = null;
         state.mobileViewportRefreshVisualViewport = null;
+        state.mobileViewportRefreshDocTabs = null;
         state.mobileViewportRefreshModal?.classList?.toggle('tm-modal--keyboard-open', false);
         state.mobileViewportRefreshModal = null;
         state.mobileViewportRefreshSig = '';
@@ -24405,6 +24408,13 @@ if (!state.homepageOpen) return;
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'orientationchange', onViewportChange, { passive: true }); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'focusin', onViewportChange, true); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'focusout', onViewportChange, true); } catch (e) {}
+        try {
+            const docTabs = modal.querySelector('.tm-doc-tabs');
+            if (docTabs instanceof Element) {
+                state.mobileViewportRefreshDocTabs = docTabs;
+                globalThis.__tmRuntimeEvents?.on?.(docTabs, 'transitionend', onViewportChange);
+            }
+        } catch (e) {}
         try {
             if (window.visualViewport?.addEventListener) {
                 globalThis.__tmRuntimeEvents?.on?.(window.visualViewport, 'resize', onViewportChange, { passive: true });

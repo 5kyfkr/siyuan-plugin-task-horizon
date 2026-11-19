@@ -31,6 +31,11 @@ async function mount(page, { panelId = 'tmTaskDetailSheetPanel', fullscreen = tr
         <style>${css}</style><style>
         html,body { margin:0; overflow:hidden; }
         #fixture { position:fixed; inset:0; width:100%; height:100%; margin:0; padding:0; transform:none; }
+        #fixture .tm-box { width:100%; height:100%; max-width:none; max-height:none; min-width:0; min-height:0; display:flex; flex-direction:column; }
+        #fixture .tm-header { flex:0 0 64px; height:64px; min-height:64px; padding:0; }
+        #fixture .tm-doc-tabs { flex:0 0 42px; height:42px; min-height:0; max-height:42px; margin:0; padding:0; transition:none; }
+        #fixture .tm-doc-tabs.tm-doc-tabs--hidden { flex:0 0 0; height:0; max-height:0; border-width:0; padding-top:0; padding-bottom:0; }
+        #fixture .tm-main-stage { position:relative; flex:1 1 auto; min-height:0; }
         #${panelId} { scroll-behavior:auto; }
         .fixture-before { height:460px; flex-shrink:0; }
         .fixture-after { height:300px; flex-shrink:0; }
@@ -38,6 +43,9 @@ async function mount(page, { panelId = 'tmTaskDetailSheetPanel', fullscreen = tr
         #keyboard { position:fixed; left:0; right:0; bottom:0; height:0; background:#cdd1d8; z-index:999999; }
         </style>
         <div id="fixture" class="tm-modal ${mobile ? 'tm-modal--mobile' : ''}">
+            <div class="tm-box">
+            <div class="tm-header"></div>
+            <div class="tm-doc-tabs"></div>
             <div class="tm-main-stage tm-main-stage--with-bottom-viewbar">
             ${panelId !== 'tmChecklistSheetPanel' ? '<div id="tmChecklistSheetPanel" hidden></div>' : ''}
             <div id="tmTaskDetailSheet" class="tm-checklist-sheet tm-checklist-sheet--open ${fullscreen ? 'tm-checklist-sheet--fullscreen' : ''}">
@@ -55,6 +63,7 @@ async function mount(page, { panelId = 'tmTaskDetailSheetPanel', fullscreen = tr
                 </div>
             </div>
             <nav class="tm-mobile-bottom-viewbar">清单 · 表格 · 看板 · 日历</nav>
+            </div>
             </div>
         </div><div id="keyboard"></div>`);
     await page.evaluate(({ panelId, long, mobile, fallbackHeight, viewportRuntime, autoHeightRuntime, titleRuntime, titleEditorHelpers, remarkRuntime }) => {
@@ -141,9 +150,16 @@ async function geometry(page) {
     });
 }
 
-function assertVisible(box, label) {
+function assertVisible(box, label, { allowPartiallyVisibleInput = false } = {}) {
     assert.ok(box.input.top >= Math.max(box.top, box.panel.top) + 10, `${label}: input top must stay in view: ${JSON.stringify(box)}`);
-    assert.ok(box.input.bottom <= Math.min(box.bottom, box.panel.bottom) - 10, `${label}: input bottom must stay above the keyboard: ${JSON.stringify(box)}`);
+    const visibleBottom = Math.min(box.bottom, box.panel.bottom) - 10;
+    if (allowPartiallyVisibleInput) {
+        assert.ok(Math.min(box.input.bottom, visibleBottom) - box.input.top >= 32,
+            `${label}: enough of the focused input must remain visible to edit: ${JSON.stringify(box)}`);
+        assert.equal(box.inputOverflow, true, `${label}: a constrained input must retain internal scrolling`);
+    } else {
+        assert.ok(box.input.bottom <= visibleBottom, `${label}: input bottom must stay above the keyboard: ${JSON.stringify(box)}`);
+    }
     assert.ok(box.sheet.top >= box.top && box.sheet.bottom <= box.bottom + 1, `${label}: sheet must fit the visual viewport`);
     assert.equal(box.focused, true, `${label}: keyboard resize must preserve focus`);
 }
@@ -219,6 +235,56 @@ async function checkOutsideTouchDrag(page, context, kind) {
             userAgent: 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/145.0.0.0 Mobile Safari/537.36' });
         const page = await context.newPage();
         page.on('pageerror', error => errors.push(error.message));
+        await mount(page);
+        const visibleTabsBounds = await page.locator('#tmTaskDetailSheet').evaluate(sheet => ({
+            top: sheet.getBoundingClientRect().top,
+            bottom: sheet.getBoundingClientRect().bottom,
+            stageTop: sheet.closest('.tm-main-stage').getBoundingClientRect().top,
+            stageBottom: sheet.closest('.tm-main-stage').getBoundingClientRect().bottom,
+            tabsBottom: sheet.closest('.tm-box').querySelector('.tm-doc-tabs').getBoundingClientRect().bottom,
+        }));
+        assert.ok(visibleTabsBounds.stageTop >= visibleTabsBounds.tabsBottom - 1,
+            `the task stage must start below the visible tab bar: ${JSON.stringify(visibleTabsBounds)}`);
+        assert.ok(visibleTabsBounds.top >= visibleTabsBounds.stageTop + 7,
+            `the fullscreen detail sheet must start below the toolbar and visible tab bar: ${JSON.stringify(visibleTabsBounds)}`);
+        assert.ok(visibleTabsBounds.bottom >= visibleTabsBounds.stageBottom - 1,
+            `the fullscreen detail sheet must fill the content stage below the toolbar: ${JSON.stringify(visibleTabsBounds)}`);
+        await page.locator('.tm-doc-tabs').evaluate(tabs => {
+            tabs.classList.add('tm-doc-tabs--hidden');
+            tabs.dispatchEvent(new Event('transitionend', { bubbles: true }));
+        });
+        await settle(page);
+        const hiddenTabsBounds = await page.locator('#tmTaskDetailSheet').evaluate(sheet => ({
+            top: sheet.getBoundingClientRect().top,
+            bottom: sheet.getBoundingClientRect().bottom,
+            stageTop: sheet.closest('.tm-main-stage').getBoundingClientRect().top,
+            stageBottom: sheet.closest('.tm-main-stage').getBoundingClientRect().bottom,
+        }));
+        assert.ok(hiddenTabsBounds.stageTop < visibleTabsBounds.stageTop - 20,
+            `the task stage must follow the auto-hidden tab bar: ${JSON.stringify({ visibleTabsBounds, hiddenTabsBounds })}`);
+        assert.ok(hiddenTabsBounds.top >= hiddenTabsBounds.stageTop + 7,
+            `the fullscreen detail sheet must follow the stage after tabs auto-hide: ${JSON.stringify(hiddenTabsBounds)}`);
+        assert.ok(hiddenTabsBounds.bottom >= hiddenTabsBounds.stageBottom - 1,
+            `the fullscreen detail sheet must fill the stage after tabs auto-hide: ${JSON.stringify(hiddenTabsBounds)}`);
+        await page.locator('.tm-doc-tabs').evaluate(tabs => {
+            tabs.classList.remove('tm-doc-tabs--hidden');
+            tabs.dispatchEvent(new Event('transitionend', { bubbles: true }));
+        });
+        await settle(page);
+        const restoredTabsBounds = await page.locator('#tmTaskDetailSheet').evaluate(sheet => ({
+            top: sheet.getBoundingClientRect().top,
+            bottom: sheet.getBoundingClientRect().bottom,
+            stageTop: sheet.closest('.tm-main-stage').getBoundingClientRect().top,
+            stageBottom: sheet.closest('.tm-main-stage').getBoundingClientRect().bottom,
+        }));
+        assert.ok(restoredTabsBounds.stageTop > hiddenTabsBounds.stageTop + 20,
+            `the task stage must return when the tab bar is shown: ${JSON.stringify({ hiddenTabsBounds, restoredTabsBounds })}`);
+        assert.ok(restoredTabsBounds.top >= restoredTabsBounds.stageTop + 7,
+            `the fullscreen detail sheet must follow the stage when tabs return: ${JSON.stringify(restoredTabsBounds)}`);
+        assert.ok(restoredTabsBounds.bottom >= restoredTabsBounds.stageBottom - 1,
+            `the fullscreen detail sheet must fill the stage when tabs return: ${JSON.stringify(restoredTabsBounds)}`);
+        await page.evaluate(() => fixture.abort());
+        console.log(`mobile detail sheet follows visible and auto-hidden tabs: ${JSON.stringify({ visibleTabsBounds, hiddenTabsBounds, restoredTabsBounds })}`);
         for (const kind of ['remark', 'title']) await checkOutsideTouchDrag(page, context, kind);
         for (const options of [
             {},
@@ -273,7 +339,7 @@ async function checkOutsideTouchDrag(page, context, kind) {
             await mount(page, { long: true, fallbackHeight: true });
             await page.evaluate(height => fixture.resize(height), keyboardHeight);
             await settle(page);
-            assertVisible(await geometry(page), `${width}x${height}`);
+            assertVisible(await geometry(page), `${width}x${height}`, { allowPartiallyVisibleInput: width === 780 });
             // Older WebViews resize the entire layout and may lack visualViewport.
             await page.setViewportSize({ width, height: keyboardHeight });
             await page.evaluate(() => {
@@ -281,7 +347,7 @@ async function checkOutsideTouchDrag(page, context, kind) {
                 window.dispatchEvent(new Event('resize'));
             });
             await settle(page);
-            assertVisible(await geometry(page), 'layout resize without visualViewport');
+            assertVisible(await geometry(page), 'layout resize without visualViewport', { allowPartiallyVisibleInput: width === 780 });
             assert.equal(await page.locator('.tm-mobile-bottom-viewbar').isVisible(), false, 'native layout resizing must also hide the bottom bar without visualViewport');
             await page.setViewportSize({ width, height });
             await page.evaluate(() => window.dispatchEvent(new Event('resize')));

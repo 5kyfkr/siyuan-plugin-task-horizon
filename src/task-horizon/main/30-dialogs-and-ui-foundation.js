@@ -14789,7 +14789,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         ];
         const sortOptions = [
             { value: 'relevance', label: __tmT("task.sortByRelevance"), selected: state.searchWorkspaceSort === 'relevance', action: "tmChangeSearchWorkspaceSort('relevance')" },
-            { value: 'created', label: __tmT("task.sortByCreatedTime"), selected: state.searchWorkspaceSort === 'created', action: "tmChangeSearchWorkspaceSort('created')" },
+            { value: 'created_desc', label: __tmT("task.sortByCreatedTime"), selected: state.searchWorkspaceSort === 'created_desc', action: "tmChangeSearchWorkspaceSort('created_desc')" },
+            { value: 'created_asc', label: __tmT("task.sortByCreatedTimeAsc"), selected: state.searchWorkspaceSort === 'created_asc', action: "tmChangeSearchWorkspaceSort('created_asc')" },
         ];
         return `
             <form class="tm-inline-searchbar__inner" onsubmit="return tmApplyInlineSearch(event)">
@@ -14946,12 +14947,29 @@ return Number(state.contextInteractionQuietUntil || 0);
             type: 'task',
             docId,
             done,
+            created: String(block?.created || '').trim(),
             content: task.content,
             snippet: __tmSearchWorkspacePlainText(block?.content || block?.fcontent || markdown),
             docName: String(doc?.name || block?.name || block?.hPath || block?.hpath || '').trim(),
             notebookName: __tmGetNotebookDisplayName(String(block?.box || doc?.notebook || doc?.box || '').trim()),
             archived: scope?.archivedDocIds?.has(docId) === true,
         };
+    }
+
+    function __tmGetSearchWorkspaceResultSortTime(item) {
+        if (item?.type === 'schedule') {
+            const start = Number(item.start);
+            return Number.isFinite(start) ? start : null;
+        }
+        const created = String(item?.created || '').trim();
+        const match = created.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+        if (match) {
+            const [, year, month, day, hour, minute, second] = match;
+            const timestamp = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)).getTime();
+            return Number.isFinite(timestamp) ? timestamp : null;
+        }
+        const timestamp = Date.parse(created);
+        return Number.isFinite(timestamp) ? timestamp : null;
     }
 
     function __tmRenderSearchWorkspace() {
@@ -15038,13 +15056,16 @@ return Number(state.contextInteractionQuietUntil || 0);
         if (!scope || !scope.paths.length || requestId !== state.searchWorkspaceRequestId) return { items: [], page: 1, hasMore: false };
         let page = reset ? 1 : Math.max(1, Number(state.searchWorkspacePage) || 1);
         let hasMore = false;
+        const orderBy = state.searchWorkspaceSort === 'created_asc'
+            ? 1
+            : (state.searchWorkspaceSort === 'created_desc' || state.searchWorkspaceSort === 'created' ? 2 : 0);
         const previous = (reset ? [] : state.searchWorkspaceResults).filter((item) => item.type !== 'schedule');
         const resultMap = new Map(previous.map((item) => [item.id, item]));
         for (let attempt = 0; attempt < 4; attempt += 1) {
             const response = await API.call('/api/search/fullTextSearchBlock', {
                 query, method: 0, page, pageSize: 50, paths: scope.paths,
                 types: { listItem: true }, subTypes: { listItem: { t: true } }, groupBy: 0,
-                orderBy: state.searchWorkspaceSort === 'created' ? 2 : 0, searchHPath: false,
+                orderBy, searchHPath: false,
             });
             if (requestId !== state.searchWorkspaceRequestId) return null;
             if (response?.code !== 0 || !response?.data) throw new Error(response?.msg || __tmT("task.searchFailed", { value1: '', value2: '' }));
@@ -15099,10 +15120,23 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (requestId !== state.searchWorkspaceRequestId) return;
             const taskResult = tasks.status === 'fulfilled' ? tasks.value : null;
             state.searchWorkspaceError = tasks.status === 'rejected' || schedules.status === 'rejected';
-            state.searchWorkspaceResults = [
+            const taskResults = [
                 ...(taskResult?.items || (reset ? [] : state.searchWorkspaceResults.filter((item) => item.type !== 'schedule'))),
-                ...(schedules.status === 'fulfilled' ? schedules.value : []),
             ];
+            const scheduleResults = schedules.status === 'fulfilled' ? schedules.value.slice() : [];
+            if (state.searchWorkspaceSort === 'created_desc' || state.searchWorkspaceSort === 'created_asc') {
+                const direction = state.searchWorkspaceSort === 'created_asc' ? 1 : -1;
+                const compareByTime = (left, right) => {
+                    const leftTime = __tmGetSearchWorkspaceResultSortTime(left);
+                    const rightTime = __tmGetSearchWorkspaceResultSortTime(right);
+                    if (leftTime === null) return rightTime === null ? 0 : 1;
+                    if (rightTime === null) return -1;
+                    return direction * (leftTime - rightTime);
+                };
+                taskResults.sort(compareByTime);
+                scheduleResults.sort(compareByTime);
+            }
+            state.searchWorkspaceResults = [...taskResults, ...scheduleResults];
             if (taskResult) {
                 state.searchWorkspacePage = taskResult.page;
                 state.searchWorkspaceHasMore = taskResult.hasMore;
@@ -15178,7 +15212,12 @@ return Number(state.contextInteractionQuietUntil || 0);
     };
 
     window.tmChangeSearchWorkspaceSort = function(value) {
-        state.searchWorkspaceSort = String(value || '').trim() === 'created' ? 'created' : 'relevance';
+        const next = String(value || '').trim();
+        state.searchWorkspaceSort = next === 'created_asc'
+            ? 'created_asc'
+            : (next === 'created_desc' || next === 'created' ? 'created_desc' : 'relevance');
+        SettingsStore.data.taskSearchSort = state.searchWorkspaceSort;
+        try { SettingsStore.save?.().catch(() => {}); } catch (e) {}
         __tmRunSearchWorkspace(true);
     };
 
@@ -15337,12 +15376,15 @@ return Number(state.contextInteractionQuietUntil || 0);
     window.tmShowSearchModal = function() {
         if (state.searchWorkspaceExpanded) __tmCancelSearchWorkspaceRequest();
         state.searchBarOpen = true;
-        state.searchWorkspaceExpanded = false;
+        const savedSort = String(SettingsStore.data.taskSearchSort || '').trim();
+        state.searchWorkspaceSort = ['relevance', 'created_desc', 'created_asc'].includes(savedSort) ? savedSort : 'relevance';
+        state.searchWorkspaceExpanded = state.viewMode === 'calendar';
         state.searchBarFocusAfterRender = true;
         state.searchBarSelectAfterRender = true;
         try { state.__searchUnstack?.(); } catch (e) {}
         state.__searchUnstack = null;
         window.__tmSyncInlineSearchBarPortal?.({ focus: true, selectText: true });
+        if (state.searchWorkspaceExpanded) __tmRunSearchWorkspace(true);
     };
 
     window.tmApplyInlineSearch = function(event) {

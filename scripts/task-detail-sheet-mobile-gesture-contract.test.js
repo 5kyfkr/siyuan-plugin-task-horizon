@@ -33,6 +33,21 @@ assert.match(
     'the full-screen mobile bottom view bar must stay below the detail sheet',
 );
 assert.match(
+    styleSource,
+    /\.tm-modal\.tm-modal--mobile:not\(\.tm-modal--dock\) #tmTaskDetailSheet \{\s*position:\s*absolute;\s*left:\s*0;\s*right:\s*0;\s*bottom:\s*0;/,
+    'the mobile detail sheet must stay anchored to its content stage below the topbar and document tabs',
+);
+assert.match(
+    styleSource,
+    /\.tm-main-stage \{\s*position:\s*relative;/,
+    'the main stage must provide the containing block for the mobile detail sheet',
+);
+assert.match(
+    styleSource,
+    /\.tm-modal\.tm-modal--mobile:not\(\.tm-modal--dock\) #tmTaskDetailSheet\.tm-checklist-sheet--visual-viewport\.tm-checklist-sheet--fullscreen \{\s*max-height:\s*none\s*!important;/,
+    'fullscreen detail sheets must expand with their stage after mobile tabs auto-hide',
+);
+assert.match(
     renderRuntimeSource,
     /\.tm-modal\.tm-modal--mobile:not\(\.tm-modal--dock\) \.tm-mobile-bottom-viewbar \{[\s\S]*?z-index:\s*45;/,
     'the runtime style mirror must keep the full-screen mobile bottom view bar below the detail sheet',

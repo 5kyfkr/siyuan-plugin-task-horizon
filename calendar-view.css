@@ -4850,8 +4850,8 @@
     background: var(--tm-cal-today-bg);
 }.tm-proto-time-col .tm-proto-event--block{
     position: absolute;
-    left: 4px;
-    right: 5px;
+    left: 3px;
+    right: 3px;
     min-height: 28px;
     padding: 0;
 }

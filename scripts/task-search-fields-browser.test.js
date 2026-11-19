@@ -238,15 +238,21 @@ const production = [
             MetaStore.applyToTask = () => {};
             window.__tmRenderTaskCheckboxWrap = () => '<input type="checkbox" disabled aria-label="任务状态">';
             window.taskQueries = [];
+            window.taskSearchRequests = [];
             window.failTasks = false;
             window.API = {
                 parseTaskStatus: (markdown) => ({ content: markdown.replace(/^- \[.\] /, ''), done: false }),
-                call: async (endpoint, { query, page }) => {
+                call: async (endpoint, options) => {
+                    const { query, page } = options;
                     taskQueries.push(query);
+                    taskSearchRequests.push({ endpoint, ...options });
                     if (failTasks) throw new Error('任务读取失败');
                     return { code: 0, data: {
                         pageCount: window.taskPageCount || 1,
-                        blocks: query === '无匹配' ? [] : [{ id: page === 1 ? 'same-id' : 'second-page', rootID: 'doc', markdown: `- [ ] ${query}任务`, content: `${query}任务` }],
+                        blocks: query === '无匹配' ? [] : query === '排序测试' ? [
+                            { id: 'task-new', rootID: 'doc', created: '20261120100000', markdown: '- [ ] 新任务', content: '新任务' },
+                            { id: 'task-old', rootID: 'doc', created: '20261120080000', markdown: '- [ ] 旧任务', content: '旧任务' },
+                        ] : [{ id: page === 1 ? 'same-id' : 'second-page', rootID: 'doc', created: '20261120100000', markdown: `- [ ] ${query}任务`, content: `${query}任务` }],
                     } };
                 },
             };
@@ -259,7 +265,11 @@ const production = [
                     if (failSchedules) throw new Error('日程读取失败');
                     if (query === '旧关键词') await new Promise((resolve) => { heldScheduleQuery = resolve; });
                     if (query === '无匹配') return [];
-                    return [{ type: 'schedule', id: 'same-id', content: `${query}日程`, snippet: `${query}备注`, date: '2026-11-20', dateLabel: '2026-11-20 09:00', calendarName: '默认日历' }];
+                    if (query === '排序测试') return [
+                        { type: 'schedule', id: 'schedule-new', content: '较晚日程', snippet: '', date: '2026-11-20', dateLabel: '2026-11-20 09:00', start: new Date(2026, 10, 20, 9).getTime(), calendarName: '默认日历' },
+                        { type: 'schedule', id: 'schedule-old', content: '较早日程', snippet: '', date: '2026-11-20', dateLabel: '2026-11-20 06:00', start: new Date(2026, 10, 20, 6).getTime(), calendarName: '默认日历' },
+                    ];
+                    return [{ type: 'schedule', id: 'same-id', content: `${query}日程`, snippet: `${query}备注`, date: '2026-11-20', dateLabel: '2026-11-20 09:00', start: new Date(2026, 10, 20, 9).getTime(), calendarName: '默认日历' }];
                 },
                 navigateToDate: (date) => { window.locatedDate = date; return true; },
             };
@@ -281,6 +291,33 @@ const production = [
         assert.equal(await page.locator('[data-tm-search-workspace-schedule] input[type="checkbox"]').count(), 0, 'schedule results have no task checkbox');
         assert.equal(await page.locator('[data-tm-search-workspace-schedule] .tm-search-workspace__schedule-icon svg').count(), 1, 'schedule results use the calendar icon');
         assert.match(await page.locator('[data-tm-search-workspace-schedule]').innerText(), /2026-11-20 09:00/);
+        assert.deepEqual(await page.locator('#tmSearchWorkspaceSortSelect option').evaluateAll((options) => options.map((option) => [option.value, option.textContent])), [
+            ['relevance', '按相关度'],
+            ['created_desc', '创建时间（新到旧）'],
+            ['created_asc', '创建时间（旧到新）'],
+        ]);
+        await page.evaluate(async () => {
+            __tmCancelInlineSearchLiveTimer();
+            state.searchKeyword = '排序测试';
+            document.querySelector('#tmInlineSearchInput').value = state.searchKeyword;
+            await __tmRunSearchWorkspace(true);
+        });
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceResults.length === 4);
+        await page.evaluate(() => tmChangeSearchWorkspaceSort('created_desc'));
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && taskSearchRequests.at(-1)?.orderBy === 2);
+        assert.deepEqual(await page.locator('.tm-search-workspace__row').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-tm-search-workspace-task') || row.getAttribute('data-tm-search-workspace-schedule'))), ['task-new', 'task-old', 'schedule-new', 'schedule-old'], 'tasks and schedules stay grouped while each group sorts newest first');
+        await page.evaluate(() => tmChangeSearchWorkspaceSort('created_asc'));
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && taskSearchRequests.at(-1)?.orderBy === 1);
+        assert.deepEqual(await page.locator('.tm-search-workspace__row').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-tm-search-workspace-task') || row.getAttribute('data-tm-search-workspace-schedule'))), ['task-old', 'task-new', 'schedule-old', 'schedule-new'], 'tasks and schedules stay grouped while each group sorts oldest first');
+        await page.evaluate(() => tmChangeSearchWorkspaceSort('relevance'));
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && taskSearchRequests.at(-1)?.orderBy === 0);
+        await page.evaluate(async () => {
+            __tmCancelInlineSearchLiveTimer();
+            state.searchKeyword = '发布会';
+            document.querySelector('#tmInlineSearchInput').value = state.searchKeyword;
+            await __tmRunSearchWorkspace(true);
+        });
+        await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceResults.length === 2 && state.searchWorkspaceResults[0].content === '发布会任务');
         await scopeTrigger.click();
         await select('标题');
         await select('备注');
@@ -340,7 +377,7 @@ const production = [
         assert.equal(await page.evaluate(() => locatedDate), '2026-11-20');
         assert.equal(await page.evaluate(() => state.viewMode), 'calendar');
         assert.equal(await input.count(), 0, 'locating a schedule dismisses the search overlay');
-        await page.evaluate(() => tmShowSearchModal());
+        await page.evaluate(() => { state.viewMode = 'list'; tmShowSearchModal(); });
         await scopeTrigger.click();
         assert.equal(await schedules.isChecked(), true, 'reopening preserves the schedule scope');
         await page.getByRole('button', { name: '恢复默认', exact: true }).click();
@@ -412,6 +449,12 @@ const production = [
         await page.waitForFunction(() => !state.searchWorkspaceLoading && state.searchWorkspaceResults[0]?.content === '提前展开日程');
         await page.waitForTimeout(260);
         assert.equal(await page.evaluate(() => scheduleQueries.filter((query) => query === '提前展开').length), earlyExpandReads + 1, 'manually opening full search cancels the pending compact preview');
+        await page.evaluate(() => { tmChangeSearchWorkspaceSort('created_desc'); tmCloseInlineSearch(); state.searchWorkspaceSort = 'relevance'; state.viewMode = 'calendar'; tmShowSearchModal(); });
+        assert.equal(await page.evaluate(() => state.searchWorkspaceSort), 'created_desc', 'reopening restores the last saved search sort');
+        assert.equal(await page.evaluate(() => saved.taskSearchSort), 'created_desc', 'sort changes are saved through SettingsStore');
+        assert.equal(await page.locator('#tmSearchWorkspaceSortSelect').inputValue(), 'created_desc');
+        assert.equal(await page.evaluate(() => state.searchWorkspaceExpanded), true, 'opening search in calendar view expands full search by default');
+        assert.equal(await page.locator('#tmSearchWorkspacePanel').isVisible(), true, 'calendar search opens with the full search panel visible');
         assert.deepEqual(errors, []);
         console.log('task search fields browser tests passed (320 / 768 / 1440px)');
     } catch (error) {

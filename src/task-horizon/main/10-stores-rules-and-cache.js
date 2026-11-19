@@ -8875,6 +8875,7 @@
             currentRule: null,
             taskSearchFields: ['content', 'remark'],
             taskSearchIncludeSchedules: false,
+            taskSearchSort: 'relevance',
             viewProfiles: {
                 global: { ruleId: null, groupMode: 'doc' },
                 allTabs: {},
@@ -9071,6 +9072,8 @@
             calendarShowLunar: false,
             calendarSideDockEnabled: false,
             calendarSideDockWidth: 340,
+            calendarAllDayCollapsed: false,
+            calendarSideDockAllDayCollapsed: false,
             checklistDetailWidth: 320,
             docTopbarButtonDesktop: true,
             docTopbarButtonMobile: true,
@@ -9788,6 +9791,8 @@
                                 if (typeof cloudData.calendarShowLunar === 'boolean') this.data.calendarShowLunar = cloudData.calendarShowLunar;
                                 if (typeof cloudData.calendarSideDockEnabled === 'boolean') this.data.calendarSideDockEnabled = cloudData.calendarSideDockEnabled;
                                 if (typeof cloudData.calendarSideDockWidth === 'number') this.data.calendarSideDockWidth = cloudData.calendarSideDockWidth;
+                                if (typeof cloudData.calendarAllDayCollapsed === 'boolean') this.data.calendarAllDayCollapsed = cloudData.calendarAllDayCollapsed;
+                                if (typeof cloudData.calendarSideDockAllDayCollapsed === 'boolean') this.data.calendarSideDockAllDayCollapsed = cloudData.calendarSideDockAllDayCollapsed;
                                 if (typeof cloudData.docTopbarButtonDesktop === 'boolean') this.data.docTopbarButtonDesktop = cloudData.docTopbarButtonDesktop;
                                 if (typeof cloudData.docTopbarButtonMobile === 'boolean') this.data.docTopbarButtonMobile = cloudData.docTopbarButtonMobile;
                                 if (typeof cloudData.docTopbarButtonSwapPressActions === 'boolean') this.data.docTopbarButtonSwapPressActions = cloudData.docTopbarButtonSwapPressActions;
@@ -9956,6 +9961,7 @@
                                 }
                                 if (typeof cloudData.taskSearchIncludeSchedules === 'boolean') this.data.taskSearchIncludeSchedules = cloudData.taskSearchIncludeSchedules;
                                 if (Array.isArray(cloudData.taskSearchFields)) this.data.taskSearchFields = __tmGetTaskSearchFields(cloudData.taskSearchFields);
+                                if (['relevance', 'created_desc', 'created_asc'].includes(cloudData.taskSearchSort)) this.data.taskSearchSort = cloudData.taskSearchSort;
                                 if (cloudData.docDefaultTaskHeadingByDocId && typeof cloudData.docDefaultTaskHeadingByDocId === 'object' && !Array.isArray(cloudData.docDefaultTaskHeadingByDocId)) {
                                     this.data.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap(cloudData.docDefaultTaskHeadingByDocId);
                                 }

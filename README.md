@@ -6,6 +6,15 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.5.1
+
+- **Calendar and sidebar:** all-day collapse states now sync through plugin settings, with separate values for the main calendar and day sidebar. Reduce the gap between timer rails and schedule cards, and refresh schedules in the mounted sidebar after changes sync from another device.
+- **Search:** opening search from the calendar now expands the full search workspace by default. Created-time sorting supports newest-first and oldest-first for tasks and schedules, and remembers your choice.
+- **Mobile task details:** fix the top of the drawer being clipped when dragged to fullscreen, and update its layout when the document tab bar appears or hides.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.5.0
 
 - **Summaries**
@@ -14,9 +23,6 @@ The same plugin includes English and Simplified Chinese. Existing installations 
 - **Kanban and board sets** now show the parent task name below the note on cards. Board sets in **Card style** use each sub-board's configured background color.
 - **Calendar** compact search updates task results in place so the calendar no longer flickers as you type.
 - **Timeline** keeps the task list and timeline rows aligned when scrolling vertically and avoids unnecessary horizontal updates.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.4.9
 

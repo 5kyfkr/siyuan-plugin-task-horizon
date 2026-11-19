@@ -957,7 +957,7 @@
         mainTimeGridAutoCenterKey: '',
         mainTimeGridAutoCenterPendingKey: '',
         mainTimeGridAutoCenterToken: 0,
-        allDayCollapsed: readAllDayCollapsed('main'),
+        allDayCollapsed: false,
         cnHolidaySignature: '',
         calendarMutationVersion: 0,
         scheduleWriteTail: Promise.resolve(),
@@ -1057,7 +1057,7 @@
             calendar: null,
             adapter: null,
             dateKey: '',
-            allDayCollapsed: readAllDayCollapsed('sideDay'),
+            allDayCollapsed: false,
             resizeBox: null,
             settingsStore: null,
             resolveTask: null,
@@ -2724,11 +2724,6 @@
         return isSideDayTimelineRoot(rootEl) ? 'sideDay' : 'main';
     }
 
-    function readAllDayCollapsed(scope) {
-        try { return localStorage.getItem(`tm_calendar_all_day_collapsed_${scope}`) === 'true'; } catch (e) {}
-        return false;
-    }
-
     function getAllDayCollapsed(rootEl) {
         return getAllDayCollapseScope(rootEl) === 'sideDay'
             ? state.sideDay.allDayCollapsed === true
@@ -2740,7 +2735,12 @@
         const scope = getAllDayCollapseScope(rootEl);
         if (scope === 'sideDay') state.sideDay.allDayCollapsed = value;
         else state.allDayCollapsed = value;
-        try { localStorage.setItem(`tm_calendar_all_day_collapsed_${scope}`, String(value)); } catch (e) {}
+        const store = scope === 'sideDay' ? (state.sideDay.settingsStore || state.settingsStore) : state.settingsStore;
+        const settingKey = scope === 'sideDay' ? 'calendarSideDockAllDayCollapsed' : 'calendarAllDayCollapsed';
+        if (store?.data) {
+            store.data[settingKey] = value;
+            try { Promise.resolve(store.save?.()).catch(() => {}); } catch (e) {}
+        }
         return value;
     }
 
@@ -7922,6 +7922,10 @@
                 const bottom = bottomPx / canvasHeight * 100;
                 const width = 100 / Math.max(1, item.laneCount || 1);
                 const left = item.lane * width;
+                const laneLeftInset = item.lane === 0 ? 3 : 1.5;
+                const laneRightInset = item.lane === item.laneCount - 1
+                    ? (railEvents.length ? 0 : 3)
+                    : 1.5;
                 const startsEvent = Math.abs(segment.start - item.startMinute) < 0.01;
                 const endsEvent = Math.abs(segment.end - item.endMinute) < 0.01;
                 const fragmentClass = [
@@ -7930,8 +7934,8 @@
                     endsEvent ? 'is-fold-fragment-end' : '',
                 ].filter(Boolean).join(' ');
                 const geometry = railEvents.length
-                    ? `left:calc(${left}% + 4px - ${left / 100 * 10}px);width:calc(${width}% - ${5 + width / 100 * 10}px);`
-                    : `left:calc(${left}% + 4px);width:calc(${width}% - 5px);`;
+                    ? `left:calc(${left}% + ${laneLeftInset}px - ${left / 100 * 10}px);width:calc(${width}% - ${laneLeftInset + laneRightInset + width / 100 * 10}px);`
+                    : `left:calc(${left}% + ${laneLeftInset}px);width:calc(${width}% - ${laneLeftInset + laneRightInset}px);`;
                 return eventMarkup(item.eventApi, 'block', true, fragmentClass)
                     .replace('data-tm-proto-event="', `${item.eventApi.extendedProps?.__tmRunning ? 'data-tm-live-record="1" ' : ''}data-tm-proto-event="`)
                     .replace('data-tm-proto-event="', `data-tm-proto-lane="${item.lane}" data-tm-proto-lane-count="${item.laneCount}" data-tm-proto-event="`)
@@ -27962,11 +27966,13 @@
         }
         if (!records) {
             const covering = findMaterializedDockHistoryRange(startMs, endMs, version);
-            if (covering) records = covering.records.filter((r) => {
-                const rs = toMs(r?.start);
-                const re = toMs(r?.end);
-                return Number.isFinite(rs) && Number.isFinite(re) && re > rs && overlap(rs, re, startMs, endMs);
-            });
+            if (covering) {
+                records = covering.records.filter((r) => {
+                    const rs = toMs(r?.start);
+                    const re = toMs(r?.end);
+                    return Number.isFinite(rs) && Number.isFinite(re) && re > rs && overlap(rs, re, startMs, endMs);
+                });
+            }
         }
         if (!records) {
             let pending = state.dockHistoryRangeInflight.get(rangeKey);
@@ -27974,10 +27980,11 @@
                 pending = (async () => {
                     state.dockHistoryReadInFlight = Math.max(0, Number(state.dockHistoryReadInFlight) || 0) + 1;
                     const dock = globalThis.__dockTomato;
+                    const hasRangeApi = !!(dock?.history && typeof dock.history.loadRange === 'function');
                     let nextRecords = null;
                     let rangeReadFailed = false;
                     try {
-                        if (dock && dock.history && typeof dock.history.loadRange === 'function') {
+                        if (hasRangeApi) {
                             try {
                                 nextRecords = await dock.history.loadRange(new Date(startMs).toISOString(), new Date(endMs).toISOString());
                             } catch (e) {
@@ -28100,9 +28107,11 @@
         const pending = promise && typeof promise.then === 'function' ? promise : null;
         if (!pending) return false;
         const allowPartial = options && options.allowPartial === true;
+        const refetchKind = String(options?.kind || (allowPartial ? 'partial' : 'complete')).trim() || 'complete';
         const rangeKey = `${formatDateKey(rangeStart)}|${formatDateKey(rangeEnd)}`;
-        const pendingKey = `${rangeKey}|${allowPartial ? 'holiday' : 'complete'}`;
-        if (!rangeKey || state.dockHistoryDeferredRefetchKeys.has(pendingKey)) return false;
+        const pendingKey = `${rangeKey}|${refetchKind}`;
+        if (!rangeKey) return false;
+        if (state.dockHistoryDeferredRefetchKeys.has(pendingKey)) return false;
         state.dockHistoryDeferredRefetchKeys.add(pendingKey);
         Promise.resolve(pending).finally(() => {
             state.dockHistoryDeferredRefetchKeys.delete(pendingKey);
@@ -28112,11 +28121,13 @@
             // holiday-only refresh as soon as its year request settles,
             // otherwise an unavailable history bridge can hide holidays for
             // the entire month view.
-            if (!allowPartial && !isCalendarAuxRangeMaterialized(rangeStart, rangeEnd)) return;
+            const materialized = isCalendarAuxRangeMaterialized(rangeStart, rangeEnd);
+            if (!allowPartial && !materialized) return;
             const now = Date.now();
-            const last = Number(state.dockHistoryDeferredRefetchAt.get(rangeKey) || 0);
+            const refetchAtKey = `${rangeKey}|${refetchKind}`;
+            const last = Number(state.dockHistoryDeferredRefetchAt.get(refetchAtKey) || 0);
             if (now - last < 250) return;
-            state.dockHistoryDeferredRefetchAt.set(rangeKey, now);
+            state.dockHistoryDeferredRefetchAt.set(refetchAtKey, now);
             while (state.dockHistoryDeferredRefetchAt.size > 8) {
                 const oldestKey = state.dockHistoryDeferredRefetchAt.keys().next().value;
                 state.dockHistoryDeferredRefetchAt.delete(oldestKey);
@@ -39586,6 +39597,12 @@
                         return;
                     }
                     if (optionalBackgroundPromise) {
+                        if (recordsPromise) {
+                            deferCalendarTomatoHistoryRefetch(recordsPromise, info.start, info.end, {
+                                allowPartial: true,
+                                kind: 'tomato-history',
+                            });
+                        }
                         if (holidayBackgroundPromise) {
                             // Do not wait for tomato/reminder caches before
                             // making the holiday events visible.
@@ -39593,12 +39610,12 @@
                                 holidayBackgroundPromise,
                                 info.start,
                                 info.end,
-                                { allowPartial: true },
+                                { allowPartial: true, kind: 'holiday' },
                             );
                         }
-                        deferCalendarTomatoHistoryRefetch(optionalBackgroundPromise, info.start, info.end);
+                        deferCalendarTomatoHistoryRefetch(optionalBackgroundPromise, info.start, info.end, { kind: 'complete' });
                     }
-                    if (preservedAuxEvents?.length) {
+                    if (preservedAuxEvents?.length && historyNeedsBackgroundRead) {
                         success(normalizeCalendarEngineEventInputs(colorCalendarTomatoEvents(preservedAuxEvents, settings)));
                         holdCalendarSourceEventSnapshot(EVENT_SOURCE_IDS.mainAux, info.start, info.end);
                         return;
@@ -44043,11 +44060,16 @@
 
     function setSettingsStore(settingsStore) {
         state.settingsStore = settingsStore || state.settingsStore || null;
+        state.sideDay.settingsStore = state.settingsStore || state.sideDay.settingsStore || null;
         configureCalendarCaldav();
         try { state.prototypeOpacitySync?.(); } catch (e) {}
         try { syncSideDayEventOpacity(); } catch (e) {}
         if (state.settingsStore?.data) {
             let shouldFlush = false;
+            state.allDayCollapsed = state.settingsStore.data.calendarAllDayCollapsed === true;
+            state.sideDay.allDayCollapsed = state.settingsStore.data.calendarSideDockAllDayCollapsed === true;
+            try { state.queuePrototypeSurfaceRender?.(); } catch (e) {}
+            try { state.sideDay.prototypeRender?.(); } catch (e) {}
             const calendarName = String(state.settingsStore.data.calendarIcsCalendarName || '').trim();
             if (!calendarName || calendarName === 'Task Horizon') {
                 state.settingsStore.data.calendarIcsCalendarName = __tmT("common.taskManager");

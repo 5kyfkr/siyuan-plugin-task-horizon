@@ -31,6 +31,7 @@ class Element extends EventTarget {
         this.sheets = [];
     }
     querySelectorAll() { return this.sheets; }
+    querySelector(selector) { return selector === '.tm-doc-tabs' ? this.docTabs : null; }
     getBoundingClientRect() { return { top: this.top }; }
 }
 
@@ -42,6 +43,7 @@ host.top = 64;
 host.clientHeight = 780;
 embeddedSheet.offsetParent = host;
 modal.sheets = [fixedSheet, embeddedSheet];
+modal.docTabs = new Element();
 const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0 });
 const window = Object.assign(new EventTarget(), { innerHeight: 844, visualViewport: viewport });
 const navigator = { userAgent: '', platform: '', maxTouchPoints: 0 };
@@ -151,10 +153,13 @@ assert.equal(fixedSheet.properties.size, 0, 'unavailable viewport APIs must fall
 window.visualViewport = viewport;
 
 viewport.dispatchEvent(new Event('resize'));
+modal.docTabs.dispatchEvent(new Event('transitionend'));
+assert.equal(frames.size, 1, 'tab visibility transitions must refresh sheet viewport metrics');
 context.__tmUnbindMobileViewportAutoRefresh();
 assert.equal(frames.size, 0, 'closing must cancel the pending frame');
 assert.equal(timers.size, 0, 'closing must cancel the pending refresh');
 viewport.dispatchEvent(new Event('scroll'));
+modal.docTabs.dispatchEvent(new Event('transitionend'));
 assert.equal(frames.size, 0, 'closing must remove viewport listeners');
 context.document.dispatchEvent(new Event('focusin'));
 context.document.dispatchEvent(new Event('focusout'));
