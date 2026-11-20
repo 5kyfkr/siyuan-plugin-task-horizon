@@ -3940,7 +3940,7 @@
         state.draggingTaskId = taskId;
         state.draggingTaskIds = sourceIds;
         try { __tmSetCalendarSideDockDragHidden(true); } catch (e) {}
-        try { ev.dataTransfer.effectAllowed = 'move'; } catch (e) {}
+        try { ev.dataTransfer.effectAllowed = 'linkMove'; } catch (e) {}
         try { ev.dataTransfer.setData('application/x-tm-task-id', taskId); } catch (e) {}
         try { ev.dataTransfer.setData('application/x-tm-task-ids', JSON.stringify(sourceIds)); } catch (e) {}
         try { ev.dataTransfer.setData('text/plain', taskId); } catch (e) {}

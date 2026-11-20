@@ -62,6 +62,7 @@ async function check(browser, kind) {
         fs.mkdirSync(path.join(__dirname,'../output/playwright'), {recursive:true});
         await page.screenshot({path:path.join(__dirname,`../output/playwright/tomato-relations-${kind}.png`)});
         await page.locator('.tm-proto-event-popover-close').click();
+        await page.mouse.move(20, 20);
         assert.deepEqual(await highlightedRecords(), ['focus-a','stopwatch-a'], 'closing the editor preserves the selected schedule relation');
         await scope.locator('.tm-proto-time-col').first().dispatchEvent('pointerdown', {button:0,pointerType:'mouse',pointerId:31,clientX:0,clientY:0});
         await scope.locator('.tm-proto-time-col').first().dispatchEvent('pointercancel', {pointerId:31});

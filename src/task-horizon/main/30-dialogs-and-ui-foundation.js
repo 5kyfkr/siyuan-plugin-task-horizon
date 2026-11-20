@@ -14742,7 +14742,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         };
         document.addEventListener('pointerdown', state.searchBarDismissFieldsHandler, true);
         state.searchBarOutsideHandler = (event) => {
-            if (!state.searchBarOpen) return;
+            if (!state.searchBarOpen || !state.searchWorkspaceExpanded) return;
             const bar = document.getElementById('tmInlineSearchbarPortal');
             if (bar?.contains?.(event.target)) return;
             if (event.target instanceof Element
@@ -17217,7 +17217,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             if (row && calendarId) row.setAttribute('data-calendar-id', calendarId);
         } catch (e) {}
         try {
-            ev.dataTransfer.effectAllowed = 'move';
+            ev.dataTransfer.effectAllowed = 'linkMove';
             ev.dataTransfer.setData('application/x-tm-task-id', id);
             ev.dataTransfer.setData('application/x-tm-task-ids', JSON.stringify(state.draggingTaskIds || [id]));
             ev.dataTransfer.setData('application/x-tm-task', JSON.stringify({
@@ -17594,6 +17594,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             };
             const syncHover = () => {
                 const pointTarget = resolvePointTarget(lastX, lastY);
+                globalThis.__tomatoTimerV2?.previewStatusBarTaskDrop?.(pointTarget);
                 const calendarTarget = isCalendarHoverTarget(pointTarget);
                 const floatingTarget = (() => {
                     if (!(pointTarget instanceof Element)) return false;
@@ -17749,6 +17750,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             const cleanup = (suppressClick) => {
                 if (ended) return;
                 ended = true;
+                globalThis.__tomatoTimerV2?.previewStatusBarTaskDrop?.(null);
+                document.removeEventListener('keydown', onDragKeyDown, true);
                 if (hoverSyncFrame != null) {
                     try { cancelAnimationFrame(hoverSyncFrame); } catch (e) {}
                     hoverSyncFrame = null;
@@ -17790,6 +17793,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             };
             const finishDrop = async () => {
                 const pointTarget = resolvePointTarget(lastX, lastY);
+                if (await globalThis.__tomatoTimerV2?.dropTaskOnStatusBar?.(pointTarget, payload)) return true;
                 try {
                     const handled = await globalThis.__tmCalendar?.finalizeFloatingMiniCalendarTouchDrop?.({
                         taskId,
@@ -17934,15 +17938,25 @@ return Number(state.contextInteractionQuietUntil || 0);
                         __tmSuppressDockPointerTaskClick(suppressClickMs);
                         lastX = Number(e2?.clientX) || lastX;
                         lastY = Number(e2?.clientY) || lastY;
-                        flushHoverSync();
-                        await finishDrop();
+                        if (e2.type === 'pointerup') {
+                            flushHoverSync();
+                            await finishDrop();
+                        }
                     }
                 } finally {
                     cleanup(dragging);
                 }
             };
 
+            const onDragKeyDown = (event) => {
+                if (event.key !== 'Escape' || !dragging || completing) return;
+                event.preventDefault();
+                event.stopPropagation();
+                cleanup(true);
+            };
+
             state.dockTaskPointerGestureCleanup = () => cleanup(false);
+            document.addEventListener('keydown', onDragKeyDown, true);
             document.addEventListener('pointermove', onMove, true);
             document.addEventListener('pointerup', onUp, true);
             document.addEventListener('pointercancel', onUp, true);

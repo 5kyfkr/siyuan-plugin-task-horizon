@@ -57,6 +57,18 @@ async function check(browser, kind) {
         assert.ok((await page.evaluate(() => stateReads))-stateReads <= 2,'one snapshot read per minute, not every second');
         assert.match(await page.locator('.tm-proto-event-popover-title').innerText(),/6m.*计时中/,'pinned tooltip updates with minute tick');
         await page.locator('.tm-proto-event-popover-close').click();
+        await page.waitForFunction(() => __railHosts.state.dockHistoryReadInFlight === 0);
+        const readsBeforeRebind = await page.evaluate(() => historyReads.length);
+        await page.evaluate(() => {
+            // A local-only link is deliberately excluded from the shared timer snapshot.
+            __tomatoTimerV2.getTaskAssociation = () => ({ taskBlockId: 'new-task', taskBlockName: '换绑后的任务' });
+            window.dispatchEvent(new CustomEvent('tomato:association-changed'));
+        });
+        await page.clock.runFor(100);
+        assert.match(await live.getAttribute('aria-label'), /换绑后的任务/, kind + ': rebind updates the live record immediately');
+        assert.equal(await page.evaluate(() => historyReads.length), readsBeforeRebind, 'relinking the live record does not reload history');
+        assert.ok(await live.evaluate(el => el === originalLiveNode), 'relinking retains the existing live rail');
+        await page.evaluate(() => { delete __tomatoTimerV2.getTaskAssociation; });
         fs.mkdirSync(path.join(__dirname,'../output/playwright'),{recursive:true});
         await live.scrollIntoViewIfNeeded();
         await page.screenshot({path:path.join(__dirname,`../output/playwright/live-tomato-${kind}.png`)});

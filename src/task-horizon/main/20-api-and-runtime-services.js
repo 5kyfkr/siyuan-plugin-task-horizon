@@ -20095,20 +20095,18 @@ if (!state.homepageOpen) return;
 
     function __tmListenTomatoAssociationCleared() {
         if (__tmTomatoAssociationListenerAdded) return;
-        __tmTomatoAssociationHandler = () => {
-            try {
-                __tmSyncTomatoFocusInPlace('');
-            } catch (e) {}
-        };
         __tmTomatoAssociationChangedHandler = (event) => {
-            try {
-                const focusTaskId = String(state.timerFocusTaskId || '').trim();
-                if (!focusTaskId) return;
-                const nextTaskId = String(event?.detail?.taskBlockId || '').trim();
-                if (nextTaskId === focusTaskId) return;
-                __tmSyncTomatoFocusInPlace('');
-            } catch (e) {}
+            if (SettingsStore?.data?.enableTomatoIntegration === false) return;
+            const focused = String(state.timerFocusTaskId || '').trim();
+            const detail = event?.detail || {};
+            const next = String(detail.taskBlockId || detail.databaseBlockId || '').trim();
+            if (focused === next) return;
+            const previous = [detail.prevTaskBlockId, detail.prevDatabaseBlockId];
+            const followsTimer = focused && previous.some(id => String(id || '').trim() === focused);
+            const linkingActiveTimer = !focused && next && detail.actionSource === 'timer-context-menu' && detail.activeTimer === true;
+            if (followsTimer || linkingActiveTimer) __tmSyncTomatoFocusInPlace(next);
         };
+        __tmTomatoAssociationHandler = __tmTomatoAssociationChangedHandler;
         __tmTomatoFocusModeChangedHandler = (event) => {
             try {
                 const enabled = event?.detail?.enabled !== false;
@@ -20212,10 +20210,8 @@ if (!state.homepageOpen) return;
         globalThis.__taskHorizonOnTomatoAssociationChanged = (detail) => {
             try { __tmTomatoAssociationChangedHandler({ detail }); } catch (e) {}
         };
-        globalThis.__taskHorizonOnTomatoAssociationCleared = () => {
-            try {
-                __tmSyncTomatoFocusInPlace('');
-            } catch (e) {}
+        globalThis.__taskHorizonOnTomatoAssociationCleared = (detail) => {
+            try { __tmTomatoAssociationHandler({ detail }); } catch (e) {}
         };
         globalThis.__taskHorizonOnTomatoFocusEnded = (detail) => {
             try { __tmTomatoFocusEndedHandler({ detail }); } catch (e) {}

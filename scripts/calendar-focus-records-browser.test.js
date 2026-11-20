@@ -51,7 +51,8 @@ const section = (from, to) => dock.slice(dock.indexOf(from), dock.indexOf(to, do
         })();` });
         const api = read('src/task-horizon/main/20-api-and-runtime-services.js');
         const between = (from, to) => api.slice(api.indexOf(from), api.indexOf(to, api.indexOf(from)));
-        await page.addScriptTag({ path: path.join(root, '../siyuan-3.8.9/app/stage/protyle/js/lute/lute.min.js') });
+        const lutePath = process.env.SIYUAN_LUTE_PATH || path.join(root, '../siyuan-3.8.11/app/stage/protyle/js/lute/lute.min.js');
+        await page.addScriptTag({ path: lutePath });
         await page.addScriptTag({ content: `
             window.esc = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
             ${between('    function __tmGetTaskListItemMarkerPrefixMatch', '    function __tmNormalizeTaskListItemMarkdownMarker')}

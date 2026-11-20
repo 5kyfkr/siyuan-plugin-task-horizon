@@ -4,6 +4,25 @@
 
     const __tmAiReadTask = (taskId) => globalThis.__tmTaskBoundary?.getTask?.(taskId) || null;
 
+    function __tmAiSearchTaskAssociations(query, tasks, limit = 8) {
+        const keyword = String(query || '').trim().toLocaleLowerCase();
+        const max = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(20, Math.floor(Number(limit)))) : 8;
+        const results = [];
+        const seen = new Set();
+        for (const task of Array.isArray(tasks) ? tasks : []) {
+            const id = __tmAiTaskBlockId(task);
+            if (!id || task.virtualTask === true || seen.has(id)) continue;
+            const title = API.getTaskTitlePresentation(task.content || task.raw_content || task.title || task.markdown || task.name).text;
+            if (!title) continue;
+            const docName = String(task?.docName || task?.doc_name || task?.rawDocName || '').trim();
+            if (keyword && !`${title} ${docName}`.toLocaleLowerCase().includes(keyword)) continue;
+            seen.add(id);
+            results.push({ id, title, docName });
+            if (results.length >= max) break;
+        }
+        return results;
+    }
+
     function __tmIsAiFeatureEnabled() {
         try {
             return !!SettingsStore?.data?.aiEnabled;
@@ -1072,6 +1091,18 @@
         },
         async getTaskSnapshot(taskId, options) {
             return await __tmAiGetTaskSnapshot(taskId, options);
+        },
+        async searchTasks(query, options = {}) {
+            const ensureCache = window.tmEnsureCalendarTaskCache;
+            if (typeof ensureCache !== 'function') throw new Error('TASK_SEARCH_UNAVAILABLE');
+            const tasks = await ensureCache({
+                source: 'dock-tomato-association-picker',
+                refresh: false,
+                allowInactiveFullLoad: true,
+                requireCompleteCache: true,
+            });
+            if (!Array.isArray(tasks)) throw new Error('TASK_SEARCH_UNAVAILABLE');
+            return __tmAiSearchTaskAssociations(query, tasks, options?.limit);
         },
         async getDocumentSnapshot(docId, options) {
             return await __tmAiGetDocumentSnapshot(docId, options);

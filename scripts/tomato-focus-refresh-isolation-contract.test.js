@@ -72,4 +72,47 @@ assert.doesNotMatch(startSources, /timerFocusTaskId\s*=\s*[^;]+;\s*(?:try\s*\{\s
 assert.match(styles, /\.tm-kanban--clean \.tm-kanban-subtask-row\.tm-kanban-card\.tm-timer-focus\s*\{[\s\S]*?inset 0 0 0 1px var\(--tm-primary-color\)/, 'focused kanban subtasks must retain a full inset border');
 assert.match(styles, /\.tm-kanban--clean \.tm-kanban-subtask-row\.tm-kanban-card\.tm-timer-focus:hover\s*\{[\s\S]*?0 0 0 2px color-mix\(in srgb, var\(--tm-primary-color\) 18%, transparent\)/, 'focused kanban subtasks must retain the hover focus ring');
 
-console.log('tomato focus refresh isolation contract tests passed');
+const vm = require('node:vm');
+const focusHandler = segment(services, '__tmTomatoAssociationChangedHandler = (event)', '__tmTomatoFocusModeChangedHandler =');
+const context = vm.createContext({ state: { timerFocusTaskId: '' }, SettingsStore: { data: { enableTomatoIntegration: true } } });
+vm.runInContext('var __tmTomatoAssociationChangedHandler, __tmTomatoAssociationHandler; function __tmSyncTomatoFocusInPlace(id) { state.timerFocusTaskId = id; }\n' + focusHandler, context);
+const changed = (detail) => context.__tmTomatoAssociationChangedHandler({ detail });
+changed({ taskBlockId: 'a', actionSource: 'timer-context-menu', activeTimer: true });
+assert.equal(context.state.timerFocusTaskId, 'a');
+changed({ taskBlockId: 'b', prevTaskBlockId: 'a', actionSource: 'timer-context-menu', activeTimer: true });
+assert.equal(context.state.timerFocusTaskId, 'b');
+context.__tmTomatoAssociationHandler({ detail: { prevTaskBlockId: 'a' } });
+assert.equal(context.state.timerFocusTaskId, 'b', 'clearing an unrelated link retains the current focus');
+context.__tmTomatoAssociationHandler({ detail: { prevTaskBlockId: 'b' } });
+assert.equal(context.state.timerFocusTaskId, '');
+changed({ taskBlockId: 'c', actionSource: 'timer-context-menu', activeTimer: false });
+assert.equal(context.state.timerFocusTaskId, '', 'selecting the next task while idle does not enter focus mode');
+
+const taskBridge = read('src/task-horizon/main/shell/81-ai-bridge-runtime.js');
+const taskSearch = segment(taskBridge, '    function __tmAiSearchTaskAssociations(', '    function __tmIsAiFeatureEnabled(');
+const blockId = segment(taskBridge, '    function __tmAiTaskBlockId(', '    function __tmAiTaskReadValues(');
+const queryMethod = segment(taskBridge, '        async searchTasks(', '        async getDocumentSnapshot(');
+const rows = [
+    { id: '20260101000000-aaaaaaa', content: 'Write release notes', docName: 'Launch project', done: true },
+    { id: '20260101000000-bbbbbbb', content: 'Review issue', docName: 'Inbox' },
+    { id: '20260101000000-ccccccc', content: 'Repeat write', docName: 'Launch project', isRecurringInstanceReadOnly: true },
+];
+const queryContext = vm.createContext({
+    API: { getTaskTitlePresentation: (text) => ({ text }) },
+    window: { tmEnsureCalendarTaskCache: async (options) => {
+        assert.equal(options.allowInactiveFullLoad, true);
+        assert.equal(options.refresh, false);
+        return rows;
+    } },
+});
+vm.runInContext(taskSearch + blockId + 'this.bridge = {\n' + queryMethod + '};', queryContext);
+(async () => {
+    const byDoc = await queryContext.bridge.searchTasks('launch PROJECT');
+    const byTitle = await queryContext.bridge.searchTasks('release NOTES');
+    assert.equal(byDoc.length, 1);
+    assert.equal(byTitle.length, 1);
+    assert.equal(byDoc[0].id, rows[0].id);
+    assert.equal(byTitle[0].id, rows[0].id, 'completed real tasks are selectable and recurring history rows are excluded');
+    assert.equal((await queryContext.bridge.searchTasks('', { limit: 1 })).length, 1);
+    console.log('tomato focus and association search contract tests passed');
+})().catch(error => { console.error(error); process.exitCode = 1; });

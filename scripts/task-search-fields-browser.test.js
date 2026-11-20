@@ -207,8 +207,13 @@ const production = [
         await scopeTrigger.click();
         assert.equal(await page.getByRole('checkbox', { name: '标题', exact: true }).isChecked(), true);
         await page.mouse.click(8, 750);
-        await page.waitForFunction(() => !document.querySelector('#tmInlineSearchbarPortal'));
-        assert.equal(await page.locator('#tmInlineSearchbarPortal').count(), 0, 'outside click dismisses the search portal');
+        assert.equal(await scopeTrigger.getAttribute('aria-expanded'), 'false', 'outside click dismisses the search scope');
+        assert.equal(await input.isVisible(), true, 'outside click keeps compact search open');
+
+        await page.getByRole('button', { name: '展开完整搜索', exact: true }).click();
+        assert.equal(await page.locator('#tmSearchWorkspacePanel').isVisible(), true);
+        await page.mouse.click(8, 750);
+        assert.equal(await input.count(), 0, 'outside click dismisses full search');
         await page.evaluate(() => tmShowSearchModal());
         await scopeTrigger.click();
         await select('项目说明');
