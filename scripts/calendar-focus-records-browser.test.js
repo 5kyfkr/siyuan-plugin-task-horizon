@@ -63,11 +63,13 @@ const section = (from, to) => dock.slice(dock.indexOf(from), dock.indexOf(to, do
             };
             window.__tmGetTaskTitlePresentation = (value, fallback) => API.getTaskTitlePresentation(value, fallback);
         ` });
+        const taskBoundary = read('src/task-horizon/main/33-task-boundary-facades.js').split('    // Public plugin contract.')[0];
+        await page.addScriptTag({ content: between('    function __tmParseCreatedTs(', '    function __tmNormalizeWhiteboardAllTabsLayoutMode(') + taskBoundary });
         await page.addScriptTag({ content: read('src/task-horizon/main/task-runtime/51a-task-title-editor-runtime.js') });
         const model = read('src/task-horizon/main/task-runtime/50-task-model-and-repeat-utils.js');
         await page.addScriptTag({ content: model.slice(model.indexOf('function __tmParseTaskRepeatJson'), model.indexOf('function __tmGetTaskRepeatWeekdayLabel')) });
         for (const name of ['date', 'store', 'layout', 'renderer', 'interaction', 'engine']) await page.addScriptTag({ content: read(`src/calendar/calendar-${name}.js`) });
-        await page.addScriptTag({ content: read('calendar-view.js').replace('    globalThis.__tmCalendar = {', '    window.__focusTest = { state, getSettings, buildEventsFromRecords, buildSharedPrototypeDayPanelMarkup, openRecordModal, normalizeCalendarScheduleTitleText, searchCalendarTasks };\n    globalThis.__tmCalendar = {') });
+        await page.addScriptTag({ content: read('calendar-view.js').replace('    globalThis.__tmCalendar = {', '    window.__focusTest = { state, getSettings, buildEventsFromRecords, buildSharedPrototypeDayPanelMarkup, openRecordModal, openScheduleModal, normalizeCalendarScheduleTitleText };\n    globalThis.__tmCalendar = {') });
         await page.evaluate(() => {
             __tmCalendar.navigateToDate('2026-11-16');
             __tmCalendar.mount(document.querySelector('#root'), { settingsStore: { loaded: true, data: { calendarDefaultViewDesktop: 'timeGridDay', calendarLinkDockTomato: true }, save: async () => {} } });
@@ -240,12 +242,32 @@ const section = (from, to) => dock.slice(dock.indexOf(from), dock.indexOf(to, do
         const referenceTitle = '\u770b\u4e00\u4e0b<span data-type="block-ref" data-id="20260623092026-2xob3p2" data-subtype="d">\u6d4b\u8bd5\u6587\u6863</span>';
         await page.evaluate(referenceTitle => {
             __tmCalendarAllTasksCache = { complete: true, tasks: [
-                { id: 'reference-task', content: referenceTitle, root_id: 'doc-reference', docName: 'Reference notebook' },
-                { id: 'finished-task', title: 'Finished planning', done: true, root_id: 'doc-finished', docName: 'Past project' },
+                { id: 'reference-task', content: referenceTitle, root_id: 'doc-reference', docName: 'Reference notebook', created: '20261120090000' },
+                { id: 'finished-task', title: 'Finished planning', done: true, root_id: 'doc-finished', docName: 'Past project', created: '2026-11-21T09:00:00Z' },
                 ...Array.from({length: 80}, (_, index) => ({ id: 'extra-' + index, title: 'Candidate ' + index })),
             ] };
-            __focusTest.openRecordModal(null, { create: true });
+            __focusTest.openScheduleModal({ start: '2026-11-16T09:00:00', end: '2026-11-16T10:00:00' });
         }, referenceTitle);
+        await page.locator('[data-tm-cal-relation-action="search"]').click();
+        const scheduleCandidates = page.locator('[data-tm-cal-relation-result]');
+        assert.deepEqual(await scheduleCandidates.evaluateAll(nodes => nodes.slice(0, 2).map(node => node.dataset.tmCalRelationResult)),
+            ['finished-task', 'reference-task'], 'schedule association defaults to newest created, including completed tasks');
+        const scheduleSearch = page.locator('[data-tm-cal-field="taskSearch"]');
+        await scheduleSearch.fill('Past project');
+        assert.equal(await scheduleCandidates.locator('b').innerText(), '✅ Finished planning');
+        await scheduleCandidates.click();
+        assert.equal(await page.locator('[data-tm-cal-field="title"]').inputValue(), 'Finished planning');
+        await page.locator('.tm-calendar-schedule-editor-modal .tm-calendar-edit-close').click();
+        assert.equal(await page.evaluate(() => __focusTest.state.openPrototypeNewScheduleCard({
+            start: new Date('2026-11-16T09:00:00'), end: new Date('2026-11-16T10:00:00'),
+        }, document.querySelector('.tm-proto-time-col'))), true);
+        const inlineEditor = page.locator('.tm-proto-inline-schedule-editor');
+        await inlineEditor.locator('[data-tm-proto-edit-relation="search"]').click();
+        const inlineChoices = inlineEditor.locator('[data-tm-proto-edit-task]');
+        assert.equal(await inlineChoices.first().getAttribute('data-tm-proto-edit-task'), 'finished-task');
+        assert.equal(await inlineChoices.first().locator('b').innerText(), '✅ Finished planning');
+        await inlineEditor.locator('[data-tm-proto-edit-action="cancel"]').click();
+        await page.evaluate(() => __focusTest.openRecordModal(null, { create: true }));
         const search = page.locator('[data-tm-focus-task-search]');
         await search.fill('\u6d4b\u8bd5\u6587\u6863');
         const referenceResult = page.locator('[data-tm-focus-task="reference-task"]');
@@ -257,9 +279,10 @@ const section = (from, to) => dock.slice(dock.indexOf(from), dock.indexOf(to, do
         await referenceResult.click();
         assert.equal(await page.locator('[data-tm-cal-field="task"]').inputValue(), 'reference-task');
         await search.fill('Finished');
-        await page.locator('[data-tm-focus-task="finished-task"]').click();
+        const finishedResult = page.locator('[data-tm-focus-task="finished-task"]');
+        assert.equal(await finishedResult.locator('b').innerText(), '✅ Finished planning');
+        await finishedResult.click();
         assert.equal(await page.locator('[data-tm-cal-field="task"]').inputValue(), 'finished-task', 'past completed tasks are selectable');
-        assert.deepEqual(await page.evaluate(() => __focusTest.searchCalendarTasks('Finished').map(task => task.id)), [], 'schedule linking still excludes completed tasks');
         await search.fill('no-such-task');
         await page.locator('[data-tm-focus-task-results] .tm-calendar-edit-relation-empty').waitFor();
         await search.press('Escape');

@@ -9,7 +9,7 @@
         const max = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(20, Math.floor(Number(limit)))) : 8;
         const results = [];
         const seen = new Set();
-        for (const task of Array.isArray(tasks) ? tasks : []) {
+        for (const task of globalThis.__tmTaskBoundary.sortByCreatedNewest(tasks)) {
             const id = __tmAiTaskBlockId(task);
             if (!id || task.virtualTask === true || seen.has(id)) continue;
             const title = API.getTaskTitlePresentation(task.content || task.raw_content || task.title || task.markdown || task.name).text;
@@ -17,7 +17,9 @@
             const docName = String(task?.docName || task?.doc_name || task?.rawDocName || '').trim();
             if (keyword && !`${title} ${docName}`.toLocaleLowerCase().includes(keyword)) continue;
             seen.add(id);
-            results.push({ id, title, docName });
+            const current = globalThis.__tmTaskStore?.getProjected?.(id) || __tmAiReadTask(id) || task;
+            const done = globalThis.__tmTaskBoundary.isTaskCompleted(current);
+            results.push({ id, title, docName, done });
             if (results.length >= max) break;
         }
         return results;

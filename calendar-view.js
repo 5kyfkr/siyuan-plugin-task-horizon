@@ -23253,11 +23253,21 @@
         return source ? normalizeCalendarScheduleTitleText(source, '') : '';
     }
 
-    function searchCalendarTasks(query, { includeCompleted = false, limit = 8 } = {}) {
+    function searchCalendarTasks(query, { includeRecurringInstances = false, limit = 8 } = {}) {
         const keyword = String(query || '').trim().toLocaleLowerCase();
         const tasks = window.__tmCalendarAllTasksCache?.tasks || [];
-        return tasks.filter(task => task?.id && (includeCompleted || !isCalendarRelationTaskDone(task))
-            && `${__tmNormalizeTaskTitleFromRow(task)} ${getCalendarTaskRelationMeta(task)}`.toLocaleLowerCase().includes(keyword)).slice(0, limit);
+        const matches = tasks.filter(task => task?.id
+            && (includeRecurringInstances || (!task.isRecurringInstance && !task.isRecurringInstanceReadOnly))
+            && (!keyword || `${__tmNormalizeTaskTitleFromRow(task)} ${getCalendarTaskRelationMeta(task)}`.toLocaleLowerCase().includes(keyword)));
+        const sorted = globalThis.__tmTaskBoundary?.sortByCreatedNewest?.(matches) || matches;
+        return sorted.slice(0, limit);
+    }
+
+    function getCalendarRelationCandidateTitle(task, title) {
+        const boundary = globalThis.__tmTaskBoundary;
+        const current = globalThis.__tmTaskStore?.getProjected?.(task.id) || boundary?.getTask?.(task.id) || task;
+        const done = boundary?.isTaskCompleted?.(current) ?? (current.done === true);
+        return done ? `✅ ${title}` : title;
     }
 
     function __tmBuildTaskTitleIndexFromCalendarCache() {
@@ -28501,9 +28511,9 @@
             };
             const renderResults = () => {
                 const query = input.value === selectedTaskName ? '' : input.value;
-                const matches = searchCalendarTasks(query, { includeCompleted: true });
+                const matches = searchCalendarTasks(query, { includeRecurringInstances: true });
                 results.innerHTML = `<button type="button" class="tm-calendar-edit-relation-result" data-tm-focus-task="">${esc(__tmT('calendar.noLinkedTask'))}</button>`
-                    + matches.map(task => `<button type="button" class="tm-calendar-edit-relation-result${String(task.id) === taskInput.value ? ' is-selected' : ''}" data-tm-focus-task="${esc(task.id)}"><span class="tm-calendar-edit-relation-copy"><b>${esc(__tmNormalizeTaskTitleFromRow(task))}</b><span>${esc(getCalendarTaskRelationMeta(task))}</span></span></button>`).join('')
+                    + matches.map(task => `<button type="button" class="tm-calendar-edit-relation-result${String(task.id) === taskInput.value ? ' is-selected' : ''}" data-tm-focus-task="${esc(task.id)}"><span class="tm-calendar-edit-relation-copy"><b>${esc(getCalendarRelationCandidateTitle(task, __tmNormalizeTaskTitleFromRow(task)))}</b><span>${esc(getCalendarTaskRelationMeta(task))}</span></span></button>`).join('')
                     + (matches.length ? '' : `<div class="tm-calendar-edit-relation-empty">${esc(__tmT('calendar.noMatchingTaskFound'))}</div>`);
                 results.hidden = false;
                 input.setAttribute('aria-expanded', 'true');
@@ -28890,7 +28900,7 @@
                 const title = taskDisplayTitle(task, '') || __tmT("kernel.untitledTask");
                 const meta = getCalendarTaskRelationMeta(task);
                 const selected = id && id === String(linkedTaskIdDraft || linkedBlockIdDraft || '').trim();
-                return `<button type="button" class="tm-calendar-edit-relation-result${selected ? ' is-selected' : ''}" data-tm-cal-relation-result="${esc(id)}"><span class="tm-calendar-edit-relation-dot"></span><span class="tm-calendar-edit-relation-copy"><b>${esc(title)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</span>${selected ? `<span class="tm-calendar-edit-relation-mark">${__tmT("calendar.linked")}</span>` : ''}</button>`;
+                return `<button type="button" class="tm-calendar-edit-relation-result${selected ? ' is-selected' : ''}" data-tm-cal-relation-result="${esc(id)}"><span class="tm-calendar-edit-relation-dot"></span><span class="tm-calendar-edit-relation-copy"><b>${esc(getCalendarRelationCandidateTitle(task, title))}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</span>${selected ? `<span class="tm-calendar-edit-relation-mark">${__tmT("calendar.linked")}</span>` : ''}</button>`;
             }).join('');
         };
         const renderRelation = () => {
@@ -36692,7 +36702,7 @@
                 const results = matches.length ? matches.slice(0, 8).map((task) => {
                     const id = String(task?.id || '').trim();
                     const meta = getCalendarTaskRelationMeta(task);
-                    return `<button type="button" class="tm-proto-inline-relation-result" data-tm-proto-edit-task="${esc(id)}"><b>${esc(titleForTask(task, '') || __tmT("kernel.untitledTask"))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</button>`;
+                    return `<button type="button" class="tm-proto-inline-relation-result" data-tm-proto-edit-task="${esc(id)}"><b>${esc(getCalendarRelationCandidateTitle(task, titleForTask(task, '') || __tmT("kernel.untitledTask")))}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</button>`;
                 }).join('') : `<div class="tm-proto-inline-relation-empty">${__tmT("calendar.noMatchingTaskFound")}</div>`;
                 return `<div class="tm-proto-inline-relation-search"><div class="tm-proto-inline-relation-searchbox"><span>⌕</span><input type="search" data-tm-proto-edit-field="taskSearch" value="${esc(relationQuery)}" placeholder="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.searchTaskOrDocumentNames")}" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.searchlinkedTask")}"><button type="button" data-tm-proto-edit-relation="cancel" aria-label="${globalThis.__taskHorizonHostBridge.i18n.html("calendar.collapsesearch")}">×</button></div><div class="tm-proto-inline-relation-results">${results}</div></div>`;
             };

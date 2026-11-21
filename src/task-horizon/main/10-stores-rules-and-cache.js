@@ -14769,7 +14769,10 @@
         (Array.isArray(tasks) ? tasks : []).forEach((task) => {
             const loaded = { ...(task.__tmTaskMetaAttrFieldsLoaded || task.taskMetaAttrFieldsLoaded || {}) };
             specs.forEach((spec) => {
-                if (Object.prototype.hasOwnProperty.call(task, spec.alias)) loaded[spec.taskMetaField] = true;
+                if (!Object.prototype.hasOwnProperty.call(task, spec.alias)) return;
+                const value = task[spec.alias];
+                if (value === undefined || value === null || value === 'null') return;
+                loaded[spec.taskMetaField] = true;
             });
             task.__tmTaskMetaAttrFieldsLoaded = loaded;
             task.taskMetaAttrFieldsLoaded = loaded;

@@ -1495,7 +1495,7 @@
         const reminder = snapshot?.reminder;
         if (!text || !reminder || __tmGetReminderRepeatMode(reminder) !== __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK) return text;
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
-        const completionDate = __tmNormalizeDateOnly(task?.completionTime || task?.completion_time || '');
+        const completionDate = __tmNormalizeDateOnly(task.completionTime ?? task.completion_time ?? '');
         const reminderDate = __tmNormalizeDateOnly(snapshot?.displayAt || '');
         const displayAt = snapshot?.displayAt instanceof Date ? snapshot.displayAt : new Date(snapshot?.displayAt || '');
         if (!completionDate || reminderDate !== completionDate || Number.isNaN(displayAt.getTime())) return text;
@@ -4498,12 +4498,18 @@
             const task = getBoundTask();
             return !!(task && __tmHasReminderMark(task));
         };
+        const readReminderTaskWithDisplayedDeadline = () => {
+            const task = getBoundTask() || { id: taskId };
+            // The date picker updates this input before the task write finishes.
+            const completionTime = root.querySelector('input[type="hidden"][data-tm-detail="completionTime"]');
+            return completionTime instanceof HTMLInputElement ? { ...task, completionTime: completionTime.value } : task;
+        };
         const readReminderDisplayValue = () => {
-            const cached = __tmPeekTaskReminderSnapshotByAnyId(getBoundTask() || taskId);
-            return __tmFormatTaskDetailReminderText(getBoundTask(), cached);
+            const task = readReminderTaskWithDisplayedDeadline();
+            return __tmFormatTaskDetailReminderText(task, __tmPeekTaskReminderSnapshotByAnyId(task));
         };
         const readReminderTooltipValue = () => {
-            const cached = __tmPeekTaskReminderSnapshotByAnyId(getBoundTask() || taskId);
+            const cached = __tmPeekTaskReminderSnapshotByAnyId(readReminderTaskWithDisplayedDeadline());
             if (cached && cached.hasReminder === true) return String(cached.tooltip || '').trim() || __tmT("quickbar.reminderAdded");
             return readReminderValue() ? __tmT("quickbar.reminderAdded") : __tmT("ai.warnings");
         };
@@ -5065,7 +5071,6 @@
                     scheduleReminderButtonStateRefresh();
                 } else if (taskMetaField === 'completionTime') {
                     setHiddenInputValue('completionTime', String(nextTask.completionTime || '').trim());
-                    __tmClearReminderSnapshotCache(String(nextTask.id || taskId || '').trim());
                     syncMetaChipFaces();
                     scheduleReminderButtonStateRefresh();
                 } else if (taskMetaField === 'duration') {
@@ -5142,7 +5147,6 @@
                         docNameFallback: nextTask.doc_name || nextTask.docName || __tmT("kernel.untitledDocument")
                     }) || nextTask;
                     setHiddenInputValue('completionTime', String(nextTask.completionTime || '').trim());
-                    __tmClearReminderSnapshotCache(String(nextTask.id || taskId || '').trim());
                     syncMetaChipFaces();
                     scheduleReminderButtonStateRefresh();
                     break;

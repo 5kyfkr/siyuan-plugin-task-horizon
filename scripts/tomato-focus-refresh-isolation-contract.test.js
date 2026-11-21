@@ -92,10 +92,14 @@ const taskBridge = read('src/task-horizon/main/shell/81-ai-bridge-runtime.js');
 const taskSearch = segment(taskBridge, '    function __tmAiSearchTaskAssociations(', '    function __tmIsAiFeatureEnabled(');
 const blockId = segment(taskBridge, '    function __tmAiTaskBlockId(', '    function __tmAiTaskReadValues(');
 const queryMethod = segment(taskBridge, '        async searchTasks(', '        async getDocumentSnapshot(');
+const taskBoundary = read('src/task-horizon/main/33-task-boundary-facades.js').split('    // Public plugin contract.')[0];
+const parseCreated = segment(services, '    function __tmParseCreatedTs(', '    function __tmNormalizeWhiteboardAllTabsLayoutMode(');
 const rows = [
-    { id: '20260101000000-aaaaaaa', content: 'Write release notes', docName: 'Launch project', done: true },
-    { id: '20260101000000-bbbbbbb', content: 'Review issue', docName: 'Inbox' },
-    { id: '20260101000000-ccccccc', content: 'Repeat write', docName: 'Launch project', isRecurringInstanceReadOnly: true },
+    { id: '20260101000000-aaaaaaa', content: 'Write release notes', docName: 'Launch project', done: true, created: '20260201090000', updated: '20260401090000' },
+    { id: '20251201000000-bbbbbbb', content: 'Review release issue', docName: 'Launch project', created: '2026-03-01T09:00:00Z' },
+    { id: '20260101000000-ccccccc', content: 'Repeat write', docName: 'Launch project', isRecurringInstanceReadOnly: true, created: '20260501090000' },
+    { id: '20260401000000-ddddddd', content: 'Older imported task', docName: 'Inbox', created: '20260101090000' },
+    { id: '20260701000000-eeeeeee', content: 'Undated task', docName: 'Inbox' },
 ];
 const queryContext = vm.createContext({
     API: { getTaskTitlePresentation: (text) => ({ text }) },
@@ -105,14 +109,19 @@ const queryContext = vm.createContext({
         return rows;
     } },
 });
-vm.runInContext(taskSearch + blockId + 'this.bridge = {\n' + queryMethod + '};', queryContext);
+vm.runInContext(parseCreated + taskBoundary + "const __tmAiReadTask = id => __tmTaskBoundary.getTask(id);\n"
+    + taskSearch + blockId + 'this.bridge = {\n' + queryMethod + '};', queryContext);
 (async () => {
     const byDoc = await queryContext.bridge.searchTasks('launch PROJECT');
     const byTitle = await queryContext.bridge.searchTasks('release NOTES');
-    assert.equal(byDoc.length, 1);
-    assert.equal(byTitle.length, 1);
-    assert.equal(byDoc[0].id, rows[0].id);
-    assert.equal(byTitle[0].id, rows[0].id, 'completed real tasks are selectable and recurring history rows are excluded');
-    assert.equal((await queryContext.bridge.searchTasks('', { limit: 1 })).length, 1);
+    assert.deepEqual(Array.from(byDoc, task => task.id), [rows[1].id, rows[0].id], 'document matches are ordered by creation time');
+    assert.deepEqual(Array.from(byTitle, task => [task.id, task.title, task.done]), [[rows[0].id, 'Write release notes', true]],
+        'completed tasks carry a separate status without altering the title');
+    assert.equal(byDoc[0].done, false);
+    const defaults = await queryContext.bridge.searchTasks('');
+    assert.deepEqual(Array.from(defaults, task => task.id), [rows[1].id, rows[0].id, rows[3].id, rows[4].id],
+        'creation time takes precedence over modification time, block ID, and original order');
+    assert.equal((await queryContext.bridge.searchTasks('', { limit: 1 }))[0].id, rows[1].id, 'limit applies after sorting');
+    assert.equal(rows[0].id, '20260101000000-aaaaaaa', 'the shared task cache is not reordered');
     console.log('tomato focus and association search contract tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

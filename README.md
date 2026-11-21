@@ -6,6 +6,16 @@ Task Horizon is a task workspace for [SiYuan](https://github.com/siyuan-note/siy
 
 The same plugin includes English and Simplified Chinese. Existing installations keep their settings, task data, and activation state.
 
+## What's new in 3.5.3
+
+- **Reminders:** reminders that follow a task's due date now update as soon as the date changes.
+- **Task snapshots:** fix pinned status reverting during a snapshot refresh when the pin attribute is missing.
+- **Scheduled AI tasks:** the startup check waits at least one minute, then waits for SiYuan sync to finish before checking schedules.
+- **Task linking:** schedule and timer task pickers show the newest tasks first and mark completed tasks.
+
+<details>
+<summary>Previous releases</summary>
+
 ## What's new in 3.5.2
 
 - **Dock Tomato integration**
@@ -13,9 +23,6 @@ The same plugin includes English and Simplified Chinese. Existing installations 
   - Changing the linked task during a session updates task focus highlighting and the live timer record on the calendar immediately.
 - **Search** closes the full search workspace when you click outside. The compact search bar stays open.
 - **Calendar** uses consistent spacing between the timer rail and both schedule cards and new schedule previews.
-
-<details>
-<summary>Previous releases</summary>
 
 ## What's new in 3.5.1
 

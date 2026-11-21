@@ -1,5 +1,6 @@
     const __TM_SCHEDULED_EVENT_MAX_RESULT = 60000;
     const __TM_SCHEDULED_EVENT_CATCHUP_MS = 24 * 60 * 60 * 1000;
+    const __TM_SCHEDULED_STARTUP_DELAY_MS = 60 * 1000;
     const __TM_SCHEDULED_KERNEL_RPC_TIMEOUT_MS = 20 * 1000;
     const __TM_SCHEDULED_KERNEL_TIMEOUT_BACKOFF_MS = 5 * 60 * 1000;
     const __TM_SCHEDULED_LEASE_HEARTBEAT_MS = 4 * 60 * 1000;
@@ -1038,9 +1039,20 @@
         generation: 0,
         focusHandler: null,
         visibilityHandler: null,
+        syncStatusHandler: null,
+        syncing: false,
+        startupCheckNotBefore: 0,
+        initialRefreshTimer: null,
+        initialRefreshPending: false,
+        pendingSyncCheck: false,
         kernelBackoffUntil: 0,
         kernelRpcInFlight: null,
     };
+
+    function __tmScheduledIsSiyuanSyncing() {
+        return __tmScheduledRuntime.syncing
+            || globalThis.__taskHorizonSiyuanSyncStatus?.status === 'syncing';
+    }
 
     function __tmScheduledEnqueue(task) {
         const generation = __tmScheduledRuntime.generation;
@@ -1075,6 +1087,11 @@
             || !__tmScheduledIsDesktopRuntime()
             || Date.now() < __tmScheduledRuntime.kernelBackoffUntil
             || !__tmScheduledCoreSupported()) return;
+        if (Date.now() < __tmScheduledRuntime.startupCheckNotBefore) return;
+        if (__tmScheduledIsSiyuanSyncing()) {
+            __tmScheduledRuntime.pendingSyncCheck = true;
+            return;
+        }
         __tmScheduledRuntime.running = true;
         const generation = __tmScheduledRuntime.generation;
         try {
@@ -1218,12 +1235,44 @@
             const kernelMigrationNeeded = Number(SettingsStore.data.scheduledEventsSchemaVersion) < __TM_SCHEDULED_EVENTS_KERNEL_SCHEMA_VERSION;
             if (!__tmScheduledCoreSupported()) return;
             if (!__tmScheduledIsDesktopRuntime()) return;
+            __tmScheduledRuntime.startupCheckNotBefore = Date.now() + __TM_SCHEDULED_STARTUP_DELAY_MS;
+            __tmScheduledRuntime.syncing = globalThis.__taskHorizonSiyuanSyncStatus?.status === 'syncing';
             __tmScheduledRuntime.focusHandler = () => { this.refresh().catch(() => {}); };
             __tmScheduledRuntime.visibilityHandler = () => {
                 if (document.visibilityState === 'visible') this.refresh().catch(() => {});
             };
+            const startInitialRefresh = () => {
+                if (__tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation) return;
+                const remaining = __tmScheduledRuntime.startupCheckNotBefore - Date.now();
+                if (remaining > 0) {
+                    if (__tmScheduledRuntime.initialRefreshTimer) clearTimeout(__tmScheduledRuntime.initialRefreshTimer);
+                    __tmScheduledRuntime.initialRefreshTimer = setTimeout(() => {
+                        __tmScheduledRuntime.initialRefreshTimer = null;
+                        startInitialRefresh();
+                    }, remaining);
+                    return;
+                }
+                if (__tmScheduledIsSiyuanSyncing()) return;
+                __tmScheduledRuntime.initialRefreshTimer = null;
+                __tmScheduledRuntime.initialRefreshPending = false;
+                refresh().catch(() => {});
+            };
+            __tmScheduledRuntime.syncStatusHandler = (event) => {
+                const status = String(event?.detail?.status || globalThis.__taskHorizonSiyuanSyncStatus?.status || '').trim();
+                __tmScheduledRuntime.syncing = status === 'syncing';
+                if (__tmScheduledRuntime.syncing) return;
+                if (__tmScheduledRuntime.initialRefreshPending) {
+                    startInitialRefresh();
+                    return;
+                }
+                if (__tmScheduledRuntime.pendingSyncCheck) {
+                    __tmScheduledRuntime.pendingSyncCheck = false;
+                    this.refresh().catch(() => {});
+                }
+            };
             window.addEventListener('focus', __tmScheduledRuntime.focusHandler);
             document.addEventListener('visibilitychange', __tmScheduledRuntime.visibilityHandler);
+            window.addEventListener('tm:task-horizon-siyuan-sync-status', __tmScheduledRuntime.syncStatusHandler);
             const refresh = async () => {
                 const kernelSnapshot = await __tmScheduledReadKernelSnapshot();
                 if (__tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation) return;
@@ -1259,18 +1308,30 @@
                 if (__tmScheduledRuntime.disposed || generation !== __tmScheduledRuntime.generation) return;
                 await this.refresh();
             };
-            refresh().catch(() => {});
+            __tmScheduledRuntime.initialRefreshPending = true;
+            __tmScheduledRuntime.initialRefreshTimer = setTimeout(() => {
+                __tmScheduledRuntime.initialRefreshTimer = null;
+                startInitialRefresh();
+            }, __TM_SCHEDULED_STARTUP_DELAY_MS);
         },
         dispose() {
             __tmScheduledRuntime.disposed = true;
             __tmScheduledRuntime.generation += 1;
             __tmScheduledRuntime.running = false;
             if (__tmScheduledRuntime.timer) clearTimeout(__tmScheduledRuntime.timer);
+            if (__tmScheduledRuntime.initialRefreshTimer) clearTimeout(__tmScheduledRuntime.initialRefreshTimer);
             __tmScheduledRuntime.timer = null;
+            __tmScheduledRuntime.initialRefreshTimer = null;
             if (__tmScheduledRuntime.focusHandler) window.removeEventListener('focus', __tmScheduledRuntime.focusHandler);
             if (__tmScheduledRuntime.visibilityHandler) document.removeEventListener('visibilitychange', __tmScheduledRuntime.visibilityHandler);
+            if (__tmScheduledRuntime.syncStatusHandler) window.removeEventListener('tm:task-horizon-siyuan-sync-status', __tmScheduledRuntime.syncStatusHandler);
             __tmScheduledRuntime.focusHandler = null;
             __tmScheduledRuntime.visibilityHandler = null;
+            __tmScheduledRuntime.syncStatusHandler = null;
+            __tmScheduledRuntime.syncing = false;
+            __tmScheduledRuntime.startupCheckNotBefore = 0;
+            __tmScheduledRuntime.initialRefreshPending = false;
+            __tmScheduledRuntime.pendingSyncCheck = false;
             __tmScheduledRuntime.initialized = false;
         },
     };

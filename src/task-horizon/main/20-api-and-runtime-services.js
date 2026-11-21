@@ -12635,7 +12635,7 @@
         const schedule = {
             ...reminder,
             completedOccurrences: __tmGetReminderCompletedOccurrences(reminder),
-            repeatMode: __TM_REMINDER_REPEAT_MODE_MANUAL,
+            repeatMode: 'manual',
             trigger: 'due',
             interval: rule.type,
             every: rule.every,
@@ -13276,8 +13276,16 @@
             ? __tmNormalizeReminderRecord(reminder, tid)
             : null;
         const hasReminder = !!normalizedReminder;
-        const nextAt = hasReminder ? __tmGetNextReminderDateTime(normalizedReminder, new Date()) : null;
-        const lastAt = hasReminder && !nextAt ? __tmGetLastDueReminderDateTime(normalizedReminder, new Date()) : null;
+        let schedule = normalizedReminder;
+        if (__tmReminderUsesTaskDeadline(normalizedReminder)) {
+            // Older records can lack the task date. An explicit empty date means it was cleared.
+            const due = reminder.taskCompletionTime === undefined ? normalizedReminder.startDate : normalizedReminder.taskCompletionTime;
+            normalizedReminder.taskCompletionTime = due;
+            schedule = due ? { ...normalizedReminder, startDate: due, endDate: '' } : null;
+        }
+        const now = new Date();
+        const nextAt = schedule ? __tmGetNextReminderDateTime(schedule, now) : null;
+        const lastAt = schedule && !nextAt ? __tmGetLastDueReminderDateTime(schedule, now) : null;
         const displayAt = nextAt || lastAt || null;
         const displayText = displayAt ? __tmFormatReminderDateTimeCompact(displayAt) : '';
         const isOverdue = !nextAt && !!lastAt;
@@ -13294,6 +13302,22 @@
                 : __tmT("ai.warnings"),
             reminder: hasReminder ? normalizedReminder : null,
         };
+    }
+
+    function __tmReminderUsesTaskDeadline(reminder) {
+        if (__tmGetReminderRepeatMode(reminder) !== __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK) return false;
+        const rule = __tmNormalizeReminderTaskRepeatRule(reminder?.taskRepeatRule);
+        if (rule?.enabled && rule.trigger === 'checkin') return false;
+        return reminder?.interval === 'once' || rule?.enabled === true;
+    }
+
+    function __tmProjectTaskReminderSnapshot(snapshot, task) {
+        const reminder = snapshot?.reminder;
+        const completionTime = task?.completionTime ?? task?.completion_time;
+        if (completionTime === undefined || !__tmReminderUsesTaskDeadline(reminder)) return snapshot;
+        const due = __tmNormalizeReminderDateKey(completionTime);
+        if (due === reminder.taskCompletionTime) return snapshot;
+        return __tmBuildReminderSnapshot(snapshot.taskId, { ...reminder, taskCompletionTime: due });
     }
 
     function __tmBuildReminderLookupIds(taskOrId) {
@@ -13324,7 +13348,7 @@
             const raw = String(attrs?.['custom-tomato-reminder'] || '').trim();
             if (!raw) return null;
             const parsed = JSON.parse(raw);
-            return __tmNormalizeReminderRecord(parsed, id);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...parsed, blockId: parsed.blockId || id } : null;
         } catch (e) {
             return null;
         }
@@ -13368,7 +13392,7 @@
         for (const id of ids) {
             const cached = __tmReminderSnapshotCache.get(id);
             if (!cached || typeof cached !== 'object') continue;
-            return cached.snapshot || null;
+            return __tmProjectTaskReminderSnapshot(cached.snapshot || null, taskOrId);
         }
         return null;
     }
@@ -13423,7 +13447,7 @@
             for (const id of candidateIds) {
                 const cached = __tmReminderSnapshotCache.get(id);
                 if (cached && (now - Number(cached.fetchedAt || 0) < __TM_REMINDER_SNAPSHOT_TTL_MS)) {
-                    return cached.snapshot || __tmBuildReminderSnapshot(primaryTaskId, null);
+                    return __tmProjectTaskReminderSnapshot(cached.snapshot || __tmBuildReminderSnapshot(primaryTaskId, null), taskIdOrBlockId);
                 }
             }
         }
@@ -13445,7 +13469,7 @@
             try { __tmReminderSnapshotCache.set(id, entry); } catch (e) {}
         });
         try { __tmReminderSnapshotCache.set(primaryTaskId, entry); } catch (e) {}
-        return snapshot;
+        return __tmProjectTaskReminderSnapshot(snapshot, taskIdOrBlockId);
     }
 
     function __tmHasReminderMark(task) {

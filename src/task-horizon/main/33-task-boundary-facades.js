@@ -69,6 +69,11 @@
             return task.done === true;
         };
 
+        const sortByCreatedNewest = (tasks) => tasks
+            .map(task => ({ task, createdAt: __tmParseCreatedTs(task?.created) }))
+            .sort((a, b) => b.createdAt - a.createdAt)
+            .map(entry => entry.task);
+
         globalThis.__tmTaskSnapshotService = snapshot;
         globalThis.__tmTaskBoundary = {
             ...ns,
@@ -82,6 +87,7 @@
             getSnapshotService: () => globalThis.__tmTaskSnapshotService || snapshot,
             getTask,
             isTaskCompleted,
+            sortByCreatedNewest,
         };
     })();
 

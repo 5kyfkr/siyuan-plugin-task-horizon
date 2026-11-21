@@ -163,6 +163,25 @@ test('quadrant importance and deadline changes commit and roll back together acr
     }
 });
 
+test('a missing inline pin attribute does not mask saved pin metadata, but an explicit blank does', () => {
+    const h = createHarness({ pinned: false, custom_pinned: '' });
+    h.context.MetaStore.get = () => ({ pinned: true });
+    h.context.__tmGetTaskInlineAttrSpecs = () => [{ alias: 'pinned', taskMetaField: 'pinned', enabled: true }];
+    vm.runInContext(extract(storeSource, '__tmMarkTaskInlineAttrsLoaded'), h.context);
+
+    for (const value of [null, 'null']) {
+        const missing = { id: 'task-a', pinned: value };
+        h.context.__tmMarkTaskInlineAttrsLoaded([missing]);
+        assert.notEqual(missing.__tmTaskMetaAttrFieldsLoaded.pinned, true);
+        assert.equal(h.normalize(missing).pinned, true, 'SQL NULL means the pin attribute was not present');
+    }
+
+    const cleared = { id: 'task-a', pinned: '' };
+    h.context.__tmMarkTaskInlineAttrsLoaded([cleared]);
+    assert.equal(cleared.__tmTaskMetaAttrFieldsLoaded.pinned, true);
+    assert.equal(h.normalize(cleared).pinned, false, 'an explicit blank remains an authoritative unpin');
+});
+
 test('custom-field removal survives an unrelated receipt, stale mirrors and sparse custom-field receipts', () => {
     const h = createHarness({ customFieldValues: { stage: 'old', labels: ['a'], notes: 'old' }, __customFieldRawValues: { stage: 'old', labels: 'a', notes: 'old' } });
     const defs = new Map([['stage', { type: 'select' }], ['labels', { type: 'multi' }], ['notes', { type: 'text' }]]);

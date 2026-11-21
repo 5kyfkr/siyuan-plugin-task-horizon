@@ -94,7 +94,7 @@ if (shouldMarkDirty) {
                     attrKey === 'custom-reminder'
                     || attrKey === 'custom-tomato-reminder'
                     || (typeof __tmResolveTaskMetaFieldByAttrKey === 'function'
-                        && ['startDate', 'completionTime'].includes(__tmResolveTaskMetaFieldByAttrKey(attrKey)))
+                        && __tmResolveTaskMetaFieldByAttrKey(attrKey) === 'startDate')
                     || attrKey === __TM_TASK_REPEAT_RULE_ATTR
                     || attrKey === __TM_TASK_REPEAT_STATE_ATTR
                     || !attrKey

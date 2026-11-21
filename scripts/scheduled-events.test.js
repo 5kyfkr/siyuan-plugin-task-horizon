@@ -8,7 +8,13 @@ const timerHarnesses = [];
 
 function createTestTimers() {
     const pending = new Set();
+    let now = Date.now();
+    class TestDate extends Date {
+        constructor(...args) { super(...(args.length ? args : [now])); }
+        static now() { return now; }
+    }
     const timers = {
+        Date: TestDate,
         setTimeout(handler, delay, ...args) {
             const timer = { handler: () => handler(...args), delay: Number(delay) || 0 };
             pending.add(timer);
@@ -26,6 +32,7 @@ function createTestTimers() {
         },
         delays() { return Array.from(pending, timer => timer.delay); },
         async advance(delay) {
+            now += delay;
             for (const timer of Array.from(pending).filter(timer => timer.delay === delay)) {
                 timers.clearTimeout(timer);
                 await timer.handler();
@@ -41,9 +48,10 @@ function loadScheduledCore() {
     const timers = createTestTimers();
     const source = fs.readFileSync(path.join(root, 'src/task-horizon/main/settings/65-scheduled-events-runtime.js'), 'utf8');
     const hints = [];
+    const eventHandlers = new Map();
     const context = {
         console,
-        Date,
+        Date: timers.Date,
         Math,
         Promise,
         Set,
@@ -54,8 +62,9 @@ function loadScheduledCore() {
         hint: (...args) => hints.push(args),
         window: {
             siyuan: { config: { system: { kernelVersion: '3.7.3' } } },
-            addEventListener() {},
-            removeEventListener() {},
+            addEventListener(type, handler) { eventHandlers.set(type, handler); },
+            removeEventListener(type) { eventHandlers.delete(type); },
+            dispatchEvent(event) { eventHandlers.get(event.type)?.(event); },
         },
         document: {
             visibilityState: 'visible',
@@ -66,7 +75,7 @@ function loadScheduledCore() {
     context.globalThis = context;
     vm.createContext(context);
     vm.runInContext(source, context, { filename: '65-scheduled-events-runtime.js' });
-    return { ...context.__tmScheduledEventsTest, context, hints };
+    return { ...context.__tmScheduledEventsTest, context, hints, timers, eventHandlers };
 }
 
 function loadAutomationSafety() {
@@ -250,6 +259,8 @@ async function run() {
         };
         const api = recovery.context['siyuan-plugin-task-horizon'].scheduledEvents;
         api.init();
+        assert.deepEqual(recovery.timers.delays(), [60000], 'startup reconciliation must wait one minute before reading scheduled events');
+        await recovery.timers.advance(60000);
         await new Promise((resolve) => setTimeout(resolve, 20));
         assert.equal(replaceCalls, 1, 'a missing Kernel file must be restored from the ordinary settings mirror even after schema migration');
         assert.equal(kernelEvents[0].id, localEvent.id);
@@ -276,6 +287,7 @@ async function run() {
         };
         const api = unavailable.context['siyuan-plugin-task-horizon'].scheduledEvents;
         api.init();
+        await unavailable.timers.advance(60000);
         await new Promise((resolve) => setTimeout(resolve, 20));
         assert.equal(replaceCalls, 0, 'a transient Kernel outage must not overwrite a potentially newer schedule file');
         assert.equal(api.list()[0].id, localEvent.id, 'the local recovery mirror must remain visible during a transient outage');
@@ -301,9 +313,42 @@ async function run() {
         };
         const api = validEmpty.context['siyuan-plugin-task-horizon'].scheduledEvents;
         api.init();
+        await validEmpty.timers.advance(60000);
         await new Promise((resolve) => setTimeout(resolve, 20));
         assert.equal(replaceCalls, 0, 'an existing empty Kernel list must not resurrect stale local events');
         assert.equal(api.list().length, 0);
+        api.dispose();
+    }
+
+    {
+        const syncing = loadScheduledCore();
+        const scheduled = event({ id: 'evt-startup-sync-wait', enabled: false });
+        let loadCalls = 0;
+        syncing.context.globalThis.__taskHorizonSiyuanSyncStatus = { status: 'syncing' };
+        syncing.context.SettingsStore = {
+            data: { scheduledEvents: [scheduled], scheduledEventsSchemaVersion: 2 },
+            syncToLocal() {},
+            async save() {},
+        };
+        syncing.context.__tmCallTaskHorizonKernelRpc = async (name) => {
+            if (name === 'taskHorizonLoadAgentSchedules') {
+                loadCalls += 1;
+                return { available: true, data: [scheduled] };
+            }
+            if (name === 'taskHorizonClaimAgentScheduleOccurrence') return { available: false, data: null };
+            throw new Error(`unexpected RPC: ${name}`);
+        };
+        const api = syncing.context['siyuan-plugin-task-horizon'].scheduledEvents;
+        api.init();
+        await syncing.timers.advance(60000);
+        assert.equal(loadCalls, 0, 'startup reconciliation must wait while SiYuan is syncing');
+        syncing.context.globalThis.__taskHorizonSiyuanSyncStatus = { status: 'synced' };
+        syncing.context.window.dispatchEvent({
+            type: 'tm:task-horizon-siyuan-sync-status',
+            detail: { status: 'synced' },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        assert.ok(loadCalls >= 1, 'sync completion must resume the pending startup check');
         api.dispose();
     }
 

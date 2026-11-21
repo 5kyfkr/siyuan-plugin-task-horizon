@@ -133,17 +133,24 @@ test('unloaded fields retain the legacy metadata fallback', () => {
     assert.equal(task.repeatRule.enabled, true);
 });
 
-test('the real SQL attribute-read entry marks absent attributes before metadata fallback', async () => {
+test('the real SQL attribute-read entry distinguishes missing attributes from explicit blanks', async () => {
     const { context } = createContext({ priority: 'high', pinned: true, repeatRule: { enabled: true } });
     context.__tmPopulateTaskAttrHostIds = async () => {};
     context.__tmQueryTaskMetaAttrRowsByBlockIds = async () => [];
     vm.runInContext(extract(stores, '__tmApplyTaskAttrHostOverrides'), context);
-    const task = { id: 'task-a', custom_priority: null, pinned: null, repeat_rule: null };
-    await context.__tmApplyTaskAttrHostOverrides([task]);
-    context.normalizeTaskFields(task, 'Test');
-    assert.equal(task.priority, '');
-    assert.equal(task.pinned, false);
-    assert.equal(task.repeatRule.enabled, false);
+    const missing = { id: 'task-a', custom_priority: null, pinned: null, repeat_rule: null };
+    await context.__tmApplyTaskAttrHostOverrides([missing]);
+    context.normalizeTaskFields(missing, 'Test');
+    assert.equal(missing.priority, 'high');
+    assert.equal(missing.pinned, true);
+    assert.equal(missing.repeatRule.enabled, true);
+
+    const cleared = { id: 'task-a', custom_priority: '', pinned: '', repeat_rule: '' };
+    await context.__tmApplyTaskAttrHostOverrides([cleared]);
+    context.normalizeTaskFields(cleared, 'Test');
+    assert.equal(cleared.priority, '');
+    assert.equal(cleared.pinned, false);
+    assert.equal(cleared.repeatRule.enabled, false);
 });
 
 test('disabled inline repeat reads do not turn SQL placeholders into authoritative clears', () => {
